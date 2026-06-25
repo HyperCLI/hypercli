@@ -25,6 +25,7 @@ import {
 
 import type { Agent, AgentState } from "@/app/dashboard/agents/types";
 import type { AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
+import { PulsingDotIndicator } from "@/components/dashboard/PulsingDotIndicator";
 import { resolveSessionSourceChannel, type SessionSourceChannel } from "@/components/dashboard/session-source-channel";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@hypercli/shared-ui";
 import { formatTokens } from "@/lib/format";
@@ -66,6 +67,7 @@ interface AgentWorkspaceSidebarProps {
   sessions?: OpenClawSessionRecord[] | null;
   sessionsFetched?: boolean;
   creatingSessionKeys?: string[];
+  thinkingSessionKeys?: string[];
   selectedSessionKey?: string | null;
   onSelectSession?: (sessionKey: string) => void;
   onRenameSession?: (sessionKey: string, title: string) => Promise<void> | void;
@@ -144,6 +146,12 @@ function WorkspaceButton({
       <Icon className={iconClassName} />
       <span className="truncate">{item.label}</span>
     </button>
+  );
+}
+
+function SessionThinkingIndicator() {
+  return (
+    <PulsingDotIndicator className="ml-1.5 shrink-0 align-middle" aria-label="Session is thinking" />
   );
 }
 
@@ -240,6 +248,7 @@ function RecentSessionRow({
   disabledReason,
   deleteDisabled = false,
   deleteDisabledReason,
+  thinking = false,
 }: {
   title: string;
   sourceChannel?: SessionSourceChannel | null;
@@ -252,6 +261,7 @@ function RecentSessionRow({
   disabledReason?: string;
   deleteDisabled?: boolean;
   deleteDisabledReason?: string;
+  thinking?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -274,7 +284,7 @@ function RecentSessionRow({
         disabled={disabled}
         aria-disabled={disabled}
         aria-current={active ? "page" : undefined}
-        aria-busy={creating || undefined}
+        aria-busy={creating || thinking || undefined}
         className={`min-w-0 flex-1 rounded-full px-3 py-1.5 text-left text-[13px] leading-4 transition-colors ${
           disabled
             ? "cursor-not-allowed text-text-muted/45"
@@ -282,7 +292,7 @@ function RecentSessionRow({
               ? "bg-surface-low text-foreground"
               : "text-text-secondary hover:bg-surface-low/60 hover:text-foreground"
         }`}
-        title={disabledReason ?? (creating ? `${title} - Creating...` : title)}
+        title={disabledReason ?? (creating ? `${title} - Creating...` : thinking ? `${title} - Thinking...` : title)}
       >
         <span className="flex min-w-0 items-center gap-2">
           {sourceChannel && SourceChannelIcon ? (
@@ -300,6 +310,8 @@ function RecentSessionRow({
               <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
               <span>Creating...</span>
             </span>
+          ) : thinking ? (
+            <SessionThinkingIndicator />
           ) : null}
         </span>
       </button>
@@ -560,6 +572,7 @@ export function AgentWorkspaceSidebar({
   sessions,
   sessionsFetched = sessions != null,
   creatingSessionKeys = [],
+  thinkingSessionKeys = [],
   selectedSessionKey,
   onSelectSession,
   onRenameSession,
@@ -593,7 +606,7 @@ export function AgentWorkspaceSidebar({
   const sessionsDisabledReason = disabled ? disabledReason : sessionsFetched ? undefined : "Sessions are loading.";
   const sortedSessions = useMemo(() => {
     if (!hasSelectedAgent) return [];
-    const sessionRecords = [...(sessions ?? [])];
+    const sessionRecords = (sessions ?? []).filter((session) => session.ephemeral !== true);
     const activeKey = selectedSessionKey?.trim() || "";
     if (!sessionRecords.some(isCanonicalMainSession)) {
       sessionRecords.unshift(selectedSessionRecord("main", 0));
@@ -793,6 +806,7 @@ export function AgentWorkspaceSidebar({
                 {visibleSessions.map((session) => {
                   const title = sessionTitle(session);
                   const sourceChannel = resolveSessionSourceChannel(session.sourceChannelId);
+                  const thinking = thinkingSessionKeys.some((sessionKey) => isSessionActive(session, sessionKey, sortedSessions));
                   return (
                     <RecentSessionRow
                       key={session.key}
@@ -804,6 +818,7 @@ export function AgentWorkspaceSidebar({
                       deleteDisabled={session.readOnly === true}
                       deleteDisabledReason={session.readOnlyReason ?? "Connected conversations cannot be deleted here."}
                       creating={creatingSessionKeys.some((sessionKey) => sameOpenClawSelectableSessionKey(sessionKey, session.key))}
+                      thinking={thinking}
                       onSelect={onSelectSession ? () => onSelectSession(session.key) : undefined}
                       onRename={() => setRenameTarget(session)}
                       onDelete={() => setDeleteTarget(session)}

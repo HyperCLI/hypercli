@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
+import { PulsingDotIndicator } from "@/components/dashboard/PulsingDotIndicator";
 import type { StreamingVariant } from "./types";
 
 interface StreamingIndicatorProps {
@@ -22,11 +23,7 @@ export function StreamingIndicator({ variant, isStreaming, isUser }: StreamingIn
         />
       )}
       {variant === "v2" && (
-        <motion.span
-          className="inline-block w-2 h-2 rounded-full bg-[#38D39F] ml-1.5 align-middle"
-          animate={{ scale: [0.75, 1.35, 0.75], opacity: [0.5, 1, 0.5] }}
-          transition={{ repeat: Infinity, duration: 1.0, ease: "easeInOut" }}
-        />
+        <PulsingDotIndicator className="ml-1.5 align-middle" />
       )}
       {variant === "v3" && (
         <motion.div

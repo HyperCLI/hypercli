@@ -520,6 +520,65 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.getByText("Creating...")).toBeInTheDocument();
   });
 
+  it("shows a thinking state for sessions with in-flight replies", () => {
+    renderAgentWorkspaceSidebar({
+      sessions: [
+        {
+          key: "session-alpha",
+          clientMode: "openclaw",
+          clientDisplayName: "Alpha",
+          createdAt: 1,
+          lastMessageAt: 20,
+          title: "Alpha",
+          messageCount: 1,
+          raw: {},
+        },
+        {
+          key: "session-beta",
+          clientMode: "openclaw",
+          clientDisplayName: "Beta",
+          createdAt: 1,
+          lastMessageAt: 10,
+          title: "Beta",
+          messageCount: 1,
+          raw: {},
+        },
+      ],
+      thinkingSessionKeys: ["agent:default:session-beta"],
+      selectedSessionKey: "session-alpha",
+    });
+
+    expect(screen.getByTitle("Alpha")).not.toHaveAttribute("aria-busy");
+    const thinkingSession = screen.getByTitle("Beta - Thinking...");
+    expect(thinkingSession).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByLabelText("Session is thinking")).toBeInTheDocument();
+    expect(screen.queryByText("Thinking...")).not.toBeInTheDocument();
+  });
+
+  it("does not render ephemeral generated sessions", () => {
+    const generatedSessionKey = "agent:default:session-019789ab-cdef-7abc-8def-0123456789ab";
+    renderAgentWorkspaceSidebar({
+      sessions: [
+        {
+          key: generatedSessionKey,
+          clientMode: "openclaw",
+          clientDisplayName: "New Session",
+          createdAt: 1,
+          lastMessageAt: 20,
+          title: "",
+          messageCount: 0,
+          ephemeral: true,
+          raw: {},
+        },
+      ],
+      selectedSessionKey: "main",
+    });
+
+    expect(screen.getByRole("button", { name: "Main Session" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Working session" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Session options for Working session" })).not.toBeInTheDocument();
+  });
+
   it("renames a recent session from the session menu modal", async () => {
     const onRenameSession = vi.fn(async () => undefined);
     renderAgentWorkspaceSidebar({

@@ -3040,6 +3040,7 @@ function AgentsPageContent() {
                 sessions={chat.sessions}
                 sessionsFetched={chat.sessionsFetched}
                 creatingSessionKeys={chat.creatingSessionKeys}
+                thinkingSessionKeys={chat.thinkingSessionKeys}
                 selectedSessionKey={selectedSessionKey}
                 onSelectSession={selectSession}
                 onRenameSession={renameSession}
@@ -3110,6 +3111,7 @@ function AgentsPageContent() {
           sessions={chat.sessions}
           sessionsFetched={chat.sessionsFetched}
           creatingSessionKeys={chat.creatingSessionKeys}
+          thinkingSessionKeys={chat.thinkingSessionKeys}
           selectedSessionKey={selectedSessionKey}
           onSelectSession={selectSession}
           onRenameSession={renameSession}

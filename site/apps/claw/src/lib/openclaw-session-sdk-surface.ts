@@ -16,6 +16,7 @@ export interface OpenClawSessionRecord {
   sourceChannelId?: string;
   readOnly?: boolean;
   readOnlyReason?: string;
+  ephemeral?: boolean;
   raw: Record<string, unknown>;
 }
 

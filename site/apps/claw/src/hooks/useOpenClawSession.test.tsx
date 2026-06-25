@@ -881,18 +881,21 @@ describe("useOpenClawSession", () => {
 
     await waitFor(() => expect(result.current.sending).toBe(true));
     expect(result.current.activeSessionSending).toBe(true);
+    expect(result.current.thinkingSessionKeys).toEqual(["session-alpha"]);
 
     rerender({ sessionKey: "session-beta" });
 
     await waitFor(() => expect(result.current.activeSessionKey).toBe("session-beta"));
     expect(result.current.sending).toBe(true);
     expect(result.current.activeSessionSending).toBe(false);
+    expect(result.current.thinkingSessionKeys).toEqual(["session-alpha"]);
 
     rerender({ sessionKey: "session-alpha" });
 
     await waitFor(() => expect(result.current.activeSessionKey).toBe("session-alpha"));
     expect(result.current.sending).toBe(true);
     expect(result.current.activeSessionSending).toBe(true);
+    expect(result.current.thinkingSessionKeys).toEqual(["session-alpha"]);
 
     await act(async () => {
       release.resolve();
@@ -901,6 +904,83 @@ describe("useOpenClawSession", () => {
 
     expect(result.current.sending).toBe(false);
     expect(result.current.activeSessionSending).toBe(false);
+    expect(result.current.thinkingSessionKeys).toEqual([]);
+    unmount();
+  });
+
+  it("creates a new session while another session is sending", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([
+      { key: "session-alpha", title: "Alpha" },
+      { key: "session-beta", title: "Beta" },
+    ] as any);
+    gateway.chatHistory.mockResolvedValue([]);
+    const release = deferred<void>();
+    const reset = deferred<void>();
+    gateway.sessionsReset.mockReturnValue(reset.promise);
+    gateway.chatSend.mockImplementation((async function* () {
+      await release.promise;
+      yield { type: "done" as const, data: {} };
+    }) as any);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, rerender, unmount } = renderHookWithClient(
+      ({ sessionKey }: { sessionKey: string }) => useOpenClawSession(agent as any, true, sessionKey),
+      { initialProps: { sessionKey: "session-alpha" } },
+    );
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+
+    act(() => {
+      result.current.setInput("hello alpha");
+    });
+
+    let sendPromise: Promise<void> | undefined;
+    act(() => {
+      sendPromise = result.current.sendMessage();
+    });
+
+    await waitFor(() => expect(result.current.activeSessionSending).toBe(true));
+
+    let newSessionKey = "";
+    await act(async () => {
+      newSessionKey = await result.current.createSession();
+    });
+
+    expect(newSessionKey).toMatch(/^session-/);
+    expect(gateway.sessionsReset).toHaveBeenCalledWith(newSessionKey, "new");
+    expect(result.current.activeSessionKey).toBe("session-alpha");
+    expect(result.current.activeSessionSending).toBe(true);
+    expect(result.current.thinkingSessionKeys).toEqual(["session-alpha"]);
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "hello alpha" }),
+    ]);
+
+    rerender({ sessionKey: newSessionKey });
+
+    await waitFor(() => expect(result.current.activeSessionKey).toBe(newSessionKey));
+    await waitFor(() => expect(result.current.messages).toEqual([]));
+    expect(result.current.activeSessionSending).toBe(false);
+    expect(result.current.thinkingSessionKeys).toEqual(["session-alpha"]);
+
+    await act(async () => {
+      reset.resolve(undefined);
+      await reset.promise;
+    });
+    await act(async () => {
+      release.resolve();
+      await sendPromise;
+    });
+
+    expect(result.current.sending).toBe(false);
+    expect(result.current.thinkingSessionKeys).toEqual([]);
     unmount();
   });
 
@@ -1374,6 +1454,38 @@ describe("useOpenClawSession", () => {
     });
 
     expect(gateway.chatSend).toHaveBeenLastCalledWith("hello main again", mainGatewaySessionKey, undefined);
+    unmount();
+  });
+
+  it("hides unclaimed generated sessions and skips persisted session cache", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    const generatedSessionKey = "agent:default:session-019789ab-cdef-7abc-8def-0123456789ab";
+    gateway.sessionsList.mockResolvedValue([
+      { key: "session-alpha", title: "Alpha", updatedAt: 20 },
+      { key: generatedSessionKey, updatedAt: 30 },
+    ]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "session-alpha"));
+
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+    expect(result.current.sessions).toEqual([
+      expect.objectContaining({ key: "session-alpha" }),
+    ]);
+    expect(result.current.sessions).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: generatedSessionKey }),
+    ]));
+    expect(result.current.sessions.find((session) => session.key === "session-alpha")?.ephemeral).toBeUndefined();
+    const cached = JSON.parse(window.localStorage.getItem("openclaw.sessions.v1:deploy-123") ?? "{}");
+    expect(cached.sessions).toEqual([
+      expect.objectContaining({ key: "session-alpha" }),
+    ]);
     unmount();
   });
 

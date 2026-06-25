@@ -225,7 +225,8 @@ function sameOpenClawSessionRecordForDisplay(left: OpenClawSessionRecord, right:
     left.messageCount === right.messageCount &&
     left.sourceChannelId === right.sourceChannelId &&
     left.readOnly === right.readOnly &&
-    left.readOnlyReason === right.readOnlyReason;
+    left.readOnlyReason === right.readOnlyReason &&
+    left.ephemeral === right.ephemeral;
 }
 
 function sameOpenClawSessionListForDisplay(left: OpenClawSessionRecord[], right: OpenClawSessionRecord[]): boolean {
@@ -283,10 +284,11 @@ function readStoredSessions(agentId: string | null): OpenClawSessionRecord[] {
 function writeStoredSessions(agentId: string | null, sessions: OpenClawSessionRecord[]): void {
   if (!agentId || typeof window === "undefined") return;
   try {
+    const persistentSessions = sessions.filter((session) => session.ephemeral !== true);
     window.localStorage.setItem(sessionListStorageKey(agentId), JSON.stringify({
       version: 1,
       updatedAt: Date.now(),
-      sessions: sessions.map((session) => ({
+      sessions: persistentSessions.map((session) => ({
         key: session.key,
         gatewaySessionKey: session.gatewaySessionKey,
         sourceSessionKey: session.sourceSessionKey,
@@ -333,6 +335,39 @@ function hasLocalSessionIdentity(
     if (sameOpenClawSelectableSessionKey(session.key, key)) return true;
   }
   return false;
+}
+
+function hasMeaningfulSessionIdentity(session: OpenClawSessionRecord): boolean {
+  const fallback = fallbackOpenClawSessionDisplayName(session.key);
+  const title = normalizeOpenClawSessionDisplayName(session.title, session.key);
+  if (title && title !== fallback) return true;
+  const displayName = normalizeOpenClawSessionDisplayName(session.clientDisplayName, session.key);
+  return Boolean(displayName && displayName !== fallback);
+}
+
+function isUnclaimedGeneratedSession(
+  session: OpenClawSessionRecord,
+  titleMap: Record<string, string>,
+  creatingSessionKeys: Set<string>,
+): boolean {
+  if (session.readOnly || !isGeneratedOpenClawSessionName(session.key)) return false;
+  if (hasLocalSessionIdentity(session, titleMap, creatingSessionKeys)) return false;
+  return !hasMeaningfulSessionIdentity(session);
+}
+
+function markEphemeralSessions(
+  sessions: OpenClawSessionRecord[],
+  titleMap: Record<string, string>,
+  creatingSessionKeys: Set<string>,
+): OpenClawSessionRecord[] {
+  return sessions.map((session) => {
+    const ephemeral = isUnclaimedGeneratedSession(session, titleMap, creatingSessionKeys);
+    if (ephemeral) return session.ephemeral ? session : { ...session, ephemeral: true };
+    if (!session.ephemeral) return session;
+    const next = { ...session };
+    delete next.ephemeral;
+    return next;
+  });
 }
 
 function isActiveSessionChannelBackedDefault(
@@ -913,11 +948,12 @@ export function useOpenClawSession(
         creatingSessionKeys: creatingSessionKeysRef.current,
       });
       const titledSessions = applyOpenClawSessionTitleMap(reconciledSessions, sessionTitleMapRef.current);
-      if (canSkipUnchangedWrite && sameOpenClawSessionListForDisplay(prev, titledSessions)) {
+      const displaySessions = markEphemeralSessions(titledSessions, sessionTitleMapRef.current, creatingSessionKeysRef.current);
+      if (canSkipUnchangedWrite && sameOpenClawSessionListForDisplay(prev, displaySessions)) {
         return prev;
       }
-      writeStoredSessions(agentId, titledSessions);
-      return sameOpenClawSessionListForDisplay(prev, titledSessions) ? prev : titledSessions;
+      writeStoredSessions(agentId, displaySessions);
+      return sameOpenClawSessionListForDisplay(prev, displaySessions) ? prev : displaySessions;
     });
   }, [agentId, activeSessionKey]);
 
@@ -1000,6 +1036,15 @@ export function useOpenClawSession(
   const activeSessionTarget = { agentId, sessionKey: activeSessionKey };
   const activeSessionSending = sendingTargets.some((target) => sameChatHistoryTarget(target, activeSessionTarget));
   const activeSessionAborting = Boolean(aborting && abortingTarget && sameChatHistoryTarget(abortingTarget, activeSessionTarget));
+  const thinkingSessionKeys = useMemo(() => {
+    const sessionKeys: string[] = [];
+    for (const target of sendingTargets) {
+      if (target.agentId !== agentId) continue;
+      if (sessionKeys.some((sessionKey) => sameOpenClawSessionKey(sessionKey, target.sessionKey))) continue;
+      sessionKeys.push(target.sessionKey);
+    }
+    return sessionKeys;
+  }, [agentId, sendingTargets]);
 
   const resolveChatTargetState = useCallback((target: ChatHistoryTarget) => {
     const targetSessionRecord = target.agentId === agentId
@@ -1564,17 +1609,16 @@ export function useOpenClawSession(
 
   const createSession = useCallback(async () => {
     if (!gateway) throw new Error("Not connected");
-    if (sending) throw new Error("Wait for the current reply to finish.");
     if (sessionsFetchedAgentId !== agentId) throw new Error("Sessions are still loading.");
 
     const sessionKey = createOpenClawSessionKey(sessions);
+    const target = { agentId, sessionKey };
     clearCachedOpenClawChatHistory(agentId, sessionKey);
     setSessionTitleOverride(sessionKey, OPENCLAW_NEW_SESSION_TITLE);
     creatingSessionKeysRef.current.add(sessionKey);
     setCreatingSessionKeys((prev) => prev.includes(sessionKey) ? prev : [...prev, sessionKey]);
-    dispatchChatHistory({ type: "clear" });
-    updateComposerDraftForTarget(activeComposerTargetRef.current, () => emptyComposerDraft());
-    setPendingMessages([]);
+    dispatchChatHistory({ type: "clear" }, target);
+    updateComposerDraftForTarget(target, () => emptyComposerDraft());
     setDeletedSessionKeys((prev) => {
       if (!(sessionKey in prev)) return prev;
       const next = { ...prev };
@@ -1605,7 +1649,7 @@ export function useOpenClawSession(
       }
     })();
     return sessionKey;
-  }, [gateway, sending, sessionsFetchedAgentId, agentId, sessions, applyFetchedSessions, setSessionTitleOverride, setTitledSessions, appendActivity, fetchSessionList, finishCreatingSession, dispatchChatHistory, updateComposerDraftForTarget]);
+  }, [gateway, sessionsFetchedAgentId, agentId, sessions, applyFetchedSessions, setSessionTitleOverride, setTitledSessions, appendActivity, fetchSessionList, finishCreatingSession, dispatchChatHistory, updateComposerDraftForTarget]);
 
   const renameSession = useCallback(async (sessionKey: string, title: string) => {
     if (!agentId) throw new Error("Session rename is unavailable.");
@@ -1779,6 +1823,7 @@ export function useOpenClawSession(
   const activeSessions = activeSessionRecords;
   const sessionsFetched = Boolean(agentId && sessionsFetchedAgentId === agentId);
   const visibleSessions = activeSessions.filter((session) => (
+    session.ephemeral !== true &&
     !Object.keys(deletedSessionKeys).some((deletedKey) => sameOpenClawSelectableSessionKey(session.key, deletedKey))
   ));
   const pendingInput = pendingMessages
@@ -1808,6 +1853,7 @@ export function useOpenClawSession(
     activeSessionReadOnlyReason,
     sending,
     activeSessionSending,
+    thinkingSessionKeys,
     files,
     config,
     configSchema,
