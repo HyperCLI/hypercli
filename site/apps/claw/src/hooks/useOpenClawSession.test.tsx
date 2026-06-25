@@ -54,6 +54,7 @@ function buildGateway(initialState: TestGatewayConnectionState = "connected") {
       uiHints: {},
     })),
     chatHistory: vi.fn(async (_sessionKey: string, _limit?: number): Promise<unknown[]> => []),
+    sessionsPreview: vi.fn(async (_sessionKey: string, _limit?: number): Promise<unknown[]> => []),
     agentsList: vi.fn(async (): Promise<Array<Record<string, unknown>>> => [{ id: "agent-1" }]),
     sessionsList: vi.fn(async (): Promise<unknown[]> => []),
     sessionsPatch: vi.fn(async () => ({ ok: true })),
@@ -1280,8 +1281,13 @@ describe("useOpenClawSession", () => {
     ]);
     gateway.chatHistory.mockImplementation(async (sessionKey: string) => (
       sessionKey === "agent:default:main"
-        ? [{ role: "assistant", content: "Telegram history" }]
+        ? [{ role: "assistant", content: "Main history from default gateway key" }]
         : [{ role: "assistant", content: "Main history" }]
+    ));
+    gateway.sessionsPreview.mockImplementation(async (sessionKey: string) => (
+      sessionKey === "agent:default:main"
+        ? [{ role: "assistant", content: "Telegram history" }]
+        : []
     ));
     const agent = {
       id: "deploy-123",
@@ -1295,7 +1301,9 @@ describe("useOpenClawSession", () => {
     await waitFor(() => expect(result.current.connected).toBe(true));
     await waitFor(() => expect(result.current.hydrating).toBe(false));
 
-    expect(gateway.chatHistory).toHaveBeenCalledWith("agent:default:main", 200);
+    expect(gateway.sessionsPreview).toHaveBeenCalledWith("agent:default:main", 200);
+    expect(gateway.sessionsPreview).not.toHaveBeenCalledWith("telegram:489595440", 200);
+    expect(gateway.chatHistory).not.toHaveBeenCalledWith("agent:default:main", 200);
     expect(result.current.messages.map((message) => message.content)).toEqual(["Telegram history"]);
     expect(result.current.activeSessionReadOnly).toBe(true);
     expect(result.current.activeSessionReadOnlyReason).toBe("Telegram conversations are read-only here. Reply from Telegram.");
@@ -1339,10 +1347,11 @@ describe("useOpenClawSession", () => {
       },
     ]);
     gateway.chatHistory.mockImplementation(async (sessionKey: string) => (
-      sessionKey === "main"
+      sessionKey === "main" || sessionKey === "agent:default:main"
         ? [{ role: "assistant", content: "Main history" }]
         : []
     ));
+    gateway.sessionsPreview.mockResolvedValue([]);
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
@@ -1360,10 +1369,67 @@ describe("useOpenClawSession", () => {
 
     rerender({ sessionKey: "telegram:489595440" });
 
-    await waitFor(() => expect(gateway.chatHistory).toHaveBeenCalledWith("agent:default:main", 200));
+    await waitFor(() => expect(gateway.sessionsPreview).toHaveBeenCalledWith("agent:default:main", 200));
     await waitFor(() => expect(result.current.hydrating).toBe(false));
+    expect(gateway.chatHistory).not.toHaveBeenCalledWith("agent:default:main", 200);
     expect(result.current.activeSessionReadOnly).toBe(true);
     expect(result.current.messages).toEqual([]);
+    unmount();
+  });
+
+  it("preserves live Telegram messages when the session becomes read-only", async () => {
+    const gateway = buildGateway();
+    const sessionsList = deferred<unknown[]>();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockImplementation(async () => sessionsList.promise);
+    gateway.chatHistory.mockResolvedValue([{ role: "assistant", content: "Main history" }]);
+    gateway.sessionsPreview.mockResolvedValue([]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "telegram:489595440"));
+
+    await waitFor(() => expect(gateway.onEvent).toHaveBeenCalled());
+    act(() => {
+      gateway.emit({
+        event: "chat",
+        payload: {
+          sessionKey: "agent:default:main",
+          state: "final",
+          origin: { provider: "telegram", from: "telegram:489595440" },
+          deliveryContext: { channel: "telegram", to: "telegram:489595440" },
+          message: { role: "user", content: "Incoming Telegram before metadata" },
+        },
+      });
+    });
+
+    await waitFor(() => expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Incoming Telegram before metadata" }),
+    ]));
+
+    await act(async () => {
+      sessionsList.resolve([
+        {
+          key: "agent:default:main",
+          title: "Telegram DM",
+          origin: { provider: "telegram", from: "telegram:489595440" },
+          deliveryContext: { channel: "telegram", to: "telegram:489595440" },
+          lastMessageAt: 20,
+        },
+      ]);
+      await sessionsList.promise;
+    });
+
+    await waitFor(() => expect(result.current.activeSessionReadOnly).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+    expect(gateway.chatHistory).not.toHaveBeenCalledWith("agent:default:main", 200);
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Incoming Telegram before metadata" }),
+    ]);
     unmount();
   });
 

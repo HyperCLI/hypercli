@@ -820,6 +820,42 @@ describe("openclaw session keys", () => {
     ]);
   });
 
+  it("renders Telegram channel user events when that channel session is selected", () => {
+    let messages: ChatMessage[] = [];
+    const setMessages = vi.fn((value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+      messages = typeof value === "function" ? value(messages) : value;
+    });
+
+    handleOpenClawSessionEvent({
+      gatewayEvent: {
+        event: "chat",
+        payload: {
+          sessionKey: "agent:default:main",
+          state: "final",
+          origin: { provider: "telegram", from: "telegram:489595440" },
+          deliveryContext: { channel: "telegram" },
+          message: {
+            role: "user",
+            content: "User from Telegram",
+          },
+        },
+      } as any,
+      setMessages,
+      setSending: vi.fn(),
+      setSessions: vi.fn(),
+      refreshSessions: vi.fn(),
+      appendActivity: vi.fn(),
+      activeSessionKey: "telegram:489595440",
+    });
+
+    expect(messages).toEqual([
+      expect.objectContaining({
+        role: "user",
+        content: "User from Telegram",
+      }),
+    ]);
+  });
+
   it("treats aborted stream errors as a stopped reply instead of a visible error", () => {
     let messages: ChatMessage[] = [];
     const setMessages = vi.fn((value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {

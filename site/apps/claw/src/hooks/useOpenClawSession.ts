@@ -389,6 +389,12 @@ function shouldReconcileGeneratedSessionsAsMain(
   return !isActiveSessionChannelBackedDefault(sessions, activeSessionKey);
 }
 
+function shouldWaitForSessionListBeforeHistory(activeSessionKey: string): boolean {
+  const unscoped = unscopedOpenClawSessionKey(activeSessionKey);
+  if (unscoped === OPENCLAW_DEFAULT_SESSION_KEY) return true;
+  return /^[a-z0-9._-]+:.+$/i.test(unscoped);
+}
+
 function reconcileSessionsForActiveSession({
   sessions,
   activeSessionKey,
@@ -1060,18 +1066,21 @@ export function useOpenClawSession(
       gatewaySessionKey: openClawGatewaySessionKey(targetSessionRecord) ?? target.sessionKey,
       readOnly: Boolean(targetSessionRecord?.readOnly),
       visibleSessionKey,
+      sessionRecord: targetSessionRecord,
     };
   }, [activeSessionRecords, agentId]);
 
   useLayoutEffect(() => {
     const target = { agentId, sessionKey: activeSessionKey };
-    if (cacheRestoreTargetRef.current && sameChatHistoryTarget(cacheRestoreTargetRef.current, target)) return;
+    if (cacheRestoreTargetRef.current && sameChatHistoryTarget(cacheRestoreTargetRef.current, target) && !activeSessionReadOnly) return;
     cacheRestoreTargetRef.current = target;
+    const liveMessages = liveChatHistoryByTargetRef.current.get(chatHistoryTargetKey(target));
     if (activeSessionReadOnly) {
-      dispatchChatHistory({ type: "clear" }, target);
+      dispatchChatHistory(liveMessages && liveMessages.length > 0
+        ? { type: "replace", messages: liveMessages }
+        : { type: "clear" }, target);
       return;
     }
-    const liveMessages = liveChatHistoryByTargetRef.current.get(chatHistoryTargetKey(target));
     const restoredMessages = liveMessages ?? readCachedOpenClawChatHistory(agentId, activeSessionKey);
     dispatchChatHistory({ type: "restore-cache", messages: restoredMessages }, target);
   }, [agentId, activeSessionKey, activeSessionReadOnly, dispatchChatHistory]);
@@ -1107,7 +1116,7 @@ export function useOpenClawSession(
       return current.promise;
     }
 
-    const promise = refreshOpenClawChatMessages(targetGateway, refreshTarget.agentId, refreshTarget.sessionKey, targetState.gatewaySessionKey)
+    const promise = refreshOpenClawChatMessages(targetGateway, refreshTarget.agentId, refreshTarget.sessionKey, targetState.gatewaySessionKey, targetState.sessionRecord)
       .then((historyMessages) => {
         dispatchChatHistory({ type: "merge-history-refresh", messages: historyMessages }, refreshTarget);
       });
@@ -1267,7 +1276,7 @@ export function useOpenClawSession(
         needsSessionListForHydration = sessionListNeededForHydration(sessionHydration);
         shouldFetchSessionList = shouldRefreshSessionsAfterReconnect || needsSessionListForHydration;
         if (needsSessionListForHydration) void getSessionListResult();
-        if (!sessionHydration.fetched && unscopedOpenClawSessionKey(activeSessionKey) === OPENCLAW_DEFAULT_SESSION_KEY) {
+        if (needsSessionListForHydration && shouldWaitForSessionListBeforeHistory(activeSessionKey)) {
           const initialSessionListResult = await getSessionListResult();
           if (cancelled) return;
           if (initialSessionListResult.status === "fulfilled") {
@@ -1305,10 +1314,11 @@ export function useOpenClawSession(
           }
           completeReconnectSessionRefresh(reconnectRefreshRequest, nextSessions ?? undefined);
           if (!nextSessions || activeChatSendTargetsRef.current.has(targetKey)) return;
+          const refreshedSessionRecord = findOpenClawSelectableSession(nextSessions, activeSessionKey);
           const refreshedGatewaySessionKey = resolveOpenClawGatewaySessionKey(nextSessions, activeSessionKey);
           if (refreshedGatewaySessionKey === hydrated.gatewaySessionKey) return;
-          const refreshedMessages = await refreshOpenClawChatMessages(gateway, agentId, activeSessionKey, refreshedGatewaySessionKey);
-          if (!cancelled) dispatchChatHistory({ type: "merge-history-refresh", messages: refreshedMessages }, target);
+          const refreshedMessages = await refreshOpenClawChatMessages(gateway, agentId, activeSessionKey, refreshedGatewaySessionKey, refreshedSessionRecord);
+          if (!cancelled) dispatchChatHistory({ type: "replace", messages: refreshedMessages }, target);
         })();
       } catch (e: unknown) {
         if (cancelled) return;

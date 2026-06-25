@@ -142,6 +142,18 @@ export function handleOpenClawChatStreamEvent({
   }
 }
 
+function appendLiveChatMessage(
+  setMessages: Dispatch<SetStateAction<ChatMessage[]>>,
+  message: ChatMessage | null,
+): void {
+  if (!message) return;
+  if (message.role === "assistant") {
+    setMessages((prev) => upsertAssistantMessage(prev, message));
+    return;
+  }
+  setMessages((prev) => [...prev, message]);
+}
+
 export function handleOpenClawSessionEvent({
   gatewayEvent,
   setMessages,
@@ -186,12 +198,16 @@ export function handleOpenClawSessionEvent({
       appendReplyStoppedActivity(appendActivity);
       return;
     }
-    const normalized = normalizeHistoryMessage((payload as Record<string, unknown>).message);
-    if (normalized?.role === "assistant") setMessages((prev) => upsertAssistantMessage(prev, normalized));
+    appendLiveChatMessage(setMessages, normalizeHistoryMessage(payloadRecord.message ?? payloadRecord));
     if ((payload as Record<string, unknown>).state === "final") setSending(false);
   } else if (event === "chat.content") {
-    const text = sanitizeChatDisplayText((payload as Record<string, unknown>).text as string ?? "");
-    if (text) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: text, timestamp: Date.now() }));
+    const normalized = normalizeHistoryMessage(payloadRecord.message ?? payloadRecord);
+    if (normalized) {
+      appendLiveChatMessage(setMessages, normalized);
+    } else {
+      const text = sanitizeChatDisplayText((payload as Record<string, unknown>).text as string ?? "");
+      if (text) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: text, timestamp: Date.now() }));
+    }
   } else if (event === "chat.thinking") {
     const text = sanitizeChatDisplayText((payload as Record<string, unknown>).text as string ?? "");
     if (text) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", thinking: text, timestamp: Date.now() }));
@@ -289,6 +305,14 @@ function uniqueNonEmptyStrings(values: Array<string | null | undefined>): string
   return Array.from(new Set(values.map((value) => (value ?? "").trim()).filter(Boolean)));
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 function normalizeHistoryMessages(messages: unknown): ChatMessage[] {
   if (!Array.isArray(messages)) return [];
   return messages
@@ -296,15 +320,132 @@ function normalizeHistoryMessages(messages: unknown): ChatMessage[] {
     .filter((message): message is ChatMessage => message !== null);
 }
 
+function rawSessionKeyCandidates(session: OpenClawSessionRecord | null | undefined): Array<string | null> {
+  const raw = session?.raw;
+  return [
+    nonEmptyString(raw?.gatewaySessionKey),
+    nonEmptyString(raw?.gateway_session_key),
+    nonEmptyString(raw?.key),
+    nonEmptyString(raw?.id),
+    nonEmptyString(raw?.sessionKey),
+    nonEmptyString(raw?.session_key),
+  ];
+}
+
+function channelHistorySessionKeys(session: OpenClawSessionRecord | null | undefined): string[] {
+  if (session?.readOnly !== true || !session.sourceChannelId) return [];
+  return uniqueNonEmptyStrings([
+    session.gatewaySessionKey,
+    ...rawSessionKeyCandidates(session),
+    session.sourceSessionKey,
+    session.key,
+  ]);
+}
+
+function previewItemsFromResponse(value: unknown, sessionKey: string): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (!isRecord(value)) return [];
+  if (Array.isArray(value.items)) return value.items;
+  if (!Array.isArray(value.previews)) return [];
+  const previews = value.previews.filter(isRecord);
+  const matchingPreview = previews.find((preview) => nonEmptyString(preview.key) === sessionKey) ?? previews[0];
+  return Array.isArray(matchingPreview?.items) ? matchingPreview.items : [];
+}
+
+function normalizedChannelId(value: unknown): string | null {
+  const raw = nonEmptyString(value);
+  if (!raw) return null;
+  const normalized = raw
+    .replace(/^integration[:/]/i, "")
+    .replace(/^integrations\./i, "")
+    .replace(/^channels\./i, "")
+    .replace(/^plugins\.entries\./i, "")
+    .replace(/^plugin[:/]/i, "")
+    .trim()
+    .toLowerCase();
+  const [id] = normalized.split(/[:/]/);
+  const safeId = (id || normalized).replace(/[^a-z0-9._-]+/g, "-").replace(/^[._-]+|[._-]+$/g, "");
+  return safeId || null;
+}
+
+function nestedRecord(value: unknown): Record<string, unknown> | null {
+  return isRecord(value) ? value : null;
+}
+
+function channelIdsFromRecord(record: Record<string, unknown>): string[] {
+  const origin = nestedRecord(record.origin);
+  const deliveryContext = nestedRecord(record.deliveryContext) ?? nestedRecord(record.delivery_context);
+  const source = nestedRecord(record.source);
+  return uniqueNonEmptyStrings([
+    normalizedChannelId(record.sourceChannelId),
+    normalizedChannelId(record.source_channel_id),
+    normalizedChannelId(record.channelId),
+    normalizedChannelId(record.channel_id),
+    normalizedChannelId(record.channel),
+    normalizedChannelId(record.provider),
+    normalizedChannelId(deliveryContext?.channel),
+    normalizedChannelId(deliveryContext?.provider),
+    normalizedChannelId(record.lastChannel),
+    normalizedChannelId(record.last_channel),
+    normalizedChannelId(origin?.channel),
+    normalizedChannelId(origin?.provider),
+    normalizedChannelId(source?.channel),
+    normalizedChannelId(source?.provider),
+  ]);
+}
+
+function previewItemMatchesReadOnlyChannel(item: unknown, session: OpenClawSessionRecord): boolean {
+  const expectedChannelId = normalizedChannelId(session.sourceChannelId);
+  if (!expectedChannelId || !isRecord(item)) return true;
+  const messageRecord = nestedRecord(item.message);
+  const channelIds = uniqueNonEmptyStrings([
+    ...channelIdsFromRecord(item),
+    ...(messageRecord ? channelIdsFromRecord(messageRecord) : []),
+  ]);
+  if (channelIds.length === 0) return true;
+  return channelIds.includes(expectedChannelId);
+}
+
+async function loadReadOnlyChannelHistory(
+  gateway: GatewayClient,
+  session: OpenClawSessionRecord | null | undefined,
+  limit: number,
+): Promise<ChatMessage[] | null> {
+  const sessionKeys = channelHistorySessionKeys(session);
+  if (sessionKeys.length === 0 || !session) return null;
+  if (typeof gateway.sessionsPreview !== "function") return [];
+  for (const sessionKey of sessionKeys) {
+    try {
+      const items = previewItemsFromResponse(await gateway.sessionsPreview(sessionKey, limit), sessionKey)
+        .filter((item) => previewItemMatchesReadOnlyChannel(item, session));
+      const messages = normalizeHistoryMessages(items);
+      if (messages.length > 0) return messages;
+    } catch {}
+  }
+  return [];
+}
+
+async function loadSessionHistory(
+  gateway: GatewayClient,
+  sessionKey: string,
+  session: OpenClawSessionRecord | null | undefined,
+  limit: number,
+): Promise<ChatMessage[]> {
+  const channelHistory = await loadReadOnlyChannelHistory(gateway, session, limit);
+  if (channelHistory) return channelHistory;
+  return normalizeHistoryMessages(await loadOpenClawChatHistory(gateway, sessionKey, limit));
+}
+
 export async function refreshOpenClawChatMessages(
   gateway: GatewayClient,
   preferredAgentId?: string | null,
   activeSessionKey?: string | null,
   activeGatewaySessionKey?: string | null,
+  activeSessionRecord?: OpenClawSessionRecord | null,
 ): Promise<ChatMessage[]> {
   const sessionKey = activeGatewaySessionKey?.trim() || resolveOpenClawActiveSessionKey((preferredAgentId ?? "").trim(), activeSessionKey);
   try {
-    return normalizeHistoryMessages(await loadOpenClawChatHistory(gateway, sessionKey, 200));
+    return await loadSessionHistory(gateway, sessionKey, activeSessionRecord, 200);
   } catch {
     return [];
   }
@@ -500,15 +641,15 @@ export async function hydrateOpenClawSession(
     defaultSessionIsReadOnlyChannel(sessions);
   const historyResult = skipAmbiguousSyntheticMainHistory
     ? { status: "fulfilled" as const, value: [] }
-    : await loadOpenClawChatHistory(gateway, sessionKey, 200)
+    : await loadSessionHistory(gateway, sessionKey, activeSessionRecord, 200)
       .then((value) => ({ status: "fulfilled" as const, value }))
       .catch((reason: unknown) => ({ status: "rejected" as const, reason }));
   const canonicalMessages = historyResult.status === "fulfilled"
-    ? normalizeHistoryMessages(historyResult.value)
+    ? historyResult.value
     : [];
   const messages = canonicalMessages.length > 0
     ? canonicalMessages
-    : sameOpenClawSessionKey(sessionKey, CANONICAL_GATEWAY_AGENT_ID)
+    : activeSessionRecord?.readOnly !== true && sameOpenClawSessionKey(sessionKey, CANONICAL_GATEWAY_AGENT_ID)
       ? await loadLegacyHistory(gateway, normalizedPreferredAgentId, sessions)
       : [];
   return {
