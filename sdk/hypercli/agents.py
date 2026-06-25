@@ -31,6 +31,7 @@ AGENTS_WS_URL = "wss://api.agents.hypercli.com/ws"
 DEV_AGENTS_API_BASE = "https://api.dev.hypercli.com/agents"
 DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
 DEFAULT_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:prod"
+DEFAULT_OPENCLAW_PRO_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-prod"
 LAUNCH_CONFIG_KEYS = frozenset({"image", "env", "routes", "ports", "command", "entrypoint", "sync_root", "sync_enabled", "sync_uid", "sync_gid", "registry_url", "registry_auth"})
 DEFAULT_OPENCLAW_SYNC_ROOT = "/home/node"
 AGENT_FILE_MAX_BYTES = 50 * 1024 * 1024
@@ -259,6 +260,16 @@ def _default_openclaw_image(image: str | None) -> str | None:
     return DEFAULT_OPENCLAW_IMAGE
 
 
+def _default_openclaw_pro_image(image: str | None) -> str | None:
+    if image is not None:
+        return image
+    return DEFAULT_OPENCLAW_PRO_IMAGE
+
+
+def _truthy_env(value: object) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on", "enabled"}
+
+
 def _parse_dt(val):
     if isinstance(val, str) and val:
         return datetime.fromisoformat(val.replace("Z", "+00:00"))
@@ -315,6 +326,17 @@ def _is_openclaw_agent_data(data: dict) -> bool:
         if isinstance(launch_routes, dict) and launch_routes.get("openclaw"):
             return True
     return False
+
+
+def _is_openclaw_pro_agent_data(data: dict) -> bool:
+    launch_config = data.get("launch_config")
+    if not isinstance(launch_config, dict):
+        return False
+    env = launch_config.get("env")
+    if isinstance(env, dict) and _truthy_env(env.get("OPENCLAW_DESKTOP_ENABLED")):
+        return True
+    image = str(launch_config.get("image") or "")
+    return "hypercli-openclaw:pro" in image or image.endswith("-pro")
 
 
 @dataclass
@@ -954,6 +976,11 @@ class OpenClawAgent(Agent):
 
 
 @dataclass
+class OpenClawProAgent(OpenClawAgent):
+    """OpenClaw agent launched with the pro desktop/browser preset."""
+
+
+@dataclass
 class ExecResult:
     """Result of a one-shot command execution."""
     exit_code: int
@@ -1009,7 +1036,9 @@ class Deployments:
         )
 
     def _hydrate_agent(self, data: dict) -> Agent:
-        if _is_openclaw_agent_data(data):
+        if _is_openclaw_pro_agent_data(data):
+            agent = OpenClawProAgent.from_dict(data)
+        elif _is_openclaw_agent_data(data):
             agent = OpenClawAgent.from_dict(data)
         else:
             agent = Agent.from_dict(data)
@@ -1212,6 +1241,60 @@ class Deployments:
             start=start,
         )
 
+    def create_openclaw_pro(
+        self,
+        name: str = None,
+        size: str = None,
+        config: dict = None,
+        tags: list[str] = None,
+        env: dict = None,
+        ports: list = None,
+        routes: dict = None,
+        command: list[str] = None,
+        entrypoint: list[str] = None,
+        image: str = None,
+        sync_root: str = None,
+        sync_enabled: bool = None,
+        sync_uid: int = None,
+        sync_gid: int = None,
+        registry_url: str = None,
+        registry_auth: dict = None,
+        gateway_token: str = None,
+        heartbeat: dict = None,
+        meta_ui: dict = None,
+        dry_run: bool = False,
+        start: bool = True,
+        openclaw_routes: dict | None = None,
+        openclaw_route_options: dict | None = None,
+    ) -> Agent:
+        effective_env = {"OPENCLAW_DESKTOP_ENABLED": "1", **dict(env or {})}
+        effective_route_options = {"include_desktop": True, **dict(openclaw_route_options or {})}
+        return self.create_openclaw(
+            name=name,
+            size=size,
+            config=config,
+            tags=tags,
+            env=effective_env,
+            ports=ports,
+            routes=routes,
+            command=command,
+            entrypoint=entrypoint,
+            image=_default_openclaw_pro_image(image),
+            sync_root=sync_root,
+            sync_enabled=sync_enabled,
+            sync_uid=sync_uid,
+            sync_gid=sync_gid,
+            registry_url=registry_url,
+            registry_auth=registry_auth,
+            gateway_token=gateway_token,
+            heartbeat=heartbeat,
+            meta_ui=meta_ui,
+            dry_run=dry_run,
+            start=start,
+            openclaw_routes=openclaw_routes,
+            openclaw_route_options=effective_route_options,
+        )
+
     def budget(self) -> dict:
         """Get the user's current agent resource budget and usage.
 
@@ -1369,6 +1452,52 @@ class Deployments:
             gateway_token=gateway_token,
             heartbeat=heartbeat,
             dry_run=dry_run,
+        )
+
+    def start_openclaw_pro(
+        self,
+        agent_id: str,
+        config: dict = None,
+        env: dict = None,
+        ports: list = None,
+        routes: dict = None,
+        command: list[str] = None,
+        entrypoint: list[str] = None,
+        image: str = None,
+        sync_root: str = None,
+        sync_enabled: bool = None,
+        sync_uid: int = None,
+        sync_gid: int = None,
+        registry_url: str = None,
+        registry_auth: dict = None,
+        gateway_token: str = None,
+        heartbeat: dict = None,
+        dry_run: bool = False,
+        openclaw_routes: dict | None = None,
+        openclaw_route_options: dict | None = None,
+    ) -> Agent:
+        effective_env = {"OPENCLAW_DESKTOP_ENABLED": "1", **dict(env or {})}
+        effective_route_options = {"include_desktop": True, **dict(openclaw_route_options or {})}
+        return self.start_openclaw(
+            agent_id,
+            config=config,
+            env=effective_env,
+            ports=ports,
+            routes=routes,
+            command=command,
+            entrypoint=entrypoint,
+            image=_default_openclaw_pro_image(image),
+            sync_root=sync_root,
+            sync_enabled=sync_enabled,
+            sync_uid=sync_uid,
+            sync_gid=sync_gid,
+            registry_url=registry_url,
+            registry_auth=registry_auth,
+            gateway_token=gateway_token,
+            heartbeat=heartbeat,
+            dry_run=dry_run,
+            openclaw_routes=openclaw_routes,
+            openclaw_route_options=effective_route_options,
         )
 
     def update(

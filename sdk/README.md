@@ -119,6 +119,8 @@ agent = client.deployments.create_openclaw(
 )
 ```
 
+Use `create_openclaw_pro(...)` for the desktop/browser image. It enables noVNC through the protected `desktop-<agent>.hypercli.app` route and sets `OPENCLAW_DESKTOP_ENABLED=1`.
+
 `heartbeat` maps directly to upstream OpenClaw config at `config.agents.defaults.heartbeat`. Omit it to keep upstream defaults, or pass values such as `heartbeat={"every": "1h", "target": "last"}`.
 
 ## Error Handling

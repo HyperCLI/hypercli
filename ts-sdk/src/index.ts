@@ -166,6 +166,7 @@ export {
   Deployments,
   Agent,
   OpenClawAgent,
+  OpenClawProAgent,
   buildAgentConfig,
   buildOpenClawRoutes,
   type OpenClawModelApi,

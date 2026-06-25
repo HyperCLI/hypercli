@@ -9,6 +9,7 @@ const { deploymentsConstructor, deploymentsInstance, hyperAgentConstructor, http
     deploymentsConstructor: vi.fn(),
     deploymentsInstance: {
       createOpenClaw: vi.fn(),
+      createOpenClawPro: vi.fn(),
       get: vi.fn(),
       startOpenClaw: vi.fn(),
     },
@@ -53,6 +54,7 @@ describe("agent-client", () => {
     delete process.env.NEXT_PUBLIC_OPENCLAW_CONTROL_UI_ALLOWED_ORIGINS;
     deploymentsInstance.get.mockReset();
     deploymentsInstance.createOpenClaw.mockReset();
+    deploymentsInstance.createOpenClawPro.mockReset();
     deploymentsInstance.startOpenClaw.mockReset();
   });
 
@@ -130,6 +132,25 @@ describe("agent-client", () => {
         FOO: "bar",
       },
     }));
+  });
+
+  it("creates OpenClaw pro agents when desktop is enabled", async () => {
+    deploymentsInstance.createOpenClawPro.mockResolvedValue({ id: "agent-123" });
+
+    await createOpenClawAgent("hyper_api_test", {
+      env: { OPENCLAW_DESKTOP_ENABLED: "1" },
+      image: "ghcr.io/hypercli/hypercli-openclaw:pro-prod",
+      openClawRoutes: { includeDesktop: true },
+    });
+
+    expect(deploymentsInstance.createOpenClawPro).toHaveBeenCalledWith(expect.objectContaining({
+      controlUiOriginLock: true,
+      config: {},
+      image: "ghcr.io/hypercli/hypercli-openclaw:pro-prod",
+      env: { OPENCLAW_DESKTOP_ENABLED: "1" },
+      openClawRoutes: { includeDesktop: true },
+    }));
+    expect(deploymentsInstance.createOpenClaw).not.toHaveBeenCalled();
   });
 
   it("applies configured control UI origins when the allowlist is enabled", async () => {

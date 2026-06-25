@@ -43,6 +43,8 @@ Each agent gets a root gateway host plus optional prefixed routes:
 | Desktop  | `https://desktop-{name}.hypercli.app`   | HTTPS/noVNC |
 | Custom   | `https://{prefix}-{name}.hypercli.app`  | HTTPS/WSS  |
 
+Desktop is available on the OpenClaw pro image. The base OpenClaw image keeps the root gateway route only unless callers explicitly add more routes.
+
 Current auth split:
 
 - gateway uses application-level auth inside OpenClaw

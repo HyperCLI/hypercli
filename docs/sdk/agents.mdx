@@ -189,6 +189,8 @@ Route semantics are explicit:
 
 The same contract applies to `start_openclaw(...)`.
 
+Use `create_openclaw_pro(...)` or `start_openclaw_pro(...)` for the desktop/browser flavor. The pro helpers inherit the same OpenClaw defaults, select the `hypercli-openclaw:pro-prod` image when no image is provided, set `OPENCLAW_DESKTOP_ENABLED=1`, and include the protected noVNC route at `desktop-<agent>.hypercli.app`.
+
 OpenClaw helpers only add defaults on top of that generic launch surface:
 
 - `image`
@@ -349,6 +351,8 @@ Prefer these over legacy direct executor-style methods.
 ## `OpenClawAgent`
 
 When the backend includes gateway metadata, the SDK hydrates `OpenClawAgent`.
+
+Agents launched through the pro desktop/browser preset hydrate as `OpenClawProAgent`, which inherits the OpenClaw gateway helpers.
 
 `OpenClawAgent` adds:
 

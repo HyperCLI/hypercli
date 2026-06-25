@@ -77,6 +77,7 @@ import {
   humanizeKey,
 } from "@/lib/openclaw-config";
 import { getOpenClawDefaultModel } from "@/lib/openclaw-models";
+import { buildOpenClawLaunchOptions } from "@/lib/openclaw-launch";
 import { getEffectivePlanName, mergeLaunchSlotInventories } from "@/lib/plan-checkout-state";
 import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
 import { displayOpenClawSessionName } from "@/lib/openclaw-session-sdk-surface";
@@ -1043,7 +1044,7 @@ export default function DevAgentSetupAgentsPage() {
     }
   };
 
-  const handleCreateFirstAgent = useCallback(async ({ name, iconIndex, size, files }: FirstAgentSetupCreateParams) => {
+  const handleCreateFirstAgent = useCallback(async ({ name, iconIndex, size, files, enableDesktop }: FirstAgentSetupCreateParams) => {
     try {
       setError(null);
       const token = await getToken();
@@ -1052,6 +1053,7 @@ export default function DevAgentSetupAgentsPage() {
         start: true,
         size,
         meta: { ui: { avatar: { icon_index: iconIndex } } },
+        ...buildOpenClawLaunchOptions({ desktopEnabled: enableDesktop }),
       });
       if (created.id) {
         if (files.length > 0) {

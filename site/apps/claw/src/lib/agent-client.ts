@@ -260,7 +260,12 @@ export function createPublicHyperAgentClient(): HyperAgent {
 }
 
 export async function createOpenClawAgent(apiKey: string, options: FrontendOpenClawCreateOptions = {}) {
-  return createAgentClient(apiKey).createOpenClaw(withConfiguredControlUiOrigins(options));
+  const preparedOptions = withConfiguredControlUiOrigins(options);
+  const agentClient = createAgentClient(apiKey);
+  if (ENABLED_ENV_VALUES.has((preparedOptions.env?.OPENCLAW_DESKTOP_ENABLED ?? "").trim().toLowerCase())) {
+    return agentClient.createOpenClawPro(preparedOptions);
+  }
+  return agentClient.createOpenClaw(preparedOptions);
 }
 
 export async function startOpenClawAgent(apiKey: string, agentId: string, options: FrontendOpenClawStartOptions = {}) {

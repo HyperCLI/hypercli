@@ -14,6 +14,7 @@ import {
   Rocket,
   Shield,
   Sparkles,
+  Monitor,
   X,
   Zap,
 } from "lucide-react";
@@ -45,6 +46,7 @@ export interface FirstAgentSetupCreateParams {
   iconIndex: number;
   size: string;
   files: File[];
+  enableDesktop: boolean;
 }
 
 interface FirstAgentSetupWizardProps {
@@ -752,6 +754,7 @@ export function FirstAgentSetupWizard({
   const [agentName, setAgentName] = React.useState("");
   const [selectedCategory, setSelectedCategory] = React.useState("General");
   const [selectedIconIndex, setSelectedIconIndex] = React.useState(avatarOptions[0].iconIndex);
+  const [enableDesktop, setEnableDesktop] = React.useState(false);
   const slotInventory = budget?.slots ?? EMPTY_SLOT_INVENTORY;
   const planOptions = React.useMemo(
     () => buildLaunchPlanOptions(subscriptionSummary, slotInventory, catalogPlans, pendingSlotReleases),
@@ -811,6 +814,7 @@ export function FirstAgentSetupWizard({
           category: selectedCategory,
           plan: plan.id,
           starterFiles: files.map((file) => ({ name: file.name, size: file.size, type: file.type })),
+          enableDesktop,
         }),
       );
     }
@@ -854,6 +858,7 @@ export function FirstAgentSetupWizard({
         iconIndex: selectedIconIndex,
         size: plan.size,
         files,
+        enableDesktop,
       });
       if (!createdId) {
         dispatchWizard({ type: "CREATE_FINISHED_WITHOUT_ID" });
@@ -990,6 +995,24 @@ export function FirstAgentSetupWizard({
                   })}
                 </div>
               </div>
+
+              <label className="mt-7 flex items-start gap-3 rounded-[12px] border border-border bg-surface-low px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={enableDesktop}
+                  onChange={(event) => setEnableDesktop(event.target.checked)}
+                  className="mt-1 h-4 w-4 rounded border-border bg-background accent-[var(--button-primary)]"
+                />
+                <span className="min-w-0">
+                  <span className="flex items-center gap-2 text-[14px] font-semibold leading-tight text-foreground sm:text-[15px]">
+                    <Monitor className="h-4 w-4 text-text-muted" />
+                    Desktop browser
+                  </span>
+                  <span className="mt-1 block text-[12px] leading-5 text-text-muted sm:text-[13px]">
+                    Adds a protected noVNC desktop at desktop-&lt;agent&gt;.hypercli.app.
+                  </span>
+                </span>
+              </label>
             </div>
 
             <footer className="flex h-[72px] flex-shrink-0 items-center justify-end border-t border-border bg-surface-low px-5 sm:px-7">

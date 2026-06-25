@@ -28,6 +28,7 @@ const DEPLOYMENTS_API_PREFIX = '/deployments';
 const AGENTS_WS_URL = 'wss://api.agents.hypercli.com/ws';
 const DEV_AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
 export const DEFAULT_OPENCLAW_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:prod';
+export const DEFAULT_OPENCLAW_PRO_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:pro-prod';
 const LAUNCH_CONFIG_KEYS = new Set(['image', 'env', 'routes', 'ports', 'command', 'entrypoint', 'sync_root', 'sync_enabled', 'sync_uid', 'sync_gid', 'registry_url', 'registry_auth']);
 const DEFAULT_OPENCLAW_SYNC_ROOT = '/home/node';
 export const AGENT_FILE_MAX_BYTES = 50 * 1024 * 1024;
@@ -390,6 +391,21 @@ function isOpenClawHydrationData(data: AgentHydrationData): boolean {
   return !!(launchRoutes && typeof launchRoutes === 'object' && !Array.isArray(launchRoutes) && launchRoutes.openclaw);
 }
 
+function isTruthyEnv(value: unknown): boolean {
+  return ['1', 'true', 'yes', 'on', 'enabled'].includes(String(value ?? '').trim().toLowerCase());
+}
+
+function isOpenClawProHydrationData(data: AgentHydrationData): boolean {
+  const launchConfig = data.launch_config;
+  if (!launchConfig || typeof launchConfig !== 'object' || Array.isArray(launchConfig)) return false;
+  const env = launchConfig.env;
+  if (env && typeof env === 'object' && !Array.isArray(env) && isTruthyEnv((env as Record<string, unknown>).OPENCLAW_DESKTOP_ENABLED)) {
+    return true;
+  }
+  const image = String(launchConfig.image ?? '');
+  return image.includes('hypercli-openclaw:pro') || image.endsWith('-pro');
+}
+
 function isDirectoryListingPayload(value: unknown): value is AgentDirectoryListing {
   if (!value || typeof value !== 'object') return false;
   const payload = value as Record<string, unknown>;
@@ -599,6 +615,13 @@ function defaultOpenClawImage(
 ): string {
   if (image !== undefined && image !== null) return image;
   return DEFAULT_OPENCLAW_IMAGE;
+}
+
+function defaultOpenClawProImage(
+  image: string | null | undefined,
+): string {
+  if (image !== undefined && image !== null) return image;
+  return DEFAULT_OPENCLAW_PRO_IMAGE;
 }
 
 export function buildOpenClawRoutes(options: OpenClawRouteOptions = {}): Record<string, AgentRouteConfig> {
@@ -1448,6 +1471,16 @@ export class OpenClawAgent extends Agent {
   }
 }
 
+export class OpenClawProAgent extends OpenClawAgent {
+  static override fromDict(data: AgentHydrationData): OpenClawProAgent {
+    return new OpenClawProAgent({
+      ...agentStateFromDict(data),
+      gatewayUrl: null,
+      gatewayToken: data.gateway_token ?? null,
+    });
+  }
+}
+
 export class Deployments {
   private readonly apiKey: string;
   private readonly apiBase: string;
@@ -1475,10 +1508,14 @@ export class Deployments {
   }
 
   private hydrateAgent(data: AgentHydrationData): Agent {
-    const agent =
-      isOpenClawHydrationData(data)
-        ? OpenClawAgent.fromDict(data)
-        : Agent.fromDict(data);
+    let agent: Agent;
+    if (isOpenClawProHydrationData(data)) {
+      agent = OpenClawProAgent.fromDict(data);
+    } else if (isOpenClawHydrationData(data)) {
+      agent = OpenClawAgent.fromDict(data);
+    } else {
+      agent = Agent.fromDict(data);
+    }
     return bindAgent(agent, this);
   }
 
@@ -1545,6 +1582,15 @@ export class Deployments {
     return this.create(effectiveOptions);
   }
 
+  async createOpenClawPro(options: OpenClawCreateAgentOptions = {}): Promise<Agent> {
+    return this.createOpenClaw({
+      ...options,
+      env: { OPENCLAW_DESKTOP_ENABLED: '1', ...(options.env ?? {}) },
+      image: defaultOpenClawProImage(options.image),
+      openClawRoutes: { includeDesktop: true, ...(options.openClawRoutes ?? {}) },
+    });
+  }
+
   async budget(): Promise<Record<string, any>> {
     return this.agentHttp.get(`${DEPLOYMENTS_API_PREFIX}/budget`);
   }
@@ -1606,6 +1652,15 @@ export class Deployments {
     if (effectiveOptions.syncRoot === undefined) effectiveOptions.syncRoot = DEFAULT_OPENCLAW_SYNC_ROOT;
     if (effectiveOptions.syncEnabled === undefined) effectiveOptions.syncEnabled = true;
     return this.start(agentId, effectiveOptions);
+  }
+
+  async startOpenClawPro(agentId: string, options: OpenClawStartAgentOptions = {}): Promise<Agent> {
+    return this.startOpenClaw(agentId, {
+      ...options,
+      env: { OPENCLAW_DESKTOP_ENABLED: '1', ...(options.env ?? {}) },
+      image: defaultOpenClawProImage(options.image),
+      openClawRoutes: { includeDesktop: true, ...(options.openClawRoutes ?? {}) },
+    });
   }
 
   async update(agentId: string, options: UpdateAgentOptions = {}): Promise<Agent> {

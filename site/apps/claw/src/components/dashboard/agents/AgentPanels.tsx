@@ -20,6 +20,7 @@ import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { ResourceImage } from "@/components/ResourceImage";
 import { createAgentClient } from "@/lib/agent-client";
 import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
+import { buildOpenClawLaunchOptions } from "@/lib/openclaw-launch";
 import { agentAvatar } from "@/lib/avatar";
 import { parseAgentCapacityError } from "@/lib/agent-tier";
 import type { WorkspaceFile } from "@/lib/openclaw-chat";
@@ -1599,7 +1600,7 @@ export function AgentList({
     return next;
   }, [agents, agentCardDataById]);
 
-  const createAgentFromLauncher = React.useCallback(async ({ name, iconIndex, size, files }: FirstAgentSetupCreateParams) => {
+  const createAgentFromLauncher = React.useCallback(async ({ name, iconIndex, size, files, enableDesktop }: FirstAgentSetupCreateParams) => {
     try {
       const token = await getToken();
       const created = await createOpenClawAgent(token, {
@@ -1607,6 +1608,7 @@ export function AgentList({
         start: true,
         size,
         meta: { ui: { avatar: { icon_index: iconIndex } } },
+        ...buildOpenClawLaunchOptions({ desktopEnabled: enableDesktop }),
       });
       const createdId = created.id ?? null;
       if (createdId) {
