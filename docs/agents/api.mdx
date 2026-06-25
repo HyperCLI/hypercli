@@ -1,6 +1,6 @@
 ---
 title: Agents API
-description: Checkout and account API for HyperClaw inference
+description: Checkout and account API for HyperCLI inference
 ---
 
 ## Base URLs
@@ -22,7 +22,7 @@ Vendored docs copy: [agents-openapi.json](/agents-openapi.json)
 
 ## Auth Modes
 
-- Inference endpoints (`/v1/*`): `Authorization: Bearer sk-...`
+- Inference endpoints (`/v1/*`): `Authorization: Bearer hyper_api_...`
 - Account endpoints (`/api/*`): `Authorization: Bearer <jwt>`
 - x402 checkout (`/agents/x402/{plan_id}`): JWT is optional
 
@@ -108,7 +108,7 @@ So exact plan price gives base duration, and higher amounts increase duration pr
 ```json
 {
   "ok": true,
-  "key": "sk-...",
+  "key": "hyper_api_...",
   "plan_id": "basic",
   "amount_paid": "35.000000",
   "duration_days": 30.0,
@@ -193,7 +193,7 @@ Important:
 
 ## Job Tags
 
-HyperClaw's x402 job creation endpoint accepts the same optional `tags` object used by Orchestra jobs:
+HyperCLI's x402 job creation endpoint accepts the same optional `tags` object used by Orchestra jobs:
 
 ```bash
 curl -X POST https://api.hypercli.com/agents/x402/job \

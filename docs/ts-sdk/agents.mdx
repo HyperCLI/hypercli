@@ -1,11 +1,11 @@
 ---
 title: Agents And Deployments
-description: Detailed TypeScript SDK guide for HyperClaw deployments, routes, exec, file copy, backend WebSocket shells/logs, and OpenClaw gateway helpers.
+description: Detailed TypeScript SDK guide for HyperCLI deployments, routes, exec, file copy, backend WebSocket shells/logs, and OpenClaw gateway helpers.
 ---
 
 ## Overview
 
-There are two HyperClaw-related namespaces in the TS SDK:
+There are two HyperCLI-related namespaces in the TS SDK:
 
 - `client.agent`
 - `client.deployments`
@@ -20,9 +20,9 @@ The TS SDK splits the product API and agents API cleanly:
 - `apiUrl`
   - main HyperCLI REST API
 - `agentsApiBaseUrl`
-  - HyperClaw deployments REST API
+  - HyperCLI deployments REST API
 - `agentsWsUrl`
-  - HyperClaw backend WS base for shell/logs
+  - HyperCLI backend WS base for shell/logs
 - `client.agent.baseUrl`
   - inference base derived from `agentsApiBaseUrl` by replacing `/api` with `/v1`
 

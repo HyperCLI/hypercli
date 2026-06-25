@@ -1,6 +1,6 @@
 ---
 title: Python SDK
-description: Detailed guide to the Python SDK for jobs, renders, HyperClaw account data, agent lifecycle, shell/log streams, and OpenClaw gateway sessions.
+description: Detailed guide to the Python SDK for jobs, renders, HyperCLI account data, agent lifecycle, shell/log streams, and OpenClaw gateway sessions.
 ---
 
 ## Install
@@ -28,7 +28,7 @@ The Python SDK has two distinct halves:
   - keys
   - user
   - voice
-- HyperClaw / agent APIs
+- HyperCLI / agent APIs
   - `client.agent` for plan and model metadata
   - `client.deployments` for agent lifecycle and runtime access
 
@@ -37,7 +37,7 @@ from hypercli import HyperCLI
 
 client = HyperCLI(
     api_key="hyper_...",      # main HyperCLI API key
-    agent_api_key="sk-...",   # optional agent-scoped key
+    agent_api_key="hyper_api_...",   # optional agent-scoped key
 )
 ```
 
@@ -57,7 +57,7 @@ Common environment variables:
 - `AGENTS_API_BASE_URL`
 - `AGENTS_WS_URL`
 
-Use `agent_api_key` when your HyperClaw key is different from your main HyperCLI key. Product APIs use `HYPER_API_KEY`; agent lifecycle/inference surfaces prefer `HYPER_AGENTS_API_KEY` and fall back to the product key.
+Use `agent_api_key` when your HyperCLI key is different from your main HyperCLI key. Product APIs use `HYPER_API_KEY`; agent lifecycle/inference surfaces prefer `HYPER_AGENTS_API_KEY` and fall back to the product key.
 
 ## Main Namespaces
 
@@ -72,7 +72,7 @@ Use `agent_api_key` when your HyperClaw key is different from your main HyperCLI
 - `client.user`
 - `client.voice`
 
-### HyperClaw
+### HyperCLI
 
 - `client.agent`
   - plans
@@ -100,8 +100,8 @@ agent = client.deployments.create_openclaw(
 )
 
 agent = agent.wait_running(timeout=300)
-print(agent.public_url)   # https://docs-demo.hyperclaw.app
-print(agent.desktop_url)  # https://desktop-docs-demo.hyperclaw.app
+print(agent.public_url)   # https://docs-demo.hypercli.app
+print(agent.desktop_url)  # https://desktop-docs-demo.hypercli.app
 ```
 
 ## Current Agent Route Model
@@ -144,7 +144,7 @@ because the SDK falls back to `/api/flow/*` when auth introspection is denied.
 Voice helpers go through the current `/agents/voice/*` surface:
 
 ```python
-audio = client.voice.tts("Hello from HyperClaw", voice="Chelsie", response_format="mp3")
+audio = client.voice.tts("Hello from HyperCLI", voice="Chelsie", response_format="mp3")
 
 with open("hello.mp3", "wb") as f:
     f.write(audio)

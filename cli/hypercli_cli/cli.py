@@ -103,8 +103,8 @@ app.command("launch", help="Launch a GPU instance")(instances.launch)
 
 @config_app.command("openclaw")
 def config_openclaw_cmd(
-    key: str = typer.Option(None, "--key", "-k", help="API key. Falls back to ~/.hypercli/agent-key.json"),
-    base_url: str = typer.Option(None, "--base-url", help="HyperClaw API base URL. Falls back to HYPER_API_BASE, then --dev/prod defaults"),
+    key: str = typer.Option(None, "--key", "-k", help="API key. Uses ~/.hypercli/agent-key.json when omitted"),
+    base_url: str = typer.Option(None, "--base-url", help="HyperCLI API base URL. Uses HYPER_API_BASE or prod/dev defaults when omitted"),
     placeholder_env: str = typer.Option(None, "--placeholder-env", help="Write ${ENV_VAR} placeholders into generated config instead of literal API keys"),
     apply: bool = typer.Option(False, "--apply", help="Write directly to ~/.openclaw/openclaw.json"),
     dev: bool = typer.Option(False, "--dev", help="Use dev API"),
@@ -112,6 +112,25 @@ def config_openclaw_cmd(
     """Generate or apply OpenClaw config."""
     agent.config_cmd(
         format="openclaw",
+        key=key,
+        base_url=base_url,
+        placeholder_env=placeholder_env,
+        apply=apply,
+        dev=dev,
+    )
+
+
+@config_app.command("opencode")
+def config_opencode_cmd(
+    key: str = typer.Option(None, "--key", "-k", help="API key. Uses ~/.hypercli/agent-key.json when omitted"),
+    base_url: str = typer.Option(None, "--base-url", help="HyperCLI API base URL. Uses HYPER_API_BASE or prod/dev defaults when omitted"),
+    placeholder_env: str = typer.Option(None, "--placeholder-env", help="Write {env:ENV_VAR} placeholders into generated config instead of literal API keys"),
+    apply: bool = typer.Option(False, "--apply", help="Write directly to ./opencode.json"),
+    dev: bool = typer.Option(False, "--dev", help="Use dev API"),
+):
+    """Generate or apply OpenCode config."""
+    agent.config_cmd(
+        format="opencode",
         key=key,
         base_url=base_url,
         placeholder_env=placeholder_env,
@@ -282,7 +301,7 @@ def main(
         hyper instances list      Browse available GPUs
         hyper instances launch    Launch a GPU instance
         hyper jobs list           View your running jobs
-        hyper agent plans         View HyperClaw plans
+        hyper agent plans         View HyperCLI plans
     """
     if version:
         from . import __version__

@@ -1,4 +1,4 @@
-"""HyperClaw Voice API commands — TTS, clone, design"""
+"""HyperCLI Voice API commands — TTS, clone, design"""
 import json
 import os
 from datetime import datetime, timezone
@@ -123,7 +123,7 @@ def tts(
     format: str = typer.Option("mp3", "--format", "-f", help="Output format: wav, mp3, opus, ogg, flac"),
     output: Path = typer.Option(None, "--output", "-o", help="Output audio file (default: output.<format>)"),
     timeout: float | None = typer.Option(None, "--timeout", help="Voice request timeout in seconds"),
-    key: str = typer.Option(None, "--key", "-k", help="API key (sk-...)"),
+    key: str = typer.Option(None, "--key", "-k", help="API key (hyper_api_...)"),
     base_url: str = typer.Option(None, "--base-url", "-b", help="API base URL (default: api.hypercli.com)"),
 ):
     """Generate speech from text using a preset voice.
@@ -157,7 +157,7 @@ def clone(
     format: str = typer.Option("mp3", "--format", "-f", help="Output format: wav, mp3, opus, ogg, flac"),
     output: Path = typer.Option(None, "--output", "-o", help="Output audio file (default: output.<format>)"),
     timeout: float | None = typer.Option(None, "--timeout", help="Voice request timeout in seconds"),
-    key: str = typer.Option(None, "--key", "-k", help="API key (sk-...)"),
+    key: str = typer.Option(None, "--key", "-k", help="API key (hyper_api_...)"),
     base_url: str = typer.Option(None, "--base-url", "-b", help="API base URL (default: api.hypercli.com)"),
 ):
     """Clone a voice from reference audio.
@@ -197,7 +197,7 @@ def design(
     format: str = typer.Option("mp3", "--format", "-f", help="Output format: wav, mp3, opus, ogg, flac"),
     output: Path = typer.Option(None, "--output", "-o", help="Output audio file (default: output.<format>)"),
     timeout: float | None = typer.Option(None, "--timeout", help="Voice request timeout in seconds"),
-    key: str = typer.Option(None, "--key", "-k", help="API key (sk-...)"),
+    key: str = typer.Option(None, "--key", "-k", help="API key (hyper_api_...)"),
     base_url: str = typer.Option(None, "--base-url", "-b", help="API base URL (default: api.hypercli.com)"),
 ):
     """Design a voice from a text description.

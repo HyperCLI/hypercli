@@ -1,4 +1,4 @@
-# HyperClaw Dashboard Redesign — Design Document
+# HyperCLI Dashboard Redesign — Design Document
 
 **Date:** 2026-03-02
 **Status:** Approved

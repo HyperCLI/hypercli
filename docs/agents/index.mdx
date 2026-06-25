@@ -20,7 +20,7 @@ Agents are ideal for running autonomous AI workflows, development environments, 
 Client (CLI / SDK)
     │
     ▼
-HyperClaw Backend API (api.hypercli.com)
+HyperCLI Backend API (api.hypercli.com)
     │  Auth, plan enforcement, DB persistence
     ▼
 Lagoon (pod orchestrator)
@@ -31,7 +31,7 @@ Agent containers on Kubernetes
     └── OpenClaw Gateway (WebSocket RPC v3)
 ```
 
-The HyperClaw backend handles authentication and plan enforcement. It proxies lifecycle commands to **Lagoon**, which orchestrates `hypercli-openclaw` agent containers on the underlying Kubernetes cluster.
+The HyperCLI backend handles authentication and plan enforcement. It proxies lifecycle commands to **Lagoon**, which orchestrates `hypercli-openclaw` agent containers on the underlying Kubernetes cluster.
 
 ## Hostnames
 
@@ -39,9 +39,9 @@ Each agent gets a root gateway host plus optional prefixed routes:
 
 | Service  | URL Pattern                              | Protocol   |
 |----------|------------------------------------------|------------|
-| Gateway  | `wss://{name}.hypercli.com`             | WebSocket  |
-| Desktop  | `https://desktop-{name}.hypercli.com`   | HTTPS/noVNC |
-| Custom   | `https://{prefix}-{name}.hypercli.com`  | HTTPS/WSS  |
+| Gateway  | `wss://{name}.hypercli.app`             | WebSocket  |
+| Desktop  | `https://desktop-{name}.hypercli.app`   | HTTPS/noVNC |
+| Custom   | `https://{prefix}-{name}.hypercli.app`  | HTTPS/WSS  |
 
 Current auth split:
 
@@ -77,7 +77,7 @@ Agent health is monitored via **app-level ping/pong** over the Lagoon log ingest
 
 ## Resources
 
-HyperClaw billing now has two additive ledgers:
+HyperCLI billing now has two additive ledgers:
 
 - **Inference** pools across all active entitlements
 - **Agents** are tracked as exact-tier slots (`small`, `medium`, `large`)

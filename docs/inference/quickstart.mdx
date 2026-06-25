@@ -1,6 +1,6 @@
 ---
 title: Quickstart
-description: Subscribe to HyperClaw and start making requests in minutes
+description: Subscribe to HyperCLI and start making requests in minutes
 ---
 
 ## Option 1: Web Dashboard (Easiest)
@@ -27,14 +27,14 @@ Go to [API Keys](https://agents.hypercli.com/dashboard/keys) and click **Create 
 
 ### 4. Make a Request
 
-Use the Anthropic Messages API as the default endpoint for chat models. HyperClaw also supports the OpenAI-compatible API at `/v1`, but tool calling quality is better with the Anthropic format.
+Use the Anthropic Messages API as the default endpoint for chat models. HyperCLI also supports the OpenAI-compatible API at `/v1`, but tool calling quality is better with the Anthropic format.
 
 ```bash
-export HYPERCLAW_API_KEY="sk-..."
+export HYPER_AGENTS_API_KEY="hyper_api_..."
 
 curl https://api.hypercli.com/v1/messages \
-  -H "Authorization: Bearer $HYPERCLAW_API_KEY" \
-  -H "x-api-key: $HYPERCLAW_API_KEY" \
+  -H "Authorization: Bearer $HYPER_AGENTS_API_KEY" \
+  -H "x-api-key: $HYPER_AGENTS_API_KEY" \
   -H "anthropic-version: 2023-06-01" \
   -H "Content-Type: application/json" \
   -d '{
@@ -62,7 +62,7 @@ Or with Python:
 from openai import OpenAI
 
 client = OpenAI(
-    api_key="sk-...",
+    api_key="hyper_api_...",
     base_url="https://api.hypercli.com/v1"
 )
 
@@ -73,7 +73,7 @@ response = client.chat.completions.create(
 print(response.choices[0].message.content)
 ```
 
-`hyper config openclaw --apply` configures OpenClaw to use the single `hyperclaw` provider plus the `/v1` memory-search remote automatically.
+`hyper config openclaw --apply` configures OpenClaw to use the single `hypercli` provider plus the `/v1` memory-search remote automatically.
 
 ## Option 2: CLI
 
@@ -130,7 +130,7 @@ See the [x402 wallet guide](/agents/x402-wallet) for the full flow.
 
 ```bash
 curl https://api.hypercli.com/v1/models \
-  -H "Authorization: Bearer $HYPERCLAW_API_KEY"
+  -H "Authorization: Bearer $HYPER_AGENTS_API_KEY"
 ```
 
 ### Check Your Entitlements

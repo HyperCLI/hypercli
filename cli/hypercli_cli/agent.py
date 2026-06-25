@@ -49,7 +49,7 @@ PROD_INFERENCE_API_BASE = "https://api.agents.hypercli.com"
 def require_x402_deps():
     """Check if x402 dependencies are installed"""
     if not X402_AVAILABLE:
-        console.print("[red]❌ HyperClaw commands require wallet dependencies[/red]")
+        console.print("[red]❌ HyperCLI commands require wallet dependencies[/red]")
         console.print("\nInstall with:")
         console.print("  [bold]pip install 'hypercli-cli[wallet]'[/bold]")
         raise typer.Exit(1)
@@ -68,7 +68,7 @@ def _resolve_agent_query_key() -> str:
                 return key
         except Exception:
             pass
-    console.print("[red]❌ No HyperClaw API key found.[/red]")
+    console.print("[red]❌ No HyperCLI API key found.[/red]")
     console.print(
         "Set HYPER_AGENTS_API_KEY or HYPER_API_KEY, or subscribe first with [bold]hyper agent subscribe[/bold]."
     )
@@ -96,7 +96,7 @@ def subscribe(
         help="Current keystore passphrase. Skips interactive prompt.",
     ),
 ):
-    """Subscribe to a HyperClaw plan via x402 payment.
+    """Subscribe to a HyperCLI plan via x402 payment.
 
     Duration scales with payment amount (basic: $25 = 32 days):
       - $25 → 32 days
@@ -115,8 +115,7 @@ def subscribe(
     from hypercli.config import get_api_url
 
     api_base = get_api_url().rstrip("/")
-
-    console.print(f"\n[bold]Subscribing to HyperClaw plan: {plan_id}[/bold]\n")
+    console.print(f"\n[bold]Subscribing to HyperCLI plan: {plan_id}[/bold]\n")
     console.print(f"API: {api_base}")
     if amount:
         console.print(f"Custom amount: [bold]${amount} USDC[/bold]")
@@ -355,10 +354,10 @@ async def _resolve_plan_purchase_url(
 
 @app.command("status")
 def status():
-    """Show current HyperClaw key status"""
+    """Show current HyperCLI key status"""
 
     if not AGENT_KEY_PATH.exists():
-        console.print("[yellow]No HyperClaw key found.[/yellow]")
+        console.print("[yellow]No HyperCLI key found.[/yellow]")
         console.print("Subscribe with: [bold]hyper agent subscribe <aiu>[/bold]")
         raise typer.Exit(0)
 
@@ -371,8 +370,7 @@ def status():
     time_left = expires_at - now
     days_left = time_left.days
     hours_left = time_left.seconds // 3600
-
-    console.print("\n[bold]HyperClaw Subscription Status[/bold]\n")
+    console.print("\n[bold]HyperCLI Subscription Status[/bold]\n")
     console.print(f"Plan: [bold]{key_data['plan_id']}[/bold]")
     console.print(f"Key: [dim]{key_data['key'][:20]}...[/dim]")
 
@@ -402,8 +400,10 @@ def status():
 
 
 @app.command("plans")
-def plans(dev: bool = typer.Option(False, "--dev", help="Use dev API")):
-    """List available HyperClaw plans"""
+def plans(
+    dev: bool = typer.Option(False, "--dev", help="Use dev API")
+):
+    """List available HyperCLI plans"""
     import httpx
 
     api_base = DEV_API_BASE if dev else PROD_API_BASE
@@ -416,8 +416,7 @@ def plans(dev: bool = typer.Option(False, "--dev", help="Use dev API")):
     except Exception as e:
         console.print(f"[red]❌ Failed to fetch plans: {e}[/red]")
         raise typer.Exit(1)
-
-    table = Table(title="HyperClaw Plans")
+    table = Table(title="HyperCLI Plans")
     table.add_column("Plan ID", style="cyan")
     table.add_column("Name", style="green")
     table.add_column("Price", style="yellow")
@@ -447,7 +446,7 @@ def current_plan(
     dev: bool = typer.Option(False, "--dev", help="Use dev API"),
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
 ):
-    """Show the effective current HyperClaw plan."""
+    """Show the effective current HyperCLI plan."""
     client = _get_agent_query_client(dev)
     current = client.agent.current_plan()
 
@@ -455,7 +454,7 @@ def current_plan(
         console.print_json(json.dumps(current.__dict__, indent=2, default=str))
         return
 
-    console.print("\n[bold]Current HyperClaw Plan[/bold]\n")
+    console.print("\n[bold]Current HyperCLI Plan[/bold]\n")
     console.print(f"Plan: [bold]{current.name}[/bold] ({current.id})")
     console.print(f"TPM/RPM: {current.tpm_limit:,} / {current.rpm_limit:,}")
     if current.pooled_tpd:
@@ -481,7 +480,7 @@ def subscriptions(
     dev: bool = typer.Option(False, "--dev", help="Use dev API"),
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
 ):
-    """List your HyperClaw subscriptions/entitlements."""
+    """List your HyperCLI subscriptions/entitlements."""
     client = _get_agent_query_client(dev)
     items = client.agent.subscriptions()
 
@@ -491,7 +490,7 @@ def subscriptions(
         )
         return
 
-    table = Table(title="HyperClaw Subscriptions")
+    table = Table(title="HyperCLI Subscriptions")
     table.add_column("ID", style="cyan")
     table.add_column("Plan", style="green")
     table.add_column("Qty", justify="right")
@@ -519,7 +518,7 @@ def subscription_summary(
     dev: bool = typer.Option(False, "--dev", help="Use dev API"),
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
 ):
-    """Show your effective HyperClaw entitlement summary."""
+    """Show your effective HyperCLI entitlement summary."""
     client = _get_agent_query_client(dev)
     summary = client.agent.subscription_summary()
 
@@ -546,7 +545,7 @@ def subscription_summary(
         )
         return
 
-    console.print("\n[bold]HyperClaw Entitlement Summary[/bold]\n")
+    console.print("\n[bold]HyperCLI Entitlement Summary[/bold]\n")
     console.print(f"Effective plan: [bold]{summary.effective_plan_id}[/bold]")
     console.print(f"Current subscription: {summary.current_subscription_id or ''}")
     console.print(
@@ -572,7 +571,7 @@ def activate_code(
     ),
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
 ):
-    """Redeem a HyperClaw activation code for the current account."""
+    """Redeem a HyperCLI activation code for the current account."""
     client = _get_agent_query_client(dev)
     result = client.agent.redeem_grant_code(
         code,
@@ -585,7 +584,7 @@ def activate_code(
 
     grant = result.get("grant") or {}
     entitlement = result.get("entitlement") or {}
-    console.print("\n[bold]HyperClaw Code Activated[/bold]\n")
+    console.print("\n[bold]HyperCLI Code Activated[/bold]\n")
     console.print(f"Code: [bold]{grant.get('code') or code}[/bold]")
     console.print(
         f"Plan: [bold]{entitlement.get('plan_name') or entitlement.get('plan_id') or grant.get('plan_id') or ''}[/bold]"
@@ -604,7 +603,7 @@ def models(
     dev: bool = typer.Option(False, "--dev", help="Use dev API"),
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
 ):
-    """List available HyperClaw models."""
+    """List available HyperCLI models."""
     import httpx
 
     api_base = DEV_API_BASE if dev else PROD_API_BASE
@@ -647,7 +646,7 @@ def models(
         console.print_json(json.dumps({"models": models_data}))
         return
 
-    table = Table(title="HyperClaw Models")
+    table = Table(title="HyperCLI Models")
     table.add_column("Model ID", style="cyan")
     table.add_column("Context", style="blue")
     table.add_column("Vision", style="green")
@@ -672,7 +671,7 @@ def models(
 def login(
     api_url: str = typer.Option(None, "--api-url", help="API base URL override"),
 ):
-    """Login to HyperClaw with your wallet.
+    """Login to HyperCLI with your wallet.
 
     Signs a challenge message with your wallet key to authenticate,
     then creates a user-bound API key for agent management.
@@ -688,7 +687,7 @@ def login(
     After login, you can use:
       hyper agents create    Launch an OpenClaw agent pod
       hyper agents list      List your agents
-      hyper agent config      Generate provider configs
+      hyper config openclaw  Generate OpenClaw provider config
     """
     try:
         from eth_account.messages import encode_defunct
@@ -815,7 +814,7 @@ def _resolve_api_base(base_url: str | None = None, dev: bool = False) -> str:
 
 
 def fetch_models(api_key: str, api_base: str = PROD_INFERENCE_API_BASE) -> list[dict]:
-    """Fetch available models from LiteLLM /v1/models (served by HyperClaw)."""
+    """Fetch available models from LiteLLM /v1/models (served by HyperCLI)."""
     import httpx
 
     def _infer_mode(model_id: str) -> str | None:
@@ -968,19 +967,19 @@ def openclaw_setup(
     default: bool = typer.Option(
         False,
         "--default",
-        help="Set hyperclaw/kimi-k2.6-anthropic as the default model",
+        help="Set hypercli/kimi-k2.6-anthropic as the default model",
     ),
 ):
-    """Patch OpenClaw config with your HyperClaw API key.
+    """Patch OpenClaw config with your HyperCLI API key.
 
     Reads key from ~/.hypercli/agent-key.json, patches only the
-    models.providers.hyperclaw section in ~/.openclaw/openclaw.json.
+    models.providers.hypercli section in ~/.openclaw/openclaw.json.
     Everything else in the config is left untouched.
     """
 
-    # Load HyperClaw key
+    # Load HyperCLI key
     if not AGENT_KEY_PATH.exists():
-        console.print("[red]❌ No HyperClaw key found.[/red]")
+        console.print("[red]❌ No HyperCLI key found.[/red]")
         console.print("Run: [bold]hyper agent subscribe basic <amount>[/bold]")
         raise typer.Exit(1)
 
@@ -1005,7 +1004,7 @@ def openclaw_setup(
         if not model_cfg and "model" in defaults:
             defaults.pop("model", None)
 
-    _deep_merge(config, snippet)
+    config = _merge_openclaw_config(config, snippet)
 
     # Write back
     OPENCLAW_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -1029,7 +1028,7 @@ def openclaw_setup(
 
 
 # ---------------------------------------------------------------------------
-# hyper agent config — generate / apply provider configs for various tools
+# hyper config — generate / apply provider configs for various tools
 # ---------------------------------------------------------------------------
 
 
@@ -1043,7 +1042,7 @@ def _resolve_api_key(key: str | None) -> str:
         if k:
             return k
     console.print("[red]❌ No API key found.[/red]")
-    console.print("Either pass [bold]--key sk-...[/bold] or subscribe first:")
+    console.print("Either pass [bold]--key hyper_api_...[/bold] or subscribe first:")
     console.print("  [bold]hyper agent subscribe basic[/bold]")
     raise typer.Exit(1)
 
@@ -1089,13 +1088,13 @@ def _config_openclaw(
     provider_models = kimi_models + glm_models + other_chat_models
     embedding_model_id = embedding_models[0]["id"] if embedding_models else None
     primary_model = (
-        f"hyperclaw/{kimi_models[0]['id']}"
+        f"hypercli/{kimi_models[0]['id']}"
         if kimi_models
         else (
-            f"hyperclaw/{glm_models[0]['id']}"
+            f"hypercli/{glm_models[0]['id']}"
             if glm_models
             else (
-                f"hyperclaw/{other_chat_models[0]['id']}" if other_chat_models else None
+                f"hypercli/{other_chat_models[0]['id']}" if other_chat_models else None
             )
         )
     )
@@ -1104,7 +1103,7 @@ def _config_openclaw(
         "models": {
             "mode": "merge",
             "providers": {
-                "hyperclaw": {
+                "hypercli": {
                     # OpenClaw/pi-ai appends /v1/messages for anthropic-messages.
                     "baseUrl": api_base,
                     "apiKey": config_api_key,
@@ -1118,10 +1117,10 @@ def _config_openclaw(
             "defaults": {
                 **({"model": {"primary": primary_model}} if primary_model else {}),
                 "models": {
-                    **{f"hyperclaw/{m['id']}": {"alias": "kimi"} for m in kimi_models},
-                    **{f"hyperclaw/{m['id']}": {"alias": "glm"} for m in glm_models},
+                    **{f"hypercli/{m['id']}": {"alias": "kimi"} for m in kimi_models},
+                    **{f"hypercli/{m['id']}": {"alias": "glm"} for m in glm_models},
                     **{
-                        f"hyperclaw/{m['id']}": {"alias": m["id"].split("-")[0]}
+                        f"hypercli/{m['id']}": {"alias": m["id"].split("-")[0]}
                         for m in other_chat_models
                     },
                 },
@@ -1232,12 +1231,12 @@ def config_cmd(
         None,
         "--key",
         "-k",
-        help="API key (sk-...). Falls back to ~/.hypercli/agent-key.json",
+        help="API key (hyper_api_...). Uses ~/.hypercli/agent-key.json when omitted",
     ),
     base_url: str = typer.Option(
         None,
         "--base-url",
-        help="HyperClaw API base URL. Falls back to HYPER_API_BASE, then --dev/prod defaults",
+        help="HyperCLI API base URL. Uses HYPER_API_BASE or prod/dev defaults when omitted",
     ),
     placeholder_env: str = typer.Option(
         None,
@@ -1254,12 +1253,11 @@ def config_cmd(
     """Generate provider configs for OpenClaw, OpenCode, and other tools.
 
     Examples:
-      hyper agent config                          # Show all configs
+      hyper config env                            # Shell export lines
       hyper config openclaw                       # OpenClaw snippet
-      hyper agent config opencode --key sk-...    # OpenCode with explicit key
+      hyper config opencode --key hyper_api_...   # OpenCode with explicit key
       hyper config openclaw --base-url https://api.dev.hypercli.com
       hyper config openclaw --apply               # Write directly to openclaw.json
-      hyper agent config env                      # Shell export lines
     """
     api_key = _resolve_api_key(key)
     api_base = _resolve_api_base(base_url, dev)

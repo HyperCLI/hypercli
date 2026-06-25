@@ -244,7 +244,7 @@ def test_enrich_caption_metadata_builds_hyper_v1_request(monkeypatch, tmp_path):
     class FakeClient:
         chat = type("Chat", (), {"completions": FakeCompletions()})()
 
-    monkeypatch.setattr(memory.llm, "_resolve_api_key", lambda key: "sk-test")
+    monkeypatch.setattr(memory.llm, "_resolve_api_key", lambda key: "hyper_api_test")
     monkeypatch.setattr(memory.llm, "_resolve_api_base", lambda base_url: "https://api.hyper.test")
     monkeypatch.setattr(memory.llm, "_resolve_default_model", lambda api_key, api_base: "kimi-test")
     monkeypatch.setattr(memory.llm, "_get_openai_client", lambda api_key, api_base: FakeClient())
@@ -285,7 +285,7 @@ def test_enrich_caption_metadata_rejects_empty_enrichment(monkeypatch, tmp_path)
     class FakeClient:
         chat = type("Chat", (), {"completions": FakeCompletions()})()
 
-    monkeypatch.setattr(memory.llm, "_resolve_api_key", lambda key: "sk-test")
+    monkeypatch.setattr(memory.llm, "_resolve_api_key", lambda key: "hyper_api_test")
     monkeypatch.setattr(memory.llm, "_resolve_api_base", lambda base_url: "https://api.hyper.test")
     monkeypatch.setattr(memory.llm, "_resolve_default_model", lambda api_key, api_base: "kimi-test")
     monkeypatch.setattr(memory.llm, "_get_openai_client", lambda api_key, api_base: FakeClient())

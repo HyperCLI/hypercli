@@ -1,6 +1,6 @@
 ---
 title: CLI Quickstart
-description: Install the CLI, configure credentials, launch jobs, subscribe to HyperClaw, create an OpenClaw agent, and connect to it.
+description: Install the CLI, configure credentials, launch jobs, subscribe to HyperCLI, create an OpenClaw agent, and connect to it.
 ---
 
 ## Install
@@ -44,7 +44,7 @@ hyper jobs logs <job_id> -f
 hyper jobs shell <job_id>
 ```
 
-## Subscribe To HyperClaw
+## Subscribe To HyperCLI
 
 ```bash
 hyper agent plans
@@ -60,7 +60,7 @@ hyper config openclaw --apply
 ```
 
 `hyper config openclaw --apply` writes `~/.openclaw/openclaw.json` and
-sets `hyperclaw/kimi-k2.5` as the primary coding model.
+sets `hypercli/kimi-k2.5` as the primary coding model.
 
 ## Create An Agent
 
@@ -70,8 +70,8 @@ hyper agents create --name docs-demo --size medium --wait
 
 Current defaults:
 
-- gateway host: `https://docs-demo.hyperclaw.app`
-- desktop host: `https://desktop-docs-demo.hyperclaw.app`
+- gateway host: `https://docs-demo.hypercli.app`
+- desktop host: `https://desktop-docs-demo.hypercli.app`
 
 ## Connect To The Agent
 

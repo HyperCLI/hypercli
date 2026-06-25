@@ -1,11 +1,11 @@
 ---
 title: Inference for Agents
-description: HyperClaw is HyperCLI's inference provider for agent workloads
+description: HyperCLI is HyperCLI's inference provider for agent workloads
 ---
 
-## What HyperClaw Is
+## What HyperCLI Is
 
-HyperClaw is the dedicated inference provider for agentic workloads.
+HyperCLI is the dedicated inference provider for agentic workloads.
 
 - Product site: [https://hypercli.com](https://hypercli.com)
 - Inference API:
@@ -13,7 +13,7 @@ HyperClaw is the dedicated inference provider for agentic workloads.
   - `https://api.hypercli.com/v1` for `openai-completions`
 - Account/Billing API: `https://api.hypercli.com/agents`
 
-Use HyperClaw when your agent needs LLM inference with API keys, subscription plans, and either Anthropic Messages or OpenAI-compatible clients.
+Use HyperCLI when your agent needs LLM inference with API keys, subscription plans, and either Anthropic Messages or OpenAI-compatible clients.
 
 ## Why Agents Use It
 
@@ -27,13 +27,13 @@ Use HyperClaw when your agent needs LLM inference with API keys, subscription pl
 ## Basic Agent Setup
 
 ```bash
-export OPENAI_API_KEY="sk-..."
+export OPENAI_API_KEY="hyper_api_..."
 export OPENAI_BASE_URL="https://api.hypercli.com/v1"
 ```
 
-Then select a HyperClaw model in your agent toolchain.
+Then select a HyperCLI model in your agent toolchain.
 
-- For OpenClaw and agent setups, prefer `hyperclaw/kimi-k2.6-anthropic`.
+- For OpenClaw and agent setups, prefer `hypercli/kimi-k2.6-anthropic`.
 - For direct Anthropic Messages usage, use `kimi-k2.6-anthropic`.
 - For direct OpenAI-compatible usage, use `kimi-k2.6`.
 

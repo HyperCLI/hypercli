@@ -55,7 +55,7 @@ Use `*:*` only for trusted full-access keys. For app keys, prefer narrow combina
 
 For one exact agent, mint a child key through the API or SDK. The reserved exact-agent selector is `agent:<agent-uuid>`. `:` is reserved for built-in resource scopes; use `=` for your own tags such as `customer=acme`. Do not use `agents:<uuid>` or `agent=<name>`.
 
-For HyperClaw routes:
+For HyperCLI routes:
 
 - `models:*` covers `GET /v1/models`
 - subscription voice requests use the `/agents/voice/*` surface and the `voice:*` family

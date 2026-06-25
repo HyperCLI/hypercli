@@ -1,4 +1,4 @@
-"""HyperClaw STT — local speech-to-text via faster-whisper."""
+"""HyperCLI STT — local speech-to-text via faster-whisper."""
 import sys
 from pathlib import Path
 

@@ -48,3 +48,47 @@ def test_top_level_config_openclaw_delegates(monkeypatch):
         "apply": True,
         "dev": True,
     }
+
+
+def test_top_level_config_opencode_delegates(monkeypatch):
+    captured = {}
+
+    def fake_config_cmd(format, key, base_url, placeholder_env, apply, dev):
+        captured.update(
+            {
+                "format": format,
+                "key": key,
+                "base_url": base_url,
+                "placeholder_env": placeholder_env,
+                "apply": apply,
+                "dev": dev,
+            }
+        )
+
+    monkeypatch.setattr("hypercli_cli.cli.agent.config_cmd", fake_config_cmd)
+
+    result = runner.invoke(
+        app,
+        [
+            "config",
+            "opencode",
+            "--apply",
+            "--key",
+            "hyper_api_test",
+            "--base-url",
+            "https://api.dev.hypercli.com",
+            "--placeholder-env",
+            "HYPER_AGENTS_API_KEY",
+            "--dev",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured == {
+        "format": "opencode",
+        "key": "hyper_api_test",
+        "base_url": "https://api.dev.hypercli.com",
+        "placeholder_env": "HYPER_AGENTS_API_KEY",
+        "apply": True,
+        "dev": True,
+    }

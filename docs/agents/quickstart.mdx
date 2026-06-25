@@ -5,7 +5,7 @@ description: Create and control an OpenClaw agent pod in a few commands.
 
 ## Prerequisites
 
-1. A HyperClaw key:
+1. A HyperCLI key:
 
    ```bash
    hyper agent subscribe basic
@@ -21,8 +21,8 @@ description: Create and control an OpenClaw agent pod in a few commands.
 
 | Variable | Description | Default |
 | --- | --- | --- |
-| `HYPERCLAW_API_KEY` | HyperClaw API key used by `hyper agents` | Read from `~/.hypercli/agent-key.json` |
-| `HYPERCLAW_API_BASE` | HyperClaw backend base URL | `https://api.hypercli.com` |
+| `HYPER_AGENTS_API_KEY` | HyperCLI API key used by `hyper agents` | Read from `~/.hypercli/agent-key.json` |
+| `AGENTS_API_BASE_URL` | HyperCLI backend base URL | `https://api.hypercli.com` |
 | `AGENTS_WS_URL` | Backend WebSocket override | Derived automatically |
 
 ## Create An Agent With The CLI
@@ -46,7 +46,7 @@ The CLI supports ID prefix matching from cached state in `~/.hypercli/agents.jso
 import time
 from hypercli import HyperCLI
 
-client = HyperCLI(api_key="...", agent_api_key="sk-...")
+client = HyperCLI(api_key="...", agent_api_key="hyper_api_...")
 
 agent = client.deployments.create_openclaw(name="my-agent", start=True)
 print(agent.id, agent.vnc_url)
@@ -72,7 +72,7 @@ client.deployments.stop(agent.id)
 import asyncio
 from hypercli import HyperCLI
 
-client = HyperCLI(api_key="...", agent_api_key="sk-...")
+client = HyperCLI(api_key="...", agent_api_key="hyper_api_...")
 
 async def main():
     agent = client.deployments.get("your-agent-id")
@@ -81,7 +81,7 @@ async def main():
 
     async with agent.connect() as gw:
         await gw.config_patch({
-            "models": {"providers": {"openai": {"apiKey": "sk-..."}}}
+            "models": {"providers": {"openai": {"apiKey": "hyper_api_..."}}}
         })
 
         async for event in gw.chat_send("What files are in the workspace?"):

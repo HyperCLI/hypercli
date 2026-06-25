@@ -1,4 +1,4 @@
-"""HyperClaw Embed — text embeddings via HyperClaw API."""
+"""HyperCLI Embed — text embeddings via HyperCLI API."""
 import json
 import os
 from pathlib import Path
@@ -7,7 +7,7 @@ import httpx
 import typer
 from rich.console import Console
 
-app = typer.Typer(help="Text embeddings via HyperClaw API (qwen3-embedding-4b)")
+app = typer.Typer(help="Text embeddings via HyperCLI API (qwen3-embedding-4b)")
 console = Console()
 
 HYPERCLI_DIR = Path.home() / ".hypercli"
@@ -29,7 +29,7 @@ def _get_api_key(key: str | None) -> str:
         if k:
             return k
     console.print("[red]❌ No API key found.[/red]")
-    console.print("Pass [bold]--key sk-...[/bold], set [bold]HYPER_API_KEY[/bold], or run [bold]hyper agent subscribe[/bold]")
+    console.print("Pass [bold]--key hyper_api_...[/bold], set [bold]HYPER_API_KEY[/bold], or run [bold]hyper agent subscribe[/bold]")
     raise typer.Exit(1)
 
 
@@ -37,7 +37,7 @@ def _get_api_key(key: str | None) -> str:
 def embed_text(
     text: str = typer.Argument(..., help="Text to embed"),
     model: str = typer.Option("qwen3-embedding-4b", "--model", "-m", help="Embedding model"),
-    key: str = typer.Option(None, "--key", "-k", help="API key (sk-...)"),
+    key: str = typer.Option(None, "--key", "-k", help="API key (hyper_api_...)"),
     dev: bool = typer.Option(False, "--dev", help="Use dev API"),
     json_output: bool = typer.Option(False, "--json", help="Output full JSON response"),
     output: Path = typer.Option(None, "--output", "-o", help="Write embeddings to file"),
@@ -89,7 +89,7 @@ def embed_text(
 
 @app.command("test")
 def embed_test(
-    key: str = typer.Option(None, "--key", "-k", help="API key (sk-...)"),
+    key: str = typer.Option(None, "--key", "-k", help="API key (hyper_api_...)"),
     dev: bool = typer.Option(False, "--dev", help="Use dev API"),
 ):
     """Quick test to verify embedding endpoint works.

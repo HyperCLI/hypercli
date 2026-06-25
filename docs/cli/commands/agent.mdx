@@ -1,9 +1,9 @@
 ---
 title: hyper agent
-description: Detailed reference for HyperClaw account, subscription, config, onboarding, and local audio commands.
+description: Detailed reference for HyperCLI account, subscription, config, onboarding, and local audio commands.
 ---
 
-`hyper agent` is the account and local-tooling surface for HyperClaw.
+`hyper agent` is the account and local-tooling surface for HyperCLI.
 
 Use it for:
 
@@ -29,7 +29,7 @@ Guided flow for:
 
 ### `subscribe`
 
-Subscribe to a HyperClaw plan through the x402 wallet flow.
+Subscribe to a HyperCLI plan through the x402 wallet flow.
 
 ```bash
 hyper agent subscribe basic
@@ -38,7 +38,7 @@ hyper agent subscribe pro 100 --dev
 
 ### `status`
 
-Show the saved HyperClaw key and current plan status.
+Show the saved HyperCLI key and current plan status.
 
 ### `plans`
 
@@ -51,7 +51,7 @@ hyper agent plans --dev
 
 ### `models`
 
-List HyperClaw inference models.
+List HyperCLI inference models.
 
 ```bash
 hyper agent models
@@ -60,7 +60,7 @@ hyper agent models --json
 
 ### `login`
 
-Wallet-based login that creates a user-bound HyperClaw API key and stores it locally.
+Wallet-based login that creates a user-bound HyperCLI API key and stores it locally.
 
 ### `config`
 
@@ -71,16 +71,9 @@ Generate config snippets for:
 - `env`
 
 ```bash
-hyper agent config
-hyper agent config openclaw --apply
-hyper agent config opencode --placeholder-env HYPER_AGENTS_API_KEY
-hyper agent config env
-```
-
-Preferred flat alias:
-
-```bash
 hyper config openclaw --apply
+hyper config opencode --placeholder-env HYPER_AGENTS_API_KEY
+hyper config env
 ```
 
 Without `--apply`, the command prints the generated JSON blob to stdout.
@@ -131,7 +124,7 @@ openclaw gateway restart
 
 ### `openclaw-setup`
 
-Patch `~/.openclaw/openclaw.json` directly using the saved HyperClaw key.
+Patch `~/.openclaw/openclaw.json` directly using the saved HyperCLI key.
 
 ```bash
 hyper agent openclaw-setup
@@ -139,7 +132,7 @@ hyper agent openclaw-setup --default
 ```
 
 With `--default`, the generated OpenClaw config sets the primary coding model to
-`hyperclaw/kimi-k2.5`.
+`hypercli/kimi-k2.5`.
 
 ### `exec` and `shell`
 
@@ -155,7 +148,7 @@ Voice generation helpers.
 
 ### `embed`
 
-Embedding helpers against HyperClaw.
+Embedding helpers against HyperCLI.
 
 ## Files Written By `hyper agent`
 

@@ -1,11 +1,11 @@
 ---
 title: x402 Wallet
-description: Headless x402 checkout for HyperClaw plans using USDC on Base
+description: Headless x402 checkout for HyperCLI plans using USDC on Base
 ---
 
 ## Overview
 
-Use `x402-wallet` when you want to buy HyperClaw agent entitlements without a browser checkout flow.
+Use `x402-wallet` when you want to buy HyperCLI agent entitlements without a browser checkout flow.
 
 - Checkout endpoint: `POST https://api.hypercli.com/agents/x402/{plan_id}`
 - Token: USDC on Base
@@ -43,7 +43,7 @@ curl -X POST https://api.hypercli.com/agents/x402/pro \
 ```json
 {
   "ok": true,
-  "key": "sk-...",
+  "key": "hyper_api_...",
   "plan_id": "pro",
   "amount_paid": "35.000000",
   "duration_days": 30.0,

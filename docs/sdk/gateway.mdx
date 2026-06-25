@@ -36,10 +36,10 @@ This is not the same as browser `/_jwt_auth` route bootstrap.
 from hypercli.gateway import GatewayClient
 
 gw = GatewayClient(
-    url="wss://my-agent.hyperclaw.app",
+    url="wss://my-agent.hypercli.app",
     gateway_token="...",
     deployment_id="agent-id",
-    api_key="sk-...",
+    api_key="hyper_api_...",
     api_base="https://api.hypercli.com/agents",
     auto_approve_pairing=True,
 )
@@ -122,7 +122,7 @@ By default this polls `config.get`, which is a better signal than pod state alon
 ```python
 config = await gw.config_get()
 schema = await gw.config_schema()
-await gw.config_patch({"models": {"providers": {"openai": {"apiKey": "sk-..."}}}})
+await gw.config_patch({"models": {"providers": {"openai": {"apiKey": "hyper_api_..."}}}})
 await gw.config_apply(config)
 ```
 

@@ -20,10 +20,10 @@ Use it when you want direct access to:
 import { GatewayClient } from "@hypercli.com/sdk";
 
 const gateway = new GatewayClient({
-  url: "wss://my-agent.hyperclaw.app",
+  url: "wss://my-agent.hypercli.app",
   gatewayToken: "...",
   deploymentId: "agent-id",
-  apiKey: "sk-...",
+  apiKey: "hyper_api_...",
   apiBase: "https://api.hypercli.com/agents",
   autoApprovePairing: true,
 });
@@ -101,7 +101,7 @@ await gateway.configSchema();
 await gateway.configPatch({
   models: {
     providers: {
-      openai: { apiKey: "sk-..." },
+      openai: { apiKey: "hyper_api_..." },
     },
   },
 });

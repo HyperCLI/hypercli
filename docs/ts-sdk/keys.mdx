@@ -7,7 +7,7 @@ description: Generate API keys from TypeScript apps, including narrowed scoped k
 
 Use `client.keys` to manage account API keys from TypeScript apps.
 
-The public `/api/keys` surface is Orchestra-authoritative. HyperClaw proxies and caches key state, but the issued keys themselves live in Orchestra.
+The public `/api/keys` surface is Orchestra-authoritative. HyperCLI proxies and caches key state, but the issued keys themselves live in Orchestra.
 
 ```ts
 import { HyperCLI } from "@hypercli.com/sdk";
@@ -71,7 +71,7 @@ That key can be handed to your own backend, frontend proxy, or worker app.
 
 New keys are deny-by-default unless tags are supplied. Use `*:*` only for trusted full-access keys or legacy migration.
 
-For HyperClaw inference and voice:
+For HyperCLI inference and voice:
 
 - `models:*` is enough for `GET /v1/models`
 - `voice:*` is the public voice family contract for `/agents/voice/*`

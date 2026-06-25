@@ -1,6 +1,6 @@
 # hypercli-cli
 
-Command-line interface for HyperCLI jobs, flows, x402 pay-per-use launches, and HyperClaw checkout tooling.
+Command-line interface for HyperCLI jobs, flows, x402 pay-per-use launches, and HyperCLI checkout tooling.
 
 ## Install
 
@@ -38,11 +38,11 @@ hyper instances launch nvidia/cuda:12.6.3-base-ubuntu22.04 -g l4 -c "nvidia-smi"
 hyper flow text-to-image "a cinematic portrait"
 hyper flow text-to-image "a cinematic portrait" --x402
 
-# HyperClaw checkout/config
+# HyperCLI checkout/config
 hyper agent plans
 hyper agent subscribe basic
 hyper agent activate-code PROMO123
-hyper agent config env
+hyper config env
 hyper agent exec <agent_id> "ls -la"
 hyper agent shell <agent_id>
 ```
@@ -50,4 +50,4 @@ hyper agent shell <agent_id>
 ## Notes
 
 - `hyper llm` command surface has been removed.
-- For inference setup, use HyperClaw (`hyper agent config ...`) and your agent/client's OpenAI-compatible configuration.
+- For inference setup, use HyperCLI (`hyper config ...`) and your agent/client's OpenAI-compatible configuration.

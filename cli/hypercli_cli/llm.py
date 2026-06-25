@@ -1,4 +1,4 @@
-"""Basic LLM chat commands via the OpenAI-compatible HyperClaw surface."""
+"""Basic LLM chat commands via the OpenAI-compatible HyperCLI surface."""
 from __future__ import annotations
 
 import json

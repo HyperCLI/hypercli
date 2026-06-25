@@ -135,7 +135,7 @@ def test_agent_activate_code_redeems_via_sdk(monkeypatch):
     result = runner.invoke(app, ["agent", "activate-code", "promo-123"])
 
     assert result.exit_code == 0
-    assert "HyperClaw Code Activated" in result.output
+    assert "HyperCLI Code Activated" in result.output
     assert "promo-123" in result.output
     assert "Basic" in result.output
 

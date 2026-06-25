@@ -1,16 +1,16 @@
 ---
 title: Agent Integrations
-description: Configure your AI agent or coding tool to use HyperClaw as an LLM provider
+description: Configure your AI agent or coding tool to use HyperCLI as an LLM provider
 ---
 
-HyperClaw exposes two chat surfaces:
+HyperCLI exposes two chat surfaces:
 
 - **Primary recommended:** Anthropic Messages API at `https://api.hypercli.com`
 - **Compatibility option:** OpenAI-compatible API at `https://api.hypercli.com/v1`
 
 For chat models, prefer the Anthropic Messages format. The OpenAI-compatible endpoint works well for broad tool compatibility, but tool calling quality is better with the Anthropic format.
  
-`hyper config openclaw --apply` already configures the `hyperclaw` provider and the `/v1` memory-search remote automatically.
+`hyper config openclaw --apply` already configures the `hypercli` provider and the `/v1` memory-search remote automatically.
 
 ## Anthropic Messages API
 
@@ -18,7 +18,7 @@ Use this when your tool or SDK supports Anthropic-compatible providers:
 
 ```bash
 curl https://api.hypercli.com/v1/messages \
-  -H "x-api-key: sk-YOUR-API-KEY" \
+  -H "x-api-key: hyper_api_YOUR_API_KEY" \
   -H "anthropic-version: 2023-06-01" \
   -H "content-type: application/json" \
   -d '{
@@ -39,7 +39,7 @@ Use the OpenAI-compatible `/v1` endpoint below only when your integration requir
 
 ## OpenCode
 
-Add HyperClaw as a provider in your `opencode.json` (or `.opencode.json`):
+Add HyperCLI as a provider in your `opencode.json` (or `.opencode.json`):
 
 ```json
 {
@@ -80,16 +80,16 @@ options.
 
 ## OpenClaw
 
-Add a `hyperclaw` provider in `~/.openclaw/openclaw.json` under `models.providers`:
+Add a `hypercli` provider in `~/.openclaw/openclaw.json` under `models.providers`:
 
 ```json
 {
   "models": {
     "mode": "merge",
     "providers": {
-      "hyperclaw": {
+      "hypercli": {
         "baseUrl": "https://api.hypercli.com",
-        "apiKey": "sk-YOUR-API-KEY",
+        "apiKey": "hyper_api_YOUR_API_KEY",
         "api": "anthropic-messages",
         "authHeader": true,
         "models": [
@@ -111,7 +111,7 @@ Add a `hyperclaw` provider in `~/.openclaw/openclaw.json` under `models.provider
         "model": "qwen3-embedding-4b",
         "remote": {
           "baseUrl": "https://api.hypercli.com/v1",
-          "apiKey": "sk-YOUR-API-KEY"
+          "apiKey": "hyper_api_YOUR_API_KEY"
         }
       }
     }
@@ -120,7 +120,7 @@ Add a `hyperclaw` provider in `~/.openclaw/openclaw.json` under `models.provider
 ```
 
 For chat, OpenClaw appends `/v1/messages` for `anthropic-messages`, so keep the chat `baseUrl` at `https://api.hypercli.com`, not `.../v1`.
-For the branded HyperClaw setup, use `hyperclaw/kimi-k2.6-anthropic` directly.
+For the branded HyperCLI setup, use `hypercli/kimi-k2.6-anthropic` directly.
 
 If you need compatibility with an older OpenAI-style OpenClaw config, this still works, but it is not recommended for chat:
 
@@ -129,9 +129,9 @@ If you need compatibility with an older OpenAI-style OpenClaw config, this still
   "models": {
     "mode": "merge",
     "providers": {
-      "hyperclaw": {
+      "hypercli": {
         "baseUrl": "https://api.hypercli.com/v1",
-        "apiKey": "sk-YOUR-API-KEY",
+        "apiKey": "hyper_api_YOUR_API_KEY",
         "api": "openai-completions",
         "models": [
           {
@@ -149,17 +149,17 @@ If you need compatibility with an older OpenAI-style OpenClaw config, this still
 }
 ```
 
-Then reference the model as `hyperclaw/kimi-k2.6-anthropic` in your agent config, or set it as primary:
+Then reference the model as `hypercli/kimi-k2.6-anthropic` in your agent config, or set it as primary:
 
 ```json
 {
   "agents": {
     "defaults": {
       "model": {
-        "primary": "hyperclaw/kimi-k2.6-anthropic"
+        "primary": "hypercli/kimi-k2.6-anthropic"
       },
       "models": {
-        "hyperclaw/kimi-k2.6-anthropic": {
+        "hypercli/kimi-k2.6-anthropic": {
           "alias": "kimi"
         }
       }
@@ -173,14 +173,14 @@ Then reference the model as `hyperclaw/kimi-k2.6-anthropic` in your agent config
 Use environment variables — no config file needed:
 
 ```bash
-export OPENAI_API_KEY="sk-YOUR-API-KEY"
+export OPENAI_API_KEY="hyper_api_YOUR_API_KEY"
 export OPENAI_BASE_URL="https://api.hypercli.com/v1"
 
 # Claude Code
-claude --model hyperclaw/kimi-k2.6-anthropic
+claude --model hypercli/kimi-k2.6-anthropic
 
 # OpenAI Codex
-codex --model hyperclaw/kimi-k2.6-anthropic
+codex --model hypercli/kimi-k2.6-anthropic
 ```
 
 ## Python (OpenAI SDK)
@@ -189,7 +189,7 @@ codex --model hyperclaw/kimi-k2.6-anthropic
 from openai import OpenAI
 
 client = OpenAI(
-    api_key="sk-YOUR-API-KEY",
+    api_key="hyper_api_YOUR_API_KEY",
     base_url="https://api.hypercli.com/v1"
 )
 
@@ -206,7 +206,7 @@ print(response.choices[0].message.content)
 import OpenAI from 'openai';
 
 const client = new OpenAI({
-  apiKey: 'sk-YOUR-API-KEY',
+  apiKey: 'hyper_api_YOUR_API_KEY',
   baseURL: 'https://api.hypercli.com/v1'
 });
 
@@ -220,7 +220,7 @@ const response = await client.chat.completions.create({
 
 ```bash
 curl https://api.hypercli.com/v1/chat/completions \
-  -H "Authorization: Bearer sk-YOUR-API-KEY" \
+  -H "Authorization: Bearer hyper_api_YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "kimi-k2.6-anthropic",
@@ -232,14 +232,14 @@ curl https://api.hypercli.com/v1/chat/completions \
 ## LiteLLM
 
 Teams and organizations can request pooled inference if they want to put another
-LiteLLM layer in front of HyperClaw for custom agents, internal tools, or AI
+LiteLLM layer in front of HyperCLI for custom agents, internal tools, or AI
 applications.
 
 In that setup:
 
 - your downstream LiteLLM does its own auth, aliases, and routing
-- HyperClaw remains the upstream inference provider
-- you use a normal HyperClaw API key as the upstream credential
+- HyperCLI remains the upstream inference provider
+- you use a normal HyperCLI API key as the upstream credential
 
 You do not need to inject a custom authorization header beyond the normal
 LiteLLM `api_key` field.
@@ -255,7 +255,7 @@ model_list:
     litellm_params:
       model: openai/kimi-k2.6
       api_base: https://api.hypercli.com/v1
-      api_key: sk-YOUR-HYPERCLAW-KEY
+      api_key: hyper_api_YOUR_API_KEY
 
 ```
 
@@ -273,7 +273,7 @@ model_list:
     litellm_params:
       model: anthropic/kimi-k2.6-anthropic
       api_base: https://api.hypercli.com
-      api_key: sk-YOUR-HYPERCLAW-KEY
+      api_key: hyper_api_YOUR_API_KEY
 
 ```
 
@@ -287,13 +287,13 @@ model_list:
     litellm_params:
       model: openai/kimi-k2.6
       api_base: https://api.hypercli.com/v1
-      api_key: sk-YOUR-HYPERCLAW-KEY
+      api_key: hyper_api_YOUR_API_KEY
 
   - model_name: kimi-k2.6-anthropic
     litellm_params:
       model: anthropic/kimi-k2.6-anthropic
       api_base: https://api.hypercli.com
-      api_key: sk-YOUR-HYPERCLAW-KEY
+      api_key: hyper_api_YOUR_API_KEY
 ```
 
 Use the Anthropic-style entries for chat-first agent workloads. Keep the
@@ -310,7 +310,7 @@ Check available models at any time:
 
 ```bash
 curl https://api.hypercli.com/v1/models \
-  -H "Authorization: Bearer sk-YOUR-API-KEY"
+  -H "Authorization: Bearer hyper_api_YOUR_API_KEY"
 ```
 
 ## Base URLs

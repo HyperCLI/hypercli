@@ -1,6 +1,6 @@
 ---
 title: TypeScript SDK
-description: Detailed guide to the TypeScript SDK for jobs, renders, HyperClaw deployments, backend WebSocket shells/logs, and OpenClaw gateway sessions.
+description: Detailed guide to the TypeScript SDK for jobs, renders, HyperCLI deployments, backend WebSocket shells/logs, and OpenClaw gateway sessions.
 ---
 
 ## Install
@@ -19,7 +19,7 @@ Requirements:
 The SDK combines:
 
 - HyperCLI platform REST APIs
-- HyperClaw deployment lifecycle APIs
+- HyperCLI deployment lifecycle APIs
 - backend WebSocket helpers for logs and shells
 - OpenClaw gateway client and convenience wrappers
 
@@ -45,7 +45,7 @@ Platform:
 - `user`
 - `voice`
 
-HyperClaw:
+HyperCLI:
 
 - `agent`
 - `deployments`
@@ -85,7 +85,7 @@ because the SDK falls back to `/api/flow/*` when auth introspection is denied.
 
 ```ts
 const audio = await client.voice.tts({
-  text: "Hello from HyperClaw",
+  text: "Hello from HyperCLI",
   voice: "Chelsie",
   responseFormat: "mp3",
 });
@@ -114,7 +114,7 @@ import { HyperCLI } from "@hypercli.com/sdk";
 
 const client = new HyperCLI({
   apiKey: "hyper_...",
-  agentApiKey: "sk-...",
+  agentApiKey: "hyper_api_...",
 });
 
 const agent = await client.deployments.createOpenClaw({

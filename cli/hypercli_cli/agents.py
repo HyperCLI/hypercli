@@ -1,4 +1,4 @@
-"""HyperClaw deployments CLI."""
+"""HyperCLI deployments CLI."""
 from __future__ import annotations
 
 import json
@@ -22,7 +22,7 @@ DEV_API_BASE = "https://api.dev.hypercli.com"
 _GLOBAL_DEV = False
 _GLOBAL_AGENTS_WS_URL: str | None = None
 
-# Config — uses HyperClaw API key (sk-...) for backend auth
+# Config — uses HyperCLI API key (hyper_api_...) for backend auth
 AGENT_KEY_PATH = Path.home() / ".hypercli" / "agent-key.json"
 STATE_DIR = Path.home() / ".hypercli"
 AGENTS_STATE = STATE_DIR / "agents.json"
@@ -37,7 +37,7 @@ def _default_openclaw_image(image: str | None, config: dict | None = None) -> st
 
 @app.callback()
 def agents_root(
-    dev: bool = typer.Option(False, "--dev", help="Use the dev HyperClaw agents API"),
+    dev: bool = typer.Option(False, "--dev", help="Use the dev HyperCLI agents API"),
     agents_ws_url: str = typer.Option(None, "--agents-ws-url", help="Direct agents WebSocket base URL"),
 ):
     """Global options for agents commands."""
@@ -47,7 +47,7 @@ def agents_root(
 
 
 def _get_agent_api_key() -> str:
-    """Resolve HyperClaw API key from canonical config before legacy key file."""
+    """Resolve HyperCLI API key from canonical config before legacy key file."""
     key = (get_config_agent_api_key() or "").strip()
     if key:
         return key
@@ -57,13 +57,13 @@ def _get_agent_api_key() -> str:
         key = data.get("key", "")
         if key:
             return key
-    console.print("[red]❌ No HyperClaw API key found.[/red]")
+    console.print("[red]❌ No HyperCLI API key found.[/red]")
     console.print("Set HYPER_AGENTS_API_KEY or HYPER_API_KEY, or subscribe: [bold]hyper agent subscribe basic[/bold]")
     raise typer.Exit(1)
 
 
 def _get_deployments_client(agents_ws_url: str | None = None) -> Deployments:
-    """Create a Deployments client using the HyperClaw API key."""
+    """Create a Deployments client using the HyperCLI API key."""
     from hypercli.http import HTTPClient
     api_key = _get_agent_api_key()
     api_base = (
@@ -464,7 +464,7 @@ def web_search_cmd(
     count: int = typer.Option(5, "--count", "-n", min=1, max=20, help="Number of Brave results to request"),
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
 ):
-    """Search the web through the HyperClaw Brave proxy."""
+    """Search the web through the HyperCLI Brave proxy."""
     agents = _get_deployments_client()
     try:
         payload = agents.web_search(query, count=count)
@@ -717,7 +717,7 @@ def shell(
 ):
     """Open an interactive shell on an agent pod (WebSocket PTY).
 
-    Connects via the HyperClaw backend WebSocket proxy. Press Ctrl+] to disconnect.
+    Connects via the HyperCLI backend WebSocket proxy. Press Ctrl+] to disconnect.
     """
     agent_id = _resolve_agent(agent_id)
     agents = _get_deployments_client()
@@ -843,7 +843,7 @@ def logs(
 @app.command("chat")
 def chat(
     agent_id: str = typer.Argument(..., help="Agent ID (or prefix)"),
-    model: str = typer.Option("hyperclaw/kimi-k2.5", "--model", "-m", help="Model to use"),
+    model: str = typer.Option("hypercli/kimi-k2.5", "--model", "-m", help="Model to use"),
 ):
     """Interactive chat with an agent's OpenClaw instance.
 

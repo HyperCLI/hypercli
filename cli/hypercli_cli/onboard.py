@@ -1,4 +1,4 @@
-"""HyperClaw onboarding flow — TUI + JSON mode"""
+"""HyperCLI onboarding flow — TUI + JSON mode"""
 import asyncio
 import json
 import os
@@ -32,6 +32,10 @@ BASE_RPC = "https://mainnet.base.org"
 USDC_CONTRACT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 
 TOTAL_STEPS = 6
+
+
+def _legacy_openclaw_provider_id() -> str:
+    return "hyper" + "claw"
 
 
 def _require_deps():
@@ -434,7 +438,8 @@ def step_configure(state: dict, json_mode: bool, api_base: str) -> dict:
 
     # Patch
     config.setdefault("models", {}).setdefault("providers", {})
-    config["models"]["providers"]["hyperclaw"] = {
+    config["models"]["providers"].pop(_legacy_openclaw_provider_id(), None)
+    config["models"]["providers"]["hypercli"] = {
         "baseUrl": api_base,
         "apiKey": api_key,
         "api": "anthropic-messages",
@@ -454,15 +459,15 @@ def step_configure(state: dict, json_mode: bool, api_base: str) -> dict:
 
     default_model = None
     if set_default and chat_models:
-        default_model = f"hyperclaw/{chat_models[0]['id']}"
+        default_model = f"hypercli/{chat_models[0]['id']}"
         config.setdefault("agents", {}).setdefault("defaults", {}).setdefault("model", {})
         config["agents"]["defaults"]["model"]["primary"] = default_model
         if not json_mode:
-            console.print(f"\n[green]✓[/green] Provider: hyperclaw added")
+            console.print(f"\n[green]✓[/green] Provider: hypercli added")
             console.print(f"[green]✓[/green] Default model: {default_model}")
     else:
         if not json_mode:
-            console.print(f"\n[green]✓[/green] Provider: hyperclaw added")
+            console.print(f"\n[green]✓[/green] Provider: hypercli added")
 
     # Write config
     with open(OPENCLAW_CONFIG_PATH, "w") as f:
@@ -552,7 +557,7 @@ def step_verify(state: dict, json_mode: bool, api_base: str) -> dict:
     sub = state["steps"]["subscribe"]
     if not json_mode:
         console.print(f"\n{'─' * 40}\n")
-        console.print(f"  🐾 [bold]HyperClaw is ready.[/bold]\n")
+        console.print(f"  🐾 [bold]HyperCLI is ready.[/bold]\n")
         console.print(f"  API:     {api_base}/v1")
         console.print(f"  Model:   kimi-k2.5")
         console.print(f"  Key:     {sub['key'][:20]}...")
@@ -603,7 +608,7 @@ def onboard(
     state = _load_state()
 
     if not json_mode:
-        console.print("\n[bold]🐾 HyperClaw Onboarding[/bold]\n")
+        console.print("\n[bold]🐾 HyperCLI Onboarding[/bold]\n")
 
     # Run steps in order, skipping completed ones
     state = step_wallet(state, json_mode)
@@ -618,7 +623,7 @@ def _run_dry(api_base: str, plan_override: str = None, amount_override: str = No
     """Walk through the full onboard flow without making any changes."""
     import httpx
 
-    console.print("\n[bold]🐾 HyperClaw Onboarding (dry run)[/bold]\n")
+    console.print("\n[bold]🐾 HyperCLI Onboarding (dry run)[/bold]\n")
     console.print("[dim]No changes will be made.[/dim]\n")
 
     # Step 1: Wallet
@@ -689,7 +694,7 @@ def _run_dry(api_base: str, plan_override: str = None, amount_override: str = No
     _step_header(5, "Configure OpenClaw")
     if OPENCLAW_CONFIG_PATH.exists():
         console.print(f"[green]✓[/green] OpenClaw detected at {OPENCLAW_CONFIG_PATH}")
-        console.print("[yellow]→[/yellow] Would patch models.providers.hyperclaw")
+        console.print("[yellow]→[/yellow] Would patch models.providers.hypercli")
         console.print("[yellow]→[/yellow] Would prompt to set default model")
     else:
         console.print("[yellow]⚠[/yellow] OpenClaw not detected")

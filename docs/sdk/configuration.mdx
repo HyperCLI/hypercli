@@ -18,10 +18,10 @@ The Python SDK resolves config in this order:
 | --- | --- |
 | `HYPER_API_KEY` | Main HyperCLI API key |
 | `HYPER_API_BASE` | REST API base URL. Defaults to `https://api.hypercli.com` |
-| `HYPER_AGENTS_API_KEY` | Agent-scoped API key for HyperClaw deployment and inference surfaces |
+| `HYPER_AGENTS_API_KEY` | Agent-scoped API key for HyperCLI deployment and inference surfaces |
 | `HYPERCLI_WS_URL` | Optional override for log and shell WebSocket base URLs |
-| `AGENTS_API_BASE_URL` | HyperClaw deployments API base. Defaults to `https://api.hypercli.com/agents` |
-| `AGENTS_WS_URL` | HyperClaw backend WebSocket base for logs and shell. Defaults to `wss://api.agents.hypercli.com/ws` |
+| `AGENTS_API_BASE_URL` | HyperCLI deployments API base. Defaults to `https://api.hypercli.com/agents` |
+| `AGENTS_WS_URL` | HyperCLI backend WebSocket base for logs and shell. Defaults to `wss://api.agents.hypercli.com/ws` |
 
 ## URL Model
 
@@ -36,14 +36,14 @@ The Python SDK now treats the main API and the agents API as separate surfaces:
 - `HYPERCLI_WS_URL`
   - primary WebSocket base for non-agent flows that derive from the main API
 - `AGENTS_API_BASE_URL`
-  - HyperClaw deployments REST base
+  - HyperCLI deployments REST base
   - agent lifecycle
   - files
   - exec
   - desktop tokens
   - deployment metadata
 - `AGENTS_WS_URL`
-  - HyperClaw backend WS base
+  - HyperCLI backend WS base
   - `/logs/{agent_id}`
   - `/shell/{agent_id}`
 
@@ -81,7 +81,7 @@ So the generated provider config should look like:
 {
   "models": {
     "providers": {
-      "hyperclaw": {
+      "hypercli": {
         "baseUrl": "https://api.agents.hypercli.com",
         "api": "anthropic-messages"
       }
@@ -141,7 +141,7 @@ from hypercli import HyperCLI
 client = HyperCLI(
     api_key="hyper_...",
     api_url="https://api.hypercli.com",
-    agent_api_key="sk-...",
+    agent_api_key="hyper_api_...",
     agent_dev=False,
     agents_api_base_url="https://api.hypercli.com/agents",
     agents_ws_url="wss://api.agents.hypercli.com/ws",

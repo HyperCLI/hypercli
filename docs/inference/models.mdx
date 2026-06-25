@@ -1,15 +1,15 @@
 ---
 title: Models
-description: HyperClaw model discovery and usage
+description: HyperCLI model discovery and usage
 ---
 
-Model discovery for inference should use HyperClaw endpoints.
+Model discovery for inference should use HyperCLI endpoints.
 
 ## List Models
 
 ```bash
 curl https://api.hypercli.com/v1/models \
-  -H "Authorization: Bearer sk-..."
+  -H "Authorization: Bearer hyper_api_..."
 ```
 
 `/v1/models` is the discovery route. Scoped keys can allow model discovery with `models:*` even when actual inference is narrowed to one or more exact models.
@@ -18,7 +18,7 @@ curl https://api.hypercli.com/v1/models \
 
 ```bash
 curl https://api.hypercli.com/v1/chat/completions \
-  -H "Authorization: Bearer sk-..." \
+  -H "Authorization: Bearer hyper_api_..." \
   -H "Content-Type: application/json" \
   -d '{
     "model": "kimi-k2.5",
