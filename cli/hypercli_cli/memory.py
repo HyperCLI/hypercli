@@ -69,10 +69,54 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _first_string(parsed: dict[str, Any], keys: list[str]) -> str:
+    for key in keys:
+        value = parsed.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _first_list(parsed: dict[str, Any], keys: list[str]) -> list[Any]:
+    for key in keys:
+        value = parsed.get(key)
+        if isinstance(value, list):
+            return value
+    return []
+
+
 def _normalize_enrichment_payload(parsed: dict[str, Any]) -> dict[str, Any]:
-    short_summary = str(parsed.get("short_summary") or "").strip()
-    long_description = str(parsed.get("long_description") or "").strip()
-    raw_keywords = parsed.get("keywords")
+    nested = parsed.get("metadata") or parsed.get("enrichment") or parsed.get("memory_metadata")
+    if isinstance(nested, dict):
+        parsed = {**nested, **parsed}
+
+    summary = parsed.get("summary")
+    if isinstance(summary, dict):
+        parsed = {**summary, **parsed}
+
+    short_summary = _first_string(
+        parsed,
+        [
+            "short_summary",
+            "shortSummary",
+            "short",
+            "brief_summary",
+            "briefSummary",
+            "summary",
+        ],
+    )
+    long_description = _first_string(
+        parsed,
+        [
+            "long_description",
+            "longDescription",
+            "long",
+            "detailed_summary",
+            "detailedSummary",
+            "description",
+        ],
+    )
+    raw_keywords = _first_list(parsed, ["keywords", "tags", "topics"])
     keywords = []
     if isinstance(raw_keywords, list):
         keywords = [str(keyword).strip() for keyword in raw_keywords if str(keyword).strip()]

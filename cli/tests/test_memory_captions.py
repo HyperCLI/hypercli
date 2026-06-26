@@ -267,6 +267,38 @@ def test_enrich_caption_metadata_builds_hyper_v1_request(monkeypatch, tmp_path):
     assert "Synthetic Video" in captured["messages"][1]["content"]
 
 
+def test_enrichment_normalization_accepts_common_llm_json_variants():
+    import hypercli_cli.memory as memory
+
+    assert memory._normalize_enrichment_payload(
+        {
+            "metadata": {
+                "shortSummary": "Brief.",
+                "longDescription": "Longer.",
+                "tags": ["Creator", " memory "],
+            }
+        }
+    ) == {
+        "short_summary": "Brief.",
+        "long_description": "Longer.",
+        "keywords": ["Creator", "memory"],
+    }
+
+    assert memory._normalize_enrichment_payload(
+        {
+            "summary": {
+                "short": "Short nested summary.",
+                "long": "Long nested description.",
+            },
+            "topics": ["agents"],
+        }
+    ) == {
+        "short_summary": "Short nested summary.",
+        "long_description": "Long nested description.",
+        "keywords": ["agents"],
+    }
+
+
 def test_enrich_caption_metadata_rejects_empty_enrichment(monkeypatch, tmp_path):
     import hypercli_cli.memory as memory
 
