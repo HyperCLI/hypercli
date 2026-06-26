@@ -541,16 +541,16 @@ function nonNegativeIntegerFromConfig(value: unknown, fallback: number): number 
 
 function getMemoryIndexSettings(config: Record<string, unknown> | null | undefined): MemoryIndexSettings {
   const agents = asObject(config?.agents);
-  const defaults = asObject(agents.defaults);
-  const memorySearch = asObject(defaults.memorySearch);
-  const sync = asObject(memorySearch.sync);
+  const defaults = asObject(agents?.defaults);
+  const memorySearch = asObject(defaults?.memorySearch);
+  const sync = asObject(memorySearch?.sync);
   return {
-    enabled: booleanFromConfig(memorySearch.enabled, DEFAULT_MEMORY_INDEX_SETTINGS.enabled),
-    onSessionStart: booleanFromConfig(sync.onSessionStart, DEFAULT_MEMORY_INDEX_SETTINGS.onSessionStart),
-    onSearch: booleanFromConfig(sync.onSearch, DEFAULT_MEMORY_INDEX_SETTINGS.onSearch),
-    watch: booleanFromConfig(sync.watch, DEFAULT_MEMORY_INDEX_SETTINGS.watch),
-    watchDebounceMs: nonNegativeIntegerFromConfig(sync.watchDebounceMs, DEFAULT_MEMORY_INDEX_SETTINGS.watchDebounceMs),
-    intervalMinutes: nonNegativeIntegerFromConfig(sync.intervalMinutes, DEFAULT_MEMORY_INDEX_SETTINGS.intervalMinutes),
+    enabled: booleanFromConfig(memorySearch?.enabled, DEFAULT_MEMORY_INDEX_SETTINGS.enabled),
+    onSessionStart: booleanFromConfig(sync?.onSessionStart, DEFAULT_MEMORY_INDEX_SETTINGS.onSessionStart),
+    onSearch: booleanFromConfig(sync?.onSearch, DEFAULT_MEMORY_INDEX_SETTINGS.onSearch),
+    watch: booleanFromConfig(sync?.watch, DEFAULT_MEMORY_INDEX_SETTINGS.watch),
+    watchDebounceMs: nonNegativeIntegerFromConfig(sync?.watchDebounceMs, DEFAULT_MEMORY_INDEX_SETTINGS.watchDebounceMs),
+    intervalMinutes: nonNegativeIntegerFromConfig(sync?.intervalMinutes, DEFAULT_MEMORY_INDEX_SETTINGS.intervalMinutes),
   };
 }
 
