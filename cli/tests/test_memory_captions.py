@@ -1,7 +1,6 @@
 import json
 from pathlib import Path
 
-import pytest
 import yaml
 from typer.testing import CliRunner
 
@@ -319,6 +318,34 @@ def test_enrichment_normalization_accepts_common_llm_json_variants():
             "analysis": {
                 "overview": "Fallback overview text.",
             },
+        },
+        fallback_title="Fallback Source",
+        fallback_text_sample="Creator notes about memory import.",
+    ) == {
+        "short_summary": "Fallback overview text.",
+        "long_description": "",
+        "keywords": ["fallback", "source", "creator", "notes", "about", "memory"],
+    }
+
+    assert memory._normalize_enrichment_payload(
+        {},
+        fallback_title="Creator Profile",
+        fallback_text_sample="A compact profile for a creator using OpenClaw memory.",
+        fallback_source_kind="txt",
+        fallback_source_name="Smoke Creator",
+    ) == {
+        "short_summary": (
+            "Creator Profile: A compact profile for a creator using OpenClaw memory."
+        ),
+        "long_description": "",
+        "keywords": ["creator", "profile", "txt", "smoke", "compact", "using"],
+    }
+
+    assert memory._normalize_enrichment_payload(
+        {
+            "analysis": {
+                "overview": "Fallback overview text.",
+            },
             "keywords": ["fallback"],
         }
     ) == {
@@ -328,7 +355,7 @@ def test_enrichment_normalization_accepts_common_llm_json_variants():
     }
 
 
-def test_enrich_caption_metadata_rejects_empty_enrichment(monkeypatch, tmp_path):
+def test_enrich_caption_metadata_falls_back_for_empty_enrichment(monkeypatch, tmp_path):
     import hypercli_cli.memory as memory
 
     caption = _write(tmp_path / "abc123.en.srt", SYNTHETIC_SRT)
@@ -351,13 +378,15 @@ def test_enrich_caption_metadata_rejects_empty_enrichment(monkeypatch, tmp_path)
     monkeypatch.setattr(memory.llm, "_resolve_default_model", lambda api_key, api_base: "kimi-test")
     monkeypatch.setattr(memory.llm, "_get_openai_client", lambda api_key, api_base: FakeClient())
 
-    with pytest.raises(RuntimeError, match="no summary"):
-        memory.enrich_caption_metadata(
-            caption_file=caption,
-            title="Synthetic Video",
-            source_url="https://www.youtube.com/watch?v=abc123",
-            channel="Synthetic Channel",
-            model=None,
-            base_url=None,
-            key=None,
-        )
+    enrichment = memory.enrich_caption_metadata(
+        caption_file=caption,
+        title="Synthetic Video",
+        source_url="https://www.youtube.com/watch?v=abc123",
+        channel="Synthetic Channel",
+        model=None,
+        base_url=None,
+        key=None,
+    )
+
+    assert enrichment["short_summary"].startswith("Synthetic Video: Hello world.")
+    assert enrichment["keywords"][:3] == ["synthetic", "video", "captions"]

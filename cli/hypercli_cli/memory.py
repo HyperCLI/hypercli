@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 import subprocess
 from typing import Any
 
@@ -29,6 +30,16 @@ from .memory_documents import (
 app = typer.Typer(help="Prepare OpenClaw memory artifacts")
 console = Console()
 MEMORY_ENRICH_MAX_TOKENS = 512
+KEYWORD_STOPWORDS = {
+    "and",
+    "for",
+    "from",
+    "into",
+    "the",
+    "this",
+    "that",
+    "with",
+}
 
 
 def _split_csv(value: str | None) -> list[str] | None:
@@ -114,7 +125,38 @@ def _walk_strings(value: Any) -> list[str]:
     return []
 
 
-def _normalize_enrichment_payload(parsed: dict[str, Any]) -> dict[str, Any]:
+def _derive_fallback_keywords(*values: str | None) -> list[str]:
+    keywords: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        for word in re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", value or ""):
+            keyword = word.lower()
+            if keyword in KEYWORD_STOPWORDS or keyword in seen:
+                continue
+            seen.add(keyword)
+            keywords.append(keyword)
+            if len(keywords) >= 6:
+                return keywords
+    return keywords or ["memory"]
+
+
+def _fallback_summary(*, title: str | None, text_sample: str | None) -> str:
+    sample = " ".join((text_sample or "").split())
+    if sample:
+        sample = sample[:220].rstrip()
+    if title and sample:
+        return f"{title}: {sample}"
+    return title or sample or "Imported memory source."
+
+
+def _normalize_enrichment_payload(
+    parsed: dict[str, Any],
+    *,
+    fallback_title: str | None = None,
+    fallback_text_sample: str | None = None,
+    fallback_source_kind: str | None = None,
+    fallback_source_name: str | None = None,
+) -> dict[str, Any]:
     nested = parsed.get("metadata") or parsed.get("enrichment") or parsed.get("memory_metadata")
     if isinstance(nested, dict):
         parsed = {**nested, **parsed}
@@ -154,10 +196,17 @@ def _normalize_enrichment_payload(parsed: dict[str, Any]) -> dict[str, Any]:
         fallback_strings = _walk_strings(parsed)
         if fallback_strings:
             short_summary = fallback_strings[0]
+        elif fallback_title or fallback_text_sample:
+            short_summary = _fallback_summary(title=fallback_title, text_sample=fallback_text_sample)
         else:
             raise RuntimeError("LLM enrichment returned no summary fields")
     if not keywords:
-        raise RuntimeError("LLM enrichment returned no keywords")
+        keywords = _derive_fallback_keywords(
+            fallback_title,
+            fallback_source_kind,
+            fallback_source_name,
+            fallback_text_sample,
+        )
 
     return {
         "short_summary": short_summary,
@@ -212,7 +261,13 @@ def enrich_text_metadata(
     )
     content = response.choices[0].message.content or "{}"
     parsed = _extract_json_object(content)
-    return _normalize_enrichment_payload(parsed)
+    return _normalize_enrichment_payload(
+        parsed,
+        fallback_title=title,
+        fallback_text_sample=text_sample,
+        fallback_source_kind=source_kind,
+        fallback_source_name=source_name,
+    )
 
 
 def enrich_caption_metadata(
