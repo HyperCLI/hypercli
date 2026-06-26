@@ -153,6 +153,28 @@ describe("agent-client", () => {
     expect(deploymentsInstance.createOpenClaw).not.toHaveBeenCalled();
   });
 
+  it("accepts capitalized desktop launch env values", async () => {
+    deploymentsInstance.createOpenClawPro.mockResolvedValue({ id: "agent-123" });
+    deploymentsInstance.createOpenClaw.mockResolvedValue({ id: "agent-456" });
+
+    await createOpenClawAgent("hyper_api_test", {
+      env: { OPENCLAW_DESKTOP_ENABLED: "True" },
+    });
+    expect(deploymentsInstance.createOpenClawPro).toHaveBeenCalledWith(expect.objectContaining({
+      env: { OPENCLAW_DESKTOP_ENABLED: "True" },
+    }));
+
+    vi.clearAllMocks();
+
+    await createOpenClawAgent("hyper_api_test", {
+      env: { OPENCLAW_DESKTOP_ENABLED: "False" },
+    });
+    expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledWith(expect.objectContaining({
+      env: { OPENCLAW_DESKTOP_ENABLED: "False" },
+    }));
+    expect(deploymentsInstance.createOpenClawPro).not.toHaveBeenCalled();
+  });
+
   it("applies configured control UI origins when the allowlist is enabled", async () => {
     const currentOrigin = window.location.origin;
     process.env.NEXT_PUBLIC_OPENCLAW_CONTROL_UI_ALLOWED_ORIGINS = "https://feat.hypercli.com http://localhost:4003";
