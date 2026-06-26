@@ -12,7 +12,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from hypercli.agents import AGENT_FILE_MAX_BYTES, Agent, DEFAULT_OPENCLAW_IMAGE, DEFAULT_OPENCLAW_PRO_IMAGE, Deployments, OpenClawAgent
+from hypercli.agents import AGENT_FILE_MAX_BYTES, Agent, DEFAULT_OPENCLAW_IMAGE, DEFAULT_OPENCLAW_PRO_IMAGE, Deployments, OpenClawAgent, build_openclaw_memory_index_env
 from hypercli.config import get_agent_api_key as get_config_agent_api_key
 
 app = typer.Typer(help="Manage OpenClaw agent pods")
@@ -73,6 +73,33 @@ def _openclaw_env_with_desktop(env: dict | None, enabled: bool, *, force: bool =
     if force or "OPENCLAW_DESKTOP_ENABLED" not in env_dict:
         env_dict["OPENCLAW_DESKTOP_ENABLED"] = "1" if enabled else "0"
     return env_dict
+
+
+def _build_memory_index_options(
+    *,
+    memory_search: bool | None = None,
+    index_on_session_start: bool | None = None,
+    index_on_search: bool | None = None,
+    index_watch: bool | None = None,
+    index_watch_debounce_ms: int | None = None,
+    index_interval_minutes: int | None = None,
+) -> dict | None:
+    options: dict[str, object] = {}
+    if memory_search is not None:
+        options["enabled"] = memory_search
+    if index_on_session_start is not None:
+        options["on_session_start"] = index_on_session_start
+    if index_on_search is not None:
+        options["on_search"] = index_on_search
+    if index_watch is not None:
+        options["watch"] = index_watch
+    if index_watch_debounce_ms is not None:
+        options["watch_debounce_ms"] = index_watch_debounce_ms
+    if index_interval_minutes is not None:
+        options["interval_minutes"] = index_interval_minutes
+    if options:
+        build_openclaw_memory_index_env(options)
+    return options or None
 
 
 @app.callback()
@@ -338,6 +365,12 @@ def create(
     entrypoint: str = typer.Option(None, "--entrypoint", help="Container entrypoint as a shell-style string"),
     image: str = typer.Option(None, "--image", help="Override the default OpenClaw image"),
     desktop: bool | None = typer.Option(None, "--desktop/--no-desktop", help="Use the pro desktop/browser image and protected noVNC route"),
+    memory_search: bool | None = typer.Option(None, "--memory-search/--no-memory-search", help="Enable or disable OpenClaw memory search"),
+    index_on_session_start: bool | None = typer.Option(None, "--index-on-session-start/--no-index-on-session-start", help="Sync the memory index when a session starts"),
+    index_on_search: bool | None = typer.Option(None, "--index-on-search/--no-index-on-search", help="Sync the memory index when memory search runs"),
+    index_watch: bool | None = typer.Option(None, "--index-watch/--no-index-watch", help="Watch memory files and sync after changes"),
+    index_watch_debounce_ms: int = typer.Option(None, "--index-watch-debounce-ms", min=0, help="Milliseconds of quiet time before watched memory files sync"),
+    index_interval_minutes: int = typer.Option(None, "--index-interval-minutes", min=0, help="Periodic memory index sync interval in minutes; 0 disables it"),
     registry_url: str = typer.Option(None, "--registry-url", help="Container registry URL for private image pulls"),
     registry_username: str = typer.Option(None, "--registry-username", help="Registry username"),
     registry_password: str = typer.Option(None, "--registry-password", help="Registry password"),
@@ -357,6 +390,14 @@ def create(
     registry_auth = _build_registry_auth(registry_username, registry_password)
     desktop_enabled = _desktop_enabled_from_launch(desktop, env_dict)
     effective_env = _openclaw_env_with_desktop(env_dict, desktop_enabled, force=desktop is not None)
+    memory_index = _build_memory_index_options(
+        memory_search=memory_search,
+        index_on_session_start=index_on_session_start,
+        index_on_search=index_on_search,
+        index_watch=index_watch,
+        index_watch_debounce_ms=index_watch_debounce_ms,
+        index_interval_minutes=index_interval_minutes,
+    )
 
     console.print("\n[bold]Creating agent pod...[/bold]")
 
@@ -378,6 +419,7 @@ def create(
             dry_run=dry_run,
             start=not no_start,
             openclaw_route_options={"include_desktop": desktop_enabled},
+            memory_index=memory_index,
         )
     except Exception as e:
         console.print(f"[red]❌ Create failed: {e}[/red]")
@@ -589,6 +631,12 @@ def start(
     entrypoint: str = typer.Option(None, "--entrypoint", help="Container entrypoint as a shell-style string"),
     image: str = typer.Option(None, "--image", help="Override the default OpenClaw image"),
     desktop: bool | None = typer.Option(None, "--desktop/--no-desktop", help="Use the pro desktop/browser image and protected noVNC route"),
+    memory_search: bool | None = typer.Option(None, "--memory-search/--no-memory-search", help="Enable or disable OpenClaw memory search"),
+    index_on_session_start: bool | None = typer.Option(None, "--index-on-session-start/--no-index-on-session-start", help="Sync the memory index when a session starts"),
+    index_on_search: bool | None = typer.Option(None, "--index-on-search/--no-index-on-search", help="Sync the memory index when memory search runs"),
+    index_watch: bool | None = typer.Option(None, "--index-watch/--no-index-watch", help="Watch memory files and sync after changes"),
+    index_watch_debounce_ms: int = typer.Option(None, "--index-watch-debounce-ms", min=0, help="Milliseconds of quiet time before watched memory files sync"),
+    index_interval_minutes: int = typer.Option(None, "--index-interval-minutes", min=0, help="Periodic memory index sync interval in minutes; 0 disables it"),
     registry_url: str = typer.Option(None, "--registry-url", help="Container registry URL for private image pulls"),
     registry_username: str = typer.Option(None, "--registry-username", help="Registry username"),
     registry_password: str = typer.Option(None, "--registry-password", help="Registry password"),
@@ -616,6 +664,14 @@ def start(
         if desktop_enabled
         else _default_openclaw_image(image, launch_config)
     )
+    memory_index = _build_memory_index_options(
+        memory_search=memory_search,
+        index_on_session_start=index_on_session_start,
+        index_on_search=index_on_search,
+        index_watch=index_watch,
+        index_watch_debounce_ms=index_watch_debounce_ms,
+        index_interval_minutes=index_interval_minutes,
+    )
 
     try:
         start_func = agents.start_openclaw_pro if desktop_enabled else agents.start_openclaw
@@ -634,6 +690,7 @@ def start(
             gateway_token=effective_gateway_token,
             dry_run=dry_run,
             openclaw_route_options={"include_desktop": desktop_enabled},
+            memory_index=memory_index,
         )
     except Exception as e:
         console.print(f"[red]❌ Failed to start agent: {e}[/red]")

@@ -1992,7 +1992,7 @@ function AgentsPageContent() {
     }
   };
 
-  const handleCreateFirstAgent = useCallback(async ({ name, iconIndex, size, files, enableDesktop }: FirstAgentSetupCreateParams) => {
+  const handleCreateFirstAgent = useCallback(async ({ name, iconIndex, size, files, enableDesktop, enableMemoryIndex = false }: FirstAgentSetupCreateParams) => {
     try {
       setError(null);
       const token = await getToken();
@@ -2001,7 +2001,12 @@ function AgentsPageContent() {
         start: true,
         size,
         meta: { ui: { avatar: { icon_index: iconIndex } } },
-        ...buildOpenClawLaunchOptions({ desktopEnabled: enableDesktop }),
+        ...buildOpenClawLaunchOptions({
+          desktopEnabled: enableDesktop,
+          memoryIndex: enableMemoryIndex
+            ? { onSessionStart: true, onSearch: true, watch: true, watchDebounceMs: 30000, intervalMinutes: 0 }
+            : null,
+        }),
       });
       if (created.id) {
         if (files.length > 0) {

@@ -132,6 +132,16 @@ function renderAgentSettingsPanel(overrides: Partial<ComponentProps<typeof Agent
           model: {
             primary: "openai/gpt-5-mini",
           },
+          memorySearch: {
+            enabled: true,
+            sync: {
+              onSessionStart: false,
+              onSearch: false,
+              watch: false,
+              watchDebounceMs: 30000,
+              intervalMinutes: 0,
+            },
+          },
         },
       },
       models: {
@@ -412,6 +422,42 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByRole("heading", { name: "Usage" })).toBeInTheDocument();
     expect(screen.getByText("Usage dashboard")).toBeInTheDocument();
     expect(screen.getByText("API keys")).toBeInTheDocument();
+  });
+
+  it("saves memory index settings through an OpenClaw config patch", async () => {
+    const onSaveOpenClawConfig = vi.fn(async () => undefined);
+    renderAgentSettingsPanel({ onSaveOpenClawConfig });
+
+    fireEvent.click(screen.getByRole("button", { name: "Index" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Sync on session start" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Sync on search" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Watch memory files" }));
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Watch debounce milliseconds" }), {
+      target: { value: "60000" },
+    });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Interval sync minutes" }), {
+      target: { value: "120" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      expect(onSaveOpenClawConfig).toHaveBeenCalledWith({
+        agents: {
+          defaults: {
+            memorySearch: {
+              enabled: true,
+              sync: {
+                onSessionStart: true,
+                onSearch: true,
+                watch: true,
+                watchDebounceMs: 60000,
+                intervalMinutes: 120,
+              },
+            },
+          },
+        },
+      });
+    });
   });
 });
 

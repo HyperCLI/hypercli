@@ -45,6 +45,7 @@ hyper agent activate-code PROMO123
 hyper config env
 hyper agent exec <agent_id> "ls -la"
 hyper agent shell <agent_id>
+hyper agents create --index-on-session-start --index-on-search --index-watch
 ```
 
 ## Notes

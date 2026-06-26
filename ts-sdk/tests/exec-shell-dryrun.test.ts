@@ -87,8 +87,8 @@ describe('HyperClaw agents SDK', () => {
       },
       {
         heartbeat: {
-          every: '0m',
-          includeSystemPromptSection: false,
+          every: '1h',
+          target: 'last',
         },
       },
     );
@@ -99,8 +99,7 @@ describe('HyperClaw agents SDK', () => {
           model: 'openai/gpt-5.4',
           heartbeat: {
             target: 'last',
-            every: '0m',
-            includeSystemPromptSection: false,
+            every: '1h',
           },
         },
       },
@@ -212,6 +211,46 @@ describe('HyperClaw agents SDK', () => {
       },
     }));
     expect(agent).toBeInstanceOf(OpenClawProAgent);
+  });
+
+  it('createOpenClaw accepts memory index launch options', async () => {
+    const post = vi.fn().mockResolvedValue({
+      id: 'agent-openclaw',
+      user_id: 'user-1',
+      pod_id: 'pod-1',
+      pod_name: 'pod-1',
+      state: 'starting',
+      launch_config: {
+        env: {},
+        routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
+      },
+    });
+    const deployments = new Deployments(
+      { post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      'sk-hyper-test',
+      'https://api.dev.hypercli.com',
+    );
+
+    await deployments.createOpenClaw({
+      name: 'test-agent',
+      memoryIndex: {
+        onSessionStart: true,
+        onSearch: true,
+        watch: true,
+        watchDebounceMs: 60000,
+        intervalMinutes: 120,
+      },
+    });
+
+    expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
+      env: expect.objectContaining({
+        OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START: '1',
+        OPENCLAW_MEMORY_SEARCH_SYNC_ON_SEARCH: '1',
+        OPENCLAW_MEMORY_SEARCH_SYNC_WATCH: '1',
+        OPENCLAW_MEMORY_SEARCH_SYNC_WATCH_DEBOUNCE_MS: '60000',
+        OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES: '120',
+      }),
+    }));
   });
 
   it('startOpenClaw defaults sync root', async () => {

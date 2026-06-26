@@ -470,14 +470,33 @@ interface AgentSettingsPanelProps {
   workspaceMenuOpen?: boolean;
 }
 
-type AgentSettingsSection = "general" | "agent" | "usage" | "team";
+type AgentSettingsSection = "general" | "agent" | "index" | "usage" | "team";
 
 const AGENT_SETTINGS_SECTIONS: Array<{ id: AgentSettingsSection; label: string }> = [
   { id: "general", label: "General" },
   { id: "agent", label: "Agent" },
+  { id: "index", label: "Index" },
   { id: "usage", label: "Usage" },
   { id: "team", label: "Team" },
 ];
+
+type MemoryIndexSettings = {
+  enabled: boolean;
+  onSessionStart: boolean;
+  onSearch: boolean;
+  watch: boolean;
+  watchDebounceMs: number;
+  intervalMinutes: number;
+};
+
+const DEFAULT_MEMORY_INDEX_SETTINGS: MemoryIndexSettings = {
+  enabled: true,
+  onSessionStart: false,
+  onSearch: false,
+  watch: false,
+  watchDebounceMs: 30000,
+  intervalMinutes: 0,
+};
 
 const SETTINGS_FIELD_CLASS =
   "h-9 w-full rounded-lg border border-border bg-surface-low px-3 text-sm text-foreground placeholder:text-text-muted transition-colors focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60";
@@ -510,6 +529,57 @@ function agentSettingsName(agent: Agent | null): string {
 function agentSettingsAvatar(agent: Agent | null): string | null {
   if (!agent) return null;
   return agentAvatar(agent.name || agent.id, agent.meta).imageUrl ?? null;
+}
+
+function booleanFromConfig(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function nonNegativeIntegerFromConfig(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : fallback;
+}
+
+function getMemoryIndexSettings(config: Record<string, unknown> | null | undefined): MemoryIndexSettings {
+  const agents = asObject(config?.agents);
+  const defaults = asObject(agents.defaults);
+  const memorySearch = asObject(defaults.memorySearch);
+  const sync = asObject(memorySearch.sync);
+  return {
+    enabled: booleanFromConfig(memorySearch.enabled, DEFAULT_MEMORY_INDEX_SETTINGS.enabled),
+    onSessionStart: booleanFromConfig(sync.onSessionStart, DEFAULT_MEMORY_INDEX_SETTINGS.onSessionStart),
+    onSearch: booleanFromConfig(sync.onSearch, DEFAULT_MEMORY_INDEX_SETTINGS.onSearch),
+    watch: booleanFromConfig(sync.watch, DEFAULT_MEMORY_INDEX_SETTINGS.watch),
+    watchDebounceMs: nonNegativeIntegerFromConfig(sync.watchDebounceMs, DEFAULT_MEMORY_INDEX_SETTINGS.watchDebounceMs),
+    intervalMinutes: nonNegativeIntegerFromConfig(sync.intervalMinutes, DEFAULT_MEMORY_INDEX_SETTINGS.intervalMinutes),
+  };
+}
+
+function memoryIndexSettingsEqual(left: MemoryIndexSettings, right: MemoryIndexSettings): boolean {
+  return left.enabled === right.enabled
+    && left.onSessionStart === right.onSessionStart
+    && left.onSearch === right.onSearch
+    && left.watch === right.watch
+    && left.watchDebounceMs === right.watchDebounceMs
+    && left.intervalMinutes === right.intervalMinutes;
+}
+
+function buildMemoryIndexPatch(settings: MemoryIndexSettings): Record<string, unknown> {
+  return {
+    agents: {
+      defaults: {
+        memorySearch: {
+          enabled: settings.enabled,
+          sync: {
+            onSessionStart: settings.onSessionStart,
+            onSearch: settings.onSearch,
+            watch: settings.watch,
+            watchDebounceMs: settings.watchDebounceMs,
+            intervalMinutes: settings.intervalMinutes,
+          },
+        },
+      },
+    },
+  };
 }
 
 function initialsFromName(name: string): string {
@@ -955,6 +1025,130 @@ function AgentSettingsLinkButton({
   );
 }
 
+function AgentIndexSettingsContent({
+  settings,
+  onSettingsChange,
+  error,
+  success,
+  disabled,
+}: {
+  settings: MemoryIndexSettings;
+  onSettingsChange: (settings: MemoryIndexSettings) => void;
+  error?: string | null;
+  success?: string | null;
+  disabled?: boolean;
+}) {
+  const setBoolean = (key: keyof Pick<MemoryIndexSettings, "enabled" | "onSessionStart" | "onSearch" | "watch">) =>
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      onSettingsChange({ ...settings, [key]: event.target.checked });
+    };
+  const setNumber = (key: keyof Pick<MemoryIndexSettings, "watchDebounceMs" | "intervalMinutes">) =>
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const value = Math.max(0, Number.parseInt(event.target.value || "0", 10) || 0);
+      onSettingsChange({ ...settings, [key]: value });
+    };
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-5 py-7 md:px-8">
+      <div className="mx-auto w-full max-w-[844px]">
+        <h2 className="text-[20px] font-semibold leading-none text-foreground">Index</h2>
+        {(error || success) && (
+          <div className="mt-4">
+            {error ? (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {error}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-3 py-2 text-sm text-[var(--selection-accent)]">
+                {success}
+              </div>
+            )}
+          </div>
+        )}
+        <section className="mt-4 divide-y divide-foreground border-b border-foreground md:mt-7">
+          <AgentProfileSettingsRow label="Memory search" description="Enable semantic search over indexed memory files.">
+            <label className="flex h-9 items-center gap-2 text-sm font-medium text-foreground">
+              <input
+                type="checkbox"
+                checked={settings.enabled}
+                onChange={setBoolean("enabled")}
+                disabled={disabled}
+                className="h-4 w-4 rounded border-border bg-background accent-[var(--button-primary)]"
+              />
+              Enabled
+            </label>
+          </AgentProfileSettingsRow>
+
+          <AgentProfileSettingsRow label="Session start" description="Refresh the index when a new agent session starts.">
+            <label className="flex h-9 items-center gap-2 text-sm font-medium text-foreground">
+              <input
+                type="checkbox"
+                checked={settings.onSessionStart}
+                onChange={setBoolean("onSessionStart")}
+                disabled={disabled}
+                className="h-4 w-4 rounded border-border bg-background accent-[var(--button-primary)]"
+              />
+              Sync on session start
+            </label>
+          </AgentProfileSettingsRow>
+
+          <AgentProfileSettingsRow label="Search fallback" description="Let memory search trigger a sync when the index is missing or stale.">
+            <label className="flex h-9 items-center gap-2 text-sm font-medium text-foreground">
+              <input
+                type="checkbox"
+                checked={settings.onSearch}
+                onChange={setBoolean("onSearch")}
+                disabled={disabled}
+                className="h-4 w-4 rounded border-border bg-background accent-[var(--button-primary)]"
+              />
+              Sync on search
+            </label>
+          </AgentProfileSettingsRow>
+
+          <AgentProfileSettingsRow label="File watcher" description="Watch memory files and sync after writes settle.">
+            <label className="flex h-9 items-center gap-2 text-sm font-medium text-foreground">
+              <input
+                type="checkbox"
+                checked={settings.watch}
+                onChange={setBoolean("watch")}
+                disabled={disabled}
+                className="h-4 w-4 rounded border-border bg-background accent-[var(--button-primary)]"
+              />
+              Watch memory files
+            </label>
+          </AgentProfileSettingsRow>
+
+          <AgentProfileSettingsRow label="Watch debounce" description="Milliseconds of quiet time before watcher sync runs.">
+            <input
+              type="number"
+              min={0}
+              step={1000}
+              value={settings.watchDebounceMs}
+              onChange={setNumber("watchDebounceMs")}
+              disabled={disabled}
+              aria-label="Watch debounce milliseconds"
+              className={SETTINGS_FIELD_CLASS}
+            />
+          </AgentProfileSettingsRow>
+
+          <AgentProfileSettingsRow label="Interval sync" description="Periodic sync interval in minutes. Use 0 to disable.">
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={settings.intervalMinutes}
+              onChange={setNumber("intervalMinutes")}
+              disabled={disabled}
+              aria-label="Interval sync minutes"
+              className={SETTINGS_FIELD_CLASS}
+            />
+          </AgentProfileSettingsRow>
+        </section>
+      </div>
+    </div>
+  );
+}
+
 function AgentUsageSettingsContent() {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-5 py-7 md:px-8">
@@ -1046,6 +1240,8 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const [archiveDraft, setArchiveDraft] = React.useState("not-configured");
   const [savedModelDraft, setSavedModelDraft] = React.useState(() => getOpenClawDefaultModel(openclawConfig));
   const [modelDraft, setModelDraft] = React.useState(() => getOpenClawDefaultModel(openclawConfig));
+  const [savedMemoryIndexDraft, setSavedMemoryIndexDraft] = React.useState(() => getMemoryIndexSettings(openclawConfig));
+  const [memoryIndexDraft, setMemoryIndexDraft] = React.useState(() => getMemoryIndexSettings(openclawConfig));
   const [agentSettingsError, setAgentSettingsError] = React.useState<string | null>(null);
   const [agentSettingsSuccess, setAgentSettingsSuccess] = React.useState<string | null>(null);
   const objectUrlsRef = React.useRef<string[]>([]);
@@ -1103,8 +1299,11 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
 
   React.useEffect(() => {
     const nextModel = getOpenClawDefaultModel(openclawConfig);
+    const nextMemoryIndex = getMemoryIndexSettings(openclawConfig);
     setSavedModelDraft(nextModel);
     setModelDraft(nextModel);
+    setSavedMemoryIndexDraft(nextMemoryIndex);
+    setMemoryIndexDraft(nextMemoryIndex);
     setAgentSettingsError(null);
     setAgentSettingsSuccess(null);
   }, [agent?.id, openclawConfig]);
@@ -1124,7 +1323,8 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const profileChanged = profileName !== savedProfileName;
   const agentProfileChanged = agentNameDraft !== savedAgentName || agentAvatarDraft !== savedAgentAvatar || archiveDraft !== savedArchiveDraft;
   const modelChanged = modelDraft !== savedModelDraft;
-  const agentChanged = agentProfileChanged || modelChanged;
+  const memoryIndexChanged = !memoryIndexSettingsEqual(memoryIndexDraft, savedMemoryIndexDraft);
+  const agentChanged = agentProfileChanged || modelChanged || memoryIndexChanged;
   const hasSettingsChanges = profileChanged || agentChanged;
 
   const discardProfileChanges = React.useCallback(() => {
@@ -1134,9 +1334,10 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     setAgentAvatarDraft(savedAgentAvatar);
     setArchiveDraft(savedArchiveDraft);
     setModelDraft(savedModelDraft);
+    setMemoryIndexDraft(savedMemoryIndexDraft);
     setAgentSettingsError(null);
     setAgentSettingsSuccess(null);
-  }, [savedAgentAvatar, savedAgentName, savedArchiveDraft, savedModelDraft, savedProfileAvatar, savedProfileName]);
+  }, [savedAgentAvatar, savedAgentName, savedArchiveDraft, savedMemoryIndexDraft, savedModelDraft, savedProfileAvatar, savedProfileName]);
 
   const saveProfileChanges = React.useCallback(async () => {
     setProfileError(null);
@@ -1170,6 +1371,11 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
       return;
     }
 
+    if (memoryIndexChanged && !onSaveOpenClawConfig) {
+      setAgentSettingsError("Index updates are unavailable until the agent gateway is connected.");
+      return;
+    }
+
     setProfileSaving(true);
     let savingSection: "profile" | "agent" | null = null;
     try {
@@ -1199,6 +1405,13 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         setAgentSettingsSuccess("Agent settings updated.");
       }
 
+      if (memoryIndexChanged && onSaveOpenClawConfig) {
+        savingSection = "agent";
+        await onSaveOpenClawConfig(buildMemoryIndexPatch(memoryIndexDraft));
+        setSavedMemoryIndexDraft(memoryIndexDraft);
+        setAgentSettingsSuccess("Agent settings updated.");
+      }
+
       setSavedProfileAvatar(profileAvatar);
       setSavedAgentAvatar(agentAvatarDraft);
       setSavedArchiveDraft(archiveDraft);
@@ -1219,6 +1432,8 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     archiveDraft,
     getToken,
     hasSettingsChanges,
+    memoryIndexChanged,
+    memoryIndexDraft,
     modelChanged,
     modelDraft,
     onUpdateAgentName,
@@ -1227,6 +1442,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     profileChanged,
     profileName,
     savedAgentName,
+    savedMemoryIndexDraft,
   ]);
 
   const handleAvatarSelect = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1328,6 +1544,14 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             agentDeleting={agentDeleting}
             agentStartBlocked={agentStartBlocked}
             agentStartBlockedReason={agentStartBlockedReason}
+          />
+        ) : activeSettingsSection === "index" ? (
+          <AgentIndexSettingsContent
+            settings={memoryIndexDraft}
+            onSettingsChange={setMemoryIndexDraft}
+            error={agentSettingsError}
+            success={agentSettingsSuccess}
+            disabled={!onSaveOpenClawConfig}
           />
         ) : activeSettingsSection === "usage" ? (
           <AgentUsageSettingsContent />
@@ -1600,7 +1824,7 @@ export function AgentList({
     return next;
   }, [agents, agentCardDataById]);
 
-  const createAgentFromLauncher = React.useCallback(async ({ name, iconIndex, size, files, enableDesktop }: FirstAgentSetupCreateParams) => {
+  const createAgentFromLauncher = React.useCallback(async ({ name, iconIndex, size, files, enableDesktop, enableMemoryIndex = false }: FirstAgentSetupCreateParams) => {
     try {
       const token = await getToken();
       const created = await createOpenClawAgent(token, {
@@ -1608,7 +1832,12 @@ export function AgentList({
         start: true,
         size,
         meta: { ui: { avatar: { icon_index: iconIndex } } },
-        ...buildOpenClawLaunchOptions({ desktopEnabled: enableDesktop }),
+        ...buildOpenClawLaunchOptions({
+          desktopEnabled: enableDesktop,
+          memoryIndex: enableMemoryIndex
+            ? { onSessionStart: true, onSearch: true, watch: true, watchDebounceMs: 30000, intervalMinutes: 0 }
+            : null,
+        }),
       });
       const createdId = created.id ?? null;
       if (createdId) {

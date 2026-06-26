@@ -64,6 +64,19 @@ Important options:
 
 Desktop/browser agents use the OpenClaw pro image, set `OPENCLAW_DESKTOP_ENABLED=1`, and expose noVNC at `https://desktop-<host>`. The base launch sets `OPENCLAW_DESKTOP_ENABLED=0` and keeps the desktop route disabled. You can also drive the same behavior with `--env OPENCLAW_DESKTOP_ENABLED=True`.
 
+Memory search is configured by default, but automatic indexing is off unless you opt in:
+
+```bash
+hyper agents create \
+  --index-on-session-start \
+  --index-on-search \
+  --index-watch \
+  --index-watch-debounce-ms 30000 \
+  --index-interval-minutes 0
+```
+
+Use `--memory-search/--no-memory-search`, `--index-on-session-start/--no-index-on-session-start`, `--index-on-search/--no-index-on-search`, `--index-watch/--no-index-watch`, `--index-watch-debounce-ms`, and `--index-interval-minutes`. `0` interval minutes disables periodic sync.
+
 ### `wait`
 
 ```bash
@@ -88,6 +101,7 @@ hyper agents status <agent_id>
 ```bash
 hyper agents start <agent_id>
 hyper agents start <agent_id> --desktop
+hyper agents start <agent_id> --index-on-search --index-interval-minutes 120
 ```
 
 ### `stop`

@@ -47,6 +47,7 @@ export interface FirstAgentSetupCreateParams {
   size: string;
   files: File[];
   enableDesktop: boolean;
+  enableMemoryIndex?: boolean;
 }
 
 interface FirstAgentSetupWizardProps {
@@ -755,6 +756,7 @@ export function FirstAgentSetupWizard({
   const [selectedCategory, setSelectedCategory] = React.useState("General");
   const [selectedIconIndex, setSelectedIconIndex] = React.useState(avatarOptions[0].iconIndex);
   const [enableDesktop, setEnableDesktop] = React.useState(false);
+  const [enableMemoryIndex, setEnableMemoryIndex] = React.useState(false);
   const slotInventory = budget?.slots ?? EMPTY_SLOT_INVENTORY;
   const planOptions = React.useMemo(
     () => buildLaunchPlanOptions(subscriptionSummary, slotInventory, catalogPlans, pendingSlotReleases),
@@ -815,6 +817,7 @@ export function FirstAgentSetupWizard({
           plan: plan.id,
           starterFiles: files.map((file) => ({ name: file.name, size: file.size, type: file.type })),
           enableDesktop,
+          enableMemoryIndex,
         }),
       );
     }
@@ -859,6 +862,7 @@ export function FirstAgentSetupWizard({
         size: plan.size,
         files,
         enableDesktop,
+        enableMemoryIndex,
       });
       if (!createdId) {
         dispatchWizard({ type: "CREATE_FINISHED_WITHOUT_ID" });
@@ -1010,6 +1014,24 @@ export function FirstAgentSetupWizard({
                   </span>
                   <span className="mt-1 block text-[12px] leading-5 text-text-muted sm:text-[13px]">
                     Adds a protected noVNC desktop at desktop-&lt;agent&gt;.hypercli.app.
+                  </span>
+                </span>
+              </label>
+
+              <label className="mt-3 flex items-start gap-3 rounded-[12px] border border-border bg-surface-low px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={enableMemoryIndex}
+                  onChange={(event) => setEnableMemoryIndex(event.target.checked)}
+                  className="mt-1 h-4 w-4 rounded border-border bg-background accent-[var(--button-primary)]"
+                />
+                <span className="min-w-0">
+                  <span className="flex items-center gap-2 text-[14px] font-semibold leading-tight text-foreground sm:text-[15px]">
+                    <Brain className="h-4 w-4 text-text-muted" />
+                    Memory indexing
+                  </span>
+                  <span className="mt-1 block text-[12px] leading-5 text-text-muted sm:text-[13px]">
+                    Index memory files on session start, search, and watched file changes.
                   </span>
                 </span>
               </label>

@@ -126,7 +126,6 @@ OpenClaw uses the generic deployment launch surface. `registryUrl`, `registryAut
 const agent = await client.deployments.createOpenClaw({
   name: 'docs-demo',
   start: true,
-  heartbeat: { every: '0m' }, // disable upstream OpenClaw heartbeat runs
   registryUrl: 'git.nedos.co',
   registryAuth: { username: 'ci', password: 'token' },
 });
@@ -135,6 +134,8 @@ const agent = await client.deployments.createOpenClaw({
 Use `createOpenClawPro(...)` for the desktop/browser image. It enables noVNC through the protected `desktop-<agent>.hypercli.app` route and sets `OPENCLAW_DESKTOP_ENABLED=1`.
 
 `heartbeat` maps directly to upstream OpenClaw config at `config.agents.defaults.heartbeat`. Omit it to keep upstream defaults, or pass values such as `heartbeat: { every: '1h', target: 'last' }`.
+
+Automatic memory indexing is off by default. Opt in with `memoryIndex: { onSessionStart: true, onSearch: true, watch: true, watchDebounceMs: 30000, intervalMinutes: 0 }`.
 
 ### OpenClaw Gateway Chat Attachments
 

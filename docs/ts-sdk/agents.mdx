@@ -165,7 +165,6 @@ Use the OpenClaw-specific helpers when you want the SDK to provide the standard 
 const agent = await client.deployments.createOpenClaw({
   name: "docs-demo",
   start: true,
-  heartbeat: { every: "0m" }, // disable upstream OpenClaw heartbeat runs
   tags: ["team=dev"],
 });
 ```
@@ -205,7 +204,24 @@ OpenClaw helpers only add defaults on top of that generic launch surface:
 - `heartbeat`
   maps to upstream OpenClaw config at `config.agents.defaults.heartbeat`
 
-Omit `heartbeat` to keep upstream defaults. Pass values like `heartbeat: { every: "0m" }` to disable heartbeat runs, or `heartbeat: { every: "1h", target: "last" }` to tune them.
+Omit `heartbeat` to keep upstream OpenClaw defaults. Pass values like `heartbeat: { every: "1h", target: "last" }` only when you intentionally want to tune upstream heartbeat behavior.
+
+Memory search is configured by default, but automatic indexing is off unless you opt in. Use `memoryIndex` on `createOpenClaw(...)`, `createOpenClawPro(...)`, `startOpenClaw(...)`, or `startOpenClawPro(...)`:
+
+```ts
+const agent = await client.deployments.createOpenClaw({
+  name: "indexed-agent",
+  memoryIndex: {
+    onSessionStart: true,
+    onSearch: true,
+    watch: true,
+    watchDebounceMs: 30000,
+    intervalMinutes: 0,
+  },
+});
+```
+
+Supported fields are `enabled`, `onSessionStart`, `onSearch`, `watch`, `watchDebounceMs`, and `intervalMinutes`. The defaults keep search enabled and set all automatic sync triggers off, with `watchDebounceMs=30000` and `intervalMinutes=0`.
 
 Registry settings are still inherited from the generic deployment API:
 

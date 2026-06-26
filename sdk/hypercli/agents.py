@@ -32,6 +32,14 @@ DEV_AGENTS_API_BASE = "https://api.dev.hypercli.com/agents"
 DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
 DEFAULT_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:prod"
 DEFAULT_OPENCLAW_PRO_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-prod"
+OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
+    "OPENCLAW_MEMORY_SEARCH_ENABLED": "1",
+    "OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START": "0",
+    "OPENCLAW_MEMORY_SEARCH_SYNC_ON_SEARCH": "0",
+    "OPENCLAW_MEMORY_SEARCH_SYNC_WATCH": "0",
+    "OPENCLAW_MEMORY_SEARCH_SYNC_WATCH_DEBOUNCE_MS": "30000",
+    "OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES": "0",
+}
 LAUNCH_CONFIG_KEYS = frozenset({"image", "env", "routes", "ports", "command", "entrypoint", "sync_root", "sync_enabled", "sync_uid", "sync_gid", "registry_url", "registry_auth"})
 DEFAULT_OPENCLAW_SYNC_ROOT = "/home/node"
 AGENT_FILE_MAX_BYTES = 50 * 1024 * 1024
@@ -86,6 +94,48 @@ def _resolve_openclaw_routes(
     if openclaw_routes is not None:
         return openclaw_routes
     return build_openclaw_routes(**dict(openclaw_route_options or {}))
+
+
+def _env_bool(value: object) -> str:
+    return "1" if bool(value) else "0"
+
+
+def _env_non_negative_int(name: str, value: object) -> str:
+    integer = int(value)
+    if integer < 0:
+        raise ValueError(f"{name} must be non-negative")
+    return str(integer)
+
+
+def build_openclaw_memory_index_env(memory_index: dict | None = None) -> dict[str, str]:
+    """Build OpenClaw memory-search indexing environment variables.
+
+    No env vars are emitted unless memory_index is provided; the image config
+    carries the no-auto-indexing defaults. Passing an empty dict explicitly
+    emits the default env block.
+    """
+    if memory_index is None:
+        return {}
+    env = dict(OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS)
+    if memory_index.get("enabled") is not None:
+        env["OPENCLAW_MEMORY_SEARCH_ENABLED"] = _env_bool(memory_index["enabled"])
+    if memory_index.get("on_session_start") is not None:
+        env["OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START"] = _env_bool(memory_index["on_session_start"])
+    if memory_index.get("on_search") is not None:
+        env["OPENCLAW_MEMORY_SEARCH_SYNC_ON_SEARCH"] = _env_bool(memory_index["on_search"])
+    if memory_index.get("watch") is not None:
+        env["OPENCLAW_MEMORY_SEARCH_SYNC_WATCH"] = _env_bool(memory_index["watch"])
+    if memory_index.get("watch_debounce_ms") is not None:
+        env["OPENCLAW_MEMORY_SEARCH_SYNC_WATCH_DEBOUNCE_MS"] = _env_non_negative_int(
+            "watch_debounce_ms",
+            memory_index["watch_debounce_ms"],
+        )
+    if memory_index.get("interval_minutes") is not None:
+        env["OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES"] = _env_non_negative_int(
+            "interval_minutes",
+            memory_index["interval_minutes"],
+        )
+    return env
 
 
 def _default_gateway_timeout() -> float | None:
@@ -1211,8 +1261,9 @@ class Deployments:
         start: bool = True,
         openclaw_routes: dict | None = None,
         openclaw_route_options: dict | None = None,
+        memory_index: dict | None = None,
     ) -> Agent:
-        effective_env = dict(env or {})
+        effective_env = {**build_openclaw_memory_index_env(memory_index), **dict(env or {})}
         return self.create(
             name=name,
             size=size,
@@ -1266,6 +1317,7 @@ class Deployments:
         start: bool = True,
         openclaw_routes: dict | None = None,
         openclaw_route_options: dict | None = None,
+        memory_index: dict | None = None,
     ) -> Agent:
         effective_env = {"OPENCLAW_DESKTOP_ENABLED": "1", **dict(env or {})}
         effective_route_options = {"include_desktop": True, **dict(openclaw_route_options or {})}
@@ -1293,6 +1345,7 @@ class Deployments:
             start=start,
             openclaw_routes=openclaw_routes,
             openclaw_route_options=effective_route_options,
+            memory_index=memory_index,
         )
 
     def budget(self) -> dict:
@@ -1428,8 +1481,9 @@ class Deployments:
         dry_run: bool = False,
         openclaw_routes: dict | None = None,
         openclaw_route_options: dict | None = None,
+        memory_index: dict | None = None,
     ) -> Agent:
-        effective_env = dict(env or {})
+        effective_env = {**build_openclaw_memory_index_env(memory_index), **dict(env or {})}
         return self.start(
             agent_id,
             config=config,
@@ -1475,6 +1529,7 @@ class Deployments:
         dry_run: bool = False,
         openclaw_routes: dict | None = None,
         openclaw_route_options: dict | None = None,
+        memory_index: dict | None = None,
     ) -> Agent:
         effective_env = {"OPENCLAW_DESKTOP_ENABLED": "1", **dict(env or {})}
         effective_route_options = {"include_desktop": True, **dict(openclaw_route_options or {})}
@@ -1498,6 +1553,7 @@ class Deployments:
             dry_run=dry_run,
             openclaw_routes=openclaw_routes,
             openclaw_route_options=effective_route_options,
+            memory_index=memory_index,
         )
 
     def update(

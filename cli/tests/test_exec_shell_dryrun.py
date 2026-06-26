@@ -265,6 +265,53 @@ def test_agents_create_desktop_can_be_enabled_by_env(monkeypatch):
     assert captured["openclaw_route_options"] == {"include_desktop": True}
 
 
+def test_agents_create_accepts_memory_index_flags(monkeypatch):
+    captured = {}
+
+    class FakeDeployments:
+        def create_openclaw(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                id="agent-dryrun",
+                pod_name="agent-dryrun",
+                name="agent-dryrun",
+                cpu=2,
+                memory=2,
+                state="validated",
+                vnc_url=None,
+                ports=[],
+                dry_run=True,
+                shell_url=None,
+            )
+
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
+
+    result = runner.invoke(
+        app,
+        [
+            "agents",
+            "create",
+            "--dry-run",
+            "--index-on-session-start",
+            "--index-on-search",
+            "--index-watch",
+            "--index-watch-debounce-ms",
+            "60000",
+            "--index-interval-minutes",
+            "120",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["memory_index"] == {
+        "on_session_start": True,
+        "on_search": True,
+        "watch": True,
+        "watch_debounce_ms": 60000,
+        "interval_minutes": 120,
+    }
+
+
 def test_agents_cp_reports_directory_path_error(monkeypatch, tmp_path):
     class FakeDeployments:
         def cp_from(self, _pod, src_path, dst_path):
