@@ -175,6 +175,96 @@ def test_agent_shell_command(monkeypatch):
     assert called["agent_id"] == "agent-xyz"
 
 
+def test_agents_create_disables_desktop_by_default(monkeypatch):
+    captured = {}
+
+    class FakeDeployments:
+        def create_openclaw(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                id="agent-dryrun",
+                pod_name="agent-dryrun",
+                name="agent-dryrun",
+                cpu=2,
+                memory=2,
+                state="validated",
+                vnc_url=None,
+                ports=[],
+                dry_run=True,
+                shell_url=None,
+            )
+
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
+
+    result = runner.invoke(app, ["agents", "create", "--dry-run", "--name", "demo"])
+
+    assert result.exit_code == 0
+    assert captured["env"]["OPENCLAW_DESKTOP_ENABLED"] == "0"
+    assert captured["openclaw_route_options"] == {"include_desktop": False}
+    assert "Desktop:  disabled" in result.stdout
+
+
+def test_agents_create_desktop_uses_openclaw_pro(monkeypatch):
+    captured = {}
+
+    class FakeDeployments:
+        def create_openclaw_pro(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                id="agent-dryrun",
+                pod_name="agent-dryrun",
+                name="agent-dryrun",
+                cpu=2,
+                memory=2,
+                state="validated",
+                vnc_url="https://desktop-demo.hypercli.app",
+                ports=[],
+                dry_run=True,
+                shell_url=None,
+            )
+
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
+
+    result = runner.invoke(app, ["agents", "create", "--dry-run", "--desktop", "--name", "demo"])
+
+    assert result.exit_code == 0
+    assert captured["env"]["OPENCLAW_DESKTOP_ENABLED"] == "1"
+    assert captured["openclaw_route_options"] == {"include_desktop": True}
+    assert captured["image"].endswith(":pro-prod")
+    assert "https://desktop-demo.hypercli.app" in result.stdout
+
+
+def test_agents_create_desktop_can_be_enabled_by_env(monkeypatch):
+    captured = {}
+
+    class FakeDeployments:
+        def create_openclaw_pro(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                id="agent-dryrun",
+                pod_name="agent-dryrun",
+                name="agent-dryrun",
+                cpu=2,
+                memory=2,
+                state="validated",
+                vnc_url="https://desktop-demo.hypercli.app",
+                ports=[],
+                dry_run=True,
+                shell_url=None,
+            )
+
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
+
+    result = runner.invoke(
+        app,
+        ["agents", "create", "--dry-run", "--env", "OPENCLAW_DESKTOP_ENABLED=True"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["env"]["OPENCLAW_DESKTOP_ENABLED"] == "True"
+    assert captured["openclaw_route_options"] == {"include_desktop": True}
+
+
 def test_agents_cp_reports_directory_path_error(monkeypatch, tmp_path):
     class FakeDeployments:
         def cp_from(self, _pod, src_path, dst_path):

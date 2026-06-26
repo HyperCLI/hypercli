@@ -66,14 +66,14 @@ Use:
 The CLI now follows the same route defaults as the SDKs:
 
 - root host = OpenClaw gateway / agent
-- `desktop-<host>` = desktop
+- `desktop-<host>` = desktop when launched with `--desktop`
 - there is no default `shell-<host>` route
 
 So:
 
 - `hyper agents shell` uses backend `/ws/shell/{agent_id}`
 - `hyper agents logs --ws` uses backend `/ws/logs/{agent_id}`
-- desktop opens on `desktop-<host>`
+- desktop/browser launches use the OpenClaw pro image and set `OPENCLAW_DESKTOP_ENABLED=1`
 
 ## Recommended Reading
 

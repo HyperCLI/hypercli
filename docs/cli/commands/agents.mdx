@@ -30,7 +30,7 @@ hyper agents --agents-ws-url wss://api.agents.dev.hypercli.com/ws
 OpenClaw-backed agents use:
 
 - root host = gateway / agent
-- `desktop-<host>` = desktop
+- `desktop-<host>` = desktop when launched with the desktop/browser flavor
 - no default `shell-<host>` route
 
 Extra routes are user-provided via the `routes` dict at create/start time.
@@ -41,6 +41,7 @@ Extra routes are user-provided via the `routes` dict at create/start time.
 
 ```bash
 hyper agents create --name docs-demo --size medium --wait
+hyper agents create --name docs-demo --desktop --wait
 ```
 
 Important options:
@@ -49,6 +50,7 @@ Important options:
 - `--size`
 - `--no-start`
 - `--wait / --no-wait`
+- `--desktop / --no-desktop`
 - `--env`
 - `--port`
 - `--command`
@@ -59,6 +61,8 @@ Important options:
 - `--registry-password`
 - `--gateway-token`
 - `--dry-run`
+
+Desktop/browser agents use the OpenClaw pro image, set `OPENCLAW_DESKTOP_ENABLED=1`, and expose noVNC at `https://desktop-<host>`. The base launch sets `OPENCLAW_DESKTOP_ENABLED=0` and keeps the desktop route disabled. You can also drive the same behavior with `--env OPENCLAW_DESKTOP_ENABLED=True`.
 
 ### `wait`
 
@@ -83,6 +87,7 @@ hyper agents status <agent_id>
 
 ```bash
 hyper agents start <agent_id>
+hyper agents start <agent_id> --desktop
 ```
 
 ### `stop`

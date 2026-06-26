@@ -71,7 +71,15 @@ hyper agents create --name docs-demo --size medium --wait
 Current defaults:
 
 - gateway host: `https://docs-demo.hypercli.app`
-- desktop host: `https://desktop-docs-demo.hypercli.app`
+- desktop is disabled on the base image
+
+For Chrome/browser automation and a noVNC desktop:
+
+```bash
+hyper agents create --name docs-demo --size medium --desktop --wait
+```
+
+That uses the OpenClaw pro image, sets `OPENCLAW_DESKTOP_ENABLED=1`, and exposes `https://desktop-docs-demo.hypercli.app`.
 
 ## Connect To The Agent
 
@@ -89,7 +97,7 @@ hyper agents config docs-demo
 hyper agents gateway-chat docs-demo "Reply with exactly: hello"
 ```
 
-Desktop opens at the desktop route:
+If the agent was launched with `--desktop`, desktop opens at the desktop route:
 
 ```bash
 hyper agents status docs-demo

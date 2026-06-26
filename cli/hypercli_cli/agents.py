@@ -12,7 +12,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from hypercli.agents import AGENT_FILE_MAX_BYTES, Agent, Deployments, OpenClawAgent, DEFAULT_OPENCLAW_IMAGE
+from hypercli.agents import AGENT_FILE_MAX_BYTES, Agent, DEFAULT_OPENCLAW_IMAGE, DEFAULT_OPENCLAW_PRO_IMAGE, Deployments, OpenClawAgent
 from hypercli.config import get_agent_api_key as get_config_agent_api_key
 
 app = typer.Typer(help="Manage OpenClaw agent pods")
@@ -33,6 +33,46 @@ def _default_openclaw_image(image: str | None, config: dict | None = None) -> st
         return image
     configured = str((config or {}).get("image") or "").strip()
     return configured or DEFAULT_OPENCLAW_IMAGE
+
+
+def _default_openclaw_pro_image(image: str | None, config: dict | None = None) -> str:
+    if image:
+        return image
+    configured = str((config or {}).get("image") or "").strip()
+    return configured or DEFAULT_OPENCLAW_PRO_IMAGE
+
+
+def _truthy_env(value: object) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on", "enabled"}
+
+
+def _falsey_env(value: object) -> bool:
+    return str(value or "").strip().lower() in {"0", "false", "no", "off", "disabled"}
+
+
+def _desktop_enabled_from_launch(desktop: bool | None, env: dict | None = None, launch_config: dict | None = None) -> bool:
+    if desktop is not None:
+        return bool(desktop)
+    env_value = (env or {}).get("OPENCLAW_DESKTOP_ENABLED")
+    if _truthy_env(env_value):
+        return True
+    if _falsey_env(env_value):
+        return False
+    launch_env = (launch_config or {}).get("env")
+    if isinstance(launch_env, dict):
+        if _truthy_env(launch_env.get("OPENCLAW_DESKTOP_ENABLED")):
+            return True
+        if _falsey_env(launch_env.get("OPENCLAW_DESKTOP_ENABLED")):
+            return False
+    image = str((launch_config or {}).get("image") or "")
+    return "hypercli-openclaw:pro" in image or image.endswith("-pro")
+
+
+def _openclaw_env_with_desktop(env: dict | None, enabled: bool, *, force: bool = False) -> dict:
+    env_dict = dict(env or {})
+    if force or "OPENCLAW_DESKTOP_ENABLED" not in env_dict:
+        env_dict["OPENCLAW_DESKTOP_ENABLED"] = "1" if enabled else "0"
+    return env_dict
 
 
 @app.callback()
@@ -297,6 +337,7 @@ def create(
     command: str = typer.Option(None, "--command", help="Container args as a shell-style string"),
     entrypoint: str = typer.Option(None, "--entrypoint", help="Container entrypoint as a shell-style string"),
     image: str = typer.Option(None, "--image", help="Override the default OpenClaw image"),
+    desktop: bool | None = typer.Option(None, "--desktop/--no-desktop", help="Use the pro desktop/browser image and protected noVNC route"),
     registry_url: str = typer.Option(None, "--registry-url", help="Container registry URL for private image pulls"),
     registry_username: str = typer.Option(None, "--registry-username", help="Registry username"),
     registry_password: str = typer.Option(None, "--registry-password", help="Registry password"),
@@ -314,18 +355,21 @@ def create(
     command_argv = _parse_argv_option(command, "--command")
     entrypoint_argv = _parse_argv_option(entrypoint, "--entrypoint")
     registry_auth = _build_registry_auth(registry_username, registry_password)
+    desktop_enabled = _desktop_enabled_from_launch(desktop, env_dict)
+    effective_env = _openclaw_env_with_desktop(env_dict, desktop_enabled, force=desktop is not None)
 
     console.print("\n[bold]Creating agent pod...[/bold]")
 
     try:
-        pod = agents.create(
+        create_func = agents.create_openclaw_pro if desktop_enabled else agents.create_openclaw
+        pod = create_func(
             name=name,
             size=size,
-            env=env_dict,
+            env=effective_env,
             ports=ports_list,
             command=command_argv,
             entrypoint=entrypoint_argv,
-            image=_default_openclaw_image(image),
+            image=_default_openclaw_pro_image(image) if desktop_enabled else _default_openclaw_image(image),
             registry_url=registry_url,
             registry_auth=registry_auth,
             sync_uid=sync_uid,
@@ -333,6 +377,7 @@ def create(
             gateway_token=gateway_token,
             dry_run=dry_run,
             start=not no_start,
+            openclaw_route_options={"include_desktop": desktop_enabled},
         )
     except Exception as e:
         console.print(f"[red]❌ Create failed: {e}[/red]")
@@ -345,7 +390,7 @@ def create(
     console.print(f"  Name:     {pod.name or pod.pod_name}")
     console.print(f"  Size:     {pod.cpu} CPU, {pod.memory} GB")
     console.print(f"  State:    {pod.state}")
-    console.print(f"  Desktop:  {pod.vnc_url}")
+    console.print(f"  Desktop:  {pod.vnc_url or ('disabled' if not desktop_enabled else '')}")
     console.print(f"  Shell:    {'via hyper agents shell' if not pod.shell_url else pod.shell_url}")
     display_ports = pod.ports or ports_list or []
     for p in display_ports:
@@ -369,7 +414,10 @@ def create(
     else:
         console.print(f"\nExec:    [bold]hyper agents exec {pod.id[:8]} 'echo hello'[/bold]")
         console.print(f"Shell:   [bold]hyper agents shell {pod.id[:8]}[/bold]")
-        console.print(f"Desktop: {pod.vnc_url}")
+        if desktop_enabled:
+            console.print(f"Desktop: {pod.vnc_url}")
+        else:
+            console.print("Desktop: disabled (launch with --desktop to enable)")
 
 
 @app.command("wait")
@@ -540,6 +588,7 @@ def start(
     command: str = typer.Option(None, "--command", help="Container args as a shell-style string"),
     entrypoint: str = typer.Option(None, "--entrypoint", help="Container entrypoint as a shell-style string"),
     image: str = typer.Option(None, "--image", help="Override the default OpenClaw image"),
+    desktop: bool | None = typer.Option(None, "--desktop/--no-desktop", help="Use the pro desktop/browser image and protected noVNC route"),
     registry_url: str = typer.Option(None, "--registry-url", help="Container registry URL for private image pulls"),
     registry_username: str = typer.Option(None, "--registry-username", help="Registry username"),
     registry_password: str = typer.Option(None, "--registry-password", help="Registry password"),
@@ -560,13 +609,20 @@ def start(
     registry_auth = _build_registry_auth(registry_username, registry_password)
     launch_config = dict(local.get("launch_config") or {})
     effective_gateway_token = gateway_token or local.get("gateway_token")
-    effective_image = _default_openclaw_image(image, launch_config)
+    desktop_enabled = _desktop_enabled_from_launch(desktop, env_dict, launch_config)
+    effective_env = _openclaw_env_with_desktop(env_dict, desktop_enabled, force=desktop is not None)
+    effective_image = (
+        _default_openclaw_pro_image(image, launch_config)
+        if desktop_enabled
+        else _default_openclaw_image(image, launch_config)
+    )
 
     try:
-        pod = agents.start(
+        start_func = agents.start_openclaw_pro if desktop_enabled else agents.start_openclaw
+        pod = start_func(
             agent_id,
             config=launch_config,
-            env=env_dict,
+            env=effective_env,
             ports=ports_list,
             command=command_argv,
             entrypoint=entrypoint_argv,
@@ -577,6 +633,7 @@ def start(
             sync_gid=sync_gid,
             gateway_token=effective_gateway_token,
             dry_run=dry_run,
+            openclaw_route_options={"include_desktop": desktop_enabled},
         )
     except Exception as e:
         console.print(f"[red]❌ Failed to start agent: {e}[/red]")
@@ -588,7 +645,7 @@ def start(
     if pod.dry_run:
         console.print("  No pod was created.")
     else:
-        console.print(f"  Desktop: {pod.vnc_url}")
+        console.print(f"  Desktop: {pod.vnc_url or ('disabled' if not desktop_enabled else '')}")
 
 
 @app.command("stop")
