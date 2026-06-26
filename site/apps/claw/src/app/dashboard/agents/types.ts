@@ -19,6 +19,7 @@ export interface Agent {
   last_error: string | null;
   created_at: string | null;
   updated_at: string | null;
+  launchConfig?: Record<string, unknown> | null;
   gatewayToken?: string | null;
   meta?: AgentMeta | null;
 }
@@ -42,4 +43,3 @@ export interface LogEvent {
   detail?: string;
   status?: number;
 }
-

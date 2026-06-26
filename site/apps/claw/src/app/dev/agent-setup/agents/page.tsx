@@ -1845,6 +1845,11 @@ export default function DevAgentSetupAgentsPage() {
                   const updatedAgent = await createAgentClient(token).update(agentId, { name });
                   setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
                 }}
+                onUpdateAgentLaunchConfig={async (agentId, launchConfig) => {
+                  const token = await getToken();
+                  const updatedAgent = await createAgentClient(token).update(agentId, { launchConfig });
+                  setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
+                }}
                 onSaveOpenClawConfig={async (patch) => { await chat.saveConfig(patch); }}
               />
             ) : mainTab === "logs" ? (

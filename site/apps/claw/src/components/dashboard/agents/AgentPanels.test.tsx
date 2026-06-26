@@ -75,6 +75,20 @@ const agent: Agent = {
   last_error: null,
   created_at: "2026-05-05T00:00:00Z",
   updated_at: "2026-05-05T00:00:00Z",
+  launchConfig: {
+    image: "ghcr.io/hypercli/hypercli-openclaw:prod",
+    env: {
+      OPENCLAW_GATEWAY_TOKEN: "gateway-token",
+      OPENCLAW_DESKTOP_ENABLED: "0",
+      OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES: "0",
+      FOO: "bar",
+    },
+    routes: {
+      openclaw: { port: 18789, auth: false, prefix: "" },
+    },
+    sync_root: "/home/node",
+    sync_enabled: true,
+  },
   gatewayToken: null,
   meta: null,
 };
@@ -369,6 +383,45 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByText("Agent settings updated.")).toBeInTheDocument();
   });
 
+  it("saves Docker image and user additional env while preserving managed launch env", async () => {
+    const onUpdateAgentLaunchConfig = vi.fn(async () => undefined);
+    renderAgentSettingsPanel({ onUpdateAgentLaunchConfig });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+
+    expect(screen.getByRole("textbox", { name: "Agent Docker image" })).toHaveValue("ghcr.io/hypercli/hypercli-openclaw:prod");
+    expect(screen.getByRole("textbox", { name: "Additional env" })).toHaveValue("FOO=bar");
+    expect(screen.queryByDisplayValue(/OPENCLAW_GATEWAY_TOKEN/)).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue(/OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES/)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Agent Docker image" }), {
+      target: { value: "ghcr.io/hypercli/hypercli-openclaw:custom" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "Additional env" }), {
+      target: { value: "FOO=baz\nCUSTOM_FLAG=1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      expect(onUpdateAgentLaunchConfig).toHaveBeenCalledWith("agent-1", {
+        image: "ghcr.io/hypercli/hypercli-openclaw:custom",
+        env: {
+          OPENCLAW_GATEWAY_TOKEN: "gateway-token",
+          OPENCLAW_DESKTOP_ENABLED: "0",
+          OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES: "0",
+          FOO: "baz",
+          CUSTOM_FLAG: "1",
+        },
+        routes: {
+          openclaw: { port: 18789, auth: false, prefix: "" },
+        },
+        sync_root: "/home/node",
+        sync_enabled: true,
+      });
+    });
+    expect(screen.getByText("Agent settings updated.")).toBeInTheDocument();
+  });
+
   it("lists OpenClaw models and saves the selected default model through config patch", async () => {
     const onSaveOpenClawConfig = vi.fn(async () => undefined);
     renderAgentSettingsPanel({ onSaveOpenClawConfig });
@@ -432,8 +485,8 @@ describe("AgentSettingsPanel", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Sync on session start" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Sync on search" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Watch memory files" }));
-    fireEvent.change(screen.getByRole("spinbutton", { name: "Watch debounce milliseconds" }), {
-      target: { value: "60000" },
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Watch debounce seconds" }), {
+      target: { value: "60" },
     });
     fireEvent.change(screen.getByRole("spinbutton", { name: "Interval sync minutes" }), {
       target: { value: "120" },

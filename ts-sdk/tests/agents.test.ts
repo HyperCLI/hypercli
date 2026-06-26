@@ -156,12 +156,26 @@ describe('Agents SDK', () => {
     } as unknown as HTTPClient;
 
     const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
-    const agent = await deployments.update('agent-123', { size: 'large', refreshFromLagoon: true });
+    const agent = await deployments.update('agent-123', {
+      size: 'large',
+      launchConfig: {
+        image: 'ghcr.io/hypercli/hypercli-openclaw:custom',
+        env: { FOO: 'bar' },
+      },
+      refreshFromLagoon: true,
+    });
 
     expect(agent.id).toBe('agent-123');
     expect((http.patch as any).mock.calls[0]).toEqual([
       '/deployments/agent-123',
-      { size: 'large', refresh_from_lagoon: true },
+      {
+        size: 'large',
+        launch_config: {
+          image: 'ghcr.io/hypercli/hypercli-openclaw:custom',
+          env: { FOO: 'bar' },
+        },
+        refresh_from_lagoon: true,
+      },
     ]);
   });
 

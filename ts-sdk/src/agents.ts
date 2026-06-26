@@ -275,6 +275,7 @@ export interface StartAgentOptions extends BuildAgentConfigOptions {
 export interface UpdateAgentOptions {
   name?: string;
   size?: string;
+  launchConfig?: Record<string, any> | null;
   refreshFromLagoon?: boolean;
   lastError?: string | null;
 }
@@ -1728,6 +1729,7 @@ export class Deployments {
     const body: Record<string, any> = {};
     if (options.name !== undefined) body.name = options.name;
     if (options.size !== undefined) body.size = options.size;
+    if (options.launchConfig !== undefined) body.launch_config = options.launchConfig;
     if (options.refreshFromLagoon !== undefined) body.refresh_from_lagoon = options.refreshFromLagoon;
     if (options.lastError !== undefined) body.last_error = options.lastError;
     const data = await this.agentHttp.patch<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}`, body);

@@ -34,6 +34,7 @@ export function toAgentViewModel(agent: SdkAgent): Agent {
     last_error: agent.lastError ?? null,
     created_at: agent.createdAt?.toISOString() ?? null,
     updated_at: agent.updatedAt?.toISOString() ?? null,
+    launchConfig: agent.launchConfig ?? null,
     meta: agent.meta ?? null,
   };
 }

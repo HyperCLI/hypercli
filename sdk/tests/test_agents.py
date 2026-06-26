@@ -980,11 +980,26 @@ def test_agents_update_and_resize(agents_client):
 
     agents_client._http.patch = fake_patch
 
-    updated = agents_client.update("agent-123", size="large", refresh_from_lagoon=True)
+    updated = agents_client.update(
+        "agent-123",
+        size="large",
+        launch_config={
+            "image": "ghcr.io/hypercli/hypercli-openclaw:custom",
+            "env": {"FOO": "bar"},
+        },
+        refresh_from_lagoon=True,
+    )
     assert updated.id == "agent-123"
     assert patch_calls[0] == (
         "/deployments/agent-123",
-        {"size": "large", "refresh_from_lagoon": True},
+        {
+            "size": "large",
+            "launch_config": {
+                "image": "ghcr.io/hypercli/hypercli-openclaw:custom",
+                "env": {"FOO": "bar"},
+            },
+            "refresh_from_lagoon": True,
+        },
     )
 
     resized = agents_client.resize("agent-123", size="large")

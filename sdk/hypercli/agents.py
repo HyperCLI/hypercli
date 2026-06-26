@@ -493,6 +493,7 @@ class Agent:
         *,
         name: str | None = None,
         size: str | None = None,
+        launch_config: dict | None = None,
         refresh_from_lagoon: bool | None = None,
         last_error: str | None = None,
     ) -> "Agent":
@@ -500,6 +501,7 @@ class Agent:
             self.id,
             name=name,
             size=size,
+            launch_config=launch_config,
             refresh_from_lagoon=refresh_from_lagoon,
             last_error=last_error,
         )
@@ -1562,6 +1564,7 @@ class Deployments:
         *,
         name: str | None = None,
         size: str | None = None,
+        launch_config: dict | None = None,
         refresh_from_lagoon: bool | None = None,
         last_error: str | None = None,
     ) -> Agent:
@@ -1570,6 +1573,8 @@ class Deployments:
             body["name"] = name
         if size is not None:
             body["size"] = size
+        if launch_config is not None:
+            body["launch_config"] = launch_config
         if refresh_from_lagoon is not None:
             body["refresh_from_lagoon"] = refresh_from_lagoon
         if last_error is not None:

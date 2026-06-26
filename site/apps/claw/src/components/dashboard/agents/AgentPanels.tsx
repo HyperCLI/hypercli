@@ -458,6 +458,7 @@ interface AgentSettingsPanelProps {
   openclawConfig?: Record<string, unknown> | null;
   openclawModels?: Array<Record<string, unknown>> | null;
   onUpdateAgentName?: (agentId: string, name: string) => Promise<void>;
+  onUpdateAgentLaunchConfig?: (agentId: string, launchConfig: Record<string, unknown>) => Promise<void>;
   onSaveOpenClawConfig?: (patch: Record<string, unknown>) => Promise<void>;
   isDesktopViewport?: boolean;
   agentsMenuOpen?: boolean;
@@ -500,6 +501,9 @@ const DEFAULT_MEMORY_INDEX_SETTINGS: MemoryIndexSettings = {
 
 const SETTINGS_FIELD_CLASS =
   "h-9 w-full rounded-lg border border-border bg-surface-low px-3 text-sm text-foreground placeholder:text-text-muted transition-colors focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60";
+const SETTINGS_TEXTAREA_CLASS =
+  "min-h-[112px] w-full resize-y rounded-lg border border-border bg-surface-low px-3 py-2 text-sm leading-5 text-foreground placeholder:text-text-muted transition-colors focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60";
+const SETTINGS_CHECKBOX_CLASS = "h-4 w-4 rounded border-border bg-background accent-[var(--button-primary)]";
 const SETTINGS_SMALL_BUTTON_CLASS =
   "inline-flex h-8 items-center justify-center rounded-lg border border-border bg-surface-low px-3 text-xs font-medium text-foreground transition-colors hover:bg-surface-high disabled:cursor-not-allowed disabled:opacity-60";
 const SETTINGS_DANGER_BUTTON_CLASS =
@@ -529,6 +533,93 @@ function agentSettingsName(agent: Agent | null): string {
 function agentSettingsAvatar(agent: Agent | null): string | null {
   if (!agent) return null;
   return agentAvatar(agent.name || agent.id, agent.meta).imageUrl ?? null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+const MANAGED_LAUNCH_ENV_KEYS = new Set([
+  "OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN",
+  "OPENCLAW_DESKTOP_ENABLED",
+  "OPENCLAW_GATEWAY_TOKEN",
+  "HYPER_AGENTS_API_KEY",
+  "HYPER_AGENTS_KEY_REF",
+]);
+
+const MANAGED_LAUNCH_ENV_PREFIXES = [
+  "LAGOON_",
+  "REEF_",
+  "OPENCLAW_MEMORY_SEARCH_",
+];
+
+function isManagedLaunchEnvKey(key: string): boolean {
+  return MANAGED_LAUNCH_ENV_KEYS.has(key) || MANAGED_LAUNCH_ENV_PREFIXES.some((prefix) => key.startsWith(prefix));
+}
+
+function launchConfigFromAgent(agent: Agent | null): Record<string, unknown> {
+  return isRecord(agent?.launchConfig) ? structuredClone(agent.launchConfig) : {};
+}
+
+function launchConfigImage(agent: Agent | null): string {
+  const launchConfig = launchConfigFromAgent(agent);
+  return typeof launchConfig.image === "string" ? launchConfig.image : "";
+}
+
+function launchConfigEnv(agent: Agent | null): Record<string, string> {
+  const launchConfig = launchConfigFromAgent(agent);
+  if (!isRecord(launchConfig.env)) return {};
+  return Object.fromEntries(
+    Object.entries(launchConfig.env).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+  );
+}
+
+function additionalEnvTextFromAgent(agent: Agent | null): string {
+  return Object.entries(launchConfigEnv(agent))
+    .filter(([key]) => !isManagedLaunchEnvKey(key))
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}=${value}`)
+    .join("\n");
+}
+
+function parseAdditionalEnvText(value: string): Record<string, string> {
+  const env: Record<string, string> = {};
+  const lines = value.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index].trim();
+    if (!line || line.startsWith("#")) continue;
+    const separatorIndex = line.indexOf("=");
+    if (separatorIndex <= 0) {
+      throw new Error(`Additional env line ${index + 1} must use KEY=value.`);
+    }
+    const key = line.slice(0, separatorIndex).trim();
+    const envValue = line.slice(separatorIndex + 1);
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+      throw new Error(`Additional env line ${index + 1} has an invalid key.`);
+    }
+    if (isManagedLaunchEnvKey(key)) {
+      throw new Error(`${key} is managed by HyperCLI and cannot be edited here.`);
+    }
+    env[key] = envValue;
+  }
+  return env;
+}
+
+function buildUpdatedLaunchConfig(
+  agent: Agent,
+  image: string,
+  additionalEnvText: string,
+): Record<string, unknown> {
+  const launchConfig = launchConfigFromAgent(agent);
+  launchConfig.image = image;
+  const preservedEnv = Object.fromEntries(
+    Object.entries(launchConfigEnv(agent)).filter(([key]) => isManagedLaunchEnvKey(key)),
+  );
+  launchConfig.env = {
+    ...preservedEnv,
+    ...parseAdditionalEnvText(additionalEnvText),
+  };
+  return launchConfig;
 }
 
 function booleanFromConfig(value: unknown, fallback: boolean): boolean {
@@ -758,6 +849,10 @@ function AgentSectionSettingsContent({
   onAgentNameChange,
   onAgentAvatarSelect,
   onAgentAvatarRemove,
+  agentImageDraft,
+  onAgentImageChange,
+  additionalEnvDraft,
+  onAdditionalEnvChange,
   modelDraft,
   modelOptions,
   modelSelectionDisabled,
@@ -781,6 +876,10 @@ function AgentSectionSettingsContent({
   onAgentNameChange: (value: string) => void;
   onAgentAvatarSelect: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onAgentAvatarRemove: () => void;
+  agentImageDraft: string;
+  onAgentImageChange: (value: string) => void;
+  additionalEnvDraft: string;
+  onAdditionalEnvChange: (value: string) => void;
   modelDraft: string;
   modelOptions: OpenClawModelOption[];
   modelSelectionDisabled?: boolean;
@@ -930,6 +1029,27 @@ function AgentSectionSettingsContent({
             </div>
           </AgentProfileSettingsRow>
 
+          <AgentProfileSettingsRow label="Docker image" description="Container image used when this agent starts.">
+            <input
+              value={agentImageDraft}
+              onChange={(event) => onAgentImageChange(event.target.value)}
+              placeholder="ghcr.io/hypercli/hypercli-openclaw:prod"
+              aria-label="Agent Docker image"
+              className={SETTINGS_FIELD_CLASS}
+            />
+          </AgentProfileSettingsRow>
+
+          <AgentProfileSettingsRow label="Additional env" description="Extra runtime variables, one KEY=value per line.">
+            <textarea
+              value={additionalEnvDraft}
+              onChange={(event) => onAdditionalEnvChange(event.target.value)}
+              placeholder={"EXAMPLE_FLAG=1\nCUSTOM_ENDPOINT=https://example.com"}
+              aria-label="Additional env"
+              spellCheck={false}
+              className={SETTINGS_TEXTAREA_CLASS}
+            />
+          </AgentProfileSettingsRow>
+
           <AgentProfileSettingsRow label="Default model" description="Model used by this agent.">
             <select
               aria-label="Default model"
@@ -1042,11 +1162,14 @@ function AgentIndexSettingsContent({
     (event: React.ChangeEvent<HTMLInputElement>) => {
       onSettingsChange({ ...settings, [key]: event.target.checked });
     };
-  const setNumber = (key: keyof Pick<MemoryIndexSettings, "watchDebounceMs" | "intervalMinutes">) =>
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const value = Math.max(0, Number.parseInt(event.target.value || "0", 10) || 0);
-      onSettingsChange({ ...settings, [key]: value });
-    };
+  const setDebounceSeconds = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const seconds = Math.max(0, Number.parseFloat(event.target.value || "0") || 0);
+    onSettingsChange({ ...settings, watchDebounceMs: Math.round(seconds * 1000) });
+  };
+  const setIntervalMinutes = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = Math.max(0, Number.parseInt(event.target.value || "0", 10) || 0);
+    onSettingsChange({ ...settings, intervalMinutes: value });
+  };
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-5 py-7 md:px-8">
@@ -1073,7 +1196,7 @@ function AgentIndexSettingsContent({
                 checked={settings.enabled}
                 onChange={setBoolean("enabled")}
                 disabled={disabled}
-                className="h-4 w-4 rounded border-border bg-background accent-[var(--button-primary)]"
+                className={SETTINGS_CHECKBOX_CLASS}
               />
               Enabled
             </label>
@@ -1086,7 +1209,7 @@ function AgentIndexSettingsContent({
                 checked={settings.onSessionStart}
                 onChange={setBoolean("onSessionStart")}
                 disabled={disabled}
-                className="h-4 w-4 rounded border-border bg-background accent-[var(--button-primary)]"
+                className={SETTINGS_CHECKBOX_CLASS}
               />
               Sync on session start
             </label>
@@ -1099,7 +1222,7 @@ function AgentIndexSettingsContent({
                 checked={settings.onSearch}
                 onChange={setBoolean("onSearch")}
                 disabled={disabled}
-                className="h-4 w-4 rounded border-border bg-background accent-[var(--button-primary)]"
+                className={SETTINGS_CHECKBOX_CLASS}
               />
               Sync on search
             </label>
@@ -1112,21 +1235,21 @@ function AgentIndexSettingsContent({
                 checked={settings.watch}
                 onChange={setBoolean("watch")}
                 disabled={disabled}
-                className="h-4 w-4 rounded border-border bg-background accent-[var(--button-primary)]"
+                className={SETTINGS_CHECKBOX_CLASS}
               />
               Watch memory files
             </label>
           </AgentProfileSettingsRow>
 
-          <AgentProfileSettingsRow label="Watch debounce" description="Milliseconds of quiet time before watcher sync runs.">
+          <AgentProfileSettingsRow label="Watch debounce" description="Seconds of quiet time before watcher sync runs.">
             <input
               type="number"
               min={0}
-              step={1000}
-              value={settings.watchDebounceMs}
-              onChange={setNumber("watchDebounceMs")}
+              step={1}
+              value={settings.watchDebounceMs / 1000}
+              onChange={setDebounceSeconds}
               disabled={disabled}
-              aria-label="Watch debounce milliseconds"
+              aria-label="Watch debounce seconds"
               className={SETTINGS_FIELD_CLASS}
             />
           </AgentProfileSettingsRow>
@@ -1137,7 +1260,7 @@ function AgentIndexSettingsContent({
               min={0}
               step={1}
               value={settings.intervalMinutes}
-              onChange={setNumber("intervalMinutes")}
+              onChange={setIntervalMinutes}
               disabled={disabled}
               aria-label="Interval sync minutes"
               className={SETTINGS_FIELD_CLASS}
@@ -1213,6 +1336,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     openclawConfig = null,
     openclawModels = null,
     onUpdateAgentName,
+    onUpdateAgentLaunchConfig,
     onSaveOpenClawConfig,
     isDesktopViewport = true,
     agentsMenuOpen = false,
@@ -1236,6 +1360,10 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const [agentNameDraft, setAgentNameDraft] = React.useState(() => agentSettingsName(agent));
   const [savedAgentAvatar, setSavedAgentAvatar] = React.useState<string | null>(() => agentSettingsAvatar(agent));
   const [agentAvatarDraft, setAgentAvatarDraft] = React.useState<string | null>(() => agentSettingsAvatar(agent));
+  const [savedAgentImage, setSavedAgentImage] = React.useState(() => launchConfigImage(agent));
+  const [agentImageDraft, setAgentImageDraft] = React.useState(() => launchConfigImage(agent));
+  const [savedAdditionalEnvDraft, setSavedAdditionalEnvDraft] = React.useState(() => additionalEnvTextFromAgent(agent));
+  const [additionalEnvDraft, setAdditionalEnvDraft] = React.useState(() => additionalEnvTextFromAgent(agent));
   const [savedArchiveDraft, setSavedArchiveDraft] = React.useState("not-configured");
   const [archiveDraft, setArchiveDraft] = React.useState("not-configured");
   const [savedModelDraft, setSavedModelDraft] = React.useState(() => getOpenClawDefaultModel(openclawConfig));
@@ -1291,6 +1419,12 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     setAgentNameDraft(nextName);
     setSavedAgentAvatar(nextAvatar);
     setAgentAvatarDraft(nextAvatar);
+    const nextImage = launchConfigImage(agent);
+    const nextAdditionalEnv = additionalEnvTextFromAgent(agent);
+    setSavedAgentImage(nextImage);
+    setAgentImageDraft(nextImage);
+    setSavedAdditionalEnvDraft(nextAdditionalEnv);
+    setAdditionalEnvDraft(nextAdditionalEnv);
     setSavedArchiveDraft("not-configured");
     setArchiveDraft("not-configured");
     setAgentSettingsError(null);
@@ -1322,9 +1456,10 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
 
   const profileChanged = profileName !== savedProfileName;
   const agentProfileChanged = agentNameDraft !== savedAgentName || agentAvatarDraft !== savedAgentAvatar || archiveDraft !== savedArchiveDraft;
+  const agentLaunchChanged = agentImageDraft !== savedAgentImage || additionalEnvDraft !== savedAdditionalEnvDraft;
   const modelChanged = modelDraft !== savedModelDraft;
   const memoryIndexChanged = !memoryIndexSettingsEqual(memoryIndexDraft, savedMemoryIndexDraft);
-  const agentChanged = agentProfileChanged || modelChanged || memoryIndexChanged;
+  const agentChanged = agentProfileChanged || agentLaunchChanged || modelChanged || memoryIndexChanged;
   const hasSettingsChanges = profileChanged || agentChanged;
 
   const discardProfileChanges = React.useCallback(() => {
@@ -1332,12 +1467,14 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     setProfileAvatar(savedProfileAvatar);
     setAgentNameDraft(savedAgentName);
     setAgentAvatarDraft(savedAgentAvatar);
+    setAgentImageDraft(savedAgentImage);
+    setAdditionalEnvDraft(savedAdditionalEnvDraft);
     setArchiveDraft(savedArchiveDraft);
     setModelDraft(savedModelDraft);
     setMemoryIndexDraft(savedMemoryIndexDraft);
     setAgentSettingsError(null);
     setAgentSettingsSuccess(null);
-  }, [savedAgentAvatar, savedAgentName, savedArchiveDraft, savedMemoryIndexDraft, savedModelDraft, savedProfileAvatar, savedProfileName]);
+  }, [savedAdditionalEnvDraft, savedAgentAvatar, savedAgentImage, savedAgentName, savedArchiveDraft, savedMemoryIndexDraft, savedModelDraft, savedProfileAvatar, savedProfileName]);
 
   const saveProfileChanges = React.useCallback(async () => {
     setProfileError(null);
@@ -1355,14 +1492,36 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
 
     const agentNameChanged = agentNameDraft !== savedAgentName;
     const nextAgentName = agentNameDraft.trim();
+    const agentImageChanged = agentImageDraft !== savedAgentImage;
+    const additionalEnvChanged = additionalEnvDraft !== savedAdditionalEnvDraft;
+    const nextAgentImage = agentImageDraft.trim();
 
     if (agentNameChanged && !nextAgentName) {
       setAgentSettingsError("Agent name is required.");
       return;
     }
 
+    if (agentLaunchChanged && !nextAgentImage) {
+      setAgentSettingsError("Docker image is required.");
+      return;
+    }
+
+    if (agentLaunchChanged) {
+      try {
+        parseAdditionalEnvText(additionalEnvDraft);
+      } catch (error) {
+        setAgentSettingsError(error instanceof Error ? error.message : "Additional env is invalid.");
+        return;
+      }
+    }
+
     if (agentNameChanged && !onUpdateAgentName) {
       setAgentSettingsError("Agent name updates are unavailable.");
+      return;
+    }
+
+    if (agentLaunchChanged && !onUpdateAgentLaunchConfig) {
+      setAgentSettingsError("Runtime launch updates are unavailable.");
       return;
     }
 
@@ -1398,6 +1557,15 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         setAgentSettingsSuccess("Agent settings updated.");
       }
 
+      if ((agentImageChanged || additionalEnvChanged) && onUpdateAgentLaunchConfig) {
+        savingSection = "agent";
+        await onUpdateAgentLaunchConfig(agent.id, buildUpdatedLaunchConfig(agent, nextAgentImage, additionalEnvDraft));
+        setAgentImageDraft(nextAgentImage);
+        setSavedAgentImage(nextAgentImage);
+        setSavedAdditionalEnvDraft(additionalEnvDraft);
+        setAgentSettingsSuccess("Agent settings updated.");
+      }
+
       if (modelChanged && onSaveOpenClawConfig) {
         savingSection = "agent";
         await onSaveOpenClawConfig(buildOpenClawDefaultModelPatch(modelDraft));
@@ -1426,7 +1594,10 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
       setProfileSaving(false);
     }
   }, [
+    additionalEnvDraft,
+    agentLaunchChanged,
     agentAvatarDraft,
+    agentImageDraft,
     agentNameDraft,
     agent,
     archiveDraft,
@@ -1436,13 +1607,18 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     memoryIndexDraft,
     modelChanged,
     modelDraft,
+    onUpdateAgentLaunchConfig,
     onUpdateAgentName,
     onSaveOpenClawConfig,
     profileAvatar,
     profileChanged,
     profileName,
+    savedAdditionalEnvDraft,
+    savedAgentImage,
     savedAgentName,
     savedMemoryIndexDraft,
+    savedModelDraft,
+    savedProfileName,
   ]);
 
   const handleAvatarSelect = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1528,6 +1704,10 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             onAgentNameChange={setAgentNameDraft}
             onAgentAvatarSelect={handleAgentAvatarSelect}
             onAgentAvatarRemove={() => setAgentAvatarDraft(null)}
+            agentImageDraft={agentImageDraft}
+            onAgentImageChange={setAgentImageDraft}
+            additionalEnvDraft={additionalEnvDraft}
+            onAdditionalEnvChange={setAdditionalEnvDraft}
             modelDraft={modelDraft}
             modelOptions={modelOptions}
             modelSelectionDisabled={!onSaveOpenClawConfig}

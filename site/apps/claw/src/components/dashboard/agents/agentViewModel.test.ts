@@ -16,4 +16,13 @@ describe("agentViewModel", () => {
   it("keeps missing state as STOPPED", () => {
     expect(normalizeAgentState(null)).toBe("STOPPED");
   });
+
+  it("preserves launch config for runtime settings", () => {
+    const launchConfig = {
+      image: "ghcr.io/hypercli/hypercli-openclaw:prod",
+      env: { FOO: "bar" },
+    };
+
+    expect(toAgentViewModel(buildSdkAgent({ launchConfig })).launchConfig).toEqual(launchConfig);
+  });
 });
