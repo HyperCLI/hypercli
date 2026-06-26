@@ -270,6 +270,22 @@ def test_enrich_caption_metadata_builds_hyper_v1_request(monkeypatch, tmp_path):
 def test_enrichment_normalization_accepts_common_llm_json_variants():
     import hypercli_cli.memory as memory
 
+    assert memory._extract_json_object(
+        json.dumps(
+            [
+                {
+                    "short_summary": "Array wrapped.",
+                    "long_description": "Array wrapped long.",
+                    "keywords": ["array"],
+                }
+            ]
+        )
+    ) == {
+        "short_summary": "Array wrapped.",
+        "long_description": "Array wrapped long.",
+        "keywords": ["array"],
+    }
+
     assert memory._normalize_enrichment_payload(
         {
             "metadata": {
@@ -296,6 +312,19 @@ def test_enrichment_normalization_accepts_common_llm_json_variants():
         "short_summary": "Short nested summary.",
         "long_description": "Long nested description.",
         "keywords": ["agents"],
+    }
+
+    assert memory._normalize_enrichment_payload(
+        {
+            "analysis": {
+                "overview": "Fallback overview text.",
+            },
+            "keywords": ["fallback"],
+        }
+    ) == {
+        "short_summary": "Fallback overview text.",
+        "long_description": "",
+        "keywords": ["fallback"],
     }
 
 

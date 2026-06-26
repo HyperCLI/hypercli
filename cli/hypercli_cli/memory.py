@@ -52,6 +52,17 @@ def _sample_document_text(document_file: Path, max_chars: int = 12_000) -> str:
     return extract_document_text(document_file).text[:max_chars]
 
 
+def _coerce_json_object(parsed: Any) -> dict[str, Any]:
+    if isinstance(parsed, dict):
+        return parsed
+    if isinstance(parsed, list):
+        for item in parsed:
+            coerced = _coerce_json_object(item)
+            if coerced:
+                return coerced
+    return {}
+
+
 def _extract_json_object(text: str) -> dict[str, Any]:
     stripped = text.strip()
     if stripped.startswith("```"):
@@ -66,7 +77,7 @@ def _extract_json_object(text: str) -> dict[str, Any]:
         if start < 0 or end <= start:
             raise
         parsed = json.loads(stripped[start : end + 1])
-    return parsed if isinstance(parsed, dict) else {}
+    return _coerce_json_object(parsed)
 
 
 def _first_string(parsed: dict[str, Any], keys: list[str]) -> str:
@@ -82,6 +93,24 @@ def _first_list(parsed: dict[str, Any], keys: list[str]) -> list[Any]:
         value = parsed.get(key)
         if isinstance(value, list):
             return value
+    return []
+
+
+def _walk_strings(value: Any) -> list[str]:
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    if isinstance(value, dict):
+        strings: list[str] = []
+        for key, nested in value.items():
+            if key in {"keywords", "tags", "topics", "source_url", "sourceUrl", "title"}:
+                continue
+            strings.extend(_walk_strings(nested))
+        return strings
+    if isinstance(value, list):
+        strings = []
+        for nested in value:
+            strings.extend(_walk_strings(nested))
+        return strings
     return []
 
 
@@ -122,7 +151,11 @@ def _normalize_enrichment_payload(parsed: dict[str, Any]) -> dict[str, Any]:
         keywords = [str(keyword).strip() for keyword in raw_keywords if str(keyword).strip()]
 
     if not short_summary and not long_description:
-        raise RuntimeError("LLM enrichment returned no summary fields")
+        fallback_strings = _walk_strings(parsed)
+        if fallback_strings:
+            short_summary = fallback_strings[0]
+        else:
+            raise RuntimeError("LLM enrichment returned no summary fields")
     if not keywords:
         raise RuntimeError("LLM enrichment returned no keywords")
 
