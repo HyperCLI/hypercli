@@ -83,11 +83,15 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     try:
         parsed = json.loads(stripped)
     except json.JSONDecodeError:
-        start = stripped.find("{")
-        end = stripped.rfind("}")
-        if start < 0 or end <= start:
+        decoder = json.JSONDecoder()
+        for match in re.finditer(r"[\[{]", stripped):
+            try:
+                parsed, _ = decoder.raw_decode(stripped[match.start() :])
+                break
+            except json.JSONDecodeError:
+                continue
+        else:
             raise
-        parsed = json.loads(stripped[start : end + 1])
     return _coerce_json_object(parsed)
 
 
@@ -260,7 +264,10 @@ def enrich_text_metadata(
         ],
     )
     content = response.choices[0].message.content or "{}"
-    parsed = _extract_json_object(content)
+    try:
+        parsed = _extract_json_object(content)
+    except json.JSONDecodeError:
+        parsed = {}
     return _normalize_enrichment_payload(
         parsed,
         fallback_title=title,

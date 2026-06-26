@@ -285,6 +285,14 @@ def test_enrichment_normalization_accepts_common_llm_json_variants():
         "keywords": ["array"],
     }
 
+    assert memory._extract_json_object(
+        'bad partial object: {"short_summary": "broken",\n'
+        'valid object: {"short_summary": "Recovered.", "keywords": ["json"]}'
+    ) == {
+        "short_summary": "Recovered.",
+        "keywords": ["json"],
+    }
+
     assert memory._normalize_enrichment_payload(
         {
             "metadata": {
@@ -362,6 +370,43 @@ def test_enrich_caption_metadata_falls_back_for_empty_enrichment(monkeypatch, tm
 
     class FakeMessage:
         content = json.dumps({"keywords": []})
+
+    class FakeChoice:
+        message = FakeMessage()
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            return type("Response", (), {"choices": [FakeChoice()]})()
+
+    class FakeClient:
+        chat = type("Chat", (), {"completions": FakeCompletions()})()
+
+    monkeypatch.setattr(memory.llm, "_resolve_api_key", lambda key: "hyper_api_test")
+    monkeypatch.setattr(memory.llm, "_resolve_api_base", lambda base_url: "https://api.hyper.test")
+    monkeypatch.setattr(memory.llm, "_resolve_default_model", lambda api_key, api_base: "kimi-test")
+    monkeypatch.setattr(memory.llm, "_get_openai_client", lambda api_key, api_base: FakeClient())
+
+    enrichment = memory.enrich_caption_metadata(
+        caption_file=caption,
+        title="Synthetic Video",
+        source_url="https://www.youtube.com/watch?v=abc123",
+        channel="Synthetic Channel",
+        model=None,
+        base_url=None,
+        key=None,
+    )
+
+    assert enrichment["short_summary"].startswith("Synthetic Video: Hello world.")
+    assert enrichment["keywords"][:3] == ["synthetic", "video", "captions"]
+
+
+def test_enrich_caption_metadata_falls_back_for_unparseable_enrichment(monkeypatch, tmp_path):
+    import hypercli_cli.memory as memory
+
+    caption = _write(tmp_path / "abc123.en.srt", SYNTHETIC_SRT)
+
+    class FakeMessage:
+        content = "Here is a summary instead of JSON."
 
     class FakeChoice:
         message = FakeMessage()
