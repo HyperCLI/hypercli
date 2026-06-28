@@ -25,11 +25,17 @@ type StatusItem = {
   message?: string;
 };
 
+type RawStatusItem = Partial<StatusItem> & { name?: string };
+type GatewayStatusMap = Record<string, unknown>;
+
 type PublicStatusResponse = {
   status?: StatusLevel;
   updated_at?: string;
-  services?: Array<Partial<StatusItem> & { name?: string }>;
-  models?: Array<Partial<StatusItem> & { name?: string }>;
+  ok?: boolean;
+  checked_at?: string;
+  services?: RawStatusItem[] | GatewayStatusMap;
+  models?: RawStatusItem[] | GatewayStatusMap;
+  clusters?: GatewayStatusMap;
 };
 
 type LoadState =
@@ -119,6 +125,56 @@ function cleanStatus(value: unknown): StatusLevel {
   return isStatusLevel(value) ? value : "unknown";
 }
 
+function statusFromBoolean(value: unknown): StatusLevel {
+  if (value === true) {
+    return "operational";
+  }
+  if (value === false) {
+    return "degraded";
+  }
+  return cleanStatus(value);
+}
+
+function displayNameFromId(id: string): string {
+  return id
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function statusFromGatewayValue(value: unknown): StatusLevel {
+  if (typeof value === "boolean") {
+    return statusFromBoolean(value);
+  }
+  if (typeof value === "string") {
+    return cleanStatus(value);
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    if (isStatusLevel(record.status)) {
+      return record.status;
+    }
+    const okStatus = statusFromBoolean(record.ok);
+    if (okStatus !== "unknown") {
+      return okStatus;
+    }
+    return statusFromBoolean(record.healthy);
+  }
+  return "unknown";
+}
+
+function messageFromGatewayValue(value: unknown): string | undefined {
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    if (typeof record.message === "string") {
+      return record.message;
+    }
+    if (typeof record.summary === "string") {
+      return record.summary;
+    }
+  }
+  return undefined;
+}
+
 function worstStatus(items: StatusItem[]): StatusLevel {
   return items.reduce<StatusLevel>((worst, item) => {
     return STATUS_ORDER.indexOf(item.status) < STATUS_ORDER.indexOf(worst)
@@ -128,36 +184,116 @@ function worstStatus(items: StatusItem[]): StatusLevel {
 }
 
 function normalizeItems(
-  rawItems: PublicStatusResponse["services"],
+  rawItems: RawStatusItem[] | GatewayStatusMap | undefined,
   defaults: StatusItem[],
 ): StatusItem[] {
-  if (!rawItems?.length) {
+  if (!rawItems) {
     return defaults;
   }
 
-  return rawItems
-    .filter((item): item is Partial<StatusItem> & { name: string } =>
-      Boolean(item?.name),
-    )
-    .map((item, index) => ({
-      id:
-        item.id ||
-        item.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") ||
-        `item-${index}`,
-      name: item.name,
-      status: cleanStatus(item.status),
-      message: item.message,
-    }));
+  if (Array.isArray(rawItems)) {
+    if (!rawItems.length) {
+      return defaults;
+    }
+
+    return rawItems
+      .filter((item): item is RawStatusItem & { name: string } =>
+        Boolean(item?.name),
+      )
+      .map((item, index) => ({
+        id:
+          item.id ||
+          item.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") ||
+          `item-${index}`,
+        name: item.name,
+        status: cleanStatus(item.status),
+        message: item.message,
+      }));
+  }
+
+  const entries = Object.entries(rawItems);
+  if (!entries.length) {
+    return defaults;
+  }
+
+  return entries.map(([id, value]) => ({
+    id,
+    name: displayNameFromId(id),
+    status: statusFromGatewayValue(value),
+    message: messageFromGatewayValue(value),
+  }));
+}
+
+function normalizeGatewayServices(payload: PublicStatusResponse): StatusItem[] {
+  if (payload.services) {
+    return normalizeItems(payload.services, DEFAULT_SERVICES);
+  }
+
+  const clusterItems = normalizeItems(payload.clusters, []);
+  if (!clusterItems.length) {
+    return [
+      {
+        id: "api",
+        name: "API",
+        status: "operational",
+        message: "Status endpoint is responding.",
+      },
+    ];
+  }
+
+  const clusterStatus = worstStatus(clusterItems);
+  return [
+    {
+      id: "api",
+      name: "API",
+      status: "operational",
+      message: "Status endpoint is responding.",
+    },
+    {
+      id: "agents",
+      name: "Agents",
+      status: clusterStatus,
+      message:
+        clusterStatus === "operational"
+          ? "Agent clusters are reachable."
+          : "One or more agent clusters are degraded.",
+    },
+  ];
+}
+
+function normalizeGatewayModels(payload: PublicStatusResponse): StatusItem[] {
+  const modelItems = normalizeItems(payload.models, []);
+  if (modelItems.length) {
+    return modelItems;
+  }
+
+  return [
+    {
+      id: "model-api",
+      name: "Model API",
+      status: payload.ok === false ? "degraded" : "unknown",
+      message:
+        payload.ok === false
+          ? "Model health is not currently reporting as healthy."
+          : "Model health has not reported yet.",
+    },
+  ];
 }
 
 function normalizeStatus(payload: PublicStatusResponse): NormalizedStatus {
-  const services = normalizeItems(payload.services, DEFAULT_SERVICES);
-  const models = normalizeItems(payload.models, DEFAULT_MODELS);
+  const services = normalizeGatewayServices(payload);
+  const models = normalizeGatewayModels(payload);
   const computedOverall = worstStatus([...services, ...models]);
 
   return {
-    overall: isStatusLevel(payload.status) ? payload.status : computedOverall,
-    updatedAt: payload.updated_at || null,
+    overall: isStatusLevel(payload.status)
+      ? payload.status
+      : payload.ok === true
+        ? computedOverall
+        : computedOverall === "operational"
+          ? "degraded"
+          : computedOverall,
+    updatedAt: payload.updated_at || payload.checked_at || null,
     services,
     models,
   };
