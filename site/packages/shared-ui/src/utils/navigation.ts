@@ -23,6 +23,7 @@ export const NAV_URLS = {
   models: IS_MAIN_SITE ? '/models' : `${MAIN_SITE_URL}/models`,
   gpus: IS_MAIN_SITE ? '/gpus' : `${MAIN_SITE_URL}/gpus`,
   playground: IS_MAIN_SITE ? '/playground' : `${MAIN_SITE_URL}/playground`,
+  status: IS_MAIN_SITE ? '/status' : `${MAIN_SITE_URL}/status`,
   docs: 'https://docs.hypercli.com',
   apiReference: 'https://docs.hypercli.com/api-reference/introduction',
   partner: IS_MAIN_SITE ? '/partner' : `${MAIN_SITE_URL}/partner`,

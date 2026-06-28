@@ -250,6 +250,12 @@ export default function Header() {
               >
                 Docs
               </a>
+              <a
+                href={NAV_URLS.status}
+                className="text-sm text-text-secondary hover:text-foreground transition-colors"
+              >
+                Status
+              </a>
               <button
                 onClick={openContactModal}
                 className="text-sm text-text-secondary hover:text-foreground transition-colors cursor-pointer"
@@ -359,6 +365,13 @@ export default function Header() {
               onClick={() => setMobileMenuOpen(false)}
             >
               Docs
+            </a>
+            <a
+              href={NAV_URLS.status}
+              className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              Status
             </a>
             <a
               href={NAV_URLS.partner}
