@@ -391,12 +391,16 @@ function ItemList({
   );
 }
 
-export default function StatusDashboard() {
-  const [loadState, setLoadState] = useState<LoadState>({
-    phase: "loading",
-    data: null,
-    error: null,
-  });
+export default function StatusDashboard({
+  initialStatus,
+}: {
+  initialStatus?: PublicStatusResponse | null;
+}) {
+  const [loadState, setLoadState] = useState<LoadState>(() =>
+    initialStatus
+      ? { phase: "ready", data: normalizeStatus(initialStatus), error: null }
+      : { phase: "loading", data: null, error: null },
+  );
 
   const statusUrl = useMemo(() => {
     const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
