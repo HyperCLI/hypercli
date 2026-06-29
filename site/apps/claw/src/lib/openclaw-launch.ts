@@ -26,7 +26,12 @@ const OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
 };
 
 function envValue(name: string): string | undefined {
-  const value = process.env[name]?.trim();
+  const value =
+    name === OPENCLAW_IMAGE_ENV
+      ? process.env.NEXT_PUBLIC_OPENCLAW_IMAGE?.trim()
+      : name === OPENCLAW_PRO_IMAGE_ENV
+        ? process.env.NEXT_PUBLIC_OPENCLAW_PRO_IMAGE?.trim()
+        : undefined;
   return value || undefined;
 }
 

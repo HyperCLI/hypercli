@@ -137,12 +137,15 @@ interface DeploymentRecord {
   id: string;
   name?: string | null;
   state?: string | null;
+  hostname?: string | null;
+  routes?: Record<string, unknown> | null;
 }
 
 interface DeploymentsClientLike {
   list(): Promise<DeploymentRecord[]>;
   get(agentId: string): Promise<DeploymentRecord>;
   waitRunning(agentId: string, timeoutMs?: number, intervalMs?: number): Promise<DeploymentRecord>;
+  refreshToken(agentId: string): Promise<{ token?: string | null }>;
   stop(agentId: string): Promise<unknown>;
   delete(agentId: string): Promise<unknown>;
 }
@@ -1482,6 +1485,30 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
   const token = await getClawAuthToken(page);
   const deployments = await getDeploymentsClient(token);
 
+  const verifyDesktopAuthRoute = async (agent: DeploymentRecord): Promise<void> => {
+    if (!agent.hostname || !agent.routes || !Object.prototype.hasOwnProperty.call(agent.routes, "desktop")) {
+      return;
+    }
+
+    const tokenData = await deployments.refreshToken(agent.id);
+    const agentJwt = tokenData.token?.trim();
+    expect(agentJwt, "expected agent desktop access JWT").toBeTruthy();
+
+    const desktopAuthUrl = `https://desktop-${agent.hostname}/_jwt_auth?jwt=${encodeURIComponent(agentJwt!)}`;
+    console.log(`[agents-desktop] probing ${new URL(desktopAuthUrl).origin}/_jwt_auth?jwt=<redacted>`);
+
+    await expect
+      .poll(
+        async () => {
+          const response = await page.request.get(desktopAuthUrl, { maxRedirects: 0, timeout: 15_000 }).catch((error) => error);
+          if (response instanceof Error) return `error:${response.message}`;
+          return response.status();
+        },
+        { timeout: 90_000, intervals: [1_000, 2_000, 5_000] }
+      )
+      .toBeLessThan(400);
+  };
+
   const waitForAgentDashboardFetches = async (): Promise<void> => {
     const requiredPaths = new Set([
       "/agents/deployments",
@@ -1544,6 +1571,15 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
   await captureStep(page, "agents-10-dashboard");
   await launcherEntryButton!.click();
 
+  const desktopCheckbox = page
+    .locator("label")
+    .filter({ hasText: /Desktop browser/i })
+    .locator("input[type='checkbox']")
+    .first();
+  await expect(desktopCheckbox).toBeVisible({ timeout: 30_000 });
+  await desktopCheckbox.check();
+  await expect(desktopCheckbox).toBeChecked();
+
   const wizardSurface = page
     .locator("main, [role='dialog'], section")
     .filter({ has: page.getByRole("heading", { name: /create your first agent|choose your plan|review & launch|configuration/i }) })
@@ -1575,6 +1611,7 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
 
     const running = await deployments.waitRunning(created.id, timeout, 5_000);
     expect(running.state).toBe("RUNNING");
+    await verifyDesktopAuthRoute(running);
 
     await page.goto(`/dashboard/agents?agentId=${encodeURIComponent(created.id)}`, { waitUntil: "domcontentloaded" });
     await expect(page.getByText("Loading agents", { exact: true })).not.toBeVisible({ timeout: 90_000 });

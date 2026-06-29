@@ -166,19 +166,26 @@ test("agents page launches from a direct entitlement without an active subscript
 
   await page.goto("/dashboard/agents", { waitUntil: "domcontentloaded" });
 
+  await page.locator("main").getByRole("button", { name: /Create an agent/i }).last().click();
   await page
-    .locator("main")
-    .locator("section, [data-testid='agent-empty-state']")
-    .getByRole("button", { name: /^launch agent$/i })
-    .last()
-    .click();
+    .locator("label")
+    .filter({ hasText: /Desktop browser/i })
+    .locator("input[type='checkbox']")
+    .first()
+    .check();
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: "Continue" }).click();
 
   await expect(page.getByRole("heading", { name: "Pro" })).toBeVisible();
   await expect(page.getByText("Uses your active direct entitlement")).toBeVisible();
   await expect(page.getByText("1 Large slot available")).toBeVisible();
-  await page.getByRole("button", { name: "Launch agent" }).click();
+  await page.locator("footer").getByRole("button", { name: "Launch agent" }).click();
 
   await expect.poll(() => createBody?.size ?? null).toBe("large");
+  expect(String(createBody?.image ?? "")).toMatch(/^ghcr\.io\/hypercli\/hypercli-openclaw:pro-/);
+  expect(createBody?.env).toMatchObject({ OPENCLAW_DESKTOP_ENABLED: "1" });
+  expect(createBody?.routes).toMatchObject({
+    openclaw: { port: 18789, auth: false, prefix: "" },
+    desktop: { port: 3000, auth: true, prefix: "desktop" },
+  });
 });
