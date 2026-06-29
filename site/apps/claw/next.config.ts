@@ -10,6 +10,8 @@ const requiredEnvVars = [
   "NEXT_PUBLIC_CONSOLE_URL",
   "NEXT_PUBLIC_AGENTS_URL",
   "NEXT_PUBLIC_PRIVY_APP_ID",
+  "NEXT_PUBLIC_OPENCLAW_IMAGE",
+  "NEXT_PUBLIC_OPENCLAW_PRO_IMAGE",
 ] as const;
 
 for (const envVar of requiredEnvVars) {
