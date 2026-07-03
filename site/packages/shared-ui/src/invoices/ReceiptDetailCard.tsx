@@ -242,7 +242,7 @@ export function ReceiptDetailCard({
                             href={row.href}
                             target="_blank"
                             rel="noreferrer"
-                            className="font-mono text-xs text-[#38d39f] break-all hover:underline"
+                            className="font-mono text-xs text-[var(--selection-accent)] break-all hover:underline"
                           >
                             {row.value}
                           </a>

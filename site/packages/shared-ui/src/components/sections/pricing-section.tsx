@@ -68,7 +68,7 @@ export function PricingSection() {
         
         {/* Subtle bottom-left lighting with parallax */}
         <motion.div 
-          className="absolute left-0 bottom-1/4 w-[500px] h-[400px] bg-[#38D39F]/3 blur-[120px] rounded-full pointer-events-none opacity-60"
+          className="absolute left-0 bottom-1/4 w-[500px] h-[400px] bg-[rgb(var(--selection-accent-rgb)_/_0.03)] blur-[120px] rounded-full pointer-events-none opacity-60"
           style={{ y: useTransform(scrollYProgress, [0, 1], [30, -30]) }}
         />
         
@@ -125,10 +125,10 @@ export function PricingSection() {
             >
               <Link href="/gpus">
                 <motion.button 
-                  className="group px-10 py-5 bg-primary text-primary-foreground rounded-xl hover:bg-primary-hover transition-all duration-300 flex items-center gap-3 text-lg font-medium shadow-[0_0_30px_rgba(56,211,159,0.25)]"
+                  className="group px-10 py-5 bg-primary text-primary-foreground rounded-xl hover:bg-primary-hover transition-all duration-300 flex items-center gap-3 text-lg font-medium shadow-[0_0_30px_rgb(var(--selection-accent-rgb)_/_0.25)]"
                   whileHover={{ 
                     scale: 1.05,
-                    boxShadow: '0 0 50px rgba(56,211,159,0.35)'
+                    boxShadow: "0 0 50px rgb(var(--selection-accent-rgb) / 0.35)"
                   }}
                   whileTap={{ scale: 0.98 }}
                 >

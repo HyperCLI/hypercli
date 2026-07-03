@@ -122,7 +122,7 @@ export function AudioPlayer({
         type="button"
         onClick={togglePlayback}
         disabled={loading || unavailable}
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-surface-low text-text-muted transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-[#38D39F] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-text-muted"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-surface-low text-text-muted transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-text-muted"
         aria-label={currentPlayback.playing ? `Pause ${title}` : `Play ${title}`}
         title={currentPlayback.playing ? "Pause" : "Play"}
       >
@@ -138,7 +138,7 @@ export function AudioPlayer({
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex min-w-0 items-center justify-between gap-2">
           <span id={labelId} className="flex min-w-0 items-center gap-1.5 truncate text-xs font-medium text-foreground">
-            <Volume2 className="h-3.5 w-3.5 shrink-0 text-[#38D39F]" />
+            <Volume2 className="h-3.5 w-3.5 shrink-0 text-primary" />
             <span className="truncate">{displayTitle}</span>
           </span>
           <span className="shrink-0 font-mono text-[10px] text-text-muted">
@@ -153,7 +153,7 @@ export function AudioPlayer({
           value={canSeek ? Math.min(currentPlayback.currentTime, currentPlayback.duration) : 0}
           disabled={!canSeek || loading || unavailable}
           onChange={(event) => handleSeek(event.currentTarget.value)}
-          className="block h-1.5 w-full cursor-pointer accent-[#38D39F] disabled:cursor-not-allowed disabled:opacity-50"
+          className="block h-1.5 w-full cursor-pointer accent-primary disabled:cursor-not-allowed disabled:opacity-50"
           aria-label={`Seek ${title}`}
         />
       </div>
@@ -162,7 +162,7 @@ export function AudioPlayer({
         <button
           type="button"
           onClick={handleDownload}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-surface-low text-text-muted transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-[#38D39F]"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-surface-low text-text-muted transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           aria-label={downloadLabel ?? `Download ${title}`}
           title="Download"
         >
@@ -172,7 +172,7 @@ export function AudioPlayer({
         <a
           href={downloadHref}
           download={downloadFileName}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-surface-low text-text-muted transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-[#38D39F]"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-surface-low text-text-muted transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           aria-label={downloadLabel ?? `Download ${title}`}
           title="Download"
         >

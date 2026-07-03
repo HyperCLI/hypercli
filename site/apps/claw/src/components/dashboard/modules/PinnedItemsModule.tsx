@@ -32,7 +32,7 @@ export function PinnedItemsModule({ variant }: PinnedItemsModuleProps) {
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: idx * 0.06 }}
-              className={`rounded-lg border px-3 py-2 border-l-2 ${item.type === "decision" ? "border-l-[#f0c56c]" : item.type === "message" ? "border-l-[#4A9EFF]" : "border-l-[#38D39F]"} border-border`}
+              className={`rounded-lg border px-3 py-2 border-l-2 ${item.type === "decision" ? "border-l-[#f0c56c]" : item.type === "message" ? "border-l-[#4A9EFF]" : "border-l-primary"} border-border`}
             >
               <div className="flex items-center gap-1.5">
                 <Pin className="w-3 h-3 text-text-muted shrink-0" />

@@ -40,7 +40,7 @@ export function AgentUrlsModule({ variant, urls: urlsProp }: AgentUrlsModuleProp
                 whileHover={{ x: 3 }}
                 className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-surface-low transition-colors"
               >
-                <UIcon className="w-3.5 h-3.5 text-[#38D39F]" />
+                <UIcon className="w-3.5 h-3.5 text-primary" />
                 <div className="flex-1 min-w-0">
                   <div className="text-[10px] text-foreground">{u.label}</div>
                   <div className="text-[9px] text-text-muted truncate font-mono">
@@ -65,7 +65,7 @@ export function AgentUrlsModule({ variant, urls: urlsProp }: AgentUrlsModuleProp
                 whileHover={{ scale: 1.05 }}
                 className="flex items-center gap-1 px-2 py-1 rounded-full bg-surface-low text-[10px] text-foreground hover:bg-surface-high transition-colors"
               >
-                <UIcon className="w-3 h-3 text-[#38D39F]" />
+                <UIcon className="w-3 h-3 text-primary" />
                 {u.label}
               </motion.a>
             );
@@ -82,7 +82,7 @@ export function AgentUrlsModule({ variant, urls: urlsProp }: AgentUrlsModuleProp
               className="flex items-center gap-2 px-1.5 py-0.5 text-[10px]"
             >
               <span className="text-text-muted">{u.label}:</span>
-              <span className="font-mono text-[#38D39F] truncate">{u.url}</span>
+              <span className="font-mono text-primary truncate">{u.url}</span>
             </motion.div>
           ))}
         </div>

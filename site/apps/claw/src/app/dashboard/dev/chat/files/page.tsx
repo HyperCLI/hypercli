@@ -158,7 +158,7 @@ export default function DevFilesPage() {
           <ArrowLeft className="w-4 h-4" />
         </Link>
 
-        <FolderOpen className="w-4 h-4 text-[#38D39F]" />
+        <FolderOpen className="w-4 h-4 text-primary" />
         <span className="text-sm font-semibold text-foreground">Workspace Files</span>
 
         <span className="text-[10px] text-text-muted tabular-nums">
@@ -176,7 +176,7 @@ export default function DevFilesPage() {
         <button
           onClick={() => setShowUpload((v) => !v)}
           className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
-            showUpload ? "text-[#38D39F] bg-[#38D39F]/10" : "text-text-muted hover:text-foreground hover:bg-surface-low"
+            showUpload ? "text-primary bg-primary/10" : "text-text-muted hover:text-foreground hover:bg-surface-low"
           }`}
           title="Upload"
         >
@@ -186,7 +186,7 @@ export default function DevFilesPage() {
         <button
           onClick={() => setShowHidden((v) => !v)}
           className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
-            showHidden ? "text-[#38D39F] bg-[#38D39F]/10" : "text-text-muted hover:text-foreground hover:bg-surface-low"
+            showHidden ? "text-primary bg-primary/10" : "text-text-muted hover:text-foreground hover:bg-surface-low"
           }`}
           title={showHidden ? "Hide dotfiles" : "Show dotfiles"}
         >
@@ -213,7 +213,7 @@ export default function DevFilesPage() {
                   <button
                     key={opt.key}
                     onClick={() => toggleSort(opt.key)}
-                    className={`flex items-center justify-between w-full px-3 py-1.5 text-[11px] hover:bg-surface-low ${sortKey === opt.key ? "text-[#38D39F]" : "text-foreground"}`}
+                    className={`flex items-center justify-between w-full px-3 py-1.5 text-[11px] hover:bg-surface-low ${sortKey === opt.key ? "text-primary" : "text-foreground"}`}
                   >
                     <span>{opt.label}</span>
                     {sortKey === opt.key && <span className="text-[9px] text-text-muted">{sortDir === "asc" ? "A-Z" : "Z-A"}</span>}

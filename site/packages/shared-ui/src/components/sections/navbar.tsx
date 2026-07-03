@@ -1,3 +1,5 @@
+import { HyperCLILogo } from "../HyperCLILogo";
+
 type Page = 'home' | 'partners' | 'enterprise' | 'datacenter';
 
 interface NavbarProps {
@@ -13,13 +15,11 @@ export function Navbar({ currentPage, setCurrentPage }: NavbarProps) {
           {/* Logo */}
           <div className="flex items-center">
             <button 
+              aria-label="HyperCLI home"
               onClick={() => setCurrentPage('home')}
-              className="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer"
+              className="inline-flex items-center hover:opacity-80 transition-opacity cursor-pointer"
             >
-              <div className="w-8 h-8 bg-primary rounded-md flex items-center justify-center">
-                <span className="text-primary-foreground text-lg font-semibold">H</span>
-              </div>
-              <span className="text-xl text-foreground font-semibold">HyperCLI</span>
+              <HyperCLILogo decorative className="h-[31px] w-[158px]" />
             </button>
           </div>
 

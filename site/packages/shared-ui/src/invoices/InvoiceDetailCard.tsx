@@ -27,7 +27,7 @@ export function InvoiceDetailCard({
         <div className="billing-document__header grid gap-6 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
           <div className="space-y-4">
             <div className="flex items-center gap-3">
-              <div className="rounded-full bg-[#161819] px-3 py-1 text-xs font-bold uppercase tracking-[0.28em] text-[#38d39f] print:bg-[#161819] print:text-[#38d39f]">
+              <div className="rounded-full bg-[#161819] px-3 py-1 text-xs font-bold uppercase tracking-[0.28em] text-[var(--selection-accent)] print:bg-[#161819] print:text-[var(--selection-accent)]">
                 HyperCLI
               </div>
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#8f9699] print:text-[#6e675d]">
@@ -145,7 +145,7 @@ export function InvoiceDetailCard({
                         {getTransactionHref ? (
                           <Link
                             href={getTransactionHref(tx.id)}
-                            className="font-mono text-xs text-[#38d39f] hover:underline"
+                            className="font-mono text-xs text-[var(--selection-accent)] hover:underline"
                           >
                             {tx.id}
                           </Link>

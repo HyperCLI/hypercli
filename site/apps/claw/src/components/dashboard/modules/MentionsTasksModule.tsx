@@ -34,7 +34,7 @@ export function MentionsTasksModule({ variant }: MentionsTasksModuleProps) {
               className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-surface-low transition-colors"
             >
               {item.type === "task" ? (
-                <CheckSquare className={`w-3.5 h-3.5 shrink-0 ${item.done ? "text-[#38D39F]" : "text-text-muted"}`} />
+                <CheckSquare className={`w-3.5 h-3.5 shrink-0 ${item.done ? "text-primary" : "text-text-muted"}`} />
               ) : (
                 <AtSign className="w-3.5 h-3.5 text-[#4A9EFF] shrink-0" />
               )}

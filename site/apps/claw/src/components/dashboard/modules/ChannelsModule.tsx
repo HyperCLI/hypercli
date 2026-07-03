@@ -46,7 +46,7 @@ export function ChannelsModule({ variant }: ChannelsModuleProps) {
                   }}
                 >
                   <ChIcon
-                    className={`w-4 h-4 ${ch.status === "connected" ? "text-[#38D39F]" : "text-text-muted"}`}
+                    className={`w-4 h-4 ${ch.status === "connected" ? "text-primary" : "text-text-muted"}`}
                   />
                 </motion.div>
                 <div className="flex-1 min-w-0">
@@ -58,7 +58,7 @@ export function ChannelsModule({ variant }: ChannelsModuleProps) {
                   )}
                 </div>
                 <motion.div
-                  className={`w-1.5 h-1.5 rounded-full ${ch.status === "connected" ? "bg-[#38D39F]" : "bg-text-muted"}`}
+                  className={`w-1.5 h-1.5 rounded-full ${ch.status === "connected" ? "bg-primary" : "bg-text-muted"}`}
                   animate={
                     ch.status === "connected"
                       ? { scale: [0.8, 1.4, 0.8], opacity: [0.5, 1, 0.5] }
@@ -73,7 +73,7 @@ export function ChannelsModule({ variant }: ChannelsModuleProps) {
                 {ch.status !== "connected" && (
                   <motion.button
                     whileTap={{ scale: 0.9 }}
-                    className="text-[10px] text-[#38D39F] hover:underline"
+                    className="text-[10px] text-primary hover:underline"
                   >
                     Connect
                   </motion.button>
@@ -93,14 +93,14 @@ export function ChannelsModule({ variant }: ChannelsModuleProps) {
                 animate={{ scale: 1, opacity: 1 }}
                 transition={{ delay: idx * 0.06, type: "spring" }}
                 whileHover={{ y: -2 }}
-                className={`flex-1 flex flex-col items-center gap-1 py-2 rounded-lg border ${ch.status === "connected" ? "border-[#38D39F]/20 bg-[#38D39F]/5" : "border-border"}`}
+                className={`flex-1 flex flex-col items-center gap-1 py-2 rounded-lg border ${ch.status === "connected" ? "border-primary/20 bg-primary/5" : "border-border"}`}
               >
                 <ChIcon
-                  className={`w-4 h-4 ${ch.status === "connected" ? "text-[#38D39F]" : "text-text-muted"}`}
+                  className={`w-4 h-4 ${ch.status === "connected" ? "text-primary" : "text-text-muted"}`}
                 />
                 <span className="text-[9px] text-foreground">{ch.name}</span>
                 <span
-                  className={`text-[8px] ${ch.status === "connected" ? "text-[#38D39F]" : "text-text-muted"}`}
+                  className={`text-[8px] ${ch.status === "connected" ? "text-primary" : "text-text-muted"}`}
                 >
                   {ch.status}
                 </span>
@@ -116,7 +116,7 @@ export function ChannelsModule({ variant }: ChannelsModuleProps) {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: idx * 0.04 }}
-              className={`text-[10px] px-2 py-0.5 rounded-full ${ch.status === "connected" ? "bg-[#38D39F]/10 text-[#38D39F]" : "bg-surface-high text-text-muted"}`}
+              className={`text-[10px] px-2 py-0.5 rounded-full ${ch.status === "connected" ? "bg-primary/10 text-primary" : "bg-surface-high text-text-muted"}`}
             >
               {ch.name} {ch.status === "connected" ? "\u2713" : "\u2014"}
             </motion.span>

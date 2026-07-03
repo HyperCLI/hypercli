@@ -40,11 +40,14 @@ export function AgentHatchAnimation({ state, onBurstComplete }: AgentHatchAnimat
   const isPending = state === "PENDING";
   const isStarting = state === "STARTING";
   const isRunning = state === "RUNNING";
-  const accent = isRunning ? "#38D39F" : "#f0c56c";
-  const secondaryAccent = isRunning ? "#7ef7c9" : "#4ea7ff";
+  const accent = isRunning ? "var(--selection-accent)" : "#f0c56c";
+  const secondaryAccent = isRunning ? "var(--primary-hover)" : "#4ea7ff";
   const lifecycleStage = state === "PENDING" ? "runtime" : state === "STARTING" ? "agent" : "complete";
   const ringGradientId = `agent-hatch-ring-${id}`;
   const coreGradientId = `agent-hatch-core-${id}`;
+  const glowColor = (opacity: number) => isRunning
+    ? `rgb(var(--selection-accent-rgb) / ${opacity})`
+    : `rgba(240, 197, 108, ${opacity})`;
 
   // Ring config per state
   const outerDuration = isPending ? 6 : isStarting ? 2.6 : 1.2;
@@ -73,9 +76,9 @@ export function AgentHatchAnimation({ state, onBurstComplete }: AgentHatchAnimat
           className="absolute inset-0 rounded-full"
           animate={{
             boxShadow: [
-              `0 0 ${glowSpread * 0.65}px ${isRunning ? `rgba(56, 211, 159, ${glowOpacity * 0.75})` : `rgba(240, 197, 108, ${glowOpacity * 0.75})`}`,
-              `0 0 ${glowSpread}px ${isRunning ? `rgba(56, 211, 159, ${glowOpacity})` : `rgba(240, 197, 108, ${glowOpacity})`}`,
-              `0 0 ${glowSpread * 0.65}px ${isRunning ? `rgba(56, 211, 159, ${glowOpacity * 0.75})` : `rgba(240, 197, 108, ${glowOpacity * 0.75})`}`,
+              `0 0 ${glowSpread * 0.65}px ${glowColor(glowOpacity * 0.75)}`,
+              `0 0 ${glowSpread}px ${glowColor(glowOpacity)}`,
+              `0 0 ${glowSpread * 0.65}px ${glowColor(glowOpacity * 0.75)}`,
             ],
             scale: [0.98, 1.04, 0.98],
           }}
@@ -227,7 +230,7 @@ export function AgentHatchAnimation({ state, onBurstComplete }: AgentHatchAnimat
             <motion.div
               key="running-burst"
               className="absolute inset-0 rounded-full"
-              style={{ background: "radial-gradient(circle, rgba(255,255,255,0.95) 0%, rgba(126,247,201,0.74) 28%, rgba(56,211,159,0.22) 58%, transparent 72%)" }}
+              style={{ background: "radial-gradient(circle, rgba(255,255,255,0.95) 0%, rgb(var(--selection-accent-rgb) / 0.74) 28%, rgb(var(--selection-accent-rgb) / 0.22) 58%, transparent 72%)" }}
               initial={{ opacity: 0.7, scale: 0.5 }}
               animate={{ opacity: 0, scale: 2.5 }}
               exit={{ opacity: 0 }}

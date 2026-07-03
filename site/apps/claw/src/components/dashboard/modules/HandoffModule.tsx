@@ -9,6 +9,11 @@ import { formatUptime } from "../agentViewUtils";
 
 // ── HandoffAddableSection ──
 
+function alphaColor(color: string, alpha: number) {
+  if (color === "var(--selection-accent)") return `rgb(var(--selection-accent-rgb) / ${alpha})`;
+  return `${color}${Math.round(alpha * 255).toString(16).padStart(2, "0")}`;
+}
+
 function HandoffAddableSection({
   icon: SIcon,
   label,
@@ -38,7 +43,7 @@ function HandoffAddableSection({
           {items.length > 0 && <span className="text-[9px] text-text-muted/50">({items.length})</span>}
         </div>
         {!picking && available.length > 0 && (
-          <button onClick={() => setPicking(true)} className="flex items-center gap-0.5 text-[10px] text-[#38D39F] hover:text-[#38D39F]/80 transition-colors">
+          <button onClick={() => setPicking(true)} className="flex items-center gap-0.5 text-[10px] text-primary hover:text-primary/80 transition-colors">
             <Plus className="w-2.5 h-2.5" /><span>Add</span>
           </button>
         )}
@@ -64,8 +69,8 @@ function HandoffAddableSection({
         <p className="text-[10px] text-text-muted/40 text-center py-1">No items</p>
       ) : items.map((item) => (
         <motion.div key={item.id} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} className="group/hi flex items-start justify-between p-1.5 rounded-md cursor-pointer transition-colors"
-          style={{ border: `1px solid ${color}25`, backgroundColor: `${color}06` }}
-          whileHover={{ backgroundColor: `${color}12` }}>
+          style={{ border: `1px solid ${alphaColor(color, 0.15)}`, backgroundColor: alphaColor(color, 0.02) }}
+          whileHover={{ backgroundColor: alphaColor(color, 0.07) }}>
           <div className="min-w-0 flex-1">
             <div className="flex items-center justify-between gap-1">
               <span className="text-[10px] text-foreground truncate">{item.task}</span>
@@ -112,7 +117,7 @@ export function HandoffModule({ variant }: { variant: StyleVariant }) {
       <div className="text-xs font-semibold text-text-secondary uppercase tracking-wider flex items-center gap-1.5"><ArrowRightLeft className="w-3.5 h-3.5" /> Handoff</div>
       {isCompact ? (
         <div className="space-y-1.5">
-          <HandoffAddableSection icon={Play} label="In Progress" color="#38D39F" items={inProgress} presets={HANDOFF_IP_PRESETS}
+          <HandoffAddableSection icon={Play} label="In Progress" color="var(--selection-accent)" items={inProgress} presets={HANDOFF_IP_PRESETS}
             onAdd={(p) => setInProgress((prev) => [...prev, { ...p, id: `ip-${Date.now()}`, ts: Date.now() }])}
             onRemove={(id) => setInProgress((prev) => prev.filter((i) => i.id !== id))} />
           <HandoffAddableSection icon={AlertTriangle} label="Needs Attention" color="#f0c56c" items={needsAttention} presets={HANDOFF_NA_PRESETS}
@@ -121,7 +126,7 @@ export function HandoffModule({ variant }: { variant: StyleVariant }) {
         </div>
       ) : (
         <div className="space-y-2">
-          <HandoffAddableSection icon={Play} label="In Progress" color="#38D39F" items={inProgress} presets={HANDOFF_IP_PRESETS}
+          <HandoffAddableSection icon={Play} label="In Progress" color="var(--selection-accent)" items={inProgress} presets={HANDOFF_IP_PRESETS}
             onAdd={(p) => setInProgress((prev) => [...prev, { ...p, id: `ip-${Date.now()}`, ts: Date.now() }])}
             onRemove={(id) => setInProgress((prev) => prev.filter((i) => i.id !== id))} />
           <HandoffAddableSection icon={AlertTriangle} label="Needs Attention" color="#f0c56c" items={needsAttention} presets={HANDOFF_NA_PRESETS}

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { NAV_URLS } from "../utils/navigation";
 import ContactModal from "./ContactModal";
+import { HyperCLILogo } from "./HyperCLILogo";
 
 export default function Footer() {
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
@@ -13,11 +14,8 @@ export default function Footer() {
       <div className="max-w-[1400px] mx-auto py-12 px-4 sm:px-6 lg:py-16 lg:px-8">
         <div className="xl:grid xl:grid-cols-4 xl:gap-8">
           <div className="space-y-8 xl:col-span-1">
-            <Link href="/" className="hover:opacity-80 transition-opacity">
-              <span className="text-xl font-semibold">
-                <span className="text-foreground">Hyper</span>
-                <span className="text-primary">CLI</span>
-              </span>
+            <Link href="/" aria-label="HyperCLI home" className="inline-flex hover:opacity-80 transition-opacity">
+              <HyperCLILogo decorative className="h-[31px] w-[158px]" />
             </Link>
             <p className="text-muted-foreground text-sm max-w-xs">
               Developer-first AI infrastructure. Deploy models in one command, scale to millions of requests.

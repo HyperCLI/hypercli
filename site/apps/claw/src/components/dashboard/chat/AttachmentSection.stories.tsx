@@ -29,7 +29,7 @@ export const FileAttachments: Story = {
 export const MediaUrls: Story = {
   args: {
     mediaUrls: [
-      "https://via.placeholder.com/300x200/141416/38D39F?text=Chart+1",
+      "https://via.placeholder.com/300x200/141416/63E452?text=Chart+1",
       "https://via.placeholder.com/300x200/141416/f0c56c?text=Chart+2",
     ],
   },
@@ -50,7 +50,7 @@ export const Mixed: Story = {
       { name: "config.json", path: "/workspace/config.json", type: "application/json" },
     ],
     mediaUrls: [
-      "https://via.placeholder.com/200x150/141416/38D39F?text=Preview",
+      "https://via.placeholder.com/200x150/141416/63E452?text=Preview",
       "https://example.com/logs.txt",
     ],
   },

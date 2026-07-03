@@ -29,7 +29,7 @@ export function StreamingIndicator({ variant, isStreaming, isUser }: StreamingIn
         <motion.div
           className="absolute inset-0 pointer-events-none"
           style={{
-            background: "linear-gradient(105deg, transparent 30%, rgba(56,211,159,0.08) 50%, transparent 70%)",
+            background: "linear-gradient(105deg, transparent 30%, rgb(var(--selection-accent-rgb) / 0.08) 50%, transparent 70%)",
           }}
           animate={{ x: ["-120%", "140%"] }}
           transition={{ repeat: Infinity, duration: 1.6, ease: "linear" }}

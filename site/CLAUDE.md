@@ -261,7 +261,7 @@ Export new components from `src/index.ts`.
 
 ### Styling
 - **Tailwind v4** with bracketed color tokens (`bg-[#0B0D0E]`) and opacity scales (`/8`, `/15`)
-- **Design tokens** (globals.css): `--background: #0a0a0b`, `--primary: #38D39F`, `--surface-low: #141416`, `--foreground: #fafafa`
+- **Design tokens** (globals.css): `--background: #0a0a0b`, `--primary: #63e452`, `--surface-low: #141416`, `--foreground: #fafafa`
 - **Glass cards**: `.glass-card` class for frosted glass effect
 - **Font**: Plus Jakarta Sans (Google Fonts)
 

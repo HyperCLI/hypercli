@@ -30,13 +30,13 @@ export function GatewayStatusModule({ variant, gatewayStatus: gatewayStatusProp 
           animate={{ scale: [1, 1.1, 1] }}
           transition={{ repeat: Infinity, duration: 2 }}
         >
-          <Network className="w-3.5 h-3.5 text-[#38D39F]" />
+          <Network className="w-3.5 h-3.5 text-primary" />
         </motion.div>
         <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
           Gateway
         </span>
         <motion.span
-          className="w-1.5 h-1.5 rounded-full bg-[#38D39F] ml-auto"
+          className="w-1.5 h-1.5 rounded-full bg-primary ml-auto"
           animate={{ scale: [0.8, 1.4, 0.8], opacity: [0.5, 1, 0.5] }}
           transition={{ repeat: Infinity, duration: 1 }}
         />

@@ -154,13 +154,15 @@ interface TeamAccountSnapshot {
   entitlementCount: number | null;
 }
 
+const BRAND_ACCENT = "var(--selection-accent)";
+
 const plans: DevPlan[] = [
   {
     id: "starter",
     name: "Starter",
     eyebrow: "Solo setup",
     price: "$19/mo",
-    accent: "#38D39F",
+    accent: BRAND_ACCENT,
     icon: Bot,
     slots: { small: 1 },
     features: ["1 small agent", "Shared setup notes", "Simple channel pairing"],
@@ -197,7 +199,7 @@ const agentTemplates: AgentTemplate[] = [
     name: "kiminka",
     role: "Project manager",
     tier: "medium",
-    accent: "#38D39F",
+    accent: BRAND_ACCENT,
     icon: ShieldCheck,
     summary: "Keeps plans moving, follows up on open work, and helps the team stay aligned.",
     traits: ["organized", "steady", "follow-through"],
@@ -386,7 +388,7 @@ const initialTeamOnboardingState: TeamOnboardingState = {
 
 const teamCapabilityCards = [
   { label: "Capacity", detail: "1 medium agent and 1 small helper slot", icon: Gauge, tone: "#7c8cff" },
-  { label: "Shared context", detail: "Team files, vocabulary, boundaries, and handoff rules", icon: FileText, tone: "#38D39F" },
+  { label: "Shared context", detail: "Team files, vocabulary, boundaries, and handoff rules", icon: FileText, tone: BRAND_ACCENT },
   { label: "Channels", detail: "Slack, Telegram, and Teams connection previews", icon: MessageSquare, tone: "#5059C9" },
   { label: "Control", detail: "Logs, config, files, shell, desktop, sessions, and activity", icon: Settings, tone: "#f0c56c" },
 ];
@@ -421,6 +423,7 @@ const developerAccessPreviews = [
 ];
 
 function hexToRgba(hex: string, alpha: number) {
+  if (hex === BRAND_ACCENT) return `rgb(var(--selection-accent-rgb) / ${alpha})`;
   const normalized = hex.replace("#", "");
   const value = parseInt(normalized.length === 3 ? normalized.split("").map((char) => char + char).join("") : normalized, 16);
   const red = (value >> 16) & 255;
@@ -812,7 +815,7 @@ export default function DevAgentSetupPage() {
         name,
         role,
         tier: effectiveCustomAgentTier,
-        accent: "#38D39F",
+        accent: BRAND_ACCENT,
         icon: Bot,
         summary: promise,
         traits: tone.split(",").map((item) => item.trim()).filter(Boolean).slice(0, 3),
@@ -1258,7 +1261,7 @@ export default function DevAgentSetupPage() {
 
             <div
               className="relative overflow-hidden rounded-xl border p-6"
-              style={heroPanelStyle("#38D39F")}
+              style={heroPanelStyle(BRAND_ACCENT)}
             >
               <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_340px]">
                 <div>
@@ -1729,7 +1732,7 @@ export default function DevAgentSetupPage() {
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {controlCenterPreviews.map((item) => (
-                <CapabilityCard key={item.label} icon={item.icon} label={item.label} detail={item.detail} accent="#38D39F" />
+                <CapabilityCard key={item.label} icon={item.icon} label={item.label} detail={item.detail} accent={BRAND_ACCENT} />
               ))}
             </div>
 
@@ -2346,7 +2349,7 @@ function FileRow({
   selected: boolean;
   onClick: () => void;
 }) {
-  const accent = status === "ready" ? "#38D39F" : status === "draft" ? "#f0c56c" : "#7c7b82";
+  const accent = status === "ready" ? BRAND_ACCENT : status === "draft" ? "#f0c56c" : "#7c7b82";
 
   return (
     <button
@@ -2519,7 +2522,7 @@ function LaunchReady({
 }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-6 py-10 text-center">
-      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-primary-foreground ring-1 ring-white/15 shadow-[0_18px_44px_rgba(56,211,159,0.25)]">
+      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-primary-foreground ring-1 ring-white/15 shadow-[0_18px_44px_rgb(var(--selection-accent-rgb)_/_0.25)]">
         <Check className="h-8 w-8" />
       </div>
       <h3 className="mt-5 text-xl font-semibold text-foreground">{agentName} is ready to work</h3>

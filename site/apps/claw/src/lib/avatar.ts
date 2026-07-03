@@ -37,7 +37,7 @@ const ICONS: LucideIcon[] = [
   Zap,
 ];
 
-// Harmonious hue offsets from the primary green (#38D39F ≈ hue 157)
+// Harmonious hue offsets from the primary green family.
 const HUES = [157, 180, 210, 240, 260, 280, 310, 340, 10, 30, 50, 70, 90, 120, 140, 200];
 
 export interface AgentUiAvatar {

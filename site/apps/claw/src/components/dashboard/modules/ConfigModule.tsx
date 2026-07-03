@@ -36,7 +36,7 @@ export function ConfigModule({ config: configProp }: ConfigModuleProps) {
         transition={{ delay: 0.15 }}
       >
         <motion.div animate={{ scale: [1, 1.12, 1] }} transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }}>
-          <Brain className="w-3.5 h-3.5 text-[#38D39F]" />
+          <Brain className="w-3.5 h-3.5 text-primary" />
         </motion.div>
         <span className="text-xs font-mono text-foreground">{source.model}</span>
       </motion.div>
@@ -61,7 +61,7 @@ export function ConfigModule({ config: configProp }: ConfigModuleProps) {
               whileHover={{ scale: 1.08 }}
               whileTap={{ scale: 0.92 }}
               className={`text-[10px] px-2 py-0.5 rounded-full font-medium transition-colors ${tool.enabled
-                  ? "bg-[#38D39F]/15 text-[#38D39F] hover:bg-[#38D39F]/25"
+                  ? "bg-primary/15 text-primary hover:bg-primary/25"
                   : "bg-surface-high text-text-muted hover:text-text-secondary"
                 }`}
             >

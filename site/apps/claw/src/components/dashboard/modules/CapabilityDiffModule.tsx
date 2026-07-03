@@ -27,7 +27,7 @@ export function CapabilityDiffModule({ variant }: CapabilityDiffModuleProps) {
               initial={{ x: -16, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               transition={{ delay: idx * 0.08 }}
-              className={`rounded-lg px-3 py-2 border flex items-center gap-2 ${isAdd ? "bg-[#38D39F]/5 border-[#38D39F]/20" : "bg-[#d05f5f]/5 border-[#d05f5f]/20"}`}
+              className={`rounded-lg px-3 py-2 border flex items-center gap-2 ${isAdd ? "bg-primary/5 border-primary/20" : "bg-[#d05f5f]/5 border-[#d05f5f]/20"}`}
             >
               <motion.div
                 initial={{ scale: 0 }}
@@ -35,7 +35,7 @@ export function CapabilityDiffModule({ variant }: CapabilityDiffModuleProps) {
                 transition={{ type: "spring", stiffness: 500, damping: 20 }}
               >
                 {isAdd ? (
-                  <Check className="w-3.5 h-3.5 text-[#38D39F]" />
+                  <Check className="w-3.5 h-3.5 text-primary" />
                 ) : (
                   <AlertTriangle className="w-3.5 h-3.5 text-[#d05f5f]" />
                 )}
@@ -58,7 +58,7 @@ export function CapabilityDiffModule({ variant }: CapabilityDiffModuleProps) {
               className="flex items-center gap-2 px-2 py-1"
             >
               <motion.span
-                className={`inline-block w-1.5 h-1.5 rounded-full ${isAdd ? "bg-[#38D39F]" : "bg-[#d05f5f]"}`}
+                className={`inline-block w-1.5 h-1.5 rounded-full ${isAdd ? "bg-primary" : "bg-[#d05f5f]"}`}
                 animate={{ scale: [0.75, 1.35, 0.75] }}
                 transition={{ repeat: Infinity, duration: 1 }}
               />
@@ -74,7 +74,7 @@ export function CapabilityDiffModule({ variant }: CapabilityDiffModuleProps) {
             key={diff.id}
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium mr-1 ${isAdd ? "bg-[#38D39F]/10 text-[#38D39F]" : "bg-[#d05f5f]/10 text-[#d05f5f]"}`}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium mr-1 ${isAdd ? "bg-primary/10 text-primary" : "bg-[#d05f5f]/10 text-[#d05f5f]"}`}
           >
             {isAdd ? (
               <Plus className="w-2.5 h-2.5" />

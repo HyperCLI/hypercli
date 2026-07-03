@@ -26,7 +26,7 @@ export function AgentFocusModule({ variant }: AgentFocusModuleProps) {
       {variant === "v1" ? (
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <span className="text-[9px] px-2 py-0.5 rounded-full bg-[#38D39F]/10 text-[#38D39F] font-medium uppercase">
+            <span className="text-[9px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium uppercase">
               {MOCK_AGENT_FOCUS.mode}
             </span>
           </div>
@@ -71,7 +71,7 @@ export function AgentFocusModule({ variant }: AgentFocusModuleProps) {
         </div>
       ) : variant === "v2" ? (
         <div className="flex items-start gap-2 px-2 py-1.5 rounded-lg border border-border">
-          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#38D39F]/10 text-[#38D39F] font-medium uppercase shrink-0">
+          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium uppercase shrink-0">
             {MOCK_AGENT_FOCUS.mode}
           </span>
           <div className="flex-1 min-w-0">

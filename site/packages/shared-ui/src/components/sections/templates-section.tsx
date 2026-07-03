@@ -107,7 +107,7 @@ export function TemplatesSection() {
         
         {/* Subtle right-side lighting with parallax */}
         <motion.div 
-          className="absolute right-0 top-1/3 w-[500px] h-[500px] bg-[#38D39F]/3 blur-[120px] rounded-full pointer-events-none opacity-60"
+          className="absolute right-0 top-1/3 w-[500px] h-[500px] bg-[rgb(var(--selection-accent-rgb)_/_0.03)] blur-[120px] rounded-full pointer-events-none opacity-60"
           style={{ y: useTransform(scrollYProgress, [0, 1], [-30, 30]) }}
         />
         
@@ -170,7 +170,7 @@ export function TemplatesSection() {
             animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
             transition={{ duration: 0.8, delay: 0.6, ease: [0.22, 1, 0.36, 1] }}
           >
-            <div className="bg-surface-low/50 backdrop-blur-sm border border-primary/20 rounded-xl p-6 shadow-[0_0_40px_rgba(56,211,159,0.08)]">
+            <div className="bg-surface-low/50 backdrop-blur-sm border border-primary/20 rounded-xl p-6 shadow-[0_0_40px_rgb(var(--selection-accent-rgb)_/_0.08)]">
               <div className="font-mono text-base space-y-2">
                 <div className="text-muted-foreground">$ hyper instances launch rag-pipeline</div>
                 <div className="text-primary">✓ Template deployed</div>

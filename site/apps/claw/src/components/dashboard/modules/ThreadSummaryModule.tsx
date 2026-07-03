@@ -37,7 +37,7 @@ export function ThreadSummaryModule({ variant }: ThreadSummaryModuleProps) {
                 <span className="text-xs font-medium text-foreground">{t.title}</span>
                 {t.active && (
                   <motion.span
-                    className="w-1.5 h-1.5 rounded-full bg-[#38D39F]"
+                    className="w-1.5 h-1.5 rounded-full bg-primary"
                     animate={{ scale: [0.8, 1.3, 0.8] }}
                     transition={{ repeat: Infinity, duration: 1.2 }}
                   />
@@ -61,7 +61,7 @@ export function ThreadSummaryModule({ variant }: ThreadSummaryModuleProps) {
               <Hash className="w-3 h-3 text-text-muted shrink-0" />
               <span className="text-[10px] text-foreground truncate">{t.title}</span>
               <span className="text-[9px] text-text-muted truncate flex-1">— {t.summary}</span>
-              {t.active && <span className="w-1.5 h-1.5 rounded-full bg-[#38D39F] shrink-0" />}
+              {t.active && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
             </motion.div>
           ))}
         </div>
@@ -77,7 +77,7 @@ export function ThreadSummaryModule({ variant }: ThreadSummaryModuleProps) {
             >
               <span className="text-text-muted">{idx + 1}.</span>
               <span className="text-foreground">{t.title}</span>
-              {t.active && <span className="w-1.5 h-1.5 rounded-full bg-[#38D39F]" />}
+              {t.active && <span className="w-1.5 h-1.5 rounded-full bg-primary" />}
             </motion.div>
           ))}
         </div>

@@ -11,15 +11,15 @@ export const getBadgeClass = (status: string): string => {
   const normalizedStatus = status.toLowerCase();
 
   switch (normalizedStatus) {
-    // Success states - muted green
+    // Success states - semantic success, separate from brand green
     case 'succeeded':
     case 'completed':
-      return 'bg-[#38D39F]/10 text-[#38D39F] border-[#38D39F]/30';
+      return 'bg-success/10 text-success border-success/30';
 
     // Warning/pending states - muted amber/yellow
     case 'pending':
     case 'queued':
-      return 'bg-[#E0A85F]/10 text-[#E0A85F] border-[#E0A85F]/30';
+      return 'bg-warning/10 text-warning border-warning/30';
 
     // Info/in-progress states - muted blue
     case 'assigned':
@@ -29,15 +29,15 @@ export const getBadgeClass = (status: string): string => {
     // Error/failure states - muted red
     case 'failed':
     case 'canceled':
-      return 'bg-[#D05F5F]/10 text-[#D05F5F] border-[#D05F5F]/30';
+      return 'bg-destructive/10 text-destructive border-destructive/30';
 
     // Terminated/stopped states - muted gray
     case 'terminated':
-      return 'bg-[#6E7375]/10 text-[#9BA0A2] border-[#6E7375]/30';
+      return 'bg-muted text-muted-foreground border-border';
 
     // Default - muted gray
     default:
-      return 'bg-[#6E7375]/10 text-[#9BA0A2] border-[#6E7375]/30';
+      return 'bg-muted text-muted-foreground border-border';
   }
 };
 
@@ -49,19 +49,19 @@ export const getTypeBadgeClass = (type: string): string => {
 
   switch (normalizedType) {
     case 'job':
-      return 'bg-[#6E7375]/10 text-[#9BA0A2] border-[#6E7375]/30';
+      return 'bg-muted text-muted-foreground border-border';
     case 'llm':
-      return 'bg-[#6E7375]/10 text-[#9BA0A2] border-[#6E7375]/30';
+      return 'bg-muted text-muted-foreground border-border';
     case 'render':
       return 'bg-[#A855F7]/10 text-[#A855F7] border-[#A855F7]/30';
     case 'top_up':
     case 'topup':
-      return 'bg-[#38D39F]/10 text-[#38D39F] border-[#38D39F]/30';
+      return 'bg-success/10 text-success border-success/30';
     case 'rewards':
-      return 'bg-[#E0A85F]/10 text-[#E0A85F] border-[#E0A85F]/30';
+      return 'bg-warning/10 text-warning border-warning/30';
     case 'invoice':
       return 'bg-[#5B9BD5]/10 text-[#5B9BD5] border-[#5B9BD5]/30';
     default:
-      return 'bg-[#6E7375]/10 text-[#9BA0A2] border-[#6E7375]/30';
+      return 'bg-muted text-muted-foreground border-border';
   }
 };

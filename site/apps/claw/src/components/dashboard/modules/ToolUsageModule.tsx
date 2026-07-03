@@ -29,14 +29,14 @@ export function ToolUsageModule({ variant, stats: statsProp }: ToolUsageModulePr
                 <div className="flex items-center justify-between text-[10px] mb-0.5">
                   <span className="flex items-center gap-1.5 text-foreground">
                     <motion.div animate={{ rotate: [0, 5, -5, 0] }} transition={{ repeat: Infinity, duration: 4, delay: idx * 0.6 }}>
-                      <ToolIcon className="w-3 h-3 text-[#38D39F]" />
+                      <ToolIcon className="w-3 h-3 text-primary" />
                     </motion.div>
                     <span className="font-mono">{tool.name}</span>
                   </span>
                   <span className="text-text-muted font-mono">{tool.calls}</span>
                 </div>
                 <div className="h-1.5 bg-background rounded-full overflow-hidden">
-                  <motion.div className="h-full bg-[#38D39F] rounded-full" initial={{ width: 0 }}
+                  <motion.div className="h-full bg-primary rounded-full" initial={{ width: 0 }}
                     animate={{ width: `${(tool.calls / maxCalls) * 100}%` }}
                     transition={{ duration: 0.6, ease: "easeOut", delay: 0.2 + idx * 0.08 }} />
                 </div>
@@ -53,7 +53,7 @@ export function ToolUsageModule({ variant, stats: statsProp }: ToolUsageModulePr
             return (
               <motion.div key={tool.name} className="flex-1 flex flex-col items-center gap-1" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: idx * 0.08 }}>
                 <span className="text-[9px] font-mono text-text-muted">{tool.calls}</span>
-                <motion.div className="w-full rounded-t bg-[#38D39F] min-h-[2px]" initial={{ height: 0 }} animate={{ height: `${h}%` }}
+                <motion.div className="w-full rounded-t bg-primary min-h-[2px]" initial={{ height: 0 }} animate={{ height: `${h}%` }}
                   transition={{ duration: 0.5, ease: "easeOut", delay: 0.15 + idx * 0.08 }} />
                 <motion.div whileHover={{ scale: 1.2 }}><ToolIcon className="w-3 h-3 text-text-muted" /></motion.div>
               </motion.div>
@@ -69,9 +69,9 @@ export function ToolUsageModule({ variant, stats: statsProp }: ToolUsageModulePr
               <motion.div key={tool.name} initial={{ scale: 0.85, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
                 transition={{ delay: idx * 0.04, type: "spring" }} whileHover={{ scale: 1.06 }}
                 className="flex items-center gap-1 px-2 py-1 rounded-full bg-surface-low text-[10px]">
-                <ToolIcon className="w-3 h-3 text-[#38D39F]" />
+                <ToolIcon className="w-3 h-3 text-primary" />
                 <span className="font-mono text-foreground">{tool.name}</span>
-                <span className="font-mono text-[#38D39F] font-medium">{tool.calls}</span>
+                <span className="font-mono text-primary font-medium">{tool.calls}</span>
               </motion.div>
             );
           })}

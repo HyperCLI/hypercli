@@ -104,7 +104,7 @@ export function MessageName({ variant, placement, isUser, effectiveName, agentMe
     }
     return (
       <div className="mb-1 flex max-w-full min-w-0 items-center gap-1.5">
-        <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[#4285f4] via-[#38D39F] to-[#f0c56c] flex items-center justify-center">
+        <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[#4285f4] via-primary to-[#f0c56c] flex items-center justify-center">
           <Sparkles className="w-3 h-3 text-white" />
         </div>
         <span className="block min-w-0 max-w-full truncate text-[11px] font-semibold text-foreground">{effectiveName}</span>

@@ -50,7 +50,7 @@ export function ProvidersModule({ variant, providers: providersProp }: Providers
                   <motion.span
                     key={m}
                     whileHover={{ scale: 1.05 }}
-                    className={`text-[9px] px-1.5 py-0.5 rounded-full font-mono ${m === prov.defaultModel ? "bg-[#38D39F]/15 text-[#38D39F]" : "bg-surface-high text-text-muted"}`}
+                    className={`text-[9px] px-1.5 py-0.5 rounded-full font-mono ${m === prov.defaultModel ? "bg-primary/15 text-primary" : "bg-surface-high text-text-muted"}`}
                   >
                     {m}
                     {m === prov.defaultModel && " \u2605"}
@@ -81,14 +81,14 @@ export function ProvidersModule({ variant, providers: providersProp }: Providers
                 transition={{ repeat: Infinity, duration: 2.5 }}
               >
                 <Brain
-                  className={`w-3 h-3 ${item.isDefault ? "text-[#38D39F]" : "text-text-muted"}`}
+                  className={`w-3 h-3 ${item.isDefault ? "text-primary" : "text-text-muted"}`}
                 />
               </motion.div>
               <span className="font-mono text-foreground">{item.model}</span>
               <span className="text-text-muted ml-auto">{item.provider}</span>
               {item.isDefault && (
                 <motion.span
-                  className="w-1.5 h-1.5 rounded-full bg-[#38D39F]"
+                  className="w-1.5 h-1.5 rounded-full bg-primary"
                   animate={{
                     scale: [0.75, 1.35, 0.75],
                     opacity: [0.5, 1, 0.5],

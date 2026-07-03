@@ -25,19 +25,19 @@
   --card-foreground: #fafafa;
   --popover: #1c1c1f;
   --popover-foreground: #fafafa;
-  --primary: #38d39f;
+  --primary: #63e452;
   --primary-foreground: #0a0a0b;
-  --primary-hover: #45e4ae;
-  --primary-pressed: #2db789;
+  --primary-hover: #75ef64;
+  --primary-pressed: #52c943;
   --secondary: #1c1c1f;
   --secondary-foreground: #a1a1a6;
   --muted: #141416;
   --muted-foreground: #9e9ea3;
-  --accent: #38d39f;
+  --accent: #63e452;
   --accent-foreground: #0a0a0b;
-  --accent-hover: #45e4ae;
-  --accent-pressed: #2db789;
-  --accent-subtle: #1a3f30;
+  --accent-hover: #75ef64;
+  --accent-pressed: #52c943;
+  --accent-subtle: #1f3f1a;
   --button-primary: #63e452;
   --button-primary-foreground: #0a0a0b;
   --button-primary-hover: #75ef64;
@@ -57,9 +57,9 @@
   --glassmorphism-background: rgba(11, 13, 14, 0.8);
   --glassmorphism-background-fallback: rgba(11, 13, 14, 0.96);
   --gradient-text: linear-gradient(to right, #d4d6d7, #9ba0a2, #6e7375);
-  --gradient-text-primary: linear-gradient(to right, #fafafa, #a1a1a6);
-  --radial-background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.02) 0%, #0a0a0b 60%);
-  --focus-outline: rgba(255, 255, 255, 0.3);
+  --gradient-text-primary: linear-gradient(to right, #fafafa, #63e452);
+  --radial-background: radial-gradient(ellipse at center, rgba(99, 228, 82, 0.05) 0%, #0a0a0b 60%);
+  --focus-outline: rgba(99, 228, 82, 0.5);
   --destructive: #d05f5f;
   --destructive-foreground: #fff;
   --success: #3ad8a0;
@@ -73,21 +73,21 @@
   --switch-background: #1c1c1f;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --ring: rgba(255, 255, 255, 0.2);
-  --chart-1: #38d39f;
-  --chart-2: #45e4ae;
-  --chart-3: #2db789;
-  --chart-4: #1a5f48;
+  --ring: rgba(99, 228, 82, 0.35);
+  --chart-1: #63e452;
+  --chart-2: #75ef64;
+  --chart-3: #52c943;
+  --chart-4: #2f6d27;
   --chart-5: #3ad8a0;
   --radius: 0.5rem;
   --sidebar: #0a0a0b;
   --sidebar-foreground: #fafafa;
-  --sidebar-primary: #fafafa;
+  --sidebar-primary: #63e452;
   --sidebar-primary-foreground: #0a0a0b;
   --sidebar-accent: #141416;
   --sidebar-accent-foreground: #fafafa;
   --sidebar-border: rgba(255, 255, 255, 0.18);
-  --sidebar-ring: rgba(255, 255, 255, 0.2);
+  --sidebar-ring: rgba(99, 228, 82, 0.35);
 }
 
 [data-theme="light"] {
@@ -160,7 +160,7 @@
   --font-weight-normal: 400;
   --ring: rgba(31, 143, 101, 0.35);
   --chart-1: #1f8f65;
-  --chart-2: #2db789;
+  --chart-2: #177a55;
   --chart-3: #116543;
   --chart-4: #7bbf9b;
   --chart-5: #d9f4e8;

@@ -6,6 +6,7 @@ import { useTurnkey } from "@turnkey/react-wallet-kit";
 import { clearAuthLogoutMarker } from "../utils/cookies";
 import { getAuthBackendUrl } from "../utils/api";
 import { exchangePrivyToken } from "../auth/AuthProvider";
+import { HYPERCLI_LOGO_FULL_SRC } from "./HyperCLILogo";
 
 export interface PrivyLoginPanelProps {
   title?: string;
@@ -52,8 +53,8 @@ function TurnkeyFallbackButton({
 
   const handleClick = async () => {
     await handleLogin({
-      logoLight: "/hypercli-transparentbg-black-hyper-horizontal-200x60.png",
-      logoDark: "/hypercli-horizontal-transparentbg-whitehyper-200x60.png",
+      logoLight: HYPERCLI_LOGO_FULL_SRC,
+      logoDark: HYPERCLI_LOGO_FULL_SRC,
       title,
     });
   };

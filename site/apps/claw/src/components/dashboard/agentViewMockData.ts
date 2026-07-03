@@ -70,10 +70,10 @@ export const SESSION_ICONS: Record<string, LucideIcon> = {
 };
 
 export const ACTIVITY_TYPE_COLORS: Record<ActivityType, string> = {
-  message: "text-[#38D39F]",
+  message: "text-primary",
   tool: "text-[#f0c56c]",
   connection: "text-[#4285f4]",
-  skill: "text-[#38D39F]",
+  skill: "text-primary",
   cron: "text-[#f0c56c]",
   error: "text-[#d05f5f]",
   system: "text-text-muted",
@@ -240,7 +240,7 @@ export const TOOL_USAGE_STATS = [
 ];
 
 export const INTERACTION_PATTERNS = [
-  { label: "Code review", pct: 34, color: "#38D39F" },
+  { label: "Code review", pct: 34, color: "var(--selection-accent)" },
   { label: "Email triage", pct: 28, color: "#4285f4" },
   { label: "Research", pct: 22, color: "#f0c56c" },
   { label: "File ops", pct: 16, color: "#d05f5f" },

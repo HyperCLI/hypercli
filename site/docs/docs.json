@@ -3,9 +3,9 @@
   "theme": "maple",
   "name": "HyperCLI.AI",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#63E452",
+    "light": "#CCF500",
+    "dark": "#52C943"
   },
   "favicon": "/favicon.svg",
   "openapi": "openapi.json",

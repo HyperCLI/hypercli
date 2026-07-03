@@ -41,7 +41,7 @@ export function DecisionLogModule({ variant }: DecisionLogModuleProps) {
                   {d.decision}
                 </span>
                 <span
-                  className={`text-[8px] px-1.5 py-0.5 rounded-full font-medium ${d.status === "active" ? "bg-[#38D39F]/10 text-[#38D39F]" : "bg-surface-high text-text-muted"}`}
+                  className={`text-[8px] px-1.5 py-0.5 rounded-full font-medium ${d.status === "active" ? "bg-primary/10 text-primary" : "bg-surface-high text-text-muted"}`}
                 >
                   {d.status}
                 </span>

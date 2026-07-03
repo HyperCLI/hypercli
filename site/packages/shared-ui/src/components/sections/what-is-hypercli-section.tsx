@@ -108,7 +108,7 @@ export function WhatIsHyperCLISection() {
 
         {/* Subtle left-side lighting with parallax */}
         <motion.div
-          className="absolute left-0 top-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-[#38D39F]/3 blur-[120px] rounded-full pointer-events-none opacity-60"
+          className="absolute left-0 top-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-[rgb(var(--selection-accent-rgb)_/_0.03)] blur-[120px] rounded-full pointer-events-none opacity-60"
           style={{
             y: useTransform(scrollYProgress, [0, 1], [50, -50]),
           }}
@@ -194,7 +194,7 @@ export function WhatIsHyperCLISection() {
                   You write code
                 </div>
                 <motion.div
-                  className="w-full h-[2px] bg-gradient-to-r from-[#38D39F]/30 to-transparent"
+                  className="w-full h-[2px] bg-gradient-to-r from-[rgb(var(--selection-accent-rgb)_/_0.3)] to-transparent"
                   initial={{ scaleX: 0 }}
                   animate={
                     isFlowInView ? { scaleX: 1 } : { scaleX: 0 }
@@ -212,7 +212,7 @@ export function WhatIsHyperCLISection() {
                 }
                 transition={{ duration: 0.3, delay: 1.0 }}
               >
-                <ArrowRight className="w-7 h-7 text-[#38D39F]/40" />
+                <ArrowRight className="w-7 h-7 text-[rgb(var(--selection-accent-rgb)_/_0.4)]" />
               </motion.div>
 
               <motion.div
@@ -229,7 +229,7 @@ export function WhatIsHyperCLISection() {
                   HyperCLI runs it anywhere
                 </div>
                 <motion.div
-                  className="w-full h-[2px] bg-gradient-to-r from-[#38D39F]/50 to-transparent"
+                  className="w-full h-[2px] bg-gradient-to-r from-[rgb(var(--selection-accent-rgb)_/_0.5)] to-transparent"
                   initial={{ scaleX: 0 }}
                   animate={
                     isFlowInView ? { scaleX: 1 } : { scaleX: 0 }
@@ -247,7 +247,7 @@ export function WhatIsHyperCLISection() {
                 }
                 transition={{ duration: 0.3, delay: 1.5 }}
               >
-                <ArrowRight className="w-7 h-7 text-[#38D39F]/60" />
+                <ArrowRight className="w-7 h-7 text-[rgb(var(--selection-accent-rgb)_/_0.6)]" />
               </motion.div>
 
               <motion.div
@@ -264,7 +264,7 @@ export function WhatIsHyperCLISection() {
                   It scales automatically
                 </div>
                 <motion.div
-                  className="w-full h-[3px] bg-gradient-to-r from-[#38D39F] to-transparent shadow-[0_0_15px_rgba(56,211,159,0.3)]"
+                  className="w-full h-[3px] bg-gradient-to-r from-[var(--selection-accent)] to-transparent shadow-[0_0_15px_rgb(var(--selection-accent-rgb)_/_0.3)]"
                   initial={{ scaleX: 0 }}
                   animate={
                     isFlowInView ? { scaleX: 1 } : { scaleX: 0 }

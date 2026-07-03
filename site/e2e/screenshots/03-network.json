@@ -16,7 +16,7 @@
   {
     "timestamp": "2026-03-13T01:58:03.720Z",
     "method": "GET",
-    "url": "https://hypercli.com/logo-horizontal-white.png",
+    "url": "https://hypercli.com/logos/hyperclaw-full-green.svg",
     "error": "net::ERR_BLOCKED_BY_ORB"
   },
   {
@@ -806,7 +806,7 @@
   {
     "timestamp": "2026-03-13T01:58:05.225Z",
     "method": "GET",
-    "url": "https://hypercli.com/logo-horizontal-white.png"
+    "url": "https://hypercli.com/logos/hyperclaw-full-green.svg"
   },
   {
     "timestamp": "2026-03-13T01:58:05.326Z",
@@ -1056,7 +1056,7 @@
   {
     "timestamp": "2026-03-13T01:58:23.062Z",
     "method": "GET",
-    "url": "https://hypercli.com/logo-horizontal-white.png"
+    "url": "https://hypercli.com/logos/hyperclaw-full-green.svg"
   },
   {
     "timestamp": "2026-03-13T01:58:23.067Z",
@@ -1866,7 +1866,7 @@
   {
     "timestamp": "2026-03-13T01:58:23.923Z",
     "method": "GET",
-    "url": "https://hypercli.com/logo-horizontal-white.png"
+    "url": "https://hypercli.com/logos/hyperclaw-full-green.svg"
   },
   {
     "timestamp": "2026-03-13T01:58:23.939Z",

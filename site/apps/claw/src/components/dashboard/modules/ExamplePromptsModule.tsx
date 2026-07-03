@@ -34,7 +34,7 @@ export function ExamplePromptsModule({ variant, prompts: promptsProp, onPromptCl
             return (
               <motion.div key={gIdx} initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.15 + gIdx * 0.08 }}>
                 <div className="flex items-center gap-1.5 mb-1">
-                  <GIcon className="w-3 h-3 text-[#38D39F]" />
+                  <GIcon className="w-3 h-3 text-primary" />
                   <span className="text-[10px] font-medium text-foreground">{group.capability}</span>
                 </div>
                 {group.prompts.map((p, pIdx) => (
@@ -57,9 +57,9 @@ export function ExamplePromptsModule({ variant, prompts: promptsProp, onPromptCl
               <motion.button key={idx} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.12 + idx * 0.05 }}
                 whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }}
                 onClick={() => onPromptClick?.(group.prompts[0])}
-                className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg border border-border hover:border-[#38D39F]/25 hover:bg-[#38D39F]/5 transition-colors text-left">
-                <div className="w-6 h-6 rounded-md bg-[#38D39F]/10 flex items-center justify-center shrink-0">
-                  <GIcon className="w-3 h-3 text-[#38D39F]" />
+                className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg border border-border hover:border-primary/25 hover:bg-primary/5 transition-colors text-left">
+                <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                  <GIcon className="w-3 h-3 text-primary" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-[10px] text-foreground font-medium">{group.capability}</div>

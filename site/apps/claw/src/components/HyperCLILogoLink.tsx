@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { HyperCLILogo } from "@hypercli/shared-ui";
 
 interface HyperCLILogoLinkProps {
   className?: string;
@@ -23,17 +24,13 @@ export function HyperCLILogoLink({
       aria-label="HyperCLI home"
       className={`relative inline-flex shrink-0 items-center justify-start overflow-visible align-middle ${className}`}
     >
-      <span
-        aria-hidden
-        className={`block h-full w-full bg-contain bg-left bg-no-repeat ${imageClassName}`}
-        style={{ backgroundImage: "url('/logos/hyperclaw-full-green.svg')" }}
-      />
+      <HyperCLILogo decorative className="h-full w-full" imageClassName={imageClassName} />
     </Link>
   );
 }
 
 export function HyperCLILogoMark({ className = "h-4 w-4" }: HyperCLILogoMarkProps) {
   return (
-    <span aria-hidden className={`relative inline-flex shrink-0 bg-contain bg-center bg-no-repeat ${className}`} style={{ backgroundImage: "url('/logos/hyperclaw-icon-green.svg')" }} />
+    <HyperCLILogo decorative markOnly className={className} />
   );
 }

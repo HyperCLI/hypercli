@@ -63,7 +63,7 @@ function VariantGroup<T extends string>({
             name={label}
             checked={value === opt.value}
             onChange={() => onChange(opt.value)}
-            className="accent-[#38D39F]"
+            className="accent-primary"
           />
           {opt.label}
         </label>
@@ -761,7 +761,7 @@ export default function DevChatPage() {
         onClick={() => setControlPanelOpen((v) => !v)}
         className={`fixed top-20 left-4 z-50 w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-lg ${
           controlPanelOpen
-            ? "bg-[#38D39F] text-[#0a0a0b]"
+            ? "bg-primary text-[#0a0a0b]"
             : "bg-[#1a1a1c] border border-border text-text-muted hover:text-foreground hover:border-border-strong"
         }`}
         title="Toggle variant controls"
@@ -782,7 +782,7 @@ export default function DevChatPage() {
             onClick={() => setDevTab("chat")}
             className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
               devTab === "chat"
-                ? "text-foreground border-b-2 border-[#38D39F]"
+                ? "text-foreground border-b-2 border-primary"
                 : "text-text-muted hover:text-text-secondary"
             }`}
           >
@@ -792,7 +792,7 @@ export default function DevChatPage() {
             onClick={() => setDevTab("agent-view")}
             className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
               devTab === "agent-view"
-                ? "text-foreground border-b-2 border-[#38D39F]"
+                ? "text-foreground border-b-2 border-primary"
                 : "text-text-muted hover:text-text-secondary"
             }`}
           >
@@ -802,7 +802,7 @@ export default function DevChatPage() {
             onClick={() => setDevTab("files")}
             className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
               devTab === "files"
-                ? "text-foreground border-b-2 border-[#38D39F]"
+                ? "text-foreground border-b-2 border-primary"
                 : "text-text-muted hover:text-text-secondary"
             }`}
           >
@@ -812,7 +812,7 @@ export default function DevChatPage() {
             onClick={() => setDevTab("ux-kit")}
             className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
               devTab === "ux-kit"
-                ? "text-foreground border-b-2 border-[#38D39F]"
+                ? "text-foreground border-b-2 border-primary"
                 : "text-text-muted hover:text-text-secondary"
             }`}
           >
@@ -835,7 +835,7 @@ export default function DevChatPage() {
                 setConnected(e.target.checked);
                 if (e.target.checked) setConnecting(false);
               }}
-              className="accent-[#38D39F]"
+              className="accent-primary"
             />
             Connected
           </label>
@@ -947,7 +947,7 @@ export default function DevChatPage() {
             className={`w-full text-xs px-2 py-1.5 rounded-md flex items-center gap-2 transition-colors ${
               streamingActive
                 ? "bg-[#d05f5f]/10 text-[#d05f5f] hover:bg-[#d05f5f]/20"
-                : "bg-[#38D39F]/10 text-[#38D39F] hover:bg-[#38D39F]/20"
+                : "bg-primary/10 text-primary hover:bg-primary/20"
             }`}
           >
             <Zap className="w-3 h-3" />
@@ -973,7 +973,7 @@ export default function DevChatPage() {
                 onClick={() => applyPreset(v)}
                 className={`text-xs px-2 py-1.5 rounded-md border transition-colors ${
                   thinkingVariant === v && timestampVariant === v && bubblesVariant === v && nameVariant === v && animationVariant === v && inputVariant === v && themeVariant === v && streamingVariant === v
-                    ? "border-[#38D39F] bg-[#38D39F]/10 text-[#38D39F]"
+                    ? "border-primary bg-primary/10 text-primary"
                     : "border-border text-text-muted hover:text-foreground hover:border-border-strong"
                 }`}
               >
@@ -1110,7 +1110,7 @@ export default function DevChatPage() {
                 type="checkbox"
                 checked={showAgentView}
                 onChange={(e) => setShowAgentView(e.target.checked)}
-                className="accent-[#38D39F]"
+                className="accent-primary"
               />
               Show Agent View panel
             </label>
@@ -1126,7 +1126,7 @@ export default function DevChatPage() {
                   name="agentViewTab"
                   checked={agentViewTab === tab}
                   onChange={() => setAgentViewTab(tab)}
-                  className="accent-[#38D39F]"
+                  className="accent-primary"
                 />
                 {tab.charAt(0).toUpperCase() + tab.slice(1)}
               </label>
@@ -1149,7 +1149,7 @@ export default function DevChatPage() {
                   type="checkbox"
                   checked={value}
                   onChange={(e) => setter(e.target.checked)}
-                  className="accent-[#38D39F]"
+                  className="accent-primary"
                 />
                 {label}
               </label>
@@ -1164,7 +1164,7 @@ export default function DevChatPage() {
                 type="checkbox"
                 checked={showSearch}
                 onChange={(e) => setShowSearch(e.target.checked)}
-                className="accent-[#38D39F]"
+                className="accent-primary"
               />
               Search bar
             </label>
@@ -1173,7 +1173,7 @@ export default function DevChatPage() {
                 type="checkbox"
                 checked={showRecommended}
                 onChange={(e) => setShowRecommended(e.target.checked)}
-                className="accent-[#38D39F]"
+                className="accent-primary"
               />
               Recommended section
             </label>
@@ -1182,7 +1182,7 @@ export default function DevChatPage() {
                 type="checkbox"
                 checked={showMarketplace}
                 onChange={(e) => setShowMarketplace(e.target.checked)}
-                className="accent-[#38D39F]"
+                className="accent-primary"
               />
               Marketplace button
             </label>
@@ -1249,7 +1249,7 @@ export default function DevChatPage() {
 
           {/* UX Discovery features */}
           <div className="space-y-4 pt-1 border-t border-border">
-            <p className="text-[11px] font-semibold text-[#38D39F] uppercase tracking-wider">UX Discovery</p>
+            <p className="text-[11px] font-semibold text-primary uppercase tracking-wider">UX Discovery</p>
             <VariantGroup label="Onboarding tour" value={onboardingVariant} onChange={setOnboardingVariant} options={[
               { value: "off", label: "Off" },
               { value: "v1", label: "Alt 1 — step banner" },
@@ -1592,7 +1592,7 @@ export default function DevChatPage() {
                   "logs/agent.log": '[2026-04-10 08:00:00] INFO  Agent started\n[2026-04-10 08:00:01] INFO  Connected to gateway',
                 });
               }}
-              className="w-full px-3 py-2 rounded-lg bg-[#38D39F]/10 border border-[#38D39F]/20 hover:border-[#38D39F]/40 text-[11px] font-medium text-[#38D39F] transition-colors"
+              className="w-full px-3 py-2 rounded-lg bg-primary/10 border border-primary/20 hover:border-primary/40 text-[11px] font-medium text-primary transition-colors"
             >
               Add all presets
             </button>
@@ -1650,7 +1650,7 @@ export default function DevChatPage() {
                 setConnecting(false);
                 setSending(true);
               }}
-              className="w-full rounded-lg border border-[#38D39F]/30 bg-[#38D39F]/10 px-3 py-2 text-left text-xs font-medium text-[#38D39F] hover:bg-[#38D39F]/20"
+              className="w-full rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-left text-xs font-medium text-primary hover:bg-primary/20"
             >
               Load mixed chat scenario
             </button>
@@ -1694,9 +1694,9 @@ export default function DevChatPage() {
               return (
                 <div className="relative">
                   <div className="w-8 h-8 rounded-full bg-surface-low flex items-center justify-center">
-                    <Bot className="w-5 h-5 text-[#38D39F]" />
+                    <Bot className="w-5 h-5 text-primary" />
                   </div>
-                  <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${connected ? "bg-[#38D39F]" : connecting ? "bg-[#f0c56c] animate-pulse" : "bg-text-muted"}`} />
+                  <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${connected ? "bg-primary" : connecting ? "bg-[#f0c56c] animate-pulse" : "bg-text-muted"}`} />
                 </div>
               );
             }
@@ -1724,7 +1724,7 @@ export default function DevChatPage() {
                   <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: av.bgColor }}>
                     <Icon className="w-4 h-4" style={{ color: av.fgColor }} />
                   </div>
-                  <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${selectedThread.isActive ? "bg-[#38D39F]" : "bg-text-muted"}`} />
+                  <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${selectedThread.isActive ? "bg-primary" : "bg-text-muted"}`} />
                 </div>
               );
             }
@@ -1783,7 +1783,7 @@ export default function DevChatPage() {
             onClick={() => setFilesDrawerOpen((v) => !v)}
             className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-medium border transition-all ${
               filesDrawerOpen
-                ? "bg-[#38D39F]/15 border-[#38D39F]/30 text-[#38D39F]"
+                ? "bg-primary/15 border-primary/30 text-primary"
                 : "border-border text-text-muted hover:text-foreground hover:border-text-muted/30 hover:bg-surface-low"
             }`}
             title="Files"
@@ -1793,7 +1793,7 @@ export default function DevChatPage() {
             {mockFiles.filter((f) => f.type === "file").length > 0 && (
               <span className={`text-[9px] tabular-nums px-1.5 py-0.5 rounded-full ${
                 filesDrawerOpen
-                  ? "bg-[#38D39F]/20 text-[#38D39F]"
+                  ? "bg-primary/20 text-primary"
                   : "bg-surface-low text-text-muted"
               }`}>
                 {mockFiles.filter((f) => f.type === "file").length}
@@ -1816,7 +1816,7 @@ export default function DevChatPage() {
                   onClick={(e) => { e.stopPropagation(); setAddParticipantOpen((v) => !v); }}
                   className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${
                     addParticipantOpen
-                      ? "bg-[#38D39F] text-[#0a0a0b]"
+                      ? "bg-primary text-[#0a0a0b]"
                       : "text-text-muted hover:text-foreground hover:bg-surface-low"
                   }`}
                   title="Add participant"
@@ -1852,7 +1852,7 @@ export default function DevChatPage() {
                 </p>
                 <button
                   onClick={() => setAddParticipantOpen(true)}
-                  className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#38D39F]/10 text-[#38D39F] text-xs font-medium hover:bg-[#38D39F]/20 transition-colors"
+                  className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition-colors"
                 >
                   <Plus className="w-3 h-3" />
                   Add participants
@@ -1973,7 +1973,7 @@ export default function DevChatPage() {
                   rows={1}
                   placeholder={connected ? `Ask ${activeAgentName ?? "agent"} anything...` : "Connect gateway to message..."}
                   disabled={!connected || sending}
-                  className="flex-1 min-w-0 resize-none bg-transparent border-0 border-b border-border rounded-none px-1 py-2 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-[#38D39F] disabled:opacity-50 overflow-hidden transition-colors"
+                  className="flex-1 min-w-0 resize-none bg-transparent border-0 border-b border-border rounded-none px-1 py-2 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-primary disabled:opacity-50 overflow-hidden transition-colors"
                 />
                 <button
                   onClick={handleSend}
@@ -1997,7 +1997,7 @@ export default function DevChatPage() {
                   rows={1}
                   placeholder={connected ? "Type a message... (Shift+Enter for newline)" : "Connect gateway to message..."}
                   disabled={!connected || sending}
-                  className="flex-1 min-w-0 resize-none bg-surface-low border border-border rounded-xl px-4 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-[#38D39F]/40 focus:border-[#38D39F]/60 disabled:opacity-50 overflow-hidden transition-all"
+                  className="flex-1 min-w-0 resize-none bg-surface-low border border-border rounded-xl px-4 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/60 disabled:opacity-50 overflow-hidden transition-all"
                 />
                 <button
                   onClick={handleSend}

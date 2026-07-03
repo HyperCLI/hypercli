@@ -30,11 +30,11 @@ export function HeroSection() {
       <div className="absolute inset-0 opacity-[0.03] pointer-events-none bg-grid-pattern" />
       
       {/* Cinematic vignette */}
-      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_center,transparent_0%,rgba(11,13,14,0.4)_70%)]" />
+      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_center,transparent_0%,rgb(10_10_11_/_0.4)_70%)]" />
       
       {/* Subtle animated green glow */}
       <motion.div 
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1000px] h-[600px] bg-[#38D39F]/5 blur-[120px] rounded-full"
+        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1000px] h-[600px] bg-[rgb(var(--selection-accent-rgb)_/_0.05)] blur-[120px] rounded-full"
         animate={{
           scale: [1, 1.1, 1],
           opacity: [0.05, 0.08, 0.05],
@@ -83,9 +83,9 @@ export function HeroSection() {
           transition={{ duration: 0.8, delay: 0.4, ease: [0.22, 1, 0.36, 1] }}
         >
           {/* Glow effect behind code block */}
-          <div className="absolute inset-0 bg-[#38D39F]/10 blur-[80px] rounded-full scale-110" />
+          <div className="absolute inset-0 bg-[rgb(var(--selection-accent-rgb)_/_0.1)] blur-[80px] rounded-full scale-110" />
 
-          <div className="relative bg-surface-low/80 backdrop-blur-sm border border-primary/20 rounded-2xl p-8 text-left shadow-[0_0_80px_rgba(56,211,159,0.15)]">
+          <div className="relative bg-surface-low/80 backdrop-blur-sm border border-primary/20 rounded-2xl p-8 text-left shadow-[0_0_80px_rgb(var(--selection-accent-rgb)_/_0.15)]">
             <div className="font-mono text-base space-y-3">
               <div className="text-muted-foreground">$ pip install <span className="text-primary">hypercli-cli</span></div>
               <div className="text-muted-foreground">$ <span className="text-primary">hyper</span> instances launch nvidia/cuda:12.0 -g l40s</div>
@@ -105,7 +105,7 @@ export function HeroSection() {
           </h3>
           <a
             href={NAV_URLS.claw}
-            className="inline-flex items-center px-8 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary-hover transition-all duration-300 font-medium text-base shadow-[0_0_30px_rgba(56,211,159,0.15)]"
+            className="inline-flex items-center px-8 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary-hover transition-all duration-300 font-medium text-base shadow-[0_0_30px_rgb(var(--selection-accent-rgb)_/_0.15)]"
           >
             Get Started
           </a>

@@ -61,7 +61,7 @@ export function AchievementsModule({ variant, achievements: achievementsProp }: 
                     delay: idx * 0.5,
                   }}
                 >
-                  <AchIcon className="w-4 h-4 text-[#38D39F] mb-1" />
+                  <AchIcon className="w-4 h-4 text-primary mb-1" />
                 </motion.div>
                 <motion.span
                   className="text-sm font-bold text-foreground"
@@ -91,7 +91,7 @@ export function AchievementsModule({ variant, achievements: achievementsProp }: 
                 transition={{ delay: idx * 0.06 }}
                 className="flex items-center gap-1.5 shrink-0"
               >
-                <AchIcon className="w-3 h-3 text-[#38D39F]" />
+                <AchIcon className="w-3 h-3 text-primary" />
                 <span className="text-xs font-bold text-foreground">
                   {ach.value}
                 </span>

@@ -32,7 +32,7 @@ export function CompletenessRingModule({ variant, segments: segmentsProp }: Comp
           <div className="relative w-14 h-14 shrink-0">
             <svg viewBox="0 0 36 36" className="w-14 h-14 -rotate-90">
               <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" strokeWidth="2" className="text-surface-high" />
-              <motion.circle cx="18" cy="18" r="15.9" fill="none" stroke="#38D39F" strokeWidth="2.5" strokeLinecap="round"
+              <motion.circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--selection-accent)" strokeWidth="2.5" strokeLinecap="round"
                 strokeDasharray="100" initial={{ strokeDashoffset: 100 }} animate={{ strokeDashoffset: 100 - pct }}
                 transition={{ duration: 1.2, ease: "easeOut" }} />
             </svg>
@@ -47,7 +47,7 @@ export function CompletenessRingModule({ variant, segments: segmentsProp }: Comp
                 const SegIcon = seg.icon;
                 return (
                   <motion.div key={idx} whileHover={{ scale: 1.15 }} title={seg.label}
-                    className={`w-5 h-5 rounded flex items-center justify-center ${seg.complete ? "bg-[#38D39F]/15 text-[#38D39F]" : "bg-surface-high text-text-muted"}`}>
+                    className={`w-5 h-5 rounded flex items-center justify-center ${seg.complete ? "bg-primary/15 text-primary" : "bg-surface-high text-text-muted"}`}>
                     <SegIcon className="w-3 h-3" />
                   </motion.div>
                 );
@@ -66,10 +66,10 @@ export function CompletenessRingModule({ variant, segments: segmentsProp }: Comp
         {isMock && <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">mock</span>}
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium text-foreground">Readiness</span>
-          <span className="text-[10px] font-mono text-[#38D39F]">{complete}/{total}</span>
+          <span className="text-[10px] font-mono text-primary">{complete}/{total}</span>
         </div>
         <div className="h-2 bg-surface-high rounded-full overflow-hidden">
-          <motion.div className="h-full bg-[#38D39F] rounded-full" initial={{ width: 0 }} animate={{ width: `${pct}%` }}
+          <motion.div className="h-full bg-primary rounded-full" initial={{ width: 0 }} animate={{ width: `${pct}%` }}
             transition={{ duration: 0.8, ease: "easeOut" }} />
         </div>
         <div className="grid grid-cols-4 gap-1">
@@ -77,7 +77,7 @@ export function CompletenessRingModule({ variant, segments: segmentsProp }: Comp
             const SegIcon = seg.icon;
             return (
               <motion.div key={idx} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: idx * 0.05 }}
-                className={`flex flex-col items-center gap-0.5 py-1 rounded text-center ${seg.complete ? "text-[#38D39F]" : "text-text-muted"}`}>
+                className={`flex flex-col items-center gap-0.5 py-1 rounded text-center ${seg.complete ? "text-primary" : "text-text-muted"}`}>
                 <SegIcon className="w-3 h-3" />
                 <span className="text-[8px] leading-tight">{seg.label}</span>
               </motion.div>
@@ -99,9 +99,9 @@ export function CompletenessRingModule({ variant, segments: segmentsProp }: Comp
           <motion.div key={idx} initial={{ x: -12, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: idx * 0.04 }}
             className="flex items-center gap-2 py-0.5">
             <motion.div animate={seg.complete ? {} : { opacity: [0.4, 1, 0.4] }} transition={{ repeat: Infinity, duration: 2 }}>
-              {seg.complete ? <Check className="w-3 h-3 text-[#38D39F]" /> : <div className="w-3 h-3 rounded-full border border-text-muted" />}
+              {seg.complete ? <Check className="w-3 h-3 text-primary" /> : <div className="w-3 h-3 rounded-full border border-text-muted" />}
             </motion.div>
-            <SegIcon className={`w-3 h-3 ${seg.complete ? "text-[#38D39F]" : "text-text-muted"}`} />
+            <SegIcon className={`w-3 h-3 ${seg.complete ? "text-primary" : "text-text-muted"}`} />
             <span className={`text-[11px] ${seg.complete ? "text-foreground" : "text-text-muted"}`}>{seg.label}</span>
           </motion.div>
         );

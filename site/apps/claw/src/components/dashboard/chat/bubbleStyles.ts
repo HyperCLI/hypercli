@@ -82,10 +82,10 @@ export function getBubbleClasses(bubblesVariant: BubblesVariant, themeVariant: T
   if (themeVariant === "v1") {
     colorClass = isUser
       ? "bg-[#1e1c1a] border border-[#f0c56c]/25"
-      : "border-l-2 border-[#38D39F]/40";
+      : "border-l-2 border-primary/40";
   } else if (themeVariant === "v2") {
     colorClass = isUser
-      ? "bg-[#38D39F]/10 border border-[#38D39F]/25"
+      ? "bg-primary/10 border border-primary/25"
       : "bg-[#0d0d0f] border border-[#2a2a2c]";
   } else if (themeVariant === "v3") {
     colorClass = isUser

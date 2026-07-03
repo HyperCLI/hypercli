@@ -41,7 +41,7 @@ export function TrustedBySection() {
           transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
           className="text-center mb-20"
         >
-          <h2 className="text-[40px] sm:text-[56px] lg:text-[72px] text-white leading-[0.9] tracking-[-0.05em] font-bold mb-6">
+          <h2 className="text-[40px] sm:text-[56px] lg:text-[72px] text-foreground leading-[0.9] tracking-[-0.05em] font-bold mb-6">
             Trusted by engineers at
           </h2>
 
@@ -66,15 +66,15 @@ export function TrustedBySection() {
                 delay: 0.3 + (index * 0.05),
                 ease: [0.22, 1, 0.36, 1]
               }}
-              className="group relative flex flex-col items-center justify-center gap-4 p-6 rounded-2xl border border-border/5 bg-[#0F1112] hover:bg-[#141617] hover:border-border/10 transition-all duration-300"
+              className="group relative flex flex-col items-center justify-center gap-4 p-6 rounded-2xl border border-border/5 bg-surface-low hover:bg-surface-high hover:border-border/10 transition-all duration-300"
             >
               <div className="relative flex items-center justify-center opacity-50 group-hover:opacity-100 transition-opacity duration-300">
                 <company.Icon 
-                  className="h-10 w-10 sm:h-12 sm:w-12 text-[#D4D6D7] group-hover:text-white transition-colors"
+                  className="h-10 w-10 sm:h-12 sm:w-12 text-text-secondary group-hover:text-foreground transition-colors"
                   aria-label={`${company.name} logo`}
                 />
               </div>
-              <span className="text-sm sm:text-base text-[#9BA0A2] group-hover:text-white font-medium tracking-wide transition-colors">
+              <span className="text-sm sm:text-base text-text-tertiary group-hover:text-foreground font-medium tracking-wide transition-colors">
                 {company.name}
               </span>
             </motion.div>

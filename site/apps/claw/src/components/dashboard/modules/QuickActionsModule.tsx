@@ -35,7 +35,7 @@ export function QuickActionsModule({ variant, actions: actionsProp }: QuickActio
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: idx * 0.06 }}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-[#38D39F]/8 text-[#38D39F] text-[10px] font-medium whitespace-nowrap hover:bg-[#38D39F]/15 transition-colors shrink-0"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-primary/8 text-primary text-[10px] font-medium whitespace-nowrap hover:bg-primary/15 transition-colors shrink-0"
               >
                 <QaIcon className="w-3 h-3" /> {qa.label}
               </motion.button>
@@ -77,7 +77,7 @@ export function QuickActionsModule({ variant, actions: actionsProp }: QuickActio
                     delay: idx * 0.4,
                   }}
                 >
-                  <QaIcon className="w-4 h-4 text-[#38D39F]" />
+                  <QaIcon className="w-4 h-4 text-primary" />
                 </motion.div>
                 <span className="text-[9px] text-text-muted text-center leading-tight">
                   {qa.label}
@@ -105,9 +105,9 @@ export function QuickActionsModule({ variant, actions: actionsProp }: QuickActio
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: idx * 0.08 }}
             whileHover={{ x: 4 }}
-            className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg border border-border hover:border-[#38D39F]/25 hover:bg-[#38D39F]/5 transition-colors text-left"
+            className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg border border-border hover:border-primary/25 hover:bg-primary/5 transition-colors text-left"
           >
-            <QaIcon className="w-4 h-4 text-[#38D39F] shrink-0" />
+            <QaIcon className="w-4 h-4 text-primary shrink-0" />
             <div className="flex-1 min-w-0">
               <div className="text-xs text-foreground">{qa.label}</div>
               <div className="text-[10px] text-text-muted truncate">

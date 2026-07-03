@@ -50,7 +50,7 @@ export function PlaygroundCTASection() {
         <div className="absolute inset-0 opacity-[0.02] pointer-events-none bg-grid-pattern" />
         
         {/* Subtle radial vignette */}
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(56,211,159,0.03)_0%,#0B0D0E_60%)] pointer-events-none" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgb(var(--selection-accent-rgb)_/_0.03)_0%,var(--background)_60%)] pointer-events-none" />
         
         <motion.div 
           ref={contentRef}
@@ -86,10 +86,10 @@ export function PlaygroundCTASection() {
           >
             <motion.button 
               onClick={() => window.location.href = '/playground'}
-              className="group px-10 py-5 bg-primary text-primary-foreground rounded-xl hover:bg-primary-hover transition-all flex items-center gap-3 shadow-[0_0_40px_rgba(56,211,159,0.3)] text-lg font-medium mx-auto"
+              className="group px-10 py-5 bg-primary text-primary-foreground rounded-xl hover:bg-primary-hover transition-all flex items-center gap-3 shadow-[0_0_40px_rgb(var(--selection-accent-rgb)_/_0.3)] text-lg font-medium mx-auto"
               whileHover={{ 
                 scale: 1.05, 
-                boxShadow: '0 0 60px rgba(56,211,159,0.4)' 
+                boxShadow: "0 0 60px rgb(var(--selection-accent-rgb) / 0.4)"
               }}
               whileTap={{ scale: 0.98 }}
             >

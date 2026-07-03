@@ -12,7 +12,7 @@ export function PulsingDotIndicator({ className = "", "aria-label": ariaLabel }:
     <motion.span
       aria-label={ariaLabel}
       aria-hidden={ariaLabel ? undefined : true}
-      className={`inline-block h-2 w-2 rounded-full bg-[#38D39F] ${className}`.trim()}
+      className={`inline-block h-2 w-2 rounded-full bg-primary ${className}`.trim()}
       animate={{ scale: [0.75, 1.35, 0.75], opacity: [0.5, 1, 0.5] }}
       transition={{ repeat: Infinity, duration: 1.0, ease: "easeInOut" }}
     />

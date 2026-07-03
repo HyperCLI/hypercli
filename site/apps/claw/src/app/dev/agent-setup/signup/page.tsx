@@ -42,7 +42,7 @@ export default function DevAgentSetupSignupPage() {
           className="overflow-hidden rounded-xl border border-primary/20 bg-surface-low/80"
           style={{
             background:
-              "radial-gradient(140% 90% at 0% 0%, rgba(56,211,159,0.10) 0%, rgba(20,20,22,0.85) 55%, rgba(13,13,15,0.9) 100%)",
+              "radial-gradient(140% 90% at 0% 0%, rgb(var(--selection-accent-rgb) / 0.10) 0%, rgba(20,20,22,0.85) 55%, rgba(13,13,15,0.9) 100%)",
             boxShadow: "0 1px 0 rgba(255,255,255,0.04) inset, 0 12px 36px rgba(0,0,0,0.28)",
           }}
         >
@@ -89,8 +89,8 @@ export default function DevAgentSetupSignupPage() {
           className="overflow-hidden rounded-xl border border-primary/25 bg-surface-low/80 p-6"
           style={{
             background:
-              "radial-gradient(120% 90% at 0% 0%, rgba(56,211,159,0.14) 0%, rgba(20,20,22,0.9) 55%, rgba(13,13,15,0.92) 100%)",
-            boxShadow: "0 1px 0 rgba(255,255,255,0.05) inset, 0 14px 40px rgba(56,211,159,0.10)",
+              "radial-gradient(120% 90% at 0% 0%, rgb(var(--selection-accent-rgb) / 0.14) 0%, rgba(20,20,22,0.9) 55%, rgba(13,13,15,0.92) 100%)",
+            boxShadow: "0 1px 0 rgba(255,255,255,0.05) inset, 0 14px 40px rgb(var(--selection-accent-rgb) / 0.10)",
           }}
         >
           <div className="mb-5 text-center">
@@ -107,7 +107,7 @@ export default function DevAgentSetupSignupPage() {
             <input
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              className="h-11 w-full rounded-lg border border-white/8 bg-background/60 pl-10 pr-3 text-sm text-foreground placeholder:text-text-muted transition-all focus:border-primary/60 focus:bg-background focus:outline-none focus:shadow-[0_0_0_3px_rgba(56,211,159,0.12)]"
+              className="h-11 w-full rounded-lg border border-white/8 bg-background/60 pl-10 pr-3 text-sm text-foreground placeholder:text-text-muted transition-all focus:border-primary/60 focus:bg-background focus:outline-none focus:shadow-[0_0_0_3px_rgb(var(--selection-accent-rgb)_/_0.12)]"
               placeholder="you@company.com"
             />
           </div>
@@ -197,7 +197,7 @@ function SessionRow({
 function AuthEvent({ done, label }: { done: boolean; label: string }) {
   return (
     <div className={`flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors ${done ? "bg-primary/[0.08] text-text-secondary" : ""}`}>
-      <span className={`h-2 w-2 rounded-full transition-all ${done ? "bg-primary shadow-[0_0_10px_rgba(56,211,159,0.5)]" : "bg-text-muted/60"}`} />
+      <span className={`h-2 w-2 rounded-full transition-all ${done ? "bg-primary shadow-[0_0_10px_rgb(var(--selection-accent-rgb)_/_0.5)]" : "bg-text-muted/60"}`} />
       <span className={done ? "text-text-secondary" : undefined}>{label}</span>
     </div>
   );

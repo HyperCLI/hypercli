@@ -289,7 +289,7 @@ function Badge({ children, muted = false }: { children: ReactNode; muted?: boole
   return (
     <span
       className={`inline-flex h-4 items-center rounded-full px-2 text-[10px] font-semibold leading-none ${
-        muted ? "bg-[#5b5d62]/70 text-[#f5f5f5]" : "bg-[#0f6511] text-[#63e452]"
+        muted ? "bg-[#5b5d62]/70 text-[#f5f5f5]" : "bg-primary/15 text-primary"
       }`}
     >
       {children}

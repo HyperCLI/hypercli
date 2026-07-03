@@ -36,7 +36,7 @@ interface DashboardAgentRailProps {
 function stateDotClass(state: string | null | undefined) {
   switch (state) {
     case "RUNNING":
-      return "bg-[#38D39F]";
+      return "bg-primary";
     case "FAILED":
       return "bg-[#d05f5f]";
     case "STOPPED":
@@ -115,7 +115,7 @@ export function DashboardAgentRail({
               href={AGENT_LAUNCHER_HREF}
               aria-label="Create agent"
               title="Create agent"
-              className="flex h-8 w-8 items-center justify-center rounded-full border border-[#38D39F]/25 bg-[#38D39F]/10 text-[#38D39F] transition-colors hover:border-[#38D39F]/45 hover:bg-[#38D39F]/15"
+              className="flex h-8 w-8 items-center justify-center rounded-full border border-primary/25 bg-primary/10 text-primary transition-colors hover:border-primary/45 hover:bg-primary/15"
             >
               <Plus className="h-4 w-4" />
             </Link>

@@ -32,7 +32,7 @@ export function GroupActivityFeedModule({ variant }: GroupActivityFeedModuleProp
               initial={{ opacity: 0, x: -8 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: idx * 0.06 }}
-              className={`flex items-start gap-2 px-2 py-1.5 rounded-lg border-l-2 ${item.type === "agent" ? "border-l-[#38D39F]" : item.type === "user" ? "border-l-[#4A9EFF]" : "border-l-text-muted/40"}`}
+              className={`flex items-start gap-2 px-2 py-1.5 rounded-lg border-l-2 ${item.type === "agent" ? "border-l-primary" : item.type === "user" ? "border-l-[#4A9EFF]" : "border-l-text-muted/40"}`}
             >
               <div className="flex-1 min-w-0">
                 <span className="text-[10px] font-medium text-foreground">{item.actor}</span>

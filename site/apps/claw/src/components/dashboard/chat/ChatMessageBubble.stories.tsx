@@ -158,7 +158,7 @@ export const AssistantWithMediaUrls: Story = {
       role: "assistant",
       content: "Here's the architecture diagram I generated:",
       mediaUrls: [
-        "https://via.placeholder.com/400x300/141416/38D39F?text=Architecture+Diagram",
+        "https://via.placeholder.com/400x300/141416/63E452?text=Architecture+Diagram",
       ],
       timestamp: Date.now() - 10_000,
     },

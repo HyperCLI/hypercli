@@ -26,7 +26,7 @@ export function StatusCardModule({ agentName = "Agent", status = MOCK_STATUS }: 
             animate={{ scale: [1, 1.15, 1] }}
             transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }}
           >
-            <Bot className="w-4 h-4 text-[#38D39F]" />
+            <Bot className="w-4 h-4 text-primary" />
           </motion.div>
           <span className="text-sm font-medium text-foreground">{agentName}</span>
         </div>
@@ -34,14 +34,14 @@ export function StatusCardModule({ agentName = "Agent", status = MOCK_STATUS }: 
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
           transition={{ type: "spring", stiffness: 500, damping: 20, delay: 0.15 }}
-          className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${status.state === "RUNNING" ? "bg-[#38D39F]/15 text-[#38D39F]"
+          className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${status.state === "RUNNING" ? "bg-primary/15 text-primary"
               : status.state === "STOPPED" ? "bg-[#d05f5f]/15 text-[#d05f5f]"
                 : "bg-[#f0c56c]/15 text-[#f0c56c]"
             }`}
         >
           <span className="flex items-center gap-1">
             <motion.span
-              className={`inline-block w-1.5 h-1.5 rounded-full ${status.state === "RUNNING" ? "bg-[#38D39F]" : status.state === "STOPPED" ? "bg-[#d05f5f]" : "bg-[#f0c56c]"
+              className={`inline-block w-1.5 h-1.5 rounded-full ${status.state === "RUNNING" ? "bg-primary" : status.state === "STOPPED" ? "bg-[#d05f5f]" : "bg-[#f0c56c]"
                 }`}
               animate={{ scale: [0.8, 1.4, 0.8], opacity: [0.6, 1, 0.6] }}
               transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}
@@ -79,7 +79,7 @@ export function StatusCardModule({ agentName = "Agent", status = MOCK_STATUS }: 
         </div>
         <div className="h-1.5 bg-background rounded-full overflow-hidden">
           <motion.div
-            className="h-full bg-[#38D39F] rounded-full"
+            className="h-full bg-primary rounded-full"
             initial={{ width: 0 }}
             animate={{ width: `${status.cpu}%` }}
             transition={{ duration: 0.8, ease: "easeOut", delay: 0.3 }}
@@ -95,7 +95,7 @@ export function StatusCardModule({ agentName = "Agent", status = MOCK_STATUS }: 
         </div>
         <div className="h-1.5 bg-background rounded-full overflow-hidden">
           <motion.div
-            className="h-full bg-[#38D39F] rounded-full"
+            className="h-full bg-primary rounded-full"
             initial={{ width: 0 }}
             animate={{ width: `${(status.memory.used / status.memory.total) * 100}%` }}
             transition={{ duration: 0.8, ease: "easeOut", delay: 0.45 }}

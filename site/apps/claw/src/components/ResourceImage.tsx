@@ -51,7 +51,7 @@ export function ResourceImage({
           aria-label="Loading image"
           className="absolute inset-0 z-[1] flex min-h-12 min-w-12 items-center justify-center rounded-md border border-border bg-surface-low"
         >
-          <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-text-muted/25 border-t-[#38D39F]" />
+          <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-text-muted/25 border-t-primary" />
         </span>
       )}
       {failed && (

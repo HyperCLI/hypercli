@@ -40,12 +40,12 @@ export function MembersModule({ variant }: MembersModuleProps) {
                 <span className="text-xs text-foreground">{m.name}</span>
               </div>
               <span
-                className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${m.role === "owner" ? "bg-[#38D39F]/10 text-[#38D39F]" : m.role === "contributor" ? "bg-[#f0c56c]/10 text-[#f0c56c]" : "bg-surface-high text-text-muted"}`}
+                className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${m.role === "owner" ? "bg-primary/10 text-primary" : m.role === "contributor" ? "bg-[#f0c56c]/10 text-[#f0c56c]" : "bg-surface-high text-text-muted"}`}
               >
                 {m.role}
               </span>
               <motion.div
-                className={`w-1.5 h-1.5 rounded-full ${m.online ? "bg-[#38D39F]" : "bg-text-muted"}`}
+                className={`w-1.5 h-1.5 rounded-full ${m.online ? "bg-primary" : "bg-text-muted"}`}
                 animate={
                   m.online
                     ? { scale: [0.8, 1.4, 0.8], opacity: [0.5, 1, 0.5] }
@@ -75,7 +75,7 @@ export function MembersModule({ variant }: MembersModuleProps) {
                   {m.avatar}
                 </div>
                 <div
-                  className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-background ${m.online ? "bg-[#38D39F]" : "bg-text-muted"}`}
+                  className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-background ${m.online ? "bg-primary" : "bg-text-muted"}`}
                 />
               </div>
               <span className="text-[9px] text-text-muted">{m.name}</span>

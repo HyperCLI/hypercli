@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Button, cn } from "@hypercli/shared-ui";
+import { Button, HyperCLILogo, cn } from "@hypercli/shared-ui";
 import {
   LayoutDashboard,
   Rocket,
@@ -29,9 +29,9 @@ export function Navigation() {
         <div className="flex justify-between h-16 items-center">
           {/* Logo */}
           <div className="flex-shrink-0">
-            <Link href="/" className="text-xl font-bold text-foreground cursor-pointer">
-              Hyper<span className="text-primary">CLI</span>
-              <span className="ml-2 text-sm font-normal text-muted-foreground">
+            <Link href="/" aria-label="HyperCLI Console home" className="inline-flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity">
+              <HyperCLILogo decorative className="h-[31px] w-[158px]" />
+              <span className="text-sm font-normal text-muted-foreground">
                 Console
               </span>
             </Link>

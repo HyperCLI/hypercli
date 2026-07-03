@@ -555,7 +555,7 @@ export function AuthImage({
         {failed ? (
           <span>Image unavailable</span>
         ) : (
-          <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-text-muted/25 border-t-[#38D39F]" />
+          <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-text-muted/25 border-t-primary" />
         )}
       </div>
     );
@@ -615,8 +615,8 @@ function StreamingStatusDot() {
   return (
     <motion.span
       aria-label="streaming"
-      className="block h-[7px] w-[7px] rounded-full bg-[#38D39F]"
-      style={{ boxShadow: "0 0 6px rgba(56, 211, 159, 0.6)" }}
+      className="block h-[7px] w-[7px] rounded-full bg-primary"
+      style={{ boxShadow: "0 0 6px rgb(var(--selection-accent-rgb) / 0.6)" }}
       animate={{ scale: [0.85, 1.15, 0.85], opacity: [0.6, 1, 0.6] }}
       transition={{ repeat: Infinity, duration: 1.1, ease: "easeInOut" }}
     />
@@ -666,16 +666,16 @@ function getEntranceProps(variant: AnimationVariant, isUser: boolean): HTMLMotio
 // ── Theme helpers ──
 
 function getThinkingBlockClass(theme: ThemeVariant): string {
-  if (theme === "v1") return "mb-2 bg-[#38D39F]/8 border-l-2 border-[#38D39F]/50 pl-3 pr-2 py-1.5 rounded-r-md";
-  if (theme === "v2") return "mb-2 bg-[#0d0d0f] border border-[#38D39F]/30 pl-3 pr-2 py-1.5 rounded-lg";
-  if (theme === "v3") return "mb-2 bg-[#38D39F]/8 border-l-2 border-[#38D39F] pl-3 pr-2 py-1";
-  return "mb-2 border-l-2 border-[#38D39F]/40 pl-3";
+  if (theme === "v1") return "mb-2 bg-primary/8 border-l-2 border-primary/50 pl-3 pr-2 py-1.5 rounded-r-md";
+  if (theme === "v2") return "mb-2 bg-[#0d0d0f] border border-primary/30 pl-3 pr-2 py-1.5 rounded-lg";
+  if (theme === "v3") return "mb-2 bg-primary/8 border-l-2 border-primary pl-3 pr-2 py-1";
+  return "mb-2 border-l-2 border-primary/40 pl-3";
 }
 
 function getThinkingButtonClass(theme: ThemeVariant): string {
-  if (theme === "v2") return "flex items-center gap-1.5 text-xs text-[#38D39F] hover:text-[#38D39F]/80 transition-colors font-medium";
-  if (theme !== "off") return "flex items-center gap-1.5 text-xs text-[#38D39F]/80 hover:text-[#38D39F] transition-colors";
-  return "flex items-center gap-1.5 text-xs text-[#38D39F]/70 hover:text-[#38D39F] transition-colors";
+  if (theme === "v2") return "flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors font-medium";
+  if (theme !== "off") return "flex items-center gap-1.5 text-xs text-primary/80 hover:text-primary transition-colors";
+  return "flex items-center gap-1.5 text-xs text-primary/70 hover:text-primary transition-colors";
 }
 
 const TOOL_PENDING_TIMEOUT_MS = 45_000;
@@ -1052,8 +1052,8 @@ export function ChatMessageBubble({
 
         {/* Internal reasoning is intentionally not exposed in chat. */}
         {message.thinking && !isUser && (
-          <div className="mb-2 inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#38D39F]/20 bg-[#38D39F]/8 px-2.5 py-1 text-xs text-text-muted">
-            <Brain className="h-3.5 w-3.5 shrink-0 text-[#38D39F]" />
+          <div className="mb-2 inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary/20 bg-primary/8 px-2.5 py-1 text-xs text-text-muted">
+            <Brain className="h-3.5 w-3.5 shrink-0 text-primary" />
             <span className="truncate">Internal reasoning hidden</span>
           </div>
         )}
@@ -1400,11 +1400,11 @@ export function ChatThinkingIndicator({ variant = "off" }: { variant?: FeatureVa
       exit={{ opacity: 0 }}
       transition={{ duration: 0.18 }}
     >
-      <div className="relative bg-surface-low/60 backdrop-blur-sm rounded-2xl px-4 py-2.5 flex items-center gap-2.5 border border-[#38D39F]/20 overflow-hidden">
+      <div className="relative bg-surface-low/60 backdrop-blur-sm rounded-2xl px-4 py-2.5 flex items-center gap-2.5 border border-primary/20 overflow-hidden">
         {/* Subtle shimmer background */}
         <motion.div
           aria-hidden
-          className="absolute inset-0 -z-10 bg-gradient-to-r from-transparent via-[#38D39F]/8 to-transparent"
+          className="absolute inset-0 -z-10 bg-gradient-to-r from-transparent via-primary/8 to-transparent"
           animate={{ x: ["-100%", "100%"] }}
           transition={{ repeat: Infinity, duration: 1.8, ease: "linear" }}
           style={{ width: "60%" }}
@@ -1413,22 +1413,22 @@ export function ChatThinkingIndicator({ variant = "off" }: { variant?: FeatureVa
           animate={{ scale: [1, 1.08, 1] }}
           transition={{ repeat: Infinity, duration: 1.4, ease: "easeInOut" }}
         >
-          <Brain className="w-4 h-4 text-[#38D39F]" />
+          <Brain className="w-4 h-4 text-primary" />
         </motion.div>
         <span className="text-xs font-medium text-text-secondary">Thinking</span>
         <span className="flex items-center gap-1">
           <motion.span
-            className="w-1.5 h-1.5 rounded-full bg-[#38D39F]"
+            className="w-1.5 h-1.5 rounded-full bg-primary"
             animate={{ opacity: [0.3, 1, 0.3], scale: [0.85, 1, 0.85] }}
             transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}
           />
           <motion.span
-            className="w-1.5 h-1.5 rounded-full bg-[#38D39F]"
+            className="w-1.5 h-1.5 rounded-full bg-primary"
             animate={{ opacity: [0.3, 1, 0.3], scale: [0.85, 1, 0.85] }}
             transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut", delay: 0.18 }}
           />
           <motion.span
-            className="w-1.5 h-1.5 rounded-full bg-[#38D39F]"
+            className="w-1.5 h-1.5 rounded-full bg-primary"
             animate={{ opacity: [0.3, 1, 0.3], scale: [0.85, 1, 0.85] }}
             transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut", delay: 0.36 }}
           />

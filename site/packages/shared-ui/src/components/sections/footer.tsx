@@ -1,4 +1,5 @@
 import { Github, Twitter, Linkedin } from 'lucide-react';
+import { HyperCLILogo } from '../HyperCLILogo';
 
 type Page = 'home' | 'partners' | 'enterprise' | 'datacenter';
 
@@ -33,13 +34,11 @@ export function Footer({ currentPage, setCurrentPage }: FooterProps) {
           {/* Brand column */}
           <div className="col-span-2">
             <button 
+              aria-label="HyperCLI home"
               onClick={() => setCurrentPage('home')}
-              className="flex items-center gap-2 mb-4 hover:opacity-80 transition-opacity"
+              className="inline-flex items-center mb-4 hover:opacity-80 transition-opacity"
             >
-              <div className="w-8 h-8 bg-primary rounded-md flex items-center justify-center">
-                <span className="text-primary-foreground text-lg font-semibold">H</span>
-              </div>
-              <span className="text-xl text-foreground font-semibold">HyperCLI</span>
+              <HyperCLILogo decorative className="h-[31px] w-[158px]" />
             </button>
             <p className="text-muted-foreground text-sm mb-6 max-w-xs">
               Developer-first AI infrastructure. Deploy models in one command, scale to millions of requests.

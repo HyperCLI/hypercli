@@ -69,7 +69,7 @@ export function SubAgentsModule({ variant }: SubAgentsModuleProps) {
                 }}
               >
                 <Bot
-                  className={`w-3.5 h-3.5 shrink-0 ${sa.status === "RUNNING" ? "text-[#38D39F]" : "text-text-muted"}`}
+                  className={`w-3.5 h-3.5 shrink-0 ${sa.status === "RUNNING" ? "text-primary" : "text-text-muted"}`}
                 />
               </motion.div>
               <div className="flex-1 min-w-0">
@@ -81,7 +81,7 @@ export function SubAgentsModule({ variant }: SubAgentsModuleProps) {
                 </div>
               </div>
               <motion.div
-                className={`w-1.5 h-1.5 rounded-full shrink-0 ${sa.status === "RUNNING" ? "bg-[#38D39F]" : "bg-text-muted"}`}
+                className={`w-1.5 h-1.5 rounded-full shrink-0 ${sa.status === "RUNNING" ? "bg-primary" : "bg-text-muted"}`}
                 animate={
                   sa.status === "RUNNING"
                     ? { scale: [0.8, 1.4, 0.8], opacity: [0.5, 1, 0.5] }

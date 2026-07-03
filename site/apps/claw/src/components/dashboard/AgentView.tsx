@@ -456,7 +456,7 @@ export function AgentView({
             const disabled = isTabDisabled(tab.id);
             return (
               <button key={tab.id} onClick={() => !disabled && handleTabChange(tab.id)} disabled={disabled}
-                className={`flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${disabled ? "text-text-muted/40 cursor-not-allowed" : activeTab === tab.id ? "bg-[#38D39F]/15 text-[#38D39F]" : "text-text-muted hover:text-text-secondary hover:bg-surface-low"}`}
+                className={`flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${disabled ? "text-text-muted/40 cursor-not-allowed" : activeTab === tab.id ? "bg-primary/15 text-primary" : "text-text-muted hover:text-text-secondary hover:bg-surface-low"}`}
               >{tab.label}</button>
             );
           })}
@@ -487,7 +487,7 @@ export function AgentView({
             const disabled = isTabDisabled(tab.id);
             return (
               <button key={tab.id} onClick={() => !disabled && handleTabChange(tab.id)} disabled={disabled}
-                className={`flex-1 flex flex-col items-center gap-0.5 px-1 py-2 text-[9px] font-medium transition-colors ${disabled ? "text-text-muted/40 cursor-not-allowed" : activeTab === tab.id ? "text-[#38D39F] border-b-2 border-[#38D39F]" : "text-text-muted hover:text-text-secondary"}`}
+                className={`flex-1 flex flex-col items-center gap-0.5 px-1 py-2 text-[9px] font-medium transition-colors ${disabled ? "text-text-muted/40 cursor-not-allowed" : activeTab === tab.id ? "text-primary border-b-2 border-primary" : "text-text-muted hover:text-text-secondary"}`}
               >
                 <TabIcon className="w-3.5 h-3.5" />
                 {tab.label}
@@ -504,7 +504,7 @@ export function AgentView({
           const disabled = isTabDisabled(tab.id);
           return (
             <button key={tab.id} onClick={() => !disabled && handleTabChange(tab.id)} disabled={disabled}
-              className={`flex-1 px-2 py-2.5 text-[11px] font-medium transition-colors ${disabled ? "text-text-muted/40 cursor-not-allowed" : activeTab === tab.id ? "text-foreground border-b-2 border-[#38D39F]" : "text-text-muted hover:text-text-secondary"}`}
+              className={`flex-1 px-2 py-2.5 text-[11px] font-medium transition-colors ${disabled ? "text-text-muted/40 cursor-not-allowed" : activeTab === tab.id ? "text-foreground border-b-2 border-primary" : "text-text-muted hover:text-text-secondary"}`}
             >{tab.label}</button>
           );
         })}
@@ -536,7 +536,7 @@ export function AgentView({
                 <div className="flex items-center justify-between px-3 py-2 border-b border-border">
                   <span className="text-[10px] font-semibold text-text-secondary uppercase tracking-wider">Modules</span>
                   <div className="flex gap-1">
-                    <button onClick={showAllModules} className="text-[10px] text-[#38D39F] hover:underline">All</button>
+                    <button onClick={showAllModules} className="text-[10px] text-primary hover:underline">All</button>
                     <span className="text-[10px] text-text-muted">|</span>
                     <button onClick={hideAllModules} className="text-[10px] text-text-muted hover:text-[#d05f5f]">None</button>
                   </div>
@@ -555,7 +555,7 @@ export function AgentView({
                             onClick={() => toggleModule(mod.key)}
                             className="flex items-center gap-2 w-full px-3 py-1.5 text-left hover:bg-surface-low transition-colors"
                           >
-                            <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors ${isModuleVisible(mod.key) ? "bg-[#38D39F] border-[#38D39F]" : "border-text-muted"
+                            <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors ${isModuleVisible(mod.key) ? "bg-primary border-primary" : "border-text-muted"
                               }`}>
                               {isModuleVisible(mod.key) && <Check className="w-2.5 h-2.5 text-white" />}
                             </div>
@@ -571,7 +571,7 @@ export function AgentView({
                     onClick={() => setShowAdvanced((v) => !v)}
                     className="flex items-center gap-2 w-full text-left"
                   >
-                    <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors ${showAdvanced ? "bg-[#38D39F] border-[#38D39F]" : "border-text-muted"
+                    <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors ${showAdvanced ? "bg-primary border-primary" : "border-text-muted"
                       }`}>
                       {showAdvanced && <Check className="w-2.5 h-2.5 text-white" />}
                     </div>
@@ -592,28 +592,28 @@ export function AgentView({
             <motion.div
               initial={{ y: -40, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
-              className="bg-[#38D39F]/10 border-b border-[#38D39F]/20 px-3 py-2"
+              className="bg-primary/10 border-b border-primary/20 px-3 py-2"
             >
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-medium text-[#38D39F]">Getting Started</span>
+                <span className="text-xs font-medium text-primary">Getting Started</span>
                 <button onClick={() => setOnboardingDismissed(true)} className="text-[10px] text-text-muted hover:text-foreground">Skip</button>
               </div>
               <div className="flex items-center gap-2 mb-1">
-                {(() => { const StepIcon = ONBOARDING_STEPS[onboardingStep].icon; return <StepIcon className="w-3.5 h-3.5 text-[#38D39F]" />; })()}
+                {(() => { const StepIcon = ONBOARDING_STEPS[onboardingStep].icon; return <StepIcon className="w-3.5 h-3.5 text-primary" />; })()}
                 <span className="text-xs text-foreground font-medium">{ONBOARDING_STEPS[onboardingStep].title}</span>
               </div>
               <p className="text-[10px] text-text-muted mb-2">{ONBOARDING_STEPS[onboardingStep].desc}</p>
               <div className="flex items-center justify-between">
                 <div className="flex gap-1">
                   {ONBOARDING_STEPS.map((_, idx) => (
-                    <motion.div key={idx} className={`w-1.5 h-1.5 rounded-full ${idx === onboardingStep ? "bg-[#38D39F]" : "bg-[#38D39F]/25"}`}
+                    <motion.div key={idx} className={`w-1.5 h-1.5 rounded-full ${idx === onboardingStep ? "bg-primary" : "bg-primary/25"}`}
                       animate={idx === onboardingStep ? { scale: [1, 1.4, 1] } : {}}
                       transition={{ repeat: Infinity, duration: 1.5 }}
                     />
                   ))}
                 </div>
                 <button onClick={() => onboardingStep < ONBOARDING_STEPS.length - 1 ? setOnboardingStep(onboardingStep + 1) : setOnboardingDismissed(true)}
-                  className="text-[10px] px-2 py-0.5 rounded-full bg-[#38D39F]/20 text-[#38D39F] font-medium hover:bg-[#38D39F]/30">
+                  className="text-[10px] px-2 py-0.5 rounded-full bg-primary/20 text-primary font-medium hover:bg-primary/30">
                   {onboardingStep < ONBOARDING_STEPS.length - 1 ? "Next" : "Done"}
                 </button>
               </div>
@@ -622,9 +622,9 @@ export function AgentView({
           {onboardingVariant === "v2" && (
             // v2: Full card overlay with all steps visible
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-3">
-              <div className="rounded-xl border border-[#38D39F]/25 bg-[#38D39F]/5 p-3 space-y-2">
+              <div className="rounded-xl border border-primary/25 bg-primary/5 p-3 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-[#38D39F]">Welcome to your agent</span>
+                  <span className="text-xs font-semibold text-primary">Welcome to your agent</span>
                   <button onClick={() => setOnboardingDismissed(true)} className="text-[10px] text-text-muted hover:text-foreground">Dismiss</button>
                 </div>
                 {ONBOARDING_STEPS.map((step, idx) => {
@@ -633,7 +633,7 @@ export function AgentView({
                     <motion.div key={idx} initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: idx * 0.1 }}
                       className="flex items-start gap-2 py-1">
                       <motion.div animate={{ scale: [1, 1.1, 1] }} transition={{ repeat: Infinity, duration: 2, delay: idx * 0.3 }}>
-                        <StepIcon className="w-3.5 h-3.5 text-[#38D39F] mt-0.5" />
+                        <StepIcon className="w-3.5 h-3.5 text-primary mt-0.5" />
                       </motion.div>
                       <div>
                         <div className="text-xs font-medium text-foreground">{step.title}</div>
@@ -648,10 +648,10 @@ export function AgentView({
           {onboardingVariant === "v3" && (
             // v3: Floating tooltip style
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="absolute inset-x-3 top-2 z-10">
-              <div className="rounded-lg bg-[#1a1a1c] border border-[#38D39F]/30 shadow-lg px-3 py-2">
+              <div className="rounded-lg bg-[#1a1a1c] border border-primary/30 shadow-lg px-3 py-2">
                 <div className="flex items-center gap-2 mb-1">
                   <motion.div animate={{ rotate: [0, 10, -10, 0] }} transition={{ repeat: Infinity, duration: 2 }}>
-                    <Sparkles className="w-3.5 h-3.5 text-[#38D39F]" />
+                    <Sparkles className="w-3.5 h-3.5 text-primary" />
                   </motion.div>
                   <span className="text-xs font-medium text-foreground">{ONBOARDING_STEPS[onboardingStep].title}</span>
                   <span className="text-[9px] text-text-muted ml-auto">{onboardingStep + 1}/{ONBOARDING_STEPS.length}</span>
@@ -659,7 +659,7 @@ export function AgentView({
                 <p className="text-[10px] text-text-muted mb-1.5">{ONBOARDING_STEPS[onboardingStep].desc}</p>
                 <div className="flex gap-1.5">
                   <button onClick={() => onboardingStep < ONBOARDING_STEPS.length - 1 ? setOnboardingStep(onboardingStep + 1) : setOnboardingDismissed(true)}
-                    className="text-[10px] px-2 py-0.5 rounded bg-[#38D39F]/15 text-[#38D39F] hover:bg-[#38D39F]/25">
+                    className="text-[10px] px-2 py-0.5 rounded bg-primary/15 text-primary hover:bg-primary/25">
                     {onboardingStep < ONBOARDING_STEPS.length - 1 ? "Next →" : "Got it ✓"}
                   </button>
                   <button onClick={() => setOnboardingDismissed(true)} className="text-[10px] text-text-muted hover:text-foreground">Skip</button>
@@ -895,14 +895,14 @@ export function AgentView({
                 <motion.div
                   animate={{ rotate: [0, 8, -8, 0] }}
                   transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-                  className="w-12 h-12 rounded-2xl bg-[#38D39F]/10 flex items-center justify-center relative"
+                  className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center relative"
                 >
                   <motion.div
-                    className="absolute inset-0 rounded-2xl bg-[#38D39F]/5"
+                    className="absolute inset-0 rounded-2xl bg-primary/5"
                     animate={{ scale: [1, 1.3, 1], opacity: [0.5, 0, 0.5] }}
                     transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
                   />
-                  <Sparkles className="w-6 h-6 text-[#38D39F] relative z-10" />
+                  <Sparkles className="w-6 h-6 text-primary relative z-10" />
                 </motion.div>
               </motion.div>
 
@@ -1066,7 +1066,7 @@ export function AgentView({
                     initial={{ opacity: 0, x: -16 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ type: "spring", stiffness: 400, damping: 30, delay: i * 0.04 }}
-                    className={`flex items-start gap-2 pl-2 border-l-2 border-border hover:border-[#38D39F]/50 transition-colors py-1.5 ${flash}`}
+                    className={`flex items-start gap-2 pl-2 border-l-2 border-border hover:border-primary/50 transition-colors py-1.5 ${flash}`}
                   >
                     <motion.div
                       animate={entry.type === "error" ? { x: [-1, 1, -1, 0] } : {}}
@@ -1099,7 +1099,7 @@ export function AgentView({
                           className={`w-6 h-6 rounded-md flex items-center justify-center ${entry.type === "error" ? "bg-[#d05f5f]/15" :
                               entry.type === "tool" || entry.type === "cron" ? "bg-[#f0c56c]/15" :
                                 entry.type === "connection" ? "bg-[#4285f4]/15" :
-                                  "bg-[#38D39F]/15"
+                                  "bg-primary/15"
                             }`}
                           animate={entry.type === "error" ? { scale: [1, 1.1, 1] } : {}}
                           transition={entry.type === "error" ? { repeat: Infinity, duration: 2, ease: "easeInOut" } : {}}
@@ -1219,7 +1219,7 @@ export function AgentView({
                           <div className="text-[10px] text-text-muted truncate">{f.description}</div>
                         </div>
                         {f.connected ? (
-                          <span className="text-[10px] text-[#38D39F] flex items-center gap-1 flex-shrink-0">
+                          <span className="text-[10px] text-primary flex items-center gap-1 flex-shrink-0">
                             <Check className="w-3 h-3" /> Connected
                           </span>
                         ) : (
@@ -1288,7 +1288,7 @@ export function AgentView({
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
                 <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search integrations..."
-                  className="w-full pl-9 pr-3 py-2 bg-surface-low border border-border rounded-lg text-sm text-foreground placeholder:text-text-muted focus:outline-none focus:border-[#38D39F]/50" />
+                  className="w-full pl-9 pr-3 py-2 bg-surface-low border border-border rounded-lg text-sm text-foreground placeholder:text-text-muted focus:outline-none focus:border-primary/50" />
               </div>
             </div>
           )}
@@ -1303,26 +1303,26 @@ export function AgentView({
               {emptyStatesVariant === "v1" ? (
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-2">
                   <motion.div animate={{ y: [0, -4, 0] }} transition={{ repeat: Infinity, duration: 2 }}>
-                    <Timer className="w-8 h-8 mx-auto text-[#38D39F]/50" />
+                    <Timer className="w-8 h-8 mx-auto text-primary/50" />
                   </motion.div>
                   <p className="text-sm text-foreground">Schedule your first task</p>
                   <p className="text-[10px] text-text-muted">Try: &quot;Summarize my emails every morning&quot;</p>
-                  <motion.button whileTap={{ scale: 0.95 }} className="text-[10px] px-3 py-1 rounded-full bg-[#38D39F]/10 text-[#38D39F] hover:bg-[#38D39F]/20">
+                  <motion.button whileTap={{ scale: 0.95 }} className="text-[10px] px-3 py-1 rounded-full bg-primary/10 text-primary hover:bg-primary/20">
                     Create a cron job
                   </motion.button>
                 </motion.div>
               ) : emptyStatesVariant === "v2" ? (
                 <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-                  className="rounded-xl border border-dashed border-[#38D39F]/30 p-4 space-y-2">
-                  <Timer className="w-6 h-6 mx-auto text-[#38D39F]" />
+                  className="rounded-xl border border-dashed border-primary/30 p-4 space-y-2">
+                  <Timer className="w-6 h-6 mx-auto text-primary" />
                   <p className="text-xs text-foreground font-medium">No scheduled tasks yet</p>
                   <p className="text-[10px] text-text-muted">Automate your agent to work while you&apos;re away</p>
                 </motion.div>
               ) : emptyStatesVariant === "v3" ? (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center justify-center gap-2 py-4">
-                  <motion.span className="inline-block w-1.5 h-1.5 rounded-full bg-[#38D39F]"
+                  <motion.span className="inline-block w-1.5 h-1.5 rounded-full bg-primary"
                     animate={{ scale: [0.75, 1.35, 0.75], opacity: [0.5, 1, 0.5] }} transition={{ repeat: Infinity, duration: 1 }} />
-                  <span className="text-[10px] text-text-muted">No cron jobs — <span className="text-[#38D39F] cursor-pointer hover:underline">add one</span></span>
+                  <span className="text-[10px] text-text-muted">No cron jobs — <span className="text-primary cursor-pointer hover:underline">add one</span></span>
                 </motion.div>
               ) : (
                 <>
@@ -1336,13 +1336,13 @@ export function AgentView({
             <div key={cron.id} className="rounded-lg border border-border px-3 py-2.5 space-y-1.5 hover:bg-surface-low/50 transition-colors">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-mono text-[#38D39F] bg-[#38D39F]/10 px-1.5 py-0.5 rounded">{cron.schedule}</span>
+                  <span className="text-[10px] font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">{cron.schedule}</span>
                   <span className="text-xs font-medium text-foreground">{cron.description}</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <button
                     onClick={() => toggleCron(cron.id)}
-                    className={`w-7 h-[16px] rounded-full flex items-center px-0.5 transition-colors cursor-pointer ${cron.enabled ? "bg-[#38D39F] justify-end" : "bg-[#303030] justify-start"}`}
+                    className={`w-7 h-[16px] rounded-full flex items-center px-0.5 transition-colors cursor-pointer ${cron.enabled ? "bg-primary justify-end" : "bg-[#303030] justify-start"}`}
                   >
                     <div className="w-3 h-3 rounded-full bg-white shadow-sm" />
                   </button>
@@ -1361,7 +1361,7 @@ export function AgentView({
           <button
             onClick={onCronAdd}
             disabled={!onCronAdd}
-            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-[#38D39F] hover:bg-[#38D39F]/8 rounded-lg transition-colors mt-2 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-primary hover:bg-primary/8 rounded-lg transition-colors mt-2 disabled:opacity-40 disabled:cursor-not-allowed"
             title={onCronAdd ? "Add a cron job" : "Coming soon — cron creation UI"}
           >
             <Plus className="w-4 h-4" /> Add Cron Job
@@ -1384,7 +1384,7 @@ export function ConnectionDetail({ connection, onClose }: ConnectionDetailProps)
   return (
     <div className="flex flex-col h-full bg-background border border-border rounded-xl overflow-hidden">
       <div className="flex items-center gap-3 p-4 border-b border-border">
-        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${connection.connected ? "bg-[#38D39F]/15 text-[#38D39F]" : "bg-surface-high text-text-muted"}`}>
+        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${connection.connected ? "bg-primary/15 text-primary" : "bg-surface-high text-text-muted"}`}>
           <Icon className="w-5 h-5" />
         </div>
         <div className="flex-1 min-w-0">
@@ -1399,10 +1399,10 @@ export function ConnectionDetail({ connection, onClose }: ConnectionDetailProps)
       <div className="flex-1 p-4 space-y-4">
         <p className="text-sm text-text-secondary">{connection.description}</p>
         <div className="flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full ${connection.connected ? "bg-[#38D39F]" : "bg-text-muted"}`} />
+          <div className={`w-2 h-2 rounded-full ${connection.connected ? "bg-primary" : "bg-text-muted"}`} />
           <span className="text-xs text-text-secondary">{connection.connected ? "Connected" : "Not connected"}</span>
         </div>
-        <button className={`w-full py-2 rounded-lg text-sm font-medium transition-colors ${connection.connected ? "bg-[#d05f5f]/10 border border-[#d05f5f]/25 text-[#d05f5f] hover:bg-[#d05f5f]/20" : "bg-[#38D39F]/10 border border-[#38D39F]/25 text-[#38D39F] hover:bg-[#38D39F]/20"}`}>
+        <button className={`w-full py-2 rounded-lg text-sm font-medium transition-colors ${connection.connected ? "bg-[#d05f5f]/10 border border-[#d05f5f]/25 text-[#d05f5f] hover:bg-[#d05f5f]/20" : "bg-primary/10 border border-primary/25 text-primary hover:bg-primary/20"}`}>
           {connection.connected ? "Disconnect" : "Connect"}
         </button>
       </div>

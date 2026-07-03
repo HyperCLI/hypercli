@@ -58,7 +58,7 @@ export function InstantDeploymentSection() {
         <div className="absolute inset-0 opacity-[0.02] pointer-events-none bg-grid-pattern" />
         
         {/* Subtle vignette */}
-        <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-[#0D0F10]/30 to-transparent" />
+        <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-background/30 to-transparent" />
         
         <motion.div 
           ref={contentRef}
@@ -87,7 +87,7 @@ export function InstantDeploymentSection() {
             {items.map((item, index) => (
               <motion.div
                 key={index}
-                className="group flex items-start gap-6 pb-8 border-b border-[#1F2122]/40 hover:border-[#38D39F]/20 transition-all duration-300"
+                className="group flex items-start gap-6 pb-8 border-b border-border/40 hover:border-primary/20 transition-all duration-300"
                 initial={{ opacity: 0, x: -30 }}
                 animate={isInView ? { opacity: 1, x: 0 } : { opacity: 0, x: -30 }}
                 transition={{ 

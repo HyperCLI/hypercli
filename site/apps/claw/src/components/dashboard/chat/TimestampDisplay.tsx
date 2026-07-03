@@ -43,7 +43,7 @@ export function TimestampDisplay({ timestamp, variant, placement, isUser }: Time
 
   if (variant === "v3") {
     return (
-      <div className={`text-[10px] text-[#38D39F]/60 mt-1 font-mono ${isUser ? "text-right" : "text-left"}`}>
+      <div className={`text-[10px] text-primary/60 mt-1 font-mono ${isUser ? "text-right" : "text-left"}`}>
         {formatRelativeTime(timestamp)}
       </div>
     );

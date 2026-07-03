@@ -39,8 +39,8 @@ export function AgentLifecycleSteps({ stage, className = "" }: AgentLifecycleSte
         const active = stage !== "complete" && index === activeIndex;
         const barStyle = complete
           ? {
-              background: "linear-gradient(90deg, rgba(56, 211, 159, 0.78), rgba(126, 247, 201, 1))",
-              boxShadow: "0 0 14px rgba(56, 211, 159, 0.38)",
+              background: "linear-gradient(90deg, rgb(var(--selection-accent-rgb) / 0.78), var(--primary-hover))",
+              boxShadow: "0 0 14px rgb(var(--selection-accent-rgb) / 0.38)",
             }
           : active
             ? {
@@ -53,7 +53,7 @@ export function AgentLifecycleSteps({ stage, className = "" }: AgentLifecycleSte
             key={step.id}
             className={`relative h-2 overflow-hidden rounded-full border transition-colors duration-300 ${
               complete
-                ? "w-6 border-[#38D39F]/40"
+                ? "w-6 border-primary/40"
                 : active
                   ? "w-8 border-[#f0c56c]/45"
                   : "w-2 border-border bg-surface-low"

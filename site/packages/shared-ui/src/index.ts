@@ -13,6 +13,12 @@ export {
 } from "./auth/AuthProvider";
 export { PrivyAuthBoundary } from "./auth/PrivyAuthBoundary";
 export { AuthRouteBoundary as PrivyAuthRouteBoundary } from "./auth/AuthRouteBoundary";
+export {
+  HYPERCLI_BRAND_ACCENT_HEX,
+  HYPERCLI_LOGO_FULL_SRC,
+  HYPERCLI_LOGO_ICON_SRC,
+  HyperCLILogo,
+} from "./components/HyperCLILogo";
 export type {
   AuthFlowState as PrivyAuthFlowState,
   AuthContextType as PrivyAuthContextType,

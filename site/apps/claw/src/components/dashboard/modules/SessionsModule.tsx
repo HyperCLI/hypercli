@@ -29,7 +29,7 @@ export function SessionsModule({ sessions: sessionsProp }: SessionsModuleProps) 
           transition={{ delay: 0.3 }}
         >
           <motion.span
-            className="inline-block w-1.5 h-1.5 rounded-full bg-[#38D39F]"
+            className="inline-block w-1.5 h-1.5 rounded-full bg-primary"
             animate={{ scale: [0.75, 1.35, 0.75], opacity: [0.5, 1, 0.5] }}
             transition={{ repeat: Infinity, duration: 1, ease: "easeInOut" }}
           />
@@ -67,7 +67,7 @@ export function SessionsModule({ sessions: sessionsProp }: SessionsModuleProps) 
               <div className="flex items-center gap-1.5">
                 <span className="text-[10px] text-text-muted">{relativeTime(sess.lastMessageAt)}</span>
                 <motion.div
-                  className="w-1.5 h-1.5 rounded-full bg-[#38D39F]"
+                  className="w-1.5 h-1.5 rounded-full bg-primary"
                   animate={{ scale: [0.8, 1.3, 0.8], opacity: [0.5, 1, 0.5] }}
                   transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut", delay: idx * 0.25 }}
                 />

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useTurnkey } from "@turnkey/react-wallet-kit";
 import ContactModal from "./ContactModal";
+import { HyperCLILogo } from "./HyperCLILogo";
 import { PrivyLoginModal } from "./PrivyLogin";
 import { useAuth } from "../providers/AuthProvider";
 import { clearLocalAuthTokens, cookieUtils, markAuthLogout } from "../utils/cookies";
@@ -113,12 +114,10 @@ export default function Header() {
             {/* Logo */}
             <Link
               href={NAV_URLS.home}
-              className="hover:opacity-80 transition-opacity"
+              aria-label="HyperCLI home"
+              className="inline-flex hover:opacity-80 transition-opacity"
             >
-              <span className="text-xl font-semibold">
-                <span className="text-foreground">Hyper</span>
-                <span className="text-primary">CLI</span>
-              </span>
+              <HyperCLILogo decorative className="h-[31px] w-[158px]" />
             </Link>
 
             {/* Desktop Nav Links */}

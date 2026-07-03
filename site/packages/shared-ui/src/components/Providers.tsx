@@ -8,6 +8,7 @@ import { AuthProvider } from "../providers/AuthProvider";
 import { WalletProvider } from "../contexts/WalletContext";
 import { RainbowKitProvider } from "../providers/RainbowKitProvider";
 import { ThemeProvider } from "./ThemeProvider";
+import { HYPERCLI_BRAND_ACCENT_HEX, HYPERCLI_LOGO_FULL_SRC } from "./HyperCLILogo";
 
 declare global {
   interface Window {
@@ -21,8 +22,8 @@ const turnkeyConfig: TurnkeyProviderConfig = {
   organizationId: process.env.NEXT_PUBLIC_ORGANIZATION_ID!,
   authProxyConfigId: process.env.NEXT_PUBLIC_AUTH_PROXY_CONFIG_ID!,
   ui: {
-    logoLight: "/hypercli-transparentbg-black-hyper-horizontal-200x60.png",
-    logoDark: "/hypercli-horizontal-transparentbg-whitehyper-200x60.png",
+    logoLight: HYPERCLI_LOGO_FULL_SRC,
+    logoDark: HYPERCLI_LOGO_FULL_SRC,
     darkMode: false,
     colors: {
       light: {
@@ -112,8 +113,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
         loginMethods: ["email", "wallet", "google"],
         appearance: {
           theme: "dark",
-          accentColor: "#38D39F",
-          logo: "/hypercli-horizontal-transparentbg-whitehyper-200x60.png",
+          accentColor: HYPERCLI_BRAND_ACCENT_HEX,
+          logo: HYPERCLI_LOGO_FULL_SRC,
         },
         embeddedWallets: {
           ethereum: {

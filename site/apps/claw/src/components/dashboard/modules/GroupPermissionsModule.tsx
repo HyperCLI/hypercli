@@ -39,20 +39,20 @@ export function GroupPermissionsModule({
                 {p.name}
               </span>
               <span
-                className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${p.role === "admin" ? "bg-[#38D39F]/10 text-[#38D39F]" : p.role === "operator" ? "bg-[#4A9EFF]/10 text-[#4A9EFF]" : p.role === "contributor" ? "bg-[#f0c56c]/10 text-[#f0c56c]" : "bg-surface-high text-text-muted"}`}
+                className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${p.role === "admin" ? "bg-primary/10 text-primary" : p.role === "operator" ? "bg-[#4A9EFF]/10 text-[#4A9EFF]" : p.role === "contributor" ? "bg-[#f0c56c]/10 text-[#f0c56c]" : "bg-surface-high text-text-muted"}`}
               >
                 {p.role}
               </span>
               <span className="text-[10px]">
                 {p.canInstruct ? (
-                  <Check className="w-3 h-3 text-[#38D39F] inline" />
+                  <Check className="w-3 h-3 text-primary inline" />
                 ) : (
                   <span className="text-text-muted">&mdash;</span>
                 )}
               </span>
               <span className="text-[10px]">
                 {p.canApprove ? (
-                  <Check className="w-3 h-3 text-[#38D39F] inline" />
+                  <Check className="w-3 h-3 text-primary inline" />
                 ) : (
                   <span className="text-text-muted">&mdash;</span>
                 )}

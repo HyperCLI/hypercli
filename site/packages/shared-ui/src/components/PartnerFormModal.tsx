@@ -80,10 +80,10 @@ export default function PartnerFormModal({ isOpen, onClose }: PartnerFormModalPr
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="relative bg-[#111315] rounded-2xl shadow-2xl border border-[#2A2D2F] max-w-lg w-full max-h-[90vh] overflow-y-auto">
+      <div className="relative bg-surface rounded-2xl shadow-2xl border border-border max-w-lg w-full max-h-[90vh] overflow-y-auto">
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-[#6B7280] hover:text-white transition z-10"
+          className="absolute top-4 right-4 text-text-muted hover:text-foreground transition z-10"
           aria-label="Close modal"
         >
           <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -95,8 +95,8 @@ export default function PartnerFormModal({ isOpen, onClose }: PartnerFormModalPr
           {!submitted ? (
             <>
               <div className="mb-6">
-                <h2 className="text-2xl font-semibold text-white mb-2">Become a Partner</h2>
-                <p className="text-[#9BA0A2] text-sm">
+                <h2 className="text-2xl font-semibold text-foreground mb-2">Become a Partner</h2>
+                <p className="text-text-tertiary text-sm">
                   Join our partner network and start delivering AI infrastructure to your clients.
                 </p>
               </div>
@@ -118,8 +118,8 @@ export default function PartnerFormModal({ isOpen, onClose }: PartnerFormModalPr
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label htmlFor="name" className="block text-sm font-medium text-[#D4D6D7] mb-1.5">
-                        Name <span className="text-[#38D39F]">*</span>
+                      <label htmlFor="name" className="block text-sm font-medium text-text-secondary mb-1.5">
+                        Name <span className="text-primary">*</span>
                       </label>
                       <input
                         type="text"
@@ -128,14 +128,14 @@ export default function PartnerFormModal({ isOpen, onClose }: PartnerFormModalPr
                         required
                         value={formData.name}
                         onChange={handleChange}
-                        className="w-full px-3.5 py-2.5 bg-[#0B0D0E] border border-[#2A2D2F] rounded-lg focus:ring-2 focus:ring-[#38D39F]/50 focus:border-[#38D39F] outline-none transition text-white placeholder:text-[#6B7280] text-sm"
+                        className="w-full px-3.5 py-2.5 bg-background border border-border rounded-lg focus:ring-2 focus:ring-[rgb(var(--selection-accent-rgb)_/_0.5)] focus:border-[var(--selection-accent)] outline-none transition text-foreground placeholder:text-text-muted text-sm"
                         placeholder="John Doe"
                       />
                     </div>
 
                     <div>
-                      <label htmlFor="email" className="block text-sm font-medium text-[#D4D6D7] mb-1.5">
-                        Work Email <span className="text-[#38D39F]">*</span>
+                      <label htmlFor="email" className="block text-sm font-medium text-text-secondary mb-1.5">
+                        Work Email <span className="text-primary">*</span>
                       </label>
                       <input
                         type="email"
@@ -144,7 +144,7 @@ export default function PartnerFormModal({ isOpen, onClose }: PartnerFormModalPr
                         required
                         value={formData.email}
                         onChange={handleChange}
-                        className="w-full px-3.5 py-2.5 bg-[#0B0D0E] border border-[#2A2D2F] rounded-lg focus:ring-2 focus:ring-[#38D39F]/50 focus:border-[#38D39F] outline-none transition text-white placeholder:text-[#6B7280] text-sm"
+                        className="w-full px-3.5 py-2.5 bg-background border border-border rounded-lg focus:ring-2 focus:ring-[rgb(var(--selection-accent-rgb)_/_0.5)] focus:border-[var(--selection-accent)] outline-none transition text-foreground placeholder:text-text-muted text-sm"
                         placeholder="john@company.com"
                       />
                     </div>
@@ -152,8 +152,8 @@ export default function PartnerFormModal({ isOpen, onClose }: PartnerFormModalPr
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label htmlFor="company" className="block text-sm font-medium text-[#D4D6D7] mb-1.5">
-                        Company <span className="text-[#38D39F]">*</span>
+                      <label htmlFor="company" className="block text-sm font-medium text-text-secondary mb-1.5">
+                        Company <span className="text-primary">*</span>
                       </label>
                       <input
                         type="text"
@@ -162,13 +162,13 @@ export default function PartnerFormModal({ isOpen, onClose }: PartnerFormModalPr
                         required
                         value={formData.company}
                         onChange={handleChange}
-                        className="w-full px-3.5 py-2.5 bg-[#0B0D0E] border border-[#2A2D2F] rounded-lg focus:ring-2 focus:ring-[#38D39F]/50 focus:border-[#38D39F] outline-none transition text-white placeholder:text-[#6B7280] text-sm"
+                        className="w-full px-3.5 py-2.5 bg-background border border-border rounded-lg focus:ring-2 focus:ring-[rgb(var(--selection-accent-rgb)_/_0.5)] focus:border-[var(--selection-accent)] outline-none transition text-foreground placeholder:text-text-muted text-sm"
                         placeholder="Acme Inc."
                       />
                     </div>
 
                     <div>
-                      <label htmlFor="role" className="block text-sm font-medium text-[#D4D6D7] mb-1.5">
+                      <label htmlFor="role" className="block text-sm font-medium text-text-secondary mb-1.5">
                         Your Role
                       </label>
                       <input
@@ -177,14 +177,14 @@ export default function PartnerFormModal({ isOpen, onClose }: PartnerFormModalPr
                         name="role"
                         value={formData.role}
                         onChange={handleChange}
-                        className="w-full px-3.5 py-2.5 bg-[#0B0D0E] border border-[#2A2D2F] rounded-lg focus:ring-2 focus:ring-[#38D39F]/50 focus:border-[#38D39F] outline-none transition text-white placeholder:text-[#6B7280] text-sm"
+                        className="w-full px-3.5 py-2.5 bg-background border border-border rounded-lg focus:ring-2 focus:ring-[rgb(var(--selection-accent-rgb)_/_0.5)] focus:border-[var(--selection-accent)] outline-none transition text-foreground placeholder:text-text-muted text-sm"
                         placeholder="CTO, Partner, etc."
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label htmlFor="companySize" className="block text-sm font-medium text-[#D4D6D7] mb-1.5">
+                    <label htmlFor="companySize" className="block text-sm font-medium text-text-secondary mb-1.5">
                       Company Size
                     </label>
                     <select
@@ -192,17 +192,11 @@ export default function PartnerFormModal({ isOpen, onClose }: PartnerFormModalPr
                       name="companySize"
                       value={formData.companySize}
                       onChange={handleChange}
-                      className="w-full px-3.5 py-2.5 bg-[#0B0D0E] border border-[#2A2D2F] rounded-lg focus:ring-2 focus:ring-[#38D39F]/50 focus:border-[#38D39F] outline-none transition text-white text-sm appearance-none cursor-pointer"
-                      style={{
-                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236B7280'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`,
-                        backgroundRepeat: "no-repeat",
-                        backgroundPosition: "right 0.75rem center",
-                        backgroundSize: "1.25rem",
-                      }}
+                      className="w-full px-3.5 py-2.5 bg-background border border-border rounded-lg focus:ring-2 focus:ring-[rgb(var(--selection-accent-rgb)_/_0.5)] focus:border-[var(--selection-accent)] outline-none transition text-foreground text-sm cursor-pointer"
                     >
-                      <option value="" className="bg-[#0B0D0E]">Select company size</option>
+                      <option value="" className="bg-background">Select company size</option>
                       {companySizes.map((size) => (
-                        <option key={size.value} value={size.value} className="bg-[#0B0D0E]">
+                        <option key={size.value} value={size.value} className="bg-background">
                           {size.label}
                         </option>
                       ))}
@@ -210,8 +204,8 @@ export default function PartnerFormModal({ isOpen, onClose }: PartnerFormModalPr
                   </div>
 
                   <div>
-                    <label htmlFor="message" className="block text-sm font-medium text-[#D4D6D7] mb-1.5">
-                      How can we help? <span className="text-[#38D39F]">*</span>
+                    <label htmlFor="message" className="block text-sm font-medium text-text-secondary mb-1.5">
+                      How can we help? <span className="text-primary">*</span>
                     </label>
                     <textarea
                       id="message"
@@ -220,7 +214,7 @@ export default function PartnerFormModal({ isOpen, onClose }: PartnerFormModalPr
                       rows={3}
                       value={formData.message}
                       onChange={handleChange}
-                      className="w-full px-3.5 py-2.5 bg-[#0B0D0E] border border-[#2A2D2F] rounded-lg focus:ring-2 focus:ring-[#38D39F]/50 focus:border-[#38D39F] outline-none transition resize-none text-white placeholder:text-[#6B7280] text-sm"
+                      className="w-full px-3.5 py-2.5 bg-background border border-border rounded-lg focus:ring-2 focus:ring-[rgb(var(--selection-accent-rgb)_/_0.5)] focus:border-[var(--selection-accent)] outline-none transition resize-none text-foreground placeholder:text-text-muted text-sm"
                       placeholder="Tell us about the AI solutions you want to offer your clients..."
                     />
                   </div>
@@ -229,21 +223,21 @@ export default function PartnerFormModal({ isOpen, onClose }: PartnerFormModalPr
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="mt-6 w-full bg-[#38D39F] hover:bg-[#45E4AE] text-[#0B0D0E] font-semibold py-3 px-6 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="mt-6 w-full bg-button-primary hover:bg-button-primary-hover text-button-primary-foreground font-semibold py-3 px-6 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {isSubmitting ? "Submitting..." : "Submit Application"}
                 </button>
 
-                <p className="mt-4 text-xs text-[#6B7280] text-center">
+                <p className="mt-4 text-xs text-text-muted text-center">
                   We&apos;ll review your application and get back to you within 48 hours.
                 </p>
               </form>
             </>
           ) : (
             <div className="text-center py-10">
-              <div className="mb-5 inline-flex items-center justify-center w-16 h-16 rounded-full bg-[#38D39F]/10">
+              <div className="mb-5 inline-flex items-center justify-center w-16 h-16 rounded-full bg-[rgb(var(--selection-accent-rgb)_/_0.1)]">
                 <svg
-                  className="h-8 w-8 text-[#38D39F]"
+                  className="h-8 w-8 text-primary"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -256,8 +250,8 @@ export default function PartnerFormModal({ isOpen, onClose }: PartnerFormModalPr
                   />
                 </svg>
               </div>
-              <h3 className="text-xl font-semibold text-white mb-2">Application Received</h3>
-              <p className="text-[#9BA0A2] text-sm">
+              <h3 className="text-xl font-semibold text-foreground mb-2">Application Received</h3>
+              <p className="text-text-tertiary text-sm">
                 Thank you for your interest in partnering with us.<br />
                 We&apos;ll be in touch soon.
               </p>
