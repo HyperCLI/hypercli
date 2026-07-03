@@ -39,6 +39,12 @@ export interface GatewayOptions {
   instanceId?: string;
   /** Optional gateway capability list */
   caps?: string[];
+  /** Connection role in the connect handshake (default: "operator"). Use "node" to serve node commands. */
+  role?: string;
+  /** Auth scopes requested in the connect handshake (default: operator scopes for the operator role, else empty). */
+  scopes?: string[];
+  /** Declared node command surface advertised in the connect handshake (node role). */
+  commands?: string[];
   /** Origin header (default: omitted for non-browser SDK clients) */
   origin?: string;
   /** Default RPC timeout in ms (default: 15000) */
@@ -1729,6 +1735,9 @@ export class GatewayClient {
   private clientPlatform: string;
   private clientInstanceId?: string;
   private caps: string[];
+  private role: string;
+  private scopes: string[];
+  private commands?: string[];
   private origin?: string;
   private defaultTimeout: number;
   private ws: GatewaySocket | null = null;
@@ -1774,6 +1783,15 @@ export class GatewayClient {
     this.caps = Array.isArray(options.caps)
       ? options.caps.map((cap) => cap.trim()).filter(Boolean)
       : [...DEFAULT_CAPS];
+    this.role = options.role?.trim() || OPERATOR_ROLE;
+    this.scopes = Array.isArray(options.scopes)
+      ? options.scopes.map((scope) => scope.trim()).filter(Boolean)
+      : this.role === OPERATOR_ROLE
+        ? [...OPERATOR_SCOPES]
+        : [];
+    this.commands = Array.isArray(options.commands)
+      ? options.commands.map((command) => command.trim()).filter(Boolean)
+      : undefined;
     // Non-browser SDK clients should not send Origin by default. OpenClaw
     // treats any Origin header as browser-originated and applies browser
     // origin checks to the connection.
@@ -1785,7 +1803,7 @@ export class GatewayClient {
     this.onClose = options.onClose;
     this.onGap = options.onGap;
     this.onPairing = options.onPairing;
-    this.pairingState = loadPendingPairing(this.storageScope(), OPERATOR_ROLE);
+    this.pairingState = loadPendingPairing(this.storageScope(), this.role);
   }
 
   private readonly onHello?: (hello: Record<string, any>) => void;
@@ -1905,7 +1923,7 @@ export class GatewayClient {
     if (pairing) {
       storePendingPairing(pairing, this.storageScope());
     } else {
-      clearPendingPairing(this.storageScope(), OPERATOR_ROLE);
+      clearPendingPairing(this.storageScope(), this.role);
     }
     this.onPairing?.(pairing);
   }
@@ -2110,7 +2128,7 @@ export class GatewayClient {
       storedDeviceToken = loadStoredDeviceToken(
         identity.deviceId,
         this.storageScope(),
-        OPERATOR_ROLE,
+        this.role,
       )?.token ?? null;
       const authToken = this.gatewayToken ?? storedDeviceToken;
       const authDeviceToken = this.pendingDeviceTokenRetry ? (storedDeviceToken ?? undefined) : undefined;
@@ -2119,8 +2137,8 @@ export class GatewayClient {
         deviceId: identity.deviceId,
         clientId: this.clientId,
         clientMode: this.clientMode,
-        role: OPERATOR_ROLE,
-        scopes: OPERATOR_SCOPES,
+        role: this.role,
+        scopes: this.scopes,
         signedAtMs,
         token: authToken ?? null,
         nonce,
@@ -2138,8 +2156,8 @@ export class GatewayClient {
           mode: this.clientMode,
           ...(this.clientInstanceId ? { instanceId: this.clientInstanceId } : {}),
         },
-        role: OPERATOR_ROLE,
-        scopes: [...OPERATOR_SCOPES],
+        role: this.role,
+        scopes: [...this.scopes],
         device: {
           id: identity.deviceId,
           publicKey: identity.publicKey,
@@ -2148,6 +2166,7 @@ export class GatewayClient {
           nonce,
         },
         caps: this.caps,
+        ...(this.commands ? { commands: this.commands } : {}),
         ...(authToken
           ? {
               auth: {
@@ -2178,7 +2197,7 @@ export class GatewayClient {
           deviceId: identity.deviceId,
           scope: this.storageScope(),
           gatewayUrl: this.url,
-          role: hello.auth.role ?? OPERATOR_ROLE,
+          role: hello.auth.role ?? this.role,
           token: hello.auth.deviceToken,
           scopes: hello.auth.scopes ?? [],
         });
@@ -2213,7 +2232,7 @@ export class GatewayClient {
       // one-shot flag to prevent infinite recursion if the retry also fails.
       if (identity && detailCode === CONNECT_ERROR_DEVICE_TOKEN_MISMATCH && !this.deviceTokenMismatchRetried) {
         this.deviceTokenMismatchRetried = true;
-        clearStoredDeviceToken(identity.deviceId, this.storageScope(), OPERATOR_ROLE);
+        clearStoredDeviceToken(identity.deviceId, this.storageScope(), this.role);
         this.connectSent = false;
         this.pendingConnectError = null;
         this.pendingDeviceTokenRetry = false;
@@ -2238,7 +2257,7 @@ export class GatewayClient {
       }
 
       if (identity && detailCode === CONNECT_ERROR_PAIRING_REQUIRED) {
-        clearStoredDeviceToken(identity.deviceId, this.storageScope(), OPERATOR_ROLE);
+        clearStoredDeviceToken(identity.deviceId, this.storageScope(), this.role);
       }
       if (detailCode === CONNECT_ERROR_PAIRING_REQUIRED && requestId) {
         if (this.canAutoApprovePairing() && !this.autoApproveAttemptedRequestIds.has(requestId)) {
@@ -2262,7 +2281,7 @@ export class GatewayClient {
             this.pendingConnectError = toCloseError(approvalError);
             this.updatePairingState({
               requestId,
-              role: OPERATOR_ROLE,
+              role: this.role,
               gatewayUrl: this.url,
               ...(identity ? { deviceId: identity.deviceId } : {}),
               status: "failed",
@@ -2274,7 +2293,7 @@ export class GatewayClient {
           // No auto-approve — surface pairing state so the UI can prompt.
           this.updatePairingState({
             requestId,
-            role: OPERATOR_ROLE,
+            role: this.role,
             gatewayUrl: this.url,
             ...(identity ? { deviceId: identity.deviceId } : {}),
             status: "pending",
@@ -2632,6 +2651,79 @@ export class GatewayClient {
     const params: Record<string, any> = { key: sessionKey };
     if (reason) params.reason = reason;
     await this.rpc("sessions.reset", params);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Nodes (operator-side: manage & drive paired nodes)
+  //
+  // A "node" is a device/machine connected to the same gateway with
+  // `role: "node"` that exposes a command surface. An operator lists/approves
+  // node pairings and drives them with `node.invoke`; the node executes the
+  // command locally and returns the result. This is the gateway's built-in
+  // "agent asks a connected machine to do X and use the result" path.
+  // ---------------------------------------------------------------------------
+
+  /** Paired nodes known to the gateway. */
+  async nodesList(): Promise<any[]> {
+    const res = await this.rpc("node.list");
+    return res?.nodes ?? res ?? [];
+  }
+
+  /** Detailed metadata for one paired node (caps + supported invoke commands). */
+  async nodeDescribe(nodeId: string): Promise<any> {
+    return await this.rpc("node.describe", { nodeId });
+  }
+
+  /** Pending and paired node-pairing requests. */
+  async nodePairList(): Promise<{ pending: any[]; paired: any[] }> {
+    const res = await this.rpc("node.pair.list");
+    return { pending: res?.pending ?? [], paired: res?.paired ?? [] };
+  }
+
+  /**
+   * Approve a pending node pairing (and its declared command surface). This is
+   * the sibling of `device.pair.approve`; it requires `operator.pairing` and,
+   * for command-bearing nodes, `operator.write`/`operator.admin`.
+   */
+  async nodePairApprove(requestId: string): Promise<any> {
+    return await this.rpc("node.pair.approve", { requestId });
+  }
+
+  /** Reject a pending node pairing request. */
+  async nodePairReject(requestId: string): Promise<void> {
+    await this.rpc("node.pair.reject", { requestId });
+  }
+
+  /** Remove an already-paired node from the gateway trust set. */
+  async nodePairRemove(nodeId: string): Promise<void> {
+    await this.rpc("node.pair.remove", { nodeId });
+  }
+
+  /** Rename a paired node while preserving its stable node id. */
+  async nodeRename(nodeId: string, displayName: string): Promise<void> {
+    await this.rpc("node.rename", { nodeId, displayName });
+  }
+
+  /**
+   * Invoke a command on a paired node and return its result. The node must be
+   * connected, have declared `command`, and the command must be allowed by the
+   * gateway policy (declared + approved surface, and/or
+   * `gateway.nodes.allowCommands`).
+   */
+  async nodeInvoke(
+    nodeId: string,
+    command: string,
+    params: Record<string, any> = {},
+    timeoutMs?: number,
+  ): Promise<any> {
+    const rpcParams: Record<string, any> = {
+      nodeId,
+      command,
+      params,
+      idempotencyKey: makeId(),
+    };
+    if (timeoutMs !== undefined) rpcParams.timeoutMs = timeoutMs;
+    return await this.rpc("node.invoke", rpcParams, timeoutMs);
   }
 
   // ---------------------------------------------------------------------------
@@ -3039,5 +3131,146 @@ export class GatewayClient {
 
   async status(): Promise<Record<string, any>> {
     return this.rpc("status");
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Node receiver (node-side: be a node the agent drives)
+//
+// The operator methods above (nodesList/nodeInvoke/...) drive paired nodes.
+// NodeServer is the other half: it connects to the gateway with role "node",
+// declares a command surface, then answers `node.invoke.request` events by
+// dispatching to local handlers and replying with the `node.invoke.result` RPC.
+// The gateway correlates request and result by the request `id`.
+// -----------------------------------------------------------------------------
+
+/** Handler for one node command. Receives decoded params, returns a JSON-serializable payload. */
+export type NodeCommandHandler = (params: any) => Promise<any> | any;
+
+export interface NodeServerOptions
+  extends Omit<GatewayOptions, "role" | "scopes" | "commands" | "clientMode"> {
+  /** Stable node id advertised to operators (defaults to the client instance id). */
+  nodeId?: string;
+}
+
+interface NodeInvokeRequest {
+  id: string;
+  nodeId: string;
+  command: string;
+  paramsJSON: string | null;
+}
+
+type NodeInvokeResult =
+  | { ok: true; payloadJSON: string }
+  | { ok: false; error: { code: string; message: string } };
+
+function coerceNodeInvokeRequest(payload: unknown): NodeInvokeRequest | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  const obj = payload as Record<string, unknown>;
+  const id = typeof obj.id === "string" ? obj.id.trim() : "";
+  const nodeId = typeof obj.nodeId === "string" ? obj.nodeId.trim() : "";
+  const command = typeof obj.command === "string" ? obj.command.trim() : "";
+  if (!id || !nodeId || !command) {
+    return null;
+  }
+  const paramsJSON =
+    typeof obj.paramsJSON === "string"
+      ? obj.paramsJSON
+      : obj.params !== undefined
+        ? JSON.stringify(obj.params)
+        : null;
+  return { id, nodeId, command, paramsJSON };
+}
+
+/**
+ * Serve a node command surface over a gateway connection. Wraps a
+ * {@link GatewayClient} connected as `role: "node"`, subscribes to
+ * `node.invoke.request`, dispatches to the registered handlers, and replies with
+ * `node.invoke.result` (JSON-encoded payload on success, or an error).
+ */
+export class NodeServer {
+  readonly gateway: GatewayClient;
+  private readonly handlers: Record<string, NodeCommandHandler>;
+  private unsubscribe: (() => void) | null = null;
+
+  constructor(commands: Record<string, NodeCommandHandler>, options: NodeServerOptions) {
+    this.handlers = { ...commands };
+    const nodeId = options.nodeId?.trim() || undefined;
+    this.gateway = new GatewayClient({
+      ...options,
+      clientId: options.clientId ?? "node-host",
+      clientMode: "node",
+      role: "node",
+      scopes: [],
+      caps: options.caps ?? [],
+      commands: Object.keys(this.handlers),
+      ...(nodeId ? { instanceId: nodeId } : {}),
+    });
+  }
+
+  /** Connect as a node and start answering invoke requests. Resolves once connected. */
+  async start(): Promise<void> {
+    if (!this.unsubscribe) {
+      this.unsubscribe = this.gateway.onEvent((event) => {
+        if (event.event === "node.invoke.request") {
+          void this.handleInvoke(event.payload);
+        }
+      });
+    }
+    await this.gateway.connect();
+  }
+
+  /** Stop answering requests and disconnect. */
+  stop(): void {
+    this.unsubscribe?.();
+    this.unsubscribe = null;
+    this.gateway.stop();
+  }
+
+  private async handleInvoke(payload: Record<string, any>): Promise<void> {
+    const frame = coerceNodeInvokeRequest(payload);
+    if (!frame) {
+      return;
+    }
+    const result = await this.dispatch(frame);
+    try {
+      await this.gateway.request("node.invoke.result", {
+        id: frame.id,
+        nodeId: frame.nodeId,
+        ...result,
+      });
+    } catch {
+      // node invoke replies are best-effort; the gateway times out stale ids.
+    }
+  }
+
+  private async dispatch(frame: NodeInvokeRequest): Promise<NodeInvokeResult> {
+    const handler = this.handlers[frame.command];
+    if (!handler) {
+      return {
+        ok: false,
+        error: { code: "INVALID_REQUEST", message: `command not supported: ${frame.command}` },
+      };
+    }
+    let params: any;
+    try {
+      params = frame.paramsJSON ? JSON.parse(frame.paramsJSON) : {};
+    } catch {
+      return {
+        ok: false,
+        error: { code: "INVALID_REQUEST", message: "paramsJSON malformed JSON" },
+      };
+    }
+    try {
+      const result = await handler(params);
+      return { ok: true, payloadJSON: JSON.stringify(result === undefined ? null : result) };
+    } catch (err) {
+      return {
+        ok: false,
+        error: { code: "UNAVAILABLE", message: err instanceof Error ? err.message : String(err) },
+      };
+    }
   }
 }

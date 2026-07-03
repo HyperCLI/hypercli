@@ -3,6 +3,9 @@
 from .gateway import (
     GatewayClient,
     GatewayError,
+    GatewayNodePairingRequired,
+    NodeServer,
+    serve_node,
     ChatEvent,
     GatewayChatToolCall,
     GatewayChatMessageSummary,
@@ -15,6 +18,9 @@ from .gateway import (
 __all__ = [
     "GatewayClient",
     "GatewayError",
+    "GatewayNodePairingRequired",
+    "NodeServer",
+    "serve_node",
     "ChatEvent",
     "GatewayChatToolCall",
     "GatewayChatMessageSummary",

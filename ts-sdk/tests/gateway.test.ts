@@ -2,7 +2,7 @@ import { webcrypto } from "node:crypto";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { GatewayClient, normalizeGatewayChatMessage } from "../src/openclaw/gateway.js";
+import { GatewayClient, NodeServer, normalizeGatewayChatMessage } from "../src/openclaw/gateway.js";
 
 const STORAGE_KEY = "openclaw.device.auth.v1";
 const URL_SCOPE_KEY = "wss://openclaw-agent.example|operator";
@@ -1592,4 +1592,126 @@ describe("GatewayClient", () => {
     expect(client.pendingPairing).toBeNull();
   });
 
+});
+
+async function collectResultFrames(ws: MockWebSocket, method: string) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const frames = ws.sent
+      .map((raw) => JSON.parse(raw) as { id: string; method: string; params: Record<string, any> })
+      .filter((frame) => frame.method === method);
+    if (frames.length > 0) {
+      return frames;
+    }
+    await flushMicrotasks();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error(`No ${method} frame was sent`);
+}
+
+describe("NodeServer", () => {
+  beforeEach(() => {
+    MockWebSocket.instances = [];
+    vi.restoreAllMocks();
+    vi.stubGlobal("WebSocket", MockWebSocket as any);
+    vi.stubGlobal("localStorage", new MockLocalStorage() as any);
+    vi.stubGlobal("crypto", webcrypto as any);
+    vi.useRealTimers();
+  });
+
+  async function startNode(commands: Record<string, (params: any) => any>) {
+    const server = new NodeServer(commands, {
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+      nodeId: "node-abc",
+    });
+    const startPromise = server.start();
+    await flushMicrotasks();
+    const ws = MockWebSocket.instances.at(-1);
+    if (!ws) throw new Error("Missing websocket instance");
+
+    ws.emitChallenge();
+    await waitForSentFrame(ws);
+    const request = await parseFirstRequest(ws);
+    ws.emitHello(request.id);
+    await startPromise;
+
+    return { server, ws, request };
+  }
+
+  it("connects as a node and declares its command surface", async () => {
+    const { server, request } = await startNode({ echo: (p: any) => p });
+
+    expect(request.method).toBe("connect");
+    expect(request.params.role).toBe("node");
+    expect(request.params.client.mode).toBe("node");
+    expect(request.params.client.instanceId).toBe("node-abc");
+    expect(request.params.scopes).toEqual([]);
+    expect(request.params.commands).toEqual(["echo"]);
+    expect(server.gateway.isConnected).toBe(true);
+
+    server.stop();
+  });
+
+  it("dispatches node.invoke.request and replies with the handler payload", async () => {
+    const { server, ws } = await startNode({
+      echo: (params: any) => ({ echoed: params.value }),
+    });
+
+    ws.emit({
+      type: "event",
+      event: "node.invoke.request",
+      payload: {
+        id: "inv-1",
+        nodeId: "node-abc",
+        command: "echo",
+        paramsJSON: JSON.stringify({ value: 42 }),
+      },
+    });
+
+    const [frame] = await collectResultFrames(ws, "node.invoke.result");
+    expect(frame.params).toEqual({
+      id: "inv-1",
+      nodeId: "node-abc",
+      ok: true,
+      payloadJSON: JSON.stringify({ echoed: 42 }),
+    });
+
+    server.stop();
+  });
+
+  it("replies INVALID_REQUEST for an unknown command", async () => {
+    const { server, ws } = await startNode({ echo: (p: any) => p });
+
+    ws.emit({
+      type: "event",
+      event: "node.invoke.request",
+      payload: { id: "inv-2", nodeId: "node-abc", command: "missing", paramsJSON: "{}" },
+    });
+
+    const [frame] = await collectResultFrames(ws, "node.invoke.result");
+    expect(frame.params.ok).toBe(false);
+    expect(frame.params.error.code).toBe("INVALID_REQUEST");
+
+    server.stop();
+  });
+
+  it("replies UNAVAILABLE when the handler throws", async () => {
+    const { server, ws } = await startNode({
+      boom: () => {
+        throw new Error("handler exploded");
+      },
+    });
+
+    ws.emit({
+      type: "event",
+      event: "node.invoke.request",
+      payload: { id: "inv-3", nodeId: "node-abc", command: "boom", paramsJSON: "{}" },
+    });
+
+    const [frame] = await collectResultFrames(ws, "node.invoke.result");
+    expect(frame.params.ok).toBe(false);
+    expect(frame.params.error).toEqual({ code: "UNAVAILABLE", message: "handler exploded" });
+
+    server.stop();
+  });
 });

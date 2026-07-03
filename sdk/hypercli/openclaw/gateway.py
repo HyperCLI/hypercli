@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import inspect
 import json
 import os
 import shlex
@@ -61,10 +62,13 @@ def _sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _storage_path() -> Path:
-    override = os.environ.get("HYPERCLI_GATEWAY_STORE_PATH", "").strip()
-    if override:
-        return Path(override).expanduser()
+def _storage_path(override: str | None = None) -> Path:
+    explicit = (override or "").strip()
+    if explicit:
+        return Path(explicit).expanduser()
+    env_override = os.environ.get("HYPERCLI_GATEWAY_STORE_PATH", "").strip()
+    if env_override:
+        return Path(env_override).expanduser()
     return Path.home() / ".hypercli" / "openclaw-device-auth.json"
 
 
@@ -114,8 +118,8 @@ class DeviceAuthStore:
     pending_pairings: dict[str, dict[str, Any]] | None = None
 
 
-def _read_device_auth_store() -> DeviceAuthStore | None:
-    path = _storage_path()
+def _read_device_auth_store(store_path: str | None = None) -> DeviceAuthStore | None:
+    path = _storage_path(store_path)
     try:
         if path.exists():
             raw = json.loads(path.read_text())
@@ -126,8 +130,8 @@ def _read_device_auth_store() -> DeviceAuthStore | None:
     return None
 
 
-def _write_device_auth_store(store: DeviceAuthStore) -> None:
-    path = _storage_path()
+def _write_device_auth_store(store: DeviceAuthStore, store_path: str | None = None) -> None:
+    path = _storage_path(store_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "version": STORAGE_VERSION,
@@ -141,13 +145,13 @@ def _write_device_auth_store(store: DeviceAuthStore) -> None:
     path.write_text(json.dumps(payload, indent=2) + "\n")
 
 
-def _load_or_create_device_identity() -> DeviceIdentityRecord:
-    store = _read_device_auth_store()
+def _load_or_create_device_identity(store_path: str | None = None) -> DeviceIdentityRecord:
+    store = _read_device_auth_store(store_path)
     if store and store.public_key and store.private_key:
         derived_id = _sha256_hex(_b64url_decode(store.public_key))
         if derived_id != store.device_id:
             store.device_id = derived_id
-            _write_device_auth_store(store)
+            _write_device_auth_store(store, store_path)
         return DeviceIdentityRecord(
             device_id=derived_id,
             public_key=store.public_key,
@@ -171,13 +175,16 @@ def _load_or_create_device_identity() -> DeviceIdentityRecord:
             created_at_ms=identity.created_at_ms,
             tokens=(store.tokens if store else None),
             pending_pairings=(store.pending_pairings if store else None),
-        )
+        ),
+        store_path,
     )
     return identity
 
 
-def _load_stored_device_token(device_id: str, scope: str, role: str) -> DeviceTokenEntry | None:
-    store = _read_device_auth_store()
+def _load_stored_device_token(
+    device_id: str, scope: str, role: str, store_path: str | None = None
+) -> DeviceTokenEntry | None:
+    store = _read_device_auth_store(store_path)
     if not store or store.device_id != device_id or not store.tokens:
         return None
     key = _storage_scope_key(scope, role)
@@ -195,8 +202,9 @@ def _store_stored_device_token(
     token: str,
     scopes: list[str] | None = None,
     gateway_url: str | None = None,
+    store_path: str | None = None,
 ) -> DeviceTokenEntry:
-    store = _read_device_auth_store() or DeviceAuthStore()
+    store = _read_device_auth_store(store_path) or DeviceAuthStore()
     key = _storage_scope_key(scope, role)
     entry = DeviceTokenEntry(
         token=token,
@@ -210,12 +218,14 @@ def _store_stored_device_token(
     store.tokens = tokens
     if not store.device_id:
         store.device_id = device_id
-    _write_device_auth_store(store)
+    _write_device_auth_store(store, store_path)
     return entry
 
 
-def _clear_stored_device_token(device_id: str, scope: str, role: str) -> None:
-    store = _read_device_auth_store()
+def _clear_stored_device_token(
+    device_id: str, scope: str, role: str, store_path: str | None = None
+) -> None:
+    store = _read_device_auth_store(store_path)
     if not store or store.device_id != device_id or not store.tokens:
         return
     key = _storage_scope_key(scope, role)
@@ -224,11 +234,13 @@ def _clear_stored_device_token(device_id: str, scope: str, role: str) -> None:
     tokens = dict(store.tokens)
     del tokens[key]
     store.tokens = tokens or None
-    _write_device_auth_store(store)
+    _write_device_auth_store(store, store_path)
 
 
-def _load_pending_pairing(scope: str, role: str) -> GatewayPairingState | None:
-    store = _read_device_auth_store()
+def _load_pending_pairing(
+    scope: str, role: str, store_path: str | None = None
+) -> GatewayPairingState | None:
+    store = _read_device_auth_store(store_path)
     if not store or not store.pending_pairings:
         return None
     entry = store.pending_pairings.get(_storage_scope_key(scope, role))
@@ -237,17 +249,19 @@ def _load_pending_pairing(scope: str, role: str) -> GatewayPairingState | None:
     return GatewayPairingState(**entry)
 
 
-def _store_pending_pairing(pairing: GatewayPairingState, scope: str) -> GatewayPairingState:
-    store = _read_device_auth_store() or DeviceAuthStore()
+def _store_pending_pairing(
+    pairing: GatewayPairingState, scope: str, store_path: str | None = None
+) -> GatewayPairingState:
+    store = _read_device_auth_store(store_path) or DeviceAuthStore()
     pending = dict(store.pending_pairings or {})
     pending[_storage_scope_key(scope, pairing.role)] = asdict(pairing)
     store.pending_pairings = pending
-    _write_device_auth_store(store)
+    _write_device_auth_store(store, store_path)
     return pairing
 
 
-def _clear_pending_pairing(scope: str, role: str) -> None:
-    store = _read_device_auth_store()
+def _clear_pending_pairing(scope: str, role: str, store_path: str | None = None) -> None:
+    store = _read_device_auth_store(store_path)
     if not store or not store.pending_pairings:
         return
     key = _storage_scope_key(scope, role)
@@ -256,7 +270,7 @@ def _clear_pending_pairing(scope: str, role: str) -> None:
     pending = dict(store.pending_pairings)
     del pending[key]
     store.pending_pairings = pending or None
-    _write_device_auth_store(store)
+    _write_device_auth_store(store, store_path)
 
 
 def _build_device_auth_payload(
@@ -354,6 +368,22 @@ class GatewayError(Exception):
 
 class GatewayRequestError(GatewayError):
     """Structured gateway request error."""
+
+
+class GatewayNodePairingRequired(GatewayError):
+    """Raised when a `role="node"` connect is rejected because the node is not
+    yet paired. Carries the pairing `request_id` an operator must approve via
+    `node_pair_approve(request_id)` before the node can reconnect.
+    """
+
+    def __init__(self, request_id: str, device_id: str | None = None):
+        super().__init__(
+            code="NOT_PAIRED",
+            message=f"node pairing required (requestId={request_id})",
+            details={"requestId": request_id, "deviceId": device_id},
+        )
+        self.request_id = request_id
+        self.device_id = device_id
 
 
 @dataclass
@@ -728,8 +758,13 @@ class GatewayClient:
         client_display_name: str | None = None,
         client_version: str = "hypercli-sdk",
         client_platform: str = "python",
+        client_device_family: str | None = None,
         client_instance_id: str | None = None,
         caps: list[str] | None = None,
+        role: str = OPERATOR_ROLE,
+        scopes: list[str] | None = None,
+        commands: list[str] | None = None,
+        device_store_path: str | None = None,
         origin: str | None = None,
         timeout: float = DEFAULT_TIMEOUT,
         chat_timeout: float = CHAT_TIMEOUT,
@@ -750,8 +785,19 @@ class GatewayClient:
         self.client_display_name = client_display_name
         self.client_version = client_version
         self.client_platform = client_platform
+        self.client_device_family = client_device_family
         self.client_instance_id = client_instance_id
         self.caps = list(caps or ["tool-events"])
+        # Non-operator roles (e.g. "node") declare their own command surface and
+        # carry no operator scopes. Operator scopes stay the shared default.
+        self.role = (role or OPERATOR_ROLE).strip()
+        self.scopes = (
+            list(scopes)
+            if scopes is not None
+            else (list(OPERATOR_SCOPES) if self.role == OPERATOR_ROLE else [])
+        )
+        self.commands = list(commands or [])
+        self._device_store_path = device_store_path
         # Non-browser SDK clients should not send Origin by default. OpenClaw
         # treats any Origin header as browser-originated and enforces the
         # control-ui/browser origin checks.
@@ -774,7 +820,9 @@ class GatewayClient:
         self._closed = False
         self._version: str | None = None
         self._protocol: int | None = None
-        self._pending_pairing = _load_pending_pairing(self._storage_scope(), OPERATOR_ROLE)
+        self._pending_pairing = _load_pending_pairing(
+            self._storage_scope(), self.role, store_path=self._device_store_path
+        )
         self._last_seq: int | None = None
         self._auto_approve_attempted_request_ids: set[str] = set()
 
@@ -825,9 +873,9 @@ class GatewayClient:
     def _update_pairing_state(self, pairing: GatewayPairingState | None) -> None:
         self._pending_pairing = pairing
         if pairing:
-            _store_pending_pairing(pairing, self._storage_scope())
+            _store_pending_pairing(pairing, self._storage_scope(), store_path=self._device_store_path)
         else:
-            _clear_pending_pairing(self._storage_scope(), OPERATOR_ROLE)
+            _clear_pending_pairing(self._storage_scope(), self.role, store_path=self._device_store_path)
         if self.on_pairing:
             self.on_pairing(pairing)
 
@@ -948,11 +996,12 @@ class GatewayClient:
         )
 
     async def _send_connect(self, ws: ClientConnection, nonce: str) -> dict[str, Any]:
-        identity = _load_or_create_device_identity()
+        identity = _load_or_create_device_identity(self._device_store_path)
         stored_device_token = _load_stored_device_token(
             identity.device_id,
             self._storage_scope(),
-            OPERATOR_ROLE,
+            self.role,
+            store_path=self._device_store_path,
         )
         auth_token = stored_device_token.token if stored_device_token else self.gateway_token
         signed_at_ms = _now_ms()
@@ -960,8 +1009,8 @@ class GatewayClient:
             device_id=identity.device_id,
             client_id=self.client_id,
             client_mode=self.client_mode,
-            role=OPERATOR_ROLE,
-            scopes=OPERATOR_SCOPES,
+            role=self.role,
+            scopes=self.scopes,
             signed_at_ms=signed_at_ms,
             token=auth_token,
             nonce=nonce,
@@ -975,11 +1024,12 @@ class GatewayClient:
                 **({"displayName": self.client_display_name} if self.client_display_name else {}),
                 "version": self.client_version,
                 "platform": self.client_platform,
+                **({"deviceFamily": self.client_device_family} if self.client_device_family else {}),
                 "mode": self.client_mode,
                 **({"instanceId": self.client_instance_id} if self.client_instance_id else {}),
             },
-            "role": OPERATOR_ROLE,
-            "scopes": list(OPERATOR_SCOPES),
+            "role": self.role,
+            "scopes": list(self.scopes),
             "device": {
                 "id": identity.device_id,
                 "publicKey": identity.public_key,
@@ -988,6 +1038,9 @@ class GatewayClient:
                 "nonce": nonce,
             },
             "caps": list(self.caps),
+            # Nodes advertise the command surface they can execute; the gateway
+            # activates the intersection with policy on pairing approval.
+            **({"commands": list(self.commands)} if self.commands else {}),
             **({"auth": {"token": auth_token}} if auth_token else {}),
         }
         await ws.send(
@@ -1016,10 +1069,11 @@ class GatewayClient:
             _store_stored_device_token(
                 device_id=identity.device_id,
                 scope=self._storage_scope(),
-                role=(payload_data.get("auth") or {}).get("role", OPERATOR_ROLE),
+                role=(payload_data.get("auth") or {}).get("role", self.role),
                 token=device_token,
                 scopes=list((payload_data.get("auth") or {}).get("scopes") or []),
                 gateway_url=self.url,
+                store_path=self._device_store_path,
             )
         return payload_data
 
@@ -1063,22 +1117,40 @@ class GatewayClient:
                 details = exc.details or {}
                 detail_code = _read_connect_error_code(details)
                 request_id = _read_connect_pairing_request_id(details)
-                identity = _load_or_create_device_identity()
+                identity = _load_or_create_device_identity(self._device_store_path)
 
                 if detail_code in {CONNECT_ERROR_PAIRING_REQUIRED, CONNECT_ERROR_DEVICE_TOKEN_MISMATCH}:
-                    _clear_stored_device_token(identity.device_id, self._storage_scope(), OPERATOR_ROLE)
+                    _clear_stored_device_token(
+                        identity.device_id,
+                        self._storage_scope(),
+                        self.role,
+                        store_path=self._device_store_path,
+                    )
 
                 if detail_code == CONNECT_ERROR_PAIRING_REQUIRED and request_id:
                     self._update_pairing_state(
                         GatewayPairingState(
                             request_id=request_id,
-                            role=OPERATOR_ROLE,
+                            role=self.role,
                             gateway_url=self.url,
                             device_id=identity.device_id,
                             status="pending",
                             updated_at_ms=_now_ms(),
                         )
                     )
+                    # Nodes cannot approve their own pairing surface (no operator
+                    # scopes). Surface the requestId so an operator session can
+                    # approve it via node_pair_approve, then the node reconnects.
+                    if self.role != OPERATOR_ROLE and not self._can_auto_approve_pairing():
+                        if ws is not None:
+                            try:
+                                await ws.close()
+                            except Exception:
+                                pass
+                        raise GatewayNodePairingRequired(
+                            request_id=request_id,
+                            device_id=identity.device_id,
+                        ) from exc
                     if (
                         self._can_auto_approve_pairing()
                         and request_id not in self._auto_approve_attempted_request_ids
@@ -1650,6 +1722,77 @@ class GatewayClient:
             params["reason"] = reason
         return await self.call("sessions.reset", params)
 
+    # -------------------------------------------------------------------------
+    # Nodes (operator-side: manage & drive paired nodes)
+    #
+    # A "node" is a device/machine connected to the same gateway with
+    # role="node" that exposes a command surface. An operator lists/approves
+    # node pairings and drives them with node.invoke; the node executes the
+    # command locally and returns the result. Mirrors the TS SDK GatewayClient
+    # node methods (nodesList/nodeDescribe/nodePair*/nodeRename/nodeInvoke).
+    # -------------------------------------------------------------------------
+
+    async def nodes_list(self) -> list[dict]:
+        """Paired nodes known to the gateway."""
+        result = await self.call("node.list")
+        if isinstance(result, dict):
+            return result.get("nodes", [])
+        return result or []
+
+    async def node_describe(self, node_id: str) -> dict:
+        """Detailed metadata for one paired node (caps + invoke commands)."""
+        return await self.call("node.describe", {"nodeId": node_id})
+
+    async def node_pair_list(self) -> dict:
+        """Pending and paired node-pairing requests: {"pending": [...], "paired": [...]}."""
+        result = await self.call("node.pair.list") or {}
+        return {"pending": result.get("pending", []), "paired": result.get("paired", [])}
+
+    async def node_pair_approve(self, request_id: str) -> dict:
+        """Approve a pending node pairing (and its declared command surface)."""
+        return await self.call("node.pair.approve", {"requestId": request_id})
+
+    async def node_pair_reject(self, request_id: str) -> dict:
+        """Reject a pending node-pairing request."""
+        return await self.call("node.pair.reject", {"requestId": request_id})
+
+    async def node_pair_remove(self, node_id: str) -> dict:
+        """Remove an already-paired node from the gateway trust set."""
+        return await self.call("node.pair.remove", {"nodeId": node_id})
+
+    async def node_rename(self, node_id: str, display_name: str) -> dict:
+        """Rename a paired node while preserving its stable node id."""
+        return await self.call("node.rename", {"nodeId": node_id, "displayName": display_name})
+
+    async def node_invoke(
+        self,
+        node_id: str,
+        command: str,
+        params: dict[str, Any] | None = None,
+        timeout_ms: int | None = None,
+    ) -> dict:
+        """Invoke a command on a paired node and return its result.
+
+        The node must be connected, have declared `command`, and the command
+        must be allowed by gateway policy (declared + approved surface, and/or
+        gateway.nodes.allowCommands). Returns {ok, nodeId, command, payload,
+        payloadJSON}.
+        """
+        rpc_params: dict[str, Any] = {
+            "nodeId": node_id,
+            "command": command,
+            "params": params or {},
+            "idempotencyKey": str(uuid.uuid4()),
+        }
+        if timeout_ms is not None:
+            rpc_params["timeoutMs"] = timeout_ms
+        # Wait a little longer than the node-side deadline so the operator RPC
+        # observes the node's result rather than timing out first.
+        call_timeout = self.timeout
+        if timeout_ms is not None:
+            call_timeout = max(self.timeout, timeout_ms / 1000 + 5.0)
+        return await self.call("node.invoke", rpc_params, timeout=call_timeout)
+
     async def cron_list(self) -> list[dict]:
         result = await self.call("cron.list")
         return result.get("jobs", [])
@@ -1681,3 +1824,222 @@ class GatewayClient:
             if event is None:
                 break
             yield event
+
+
+# -----------------------------------------------------------------------------
+# Node receiver (node-side: BE a node the gateway can drive)
+#
+# A node connects with role="node", declares a command surface, and answers
+# `node.invoke.request` gateway events by running a handler and replying with
+# the `node.invoke.result` RPC. Mirrors openclaw's src/node-host runner/invoke
+# dispatch (event -> decode paramsJSON -> handler -> {payloadJSON | error}).
+# -----------------------------------------------------------------------------
+
+NODE_ROLE = "node"
+NODE_CLIENT_ID = "node-host"
+NODE_CLIENT_MODE = "node"
+
+# Handler receives decoded params (a dict) and returns a JSON-serializable
+# payload; may be sync or async. Raising surfaces an INVALID_REQUEST error.
+NodeInvokeHandler = Callable[[dict[str, Any]], Any]
+
+# The gateway resolves a node's command allowlist from platform + deviceFamily;
+# both must be sent or the node degrades to the "unknown" platform surface.
+_NODE_PLATFORM_DEVICE_FAMILY = {
+    "linux": "Linux",
+    "darwin": "Mac",
+    "macos": "Mac",
+    "win32": "Windows",
+    "windows": "Windows",
+}
+
+
+class NodeServer:
+    """A node-side gateway client: connect with role="node", declare commands,
+    and dispatch `node.invoke.request` events to local handlers.
+
+    First connect for an unpaired node raises `GatewayNodePairingRequired`
+    (carrying the pairing `request_id`); an operator approves it with
+    `node_pair_approve(request_id)`, then the node reconnects and registers.
+    """
+
+    def __init__(
+        self,
+        url: str,
+        node_id: str,
+        commands: dict[str, NodeInvokeHandler],
+        *,
+        token: str | None = None,
+        gateway_token: str | None = None,
+        display_name: str | None = None,
+        platform: str = "linux",
+        device_family: str | None = None,
+        caps: list[str] | None = None,
+        deployment_id: str | None = None,
+        device_store_path: str | None = None,
+        origin: str | None = None,
+        timeout: float = DEFAULT_TIMEOUT,
+        client_version: str = "hypercli-sdk",
+        **client_kwargs: Any,
+    ):
+        if not commands:
+            raise ValueError("NodeServer requires at least one command handler")
+        self.node_id = node_id
+        self._commands = dict(commands)
+        resolved_family = device_family or _NODE_PLATFORM_DEVICE_FAMILY.get(platform.strip().lower())
+        self._client = GatewayClient(
+            url=url,
+            token=token,
+            gateway_token=gateway_token,
+            deployment_id=deployment_id,
+            role=NODE_ROLE,
+            scopes=[],
+            commands=list(self._commands.keys()),
+            caps=caps or ["system"],
+            client_id=NODE_CLIENT_ID,
+            client_mode=NODE_CLIENT_MODE,
+            client_display_name=display_name,
+            client_platform=platform,
+            client_device_family=resolved_family,
+            client_instance_id=node_id,
+            client_version=client_version,
+            device_store_path=device_store_path,
+            origin=origin,
+            timeout=timeout,
+            **client_kwargs,
+        )
+        self._unsubscribe: Callable[[], None] | None = None
+        self._tasks: set[asyncio.Task] = set()
+
+    @property
+    def gateway_client(self) -> GatewayClient:
+        return self._client
+
+    @property
+    def is_connected(self) -> bool:
+        return self._client.is_connected
+
+    @property
+    def pending_pairing(self) -> GatewayPairingState | None:
+        return self._client.pending_pairing
+
+    async def connect(self) -> None:
+        """Connect and subscribe to node.invoke.request events.
+
+        Raises `GatewayNodePairingRequired` if the node is not yet paired.
+        """
+        await self._client.connect()
+        if self._unsubscribe is None:
+            self._unsubscribe = self._client.on_event(self._on_event)
+
+    def _on_event(self, message: dict[str, Any]) -> None:
+        if not isinstance(message, dict) or message.get("event") != "node.invoke.request":
+            return
+        payload = message.get("payload")
+        if not isinstance(payload, dict):
+            return
+        task = asyncio.ensure_future(self._dispatch(payload))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def _dispatch(self, payload: dict[str, Any]) -> None:
+        frame_id = str(payload.get("id") or "")
+        node_id = str(payload.get("nodeId") or self.node_id)
+        command = str(payload.get("command") or "")
+        if not frame_id or not command:
+            return
+        handler = self._commands.get(command)
+        if handler is None:
+            await self._reply(
+                frame_id,
+                node_id,
+                ok=False,
+                error={"code": "UNAVAILABLE", "message": f"command not supported: {command}"},
+            )
+            return
+        try:
+            params = self._decode_params(payload.get("paramsJSON"))
+            result = handler(params)
+            if inspect.isawaitable(result):
+                result = await result
+            await self._reply(frame_id, node_id, ok=True, payload=result)
+        except Exception as exc:
+            await self._reply(
+                frame_id,
+                node_id,
+                ok=False,
+                error={"code": "INVALID_REQUEST", "message": str(exc)},
+            )
+
+    @staticmethod
+    def _decode_params(params_json: Any) -> dict[str, Any]:
+        if not isinstance(params_json, str) or not params_json.strip():
+            return {}
+        try:
+            decoded = json.loads(params_json)
+        except Exception as exc:
+            raise ValueError(f"paramsJSON malformed JSON: {exc}") from exc
+        return decoded if isinstance(decoded, dict) else {"value": decoded}
+
+    async def _reply(
+        self,
+        frame_id: str,
+        node_id: str,
+        *,
+        ok: bool,
+        payload: Any = None,
+        error: dict[str, str] | None = None,
+    ) -> None:
+        params: dict[str, Any] = {"id": frame_id, "nodeId": node_id, "ok": ok}
+        if ok:
+            params["payloadJSON"] = json.dumps(payload)
+        elif error:
+            params["error"] = error
+        try:
+            await self._client.call("node.invoke.result", params)
+        except Exception:
+            # node invoke responses are best-effort; the operator RPC times out
+            # on its own if the reply cannot be delivered.
+            pass
+
+    async def close(self) -> None:
+        if self._unsubscribe is not None:
+            self._unsubscribe()
+            self._unsubscribe = None
+        for task in list(self._tasks):
+            task.cancel()
+        self._tasks.clear()
+        await self._client.close()
+
+    async def __aenter__(self) -> NodeServer:
+        await self.connect()
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        await self.close()
+
+
+async def serve_node(
+    url: str,
+    node_id: str,
+    commands: dict[str, NodeInvokeHandler],
+    *,
+    on_ready: Callable[[NodeServer], Any] | None = None,
+    **kwargs: Any,
+) -> None:
+    """Connect a node and serve `node.invoke.request` events until cancelled.
+
+    Raises `GatewayNodePairingRequired` if the node is not yet paired (an
+    operator must approve the pairing before the node can serve).
+    """
+    server = NodeServer(url, node_id, commands, **kwargs)
+    await server.connect()
+    if on_ready is not None:
+        maybe = on_ready(server)
+        if inspect.isawaitable(maybe):
+            await maybe
+    try:
+        while server.is_connected:
+            await asyncio.sleep(1.0)
+    finally:
+        await server.close()
