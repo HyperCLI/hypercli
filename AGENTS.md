@@ -97,6 +97,11 @@ Notes:
   after a failure.
 - CI failure notifications should prefer the Playwright `video.webm` converted
   to MP4. Screenshots are only a fallback when no video artifact exists.
+- If agents E2E hits `NXDOMAIN` or cannot resolve an agent hostname shortly
+  after launch, do not skip tests or bypass gateway readiness. Agent hostnames
+  can take time to propagate through DNS; keep polling the real hostname with a
+  bounded readiness wait and inspect the gateway/route state before changing
+  test coverage.
 - `TEST_CLAW_ADMIN_LOGIN_SHORTCUT=1` uses the backend admin login path instead
   of OTP when `BACKEND_API_KEY` or `AGENTS_BACKEND_API_KEY` is present.
 - Keep secrets in `.env.agents` or CI secrets. Do not pass secret values with
