@@ -43,7 +43,7 @@ from .files import File, AsyncFiles
 from .user import AuthMe, RuntimeIdentity, User, UserAPI
 from .job import BaseJob, ComfyUIJob, GradioJob, apply_params, apply_graph_modes, find_node, find_nodes, load_template, graph_to_api, expand_subgraphs, DEFAULT_OBJECT_INFO
 from .logs import LogStream, stream_logs, fetch_logs
-from .agents import Deployments, Agent, OpenClawAgent, OpenClawProAgent, ExecResult, build_openclaw_routes, build_openclaw_memory_index_env
+from .agents import Deployments, Agent, AgentFileSource, OpenClawAgent, OpenClawFileSource, OpenClawProAgent, ExecResult, build_openclaw_routes, build_openclaw_memory_index_env
 from .shell import ShellSession, shell_connect
 from .agent import (
     HyperAgent,
@@ -164,7 +164,9 @@ __all__ = [
     # Agents (Reef Pods)
     "Deployments",
     "Agent",
+    "AgentFileSource",
     "OpenClawAgent",
+    "OpenClawFileSource",
     "OpenClawProAgent",
     "ExecResult",
     "build_openclaw_routes",

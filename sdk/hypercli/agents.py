@@ -10,12 +10,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+import asyncio
 import copy
 import json
 import os
 import secrets
 import time
-from typing import Optional, Any, AsyncIterator
+from typing import Callable, Literal, Optional, Any, AsyncIterator
 from urllib.parse import quote, urlsplit
 from contextlib import asynccontextmanager
 
@@ -45,6 +46,23 @@ DEFAULT_OPENCLAW_SYNC_ROOT = "/home/node"
 AGENT_FILE_MAX_BYTES = 50 * 1024 * 1024
 AGENT_FILE_TRANSFER_CHUNK_BYTES = 64 * 1024
 AGENT_FILE_OPERATION_TIMEOUT_SECONDS = 300
+
+# Transport for the base agent file API — the backend deployment HTTP files
+# store (arbitrary pod paths; `auto` picks pod when running else s3). Needs a
+# managed deployment.
+AgentFileSource = Literal["auto", "pod", "s3"]
+
+# File source for an OpenClaw agent: the base backend sources plus `gateway`,
+# the operator-WebSocket `agents.files.*` RPC (name-addressed workspace files;
+# works on any gateway, self-hosted included; no delete).
+OpenClawFileSource = Literal["auto", "pod", "s3", "gateway"]
+
+
+def _coerce_utf8_text(content: bytes | str) -> str:
+    """Coerce write content to text for the gateway (text-only) file source."""
+    if isinstance(content, str):
+        return content
+    return bytes(content).decode("utf-8")
 
 
 def _is_directory_listing_payload(value: object) -> bool:
@@ -523,19 +541,19 @@ class Agent:
     def health(self) -> dict:
         return self._require_deployments().health(self)
 
-    def files_list(self, path: str = "", source: str = "auto") -> list[dict]:
+    def files_list(self, path: str = "", source: AgentFileSource = "auto") -> list[dict]:
         return self._require_deployments().files_list(self, path, source=source)
 
-    def file_read_bytes(self, path: str, source: str = "auto") -> bytes:
+    def file_read_bytes(self, path: str, source: AgentFileSource = "auto") -> bytes:
         return self._require_deployments().file_read_bytes(self, path, source=source)
 
-    def file_read(self, path: str, source: str = "auto") -> str:
+    def file_read(self, path: str, source: AgentFileSource = "auto") -> str:
         return self._require_deployments().file_read(self, path, source=source)
 
-    def file_write_bytes(self, path: str, content: bytes, destination: str = "auto") -> dict:
+    def file_write_bytes(self, path: str, content: bytes, destination: AgentFileSource = "auto") -> dict:
         return self._require_deployments().file_write_bytes(self, path, content, destination=destination)
 
-    def file_write(self, path: str, content: str, destination: str = "auto") -> dict:
+    def file_write(self, path: str, content: str, destination: AgentFileSource = "auto") -> dict:
         return self._require_deployments().file_write(self, path, content, destination=destination)
 
     def file_delete(self, path: str, recursive: bool = False) -> dict:
@@ -667,6 +685,71 @@ class OpenClawAgent(Agent):
         gw = self.gateway(**kwargs)
         async with gw:
             yield gw
+
+    def _with_gateway(self, op: Callable[["GatewayClient"], Any]) -> Any:
+        """Run an async gateway op from the sync file API (connect → op → close)."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError(
+                "gateway file operations are synchronous and cannot run inside an "
+                "active event loop; call them from sync code or use the async "
+                "file_get/file_set/workspace_files helpers."
+            )
+
+        async def _invoke() -> Any:
+            async with self.connect() as gw:
+                return await op(gw)
+
+        return asyncio.run(_invoke())
+
+    # OpenClaw file API: the base backend sources (auto|pod|s3) PLUS `gateway`,
+    # which routes to the operator-WS `agents.files.*` RPC. Overrides widen the
+    # source union; non-gateway sources delegate to the base Agent (HTTP).
+    def files_list(self, path: str = "", source: OpenClawFileSource = "auto") -> list[dict]:
+        if source != "gateway":
+            return super().files_list(path, source)
+        files = self._with_gateway(lambda gw: gw.files_list(self.id)) or []
+        prefix = path if path.endswith("/") else f"{path}/"
+        return [
+            entry
+            for entry in (
+                {"name": f.get("name"), "path": f.get("name"), "type": "file", "size": f.get("size")}
+                for f in files
+            )
+            if not path or entry["name"] == path or str(entry["name"]).startswith(prefix)
+        ]
+
+    def file_read_bytes(self, path: str, source: OpenClawFileSource = "auto") -> bytes:
+        if source != "gateway":
+            return super().file_read_bytes(path, source)
+        return self._with_gateway(lambda gw: gw.file_get(self.id, path)).encode("utf-8")
+
+    def file_read(self, path: str, source: OpenClawFileSource = "auto") -> str:
+        if source != "gateway":
+            return super().file_read(path, source)
+        return self._with_gateway(lambda gw: gw.file_get(self.id, path))
+
+    def file_write_bytes(self, path: str, content: bytes, destination: OpenClawFileSource = "auto") -> dict:
+        if destination != "gateway":
+            return super().file_write_bytes(path, content, destination)
+        return self._gateway_file_write(path, _coerce_utf8_text(content))
+
+    def file_write(self, path: str, content: str, destination: OpenClawFileSource = "auto") -> dict:
+        if destination != "gateway":
+            return super().file_write(path, content, destination)
+        return self._gateway_file_write(path, content)
+
+    def file_delete(self, path: str, recursive: bool = False, source: OpenClawFileSource = "auto") -> dict:
+        if source == "gateway":
+            raise ValueError("delete is not supported over the gateway file source; use a pod/s3 source.")
+        return super().file_delete(path, recursive)
+
+    def _gateway_file_write(self, path: str, content: str) -> dict:
+        self._with_gateway(lambda gw: gw.file_set(self.id, path, content))
+        return {"name": path, "source": "gateway"}
 
     async def gateway_status(self, **kwargs) -> dict:
         async with self.connect(**kwargs) as gw:
