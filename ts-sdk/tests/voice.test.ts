@@ -13,7 +13,7 @@ describe('Voice API', () => {
 
     const audio = await new VoiceAPI(http as any).tts({
       text: 'hello',
-      voice: 'Chelsie',
+      voice: 'serena',
       language: 'english',
       responseFormat: 'wav',
     });
@@ -24,7 +24,7 @@ describe('Voice API', () => {
         path: '/agents/voice/tts',
         body: {
           text: 'hello',
-          voice: 'Chelsie',
+          voice: 'serena',
           language: 'english',
           response_format: 'wav',
         },

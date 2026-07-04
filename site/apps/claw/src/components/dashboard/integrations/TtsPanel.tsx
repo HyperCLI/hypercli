@@ -4,11 +4,18 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Check, Loader2, Volume2, Square } from "lucide-react";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
-import { API_BASE_URL } from "@/lib/api";
+import { PRODUCT_API_BASE_URL } from "@/lib/api";
 
 const SPEAKERS = [
-  "Aria", "Ryan", "Luna", "Serena", "Daniel", "Ethan", "Nova", "Chelsie", "Aidan",
+  "aiden", "dylan", "eric", "ono_anna", "ryan", "serena", "sohee", "uncle_fu", "vivian",
 ] as const;
+
+function speakerLabel(speaker: string): string {
+  return speaker
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
 
 const FORMATS = ["opus", "mp3", "wav", "flac"] as const;
 
@@ -27,7 +34,7 @@ interface TtsPanelProps {
 }
 
 export function TtsPanel({ currentSpeaker, currentFormat, onSave, onClose }: TtsPanelProps) {
-  const [speaker, setSpeaker] = useState(currentSpeaker || "Aria");
+  const [speaker, setSpeaker] = useState(currentSpeaker || "serena");
   const [format, setFormat] = useState(currentFormat || "opus");
   const [saving, setSaving] = useState(false);
   const [previewingVoice, setPreviewingVoice] = useState<string | null>(null);
@@ -72,11 +79,11 @@ export function TtsPanel({ currentSpeaker, currentFormat, onSave, onClose }: Tts
     try {
       const token = await getToken();
       const client = new BrowserHyperCLI({
-        apiUrl: API_BASE_URL,
+        apiUrl: PRODUCT_API_BASE_URL,
         token,
       });
       const bytes = await client.voice.tts({
-        text: `Hi, my name is ${voiceName}. How can I help you today?`,
+        text: `Hi, my name is ${speakerLabel(voiceName)}. How can I help you today?`,
         voice: voiceName,
         language: "auto",
         responseFormat: "mp3",
@@ -153,7 +160,7 @@ export function TtsPanel({ currentSpeaker, currentFormat, onSave, onClose }: Tts
                 className="accent-[var(--primary)]"
               />
               <div className="flex items-center gap-2 flex-1">
-                <span className="text-sm text-foreground">{s}</span>
+                <span className="text-sm text-foreground">{speakerLabel(s)}</span>
               </div>
               <button
                 onClick={(e) => {
@@ -166,7 +173,7 @@ export function TtsPanel({ currentSpeaker, currentFormat, onSave, onClose }: Tts
                     ? "text-[var(--primary)]"
                     : "text-text-tertiary hover:text-foreground"
                 } disabled:opacity-30 disabled:cursor-not-allowed`}
-                title={previewingVoice === s ? `Stop ${s}` : `Preview ${s}`}
+                title={previewingVoice === s ? `Stop ${speakerLabel(s)}` : `Preview ${speakerLabel(s)}`}
               >
                 {previewingVoice === s && previewState === "loading" ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -204,7 +211,7 @@ export function TtsPanel({ currentSpeaker, currentFormat, onSave, onClose }: Tts
         <p>
           Your agent can also clone any voice from a reference audio file. Try:{" "}
           <span className="text-text-secondary">&quot;Read this aloud&quot;</span> or{" "}
-          <span className="text-text-secondary">&quot;Say hello in Aria&apos;s voice&quot;</span>
+          <span className="text-text-secondary">&quot;Say hello in Serena&apos;s voice&quot;</span>
         </p>
       </div>
 

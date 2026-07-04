@@ -17,6 +17,8 @@ const rawApiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "";
 const normalizedApiBase = stripApiSuffix(rawApiBase || "");
 
 export const API_BASE_URL = normalizedApiBase ? `${normalizedApiBase}/agents` : "/agents";
+// Bare product base (no /agents suffix) — what BrowserHyperCLI expects as apiUrl
+export const PRODUCT_API_BASE_URL = normalizedApiBase;
 export const AUTH_BASE_URL = normalizedApiBase ? `${normalizedApiBase}/api` : "/api";
 export const X402_BASE_URL = API_BASE_URL;
 export const VOICE_API_URL = normalizedApiBase ? `${normalizedApiBase}/voice` : "/voice";

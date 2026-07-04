@@ -36,6 +36,7 @@ from .jobs import (
 )
 from .renders import Render, RenderStatus
 from .voice import VoiceAPI
+from .voice_stream import VoiceChunk, VoiceSession, VoiceStreamError
 from .models import Model, ModelsAPI
 from .x402 import X402Client, X402JobLaunch, X402FlowCreate, X402RenderCreate, FlowCatalogItem
 from .files import File, AsyncFiles
@@ -119,6 +120,9 @@ __all__ = [
     "Render",
     "RenderStatus",
     "VoiceAPI",
+    "VoiceChunk",
+    "VoiceSession",
+    "VoiceStreamError",
     "Model",
     "ModelsAPI",
     # x402 API

@@ -95,6 +95,51 @@ def _post_voice(endpoint: str, api_key: str, output: Path, base_url: str | None 
         raise typer.Exit(1)
 
 
+def _stream_voice(
+    api_key: str,
+    output: Path,
+    base_url: str | None,
+    *,
+    text: str,
+    voice: str,
+    language: str,
+    response_format: str,
+    timeout: float | None,
+) -> None:
+    """Stream TTS chunks over /ws/voice through the SDK and save audio output."""
+    import asyncio
+
+    from hypercli import VoiceStreamError
+
+    async def run() -> None:
+        client = _voice_client(api_key, base_url)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        total_bytes = 0
+        with output.open("wb") as handle:
+            async for chunk in client.voice.tts_stream(
+                text,
+                voice=voice,
+                language=language,
+                response_format=response_format,
+                timeout=timeout,
+            ):
+                handle.write(chunk.audio)
+                total_bytes += len(chunk.audio)
+                console.print(
+                    f"[dim]chunk {chunk.index + 1}/{chunk.total} ({len(chunk.audio) / 1024:.1f} KB)[/dim]"
+                )
+        console.print(f"[green]✅ Saved {output} ({total_bytes / 1024:.1f} KB)[/green]")
+
+    try:
+        asyncio.run(run())
+    except VoiceStreamError as error:
+        console.print(f"[red]❌ {error.code}: {error.detail[:500]}[/red]")
+        raise typer.Exit(1)
+    except OSError as e:
+        console.print(f"[red]❌ File error: {e}[/red]")
+        raise typer.Exit(1)
+
+
 @app.command("transcribe")
 def transcribe(
     audio_file: Path = typer.Argument(..., help="Audio file to transcribe (wav, mp3, ogg, m4a, etc.)"),
@@ -118,10 +163,11 @@ def transcribe(
 @app.command("tts")
 def tts(
     text: str = typer.Argument(..., help="Text to synthesize"),
-    voice: str = typer.Option("Chelsie", "--voice", "-v", help="Voice name (CustomVoice preset)"),
+    voice: str = typer.Option("serena", "--voice", "-v", help="Voice name (CustomVoice preset)"),
     language: str = typer.Option("auto", "--language", "-l", help="Language: auto, english, chinese, etc."),
     format: str = typer.Option("mp3", "--format", "-f", help="Output format: wav, mp3, opus, ogg, flac"),
     output: Path = typer.Option(None, "--output", "-o", help="Output audio file (default: output.<format>)"),
+    stream: bool = typer.Option(False, "--stream", help="Stream audio chunks over /ws/voice as they render"),
     timeout: float | None = typer.Option(None, "--timeout", help="Voice request timeout in seconds"),
     key: str = typer.Option(None, "--key", "-k", help="API key (hyper_api_...)"),
     base_url: str = typer.Option(None, "--base-url", "-b", help="API base URL (default: api.hypercli.com)"),
@@ -130,11 +176,24 @@ def tts(
 
     Examples:
       hyper voice tts "Hello world"
-      hyper voice tts "Bonjour" -v Etienne -l french -f opus -o hello.opus
+      hyper voice tts "Bonjour" -v eric -l french -f opus -o hello.opus
+      hyper voice tts "Long text..." --stream
     """
     api_key = _get_api_key(key)
     if output is None:
         output = Path(f"output.{format}")
+    if stream:
+        _stream_voice(
+            api_key,
+            output,
+            base_url,
+            text=text,
+            voice=voice,
+            language=language,
+            response_format=format,
+            timeout=timeout,
+        )
+        return
     _post_voice(
         "tts",
         api_key,

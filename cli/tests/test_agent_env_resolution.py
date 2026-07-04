@@ -131,9 +131,9 @@ def test_voice_cli_posts_to_agents_voice_prefix(monkeypatch, tmp_path):
     monkeypatch.setattr(voice, "HyperCLI", _FakeHyperCLI)
 
     out = tmp_path / "voice.wav"
-    voice._post_voice("tts", "hyper_api_product", out, text="hello", voice="Chelsie")
+    voice._post_voice("tts", "hyper_api_product", out, text="hello", voice="serena")
 
     assert called["api_url"] == "https://api.dev.hypercli.com"
     assert called["api_key"] == "hyper_api_product"
-    assert called["kwargs"] == {"text": "hello", "voice": "Chelsie"}
+    assert called["kwargs"] == {"text": "hello", "voice": "serena"}
     assert out.read_bytes() == b"audio"

@@ -3,11 +3,12 @@ from __future__ import annotations
 """Voice API client."""
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, AsyncIterator
 import base64
 
 if TYPE_CHECKING:
     from .http import HTTPClient
+    from .voice_stream import VoiceChunk, VoiceSession
 
 
 def _encode_reference_audio(ref_audio: bytes | str | Path) -> str:
@@ -43,7 +44,7 @@ class VoiceAPI:
         self,
         text: str,
         *,
-        voice: str = "Chelsie",
+        voice: str = "serena",
         language: str = "auto",
         response_format: str = "mp3",
         timeout: float | None = None,
@@ -100,3 +101,39 @@ class VoiceAPI:
             },
             timeout=_resolve_voice_timeout(timeout),
         )
+
+    def connect(self, *, timeout: float | None = None) -> "VoiceSession":
+        """Create a streaming VoiceSession (open with 'async with' or open()).
+
+        The session talks to /ws/voice and receives ordered audio chunks
+        as the server renders them.
+        """
+        from .config import get_agents_ws_url_from_product_base
+        from .voice_stream import VoiceSession
+
+        ws_url = get_agents_ws_url_from_product_base(self._http.base_url)
+        return VoiceSession(
+            ws_url,
+            self._http.api_key,
+            timeout=_resolve_voice_timeout(timeout),
+        )
+
+    async def tts_stream(
+        self,
+        text: str,
+        *,
+        voice: str = "serena",
+        language: str = "auto",
+        response_format: str = "mp3",
+        timeout: float | None = None,
+    ) -> AsyncIterator["VoiceChunk"]:
+        """One-shot streaming TTS: opens a session, speaks, closes."""
+        async with self.connect(timeout=timeout) as session:
+            async for chunk in session.speak(
+                text,
+                voice=voice,
+                language=language,
+                response_format=response_format,
+                chunks=True,
+            ):
+                yield chunk

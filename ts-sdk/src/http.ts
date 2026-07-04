@@ -142,6 +142,14 @@ export class HTTPClient {
     this.timeout = timeout;
   }
 
+  get base(): string {
+    return this.baseUrl;
+  }
+
+  get credential(): string {
+    return this.apiKey;
+  }
+
   private get headers(): Record<string, string> {
     return {
       'Authorization': `Bearer ${this.apiKey}`,

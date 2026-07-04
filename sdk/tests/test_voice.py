@@ -16,7 +16,7 @@ def test_voice_tts_posts_to_agents_voice_prefix():
     http = DummyVoiceHTTP()
     voice = VoiceAPI(http)
 
-    audio = voice.tts("hello", voice="Chelsie", language="english", response_format="wav")
+    audio = voice.tts("hello", voice="serena", language="english", response_format="wav")
 
     assert audio == b"audio-bytes"
     assert http.calls == [
@@ -24,7 +24,7 @@ def test_voice_tts_posts_to_agents_voice_prefix():
             "/agents/voice/tts",
             {
                 "text": "hello",
-                "voice": "Chelsie",
+                "voice": "serena",
                 "language": "english",
                 "response_format": "wav",
             },
