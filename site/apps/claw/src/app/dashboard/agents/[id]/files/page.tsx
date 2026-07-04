@@ -12,9 +12,10 @@ import { createAgentClient } from "@/lib/agent-client";
 import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import { OPENCLAW_WORKSPACE_PREFIX } from "@/lib/openclaw-config";
 import type { AgentFileEntry } from "@/types";
-import type { OpenClawAgent } from "@hypercli.com/sdk/agents";
+import { OpenClawAgent } from "@hypercli.com/sdk/agents";
 
 type AgentFileSource = "auto" | "pod" | "s3";
+type AgentFilePanelSource = AgentFileSource | "gateway";
 
 const AGENT_DIRECTORY_MARKER_NAME = ".hypercli-folder";
 
@@ -76,8 +77,22 @@ export default function AgentFilesPage() {
     };
   }, [agentId, getToken]);
 
-  const listFiles = useCallback(async (path?: string, source: AgentFileSource = "auto") => {
+  // Gateway file ops go through the SDK's OpenClawAgent instance (operator-WS agents.files.*),
+  // so they need the hydrated agent record rather than the Deployments client.
+  const gatewayFilesAgent = useCallback((): OpenClawAgent => {
+    if (!agent) throw new Error("Agent record is still loading.");
+    if (!(agent instanceof OpenClawAgent)) {
+      throw new Error("Gateway files are only available for OpenClaw agents.");
+    }
+    return agent;
+  }, [agent]);
+
+  const listFiles = useCallback(async (path?: string, source: AgentFilePanelSource = "auto") => {
     if (!agentId) return [];
+    if (source === "gateway") {
+      const entries = await gatewayFilesAgent().filesList(path ?? "", "gateway");
+      return (entries as AgentFileEntry[]).map(toDashboardFileEntry);
+    }
     const token = await getToken();
     const client = createAgentClient(token);
     const normalizedPath = normalizeAgentFilePath(path ?? "");
@@ -96,21 +111,31 @@ export default function AgentFilesPage() {
     return (entries as AgentFileEntry[])
       .filter((entry) => !isAgentDirectoryMarkerEntry(entry))
       .map(toDashboardFileEntry);
-  }, [agent?.state, agentId, getToken]);
+  }, [agent?.state, agentId, gatewayFilesAgent, getToken]);
 
-  const openFile = useCallback(async (path: string) => {
+  const openFile = useCallback(async (path: string, requestedSource: AgentFilePanelSource = "auto") => {
+    if (requestedSource === "gateway") {
+      return gatewayFilesAgent().fileRead(path, "gateway");
+    }
     const token = await getToken();
-    const source = agentFileSourceForState(agent?.state, "auto");
+    const source = agentFileSourceForState(agent?.state, requestedSource);
     return createAgentClient(token).fileRead(agentId, normalizeAgentFilePath(path), source);
-  }, [agent?.state, agentId, getToken]);
+  }, [agent?.state, agentId, gatewayFilesAgent, getToken]);
 
-  const openFileBytes = useCallback(async (path: string) => {
+  const openFileBytes = useCallback(async (path: string, requestedSource: AgentFilePanelSource = "auto") => {
+    if (requestedSource === "gateway") {
+      return gatewayFilesAgent().fileReadBytes(path, "gateway");
+    }
     const token = await getToken();
-    const source = agentFileSourceForState(agent?.state, "auto");
+    const source = agentFileSourceForState(agent?.state, requestedSource);
     return createAgentClient(token).fileReadBytes(agentId, normalizeAgentFilePath(path), source);
-  }, [agent?.state, agentId, getToken]);
+  }, [agent?.state, agentId, gatewayFilesAgent, getToken]);
 
-  const saveFile = useCallback(async (path: string, content: string) => {
+  const saveFile = useCallback(async (path: string, content: string, destination: AgentFilePanelSource = "auto") => {
+    if (destination === "gateway") {
+      await gatewayFilesAgent().fileWrite(path, content, "gateway");
+      return;
+    }
     const token = await getToken();
     await createAgentClient(token).fileWrite(
       agentId,
@@ -118,7 +143,7 @@ export default function AgentFilesPage() {
       content,
       agentFileDestinationForState(agent?.state),
     );
-  }, [agent?.state, agentId, getToken]);
+  }, [agent?.state, agentId, gatewayFilesAgent, getToken]);
 
   const deleteFile = useCallback(async (path: string, options?: { recursive?: boolean }) => {
     const token = await getToken();

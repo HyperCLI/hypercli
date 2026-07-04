@@ -32,6 +32,16 @@ const SORT_OPTIONS: Array<{ key: FileSortKey; label: string }> = [
   { key: "size", label: "Size" },
   { key: "date", label: "Date" },
 ];
+
+/** Where panel file operations are routed: the deployment HTTP files API (auto/pod/s3) or the gateway agents.files.* RPC. */
+export type AgentFilesPanelSource = "auto" | "pod" | "s3" | "gateway";
+type AgentFilesSourceMode = "workspace" | "gateway";
+
+const SOURCE_MODE_OPTIONS: Array<{ key: AgentFilesSourceMode; label: string; title: string }> = [
+  { key: "workspace", label: "Workspace", title: "Workspace files (pod/S3)" },
+  { key: "gateway", label: "Gateway", title: "Gateway files (name-addressed workspace files over the agent gateway)" },
+];
+
 const FILES_LISTING_CACHE_LIMIT = 80;
 const filesListingCache = new Map<string, FileEntry[]>();
 
@@ -39,10 +49,15 @@ function normalizePanelPath(path: string): string {
   return normalizeOpenClawWorkspaceFilePath(path);
 }
 
-function filesListingCacheKey(agentId: string | null | undefined, rootPath: string, path: string): string | null {
+function filesListingCacheKey(
+  agentId: string | null | undefined,
+  rootPath: string,
+  path: string,
+  sourceMode: AgentFilesSourceMode = "workspace",
+): string | null {
   const normalizedAgentId = agentId?.trim();
   if (!normalizedAgentId) return null;
-  return [normalizedAgentId, normalizePanelPath(rootPath), normalizePanelPath(path)].join("\n");
+  return [normalizedAgentId, sourceMode, normalizePanelPath(rootPath), normalizePanelPath(path)].join("\n");
 }
 
 function getCachedFiles(cacheKey: string | null): FileEntry[] | null {
@@ -112,11 +127,11 @@ interface AgentFilesPanelProps {
   initialPreviewPath?: string | null;
   isDesktopViewport?: boolean;
   error?: string | null;
-  onListFiles: (path?: string) => Promise<FileEntry[]>;
-  onOpenFile: (path: string) => Promise<AgentFileOpenResponse<string>>;
-  onOpenFileBytes?: (path: string) => Promise<AgentFileOpenResponse<Uint8Array>>;
-  onDownloadFileBytes?: (path: string) => Promise<AgentFileOpenResponse<Uint8Array>>;
-  onSaveFile: (path: string, content: string) => Promise<void>;
+  onListFiles: (path?: string, source?: AgentFilesPanelSource) => Promise<FileEntry[]>;
+  onOpenFile: (path: string, source?: AgentFilesPanelSource) => Promise<AgentFileOpenResponse<string>>;
+  onOpenFileBytes?: (path: string, source?: AgentFilesPanelSource) => Promise<AgentFileOpenResponse<Uint8Array>>;
+  onDownloadFileBytes?: (path: string, source?: AgentFilesPanelSource) => Promise<AgentFileOpenResponse<Uint8Array>>;
+  onSaveFile: (path: string, content: string, source?: AgentFilesPanelSource) => Promise<void>;
   onDeleteFile: (path: string, options?: { recursive?: boolean }) => Promise<void>;
   onUploadFile: (path: string, content: Uint8Array) => Promise<void>;
   onCreateDirectory?: (path: string) => Promise<void>;
@@ -140,6 +155,8 @@ export function AgentFilesPanel({
   onCreateDirectory,
 }: AgentFilesPanelProps) {
   const normalizedRootPath = useMemo(() => normalizePanelPath(rootPath), [rootPath]);
+  const [sourceMode, setSourceMode] = useState<AgentFilesSourceMode>("workspace");
+  const isGatewaySource = sourceMode === "gateway";
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPath, setCurrentPath] = useState(() => normalizedRootPath);
   const [showHidden, setShowHidden] = useState(false);
@@ -163,8 +180,8 @@ export function AgentFilesPanel({
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const currentListingCacheKey = useMemo(
-    () => filesListingCacheKey(agentId, normalizedRootPath, currentPath),
-    [agentId, currentPath, normalizedRootPath],
+    () => filesListingCacheKey(agentId, normalizedRootPath, currentPath, sourceMode),
+    [agentId, currentPath, normalizedRootPath, sourceMode],
   );
 
   const loadFiles = useCallback(async () => {
@@ -177,7 +194,10 @@ export function AgentFilesPanel({
     setListLoading(true);
     setListError(null);
     try {
-      const nextFiles = await onListFiles(currentPath || undefined);
+      // Gateway files are name-addressed (flat list, no directory scoping) — always list the whole set.
+      const nextFiles = isGatewaySource
+        ? await onListFiles(undefined, "gateway")
+        : await onListFiles(currentPath || undefined);
       if (requestId === listRequestIdRef.current) {
         setFiles(nextFiles);
         setCachedFiles(currentListingCacheKey, nextFiles);
@@ -192,7 +212,7 @@ export function AgentFilesPanel({
         setListLoading(false);
       }
     }
-  }, [connected, currentListingCacheKey, currentPath, onListFiles]);
+  }, [connected, currentListingCacheKey, currentPath, isGatewaySource, onListFiles]);
 
   useEffect(() => {
     if (!connected) {
@@ -255,10 +275,11 @@ export function AgentFilesPanel({
     setPreviewError(null);
     setPreviewLoading(true);
     try {
+      const openAsBytes = (isImageFileName(entry.name) || isArchiveFileName(entry.name)) && onOpenFileBytes;
       const result = resolveAgentFileOpenResult(
-        await ((isImageFileName(entry.name) || isArchiveFileName(entry.name)) && onOpenFileBytes
-          ? onOpenFileBytes(entry.path)
-          : onOpenFile(entry.path)),
+        await (openAsBytes
+          ? (isGatewaySource ? onOpenFileBytes(entry.path, "gateway") : onOpenFileBytes(entry.path))
+          : (isGatewaySource ? onOpenFile(entry.path, "gateway") : onOpenFile(entry.path))),
       );
       const nextPath = result.path ? normalizePanelPath(result.path) : entry.path;
       const nextName = result.name || (nextPath !== entry.path ? fileNameFromPath(nextPath) : entry.name);
@@ -272,7 +293,7 @@ export function AgentFilesPanel({
     } finally {
       setPreviewLoading(false);
     }
-  }, [loadFiles, onOpenFile, onOpenFileBytes]);
+  }, [isGatewaySource, loadFiles, onOpenFile, onOpenFileBytes]);
 
   const normalizedInitialPreviewPath = useMemo(
     () => initialPreviewPath ? normalizeOpenClawMediaFilePath(initialPreviewPath) : "",
@@ -293,10 +314,11 @@ export function AgentFilesPanel({
   }, [connected, handleOpenFile, normalizedInitialPreviewPath, normalizedRootPath]);
 
   const handleSaveFile = useCallback(async (path: string, content: string) => {
-    await onSaveFile(path, content);
+    if (isGatewaySource) await onSaveFile(path, content, "gateway");
+    else await onSaveFile(path, content);
     setPreviewContent(content);
     void loadFiles();
-  }, [loadFiles, onSaveFile]);
+  }, [isGatewaySource, loadFiles, onSaveFile]);
 
   const handleDeleteFile = useCallback(async (entry: FileEntry) => {
     await onDeleteFile(entry.path, entry.type === "directory" ? { recursive: true } : undefined);
@@ -345,11 +367,13 @@ export function AgentFilesPanel({
 
   const handleDownloadFile = useCallback(async (entry: FileEntry) => {
     if (!onDownloadFileBytes || entry.type === "directory") return;
-    const result = resolveAgentFileOpenResult(await onDownloadFileBytes(entry.path));
+    const result = resolveAgentFileOpenResult(
+      await (isGatewaySource ? onDownloadFileBytes(entry.path, "gateway") : onDownloadFileBytes(entry.path)),
+    );
     const nextPath = result.path ? normalizePanelPath(result.path) : entry.path;
     downloadFileBytes(result.name || (nextPath !== entry.path ? fileNameFromPath(nextPath) : entry.name), result.content);
     if (nextPath !== entry.path) void loadFiles();
-  }, [loadFiles, onDownloadFileBytes]);
+  }, [isGatewaySource, loadFiles, onDownloadFileBytes]);
 
   const handleCopyPath = useCallback((entry: FileEntry) => {
     void writeClipboardText(entry.path);
@@ -359,6 +383,18 @@ export function AgentFilesPanel({
     setCurrentPath(pathFromRoot(path, normalizedRootPath));
     setPreviewEntry(null);
   }, [normalizedRootPath]);
+
+  const handleSourceModeChange = useCallback((mode: AgentFilesSourceMode) => {
+    if (mode === sourceMode) return;
+    setSourceMode(mode);
+    setCurrentPath(normalizedRootPath);
+    setSearchQuery("");
+    setPreviewEntry(null);
+    setPreviewContent(null);
+    setPreviewError(null);
+    setShowUpload(false);
+    setShowCreateFolder(false);
+  }, [normalizedRootPath, sourceMode]);
 
   const toggleSort = useCallback((key: FileSortKey) => {
     if (sortKey === key) {
@@ -378,7 +414,7 @@ export function AgentFilesPanel({
       content={previewContent}
       loading={previewLoading}
       error={previewError}
-      readOnly={isProtectedFile(previewEntry.path)}
+      readOnly={!isGatewaySource && isProtectedFile(previewEntry.path)}
       onClose={() => setPreviewEntry(null)}
       onSave={handleSaveFile}
       onDownload={onDownloadFileBytes ? handleDownloadFile : undefined}
@@ -398,6 +434,30 @@ export function AgentFilesPanel({
 
         <div className="flex-1" />
 
+        <div
+          className="flex flex-shrink-0 items-center rounded-lg border border-border bg-surface-low p-0.5"
+          role="tablist"
+          aria-label="File source"
+        >
+          {SOURCE_MODE_OPTIONS.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              role="tab"
+              aria-selected={sourceMode === option.key}
+              onClick={() => handleSourceModeChange(option.key)}
+              className={`h-6 rounded-md px-2 text-[10px] font-medium transition-colors ${
+                sourceMode === option.key
+                  ? "bg-selection-accent/10 text-selection-accent"
+                  : "text-text-muted hover:text-foreground"
+              }`}
+              title={option.title}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+
         {(filesLoading || !connected || effectiveError) && (
           <div className="flex items-center gap-1 text-[10px] text-warning">
             {filesBootStatus?.status === "loading" ? <Loader2 className="h-3 w-3 animate-spin" /> : <WifiOff className="h-3 w-3" />}
@@ -415,11 +475,11 @@ export function AgentFilesPanel({
               setShowUpload(false);
               setNewFolderError(null);
             }}
-            disabled={!connected}
+            disabled={!connected || isGatewaySource}
             className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
               showCreateFolder ? "bg-selection-accent/10 text-selection-accent" : "text-text-muted hover:bg-surface-low hover:text-foreground"
             }`}
-            title="New folder"
+            title={isGatewaySource ? "Folders are not available for gateway files" : "New folder"}
             aria-label="New folder"
           >
             <FolderPlus className="h-3.5 w-3.5" />
@@ -432,11 +492,11 @@ export function AgentFilesPanel({
             setShowUpload((open) => !open);
             setShowCreateFolder(false);
           }}
-          disabled={!connected}
+          disabled={!connected || isGatewaySource}
           className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
             showUpload ? "bg-selection-accent/10 text-selection-accent" : "text-text-muted hover:bg-surface-low hover:text-foreground"
           }`}
-          title="Upload files"
+          title={isGatewaySource ? "Uploads are not available for gateway files" : "Upload files"}
         >
           <Upload className="h-3.5 w-3.5" />
         </button>
@@ -492,7 +552,7 @@ export function AgentFilesPanel({
       </div>
 
       <AnimatePresence>
-        {showCreateFolder && connected && onCreateDirectory && (
+        {showCreateFolder && connected && !isGatewaySource && onCreateDirectory && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
@@ -550,7 +610,7 @@ export function AgentFilesPanel({
       </AnimatePresence>
 
       <AnimatePresence>
-        {showUpload && connected && (
+        {showUpload && connected && !isGatewaySource && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
@@ -580,7 +640,7 @@ export function AgentFilesPanel({
               resultCount={searchResultCount}
               totalCount={files.length}
             />
-            {breadcrumbPath && !searchQuery.trim() && (
+            {!isGatewaySource && breadcrumbPath && !searchQuery.trim() && (
               <FileBreadcrumbs path={breadcrumbPath} onNavigate={handleNavigate} />
             )}
           </div>
@@ -620,7 +680,7 @@ export function AgentFilesPanel({
                 showHidden={showHidden}
                 onOpenFile={handleOpenFile}
                 onOpenDirectory={handleOpenFile}
-                onDeleteFile={handleDeleteFile}
+                onDeleteFile={isGatewaySource ? undefined : handleDeleteFile}
                 onDownloadFile={onDownloadFileBytes ? handleDownloadFile : undefined}
                 onCopyPath={handleCopyPath}
               />
