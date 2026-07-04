@@ -58,7 +58,7 @@ describe("AgentFilesPanel", () => {
     });
 
     await waitFor(() => {
-      expect(onOpenFile).toHaveBeenCalledWith(".openclaw/workspace/report.md");
+      expect(onOpenFile).toHaveBeenCalledWith(".openclaw/workspace/report.md", "agent");
     });
   });
 
@@ -71,7 +71,7 @@ describe("AgentFilesPanel", () => {
     });
 
     await waitFor(() => {
-      expect(onOpenFileBytes).toHaveBeenCalledWith(".openclaw/workspace/865621.jpg");
+      expect(onOpenFileBytes).toHaveBeenCalledWith(".openclaw/workspace/865621.jpg", "agent");
     });
   });
 
@@ -86,7 +86,7 @@ describe("AgentFilesPanel", () => {
     });
 
     await waitFor(() => {
-      expect(onOpenFileBytes).toHaveBeenCalledWith(".openclaw/workspace/archive.zip");
+      expect(onOpenFileBytes).toHaveBeenCalledWith(".openclaw/workspace/archive.zip", "agent");
     });
     expect(onOpenFile).not.toHaveBeenCalled();
   });
@@ -102,7 +102,7 @@ describe("AgentFilesPanel", () => {
     });
 
     await waitFor(() => {
-      expect(onOpenFileBytes).toHaveBeenCalledWith(".openclaw/workspace/book.epub");
+      expect(onOpenFileBytes).toHaveBeenCalledWith(".openclaw/workspace/book.epub", "agent");
     });
     expect(onOpenFile).not.toHaveBeenCalled();
   });

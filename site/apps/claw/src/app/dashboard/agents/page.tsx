@@ -139,7 +139,11 @@ import type { JourneyCompletionEvent, JourneyDay } from "@/components/dashboard/
 
 type MainTab = AgentMainTab;
 type AgentFileSource = "auto" | "pod" | "s3";
-type AgentFilePanelSource = AgentFileSource | "gateway";
+/**
+ * Sources requested by callers: the 3-way AgentFilesPanel selector (agent/backup/gateway)
+ * plus the internal auto/pod/s3 values used by non-panel callers (chat file references, etc.).
+ */
+type AgentFilePanelSource = AgentFileSource | "agent" | "backup" | "gateway";
 type PendingJourneyChatCompletion = {
   event: JourneyCompletionEvent | null;
   dayId?: string | null;
@@ -701,6 +705,14 @@ function agentFileSourceForState(agentState: AgentState | string | null | undefi
 
 function agentFileDestinationForState(agentState: AgentState | string | null | undefined): AgentFileSource {
   return agentState === "RUNNING" ? "auto" : "s3";
+}
+
+/** Map the panel's explicit backend sources (agent = live pod, backup = S3) onto wire sources. */
+function backendSourceFromPanel(source: AgentFilePanelSource): AgentFileSource {
+  if (source === "agent") return "pod";
+  if (source === "backup") return "s3";
+  if (source === "gateway") return "auto";
+  return source;
 }
 
 async function readAgentFileWithSourceFallback<T>(
@@ -1423,7 +1435,7 @@ function AgentsPageContent() {
     }
     const agentClient = await getAgentClient();
     const normalizedPath = normalizeAgentFilePath(path ?? "");
-    const preferredSource = agentFileSourceForState(selectedAgentState, source);
+    const preferredSource = agentFileSourceForState(selectedAgentState, backendSourceFromPanel(source));
     const entries = await agentClient.filesList(selectedAgentId, normalizedPath, preferredSource);
     if (preferredSource === "auto" && entries.length === 0) {
       for (const fallbackSource of ["s3", "pod"] as const) {
@@ -1510,7 +1522,7 @@ function AgentsPageContent() {
     if (!agentId) return { content: "", path: normalizedPath, renamed: false };
 
     const agentClient = await getAgentClient();
-    const readSource = agentFileSourceForState(selectedAgentState, source);
+    const readSource = agentFileSourceForState(selectedAgentState, backendSourceFromPanel(source));
     return readAgentFileWithRecovery({
       path: normalizedPath,
       read: (targetPath) => readAgentFileWithSourceFallback(readSource, (fallbackSource) => (
@@ -1538,7 +1550,7 @@ function AgentsPageContent() {
     if (!agentId) return { content: new Uint8Array(), path: normalizedPath, renamed: false };
 
     const agentClient = await getAgentClient();
-    const readSource = agentFileSourceForState(selectedAgentState, source);
+    const readSource = agentFileSourceForState(selectedAgentState, backendSourceFromPanel(source));
     return readAgentFileWithRecovery({
       path: normalizedPath,
       read: (targetPath) => readAgentFileWithSourceFallback(readSource, (fallbackSource) => (
@@ -1570,11 +1582,14 @@ function AgentsPageContent() {
       return;
     }
     const agentClient = await getAgentClient();
+    const writeDestination = destination === "agent" || destination === "backup"
+      ? backendSourceFromPanel(destination)
+      : agentFileDestinationForState(selectedAgentState);
     await agentClient.fileWrite(
       selectedAgentId,
       normalizeAgentFilePath(path),
       content,
-      agentFileDestinationForState(selectedAgentState),
+      writeDestination,
     );
     await refreshChatFileReferences().catch(() => undefined);
   }, [gatewayFilesAgent, getAgentClient, refreshChatFileReferences, selectedAgentId, selectedAgentState]);

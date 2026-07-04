@@ -33,13 +33,18 @@ const SORT_OPTIONS: Array<{ key: FileSortKey; label: string }> = [
   { key: "date", label: "Date" },
 ];
 
-/** Where panel file operations are routed: the deployment HTTP files API (auto/pod/s3) or the gateway agents.files.* RPC. */
-export type AgentFilesPanelSource = "auto" | "pod" | "s3" | "gateway";
-type AgentFilesSourceMode = "workspace" | "gateway";
+/**
+ * Which file-access path panel operations are routed through:
+ * - `agent`   → the deployment HTTP files API against the live agent pod filesystem.
+ * - `backup`  → the deployment HTTP files API against the S3 backup of the workspace.
+ * - `gateway` → the gateway `agents.files.*` RPC (name-addressed workspace files).
+ */
+export type AgentFilesPanelSource = "agent" | "backup" | "gateway";
 
-const SOURCE_MODE_OPTIONS: Array<{ key: AgentFilesSourceMode; label: string; title: string }> = [
-  { key: "workspace", label: "Workspace", title: "Workspace files (pod/S3)" },
-  { key: "gateway", label: "Gateway", title: "Gateway files (name-addressed workspace files over the agent gateway)" },
+const SOURCE_MODE_OPTIONS: Array<{ key: AgentFilesPanelSource; label: string; title: string }> = [
+  { key: "agent", label: "Agent", title: "Live agent pod filesystem" },
+  { key: "backup", label: "Backup", title: "S3 backup of the workspace (served while the agent is stopped)" },
+  { key: "gateway", label: "Gateway", title: "Name-addressed workspace files over the agent gateway" },
 ];
 
 const FILES_LISTING_CACHE_LIMIT = 80;
@@ -53,7 +58,7 @@ function filesListingCacheKey(
   agentId: string | null | undefined,
   rootPath: string,
   path: string,
-  sourceMode: AgentFilesSourceMode = "workspace",
+  sourceMode: AgentFilesPanelSource = "agent",
 ): string | null {
   const normalizedAgentId = agentId?.trim();
   if (!normalizedAgentId) return null;
@@ -155,7 +160,7 @@ export function AgentFilesPanel({
   onCreateDirectory,
 }: AgentFilesPanelProps) {
   const normalizedRootPath = useMemo(() => normalizePanelPath(rootPath), [rootPath]);
-  const [sourceMode, setSourceMode] = useState<AgentFilesSourceMode>("workspace");
+  const [sourceMode, setSourceMode] = useState<AgentFilesPanelSource>("agent");
   const isGatewaySource = sourceMode === "gateway";
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPath, setCurrentPath] = useState(() => normalizedRootPath);
@@ -197,7 +202,7 @@ export function AgentFilesPanel({
       // Gateway files are name-addressed (flat list, no directory scoping) — always list the whole set.
       const nextFiles = isGatewaySource
         ? await onListFiles(undefined, "gateway")
-        : await onListFiles(currentPath || undefined);
+        : await onListFiles(currentPath || undefined, sourceMode);
       if (requestId === listRequestIdRef.current) {
         setFiles(nextFiles);
         setCachedFiles(currentListingCacheKey, nextFiles);
@@ -212,7 +217,7 @@ export function AgentFilesPanel({
         setListLoading(false);
       }
     }
-  }, [connected, currentListingCacheKey, currentPath, isGatewaySource, onListFiles]);
+  }, [connected, currentListingCacheKey, currentPath, isGatewaySource, onListFiles, sourceMode]);
 
   useEffect(() => {
     if (!connected) {
@@ -278,8 +283,8 @@ export function AgentFilesPanel({
       const openAsBytes = (isImageFileName(entry.name) || isArchiveFileName(entry.name)) && onOpenFileBytes;
       const result = resolveAgentFileOpenResult(
         await (openAsBytes
-          ? (isGatewaySource ? onOpenFileBytes(entry.path, "gateway") : onOpenFileBytes(entry.path))
-          : (isGatewaySource ? onOpenFile(entry.path, "gateway") : onOpenFile(entry.path))),
+          ? onOpenFileBytes(entry.path, sourceMode)
+          : onOpenFile(entry.path, sourceMode)),
       );
       const nextPath = result.path ? normalizePanelPath(result.path) : entry.path;
       const nextName = result.name || (nextPath !== entry.path ? fileNameFromPath(nextPath) : entry.name);
@@ -293,7 +298,7 @@ export function AgentFilesPanel({
     } finally {
       setPreviewLoading(false);
     }
-  }, [isGatewaySource, loadFiles, onOpenFile, onOpenFileBytes]);
+  }, [loadFiles, onOpenFile, onOpenFileBytes, sourceMode]);
 
   const normalizedInitialPreviewPath = useMemo(
     () => initialPreviewPath ? normalizeOpenClawMediaFilePath(initialPreviewPath) : "",
@@ -314,11 +319,10 @@ export function AgentFilesPanel({
   }, [connected, handleOpenFile, normalizedInitialPreviewPath, normalizedRootPath]);
 
   const handleSaveFile = useCallback(async (path: string, content: string) => {
-    if (isGatewaySource) await onSaveFile(path, content, "gateway");
-    else await onSaveFile(path, content);
+    await onSaveFile(path, content, sourceMode);
     setPreviewContent(content);
     void loadFiles();
-  }, [isGatewaySource, loadFiles, onSaveFile]);
+  }, [loadFiles, onSaveFile, sourceMode]);
 
   const handleDeleteFile = useCallback(async (entry: FileEntry) => {
     await onDeleteFile(entry.path, entry.type === "directory" ? { recursive: true } : undefined);
@@ -368,12 +372,12 @@ export function AgentFilesPanel({
   const handleDownloadFile = useCallback(async (entry: FileEntry) => {
     if (!onDownloadFileBytes || entry.type === "directory") return;
     const result = resolveAgentFileOpenResult(
-      await (isGatewaySource ? onDownloadFileBytes(entry.path, "gateway") : onDownloadFileBytes(entry.path)),
+      await onDownloadFileBytes(entry.path, sourceMode),
     );
     const nextPath = result.path ? normalizePanelPath(result.path) : entry.path;
     downloadFileBytes(result.name || (nextPath !== entry.path ? fileNameFromPath(nextPath) : entry.name), result.content);
     if (nextPath !== entry.path) void loadFiles();
-  }, [isGatewaySource, loadFiles, onDownloadFileBytes]);
+  }, [loadFiles, onDownloadFileBytes, sourceMode]);
 
   const handleCopyPath = useCallback((entry: FileEntry) => {
     void writeClipboardText(entry.path);
@@ -384,7 +388,7 @@ export function AgentFilesPanel({
     setPreviewEntry(null);
   }, [normalizedRootPath]);
 
-  const handleSourceModeChange = useCallback((mode: AgentFilesSourceMode) => {
+  const handleSourceModeChange = useCallback((mode: AgentFilesPanelSource) => {
     if (mode === sourceMode) return;
     setSourceMode(mode);
     setCurrentPath(normalizedRootPath);
