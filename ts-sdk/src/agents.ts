@@ -308,18 +308,166 @@ export interface AgentFileEntry {
 }
 
 /**
- * Transport for the base agent file API — the backend deployment HTTP files
- * store (arbitrary pod paths; `auto` picks pod when running else s3). Needs a
- * managed deployment.
+ * The three file-access paths for an OpenClaw agent, each with its own root —
+ * the SDK owns the roots so a workspace-relative path (e.g. `"AGENTS.md"`) hits
+ * the same file on all three:
+ * - `agent`  — the files API on the agent's live pod filesystem. Full access:
+ *              a workspace-relative path resolves under the workspace, and an
+ *              absolute `/…` path reaches anywhere on the pod. (wire `source=pod`)
+ * - `backup` — the S3 backup of the sync root (`/home/node`); served when the
+ *              pod is stopped. Scoped to the sync root. (wire `source=s3`)
+ * - `gateway`— the operator-WebSocket `agents.files.*` RPC; scoped to the
+ *              `.openclaw/workspace` (name-addressed; no delete). Works on any
+ *              gateway, self-hosted included.
+ * - `auto`   — backend default: the agent while running, else the backup.
+ *
+ * `pod`/`s3` are accepted as deprecated aliases of `agent`/`backup`.
  */
-export type AgentFileSource = 'auto' | 'pod' | 's3';
+export type AgentFileSource = 'auto' | 'agent' | 'backup' | 'gateway' | 'pod' | 's3';
+
+/** @deprecated Alias of {@link AgentFileSource}; gateway is a base capability now. */
+export type OpenClawFileSource = AgentFileSource;
+
+/** The backend (non-gateway) file sources — the deployment HTTP files store. */
+export type AgentFileBackendSource = Exclude<AgentFileSource, 'gateway'>;
+
+/** The value the deployment HTTP API accepts on the wire (`source`/`destination`). */
+export type AgentFileWireSource = 'auto' | 'pod' | 's3';
+
+/** The agent's sync root and workspace, owned by the SDK so paths are unambiguous. */
+export const OPENCLAW_SYNC_ROOT = '/home/node';
+export const OPENCLAW_WORKSPACE_PREFIX = '.openclaw/workspace';
+
+/** Map the friendly `agent`/`backup` names to their on-the-wire `pod`/`s3` values. */
+export function toWireFileSource(source: AgentFileBackendSource): AgentFileWireSource {
+  switch (source) {
+    case 'agent': return 'pod';
+    case 'backup': return 's3';
+    default: return source; // 'auto' | 'pod' | 's3'
+  }
+}
+
+const GATEWAY_FILE_SOURCES = new Set<OpenClawFileSource>(['gateway']);
+const FULL_FS_FILE_SOURCES = new Set<OpenClawFileSource>(['agent', 'pod']);
 
 /**
- * File source for an OpenClaw agent: the base backend sources plus `gateway`,
- * the operator-WebSocket `agents.files.*` RPC (name-addressed workspace files;
- * works on any gateway, self-hosted included; no delete).
+ * Resolve a caller path to the deployment HTTP files path (sync-root relative).
+ * Workspace-relative by default (prefixed with the workspace); an absolute `/…`
+ * path is full-fs and only valid for the `agent` source.
  */
-export type OpenClawFileSource = AgentFileSource | 'gateway';
+function resolveBackendFilePath(path: string, source: AgentFileBackendSource): string {
+  if (path.startsWith('/')) {
+    if (!FULL_FS_FILE_SOURCES.has(source)) {
+      throw new Error(
+        `absolute paths need the 'agent' source (full pod filesystem); ` +
+        `'${source}' is scoped to ${source === 'backup' || source === 's3' ? 'the sync root' : 'the workspace'}.`,
+      );
+    }
+    return path; // full-fs path, passed through to source=pod
+  }
+  const rel = stripRelPrefix(path);
+  return rel ? `${OPENCLAW_WORKSPACE_PREFIX}/${rel}` : OPENCLAW_WORKSPACE_PREFIX;
+}
+
+/** Strip leading `./` segments and slashes without eating a dotfile's dot. */
+function stripRelPrefix(path: string): string {
+  return path.replace(/^(?:\.\/)+/, '').replace(/^\/+/, '');
+}
+
+/** Strip a workspace prefix so gateway (name-addressed) sees the bare name. */
+function resolveGatewayFileName(path: string): string {
+  if (path.startsWith('/')) {
+    throw new Error("absolute paths are not valid for the 'gateway' source (scoped to the workspace).");
+  }
+  const rel = stripRelPrefix(path);
+  return rel.startsWith(`${OPENCLAW_WORKSPACE_PREFIX}/`)
+    ? rel.slice(OPENCLAW_WORKSPACE_PREFIX.length + 1)
+    : rel;
+}
+
+/** Hooks an OpenClaw agent provides so AgentFiles can reach its gateway. */
+export interface AgentFilesGatewayHooks {
+  withGateway<T>(fn: (client: GatewayClient) => Promise<T>): Promise<T>;
+  resolveAgentId(client: GatewayClient): Promise<string>;
+}
+
+/**
+ * ONE client wrapping all three agent file-access paths behind a single `source`
+ * switch (`agent` | `backup` | `gateway`, plus `auto`). The SDK owns the roots,
+ * so a workspace-relative path is the same file on every source; `agent` also
+ * takes absolute `/…` paths for full-fs access. The underlying APIs are left
+ * as-is — this only wraps them.
+ */
+export class AgentFiles {
+  constructor(
+    private readonly agent: Agent,
+    private readonly deployments: Deployments,
+    private readonly gatewayHooks?: AgentFilesGatewayHooks,
+  ) {}
+
+  private requireGateway(): AgentFilesGatewayHooks {
+    if (!this.gatewayHooks) {
+      throw new Error('gateway file source requires an OpenClaw agent with a gateway URL/token.');
+    }
+    return this.gatewayHooks;
+  }
+
+  async list(path = '', source: OpenClawFileSource = 'auto'): Promise<AgentFileEntry[]> {
+    if (!GATEWAY_FILE_SOURCES.has(source)) {
+      return this.deployments.filesList(this.agent, resolveBackendFilePath(path, source as AgentFileBackendSource), toWireFileSource(source as AgentFileBackendSource));
+    }
+    const gw = this.requireGateway();
+    const name = resolveGatewayFileName(path);
+    const files = await gw.withGateway(async (c) => c.filesList(await gw.resolveAgentId(c)));
+    return (files ?? [])
+      .map((f: any): AgentFileEntry => ({ name: f.name, path: f.name, type: 'file', size: f.size }))
+      .filter((f) => !name || f.name === name || f.name.startsWith(name.endsWith('/') ? name : `${name}/`));
+  }
+
+  async readBytes(path: string, source: OpenClawFileSource = 'auto'): Promise<Uint8Array> {
+    if (!GATEWAY_FILE_SOURCES.has(source)) {
+      return this.deployments.fileReadBytes(this.agent, resolveBackendFilePath(path, source as AgentFileBackendSource), toWireFileSource(source as AgentFileBackendSource));
+    }
+    return encodeUtf8(await this.read(path, source));
+  }
+
+  async read(path: string, source: OpenClawFileSource = 'auto'): Promise<string> {
+    if (!GATEWAY_FILE_SOURCES.has(source)) {
+      return decodeUtf8(await this.readBytes(path, source));
+    }
+    const gw = this.requireGateway();
+    return gw.withGateway(async (c) => c.fileGet(await gw.resolveAgentId(c), resolveGatewayFileName(path)));
+  }
+
+  async writeBytes(path: string, content: Uint8Array | ArrayBuffer | string, source: OpenClawFileSource = 'auto'): Promise<Record<string, any>> {
+    if (!GATEWAY_FILE_SOURCES.has(source)) {
+      return this.deployments.fileWriteBytes(this.agent, resolveBackendFilePath(path, source as AgentFileBackendSource), content, toWireFileSource(source as AgentFileBackendSource));
+    }
+    return this.write(path, coerceToUtf8String(content), source);
+  }
+
+  async write(path: string, content: string, source: OpenClawFileSource = 'auto'): Promise<Record<string, any>> {
+    if (!GATEWAY_FILE_SOURCES.has(source)) {
+      return this.deployments.fileWrite(this.agent, resolveBackendFilePath(path, source as AgentFileBackendSource), content, toWireFileSource(source as AgentFileBackendSource));
+    }
+    const gw = this.requireGateway();
+    const name = resolveGatewayFileName(path);
+    const agentId = await gw.withGateway(async (c) => {
+      const aid = await gw.resolveAgentId(c);
+      await c.fileSet(aid, name, content);
+      return aid;
+    });
+    return { name, source: 'gateway', agentId };
+  }
+
+  async delete(path: string, options: { recursive?: boolean; source?: OpenClawFileSource } = {}): Promise<Record<string, any>> {
+    const source = options.source ?? 'auto';
+    if (GATEWAY_FILE_SOURCES.has(source)) {
+      throw new Error('delete is not supported over the gateway file source; use the agent/backup source.');
+    }
+    return this.deployments.fileDelete(this.agent, resolveBackendFilePath(path, source as AgentFileBackendSource), { recursive: options.recursive });
+  }
+}
 
 export interface AgentDirectoryListing {
   type: 'directory';
@@ -880,28 +1028,49 @@ export class Agent {
     return this.requireDeployments().health(this);
   }
 
+  /**
+   * The gateway file writer a subclass supplies — the seam that enables the
+   * `gateway` source. The base agent has none (gateway calls throw); an agent
+   * type that speaks a gateway file protocol (e.g. OpenClaw's `agents.files.*`)
+   * overloads this. Kept on the base so the *calling* is standardized through
+   * the superclass even though each agent's gateway differs.
+   */
+  protected gatewayFileHooks(): AgentFilesGatewayHooks | undefined {
+    return undefined;
+  }
+
+  /**
+   * The single file client for this agent — one `source` switch (`agent` |
+   * `backup` | `gateway`) routes to the three underlying APIs (pod sidecar / S3
+   * backup / gateway), with the SDK owning the roots. One implementation; a
+   * subclass only supplies its gateway via {@link gatewayFileHooks}.
+   */
+  get files(): AgentFiles {
+    return new AgentFiles(this, this.requireDeployments(), this.gatewayFileHooks());
+  }
+
   async filesList(path: string = '', source: AgentFileSource = 'auto'): Promise<AgentFileEntry[]> {
-    return this.requireDeployments().filesList(this, path, source);
+    return this.files.list(path, source);
   }
 
   async fileReadBytes(path: string, source: AgentFileSource = 'auto'): Promise<Uint8Array> {
-    return this.requireDeployments().fileReadBytes(this, path, source);
+    return this.files.readBytes(path, source);
   }
 
   async fileRead(path: string, source: AgentFileSource = 'auto'): Promise<string> {
-    return decodeUtf8(await this.fileReadBytes(path, source));
+    return this.files.read(path, source);
   }
 
   async fileWriteBytes(path: string, content: Uint8Array | ArrayBuffer | string, destination: AgentFileSource = 'auto'): Promise<Record<string, any>> {
-    return this.requireDeployments().fileWriteBytes(this, path, content, destination);
+    return this.files.writeBytes(path, content, destination);
   }
 
   async fileWrite(path: string, content: string, destination: AgentFileSource = 'auto'): Promise<Record<string, any>> {
-    return this.requireDeployments().fileWrite(this, path, content, destination);
+    return this.files.write(path, content, destination);
   }
 
-  async fileDelete(path: string, options: { recursive?: boolean } = {}): Promise<Record<string, any>> {
-    return this.requireDeployments().fileDelete(this, path, options);
+  async fileDelete(path: string, options: { recursive?: boolean; source?: AgentFileSource } = {}): Promise<Record<string, any>> {
+    return this.files.delete(path, options);
   }
 
   async cpTo(localPath: string, remotePath: string): Promise<Record<string, any>> {
@@ -1069,52 +1238,16 @@ export class OpenClawAgent extends Agent {
     return resolved;
   }
 
-  // OpenClaw file API: the base backend sources (auto|pod|s3) PLUS `gateway`,
-  // which routes to the operator-WS `agents.files.*` RPC. Overrides widen the
-  // source union; non-gateway sources delegate to the base Agent (HTTP).
-  override async filesList(path: string = '', source: OpenClawFileSource = 'auto'): Promise<AgentFileEntry[]> {
-    if (source !== 'gateway') return super.filesList(path, source);
-    const files = await this.withGateway(async (c) => c.filesList(await this.resolveGatewayAgentId(c)));
-    return (files ?? [])
-      .map((f: any): AgentFileEntry => ({ name: f.name, path: f.name, type: 'file', size: f.size }))
-      .filter((f) => !path || f.name === path || f.name.startsWith(path.endsWith('/') ? path : `${path}/`));
-  }
-
-  override async fileReadBytes(path: string, source: OpenClawFileSource = 'auto'): Promise<Uint8Array> {
-    if (source !== 'gateway') return super.fileReadBytes(path, source);
-    return encodeUtf8(await this.withGateway(async (c) => c.fileGet(await this.resolveGatewayAgentId(c), path)));
-  }
-
-  override async fileRead(path: string, source: OpenClawFileSource = 'auto'): Promise<string> {
-    if (source !== 'gateway') return super.fileRead(path, source);
-    return this.withGateway(async (c) => c.fileGet(await this.resolveGatewayAgentId(c), path));
-  }
-
-  override async fileWriteBytes(path: string, content: Uint8Array | ArrayBuffer | string, destination: OpenClawFileSource = 'auto'): Promise<Record<string, any>> {
-    if (destination !== 'gateway') return super.fileWriteBytes(path, content, destination);
-    return this.gatewayFileWrite(path, coerceToUtf8String(content));
-  }
-
-  override async fileWrite(path: string, content: string, destination: OpenClawFileSource = 'auto'): Promise<Record<string, any>> {
-    if (destination !== 'gateway') return super.fileWrite(path, content, destination);
-    return this.gatewayFileWrite(path, content);
-  }
-
-  override async fileDelete(path: string, options: { recursive?: boolean; source?: OpenClawFileSource } = {}): Promise<Record<string, any>> {
-    if (options.source === 'gateway') {
-      throw new Error('delete is not supported over the gateway file source; use a pod/s3 source.');
-    }
-    const { source: _drop, ...rest } = options;
-    return super.fileDelete(path, rest);
-  }
-
-  private async gatewayFileWrite(path: string, content: string): Promise<Record<string, any>> {
-    const agentId = await this.withGateway(async (c) => {
-      const aid = await this.resolveGatewayAgentId(c);
-      await c.fileSet(aid, path, content);
-      return aid;
-    });
-    return { name: path, source: 'gateway', agentId };
+  /**
+   * Overload the base gateway seam with OpenClaw's `agents.files.*` — the actual
+   * OpenClaw gateway file methods. The base `files`/`fileX` calling surface is
+   * inherited unchanged; only the gateway writer is supplied here.
+   */
+  protected override gatewayFileHooks(): AgentFilesGatewayHooks {
+    return {
+      withGateway: (fn) => this.withGateway(fn),
+      resolveAgentId: (c) => this.resolveGatewayAgentId(c),
+    };
   }
 
   async gatewayStatus(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<Record<string, any>> {
