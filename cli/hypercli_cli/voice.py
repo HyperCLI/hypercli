@@ -7,7 +7,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 from hypercli import HyperCLI, APIError
-from hypercli.config import get_agent_api_key, get_api_key
+from hypercli.config import get_agent_api_key, get_agents_api_base_url_from_product_base, get_api_key
 from .stt import transcribe as _stt_transcribe
 
 app = typer.Typer(help="Voice commands — text-to-speech, voice cloning, voice design, and local transcription")
@@ -80,7 +80,7 @@ def _handle_voice_error(error: APIError) -> None:
 def _post_voice(endpoint: str, api_key: str, output: Path, base_url: str | None = None, **kwargs) -> None:
     """POST to voice endpoint through the SDK and save audio output."""
     api_base = _resolve_api_base(base_url)
-    url = f"{api_base}/agents/voice/{endpoint}"
+    url = f"{get_agents_api_base_url_from_product_base(api_base)}/voice/{endpoint}"
     console.print(f"[dim]→ POST {url}[/dim]")
 
     try:

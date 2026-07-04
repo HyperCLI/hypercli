@@ -101,7 +101,7 @@ class HyperCLI:
         self.instances = Instances(self._http)
         self.renders = Renders(self._http)
         self.files = Files(self._http)
-        self.voice = VoiceAPI(self._http)
+        self.voice = VoiceAPI(self._agents_http)
         self.keys = KeysAPI(self._http)
         self.models = ModelsAPI(self._http)
         self.agent = HyperAgent(

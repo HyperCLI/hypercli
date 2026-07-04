@@ -88,6 +88,25 @@ describe('HyperCLI Client', () => {
     expect(client.agent.baseUrl).toBe('https://api.agents.dev.hypercli.com/v1');
   });
 
+  it('should send voice requests through the derived agents API base', async () => {
+    const calls: string[] = [];
+    globalThis.fetch = vi.fn(async (url: any) => {
+      calls.push(String(url));
+      return new Response(new Uint8Array([1, 2, 3]), {
+        status: 200,
+        headers: { 'Content-Type': 'audio/mpeg' },
+      });
+    }) as any;
+
+    const client = new HyperCLI({
+      apiKey: 'hyper_api_test_key',
+      apiUrl: 'https://api.dev.hypercli.com',
+    });
+
+    await expect(client.voice.tts({ text: 'hello' })).resolves.toEqual(new Uint8Array([1, 2, 3]));
+    expect(calls).toEqual(['https://api.dev.hypercli.com/agents/voice/tts']);
+  });
+
   it('should expose HyperAgent from the browser-safe client', () => {
     const client = new BrowserHyperCLI({
       apiUrl: 'https://api.hypercli.com',

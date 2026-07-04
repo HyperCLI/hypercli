@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import httpx
+
+from hypercli import HyperCLI
 from hypercli.voice import VoiceAPI
 
 
@@ -21,7 +24,7 @@ def test_voice_tts_posts_to_agents_voice_prefix():
     assert audio == b"audio-bytes"
     assert http.calls == [
         (
-            "/agents/voice/tts",
+            "/voice/tts",
             {
                 "text": "hello",
                 "voice": "serena",
@@ -29,6 +32,37 @@ def test_voice_tts_posts_to_agents_voice_prefix():
                 "response_format": "wav",
             },
             VoiceAPI.DEFAULT_TIMEOUT,
+        )
+    ]
+
+
+def test_hypercli_voice_uses_derived_agents_base(monkeypatch):
+    calls = []
+
+    def fake_request(method, url, headers=None, timeout=30.0, **kwargs):
+        calls.append((method, url, kwargs.get("json")))
+        return httpx.Response(
+            200,
+            content=b"audio-bytes",
+            request=httpx.Request(method.upper(), url),
+        )
+
+    monkeypatch.setattr("hypercli.http.request_with_retry", fake_request)
+
+    client = HyperCLI(api_key="hyper_api_test", api_url="https://api.dev.hypercli.com")
+    audio = client.voice.tts("hello")
+
+    assert audio == b"audio-bytes"
+    assert calls == [
+        (
+            "post",
+            "https://api.dev.hypercli.com/agents/voice/tts",
+            {
+                "text": "hello",
+                "voice": "serena",
+                "language": "auto",
+                "response_format": "mp3",
+            },
         )
     ]
 
@@ -44,7 +78,7 @@ def test_voice_clone_base64_encodes_reference(tmp_path: Path):
 
     assert audio == b"audio-bytes"
     path, payload, timeout = http.calls[0]
-    assert path == "/agents/voice/clone"
+    assert path == "/voice/clone"
     assert payload["text"] == "clone me"
     assert payload["response_format"] == "wav"
     assert payload["ref_audio_base64"] == "cmVmZXJlbmNlLWF1ZGlv"
@@ -60,7 +94,7 @@ def test_voice_design_posts_description():
     assert audio == b"audio-bytes"
     assert http.calls == [
         (
-            "/agents/voice/design",
+            "/voice/design",
             {
                 "text": "hello",
                 "instruct": "warm narrator",

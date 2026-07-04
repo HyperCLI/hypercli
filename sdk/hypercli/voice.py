@@ -50,7 +50,7 @@ class VoiceAPI:
         timeout: float | None = None,
     ) -> bytes:
         return self._http.post_bytes(
-            "/agents/voice/tts",
+            "/voice/tts",
             json={
                 "text": text,
                 "voice": voice,
@@ -71,7 +71,7 @@ class VoiceAPI:
         timeout: float | None = None,
     ) -> bytes:
         return self._http.post_bytes(
-            "/agents/voice/clone",
+            "/voice/clone",
             json={
                 "text": text,
                 "ref_audio_base64": _encode_reference_audio(ref_audio),
@@ -92,7 +92,7 @@ class VoiceAPI:
         timeout: float | None = None,
     ) -> bytes:
         return self._http.post_bytes(
-            "/agents/voice/design",
+            "/voice/design",
             json={
                 "text": text,
                 "instruct": description,

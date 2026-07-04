@@ -56,7 +56,7 @@ export class VoiceAPI {
   constructor(private http: HTTPClient) {}
 
   async tts(options: TTSOptions): Promise<Uint8Array> {
-    return this.http.postBytes('/agents/voice/tts', {
+    return this.http.postBytes('/voice/tts', {
       text: options.text,
       voice: options.voice ?? 'serena',
       language: options.language ?? 'auto',
@@ -65,7 +65,7 @@ export class VoiceAPI {
   }
 
   async clone(options: CloneOptions): Promise<Uint8Array> {
-    return this.http.postBytes('/agents/voice/clone', {
+    return this.http.postBytes('/voice/clone', {
       text: options.text,
       ref_audio_base64: encodeBase64(options.refAudio),
       language: options.language ?? 'auto',
@@ -75,7 +75,7 @@ export class VoiceAPI {
   }
 
   async design(options: DesignOptions): Promise<Uint8Array> {
-    return this.http.postBytes('/agents/voice/design', {
+    return this.http.postBytes('/voice/design', {
       text: options.text,
       instruct: options.description,
       language: options.language ?? 'auto',

@@ -21,7 +21,7 @@ describe('Voice API', () => {
     expect(audio).toEqual(new Uint8Array([1, 2, 3]));
     expect(calls).toEqual([
       {
-        path: '/agents/voice/tts',
+        path: '/voice/tts',
         body: {
           text: 'hello',
           voice: 'serena',
@@ -49,7 +49,7 @@ describe('Voice API', () => {
 
     expect(audio).toEqual(new Uint8Array([4, 5, 6]));
     expect(calls[0]).toEqual({
-      path: '/agents/voice/clone',
+      path: '/voice/clone',
       body: {
         text: 'clone me',
         ref_audio_base64: 'cmVmZXJlbmNlLWF1ZGlv',
@@ -77,7 +77,7 @@ describe('Voice API', () => {
 
     expect(audio).toEqual(new Uint8Array([7, 8, 9]));
     expect(calls[0]).toEqual({
-      path: '/agents/voice/design',
+      path: '/voice/design',
       body: {
         text: 'hello',
         instruct: 'warm narrator',
