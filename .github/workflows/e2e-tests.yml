@@ -11,6 +11,9 @@ jobs:
   playwright-e2e:
     runs-on: self-hosted
     timeout-minutes: 45
+    concurrency:
+      group: hypercli-frontend-privy-e2e
+      cancel-in-progress: false
     defaults:
       run:
         shell: bash

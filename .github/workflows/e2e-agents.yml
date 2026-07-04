@@ -11,6 +11,9 @@ jobs:
   playwright-agents:
     runs-on: self-hosted
     timeout-minutes: 45
+    concurrency:
+      group: hypercli-frontend-privy-e2e
+      cancel-in-progress: false
     defaults:
       run:
         shell: bash
@@ -18,7 +21,6 @@ jobs:
       TEST_HOSTNAME: 127.0.0.1
       BACKEND_API_KEY: ${{ secrets.BACKEND_API_KEY }}
       AGENTS_BACKEND_API_KEY: ${{ secrets.AGENTS_BACKEND_API_KEY }}
-      TEST_CLAW_ADMIN_LOGIN_SHORTCUT: "1"
       TEST_API_BASE_URL: https://api.dev.hypercli.com
       TEST_EMAIL: ${{ vars.TEST_EMAIL }}
       TEST_IMAP_HOST: ${{ vars.TEST_IMAP_HOST }}
@@ -55,7 +57,6 @@ jobs:
             -e TEST_HOSTNAME \
             -e BACKEND_API_KEY \
             -e AGENTS_BACKEND_API_KEY \
-            -e TEST_CLAW_ADMIN_LOGIN_SHORTCUT \
             -e TEST_API_BASE_URL \
             -e TEST_EMAIL \
             -e TEST_IMAP_HOST \
