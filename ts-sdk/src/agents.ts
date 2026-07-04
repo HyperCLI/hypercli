@@ -1049,12 +1049,32 @@ export class OpenClawAgent extends Agent {
     }
   }
 
+  private _gatewayAgentId?: string;
+
+  /**
+   * The in-gateway agent id for `agents.files.*` — NOT the deployment id. A
+   * deployment's gateway hosts an agent named `main` (or a named agent);
+   * matches the existing fileGet/fileSet/workspaceFiles convention.
+   */
+  private async resolveGatewayAgentId(client: GatewayClient): Promise<string> {
+    if (this._gatewayAgentId) return this._gatewayAgentId;
+    let agents: any[] = [];
+    try {
+      agents = await client.agentsList();
+    } catch {
+      // fall through to the canonical default
+    }
+    const resolved: string = agents[0]?.id ?? 'main';
+    this._gatewayAgentId = resolved;
+    return resolved;
+  }
+
   // OpenClaw file API: the base backend sources (auto|pod|s3) PLUS `gateway`,
   // which routes to the operator-WS `agents.files.*` RPC. Overrides widen the
   // source union; non-gateway sources delegate to the base Agent (HTTP).
   override async filesList(path: string = '', source: OpenClawFileSource = 'auto'): Promise<AgentFileEntry[]> {
     if (source !== 'gateway') return super.filesList(path, source);
-    const files = await this.withGateway((c) => c.filesList(this.id));
+    const files = await this.withGateway(async (c) => c.filesList(await this.resolveGatewayAgentId(c)));
     return (files ?? [])
       .map((f: any): AgentFileEntry => ({ name: f.name, path: f.name, type: 'file', size: f.size }))
       .filter((f) => !path || f.name === path || f.name.startsWith(path.endsWith('/') ? path : `${path}/`));
@@ -1062,12 +1082,12 @@ export class OpenClawAgent extends Agent {
 
   override async fileReadBytes(path: string, source: OpenClawFileSource = 'auto'): Promise<Uint8Array> {
     if (source !== 'gateway') return super.fileReadBytes(path, source);
-    return encodeUtf8(await this.withGateway((c) => c.fileGet(this.id, path)));
+    return encodeUtf8(await this.withGateway(async (c) => c.fileGet(await this.resolveGatewayAgentId(c), path)));
   }
 
   override async fileRead(path: string, source: OpenClawFileSource = 'auto'): Promise<string> {
     if (source !== 'gateway') return super.fileRead(path, source);
-    return this.withGateway((c) => c.fileGet(this.id, path));
+    return this.withGateway(async (c) => c.fileGet(await this.resolveGatewayAgentId(c), path));
   }
 
   override async fileWriteBytes(path: string, content: Uint8Array | ArrayBuffer | string, destination: OpenClawFileSource = 'auto'): Promise<Record<string, any>> {
@@ -1089,8 +1109,12 @@ export class OpenClawAgent extends Agent {
   }
 
   private async gatewayFileWrite(path: string, content: string): Promise<Record<string, any>> {
-    await this.withGateway((c) => c.fileSet(this.id, path, content));
-    return { name: path, source: 'gateway' };
+    const agentId = await this.withGateway(async (c) => {
+      const aid = await this.resolveGatewayAgentId(c);
+      await c.fileSet(aid, path, content);
+      return aid;
+    });
+    return { name: path, source: 'gateway', agentId };
   }
 
   async gatewayStatus(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<Record<string, any>> {
