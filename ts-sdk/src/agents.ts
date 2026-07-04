@@ -307,6 +307,20 @@ export interface AgentFileEntry {
   [key: string]: any;
 }
 
+/**
+ * Transport for the base agent file API — the backend deployment HTTP files
+ * store (arbitrary pod paths; `auto` picks pod when running else s3). Needs a
+ * managed deployment.
+ */
+export type AgentFileSource = 'auto' | 'pod' | 's3';
+
+/**
+ * File source for an OpenClaw agent: the base backend sources plus `gateway`,
+ * the operator-WebSocket `agents.files.*` RPC (name-addressed workspace files;
+ * works on any gateway, self-hosted included; no delete).
+ */
+export type OpenClawFileSource = AgentFileSource | 'gateway';
+
 export interface AgentDirectoryListing {
   type: 'directory';
   prefix: string;
@@ -529,6 +543,13 @@ function decodeUtf8(content: Uint8Array): string {
 
 function encodeUtf8(content: string): Uint8Array {
   return new TextEncoder().encode(content);
+}
+
+/** Coerce write content to a string for the gateway (text-only) file source. */
+function coerceToUtf8String(content: Uint8Array | ArrayBuffer | string): string {
+  if (typeof content === 'string') return content;
+  const bytes = content instanceof Uint8Array ? content : new Uint8Array(content);
+  return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
 }
 
 function toUint8Array(content: Uint8Array | ArrayBuffer | string): Uint8Array {
@@ -859,23 +880,23 @@ export class Agent {
     return this.requireDeployments().health(this);
   }
 
-  async filesList(path: string = '', source: 'auto' | 'pod' | 's3' = 'auto'): Promise<AgentFileEntry[]> {
+  async filesList(path: string = '', source: AgentFileSource = 'auto'): Promise<AgentFileEntry[]> {
     return this.requireDeployments().filesList(this, path, source);
   }
 
-  async fileReadBytes(path: string, source: 'auto' | 'pod' | 's3' = 'auto'): Promise<Uint8Array> {
+  async fileReadBytes(path: string, source: AgentFileSource = 'auto'): Promise<Uint8Array> {
     return this.requireDeployments().fileReadBytes(this, path, source);
   }
 
-  async fileRead(path: string, source: 'auto' | 'pod' | 's3' = 'auto'): Promise<string> {
+  async fileRead(path: string, source: AgentFileSource = 'auto'): Promise<string> {
     return decodeUtf8(await this.fileReadBytes(path, source));
   }
 
-  async fileWriteBytes(path: string, content: Uint8Array | ArrayBuffer | string, destination: 'auto' | 'pod' | 's3' = 'auto'): Promise<Record<string, any>> {
+  async fileWriteBytes(path: string, content: Uint8Array | ArrayBuffer | string, destination: AgentFileSource = 'auto'): Promise<Record<string, any>> {
     return this.requireDeployments().fileWriteBytes(this, path, content, destination);
   }
 
-  async fileWrite(path: string, content: string, destination: 'auto' | 'pod' | 's3' = 'auto'): Promise<Record<string, any>> {
+  async fileWrite(path: string, content: string, destination: AgentFileSource = 'auto'): Promise<Record<string, any>> {
     return this.requireDeployments().fileWrite(this, path, content, destination);
   }
 
@@ -1016,6 +1037,60 @@ export class OpenClawAgent extends Agent {
     const client = this.gateway(options);
     await client.connect();
     return client;
+  }
+
+  /** Run a fn against a connected gateway client, then close it. */
+  private async withGateway<T>(fn: (client: GatewayClient) => Promise<T>): Promise<T> {
+    const client = await this.connect();
+    try {
+      return await fn(client);
+    } finally {
+      client.close();
+    }
+  }
+
+  // OpenClaw file API: the base backend sources (auto|pod|s3) PLUS `gateway`,
+  // which routes to the operator-WS `agents.files.*` RPC. Overrides widen the
+  // source union; non-gateway sources delegate to the base Agent (HTTP).
+  override async filesList(path: string = '', source: OpenClawFileSource = 'auto'): Promise<AgentFileEntry[]> {
+    if (source !== 'gateway') return super.filesList(path, source);
+    const files = await this.withGateway((c) => c.filesList(this.id));
+    return (files ?? [])
+      .map((f: any): AgentFileEntry => ({ name: f.name, path: f.name, type: 'file', size: f.size }))
+      .filter((f) => !path || f.name === path || f.name.startsWith(path.endsWith('/') ? path : `${path}/`));
+  }
+
+  override async fileReadBytes(path: string, source: OpenClawFileSource = 'auto'): Promise<Uint8Array> {
+    if (source !== 'gateway') return super.fileReadBytes(path, source);
+    return encodeUtf8(await this.withGateway((c) => c.fileGet(this.id, path)));
+  }
+
+  override async fileRead(path: string, source: OpenClawFileSource = 'auto'): Promise<string> {
+    if (source !== 'gateway') return super.fileRead(path, source);
+    return this.withGateway((c) => c.fileGet(this.id, path));
+  }
+
+  override async fileWriteBytes(path: string, content: Uint8Array | ArrayBuffer | string, destination: OpenClawFileSource = 'auto'): Promise<Record<string, any>> {
+    if (destination !== 'gateway') return super.fileWriteBytes(path, content, destination);
+    return this.gatewayFileWrite(path, coerceToUtf8String(content));
+  }
+
+  override async fileWrite(path: string, content: string, destination: OpenClawFileSource = 'auto'): Promise<Record<string, any>> {
+    if (destination !== 'gateway') return super.fileWrite(path, content, destination);
+    return this.gatewayFileWrite(path, content);
+  }
+
+  override async fileDelete(path: string, options: { recursive?: boolean; source?: OpenClawFileSource } = {}): Promise<Record<string, any>> {
+    if (options.source === 'gateway') {
+      throw new Error('delete is not supported over the gateway file source; use a pod/s3 source.');
+    }
+    const { source: _drop, ...rest } = options;
+    return super.fileDelete(path, rest);
+  }
+
+  private async gatewayFileWrite(path: string, content: string): Promise<Record<string, any>> {
+    await this.withGateway((c) => c.fileSet(this.id, path, content));
+    return { name: path, source: 'gateway' };
   }
 
   async gatewayStatus(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<Record<string, any>> {
