@@ -143,7 +143,7 @@ because the SDK falls back to `/api/flow/*` when auth introspection is denied.
 Voice helpers go through the current `/agents/voice/*` surface:
 
 ```python
-audio = client.voice.tts("Hello from HyperCLI", voice="Chelsie", response_format="mp3")
+audio = client.voice.tts("Hello from HyperCLI", voice="serena", response_format="mp3")
 
 with open("hello.mp3", "wb") as f:
     f.write(audio)
@@ -153,6 +153,28 @@ Additional helpers:
 
 - `client.voice.clone(...)`
 - `client.voice.design(...)`
+
+The Python SDK sends these requests through the derived agents API base. For
+`api_url="https://api.hypercli.com"`, `client.voice.tts(...)` posts to
+`https://api.hypercli.com/agents/voice/tts`.
+
+Streaming voice uses the agents WebSocket base plus `/voice`:
+
+```python
+async with client.voice.connect() as session:
+    async for chunk in session.speak("Hello from HyperCLI", voice="serena"):
+        handle_audio(chunk.audio)
+
+async for chunk in client.voice.tts_stream("Hello from HyperCLI", voice="serena"):
+    handle_audio(chunk.audio)
+```
+
+The streaming request frame is a JSON message with `type="speak"`, an
+`op` of `tts`, `clone`, or `design`, a `request_id`, `format`, and `chunks`.
+The server replies with ordered `chunk` messages containing base64 audio, then
+`done`; server errors raise `VoiceStreamError`. A session handles one request
+at a time, and breaking the iterator early sends `{"type": "cancel"}` for the
+request.
 
 ### Use backend `/ws/*` for logs and shells
 

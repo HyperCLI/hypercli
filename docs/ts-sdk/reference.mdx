@@ -66,6 +66,16 @@ Major methods:
 - `tts({ text, voice?, language?, responseFormat? })`
 - `clone({ text, refAudio, language?, xVectorOnly?, responseFormat? })`
 - `design({ text, description, language?, responseFormat? })`
+- `connect({ timeoutMs? })`
+- `ttsStream({ text, voice?, language?, responseFormat?, timeoutMs? })`
+- `cloneStream({ text, refAudio, language?, xVectorOnly?, responseFormat?, timeoutMs? })`
+- `designStream({ text, description, language?, responseFormat?, timeoutMs? })`
+
+Defaults are `voice: "serena"`, `language: "auto"`, and
+`responseFormat: "mp3"`. REST voice methods use SDK-relative `/voice/*` paths
+on the agents HTTP client, which resolve to `/agents/voice/*` at the product
+API host. Streaming methods connect to `/ws/voice` on the derived agents
+WebSocket base.
 
 ## `agent`
 
@@ -233,4 +243,5 @@ Major methods:
 - models: `modelsList()`
 - cron: `cronList()`, `cronAdd()`, `cronRemove()`
 - approvals: `execApprove()`, `execDeny()`
+- nodes: `nodesList()`, `nodeDescribe()`, `nodePairList()`, `nodePairApprove()`, `nodePairReject()`, `nodePairRemove()`, `nodeRename()`, `nodeInvoke()`
 - status: `status()`

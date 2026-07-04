@@ -42,9 +42,17 @@ Major methods:
 
 Major methods:
 
-- `tts(text, voice="Chelsie", language="auto", response_format="mp3")`
+- `tts(text, voice="serena", language="auto", response_format="mp3", timeout=None)`
 - `clone(text, ref_audio=..., language="auto", x_vector_only=True, response_format="mp3")`
 - `design(text, description=..., language="auto", response_format="mp3")`
+- `connect(timeout=None)`
+- `tts_stream(text, voice="serena", language="auto", response_format="mp3", timeout=None)`
+- `clone_stream(text, ref_audio=..., language="auto", x_vector_only=True, response_format="mp3", timeout=None)`
+- `design_stream(text, description=..., language="auto", response_format="mp3", timeout=None)`
+
+REST voice methods use SDK-relative `/voice/*` paths on the agents HTTP client,
+which resolve to `/agents/voice/*` at the product API host. Streaming methods
+connect to `/ws/voice` on the derived agents WebSocket base.
 
 ## `client.agent`
 
@@ -231,6 +239,7 @@ Major methods:
 - models: `models_list()`
 - cron: `cron_list()`, `cron_add()`, `cron_remove()`, `cron_run()`
 - approvals: `exec_approvals_get()`, `exec_approvals_set()`, `exec_approval_resolve()`
+- nodes: `nodes_list()`, `node_describe()`, `node_pair_list()`, `node_pair_approve()`, `node_pair_reject()`, `node_pair_remove()`, `node_rename()`, `node_invoke()`
 - raw events: `on_event()`
 
 ## Other Exports
@@ -246,3 +255,12 @@ Major methods:
 - `ShellSession`
 - `shell_connect`
 - `GatewayClient`
+- `VoiceChunk`
+- `VoiceSession`
+- `VoiceStreamError`
+
+OpenClaw node helpers are available from the gateway/openclaw modules:
+
+- `hypercli.gateway.NodeServer`
+- `hypercli.gateway.serve_node`
+- `hypercli.openclaw.GatewayNodePairingRequired`

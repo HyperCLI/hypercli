@@ -10,6 +10,7 @@ Use it when you want direct access to:
 - config RPC
 - chat/session RPC
 - workspace file RPC
+- paired node command RPC
 - channel auth flows
 - cron management
 - raw event handling
@@ -195,6 +196,56 @@ If the gateway exposes approval-driven exec flows:
 - `exec_approvals_get()`
 - `exec_approvals_set()`
 - `exec_approval_resolve()`
+
+## Nodes
+
+Nodes are separate machines or processes connected to the same gateway with
+`role="node"`. A node declares a command surface; an operator approves that
+surface and invokes commands through the gateway.
+
+Operator-side methods:
+
+- `nodes_list()`
+- `node_describe(node_id)`
+- `node_pair_list()`
+- `node_pair_approve(request_id)`
+- `node_pair_reject(request_id)`
+- `node_pair_remove(node_id)`
+- `node_rename(node_id, display_name)`
+- `node_invoke(node_id, command, params=None, timeout_ms=None)`
+
+Node-side helper:
+
+```python
+from hypercli.gateway import NodeServer
+
+node = NodeServer(
+    "wss://my-agent.hypercli.app",
+    "node-abc",
+    {
+        "shell.run": lambda params: {"stdout": "ok", "exitCode": 0},
+    },
+    gateway_token="...",
+)
+
+await node.connect()
+```
+
+`NodeServer` connects with `role="node"`, sends `commands` during the gateway
+handshake, listens for `node.invoke.request`, and replies with
+`node.invoke.result`. Success replies contain `payloadJSON`; handler failures
+return an error object.
+
+Pairing has two layers:
+
+- device pairing, approved with `device.pair.approve`
+- node command-surface pairing, approved with `node_pair_approve(request_id)`
+
+For custom commands such as `shell.run`, `fs.read`, or `fs.write`, the gateway
+policy must also allow the command names through `gateway.nodes.allowCommands`.
+If you patch that config in a containerized agent, restart the whole agent and
+reconnect clients before pairing or invoking nodes. A config patch alone can
+leave the running gateway on the old command policy.
 
 ## Recommendation
 

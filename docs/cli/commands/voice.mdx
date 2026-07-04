@@ -1,0 +1,100 @@
+---
+title: hyper voice
+description: Text-to-speech, voice cloning, voice design, streaming TTS, and local transcription commands.
+---
+
+`hyper voice` contains the current voice commands.
+
+Remote generation commands use the subscription voice API under
+`/agents/voice/*` and require a key with `voice:*`. Local transcription uses
+faster-whisper on your machine and does not call the remote voice API.
+
+## tts
+
+```bash
+hyper voice tts "Hello world"
+hyper voice tts "Bonjour" --voice eric --language french --format opus --output hello.opus
+hyper voice tts "Long text..." --stream
+```
+
+Defaults:
+
+- `--voice serena`
+- `--language auto`
+- `--format mp3`
+
+Without `--stream`, the command posts to `/agents/voice/tts`. With `--stream`,
+it opens the agents WebSocket `/ws/voice` endpoint and saves chunks as they
+arrive.
+
+Useful options:
+
+- `--voice`, `-v`
+- `--language`, `-l`
+- `--format`, `-f`
+- `--output`, `-o`
+- `--stream`
+- `--timeout`
+- `--key`, `-k`
+- `--base-url`, `-b`
+
+## clone
+
+```bash
+hyper voice clone "Hello" --ref voice.wav
+hyper voice clone "Test" --ref ref.wav --language english --format mp3 --output cloned.mp3
+```
+
+The CLI reads the reference audio file and the SDK sends it as
+`ref_audio_base64` to `/agents/voice/clone`.
+
+Useful options:
+
+- `--ref`, `-r`
+- `--language`, `-l`
+- `--x-vector-only` / `--full-clone`
+- `--format`, `-f`
+- `--output`, `-o`
+- `--timeout`
+- `--key`, `-k`
+- `--base-url`, `-b`
+
+## design
+
+```bash
+hyper voice design "Hello" --desc "deep male voice, British accent"
+hyper voice design "Test" --desc "young woman, cheerful" --format mp3 --output designed.mp3
+```
+
+The CLI sends `description` through the SDK as the `instruct` field to
+`/agents/voice/design`.
+
+Useful options:
+
+- `--desc`, `-d`
+- `--language`, `-l`
+- `--format`, `-f`
+- `--output`, `-o`
+- `--timeout`
+- `--key`, `-k`
+- `--base-url`, `-b`
+
+## transcribe
+
+```bash
+hyper voice transcribe voice.ogg
+hyper voice transcribe meeting.mp3 --model large-v3 --language en
+hyper voice transcribe audio.wav --json --output transcript.json
+```
+
+This command runs local faster-whisper transcription. It accepts local audio
+files and does not use `/agents/voice/*`.
+
+Useful options:
+
+- `--model`, `-m`
+- `--language`, `-l`
+- `--device`, `-d`
+- `--compute`
+- `--json`
+- `--output`, `-o`

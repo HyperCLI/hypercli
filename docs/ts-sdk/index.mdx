@@ -86,7 +86,7 @@ because the SDK falls back to `/api/flow/*` when auth introspection is denied.
 ```ts
 const audio = await client.voice.tts({
   text: "Hello from HyperCLI",
-  voice: "Chelsie",
+  voice: "serena",
   responseFormat: "mp3",
 });
 ```
@@ -95,6 +95,36 @@ Additional helpers:
 
 - `client.voice.clone(...)`
 - `client.voice.design(...)`
+
+The TypeScript SDK sends these requests through the derived agents API base.
+For `apiUrl: "https://api.hypercli.com"`, `client.voice.tts(...)` posts to
+`https://api.hypercli.com/agents/voice/tts`.
+
+Streaming voice uses the agents WebSocket base plus `/voice`:
+
+```ts
+const session = client.voice.connect();
+await session.open();
+
+try {
+  for await (const chunk of session.speak({ text: "Hello from HyperCLI", voice: "serena" })) {
+    handleAudio(chunk.audio);
+  }
+} finally {
+  session.close();
+}
+
+for await (const chunk of client.voice.ttsStream({ text: "Hello from HyperCLI", voice: "serena" })) {
+  handleAudio(chunk.audio);
+}
+```
+
+The streaming request frame is a JSON message with `type: "speak"`, an
+`op` of `tts`, `clone`, or `design`, a `request_id`, `format`, and `chunks`.
+The server replies with ordered `chunk` messages containing base64 audio, then
+`done`; server errors throw `VoiceStreamError`. A session handles one request
+at a time, and breaking the iterator early sends `{ type: "cancel" }` for the
+request.
 
 Preferred current helpers:
 

@@ -194,6 +194,7 @@
               "cli/commands/keys",
               "cli/commands/flow",
               "cli/commands/renders",
+              "cli/commands/voice",
               "cli/commands/user",
               "cli/commands/wallet"
             ]
