@@ -699,8 +699,11 @@ function isAgentDirectoryMarkerEntry(entry: AgentFileEntry): boolean {
 }
 
 function agentFileSourceForState(agentState: AgentState | string | null | undefined, requested: AgentFileSource): AgentFileSource {
-  if (requested !== "auto") return requested;
-  return agentState === "RUNNING" ? "auto" : "s3";
+  // A non-RUNNING agent has no live pod, so the pod filesystem ("pod"/"auto") is unreachable and
+  // the deployment files API answers 409. Transparently serve reads/lists/writes from the S3
+  // backup instead of erroring — including when the panel explicitly selects the "agent" source.
+  if (agentState !== "RUNNING" && requested !== "s3") return "s3";
+  return requested;
 }
 
 function agentFileDestinationForState(agentState: AgentState | string | null | undefined): AgentFileSource {
@@ -1583,7 +1586,7 @@ function AgentsPageContent() {
     }
     const agentClient = await getAgentClient();
     const writeDestination = destination === "agent" || destination === "backup"
-      ? backendSourceFromPanel(destination)
+      ? agentFileSourceForState(selectedAgentState, backendSourceFromPanel(destination))
       : agentFileDestinationForState(selectedAgentState);
     await agentClient.fileWrite(
       selectedAgentId,

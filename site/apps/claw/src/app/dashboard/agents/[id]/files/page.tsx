@@ -23,6 +23,19 @@ function backendWireSource(source: "agent" | "backup"): "pod" | "s3" {
   return source === "agent" ? "pod" : "s3";
 }
 
+/**
+ * Resolve the deployment files wire source for reads/lists/writes, honoring agent state.
+ * A non-RUNNING agent has no live pod, so the "pod" source answers 409 — transparently fall
+ * back to the S3 backup so a STOPPED agent can still browse/read (and edit) its files.
+ */
+function agentFileWireSourceForState(
+  source: "agent" | "backup",
+  agentState: string | null | undefined,
+): "pod" | "s3" {
+  if (agentState !== "RUNNING") return "s3";
+  return backendWireSource(source);
+}
+
 const AGENT_DIRECTORY_MARKER_NAME = ".hypercli-folder";
 
 function normalizeAgentFilePath(path: string): string {
@@ -97,27 +110,27 @@ export default function AgentFilesPage() {
     const token = await getToken();
     const client = createAgentClient(token);
     const normalizedPath = normalizeAgentFilePath(path ?? "");
-    const entries = await client.filesList(agentId, normalizedPath, backendWireSource(source));
+    const entries = await client.filesList(agentId, normalizedPath, agentFileWireSourceForState(source, agent?.state));
     return (entries as AgentFileEntry[])
       .filter((entry) => !isAgentDirectoryMarkerEntry(entry))
       .map(toDashboardFileEntry);
-  }, [agentId, gatewayFilesAgent, getToken]);
+  }, [agent?.state, agentId, gatewayFilesAgent, getToken]);
 
   const openFile = useCallback(async (path: string, requestedSource: AgentFilePanelSource = "agent") => {
     if (requestedSource === "gateway") {
       return gatewayFilesAgent().fileRead(path, "gateway");
     }
     const token = await getToken();
-    return createAgentClient(token).fileRead(agentId, normalizeAgentFilePath(path), backendWireSource(requestedSource));
-  }, [agentId, gatewayFilesAgent, getToken]);
+    return createAgentClient(token).fileRead(agentId, normalizeAgentFilePath(path), agentFileWireSourceForState(requestedSource, agent?.state));
+  }, [agent?.state, agentId, gatewayFilesAgent, getToken]);
 
   const openFileBytes = useCallback(async (path: string, requestedSource: AgentFilePanelSource = "agent") => {
     if (requestedSource === "gateway") {
       return gatewayFilesAgent().fileReadBytes(path, "gateway");
     }
     const token = await getToken();
-    return createAgentClient(token).fileReadBytes(agentId, normalizeAgentFilePath(path), backendWireSource(requestedSource));
-  }, [agentId, gatewayFilesAgent, getToken]);
+    return createAgentClient(token).fileReadBytes(agentId, normalizeAgentFilePath(path), agentFileWireSourceForState(requestedSource, agent?.state));
+  }, [agent?.state, agentId, gatewayFilesAgent, getToken]);
 
   const saveFile = useCallback(async (path: string, content: string, destination: AgentFilePanelSource = "agent") => {
     if (destination === "gateway") {
@@ -129,9 +142,9 @@ export default function AgentFilesPage() {
       agentId,
       normalizeAgentFilePath(path),
       content,
-      backendWireSource(destination),
+      agentFileWireSourceForState(destination, agent?.state),
     );
-  }, [agentId, gatewayFilesAgent, getToken]);
+  }, [agent?.state, agentId, gatewayFilesAgent, getToken]);
 
   const deleteFile = useCallback(async (path: string, options?: { recursive?: boolean }) => {
     const token = await getToken();
