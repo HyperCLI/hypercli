@@ -49,7 +49,9 @@ test("shows mobile agent navigation without horizontal overflow", async ({ page 
   await expect(navMenuButton).toBeVisible();
   await navMenuButton.click();
 
-  await expect(page.getByRole("button", { name: /^plans$/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^my agents$/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /launch agent/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^available agents$/i })).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
   await captureStep(page, "agents-mobile-menu-layout");
