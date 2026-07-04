@@ -705,13 +705,39 @@ class OpenClawAgent(Agent):
 
         return asyncio.run(_invoke())
 
+    # The in-gateway agent id for `agents.files.*` — NOT the deployment id. A
+    # deployment's gateway hosts an agent named "main" (or a named agent);
+    # matches the existing file_get/file_set/workspace_files convention.
+    _gateway_agent_id: str | None = None
+
+    async def _resolve_gateway_agent_id(self, gw: "GatewayClient") -> str:
+        if self._gateway_agent_id:
+            return self._gateway_agent_id
+        try:
+            agents = await gw.agents_list()
+        except Exception:
+            agents = []
+        self._gateway_agent_id = agents[0]["id"] if agents else "main"
+        return self._gateway_agent_id
+
+    async def _gw_files_list(self, gw: "GatewayClient") -> list[dict]:
+        return await gw.files_list(await self._resolve_gateway_agent_id(gw))
+
+    async def _gw_file_get(self, gw: "GatewayClient", path: str) -> str:
+        return await gw.file_get(await self._resolve_gateway_agent_id(gw), path)
+
+    async def _gw_file_set(self, gw: "GatewayClient", path: str, content: str) -> str:
+        agent_id = await self._resolve_gateway_agent_id(gw)
+        await gw.file_set(agent_id, path, content)
+        return agent_id
+
     # OpenClaw file API: the base backend sources (auto|pod|s3) PLUS `gateway`,
     # which routes to the operator-WS `agents.files.*` RPC. Overrides widen the
     # source union; non-gateway sources delegate to the base Agent (HTTP).
     def files_list(self, path: str = "", source: OpenClawFileSource = "auto") -> list[dict]:
         if source != "gateway":
             return super().files_list(path, source)
-        files = self._with_gateway(lambda gw: gw.files_list(self.id)) or []
+        files = self._with_gateway(self._gw_files_list) or []
         prefix = path if path.endswith("/") else f"{path}/"
         return [
             entry
@@ -725,12 +751,12 @@ class OpenClawAgent(Agent):
     def file_read_bytes(self, path: str, source: OpenClawFileSource = "auto") -> bytes:
         if source != "gateway":
             return super().file_read_bytes(path, source)
-        return self._with_gateway(lambda gw: gw.file_get(self.id, path)).encode("utf-8")
+        return self._with_gateway(lambda gw: self._gw_file_get(gw, path)).encode("utf-8")
 
     def file_read(self, path: str, source: OpenClawFileSource = "auto") -> str:
         if source != "gateway":
             return super().file_read(path, source)
-        return self._with_gateway(lambda gw: gw.file_get(self.id, path))
+        return self._with_gateway(lambda gw: self._gw_file_get(gw, path))
 
     def file_write_bytes(self, path: str, content: bytes, destination: OpenClawFileSource = "auto") -> dict:
         if destination != "gateway":
@@ -748,8 +774,8 @@ class OpenClawAgent(Agent):
         return super().file_delete(path, recursive)
 
     def _gateway_file_write(self, path: str, content: str) -> dict:
-        self._with_gateway(lambda gw: gw.file_set(self.id, path, content))
-        return {"name": path, "source": "gateway"}
+        agent_id = self._with_gateway(lambda gw: self._gw_file_set(gw, path, content))
+        return {"name": path, "source": "gateway", "agentId": agent_id}
 
     async def gateway_status(self, **kwargs) -> dict:
         async with self.connect(**kwargs) as gw:

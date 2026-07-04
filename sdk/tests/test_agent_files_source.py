@@ -27,6 +27,10 @@ class FakeGatewayClient:
     async def __aexit__(self, *exc: object) -> None:
         self.closed += 1
 
+    async def agents_list(self) -> list[dict]:
+        # The in-gateway agent is "main" — NOT the deployment id ("agent-123").
+        return [{"id": "main"}]
+
     async def files_list(self, agent_id: str) -> list[dict]:
         self.files_list_calls.append(agent_id)
         return [{"name": "AGENTS.md", "size": 12, "missing": False}]
@@ -67,16 +71,16 @@ def make_agent():
 def test_gateway_write_routes_to_files_set_and_closes_client():
     agent, gateway_client, deployments = make_agent()
     res = agent.file_write("AGENTS.md", "hi there", "gateway")
-    assert gateway_client.file_set_calls == [("agent-123", "AGENTS.md", "hi there")]
+    assert gateway_client.file_set_calls == [("main", "AGENTS.md", "hi there")]
     assert gateway_client.closed == 1
     deployments.file_write.assert_not_called()
-    assert res == {"name": "AGENTS.md", "source": "gateway"}
+    assert res == {"name": "AGENTS.md", "source": "gateway", "agentId": "main"}
 
 
 def test_gateway_write_bytes_decodes_utf8_and_rejects_binary():
     agent, gateway_client, _ = make_agent()
     agent.file_write_bytes("AGENTS.md", "héllo".encode(), "gateway")
-    assert gateway_client.file_set_calls == [("agent-123", "AGENTS.md", "héllo")]
+    assert gateway_client.file_set_calls == [("main", "AGENTS.md", "héllo")]
     with pytest.raises(UnicodeDecodeError):
         agent.file_write_bytes("AGENTS.md", b"\xff\xfe\x00binary", "gateway")
 
@@ -85,7 +89,7 @@ def test_gateway_read_routes_to_files_get():
     agent, gateway_client, _ = make_agent()
     assert agent.file_read("AGENTS.md", "gateway") == "hello from gateway"
     assert agent.file_read_bytes("AGENTS.md", "gateway") == b"hello from gateway"
-    assert gateway_client.file_get_calls == [("agent-123", "AGENTS.md")] * 2
+    assert gateway_client.file_get_calls == [("main", "AGENTS.md")] * 2
 
 
 def test_gateway_list_maps_entries_to_file_entry_shape():
