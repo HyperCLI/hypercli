@@ -8,6 +8,8 @@ import { VoiceSession, type VoiceChunkEvent } from './voice-session.js';
 export {
   VoiceSession,
   VoiceStreamError,
+  type CloneSpeakOptions,
+  type DesignSpeakOptions,
   type SpeakOptions,
   type VoiceChunkEvent,
   type VoiceSessionOptions,
@@ -102,6 +104,45 @@ export class VoiceAPI {
       yield* session.speak({
         text: options.text,
         voice: options.voice,
+        language: options.language,
+        format: options.responseFormat,
+        chunks: true,
+      });
+    } finally {
+      session.close();
+    }
+  }
+
+  /**
+   * One-shot streaming voice clone: opens a session, speaks, closes.
+   */
+  async *cloneStream(options: CloneOptions & { timeoutMs?: number }): AsyncGenerator<VoiceChunkEvent, void, undefined> {
+    const session = this.connect({ timeoutMs: options.timeoutMs });
+    await session.open();
+    try {
+      yield* session.speakClone({
+        text: options.text,
+        refAudio: options.refAudio,
+        language: options.language,
+        xVectorOnly: options.xVectorOnly,
+        format: options.responseFormat,
+        chunks: true,
+      });
+    } finally {
+      session.close();
+    }
+  }
+
+  /**
+   * One-shot streaming voice design: opens a session, speaks, closes.
+   */
+  async *designStream(options: DesignOptions & { timeoutMs?: number }): AsyncGenerator<VoiceChunkEvent, void, undefined> {
+    const session = this.connect({ timeoutMs: options.timeoutMs });
+    await session.open();
+    try {
+      yield* session.speakDesign({
+        text: options.text,
+        description: options.description,
         language: options.language,
         format: options.responseFormat,
         chunks: true,

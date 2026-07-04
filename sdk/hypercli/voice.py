@@ -137,3 +137,45 @@ class VoiceAPI:
                 chunks=True,
             ):
                 yield chunk
+
+    async def clone_stream(
+        self,
+        text: str,
+        *,
+        ref_audio: bytes | str | Path,
+        language: str = "auto",
+        x_vector_only: bool = True,
+        response_format: str = "mp3",
+        timeout: float | None = None,
+    ) -> AsyncIterator["VoiceChunk"]:
+        """One-shot streaming voice clone: opens a session, speaks, closes."""
+        async with self.connect(timeout=timeout) as session:
+            async for chunk in session.speak_clone(
+                text,
+                ref_audio=ref_audio,
+                language=language,
+                x_vector_only=x_vector_only,
+                response_format=response_format,
+                chunks=True,
+            ):
+                yield chunk
+
+    async def design_stream(
+        self,
+        text: str,
+        *,
+        description: str,
+        language: str = "auto",
+        response_format: str = "mp3",
+        timeout: float | None = None,
+    ) -> AsyncIterator["VoiceChunk"]:
+        """One-shot streaming voice design: opens a session, speaks, closes."""
+        async with self.connect(timeout=timeout) as session:
+            async for chunk in session.speak_design(
+                text,
+                description=description,
+                language=language,
+                response_format=response_format,
+                chunks=True,
+            ):
+                yield chunk

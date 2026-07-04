@@ -37,6 +37,25 @@ export interface SpeakOptions {
   requestId?: string;
 }
 
+export interface CloneSpeakOptions {
+  text: string;
+  refAudio: Uint8Array | ArrayBuffer;
+  language?: string;
+  xVectorOnly?: boolean;
+  format?: string;
+  chunks?: boolean;
+  requestId?: string;
+}
+
+export interface DesignSpeakOptions {
+  text: string;
+  description: string;
+  language?: string;
+  format?: string;
+  chunks?: boolean;
+  requestId?: string;
+}
+
 export class VoiceStreamError extends Error {
   constructor(
     public readonly code: string,
@@ -45,6 +64,19 @@ export class VoiceStreamError extends Error {
     super(`voice stream error ${code}: ${detail}`);
     this.name = 'VoiceStreamError';
   }
+}
+
+export function encodeBase64(bytes: Uint8Array | ArrayBuffer): string {
+  const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(data).toString('base64');
+  }
+  let binary = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < data.length; i += CHUNK) {
+    binary += String.fromCharCode(...data.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
 }
 
 function decodeBase64(value: string): Uint8Array {
@@ -138,7 +170,51 @@ export class VoiceSession {
     this.send({ type: 'cancel', request_id: requestId });
   }
 
+  /** Speak text with a preset voice. */
   async *speak(options: SpeakOptions): AsyncGenerator<VoiceChunkEvent, void, undefined> {
+    yield* this.runSpeak(
+      'tts',
+      {
+        text: options.text,
+        voice: options.voice ?? 'serena',
+        language: options.language ?? 'auto',
+      },
+      options,
+    );
+  }
+
+  /** Speak text in a voice cloned from reference audio. */
+  async *speakClone(options: CloneSpeakOptions): AsyncGenerator<VoiceChunkEvent, void, undefined> {
+    yield* this.runSpeak(
+      'clone',
+      {
+        text: options.text,
+        ref_audio_base64: encodeBase64(options.refAudio),
+        language: options.language ?? 'auto',
+        x_vector_only: options.xVectorOnly ?? true,
+      },
+      options,
+    );
+  }
+
+  /** Speak text in a voice designed from a natural-language description. */
+  async *speakDesign(options: DesignSpeakOptions): AsyncGenerator<VoiceChunkEvent, void, undefined> {
+    yield* this.runSpeak(
+      'design',
+      {
+        text: options.text,
+        instruct: options.description,
+        language: options.language ?? 'auto',
+      },
+      options,
+    );
+  }
+
+  private async *runSpeak(
+    op: string,
+    body: Record<string, unknown>,
+    options: { format?: string; chunks?: boolean; requestId?: string },
+  ): AsyncGenerator<VoiceChunkEvent, void, undefined> {
     if (!this.ws || this.state === 'closed') {
       throw new Error("Session is not connected; call open() first");
     }
@@ -154,11 +230,10 @@ export class VoiceSession {
       this.send({
         type: 'speak',
         request_id: requestId,
-        text: options.text,
-        voice: options.voice ?? 'serena',
-        language: options.language ?? 'auto',
+        op,
         format: options.format ?? 'mp3',
         chunks: options.chunks ?? true,
+        ...body,
       });
 
       while (true) {

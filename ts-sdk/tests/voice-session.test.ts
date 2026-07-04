@@ -171,4 +171,72 @@ describe('VoiceSession', () => {
     expect(Buffer.from(chunks[0].audio).toString()).toBe('assembled-file');
     expect(chunks[0].final).toBe(true);
   });
+  it('speakClone sends op=clone with reference audio', async () => {
+    await startServer((ws, message) => {
+      if (message.type !== 'speak') return;
+      const rid = String(message.request_id);
+      ws.send(chunkMessage(rid, 0, 1, 'cloned-audio'));
+      ws.send(JSON.stringify({ type: 'done', request_id: rid, total_chunks: 1, elapsed: 0.1 }));
+    });
+
+    const session = new VoiceSession({ wsUrl: url, credential: 'hyper_api_test' });
+    await session.open();
+
+    const chunks = [];
+    for await (const chunk of session.speakClone({
+      text: 'clone me',
+      refAudio: new Uint8Array(Buffer.from('reference-audio')),
+    })) {
+      chunks.push(chunk);
+    }
+    session.close();
+
+    expect(Buffer.from(chunks[0].audio).toString()).toBe('cloned-audio');
+    expect(received[0]).toMatchObject({
+      type: 'speak',
+      op: 'clone',
+      ref_audio_base64: Buffer.from('reference-audio').toString('base64'),
+      x_vector_only: true,
+    });
+    expect(received[0]).not.toHaveProperty('voice');
+  });
+
+  it('speakDesign sends op=design with instruct', async () => {
+    await startServer((ws, message) => {
+      if (message.type !== 'speak') return;
+      const rid = String(message.request_id);
+      ws.send(chunkMessage(rid, 0, 1, 'designed-audio'));
+      ws.send(JSON.stringify({ type: 'done', request_id: rid, total_chunks: 1, elapsed: 0.1 }));
+    });
+
+    const session = new VoiceSession({ wsUrl: url, credential: 'hyper_api_test' });
+    await session.open();
+
+    const chunks = [];
+    for await (const chunk of session.speakDesign({ text: 'design me', description: 'a warm narrator' })) {
+      chunks.push(chunk);
+    }
+    session.close();
+
+    expect(Buffer.from(chunks[0].audio).toString()).toBe('designed-audio');
+    expect(received[0]).toMatchObject({ type: 'speak', op: 'design', instruct: 'a warm narrator' });
+  });
+
+  it('speak sends op=tts', async () => {
+    await startServer((ws, message) => {
+      if (message.type !== 'speak') return;
+      const rid = String(message.request_id);
+      ws.send(chunkMessage(rid, 0, 1, 'tts-audio'));
+      ws.send(JSON.stringify({ type: 'done', request_id: rid, total_chunks: 1, elapsed: 0.1 }));
+    });
+
+    const session = new VoiceSession({ wsUrl: url, credential: 'hyper_api_test' });
+    await session.open();
+    for await (const _chunk of session.speak({ text: 'hi', voice: 'serena' })) {
+      // consume
+    }
+    session.close();
+
+    expect(received[0]).toMatchObject({ type: 'speak', op: 'tts', voice: 'serena' });
+  });
 });

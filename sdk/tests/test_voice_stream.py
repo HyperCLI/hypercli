@@ -174,3 +174,120 @@ async def test_chunks_false_single_assembled_chunk():
     finally:
         server.close()
         await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_speak_clone_sends_op_and_reference_audio():
+    received = []
+
+    async def handler(ws):
+        message = json.loads(await ws.recv())
+        received.append(message)
+        rid = message["request_id"]
+        await ws.send(json.dumps({"type": "start", "request_id": rid, "format": "mp3"}))
+        await ws.send(_chunk_message(rid, 0, 1, b"cloned-audio"))
+        await ws.send(json.dumps({"type": "done", "request_id": rid, "total_chunks": 1, "elapsed": 0.1}))
+        await ws.wait_closed()
+
+    server, url = await _start_server(handler)
+    try:
+        async with VoiceSession(url, "hyper_api_test") as session:
+            chunks = [
+                c async for c in session.speak_clone("clone me", ref_audio=b"reference-audio")
+            ]
+        assert chunks[0].audio == b"cloned-audio"
+        speak = received[0]
+        assert speak["op"] == "clone"
+        assert speak["ref_audio_base64"] == base64.b64encode(b"reference-audio").decode()
+        assert speak["x_vector_only"] is True
+        assert "voice" not in speak
+    finally:
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_speak_design_sends_op_and_instruct():
+    received = []
+
+    async def handler(ws):
+        message = json.loads(await ws.recv())
+        received.append(message)
+        rid = message["request_id"]
+        await ws.send(_chunk_message(rid, 0, 1, b"designed-audio"))
+        await ws.send(json.dumps({"type": "done", "request_id": rid, "total_chunks": 1, "elapsed": 0.1}))
+        await ws.wait_closed()
+
+    server, url = await _start_server(handler)
+    try:
+        async with VoiceSession(url, "hyper_api_test") as session:
+            chunks = [
+                c async for c in session.speak_design("design me", description="a warm narrator")
+            ]
+        assert chunks[0].audio == b"designed-audio"
+        speak = received[0]
+        assert speak["op"] == "design"
+        assert speak["instruct"] == "a warm narrator"
+    finally:
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_speak_tts_sends_op_tts():
+    received = []
+
+    async def handler(ws):
+        message = json.loads(await ws.recv())
+        received.append(message)
+        rid = message["request_id"]
+        await ws.send(_chunk_message(rid, 0, 1, b"tts-audio"))
+        await ws.send(json.dumps({"type": "done", "request_id": rid, "total_chunks": 1, "elapsed": 0.1}))
+        await ws.wait_closed()
+
+    server, url = await _start_server(handler)
+    try:
+        async with VoiceSession(url, "hyper_api_test") as session:
+            [c async for c in session.speak("hi", voice="serena")]
+        assert received[0]["op"] == "tts"
+        assert received[0]["voice"] == "serena"
+    finally:
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_clone_and_design_stream_conveniences(monkeypatch):
+    from types import SimpleNamespace
+
+    from hypercli.voice import VoiceAPI
+
+    received = []
+
+    async def handler(ws):
+        async for raw in ws:
+            message = json.loads(raw)
+            received.append(message)
+            if message["type"] != "speak":
+                continue
+            rid = message["request_id"]
+            await ws.send(_chunk_message(rid, 0, 1, f"audio-{message['op']}".encode()))
+            await ws.send(json.dumps({"type": "done", "request_id": rid, "total_chunks": 1, "elapsed": 0.1}))
+
+    server, url = await _start_server(handler)
+    try:
+        api = VoiceAPI(SimpleNamespace(base_url="https://api.hypercli.com", api_key="hyper_api_test"))
+        monkeypatch.setattr(api, "connect", lambda *, timeout=None: VoiceSession(url, "hyper_api_test"))
+
+        clone_chunks = [c async for c in api.clone_stream("clone me", ref_audio=b"ref")]
+        assert clone_chunks[0].audio == b"audio-clone"
+
+        design_chunks = [c async for c in api.design_stream("design me", description="a narrator")]
+        assert design_chunks[0].audio == b"audio-design"
+
+        ops = [m["op"] for m in received if m["type"] == "speak"]
+        assert ops == ["clone", "design"]
+        assert all(m["chunks"] is True for m in received if m["type"] == "speak")
+    finally:
+        server.close()
+        await server.wait_closed()

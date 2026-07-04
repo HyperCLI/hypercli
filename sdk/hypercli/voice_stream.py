@@ -16,6 +16,7 @@ Usage:
 """
 import asyncio
 import base64
+import contextlib
 import json
 import uuid
 from dataclasses import dataclass
@@ -103,11 +104,89 @@ class VoiceSession:
         request_id: Optional[str] = None,
         timeout: Optional[float] = None,
     ) -> AsyncIterator[VoiceChunk]:
-        """Speak text; yield ordered VoiceChunk items until done.
+        """Speak text with a preset voice; yield ordered VoiceChunk items.
 
         chunks=True streams each server-side split as its own chunk;
         chunks=False yields a single chunk holding the assembled file.
         """
+        stream = self._speak(
+            op="tts",
+            body={"text": text, "voice": voice, "language": language},
+            response_format=response_format,
+            chunks=chunks,
+            request_id=request_id,
+            timeout=timeout,
+        )
+        async with contextlib.aclosing(stream) as chunks_iter:
+            async for chunk in chunks_iter:
+                yield chunk
+
+    async def speak_clone(
+        self,
+        text: str,
+        *,
+        ref_audio,
+        language: str = "auto",
+        x_vector_only: bool = True,
+        response_format: str = "mp3",
+        chunks: bool = True,
+        request_id: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> AsyncIterator[VoiceChunk]:
+        """Speak text in a voice cloned from reference audio (bytes or path)."""
+        from .voice import _encode_reference_audio
+
+        stream = self._speak(
+            op="clone",
+            body={
+                "text": text,
+                "ref_audio_base64": _encode_reference_audio(ref_audio),
+                "language": language,
+                "x_vector_only": x_vector_only,
+            },
+            response_format=response_format,
+            chunks=chunks,
+            request_id=request_id,
+            timeout=timeout,
+        )
+        async with contextlib.aclosing(stream) as chunks_iter:
+            async for chunk in chunks_iter:
+                yield chunk
+
+    async def speak_design(
+        self,
+        text: str,
+        *,
+        description: str,
+        language: str = "auto",
+        response_format: str = "mp3",
+        chunks: bool = True,
+        request_id: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> AsyncIterator[VoiceChunk]:
+        """Speak text in a voice designed from a natural-language description."""
+        stream = self._speak(
+            op="design",
+            body={"text": text, "instruct": description, "language": language},
+            response_format=response_format,
+            chunks=chunks,
+            request_id=request_id,
+            timeout=timeout,
+        )
+        async with contextlib.aclosing(stream) as chunks_iter:
+            async for chunk in chunks_iter:
+                yield chunk
+
+    async def _speak(
+        self,
+        *,
+        op: str,
+        body: dict,
+        response_format: str,
+        chunks: bool,
+        request_id: Optional[str],
+        timeout: Optional[float],
+    ) -> AsyncIterator[VoiceChunk]:
         if self._ws is None or self.state == "closed":
             raise RuntimeError("Session is not connected; call open() or use 'async with'")
         if self.state != "idle":
@@ -121,11 +200,10 @@ class VoiceSession:
             await self._ws.send(json.dumps({
                 "type": "speak",
                 "request_id": rid,
-                "text": text,
-                "voice": voice,
-                "language": language,
+                "op": op,
                 "format": response_format,
                 "chunks": chunks,
+                **body,
             }))
             while True:
                 remaining = deadline - asyncio.get_running_loop().time()
