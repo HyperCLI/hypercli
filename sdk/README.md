@@ -124,6 +124,77 @@ Use `create_openclaw_pro(...)` for the desktop/browser image. It enables noVNC t
 
 Automatic memory indexing is off by default. Opt in with `memory_index={"on_session_start": True, "on_search": True, "watch": True, "watch_debounce_ms": 30000, "interval_minutes": 0}`.
 
+## OpenClaw Node Egress
+
+The Python SDK includes an experimental reference implementation for user-owned
+node egress in `hypercli.openclaw.node_proxy`. It uses the existing OpenClaw
+node model:
+
+- a node connects to the gateway with `role="node"`
+- the node declares explicit `egress.*` command names during the connect
+  handshake
+- an operator/client calls `GatewayClient.node_invoke(node_id, command, params)`
+- the gateway sends one `node.invoke.request` and waits for one
+  `node.invoke.result`
+
+This is not raw sockets over the gateway. It is node RPC with chunked payloads
+and gateway policy approval.
+
+Node side:
+
+```python
+from hypercli.openclaw import NodeEgressServer
+
+node = NodeEgressServer(
+    "wss://my-agent.hypercli.app",
+    "home-linux-egress",
+    gateway_token="...",
+)
+
+await node.connect()
+```
+
+Operator side:
+
+```python
+from hypercli.openclaw import EGRESS_COMMANDS, NodeEgressClient
+
+egress = NodeEgressClient(gateway, node_id="home-linux-egress")
+res = await egress.http_fetch("https://example.com/")
+```
+
+Commands:
+
+- `egress.http.fetch`: bounded HTTP(S) fetch, response body returned as base64
+  chunks
+- `egress.tcp.open/read/write/close`: experimental TCP tunnel primitives used
+  by `LoopbackNodeProxy` for HTTP `CONNECT`
+
+Security defaults:
+
+- local proxy binds to `127.0.0.1` by default
+- node id is explicit; no automatic node selection
+- RFC1918/private, loopback, link-local, multicast, reserved, and metadata IPs
+  are blocked by default unless explicitly allowed on the node
+- chunks are small and bounded; responses are not returned as one unbounded
+  base64 blob
+
+Pairing and policy:
+
+- the node must be device-paired
+- the node command surface must be approved
+- custom `egress.*` commands may need `gateway.nodes.allowCommands`
+
+Python/Linux is first because it is easiest to test in CI and the Python SDK
+already ships `NodeServer`. The portable contract is the command surface and
+payload shape, not the Python implementation. macOS Backseat Driver already
+proves the native node-host precedent; Android should eventually gain Kotlin
+`NodeRuntime` parity; the TS SDK can mirror operator/client types if useful.
+
+`LoopbackNodeProxy` can relay absolute-form HTTP requests and has experimental
+`CONNECT` support over polling/chunked `node.invoke`. Treat CONNECT as a
+feasibility prototype, not production-grade streaming.
+
 ## Error Handling
 
 ```python

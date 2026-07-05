@@ -247,6 +247,79 @@ If you patch that config in a containerized agent, restart the whole agent and
 reconnect clients before pairing or invoking nodes. A config patch alone can
 leave the running gateway on the old command policy.
 
+## Node Egress Prototype
+
+The Python SDK includes an experimental node egress reference implementation in
+`hypercli.openclaw.node_proxy`.
+
+The cross-platform contract is:
+
+- connect as `role="node"`
+- declare explicit command names in the handshake
+- approve the node command surface
+- invoke through `node.invoke`
+- move bytes as bounded base64 chunks in JSON payloads
+
+It is not a raw gateway socket bus. `node.invoke` is one request and one result,
+so long-lived transport has to be modeled as repeated RPC calls with explicit
+connection ids, chunk sizes, max bytes, timeouts, and cleanup.
+
+Python/Linux is the first tested implementation because the SDK already has
+`NodeServer` and the behavior is easy to unit test without a live gateway.
+Backseat Driver's macOS `NodeRuntime` is the native-node precedent for a later
+macOS port. Android should grow Kotlin `NodeRuntime` parity and serve the same
+`egress.*` command contract instead of a separate protocol. The TS SDK can
+mirror the operator-side types if browser/node TypeScript clients need the same
+helpers.
+
+Node side:
+
+```python
+from hypercli.openclaw import NodeEgressServer
+
+node = NodeEgressServer(
+    "wss://my-agent.hypercli.app",
+    "home-linux-egress",
+    gateway_token="...",
+)
+
+await node.connect()
+```
+
+Operator side:
+
+```python
+from hypercli.openclaw import NodeEgressClient
+
+egress = NodeEgressClient(gw, node_id="home-linux-egress")
+res = await egress.http_fetch("https://example.com/")
+```
+
+Command surface:
+
+- `egress.http.fetch`: bounded HTTP(S) fetch; returns status, headers, and
+  response body chunks
+- `egress.tcp.open`
+- `egress.tcp.read`
+- `egress.tcp.write`
+- `egress.tcp.close`
+
+Security defaults:
+
+- local proxy listeners bind to `127.0.0.1`
+- the operator must pass an explicit `node_id`
+- private/RFC1918, loopback, link-local, multicast, reserved, and cloud metadata
+  destinations are blocked by default on the node
+- base64 chunks are capped at 64 KiB and HTTP responses are bounded
+
+`LoopbackNodeProxy` can expose a local HTTP proxy for absolute-form HTTP
+requests. Its `CONNECT` support is experimental: it polls `egress.tcp.read` and
+uses `egress.tcp.write` over repeated `node.invoke` calls, so it has materially
+higher latency and overhead than a real tunnel.
+
+Custom `egress.*` commands may need `gateway.nodes.allowCommands` in addition to
+device pairing and node surface approval.
+
 ## Recommendation
 
 Use `OpenClawAgent.gateway()` unless you are:

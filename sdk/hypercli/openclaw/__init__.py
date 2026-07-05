@@ -14,6 +14,18 @@ from .gateway import (
     extract_gateway_chat_tool_calls,
     normalize_gateway_chat_message,
 )
+from .node_proxy import (
+    EGRESS_COMMANDS,
+    EgressCommandHandlers,
+    EgressNodeClient,
+    EgressNodeServer,
+    EgressPolicyError,
+    EgressProtocolError,
+    LoopbackNodeProxy,
+    NodeEgressClient,
+    NodeEgressCommandHandlers,
+    NodeEgressServer,
+)
 
 __all__ = [
     "GatewayClient",
@@ -28,4 +40,14 @@ __all__ = [
     "extract_gateway_chat_media_urls",
     "extract_gateway_chat_tool_calls",
     "normalize_gateway_chat_message",
+    "EGRESS_COMMANDS",
+    "EgressCommandHandlers",
+    "EgressNodeClient",
+    "EgressNodeServer",
+    "EgressPolicyError",
+    "EgressProtocolError",
+    "LoopbackNodeProxy",
+    "NodeEgressClient",
+    "NodeEgressCommandHandlers",
+    "NodeEgressServer",
 ]
