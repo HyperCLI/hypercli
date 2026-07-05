@@ -477,9 +477,10 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByText("API keys")).toBeInTheDocument();
   });
 
-  it("saves memory index settings through an OpenClaw config patch", async () => {
+  it("saves memory index settings through an OpenClaw config patch and syncs launch env", async () => {
     const onSaveOpenClawConfig = vi.fn(async () => undefined);
-    renderAgentSettingsPanel({ onSaveOpenClawConfig });
+    const onUpdateAgentLaunchConfig = vi.fn(async () => undefined);
+    renderAgentSettingsPanel({ onSaveOpenClawConfig, onUpdateAgentLaunchConfig });
 
     fireEvent.click(screen.getByRole("button", { name: "Index" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Sync on session start" }));
@@ -511,6 +512,37 @@ describe("AgentSettingsPanel", () => {
         },
       });
     });
+    expect(onUpdateAgentLaunchConfig).toHaveBeenCalledWith("agent-1", {
+      image: "ghcr.io/hypercli/hypercli-openclaw:prod",
+      env: {
+        OPENCLAW_GATEWAY_TOKEN: "gateway-token",
+        OPENCLAW_DESKTOP_ENABLED: "0",
+        OPENCLAW_MEMORY_SEARCH_ENABLED: "1",
+        OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START: "1",
+        OPENCLAW_MEMORY_SEARCH_SYNC_ON_SEARCH: "1",
+        OPENCLAW_MEMORY_SEARCH_SYNC_WATCH: "1",
+        OPENCLAW_MEMORY_SEARCH_SYNC_WATCH_DEBOUNCE_MS: "60000",
+        OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES: "120",
+        FOO: "bar",
+      },
+      routes: {
+        openclaw: { port: 18789, auth: false, prefix: "" },
+      },
+      sync_root: "/home/node",
+      sync_enabled: true,
+    });
+  });
+
+  it("blocks memory index saves when launch config updates are unavailable", async () => {
+    const onSaveOpenClawConfig = vi.fn(async () => undefined);
+    renderAgentSettingsPanel({ onSaveOpenClawConfig, onUpdateAgentLaunchConfig: undefined });
+
+    fireEvent.click(screen.getByRole("button", { name: "Index" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Watch memory files" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(await screen.findByText("Runtime launch updates are unavailable.")).toBeInTheDocument();
+    expect(onSaveOpenClawConfig).not.toHaveBeenCalled();
   });
 });
 

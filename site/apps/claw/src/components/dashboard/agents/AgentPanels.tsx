@@ -20,7 +20,7 @@ import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { ResourceImage } from "@/components/ResourceImage";
 import { createAgentClient } from "@/lib/agent-client";
 import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
-import { buildOpenClawLaunchOptions } from "@/lib/openclaw-launch";
+import { buildOpenClawLaunchOptions, buildOpenClawMemoryIndexEnv } from "@/lib/openclaw-launch";
 import { agentAvatar } from "@/lib/avatar";
 import { parseAgentCapacityError } from "@/lib/agent-tier";
 import type { WorkspaceFile } from "@/lib/openclaw-chat";
@@ -609,14 +609,18 @@ function buildUpdatedLaunchConfig(
   agent: Agent,
   image: string,
   additionalEnvText: string,
+  memoryIndex: MemoryIndexSettings | null = null,
 ): Record<string, unknown> {
   const launchConfig = launchConfigFromAgent(agent);
-  launchConfig.image = image;
+  if (image) launchConfig.image = image;
   const preservedEnv = Object.fromEntries(
     Object.entries(launchConfigEnv(agent)).filter(([key]) => isManagedLaunchEnvKey(key)),
   );
   launchConfig.env = {
     ...preservedEnv,
+    // Keep the injected indexing envs in line with the saved toggles; the
+    // container entrypoint re-applies them to openclaw.json on every boot.
+    ...(memoryIndex ? buildOpenClawMemoryIndexEnv(memoryIndex) : {}),
     ...parseAdditionalEnvText(additionalEnvText),
   };
   return launchConfig;
@@ -1520,7 +1524,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
       return;
     }
 
-    if (agentLaunchChanged && !onUpdateAgentLaunchConfig) {
+    if ((agentLaunchChanged || memoryIndexChanged) && !onUpdateAgentLaunchConfig) {
       setAgentSettingsError("Runtime launch updates are unavailable.");
       return;
     }
@@ -1557,9 +1561,14 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         setAgentSettingsSuccess("Agent settings updated.");
       }
 
-      if ((agentImageChanged || additionalEnvChanged) && onUpdateAgentLaunchConfig) {
+      if ((agentImageChanged || additionalEnvChanged || memoryIndexChanged) && onUpdateAgentLaunchConfig) {
         savingSection = "agent";
-        await onUpdateAgentLaunchConfig(agent.id, buildUpdatedLaunchConfig(agent, nextAgentImage, additionalEnvDraft));
+        await onUpdateAgentLaunchConfig(agent.id, buildUpdatedLaunchConfig(
+          agent,
+          nextAgentImage,
+          additionalEnvDraft,
+          memoryIndexChanged ? memoryIndexDraft : null,
+        ));
         setAgentImageDraft(nextAgentImage);
         setSavedAgentImage(nextAgentImage);
         setSavedAdditionalEnvDraft(additionalEnvDraft);

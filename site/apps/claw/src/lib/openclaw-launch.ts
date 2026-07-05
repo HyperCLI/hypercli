@@ -3,7 +3,7 @@ import type { OpenClawCreateAgentOptions, OpenClawStartAgentOptions } from "@hyp
 const OPENCLAW_IMAGE_ENV = "NEXT_PUBLIC_OPENCLAW_IMAGE";
 const OPENCLAW_PRO_IMAGE_ENV = "NEXT_PUBLIC_OPENCLAW_PRO_IMAGE";
 
-type OpenClawMemoryIndexOptions = {
+export type OpenClawMemoryIndexOptions = {
   enabled?: boolean | null;
   onSessionStart?: boolean | null;
   onSearch?: boolean | null;
@@ -47,7 +47,7 @@ function envNonNegativeInteger(name: string, value: unknown): string {
   return String(integer);
 }
 
-function buildOpenClawMemoryIndexEnv(memoryIndex: OpenClawMemoryIndexOptions | null = null): Record<string, string> {
+export function buildOpenClawMemoryIndexEnv(memoryIndex: OpenClawMemoryIndexOptions | null = null): Record<string, string> {
   if (!memoryIndex) return {};
   const env: Record<string, string> = { ...OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS };
   if (memoryIndex.enabled !== undefined && memoryIndex.enabled !== null) {
