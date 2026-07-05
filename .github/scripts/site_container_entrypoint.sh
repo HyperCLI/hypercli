@@ -66,12 +66,24 @@ assemble_static_artifact() {
     cp "${html_file}" "${publish_dir}/${route}/index.html"
   done < <(find "${server_app_dir}" -type f -name '*.html' | sort)
 
+  # Router assembly. Order matters (Netlify matches top-down, first wins):
+  # asset/aliased rules -> the app's own public/_redirects (domain 301s,
+  # /instructions etc. — copied above, must NOT be clobbered) -> SPA
+  # catch-all LAST. The catch-all is non-forced, so real exported routes
+  # (e.g. /desktop-login/index.html) always win over it.
+  local app_redirects=""
+  if [[ -f "${publish_dir}/_redirects" ]]; then
+    app_redirects="$(cat "${publish_dir}/_redirects")"
+  fi
   cat > "${publish_dir}/_redirects" <<'REDIRECTS'
 /_next/static/* /_next/static/:splat 200
 /job/* /job 200
 /billing/* /billing 200
-/* /index.html 200
 REDIRECTS
+  if [[ -n "${app_redirects}" ]]; then
+    printf '%s\n' "${app_redirects}" >> "${publish_dir}/_redirects"
+  fi
+  printf '/* /index.html 200\n' >> "${publish_dir}/_redirects"
 }
 
 deploy_artifact() {
