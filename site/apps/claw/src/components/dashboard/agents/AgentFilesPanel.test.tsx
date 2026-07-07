@@ -134,6 +134,143 @@ describe("AgentFilesPanel", () => {
     expect(screen.queryByText("Loading workspace")).not.toBeInTheDocument();
   });
 
+  it("hides source tabs by default and loads the Agent source from the OpenClaw directory", async () => {
+    const onListFiles = vi.fn(async () => []);
+
+    renderFilesPanel({ onListFiles });
+
+    await waitFor(() => {
+      expect(onListFiles).toHaveBeenCalledWith(".openclaw", "agent");
+    });
+    expect(onListFiles).not.toHaveBeenCalledWith(".openclaw", "backup");
+    expect(screen.queryByRole("tablist", { name: /file source/i })).not.toBeInTheDocument();
+  });
+
+  it("starts the Agent source at the OpenClaw directory and shows hidden entries", async () => {
+    const onListFiles = vi.fn(async () => [
+      { name: ".config", path: ".openclaw/.config", type: "directory" as const },
+    ]);
+
+    renderFilesPanel({ onListFiles, showSourceTabs: true });
+
+    await waitFor(() => {
+      expect(onListFiles).toHaveBeenCalledWith(".openclaw", "agent");
+    });
+    expect(await screen.findByText(".config")).toBeInTheDocument();
+    expect(screen.getByTitle("Hide dotfiles")).toBeInTheDocument();
+  });
+
+  it("switches to the Backup source from panel tabs at the OpenClaw directory", async () => {
+    const onListFiles = vi.fn(async () => []);
+
+    renderFilesPanel({ onListFiles, showSourceTabs: true });
+
+    await waitFor(() => {
+      expect(onListFiles).toHaveBeenCalledWith(".openclaw", "agent");
+    });
+    onListFiles.mockClear();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Backup" }));
+
+    await waitFor(() => {
+      expect(onListFiles).toHaveBeenCalledWith(".openclaw", "backup");
+    });
+    expect(screen.getByRole("tab", { name: "Backup" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("switches to the Gateway source from panel tabs and disables file mutations", async () => {
+    const onListFiles = vi.fn(async () => []);
+
+    renderFilesPanel({ onListFiles, showSourceTabs: true, onCreateDirectory: vi.fn(async () => undefined) });
+
+    await waitFor(() => {
+      expect(onListFiles).toHaveBeenCalledWith(".openclaw", "agent");
+    });
+    onListFiles.mockClear();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Gateway" }));
+
+    await waitFor(() => {
+      expect(onListFiles).toHaveBeenCalledWith(undefined, "gateway");
+    });
+    expect(screen.getByRole("button", { name: /new folder/i })).toBeDisabled();
+    expect(screen.getByTitle("Uploads are not available for gateway files")).toBeDisabled();
+  });
+
+  it("defaults to Backup and disables Agent when the live source is unavailable", async () => {
+    const onListFiles = vi.fn(async () => []);
+
+    renderFilesPanel({
+      defaultSource: "backup",
+      showSourceTabs: true,
+      sourceDisabledReasons: { agent: "Start the agent to browse live files." },
+      onListFiles,
+    });
+
+    await waitFor(() => {
+      expect(onListFiles).toHaveBeenCalledWith(".openclaw", "backup");
+    });
+    const agentTab = screen.getByRole("tab", { name: "Agent" });
+    expect(agentTab).toBeDisabled();
+    expect(screen.getByRole("tab", { name: "Backup" })).toHaveAttribute("aria-selected", "true");
+
+    onListFiles.mockClear();
+    fireEvent.click(agentTab);
+    expect(onListFiles).not.toHaveBeenCalled();
+  });
+
+  it("shows latest backup status as per-file tooltips", async () => {
+    const onListFiles = vi.fn(async (_path?: string, source?: string) => {
+      if (source === "backup") {
+        return [
+          { name: "synced.md", path: ".openclaw/synced.md", type: "file" as const, sha256: "same", size: 4, lastModified: "2026-07-07T10:00:00Z" },
+          { name: "changed.md", path: ".openclaw/changed.md", type: "file" as const, sha256: "old", size: 4, lastModified: "2026-07-07T09:00:00Z" },
+          { name: "unverified.md", path: ".openclaw/unverified.md", type: "file" as const, size: 4, lastModified: "2026-07-07T13:00:00Z" },
+          { name: "stale.md", path: ".openclaw/stale.md", type: "file" as const, size: 4, lastModified: "2026-07-07T09:00:00Z" },
+        ];
+      }
+      return [
+        { name: "synced.md", path: ".openclaw/synced.md", type: "file" as const, sha256: "same", size: 4, lastModified: "2026-07-07T10:00:00Z" },
+        { name: "changed.md", path: ".openclaw/changed.md", type: "file" as const, sha256: "new", size: 4, lastModified: "2026-07-07T11:00:00Z" },
+        { name: "unverified.md", path: ".openclaw/unverified.md", type: "file" as const, size: 4, lastModified: "2026-07-07T13:00:00Z" },
+        { name: "stale.md", path: ".openclaw/stale.md", type: "file" as const, size: 4, lastModified: "2026-07-07T14:00:00Z" },
+        { name: "draft.md", path: ".openclaw/draft.md", type: "file" as const, sha256: "draft", size: 5, lastModified: "2026-07-07T12:00:00Z" },
+      ];
+    });
+
+    renderFilesPanel({ onListFiles, showSourceTabs: true });
+
+    await waitFor(() => {
+      expect(onListFiles).toHaveBeenCalledWith(".openclaw", "agent");
+      expect(onListFiles).toHaveBeenCalledWith(".openclaw", "backup");
+    });
+    expect(screen.queryByText("Backup needs attention")).not.toBeInTheDocument();
+    expect(screen.getByTitle(/Backed up[\s\S]*Backup copy modified: 2026-07-07T10:00:00Z[\s\S]*Hashes match/)).toBeInTheDocument();
+    expect(screen.getByTitle(/Changed since backup[\s\S]*Backup copy modified: 2026-07-07T09:00:00Z[\s\S]*Hashes differ/)).toBeInTheDocument();
+    expect(screen.getByTitle(/Backed up[\s\S]*Backup copy modified: 2026-07-07T13:00:00Z[\s\S]*Hash verification unavailable/)).toBeInTheDocument();
+    expect(screen.getByTitle(/Backup may be stale[\s\S]*Backup copy modified: 2026-07-07T09:00:00Z[\s\S]*Live file modified: 2026-07-07T14:00:00Z[\s\S]*Hash verification unavailable/)).toBeInTheDocument();
+    expect(screen.getByTitle(/Not backed up[\s\S]*Live file modified: 2026-07-07T12:00:00Z/)).toBeInTheDocument();
+  });
+
+  it("shows backup-copy tooltips when live files are unavailable", async () => {
+    const onListFiles = vi.fn(async () => [
+      { name: "archived.md", path: ".openclaw/archived.md", type: "file" as const, size: 12, lastModified: "2026-07-07T08:00:00Z" },
+    ]);
+
+    renderFilesPanel({
+      defaultSource: "backup",
+      showSourceTabs: true,
+      sourceDisabledReasons: { agent: "Start the agent to browse live files." },
+      onListFiles,
+    });
+
+    expect(await screen.findByText("archived.md")).toBeInTheDocument();
+    expect(screen.queryByText("Backup comparison paused")).not.toBeInTheDocument();
+    expect(screen.getByTitle(/Backed up[\s\S]*Backup copy modified: 2026-07-07T08:00:00Z[\s\S]*Start the agent to compare/)).toBeInTheDocument();
+    expect(onListFiles).toHaveBeenCalledWith(".openclaw", "backup");
+    expect(onListFiles).not.toHaveBeenCalledWith(".openclaw", "agent");
+  });
+
   it("uses compact file-specific copy while loading the file list", () => {
     renderFilesPanel({
       onListFiles: vi.fn(() => new Promise(() => undefined)),
@@ -192,11 +329,12 @@ describe("AgentFilesPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
 
     await waitFor(() => {
-      expect(onCreateDirectory).toHaveBeenCalledWith(".openclaw/workspace/reports");
+      expect(onCreateDirectory).toHaveBeenCalledWith(".openclaw/reports");
     });
     await waitFor(() => {
-      expect(onListFiles).toHaveBeenCalledTimes(1);
+      expect(onListFiles).toHaveBeenCalledWith(".openclaw", "agent");
     });
+    expect(onListFiles).not.toHaveBeenCalledWith(".openclaw", "backup");
   });
 
   it("rejects nested folder names", async () => {

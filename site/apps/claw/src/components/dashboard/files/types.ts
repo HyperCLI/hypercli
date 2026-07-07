@@ -8,7 +8,54 @@ export interface FileEntry {
   type: "file" | "directory";
   size?: number;
   lastModified?: string;
+  checksum?: string;
+  checksumAlgorithm?: string;
+  hash?: string;
+  hashAlgorithm?: string;
+  sha256?: string;
+  md5?: string;
+  etag?: string;
+  versionId?: string;
+  source?: "agent" | "backup" | "gateway" | "pod" | "s3" | "auto";
+  backupComparison?: FileBackupComparison;
   missing?: boolean;
+}
+
+export type FileBackupStatus = "synced" | "modified" | "live-only" | "backup-only" | "backup-copy" | "unverified" | "stale" | "unknown";
+export type FileBackupFreshness = "live-newer" | "backup-newer" | "same-time" | "unknown";
+
+export interface FileBackupSnapshot {
+  path: string;
+  type: "file" | "directory";
+  size?: number;
+  lastModified?: string;
+  checksum?: string;
+  checksumAlgorithm?: string;
+  hash?: string;
+  hashAlgorithm?: string;
+  sha256?: string;
+  md5?: string;
+  etag?: string;
+  versionId?: string;
+}
+
+export interface FileBackupComparison {
+  status: FileBackupStatus;
+  freshness: FileBackupFreshness;
+  live?: FileBackupSnapshot;
+  backup?: FileBackupSnapshot;
+  hashField?: string;
+  hashAlgorithm?: string;
+  reason?: string;
+}
+
+export interface FileBackupSummary {
+  total: number;
+  synced: number;
+  modified: number;
+  liveOnly: number;
+  backupOnly: number;
+  unknown: number;
 }
 
 export interface DirectoryListing {
@@ -28,12 +75,7 @@ export interface UploadItem {
 
 // ── Tree node (recursive) ──
 
-export interface TreeNode {
-  name: string;
-  path: string;
-  type: "file" | "directory";
-  size?: number;
-  lastModified?: string;
+export interface TreeNode extends FileEntry {
   children?: TreeNode[];
 }
 

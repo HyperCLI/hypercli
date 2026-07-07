@@ -10,6 +10,7 @@ vi.mock("./FirstAgentSetupWizard", () => ({
 }));
 
 vi.mock("@hypercli/shared-ui", () => ({
+  HyperCLILogo: ({ className }: { className?: string }) => <div aria-hidden="true" className={className} />,
   Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipContent: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -282,11 +283,26 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByText("Default model")).toBeInTheDocument();
     expect(screen.getByText("Visibility")).toBeInTheDocument();
     expect(screen.getByText("Auto-archive idle projects")).toBeInTheDocument();
+    expect(screen.getByText("File source tabs")).toBeInTheDocument();
     expect(screen.getByText("Agent runtime")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /stop agent/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Danger Zone" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete agent" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start agent/i })).not.toBeInTheDocument();
+  });
+
+  it("toggles the local file source tabs setting without marking agent settings dirty", () => {
+    const onShowFileSourceTabsChange = vi.fn();
+    renderAgentSettingsPanel({ showFileSourceTabs: true, onShowFileSourceTabsChange });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    const toggle = screen.getByRole("checkbox", { name: /show source tabs/i });
+
+    expect(toggle).toBeChecked();
+    fireEvent.click(toggle);
+
+    expect(onShowFileSourceTabsChange).toHaveBeenCalledWith(false);
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
   });
 
   it("opens the delete confirmation from agent settings", () => {

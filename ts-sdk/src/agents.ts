@@ -304,6 +304,19 @@ export interface AgentFileEntry {
   size?: number;
   size_formatted?: string;
   last_modified?: string;
+  checksum?: string;
+  checksum_algorithm?: string;
+  checksumAlgorithm?: string;
+  hash?: string;
+  hash_algorithm?: string;
+  hashAlgorithm?: string;
+  sha256?: string;
+  sha_256?: string;
+  md5?: string;
+  etag?: string;
+  version_id?: string;
+  versionId?: string;
+  source?: AgentFileSource;
   [key: string]: any;
 }
 

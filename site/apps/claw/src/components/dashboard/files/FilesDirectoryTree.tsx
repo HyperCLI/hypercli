@@ -41,11 +41,10 @@ function buildTree(entries: FileEntry[]): TreeNode[] {
     const path = normalizeTreePath(entry.path);
     const segments = path.split("/").filter(Boolean);
     const node: TreeNode = {
+      ...entry,
       name: entry.name,
       path,
       type: entry.type,
-      size: entry.size,
-      lastModified: entry.lastModified,
       children: entry.type === "directory" ? [] : undefined,
     };
 
@@ -136,13 +135,7 @@ function TreeLevel({
       {nodes.map((node) => {
         const isDir = node.type === "directory";
         const isExpanded = expandedPaths.has(node.path);
-        const entry: FileEntry = {
-          name: node.name,
-          path: node.path,
-          type: node.type,
-          size: node.size,
-          lastModified: node.lastModified,
-        };
+        const { children: _children, ...entry } = node;
 
         return (
           <div key={node.path}>
@@ -227,11 +220,11 @@ export function FilesDirectoryTree({
     if (isSearching) {
       const flat = flattenForSearch(entries, searchQuery!);
       return flat.map((e): TreeNode => ({
+        ...e,
         name: e.name,
         path: normalizeTreePath(e.path),
         type: e.type,
-        size: e.size,
-        lastModified: e.lastModified,
+        children: e.type === "directory" ? [] : undefined,
       }));
     }
 

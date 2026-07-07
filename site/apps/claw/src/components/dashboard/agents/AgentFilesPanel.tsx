@@ -15,6 +15,11 @@ import {
 } from "lucide-react";
 
 import { FileBreadcrumbs } from "@/components/dashboard/files/FileBreadcrumbs";
+import {
+  attachFileBackupComparisons,
+  compareFileBackupEntries,
+  markFileBackupComparisonUnavailable,
+} from "@/components/dashboard/files/backup-comparison";
 import { FilePreview, isArchiveFileName, isImageFileName } from "@/components/dashboard/files/FilePreview";
 import { FilesDirectoryTree } from "@/components/dashboard/files/FilesDirectoryTree";
 import { FilesEmptyState } from "@/components/dashboard/files/FilesEmptyState";
@@ -40,12 +45,14 @@ const SORT_OPTIONS: Array<{ key: FileSortKey; label: string }> = [
  * - `gateway` → the gateway `agents.files.*` RPC (name-addressed workspace files).
  */
 export type AgentFilesPanelSource = "agent" | "backup" | "gateway";
+type AgentFilesPanelSourceDisabledReasons = Partial<Record<AgentFilesPanelSource, string>>;
 
 const SOURCE_MODE_OPTIONS: Array<{ key: AgentFilesPanelSource; label: string; title: string }> = [
   { key: "agent", label: "Agent", title: "Live agent pod filesystem" },
   { key: "backup", label: "Backup", title: "S3 backup of the workspace (served while the agent is stopped)" },
   { key: "gateway", label: "Gateway", title: "Name-addressed workspace files over the agent gateway" },
 ];
+const EMPTY_SOURCE_DISABLED_REASONS: AgentFilesPanelSourceDisabledReasons = {};
 
 const FILES_LISTING_CACHE_LIMIT = 80;
 const filesListingCache = new Map<string, FileEntry[]>();
@@ -63,6 +70,23 @@ function filesListingCacheKey(
   const normalizedAgentId = agentId?.trim();
   if (!normalizedAgentId) return null;
   return [normalizedAgentId, sourceMode, normalizePanelPath(rootPath), normalizePanelPath(path)].join("\n");
+}
+
+function sourceInitialPath(source: AgentFilesPanelSource, workspaceRootPath: string): string {
+  if (source === "gateway") return workspaceRootPath;
+  return workspaceRootPath.split("/").filter(Boolean)[0] ?? "";
+}
+
+function sourceEffectiveRootPath(source: AgentFilesPanelSource, workspaceRootPath: string): string {
+  return source === "gateway" ? workspaceRootPath : "";
+}
+
+function resolveAvailableSource(
+  requestedSource: AgentFilesPanelSource,
+  disabledReasons: AgentFilesPanelSourceDisabledReasons,
+): AgentFilesPanelSource {
+  if (!disabledReasons[requestedSource]) return requestedSource;
+  return SOURCE_MODE_OPTIONS.find((option) => !disabledReasons[option.key])?.key ?? requestedSource;
 }
 
 function getCachedFiles(cacheKey: string | null): FileEntry[] | null {
@@ -128,6 +152,9 @@ interface AgentFilesPanelProps {
   agentId?: string | null;
   agentName?: string | null;
   rootPath?: string;
+  defaultSource?: AgentFilesPanelSource;
+  sourceDisabledReasons?: AgentFilesPanelSourceDisabledReasons;
+  showSourceTabs?: boolean;
   connected: boolean;
   initialPreviewPath?: string | null;
   isDesktopViewport?: boolean;
@@ -146,6 +173,9 @@ export function AgentFilesPanel({
   agentId,
   agentName,
   rootPath = "",
+  defaultSource = "agent",
+  sourceDisabledReasons = EMPTY_SOURCE_DISABLED_REASONS,
+  showSourceTabs = false,
   connected,
   initialPreviewPath,
   isDesktopViewport = false,
@@ -160,7 +190,8 @@ export function AgentFilesPanel({
   onCreateDirectory,
 }: AgentFilesPanelProps) {
   const normalizedRootPath = useMemo(() => normalizePanelPath(rootPath), [rootPath]);
-  const [sourceMode, setSourceMode] = useState<AgentFilesPanelSource>("agent");
+  const initialSourceMode = resolveAvailableSource(defaultSource, sourceDisabledReasons);
+  const [sourceMode, setSourceMode] = useState<AgentFilesPanelSource>(() => initialSourceMode);
   const isGatewaySource = sourceMode === "gateway";
   // The highest directory each source can navigate up to (the breadcrumb "Home" target):
   // - gateway: name-addressed workspace files — flat, no directory nav; pin to the workspace root.
@@ -168,10 +199,10 @@ export function AgentFilesPanel({
   //   root is the sync root (`""` === /home/node). Un-clamp so the user can climb above the
   //   `.openclaw/workspace` subdir. NOTE: the pod filesystem above the sync root (up to `/`) is
   //   NOT reachable through the current backend files API, so `agent` also stops at the sync root.
-  const effectiveRootPath = isGatewaySource ? normalizedRootPath : "";
+  const effectiveRootPath = sourceEffectiveRootPath(sourceMode, normalizedRootPath);
   const [searchQuery, setSearchQuery] = useState("");
-  const [currentPath, setCurrentPath] = useState(() => normalizedRootPath);
-  const [showHidden, setShowHidden] = useState(false);
+  const [currentPath, setCurrentPath] = useState(() => sourceInitialPath(initialSourceMode, normalizedRootPath));
+  const [showHidden, setShowHidden] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
@@ -181,7 +212,12 @@ export function AgentFilesPanel({
   const [sortDir, setSortDir] = useState<FileSortDir>("asc");
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const [files, setFiles] = useState<FileEntry[]>(() => (
-    getCachedFiles(filesListingCacheKey(agentId, effectiveRootPath, normalizedRootPath)) ?? []
+    getCachedFiles(filesListingCacheKey(
+      agentId,
+      sourceEffectiveRootPath(initialSourceMode, normalizedRootPath),
+      sourceInitialPath(initialSourceMode, normalizedRootPath),
+      initialSourceMode,
+    )) ?? []
   ));
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
@@ -195,9 +231,24 @@ export function AgentFilesPanel({
     () => filesListingCacheKey(agentId, effectiveRootPath, currentPath, sourceMode),
     [agentId, currentPath, effectiveRootPath, sourceMode],
   );
+  const currentSourceDisabledReason = sourceDisabledReasons[sourceMode] ?? null;
+  const backupComparisonDisabledReason = isGatewaySource
+    ? null
+    : sourceDisabledReasons.agent ?? sourceDisabledReasons.backup ?? null;
+  const backupComparisonAvailable = connected && showSourceTabs && !isGatewaySource && !backupComparisonDisabledReason;
+  const resetSourceSelection = useCallback((nextSource: AgentFilesPanelSource) => {
+    setSourceMode(nextSource);
+    setCurrentPath(sourceInitialPath(nextSource, normalizedRootPath));
+    setSearchQuery("");
+    setPreviewEntry(null);
+    setPreviewContent(null);
+    setPreviewError(null);
+    setShowUpload(false);
+    setShowCreateFolder(false);
+  }, [normalizedRootPath]);
 
   const loadFiles = useCallback(async () => {
-    if (!connected) return;
+    if (!connected || currentSourceDisabledReason) return;
     const cachedFiles = getCachedFiles(currentListingCacheKey);
     if (cachedFiles) setFiles(cachedFiles);
     else setFiles([]);
@@ -214,6 +265,36 @@ export function AgentFilesPanel({
         setFiles(nextFiles);
         setCachedFiles(currentListingCacheKey, nextFiles);
       }
+
+      if (!showSourceTabs) return;
+
+      if (!backupComparisonAvailable) {
+        if (requestId === listRequestIdRef.current) {
+          setFiles(sourceMode === "backup" && backupComparisonDisabledReason
+            ? markFileBackupComparisonUnavailable(nextFiles, "backup", backupComparisonDisabledReason)
+            : nextFiles);
+        }
+        return;
+      }
+
+      try {
+        const peerSource: AgentFilesPanelSource = sourceMode === "agent" ? "backup" : "agent";
+        const peerFiles = await onListFiles(currentPath || undefined, peerSource);
+        const liveFiles = sourceMode === "agent" ? nextFiles : peerFiles;
+        const backupFiles = sourceMode === "backup" ? nextFiles : peerFiles;
+        const comparisons = compareFileBackupEntries(liveFiles, backupFiles);
+        if (requestId === listRequestIdRef.current) {
+          setFiles(attachFileBackupComparisons(nextFiles, comparisons));
+        }
+      } catch (err) {
+        if (requestId === listRequestIdRef.current) {
+          setFiles(markFileBackupComparisonUnavailable(
+            nextFiles,
+            sourceMode === "backup" ? "backup" : "live",
+            err instanceof Error ? err.message : "Could not compare latest backup.",
+          ));
+        }
+      }
     } catch (err) {
       if (requestId === listRequestIdRef.current) {
         setListError(err instanceof Error ? err.message : "Failed to load files");
@@ -224,7 +305,35 @@ export function AgentFilesPanel({
         setListLoading(false);
       }
     }
-  }, [connected, currentListingCacheKey, currentPath, isGatewaySource, onListFiles, sourceMode]);
+  }, [backupComparisonAvailable, backupComparisonDisabledReason, connected, currentListingCacheKey, currentPath, currentSourceDisabledReason, isGatewaySource, onListFiles, showSourceTabs, sourceMode]);
+
+  useEffect(() => {
+    if (!sourceDisabledReasons[sourceMode]) return;
+    const fallbackSource = resolveAvailableSource(defaultSource, sourceDisabledReasons);
+    if (fallbackSource === sourceMode) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      resetSourceSelection(fallbackSource);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [defaultSource, resetSourceSelection, sourceDisabledReasons, sourceMode]);
+
+  useEffect(() => {
+    if (showSourceTabs) return;
+    const fallbackSource = resolveAvailableSource(defaultSource, sourceDisabledReasons);
+    if (fallbackSource === sourceMode) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      resetSourceSelection(fallbackSource);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [defaultSource, resetSourceSelection, showSourceTabs, sourceDisabledReasons, sourceMode]);
 
   useEffect(() => {
     if (!connected) {
@@ -248,7 +357,8 @@ export function AgentFilesPanel({
   const filesLoading = listLoading;
   const blockingLoading = filesLoading && files.length === 0;
   const filesDisconnected = !listLoading && !connected;
-  const effectiveError = listError ?? error ?? null;
+  const effectiveError = currentSourceDisabledReason ?? listError ?? error ?? null;
+  const currentSourceAvailable = connected && !currentSourceDisabledReason;
   const filesBootStatus = getAgentGatewayPanelBootStatus({
     connected,
     connecting: false,
@@ -397,15 +507,9 @@ export function AgentFilesPanel({
 
   const handleSourceModeChange = useCallback((mode: AgentFilesPanelSource) => {
     if (mode === sourceMode) return;
-    setSourceMode(mode);
-    setCurrentPath(normalizedRootPath);
-    setSearchQuery("");
-    setPreviewEntry(null);
-    setPreviewContent(null);
-    setPreviewError(null);
-    setShowUpload(false);
-    setShowCreateFolder(false);
-  }, [normalizedRootPath, sourceMode]);
+    if (sourceDisabledReasons[mode]) return;
+    resetSourceSelection(mode);
+  }, [resetSourceSelection, sourceDisabledReasons, sourceMode]);
 
   const toggleSort = useCallback((key: FileSortKey) => {
     if (sortKey === key) {
@@ -445,29 +549,32 @@ export function AgentFilesPanel({
 
         <div className="flex-1" />
 
-        <div
-          className="flex flex-shrink-0 items-center rounded-lg border border-border bg-surface-low p-0.5"
-          role="tablist"
-          aria-label="File source"
-        >
-          {SOURCE_MODE_OPTIONS.map((option) => (
-            <button
-              key={option.key}
-              type="button"
-              role="tab"
-              aria-selected={sourceMode === option.key}
-              onClick={() => handleSourceModeChange(option.key)}
-              className={`h-6 rounded-md px-2 text-[10px] font-medium transition-colors ${
-                sourceMode === option.key
-                  ? "bg-selection-accent/10 text-selection-accent"
-                  : "text-text-muted hover:text-foreground"
-              }`}
-              title={option.title}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+        {showSourceTabs && (
+          <div
+            className="flex flex-shrink-0 items-center rounded-lg border border-border bg-surface-low p-0.5"
+            role="tablist"
+            aria-label="File source"
+          >
+            {SOURCE_MODE_OPTIONS.map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                role="tab"
+                aria-selected={sourceMode === option.key}
+                disabled={Boolean(sourceDisabledReasons[option.key])}
+                onClick={() => handleSourceModeChange(option.key)}
+                className={`h-6 rounded-md px-2 text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                  sourceMode === option.key
+                    ? "bg-selection-accent/10 text-selection-accent"
+                    : "text-text-muted hover:text-foreground"
+                }`}
+                title={sourceDisabledReasons[option.key] ?? option.title}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {(filesLoading || !connected || effectiveError) && (
           <div className="flex items-center gap-1 text-[10px] text-warning">
@@ -486,7 +593,7 @@ export function AgentFilesPanel({
               setShowUpload(false);
               setNewFolderError(null);
             }}
-            disabled={!connected || isGatewaySource}
+            disabled={!currentSourceAvailable || isGatewaySource}
             className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
               showCreateFolder ? "bg-selection-accent/10 text-selection-accent" : "text-text-muted hover:bg-surface-low hover:text-foreground"
             }`}
@@ -503,7 +610,7 @@ export function AgentFilesPanel({
             setShowUpload((open) => !open);
             setShowCreateFolder(false);
           }}
-          disabled={!connected || isGatewaySource}
+          disabled={!currentSourceAvailable || isGatewaySource}
           className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
             showUpload ? "bg-selection-accent/10 text-selection-accent" : "text-text-muted hover:bg-surface-low hover:text-foreground"
           }`}
@@ -563,7 +670,7 @@ export function AgentFilesPanel({
       </div>
 
       <AnimatePresence>
-        {showCreateFolder && connected && !isGatewaySource && onCreateDirectory && (
+        {showCreateFolder && currentSourceAvailable && !isGatewaySource && onCreateDirectory && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
@@ -621,7 +728,7 @@ export function AgentFilesPanel({
       </AnimatePresence>
 
       <AnimatePresence>
-        {showUpload && connected && !isGatewaySource && (
+        {showUpload && currentSourceAvailable && !isGatewaySource && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
@@ -691,7 +798,7 @@ export function AgentFilesPanel({
                 showHidden={showHidden}
                 onOpenFile={handleOpenFile}
                 onOpenDirectory={handleOpenFile}
-                onDeleteFile={isGatewaySource ? undefined : handleDeleteFile}
+                onDeleteFile={isGatewaySource || !currentSourceAvailable ? undefined : handleDeleteFile}
                 onDownloadFile={onDownloadFileBytes ? handleDownloadFile : undefined}
                 onCopyPath={handleCopyPath}
               />

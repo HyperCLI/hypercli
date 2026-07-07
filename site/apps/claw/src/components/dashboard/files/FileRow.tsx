@@ -20,7 +20,7 @@ import {
   Eye,
   type LucideIcon,
 } from "lucide-react";
-import type { FileEntry } from "./types";
+import type { FileBackupComparison, FileEntry } from "./types";
 import { HighlightMatch } from "./FilesSearchBar";
 
 // ── File icon resolver ──
@@ -67,6 +67,83 @@ export function formatFileSize(bytes?: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function backupTime(value: string | undefined): string {
+  return value?.trim() || "unknown";
+}
+
+function backupTooltipLines(comparison: FileBackupComparison, title: string, hashLine: string): string {
+  const lines = [
+    title,
+    `Backup copy modified: ${backupTime(comparison.backup?.lastModified)}`,
+  ];
+  if (comparison.live) lines.push(`Live file modified: ${backupTime(comparison.live.lastModified)}`);
+  if (hashLine) lines.push(hashLine);
+  if (comparison.reason) lines.push(comparison.reason);
+  if (comparison.freshness === "live-newer") lines.push("Live file is newer than the backup copy.");
+  if (comparison.freshness === "backup-newer") lines.push("Backup copy is newer than the live file.");
+  return lines.join("\n");
+}
+
+export function getFileBackupBadge(comparison: FileBackupComparison | undefined, isDirectory: boolean): { label: string; title: string; className: string } | null {
+  if (!comparison) return null;
+  if (isDirectory) return null;
+
+  if (comparison.status === "synced") {
+    return {
+      label: "Backed up",
+      title: backupTooltipLines(comparison, "Backed up", `Hashes match${comparison.hashAlgorithm ? ` (${comparison.hashAlgorithm})` : ""}.`),
+      className: "border-success/35 bg-success text-success",
+    };
+  }
+  if (comparison.status === "modified") {
+    return {
+      label: "Changed since backup",
+      title: backupTooltipLines(comparison, "Changed since backup", "Hashes differ."),
+      className: "border-warning/35 bg-warning text-warning",
+    };
+  }
+  if (comparison.status === "live-only") {
+    return {
+      label: "Not backed up",
+      title: backupTooltipLines(comparison, "Not backed up", "No matching backup copy found."),
+      className: "border-destructive/35 bg-destructive text-destructive",
+    };
+  }
+  if (comparison.status === "backup-only") {
+    return {
+      label: "Only in backup",
+      title: backupTooltipLines(comparison, "Only in backup", "No matching live file found."),
+      className: "border-primary/35 bg-primary text-primary",
+    };
+  }
+  if (comparison.status === "backup-copy") {
+    return {
+      label: "Backed up",
+      title: backupTooltipLines(comparison, "Backed up", "Start the agent to compare this backup copy with the live file."),
+      className: "border-success/35 bg-success text-success",
+    };
+  }
+  if (comparison.status === "unverified") {
+    return {
+      label: "Backed up",
+      title: backupTooltipLines(comparison, "Backed up", "Hash verification unavailable."),
+      className: "border-success/35 bg-success text-success",
+    };
+  }
+  if (comparison.status === "stale") {
+    return {
+      label: "Backup may be stale",
+      title: backupTooltipLines(comparison, "Backup may be stale", "Hash verification unavailable."),
+      className: "border-warning/35 bg-warning text-warning",
+    };
+  }
+  return {
+    label: "Backup status unknown",
+    title: backupTooltipLines(comparison, "Backup status unknown", "No comparable hash is available yet."),
+    className: "border-border bg-text-muted text-text-muted",
+  };
+}
+
 // ── Types ──
 
 interface FileRowProps {
@@ -104,6 +181,7 @@ export function FileRow({
 
   const { icon: EntryIcon, color: iconColor } = getFileIcon(entry);
   const isDir = entry.type === "directory";
+  const backupStatus = getFileBackupBadge(entry.backupComparison, isDir);
 
   // Close menu on outside click
   useEffect(() => {
@@ -183,6 +261,14 @@ export function FileRow({
           <span className="text-[9px] text-text-muted/60 tabular-nums flex-shrink-0">
             {formatFileSize(entry.size)}
           </span>
+        )}
+        {backupStatus && (
+          <span
+            role="img"
+            aria-label={backupStatus.label}
+            className={`hidden h-2.5 w-2.5 shrink-0 rounded-full border sm:inline-flex ${backupStatus.className}`}
+            title={backupStatus.title}
+          />
         )}
       </button>
 

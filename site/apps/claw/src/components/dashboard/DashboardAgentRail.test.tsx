@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DashboardAgentRail } from "./DashboardAgentRail";
 
 vi.mock("@hypercli/shared-ui", () => ({
+  HyperCLILogo: ({ className }: { className?: string }) => <div aria-hidden="true" className={className} />,
   Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipContent: ({ children }: { children: ReactNode }) => <>{children}</>,

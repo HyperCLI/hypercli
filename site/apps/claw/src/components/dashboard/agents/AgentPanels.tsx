@@ -460,6 +460,8 @@ interface AgentSettingsPanelProps {
   onUpdateAgentName?: (agentId: string, name: string) => Promise<void>;
   onUpdateAgentLaunchConfig?: (agentId: string, launchConfig: Record<string, unknown>) => Promise<void>;
   onSaveOpenClawConfig?: (patch: Record<string, unknown>) => Promise<void>;
+  showFileSourceTabs?: boolean;
+  onShowFileSourceTabsChange?: (value: boolean) => void;
   isDesktopViewport?: boolean;
   agentsMenuOpen?: boolean;
   mobileReturnLabel?: string;
@@ -865,6 +867,8 @@ function AgentSectionSettingsContent({
   onArchiveChange,
   agentSettingsError,
   agentSettingsSuccess,
+  showFileSourceTabs,
+  onShowFileSourceTabsChange,
   onStartAgent,
   onStopAgent,
   onDeleteAgent,
@@ -892,6 +896,8 @@ function AgentSectionSettingsContent({
   onArchiveChange: (value: string) => void;
   agentSettingsError?: string | null;
   agentSettingsSuccess?: string | null;
+  showFileSourceTabs: boolean;
+  onShowFileSourceTabsChange?: (value: boolean) => void;
   onStartAgent?: () => void;
   onStopAgent?: () => void;
   onDeleteAgent?: () => void;
@@ -1099,6 +1105,21 @@ function AgentSectionSettingsContent({
               <option value="enabled">Enabled</option>
               <option value="disabled">Disabled</option>
             </select>
+          </AgentProfileSettingsRow>
+
+          <AgentProfileSettingsRow
+            label="File source tabs"
+            description="Show Agent, Backup, and Gateway source tabs in the file browser. Useful for backup inspection and debugging."
+          >
+            <label className="flex min-h-9 cursor-pointer items-center gap-2 text-sm text-foreground">
+              <input
+                type="checkbox"
+                checked={showFileSourceTabs}
+                onChange={(event) => onShowFileSourceTabsChange?.(event.target.checked)}
+                className={SETTINGS_CHECKBOX_CLASS}
+              />
+              <span>Show source tabs</span>
+            </label>
           </AgentProfileSettingsRow>
         </section>
 
@@ -1342,6 +1363,8 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     onUpdateAgentName,
     onUpdateAgentLaunchConfig,
     onSaveOpenClawConfig,
+    showFileSourceTabs = false,
+    onShowFileSourceTabsChange,
     isDesktopViewport = true,
     agentsMenuOpen = false,
     mobileReturnLabel = "Session",
@@ -1725,6 +1748,8 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             onArchiveChange={setArchiveDraft}
             agentSettingsError={agentSettingsError}
             agentSettingsSuccess={agentSettingsSuccess}
+            showFileSourceTabs={showFileSourceTabs}
+            onShowFileSourceTabsChange={onShowFileSourceTabsChange}
             onStartAgent={onStartAgent}
             onStopAgent={onStopAgent}
             onDeleteAgent={onDeleteAgent}

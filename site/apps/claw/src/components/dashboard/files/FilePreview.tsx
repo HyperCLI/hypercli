@@ -18,7 +18,7 @@ import {
   Lock,
 } from "lucide-react";
 import type { FileEntry } from "./types";
-import { formatFileSize } from "./FileRow";
+import { formatFileSize, getFileBackupBadge } from "./FileRow";
 import { ResourceImage } from "@/components/ResourceImage";
 import { MarkdownContent } from "@/components/dashboard/chat/MarkdownContent";
 import { writeClipboardText } from "@/lib/browser-clipboard";
@@ -155,6 +155,7 @@ export function FilePreview({
   const isEditable = previewType === "code" || previewType === "text" || previewType === "markdown";
   const textContent = typeof content === "string" ? content : "";
   const imageSrc = useImagePreviewSrc(entry.name, content);
+  const backupStatus = getFileBackupBadge(entry.backupComparison, entry.type === "directory");
   const archivePreview = useMemo(() => {
     if (previewType !== "archive" || !(content instanceof Uint8Array)) return null;
     try {
@@ -211,6 +212,14 @@ export function FilePreview({
           )}
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
+          {backupStatus && (
+            <span
+              role="img"
+              aria-label={backupStatus.label}
+              title={backupStatus.title}
+              className={`inline-flex h-2.5 w-2.5 items-center rounded-full border ${backupStatus.className}`}
+            />
+          )}
           {isMarkdown && (
             <div className="mr-1 flex items-center rounded-lg border border-border bg-background/40 p-0.5" aria-label="Markdown view mode">
               <button

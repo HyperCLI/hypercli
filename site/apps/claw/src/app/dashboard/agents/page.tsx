@@ -109,7 +109,7 @@ import {
 import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner } from "@/components/dashboard/agents/AgentPanels";
 import { OpenClawSettingsDrawer } from "@/components/dashboard/agents/OpenClawSettingsDrawer";
 import { AgentChatPanel, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatPanel";
-import { AgentFilesPanel } from "@/components/dashboard/agents/AgentFilesPanel";
+import { AgentFilesPanel, type AgentFilesPanelSource } from "@/components/dashboard/agents/AgentFilesPanel";
 import { AgentLogsPanel } from "@/components/dashboard/agents/AgentLogsPanel";
 import { AgentScheduledPanel } from "@/components/dashboard/agents/AgentScheduledPanel";
 import { AgentTerminalPanel } from "@/components/dashboard/agents/AgentTerminalPanel";
@@ -134,6 +134,10 @@ import {
   readAgentFileWithRecovery,
   type AgentFileReadRecoveryResult,
 } from "@/lib/agent-file-recovery";
+import {
+  readFileSourceTabsPreference,
+  writeFileSourceTabsPreference,
+} from "@/lib/file-source-tabs-preference";
 import type { ChatPendingFile } from "@/lib/openclaw-chat";
 import type { JourneyCompletionEvent, JourneyDay } from "@/components/dashboard/journey/types";
 
@@ -682,6 +686,17 @@ function normalizeAgentFilePath(path: string): string {
   return normalizeOpenClawWorkspaceFilePath(path);
 }
 
+function stringFileMetadata(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function fileEntrySource(value: unknown): FileEntry["source"] | undefined {
+  if (value === "agent" || value === "backup" || value === "gateway" || value === "pod" || value === "s3" || value === "auto") {
+    return value;
+  }
+  return undefined;
+}
+
 function toDashboardFileEntry(entry: AgentFileEntry): FileEntry {
   const path = normalizeAgentFilePath(entry.path);
   return {
@@ -689,7 +704,16 @@ function toDashboardFileEntry(entry: AgentFileEntry): FileEntry {
     path,
     type: entry.type,
     size: entry.size,
-    lastModified: entry.last_modified,
+    lastModified: stringFileMetadata(entry.last_modified ?? entry.lastModified),
+    checksum: stringFileMetadata(entry.checksum),
+    checksumAlgorithm: stringFileMetadata(entry.checksum_algorithm ?? entry.checksumAlgorithm ?? entry.checksum_algo),
+    hash: stringFileMetadata(entry.hash),
+    hashAlgorithm: stringFileMetadata(entry.hash_algorithm ?? entry.hashAlgorithm),
+    sha256: stringFileMetadata(entry.sha256 ?? entry.sha_256),
+    md5: stringFileMetadata(entry.md5),
+    etag: stringFileMetadata(entry.etag ?? entry.eTag),
+    versionId: stringFileMetadata(entry.version_id ?? entry.versionId),
+    source: fileEntrySource(entry.source),
   };
 }
 
@@ -699,10 +723,9 @@ function isAgentDirectoryMarkerEntry(entry: AgentFileEntry): boolean {
 }
 
 function agentFileSourceForState(agentState: AgentState | string | null | undefined, requested: AgentFileSource): AgentFileSource {
-  // A non-RUNNING agent has no live pod, so the pod filesystem ("pod"/"auto") is unreachable and
-  // the deployment files API answers 409. Transparently serve reads/lists/writes from the S3
-  // backup instead of erroring — including when the panel explicitly selects the "agent" source.
-  if (agentState !== "RUNNING" && requested !== "s3") return "s3";
+  // Only the backend default (`auto`) falls back to S3 while stopped. Explicit panel sources must
+  // stay truthful: Agent is live pod (`pod`), Backup is S3 (`s3`).
+  if (agentState !== "RUNNING" && requested === "auto") return "s3";
   return requested;
 }
 
@@ -884,6 +907,11 @@ function AgentsPageContent() {
   // Files panel
   const [filesPreviewPath, setFilesPreviewPath] = useState<string | null>(null);
   const [chatFileReferenceCandidates, setChatFileReferenceCandidates] = useState<ChatPendingFile[]>([]);
+  const [showFileSourceTabs, setShowFileSourceTabs] = useState(() => readFileSourceTabsPreference());
+  const handleShowFileSourceTabsChange = useCallback((value: boolean) => {
+    setShowFileSourceTabs(value);
+    writeFileSourceTabsPreference(value);
+  }, []);
 
   // Right sidebar inspector
   const [inspectorTab, setInspectorTab] = useState<AgentViewTabId>("overview");
@@ -1280,6 +1308,20 @@ function AgentsPageContent() {
   const selectedAgentState = selectedAgent?.state ?? null;
   const isSelectedTransitioning = selectedAgent && ["PENDING", "STARTING", "STOPPING"].includes(selectedAgent.state);
   const isSelectedRunning = selectedAgent?.state === "RUNNING";
+  const filesDefaultSource: AgentFilesPanelSource = isSelectedRunning ? "agent" : "backup";
+  const filesSourceDisabledReasons = useMemo<Partial<Record<AgentFilesPanelSource, string>>>(() => {
+    const reasons: Partial<Record<AgentFilesPanelSource, string>> = {};
+    if (!selectedAgentId) return reasons;
+    if (!isSelectedRunning) {
+      reasons.agent = "Start the agent to browse live files.";
+      reasons.gateway = "Start the agent to browse gateway files.";
+      return reasons;
+    }
+    if (!selectedOpenClawAgent) {
+      reasons.gateway = "Gateway files are only available for OpenClaw agents.";
+    }
+    return reasons;
+  }, [isSelectedRunning, selectedAgentId, selectedOpenClawAgent]);
   useEffect(() => {
     if (!selectedAgentId || !selectedAgentState || !["PENDING", "STARTING", "STOPPING"].includes(selectedAgentState)) {
       return;
@@ -1612,8 +1654,8 @@ function AgentsPageContent() {
   const createAgentDirectory = useCallback(async (path: string) => {
     if (!selectedAgentId) return;
     const normalizedPath = normalizeAgentFilePath(path);
-    if (normalizedPath === OPENCLAW_WORKSPACE_PREFIX || !normalizedPath.startsWith(`${OPENCLAW_WORKSPACE_PREFIX}/`)) {
-      throw new Error("Folders can only be created inside the workspace.");
+    if (!normalizedPath) {
+      throw new Error("Folder path is required.");
     }
 
     const agentClient = await getAgentClient();
@@ -3298,6 +3340,9 @@ function AgentsPageContent() {
               agentId={selectedAgentId}
               agentName={selectedAgent?.name || selectedAgent?.pod_name || "Agent"}
               rootPath={OPENCLAW_WORKSPACE_PREFIX}
+              defaultSource={filesDefaultSource}
+              sourceDisabledReasons={filesSourceDisabledReasons}
+              showSourceTabs={showFileSourceTabs}
               connected={Boolean(selectedAgentId)}
               initialPreviewPath={filesPreviewPath}
               isDesktopViewport={isDesktopViewport}
@@ -3412,6 +3457,8 @@ function AgentsPageContent() {
                 await chat.saveConfig(patch);
                 completeJourneyForEvent("rules-confirmed");
               }}
+              showFileSourceTabs={showFileSourceTabs}
+              onShowFileSourceTabsChange={handleShowFileSourceTabsChange}
               isDesktopViewport={isDesktopViewport}
               showSessionReturn={showMobileSectionReturn}
               onSessionReturn={handleMobileSectionReturn}
