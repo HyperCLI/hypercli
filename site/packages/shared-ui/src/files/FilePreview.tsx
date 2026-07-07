@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
+import Image, { type ImageLoader } from "next/image";
 import {
   X,
   Save,
@@ -19,14 +20,14 @@ import {
 } from "lucide-react";
 import type { FileEntry } from "./types";
 import { formatFileSize, getFileBackupBadge } from "./FileRow";
-import { ResourceImage } from "@/components/ResourceImage";
-import { MarkdownContent } from "@/components/dashboard/chat/MarkdownContent";
-import { writeClipboardText } from "@/lib/browser-clipboard";
-import { parseZipPreview } from "@/lib/zip-preview";
+import { parseZipPreview } from "./zip-preview";
+import { writeClipboardText } from "../utils/browser-clipboard";
 
 // ── Types ──
 
-interface FilePreviewProps {
+export type FilePreviewMarkdownRenderer = (content: string, className?: string) => ReactNode;
+
+export interface FilePreviewProps {
   entry: FileEntry;
   content: string | Uint8Array | null;
   loading: boolean;
@@ -41,6 +42,8 @@ interface FilePreviewProps {
   showClose?: boolean;
   onSave?: (path: string, content: string) => Promise<void>;
   onDownload?: (entry: FileEntry) => void;
+  renderMarkdown?: FilePreviewMarkdownRenderer;
+  copyText?: (text: string) => boolean | Promise<boolean>;
 }
 
 // ── Helpers ──
@@ -58,6 +61,7 @@ const PREVIEW_ACTION_BUTTON_CLASS =
 const PREVIEW_ACTION_ICON_CLASS = "h-3.5 w-3.5";
 const PREVIEW_HEADER_ICON_CLASS = "w-4 h-4 text-text-muted flex-shrink-0";
 const MARKDOWN_MODE_BUTTON_CLASS = "rounded-md px-2 py-1 text-[10px] font-medium transition-colors";
+const filePreviewImageLoader: ImageLoader = ({ src }) => src;
 
 function getFileExtension(name: string): string {
   return name.split(".").pop()?.toLowerCase() ?? "";
@@ -144,6 +148,8 @@ export function FilePreview({
   showClose = true,
   onSave,
   onDownload,
+  renderMarkdown,
+  copyText = writeClipboardText,
 }: FilePreviewProps) {
   const [editContent, setEditContent] = useState(typeof content === "string" ? content : "");
   const [saving, setSaving] = useState(false);
@@ -185,7 +191,7 @@ export function FilePreview({
   };
 
   const handleCopy = async () => {
-    if (await writeClipboardText(editContent || textContent)) {
+    if (await copyText(editContent || textContent)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -329,11 +335,13 @@ export function FilePreview({
               <div className="flex items-center justify-center p-4 h-full">
                 <div className="relative h-full w-full overflow-hidden rounded border border-border">
                   {imageSrc ? (
-                    <ResourceImage
+                    <Image
                       src={imageSrc}
                       alt={entry.name}
                       fill
                       sizes="(max-width: 768px) 100vw, 720px"
+                      loader={filePreviewImageLoader}
+                      unoptimized
                       className="object-contain"
                     />
                   ) : (
@@ -398,7 +406,13 @@ export function FilePreview({
               </div>
             ) : isMarkdown && markdownMode === "preview" ? (
               <div className="min-h-full p-4 text-sm text-text-secondary">
-                <MarkdownContent content={editContent} className="text-sm" />
+                {renderMarkdown ? (
+                  renderMarkdown(editContent, "text-sm")
+                ) : (
+                  <pre className="text-xs font-mono leading-relaxed whitespace-pre-wrap break-words text-foreground">
+                    {editContent}
+                  </pre>
+                )}
               </div>
             ) : isEditable ? (
               <textarea

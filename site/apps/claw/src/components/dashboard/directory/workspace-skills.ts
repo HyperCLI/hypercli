@@ -1,4 +1,4 @@
-import type { FileEntry } from "../files/types";
+import type { FileEntry } from "@hypercli/shared-ui/files";
 
 export type AgentFileSource = "auto" | "pod" | "s3";
 

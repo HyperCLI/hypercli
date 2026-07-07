@@ -13,7 +13,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { formatFileSize } from "@/components/dashboard/files/FileRow";
+import { formatFileSize } from "@hypercli/shared-ui/files";
 
 export type DirectoryVisualizationEntry = {
   name: string;

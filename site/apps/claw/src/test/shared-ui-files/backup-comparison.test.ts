@@ -4,8 +4,8 @@ import {
   attachFileBackupComparisons,
   compareFileBackupEntries,
   summarizeFileBackupComparisons,
-} from "./backup-comparison";
-import type { FileEntry } from "./types";
+  type FileEntry,
+} from "@hypercli/shared-ui/files";
 
 function file(overrides: Partial<FileEntry>): FileEntry {
   return {

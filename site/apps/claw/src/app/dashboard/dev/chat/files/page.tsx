@@ -7,14 +7,24 @@ import {
   WifiOff, X, Settings, Upload, Search,
 } from "lucide-react";
 import Link from "next/link";
-import type { FileEntry, FileSortKey, FileSortDir, FilesCallbacks } from "@/components/dashboard/files/types";
-import { FilesSearchBar } from "@/components/dashboard/files/FilesSearchBar";
-import { FilesUploadZone } from "@/components/dashboard/files/FilesUploadZone";
-import { FileBreadcrumbs } from "@/components/dashboard/files/FileBreadcrumbs";
-import { FilesDirectoryTree } from "@/components/dashboard/files/FilesDirectoryTree";
-import { FilePreview } from "@/components/dashboard/files/FilePreview";
-import { FilesEmptyState } from "@/components/dashboard/files/FilesEmptyState";
+import {
+  FileBreadcrumbs,
+  FilePreview,
+  FilesDirectoryTree,
+  FilesEmptyState,
+  FilesSearchBar,
+  FilesUploadZone,
+  type FileEntry,
+  type FileSortDir,
+  type FileSortKey,
+  type FilesCallbacks,
+} from "@hypercli/shared-ui/files";
+import { MarkdownContent } from "@/components/dashboard/chat/MarkdownContent";
 import { writeClipboardText } from "@/lib/browser-clipboard";
+
+function renderMarkdown(content: string, className?: string) {
+  return <MarkdownContent content={content} className={className} />;
+}
 
 // ── Mock data presets ──
 
@@ -289,6 +299,7 @@ export default function DevFilesPage() {
                 content={previewContent}
                 loading={previewLoading}
                 error={previewError}
+                renderMarkdown={renderMarkdown}
                 onClose={() => setPreviewEntry(null)}
                 onSave={handleSaveFile}
               />

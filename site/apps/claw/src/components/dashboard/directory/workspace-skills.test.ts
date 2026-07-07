@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { FileEntry } from "../files/types";
+import type { FileEntry } from "@hypercli/shared-ui/files";
 import { buildSkillsSnapshotCommand, loadSystemSkills, parseSkillFile, parseSkillSnapshotOutput } from "./workspace-skills";
 
 describe("workspace skills directory", () => {

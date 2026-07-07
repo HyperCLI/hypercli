@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseZipPreview } from "./zip-preview";
+import { parseZipPreview } from "@hypercli/shared-ui/files";
 
 function pushUint16(target: number[], value: number): void {
   target.push(value & 0xff, (value >> 8) & 0xff);

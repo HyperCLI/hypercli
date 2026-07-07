@@ -34,10 +34,15 @@ import {
 import { AgentView, ConnectionDetail, type TabId as AgentTabId } from "@/components/dashboard/AgentView";
 import { AgentsChannelsSidebar, MOCK_CONVERSATION_THREADS, MOCK_PARTICIPANTS, type AgentsChannelsSidebarVariant, type Participant } from "@/components/dashboard/AgentsChannelsSidebar";
 import { AddParticipantPanel } from "@/components/dashboard/AddParticipantPanel";
-import { FilesDrawer } from "@/components/dashboard/files";
+import { FilesDrawer } from "@hypercli/shared-ui/files";
 import { InChatUxKitDemo } from "@/components/dashboard/chat/InChatUxKit";
+import { MarkdownContent } from "@/components/dashboard/chat/MarkdownContent";
 import type { ChatMessage } from "@/lib/openclaw-chat";
 import { agentAvatar } from "@/lib/avatar";
+
+function renderFileMarkdown(content: string, className?: string) {
+  return <MarkdownContent content={content} className={className} />;
+}
 
 type InputVariant = FeatureVariant;
 
@@ -2109,6 +2114,7 @@ export default function DevChatPage() {
         onClose={() => setFilesDrawerOpen(false)}
         connected={connected}
         files={mockFiles.length > 0 ? mockFiles : undefined}
+        renderMarkdown={renderFileMarkdown}
         callbacks={mockFiles.length > 0 ? {
           onListFiles: async () => ({
             prefix: "",

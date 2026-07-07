@@ -2,7 +2,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { FilePreview } from "./FilePreview";
+import { FilePreview } from "@hypercli/shared-ui/files";
+import { MarkdownContent } from "@/components/dashboard/chat/MarkdownContent";
 
 const mermaidMock = vi.hoisted(() => ({
   initialize: vi.fn(),
@@ -22,6 +23,10 @@ vi.mock("framer-motion", () => ({
     ),
   },
 }));
+
+function renderMarkdown(content: string, className?: string) {
+  return <MarkdownContent content={content} className={className} />;
+}
 
 function pushUint16(target: number[], value: number): void {
   target.push(value & 0xff, (value >> 8) & 0xff);
@@ -99,6 +104,7 @@ describe("FilePreview", () => {
         ])}
         loading={false}
         error={null}
+        renderMarkdown={renderMarkdown}
         onClose={vi.fn()}
       />,
     );
@@ -120,6 +126,7 @@ describe("FilePreview", () => {
         ])}
         loading={false}
         error={null}
+        renderMarkdown={renderMarkdown}
         onClose={vi.fn()}
       />,
     );
@@ -136,6 +143,7 @@ describe("FilePreview", () => {
         content={new Uint8Array([1, 2, 3])}
         loading={false}
         error={null}
+        renderMarkdown={renderMarkdown}
         onClose={vi.fn()}
       />,
     );
@@ -152,6 +160,7 @@ describe("FilePreview", () => {
         content={content}
         loading={false}
         error={null}
+        renderMarkdown={renderMarkdown}
         onClose={vi.fn()}
       />,
     );
@@ -172,6 +181,7 @@ describe("FilePreview", () => {
         content="# Notes"
         loading={false}
         error={null}
+        renderMarkdown={renderMarkdown}
         onClose={vi.fn()}
       />,
     );
@@ -188,6 +198,7 @@ describe("FilePreview", () => {
         content={'<section><h2>HTML preview</h2><p>Rendered from HTML.</p></section>\n\n**Markdown survives**\n\n<script>alert("x")</script>'}
         loading={false}
         error={null}
+        renderMarkdown={renderMarkdown}
         onClose={vi.fn()}
       />,
     );
@@ -213,6 +224,7 @@ describe("FilePreview", () => {
         content={content}
         loading={false}
         error={null}
+        renderMarkdown={renderMarkdown}
         onClose={vi.fn()}
       />,
     );
@@ -239,6 +251,7 @@ describe("FilePreview", () => {
         content={content}
         loading={false}
         error={null}
+        renderMarkdown={renderMarkdown}
         onClose={vi.fn()}
       />,
     );

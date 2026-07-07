@@ -33,7 +33,7 @@ import {
   PLUGIN_REGISTRY,
   type PluginMeta,
 } from "./integrations/plugin-registry";
-import type { FileEntry } from "./files/types";
+import type { FileEntry } from "@hypercli/shared-ui/files";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 
 type DirectoryFilter = "all" | DirectorySectionId;

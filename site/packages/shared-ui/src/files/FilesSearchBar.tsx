@@ -18,7 +18,13 @@ export function FilesSearchBar({ value, onChange, resultCount, totalCount }: Fil
 
   // Sync external value changes
   useEffect(() => {
-    setLocalValue(value);
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) setLocalValue(value);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [value]);
 
   const handleChange = (v: string) => {

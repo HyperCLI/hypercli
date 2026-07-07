@@ -4,8 +4,7 @@ import { FolderOpen, ChevronRight } from "lucide-react";
 import { motion } from "framer-motion";
 import type { StyleVariant } from "../agentViewTypes";
 import { MOCK_WORKSPACE_FILES } from "../agentViewMockData";
-import { FileRow } from "../files/FileRow";
-import type { FileEntry } from "../files/types";
+import { FileRow, type FileEntry } from "@hypercli/shared-ui/files";
 
 interface WorkspaceFilesModuleProps {
   variant: StyleVariant;

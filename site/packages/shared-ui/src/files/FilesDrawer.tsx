@@ -15,19 +15,21 @@ import { FilesSearchBar } from "./FilesSearchBar";
 import { FilesUploadZone } from "./FilesUploadZone";
 import { FileBreadcrumbs } from "./FileBreadcrumbs";
 import { FilesDirectoryTree } from "./FilesDirectoryTree";
-import { FilePreview } from "./FilePreview";
+import { FilePreview, type FilePreviewMarkdownRenderer } from "./FilePreview";
 import { FilesEmptyState } from "./FilesEmptyState";
-import { writeClipboardText } from "@/lib/browser-clipboard";
+import { writeClipboardText } from "../utils/browser-clipboard";
 
 // ── Types ──
 
-interface FilesDrawerProps {
+export interface FilesDrawerProps {
   open: boolean;
   onClose: () => void;
   connected: boolean;
   callbacks?: FilesCallbacks | null;
   /** External file entries (e.g. from useGatewayChat). If provided, skips internal fetch. */
   files?: FileEntry[] | null;
+  renderMarkdown?: FilePreviewMarkdownRenderer;
+  copyText?: (text: string) => boolean | Promise<boolean>;
 }
 
 // ── Sort options ──
@@ -40,7 +42,15 @@ const SORT_OPTIONS: { key: FileSortKey; label: string }[] = [
 
 // ── Component ──
 
-export function FilesDrawer({ open, onClose, connected, callbacks, files: externalFiles }: FilesDrawerProps) {
+export function FilesDrawer({
+  open,
+  onClose,
+  connected,
+  callbacks,
+  files: externalFiles,
+  renderMarkdown,
+  copyText = writeClipboardText,
+}: FilesDrawerProps) {
   // ── State ──
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -61,9 +71,16 @@ export function FilesDrawer({ open, onClose, connected, callbacks, files: extern
   // ── Sync external files ──
   useEffect(() => {
     if (externalFiles) {
-      setFiles(externalFiles);
-      setLoading(false);
-      setError(null);
+      let cancelled = false;
+      queueMicrotask(() => {
+        if (cancelled) return;
+        setFiles(externalFiles);
+        setLoading(false);
+        setError(null);
+      });
+      return () => {
+        cancelled = true;
+      };
     }
   }, [externalFiles]);
 
@@ -89,7 +106,13 @@ export function FilesDrawer({ open, onClose, connected, callbacks, files: extern
   // Load on open or path change
   useEffect(() => {
     if (open && connected && !externalFiles) {
-      loadFiles();
+      let cancelled = false;
+      queueMicrotask(() => {
+        if (!cancelled) void loadFiles();
+      });
+      return () => {
+        cancelled = true;
+      };
     }
   }, [open, connected, currentPath, loadFiles, externalFiles]);
 
@@ -142,8 +165,8 @@ export function FilesDrawer({ open, onClose, connected, callbacks, files: extern
   }, [callbacks, loadFiles]);
 
   const handleCopyPath = useCallback((entry: FileEntry) => {
-    void writeClipboardText(entry.path);
-  }, []);
+    void copyText(entry.path);
+  }, [copyText]);
 
   const handleNavigate = useCallback((path: string) => {
     setCurrentPath(path);
@@ -310,6 +333,8 @@ export function FilesDrawer({ open, onClose, connected, callbacks, files: extern
                     error={previewError}
                     onClose={() => setPreviewEntry(null)}
                     onSave={callbacks ? handleSaveFile : undefined}
+                    renderMarkdown={renderMarkdown}
+                    copyText={copyText}
                   />
                 ) : emptyKind ? (
                   <FilesEmptyState

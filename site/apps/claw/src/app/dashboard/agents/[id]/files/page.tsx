@@ -6,7 +6,7 @@ import { useParams, useSearchParams } from "next/navigation";
 
 import { AgentFilesPanel, type AgentFilesPanelSource } from "@/components/dashboard/agents/AgentFilesPanel";
 import { AgentLoadingState } from "@/components/dashboard/agents/page-helpers";
-import type { FileEntry } from "@/components/dashboard/files/types";
+import type { FileEntry } from "@hypercli/shared-ui/files";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { createAgentClient } from "@/lib/agent-client";
 import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";

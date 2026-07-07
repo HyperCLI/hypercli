@@ -56,7 +56,7 @@ import { ChannelCreationWizard } from "@/components/dashboard/ChannelCreationWiz
 import { getCategoryForPlugin, type DirectoryCategory } from "@/components/dashboard/directory/directory-utils";
 import { buildSkillsSnapshotCommand, parseSkillSnapshotOutput } from "@/components/dashboard/directory/workspace-skills";
 import type { AgentFileEntry, SdkAgent } from "@/types";
-import type { FileEntry } from "@/components/dashboard/files/types";
+import type { FileEntry } from "@hypercli/shared-ui/files";
 import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
 import type { HyperAgentCurrentPlan, HyperAgentPlan, HyperAgentSubscriptionSummary, HyperAgentTypeCatalog } from "@hypercli.com/sdk/agent";
 import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentState } from "@/app/dashboard/agents/types";

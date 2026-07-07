@@ -8,14 +8,14 @@ import {
   AlertCircle,
   Upload,
 } from "lucide-react";
-import { EmptyState } from "@hypercli/shared-ui";
+import { EmptyState } from "../components/patterns/feedback";
 
 // ── Types ──
 
-type EmptyStateKind = "no-files" | "no-results" | "error" | "offline" | "loading";
+export type FilesEmptyStateKind = "no-files" | "no-results" | "error" | "offline" | "loading";
 
-interface FilesEmptyStateProps {
-  kind: EmptyStateKind;
+export interface FilesEmptyStateProps {
+  kind: FilesEmptyStateKind;
   searchQuery?: string;
   errorMessage?: string;
   title?: string;
@@ -47,7 +47,7 @@ export function FilesEmptyState({ kind, searchQuery, errorMessage, title, descri
     );
   }
 
-  const config: Record<Exclude<EmptyStateKind, "loading">, {
+  const config: Record<Exclude<FilesEmptyStateKind, "loading">, {
     icon: typeof FolderOpen;
     title: string;
     description: string;
@@ -79,7 +79,7 @@ export function FilesEmptyState({ kind, searchQuery, errorMessage, title, descri
     },
   };
 
-  const c = config[kind as Exclude<EmptyStateKind, "loading">];
+  const c = config[kind as Exclude<FilesEmptyStateKind, "loading">];
   return (
     <EmptyState
       icon={c.icon}

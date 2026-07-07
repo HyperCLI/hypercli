@@ -12,7 +12,7 @@ import { PLUGIN_REGISTRY, type PluginMeta } from "./plugin-registry";
 import { INTEGRATION_BRAND_LOGOS, type IntegrationBrandIcon } from "./integration-brand-icons";
 import { AgentLoadingState } from "../agents/page-helpers";
 import { getAgentGatewayPanelBootStatus } from "../agents/chat-boot-stage";
-import type { FileEntry } from "../files/types";
+import type { FileEntry } from "@hypercli/shared-ui/files";
 import type {
   GatewayIntegrationAuthStartParams,
   GatewayIntegrationAuthStartResult,
