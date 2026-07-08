@@ -997,8 +997,16 @@ async function anyVisibleStripeLocator(page: Page, selectors: string[]): Promise
   return false;
 }
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error && "message" in error) {
+    return String((error as { message?: unknown }).message || "");
+  }
+  return String(error || "");
+}
+
 function isNavigationAbortError(error: unknown): boolean {
-  return error instanceof Error && /NS_BINDING_ABORTED|net::ERR_ABORTED/i.test(error.message);
+  return /NS_BINDING_ABORTED|net::ERR_ABORTED/i.test(errorMessage(error));
 }
 
 function normalizeUrlPathname(pathname: string): string {
@@ -1015,15 +1023,27 @@ function urlsEquivalent(left: string, right: string): boolean {
     leftUrl.hash === rightUrl.hash;
 }
 
+function urlsShareOrigin(left: string, right: string): boolean {
+  try {
+    return new URL(left).origin === new URL(right).origin;
+  } catch {
+    return false;
+  }
+}
+
 async function gotoLocalReturnUrl(page: Page, localReturnUrl: string): Promise<void> {
   try {
     await page.goto(localReturnUrl, { waitUntil: "domcontentloaded" });
   } catch (error) {
     if (!isNavigationAbortError(error)) throw error;
 
-    if (!urlsEquivalent(page.url(), localReturnUrl)) {
+    const currentUrl = page.url();
+    if (!urlsEquivalent(currentUrl, localReturnUrl) && !urlsShareOrigin(currentUrl, localReturnUrl)) {
       try {
-        await page.waitForURL((url) => urlsEquivalent(url.href, localReturnUrl), { timeout: 15_000 });
+        await page.waitForURL(
+          (url) => urlsEquivalent(url.href, localReturnUrl) || urlsShareOrigin(url.href, localReturnUrl),
+          { timeout: 15_000 }
+        );
       } catch {
         throw error;
       }
