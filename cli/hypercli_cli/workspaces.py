@@ -63,6 +63,27 @@ def list_workspaces(
     console.print(table)
 
 
+@app.command("search")
+def search_workspaces(
+    query: str = typer.Argument(help="Search workspace names, file paths, filenames, and projection metadata"),
+    agent_id: str | None = typer.Option(None, "--agent-id", help="Search as an agent subject"),
+    user_id: str | None = typer.Option(None, "--user-id", help="Search as a user subject"),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """Search accessible workspaces."""
+    workspaces = _get_workspaces().search(query, user_id=user_id, agent_id=agent_id)
+    if output == "json":
+        _print_json([workspace.__dict__ for workspace in workspaces])
+        return
+    table = Table(title=f"Workspace search: {query}")
+    table.add_column("Slug")
+    table.add_column("Name")
+    table.add_column("ID", style="dim")
+    for workspace in workspaces:
+        table.add_row(workspace.slug, workspace.name, workspace.id)
+    console.print(table)
+
+
 @app.command("update")
 def update_workspace(
     workspace: str = typer.Argument(help="Workspace slug or ID"),
@@ -160,6 +181,7 @@ def register_file(
     size: int | None = typer.Option(None, "--size", help="Source file size in bytes"),
     sha256: str | None = typer.Option(None, "--sha256", help="Source SHA-256"),
     etag: str | None = typer.Option(None, "--etag", help="Source storage ETag"),
+    keyword: list[str] | None = typer.Option(None, "--keyword", help="Keyword metadata for backend workspace search; repeatable"),
     user_id: str | None = typer.Option(None, "--user-id", help="Explicit acting user subject for local/dev testing"),
     output: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
 ):
@@ -172,6 +194,7 @@ def register_file(
         source_size_bytes=size,
         source_sha256=sha256,
         source_etag=etag,
+        keywords=keyword or None,
         user_id=user_id,
     )
     if output == "json":
@@ -303,6 +326,38 @@ def download(
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(response.content)
     console.print(f"[green]Downloaded[/green] {value.source_path} -> {target}")
+
+
+@app.command("complete-task")
+def complete_task(
+    task_id: str = typer.Argument(help="Workspaces conversion task ID"),
+    markdown_file: Path = typer.Option(..., "--markdown-file", help="Markdown file produced by the worker"),
+    title: str | None = typer.Option(None, "--title", help="Best-effort document title"),
+    detected_type: str | None = typer.Option(None, "--detected-type", help="Detected source type, such as pdf or docx"),
+    projection_kind: str | None = typer.Option(None, "--projection-kind", help="Projection kind, defaults to backend task kind"),
+    keyword: list[str] | None = typer.Option(None, "--keyword", help="Keyword metadata for backend workspace search; repeatable"),
+    converter: str | None = typer.Option("tomd-worker", "--converter", help="Converter name"),
+    converter_version: str | None = typer.Option(None, "--converter-version", help="Converter version"),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """Complete a Workspaces conversion task from a worker runtime."""
+    markdown_body = markdown_file.read_text(encoding="utf-8")
+    result = _get_workspaces().complete_task(
+        task_id,
+        markdown_body=markdown_body,
+        title=title,
+        detected_type=detected_type,
+        projection_kind=projection_kind,
+        keywords=keyword or [],
+        semantic_metadata={},
+        converter=converter,
+        converter_version=converter_version,
+    )
+    if output == "json":
+        _print_json(result)
+        return
+    projection_path = result.get("path") or result.get("projection_path") or result.get("id") or task_id
+    console.print(f"[green]Completed conversion task[/green] {task_id} -> {projection_path}")
 
 
 @app.command("delete-file")

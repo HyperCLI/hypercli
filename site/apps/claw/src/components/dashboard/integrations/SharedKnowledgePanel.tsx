@@ -254,7 +254,7 @@ function NewKnowledgeBaseModal({ agents, onClose, onCreate }: { agents: SharedKn
             </div>
             <label className="block">
               <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.22em] text-text-muted">Name</span>
-              <input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g., Product Documentation" className="h-10 w-full rounded-xl border border-border bg-surface-low/40 px-3 text-sm text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50" />
+              <input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g., Team Knowledge" className="h-10 w-full rounded-xl border border-border bg-surface-low/40 px-3 text-sm text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50" />
             </label>
 
             <div />
@@ -505,7 +505,8 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
     setLoading(true);
     setError(null);
     try {
-      const listed = await workspaces.list();
+      const searchTerm = query.trim();
+      const listed = searchTerm ? await workspaces.search(searchTerm) : await workspaces.list();
       const hydrated = await Promise.all(listed.map(async (workspace) => {
         const [files, grants] = await Promise.all([
           workspaces.listFiles(workspace.slug).catch(() => [] as WorkspaceFile[]),
@@ -530,25 +531,11 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
     } finally {
       setLoading(false);
     }
-  }, [ready, workspaces]);
+  }, [query, ready, workspaces]);
 
   React.useEffect(() => {
     void loadWorkspaces();
   }, [loadWorkspaces]);
-
-  const filteredBases = React.useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    if (!normalized) return knowledgeBases;
-    return knowledgeBases.filter((base) => {
-      const haystack = [
-        base.workspace.name,
-        base.workspace.slug,
-        base.workspace.description || "",
-        ...base.files.map((file) => file.path),
-      ].join(" ").toLowerCase();
-      return haystack.includes(normalized);
-    });
-  }, [knowledgeBases, query]);
 
   const toggleFolder = (id: string) => {
     setExpandedFolders((current) => {
@@ -704,7 +691,7 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
               <p className="text-[13px] font-semibold text-foreground">Loading shared knowledge</p>
             </div>
           )}
-          {workspaces && !loading && filteredBases.map((base) => (
+          {workspaces && !loading && knowledgeBases.map((base) => (
             <KnowledgeBaseCard
               key={base.workspace.id}
               base={base}
@@ -724,7 +711,7 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
               onDeleteFile={(file) => void deleteFile(base, file)}
             />
           ))}
-          {workspaces && !loading && filteredBases.length === 0 && (
+          {workspaces && !loading && knowledgeBases.length === 0 && (
             <div className="rounded-2xl border border-dashed border-border bg-surface-low/25 px-5 py-10 text-center">
               <HardDrive className="mx-auto mb-2 h-5 w-5 text-text-muted" />
               <p className="text-[13px] font-semibold text-foreground">No knowledge bases found.</p>

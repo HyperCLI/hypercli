@@ -69,6 +69,25 @@ def test_workspaces_create_invokes_cli(monkeypatch):
     assert captured == {"name": "Demo Workspace", "slug": "demo", "description": None, "user_id": None}
 
 
+def test_workspaces_search_invokes_cli(monkeypatch):
+    import hypercli_cli.workspaces as workspaces_mod
+
+    captured = {}
+
+    class _FakeWorkspaces:
+        def search(self, query, *, user_id=None, agent_id=None):
+            captured.update({"query": query, "user_id": user_id, "agent_id": agent_id})
+            return [_FakeWorkspace()]
+
+    monkeypatch.setattr(workspaces_mod, "_get_workspaces", lambda: _FakeWorkspaces())
+
+    result = runner.invoke(app, ["workspaces", "search", "handoff", "--user-id", "user-1", "--output", "json"])
+
+    assert result.exit_code == 0, result.stdout
+    assert captured == {"query": "handoff", "user_id": "user-1", "agent_id": None}
+    assert '"demo"' in result.stdout
+
+
 def test_workspaces_grant_agent_invokes_cli(monkeypatch):
     import hypercli_cli.workspaces as workspaces_mod
 
@@ -179,6 +198,10 @@ def test_workspaces_register_file_and_download_url(monkeypatch):
             "application/pdf",
             "--size",
             "123",
+            "--keyword",
+            "handoff",
+            "--keyword",
+            "launch",
         ],
     )
     downloaded = runner.invoke(app, ["workspaces", "download-url", "demo", "projects/example/report.pdf"])
@@ -195,6 +218,7 @@ def test_workspaces_register_file_and_download_url(monkeypatch):
             "source_size_bytes": 123,
             "source_sha256": "a" * 64,
             "source_etag": None,
+            "keywords": ["handoff", "launch"],
             "user_id": None,
         },
     )
@@ -384,3 +408,59 @@ def test_workspaces_download_raw_fetches_original(monkeypatch, tmp_path: Path):
         "agent_id": "agent-1",
     }
     assert target.read_bytes() == b"raw-pdf"
+
+
+def test_workspaces_complete_task_invokes_cli(monkeypatch, tmp_path: Path):
+    import hypercli_cli.workspaces as workspaces_mod
+
+    markdown_file = tmp_path / "result.md"
+    markdown_file.write_text("# Report\n\nSummary body.\n", encoding="utf-8")
+    captured = {}
+
+    class _FakeWorkspaces:
+        def complete_task(self, task_id, **kwargs):
+            captured.update({"task_id": task_id, **kwargs})
+            return {
+                "id": "projection-1",
+                "path": "projects/example/.tomd/report.md",
+                "status": "ready",
+            }
+
+    monkeypatch.setattr(workspaces_mod, "_get_workspaces", lambda: _FakeWorkspaces())
+
+    result = runner.invoke(
+        app,
+        [
+            "workspaces",
+            "complete-task",
+            "task-1",
+            "--markdown-file",
+            str(markdown_file),
+            "--title",
+            "Report",
+            "--detected-type",
+            "pdf",
+            "--projection-kind",
+            "document",
+            "--keyword",
+            "handoff",
+            "--keyword",
+            "launch",
+            "--converter-version",
+            "dev",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert captured == {
+        "task_id": "task-1",
+        "markdown_body": "# Report\n\nSummary body.\n",
+        "title": "Report",
+        "detected_type": "pdf",
+        "projection_kind": "document",
+        "keywords": ["handoff", "launch"],
+        "semantic_metadata": {},
+        "converter": "tomd-worker",
+        "converter_version": "dev",
+    }
+    assert "Completed conversion task" in result.stdout

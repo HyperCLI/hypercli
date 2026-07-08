@@ -34,6 +34,7 @@ def _headers(
     *,
     user_id: str | None = None,
     agent_id: str | None = None,
+    backend_api_key: str | None = None,
     content_type: str | None = "application/json",
 ) -> dict:
     headers = {
@@ -45,13 +46,33 @@ def _headers(
         headers["X-User-Id"] = user_id
     if agent_id:
         headers["X-Agent-Id"] = agent_id
+    if backend_api_key:
+        headers["X-BACKEND-API-KEY"] = backend_api_key
     return headers
 
 
-def _request(method: str, url: str, *, api_key: str, user_id: str | None = None, agent_id: str | None = None, **kwargs):
+def _request(
+    method: str,
+    url: str,
+    *,
+    api_key: str,
+    user_id: str | None = None,
+    agent_id: str | None = None,
+    backend_api_key: str | None = None,
+    **kwargs,
+):
     with httpx.Client(timeout=30) as client:
-        response = client.request(method, url, headers=_headers(api_key, user_id=user_id, agent_id=agent_id), **kwargs)
+        response = client.request(
+            method,
+            url,
+            headers=_headers(api_key, user_id=user_id, agent_id=agent_id, backend_api_key=backend_api_key),
+            **kwargs,
+        )
     return _handle_response(response)
+
+
+def _get_workspaces_backend_api_key() -> str | None:
+    return get_config_value("HYPER_WORKSPACES_BACKEND_API_KEY") or get_config_value("BACKEND_API_KEY")
 
 
 @dataclass
@@ -178,6 +199,17 @@ class WorkspacesAPI:
         data = _request("GET", self.api_base, api_key=self.api_key, user_id=user_id, agent_id=agent_id)
         return [Workspace.from_dict(item) for item in data]
 
+    def search(self, query: str, *, user_id: str | None = None, agent_id: str | None = None) -> list[Workspace]:
+        data = _request(
+            "GET",
+            f"{self.api_base}/search",
+            api_key=self.api_key,
+            user_id=user_id,
+            agent_id=agent_id,
+            params={"q": query},
+        )
+        return [Workspace.from_dict(item) for item in data]
+
     def create(self, *, name: str, slug: str | None = None, description: str | None = None, user_id: str | None = None) -> Workspace:
         payload = {"name": name}
         if slug:
@@ -239,6 +271,7 @@ class WorkspacesAPI:
         source_size_bytes: int | None = None,
         source_sha256: str | None = None,
         source_etag: str | None = None,
+        keywords: list[str] | None = None,
         user_id: str | None = None,
     ) -> WorkspaceFile:
         payload = {"path": path}
@@ -252,6 +285,8 @@ class WorkspacesAPI:
             payload["source_sha256"] = source_sha256
         if source_etag:
             payload["source_etag"] = source_etag
+        if keywords:
+            payload["keywords"] = keywords
         data = _request("POST", f"{self.api_base}/{workspace_ref}/files", api_key=self.api_key, user_id=user_id, json=payload)
         return WorkspaceFile.from_dict(data)
 
@@ -300,6 +335,46 @@ class WorkspacesAPI:
 
     def delete_file(self, workspace_ref: str, file_ref: str, *, user_id: str | None = None) -> dict:
         return _request("DELETE", f"{self.api_base}/{workspace_ref}/files/{file_ref}", api_key=self.api_key, user_id=user_id)
+
+    def complete_task(
+        self,
+        task_id: str,
+        *,
+        markdown_body: str,
+        title: str | None = None,
+        detected_type: str | None = None,
+        projection_kind: str | None = None,
+        keywords: list[str] | None = None,
+        semantic_metadata: dict | None = None,
+        converter: str | None = None,
+        converter_version: str | None = None,
+        backend_api_key: str | None = None,
+    ) -> dict:
+        admin_key = backend_api_key or _get_workspaces_backend_api_key()
+        if not admin_key:
+            raise ValueError("Set HYPER_WORKSPACES_BACKEND_API_KEY or BACKEND_API_KEY to complete Workspaces conversion tasks")
+        payload = {
+            "markdown_body": markdown_body,
+            "keywords": keywords or [],
+            "semantic_metadata": semantic_metadata or {},
+        }
+        if title is not None:
+            payload["title"] = title
+        if detected_type is not None:
+            payload["detected_type"] = detected_type
+        if projection_kind is not None:
+            payload["projection_kind"] = projection_kind
+        if converter is not None:
+            payload["converter"] = converter
+        if converter_version is not None:
+            payload["converter_version"] = converter_version
+        return _request(
+            "POST",
+            f"{self.api_base}/admin/conversion-tasks/{task_id}/complete",
+            api_key=self.api_key,
+            backend_api_key=admin_key,
+            json=payload,
+        )
 
     def sync_manifest(
         self,
@@ -369,6 +444,7 @@ def _projection_markdown(manifest: WorkspaceManifest, projection: dict) -> str:
         "source_last_modified": projection.get("source_last_modified") or "",
         "projection_path": projection.get("projection_path", ""),
         "markdown_sha256": projection.get("markdown_sha256") or "",
+        "keywords": projection.get("keywords") or [],
         "status": status,
         "download_command": download_command,
     }
@@ -404,4 +480,8 @@ def _yaml_scalar(value) -> str:
         return "true" if value else "false"
     if isinstance(value, (int, float)):
         return str(value)
+    if isinstance(value, (list, tuple)):
+        return json.dumps(list(value))
+    if isinstance(value, dict):
+        return json.dumps(value)
     return json.dumps(str(value))

@@ -52,6 +52,22 @@ export interface WorkspaceFile {
   projectionStatus: string | null;
 }
 
+export interface WorkspaceProjection {
+  id: string;
+  workspaceId: string;
+  fileId: string;
+  fileVersionId: string;
+  projectionPath: string;
+  projectionS3Key: string | null;
+  status: string;
+  kind: string;
+  title: string | null;
+  detectedType: string | null;
+  markdownSha256: string | null;
+  systemMetadata: Record<string, any>;
+  semanticMetadata: Record<string, any>;
+}
+
 export interface WorkspaceManifest {
   workspaceId: string;
   workspaceName: string;
@@ -70,6 +86,17 @@ export interface WorkspaceDownloadUrl {
   s3Endpoint: string;
   url: string | null;
   downloadCommand: string;
+}
+
+export interface WorkspaceTaskCompleteBody {
+  markdownBody: string;
+  title?: string | null;
+  detectedType?: string | null;
+  projectionKind?: string | null;
+  keywords?: string[];
+  semanticMetadata?: Record<string, any>;
+  converter?: string | null;
+  converterVersion?: string | null;
 }
 
 export interface WorkspaceSubjectOptions {
@@ -108,6 +135,24 @@ function fileFromDict(data: any): WorkspaceFile {
     fileState: data?.file_state || data?.fileState || '',
     uploadStatus: data?.upload_status || data?.uploadStatus || null,
     projectionStatus: data?.projection_status || data?.projectionStatus || null,
+  };
+}
+
+function projectionFromDict(data: any): WorkspaceProjection {
+  return {
+    id: String(data?.id || ''),
+    workspaceId: String(data?.workspace_id || data?.workspaceId || ''),
+    fileId: String(data?.file_id || data?.fileId || ''),
+    fileVersionId: String(data?.file_version_id || data?.fileVersionId || ''),
+    projectionPath: data?.projection_path || data?.projectionPath || '',
+    projectionS3Key: data?.projection_s3_key || data?.projectionS3Key || null,
+    status: data?.status || '',
+    kind: data?.kind || '',
+    title: data?.title || null,
+    detectedType: data?.detected_type || data?.detectedType || null,
+    markdownSha256: data?.markdown_sha256 || data?.markdownSha256 || null,
+    systemMetadata: data?.system_metadata || data?.systemMetadata || {},
+    semanticMetadata: data?.semantic_metadata || data?.semanticMetadata || {},
   };
 }
 
@@ -203,6 +248,12 @@ export class WorkspacesAPI {
     return (data || []).map(workspaceFromDict);
   }
 
+  async search(query: string, subject: WorkspaceSubjectOptions = {}): Promise<Workspace[]> {
+    const params = new URLSearchParams({ q: query });
+    const data = await this.request<any[]>('GET', `/search?${params.toString()}`, subject);
+    return (data || []).map(workspaceFromDict);
+  }
+
   async create(
     body: { name: string; slug?: string; description?: string },
     subject: WorkspaceSubjectOptions = {},
@@ -255,6 +306,7 @@ export class WorkspacesAPI {
       sourceSizeBytes?: number;
       sourceSha256?: string;
       sourceEtag?: string;
+      keywords?: string[];
     },
     subject: WorkspaceSubjectOptions = {},
   ): Promise<WorkspaceFile> {
@@ -265,6 +317,7 @@ export class WorkspacesAPI {
       source_size_bytes: body.sourceSizeBytes,
       source_sha256: body.sourceSha256,
       source_etag: body.sourceEtag,
+      keywords: body.keywords,
     });
     return fileFromDict(data);
   }
@@ -294,6 +347,11 @@ export class WorkspacesAPI {
     return (data || []).map(fileFromDict);
   }
 
+  async listProjections(workspaceRef: string, subject: WorkspaceSubjectOptions = {}): Promise<WorkspaceProjection[]> {
+    const data = await this.request<any[]>('GET', `/${workspaceRef}/projections`, subject);
+    return (data || []).map(projectionFromDict);
+  }
+
   async manifest(workspaceRef: string, subject: WorkspaceSubjectOptions = {}): Promise<WorkspaceManifest> {
     const data = await this.request('GET', `/${workspaceRef}/manifest`, subject);
     return manifestFromDict(data);
@@ -310,6 +368,38 @@ export class WorkspacesAPI {
 
   async deleteFile(workspaceRef: string, fileRef: string, subject: WorkspaceSubjectOptions = {}): Promise<void> {
     await this.request('DELETE', `/${workspaceRef}/files/${fileRef}`, subject);
+  }
+
+  async completeTask(
+    taskId: string,
+    body: WorkspaceTaskCompleteBody,
+    options: { backendApiKey?: string } = {},
+  ): Promise<WorkspaceProjection> {
+    const backendApiKey =
+      options.backendApiKey || envValue('HYPER_WORKSPACES_BACKEND_API_KEY') || envValue('BACKEND_API_KEY');
+    if (!backendApiKey) {
+      throw new Error('Set HYPER_WORKSPACES_BACKEND_API_KEY or BACKEND_API_KEY to complete Workspaces conversion tasks');
+    }
+    const response = await requestWithRetry({
+      method: 'POST',
+      url: `${this.apiBase}/admin/conversion-tasks/${taskId}/complete`,
+      headers: {
+        ...this.headers(),
+        'X-BACKEND-API-KEY': backendApiKey,
+      },
+      body: {
+        markdown_body: body.markdownBody,
+        title: body.title,
+        detected_type: body.detectedType,
+        projection_kind: body.projectionKind,
+        keywords: body.keywords || [],
+        semantic_metadata: body.semanticMetadata || {},
+        converter: body.converter,
+        converter_version: body.converterVersion,
+      },
+      timeout: this.timeout,
+    });
+    return projectionFromDict(await handleResponse(response));
   }
 
   async projectionMarkdown(
@@ -360,6 +450,7 @@ function projectionMarkdown(manifest: WorkspaceManifest, projection: Record<stri
     source_last_modified: projection.source_last_modified || '',
     projection_path: projection.projection_path || '',
     markdown_sha256: projection.markdown_sha256 || '',
+    keywords: projection.keywords || [],
     status: projection.status || '',
     download_command: downloadCommand,
   };
@@ -382,5 +473,6 @@ function yamlScalar(value: unknown): string {
   if (value === null || value === undefined) return 'null';
   if (typeof value === 'boolean') return value ? 'true' : 'false';
   if (typeof value === 'number') return String(value);
+  if (Array.isArray(value) || typeof value === 'object') return JSON.stringify(value);
   return JSON.stringify(String(value));
 }

@@ -35,6 +35,7 @@ import {
   AGENT_STOP_CLEANUP_COOLDOWN_MS,
   createAgentClient,
   createHyperAgentClient,
+  createWorkspacesClient,
   createOpenClawAgent,
   isAgentCleanupConflictError,
   startOpenClawAgent,
@@ -49,6 +50,7 @@ import { useAgentShellTerminal } from "@/hooks/useAgentShellTerminal";
 import { agentAvatar } from "@/lib/avatar";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { IntegrationsDirectoryPanel } from "@/components/dashboard/integrations";
+import { SharedKnowledgePanel } from "@/components/dashboard/integrations/SharedKnowledgePanel";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 import type { TabId as AgentViewTabId } from "@/components/dashboard/agentViewTypes";
 import { MOCK_PARTICIPANTS, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
@@ -58,6 +60,7 @@ import { buildSkillsSnapshotCommand, parseSkillSnapshotOutput } from "@/componen
 import type { AgentFileEntry, SdkAgent } from "@/types";
 import type { FileEntry } from "@hypercli/shared-ui/files";
 import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
+import type { WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
 import type { HyperAgentCurrentPlan, HyperAgentPlan, HyperAgentSubscriptionSummary, HyperAgentTypeCatalog } from "@hypercli.com/sdk/agent";
 import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentState } from "@/app/dashboard/agents/types";
 import {
@@ -278,6 +281,7 @@ export default function DevAgentSetupAgentsPage() {
   const [subscriptionSummary, setSubscriptionSummary] = useState<HyperAgentSubscriptionSummary | null>(null);
   const [tokenUsage, setTokenUsage] = useState<number | null>(null);
   const [deployments, setDeployments] = useState<Deployments | null>(null);
+  const [workspacesClient, setWorkspacesClient] = useState<WorkspacesAPI | null>(null);
   const [, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -390,6 +394,7 @@ export default function DevAgentSetupAgentsPage() {
       if (!deployments) {
         setDeployments(agentClient);
       }
+      setWorkspacesClient((current) => current ?? createWorkspacesClient(token));
       const hyperAgent = createHyperAgentClient(token);
       const [listedAgents, catalogData, currentPlan, summaryData, dailyUsage, typeCatalogData] = await Promise.all([
         agentClient.list(),
@@ -430,6 +435,7 @@ export default function DevAgentSetupAgentsPage() {
       setBudget(null);
       setCatalogPlans([]);
       setDeployments(null);
+      setWorkspacesClient(null);
     } finally {
       setLoading(false);
     }
@@ -1432,6 +1438,7 @@ export default function DevAgentSetupAgentsPage() {
       ? "settings"
       : mainTab === "files" ||
         mainTab === "integrations" ||
+        mainTab === "knowledge" ||
         mainTab === "scheduled" ||
         mainTab === "logs" ||
         mainTab === "shell" ||
@@ -1826,6 +1833,8 @@ export default function DevAgentSetupAgentsPage() {
                 onIntegrationStatus={chat.integrationsStatus}
                 onIntegrationDisconnect={chat.integrationsDisconnect}
               />
+            ) : mainTab === "knowledge" ? (
+              <SharedKnowledgePanel agents={agents} workspaces={workspacesClient} ready={Boolean(workspacesClient)} />
             ) : mainTab === "settings" || mainTab === "openclaw" ? (
               <AgentSettingsPanel
                 agent={selectedAgent}

@@ -61,6 +61,24 @@ def test_create_and_grant_payloads(monkeypatch):
     ]
 
 
+def test_search_workspaces_uses_backend_search_endpoint(monkeypatch):
+    calls = []
+
+    def fake_request(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
+        calls.append((method, url, api_key, user_id, agent_id, kwargs.get("params")))
+        return [{"id": "workspace-1", "name": "Team Knowledge", "slug": "team-knowledge"}]
+
+    monkeypatch.setattr("hypercli.workspaces._request", fake_request)
+    api = WorkspacesAPI("key", api_base="http://workspaces.test/workspaces")
+
+    results = api.search("handoff", user_id="user-1")
+
+    assert results[0].slug == "team-knowledge"
+    assert calls == [
+        ("GET", "http://workspaces.test/workspaces/search", "key", "user-1", None, {"q": "handoff"}),
+    ]
+
+
 def test_update_delete_and_grant_lifecycle_payloads(monkeypatch):
     calls = []
 
@@ -108,6 +126,115 @@ def test_update_delete_and_grant_lifecycle_payloads(monkeypatch):
     ]
 
 
+def test_register_file_sends_keywords(monkeypatch):
+    calls = []
+
+    def fake_request(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
+        calls.append((method, url, api_key, user_id, agent_id, kwargs.get("json")))
+        return {
+            "id": "file-1",
+            "workspace_id": "workspace-1",
+            "path": kwargs["json"]["path"],
+            "display_name": "report.pdf",
+            "current_version_id": "version-1",
+            "file_state": "uploaded",
+            "upload_status": "uploaded",
+            "projection_status": "queued",
+        }
+
+    monkeypatch.setattr("hypercli.workspaces._request", fake_request)
+    api = WorkspacesAPI("key", api_base="http://workspaces.test/workspaces")
+
+    item = api.register_file(
+        "demo",
+        path="projects/example/report.pdf",
+        source_content_type="application/pdf",
+        source_size_bytes=123,
+        source_sha256="a" * 64,
+        source_etag="etag-1",
+        keywords=["handoff", "launch"],
+        user_id="user-1",
+    )
+
+    assert item.path == "projects/example/report.pdf"
+    assert calls == [
+        (
+            "POST",
+            "http://workspaces.test/workspaces/demo/files",
+            "key",
+            "user-1",
+            None,
+            {
+                "path": "projects/example/report.pdf",
+                "source_content_type": "application/pdf",
+                "source_size_bytes": 123,
+                "source_sha256": "a" * 64,
+                "source_etag": "etag-1",
+                "keywords": ["handoff", "launch"],
+            },
+        ),
+    ]
+
+
+def test_complete_task_uses_admin_callback_endpoint(monkeypatch):
+    calls = []
+    monkeypatch.setenv("HYPER_WORKSPACES_BACKEND_API_KEY", "backend-secret")
+
+    def fake_request(method, url, *, api_key, user_id=None, agent_id=None, backend_api_key=None, **kwargs):
+        calls.append((method, url, api_key, user_id, agent_id, backend_api_key, kwargs.get("json")))
+        return {
+            "id": "projection-1",
+            "workspace_id": "workspace-1",
+            "file_id": "file-1",
+            "file_version_id": "version-1",
+            "path": "projects/example/.tomd/report.md",
+            "kind": "document",
+            "title": kwargs["json"]["title"],
+            "detected_type": kwargs["json"]["detected_type"],
+            "markdown_body": kwargs["json"]["markdown_body"],
+            "markdown_sha256": "b" * 64,
+            "system_metadata": {},
+            "semantic_metadata": {},
+            "status": "ready",
+        }
+
+    monkeypatch.setattr("hypercli.workspaces._request", fake_request)
+    api = WorkspacesAPI("worker-key", api_base="http://workspaces.test/workspaces")
+
+    result = api.complete_task(
+        "task-1",
+        markdown_body="# Report\n",
+        title="Report",
+        detected_type="pdf",
+        projection_kind="document",
+        keywords=["handoff", "launch"],
+        converter="tomd-worker",
+        converter_version="dev",
+    )
+
+    assert result["status"] == "ready"
+    assert calls == [
+        (
+            "POST",
+            "http://workspaces.test/workspaces/admin/conversion-tasks/task-1/complete",
+            "worker-key",
+            None,
+            None,
+            "backend-secret",
+            {
+                "markdown_body": "# Report\n",
+                "keywords": ["handoff", "launch"],
+                "semantic_metadata": {},
+                "title": "Report",
+                "detected_type": "pdf",
+                "projection_kind": "document",
+                "converter": "tomd-worker",
+                "converter_version": "dev",
+            },
+        ),
+    ]
+
+
 def test_sync_manifest_writes_tomd_projection(monkeypatch, tmp_path: Path):
     def fake_request(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
         assert method == "GET"
@@ -134,6 +261,7 @@ def test_sync_manifest_writes_tomd_projection(monkeypatch, tmp_path: Path):
                     "source_etag": "etag-1",
                     "source_last_modified": "2026-07-08T00:00:00Z",
                     "markdown_sha256": None,
+                    "keywords": ["handoff", "launch"],
                     "status": "queued",
                     "download_command": "hyper workspaces download demo projects/example/report.pdf --raw --output report.pdf",
                 }
@@ -152,6 +280,7 @@ def test_sync_manifest_writes_tomd_projection(monkeypatch, tmp_path: Path):
     assert 'source_content_type: "application/pdf"' in markdown
     assert "source_size_bytes: 123" in markdown
     assert 'source_etag: "etag-1"' in markdown
+    assert 'keywords: ["handoff", "launch"]' in markdown
     assert 'download_command: "hyper workspaces download demo projects/example/report.pdf --raw --output report.pdf"' in markdown
 
 
