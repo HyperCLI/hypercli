@@ -10,6 +10,7 @@ function providerFor(value: Partial<HyperCLIContextValue>) {
   const context: HyperCLIContextValue = {
     deployments: null,
     hyperAgent: null,
+    workspaces: null,
     token: null,
     ready: false,
     refreshClients: vi.fn(),

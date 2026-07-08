@@ -9,40 +9,46 @@ runner = CliRunner()
 
 
 class _FakeWorkspace:
-    id = "workspace-1"
-    name = "Demo Workspace"
-    slug = "demo"
-    description = None
+    def __init__(self):
+        self.id = "workspace-1"
+        self.name = "Demo Workspace"
+        self.slug = "demo"
+        self.description = None
 
 
 class _FakeGrant:
-    id = "grant-1"
-    workspace_id = "workspace-1"
-    subject_type = "agent"
-    subject_id = "agent-1"
-    role = "viewer"
+    def __init__(self):
+        self.id = "grant-1"
+        self.workspace_id = "workspace-1"
+        self.subject_type = "agent"
+        self.subject_id = "agent-1"
+        self.role = "viewer"
+        self.expires_at = None
+        self.revoked_at = None
 
 
 class _FakeFile:
-    id = "file-1"
-    workspace_id = "workspace-1"
-    path = "projects/example/report.pdf"
-    display_name = "report.pdf"
-    current_version_id = "version-1"
-    file_state = "uploaded"
-    upload_status = "uploaded"
-    projection_status = "queued"
+    def __init__(self):
+        self.id = "file-1"
+        self.workspace_id = "workspace-1"
+        self.path = "projects/example/report.pdf"
+        self.display_name = "report.pdf"
+        self.current_version_id = "version-1"
+        self.file_state = "uploaded"
+        self.upload_status = "uploaded"
+        self.projection_status = "queued"
 
 
 class _FakeDownloadUrl:
-    file_id = "file-1"
-    file_version_id = "version-1"
-    source_path = "projects/example/report.pdf"
-    source_s3_key = "test/workspaces/workspace-1/originals/file-1/version-1/report.pdf"
-    s3_bucket = "hypercli-workspaces"
-    s3_endpoint = "https://storage.streamformation.com"
-    url = "https://download.example/report.pdf"
-    download_command = "hyper workspaces download demo projects/example/report.pdf --raw"
+    def __init__(self):
+        self.file_id = "file-1"
+        self.file_version_id = "version-1"
+        self.source_path = "projects/example/report.pdf"
+        self.source_s3_key = "test/workspaces/workspace-1/originals/file-1/version-1/report.pdf"
+        self.s3_bucket = "hypercli-workspaces"
+        self.s3_endpoint = "https://storage.streamformation.com"
+        self.url = "https://download.example/report.pdf"
+        self.download_command = "hyper workspaces download demo projects/example/report.pdf --raw"
 
 
 def test_workspaces_create_invokes_cli(monkeypatch):
@@ -93,6 +99,55 @@ def test_workspaces_grant_agent_invokes_cli(monkeypatch):
         "role": "viewer",
         "user_id": None,
     }
+
+
+def test_workspaces_update_delete_and_grants_invokes_cli(monkeypatch):
+    import hypercli_cli.workspaces as workspaces_mod
+
+    calls = []
+
+    class _FakeWorkspaces:
+        def update(self, workspace, *, name=None, slug=None, description=None, user_id=None):
+            calls.append(("update", workspace, name, slug, description, user_id))
+            item = _FakeWorkspace()
+            item.name = name or item.name
+            item.slug = slug or item.slug
+            item.description = description
+            return item
+
+        def delete_workspace(self, workspace, *, user_id=None):
+            calls.append(("delete_workspace", workspace, user_id))
+            return {"deleted": True}
+
+        def list_grants(self, workspace, *, user_id=None):
+            calls.append(("list_grants", workspace, user_id))
+            return [_FakeGrant()]
+
+        def revoke_grant(self, workspace, grant_id, *, user_id=None):
+            calls.append(("revoke_grant", workspace, grant_id, user_id))
+            return {"revoked": True}
+
+    monkeypatch.setattr(workspaces_mod, "_get_workspaces", lambda: _FakeWorkspaces())
+
+    updated = runner.invoke(
+        app,
+        ["workspaces", "update", "demo", "--name", "Renamed", "--slug", "renamed", "--description", "Updated", "--user-id", "user-1"],
+    )
+    listed = runner.invoke(app, ["workspaces", "grants", "renamed", "--user-id", "user-1", "--output", "json"])
+    revoked = runner.invoke(app, ["workspaces", "revoke-grant", "renamed", "grant-1", "--user-id", "user-1"])
+    deleted = runner.invoke(app, ["workspaces", "delete", "renamed", "--user-id", "user-1"])
+
+    assert updated.exit_code == 0, updated.stdout
+    assert listed.exit_code == 0, listed.stdout
+    assert revoked.exit_code == 0, revoked.stdout
+    assert deleted.exit_code == 0, deleted.stdout
+    assert calls == [
+        ("update", "demo", "Renamed", "renamed", "Updated", "user-1"),
+        ("list_grants", "renamed", "user-1"),
+        ("revoke_grant", "renamed", "grant-1", "user-1"),
+        ("delete_workspace", "renamed", "user-1"),
+    ]
+    assert '"grant-1"' in listed.stdout
 
 
 def test_workspaces_register_file_and_download_url(monkeypatch):

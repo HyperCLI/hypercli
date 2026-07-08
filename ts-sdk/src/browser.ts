@@ -31,6 +31,7 @@ import {
 import { HyperAgent } from './agent.js';
 import { UserAPI } from './user.js';
 import { VoiceAPI } from './voice.js';
+import { WorkspacesAPI } from './workspaces.js';
 export {
   API_KEY_BASELINE_FAMILIES,
   type ApiKeyBaselineFamily,
@@ -63,6 +64,7 @@ export class BrowserHyperCLI {
   public readonly instances: Instances;
   public readonly keys: KeysAPI;
   public readonly voice: VoiceAPI;
+  public readonly workspaces: WorkspacesAPI;
 
   constructor(options: BrowserHyperCLIOptions) {
     const apiUrl = normalizeApiUrl(options.apiUrl);
@@ -82,5 +84,9 @@ export class BrowserHyperCLI {
     this.instances = new Instances(this.http);
     this.keys = new KeysAPI(this.http);
     this.voice = new VoiceAPI(this.http);
+    this.workspaces = new WorkspacesAPI(options.agentApiKey ?? options.token, {
+      agentsApiBase: agentsApiBaseUrl,
+      timeout: options.timeout,
+    });
   }
 }

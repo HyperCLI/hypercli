@@ -37,6 +37,8 @@ export interface WorkspaceGrant {
   subjectType: string;
   subjectId: string;
   role: string;
+  expiresAt: string | null;
+  revokedAt: string | null;
 }
 
 export interface WorkspaceFile {
@@ -91,6 +93,8 @@ function grantFromDict(data: any): WorkspaceGrant {
     subjectType: data?.subject_type || data?.subjectType || '',
     subjectId: data?.subject_id || data?.subjectId || '',
     role: data?.role || '',
+    expiresAt: data?.expires_at || data?.expiresAt || null,
+    revokedAt: data?.revoked_at || data?.revokedAt || null,
   };
 }
 
@@ -207,6 +211,19 @@ export class WorkspacesAPI {
     return workspaceFromDict(data);
   }
 
+  async update(
+    workspaceRef: string,
+    body: { name?: string; slug?: string; description?: string },
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<Workspace> {
+    const data = await this.request('PATCH', `/${workspaceRef}`, subject, body);
+    return workspaceFromDict(data);
+  }
+
+  async delete(workspaceRef: string, subject: WorkspaceSubjectOptions = {}): Promise<void> {
+    await this.request('DELETE', `/${workspaceRef}`, subject);
+  }
+
   async grant(
     workspaceRef: string,
     body: { subjectType: 'user' | 'agent'; subjectId: string; role?: 'viewer' | 'contributor' | 'admin' },
@@ -218,6 +235,15 @@ export class WorkspacesAPI {
       role: body.role || 'viewer',
     });
     return grantFromDict(data);
+  }
+
+  async listGrants(workspaceRef: string, subject: WorkspaceSubjectOptions = {}): Promise<WorkspaceGrant[]> {
+    const data = await this.request<any[]>('GET', `/${workspaceRef}/grants`, subject);
+    return (data || []).map(grantFromDict);
+  }
+
+  async revokeGrant(workspaceRef: string, grantId: string, subject: WorkspaceSubjectOptions = {}): Promise<void> {
+    await this.request('DELETE', `/${workspaceRef}/grants/${grantId}`, subject);
   }
 
   async registerFile(

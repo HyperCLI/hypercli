@@ -2,6 +2,7 @@ import { HyperAgent } from "@hypercli.com/sdk/agent";
 import type { OpenClawCreateAgentOptions, OpenClawStartAgentOptions } from "@hypercli.com/sdk/agents";
 import { Deployments } from "@hypercli.com/sdk/agents";
 import { HTTPClient } from "@hypercli.com/sdk/http";
+import { WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
 import { API_BASE_URL } from "./api";
 
 interface AgentUiMeta {
@@ -253,6 +254,11 @@ export function createHyperAgentClient(apiKey: string): HyperAgent {
   const productApiBaseUrl = resolvedApiBaseUrl.replace(/\/agents\/?$/, "");
   const http = new HTTPClient(productApiBaseUrl, apiKey);
   return new HyperAgent(http, apiKey, false, resolvedApiBaseUrl);
+}
+
+export function createWorkspacesClient(apiKey: string): WorkspacesAPI {
+  const resolvedApiBaseUrl = resolveAgentApiBaseUrl(API_BASE_URL);
+  return new WorkspacesAPI(apiKey, { agentsApiBase: resolvedApiBaseUrl });
 }
 
 export function createPublicHyperAgentClient(): HyperAgent {

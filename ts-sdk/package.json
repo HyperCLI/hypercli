@@ -34,6 +34,10 @@
       "import": "./dist/keys.js",
       "types": "./dist/keys.d.ts"
     },
+    "./workspaces": {
+      "import": "./dist/workspaces.js",
+      "types": "./dist/workspaces.d.ts"
+    },
     "./http": {
       "import": "./dist/http.js",
       "types": "./dist/http.d.ts"

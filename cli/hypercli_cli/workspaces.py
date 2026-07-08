@@ -63,6 +63,41 @@ def list_workspaces(
     console.print(table)
 
 
+@app.command("update")
+def update_workspace(
+    workspace: str = typer.Argument(help="Workspace slug or ID"),
+    name: str | None = typer.Option(None, "--name", help="New workspace display name"),
+    slug: str | None = typer.Option(None, "--slug", help="New unique human-readable slug"),
+    description: str | None = typer.Option(None, "--description", help="New description"),
+    user_id: str | None = typer.Option(None, "--user-id", help="Explicit acting user subject for local/dev testing"),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """Update a workspace."""
+    if name is None and slug is None and description is None:
+        raise typer.BadParameter("Pass at least one of --name, --slug, or --description")
+    updated = _get_workspaces().update(
+        workspace,
+        name=name,
+        slug=slug,
+        description=description,
+        user_id=user_id,
+    )
+    if output == "json":
+        _print_json(updated.__dict__)
+        return
+    console.print(f"[green]Updated workspace[/green] {updated.slug} ({updated.id})")
+
+
+@app.command("delete")
+def delete_workspace(
+    workspace: str = typer.Argument(help="Workspace slug or ID"),
+    user_id: str | None = typer.Option(None, "--user-id", help="Explicit acting user subject for local/dev testing"),
+):
+    """Soft-delete a workspace."""
+    _get_workspaces().delete_workspace(workspace, user_id=user_id)
+    console.print(f"[red]Deleted workspace[/red] {workspace}")
+
+
 @app.command("grant")
 def grant_workspace(
     workspace: str = typer.Argument(help="Workspace slug or ID"),
@@ -82,6 +117,38 @@ def grant_workspace(
         _print_json(grant.__dict__)
         return
     console.print(f"[green]Granted[/green] {role} on {workspace} to {subject_type}:{subject_id}")
+
+
+@app.command("grants")
+def list_workspace_grants(
+    workspace: str = typer.Argument(help="Workspace slug or ID"),
+    user_id: str | None = typer.Option(None, "--user-id", help="Explicit acting user subject for local/dev testing"),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """List workspace access grants."""
+    grants = _get_workspaces().list_grants(workspace, user_id=user_id)
+    if output == "json":
+        _print_json([grant.__dict__ for grant in grants])
+        return
+    table = Table(title=f"Workspace grants: {workspace}")
+    table.add_column("ID", style="dim")
+    table.add_column("Subject")
+    table.add_column("Role")
+    table.add_column("Revoked")
+    for grant in grants:
+        table.add_row(grant.id, f"{grant.subject_type}:{grant.subject_id}", grant.role, grant.revoked_at or "")
+    console.print(table)
+
+
+@app.command("revoke-grant")
+def revoke_workspace_grant(
+    workspace: str = typer.Argument(help="Workspace slug or ID"),
+    grant_id: str = typer.Argument(help="Grant ID to revoke"),
+    user_id: str | None = typer.Option(None, "--user-id", help="Explicit acting user subject for local/dev testing"),
+):
+    """Revoke a workspace grant."""
+    _get_workspaces().revoke_grant(workspace, grant_id, user_id=user_id)
+    console.print(f"[red]Revoked grant[/red] {grant_id}")
 
 
 @app.command("register-file")

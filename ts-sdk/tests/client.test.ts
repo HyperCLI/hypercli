@@ -117,6 +117,7 @@ describe('HyperCLI Client', () => {
     expect(client.agent.apiKey).toBe('hyper_api_test_key');
     expect(client.agent.controlBaseUrl).toBe('https://api.hypercli.com/agents');
     expect(client.agent.baseUrl).toBe('https://api.agents.hypercli.com/v1');
+    expect(client.workspaces).toBeDefined();
   });
 
   it('should fetch compact platform status from /status', async () => {

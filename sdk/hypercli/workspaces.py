@@ -103,6 +103,8 @@ class WorkspaceGrant:
     subject_type: str
     subject_id: str
     role: str
+    expires_at: str | None = None
+    revoked_at: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "WorkspaceGrant":
@@ -112,6 +114,8 @@ class WorkspaceGrant:
             subject_type=data.get("subject_type", ""),
             subject_id=data.get("subject_id", ""),
             role=data.get("role", ""),
+            expires_at=data.get("expires_at"),
+            revoked_at=data.get("revoked_at"),
         )
 
 
@@ -183,6 +187,28 @@ class WorkspacesAPI:
         data = _request("POST", self.api_base, api_key=self.api_key, user_id=user_id, json=payload)
         return Workspace.from_dict(data)
 
+    def update(
+        self,
+        workspace_ref: str,
+        *,
+        name: str | None = None,
+        slug: str | None = None,
+        description: str | None = None,
+        user_id: str | None = None,
+    ) -> Workspace:
+        payload = {}
+        if name is not None:
+            payload["name"] = name
+        if slug is not None:
+            payload["slug"] = slug
+        if description is not None:
+            payload["description"] = description
+        data = _request("PATCH", f"{self.api_base}/{workspace_ref}", api_key=self.api_key, user_id=user_id, json=payload)
+        return Workspace.from_dict(data)
+
+    def delete_workspace(self, workspace_ref: str, *, user_id: str | None = None) -> dict:
+        return _request("DELETE", f"{self.api_base}/{workspace_ref}", api_key=self.api_key, user_id=user_id)
+
     def grant(
         self,
         workspace_ref: str,
@@ -195,6 +221,13 @@ class WorkspacesAPI:
         payload = {"subject_type": subject_type, "subject_id": subject_id, "role": role}
         data = _request("POST", f"{self.api_base}/{workspace_ref}/grants", api_key=self.api_key, user_id=user_id, json=payload)
         return WorkspaceGrant.from_dict(data)
+
+    def list_grants(self, workspace_ref: str, *, user_id: str | None = None) -> list[WorkspaceGrant]:
+        data = _request("GET", f"{self.api_base}/{workspace_ref}/grants", api_key=self.api_key, user_id=user_id)
+        return [WorkspaceGrant.from_dict(item) for item in data]
+
+    def revoke_grant(self, workspace_ref: str, grant_id: str, *, user_id: str | None = None) -> dict:
+        return _request("DELETE", f"{self.api_base}/{workspace_ref}/grants/{grant_id}", api_key=self.api_key, user_id=user_id)
 
     def register_file(
         self,

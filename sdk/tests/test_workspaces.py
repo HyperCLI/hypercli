@@ -61,6 +61,53 @@ def test_create_and_grant_payloads(monkeypatch):
     ]
 
 
+def test_update_delete_and_grant_lifecycle_payloads(monkeypatch):
+    calls = []
+
+    def fake_request(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
+        calls.append((method, url, api_key, user_id, agent_id, kwargs.get("json")))
+        if method == "PATCH":
+            return {"id": "workspace-1", "name": kwargs["json"]["name"], "slug": kwargs["json"]["slug"]}
+        if url.endswith("/grants") and method == "GET":
+            return [
+                {
+                    "id": "grant-1",
+                    "workspace_id": "workspace-1",
+                    "subject_type": "agent",
+                    "subject_id": "agent-1",
+                    "role": "viewer",
+                    "revoked_at": None,
+                }
+            ]
+        return {"deleted": True}
+
+    monkeypatch.setattr("hypercli.workspaces._request", fake_request)
+    api = WorkspacesAPI("key", api_base="http://workspaces.test/workspaces")
+
+    updated = api.update("demo", name="Renamed", slug="renamed", user_id="user-1")
+    grants = api.list_grants("renamed", user_id="user-1")
+    revoked = api.revoke_grant("renamed", "grant-1", user_id="user-1")
+    deleted = api.delete_workspace("renamed", user_id="user-1")
+
+    assert updated.slug == "renamed"
+    assert grants[0].revoked_at is None
+    assert revoked == {"deleted": True}
+    assert deleted == {"deleted": True}
+    assert calls == [
+        (
+            "PATCH",
+            "http://workspaces.test/workspaces/demo",
+            "key",
+            "user-1",
+            None,
+            {"name": "Renamed", "slug": "renamed"},
+        ),
+        ("GET", "http://workspaces.test/workspaces/renamed/grants", "key", "user-1", None, None),
+        ("DELETE", "http://workspaces.test/workspaces/renamed/grants/grant-1", "key", "user-1", None, None),
+        ("DELETE", "http://workspaces.test/workspaces/renamed", "key", "user-1", None, None),
+    ]
+
+
 def test_sync_manifest_writes_tomd_projection(monkeypatch, tmp_path: Path):
     def fake_request(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
         assert method == "GET"

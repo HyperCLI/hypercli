@@ -27,6 +27,7 @@ import {
   createAgentClient,
   createHyperAgentClient,
   createOpenClawAgent,
+  createWorkspacesClient,
   isAgentCleanupConflictError,
   startOpenClawAgent,
 } from "@/lib/agent-client";
@@ -52,6 +53,7 @@ import { AgentCreationSetupWizard, type AgentCreationSetupCreateParams } from "@
 import type { AgentFileEntry, SdkAgent } from "@/types";
 import type { FileEntry } from "@hypercli/shared-ui/files";
 import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
+import type { WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
 import type {
   HyperAgentCurrentPlan,
   HyperAgentEntitlement,
@@ -849,6 +851,7 @@ function AgentsPageContent() {
     [billingReflectionState],
   );
   const [deployments, setDeployments] = useState<Deployments | null>(null);
+  const [workspacesClient, setWorkspacesClient] = useState<WorkspacesAPI | null>(null);
   const [agentsLoading, setAgentsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -1008,6 +1011,7 @@ function AgentsPageContent() {
       if (!deployments) {
         setDeployments(agentClient);
       }
+      setWorkspacesClient((current) => current ?? createWorkspacesClient(token));
       const hyperAgent = createHyperAgentClient(token);
       const [listedAgents, catalogData, currentPlan, summaryData, dailyUsage, typeCatalogData] = await Promise.all([
         agentClient.list(),
@@ -1063,6 +1067,7 @@ function AgentsPageContent() {
       setBudget(null);
       setCatalogPlans([]);
       setDeployments(null);
+      setWorkspacesClient(null);
       return null;
     } finally {
       setAgentsLoading(false);
@@ -3418,7 +3423,7 @@ function AgentsPageContent() {
               onInstallLibrarySkill={chat.skillsInstall}
             />
           ) : mainTab === "knowledge" ? (
-            <SharedKnowledgePanel agents={agents} />
+            <SharedKnowledgePanel agents={agents} workspaces={workspacesClient} ready={Boolean(workspacesClient)} />
           ) : mainTab === "scheduled" ? (
             <AgentScheduledPanel
               key={`${selectedAgent?.id ?? "agent"}:${scheduledInitialCommand?.id ?? 0}`}
