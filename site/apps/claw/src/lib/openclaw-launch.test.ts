@@ -12,6 +12,7 @@ describe("buildOpenClawLaunchOptions", () => {
     expect(buildOpenClawLaunchOptions({ desktopEnabled: false })).toEqual({
       image: "ghcr.io/hypercli/hypercli-openclaw:prod",
       env: {
+        HYPER_WORKSPACES_BOOT_SYNC: "1",
         OPENCLAW_DESKTOP_ENABLED: "0",
       },
       memoryIndex: null,
@@ -23,6 +24,7 @@ describe("buildOpenClawLaunchOptions", () => {
     expect(buildOpenClawLaunchOptions({ desktopEnabled: true })).toEqual({
       image: "ghcr.io/hypercli/hypercli-openclaw:pro-prod",
       env: {
+        HYPER_WORKSPACES_BOOT_SYNC: "1",
         OPENCLAW_DESKTOP_ENABLED: "1",
       },
       memoryIndex: null,
@@ -37,6 +39,7 @@ describe("buildOpenClawLaunchOptions", () => {
     })).toMatchObject({
       image: "ghcr.io/acme/openclaw:desktop",
       env: {
+        HYPER_WORKSPACES_BOOT_SYNC: "1",
         OPENCLAW_DESKTOP_ENABLED: "1",
       },
       openClawRoutes: { includeDesktop: true },

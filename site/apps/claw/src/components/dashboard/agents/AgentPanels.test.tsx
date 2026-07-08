@@ -81,6 +81,7 @@ const agent: Agent = {
     env: {
       OPENCLAW_GATEWAY_TOKEN: "gateway-token",
       OPENCLAW_DESKTOP_ENABLED: "0",
+      HYPER_WORKSPACES_BOOT_SYNC: "1",
       OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES: "0",
       FOO: "bar",
     },
@@ -408,6 +409,7 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByRole("textbox", { name: "Agent Docker image" })).toHaveValue("ghcr.io/hypercli/hypercli-openclaw:prod");
     expect(screen.getByRole("textbox", { name: "Additional env" })).toHaveValue("FOO=bar");
     expect(screen.queryByDisplayValue(/OPENCLAW_GATEWAY_TOKEN/)).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue(/HYPER_WORKSPACES_BOOT_SYNC/)).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue(/OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES/)).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByRole("textbox", { name: "Agent Docker image" }), {
@@ -424,6 +426,7 @@ describe("AgentSettingsPanel", () => {
         env: {
           OPENCLAW_GATEWAY_TOKEN: "gateway-token",
           OPENCLAW_DESKTOP_ENABLED: "0",
+          HYPER_WORKSPACES_BOOT_SYNC: "1",
           OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES: "0",
           FOO: "baz",
           CUSTOM_FLAG: "1",
@@ -533,6 +536,7 @@ describe("AgentSettingsPanel", () => {
       env: {
         OPENCLAW_GATEWAY_TOKEN: "gateway-token",
         OPENCLAW_DESKTOP_ENABLED: "0",
+        HYPER_WORKSPACES_BOOT_SYNC: "1",
         OPENCLAW_MEMORY_SEARCH_ENABLED: "1",
         OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START: "1",
         OPENCLAW_MEMORY_SEARCH_SYNC_ON_SEARCH: "1",

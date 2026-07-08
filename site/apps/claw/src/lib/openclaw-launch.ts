@@ -25,6 +25,10 @@ const OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
   OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES: "0",
 };
 
+const OPENCLAW_WORKSPACES_ENV_DEFAULTS = {
+  HYPER_WORKSPACES_BOOT_SYNC: "1",
+};
+
 function envValue(name: string): string | undefined {
   const value =
     name === OPENCLAW_IMAGE_ENV
@@ -102,6 +106,7 @@ export function buildOpenClawLaunchOptions({
   return {
     image,
     env: {
+      ...OPENCLAW_WORKSPACES_ENV_DEFAULTS,
       ...buildOpenClawMemoryIndexEnv(memoryIndex ?? null),
       OPENCLAW_DESKTOP_ENABLED: desktopEnabled ? "1" : "0",
     },

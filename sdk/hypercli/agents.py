@@ -42,6 +42,9 @@ OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
     "OPENCLAW_MEMORY_SEARCH_SYNC_WATCH_DEBOUNCE_MS": "30000",
     "OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES": "0",
 }
+OPENCLAW_WORKSPACES_ENV_DEFAULTS = {
+    "HYPER_WORKSPACES_BOOT_SYNC": "1",
+}
 LAUNCH_CONFIG_KEYS = frozenset({"image", "env", "routes", "ports", "command", "entrypoint", "sync_root", "sync_enabled", "sync_uid", "sync_gid", "registry_url", "registry_auth"})
 DEFAULT_OPENCLAW_SYNC_ROOT = "/home/node"
 AGENT_FILE_MAX_BYTES = 50 * 1024 * 1024
@@ -1541,7 +1544,11 @@ class Deployments:
         openclaw_route_options: dict | None = None,
         memory_index: dict | None = None,
     ) -> Agent:
-        effective_env = {**build_openclaw_memory_index_env(memory_index), **dict(env or {})}
+        effective_env = {
+            **OPENCLAW_WORKSPACES_ENV_DEFAULTS,
+            **build_openclaw_memory_index_env(memory_index),
+            **dict(env or {}),
+        }
         return self.create(
             name=name,
             size=size,
@@ -1761,7 +1768,11 @@ class Deployments:
         openclaw_route_options: dict | None = None,
         memory_index: dict | None = None,
     ) -> Agent:
-        effective_env = {**build_openclaw_memory_index_env(memory_index), **dict(env or {})}
+        effective_env = {
+            **OPENCLAW_WORKSPACES_ENV_DEFAULTS,
+            **build_openclaw_memory_index_env(memory_index),
+            **dict(env or {}),
+        }
         return self.start(
             agent_id,
             config=config,

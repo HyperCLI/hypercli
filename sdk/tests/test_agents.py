@@ -514,6 +514,7 @@ def test_create_openclaw_defaults_routes_when_omitted(agents_client):
 
         posted_json = mock_client.post.call_args[1]["json"]
         assert posted_json["image"] == DEFAULT_OPENCLAW_IMAGE
+        assert posted_json["env"]["HYPER_WORKSPACES_BOOT_SYNC"] == "1"
         assert posted_json["routes"] == {
             "openclaw": {"port": 18789, "auth": False, "prefix": ""},
             "desktop": {"port": 3000, "auth": True, "prefix": "desktop"},
@@ -570,6 +571,7 @@ def test_create_openclaw_pro_defaults_desktop_image_env_and_routes(agents_client
 
         posted_json = mock_client.post.call_args[1]["json"]
         assert posted_json["image"] == DEFAULT_OPENCLAW_PRO_IMAGE
+        assert posted_json["env"]["HYPER_WORKSPACES_BOOT_SYNC"] == "1"
         assert posted_json["env"]["OPENCLAW_DESKTOP_ENABLED"] == "1"
         assert "OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START" not in posted_json["env"]
         assert posted_json["routes"] == {
@@ -612,6 +614,7 @@ def test_create_openclaw_accepts_memory_index_options(agents_client):
         )
 
         posted_json = mock_client.post.call_args[1]["json"]
+        assert posted_json["env"]["HYPER_WORKSPACES_BOOT_SYNC"] == "1"
         assert posted_json["env"]["OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START"] == "1"
         assert posted_json["env"]["OPENCLAW_MEMORY_SEARCH_SYNC_ON_SEARCH"] == "1"
         assert posted_json["env"]["OPENCLAW_MEMORY_SEARCH_SYNC_WATCH"] == "1"
