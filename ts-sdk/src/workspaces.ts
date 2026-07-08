@@ -52,6 +52,13 @@ export interface WorkspaceFile {
   projectionStatus: string | null;
 }
 
+export interface WorkspaceFileSearchResult extends WorkspaceFile {
+  matchReasons: string[];
+  keywordScore: number;
+  vectorScore: number | null;
+  score: number;
+}
+
 export interface WorkspaceProjection {
   id: string;
   workspaceId: string;
@@ -135,6 +142,21 @@ function fileFromDict(data: any): WorkspaceFile {
     fileState: data?.file_state || data?.fileState || '',
     uploadStatus: data?.upload_status || data?.uploadStatus || null,
     projectionStatus: data?.projection_status || data?.projectionStatus || null,
+  };
+}
+
+function fileSearchResultFromDict(data: any): WorkspaceFileSearchResult {
+  return {
+    ...fileFromDict(data),
+    matchReasons: data?.match_reasons || data?.matchReasons || [],
+    keywordScore: Number(data?.keyword_score ?? data?.keywordScore ?? 0),
+    vectorScore:
+      data?.vector_score !== undefined && data?.vector_score !== null
+        ? Number(data.vector_score)
+        : data?.vectorScore !== undefined && data?.vectorScore !== null
+          ? Number(data.vectorScore)
+          : null,
+    score: Number(data?.score ?? 0),
   };
 }
 
@@ -248,8 +270,12 @@ export class WorkspacesAPI {
     return (data || []).map(workspaceFromDict);
   }
 
-  async search(query: string, subject: WorkspaceSubjectOptions = {}): Promise<Workspace[]> {
-    const params = new URLSearchParams({ q: query });
+  async search(
+    query: string,
+    subject: WorkspaceSubjectOptions = {},
+    options: { vector?: boolean } = {},
+  ): Promise<Workspace[]> {
+    const params = new URLSearchParams({ q: query, vector: String(options.vector ?? true) });
     const data = await this.request<any[]>('GET', `/search?${params.toString()}`, subject);
     return (data || []).map(workspaceFromDict);
   }
@@ -345,6 +371,17 @@ export class WorkspacesAPI {
   async listFiles(workspaceRef: string, subject: WorkspaceSubjectOptions = {}): Promise<WorkspaceFile[]> {
     const data = await this.request<any[]>('GET', `/${workspaceRef}/files`, subject);
     return (data || []).map(fileFromDict);
+  }
+
+  async searchFiles(
+    workspaceRef: string,
+    query: string,
+    subject: WorkspaceSubjectOptions = {},
+    options: { vector?: boolean } = {},
+  ): Promise<WorkspaceFileSearchResult[]> {
+    const params = new URLSearchParams({ q: query, vector: String(options.vector ?? true) });
+    const data = await this.request<any[]>('GET', `/${workspaceRef}/files/search?${params.toString()}`, subject);
+    return (data || []).map(fileSearchResultFromDict);
   }
 
   async listProjections(workspaceRef: string, subject: WorkspaceSubjectOptions = {}): Promise<WorkspaceProjection[]> {

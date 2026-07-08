@@ -68,10 +68,11 @@ def search_workspaces(
     query: str = typer.Argument(help="Search workspace names, file paths, filenames, and projection metadata"),
     agent_id: str | None = typer.Option(None, "--agent-id", help="Search as an agent subject"),
     user_id: str | None = typer.Option(None, "--user-id", help="Search as a user subject"),
+    vector: bool = typer.Option(True, "--vector/--no-vector", help="Use backend vector search in addition to exact search"),
     output: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
 ):
     """Search accessible workspaces."""
-    workspaces = _get_workspaces().search(query, user_id=user_id, agent_id=agent_id)
+    workspaces = _get_workspaces().search(query, user_id=user_id, agent_id=agent_id, vector=vector)
     if output == "json":
         _print_json([workspace.__dict__ for workspace in workspaces])
         return
@@ -81,6 +82,30 @@ def search_workspaces(
     table.add_column("ID", style="dim")
     for workspace in workspaces:
         table.add_row(workspace.slug, workspace.name, workspace.id)
+    console.print(table)
+
+
+@app.command("search-files")
+def search_files(
+    workspace: str = typer.Argument(help="Workspace slug or ID"),
+    query: str = typer.Argument(help="Search file paths, filenames, keywords, summaries, and projection metadata"),
+    agent_id: str | None = typer.Option(None, "--agent-id", help="Search as an agent subject"),
+    user_id: str | None = typer.Option(None, "--user-id", help="Search as a user subject"),
+    vector: bool = typer.Option(True, "--vector/--no-vector", help="Use backend vector search in addition to exact search"),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """Search files in a workspace."""
+    files = _get_workspaces().search_files(workspace, query, user_id=user_id, agent_id=agent_id, vector=vector)
+    if output == "json":
+        _print_json([item.__dict__ for item in files])
+        return
+    table = Table(title=f"Workspace file search: {workspace} / {query}")
+    table.add_column("Path")
+    table.add_column("State")
+    table.add_column("Score", justify="right")
+    table.add_column("Reasons")
+    for item in files:
+        table.add_row(item.path, item.file_state, f"{item.score:.3f}", ", ".join(item.match_reasons))
     console.print(table)
 
 

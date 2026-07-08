@@ -43,7 +43,44 @@ describe('Workspaces SDK', () => {
     const workspaces = await api.search('launch handoff', { userId: 'user-1' });
 
     expect(workspaces[0]?.slug).toBe('team-knowledge');
-    expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/search?q=launch+handoff');
+    expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/search?q=launch+handoff&vector=true');
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'GET',
+      headers: expect.objectContaining({ Authorization: 'Bearer key', 'X-User-Id': 'user-1' }),
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it('can search files with vector search disabled explicitly', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          {
+            id: 'file-1',
+            workspace_id: 'workspace-1',
+            path: 'docs/brief.md',
+            display_name: 'brief.md',
+            current_version_id: 'version-1',
+            file_state: 'processed',
+            upload_status: 'uploaded',
+            projection_status: 'ready',
+            match_reasons: ['keyword'],
+            keyword_score: 0.8,
+            vector_score: null,
+            score: 0.8,
+          },
+        ]),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
+    const files = await api.searchFiles('demo', 'brief', { userId: 'user-1' }, { vector: false });
+
+    expect(files[0]?.path).toBe('docs/brief.md');
+    expect(files[0]?.matchReasons).toEqual(['keyword']);
+    expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/demo/files/search?q=brief&vector=false');
     expect(fetchMock.mock.calls[0][1]).toMatchObject({
       method: 'GET',
       headers: expect.objectContaining({ Authorization: 'Bearer key', 'X-User-Id': 'user-1' }),

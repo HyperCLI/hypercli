@@ -39,6 +39,17 @@ class _FakeFile:
         self.projection_status = "queued"
 
 
+class _FakeSearchFile(_FakeFile):
+    def __init__(self):
+        super().__init__()
+        self.file_state = "processed"
+        self.projection_status = "ready"
+        self.match_reasons = ["vector"]
+        self.keyword_score = 0.0
+        self.vector_score = 0.92
+        self.score = 0.92
+
+
 class _FakeDownloadUrl:
     def __init__(self):
         self.file_id = "file-1"
@@ -75,8 +86,8 @@ def test_workspaces_search_invokes_cli(monkeypatch):
     captured = {}
 
     class _FakeWorkspaces:
-        def search(self, query, *, user_id=None, agent_id=None):
-            captured.update({"query": query, "user_id": user_id, "agent_id": agent_id})
+        def search(self, query, *, user_id=None, agent_id=None, vector=True):
+            captured.update({"query": query, "user_id": user_id, "agent_id": agent_id, "vector": vector})
             return [_FakeWorkspace()]
 
     monkeypatch.setattr(workspaces_mod, "_get_workspaces", lambda: _FakeWorkspaces())
@@ -84,8 +95,56 @@ def test_workspaces_search_invokes_cli(monkeypatch):
     result = runner.invoke(app, ["workspaces", "search", "handoff", "--user-id", "user-1", "--output", "json"])
 
     assert result.exit_code == 0, result.stdout
-    assert captured == {"query": "handoff", "user_id": "user-1", "agent_id": None}
+    assert captured == {"query": "handoff", "user_id": "user-1", "agent_id": None, "vector": True}
     assert '"demo"' in result.stdout
+
+
+def test_workspaces_search_can_disable_vector(monkeypatch):
+    import hypercli_cli.workspaces as workspaces_mod
+
+    captured = {}
+
+    class _FakeWorkspaces:
+        def search(self, query, *, user_id=None, agent_id=None, vector=True):
+            captured.update({"query": query, "vector": vector})
+            return [_FakeWorkspace()]
+
+    monkeypatch.setattr(workspaces_mod, "_get_workspaces", lambda: _FakeWorkspaces())
+
+    result = runner.invoke(app, ["workspaces", "search", "handoff", "--no-vector", "--output", "json"])
+
+    assert result.exit_code == 0, result.stdout
+    assert captured == {"query": "handoff", "vector": False}
+
+
+def test_workspaces_search_files_invokes_cli(monkeypatch):
+    import hypercli_cli.workspaces as workspaces_mod
+
+    captured = {}
+
+    class _FakeWorkspaces:
+        def search_files(self, workspace, query, *, user_id=None, agent_id=None, vector=True):
+            captured.update(
+                {"workspace": workspace, "query": query, "user_id": user_id, "agent_id": agent_id, "vector": vector}
+            )
+            return [_FakeSearchFile()]
+
+    monkeypatch.setattr(workspaces_mod, "_get_workspaces", lambda: _FakeWorkspaces())
+
+    result = runner.invoke(
+        app,
+        ["workspaces", "search-files", "demo", "visual language", "--user-id", "user-1", "--output", "json"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert captured == {
+        "workspace": "demo",
+        "query": "visual language",
+        "user_id": "user-1",
+        "agent_id": None,
+        "vector": True,
+    }
+    assert '"match_reasons"' in result.stdout
 
 
 def test_workspaces_grant_agent_invokes_cli(monkeypatch):

@@ -118,6 +118,25 @@ class WorkspaceFile:
 
 
 @dataclass
+class WorkspaceFileSearchResult(WorkspaceFile):
+    match_reasons: list[str] = field(default_factory=list)
+    keyword_score: float = 0.0
+    vector_score: float | None = None
+    score: float = 0.0
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "WorkspaceFileSearchResult":
+        base = WorkspaceFile.from_dict(data)
+        return cls(
+            **base.__dict__,
+            match_reasons=list(data.get("match_reasons") or []),
+            keyword_score=float(data.get("keyword_score") or 0.0),
+            vector_score=float(data["vector_score"]) if data.get("vector_score") is not None else None,
+            score=float(data.get("score") or 0.0),
+        )
+
+
+@dataclass
 class WorkspaceGrant:
     id: str
     workspace_id: str
@@ -199,14 +218,21 @@ class WorkspacesAPI:
         data = _request("GET", self.api_base, api_key=self.api_key, user_id=user_id, agent_id=agent_id)
         return [Workspace.from_dict(item) for item in data]
 
-    def search(self, query: str, *, user_id: str | None = None, agent_id: str | None = None) -> list[Workspace]:
+    def search(
+        self,
+        query: str,
+        *,
+        user_id: str | None = None,
+        agent_id: str | None = None,
+        vector: bool = True,
+    ) -> list[Workspace]:
         data = _request(
             "GET",
             f"{self.api_base}/search",
             api_key=self.api_key,
             user_id=user_id,
             agent_id=agent_id,
-            params={"q": query},
+            params={"q": query, "vector": str(vector).lower()},
         )
         return [Workspace.from_dict(item) for item in data]
 
@@ -335,6 +361,25 @@ class WorkspacesAPI:
 
     def delete_file(self, workspace_ref: str, file_ref: str, *, user_id: str | None = None) -> dict:
         return _request("DELETE", f"{self.api_base}/{workspace_ref}/files/{file_ref}", api_key=self.api_key, user_id=user_id)
+
+    def search_files(
+        self,
+        workspace_ref: str,
+        query: str,
+        *,
+        user_id: str | None = None,
+        agent_id: str | None = None,
+        vector: bool = True,
+    ) -> list[WorkspaceFileSearchResult]:
+        data = _request(
+            "GET",
+            f"{self.api_base}/{workspace_ref}/files/search",
+            api_key=self.api_key,
+            user_id=user_id,
+            agent_id=agent_id,
+            params={"q": query, "vector": str(vector).lower()},
+        )
+        return [WorkspaceFileSearchResult.from_dict(item) for item in data]
 
     def complete_task(
         self,

@@ -75,7 +75,57 @@ def test_search_workspaces_uses_backend_search_endpoint(monkeypatch):
 
     assert results[0].slug == "team-knowledge"
     assert calls == [
-        ("GET", "http://workspaces.test/workspaces/search", "key", "user-1", None, {"q": "handoff"}),
+        ("GET", "http://workspaces.test/workspaces/search", "key", "user-1", None, {"q": "handoff", "vector": "true"}),
+    ]
+
+
+def test_search_files_uses_vector_by_default_and_can_disable(monkeypatch):
+    calls = []
+
+    def fake_request(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
+        calls.append((method, url, api_key, user_id, agent_id, kwargs.get("params")))
+        return [
+            {
+                "id": "file-1",
+                "workspace_id": "workspace-1",
+                "path": "docs/brief.md",
+                "display_name": "brief.md",
+                "current_version_id": "version-1",
+                "file_state": "processed",
+                "upload_status": "uploaded",
+                "projection_status": "ready",
+                "match_reasons": ["vector"],
+                "keyword_score": 0,
+                "vector_score": 0.91,
+                "score": 0.91,
+            }
+        ]
+
+    monkeypatch.setattr("hypercli.workspaces._request", fake_request)
+    api = WorkspacesAPI("key", api_base="http://workspaces.test/workspaces")
+
+    results = api.search_files("demo", "visual language", user_id="user-1")
+    exact_results = api.search_files("demo", "visual language", user_id="user-1", vector=False)
+
+    assert results[0].match_reasons == ["vector"]
+    assert exact_results[0].score == 0.91
+    assert calls == [
+        (
+            "GET",
+            "http://workspaces.test/workspaces/demo/files/search",
+            "key",
+            "user-1",
+            None,
+            {"q": "visual language", "vector": "true"},
+        ),
+        (
+            "GET",
+            "http://workspaces.test/workspaces/demo/files/search",
+            "key",
+            "user-1",
+            None,
+            {"q": "visual language", "vector": "false"},
+        ),
     ]
 
 
