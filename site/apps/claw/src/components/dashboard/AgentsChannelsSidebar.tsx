@@ -31,7 +31,7 @@ import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 import { AgentCardTooltip, type AgentCardTooltipData } from "./modules/AgentCardModule";
 import { QuickAgentCreator } from "./QuickAgentCreator";
 import { QuickChannelCreator } from "./QuickChannelCreator";
-import type { FirstAgentSetupCreateParams } from "./agents/FirstAgentSetupWizard";
+import type { AgentCreationSetupCreateParams } from "./agents/AgentCreationSetupWizard";
 
 // ── Types ──
 
@@ -120,7 +120,7 @@ export interface AgentsChannelsSidebarProps {
   /** SDK-backed data used by the agent hover information cards. */
   agentCardDataById?: Record<string, AgentCardTooltipData>;
   /** Create a real agent via the inline "New Agent" form. Must return the created agent id on success. */
-  onCreateAgent?: (params: FirstAgentSetupCreateParams) => Promise<string | null>;
+  onCreateAgent?: (params: AgentCreationSetupCreateParams) => Promise<string | null>;
   /** Open the full launch-agent flow used by the empty agent state. */
   onOpenAgentLauncher?: () => void;
   /** Increment to imperatively open the inline agent creator (e.g. from the main panel's empty state). */
@@ -1759,7 +1759,7 @@ function HandoffThreadView({
   onRenameThread?: (threadId: string, title: string) => void;
   onStartAgentChat?: (agent: Participant) => void;
   onCreateChannel?: (name: string, agents: Participant[], users: Participant[]) => void;
-  onCreateAgent?: (params: FirstAgentSetupCreateParams) => Promise<string | null>;
+  onCreateAgent?: (params: AgentCreationSetupCreateParams) => Promise<string | null>;
   onOpenAgentLauncher?: () => void;
   showChannels?: boolean;
   availableAgents?: Participant[];

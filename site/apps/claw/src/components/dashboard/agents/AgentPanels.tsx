@@ -31,7 +31,7 @@ import {
   type OpenClawModelOption,
 } from "@/lib/openclaw-models";
 import { OpenClawErrorBoundary } from "./page-helpers";
-import { FirstAgentSetupWizard, type FirstAgentSetupCreateParams } from "./FirstAgentSetupWizard";
+import { AgentCreationSetupWizard, type AgentCreationSetupCreateParams } from "./AgentCreationSetupWizard";
 import { AgentSettingsMobileChrome } from "./AgentSettingsMobileChrome";
 import { AgentTeamSettingsContent } from "./AgentTeamSettingsContent";
 import { getAgentGatewayPanelBootStatus } from "./chat-boot-stage";
@@ -2037,7 +2037,7 @@ export function AgentList({
     return next;
   }, [agents, agentCardDataById]);
 
-  const createAgentFromLauncher = React.useCallback(async ({ name, iconIndex, size, files, enableDesktop, enableMemoryIndex = false }: FirstAgentSetupCreateParams) => {
+  const createAgentFromLauncher = React.useCallback(async ({ name, iconIndex, size, files, enableDesktop, enableMemoryIndex = false, customImage = null }: AgentCreationSetupCreateParams) => {
     try {
       const token = await getToken();
       const created = await createOpenClawAgent(token, {
@@ -2047,6 +2047,7 @@ export function AgentList({
         meta: { ui: { avatar: { icon_index: iconIndex } } },
         ...buildOpenClawLaunchOptions({
           desktopEnabled: enableDesktop,
+          customImage,
           memoryIndex: enableMemoryIndex
             ? { onSessionStart: true, onSearch: true, watch: true, watchDebounceMs: 30000, intervalMinutes: 0 }
             : null,
@@ -2254,13 +2255,12 @@ export function AgentList({
               >
                 <X className="h-4 w-4" />
               </button>
-              <FirstAgentSetupWizard
+              <AgentCreationSetupWizard
                 budget={budget}
                 subscriptionSummary={subscriptionSummary}
                 catalogPlans={catalogPlans}
                 pendingSlotReleases={pendingSlotReleases}
                 onOpenPlanCatalog={onOpenPlanCatalog}
-                onClose={() => setShowAgentLauncher(false)}
                 onCreateAgent={createAgentFromLauncher}
               />
             </motion.div>
@@ -2275,7 +2275,7 @@ export { AgentList as AgentSidebarPane };
 
 type AgentEmptyStateProps = {
   onCreate: () => void;
-  onCreateAgent?: (params: FirstAgentSetupCreateParams) => Promise<string | null>;
+  onCreateAgent?: (params: AgentCreationSetupCreateParams) => Promise<string | null>;
   budget?: {
     slots: Record<string, { granted: number; used: number; available: number }>;
     pooled_tpd: number;
@@ -2307,7 +2307,7 @@ export function LaunchFirstAgentEmptyState({
 
   if (showWizard) {
     return (
-      <FirstAgentSetupWizard
+      <AgentCreationSetupWizard
         budget={budget}
         subscriptionSummary={subscriptionSummary}
         catalogPlans={catalogPlans}
@@ -2380,7 +2380,7 @@ export function AgentEmptyState({
 
   if (showWizard) {
     return (
-      <FirstAgentSetupWizard
+      <AgentCreationSetupWizard
         budget={budget}
         subscriptionSummary={subscriptionSummary}
         catalogPlans={catalogPlans}
@@ -2435,7 +2435,7 @@ export function AgentFilesEmptyState({
 
   if (showWizard) {
     return (
-      <FirstAgentSetupWizard
+      <AgentCreationSetupWizard
         budget={budget}
         subscriptionSummary={subscriptionSummary}
         catalogPlans={catalogPlans}
@@ -2561,7 +2561,7 @@ export function AgentIntegrationsEmptyState({
 
   if (showWizard) {
     return (
-      <FirstAgentSetupWizard
+      <AgentCreationSetupWizard
         budget={budget}
         subscriptionSummary={subscriptionSummary}
         catalogPlans={catalogPlans}
@@ -2613,7 +2613,7 @@ export function AgentSkillsEmptyState({
 
   if (showWizard) {
     return (
-      <FirstAgentSetupWizard
+      <AgentCreationSetupWizard
         budget={budget}
         subscriptionSummary={subscriptionSummary}
         catalogPlans={catalogPlans}

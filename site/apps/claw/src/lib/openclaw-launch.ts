@@ -35,6 +35,10 @@ function envValue(name: string): string | undefined {
   return value || undefined;
 }
 
+export function getOpenClawDefaultImage(desktopEnabled: boolean): string {
+  return envValue(desktopEnabled ? OPENCLAW_PRO_IMAGE_ENV : OPENCLAW_IMAGE_ENV) ?? "";
+}
+
 function envBool(value: unknown): string {
   return value ? "1" : "0";
 }
@@ -79,20 +83,24 @@ export function buildOpenClawMemoryIndexEnv(memoryIndex: OpenClawMemoryIndexOpti
 
 export function buildOpenClawLaunchOptions({
   desktopEnabled,
+  customImage,
   memoryIndex,
 }: {
   desktopEnabled: boolean;
+  customImage?: string | null;
   memoryIndex?: OpenClawMemoryIndexOptions | null;
 }): OpenClawLaunchOptions {
   const baseImage = envValue(OPENCLAW_IMAGE_ENV);
   const proImage = envValue(OPENCLAW_PRO_IMAGE_ENV);
+  const requestedImage = customImage?.trim();
+  const image = requestedImage || (desktopEnabled ? proImage : baseImage);
 
-  if (desktopEnabled && !proImage) {
+  if (desktopEnabled && !image) {
     throw new Error(`${OPENCLAW_PRO_IMAGE_ENV} is required to launch desktop agents.`);
   }
 
   return {
-    image: desktopEnabled ? proImage : baseImage,
+    image,
     env: {
       ...buildOpenClawMemoryIndexEnv(memoryIndex ?? null),
       OPENCLAW_DESKTOP_ENABLED: desktopEnabled ? "1" : "0",

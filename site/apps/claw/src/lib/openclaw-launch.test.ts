@@ -30,6 +30,31 @@ describe("buildOpenClawLaunchOptions", () => {
     });
   });
 
+  it("uses a custom image override when provided", () => {
+    expect(buildOpenClawLaunchOptions({
+      desktopEnabled: true,
+      customImage: "ghcr.io/acme/openclaw:desktop",
+    })).toMatchObject({
+      image: "ghcr.io/acme/openclaw:desktop",
+      env: {
+        OPENCLAW_DESKTOP_ENABLED: "1",
+      },
+      openClawRoutes: { includeDesktop: true },
+    });
+  });
+
+  it("allows desktop custom images even when the pro default image is not configured", () => {
+    delete process.env.NEXT_PUBLIC_OPENCLAW_PRO_IMAGE;
+
+    expect(buildOpenClawLaunchOptions({
+      desktopEnabled: true,
+      customImage: "ghcr.io/acme/openclaw:desktop",
+    })).toMatchObject({
+      image: "ghcr.io/acme/openclaw:desktop",
+      openClawRoutes: { includeDesktop: true },
+    });
+  });
+
   it("passes memory index launch overrides as env", () => {
     expect(buildOpenClawLaunchOptions({
       desktopEnabled: false,

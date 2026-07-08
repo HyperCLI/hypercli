@@ -47,7 +47,7 @@ import { ChannelCreationWizard } from "@/components/dashboard/ChannelCreationWiz
 import { getCategoryForPlugin, type DirectoryCategory } from "@/components/dashboard/directory/directory-utils";
 import { buildSkillsSnapshotCommand, parseSkillSnapshotOutput } from "@/components/dashboard/directory/workspace-skills";
 import { PlanComparisonModal } from "@/components/dashboard/agents/PlanComparisonModal";
-import { FirstAgentSetupWizard, type FirstAgentSetupCreateParams } from "@/components/dashboard/agents/FirstAgentSetupWizard";
+import { AgentCreationSetupWizard, type AgentCreationSetupCreateParams } from "@/components/dashboard/agents/AgentCreationSetupWizard";
 import type { AgentFileEntry, SdkAgent } from "@/types";
 import type { FileEntry } from "@hypercli/shared-ui/files";
 import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
@@ -2076,7 +2076,7 @@ function AgentsPageContent() {
     }
   };
 
-  const handleCreateFirstAgent = useCallback(async ({ name, iconIndex, size, files, enableDesktop, enableMemoryIndex = false }: FirstAgentSetupCreateParams) => {
+  const handleCreateFirstAgent = useCallback(async ({ name, iconIndex, size, files, enableDesktop, enableMemoryIndex = false, customImage = null }: AgentCreationSetupCreateParams) => {
     try {
       setError(null);
       const token = await getToken();
@@ -2087,6 +2087,7 @@ function AgentsPageContent() {
         meta: { ui: { avatar: { icon_index: iconIndex } } },
         ...buildOpenClawLaunchOptions({
           desktopEnabled: enableDesktop,
+          customImage,
           memoryIndex: enableMemoryIndex
             ? { onSessionStart: true, onSearch: true, watch: true, watchDebounceMs: 30000, intervalMinutes: 0 }
             : null,
@@ -2755,7 +2756,7 @@ function AgentsPageContent() {
     setMobileAgentsSidebarOpen(false);
     setMobileAgentLauncherOpen(true);
   };
-  const createMobileAgentFromLauncher = async (params: FirstAgentSetupCreateParams) => {
+  const createMobileAgentFromLauncher = async (params: AgentCreationSetupCreateParams) => {
     try {
       const createdId = await handleCreateFirstAgent(params);
       if (createdId) {
@@ -3010,13 +3011,12 @@ function AgentsPageContent() {
               >
                 <X className="h-4 w-4" />
               </button>
-              <FirstAgentSetupWizard
+              <AgentCreationSetupWizard
                 budget={budget}
                 subscriptionSummary={subscriptionSummary}
                 catalogPlans={catalogPlans}
                 pendingSlotReleases={pendingSlotReleases}
                 onOpenPlanCatalog={openUpgradeCatalog}
-                onClose={() => setMobileAgentLauncherOpen(false)}
                 onCreateAgent={createMobileAgentFromLauncher}
               />
             </motion.div>

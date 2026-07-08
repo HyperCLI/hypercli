@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   Circle,
   FileText,
+  Package,
   Rocket,
   Shield,
   Sparkles,
@@ -20,6 +21,7 @@ import {
 } from "lucide-react";
 import type { SlotInventory } from "@/lib/format";
 import { formatTokens } from "@/lib/format";
+import { getOpenClawDefaultImage } from "@/lib/openclaw-launch";
 import { parseAgentCapacityError } from "@/lib/agent-tier";
 import {
   hasPlanWord,
@@ -48,6 +50,7 @@ export interface FirstAgentSetupCreateParams {
   files: File[];
   enableDesktop: boolean;
   enableMemoryIndex?: boolean;
+  customImage?: string | null;
 }
 
 interface FirstAgentSetupWizardProps {
@@ -61,6 +64,9 @@ interface FirstAgentSetupWizardProps {
   subscriptionSummary?: HyperAgentSubscriptionSummary | null;
   catalogPlans?: HyperAgentPlan[] | null;
   pendingSlotReleases?: Record<string, number>;
+  showProFeatureLabels?: boolean;
+  enableCustomImageOption?: boolean;
+  enforceProFeaturePlanRestrictions?: boolean;
 }
 
 type WizardStepId = "identity" | "knowledge" | "plan";
@@ -296,6 +302,13 @@ function catalogPrice(plan: HyperAgentPlan | null | undefined): number | null {
 
 function isProPlan(plan: HyperAgentPlan): boolean {
   return hasPlanWord(plan.id, "pro") || hasPlanWord(plan.name, "pro");
+}
+
+function isBasicOrPlusPlanOption(plan: LaunchPlanOption): boolean {
+  return hasPlanWord(plan.id, "basic") ||
+    hasPlanWord(plan.name, "basic") ||
+    hasPlanWord(plan.id, "plus") ||
+    hasPlanWord(plan.name, "plus");
 }
 
 function selectProPlan(plans: HyperAgentPlan[]): HyperAgentPlan | null {
@@ -658,6 +671,14 @@ function WizardButton({
   );
 }
 
+function ProFeatureBadge() {
+  return (
+    <span className="inline-flex h-5 items-center rounded-full border border-selection-accent/40 bg-selection-accent/10 px-2 text-[10px] font-bold uppercase tracking-[0.12em] text-selection-accent">
+      Pro
+    </span>
+  );
+}
+
 function LaunchCapacityFallback({
   error,
   onOpenPlanCatalog,
@@ -750,6 +771,9 @@ export function FirstAgentSetupWizard({
   subscriptionSummary,
   catalogPlans,
   pendingSlotReleases = {},
+  showProFeatureLabels = false,
+  enableCustomImageOption = false,
+  enforceProFeaturePlanRestrictions = false,
 }: FirstAgentSetupWizardProps) {
   const [defaultAgentName, setDefaultAgentName] = React.useState("");
   const [agentName, setAgentName] = React.useState("");
@@ -757,6 +781,9 @@ export function FirstAgentSetupWizard({
   const [selectedIconIndex, setSelectedIconIndex] = React.useState(avatarOptions[0].iconIndex);
   const [enableDesktop, setEnableDesktop] = React.useState(false);
   const [enableMemoryIndex, setEnableMemoryIndex] = React.useState(false);
+  const [enableCustomImage, setEnableCustomImage] = React.useState(false);
+  const [customImage, setCustomImage] = React.useState("");
+  const [customImageEdited, setCustomImageEdited] = React.useState(false);
   const slotInventory = budget?.slots ?? EMPTY_SLOT_INVENTORY;
   const planOptions = React.useMemo(
     () => buildLaunchPlanOptions(subscriptionSummary, slotInventory, catalogPlans, pendingSlotReleases),
@@ -771,14 +798,33 @@ export function FirstAgentSetupWizard({
   const [files, setFiles] = React.useState<File[]>([]);
   const [planComparisonOpen, setPlanComparisonOpen] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const requiresProPlan = enforceProFeaturePlanRestrictions && (enableDesktop || enableMemoryIndex || enableCustomImage);
+  const displayedPlanOptions = React.useMemo(() => {
+    if (!requiresProPlan) return planOptions;
+    return planOptions.map((plan) => {
+      if (!isBasicOrPlusPlanOption(plan)) return plan;
+      return {
+        ...plan,
+        cta: "Pro required",
+        disabled: true,
+        statusText: "Pro feature selected",
+        features: uniqueFeatureList([
+          "Desktop, indexing, and custom images require Pro.",
+          ...plan.features,
+        ]).slice(0, 7),
+      };
+    });
+  }, [planOptions, requiresProPlan]);
 
   const currentStep = steps[stepIndex];
   const currentCopy = stepCopy[currentStep];
-  const selectedPlan = planOptions.find((plan) => plan.id === selectedPlanId) ?? planOptions[0];
+  const selectedPlan = displayedPlanOptions.find((plan) => plan.id === selectedPlanId) ?? displayedPlanOptions[0];
   const selectedAvatar = avatarOptions.find((option) => option.iconIndex === selectedIconIndex) ?? avatarOptions[0];
   const SelectedAvatarIcon = selectedAvatar.icon;
   const displayName = agentName.trim() || defaultAgentName || "agent";
   const selectedAvatarStyle = agentAvatar(displayName, { ui: { avatar: { icon_index: selectedIconIndex } } });
+  const defaultCustomImage = getOpenClawDefaultImage(enableDesktop);
+  const effectiveCustomImage = customImageEdited ? customImage : defaultCustomImage;
 
   React.useEffect(() => {
     const generatedName = generateAgentName();
@@ -818,6 +864,8 @@ export function FirstAgentSetupWizard({
           starterFiles: files.map((file) => ({ name: file.name, size: file.size, type: file.type })),
           enableDesktop,
           enableMemoryIndex,
+          enableCustomImage,
+          customImage: enableCustomImage ? effectiveCustomImage.trim() : null,
         }),
       );
     }
@@ -825,13 +873,22 @@ export function FirstAgentSetupWizard({
 
   const saveDraftAndCreate = async (planId = selectedPlanId) => {
     if (creating) return;
-    const plan = planOptions.find((option) => option.id === planId) ?? selectedPlan;
+    const plan = displayedPlanOptions.find((option) => option.id === planId) ?? selectedPlan;
     dispatchWizard({ type: "CLEAR_ERROR" });
     if (!plan) {
       dispatchWizard({ type: "CREATE_FAILED", message: "Plan catalog is unavailable right now." });
       return;
     }
+    if (plan.disabled) {
+      dispatchWizard({ type: "CREATE_FAILED", message: "Choose a Pro plan to use selected Pro features." });
+      return;
+    }
     persistDraft(plan);
+    const selectedCustomImage = enableCustomImage ? effectiveCustomImage.trim() : null;
+    if (enableCustomImage && !selectedCustomImage) {
+      dispatchWizard({ type: "CREATE_FAILED", message: "Custom image is required." });
+      return;
+    }
     if (plan.action === "plans") {
       if (onOpenPlanCatalog) {
         try {
@@ -863,6 +920,7 @@ export function FirstAgentSetupWizard({
         files,
         enableDesktop,
         enableMemoryIndex,
+        customImage: selectedCustomImage,
       });
       if (!createdId) {
         dispatchWizard({ type: "CREATE_FINISHED_WITHOUT_ID" });
@@ -874,7 +932,7 @@ export function FirstAgentSetupWizard({
 
   const handlePlanAction = (planId = selectedPlan?.id) => {
     if (!planId || creating) return;
-    const plan = planOptions.find((option) => option.id === planId);
+    const plan = displayedPlanOptions.find((option) => option.id === planId);
     if (!plan || plan.disabled) return;
     dispatchWizard({ type: "SELECT_PLAN", planId });
     void saveDraftAndCreate(planId);
@@ -1011,6 +1069,7 @@ export function FirstAgentSetupWizard({
                   <span className="flex items-center gap-2 text-[14px] font-semibold leading-tight text-foreground sm:text-[15px]">
                     <Monitor className="h-4 w-4 text-text-muted" />
                     Desktop browser
+                    {showProFeatureLabels ? <ProFeatureBadge /> : null}
                   </span>
                   <span className="mt-1 block text-[12px] leading-5 text-text-muted sm:text-[13px]">
                     Adds a protected noVNC desktop at desktop-&lt;agent&gt;.hypercli.app.
@@ -1029,12 +1088,61 @@ export function FirstAgentSetupWizard({
                   <span className="flex items-center gap-2 text-[14px] font-semibold leading-tight text-foreground sm:text-[15px]">
                     <Brain className="h-4 w-4 text-text-muted" />
                     Memory indexing
+                    {showProFeatureLabels ? <ProFeatureBadge /> : null}
                   </span>
                   <span className="mt-1 block text-[12px] leading-5 text-text-muted sm:text-[13px]">
                     Index memory files on session start, search, and watched file changes.
                   </span>
                 </span>
               </label>
+
+              {enableCustomImageOption ? (
+                <div className="mt-3 rounded-[12px] border border-border bg-surface-low px-4 py-3">
+                  <label className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={enableCustomImage}
+                      onChange={(event) => {
+                        const checked = event.target.checked;
+                        setEnableCustomImage(checked);
+                        if (!checked) {
+                          setCustomImage("");
+                          setCustomImageEdited(false);
+                        }
+                      }}
+                      className="mt-1 h-4 w-4 rounded border-border bg-background accent-[var(--button-primary)]"
+                    />
+                    <span className="min-w-0">
+                      <span className="flex items-center gap-2 text-[14px] font-semibold leading-tight text-foreground sm:text-[15px]">
+                        <Package className="h-4 w-4 text-text-muted" />
+                        Custom image
+                        {showProFeatureLabels ? <ProFeatureBadge /> : null}
+                      </span>
+                      <span className="mt-1 block text-[12px] leading-5 text-text-muted sm:text-[13px]">
+                        Start this agent from a specific container image instead of the account default.
+                      </span>
+                    </span>
+                  </label>
+                  {enableCustomImage ? (
+                    <div className="mt-3 pl-7">
+                      <input
+                        value={effectiveCustomImage}
+                        onChange={(event) => {
+                          setCustomImageEdited(true);
+                          setCustomImage(event.target.value);
+                        }}
+                        aria-label="Custom agent image"
+                        placeholder={defaultCustomImage || "ghcr.io/example/openclaw:latest"}
+                        spellCheck={false}
+                        className="h-10 w-full rounded-[10px] border border-border bg-background px-3 font-mono text-[12px] text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-border-strong sm:text-[13px]"
+                      />
+                      <p className="mt-2 text-[11px] leading-4 text-text-muted">
+                        Defaults to the configured {enableDesktop ? "desktop" : "standard"} image.
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
 
             <footer className="flex h-[72px] flex-shrink-0 items-center justify-end border-t border-border bg-surface-low px-5 sm:px-7">
@@ -1107,7 +1215,7 @@ export function FirstAgentSetupWizard({
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6 lg:px-7">
               {createError && <LaunchCapacityFallback error={createError} onOpenPlanCatalog={onOpenPlanCatalog} />}
               <div className="grid min-h-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                {planOptions.map((plan) => {
+                {displayedPlanOptions.map((plan) => {
                   const Icon = plan.icon;
                   const isProvisioning = plan.statusText === "Payment active, waiting for entitlement";
                   const isReleasing = plan.statusText === "Slot being released";
@@ -1116,10 +1224,15 @@ export function FirstAgentSetupWizard({
                   return (
                     <div
                       key={plan.id}
-                      onClick={() => dispatchWizard({ type: "SELECT_PLAN", planId: plan.id })}
+                      aria-disabled={plan.disabled || undefined}
+                      onClick={() => {
+                        if (plan.disabled) return;
+                        dispatchWizard({ type: "SELECT_PLAN", planId: plan.id });
+                      }}
                       onKeyDown={(event) => {
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
+                          if (plan.disabled) return;
                           dispatchWizard({ type: "SELECT_PLAN", planId: plan.id });
                         }
                       }}
