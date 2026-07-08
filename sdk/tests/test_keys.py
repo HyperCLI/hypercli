@@ -16,6 +16,7 @@ class DummyHTTP:
             "is_active": True,
             "created_at": "2026-04-02T00:00:00Z",
             "last_used_at": None,
+            "expires_at": json.get("expires_at"),
         }
 
     def get(self, path):
@@ -30,6 +31,7 @@ class DummyHTTP:
                 "is_active": True,
                 "created_at": "2026-04-02T00:00:00Z",
                 "last_used_at": "2026-04-02T01:00:00Z",
+                "expires_at": "2026-05-02T00:00:00Z",
             }]
         return {
             "key_id": "key-123",
@@ -40,6 +42,7 @@ class DummyHTTP:
             "is_active": True,
             "created_at": "2026-04-02T00:00:00Z",
             "last_used_at": "2026-04-02T01:00:00Z",
+            "expires_at": "2026-05-02T00:00:00Z",
         }
 
     def patch(self, path, json=None):
@@ -53,6 +56,7 @@ class DummyHTTP:
             "is_active": True,
             "created_at": "2026-04-02T00:00:00Z",
             "last_used_at": "2026-04-02T01:00:00Z",
+            "expires_at": "2026-05-02T00:00:00Z",
         }
 
     def delete(self, path):
@@ -72,6 +76,25 @@ def test_keys_create_includes_tags():
     assert http.calls[0] == ("post", "/api/keys", {"name": "team-dev", "tags": ["jobs:self", "team=dev"]})
 
 
+def test_keys_create_includes_duration_and_expiry():
+    http = DummyHTTP()
+    keys = KeysAPI(http)
+
+    created = keys.create(name="desktop", tags=["*:*", "key_type=desktop"], duration="180d", expires_at="2026-10-01T00:00:00Z")
+
+    assert created.expires_at == "2026-10-01T00:00:00Z"
+    assert http.calls[0] == (
+        "post",
+        "/api/keys",
+        {
+            "name": "desktop",
+            "tags": ["*:*", "key_type=desktop"],
+            "duration": "180d",
+            "expires_at": "2026-10-01T00:00:00Z",
+        },
+    )
+
+
 def test_keys_list_returns_masked_records():
     http = DummyHTTP()
     keys = KeysAPI(http)
@@ -82,6 +105,7 @@ def test_keys_list_returns_masked_records():
     assert listed[0].api_key is None
     assert listed[0].api_key_preview == "hyper_api_abcd****1234"
     assert listed[0].tags == ["jobs:self"]
+    assert listed[0].expires_at == "2026-05-02T00:00:00Z"
 
 
 def test_keys_get_and_rename():

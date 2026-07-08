@@ -10,6 +10,9 @@ from rich.console import Console
 app = typer.Typer(help="Wallet management commands")
 console = Console()
 
+DESKTOP_API_KEY_DURATION = "180d"
+DESKTOP_API_KEY_TAGS = ["*:*", "key_type=desktop"]
+
 # Check if wallet dependencies are available
 try:
     from web3 import Web3
@@ -626,7 +629,11 @@ def wallet_login(
     with httpx.Client(timeout=15) as client:
         resp = client.post(
             f"{base_url}/api/keys",
-            json={"name": name},
+            json={
+                "name": name,
+                "duration": DESKTOP_API_KEY_DURATION,
+                "tags": DESKTOP_API_KEY_TAGS,
+            },
             headers={"Authorization": f"Bearer {jwt_token}"},
         )
         if resp.status_code != 200:

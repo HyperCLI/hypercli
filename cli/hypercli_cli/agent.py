@@ -22,6 +22,9 @@ from .embed import app as embed_app
 app = typer.Typer(help="HyperAgent inference commands")
 console = Console()
 
+DESKTOP_API_KEY_DURATION = "180d"
+DESKTOP_API_KEY_TAGS = ["*:*", "key_type=desktop"]
+
 # Register subcommands
 app.command("onboard")(_onboard_fn)
 app.add_typer(voice_app, name="voice")
@@ -753,7 +756,11 @@ def login(
     with httpx.Client(timeout=15) as client:
         resp = client.post(
             f"{base_url}/api/keys",
-            json={"name": "agent-cli"},
+            json={
+                "name": "agent-cli",
+                "duration": DESKTOP_API_KEY_DURATION,
+                "tags": DESKTOP_API_KEY_TAGS,
+            },
             headers={"Authorization": f"Bearer {jwt_token}"},
         )
         if resp.status_code != 200:
@@ -786,7 +793,7 @@ def login(
         "wallet_address": wallet_addr,
         "tpm_limit": 0,
         "rpm_limit": 0,
-        "expires_at": "",
+        "expires_at": key_data.get("expires_at") or "",
     }
     with open(AGENT_KEY_PATH, "w") as f:
         json.dump(agent_key_data, f, indent=2)

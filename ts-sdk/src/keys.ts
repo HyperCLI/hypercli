@@ -33,6 +33,12 @@ export interface ApiKey {
   isActive: boolean;
   createdAt: string;
   lastUsedAt: string | null;
+  expiresAt: string | null;
+}
+
+export interface CreateApiKeyOptions {
+  duration?: string;
+  expiresAt?: string;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -63,6 +69,7 @@ function apiKeyFromDict(data: any): ApiKey {
     isActive: record.is_active === false || record.isActive === false || record.active === false ? false : true,
     createdAt: firstString(record.created_at, record.createdAt) || '',
     lastUsedAt: firstString(record.last_used_at, record.lastUsedAt),
+    expiresAt: firstString(record.expires_at, record.expiresAt),
   };
 }
 
@@ -72,10 +79,16 @@ export class KeysAPI {
   /**
    * Create a new API key
    */
-  async create(name: string = 'default', tags?: string[]): Promise<ApiKey> {
+  async create(name: string = 'default', tags?: string[], options: CreateApiKeyOptions = {}): Promise<ApiKey> {
     const payload: Record<string, unknown> = { name };
     if (tags !== undefined) {
       payload.tags = tags;
+    }
+    if (options.duration !== undefined) {
+      payload.duration = options.duration;
+    }
+    if (options.expiresAt !== undefined) {
+      payload.expires_at = options.expiresAt;
     }
     const data = await this.http.post('/api/keys', payload);
     return apiKeyFromDict(data);

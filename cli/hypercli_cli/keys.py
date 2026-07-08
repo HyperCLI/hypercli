@@ -27,18 +27,21 @@ def create_key(
     name: str = typer.Option("default", help="Key name"),
     tag: list[str] = typer.Option(None, "--tag", help="Repeat as --tag team=dev"),
     all_access: bool = typer.Option(False, "--all", help="Grant full access with *:*"),
+    duration: str = typer.Option(None, "--duration", help="Optional key lifetime, e.g. 12h, 30d, 180d"),
 ):
     """Create a new API key"""
     if all_access and tag:
         raise typer.BadParameter("Use either --all or --tag, not both")
 
     client = _get_client()
-    key = client.keys.create(name=name, tags=(["*:*"] if all_access else (tag or None)))
+    key = client.keys.create(name=name, tags=(["*:*"] if all_access else (tag or None)), duration=duration)
     console.print(f"\n[bold green]API key created![/bold green]\n")
     console.print(f"  Key ID:  {key.key_id}")
     console.print(f"  Name:    {key.name}")
     if key.tags:
         console.print(f"  Tags:    {', '.join(key.tags)}")
+    if key.expires_at:
+        console.print(f"  Expires: {_fmt_ts(key.expires_at)}")
     console.print(f"  API Key: [bold]{key.api_key}[/bold]")
     console.print(f"\n[yellow]⚠ Save this key now — it won't be shown again.[/yellow]\n")
 
@@ -61,6 +64,7 @@ def list_keys():
     table.add_column("Active", justify="center")
     table.add_column("Created")
     table.add_column("Last Used")
+    table.add_column("Expires")
 
     for key in keys:
         active = "✓" if key.is_active else "✗"
@@ -73,6 +77,7 @@ def list_keys():
             f"[{active_style}]{active}[/{active_style}]",
             _fmt_ts(key.created_at),
             _fmt_ts(key.last_used_at) or "never",
+            _fmt_ts(key.expires_at) or "never",
         )
 
     console.print(table)

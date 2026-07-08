@@ -17,6 +17,7 @@ class ApiKey:
     is_active: bool
     created_at: str
     last_used_at: Optional[str]
+    expires_at: Optional[str]
 
     @classmethod
     def from_dict(cls, data: dict) -> "ApiKey":
@@ -30,6 +31,7 @@ class ApiKey:
             is_active=data.get("is_active", True),
             created_at=data.get("created_at", ""),
             last_used_at=data.get("last_used_at"),
+            expires_at=data.get("expires_at"),
         )
 
 
@@ -39,11 +41,21 @@ class KeysAPI:
     def __init__(self, http: "HTTPClient"):
         self._http = http
 
-    def create(self, name: str = "default", tags: list[str] | None = None) -> ApiKey:
+    def create(
+        self,
+        name: str = "default",
+        tags: list[str] | None = None,
+        duration: str | None = None,
+        expires_at: str | None = None,
+    ) -> ApiKey:
         """Create a new API key"""
         payload = {"name": name}
         if tags is not None:
             payload["tags"] = tags
+        if duration is not None:
+            payload["duration"] = duration
+        if expires_at is not None:
+            payload["expires_at"] = expires_at
         data = self._http.post("/api/keys", json=payload)
         return ApiKey.from_dict(data)
 

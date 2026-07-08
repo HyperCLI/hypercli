@@ -199,6 +199,7 @@ def test_wallet_login_passes_explicit_passphrase(monkeypatch, tmp_path):
     _set_temp_wallet_paths(monkeypatch, tmp_path)
     load_calls: list[str | None] = []
     auth_calls: list[str | None] = []
+    post_calls = []
 
     def _fake_load_wallet(*, passphrase=None):
         load_calls.append(passphrase)
@@ -219,6 +220,7 @@ def test_wallet_login_passes_explicit_passphrase(monkeypatch, tmp_path):
             return False
 
         def post(self, url, json=None, headers=None):
+            post_calls.append({"url": url, "json": json, "headers": headers})
             return SimpleNamespace(
                 status_code=200,
                 json=lambda: {"api_key": "hyper_api_test", "name": json["name"]},
@@ -244,6 +246,85 @@ def test_wallet_login_passes_explicit_passphrase(monkeypatch, tmp_path):
     assert result.exit_code == 0
     assert load_calls == ["secret"]
     assert auth_calls == ["secret"]
+    assert post_calls[0]["json"] == {
+        "name": "cli",
+        "duration": "180d",
+        "tags": ["*:*", "key_type=desktop"],
+    }
+
+
+def test_agent_login_creates_180_day_desktop_key(monkeypatch, tmp_path):
+    from hypercli_cli import agent as agent_mod
+    import hypercli_cli.wallet as wallet_module
+
+    class _FakeAccount:
+        address = "0xabc"
+
+        def sign_message(self, _message):
+            return SimpleNamespace(signature=b"\x12\x34")
+
+    class _FakeHttpxClient:
+        posts = []
+
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, json=None, headers=None):
+            self.posts.append({"url": url, "json": json, "headers": headers})
+            if url.endswith("/api/auth/wallet/challenge"):
+                return SimpleNamespace(
+                    status_code=200,
+                    json=lambda: {"message": "Sign in", "timestamp": 123},
+                    text="ok",
+                )
+            if url.endswith("/api/auth/wallet/login"):
+                return SimpleNamespace(
+                    status_code=200,
+                    json=lambda: {
+                        "token": "jwt-token",
+                        "user_id": "user-123456789",
+                        "team_id": "team-123456789",
+                        "wallet_address": "0xabc",
+                    },
+                    text="ok",
+                )
+            return SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "api_key": "hyper_api_test",
+                    "name": json["name"],
+                    "expires_at": "2026-10-01T00:00:00Z",
+                },
+                text="ok",
+            )
+
+    monkeypatch.setitem(
+        sys.modules,
+        "eth_account.messages",
+        SimpleNamespace(encode_defunct=lambda text: {"text": text}),
+    )
+    monkeypatch.setitem(sys.modules, "eth_account", SimpleNamespace(Account=object()))
+    monkeypatch.setitem(sys.modules, "httpx", SimpleNamespace(Client=_FakeHttpxClient))
+    monkeypatch.setattr(wallet_module, "load_wallet", lambda: _FakeAccount())
+    monkeypatch.setattr(agent_mod, "HYPERCLI_DIR", tmp_path / ".hypercli")
+    monkeypatch.setattr(agent_mod, "AGENT_KEY_PATH", tmp_path / ".hypercli" / "agent-key.json")
+
+    result = runner.invoke(app, ["agent", "login"])
+
+    assert result.exit_code == 0
+    assert _FakeHttpxClient.posts[-1]["json"] == {
+        "name": "agent-cli",
+        "duration": "180d",
+        "tags": ["*:*", "key_type=desktop"],
+    }
+    saved = json.loads((tmp_path / ".hypercli" / "agent-key.json").read_text())
+    assert saved["expires_at"] == "2026-10-01T00:00:00Z"
 
 
 def test_wallet_topup_passes_explicit_passphrase(monkeypatch, tmp_path):

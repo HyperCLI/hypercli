@@ -12,18 +12,20 @@ describe('Keys SDK', () => {
         api_key: 'hyper_api_live',
         is_active: true,
         created_at: '2026-04-02T00:00:00Z',
+        expires_at: '2026-10-01T00:00:00Z',
       }),
     } as unknown as HTTPClient;
 
     const keys = new KeysAPI(http);
-    const created = await keys.create('team-dev', ['jobs:self', 'team=dev']);
+    const created = await keys.create('team-dev', ['jobs:self', 'team=dev'], { duration: '180d' });
 
     expect(created.name).toBe('team-dev');
     expect(created.tags).toEqual(['jobs:self', 'team=dev']);
     expect(created.apiKey).toBe('hyper_api_live');
+    expect(created.expiresAt).toBe('2026-10-01T00:00:00Z');
     expect((http.post as any).mock.calls[0]).toEqual([
       '/api/keys',
-      { name: 'team-dev', tags: ['jobs:self', 'team=dev'] },
+      { name: 'team-dev', tags: ['jobs:self', 'team=dev'], duration: '180d' },
     ]);
   });
 
@@ -38,6 +40,7 @@ describe('Keys SDK', () => {
         active: true,
         createdAt: '2026-05-26T00:00:00Z',
         lastUsedAt: '2026-05-26T01:00:00Z',
+        expiresAt: '2026-11-22T00:00:00Z',
       }),
     } as unknown as HTTPClient;
 
@@ -53,6 +56,7 @@ describe('Keys SDK', () => {
       isActive: true,
       createdAt: '2026-05-26T00:00:00Z',
       lastUsedAt: '2026-05-26T01:00:00Z',
+      expiresAt: '2026-11-22T00:00:00Z',
     }));
   });
 

@@ -11,6 +11,7 @@ class _FakeKey:
     name = "demo"
     api_key = "hyper_api_test"
     tags = ["*:*"]
+    expires_at = None
 
 
 def test_keys_create_all_expands_to_global_scope(monkeypatch):
@@ -19,9 +20,10 @@ def test_keys_create_all_expands_to_global_scope(monkeypatch):
     captured = {}
 
     class _FakeKeys:
-        def create(self, *, name, tags=None):
+        def create(self, *, name, tags=None, duration=None):
             captured["name"] = name
             captured["tags"] = tags
+            captured["duration"] = duration
             return _FakeKey()
 
     class _FakeClient:
@@ -32,7 +34,30 @@ def test_keys_create_all_expands_to_global_scope(monkeypatch):
     result = runner.invoke(app, ["keys", "create", "--name", "demo", "--all"])
 
     assert result.exit_code == 0, result.stdout
-    assert captured == {"name": "demo", "tags": ["*:*"]}
+    assert captured == {"name": "demo", "tags": ["*:*"], "duration": None}
+
+
+def test_keys_create_passes_duration(monkeypatch):
+    import hypercli_cli.keys as keys
+
+    captured = {}
+
+    class _FakeKeys:
+        def create(self, *, name, tags=None, duration=None):
+            captured["name"] = name
+            captured["tags"] = tags
+            captured["duration"] = duration
+            return _FakeKey()
+
+    class _FakeClient:
+        keys = _FakeKeys()
+
+    monkeypatch.setattr(keys, "_get_client", lambda: _FakeClient())
+
+    result = runner.invoke(app, ["keys", "create", "--name", "demo", "--duration", "180d"])
+
+    assert result.exit_code == 0, result.stdout
+    assert captured == {"name": "demo", "tags": None, "duration": "180d"}
 
 
 def test_keys_create_rejects_all_and_tag_together():
