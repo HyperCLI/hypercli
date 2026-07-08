@@ -200,6 +200,9 @@ export function AgentMainPanel({
     if (currentPanel === "chat") {
       return <AgentEmptyState {...stoppedEmptyStateProps} />;
     }
+    if (currentPanel === "skills") {
+      return <AgentSkillsEmptyState {...stoppedEmptyStateProps} />;
+    }
     if (currentPanel === "integrations") {
       return skillsPanelActive ? (
         <AgentSkillsEmptyState {...stoppedEmptyStateProps} />
@@ -269,6 +272,10 @@ export function AgentMainPanel({
     }
 
     if (currentPanel === "files") {
+      return panelContent;
+    }
+
+    if (currentPanel === "knowledge") {
       return panelContent;
     }
 

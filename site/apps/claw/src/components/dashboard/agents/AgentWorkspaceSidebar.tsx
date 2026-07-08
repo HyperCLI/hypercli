@@ -9,6 +9,7 @@ import {
   ChevronUp,
   Codepen,
   FolderOpen,
+  HardDrive,
   Loader2,
   MoreVertical,
   PanelLeft,
@@ -43,6 +44,7 @@ interface AgentWorkspaceSidebarProps {
   selectedAgent: Agent | null;
   activeTab: AgentMainTab;
   skillsActive?: boolean;
+  knowledgeActive?: boolean;
   tokenUsed?: number | null;
   tokenLimit?: number | null;
   disabled?: boolean;
@@ -54,6 +56,7 @@ interface AgentWorkspaceSidebarProps {
   onOpenFiles: () => void;
   onOpenIntegrations: () => void;
   onOpenSkills: () => void;
+  onOpenKnowledge?: () => void;
   onOpenScheduled: () => void;
   onOpenLogs: () => void;
   onOpenShell: () => void;
@@ -548,6 +551,7 @@ export function AgentWorkspaceSidebar({
   selectedAgent,
   activeTab,
   skillsActive = false,
+  knowledgeActive = false,
   tokenUsed,
   tokenLimit,
   disabled = false,
@@ -559,6 +563,7 @@ export function AgentWorkspaceSidebar({
   onOpenFiles,
   onOpenIntegrations,
   onOpenSkills,
+  onOpenKnowledge = () => undefined,
   onOpenScheduled,
   onOpenLogs,
   onOpenShell,
@@ -671,8 +676,8 @@ export function AgentWorkspaceSidebar({
       onClick: () => onOpenFiles(),
       ...disabledItemProps,
     },
-    { id: "integrations", label: "Integrations", icon: Blocks, active: activeTab === "integrations" && !skillsActive, onClick: onOpenIntegrations, ...disabledItemProps },
-    { id: "skills", label: "Skills", icon: Codepen, active: skillsActive, onClick: onOpenSkills, ...disabledItemProps },
+    { id: "integrations", label: "Integrations", icon: Blocks, active: activeTab === "integrations" && !skillsActive && !knowledgeActive, onClick: onOpenIntegrations, ...disabledItemProps },
+    { id: "skills", label: "Skills", icon: Codepen, active: activeTab === "skills" || skillsActive, onClick: onOpenSkills, ...disabledItemProps },
     {
       id: "scheduled",
       label: "Scheduled",
@@ -681,6 +686,7 @@ export function AgentWorkspaceSidebar({
       onClick: onOpenScheduled,
       ...(scheduledDisabled ? { disabled: true, disabledReason: scheduledDisabledReason } : disabledItemProps),
     },
+    { id: "knowledge", label: "Shared Knowledge", icon: HardDrive, active: activeTab === "knowledge" || knowledgeActive, onClick: onOpenKnowledge, ...disabledItemProps },
   ];
 
   const advancedDropdownDisabled = disabled || noSelectedAgent;

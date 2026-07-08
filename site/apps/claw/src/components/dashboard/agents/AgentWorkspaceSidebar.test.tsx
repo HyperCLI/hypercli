@@ -44,6 +44,7 @@ function renderAgentWorkspaceSidebar(overrides: Partial<ComponentProps<typeof Ag
     onOpenFiles: vi.fn(),
     onOpenIntegrations: vi.fn(),
     onOpenSkills: vi.fn(),
+    onOpenKnowledge: vi.fn(),
     onOpenScheduled: vi.fn(),
     onOpenLogs: vi.fn(),
     onOpenShell: vi.fn(),
@@ -66,6 +67,13 @@ describe("AgentWorkspaceSidebar", () => {
     renderAgentWorkspaceSidebar();
 
     expect(screen.getByText("Test Agent")).toBeInTheDocument();
+  });
+
+  it("renders shared knowledge after scheduled in the workspace list", () => {
+    renderAgentWorkspaceSidebar();
+
+    const labels = screen.getAllByRole("button").map((button) => button.textContent ?? "");
+    expect(labels.findIndex((label) => label.includes("Shared Knowledge"))).toBeGreaterThan(labels.findIndex((label) => label.includes("Scheduled")));
   });
 
   it("creates a session from the primary workspace action and highlights the selected session", async () => {
@@ -105,6 +113,7 @@ describe("AgentWorkspaceSidebar", () => {
         onOpenFiles={vi.fn()}
         onOpenIntegrations={vi.fn()}
         onOpenSkills={vi.fn()}
+        onOpenKnowledge={vi.fn()}
         onOpenScheduled={vi.fn()}
         onOpenLogs={vi.fn()}
         onOpenShell={vi.fn()}
@@ -669,6 +678,7 @@ describe("AgentWorkspaceSidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: /files/i }));
     fireEvent.click(screen.getByRole("button", { name: /integrations/i }));
     fireEvent.click(screen.getByRole("button", { name: /skills/i }));
+    fireEvent.click(screen.getByRole("button", { name: /shared knowledge/i }));
     fireEvent.click(screen.getByRole("button", { name: /scheduled/i }));
     fireEvent.click(advanced);
     expect(props.onCreateSession).not.toHaveBeenCalled();
@@ -697,6 +707,7 @@ describe("AgentWorkspaceSidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: /files/i }));
     fireEvent.click(screen.getByRole("button", { name: /integrations/i }));
     fireEvent.click(screen.getByRole("button", { name: /skills/i }));
+    fireEvent.click(screen.getByRole("button", { name: /shared knowledge/i }));
     fireEvent.click(screen.getByRole("button", { name: /scheduled/i }));
 
     expect(props.onCreateSession).not.toHaveBeenCalled();
@@ -704,6 +715,7 @@ describe("AgentWorkspaceSidebar", () => {
     expect(props.onOpenFiles).toHaveBeenCalledWith();
     expect(props.onOpenIntegrations).toHaveBeenCalledTimes(1);
     expect(props.onOpenSkills).toHaveBeenCalledTimes(1);
+    expect(props.onOpenKnowledge).toHaveBeenCalledTimes(1);
     expect(props.onOpenScheduled).toHaveBeenCalledTimes(1);
     expect(props.onOpenScheduled).toHaveBeenCalledWith();
   });

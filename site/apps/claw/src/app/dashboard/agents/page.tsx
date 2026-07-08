@@ -40,6 +40,7 @@ import { useAgentShellTerminal } from "@/hooks/useAgentShellTerminal";
 import { agentAvatar } from "@/lib/avatar";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { IntegrationsDirectoryPanel } from "@/components/dashboard/integrations";
+import { SharedKnowledgePanel } from "@/components/dashboard/integrations/SharedKnowledgePanel";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 import type { TabId as AgentViewTabId } from "@/components/dashboard/agentViewTypes";
 import { AgentsChannelsSidebar, MOCK_PARTICIPANTS, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
@@ -1368,6 +1369,8 @@ function AgentsPageContent() {
     chat: "Chat",
     files: "Files",
     integrations: "Integrations",
+    skills: "Skills",
+    knowledge: "Shared Knowledge",
     scheduled: "Scheduled",
     logs: "Logs",
     settings: "Settings",
@@ -1437,6 +1440,8 @@ function AgentsPageContent() {
     mainTab === "chat" ||
     mainTab === "workspace" ||
     mainTab === "integrations" ||
+    mainTab === "skills" ||
+    mainTab === "knowledge" ||
     mainTab === "scheduled" ||
     mainTab === "settings" ||
     mainTab === "openclaw" ||
@@ -1457,7 +1462,7 @@ function AgentsPageContent() {
     if (!isSelectedRunning) return null;
     if (mainTab === "logs") return wsStatus;
     if (mainTab === "shell") return shellStatus;
-    if (mainTab === "chat" || mainTab === "workspace" || mainTab === "integrations" || mainTab === "scheduled" || mainTab === "settings") {
+    if (mainTab === "chat" || mainTab === "workspace" || mainTab === "integrations" || mainTab === "skills" || mainTab === "knowledge" || mainTab === "scheduled" || mainTab === "settings") {
       if (chat.connected) return "connected" as const;
       if (chat.connecting) return "connecting" as const;
       return "disconnected" as const;
@@ -2489,6 +2494,8 @@ function AgentsPageContent() {
   const selectedCenterPanel: CenterPanel =
     mainTab === "files" ||
     mainTab === "integrations" ||
+    mainTab === "skills" ||
+    mainTab === "knowledge" ||
     mainTab === "scheduled" ||
     mainTab === "logs" ||
     mainTab === "shell" ||
@@ -2574,6 +2581,15 @@ function AgentsPageContent() {
           setDirectoryDetailOrigin(null);
           setOpenclawSettingsOpen(false);
           setMainTab("integrations");
+          setMobileShowChat(true);
+          return;
+        }
+        if (tab === "skills" || tab === "knowledge") {
+          setDirectoryCategory(undefined);
+          setDirectoryItemId(undefined);
+          setDirectoryDetailOrigin(null);
+          setOpenclawSettingsOpen(false);
+          setMainTab(tab);
           setMobileShowChat(true);
           return;
         }
@@ -2684,11 +2700,20 @@ function AgentsPageContent() {
     }
   };
   const openSkillsTab = () => {
-    setDirectoryCategory("skills");
+    setDirectoryCategory(undefined);
     setDirectoryItemId(undefined);
     setDirectoryDetailOrigin(null);
     setOpenclawSettingsOpen(false);
-    setMainTab("integrations");
+    setMainTab("skills");
+    setMobileShowChat(true);
+    setMobileWorkspaceSidebarOpen(false);
+  };
+  const openKnowledgeTab = () => {
+    setDirectoryCategory(undefined);
+    setDirectoryItemId(undefined);
+    setDirectoryDetailOrigin(null);
+    setOpenclawSettingsOpen(false);
+    setMainTab("knowledge");
     setMobileShowChat(true);
     setMobileWorkspaceSidebarOpen(false);
   };
@@ -3116,7 +3141,8 @@ function AgentsPageContent() {
               <AgentWorkspaceSidebar
                 selectedAgent={selectedAgent}
                 activeTab={openclawSettingsOpen && selectedAgent ? "openclaw" : mainTab}
-                skillsActive={mainTab === "integrations" && directoryCategory === "skills"}
+                skillsActive={mainTab === "skills"}
+                knowledgeActive={mainTab === "knowledge"}
                 tokenUsed={tokenUsage}
                 tokenLimit={budget?.pooled_tpd ?? null}
                 disabled={workspaceSidebarDisabled}
@@ -3140,6 +3166,7 @@ function AgentsPageContent() {
                 onOpenFiles={openFilesTab}
                 onOpenIntegrations={openIntegrationsTab}
                 onOpenSkills={openSkillsTab}
+                onOpenKnowledge={openKnowledgeTab}
                 onOpenScheduled={openScheduledTab}
                 onOpenLogs={openLogsTab}
                 onOpenShell={openShellTab}
@@ -3191,7 +3218,8 @@ function AgentsPageContent() {
         <AgentWorkspaceSidebar
           selectedAgent={selectedAgent}
           activeTab={openclawSettingsOpen && selectedAgent ? "openclaw" : mainTab}
-          skillsActive={mainTab === "integrations" && directoryCategory === "skills"}
+          skillsActive={mainTab === "skills"}
+          knowledgeActive={mainTab === "knowledge"}
           tokenUsed={tokenUsage}
           tokenLimit={budget?.pooled_tpd ?? null}
           disabled={workspaceSidebarDisabled}
@@ -3211,6 +3239,7 @@ function AgentsPageContent() {
           onOpenFiles={openFilesTab}
           onOpenIntegrations={openIntegrationsTab}
           onOpenSkills={openSkillsTab}
+          onOpenKnowledge={openKnowledgeTab}
           onOpenScheduled={openScheduledTab}
           onOpenLogs={openLogsTab}
           onOpenShell={openShellTab}
@@ -3240,7 +3269,7 @@ function AgentsPageContent() {
           blockedMessage={selectedAgentStartBlockedMessage}
           suggestedTierActions={selectedAgentSuggestedTierActions}
           currentPanel={selectedCenterPanel}
-          skillsPanelActive={directoryCategory === "skills"}
+          skillsPanelActive={mainTab === "skills"}
           stoppedTabLabel={stoppedTabLabel[selectedCenterPanel]}
           persistentPanelContent={
             <AgentTerminalPanel
@@ -3365,9 +3394,9 @@ function AgentsPageContent() {
                 completeJourneyForEvent("source-added");
               }}
             />
-          ) : mainTab === "integrations" ? (
+          ) : mainTab === "integrations" || mainTab === "skills" ? (
             <IntegrationsDirectoryPanel
-              initialCategory={directoryCategory}
+              initialCategory={mainTab === "skills" ? "skills" : directoryCategory}
               initialPluginId={directoryItemId}
               detailBackLabel={directoryDetailOrigin === "chat" ? "Back to chat" : undefined}
               onDetailBack={directoryDetailOrigin === "chat" ? openChatTab : undefined}
@@ -3388,6 +3417,8 @@ function AgentsPageContent() {
               onSearchLibrarySkills={chat.skillsSearch}
               onInstallLibrarySkill={chat.skillsInstall}
             />
+          ) : mainTab === "knowledge" ? (
+            <SharedKnowledgePanel agents={agents} />
           ) : mainTab === "scheduled" ? (
             <AgentScheduledPanel
               key={`${selectedAgent?.id ?? "agent"}:${scheduledInitialCommand?.id ?? 0}`}

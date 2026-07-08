@@ -498,6 +498,8 @@ export default function DevAgentSetupAgentsPage() {
     chat: "Chat",
     files: "Files",
     integrations: "Integrations",
+    skills: "Skills",
+    knowledge: "Shared Knowledge",
     scheduled: "Scheduled",
     logs: "Logs",
     settings: "Settings",
