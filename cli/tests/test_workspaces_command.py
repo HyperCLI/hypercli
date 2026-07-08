@@ -389,6 +389,47 @@ def test_workspaces_sync_all_invokes_cli(monkeypatch, tmp_path: Path):
     assert '"demo"' in result.stdout
 
 
+def test_workspaces_sync_all_resolves_runtime_agent_from_auth_me(monkeypatch, tmp_path: Path):
+    import hypercli_cli.workspaces as workspaces_mod
+
+    captured = {}
+
+    class _FakeWorkspaces:
+        def sync_all(self, output_dir, *, user_id=None, agent_id=None, ready_only=False):
+            captured.update(
+                {
+                    "output_dir": output_dir,
+                    "user_id": user_id,
+                    "agent_id": agent_id,
+                    "ready_only": ready_only,
+                }
+            )
+            return {"demo": []}
+
+    class _FakeUser:
+        def auth_me(self):
+            return type("AuthMe", (), {"runtime_agent_id": "agent-runtime-1", "user_id": "user-1"})()
+
+    class _FakeHyperCLI:
+        user = _FakeUser()
+
+    monkeypatch.setattr(workspaces_mod, "_get_workspaces", lambda: _FakeWorkspaces())
+    monkeypatch.setattr(workspaces_mod, "HyperCLI", lambda: _FakeHyperCLI())
+
+    result = runner.invoke(
+        app,
+        ["workspaces", "sync", "--all", "--output-dir", str(tmp_path), "--ready-only", "--json"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert captured == {
+        "output_dir": str(tmp_path),
+        "user_id": None,
+        "agent_id": "agent-runtime-1",
+        "ready_only": True,
+    }
+
+
 def test_workspaces_download_writes_markdown_projection(monkeypatch, tmp_path: Path):
     import hypercli_cli.workspaces as workspaces_mod
 

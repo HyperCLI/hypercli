@@ -12,6 +12,7 @@ from rich.console import Console
 from rich.table import Table
 
 from hypercli.config import get_agent_api_key, get_api_key
+from hypercli.client import HyperCLI
 from hypercli.workspaces import WorkspacesAPI
 
 app = typer.Typer(help="Manage shared Workspaces")
@@ -21,6 +22,17 @@ console = Console()
 def _get_workspaces():
     api_key = get_api_key() or get_agent_api_key()
     return WorkspacesAPI(api_key)
+
+
+def _resolve_auth_subject(user_id: str | None, agent_id: str | None) -> tuple[str | None, str | None]:
+    if user_id or agent_id:
+        return user_id, agent_id
+    auth_me = HyperCLI().user.auth_me()
+    runtime_agent_id = getattr(auth_me, "runtime_agent_id", None)
+    if runtime_agent_id:
+        return None, runtime_agent_id
+    resolved_user_id = str(getattr(auth_me, "user_id", "") or "").strip()
+    return (resolved_user_id or None), None
 
 
 def _print_json(value) -> None:
@@ -296,6 +308,7 @@ def sync(
     json_output: bool = typer.Option(False, "--json", help="Print JSON output"),
 ):
     """Sync workspace Markdown projections to a local Workspaces directory."""
+    user_id, agent_id = _resolve_auth_subject(user_id, agent_id)
     if all_workspaces:
         if workspace:
             raise typer.BadParameter("Pass either a workspace argument or --all, not both")
