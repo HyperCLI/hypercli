@@ -368,6 +368,37 @@ export class WorkspacesAPI {
     return fileFromDict(await handleResponse(response));
   }
 
+  async getFile(
+    workspaceRef: string,
+    fileRef: string,
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<WorkspaceFile> {
+    const data = await this.request('GET', `/${workspaceRef}/files/${fileRef}`, subject);
+    return fileFromDict(data);
+  }
+
+  async waitUntilProcessed(
+    workspaceRef: string,
+    fileRef: string,
+    subject: WorkspaceSubjectOptions = {},
+    options: { timeoutMs?: number; pollIntervalMs?: number } = {},
+  ): Promise<WorkspaceFile> {
+    const timeoutMs = options.timeoutMs ?? 300000;
+    const pollIntervalMs = options.pollIntervalMs ?? 2000;
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const file = await this.getFile(workspaceRef, fileRef, subject);
+      if (file.fileState === 'processed' && file.projectionStatus === 'finished') {
+        return file;
+      }
+      if (file.fileState === 'failed' || file.fileState === 'deleted' || file.projectionStatus === 'failed' || file.projectionStatus === 'deleted') {
+        throw new Error(`Workspace file ${fileRef} is ${file.fileState} with projection ${file.projectionStatus || 'unknown'}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    }
+    throw new Error(`Workspace file ${fileRef} did not process within ${timeoutMs}ms`);
+  }
+
   async listFiles(workspaceRef: string, subject: WorkspaceSubjectOptions = {}): Promise<WorkspaceFile[]> {
     const data = await this.request<any[]>('GET', `/${workspaceRef}/files`, subject);
     return (data || []).map(fileFromDict);

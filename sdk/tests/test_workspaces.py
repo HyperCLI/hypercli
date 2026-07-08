@@ -93,7 +93,7 @@ def test_search_files_uses_vector_by_default_and_can_disable(monkeypatch):
                 "current_version_id": "version-1",
                 "file_state": "processed",
                 "upload_status": "uploaded",
-                "projection_status": "ready",
+                "projection_status": "finished",
                 "match_reasons": ["vector"],
                 "keyword_score": 0,
                 "vector_score": 0.91,
@@ -189,7 +189,7 @@ def test_register_file_sends_keywords(monkeypatch):
             "current_version_id": "version-1",
             "file_state": "uploaded",
             "upload_status": "uploaded",
-            "projection_status": "queued",
+            "projection_status": "pending",
         }
 
     monkeypatch.setattr("hypercli.workspaces._request", fake_request)
@@ -226,6 +226,55 @@ def test_register_file_sends_keywords(monkeypatch):
     ]
 
 
+def test_wait_until_processed_polls_file_state(monkeypatch):
+    calls = []
+    responses = [
+        {
+            "id": "file-1",
+            "workspace_id": "workspace-1",
+            "path": "projects/example/report.pdf",
+            "display_name": "report.pdf",
+            "current_version_id": "version-1",
+            "file_state": "processing",
+            "upload_status": "uploaded",
+            "projection_status": "running",
+        },
+        {
+            "id": "file-1",
+            "workspace_id": "workspace-1",
+            "path": "projects/example/report.pdf",
+            "display_name": "report.pdf",
+            "current_version_id": "version-1",
+            "file_state": "processed",
+            "upload_status": "uploaded",
+            "projection_status": "finished",
+        },
+    ]
+
+    def fake_request(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
+        calls.append((method, url, user_id, agent_id))
+        return responses.pop(0)
+
+    monkeypatch.setattr("hypercli.workspaces._request", fake_request)
+    monkeypatch.setattr("hypercli.workspaces.time.sleep", lambda _seconds: None)
+    api = WorkspacesAPI("key", api_base="http://workspaces.test/workspaces")
+
+    item = api.wait_until_processed(
+        "demo",
+        "projects/example/report.pdf",
+        agent_id="agent-1",
+        timeout=5,
+        poll_interval=0,
+    )
+
+    assert item.file_state == "processed"
+    assert item.projection_status == "finished"
+    assert calls == [
+        ("GET", "http://workspaces.test/workspaces/demo/files/projects/example/report.pdf", None, "agent-1"),
+        ("GET", "http://workspaces.test/workspaces/demo/files/projects/example/report.pdf", None, "agent-1"),
+    ]
+
+
 def test_complete_task_uses_admin_callback_endpoint(monkeypatch):
     calls = []
     monkeypatch.setenv("HYPER_WORKSPACES_BACKEND_API_KEY", "backend-secret")
@@ -245,7 +294,7 @@ def test_complete_task_uses_admin_callback_endpoint(monkeypatch):
             "markdown_sha256": "b" * 64,
             "system_metadata": {},
             "semantic_metadata": {},
-            "status": "ready",
+            "status": "finished",
         }
 
     monkeypatch.setattr("hypercli.workspaces._request", fake_request)
@@ -262,7 +311,7 @@ def test_complete_task_uses_admin_callback_endpoint(monkeypatch):
         converter_version="dev",
     )
 
-    assert result["status"] == "ready"
+    assert result["status"] == "finished"
     assert calls == [
         (
             "POST",
@@ -312,7 +361,7 @@ def test_sync_manifest_writes_tomd_projection(monkeypatch, tmp_path: Path):
                     "source_last_modified": "2026-07-08T00:00:00Z",
                     "markdown_sha256": None,
                     "keywords": ["handoff", "launch"],
-                    "status": "queued",
+                    "status": "pending",
                     "download_command": "hyper workspaces download demo projects/example/report.pdf --raw --output report.pdf",
                 }
             ],
@@ -358,7 +407,7 @@ def test_projection_markdown_finds_single_file(monkeypatch):
                     "source_etag": "etag-2",
                     "source_last_modified": "2026-07-08T01:00:00Z",
                     "markdown_sha256": None,
-                    "status": "queued",
+                    "status": "pending",
                     "download_command": "hyper workspaces download demo docs/source.md --raw --output source.md",
                 }
             ],

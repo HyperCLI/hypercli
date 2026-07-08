@@ -260,6 +260,31 @@ def manifest(
     _print_json(value.__dict__)
 
 
+@app.command("wait-until-processed")
+def wait_until_processed(
+    workspace: str = typer.Argument(help="Workspace slug or ID"),
+    file_ref: str = typer.Argument(help="Workspace-relative source path or file ID"),
+    agent_id: str | None = typer.Option(None, "--agent-id", help="Wait as an agent subject"),
+    user_id: str | None = typer.Option(None, "--user-id", help="Wait as a user subject"),
+    timeout: float = typer.Option(300.0, "--timeout", help="Maximum seconds to wait"),
+    poll_interval: float = typer.Option(2.0, "--poll-interval", help="Seconds between polls"),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """Wait until a workspace file has a finished Markdown projection."""
+    item = _get_workspaces().wait_until_processed(
+        workspace,
+        file_ref,
+        user_id=user_id,
+        agent_id=agent_id,
+        timeout=timeout,
+        poll_interval=poll_interval,
+    )
+    if output == "json":
+        _print_json(item.__dict__)
+        return
+    console.print(f"[green]Processed[/green] {item.path} ({item.file_state}, projection {item.projection_status})")
+
+
 @app.command("sync")
 def sync(
     workspace: str | None = typer.Argument(None, help="Workspace slug or ID"),

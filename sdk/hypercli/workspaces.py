@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import json
 import mimetypes
+import time
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from urllib.parse import urlsplit
@@ -340,6 +341,47 @@ class WorkspacesAPI:
                 )
         return WorkspaceFile.from_dict(_handle_response(response))
 
+    def get_file(
+        self,
+        workspace_ref: str,
+        file_ref: str,
+        *,
+        user_id: str | None = None,
+        agent_id: str | None = None,
+    ) -> WorkspaceFile:
+        data = _request(
+            "GET",
+            f"{self.api_base}/{workspace_ref}/files/{file_ref}",
+            api_key=self.api_key,
+            user_id=user_id,
+            agent_id=agent_id,
+        )
+        return WorkspaceFile.from_dict(data)
+
+    def wait_until_processed(
+        self,
+        workspace_ref: str,
+        file_ref: str,
+        *,
+        user_id: str | None = None,
+        agent_id: str | None = None,
+        timeout: float = 300.0,
+        poll_interval: float = 2.0,
+    ) -> WorkspaceFile:
+        start = time.monotonic()
+        terminal_failures = {"failed", "deleted"}
+        while time.monotonic() - start < timeout:
+            item = self.get_file(workspace_ref, file_ref, user_id=user_id, agent_id=agent_id)
+            if item.file_state == "processed" and item.projection_status == "finished":
+                return item
+            if item.file_state in terminal_failures or item.projection_status in terminal_failures:
+                raise ValueError(
+                    f"Workspace file {file_ref} is {item.file_state}"
+                    f" with projection {item.projection_status or 'unknown'}"
+                )
+            time.sleep(poll_interval)
+        raise TimeoutError(f"Workspace file {file_ref} did not process within {timeout}s")
+
     def manifest(self, workspace_ref: str, *, user_id: str | None = None, agent_id: str | None = None) -> WorkspaceManifest:
         data = _request("GET", f"{self.api_base}/{workspace_ref}/manifest", api_key=self.api_key, user_id=user_id, agent_id=agent_id)
         return WorkspaceManifest.from_dict(data)
@@ -434,7 +476,7 @@ class WorkspacesAPI:
         workspace_root = os.path.join(output_dir, manifest.workspace_slug)
         written: list[str] = []
         for projection in manifest.projections:
-            if ready_only and projection.get("status") != "ready":
+            if ready_only and projection.get("status") != "finished":
                 continue
             projection_path = PurePosixPath(projection["projection_path"])
             target = os.path.abspath(os.path.join(workspace_root, *projection_path.parts))

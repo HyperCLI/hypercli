@@ -36,14 +36,14 @@ class _FakeFile:
         self.current_version_id = "version-1"
         self.file_state = "uploaded"
         self.upload_status = "uploaded"
-        self.projection_status = "queued"
+        self.projection_status = "pending"
 
 
 class _FakeSearchFile(_FakeFile):
     def __init__(self):
         super().__init__()
         self.file_state = "processed"
-        self.projection_status = "ready"
+        self.projection_status = "finished"
         self.match_reasons = ["vector"]
         self.keyword_score = 0.0
         self.vector_score = 0.92
@@ -469,6 +469,60 @@ def test_workspaces_download_raw_fetches_original(monkeypatch, tmp_path: Path):
     assert target.read_bytes() == b"raw-pdf"
 
 
+def test_workspaces_wait_until_processed_invokes_cli(monkeypatch):
+    import hypercli_cli.workspaces as workspaces_mod
+
+    captured = {}
+
+    class _FakeWorkspaces:
+        def wait_until_processed(self, workspace, file_ref, *, user_id=None, agent_id=None, timeout=300.0, poll_interval=2.0):
+            captured.update(
+                {
+                    "workspace": workspace,
+                    "file_ref": file_ref,
+                    "user_id": user_id,
+                    "agent_id": agent_id,
+                    "timeout": timeout,
+                    "poll_interval": poll_interval,
+                }
+            )
+            item = _FakeFile()
+            item.file_state = "processed"
+            item.projection_status = "finished"
+            return item
+
+    monkeypatch.setattr(workspaces_mod, "_get_workspaces", lambda: _FakeWorkspaces())
+
+    result = runner.invoke(
+        app,
+        [
+            "workspaces",
+            "wait-until-processed",
+            "demo",
+            "projects/example/report.pdf",
+            "--agent-id",
+            "agent-1",
+            "--timeout",
+            "10",
+            "--poll-interval",
+            "0",
+            "--output",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert captured == {
+        "workspace": "demo",
+        "file_ref": "projects/example/report.pdf",
+        "user_id": None,
+        "agent_id": "agent-1",
+        "timeout": 10.0,
+        "poll_interval": 0.0,
+    }
+    assert '"projection_status": "finished"' in result.stdout
+
+
 def test_workspaces_complete_task_invokes_cli(monkeypatch, tmp_path: Path):
     import hypercli_cli.workspaces as workspaces_mod
 
@@ -482,7 +536,7 @@ def test_workspaces_complete_task_invokes_cli(monkeypatch, tmp_path: Path):
             return {
                 "id": "projection-1",
                 "path": "projects/example/.tomd/report.md",
-                "status": "ready",
+                "status": "finished",
             }
 
     monkeypatch.setattr(workspaces_mod, "_get_workspaces", lambda: _FakeWorkspaces())

@@ -63,7 +63,7 @@ describe('Workspaces SDK', () => {
             current_version_id: 'version-1',
             file_state: 'processed',
             upload_status: 'uploaded',
-            projection_status: 'ready',
+            projection_status: 'finished',
             match_reasons: ['keyword'],
             keyword_score: 0.8,
             vector_score: null,
@@ -160,7 +160,7 @@ describe('Workspaces SDK', () => {
             current_version_id: 'version-1',
             file_state: 'uploaded',
             upload_status: 'uploaded',
-            projection_status: 'queued',
+            projection_status: 'pending',
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
@@ -204,7 +204,7 @@ describe('Workspaces SDK', () => {
     );
     const manifest = await api.manifest('demo', { agentId: 'agent-1' });
 
-    expect(file.projectionStatus).toBe('queued');
+    expect(file.projectionStatus).toBe('pending');
     expect(manifest.projections[0]?.projection_path).toBe('projects/example/.tomd/report.md');
     expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/demo/files');
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ keywords: ['handoff'] });
@@ -223,7 +223,7 @@ describe('Workspaces SDK', () => {
           current_version_id: 'version-1',
           file_state: 'uploaded',
           upload_status: 'uploaded',
-          projection_status: 'queued',
+          projection_status: 'pending',
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       ),
@@ -249,6 +249,44 @@ describe('Workspaces SDK', () => {
     vi.unstubAllGlobals();
   });
 
+  it('gets and waits for processed workspace files', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: 'file-1',
+            workspace_id: 'workspace-1',
+            path: 'docs/source.md',
+            display_name: 'source.md',
+            current_version_id: 'version-1',
+            file_state: 'processed',
+            upload_status: 'uploaded',
+            projection_status: 'finished',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
+    const file = await api.waitUntilProcessed(
+      'demo',
+      'docs/source.md',
+      { agentId: 'agent-1' },
+      { timeoutMs: 100, pollIntervalMs: 0 },
+    );
+
+    expect(file.fileState).toBe('processed');
+    expect(file.projectionStatus).toBe('finished');
+    expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/demo/files/docs/source.md');
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'GET',
+      headers: expect.objectContaining({ Authorization: 'Bearer key', 'X-Agent-Id': 'agent-1' }),
+    });
+    vi.unstubAllGlobals();
+  });
+
   it('lists and deletes workspace files', async () => {
     const fetchMock = vi
       .fn()
@@ -263,7 +301,7 @@ describe('Workspaces SDK', () => {
               current_version_id: 'version-1',
               file_state: 'uploaded',
               upload_status: 'uploaded',
-              projection_status: 'queued',
+              projection_status: 'pending',
             },
           ]),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -293,7 +331,7 @@ describe('Workspaces SDK', () => {
             file_version_id: 'version-1',
             projection_path: 'docs/.tomd/source.md',
             projection_s3_key: 'test/workspaces/workspace-1/views/docs/.tomd/source.md',
-            status: 'ready',
+            status: 'finished',
             kind: 'document',
             title: 'Source Notes',
             detected_type: 'markdown',
@@ -330,7 +368,7 @@ describe('Workspaces SDK', () => {
           file_id: 'file-1',
           file_version_id: 'version-1',
           projection_path: 'projects/example/.tomd/report.md',
-          status: 'ready',
+          status: 'finished',
           kind: 'document',
           title: 'Report',
           detected_type: 'pdf',
@@ -358,7 +396,7 @@ describe('Workspaces SDK', () => {
       { backendApiKey: 'backend-secret' },
     );
 
-    expect(projection.status).toBe('ready');
+    expect(projection.status).toBe('finished');
     expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/admin/conversion-tasks/task-1/complete');
     expect(fetchMock.mock.calls[0][1]).toMatchObject({
       method: 'POST',
@@ -403,7 +441,7 @@ describe('Workspaces SDK', () => {
               source_etag: 'etag-2',
               source_last_modified: '2026-07-08T01:00:00Z',
               keywords: ['handoff', 'launch'],
-              status: 'queued',
+              status: 'pending',
               download_command: 'hyper workspaces download demo docs/source.md --raw --output source.md',
             },
           ],
