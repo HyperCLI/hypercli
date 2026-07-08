@@ -1,5 +1,6 @@
 // Utils
 export { cn } from "./utils/cn";
+export * from "./skills";
 export {
   AuthContext as PrivyAuthContext,
   AuthProvider as PrivyAuthProvider,

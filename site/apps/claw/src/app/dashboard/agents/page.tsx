@@ -3385,6 +3385,8 @@ function AgentsPageContent() {
               onIntegrationAuthStatus={chat.integrationsAuthStatus}
               onIntegrationStatus={chat.integrationsStatus}
               onIntegrationDisconnect={chat.integrationsDisconnect}
+              onSearchLibrarySkills={chat.skillsSearch}
+              onInstallLibrarySkill={chat.skillsInstall}
             />
           ) : mainTab === "scheduled" ? (
             <AgentScheduledPanel

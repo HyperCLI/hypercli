@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -90,6 +90,122 @@ describe("IntegrationsDirectoryPanel", () => {
 
     expect(await screen.findByRole("status", { name: /loading skills reading available app skills/i })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /agent workspace loading/i })).toBeInTheDocument();
+  });
+
+  it("renders installed skills with the shared card layout and opens details", async () => {
+    renderPanel({
+      initialCategory: "skills",
+      initialPluginId: null,
+      onLoadSkills: vi.fn(async () => [workspaceSkill({ id: "weather", name: "Weather", description: "Weather forecasts." })]),
+    });
+
+    expect(await screen.findByText("Create Skill")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/search installed skills/i)).toBeInTheDocument();
+    expect(screen.getByText("Weather")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /configure/i }));
+
+    expect(await screen.findByText("This skill is bundled and ready for this agent.")).toBeInTheDocument();
+  });
+
+  it("uses the structured create stepper with validation and preview", async () => {
+    renderPanel({
+      initialCategory: "skills",
+      initialPluginId: null,
+      onLoadSkills: vi.fn(async () => []),
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /create skill/i }));
+    fireEvent.click(screen.getByRole("button", { name: /structured form/i }));
+
+    expect(screen.getByText("Identity")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    expect(screen.getByText("Name is required.")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/^name/i), { target: { value: "github-helper" } });
+    fireEvent.change(screen.getByLabelText(/^description/i), { target: { value: "Use GitHub CLI for repository and pull request tasks." } });
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    expect(screen.getByRole("heading", { name: "Instructions" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    expect(screen.getByText("Instructions are required.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /workflow/i }));
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    expect(screen.getByRole("heading", { name: "Dependencies" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /linux/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^preview$/i }));
+
+    expect(screen.getByText("Generated SKILL.md")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /save skill/i }));
+
+    expect(await screen.findByText("This is a local UI preview. It has not been installed on the agent yet.")).toBeInTheDocument();
+  });
+
+  it("adds locally generated skills as mocked previews", async () => {
+    renderPanel({
+      initialCategory: "skills",
+      initialPluginId: null,
+      onLoadSkills: vi.fn(async () => []),
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /create skill/i }));
+    fireEvent.click(screen.getByRole("button", { name: /describe with ai/i }));
+    fireEvent.change(screen.getByPlaceholderText(/i want a skill/i), { target: { value: "Search GitHub repos" } });
+    fireEvent.click(screen.getByRole("button", { name: /generate skill/i }));
+
+    expect(await screen.findByRole("status", { name: /generating skill preview/i })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: /save skill/i }));
+
+    expect(await screen.findByText("This is a local UI preview. It has not been installed on the agent yet.")).toBeInTheDocument();
+    expect(screen.getAllByText(/local preview/i).length).toBeGreaterThan(0);
+  });
+
+  it("imports skill files as mocked previews", async () => {
+    renderPanel({
+      initialCategory: "skills",
+      initialPluginId: null,
+      onLoadSkills: vi.fn(async () => []),
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /^import$/i }));
+    const file = new File([
+      "---\nname: imported-skill\ndescription: Imported skill preview.\n---\n# Imported Skill\n",
+    ], "imported-skill.md", { type: "text/markdown" });
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement | null;
+    expect(input).not.toBeNull();
+    fireEvent.change(input!, { target: { files: [file] } });
+
+    expect(await screen.findByText("imported-skill.md")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /import \(1\)/i }));
+
+    expect(await screen.findByText("This is a local UI preview. It has not been installed on the agent yet.")).toBeInTheDocument();
+  });
+
+  it("searches and installs library skills through SDK callbacks", async () => {
+    const onSearchLibrarySkills = vi.fn(async () => ({
+      results: [{ score: 1, slug: "code-review", displayName: "Code Review", summary: "Review code changes.", version: "1.0.0" }],
+    }));
+    const onInstallLibrarySkill = vi.fn(async () => ({ ok: true, slug: "code-review", message: "Installed Code Review." }));
+    const onLoadSkills = vi.fn(async () => []);
+
+    renderPanel({
+      initialCategory: "skills",
+      initialPluginId: null,
+      onLoadSkills,
+      onSearchLibrarySkills,
+      onInstallLibrarySkill,
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /library/i }));
+    expect(await screen.findByText("Code Review")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /add to agent/i }));
+
+    await waitFor(() => {
+      expect(onInstallLibrarySkill).toHaveBeenCalledWith({ source: "clawhub", slug: "code-review" });
+    });
   });
 
   it("shows truthful tier one states for service connectors", () => {

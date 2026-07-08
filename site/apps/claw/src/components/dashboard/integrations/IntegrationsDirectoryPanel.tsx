@@ -2,12 +2,25 @@
 
 import React from "react";
 import Markdown from "react-markdown";
-import { AlertTriangle, ArrowRight, Box, CheckCircle2, Code2, ExternalLink, FileText, Loader2, Mail, Plus, RefreshCw, Search, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Code2, ExternalLink, FileText, Loader2, Mail, Plus, RefreshCw, Search, Upload, X } from "lucide-react";
+import {
+  SkillCard,
+  SkillsCreateModal,
+  SkillsEmptyState,
+  SkillsImportModal,
+  SkillsWorkspaceShell,
+  skillCardBadgeIcons,
+  skillSlugFromName,
+  type SkillCardBadge,
+  type SkillCardModel,
+  type SkillGeneratedOutput,
+  type SkillImportItem,
+} from "@hypercli/shared-ui/skills";
 
 import { DirectoryDetail } from "../directory/DirectoryDetail";
 import { SkillsLoadingState } from "../directory/SkillsLoadingState";
 import { isPluginAvailableInSchema, isPluginConnected, schemaPathExists, type DirectoryCategory } from "../directory/directory-utils";
-import { loadSystemSkills, type AgentFileSource, type WorkspaceSkill } from "../directory/workspace-skills";
+import { loadSystemSkills, parseSkillFile, type AgentFileSource, type WorkspaceSkill } from "../directory/workspace-skills";
 import { PLUGIN_REGISTRY, type PluginMeta } from "./plugin-registry";
 import { INTEGRATION_BRAND_LOGOS, type IntegrationBrandIcon } from "./integration-brand-icons";
 import { AgentLoadingState } from "../agents/page-helpers";
@@ -23,13 +36,19 @@ import type {
   GatewayIntegrationStatusEntry,
   GatewayIntegrationStatusParams,
   GatewayIntegrationStatusResult,
+  GatewaySkillSearchResultItem,
+  GatewaySkillsInstallParams,
+  GatewaySkillsInstallResult,
+  GatewaySkillsSearchParams,
+  GatewaySkillsSearchResult,
   OpenClawConfigSchemaResponse,
 } from "@hypercli.com/sdk/openclaw/gateway";
 
 type IntegrationFilter = "all" | "web" | "channels" | "tools" | "media" | "skills";
 type IntegrationIcon = IntegrationBrandIcon;
-type SkillStatus = "active" | "needs-setup" | "disabled";
+type SkillStatus = "active" | "needs-setup" | "disabled" | "preview";
 type SkillStatusFilter = "all" | SkillStatus;
+type SkillsPanelTab = "installed" | "library";
 type CatalogIntegrationStatus = "planned" | "oauth-required";
 type IntegrationStatusTone = "accent" | "warning" | "neutral";
 type ServiceConnectorId = "github";
@@ -38,6 +57,7 @@ interface SkillListRow {
   skill: WorkspaceSkill;
   status: SkillStatus;
   requirement: string | null;
+  localPreview?: boolean;
 }
 
 interface SkillFrontmatterRow {
@@ -69,6 +89,8 @@ interface IntegrationsDirectoryPanelProps {
   onIntegrationAuthStatus?: (params: GatewayIntegrationAuthStatusParams) => Promise<GatewayIntegrationAuthStatusResult>;
   onIntegrationStatus?: (params?: GatewayIntegrationStatusParams) => Promise<GatewayIntegrationStatusResult>;
   onIntegrationDisconnect?: (params: GatewayIntegrationDisconnectParams) => Promise<GatewayIntegrationDisconnectResult>;
+  onSearchLibrarySkills?: (params?: GatewaySkillsSearchParams) => Promise<GatewaySkillsSearchResult>;
+  onInstallLibrarySkill?: (params: GatewaySkillsInstallParams) => Promise<GatewaySkillsInstallResult>;
 }
 
 interface CatalogServiceIntegration {
@@ -119,6 +141,7 @@ const SKILL_STATUS_FILTERS: Array<{ id: SkillStatusFilter; label: string }> = [
   { id: "active", label: "Active" },
   { id: "needs-setup", label: "Needs setup" },
   { id: "disabled", label: "Disabled" },
+  { id: "preview", label: "Preview" },
 ];
 
 const SKILL_MARKDOWN_COMPONENTS: Parameters<typeof Markdown>[0]["components"] = {
@@ -485,71 +508,94 @@ function buildSkillConfigPatch(skill: WorkspaceSkill, env: Record<string, string
   return { skills: { entries: { [skill.id]: entry } } };
 }
 
-function SkillRow({ row, selected, onOpen }: { row: SkillListRow; selected: boolean; onOpen: () => void }) {
-  const { skill, status, requirement } = row;
-  const statusLabel = status === "needs-setup" ? "Needs setup" : status === "disabled" ? "Disabled" : "Active";
-  const statusClasses = {
-    active: "border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] text-[var(--selection-accent)]",
-    "needs-setup": "border-[#765415] bg-[#2f2209] text-[#f5c45e]",
-    disabled: "border-[#333333] bg-[#151515] text-[#858585]",
-  }[status];
-  const dotClasses = {
-    active: "bg-[var(--button-primary)]",
-    "needs-setup": "bg-[#f5c45e]",
-    disabled: "bg-[#626266]",
-  }[status];
-  const toggleClasses = {
-    active: "border-[var(--selection-accent)] bg-[var(--button-primary)]",
-    "needs-setup": "border-[#c99631] bg-[#f5c45e]",
-    disabled: "border-[#343438] bg-[#242426]",
-  }[status];
-  const toggleKnobClasses = status === "disabled" ? "translate-x-0 bg-[#9a9a9a]" : "translate-x-[18px] bg-white";
+function skillStatusLabel(status: SkillStatus): string {
+  if (status === "needs-setup") return "Needs setup";
+  if (status === "disabled") return "Disabled";
+  if (status === "preview") return "Local preview";
+  return "Active";
+}
 
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className={`grid w-full grid-cols-1 gap-3 border-t border-[#29292c] px-3.5 py-3.5 text-left transition-colors first:border-t-0 hover:bg-[#121214] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.5)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-4 ${selected ? "bg-[#121214]" : ""} ${status === "disabled" ? "opacity-60" : ""}`}
-    >
-      <div className="grid min-w-0 grid-cols-[1.75rem_minmax(0,1fr)] items-start gap-3">
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] border border-[#303036] bg-[#151519] text-[#f3f3f3]">
-          {skill.emoji ? (
-            <span className="text-[14px] leading-none" aria-hidden="true">{skill.emoji}</span>
-          ) : (
-            <FileText className="h-3.5 w-3.5 text-[#8d8d96]" />
-          )}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <h3 className="min-w-0 flex-1 truncate font-mono text-[13px] font-semibold leading-tight text-[#f5f5f5]">{skill.name}</h3>
-            <span className="max-w-[46%] shrink-0 truncate rounded-[5px] border border-[#323238] bg-[#151519] px-1.5 py-0.5 font-mono text-[10px] leading-none text-[#9a9aa2]">
-              /{skill.id}
-            </span>
-          </div>
-          <p className="mt-1 line-clamp-1 break-words text-[12px] leading-snug text-[#a7a7ad]">{skill.description}</p>
-          {requirement && (
-            <p className="mt-1.5 flex min-w-0 items-center gap-1.5 font-mono text-[10px] font-semibold leading-tight text-[#f5c45e]">
-              <AlertTriangle className="h-3 w-3 shrink-0" />
-              <span className="min-w-0 flex-1 truncate">{requirement}</span>
-            </p>
-          )}
-        </div>
-      </div>
+function skillBadges(skill: WorkspaceSkill): SkillCardBadge[] {
+  return [
+    skill.hasScripts ? { label: "Scripts", icon: skillCardBadgeIcons.scripts } : null,
+    skill.hasReferences ? { label: "References", icon: skillCardBadgeIcons.references } : null,
+    skill.hasAssets ? { label: "Assets", icon: skillCardBadgeIcons.assets } : null,
+    skill.requiresBins.length > 0 ? { label: `${skill.requiresBins.length} bin${skill.requiresBins.length === 1 ? "" : "s"}`, icon: skillCardBadgeIcons.assets, tone: "needs-setup" as const } : null,
+  ].filter(Boolean) as SkillCardBadge[];
+}
 
-      <div className="flex min-w-0 items-center gap-2 pl-10 sm:justify-end sm:pl-0">
-        <span className={`inline-flex h-6 max-w-full items-center gap-1.5 rounded-full border px-2.5 text-[10px] font-semibold leading-none ${statusClasses}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${dotClasses}`} aria-hidden="true" />
-          <span className="truncate">{statusLabel}</span>
-        </span>
-        <span
-          aria-hidden="true"
-          className={`relative h-5 w-10 shrink-0 rounded-full border ${toggleClasses}`}
-        >
-          <span className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full shadow-sm transition-transform ${toggleKnobClasses}`} />
-        </span>
-      </div>
-    </button>
+function skillCardForRow(row: SkillListRow): SkillCardModel {
+  return {
+    id: row.skill.id,
+    name: row.skill.name,
+    description: row.skill.description,
+    category: row.skill.category,
+    emoji: row.skill.emoji,
+    statusLabel: skillStatusLabel(row.status),
+    statusTone: row.status,
+    pathLabel: `/${row.skill.id}`,
+    requirement: row.requirement,
+    badges: skillBadges(row.skill),
+    mocked: row.localPreview,
+  };
+}
+
+function librarySkillCard(item: GatewaySkillSearchResultItem): SkillCardModel {
+  return {
+    id: item.slug,
+    name: item.displayName || item.slug,
+    description: item.summary || "Community skill from the library.",
+    category: item.ownerHandle ? `@${item.ownerHandle}` : "Library",
+    statusLabel: item.version ? `v${item.version}` : "Library",
+    statusTone: "library",
+    pathLabel: item.slug,
+  };
+}
+
+function generatedSkillToWorkspaceSkill(skill: SkillGeneratedOutput): WorkspaceSkill {
+  return parseSkillFile(
+    skill.id,
+    `/app/skills/${skill.id}/SKILL.md`,
+    skill.content,
+    [],
   );
+}
+
+function skillContentForImport(item: SkillImportItem): { id: string; content: string; entries: Array<{ name: string; path: string; type: "file" | "directory" }> } {
+  if (item.type === "folder") {
+    const skillFile = item.files?.find((file) => /(^|\/)skill\.md$/i.test(file.path)) ?? item.files?.find((file) => /\.md$/i.test(file.name));
+    const id = skillSlugFromName(item.name) || "imported-skill";
+    const content = skillFile?.content || `---\nname: ${id}\ndescription: "Imported skill preview from ${item.name}."\n---\n# ${item.name}\n\nReview this imported folder before installing it on the agent.\n`;
+    const directoryNames = new Set(
+      (item.files ?? [])
+        .map((file) => file.path.split("/").slice(1, -1)[0])
+        .filter(Boolean),
+    );
+    return {
+      id,
+      content,
+      entries: Array.from(directoryNames).map((name) => ({ name, path: `/app/skills/${id}/${name}`, type: "directory" as const })),
+    };
+  }
+
+  const id = skillSlugFromName(item.name.replace(/\.(md|txt|zip)$/i, "")) || "imported-skill";
+  if (item.type === "zip") {
+    return {
+      id,
+      content: `---\nname: ${id}\ndescription: "Imported ZIP preview from ${item.name}."\n---\n# ${item.name}\n\nZIP import is mocked in this UI until archive ingestion lands.\n`,
+      entries: [],
+    };
+  }
+  return {
+    id,
+    content: item.content || `---\nname: ${id}\ndescription: "Imported skill preview from ${item.name}."\n---\n# ${item.name}\n`,
+    entries: [],
+  };
+}
+
+function importItemToWorkspaceSkill(item: SkillImportItem): WorkspaceSkill {
+  const { id, content, entries } = skillContentForImport(item);
+  return parseSkillFile(id, `/app/skills/${id}/SKILL.md`, content, entries);
 }
 
 function SkillDrawer({
@@ -569,20 +615,23 @@ function SkillDrawer({
 }) {
   const frontmatterRows = skillFrontmatterRows(skill);
   const needsSetup = row.status === "needs-setup";
-  const statusLabel = row.status === "needs-setup" ? "Needs setup" : row.status === "disabled" ? "Disabled" : "Active";
+  const localPreview = row.status === "preview";
+  const statusLabel = row.status === "needs-setup" ? "Needs setup" : row.status === "disabled" ? "Disabled" : localPreview ? "Local preview" : "Active";
   const statusClass = row.status === "needs-setup"
     ? "border-[#765415] bg-[#2f2209] text-[#f5c45e]"
     : row.status === "disabled"
       ? "border-[#333333] bg-[#151515] text-[#858585]"
-      : "border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] text-[var(--selection-accent)]";
-  const StatusIcon = row.status === "active" ? CheckCircle2 : AlertTriangle;
+      : row.status === "preview"
+        ? "border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] text-[var(--selection-accent)]"
+        : "border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] text-[var(--selection-accent)]";
+  const StatusIcon = row.status === "active" ? CheckCircle2 : localPreview ? FileText : AlertTriangle;
   const configEntryEnvSignature = JSON.stringify(configEntry.env ?? {});
   const [envDraft, setEnvDraft] = React.useState<Record<string, string>>(() => configEntry.env ?? {});
   const [saving, setSaving] = React.useState(false);
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = React.useState<string | null>(null);
   const requiredEnvMissing = skill.requiresEnv.some((key) => !hasEnvValue(envDraft[key]));
-  const canSaveSetup = !saving && row.status !== "disabled" && !requiredEnvMissing;
+  const canSaveSetup = !saving && row.status !== "disabled" && !localPreview && !requiredEnvMissing;
 
   React.useEffect(() => {
     setEnvDraft(configEntry.env ?? {});
@@ -666,7 +715,13 @@ function SkillDrawer({
               <div className="min-w-0 flex-1">
                 <p className="text-[12px] font-semibold leading-tight text-[#f5f5f5]">{statusLabel}</p>
                 <p className="mt-1 text-[11px] leading-relaxed text-[#c0c0c5]">
-                  {needsSetup ? <SkillSetupInstruction skill={skill} /> : row.status === "disabled" ? "This skill is present but disabled by its metadata." : "This skill is bundled and ready for this agent."}
+                  {needsSetup
+                    ? <SkillSetupInstruction skill={skill} />
+                    : row.status === "disabled"
+                      ? "This skill is present but disabled by its metadata."
+                      : localPreview
+                        ? "This is a local UI preview. It has not been installed on the agent yet."
+                        : "This skill is bundled and ready for this agent."}
                 </p>
                 {skill.requiresEnv.length > 0 && row.status !== "disabled" && (
                   <div className="mt-3 space-y-2">
@@ -722,7 +777,7 @@ function SkillDrawer({
         </div>
 
         <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-[#222226] px-4 py-3">
-          <p className="min-w-0 truncate font-mono text-[10px] text-[#85858e]">skills/{skill.id}/SKILL.md · bundled</p>
+          <p className="min-w-0 truncate font-mono text-[10px] text-[#85858e]">skills/{skill.id}/SKILL.md · {localPreview ? "local preview" : "bundled"}</p>
           {needsSetup ? (
             <button
               type="button"
@@ -736,6 +791,10 @@ function SkillDrawer({
           ) : row.status === "disabled" ? (
             <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-semibold leading-none ${statusClass}`}>
               Disabled
+            </span>
+          ) : localPreview ? (
+            <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-semibold leading-none ${statusClass}`}>
+              Local preview
             </span>
           ) : (
             <button
@@ -1101,17 +1160,27 @@ export function IntegrationsDirectoryPanel({
   onIntegrationAuthStatus,
   onIntegrationStatus,
   onIntegrationDisconnect,
+  onSearchLibrarySkills,
+  onInstallLibrarySkill,
 }: IntegrationsDirectoryPanelProps) {
   const [activeFilter, setActiveFilter] = React.useState<IntegrationFilter>(() => filterFromInitialCategory(initialCategory));
   const [searchQuery, setSearchQuery] = React.useState("");
   const [skillStatusFilter, setSkillStatusFilter] = React.useState<SkillStatusFilter>("all");
+  const [skillsPanelTab, setSkillsPanelTab] = React.useState<SkillsPanelTab>("installed");
+  const [createSkillOpen, setCreateSkillOpen] = React.useState(false);
+  const [importSkillOpen, setImportSkillOpen] = React.useState(false);
   const [selectedPluginId, setSelectedPluginId] = React.useState<string | null>(null);
   const [selectedConnectorId, setSelectedConnectorId] = React.useState<ServiceConnectorId | null>(null);
   const [selectedSkillPath, setSelectedSkillPath] = React.useState<string | null>(null);
   const [skillConfigOverrides, setSkillConfigOverrides] = React.useState<Record<string, SkillConfigEntry>>({});
   const [workspaceSkills, setWorkspaceSkills] = React.useState<WorkspaceSkill[]>([]);
+  const [mockSkills, setMockSkills] = React.useState<WorkspaceSkill[]>([]);
   const [skillsLoading, setSkillsLoading] = React.useState(false);
   const [skillsError, setSkillsError] = React.useState<string | null>(null);
+  const [librarySkills, setLibrarySkills] = React.useState<GatewaySkillSearchResultItem[]>([]);
+  const [libraryLoading, setLibraryLoading] = React.useState(false);
+  const [libraryError, setLibraryError] = React.useState<string | null>(null);
+  const [installingLibrarySlug, setInstallingLibrarySlug] = React.useState<string | null>(null);
   const [integrationStatuses, setIntegrationStatuses] = React.useState<Record<string, GatewayIntegrationStatusEntry>>({});
   const scopeLabel = agentName?.trim() || "this agent";
   const canLoadWorkspaceSkills = Boolean(onListFiles && onReadFile);
@@ -1124,6 +1193,7 @@ export function IntegrationsDirectoryPanel({
     setSkillConfigOverrides({});
     setActiveFilter(filterFromInitialCategory(initialCategory));
     setSkillStatusFilter("all");
+    setSkillsPanelTab("installed");
     setSearchQuery("");
   }, [initialCategory, initialPluginId]);
 
@@ -1230,15 +1300,23 @@ export function IntegrationsDirectoryPanel({
   }, [activeFilter, connected, onListFiles, onLoadSkills, onReadFile]);
 
   const skillRows = React.useMemo<SkillListRow[]>(() => (
-    workspaceSkills.map((skill) => {
+    [
+      ...workspaceSkills.map((skill) => {
       const entry = getSkillConfigEntry(config, skill.id, skillConfigOverrides);
       return {
         skill,
         requirement: formatSkillRequirement(skill, entry),
         status: statusForSkill(skill, config, skillConfigOverrides),
       };
-    })
-  ), [config, skillConfigOverrides, workspaceSkills]);
+      }),
+      ...mockSkills.map((skill) => ({
+        skill,
+        requirement: "Preview only - not installed on the agent",
+        status: "preview" as const,
+        localPreview: true,
+      })),
+    ]
+  ), [config, mockSkills, skillConfigOverrides, workspaceSkills]);
 
   const skillCounts = React.useMemo(() => {
     return skillRows.reduce(
@@ -1246,7 +1324,7 @@ export function IntegrationsDirectoryPanel({
         counts[row.status] += 1;
         return counts;
       },
-      { active: 0, "needs-setup": 0, disabled: 0 } as Record<SkillStatus, number>,
+      { active: 0, "needs-setup": 0, disabled: 0, preview: 0 } as Record<SkillStatus, number>,
     );
   }, [skillRows]);
 
@@ -1268,6 +1346,95 @@ export function IntegrationsDirectoryPanel({
     });
   }, [searchQuery, skillRows, skillStatusFilter]);
 
+  React.useEffect(() => {
+    if (activeFilter !== "skills" || skillsPanelTab !== "library") return;
+    if (!onSearchLibrarySkills) {
+      setLibrarySkills([]);
+      setLibraryError("Library search is not available in this session.");
+      return;
+    }
+
+    let cancelled = false;
+    setLibraryLoading(true);
+    setLibraryError(null);
+    void onSearchLibrarySkills({ query: searchQuery.trim() || undefined, limit: 24 })
+      .then((result) => {
+        if (!cancelled) setLibrarySkills(result.results ?? []);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setLibrarySkills([]);
+          setLibraryError(error instanceof Error ? error.message : "Failed to search the skill library.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLibraryLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeFilter, onSearchLibrarySkills, searchQuery, skillsPanelTab]);
+
+  const reloadWorkspaceSkills = React.useCallback(async () => {
+    const loadSkills = onLoadSkills ?? (onListFiles && onReadFile ? () => loadSystemSkills(onListFiles, onReadFile) : null);
+    if (!loadSkills) return;
+    setSkillsLoading(true);
+    setSkillsError(null);
+    try {
+      const skills = await loadSkills();
+      setWorkspaceSkills(skills);
+    } catch (error) {
+      setWorkspaceSkills([]);
+      setSkillsError(error instanceof Error ? error.message : "Failed to load app skills.");
+    } finally {
+      setSkillsLoading(false);
+    }
+  }, [onListFiles, onLoadSkills, onReadFile]);
+
+  const handleCreateMockSkill = React.useCallback((generated: SkillGeneratedOutput) => {
+    const skill = generatedSkillToWorkspaceSkill(generated);
+    setMockSkills((current) => [skill, ...current.filter((item) => item.id !== skill.id)]);
+    setSkillsPanelTab("installed");
+    setSkillStatusFilter("preview");
+    setSearchQuery("");
+    setSelectedSkillPath(skill.path);
+  }, []);
+
+  const handleImportMockSkills = React.useCallback((items: SkillImportItem[]) => {
+    const imported = items.map(importItemToWorkspaceSkill);
+    setMockSkills((current) => {
+      const byId = new Map(current.map((skill) => [skill.id, skill]));
+      imported.forEach((skill) => byId.set(skill.id, skill));
+      return Array.from(byId.values());
+    });
+    setSkillsPanelTab("installed");
+    setSkillStatusFilter("preview");
+    setSearchQuery("");
+    if (imported[0]) setSelectedSkillPath(imported[0].path);
+  }, []);
+
+  const handleInstallLibrarySkill = React.useCallback(async (slug: string) => {
+    if (!onInstallLibrarySkill) {
+      setLibraryError("Library install is not available in this session.");
+      return;
+    }
+    setInstallingLibrarySlug(slug);
+    setLibraryError(null);
+    try {
+      const result = await onInstallLibrarySkill({ source: "clawhub", slug });
+      if (!result.ok) throw new Error(result.message || `Could not install ${slug}.`);
+      await reloadWorkspaceSkills();
+      setSkillsPanelTab("installed");
+      setSkillStatusFilter("all");
+      setSearchQuery("");
+    } catch (error) {
+      setLibraryError(error instanceof Error ? error.message : `Could not install ${slug}.`);
+    } finally {
+      setInstallingLibrarySlug(null);
+    }
+  }, [onInstallLibrarySkill, reloadWorkspaceSkills]);
+
   const showingSkills = activeFilter === "skills";
   const selectedSkillRow = selectedSkillPath ? skillRows.find((row) => row.skill.path === selectedSkillPath) ?? null : null;
   const selectedSkillConfigEntry: SkillConfigEntry = selectedSkillRow
@@ -1275,10 +1442,19 @@ export function IntegrationsDirectoryPanel({
     : { env: {} };
   const skillsSummary = skillsLoading
     ? "Loading app skills"
-    : `${workspaceSkills.length} bundled · ${skillCounts.active} active`;
+    : `${workspaceSkills.length} bundled · ${skillCounts.active} active${mockSkills.length > 0 ? ` · ${mockSkills.length} local preview` : ""}`;
   const effectiveSkillsError = showingSkills && !onLoadSkills && !canLoadWorkspaceSkills
     ? "Workspace file access is unavailable for this agent."
     : skillsError;
+  const skillTabs = React.useMemo(() => ([
+    { id: "installed" as const, label: "Installed", count: skillRows.length },
+    { id: "library" as const, label: "Library", count: librarySkills.length },
+  ]), [librarySkills.length, skillRows.length]);
+  const skillFilterOptions = React.useMemo(() => SKILL_STATUS_FILTERS.map((filter) => ({
+    ...filter,
+    count: filter.id === "all" ? skillRows.length : skillCounts[filter.id],
+  })), [skillCounts, skillRows.length]);
+  const mockedSkillNotice = "Create and import are local previews until skill creation/import APIs are available. They are not installed on the agent and disappear on reload.";
 
   React.useEffect(() => {
     if (activeFilter !== "skills") setSelectedSkillPath(null);
@@ -1355,43 +1531,101 @@ export function IntegrationsDirectoryPanel({
   return (
     <div className="h-full min-h-0 overflow-y-auto bg-[#030303] text-[#f5f5f5]">
       {showingSkills ? (
-        <div className="border-b border-[#222222] px-5 py-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
-              <h2 className="text-[17px] font-semibold leading-tight">Skills</h2>
-              <p className="mt-3 max-w-3xl text-[12px] leading-relaxed text-[#a7a7ad]">
-                Skills are AgentSkills-compatible folders shipped with OpenClaw. Each is a directory with a{" "}
-                <code className="rounded-[5px] border border-[#303036] bg-[#101014] px-1.5 py-0.5 font-mono text-[10px] text-[#f5f5f5]">SKILL.md</code>{" "}
-                describing what the agent can do and what it needs to run.
-              </p>
-            </div>
-            <p className="shrink-0 text-[11px] leading-tight text-[#9a9aa2] sm:text-right">{skillsSummary}</p>
-          </div>
-
-          <div className="mt-5 flex flex-wrap gap-2">
-            {SKILL_STATUS_FILTERS.map((filter) => {
-              const count = filter.id === "all" ? workspaceSkills.length : skillCounts[filter.id];
-              const active = skillStatusFilter === filter.id;
-              return (
+        <div className="px-5 py-5">
+          <SkillsWorkspaceShell
+            title="Skills"
+            description={(
+              <>
+                Skills are instruction packs backed by <code className="rounded-md border border-border bg-background/70 px-1.5 py-0.5 font-mono text-[11px] text-foreground">SKILL.md</code> files.
+                Installed skills come from the agent; created and imported skills stay as local previews until backend support lands.
+              </>
+            )}
+            summary={skillsPanelTab === "installed" ? skillsSummary : libraryLoading ? "Searching library" : `${librarySkills.length} library result${librarySkills.length === 1 ? "" : "s"}`}
+            actions={(
+              <>
                 <button
-                  key={filter.id}
                   type="button"
-                  onClick={() => {
-                    setSkillStatusFilter(filter.id);
-                    setSearchQuery("");
-                  }}
-                  className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-medium transition-colors ${
-                    active
-                      ? "border-[#f5f5f5] bg-[#f5f5f5] text-[#111111]"
-                      : "border-[#333337] bg-[#111113] text-[#f5f5f5] hover:border-[#56565c]"
-                  }`}
+                  onClick={() => setImportSkillOpen(true)}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-surface-low/50 px-2.5 text-xs font-semibold text-foreground transition-colors hover:border-border-strong hover:bg-surface-low"
                 >
-                  <span>{filter.label}</span>
-                  <span className={active ? "text-[#4a4a4d]" : "text-[#8d8d96]"}>{count}</span>
+                  <Upload className="h-3.5 w-3.5" />
+                  Import
                 </button>
-              );
-            })}
-          </div>
+                <button
+                  type="button"
+                  onClick={() => setCreateSkillOpen(true)}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Create Skill
+                </button>
+              </>
+            )}
+            searchValue={searchQuery}
+            onSearchChange={setSearchQuery}
+            searchPlaceholder={skillsPanelTab === "library" ? "Search library skills..." : "Search installed skills..."}
+            tabs={skillTabs}
+            activeTab={skillsPanelTab}
+            onTabChange={(tab) => {
+              setSkillsPanelTab(tab);
+              setSkillStatusFilter("all");
+              setSearchQuery("");
+              setSelectedSkillPath(null);
+            }}
+            filters={skillsPanelTab === "installed" ? skillFilterOptions : undefined}
+            activeFilter={skillsPanelTab === "installed" ? skillStatusFilter : undefined}
+            onFilterChange={skillsPanelTab === "installed" ? setSkillStatusFilter : undefined}
+          >
+            {skillsPanelTab === "installed" ? (
+              skillsLoading ? (
+                <SkillsLoadingState className="rounded-2xl border border-border bg-surface-low/25" />
+              ) : effectiveSkillsError ? (
+                <div className="rounded-2xl border border-border bg-surface-low/25 px-5 py-10 text-center text-sm text-text-muted">
+                  {effectiveSkillsError}
+                </div>
+              ) : filteredSkillRows.length > 0 ? (
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {filteredSkillRows.map((row) => (
+                    <SkillCard
+                      key={row.skill.path}
+                      skill={skillCardForRow(row)}
+                      actionLabel={row.status === "preview" ? "Review" : "Configure"}
+                      onAction={() => setSelectedSkillPath(row.skill.path)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <SkillsEmptyState
+                  title={mockSkills.length > 0 || workspaceSkills.length > 0 ? "No skills match your filters." : "No app skills found."}
+                  detail={mockSkills.length > 0 || workspaceSkills.length > 0 ? "Try another status filter or search term." : "Create or import a local preview, or install a skill from the library."}
+                />
+              )
+            ) : libraryLoading ? (
+              <SkillsLoadingState title="Searching library" detail="Looking for available skills." className="rounded-2xl border border-border bg-surface-low/25" />
+            ) : libraryError ? (
+              <div className="rounded-2xl border border-border bg-surface-low/25 px-5 py-10 text-center text-sm text-text-muted">
+                {libraryError}
+              </div>
+            ) : librarySkills.length > 0 ? (
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {librarySkills.map((item) => (
+                  <SkillCard
+                    key={item.slug}
+                    skill={librarySkillCard(item)}
+                    actionLabel="Add to agent"
+                    actionDisabled={!onInstallLibrarySkill}
+                    actionLoading={installingLibrarySlug === item.slug}
+                    onAction={() => void handleInstallLibrarySkill(item.slug)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <SkillsEmptyState
+                title="No library skills found."
+                detail={searchQuery.trim() ? "Try a broader search term." : "Search the library to find installable skills."}
+              />
+            )}
+          </SkillsWorkspaceShell>
         </div>
       ) : (
         <div className="border-b border-[#222222] px-5 py-5">
@@ -1431,32 +1665,9 @@ export function IntegrationsDirectoryPanel({
         </div>
       )}
 
-      <div className="px-5 py-7">
-        {showingSkills ? (
-          skillsLoading ? (
-            <SkillsLoadingState className="rounded-[12px] border border-[#333333] bg-[#181818]" />
-          ) : effectiveSkillsError ? (
-            <div className="rounded-[12px] border border-[#333333] bg-[#181818] px-5 py-10 text-center text-sm text-[#858585]">
-              {effectiveSkillsError}
-            </div>
-          ) : filteredSkillRows.length > 0 ? (
-            <div className="overflow-hidden rounded-[10px] border border-[#333337] bg-[#0b0b0c]">
-              {filteredSkillRows.map((row) => (
-                <SkillRow
-                  key={row.skill.path}
-                  row={row}
-                  selected={selectedSkillPath === row.skill.path}
-                  onOpen={() => setSelectedSkillPath(row.skill.path)}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-[12px] border border-[#333333] bg-[#181818] px-5 py-10 text-center text-sm text-[#858585]">
-              <Box className="mx-auto mb-3 h-5 w-5 text-[#696969]" />
-              No app skills found.
-            </div>
-          )
-        ) : filteredTiles.length > 0 ? (
+      {!showingSkills && (
+        <div className="px-5 py-7">
+          {filteredTiles.length > 0 ? (
           <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
             {filteredTiles.map((tile) => (
               <IntegrationCard
@@ -1470,12 +1681,25 @@ export function IntegrationsDirectoryPanel({
               />
             ))}
           </div>
-        ) : (
+          ) : (
           <div className="rounded-[12px] border border-[#333333] bg-[#181818] px-5 py-10 text-center text-sm text-[#858585]">
             No integrations match this search.
           </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
+      <SkillsCreateModal
+        open={createSkillOpen}
+        onClose={() => setCreateSkillOpen(false)}
+        onSave={handleCreateMockSkill}
+        notice={mockedSkillNotice}
+      />
+      <SkillsImportModal
+        open={importSkillOpen}
+        onClose={() => setImportSkillOpen(false)}
+        onImport={handleImportMockSkills}
+        notice={mockedSkillNotice}
+      />
       {selectedSkillRow && (
         <SkillDrawer
           skill={selectedSkillRow.skill}
