@@ -22,6 +22,7 @@ import { HyperAgent } from './agent.js';
 import { KeysAPI } from './keys.js';
 import { Deployments } from './agents.js';
 import { ModelsAPI } from './models.js';
+import { WorkspacesAPI } from './workspaces.js';
 
 function deriveAgentsApiBase(apiUrl: string, agentDev: boolean): string {
   return agentDev ? getAgentsApiBaseUrl(true) : getAgentsApiBaseUrlFromProductBase(apiUrl);
@@ -99,6 +100,7 @@ export class HyperCLI {
   public readonly voice: VoiceAPI;
   public readonly keys: KeysAPI;
   public readonly models: ModelsAPI;
+  public readonly workspaces: WorkspacesAPI;
   public readonly agent: HyperAgent;
   public readonly deployments: Deployments;
 
@@ -134,6 +136,10 @@ export class HyperCLI {
     this.voice = new VoiceAPI(this._agentsHttp);
     this.keys = new KeysAPI(this._http);
     this.models = new ModelsAPI(this._http);
+    this.workspaces = new WorkspacesAPI(this._apiKey, {
+      agentsApiBase: resolvedAgentsApiBase,
+      timeout: options.timeout,
+    });
 
     this.agent = new HyperAgent(
       this._http,

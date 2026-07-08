@@ -38,6 +38,7 @@ from .renders import Render, RenderStatus
 from .voice import VoiceAPI
 from .voice_stream import VoiceChunk, VoiceSession, VoiceStreamError
 from .models import Model, ModelsAPI
+from .workspaces import DownloadUrl, Workspace, WorkspaceFile, WorkspaceGrant, WorkspaceManifest, WorkspacesAPI
 from .x402 import X402Client, X402JobLaunch, X402FlowCreate, X402RenderCreate, FlowCatalogItem
 from .files import File, AsyncFiles
 from .user import AuthMe, RuntimeIdentity, User, UserAPI
@@ -125,6 +126,12 @@ __all__ = [
     "VoiceStreamError",
     "Model",
     "ModelsAPI",
+    "DownloadUrl",
+    "Workspace",
+    "WorkspaceFile",
+    "WorkspaceGrant",
+    "WorkspaceManifest",
+    "WorkspacesAPI",
     # x402 API
     "X402Client",
     "X402JobLaunch",

@@ -108,6 +108,17 @@ export {
   type Model,
 } from './models.js';
 
+export {
+  WorkspacesAPI,
+  deriveWorkspacesApiBase,
+  type Workspace,
+  type WorkspaceDownloadUrl,
+  type WorkspaceFile,
+  type WorkspaceGrant,
+  type WorkspaceManifest,
+  type WorkspaceSubjectOptions,
+} from './workspaces.js';
+
 // Logs
 export {
   LogStream,

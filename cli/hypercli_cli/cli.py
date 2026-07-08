@@ -10,7 +10,7 @@ from rich.table import Table
 from hypercli import HyperCLI, APIError, configure
 from hypercli.config import CONFIG_FILE
 
-from . import agent, agents, billing, comfyui, files, flow, instances, jobs, keys, llm, memory, user, voice, wallet
+from . import agent, agents, billing, comfyui, files, flow, instances, jobs, keys, llm, memory, user, voice, wallet, workspaces
 from .output import output, spinner
 
 console = Console()
@@ -98,6 +98,7 @@ app.add_typer(memory.app, name="memory")
 app.add_typer(user.app, name="user")
 app.add_typer(voice.app, name="voice")
 app.add_typer(wallet.app, name="wallet")
+app.add_typer(workspaces.app, name="workspaces")
 app.command("launch", help="Launch a GPU instance")(instances.launch)
 
 
