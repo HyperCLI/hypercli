@@ -18,6 +18,7 @@ import { FilesDirectoryTree } from "./FilesDirectoryTree";
 import { FilePreview, type FilePreviewMarkdownRenderer } from "./FilePreview";
 import { FilesEmptyState } from "./FilesEmptyState";
 import { writeClipboardText } from "../utils/browser-clipboard";
+import { shouldReadFileAsBytes } from "./file-types";
 
 // ── Types ──
 
@@ -64,7 +65,7 @@ export function FilesDrawer({
 
   // Preview state
   const [previewEntry, setPreviewEntry] = useState<FileEntry | null>(null);
-  const [previewContent, setPreviewContent] = useState<string | null>(null);
+  const [previewContent, setPreviewContent] = useState<string | Uint8Array | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
@@ -128,7 +129,9 @@ export function FilesDrawer({
     setPreviewLoading(true);
     try {
       if (callbacks) {
-        const content = await callbacks.onGetFile(entry.path);
+        const content = shouldReadFileAsBytes(entry.name) && callbacks.onGetFileBytes
+          ? await callbacks.onGetFileBytes(entry.path)
+          : await callbacks.onGetFile(entry.path);
         setPreviewContent(content);
       }
     } catch (err) {

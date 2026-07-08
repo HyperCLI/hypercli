@@ -20,12 +20,13 @@ import {
   compareFileBackupEntries,
   markFileBackupComparisonUnavailable,
 } from "./backup-comparison";
-import { FilePreview, isArchiveFileName, isImageFileName, type FilePreviewMarkdownRenderer } from "./FilePreview";
+import { FilePreview, type FilePreviewMarkdownRenderer } from "./FilePreview";
 import { FilesDirectoryTree } from "./FilesDirectoryTree";
 import { FilesEmptyState } from "./FilesEmptyState";
 import { FilesSearchBar } from "./FilesSearchBar";
 import { FilesUploadZone } from "./FilesUploadZone";
 import type { FileEntry, FileSortDir, FileSortKey } from "./types";
+import { shouldReadFileAsBytes } from "./file-types";
 import { downloadFileBytes } from "../utils/download-file";
 import { writeClipboardText } from "../utils/browser-clipboard";
 
@@ -427,7 +428,7 @@ export function AgentFilesPanel({
     setPreviewError(null);
     setPreviewLoading(true);
     try {
-      const openAsBytes = (isImageFileName(entry.name) || isArchiveFileName(entry.name)) && onOpenFileBytes;
+      const openAsBytes = shouldReadFileAsBytes(entry.name) && onOpenFileBytes;
       const result = resolveAgentFileOpenResult(
         await (openAsBytes
           ? onOpenFileBytes(entry.path, sourceMode)

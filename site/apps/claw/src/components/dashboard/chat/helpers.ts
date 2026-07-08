@@ -1,4 +1,4 @@
-export const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
+import { isImageFileReference } from "@hypercli/shared-ui/files";
 
 const TOOL_NAME_OVERRIDES: Record<string, string> = {
   bash: "Shell",
@@ -60,7 +60,7 @@ export function extractImagePath(tc: { name: string; args: string; result?: stri
   try {
     const args = JSON.parse(tc.args);
     const path = args.file_path || args.path || "";
-    if (typeof path === "string" && IMAGE_EXTENSIONS.test(path)) return path;
+    if (typeof path === "string" && isImageFileReference(path)) return path;
   } catch { /* ignore */ }
   return null;
 }

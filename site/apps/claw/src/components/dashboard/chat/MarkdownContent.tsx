@@ -9,6 +9,12 @@ import rehypeSanitize, { defaultSchema, type Options as RehypeSanitizeOptions } 
 import remarkEmoji from "remark-emoji";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import {
+  KNOWN_FILE_EXTENSIONS,
+  isImageFileReference,
+  isKnownNonImageFileReference,
+  knownFileExtensionsPattern,
+} from "@hypercli/shared-ui/files";
 import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import { ChatImageViewer } from "./ChatImageViewer";
 import { useTypewriter } from "./useTypewriter";
@@ -34,11 +40,9 @@ const MARKDOWN_TABLE_CELL_CLASS = "border-b border-border/60 px-2 py-1 align-top
 export const CHAT_MARKDOWN_IMAGE_CLASS = "h-auto max-h-[320px] max-w-full rounded-md object-contain sm:max-w-[320px]";
 export const CHAT_MEDIA_LINK_CLASS = "block max-w-full";
 const CODE_META_MARKER = "__OPENCLAW_CODE_META__:";
-const MARKDOWN_IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|ico)(?:[?#].*)?$/i;
-const MARKDOWN_NON_IMAGE_EXTENSIONS = /\.(pdf|csv|txt|md|json|ya?ml|zip|gz|tar|xlsx?|docx?|pptx?)(?:[?#].*)?$/i;
 const WORKSPACE_FILE_LINK_PREFIX = "#openclaw-file/";
-const FILE_MENTION_EXTENSIONS = "a|aac|avi|bmp|c|cc|cjs|cpp|cs|css|csv|doc|docx|env|epub|fish|flac|gif|go|gz|h|hpp|htm|html|ico|java|jpeg|jpg|js|json|jsonc|jsx|kt|lock|log|m4a|md|mdx|mjs|mov|mp3|mp4|oga|ogg|opus|pdf|php|png|ppt|pptx|ps1|py|rb|rs|sass|scss|sh|sql|svg|swift|tar|tgz|toml|ts|tsx|tsv|txt|wav|weba|webm|webp|xls|xlsx|xml|yaml|yml|zip|zsh";
-const FILE_MENTION_EXTENSION_SET = new Set(FILE_MENTION_EXTENSIONS.split("|"));
+const FILE_MENTION_EXTENSIONS = knownFileExtensionsPattern();
+const FILE_MENTION_EXTENSION_SET = new Set(KNOWN_FILE_EXTENSIONS);
 const FILE_MENTION_PATTERN = new RegExp(
   `(^|[\\s([{<"'])([^\\s)\\]}>"',;:!?]+\\.(?:${FILE_MENTION_EXTENSIONS}))(?=$|[\\s)\\]}>"',.;:!?])`,
   "gi",
@@ -362,8 +366,8 @@ function isRenderableMarkdownImageSrc(src: string): boolean {
   if (!trimmed || /^media:/i.test(trimmed)) return false;
   if (/^(?:home\/node\/\.openclaw\/workspace|\.?openclaw\/workspace|workspace|home)(?:\/|$)/i.test(normalized)) return false;
   if (/^(?:data:image\/|blob:)/i.test(trimmed)) return true;
-  if (MARKDOWN_IMAGE_EXTENSIONS.test(trimmed)) return true;
-  if (/^(?:https?:\/\/|\/)/i.test(trimmed)) return !MARKDOWN_NON_IMAGE_EXTENSIONS.test(trimmed);
+  if (isImageFileReference(trimmed)) return true;
+  if (/^(?:https?:\/\/|\/)/i.test(trimmed)) return !isKnownNonImageFileReference(trimmed);
   return false;
 }
 

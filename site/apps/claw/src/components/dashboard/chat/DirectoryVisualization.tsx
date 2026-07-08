@@ -4,6 +4,9 @@ import { useMemo } from "react";
 import {
   File,
   FileCode2,
+  FileArchive,
+  FileAudio,
+  FileVideo,
   FileImage,
   FileJson,
   FileText,
@@ -13,7 +16,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { formatFileSize } from "@hypercli/shared-ui/files";
+import { formatFileSize, resolveFileType } from "@hypercli/shared-ui/files";
 
 export type DirectoryVisualizationEntry = {
   name: string;
@@ -42,29 +45,6 @@ type TreeNode = DirectoryVisualizationEntry & {
 type FlatRow = TreeNode & {
   depth: number;
 };
-
-const CODE_EXTENSIONS = new Set([
-  "c",
-  "conf",
-  "cpp",
-  "css",
-  "go",
-  "h",
-  "html",
-  "java",
-  "js",
-  "jsx",
-  "py",
-  "rb",
-  "rs",
-  "sh",
-  "sql",
-  "ts",
-  "tsx",
-]);
-const IMAGE_EXTENSIONS = new Set(["bmp", "gif", "ico", "jpeg", "jpg", "png", "svg", "webp"]);
-const TEXT_EXTENSIONS = new Set(["csv", "log", "md", "mdx", "txt"]);
-const SETTINGS_EXTENSIONS = new Set(["env", "ini", "toml", "yaml", "yml"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -323,13 +303,21 @@ function entryCounts(entries: DirectoryVisualizationEntry[]): { files: number; d
 
 function iconForEntry(entry: DirectoryVisualizationEntry): { icon: LucideIcon; className: string } {
   if (entry.type === "directory") return { icon: Folder, className: "text-chart-2" };
-  const extension = entry.name.split(".").pop()?.toLowerCase() ?? "";
-  if (CODE_EXTENSIONS.has(extension)) return { icon: FileCode2, className: "text-chart-2" };
-  if (IMAGE_EXTENSIONS.has(extension)) return { icon: FileImage, className: "text-primary" };
-  if (TEXT_EXTENSIONS.has(extension)) return { icon: FileText, className: "text-text-secondary" };
-  if (SETTINGS_EXTENSIONS.has(extension)) return { icon: Settings, className: "text-warning" };
-  if (extension === "json") return { icon: FileJson, className: "text-chart-2" };
-  return { icon: File, className: "text-text-muted" };
+  const fileType = resolveFileType(entry.name || entry.path);
+  switch (fileType.iconKind) {
+    case "archive": return { icon: FileArchive, className: "text-warning" };
+    case "audio": return { icon: FileAudio, className: "text-chart-2" };
+    case "code": return { icon: FileCode2, className: "text-chart-2" };
+    case "image": return { icon: FileImage, className: "text-primary" };
+    case "json": return { icon: FileJson, className: "text-chart-2" };
+    case "settings": return { icon: Settings, className: "text-warning" };
+    case "text": return { icon: FileText, className: "text-text-secondary" };
+    case "video": return { icon: FileVideo, className: "text-chart-4" };
+    case "document":
+    case "presentation":
+    case "spreadsheet": return { icon: FileText, className: "text-text-secondary" };
+    default: return { icon: File, className: "text-text-muted" };
+  }
 }
 
 export function DirectoryVisualization({

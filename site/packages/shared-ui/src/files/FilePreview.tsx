@@ -14,6 +14,9 @@ import {
   FileImage,
   FileCode,
   FileArchive,
+  FileAudio,
+  FileVideo,
+  FileJson,
   Folder,
   AlertCircle,
   Lock,
@@ -21,6 +24,7 @@ import {
 import type { FileEntry } from "./types";
 import { formatFileSize, getFileBackupBadge } from "./FileRow";
 import { parseZipPreview } from "./zip-preview";
+import { inferFileMimeType, resolveFileType, type ResolvedFileType } from "./file-types";
 import { writeClipboardText } from "../utils/browser-clipboard";
 
 // ── Types ──
@@ -48,50 +52,12 @@ export interface FilePreviewProps {
 
 // ── Helpers ──
 
-const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"]);
-const ARCHIVE_EXTENSIONS = new Set(["zip", "epub"]);
-const CODE_EXTENSIONS = new Set([
-  "ts", "tsx", "js", "jsx", "py", "rs", "go", "rb", "java", "c", "cpp", "h",
-  "sh", "bash", "zsh", "css", "scss", "html", "xml", "sql", "graphql",
-  "yaml", "yml", "toml", "ini", "conf", "env", "dockerfile",
-]);
-const MARKDOWN_EXTENSIONS = new Set(["md", "mdx"]);
 const PREVIEW_ACTION_BUTTON_CLASS =
   "flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30";
 const PREVIEW_ACTION_ICON_CLASS = "h-3.5 w-3.5";
 const PREVIEW_HEADER_ICON_CLASS = "w-4 h-4 text-text-muted flex-shrink-0";
 const MARKDOWN_MODE_BUTTON_CLASS = "rounded-md px-2 py-1 text-[10px] font-medium transition-colors";
 const filePreviewImageLoader: ImageLoader = ({ src }) => src;
-
-function getFileExtension(name: string): string {
-  return name.split(".").pop()?.toLowerCase() ?? "";
-}
-
-function getPreviewType(name: string): "image" | "archive" | "code" | "markdown" | "text" | "binary" {
-  const ext = getFileExtension(name);
-  if (IMAGE_EXTENSIONS.has(ext)) return "image";
-  if (ARCHIVE_EXTENSIONS.has(ext)) return "archive";
-  if (CODE_EXTENSIONS.has(ext)) return "code";
-  if (MARKDOWN_EXTENSIONS.has(ext)) return "markdown";
-  if (ext === "json" || ext === "txt" || ext === "log" || ext === "csv") return "text";
-  return "text";
-}
-
-export function isImageFileName(name: string): boolean {
-  return IMAGE_EXTENSIONS.has(getFileExtension(name));
-}
-
-export function isArchiveFileName(name: string): boolean {
-  return ARCHIVE_EXTENSIONS.has(getFileExtension(name));
-}
-
-function imageMimeType(name: string): string {
-  const ext = getFileExtension(name);
-  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
-  if (ext === "svg") return "image/svg+xml";
-  if (ext === "ico") return "image/x-icon";
-  return `image/${ext || "png"}`;
-}
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(
@@ -105,13 +71,13 @@ function imageSrcFromText(name: string, value: string): string {
   if (trimmed.startsWith("data:") || trimmed.startsWith("blob:") || trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
     return trimmed;
   }
-  return `data:${imageMimeType(name)};base64,${trimmed}`;
+  return `data:${inferFileMimeType(name, "image/png")};base64,${trimmed}`;
 }
 
 function useImagePreviewSrc(name: string, content: string | Uint8Array | null): string | null {
   const blobUrl = useMemo(() => {
     if (!(content instanceof Uint8Array)) return null;
-    return URL.createObjectURL(new Blob([toArrayBuffer(content)], { type: imageMimeType(name) }));
+    return URL.createObjectURL(new Blob([toArrayBuffer(content)], { type: inferFileMimeType(name, "image/png") }));
   }, [content, name]);
 
   useEffect(() => {
@@ -124,11 +90,15 @@ function useImagePreviewSrc(name: string, content: string | Uint8Array | null): 
   return null;
 }
 
-function renderPreviewIcon(type: string) {
-  switch (type) {
+function renderPreviewIcon(fileType: ResolvedFileType) {
+  switch (fileType.iconKind) {
     case "image": return <FileImage className={PREVIEW_HEADER_ICON_CLASS} />;
     case "archive": return <FileArchive className={PREVIEW_HEADER_ICON_CLASS} />;
-    case "code": return <FileCode className={PREVIEW_HEADER_ICON_CLASS} />;
+    case "audio": return <FileAudio className={PREVIEW_HEADER_ICON_CLASS} />;
+    case "video": return <FileVideo className={PREVIEW_HEADER_ICON_CLASS} />;
+    case "code":
+    case "settings": return <FileCode className={PREVIEW_HEADER_ICON_CLASS} />;
+    case "json": return <FileJson className={PREVIEW_HEADER_ICON_CLASS} />;
     default: return <FileText className={PREVIEW_HEADER_ICON_CLASS} />;
   }
 }
@@ -156,9 +126,10 @@ export function FilePreview({
   const [copied, setCopied] = useState(false);
   const [markdownMode, setMarkdownMode] = useState<"preview" | "raw">("preview");
 
-  const previewType = getPreviewType(entry.name);
+  const fileType = useMemo(() => resolveFileType(entry.name), [entry.name]);
+  const previewType = fileType.previewKind;
   const isMarkdown = previewType === "markdown";
-  const isEditable = previewType === "code" || previewType === "text" || previewType === "markdown";
+  const isEditable = fileType.editable;
   const textContent = typeof content === "string" ? content : "";
   const imageSrc = useImagePreviewSrc(entry.name, content);
   const backupStatus = getFileBackupBadge(entry.backupComparison, entry.type === "directory");
@@ -207,7 +178,7 @@ export function FilePreview({
     >
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border flex-shrink-0">
-        {renderPreviewIcon(previewType)}
+        {renderPreviewIcon(fileType)}
         <div className="flex-1 min-w-0">
           <p className="text-xs font-medium text-foreground truncate">
             {entry.name}
@@ -413,6 +384,12 @@ export function FilePreview({
                     {editContent}
                   </pre>
                 )}
+              </div>
+            ) : previewType === "binary" ? (
+              <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-xs text-text-muted">
+                <FileText className="h-6 w-6 opacity-60" />
+                <p>{fileType.label} preview is not available yet.</p>
+                {onDownload && <p>Download the file to inspect it locally.</p>}
               </div>
             ) : isEditable ? (
               <textarea

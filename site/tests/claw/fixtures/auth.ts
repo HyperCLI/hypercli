@@ -997,6 +997,42 @@ async function anyVisibleStripeLocator(page: Page, selectors: string[]): Promise
   return false;
 }
 
+function isNavigationAbortError(error: unknown): boolean {
+  return error instanceof Error && /NS_BINDING_ABORTED|net::ERR_ABORTED/i.test(error.message);
+}
+
+function normalizeUrlPathname(pathname: string): string {
+  if (pathname === "/") return pathname;
+  return pathname.replace(/\/+$/, "");
+}
+
+function urlsEquivalent(left: string, right: string): boolean {
+  const leftUrl = new URL(left);
+  const rightUrl = new URL(right);
+  return leftUrl.origin === rightUrl.origin &&
+    normalizeUrlPathname(leftUrl.pathname) === normalizeUrlPathname(rightUrl.pathname) &&
+    leftUrl.search === rightUrl.search &&
+    leftUrl.hash === rightUrl.hash;
+}
+
+async function gotoLocalReturnUrl(page: Page, localReturnUrl: string): Promise<void> {
+  try {
+    await page.goto(localReturnUrl, { waitUntil: "domcontentloaded" });
+  } catch (error) {
+    if (!isNavigationAbortError(error)) throw error;
+
+    if (!urlsEquivalent(page.url(), localReturnUrl)) {
+      try {
+        await page.waitForURL((url) => urlsEquivalent(url.href, localReturnUrl), { timeout: 15_000 });
+      } catch {
+        throw error;
+      }
+    }
+
+    console.log(`Local return navigation was browser-aborted after reaching ${page.url()}; continuing.`);
+  }
+}
+
 export async function completeStripeCheckout(
   page: Page,
   returnBaseUrl: string = getOptionalEnv("TEST_TOPUP_CONSOLE_BASE_URL") ||
@@ -1146,7 +1182,7 @@ export async function completeStripeCheckout(
     const redirected = new URL(redirectedUrl);
     const localReturnUrl = `${returnBaseUrl.replace(/\/$/, "")}${redirected.pathname}${redirected.search}${redirected.hash}`;
     console.log(`Stripe redirected to hosted app (${redirectedUrl}); returning to local URL ${localReturnUrl}`);
-    await page.goto(localReturnUrl, { waitUntil: "domcontentloaded" });
+    await gotoLocalReturnUrl(page, localReturnUrl);
     await page.waitForLoadState("networkidle");
     await captureStep(page, "console-05f-returned-to-local-app");
   }

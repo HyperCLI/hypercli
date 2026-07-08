@@ -82,6 +82,20 @@ describe("chat media references", () => {
     ]);
   });
 
+  it("classifies known non-image direct MEDIA urls as links", () => {
+    const result = extractContentMediaReferences("Source\nMEDIA:https://cdn.example.test/src/app.tsx");
+
+    expect(result.content).toBe("Source");
+    expect(result.directMedia).toEqual([
+      {
+        kind: "link",
+        url: "https://cdn.example.test/src/app.tsx",
+        fileName: "app.tsx",
+        raw: "https://cdn.example.test/src/app.tsx",
+      },
+    ]);
+  });
+
   it("consumes markdown MEDIA local handles without leaking media URLs", () => {
     const result = extractContentMediaReferences(
       "![MEDIA](media://inbound/generated---741bc582-9e41-492d-9a13-d8ecd3a2e0b8.png)",

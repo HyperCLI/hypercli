@@ -1,13 +1,13 @@
 import { normalizeOpenClawMediaDisplayPath, normalizeOpenClawMediaFilePath } from "@/lib/agent-file-path";
 import type { ChatPendingFile } from "@/lib/openclaw-chat";
+import {
+  inferFileMimeType,
+  isAudioFileReference as isSharedAudioFileReference,
+  isImageFileReference as isSharedImageFileReference,
+  isKnownNonImageFileReference,
+  isVideoFileReference as isSharedVideoFileReference,
+} from "@hypercli/shared-ui/files";
 
-const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
-const IMAGE_URL_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|ico)(?:[?#].*)?$/i;
-const AUDIO_EXTENSIONS = /\.(aac|flac|m4a|mp3|oga|ogg|opus|wav|weba|webm)$/i;
-const AUDIO_URL_EXTENSIONS = /\.(aac|flac|m4a|mp3|oga|ogg|opus|wav|weba|webm)(?:[?#].*)?$/i;
-const VIDEO_EXTENSIONS = /\.(m4v|mov|mp4|mpeg|mpg|ogv)$/i;
-const VIDEO_URL_EXTENSIONS = /\.(m4v|mov|mp4|mpeg|mpg|ogv)(?:[?#].*)?$/i;
-const NON_IMAGE_URL_EXTENSIONS = /\.(pdf|csv|txt|md|json|ya?ml|zip|gz|tar|xlsx?|docx?|pptx?)(?:[?#].*)?$/i;
 const LOCAL_MEDIA_REFERENCE = /^media:/i;
 const CONTENT_MEDIA_REFERENCE_LINE = /^\s*MEDIA(?::(?!\/\/)\s*(.*))?\s*$/i;
 const CONTENT_LOCAL_MEDIA_REFERENCE_LINE = /^\s*(media:\/\/\S+)\s*$/i;
@@ -89,49 +89,19 @@ export function isGeneratedMediaPath(path: string): boolean {
 }
 
 export function isImageFileReference(file: { name?: string; path?: string; type?: string }): boolean {
-  return file.type?.startsWith("image/") || IMAGE_EXTENSIONS.test(file.name ?? "") || IMAGE_EXTENSIONS.test(file.path ?? "");
+  return isSharedImageFileReference(file);
 }
 
 export function isAudioFileReference(file: { name?: string; path?: string; type?: string }): boolean {
-  return file.type?.startsWith("audio/") || AUDIO_EXTENSIONS.test(file.name ?? "") || AUDIO_EXTENSIONS.test(file.path ?? "");
+  return isSharedAudioFileReference(file);
 }
 
 export function isVideoFileReference(file: { name?: string; path?: string; type?: string }): boolean {
-  return file.type?.startsWith("video/") || VIDEO_EXTENSIONS.test(file.name ?? "") || VIDEO_EXTENSIONS.test(file.path ?? "");
+  return isSharedVideoFileReference(file);
 }
 
 export function inferChatMediaFileType(path: string): string {
-  const extension = path.split(/[?#]/)[0]?.split(".").pop()?.toLowerCase() ?? "";
-  switch (extension) {
-    case "aac": return "audio/aac";
-    case "flac": return "audio/flac";
-    case "m4a": return "audio/mp4";
-    case "mp3": return "audio/mpeg";
-    case "oga":
-    case "ogg":
-    case "opus": return "audio/ogg";
-    case "wav": return "audio/wav";
-    case "weba":
-    case "webm": return "audio/webm";
-    case "m4v": return "video/x-m4v";
-    case "mov": return "video/quicktime";
-    case "mp4": return "video/mp4";
-    case "mpeg":
-    case "mpg": return "video/mpeg";
-    case "ogv": return "video/ogg";
-    case "bmp": return "image/bmp";
-    case "gif": return "image/gif";
-    case "ico": return "image/x-icon";
-    case "jpeg":
-    case "jpg": return "image/jpeg";
-    case "png": return "image/png";
-    case "svg": return "image/svg+xml";
-    case "webp": return "image/webp";
-    case "epub": return "application/epub+zip";
-    case "pdf": return "application/pdf";
-    case "txt": return "text/plain";
-    default: return "application/octet-stream";
-  }
+  return inferFileMimeType(path);
 }
 
 export function generatedMediaFileFromPath(path: string, matchingFile?: ChatPendingFile | null): ContentMediaReference {
@@ -165,21 +135,18 @@ export function classifyChatMediaReference(raw: string, matchingFile?: ChatPendi
   if (LOCAL_MEDIA_REFERENCE.test(value)) {
     return { kind: "local", raw, label: "Preview unavailable" };
   }
-  if (/^(?:data:audio\/|blob:)/i.test(value) || AUDIO_URL_EXTENSIONS.test(value)) {
+  if (/^(?:data:audio\/|blob:)/i.test(value) || isAudioFileReference({ path: value })) {
     return { kind: "audio", url: value, fileName: mediaFileNameFromUrl(value, "audio"), raw };
   }
-  if (/^data:video\//i.test(value) || VIDEO_URL_EXTENSIONS.test(value)) {
+  if (/^data:video\//i.test(value) || isVideoFileReference({ path: value })) {
     return { kind: "video", url: value, fileName: mediaFileNameFromUrl(value, "video"), raw };
   }
-  if (/^data:image\//i.test(value) || IMAGE_URL_EXTENSIONS.test(value)) {
+  if (/^data:image\//i.test(value) || isImageFileReference({ path: value })) {
     return { kind: "image", url: value, fileName: mediaFileNameFromUrl(value), raw };
   }
   if (/^(?:https?:\/\/|\/)/i.test(value)) {
-    if (NON_IMAGE_URL_EXTENSIONS.test(value)) {
+    if (isKnownNonImageFileReference(value)) {
       return { kind: "link", url: value, fileName: mediaFileNameFromUrl(value), raw };
-    }
-    if (VIDEO_URL_EXTENSIONS.test(value)) {
-      return { kind: "video", url: value, fileName: mediaFileNameFromUrl(value, "video"), raw };
     }
     return { kind: "image", url: value, fileName: mediaFileNameFromUrl(value), raw };
   }

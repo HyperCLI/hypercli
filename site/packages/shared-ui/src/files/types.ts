@@ -98,6 +98,7 @@ export type FileSortDir = "asc" | "desc";
 export interface FilesCallbacks {
   onListFiles: (prefix?: string) => Promise<DirectoryListing>;
   onGetFile: (path: string) => Promise<string>;
+  onGetFileBytes?: (path: string) => Promise<Uint8Array>;
   onSetFile: (path: string, content: string) => Promise<void>;
   onDeleteFile: (path: string) => Promise<void>;
   onUploadFile: (path: string, content: Uint8Array) => Promise<void>;

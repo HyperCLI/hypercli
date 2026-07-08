@@ -6,11 +6,13 @@ import {
   File as FileIcon,
   Folder,
   FolderOpen,
-  Code2,
   FileText,
   FileImage,
   FileJson,
   FileCode,
+  FileArchive,
+  FileAudio,
+  FileVideo,
   Settings,
   MoreVertical,
   Download,
@@ -21,43 +23,32 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { FileBackupComparison, FileEntry } from "./types";
+import { resolveFileType, type FileIconKind } from "./file-types";
 import { HighlightMatch } from "./FilesSearchBar";
 
 // ── File icon resolver ──
 
-const EXTENSION_ICONS: Record<string, { icon: LucideIcon; color: string }> = {
-  ts: { icon: FileCode, color: "var(--primary)" },
-  tsx: { icon: FileCode, color: "var(--primary)" },
-  js: { icon: FileCode, color: "var(--warning)" },
-  jsx: { icon: FileCode, color: "var(--warning)" },
-  py: { icon: FileCode, color: "var(--chart-2)" },
-  rs: { icon: FileCode, color: "var(--chart-4)" },
-  go: { icon: FileCode, color: "var(--chart-2)" },
+const FILE_TYPE_ICONS: Record<FileIconKind, { icon: LucideIcon; color: string }> = {
+  file: { icon: FileIcon, color: "var(--text-muted)" },
+  image: { icon: FileImage, color: "var(--selection-accent)" },
+  audio: { icon: FileAudio, color: "var(--chart-2)" },
+  video: { icon: FileVideo, color: "var(--chart-4)" },
+  archive: { icon: FileArchive, color: "var(--warning)" },
+  code: { icon: FileCode, color: "var(--primary)" },
   json: { icon: FileJson, color: "var(--primary)" },
-  yaml: { icon: Settings, color: "var(--destructive)" },
-  yml: { icon: Settings, color: "var(--destructive)" },
-  toml: { icon: Settings, color: "var(--chart-4)" },
-  md: { icon: FileText, color: "var(--foreground)" },
-  txt: { icon: FileText, color: "var(--text-muted)" },
-  log: { icon: FileText, color: "var(--text-muted)" },
-  png: { icon: FileImage, color: "var(--selection-accent)" },
-  jpg: { icon: FileImage, color: "var(--selection-accent)" },
-  jpeg: { icon: FileImage, color: "var(--selection-accent)" },
-  gif: { icon: FileImage, color: "var(--selection-accent)" },
-  svg: { icon: FileImage, color: "var(--warning)" },
-  webp: { icon: FileImage, color: "var(--selection-accent)" },
-  html: { icon: Code2, color: "var(--warning)" },
-  css: { icon: Code2, color: "var(--primary)" },
-  sh: { icon: FileCode, color: "var(--success)" },
-  env: { icon: Settings, color: "var(--warning)" },
+  settings: { icon: Settings, color: "var(--warning)" },
+  text: { icon: FileText, color: "var(--text-muted)" },
+  document: { icon: FileText, color: "var(--foreground)" },
+  spreadsheet: { icon: FileText, color: "var(--chart-2)" },
+  presentation: { icon: FileText, color: "var(--chart-4)" },
 };
 
 function getFileIcon(entry: FileEntry): { icon: LucideIcon; color: string } {
   if (entry.type === "directory") {
     return { icon: Folder, color: "var(--primary)" };
   }
-  const ext = entry.name.split(".").pop()?.toLowerCase() ?? "";
-  return EXTENSION_ICONS[ext] ?? { icon: FileIcon, color: "var(--text-muted)" };
+  const fileType = resolveFileType(entry.name);
+  return FILE_TYPE_ICONS[fileType.iconKind] ?? FILE_TYPE_ICONS.file;
 }
 
 export function formatFileSize(bytes?: number): string {

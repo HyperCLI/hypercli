@@ -3,7 +3,7 @@
  * and constructing preview URLs for inline rendering in chat.
  */
 
-const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
+import { isImageFileReference } from "@hypercli/shared-ui/files";
 
 const FILE_READ_TOOLS = /^(Read|read_file|ReadFile|read|file_read|View)$/i;
 const FILE_WRITE_TOOLS = /^(Write|write_file|WriteFile|save_file|SaveFile|create_file|CreateFile)$/i;
@@ -29,7 +29,7 @@ export function extractFilePathFromArgs(args: string): string | null {
 
 export function extractImagePath(tc: { name: string; args: string; result?: string }): string | null {
   const filePath = extractFilePathFromArgs(tc.args);
-  if (!filePath || !IMAGE_EXTENSIONS.test(filePath)) return null;
+  if (!filePath || !isImageFileReference(filePath)) return null;
 
   // If result text mentions image, it's definitely an image operation
   if (tc.result && /image/i.test(tc.result)) return filePath;
