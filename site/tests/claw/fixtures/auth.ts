@@ -1584,6 +1584,16 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
     return null;
   };
 
+  const hasVisible = async (locator: Locator): Promise<boolean> => {
+    const count = await locator.count().catch(() => 0);
+    for (let i = 0; i < count; i += 1) {
+      if (await locator.nth(i).isVisible().catch(() => false)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   const dashboardFetches = waitForAgentDashboardFetches();
   await page.goto("/dashboard/agents", { waitUntil: "domcontentloaded" });
   await dashboardFetches;
@@ -1653,31 +1663,46 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
     await expect(page.getByText("Loading agents", { exact: true })).not.toBeVisible({ timeout: 90_000 });
     await captureStep(page, "agents-11-created-opened");
 
-    const composer = page.getByRole("textbox", { name: /Message agent/i }).first();
-    const readyStatus = page.getByText("Ready", { exact: true }).first();
+    const composer = page.getByRole("textbox", { name: /Message agent/i });
+    const readyStatus = page.getByText("Ready", { exact: true });
     const connectingStatus = page
       .locator("main")
-      .getByText(/Connecting|Preparing chat|Loading workspace|Fetching messages/i)
-      .first();
+      .getByText(/Connecting|Preparing chat|Loading workspace|Fetching messages|Checking your workspace/i);
+    let lastAgentRouteRefresh = 0;
     await expect
       .poll(
         async () => {
-          const composerVisible = await composer.isVisible().catch(() => false);
-          const composerEnabled = composerVisible ? await composer.isEnabled().catch(() => false) : false;
-          const readyVisible = await readyStatus.isVisible().catch(() => false);
+          const visibleComposer = await findLastVisible(composer, 250);
+          const composerVisible = Boolean(visibleComposer);
+          const composerEnabled = visibleComposer ? await visibleComposer.isEnabled().catch(() => false) : false;
+          const readyVisible = await hasVisible(readyStatus);
           if (composerVisible && composerEnabled && readyVisible) {
             return "ready";
           }
-          const waitingText = await connectingStatus.textContent({ timeout: 500 }).catch(() => "");
+
+          const loadingShellVisible = await page
+            .locator("main")
+            .getByText(/Checking your workspace before selecting an agent/i)
+            .first()
+            .isVisible()
+            .catch(() => false);
+          if (loadingShellVisible && Date.now() - lastAgentRouteRefresh > 20_000) {
+            lastAgentRouteRefresh = Date.now();
+            await page.goto(`/dashboard/agents?agentId=${encodeURIComponent(created.id)}`, { waitUntil: "domcontentloaded" }).catch(() => {});
+          }
+
+          const visibleWaiting = await findLastVisible(connectingStatus, 250);
+          const waitingText = visibleWaiting ? await visibleWaiting.textContent({ timeout: 500 }).catch(() => "") : "";
           return waitingText ? `waiting:${waitingText.trim()}` : "waiting";
         },
         { timeout: 180_000, intervals: [1_000, 2_000, 5_000] }
       )
       .toBe("ready");
-    await expect(composer).toBeVisible({ timeout: 5_000 });
-    await expect(composer).toBeEnabled({ timeout: 5_000 });
-    await expect(readyStatus).toBeVisible({ timeout: 5_000 });
-    await expect(connectingStatus).not.toBeVisible({ timeout: 5_000 });
+    const visibleComposer = await findLastVisible(composer, 5_000);
+    expect(visibleComposer, "expected a visible message composer after gateway readiness").not.toBeNull();
+    await expect(visibleComposer!).toBeEnabled({ timeout: 5_000 });
+    expect(await hasVisible(readyStatus), "expected a visible Ready status after gateway readiness").toBe(true);
+    await expect(connectingStatus.first()).not.toBeVisible({ timeout: 5_000 });
     await captureStep(page, "agents-12-gateway-connected");
 
     return created;
