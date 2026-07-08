@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import os
+import json
+import mimetypes
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from urllib.parse import urlsplit
@@ -232,8 +234,9 @@ class WorkspacesAPI:
         data = {}
         if workspace_path:
             data["path"] = workspace_path
+        content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
         with open(file_path, "rb") as handle:
-            files = {"file": (filename, handle, "application/octet-stream")}
+            files = {"file": (filename, handle, content_type)}
             with httpx.Client(timeout=120) as client:
                 response = client.post(
                     f"{self.api_base}/{workspace_ref}/upload",
@@ -256,6 +259,11 @@ class WorkspacesAPI:
             agent_id=agent_id,
         )
         return DownloadUrl.from_dict(data)
+
+    def projection_markdown(self, workspace_ref: str, file_ref: str, *, user_id: str | None = None, agent_id: str | None = None) -> tuple[dict, str]:
+        manifest = self.manifest(workspace_ref, user_id=user_id, agent_id=agent_id)
+        projection = _find_projection(manifest, file_ref)
+        return projection, _projection_markdown(manifest, projection)
 
     def delete_file(self, workspace_ref: str, file_ref: str, *, user_id: str | None = None) -> dict:
         return _request("DELETE", f"{self.api_base}/{workspace_ref}/files/{file_ref}", api_key=self.api_key, user_id=user_id)
@@ -310,19 +318,57 @@ class WorkspacesAPI:
 def _projection_markdown(manifest: WorkspaceManifest, projection: dict) -> str:
     source_path = projection.get("source_path", "")
     status = projection.get("status", "")
-    download_command = projection.get("download_command") or f"hyper workspaces download {manifest.workspace_slug} {source_path}"
-    return (
-        "---\n"
-        f"workspace_id: {manifest.workspace_id}\n"
-        f"workspace_slug: {manifest.workspace_slug}\n"
-        f"snapshot_id: {manifest.snapshot_id}\n"
-        f"file_id: {projection.get('file_id', '')}\n"
-        f"projection_id: {projection.get('projection_id', '')}\n"
-        f"source_path: {source_path}\n"
-        f"projection_path: {projection.get('projection_path', '')}\n"
-        f"source_sha256: {projection.get('source_sha256') or ''}\n"
-        f"markdown_sha256: {projection.get('markdown_sha256') or ''}\n"
-        f"status: {status}\n"
-        f"download_command: {download_command}\n"
-        "---\n\n"
-    )
+    download_command = projection.get("download_command") or f"hyper workspaces download {manifest.workspace_slug} {source_path} --raw"
+    frontmatter = {
+        "workspace_id": manifest.workspace_id,
+        "workspace_slug": manifest.workspace_slug,
+        "snapshot_id": manifest.snapshot_id,
+        "file_id": projection.get("file_id", ""),
+        "file_version_id": projection.get("file_version_id", ""),
+        "projection_id": projection.get("projection_id", ""),
+        "source_path": source_path,
+        "source_filename": projection.get("source_filename", ""),
+        "source_content_type": projection.get("source_content_type") or "",
+        "source_size_bytes": projection.get("source_size_bytes"),
+        "source_s3_key": projection.get("source_s3_key", ""),
+        "source_sha256": projection.get("source_sha256") or "",
+        "source_etag": projection.get("source_etag") or "",
+        "source_last_modified": projection.get("source_last_modified") or "",
+        "projection_path": projection.get("projection_path", ""),
+        "markdown_sha256": projection.get("markdown_sha256") or "",
+        "status": status,
+        "download_command": download_command,
+    }
+    lines = ["---"]
+    for key, value in frontmatter.items():
+        lines.append(f"{key}: {_yaml_scalar(value)}")
+    lines.extend(["---", ""])
+    body = projection.get("markdown_body")
+    if isinstance(body, str) and body:
+        lines.extend([body.rstrip(), ""])
+    return "\n".join(lines)
+
+
+def _find_projection(manifest: WorkspaceManifest, file_ref: str) -> dict:
+    normalized_ref = str(PurePosixPath(file_ref.strip().replace("\\", "/")))
+    for projection in manifest.projections:
+        if not isinstance(projection, dict):
+            continue
+        if file_ref in {str(projection.get("file_id", "")), str(projection.get("projection_id", ""))}:
+            return projection
+        if normalized_ref in {
+            str(PurePosixPath(str(projection.get("source_path", "")))),
+            str(PurePosixPath(str(projection.get("projection_path", "")))),
+        }:
+            return projection
+    raise ValueError(f"Workspace projection not found for {file_ref}")
+
+
+def _yaml_scalar(value) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    return json.dumps(str(value))

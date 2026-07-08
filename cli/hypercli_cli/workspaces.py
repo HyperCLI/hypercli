@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from pathlib import PurePosixPath
 
 import httpx
 import typer
@@ -210,11 +211,22 @@ def download(
     workspace: str = typer.Argument(help="Workspace slug or ID"),
     file_ref: str = typer.Argument(help="Workspace-relative source path or file ID"),
     output_path: Path | None = typer.Option(None, "--output", "-o", help="Output file path"),
+    raw: bool = typer.Option(False, "--raw", help="Download the original source file instead of the Markdown projection"),
     agent_id: str | None = typer.Option(None, "--agent-id", help="Fetch as an agent subject"),
     user_id: str | None = typer.Option(None, "--user-id", help="Fetch as a user subject"),
 ):
-    """Download the original source file through the Workspaces API."""
-    value = _get_workspaces().download_url(workspace, file_ref, user_id=user_id, agent_id=agent_id)
+    """Download a Markdown projection, or the original source file with --raw."""
+    workspaces = _get_workspaces()
+    if not raw:
+        projection, body = workspaces.projection_markdown(workspace, file_ref, user_id=user_id, agent_id=agent_id)
+        projection_path = PurePosixPath(projection.get("projection_path") or f"{PurePosixPath(file_ref).stem}.md")
+        target = output_path or Path(projection_path.name)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(body, encoding="utf-8")
+        console.print(f"[green]Downloaded[/green] {projection.get('source_path') or file_ref} -> {target}")
+        return
+
+    value = workspaces.download_url(workspace, file_ref, user_id=user_id, agent_id=agent_id)
     if not value.url:
         raise typer.BadParameter("Workspaces API did not return a download URL")
     target = output_path or Path(os.path.basename(value.source_path))

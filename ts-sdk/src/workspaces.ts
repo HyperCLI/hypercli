@@ -169,6 +169,15 @@ export class WorkspacesAPI {
     return headers;
   }
 
+  private authHeaders(subject: WorkspaceSubjectOptions = {}): Record<string, string> {
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${this.apiKey}`,
+    };
+    if (subject.userId) headers['X-User-Id'] = subject.userId;
+    if (subject.agentId) headers['X-Agent-Id'] = subject.agentId;
+    return headers;
+  }
+
   private async request<T = any>(
     method: string,
     path: string,
@@ -234,6 +243,31 @@ export class WorkspacesAPI {
     return fileFromDict(data);
   }
 
+  async uploadFile(
+    workspaceRef: string,
+    file: Blob,
+    options: { path?: string; filename?: string; sourceEtag?: string } = {},
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<WorkspaceFile> {
+    const formData = new FormData();
+    const filename = options.filename || (typeof File !== 'undefined' && file instanceof File ? file.name : 'upload');
+    formData.append('file', file, filename);
+    if (options.path) formData.append('path', options.path);
+    if (options.sourceEtag) formData.append('source_etag', options.sourceEtag);
+
+    const response = await fetch(`${this.apiBase}/${workspaceRef}/upload`, {
+      method: 'POST',
+      headers: this.authHeaders(subject),
+      body: formData,
+    });
+    return fileFromDict(await handleResponse(response));
+  }
+
+  async listFiles(workspaceRef: string, subject: WorkspaceSubjectOptions = {}): Promise<WorkspaceFile[]> {
+    const data = await this.request<any[]>('GET', `/${workspaceRef}/files`, subject);
+    return (data || []).map(fileFromDict);
+  }
+
   async manifest(workspaceRef: string, subject: WorkspaceSubjectOptions = {}): Promise<WorkspaceManifest> {
     const data = await this.request('GET', `/${workspaceRef}/manifest`, subject);
     return manifestFromDict(data);
@@ -247,4 +281,80 @@ export class WorkspacesAPI {
     const data = await this.request('GET', `/${workspaceRef}/files/${fileRef}/download-url`, subject);
     return downloadUrlFromDict(data);
   }
+
+  async deleteFile(workspaceRef: string, fileRef: string, subject: WorkspaceSubjectOptions = {}): Promise<void> {
+    await this.request('DELETE', `/${workspaceRef}/files/${fileRef}`, subject);
+  }
+
+  async projectionMarkdown(
+    workspaceRef: string,
+    fileRef: string,
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<{ projection: Record<string, any>; markdown: string }> {
+    const manifest = await this.manifest(workspaceRef, subject);
+    const projection = findProjection(manifest, fileRef);
+    return { projection, markdown: projectionMarkdown(manifest, projection) };
+  }
+}
+
+function findProjection(manifest: WorkspaceManifest, fileRef: string): Record<string, any> {
+  const normalizedRef = normalizePosixPath(fileRef);
+  for (const projection of manifest.projections) {
+    if (!projection || typeof projection !== 'object') continue;
+    if (fileRef === String(projection.file_id || '') || fileRef === String(projection.projection_id || '')) {
+      return projection;
+    }
+    if (
+      normalizedRef === normalizePosixPath(String(projection.source_path || '')) ||
+      normalizedRef === normalizePosixPath(String(projection.projection_path || ''))
+    ) {
+      return projection;
+    }
+  }
+  throw new Error(`Workspace projection not found for ${fileRef}`);
+}
+
+function projectionMarkdown(manifest: WorkspaceManifest, projection: Record<string, any>): string {
+  const sourcePath = String(projection.source_path || '');
+  const downloadCommand = projection.download_command || `hyper workspaces download ${manifest.workspaceSlug} ${sourcePath} --raw`;
+  const frontmatter: Record<string, unknown> = {
+    workspace_id: manifest.workspaceId,
+    workspace_slug: manifest.workspaceSlug,
+    snapshot_id: manifest.snapshotId,
+    file_id: projection.file_id || '',
+    file_version_id: projection.file_version_id || '',
+    projection_id: projection.projection_id || '',
+    source_path: sourcePath,
+    source_filename: projection.source_filename || '',
+    source_content_type: projection.source_content_type || '',
+    source_size_bytes: projection.source_size_bytes ?? null,
+    source_s3_key: projection.source_s3_key || '',
+    source_sha256: projection.source_sha256 || '',
+    source_etag: projection.source_etag || '',
+    source_last_modified: projection.source_last_modified || '',
+    projection_path: projection.projection_path || '',
+    markdown_sha256: projection.markdown_sha256 || '',
+    status: projection.status || '',
+    download_command: downloadCommand,
+  };
+  const lines = ['---'];
+  for (const [key, value] of Object.entries(frontmatter)) {
+    lines.push(`${key}: ${yamlScalar(value)}`);
+  }
+  lines.push('---', '');
+  if (typeof projection.markdown_body === 'string' && projection.markdown_body) {
+    lines.push(projection.markdown_body.trimEnd(), '');
+  }
+  return lines.join('\n');
+}
+
+function normalizePosixPath(path: string): string {
+  return path.trim().replace(/\\/g, '/').replace(/^\.\/+/, '');
+}
+
+function yamlScalar(value: unknown): string {
+  if (value === null || value === undefined) return 'null';
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'number') return String(value);
+  return JSON.stringify(String(value));
 }

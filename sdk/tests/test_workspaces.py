@@ -75,13 +75,20 @@ def test_sync_manifest_writes_tomd_projection(monkeypatch, tmp_path: Path):
             "projections": [
                 {
                     "file_id": "file-1",
+                    "file_version_id": "version-1",
                     "projection_id": "projection-1",
                     "source_path": "projects/example/report.pdf",
+                    "source_filename": "report.pdf",
+                    "source_content_type": "application/pdf",
+                    "source_size_bytes": 123,
+                    "source_s3_key": "test/workspaces/workspace-1/originals/file-1/version-1/report.pdf",
                     "projection_path": "projects/example/.tomd/report.md",
                     "source_sha256": "a" * 64,
+                    "source_etag": "etag-1",
+                    "source_last_modified": "2026-07-08T00:00:00Z",
                     "markdown_sha256": None,
                     "status": "queued",
-                    "download_command": "hyper workspaces download demo projects/example/report.pdf --output report.pdf",
+                    "download_command": "hyper workspaces download demo projects/example/report.pdf --raw --output report.pdf",
                 }
             ],
         }
@@ -94,4 +101,48 @@ def test_sync_manifest_writes_tomd_projection(monkeypatch, tmp_path: Path):
     assert len(written) == 1
     target = tmp_path / "demo" / "projects" / "example" / ".tomd" / "report.md"
     assert written == [str(target)]
-    assert "download_command: hyper workspaces download demo projects/example/report.pdf --output report.pdf" in target.read_text()
+    markdown = target.read_text()
+    assert 'source_content_type: "application/pdf"' in markdown
+    assert "source_size_bytes: 123" in markdown
+    assert 'source_etag: "etag-1"' in markdown
+    assert 'download_command: "hyper workspaces download demo projects/example/report.pdf --raw --output report.pdf"' in markdown
+
+
+def test_projection_markdown_finds_single_file(monkeypatch):
+    def fake_request(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
+        return {
+            "workspace_id": "workspace-1",
+            "workspace_name": "Demo Workspace",
+            "workspace_slug": "demo",
+            "snapshot_id": "snapshot-1",
+            "generated_at": "2026-07-08T00:00:00Z",
+            "base_path": "/home/node/Workspaces/demo",
+            "projections": [
+                {
+                    "file_id": "file-1",
+                    "file_version_id": "version-1",
+                    "projection_id": "projection-1",
+                    "source_path": "docs/source.md",
+                    "source_filename": "source.md",
+                    "source_content_type": "text/markdown",
+                    "source_size_bytes": 12,
+                    "source_s3_key": "test/workspaces/workspace-1/originals/file-1/version-1/source.md",
+                    "projection_path": "docs/.tomd/source.md",
+                    "source_sha256": "b" * 64,
+                    "source_etag": "etag-2",
+                    "source_last_modified": "2026-07-08T01:00:00Z",
+                    "markdown_sha256": None,
+                    "status": "queued",
+                    "download_command": "hyper workspaces download demo docs/source.md --raw --output source.md",
+                }
+            ],
+        }
+
+    monkeypatch.setattr("hypercli.workspaces._request", fake_request)
+    api = WorkspacesAPI("key", api_base="http://workspaces.test/workspaces")
+
+    projection, markdown = api.projection_markdown("demo", "docs/source.md", agent_id="agent-1")
+
+    assert projection["projection_path"] == "docs/.tomd/source.md"
+    assert 'source_path: "docs/source.md"' in markdown
+    assert 'download_command: "hyper workspaces download demo docs/source.md --raw --output source.md"' in markdown
