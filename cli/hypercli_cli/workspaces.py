@@ -10,14 +10,16 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from hypercli import HyperCLI
+from hypercli.config import get_agent_api_key, get_api_key
+from hypercli.workspaces import WorkspacesAPI
 
 app = typer.Typer(help="Manage shared Workspaces")
 console = Console()
 
 
 def _get_workspaces():
-    return HyperCLI().workspaces
+    api_key = get_api_key() or get_agent_api_key()
+    return WorkspacesAPI(api_key)
 
 
 def _print_json(value) -> None:
