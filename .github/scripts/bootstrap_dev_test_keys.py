@@ -69,6 +69,22 @@ def _normalize_orchestra_api_base(product_base: str) -> str:
     return urlunsplit((parsed.scheme or "https", parsed.netloc, f"{path}/api", "", "")).rstrip("/")
 
 
+def _configured_product_base() -> str:
+    return _normalize_product_base(
+        os.getenv("TEST_API_BASE_URL")
+        or os.getenv("TEST_API_BASE")
+        or DEFAULT_PRODUCT_BASE
+    )
+
+
+def _configured_orchestra_api_base(product_base: str) -> str:
+    return _normalize_orchestra_api_base(
+        os.getenv("ORCHESTRA_API_BASE_URL")
+        or os.getenv("ORCHESTRA_API_BASE")
+        or product_base
+    )
+
+
 def _normalize_agents_api_base(raw: str, *, product_base: str) -> str:
     base = (raw or "").strip().rstrip("/")
     if not base:
@@ -244,8 +260,8 @@ def _create_or_get_hyperclaw_user(
 
 
 def bootstrap() -> BootstrapState:
-    product_base = _normalize_product_base(os.getenv("TEST_API_BASE", DEFAULT_PRODUCT_BASE))
-    orchestra_api_base = _normalize_orchestra_api_base(product_base)
+    product_base = _configured_product_base()
+    orchestra_api_base = _configured_orchestra_api_base(product_base)
     agents_api_base = _normalize_agents_api_base(
         os.getenv("HYPERCLAW_AGENTS_API_BASE") or os.getenv("AGENTS_API_BASE_URL") or "",
         product_base=product_base,

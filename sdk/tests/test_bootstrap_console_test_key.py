@@ -64,6 +64,30 @@ def test_request_retries_transient_timeout(monkeypatch: pytest.MonkeyPatch) -> N
     assert len(calls) == 2
 
 
+def test_console_bootstrap_uses_canonical_orchestra_api_base(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TEST_API_BASE_URL", "https://api.dev.hypercli.com")
+    monkeypatch.setenv("ORCHESTRA_API_BASE_URL", "https://api.dev.hypercli.com/api")
+    monkeypatch.delenv("TEST_API_BASE", raising=False)
+
+    product_base = MODULE._configured_product_base()
+    orchestra_api_base = MODULE._configured_orchestra_api_base(product_base)
+
+    assert product_base == "https://api.dev.hypercli.com"
+    assert orchestra_api_base == "https://api.dev.hypercli.com/api"
+
+
+def test_console_bootstrap_accepts_legacy_test_api_base(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TEST_API_BASE_URL", raising=False)
+    monkeypatch.delenv("ORCHESTRA_API_BASE_URL", raising=False)
+    monkeypatch.setenv("TEST_API_BASE", "https://api.dev.hypercli.com/api")
+
+    product_base = MODULE._configured_product_base()
+    orchestra_api_base = MODULE._configured_orchestra_api_base(product_base)
+
+    assert product_base == "https://api.dev.hypercli.com"
+    assert orchestra_api_base == "https://api.dev.hypercli.com/api"
+
+
 def test_create_user_returns_existing_user_after_conflict(monkeypatch: pytest.MonkeyPatch) -> None:
     responses = [
         _FakeResponse(409, text="User already exists"),

@@ -52,6 +52,22 @@ def _normalize_orchestra_api_base(product_base: str) -> str:
     return urlunsplit((parsed.scheme or "https", parsed.netloc, f"{path}/api", "", "")).rstrip("/")
 
 
+def _configured_product_base() -> str:
+    return _normalize_product_base(
+        os.getenv("TEST_API_BASE_URL")
+        or os.getenv("TEST_API_BASE")
+        or DEFAULT_PRODUCT_BASE
+    )
+
+
+def _configured_orchestra_api_base(product_base: str) -> str:
+    return _normalize_orchestra_api_base(
+        os.getenv("ORCHESTRA_API_BASE_URL")
+        or os.getenv("ORCHESTRA_API_BASE")
+        or product_base
+    )
+
+
 def _headers(admin_key: str) -> dict[str, str]:
     return {
         "X-BACKEND-API-KEY": admin_key,
@@ -168,8 +184,8 @@ def _admin_login(orchestra_api_base: str, admin_key: str, user_id: str) -> str:
 
 
 def bootstrap() -> BootstrapState:
-    product_base = _normalize_product_base(os.getenv("TEST_API_BASE", DEFAULT_PRODUCT_BASE))
-    orchestra_api_base = _normalize_orchestra_api_base(product_base)
+    product_base = _configured_product_base()
+    orchestra_api_base = _configured_orchestra_api_base(product_base)
     orchestra_admin_key = os.getenv("BACKEND_API_KEY", "").strip()
     email = os.getenv("TEST_EMAIL", "").strip()
     if not orchestra_admin_key:
