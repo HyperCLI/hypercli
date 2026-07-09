@@ -50,6 +50,9 @@ export interface WorkspaceFile {
   fileState: string;
   uploadStatus: string | null;
   projectionStatus: string | null;
+  keywords: string[];
+  title: string | null;
+  summary: string | null;
 }
 
 export interface WorkspaceFileSearchResult extends WorkspaceFile {
@@ -139,6 +142,9 @@ function fileFromDict(data: any): WorkspaceFile {
     fileState: data?.file_state || data?.fileState || '',
     uploadStatus: data?.upload_status || data?.uploadStatus || null,
     projectionStatus: data?.projection_status || data?.projectionStatus || null,
+    keywords: Array.isArray(data?.keywords) ? data.keywords.map(String) : [],
+    title: data?.title || null,
+    summary: data?.summary || null,
   };
 }
 
@@ -370,6 +376,21 @@ export class WorkspacesAPI {
     return fileFromDict(data);
   }
 
+  async updateFile(
+    workspaceRef: string,
+    fileRef: string,
+    body: { displayName?: string; keywords?: string[]; title?: string | null; summary?: string | null },
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<WorkspaceFile> {
+    const data = await this.request('PATCH', `/${workspaceRef}/files/${fileRef}`, subject, {
+      ...(body.displayName !== undefined ? { display_name: body.displayName } : {}),
+      ...(body.keywords !== undefined ? { keywords: body.keywords } : {}),
+      ...(body.title !== undefined ? { title: body.title } : {}),
+      ...(body.summary !== undefined ? { summary: body.summary } : {}),
+    });
+    return fileFromDict(data);
+  }
+
   async waitUntilProcessed(
     workspaceRef: string,
     fileRef: string,
@@ -500,7 +521,11 @@ function projectionMarkdown(manifest: WorkspaceManifest, projection: Record<stri
     source_last_modified: projection.source_last_modified || '',
     projection_path: projection.projection_path || '',
     markdown_sha256: projection.markdown_sha256 || '',
+    title: projection.title || '',
+    detected_type: projection.detected_type || '',
     keywords: projection.keywords || [],
+    summary: projection.semantic_metadata?.summary || '',
+    semantic_metadata: projection.semantic_metadata || {},
     status: projection.status || '',
     download_command: downloadCommand,
   };

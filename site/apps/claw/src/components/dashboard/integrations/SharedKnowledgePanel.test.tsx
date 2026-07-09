@@ -29,6 +29,9 @@ function workspaceFile(overrides = {}) {
     fileState: "uploaded",
     uploadStatus: "uploaded",
     projectionStatus: "queued",
+    keywords: ["handoff", "brief"],
+    title: "Brief",
+    summary: "Projected workspace content.",
     ...overrides,
   };
 }
@@ -104,6 +107,7 @@ function mockWorkspaces(overrides = {}) {
       name: "brief.md",
     })),
     update: vi.fn(async () => workspace({ name: "Renamed Workspace", description: "Updated notes" })),
+    updateFile: vi.fn(async () => workspaceFile({ displayName: "brief-renamed.md", title: "Renamed Brief" })),
     delete: vi.fn(async () => undefined),
     grant: vi.fn(async () => workspaceGrant({ id: "grant-2", subjectId: "agent-brand" })),
     revokeGrant: vi.fn(async () => undefined),
@@ -202,6 +206,27 @@ describe("SharedKnowledgePanel", () => {
 
     await waitFor(() => expect(workspaces.projectionMarkdown).toHaveBeenCalledWith("team-knowledge", "docs/brief.md"));
     expect(await screen.findByText(/Projected workspace content/i)).toBeInTheDocument();
+  });
+
+  it("updates selected workspace file metadata through the SDK", async () => {
+    const workspaces = renderSharedKnowledgePanel();
+    await waitForTeamWorkspace();
+
+    fireEvent.click(await screen.findByText("docs"));
+    fireEvent.click(await screen.findByText("brief.md"));
+
+    fireEvent.change(await screen.findByDisplayValue("brief.md"), { target: { value: "brief-renamed.md" } });
+    fireEvent.change(screen.getByDisplayValue("Brief"), { target: { value: "Renamed Brief" } });
+    fireEvent.change(screen.getByDisplayValue("handoff, brief"), { target: { value: "pricing, retention" } });
+    fireEvent.change(screen.getByDisplayValue("Projected workspace content."), { target: { value: "Renewal notes." } });
+    fireEvent.click(screen.getByRole("button", { name: /save metadata/i }));
+
+    await waitFor(() => expect(workspaces.updateFile).toHaveBeenCalledWith("team-knowledge", "docs/brief.md", {
+      displayName: "brief-renamed.md",
+      title: "Renamed Brief",
+      keywords: ["pricing", "retention"],
+      summary: "Renewal notes.",
+    }));
   });
 
   it("updates and deletes workspaces through the SDK", async () => {

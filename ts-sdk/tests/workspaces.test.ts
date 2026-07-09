@@ -320,6 +320,49 @@ describe('Workspaces SDK', () => {
     vi.unstubAllGlobals();
   });
 
+  it('updates compact workspace file fields', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: 'file-1',
+          workspace_id: 'workspace-1',
+          path: 'docs/source.md',
+          display_name: 'customer-pricing-brief.md',
+          current_version_id: 'version-1',
+          file_state: 'processed',
+          upload_status: 'uploaded',
+          projection_status: 'finished',
+          keywords: ['pricing', 'retention'],
+          title: 'Customer Pricing Brief',
+          summary: 'Pricing retention guidance.',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
+    const file = await api.updateFile('demo', 'docs/source.md', {
+      displayName: 'customer-pricing-brief.md',
+      keywords: ['pricing', 'retention'],
+      title: 'Customer Pricing Brief',
+      summary: 'Pricing retention guidance.',
+    });
+
+    expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/demo/files/docs/source.md');
+    expect(fetchMock.mock.calls[0][1]?.method).toBe('PATCH');
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+      display_name: 'customer-pricing-brief.md',
+      keywords: ['pricing', 'retention'],
+      title: 'Customer Pricing Brief',
+      summary: 'Pricing retention guidance.',
+    });
+    expect(file.keywords).toEqual(['pricing', 'retention']);
+    expect(file.title).toBe('Customer Pricing Brief');
+    expect(file.summary).toBe('Pricing retention guidance.');
+    vi.unstubAllGlobals();
+  });
+
   it('lists workspace projections with semantic metadata', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
@@ -382,7 +425,10 @@ describe('Workspaces SDK', () => {
               source_sha256: 'b'.repeat(64),
               source_etag: 'etag-2',
               source_last_modified: '2026-07-08T01:00:00Z',
+              title: 'Source Brief',
+              detected_type: 'markdown',
               keywords: ['handoff', 'launch'],
+              semantic_metadata: { summary: 'Launch handoff notes.' },
               status: 'pending',
               download_command: 'hyper workspaces download demo/docs/source.md --output source.md',
             },
@@ -399,7 +445,10 @@ describe('Workspaces SDK', () => {
     expect(result.projection.projection_path).toBe('docs/.tomd/source.md');
     expect(result.markdown).toContain('source_path: "docs/source.md"');
     expect(result.markdown).toContain('source_size_bytes: 12');
+    expect(result.markdown).toContain('title: "Source Brief"');
+    expect(result.markdown).toContain('detected_type: "markdown"');
     expect(result.markdown).toContain('keywords: ["handoff","launch"]');
+    expect(result.markdown).toContain('summary: "Launch handoff notes."');
     expect(result.markdown).toContain('download_command: "hyper workspaces download demo/docs/source.md --output source.md"');
     vi.unstubAllGlobals();
   });

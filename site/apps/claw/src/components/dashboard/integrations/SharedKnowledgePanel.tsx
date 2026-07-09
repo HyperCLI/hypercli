@@ -38,6 +38,8 @@ type KnowledgeBase = {
   manifest: WorkspaceManifest | null;
 };
 
+type WorkspaceFilePatch = Parameters<WorkspacesAPI["updateFile"]>[2];
+
 type SharedKnowledgePanelProps = {
   agents?: SharedKnowledgeAgent[];
   workspaces?: WorkspacesAPI | null;
@@ -149,6 +151,36 @@ function workspaceFileEntries(base: KnowledgeBase, prefix = ""): FileEntry[] {
 function workspaceFileByPath(base: KnowledgeBase, path: string): WorkspaceFile | null {
   const normalized = normalizeWorkspacePath(path);
   return base.files.find((file) => normalizeWorkspacePath(file.path) === normalized || file.id === path) ?? null;
+}
+
+function keywordsInput(keywords?: string[]): string {
+  return (keywords || []).join(", ");
+}
+
+function parseKeywords(value: string): string[] {
+  const seen = new Set<string>();
+  const keywords: string[] = [];
+  for (const raw of value.split(",")) {
+    const keyword = raw.trim();
+    const key = keyword.toLowerCase();
+    if (!keyword || seen.has(key)) continue;
+    seen.add(key);
+    keywords.push(keyword);
+  }
+  return keywords;
+}
+
+function projectionSummary(projection: Record<string, any> | null): string {
+  const summary = projection?.semantic_metadata?.summary;
+  return typeof summary === "string" ? summary : "";
+}
+
+function formatBytes(value: unknown): string {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes <= 0) return "Unknown size";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 async function fetchOriginalBytes(workspaces: WorkspacesAPI, workspaceRef: string, path: string): Promise<AgentFileOpenResponse<Uint8Array>> {
@@ -316,6 +348,117 @@ function EditKnowledgeBaseModal({ base, onClose, onSave }: { base: KnowledgeBase
   );
 }
 
+function FileMetadataEditor({
+  base,
+  selectedPath,
+  busy,
+  onSave,
+}: {
+  base: KnowledgeBase;
+  selectedPath: string | null;
+  busy?: boolean;
+  onSave: (path: string, patch: WorkspaceFilePatch) => Promise<void>;
+}) {
+  const file = (selectedPath ? workspaceFileByPath(base, selectedPath) : null) ?? base.files[0] ?? null;
+  const projection = file ? projectionForPath(base, file.path) : null;
+
+  if (!file) {
+    return (
+      <div className="mt-3 rounded-xl border border-border bg-surface-low/20 px-4 py-3 text-[12px] text-text-muted">
+        Select a file to inspect its workspace metadata.
+      </div>
+    );
+  }
+
+  return (
+    <FileMetadataForm
+      key={`${file.id}:${file.displayName}:${file.title || ""}:${file.summary || ""}:${file.keywords.join("|")}`}
+      file={file}
+      projection={projection}
+      busy={busy}
+      onSave={onSave}
+    />
+  );
+}
+
+function FileMetadataForm({
+  file,
+  projection,
+  busy,
+  onSave,
+}: {
+  file: WorkspaceFile;
+  projection: Record<string, any> | null;
+  busy?: boolean;
+  onSave: (path: string, patch: WorkspaceFilePatch) => Promise<void>;
+}) {
+  const [displayName, setDisplayName] = React.useState(file.displayName || "");
+  const [title, setTitle] = React.useState(file.title || (typeof projection?.title === "string" ? projection.title : ""));
+  const [keywords, setKeywords] = React.useState(keywordsInput(file.keywords));
+  const [summary, setSummary] = React.useState(file.summary || projectionSummary(projection));
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const canSave = Boolean(displayName.trim()) && !busy && !saving;
+  const handleSave = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(file.path, {
+        displayName: displayName.trim(),
+        title: title.trim() || null,
+        keywords: parseKeywords(keywords),
+        summary: summary.trim() || null,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update file metadata.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="mt-3 rounded-xl border border-border bg-surface-low/20 p-4">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
+        <div className="min-w-0 space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">Display Name</span>
+              <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} className="h-9 w-full rounded-lg border border-border bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-primary/50" />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">Title</span>
+              <input value={title} onChange={(event) => setTitle(event.target.value)} className="h-9 w-full rounded-lg border border-border bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-primary/50" />
+            </label>
+          </div>
+          <label className="block">
+            <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">Keywords</span>
+            <input value={keywords} onChange={(event) => setKeywords(event.target.value)} placeholder="pricing, retention, onboarding" className="h-9 w-full rounded-lg border border-border bg-background px-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50" />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">Summary</span>
+            <textarea value={summary} onChange={(event) => setSummary(event.target.value)} rows={3} className="min-h-[76px] w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-[13px] text-foreground outline-none transition-colors focus:border-primary/50" />
+          </label>
+          {error && <p className="text-[12px] text-destructive">{error}</p>}
+        </div>
+        <div className="min-w-0 rounded-lg border border-border bg-background/60 p-3">
+          <p className="truncate text-[12px] font-medium text-foreground">{file.path}</p>
+          <dl className="mt-3 space-y-2 text-[11px] text-text-muted">
+            <div className="flex justify-between gap-3"><dt>Status</dt><dd className="text-text-secondary">{file.projectionStatus || file.fileState}</dd></div>
+            <div className="flex justify-between gap-3"><dt>Size</dt><dd className="text-text-secondary">{formatBytes(projection?.source_size_bytes)}</dd></div>
+            <div className="flex justify-between gap-3"><dt>Hash</dt><dd className="max-w-[120px] truncate text-text-secondary">{projection?.source_sha256 || "None"}</dd></div>
+          </dl>
+          <button type="button" onClick={() => void handleSave()} disabled={!canSave} className="mt-4 inline-flex h-8 w-full items-center justify-center gap-2 rounded-lg bg-foreground px-3 text-[12px] font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-45">
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+            Save Metadata
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function KnowledgeBaseCard({
   base,
   agents,
@@ -331,6 +474,7 @@ function KnowledgeBaseCard({
   onDeleteWorkspace,
   onUploadFile,
   onDeletePath,
+  onUpdateFile,
 }: {
   base: KnowledgeBase;
   agents: SharedKnowledgeAgent[];
@@ -346,17 +490,21 @@ function KnowledgeBaseCard({
   onDeleteWorkspace: () => void;
   onUploadFile: (path: string, content: Uint8Array) => Promise<void>;
   onDeletePath: (path: string, options?: { recursive?: boolean }) => Promise<void>;
+  onUpdateFile: (path: string, patch: WorkspaceFilePatch) => Promise<void>;
 }) {
   const assignedAgents = assignedAgentsForBase(base, agentById);
+  const [selectedPath, setSelectedPath] = React.useState<string | null>(null);
   const listFiles = React.useCallback(async (path?: string) => workspaceFileEntries(base, path), [base]);
   const openProjection = React.useCallback(async (path: string): Promise<AgentFileOpenResponse<string>> => {
     if (!workspaces) throw new Error("Workspaces client is unavailable.");
+    setSelectedPath(path);
     const { projection, markdown } = await workspaces.projectionMarkdown(base.workspace.slug, path);
     const projectionPath = String(projection.projection_path || `${path}.md`);
     return { content: markdown, path: projectionPath, name: baseName(projectionPath) };
   }, [base.workspace.slug, workspaces]);
   const openOriginalBytes = React.useCallback(async (path: string) => {
     if (!workspaces) throw new Error("Workspaces client is unavailable.");
+    setSelectedPath(path);
     return fetchOriginalBytes(workspaces, base.workspace.slug, path);
   }, [base.workspace.slug, workspaces]);
 
@@ -414,6 +562,7 @@ function KnowledgeBaseCard({
               isReadOnlyFile={() => true}
             />
           </div>
+          <FileMetadataEditor base={base} selectedPath={selectedPath} busy={busy} onSave={onUpdateFile} />
 
           <div className="mt-4">
             <h4 className="text-[11px] font-semibold uppercase tracking-[0.24em] text-text-muted">Assigned Agents</h4>
@@ -613,6 +762,22 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
     }
   };
 
+  const updateFileFields = async (base: KnowledgeBase, path: string, patch: WorkspaceFilePatch) => {
+    if (!workspaces) return;
+    setBusyBaseId(base.workspace.id);
+    setError(null);
+    try {
+      await workspaces.updateFile(base.workspace.slug, normalizeWorkspacePath(path), patch);
+      await loadWorkspaces();
+      setExpandedBaseId(base.workspace.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to update file metadata.");
+      throw err;
+    } finally {
+      setBusyBaseId(null);
+    }
+  };
+
   return (
     <div className="h-full min-h-0 overflow-y-auto bg-background text-foreground">
       <div className="w-full px-5 py-5">
@@ -674,6 +839,7 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
               onDeleteWorkspace={() => void deleteBase(base)}
               onUploadFile={(path, content) => uploadFileContent(base, path, content)}
               onDeletePath={(path, options) => deleteFilePath(base, path, options)}
+              onUpdateFile={(path, patch) => updateFileFields(base, path, patch)}
             />
           ))}
           {workspaces && !loading && knowledgeBases.length === 0 && (
