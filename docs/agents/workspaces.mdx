@@ -15,7 +15,7 @@ Each Workspace has:
 - compact file/version/projection metadata for frontmatter, keywords, and search indexes
 - explicit access grants for users and agents
 
-Agents can boot-sync accessible Workspace projections into `/home/node/Workspaces`, so the files appear on disk before a session starts.
+Agents can boot-sync accessible Workspace projections into `/home/node/workspaces`, so the files appear on disk before a session starts.
 
 ## Workspaces vs Files
 
@@ -25,7 +25,7 @@ Workspaces are different from HyperCLI Files and OpenClaw workspace files.
 | --- | --- | --- | --- |
 | HyperCLI Files | Render and workflow assets uploaded through `client.files` | Asset-oriented; usually referenced by file ID or internal URL | Not automatically mounted as shared knowledge |
 | OpenClaw workspace files | Live files in an agent's `.openclaw/workspace` | Tied to the agent workspace and sync root | `.openclaw/workspace` through gateway/files APIs |
-| Workspaces | Durable shared knowledge with searchable projections | Service-backed and reusable across agents | Boot-synced Markdown projections under `/home/node/Workspaces/<workspace-slug>` |
+| Workspaces | Durable shared knowledge with searchable projections | Service-backed and reusable across agents | Boot-synced Markdown projections under `/home/node/workspaces/<workspace-slug>` |
 
 Use HyperCLI Files when a render or workflow needs a task-scoped input asset. Use OpenClaw workspace files for temporary or working files inside one agent environment. Use Workspaces when multiple sessions or agents should share a managed knowledge collection.
 
@@ -119,14 +119,14 @@ hyper workspaces download team-knowledge projects/example/report.pdf --raw --out
 Sync Markdown projections locally:
 
 ```bash
-hyper workspaces sync team-knowledge --output-dir ~/Workspaces
-hyper workspaces sync --all --ready-only --output-dir ~/Workspaces
+hyper workspaces sync team-knowledge --output-dir ~/workspaces
+hyper workspaces sync --all --ready-only --output-dir ~/workspaces
 ```
 
 Inside OpenClaw agents, the default boot-sync target is:
 
 ```text
-/home/node/Workspaces/<workspace-slug>
+/home/node/workspaces/<workspace-slug>
 ```
 
 Search accessible Workspaces and files:
@@ -251,7 +251,7 @@ Boot sync environment defaults:
 | Environment variable | Default | Meaning |
 | --- | --- | --- |
 | `HYPER_WORKSPACES_BOOT_SYNC` | `1` | Enable Workspaces sync on agent boot |
-| `HYPER_WORKSPACES_DIR` | `/home/node/Workspaces` | Local root for synced projections |
+| `HYPER_WORKSPACES_DIR` | `/home/node/workspaces` | Local root for synced projections |
 | `HYPER_WORKSPACES_SYNC_READY_ONLY` | `1` | Sync only finished projections |
 | `HYPER_WORKSPACES_SYNC_WORKSPACE` | unset | Optional single Workspace slug or ID to sync |
 
@@ -261,7 +261,7 @@ Python launch helpers accept `workspaces_sync` to override these values:
 agent = client.deployments.create_openclaw(
     name="docs-agent",
     workspaces_sync={
-        "output_dir": "/home/node/Workspaces",
+        "output_dir": "/home/node/workspaces",
         "ready_only": True,
         "workspace": "team-knowledge",
     },

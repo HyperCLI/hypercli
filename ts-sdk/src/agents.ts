@@ -39,7 +39,7 @@ export const OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
 } as const;
 export const OPENCLAW_WORKSPACES_SYNC_ENV_DEFAULTS = {
   HYPER_WORKSPACES_BOOT_SYNC: '1',
-  HYPER_WORKSPACES_DIR: '/home/node/Workspaces',
+  HYPER_WORKSPACES_DIR: '/home/node/workspaces',
   HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
 } as const;
 const LAUNCH_CONFIG_KEYS = new Set(['image', 'env', 'routes', 'ports', 'command', 'entrypoint', 'sync_root', 'sync_enabled', 'sync_uid', 'sync_gid', 'registry_url', 'registry_auth']);

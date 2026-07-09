@@ -13,7 +13,7 @@ describe("buildOpenClawLaunchOptions", () => {
       image: "ghcr.io/hypercli/hypercli-openclaw:prod",
       env: {
         HYPER_WORKSPACES_BOOT_SYNC: "1",
-        HYPER_WORKSPACES_DIR: "/home/node/Workspaces",
+        HYPER_WORKSPACES_DIR: "/home/node/workspaces",
         HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
         OPENCLAW_DESKTOP_ENABLED: "0",
       },
@@ -28,7 +28,7 @@ describe("buildOpenClawLaunchOptions", () => {
       image: "ghcr.io/hypercli/hypercli-openclaw:pro-prod",
       env: {
         HYPER_WORKSPACES_BOOT_SYNC: "1",
-        HYPER_WORKSPACES_DIR: "/home/node/Workspaces",
+        HYPER_WORKSPACES_DIR: "/home/node/workspaces",
         HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
         OPENCLAW_DESKTOP_ENABLED: "1",
       },
@@ -46,7 +46,7 @@ describe("buildOpenClawLaunchOptions", () => {
       image: "ghcr.io/acme/openclaw:desktop",
       env: {
         HYPER_WORKSPACES_BOOT_SYNC: "1",
-        HYPER_WORKSPACES_DIR: "/home/node/Workspaces",
+        HYPER_WORKSPACES_DIR: "/home/node/workspaces",
         HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
         OPENCLAW_DESKTOP_ENABLED: "1",
       },

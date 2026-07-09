@@ -13,6 +13,7 @@ import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { createHyperAgentClient, createOpenClawAgent } from "@/lib/agent-client";
 import { deriveLaunchEligibilityState } from "@/lib/agent-launch-state";
 import { formatTokens, type SlotInventory } from "@/lib/format";
+import { buildOpenClawLaunchOptions } from "@/lib/openclaw-launch";
 import { ResourceImage } from "@/components/ResourceImage";
 
 // ── Types ──
@@ -364,6 +365,7 @@ export function AgentCreationWizard({
         name: name.trim() || undefined,
         start: startImmediately,
         size: selectedType.id,
+        ...buildOpenClawLaunchOptions({ desktopEnabled: false }),
         meta: {
           ui: {
             avatar: {

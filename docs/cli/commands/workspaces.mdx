@@ -5,7 +5,7 @@ description: Manage shared Workspaces, uploaded originals, Markdown projections,
 
 ## Overview
 
-`hyper workspaces` manages durable shared Workspaces. A Workspace stores original source files, exposes generated `.tomd` Markdown projections with synthesized frontmatter, supports keyword and vector search, and can be granted to agents for boot sync into `/home/node/Workspaces`.
+`hyper workspaces` manages durable shared Workspaces. A Workspace stores original source files, exposes generated `.tomd` Markdown projections with synthesized frontmatter, supports keyword and vector search, and can be granted to agents for boot sync into `/home/node/workspaces`.
 
 For the full storage and agent-access model, see [Workspaces](/agents/workspaces).
 
@@ -74,22 +74,22 @@ The default download path writes Markdown. The `--raw` path retrieves the origin
 Sync one Workspace's Markdown projections:
 
 ```bash
-hyper workspaces sync team-knowledge --output-dir ~/Workspaces
+hyper workspaces sync team-knowledge --output-dir ~/workspaces
 ```
 
 Sync every Workspace accessible to the subject:
 
 ```bash
-hyper workspaces sync --all --ready-only --output-dir ~/Workspaces --json
+hyper workspaces sync --all --ready-only --output-dir ~/workspaces --json
 ```
 
 The synced layout is:
 
 ```text
-~/Workspaces/<workspace-slug>/<source-folder>/.tomd/<projection>.md
+~/workspaces/<workspace-slug>/<source-folder>/.tomd/<projection>.md
 ```
 
-OpenClaw agents use `/home/node/Workspaces` as the default boot-sync root.
+OpenClaw agents use `/home/node/workspaces` as the default boot-sync root.
 
 ## Search
 

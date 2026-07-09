@@ -148,7 +148,7 @@ describe('HyperClaw agents SDK', () => {
       sync_enabled: true,
       env: expect.objectContaining({
         HYPER_WORKSPACES_BOOT_SYNC: '1',
-        HYPER_WORKSPACES_DIR: '/home/node/Workspaces',
+        HYPER_WORKSPACES_DIR: '/home/node/workspaces',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
       }),
       routes: {
@@ -180,7 +180,7 @@ describe('HyperClaw agents SDK', () => {
       sync_enabled: true,
       env: expect.objectContaining({
         HYPER_WORKSPACES_BOOT_SYNC: '1',
-        HYPER_WORKSPACES_DIR: '/home/node/Workspaces',
+        HYPER_WORKSPACES_DIR: '/home/node/workspaces',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
       }),
       routes: {},
@@ -214,7 +214,7 @@ describe('HyperClaw agents SDK', () => {
       sync_enabled: true,
       env: expect.objectContaining({
         HYPER_WORKSPACES_BOOT_SYNC: '1',
-        HYPER_WORKSPACES_DIR: '/home/node/Workspaces',
+        HYPER_WORKSPACES_DIR: '/home/node/workspaces',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
         OPENCLAW_DESKTOP_ENABLED: '1',
       }),
@@ -346,7 +346,7 @@ describe('HyperClaw agents SDK', () => {
       sync_enabled: true,
       env: expect.objectContaining({
         HYPER_WORKSPACES_BOOT_SYNC: '1',
-        HYPER_WORKSPACES_DIR: '/home/node/Workspaces',
+        HYPER_WORKSPACES_DIR: '/home/node/workspaces',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
       }),
       routes: {

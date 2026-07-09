@@ -286,7 +286,7 @@ def test_sync_manifest_writes_tomd_markdown(monkeypatch, tmp_path: Path):
             "workspace_slug": "demo",
             "snapshot_id": "snapshot-1",
             "generated_at": "2026-07-08T00:00:00Z",
-            "base_path": "/home/node/Workspaces/demo",
+            "base_path": "/home/node/workspaces/demo",
             "markdown_files": [
                 {
                     "file_id": "file-1",
@@ -337,7 +337,7 @@ def test_markdown_file_finds_single_file(monkeypatch):
             "workspace_slug": "demo",
             "snapshot_id": "snapshot-1",
             "generated_at": "2026-07-08T00:00:00Z",
-            "base_path": "/home/node/Workspaces/demo",
+            "base_path": "/home/node/workspaces/demo",
             "markdown_files": [
                 {
                     "file_id": "file-1",

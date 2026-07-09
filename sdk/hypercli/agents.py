@@ -44,7 +44,7 @@ OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
 }
 OPENCLAW_WORKSPACES_ENV_DEFAULTS = {
     "HYPER_WORKSPACES_BOOT_SYNC": "1",
-    "HYPER_WORKSPACES_DIR": "/home/node/Workspaces",
+    "HYPER_WORKSPACES_DIR": "/home/node/workspaces",
     "HYPER_WORKSPACES_SYNC_READY_ONLY": "1",
 }
 LAUNCH_CONFIG_KEYS = frozenset({"image", "env", "routes", "ports", "command", "entrypoint", "sync_root", "sync_enabled", "sync_uid", "sync_gid", "registry_url", "registry_auth"})

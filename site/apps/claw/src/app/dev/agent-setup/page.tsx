@@ -37,6 +37,7 @@ import {
 import { BRAND_ICONS } from "@/components/dashboard/BrandIcons";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { createAgentClient, createHyperAgentClient, createOpenClawAgent } from "@/lib/agent-client";
+import { buildOpenClawLaunchOptions } from "@/lib/openclaw-launch";
 import type { OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
 
 type StageId =
@@ -924,6 +925,7 @@ export default function DevAgentSetupPage() {
         name: agentToCreate.name,
         start: true,
         size: agentToCreate.tier,
+        ...buildOpenClawLaunchOptions({ desktopEnabled: false }),
         tags: isTeamPlanActive ? ["setup=agent-onboarding", "plan=team"] : undefined,
         meta: {
           ui: {
