@@ -169,7 +169,21 @@ const AGENTS_DESKTOP_MEDIA_QUERY = "(min-width: 640px)";
 const AGENT_LAUNCHER_OPEN_VALUES = new Set(["agent-launcher", "launcher", "launch-agent"]);
 const TOKEN_USAGE_RECONCILE_DELAYS_MS = [2000, 5000] as const;
 const TOKEN_USAGE_RUNNING_REFRESH_INTERVAL_MS = 60_000;
+const AGENT_DASHBOARD_ENRICHMENT_TIMEOUT_MS = 10_000;
 const AGENT_DIRECTORY_MARKER_NAME = ".hypercli-folder";
+
+function optionalDashboardData<T>(promise: Promise<T>, fallback: T): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timeout = setTimeout(() => resolve(fallback), AGENT_DASHBOARD_ENRICHMENT_TIMEOUT_MS);
+  });
+  return Promise.race([
+    promise.catch(() => fallback),
+    timeoutPromise,
+  ]).finally(() => {
+    if (timeout) clearTimeout(timeout);
+  });
+}
 
 function pendingFileMatches(file: ChatPendingFile, mimePrefix: string, extensionPattern: RegExp): boolean {
   return file.type.toLowerCase().startsWith(mimePrefix) || extensionPattern.test(file.name) || extensionPattern.test(file.path);
@@ -1013,22 +1027,7 @@ function AgentsPageContent() {
       }
       setWorkspacesClient((current) => current ?? createWorkspacesClient(token));
       const hyperAgent = createHyperAgentClient(token);
-      const [listedAgents, catalogData, currentPlan, summaryData, dailyUsage, typeCatalogData] = await Promise.all([
-        agentClient.list(),
-        hyperAgent.plans().catch(() => []),
-        hyperAgent.currentPlan().catch(() => null),
-        hyperAgent.subscriptionSummary().catch(() => null),
-        hyperAgent.usageHistory(1).catch(() => null),
-        hyperAgent.agentTypes().catch(() => null),
-      ]);
-      const plans = Array.isArray(catalogData) ? catalogData : [];
-      const normalizedCurrentPlan = currentPlan as HyperAgentCurrentPlan | null;
-      const rawSummary = (summaryData as HyperAgentSubscriptionSummary | null) || null;
-      const summary = isActiveNoSlotBillingMockEnabled()
-        ? applyActiveNoSlotBillingMock(rawSummary, normalizedCurrentPlan, plans)
-        : rawSummary;
-      const typeCatalog = (typeCatalogData as HyperAgentTypeCatalog | null) || null;
-      const nextBudget = buildBillingBudget(summary, normalizedCurrentPlan, typeCatalog);
+      const listedAgents = await agentClient.list();
       const listedAgentIds = new Set(listedAgents.map((agent) => agent.id));
       setSdkAgents(listedAgents);
       setSelectedSessionKeysByAgent((current) => {
@@ -1043,11 +1042,6 @@ function AgentsPageContent() {
         }
         return changed ? next : current;
       });
-      setBudget(nextBudget);
-      setCatalogPlans(plans);
-      setPlanName(getEffectivePlanName(summary, normalizedCurrentPlan, plans));
-      setSubscriptionSummary(summary);
-      setTokenUsage(dailyTokenUsageTotal(dailyUsage));
       setAgentClusterUnavailable(false);
       const requestedAgent = requestedAgentId
         ? listedAgents.find((agent) => agent.id === requestedAgentId) ?? null
@@ -1058,6 +1052,28 @@ function AgentsPageContent() {
         }
         return requestedAgent?.id ?? listedAgents[0]?.id ?? null;
       });
+      setAgentsLoading(false);
+
+      const [catalogData, currentPlan, summaryData, dailyUsage, typeCatalogData] = await Promise.all([
+        optionalDashboardData(hyperAgent.plans(), [] as HyperAgentPlan[]),
+        optionalDashboardData(hyperAgent.currentPlan(), null),
+        optionalDashboardData(hyperAgent.subscriptionSummary(), null),
+        optionalDashboardData(hyperAgent.usageHistory(1), null),
+        optionalDashboardData(hyperAgent.agentTypes(), null),
+      ]);
+      const plans = Array.isArray(catalogData) ? catalogData : [];
+      const normalizedCurrentPlan = currentPlan as HyperAgentCurrentPlan | null;
+      const rawSummary = (summaryData as HyperAgentSubscriptionSummary | null) || null;
+      const summary = isActiveNoSlotBillingMockEnabled()
+        ? applyActiveNoSlotBillingMock(rawSummary, normalizedCurrentPlan, plans)
+        : rawSummary;
+      const typeCatalog = (typeCatalogData as HyperAgentTypeCatalog | null) || null;
+      const nextBudget = buildBillingBudget(summary, normalizedCurrentPlan, typeCatalog);
+      setBudget(nextBudget);
+      setCatalogPlans(plans);
+      setPlanName(getEffectivePlanName(summary, normalizedCurrentPlan, plans));
+      setSubscriptionSummary(summary);
+      setTokenUsage(dailyTokenUsageTotal(dailyUsage));
       return { subscriptionSummary: summary, budget: nextBudget };
     } catch (err) {
       const described = describeAgentsPageError(err);
