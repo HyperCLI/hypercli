@@ -1,0 +1,143 @@
+---
+title: hyper workspaces
+description: Manage shared Workspaces, uploaded originals, Markdown projections, search, sync, and grants.
+---
+
+## Overview
+
+`hyper workspaces` manages durable shared Workspaces. A Workspace stores original source files, exposes generated `.tomd` Markdown projections with synthesized frontmatter, supports keyword and vector search, and can be granted to agents for boot sync into `/home/node/Workspaces`.
+
+For the full storage and agent-access model, see [Workspaces](/agents/workspaces).
+
+## Workspace Commands
+
+```bash
+hyper workspaces create "Team Knowledge" --slug team-knowledge
+hyper workspaces list
+hyper workspaces search "handoff"
+hyper workspaces update team-knowledge --name "Shared Knowledge"
+hyper workspaces delete team-knowledge
+```
+
+Common options:
+
+- `--output table|json`
+- `--user-id` for explicit local or development subject testing
+- `--agent-id` on read/search operations that should run as an agent subject
+- `--vector / --no-vector` on search commands
+
+## Files
+
+Upload an original source file:
+
+```bash
+hyper workspaces upload team-knowledge ./report.pdf --path projects/example/report.pdf
+```
+
+Poll until the generated Markdown projection is ready:
+
+```bash
+hyper workspaces wait-until-processed team-knowledge projects/example/report.pdf
+```
+
+Inspect the manifest:
+
+```bash
+hyper workspaces manifest team-knowledge
+```
+
+Delete a file from active Workspace use:
+
+```bash
+hyper workspaces delete-file team-knowledge projects/example/report.pdf
+```
+
+## Download
+
+`download` writes the Markdown projection by default:
+
+```bash
+hyper workspaces download team-knowledge projects/example/report.pdf --output report.md
+hyper workspaces download team-knowledge/projects/example/report.pdf --md
+```
+
+Use `--raw` for the original S3-backed file:
+
+```bash
+hyper workspaces download team-knowledge projects/example/report.pdf --raw --output report.pdf
+```
+
+The default download path writes Markdown. The `--raw` path retrieves the original source file.
+
+## Sync
+
+Sync one Workspace's Markdown projections:
+
+```bash
+hyper workspaces sync team-knowledge --output-dir ~/Workspaces
+```
+
+Sync every Workspace accessible to the subject:
+
+```bash
+hyper workspaces sync --all --ready-only --output-dir ~/Workspaces --json
+```
+
+The synced layout is:
+
+```text
+~/Workspaces/<workspace-slug>/<source-folder>/.tomd/<projection>.md
+```
+
+OpenClaw agents use `/home/node/Workspaces` as the default boot-sync root.
+
+## Search
+
+Search Workspaces:
+
+```bash
+hyper workspaces search "launch notes"
+hyper workspaces search "launch notes" --no-vector --output json
+```
+
+Search files within one Workspace:
+
+```bash
+hyper workspaces search-files team-knowledge "visual language"
+hyper workspaces search-files team-knowledge "visual language" --no-vector
+```
+
+Search includes paths, filenames, compact keyword/summary metadata, projection metadata, and vector matches when vector search is enabled.
+
+## Grants
+
+Grant an agent read access:
+
+```bash
+hyper workspaces grant team-knowledge --agent-id agent-id --role viewer
+```
+
+Grant another user subject:
+
+```bash
+hyper workspaces grant team-knowledge --user-subject-id user-id --role contributor
+```
+
+List and revoke grants:
+
+```bash
+hyper workspaces grants team-knowledge
+hyper workspaces revoke-grant team-knowledge grant-id
+```
+
+Roles are `viewer`, `contributor`, and `admin`.
+
+## Enrichment Payloads
+
+`enrich` builds a machine-readable payload from generated Markdown files for a Workspace file address:
+
+```bash
+hyper workspaces enrich team-knowledge/projects/example/report.pdf --dir ./generated --json
+```
+
+The payload includes the Workspace, source path, and Markdown files found in the directory.
