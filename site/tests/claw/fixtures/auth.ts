@@ -1571,6 +1571,36 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
       .toBeLessThan(400);
   };
 
+  const waitForGatewayRoute = async (agent: DeploymentRecord): Promise<void> => {
+    if (!agent.hostname) {
+      return;
+    }
+
+    const gatewayUrl = `https://${agent.hostname}/`;
+    console.log(`[agents-gateway] probing ${gatewayUrl}`);
+
+    await expect
+      .poll(
+        async () => {
+          const response = await page.request.get(gatewayUrl, { timeout: 15_000 }).catch((error) => error);
+          if (response instanceof Error) {
+            return `error:${response.message}`;
+          }
+
+          const status = response.status();
+          const body = status === 200 ? await response.text().catch(() => "") : "";
+          if (status === 200 && body.includes("OpenClaw")) {
+            return "ready";
+          }
+
+          const sample = body.replace(/\s+/g, " ").slice(0, 120);
+          return sample ? `${status}:${sample}` : String(status);
+        },
+        { timeout: 150_000, intervals: [1_000, 2_000, 5_000] }
+      )
+      .toBe("ready");
+  };
+
   const waitForAgentDashboardFetches = async (): Promise<void> => {
     const requiredPaths = new Set([
       "/agents/deployments",
@@ -1684,6 +1714,7 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
     const running = await deployments.waitRunning(created.id, timeout, 5_000);
     expect(running.state).toBe("RUNNING");
     await verifyDesktopAuthRoute(running);
+    await waitForGatewayRoute(running);
 
     await page.goto(`/dashboard/agents?agentId=${encodeURIComponent(created.id)}`, { waitUntil: "domcontentloaded" });
     await expect(page.getByText("Loading agents", { exact: true })).not.toBeVisible({ timeout: 90_000 });
@@ -1693,7 +1724,7 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
     const readyStatus = page.getByText("Ready", { exact: true });
     const connectingStatus = page
       .locator("main")
-      .getByText(/Connecting|Preparing chat|Loading workspace|Fetching messages|Checking your workspace/i);
+      .getByText(/Connecting|Preparing chat|Loading workspace|Fetching messages|Checking your workspace|Waiting for gateway|Gateway disconnected|runtime is up/i);
     const readinessStartedAt = Date.now();
     let refreshedAgentRoute = false;
     await expect
