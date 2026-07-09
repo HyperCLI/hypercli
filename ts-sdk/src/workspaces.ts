@@ -96,7 +96,9 @@ export interface WorkspaceDownloadUrl {
 }
 
 export interface WorkspaceSubjectOptions {
+  /** @deprecated Workspaces identity is resolved from the bearer credential. */
   userId?: string;
+  /** @deprecated Workspaces identity is resolved from the bearer credential. */
   agentId?: string;
 }
 
@@ -219,22 +221,18 @@ export class WorkspacesAPI {
     this.timeout = options.timeout || 30000;
   }
 
-  private headers(subject: WorkspaceSubjectOptions = {}): Record<string, string> {
+  private headers(_subject: WorkspaceSubjectOptions = {}): Record<string, string> {
     const headers: Record<string, string> = {
       Authorization: `Bearer ${this.apiKey}`,
       'Content-Type': 'application/json',
     };
-    if (subject.userId) headers['X-User-Id'] = subject.userId;
-    if (subject.agentId) headers['X-Agent-Id'] = subject.agentId;
     return headers;
   }
 
-  private authHeaders(subject: WorkspaceSubjectOptions = {}): Record<string, string> {
+  private authHeaders(_subject: WorkspaceSubjectOptions = {}): Record<string, string> {
     const headers: Record<string, string> = {
       Authorization: `Bearer ${this.apiKey}`,
     };
-    if (subject.userId) headers['X-User-Id'] = subject.userId;
-    if (subject.agentId) headers['X-Agent-Id'] = subject.agentId;
     return headers;
   }
 

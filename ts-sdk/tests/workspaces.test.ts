@@ -8,7 +8,7 @@ describe('Workspaces SDK', () => {
     );
   });
 
-  it('creates workspaces with subject headers', async () => {
+  it('creates workspaces with bearer auth', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ id: 'workspace-1', name: 'Demo Workspace', slug: 'demo' }), {
         status: 200,
@@ -24,7 +24,7 @@ describe('Workspaces SDK', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces');
     expect(fetchMock.mock.calls[0][1]).toMatchObject({
       method: 'POST',
-      headers: expect.objectContaining({ Authorization: 'Bearer key', 'X-User-Id': 'user-1' }),
+      headers: expect.objectContaining({ Authorization: 'Bearer key' }),
       body: JSON.stringify({ name: 'Demo Workspace', slug: 'demo' }),
     });
     vi.unstubAllGlobals();
@@ -46,7 +46,7 @@ describe('Workspaces SDK', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/search?q=launch+handoff&vector=true');
     expect(fetchMock.mock.calls[0][1]).toMatchObject({
       method: 'GET',
-      headers: expect.objectContaining({ Authorization: 'Bearer key', 'X-User-Id': 'user-1' }),
+      headers: expect.objectContaining({ Authorization: 'Bearer key' }),
     });
     vi.unstubAllGlobals();
   });
@@ -83,7 +83,7 @@ describe('Workspaces SDK', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/demo/files/search?q=brief&vector=false');
     expect(fetchMock.mock.calls[0][1]).toMatchObject({
       method: 'GET',
-      headers: expect.objectContaining({ Authorization: 'Bearer key', 'X-User-Id': 'user-1' }),
+      headers: expect.objectContaining({ Authorization: 'Bearer key' }),
     });
     vi.unstubAllGlobals();
   });
@@ -212,7 +212,7 @@ describe('Workspaces SDK', () => {
     vi.unstubAllGlobals();
   });
 
-  it('uploads files with multipart form data and subject headers', async () => {
+  it('uploads files with multipart form data and bearer auth', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -242,7 +242,7 @@ describe('Workspaces SDK', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/demo/upload');
     expect(fetchMock.mock.calls[0][1]).toMatchObject({
       method: 'POST',
-      headers: expect.objectContaining({ Authorization: 'Bearer key', 'X-User-Id': 'user-1' }),
+      headers: expect.objectContaining({ Authorization: 'Bearer key' }),
     });
     expect(fetchMock.mock.calls[0][1].headers).not.toHaveProperty('Content-Type');
     expect(fetchMock.mock.calls[0][1].body).toBeInstanceOf(FormData);
@@ -282,7 +282,7 @@ describe('Workspaces SDK', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/demo/files/docs/source.md');
     expect(fetchMock.mock.calls[0][1]).toMatchObject({
       method: 'GET',
-      headers: expect.objectContaining({ Authorization: 'Bearer key', 'X-Agent-Id': 'agent-1' }),
+      headers: expect.objectContaining({ Authorization: 'Bearer key' }),
     });
     vi.unstubAllGlobals();
   });

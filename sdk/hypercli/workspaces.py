@@ -43,10 +43,6 @@ def _headers(
     }
     if content_type:
         headers["Content-Type"] = content_type
-    if user_id:
-        headers["X-User-Id"] = user_id
-    if agent_id:
-        headers["X-Agent-Id"] = agent_id
     if backend_api_key:
         headers["X-BACKEND-API-KEY"] = backend_api_key
     return headers
