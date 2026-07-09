@@ -134,9 +134,58 @@ for_each_target() {
   done <<< "${site_targets}"
 }
 
+run_target() {
+  local mode="$1"
+  local name="$2"
+  local workspace="$3"
+  local app_dir="$4"
+  local publish_dir="$5"
+  local site_id="$6"
+
+  build_site "${name}" "${workspace}"
+  assemble_static_artifact "${app_dir}" "${publish_dir}"
+
+  if [[ "${mode}" == "deploy" ]]; then
+    deploy_artifact "${name}" "${publish_dir}" "${site_id}"
+  fi
+}
+
+for_each_target_parallel() {
+  local mode="$1"
+  local status=0
+  local pids=()
+  local names=()
+
+  while IFS='|' read -r name workspace app_dir publish_dir site_id; do
+    if [[ -z "${name}" || "${name}" == \#* ]]; then
+      continue
+    fi
+
+    (
+      set -euo pipefail
+      run_target "${mode}" "${name}" "${workspace}" "${app_dir}" "${publish_dir}" "${site_id}"
+    ) &
+    pids+=("$!")
+    names+=("${name}")
+  done <<< "${site_targets}"
+
+  for index in "${!pids[@]}"; do
+    if ! wait "${pids[$index]}"; then
+      echo "Site target ${names[$index]} failed" >&2
+      status=1
+    fi
+  done
+
+  return "${status}"
+}
+
 case "${SITE_ACTION:-build}" in
   build)
-    for_each_target build
+    if [[ "${SITE_PARALLEL:-false}" == "true" || "${SITE_PARALLEL:-false}" == "1" ]]; then
+      for_each_target_parallel build
+    else
+      for_each_target build
+    fi
     ;;
   deploy)
     if [[ -z "${NETLIFY_AUTH_TOKEN:-}" ]]; then
@@ -144,7 +193,11 @@ case "${SITE_ACTION:-build}" in
       exit 1
     fi
 
-    for_each_target deploy
+    if [[ "${SITE_PARALLEL:-false}" == "true" || "${SITE_PARALLEL:-false}" == "1" ]]; then
+      for_each_target_parallel deploy
+    else
+      for_each_target deploy
+    fi
     ;;
   *)
     echo "Unknown SITE_ACTION=${SITE_ACTION}" >&2

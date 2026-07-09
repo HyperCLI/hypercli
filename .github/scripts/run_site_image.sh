@@ -13,6 +13,7 @@ fi
 docker run --rm \
   "${env_file_args[@]}" \
   -e SITE_ACTION="${SITE_ACTION:-build}" \
+  -e SITE_PARALLEL="${SITE_PARALLEL:-false}" \
   -e SITE_TARGETS="${SITE_TARGETS:-}" \
   -e NETLIFY_AUTH_TOKEN="${NETLIFY_AUTH_TOKEN:-}" \
   -e NETLIFY_PROD="${NETLIFY_PROD:-false}" \

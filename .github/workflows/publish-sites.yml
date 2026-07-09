@@ -114,6 +114,7 @@ jobs:
 
           SITE_IMAGE="${{ steps.build_site.outputs.site_image }}" \
           SITE_ACTION=deploy \
+          SITE_PARALLEL=true \
           SITE_ENV_FILE="${env_file}" \
           SITE_TARGETS="${site_targets}" \
           NETLIFY_PROD=true \
