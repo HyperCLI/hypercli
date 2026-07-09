@@ -42,6 +42,8 @@ projects/example/.tomd/report.md
 
 The source file is the authoritative original. Compact searchable metadata such as display name, keywords, title, summary, hashes, and source type is stored with the file, file version, or projection row so it can be indexed and serialized quickly. The `.tomd` file is the generated Markdown/frontmatter view that agents read during sync and download.
 
+Markdown projection bodies and metadata are served from Workspaces database state. The service synthesizes `.tomd` frontmatter when a projection is downloaded or synced; frontmatter edits do not rewrite a separate S3 sidecar object.
+
 ## Markdown Projections
 
 Markdown projections include YAML frontmatter followed by extracted or generated Markdown content. The frontmatter is synthesized from Workspace file, version, and projection metadata when a projection is downloaded or synced. A projection looks like:
@@ -66,7 +68,7 @@ projection_path: "projects/example/.tomd/report.md"
 markdown_sha256: "..."
 keywords: ["handoff", "launch"]
 status: "finished"
-download_command: "hyper workspaces download team-knowledge/projects/example/report.pdf"
+download_command: "hyper workspaces download team-knowledge/projects/example/report.pdf --raw --output report.pdf"
 ---
 
 # Report
@@ -81,7 +83,7 @@ Important fields:
 - `source_s3_key`, checksums, and size identify the stored original version.
 - `keywords` improve exact and semantic search.
 - `status` reflects projection readiness.
-- `download_command` gives an agent or user a direct command for retrieving the Workspace file projection. Add `--raw` when the original source file is needed.
+- `download_command` gives an agent or user a direct command for retrieving the original source file when the Markdown projection is not enough. Projection download remains the default `hyper workspaces download` behavior.
 
 ## CLI
 
