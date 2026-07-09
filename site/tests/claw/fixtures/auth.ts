@@ -1688,7 +1688,8 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
     const connectingStatus = page
       .locator("main")
       .getByText(/Connecting|Preparing chat|Loading workspace|Fetching messages|Checking your workspace/i);
-    let lastAgentRouteRefresh = 0;
+    const readinessStartedAt = Date.now();
+    let refreshedAgentRoute = false;
     await expect
       .poll(
         async () => {
@@ -1706,8 +1707,8 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
             .first()
             .isVisible()
             .catch(() => false);
-          if (loadingShellVisible && Date.now() - lastAgentRouteRefresh > 20_000) {
-            lastAgentRouteRefresh = Date.now();
+          if (loadingShellVisible && !refreshedAgentRoute && Date.now() - readinessStartedAt > 60_000) {
+            refreshedAgentRoute = true;
             await page.goto(`/dashboard/agents?agentId=${encodeURIComponent(created.id)}`, { waitUntil: "domcontentloaded" }).catch(() => {});
           }
 
