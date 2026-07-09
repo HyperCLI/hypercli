@@ -264,6 +264,60 @@ def test_workspaces_upload_invokes_cli(monkeypatch, tmp_path: Path):
     }
 
 
+def test_workspaces_wait_until_processed_invokes_cli(monkeypatch):
+    import hypercli_cli.workspaces as workspaces_mod
+
+    captured = {}
+
+    class _FakeWorkspaces:
+        def wait_until_processed(self, workspace, file_ref, *, user_id=None, agent_id=None, timeout=300.0, poll_interval=2.0):
+            captured.update(
+                {
+                    "workspace": workspace,
+                    "file_ref": file_ref,
+                    "user_id": user_id,
+                    "agent_id": agent_id,
+                    "timeout": timeout,
+                    "poll_interval": poll_interval,
+                }
+            )
+            item = _FakeFile()
+            item.file_state = "processed"
+            item.projection_status = "finished"
+            return item
+
+    monkeypatch.setattr(workspaces_mod, "_get_workspaces", lambda: _FakeWorkspaces())
+
+    result = runner.invoke(
+        app,
+        [
+            "workspaces",
+            "wait-until-processed",
+            "demo",
+            "projects/example/report.pdf",
+            "--agent-id",
+            "agent-1",
+            "--timeout",
+            "30",
+            "--poll-interval",
+            "1",
+            "--output",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert captured == {
+        "workspace": "demo",
+        "file_ref": "projects/example/report.pdf",
+        "user_id": None,
+        "agent_id": "agent-1",
+        "timeout": 30.0,
+        "poll_interval": 1.0,
+    }
+    assert '"file_state": "processed"' in result.stdout
+
+
 def test_workspaces_sync_invokes_cli(monkeypatch, tmp_path: Path):
     import hypercli_cli.workspaces as workspaces_mod
 
