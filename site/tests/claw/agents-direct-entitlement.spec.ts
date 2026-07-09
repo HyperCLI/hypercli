@@ -183,7 +183,12 @@ test("agents page launches from a direct entitlement without an active subscript
 
   await expect.poll(() => createBody?.size ?? null).toBe("large");
   expect(String(createBody?.image ?? "")).toMatch(/^ghcr\.io\/hypercli\/hypercli-openclaw:pro-/);
-  expect(createBody?.env).toMatchObject({ OPENCLAW_DESKTOP_ENABLED: "1" });
+  expect(createBody?.env).toMatchObject({
+    HYPER_WORKSPACES_BOOT_SYNC: "1",
+    HYPER_WORKSPACES_DIR: "/home/node/workspaces",
+    HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
+    OPENCLAW_DESKTOP_ENABLED: "1",
+  });
   expect(createBody?.routes).toMatchObject({
     openclaw: { port: 18789, auth: false, prefix: "" },
     desktop: { port: 3000, auth: true, prefix: "desktop" },
