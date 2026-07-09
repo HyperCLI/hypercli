@@ -1398,7 +1398,7 @@ export async function fetchClawCurrentPlan(page: Page): Promise<HyperAgentCurren
   try {
     return await client.currentPlan();
   } catch (error) {
-    if (error instanceof Error && /404/.test(error.message)) {
+    if (error instanceof Error && /(404|Bad Gateway|Service Unavailable|Gateway Timeout)/i.test(error.message)) {
       return null;
     }
     throw error;
@@ -1411,7 +1411,7 @@ export async function fetchClawSubscriptionSummary(page: Page): Promise<HyperAge
   try {
     return await client.subscriptionSummary();
   } catch (error) {
-    if (error instanceof Error && /404/.test(error.message)) {
+    if (error instanceof Error && /(404|Bad Gateway|Service Unavailable|Gateway Timeout)/i.test(error.message)) {
       return null;
     }
     throw error;
