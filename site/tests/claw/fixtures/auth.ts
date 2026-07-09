@@ -1032,20 +1032,26 @@ function urlsShareOrigin(left: string, right: string): boolean {
 }
 
 async function gotoLocalReturnUrl(page: Page, localReturnUrl: string): Promise<void> {
+  const isAcceptableReturnUrl = () => {
+    const currentUrl = page.url();
+    return urlsEquivalent(currentUrl, localReturnUrl) || urlsShareOrigin(currentUrl, localReturnUrl);
+  };
+
   try {
     await page.goto(localReturnUrl, { waitUntil: "domcontentloaded" });
   } catch (error) {
     if (!isNavigationAbortError(error)) throw error;
 
-    const currentUrl = page.url();
-    if (!urlsEquivalent(currentUrl, localReturnUrl) && !urlsShareOrigin(currentUrl, localReturnUrl)) {
+    if (!isAcceptableReturnUrl()) {
       try {
         await page.waitForURL(
           (url) => urlsEquivalent(url.href, localReturnUrl) || urlsShareOrigin(url.href, localReturnUrl),
           { timeout: 15_000 }
         );
       } catch {
-        throw error;
+        if (!isAcceptableReturnUrl()) {
+          throw error;
+        }
       }
     }
 
