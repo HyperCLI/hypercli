@@ -37,6 +37,11 @@ export const OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
   OPENCLAW_MEMORY_SEARCH_SYNC_WATCH_DEBOUNCE_MS: '30000',
   OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES: '0',
 } as const;
+export const OPENCLAW_WORKSPACES_SYNC_ENV_DEFAULTS = {
+  HYPER_WORKSPACES_BOOT_SYNC: '1',
+  HYPER_WORKSPACES_DIR: '/home/node/Workspaces',
+  HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
+} as const;
 const LAUNCH_CONFIG_KEYS = new Set(['image', 'env', 'routes', 'ports', 'command', 'entrypoint', 'sync_root', 'sync_enabled', 'sync_uid', 'sync_gid', 'registry_url', 'registry_auth']);
 const DEFAULT_OPENCLAW_SYNC_ROOT = '/home/node';
 export const AGENT_FILE_MAX_BYTES = 50 * 1024 * 1024;
@@ -153,6 +158,13 @@ export interface OpenClawMemoryIndexOptions {
   watch?: boolean | null;
   watchDebounceMs?: number | null;
   intervalMinutes?: number | null;
+}
+
+export interface OpenClawWorkspacesSyncOptions {
+  enabled?: boolean | null;
+  outputDir?: string | null;
+  readyOnly?: boolean | null;
+  workspace?: string | null;
 }
 
 export interface OpenClawHeartbeatConfig {
@@ -284,12 +296,14 @@ export interface OpenClawCreateAgentOptions extends CreateAgentOptions {
   openClawRoutes?: OpenClawRouteOptions | null;
   heartbeat?: OpenClawHeartbeatConfig | null;
   memoryIndex?: OpenClawMemoryIndexOptions | null;
+  workspacesSync?: OpenClawWorkspacesSyncOptions | boolean | null;
 }
 
 export interface OpenClawStartAgentOptions extends StartAgentOptions {
   openClawRoutes?: OpenClawRouteOptions | null;
   heartbeat?: OpenClawHeartbeatConfig | null;
   memoryIndex?: OpenClawMemoryIndexOptions | null;
+  workspacesSync?: OpenClawWorkspacesSyncOptions | boolean | null;
 }
 
 export interface AgentExecOptions {
@@ -883,6 +897,28 @@ export function buildOpenClawMemoryIndexEnv(memoryIndex: OpenClawMemoryIndexOpti
       'intervalMinutes',
       memoryIndex.intervalMinutes,
     );
+  }
+  return env;
+}
+
+export function buildOpenClawWorkspacesSyncEnv(
+  workspacesSync: OpenClawWorkspacesSyncOptions | boolean | null = null,
+): Record<string, string> {
+  if (workspacesSync === false) return { HYPER_WORKSPACES_BOOT_SYNC: '0' };
+  const options = typeof workspacesSync === 'object' && workspacesSync !== null ? workspacesSync : {};
+  if (options.enabled === false) return { HYPER_WORKSPACES_BOOT_SYNC: '0' };
+  const env: Record<string, string> = { ...OPENCLAW_WORKSPACES_SYNC_ENV_DEFAULTS };
+  if (options.enabled !== undefined && options.enabled !== null) {
+    env.HYPER_WORKSPACES_BOOT_SYNC = envBool(options.enabled);
+  }
+  if (options.outputDir) {
+    env.HYPER_WORKSPACES_DIR = options.outputDir;
+  }
+  if (options.readyOnly !== undefined && options.readyOnly !== null) {
+    env.HYPER_WORKSPACES_SYNC_READY_ONLY = envBool(options.readyOnly);
+  }
+  if (options.workspace) {
+    env.HYPER_WORKSPACES_SYNC_WORKSPACE = options.workspace;
   }
   return env;
 }
@@ -1879,7 +1915,11 @@ export class Deployments {
 
   async createOpenClaw(options: OpenClawCreateAgentOptions = {}): Promise<Agent> {
     const effectiveOptions: CreateAgentOptions = { ...options };
-    effectiveOptions.env = { ...buildOpenClawMemoryIndexEnv(options.memoryIndex), ...(options.env ?? {}) };
+    effectiveOptions.env = {
+      ...buildOpenClawWorkspacesSyncEnv(options.workspacesSync ?? null),
+      ...buildOpenClawMemoryIndexEnv(options.memoryIndex),
+      ...(options.env ?? {}),
+    };
     if (options.routes === undefined) {
       effectiveOptions.routes = buildOpenClawRoutes(options.openClawRoutes ?? {});
     }
@@ -1951,7 +1991,11 @@ export class Deployments {
 
   async startOpenClaw(agentId: string, options: OpenClawStartAgentOptions = {}): Promise<Agent> {
     const effectiveOptions: StartAgentOptions = { ...options };
-    effectiveOptions.env = { ...buildOpenClawMemoryIndexEnv(options.memoryIndex), ...(options.env ?? {}) };
+    effectiveOptions.env = {
+      ...buildOpenClawWorkspacesSyncEnv(options.workspacesSync ?? null),
+      ...buildOpenClawMemoryIndexEnv(options.memoryIndex),
+      ...(options.env ?? {}),
+    };
     if (options.routes === undefined) {
       effectiveOptions.routes = buildOpenClawRoutes(options.openClawRoutes ?? {});
     }

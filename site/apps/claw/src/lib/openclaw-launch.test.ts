@@ -13,9 +13,12 @@ describe("buildOpenClawLaunchOptions", () => {
       image: "ghcr.io/hypercli/hypercli-openclaw:prod",
       env: {
         HYPER_WORKSPACES_BOOT_SYNC: "1",
+        HYPER_WORKSPACES_DIR: "/home/node/Workspaces",
+        HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
         OPENCLAW_DESKTOP_ENABLED: "0",
       },
       memoryIndex: null,
+      workspacesSync: null,
       openClawRoutes: { includeDesktop: false },
     });
   });
@@ -25,9 +28,12 @@ describe("buildOpenClawLaunchOptions", () => {
       image: "ghcr.io/hypercli/hypercli-openclaw:pro-prod",
       env: {
         HYPER_WORKSPACES_BOOT_SYNC: "1",
+        HYPER_WORKSPACES_DIR: "/home/node/Workspaces",
+        HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
         OPENCLAW_DESKTOP_ENABLED: "1",
       },
       memoryIndex: null,
+      workspacesSync: null,
       openClawRoutes: { includeDesktop: true },
     });
   });
@@ -40,6 +46,8 @@ describe("buildOpenClawLaunchOptions", () => {
       image: "ghcr.io/acme/openclaw:desktop",
       env: {
         HYPER_WORKSPACES_BOOT_SYNC: "1",
+        HYPER_WORKSPACES_DIR: "/home/node/Workspaces",
+        HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
         OPENCLAW_DESKTOP_ENABLED: "1",
       },
       openClawRoutes: { includeDesktop: true },
@@ -76,6 +84,42 @@ describe("buildOpenClawLaunchOptions", () => {
         OPENCLAW_MEMORY_SEARCH_SYNC_WATCH: "1",
         OPENCLAW_MEMORY_SEARCH_SYNC_WATCH_DEBOUNCE_MS: "60000",
       },
+    });
+  });
+
+  it("passes workspace sync launch options as env", () => {
+    expect(buildOpenClawLaunchOptions({
+      desktopEnabled: false,
+      workspacesSync: {
+        outputDir: "/home/node/CustomWorkspaces",
+        readyOnly: false,
+        workspace: "team-knowledge",
+      },
+    })).toMatchObject({
+      env: {
+        HYPER_WORKSPACES_BOOT_SYNC: "1",
+        HYPER_WORKSPACES_DIR: "/home/node/CustomWorkspaces",
+        HYPER_WORKSPACES_SYNC_READY_ONLY: "0",
+        HYPER_WORKSPACES_SYNC_WORKSPACE: "team-knowledge",
+      },
+      workspacesSync: {
+        outputDir: "/home/node/CustomWorkspaces",
+        readyOnly: false,
+        workspace: "team-knowledge",
+      },
+    });
+  });
+
+  it("can disable workspace boot sync", () => {
+    expect(buildOpenClawLaunchOptions({
+      desktopEnabled: false,
+      workspacesSync: false,
+    })).toMatchObject({
+      env: {
+        HYPER_WORKSPACES_BOOT_SYNC: "0",
+        OPENCLAW_DESKTOP_ENABLED: "0",
+      },
+      workspacesSync: false,
     });
   });
 

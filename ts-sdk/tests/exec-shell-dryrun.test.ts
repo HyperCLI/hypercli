@@ -146,7 +146,11 @@ describe('HyperClaw agents SDK', () => {
       image: DEFAULT_OPENCLAW_IMAGE,
       sync_root: '/home/node',
       sync_enabled: true,
-      env: expect.not.objectContaining({ HOME: expect.anything() }),
+      env: expect.objectContaining({
+        HYPER_WORKSPACES_BOOT_SYNC: '1',
+        HYPER_WORKSPACES_DIR: '/home/node/Workspaces',
+        HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
+      }),
       routes: {
         openclaw: { port: 18789, auth: false, prefix: '' },
         desktop: { port: 3000, auth: true, prefix: 'desktop' },
@@ -174,7 +178,11 @@ describe('HyperClaw agents SDK', () => {
       image: DEFAULT_OPENCLAW_IMAGE,
       sync_root: '/home/node',
       sync_enabled: true,
-      env: expect.not.objectContaining({ HOME: expect.anything() }),
+      env: expect.objectContaining({
+        HYPER_WORKSPACES_BOOT_SYNC: '1',
+        HYPER_WORKSPACES_DIR: '/home/node/Workspaces',
+        HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
+      }),
       routes: {},
     }));
   });
@@ -204,7 +212,12 @@ describe('HyperClaw agents SDK', () => {
       image: DEFAULT_OPENCLAW_PRO_IMAGE,
       sync_root: '/home/node',
       sync_enabled: true,
-      env: expect.objectContaining({ OPENCLAW_DESKTOP_ENABLED: '1' }),
+      env: expect.objectContaining({
+        HYPER_WORKSPACES_BOOT_SYNC: '1',
+        HYPER_WORKSPACES_DIR: '/home/node/Workspaces',
+        HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
+        OPENCLAW_DESKTOP_ENABLED: '1',
+      }),
       routes: {
         openclaw: { port: 18789, auth: false, prefix: '' },
         desktop: { port: 3000, auth: true, prefix: 'desktop' },
@@ -253,6 +266,62 @@ describe('HyperClaw agents SDK', () => {
     }));
   });
 
+  it('createOpenClaw accepts workspace sync launch options', async () => {
+    const post = vi.fn().mockResolvedValue({
+      id: 'agent-openclaw',
+      user_id: 'user-1',
+      pod_id: 'pod-1',
+      pod_name: 'pod-1',
+      state: 'starting',
+    });
+    const deployments = new Deployments(
+      { post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      'sk-hyper-test',
+      'https://api.dev.hypercli.com',
+    );
+
+    await deployments.createOpenClaw({
+      name: 'test-agent',
+      workspacesSync: {
+        outputDir: '/home/node/CustomWorkspaces',
+        readyOnly: false,
+        workspace: 'team-knowledge',
+      },
+    });
+
+    expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
+      env: expect.objectContaining({
+        HYPER_WORKSPACES_BOOT_SYNC: '1',
+        HYPER_WORKSPACES_DIR: '/home/node/CustomWorkspaces',
+        HYPER_WORKSPACES_SYNC_READY_ONLY: '0',
+        HYPER_WORKSPACES_SYNC_WORKSPACE: 'team-knowledge',
+      }),
+    }));
+  });
+
+  it('createOpenClaw can disable workspace boot sync', async () => {
+    const post = vi.fn().mockResolvedValue({
+      id: 'agent-openclaw',
+      user_id: 'user-1',
+      pod_id: 'pod-1',
+      pod_name: 'pod-1',
+      state: 'starting',
+    });
+    const deployments = new Deployments(
+      { post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      'sk-hyper-test',
+      'https://api.dev.hypercli.com',
+    );
+
+    await deployments.createOpenClaw({ name: 'test-agent', workspacesSync: false });
+
+    expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
+      env: expect.objectContaining({
+        HYPER_WORKSPACES_BOOT_SYNC: '0',
+      }),
+    }));
+  });
+
   it('startOpenClaw defaults sync root', async () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-openclaw',
@@ -275,7 +344,11 @@ describe('HyperClaw agents SDK', () => {
       image: DEFAULT_OPENCLAW_IMAGE,
       sync_root: '/home/node',
       sync_enabled: true,
-      env: expect.not.objectContaining({ HOME: expect.anything() }),
+      env: expect.objectContaining({
+        HYPER_WORKSPACES_BOOT_SYNC: '1',
+        HYPER_WORKSPACES_DIR: '/home/node/Workspaces',
+        HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
+      }),
       routes: {
         openclaw: { port: 18789, auth: false, prefix: '' },
         desktop: { port: 3000, auth: true, prefix: 'desktop' },

@@ -44,6 +44,8 @@ OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
 }
 OPENCLAW_WORKSPACES_ENV_DEFAULTS = {
     "HYPER_WORKSPACES_BOOT_SYNC": "1",
+    "HYPER_WORKSPACES_DIR": "/home/node/Workspaces",
+    "HYPER_WORKSPACES_SYNC_READY_ONLY": "1",
 }
 LAUNCH_CONFIG_KEYS = frozenset({"image", "env", "routes", "ports", "command", "entrypoint", "sync_root", "sync_enabled", "sync_uid", "sync_gid", "registry_url", "registry_auth"})
 DEFAULT_OPENCLAW_SYNC_ROOT = "/home/node"
@@ -347,6 +349,32 @@ def build_openclaw_memory_index_env(memory_index: dict | None = None) -> dict[st
             "interval_minutes",
             memory_index["interval_minutes"],
         )
+    return env
+
+
+def build_openclaw_workspaces_sync_env(workspaces_sync: dict | bool | None = None) -> dict[str, str]:
+    """Build OpenClaw Workspaces boot-sync environment variables.
+
+    Workspaces sync defaults on for OpenClaw launch helpers, but callers can
+    pass False or {"enabled": False} to disable it, or override the output
+    directory, ready-only behavior, and single-workspace target.
+    """
+    if workspaces_sync is False:
+        return {"HYPER_WORKSPACES_BOOT_SYNC": "0"}
+    options = {} if workspaces_sync is None or workspaces_sync is True else dict(workspaces_sync or {})
+    if options.get("enabled") is False:
+        return {"HYPER_WORKSPACES_BOOT_SYNC": "0"}
+    env = dict(OPENCLAW_WORKSPACES_ENV_DEFAULTS)
+    if options.get("enabled") is not None:
+        env["HYPER_WORKSPACES_BOOT_SYNC"] = _env_bool(options["enabled"])
+    output_dir = options.get("output_dir") or options.get("dir")
+    if output_dir is not None:
+        env["HYPER_WORKSPACES_DIR"] = str(output_dir)
+    if options.get("ready_only") is not None:
+        env["HYPER_WORKSPACES_SYNC_READY_ONLY"] = _env_bool(options["ready_only"])
+    workspace = options.get("workspace") or options.get("workspace_ref")
+    if workspace:
+        env["HYPER_WORKSPACES_SYNC_WORKSPACE"] = str(workspace)
     return env
 
 
@@ -1543,9 +1571,10 @@ class Deployments:
         openclaw_routes: dict | None = None,
         openclaw_route_options: dict | None = None,
         memory_index: dict | None = None,
+        workspaces_sync: dict | bool | None = None,
     ) -> Agent:
         effective_env = {
-            **OPENCLAW_WORKSPACES_ENV_DEFAULTS,
+            **build_openclaw_workspaces_sync_env(workspaces_sync),
             **build_openclaw_memory_index_env(memory_index),
             **dict(env or {}),
         }
@@ -1603,6 +1632,7 @@ class Deployments:
         openclaw_routes: dict | None = None,
         openclaw_route_options: dict | None = None,
         memory_index: dict | None = None,
+        workspaces_sync: dict | bool | None = None,
     ) -> Agent:
         effective_env = {"OPENCLAW_DESKTOP_ENABLED": "1", **dict(env or {})}
         effective_route_options = {"include_desktop": True, **dict(openclaw_route_options or {})}
@@ -1631,6 +1661,7 @@ class Deployments:
             openclaw_routes=openclaw_routes,
             openclaw_route_options=effective_route_options,
             memory_index=memory_index,
+            workspaces_sync=workspaces_sync,
         )
 
     def budget(self) -> dict:
@@ -1767,9 +1798,10 @@ class Deployments:
         openclaw_routes: dict | None = None,
         openclaw_route_options: dict | None = None,
         memory_index: dict | None = None,
+        workspaces_sync: dict | bool | None = None,
     ) -> Agent:
         effective_env = {
-            **OPENCLAW_WORKSPACES_ENV_DEFAULTS,
+            **build_openclaw_workspaces_sync_env(workspaces_sync),
             **build_openclaw_memory_index_env(memory_index),
             **dict(env or {}),
         }
@@ -1819,6 +1851,7 @@ class Deployments:
         openclaw_routes: dict | None = None,
         openclaw_route_options: dict | None = None,
         memory_index: dict | None = None,
+        workspaces_sync: dict | bool | None = None,
     ) -> Agent:
         effective_env = {"OPENCLAW_DESKTOP_ENABLED": "1", **dict(env or {})}
         effective_route_options = {"include_desktop": True, **dict(openclaw_route_options or {})}
@@ -1843,6 +1876,7 @@ class Deployments:
             openclaw_routes=openclaw_routes,
             openclaw_route_options=effective_route_options,
             memory_index=memory_index,
+            workspaces_sync=workspaces_sync,
         )
 
     def update(

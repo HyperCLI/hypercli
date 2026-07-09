@@ -180,6 +180,7 @@ export {
   OpenClawProAgent,
   buildAgentConfig,
   buildOpenClawMemoryIndexEnv,
+  buildOpenClawWorkspacesSyncEnv,
   buildOpenClawRoutes,
   type OpenClawModelApi,
   type OpenClawModelProviderAuthMode,

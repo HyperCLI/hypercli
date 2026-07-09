@@ -12,8 +12,16 @@ export type OpenClawMemoryIndexOptions = {
   intervalMinutes?: number | null;
 };
 
+export type OpenClawWorkspacesSyncOptions = {
+  enabled?: boolean | null;
+  outputDir?: string | null;
+  readyOnly?: boolean | null;
+  workspace?: string | null;
+};
+
 type OpenClawLaunchOptions = Pick<OpenClawCreateAgentOptions & OpenClawStartAgentOptions, "image" | "env" | "openClawRoutes"> & {
   memoryIndex: OpenClawMemoryIndexOptions | null;
+  workspacesSync: OpenClawWorkspacesSyncOptions | boolean | null;
 };
 
 const OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
@@ -25,8 +33,10 @@ const OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
   OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES: "0",
 };
 
-const OPENCLAW_WORKSPACES_ENV_DEFAULTS = {
+const OPENCLAW_WORKSPACES_SYNC_ENV_DEFAULTS = {
   HYPER_WORKSPACES_BOOT_SYNC: "1",
+  HYPER_WORKSPACES_DIR: "/home/node/Workspaces",
+  HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
 };
 
 function envValue(name: string): string | undefined {
@@ -85,14 +95,36 @@ export function buildOpenClawMemoryIndexEnv(memoryIndex: OpenClawMemoryIndexOpti
   return env;
 }
 
+export function buildOpenClawWorkspacesSyncEnv(workspacesSync: OpenClawWorkspacesSyncOptions | boolean | null = null): Record<string, string> {
+  if (workspacesSync === false) return { HYPER_WORKSPACES_BOOT_SYNC: "0" };
+  const options = typeof workspacesSync === "object" && workspacesSync !== null ? workspacesSync : {};
+  if (options.enabled === false) return { HYPER_WORKSPACES_BOOT_SYNC: "0" };
+  const env: Record<string, string> = { ...OPENCLAW_WORKSPACES_SYNC_ENV_DEFAULTS };
+  if (options.enabled !== undefined && options.enabled !== null) {
+    env.HYPER_WORKSPACES_BOOT_SYNC = envBool(options.enabled);
+  }
+  if (options.outputDir) {
+    env.HYPER_WORKSPACES_DIR = options.outputDir;
+  }
+  if (options.readyOnly !== undefined && options.readyOnly !== null) {
+    env.HYPER_WORKSPACES_SYNC_READY_ONLY = envBool(options.readyOnly);
+  }
+  if (options.workspace) {
+    env.HYPER_WORKSPACES_SYNC_WORKSPACE = options.workspace;
+  }
+  return env;
+}
+
 export function buildOpenClawLaunchOptions({
   desktopEnabled,
   customImage,
   memoryIndex,
+  workspacesSync,
 }: {
   desktopEnabled: boolean;
   customImage?: string | null;
   memoryIndex?: OpenClawMemoryIndexOptions | null;
+  workspacesSync?: OpenClawWorkspacesSyncOptions | boolean | null;
 }): OpenClawLaunchOptions {
   const baseImage = envValue(OPENCLAW_IMAGE_ENV);
   const proImage = envValue(OPENCLAW_PRO_IMAGE_ENV);
@@ -106,11 +138,12 @@ export function buildOpenClawLaunchOptions({
   return {
     image,
     env: {
-      ...OPENCLAW_WORKSPACES_ENV_DEFAULTS,
+      ...buildOpenClawWorkspacesSyncEnv(workspacesSync ?? null),
       ...buildOpenClawMemoryIndexEnv(memoryIndex ?? null),
       OPENCLAW_DESKTOP_ENABLED: desktopEnabled ? "1" : "0",
     },
     memoryIndex: memoryIndex ?? null,
+    workspacesSync: workspacesSync ?? null,
     openClawRoutes: {
       includeDesktop: desktopEnabled,
     },

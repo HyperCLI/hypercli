@@ -515,6 +515,8 @@ def test_create_openclaw_defaults_routes_when_omitted(agents_client):
         posted_json = mock_client.post.call_args[1]["json"]
         assert posted_json["image"] == DEFAULT_OPENCLAW_IMAGE
         assert posted_json["env"]["HYPER_WORKSPACES_BOOT_SYNC"] == "1"
+        assert posted_json["env"]["HYPER_WORKSPACES_DIR"] == "/home/node/Workspaces"
+        assert posted_json["env"]["HYPER_WORKSPACES_SYNC_READY_ONLY"] == "1"
         assert posted_json["routes"] == {
             "openclaw": {"port": 18789, "auth": False, "prefix": ""},
             "desktop": {"port": 3000, "auth": True, "prefix": "desktop"},
@@ -572,6 +574,8 @@ def test_create_openclaw_pro_defaults_desktop_image_env_and_routes(agents_client
         posted_json = mock_client.post.call_args[1]["json"]
         assert posted_json["image"] == DEFAULT_OPENCLAW_PRO_IMAGE
         assert posted_json["env"]["HYPER_WORKSPACES_BOOT_SYNC"] == "1"
+        assert posted_json["env"]["HYPER_WORKSPACES_DIR"] == "/home/node/Workspaces"
+        assert posted_json["env"]["HYPER_WORKSPACES_SYNC_READY_ONLY"] == "1"
         assert posted_json["env"]["OPENCLAW_DESKTOP_ENABLED"] == "1"
         assert "OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START" not in posted_json["env"]
         assert posted_json["routes"] == {
@@ -615,11 +619,71 @@ def test_create_openclaw_accepts_memory_index_options(agents_client):
 
         posted_json = mock_client.post.call_args[1]["json"]
         assert posted_json["env"]["HYPER_WORKSPACES_BOOT_SYNC"] == "1"
+        assert posted_json["env"]["HYPER_WORKSPACES_DIR"] == "/home/node/Workspaces"
+        assert posted_json["env"]["HYPER_WORKSPACES_SYNC_READY_ONLY"] == "1"
         assert posted_json["env"]["OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START"] == "1"
         assert posted_json["env"]["OPENCLAW_MEMORY_SEARCH_SYNC_ON_SEARCH"] == "1"
         assert posted_json["env"]["OPENCLAW_MEMORY_SEARCH_SYNC_WATCH"] == "1"
         assert posted_json["env"]["OPENCLAW_MEMORY_SEARCH_SYNC_WATCH_DEBOUNCE_MS"] == "60000"
         assert posted_json["env"]["OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES"] == "120"
+
+
+def test_create_openclaw_accepts_workspaces_sync_options(agents_client):
+    with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"):
+        mock_client = MagicMock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "pod_id": "pod-789",
+            "pod_name": "test-pod",
+            "state": "starting",
+        }
+        mock_client.post.return_value = mock_response
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client_class.return_value = mock_client
+
+        agents_client.create_openclaw(
+            name="test-agent",
+            workspaces_sync={
+                "output_dir": "/home/node/CustomWorkspaces",
+                "ready_only": False,
+                "workspace": "team-knowledge",
+            },
+        )
+
+        posted_json = mock_client.post.call_args[1]["json"]
+        assert posted_json["env"]["HYPER_WORKSPACES_BOOT_SYNC"] == "1"
+        assert posted_json["env"]["HYPER_WORKSPACES_DIR"] == "/home/node/CustomWorkspaces"
+        assert posted_json["env"]["HYPER_WORKSPACES_SYNC_READY_ONLY"] == "0"
+        assert posted_json["env"]["HYPER_WORKSPACES_SYNC_WORKSPACE"] == "team-knowledge"
+
+
+def test_create_openclaw_can_disable_workspaces_sync(agents_client):
+    with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"):
+        mock_client = MagicMock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "pod_id": "pod-789",
+            "pod_name": "test-pod",
+            "state": "starting",
+        }
+        mock_client.post.return_value = mock_response
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client_class.return_value = mock_client
+
+        agents_client.create_openclaw(name="test-agent", workspaces_sync=False)
+
+        posted_json = mock_client.post.call_args[1]["json"]
+        assert posted_json["env"]["HYPER_WORKSPACES_BOOT_SYNC"] == "0"
+        assert "HYPER_WORKSPACES_DIR" not in posted_json["env"]
+        assert "HYPER_WORKSPACES_SYNC_READY_ONLY" not in posted_json["env"]
 
 
 def test_create_openclaw_includes_heartbeat_when_requested(agents_client):
