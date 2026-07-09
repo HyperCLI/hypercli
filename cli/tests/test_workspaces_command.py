@@ -54,13 +54,10 @@ class _FakeSearchFile(_FakeFile):
 class _FakeDownloadUrl:
     def __init__(self):
         self.file_id = "file-1"
-        self.file_version_id = "version-1"
-        self.source_path = "projects/example/report.pdf"
-        self.source_s3_key = "test/workspaces/workspace-1/originals/file-1/version-1/report.pdf"
-        self.s3_bucket = "hypercli-workspaces"
-        self.s3_endpoint = "https://storage.streamformation.com"
+        self.path = "projects/example/report.pdf"
+        self.version = 1
         self.url = "https://download.example/report.pdf"
-        self.download_command = "hyper workspaces download demo/projects/example/report.pdf"
+        self.download_command = "hyper workspaces download demo/projects/example/report.pdf --raw"
 
 
 def test_workspaces_create_invokes_cli(monkeypatch):
@@ -434,11 +431,22 @@ def test_workspaces_download_writes_markdown_file(monkeypatch, tmp_path: Path):
     captured = {}
 
     class _FakeWorkspaces:
-        def markdown_file(self, workspace, file_ref, *, user_id=None, agent_id=None):
-            captured.update({"workspace": workspace, "file_ref": file_ref, "user_id": user_id, "agent_id": agent_id})
+        def download(self, workspace, file_ref, *, raw=False, index=1, user_id=None, agent_id=None):
+            captured.update(
+                {
+                    "workspace": workspace,
+                    "file_ref": file_ref,
+                    "raw": raw,
+                    "index": index,
+                    "user_id": user_id,
+                    "agent_id": agent_id,
+                }
+            )
             return (
-                {"source_path": "projects/example/report.pdf", "markdown_path": "projects/example/.tomd/report.md"},
-                '---\nsource_path: "projects/example/report.pdf"\ndownload_command: "hyper workspaces download demo/projects/example/report.pdf --output report.pdf"\n---\n',
+                b"---\n"
+                b'path: "projects/example/report.pdf"\n'
+                b'download_command: "hyper workspaces download demo/projects/example/report.pdf --raw"\n'
+                b"---\n"
             )
 
     monkeypatch.setattr(workspaces_mod, "_get_workspaces", lambda: _FakeWorkspaces())
@@ -453,10 +461,12 @@ def test_workspaces_download_writes_markdown_file(monkeypatch, tmp_path: Path):
     assert captured == {
         "workspace": "demo",
         "file_ref": "projects/example/report.pdf",
+        "raw": False,
+        "index": 1,
         "user_id": None,
         "agent_id": "agent-1",
     }
-    assert 'download_command: "hyper workspaces download demo/projects/example/report.pdf --output report.pdf"' in target.read_text()
+    assert 'download_command: "hyper workspaces download demo/projects/example/report.pdf --raw"' in target.read_text()
 
 
 def test_workspaces_download_fetches_original(monkeypatch, tmp_path: Path):
@@ -465,32 +475,20 @@ def test_workspaces_download_fetches_original(monkeypatch, tmp_path: Path):
     captured = {}
 
     class _FakeWorkspaces:
-        def download_url(self, workspace, file_ref, *, user_id=None, agent_id=None):
-            captured.update({"workspace": workspace, "file_ref": file_ref, "user_id": user_id, "agent_id": agent_id})
-            return _FakeDownloadUrl()
-
-    class _FakeResponse:
-        content = b"raw-pdf"
-
-        def raise_for_status(self):
-            return None
-
-    class _FakeHttpClient:
-        def __init__(self, timeout):
-            self.timeout = timeout
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return None
-
-        def get(self, url):
-            assert url == "https://download.example/report.pdf"
-            return _FakeResponse()
+        def download(self, workspace, file_ref, *, raw=False, index=1, user_id=None, agent_id=None):
+            captured.update(
+                {
+                    "workspace": workspace,
+                    "file_ref": file_ref,
+                    "raw": raw,
+                    "index": index,
+                    "user_id": user_id,
+                    "agent_id": agent_id,
+                }
+            )
+            return b"raw-pdf"
 
     monkeypatch.setattr(workspaces_mod, "_get_workspaces", lambda: _FakeWorkspaces())
-    monkeypatch.setattr(workspaces_mod.httpx, "Client", _FakeHttpClient)
 
     target = tmp_path / "report.pdf"
     result = runner.invoke(
@@ -502,6 +500,8 @@ def test_workspaces_download_fetches_original(monkeypatch, tmp_path: Path):
     assert captured == {
         "workspace": "demo",
         "file_ref": "projects/example/report.pdf",
+        "raw": True,
+        "index": 1,
         "user_id": None,
         "agent_id": "agent-1",
     }

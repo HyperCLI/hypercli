@@ -276,9 +276,10 @@ def test_wait_until_processed_polls_file_state(monkeypatch):
 
 
 def test_sync_manifest_writes_tomd_markdown(monkeypatch, tmp_path: Path):
+    calls = []
+
     def fake_request(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
-        assert method == "GET"
-        assert agent_id == "agent-1"
+        calls.append((method, url, kwargs.get("json"), agent_id))
         return {
             "workspace_id": "workspace-1",
             "workspace_name": "Demo Workspace",
@@ -289,35 +290,47 @@ def test_sync_manifest_writes_tomd_markdown(monkeypatch, tmp_path: Path):
             "markdown_files": [
                 {
                     "file_id": "file-1",
-                    "file_version_id": "version-1",
-                    "source_path": "projects/example/report.pdf",
-                    "source_filename": "report.pdf",
-                    "source_content_type": "application/pdf",
-                    "markdown_path": "projects/example/.tomd/report.md",
-                    "markdown_url": "",
+                    "path": "projects/example/report.pdf",
+                    "version": 1,
+                    "part_count": 1,
                     "keywords": ["handoff", "launch"],
-                    "status": "processed",
-                    "download_command": "hyper workspaces download demo/projects/example/report.pdf --output report.pdf",
+                    "state": "processed",
                 }
             ],
         }
 
+    def fake_request_bytes(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
+        calls.append((method, url, kwargs.get("json"), agent_id))
+        return b"---\npath: \"projects/example/report.pdf\"\n---\n\n# Report\n"
+
     monkeypatch.setattr("hypercli.workspaces._request", fake_request)
+    monkeypatch.setattr("hypercli.workspaces._request_bytes", fake_request_bytes)
     api = WorkspacesAPI("key", api_base="http://workspaces.test/workspaces")
 
     written = api.sync_manifest("demo", str(tmp_path), agent_id="agent-1")
 
     assert len(written) == 1
-    target = tmp_path / "demo" / "projects" / "example" / ".tomd" / "report.md"
+    target = tmp_path / "demo" / "projects" / "example" / "report.pdf.md"
     assert written == [str(target)]
     markdown = target.read_text()
-    assert 'source_content_type: "application/pdf"' in markdown
-    assert 'keywords: ["handoff", "launch"]' in markdown
-    assert 'download_command: "hyper workspaces download demo/projects/example/report.pdf --output report.pdf"' in markdown
+    assert 'path: "projects/example/report.pdf"' in markdown
+    assert "# Report" in markdown
+    assert calls == [
+        ("GET", "http://workspaces.test/workspaces/demo/manifest", None, "agent-1"),
+        (
+            "POST",
+            "http://workspaces.test/workspaces/tomd",
+            {"workspace": "demo", "path": "projects/example/report.pdf", "index": 1},
+            "agent-1",
+        ),
+    ]
 
 
 def test_markdown_file_finds_single_file(monkeypatch):
+    calls = []
+
     def fake_request(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
+        calls.append((method, url, kwargs.get("json"), agent_id))
         return {
             "workspace_id": "workspace-1",
             "workspace_name": "Demo Workspace",
@@ -328,23 +341,29 @@ def test_markdown_file_finds_single_file(monkeypatch):
             "markdown_files": [
                 {
                     "file_id": "file-1",
-                    "file_version_id": "version-1",
-                    "source_path": "docs/source.md",
-                    "source_filename": "source.md",
-                    "source_content_type": "text/markdown",
-                    "markdown_path": "docs/.tomd/source.md",
-                    "markdown_url": "",
-                    "status": "processed",
-                    "download_command": "hyper workspaces download demo/docs/source.md --output source.md",
+                    "path": "docs/source.md",
+                    "version": 1,
+                    "part_count": 1,
+                    "state": "processed",
                 }
             ],
         }
 
+    def fake_request_bytes(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
+        calls.append((method, url, kwargs.get("json"), agent_id))
+        return b"---\npath: \"docs/source.md\"\n---\n\n# Source\n"
+
     monkeypatch.setattr("hypercli.workspaces._request", fake_request)
+    monkeypatch.setattr("hypercli.workspaces._request_bytes", fake_request_bytes)
     api = WorkspacesAPI("key", api_base="http://workspaces.test/workspaces")
 
     markdown_file, markdown = api.markdown_file("demo", "docs/source.md", agent_id="agent-1")
 
-    assert markdown_file["markdown_path"] == "docs/.tomd/source.md"
-    assert 'source_path: "docs/source.md"' in markdown
-    assert 'download_command: "hyper workspaces download demo/docs/source.md --output source.md"' in markdown
+    assert markdown_file["path"] == "docs/source.md"
+    assert 'path: "docs/source.md"' in markdown
+    assert calls[-1] == (
+        "POST",
+        "http://workspaces.test/workspaces/tomd",
+        {"workspace": "demo", "path": "docs/source.md", "index": 1},
+        "agent-1",
+    )

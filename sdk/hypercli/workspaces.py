@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-import json
 import mimetypes
 import time
 from dataclasses import dataclass, field
@@ -12,7 +11,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from .config import get_agents_api_base_url, get_config_value
-from .http import _handle_response
+from .http import _handle_bytes_response, _handle_response
 
 
 def _derive_workspaces_base(agents_api_base: str | None = None) -> str:
@@ -66,6 +65,26 @@ def _request(
             **kwargs,
         )
     return _handle_response(response)
+
+
+def _request_bytes(
+    method: str,
+    url: str,
+    *,
+    api_key: str,
+    user_id: str | None = None,
+    agent_id: str | None = None,
+    backend_api_key: str | None = None,
+    **kwargs,
+) -> bytes:
+    with httpx.Client(timeout=120) as client:
+        response = client.request(
+            method,
+            url,
+            headers=_headers(api_key, user_id=user_id, agent_id=agent_id, backend_api_key=backend_api_key),
+            **kwargs,
+        )
+    return _handle_bytes_response(response)
 
 
 @dataclass
@@ -180,11 +199,8 @@ class WorkspaceManifest:
 @dataclass
 class DownloadUrl:
     file_id: str
-    file_version_id: str
-    source_path: str
-    source_s3_key: str
-    s3_bucket: str
-    s3_endpoint: str
+    path: str
+    version: int
     url: str | None
     download_command: str
 
@@ -192,11 +208,8 @@ class DownloadUrl:
     def from_dict(cls, data: dict) -> "DownloadUrl":
         return cls(
             file_id=str(data.get("file_id", "")),
-            file_version_id=str(data.get("file_version_id", "")),
-            source_path=data.get("source_path", ""),
-            source_s3_key=data.get("source_s3_key", ""),
-            s3_bucket=data.get("s3_bucket", ""),
-            s3_endpoint=data.get("s3_endpoint", ""),
+            path=data.get("path", ""),
+            version=int(data.get("version") or 0),
             url=data.get("url"),
             download_command=data.get("download_command", ""),
         )
@@ -323,6 +336,7 @@ class WorkspacesAPI:
     ) -> WorkspaceFile:
         filename = os.path.basename(file_path)
         data = {}
+        data["workspace"] = workspace_ref
         if workspace_path:
             data["path"] = workspace_path
         content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
@@ -330,7 +344,7 @@ class WorkspacesAPI:
             files = {"file": (filename, handle, content_type)}
             with httpx.Client(timeout=120) as client:
                 response = client.post(
-                    f"{self.api_base}/{workspace_ref}/upload",
+                    f"{self.api_base}/upload",
                     headers=_headers(self.api_key, user_id=user_id, content_type=None),
                     data=data,
                     files=files,
@@ -390,18 +404,56 @@ class WorkspacesAPI:
 
     def download_url(self, workspace_ref: str, file_ref: str, *, user_id: str | None = None, agent_id: str | None = None) -> DownloadUrl:
         data = _request(
-            "GET",
-            f"{self.api_base}/{workspace_ref}/files/{file_ref}/download-url",
+            "POST",
+            f"{self.api_base}/download-url",
             api_key=self.api_key,
             user_id=user_id,
             agent_id=agent_id,
+            json={"workspace": workspace_ref, "path": file_ref},
         )
         return DownloadUrl.from_dict(data)
 
     def markdown_file(self, workspace_ref: str, file_ref: str, *, user_id: str | None = None, agent_id: str | None = None) -> tuple[dict, str]:
         manifest = self.manifest(workspace_ref, user_id=user_id, agent_id=agent_id)
         markdown_file = _find_markdown_file(manifest, file_ref)
-        return markdown_file, _markdown_file_body(manifest, markdown_file)
+        body = _request_bytes(
+            "POST",
+            f"{self.api_base}/tomd",
+            api_key=self.api_key,
+            user_id=user_id,
+            agent_id=agent_id,
+            json={"workspace": workspace_ref, "path": markdown_file.get("path") or file_ref, "index": 1},
+        ).decode("utf-8")
+        return markdown_file, body
+
+    def download(
+        self,
+        workspace_ref: str,
+        file_ref: str,
+        *,
+        raw: bool = False,
+        index: int = 1,
+        user_id: str | None = None,
+        agent_id: str | None = None,
+    ) -> bytes:
+        return _request_bytes(
+            "POST",
+            f"{self.api_base}/download",
+            api_key=self.api_key,
+            user_id=user_id,
+            agent_id=agent_id,
+            json={"workspace": workspace_ref, "path": file_ref, "raw": raw, "index": index},
+        )
+
+    def meta(self, workspace_ref: str, file_ref: str, *, user_id: str | None = None, agent_id: str | None = None) -> dict:
+        return _request(
+            "POST",
+            f"{self.api_base}/meta",
+            api_key=self.api_key,
+            user_id=user_id,
+            agent_id=agent_id,
+            json={"workspace": workspace_ref, "path": file_ref},
+        )
 
     def delete_file(self, workspace_ref: str, file_ref: str, *, user_id: str | None = None) -> dict:
         return _request("DELETE", f"{self.api_base}/{workspace_ref}/files/{file_ref}", api_key=self.api_key, user_id=user_id)
@@ -438,15 +490,22 @@ class WorkspacesAPI:
         workspace_root = os.path.join(output_dir, manifest.workspace_slug)
         written: list[str] = []
         for markdown_file in manifest.markdown_files:
-            if ready_only and markdown_file.get("status") != "processed":
+            if ready_only and markdown_file.get("state") != "processed":
                 continue
-            markdown_path = PurePosixPath(markdown_file["markdown_path"])
+            markdown_path = PurePosixPath(f"{markdown_file['path']}.md")
             target = os.path.abspath(os.path.join(workspace_root, *markdown_path.parts))
             root_abs = os.path.abspath(workspace_root)
             if not target.startswith(root_abs + os.sep):
                 raise ValueError(f"Unsafe markdown path: {markdown_path}")
             os.makedirs(os.path.dirname(target), exist_ok=True)
-            body = _markdown_file_body(manifest, markdown_file)
+            body = _request_bytes(
+                "POST",
+                f"{self.api_base}/tomd",
+                api_key=self.api_key,
+                user_id=user_id,
+                agent_id=agent_id,
+                json={"workspace": workspace_ref, "path": markdown_file["path"], "index": 1},
+            ).decode("utf-8")
             with open(target, "w", encoding="utf-8") as handle:
                 handle.write(body)
             written.append(target)
@@ -472,70 +531,13 @@ class WorkspacesAPI:
         return synced
 
 
-def _markdown_file_body(manifest: WorkspaceManifest, markdown_file: dict) -> str:
-    source_path = markdown_file.get("source_path", "")
-    status = markdown_file.get("status", "")
-    download_command = markdown_file.get("download_command") or f"hyper workspaces download {manifest.workspace_slug}/{source_path}"
-    frontmatter = {
-        "workspace_id": manifest.workspace_id,
-        "workspace_slug": manifest.workspace_slug,
-        "snapshot_id": manifest.snapshot_id,
-        "file_id": markdown_file.get("file_id", ""),
-        "file_version_id": markdown_file.get("file_version_id", ""),
-        "source_path": source_path,
-        "source_filename": markdown_file.get("source_filename", ""),
-        "source_content_type": markdown_file.get("source_content_type") or "",
-        "markdown_path": markdown_file.get("markdown_path", ""),
-        "keywords": markdown_file.get("keywords") or [],
-        "summary": markdown_file.get("summary") or "",
-        "detected_type": markdown_file.get("detected_type") or "",
-        "status": status,
-        "download_command": download_command,
-    }
-    lines = ["---"]
-    for key, value in frontmatter.items():
-        lines.append(f"{key}: {_yaml_scalar(value)}")
-    lines.extend(["---", ""])
-    body = _fetch_markdown_body(markdown_file)
-    if body:
-        lines.extend([body.rstrip(), ""])
-    return "\n".join(lines)
-
-
 def _find_markdown_file(manifest: WorkspaceManifest, file_ref: str) -> dict:
     normalized_ref = str(PurePosixPath(file_ref.strip().replace("\\", "/")))
     for markdown_file in manifest.markdown_files:
         if not isinstance(markdown_file, dict):
             continue
-        if file_ref in {str(markdown_file.get("file_id", "")), str(markdown_file.get("file_version_id", ""))}:
+        if file_ref == str(markdown_file.get("file_id", "")):
             return markdown_file
-        if normalized_ref in {
-            str(PurePosixPath(str(markdown_file.get("source_path", "")))),
-            str(PurePosixPath(str(markdown_file.get("markdown_path", "")))),
-        }:
+        if normalized_ref == str(PurePosixPath(str(markdown_file.get("path", "")))):
             return markdown_file
     raise ValueError(f"Workspace Markdown file not found for {file_ref}")
-
-
-def _fetch_markdown_body(markdown_file: dict) -> str:
-    url = markdown_file.get("markdown_url")
-    if not url:
-        return ""
-    with httpx.Client(timeout=60) as client:
-        response = client.get(str(url))
-    response.raise_for_status()
-    return response.text
-
-
-def _yaml_scalar(value) -> str:
-    if value is None:
-        return "null"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return str(value)
-    if isinstance(value, (list, tuple)):
-        return json.dumps(list(value))
-    if isinstance(value, dict):
-        return json.dumps(value)
-    return json.dumps(str(value))

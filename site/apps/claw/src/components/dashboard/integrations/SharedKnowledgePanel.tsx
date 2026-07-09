@@ -120,10 +120,8 @@ function markdownFileForPath(base: KnowledgeBase, path: string): Record<string, 
   const normalized = normalizeWorkspacePath(path);
   return base.manifest?.markdownFiles.find((markdownFile) => {
     if (!markdownFile || typeof markdownFile !== "object") return false;
-    return normalizeWorkspacePath(String(markdownFile.source_path || "")) === normalized
-      || normalizeWorkspacePath(String(markdownFile.markdown_path || "")) === normalized
+    return normalizeWorkspacePath(String(markdownFile.path || "")) === normalized
       || String(markdownFile.file_id || "") === path
-      || String(markdownFile.file_version_id || "") === path;
   }) ?? null;
 }
 

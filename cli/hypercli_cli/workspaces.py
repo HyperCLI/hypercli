@@ -8,7 +8,6 @@ import tempfile
 from pathlib import Path
 from pathlib import PurePosixPath
 
-import httpx
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -374,60 +373,35 @@ def download(
     if raw and md:
         raise typer.BadParameter("Pass either --raw or --md, not both")
     workspaces = _get_workspaces()
-    if not raw:
-        markdown_file, body = workspaces.markdown_file(workspace, file_ref, user_id=user_id, agent_id=agent_id)
-        markdown_path = PurePosixPath(markdown_file.get("markdown_path") or f"{PurePosixPath(file_ref).name}.md")
-        target = output_path or Path(markdown_path.name)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(body, encoding="utf-8")
-        if json_output:
-            _print_json(
-                {
-                    "address": f"{workspace}/{markdown_file.get('source_path') or file_ref}",
-                    "workspace": workspace,
-                    "path": markdown_file.get("source_path") or file_ref,
-                    "local_path": str(target),
-                    "file_id": markdown_file.get("file_id"),
-                    "file_version_id": markdown_file.get("file_version_id"),
-                    "markdown_path": markdown_file.get("markdown_path"),
-                }
-            )
-            return
-        console.print(f"[green]Downloaded[/green] {markdown_file.get('source_path') or file_ref} -> {target}")
-        return
-
-    value = workspaces.download_url(workspace, file_ref, user_id=user_id, agent_id=agent_id)
-    if not value.url:
-        raise typer.BadParameter("Workspaces API did not return a download URL")
+    body = workspaces.download(workspace, file_ref, raw=raw, user_id=user_id, agent_id=agent_id)
     if output_path is not None:
         target = output_path
-    elif json_output:
-        suffix = PurePosixPath(value.source_path).suffix or ".bin"
+    elif json_output and raw:
+        suffix = PurePosixPath(file_ref).suffix or ".bin"
         handle = tempfile.NamedTemporaryFile(prefix="hyper-workspace-", suffix=suffix, delete=False)
         handle.close()
         target = Path(handle.name)
+    elif raw:
+        target = Path(os.path.basename(file_ref))
     else:
-        target = Path(os.path.basename(value.source_path))
-    with httpx.Client(timeout=120) as client:
-        response = client.get(value.url)
-        response.raise_for_status()
+        target = Path(f"{PurePosixPath(file_ref).name}.md")
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(response.content)
+    if raw:
+        target.write_bytes(body)
+    else:
+        target.write_text(body.decode("utf-8"), encoding="utf-8")
     if json_output:
         _print_json(
             {
-                "address": f"{workspace}/{value.source_path}",
+                "address": f"{workspace}/{file_ref}",
                 "workspace": workspace,
-                "path": value.source_path,
+                "path": file_ref,
                 "local_path": str(target),
-                "file_id": value.file_id,
-                "file_version_id": value.file_version_id,
-                "source_s3_key": value.source_s3_key,
-                "source_content_type": None,
+                "raw": raw,
             }
         )
         return
-    console.print(f"[green]Downloaded[/green] {value.source_path} -> {target}")
+    console.print(f"[green]Downloaded[/green] {file_ref} -> {target}")
 
 
 @app.command("download-url")

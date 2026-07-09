@@ -72,11 +72,8 @@ export interface WorkspaceManifest {
 
 export interface WorkspaceDownloadUrl {
   fileId: string;
-  fileVersionId: string;
-  sourcePath: string;
-  sourceS3Key: string;
-  s3Bucket: string;
-  s3Endpoint: string;
+  path: string;
+  version: number;
   url: string | null;
   downloadCommand: string;
 }
@@ -159,11 +156,8 @@ function manifestFromDict(data: any): WorkspaceManifest {
 function downloadUrlFromDict(data: any): WorkspaceDownloadUrl {
   return {
     fileId: String(data?.file_id || data?.fileId || ''),
-    fileVersionId: String(data?.file_version_id || data?.fileVersionId || ''),
-    sourcePath: data?.source_path || data?.sourcePath || '',
-    sourceS3Key: data?.source_s3_key || data?.sourceS3Key || '',
-    s3Bucket: data?.s3_bucket || data?.s3Bucket || '',
-    s3Endpoint: data?.s3_endpoint || data?.s3Endpoint || '',
+    path: data?.path || '',
+    version: Number(data?.version || 0),
     url: data?.url ?? null,
     downloadCommand: data?.download_command || data?.downloadCommand || '',
   };
@@ -181,6 +175,20 @@ async function handleResponse<T = any>(response: Response): Promise<T> {
     throw new APIError(response.status, detail);
   }
   return (await response.json()) as T;
+}
+
+async function handleBytesResponse(response: Response): Promise<Uint8Array> {
+  if (response.status >= 400) {
+    let detail = response.statusText;
+    try {
+      const payload: any = await response.json();
+      detail = payload.detail || detail;
+    } catch {
+      detail = await response.text();
+    }
+    throw new APIError(response.status, detail);
+  }
+  return new Uint8Array(await response.arrayBuffer());
 }
 
 export class WorkspacesAPI {
@@ -319,11 +327,12 @@ export class WorkspacesAPI {
   ): Promise<WorkspaceFile> {
     const formData = new FormData();
     const filename = options.filename || (typeof File !== 'undefined' && file instanceof File ? file.name : 'upload');
+    formData.append('workspace', workspaceRef);
     formData.append('file', file, filename);
     if (options.path) formData.append('path', options.path);
     if (options.sourceEtag) formData.append('source_etag', options.sourceEtag);
 
-    const response = await fetch(`${this.apiBase}/${workspaceRef}/upload`, {
+    const response = await fetch(`${this.apiBase}/upload`, {
       method: 'POST',
       headers: this.authHeaders(subject),
       body: formData,
@@ -407,7 +416,7 @@ export class WorkspacesAPI {
     fileRef: string,
     subject: WorkspaceSubjectOptions = {},
   ): Promise<WorkspaceDownloadUrl> {
-    const data = await this.request('GET', `/${workspaceRef}/files/${fileRef}/download-url`, subject);
+    const data = await this.request('POST', `/download-url`, subject, { workspace: workspaceRef, path: fileRef });
     return downloadUrlFromDict(data);
   }
 
@@ -415,18 +424,18 @@ export class WorkspacesAPI {
     workspaceRef: string,
     fileRef: string,
     subject: WorkspaceSubjectOptions = {},
+    options: { raw?: boolean; index?: number } = {},
   ): Promise<WorkspaceFileBytes> {
-    const descriptor = await this.downloadUrl(workspaceRef, fileRef, subject);
-    if (!descriptor.url) {
-      throw new Error('Workspace file download URL is unavailable.');
-    }
-    const response = await fetch(descriptor.url);
-    if (!response.ok) {
-      throw new Error(`Unable to fetch workspace file (${response.status}).`);
-    }
-    const path = descriptor.sourcePath || fileRef;
+    const response = await requestWithRetry({
+      method: 'POST',
+      url: `${this.apiBase}/download`,
+      headers: this.headers(subject),
+      body: { workspace: workspaceRef, path: fileRef, raw: Boolean(options.raw), index: options.index ?? 1 },
+      timeout: this.timeout,
+    });
+    const path = fileRef;
     return {
-      content: new Uint8Array(await response.arrayBuffer()),
+      content: await handleBytesResponse(response),
       path,
       name: fileNameFromPath(path),
     };
@@ -443,7 +452,15 @@ export class WorkspacesAPI {
   ): Promise<{ markdownFile: Record<string, any>; markdown: string }> {
     const manifest = await this.manifest(workspaceRef, subject);
     const markdownFile = findMarkdownFile(manifest, fileRef);
-    return { markdownFile, markdown: await markdownFileBody(manifest, markdownFile) };
+    const response = await requestWithRetry({
+      method: 'POST',
+      url: `${this.apiBase}/tomd`,
+      headers: this.headers(subject),
+      body: { workspace: workspaceRef, path: markdownFile.path || fileRef, index: 1 },
+      timeout: this.timeout,
+    });
+    const bytes = await handleBytesResponse(response);
+    return { markdownFile, markdown: new TextDecoder().decode(bytes) };
   }
 }
 
@@ -451,57 +468,14 @@ function findMarkdownFile(manifest: WorkspaceManifest, fileRef: string): Record<
   const normalizedRef = normalizePosixPath(fileRef);
   for (const markdownFile of manifest.markdownFiles) {
     if (!markdownFile || typeof markdownFile !== 'object') continue;
-    if (fileRef === String(markdownFile.file_id || '') || fileRef === String(markdownFile.file_version_id || '')) {
+    if (fileRef === String(markdownFile.file_id || '')) {
       return markdownFile;
     }
-    if (
-      normalizedRef === normalizePosixPath(String(markdownFile.source_path || '')) ||
-      normalizedRef === normalizePosixPath(String(markdownFile.markdown_path || ''))
-    ) {
+    if (normalizedRef === normalizePosixPath(String(markdownFile.path || ''))) {
       return markdownFile;
     }
   }
   throw new Error(`Workspace Markdown file not found for ${fileRef}`);
-}
-
-async function markdownFileBody(manifest: WorkspaceManifest, markdownFile: Record<string, any>): Promise<string> {
-  const sourcePath = String(markdownFile.source_path || '');
-  const downloadCommand = markdownFile.download_command || `hyper workspaces download ${manifest.workspaceSlug}/${sourcePath}`;
-  const frontmatter: Record<string, unknown> = {
-    workspace_id: manifest.workspaceId,
-    workspace_slug: manifest.workspaceSlug,
-    snapshot_id: manifest.snapshotId,
-    file_id: markdownFile.file_id || '',
-    file_version_id: markdownFile.file_version_id || '',
-    source_path: sourcePath,
-    source_filename: markdownFile.source_filename || '',
-    source_content_type: markdownFile.source_content_type || '',
-    markdown_path: markdownFile.markdown_path || '',
-    detected_type: markdownFile.detected_type || '',
-    keywords: markdownFile.keywords || [],
-    summary: markdownFile.summary || '',
-    status: markdownFile.status || '',
-    download_command: downloadCommand,
-  };
-  const lines = ['---'];
-  for (const [key, value] of Object.entries(frontmatter)) {
-    lines.push(`${key}: ${yamlScalar(value)}`);
-  }
-  lines.push('---', '');
-  const body = await fetchMarkdownBody(markdownFile);
-  if (body) {
-    lines.push(body.trimEnd(), '');
-  }
-  return lines.join('\n');
-}
-
-async function fetchMarkdownBody(markdownFile: Record<string, any>): Promise<string> {
-  if (!markdownFile.markdown_url) return '';
-  const response = await fetch(String(markdownFile.markdown_url));
-  if (!response.ok) {
-    throw new Error(`Unable to fetch workspace Markdown (${response.status}).`);
-  }
-  return response.text();
 }
 
 function normalizePosixPath(path: string): string {
@@ -511,12 +485,4 @@ function normalizePosixPath(path: string): string {
 function fileNameFromPath(path: string): string {
   const normalized = normalizePosixPath(path).replace(/^\/+/, '').replace(/\/+$/, '');
   return normalized.split('/').filter(Boolean).at(-1) || normalized || 'file';
-}
-
-function yamlScalar(value: unknown): string {
-  if (value === null || value === undefined) return 'null';
-  if (typeof value === 'boolean') return value ? 'true' : 'false';
-  if (typeof value === 'number') return String(value);
-  if (Array.isArray(value) || typeof value === 'object') return JSON.stringify(value);
-  return JSON.stringify(String(value));
 }

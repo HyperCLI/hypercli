@@ -176,13 +176,12 @@ describe('Workspaces SDK', () => {
             markdown_files: [
               {
                 file_id: 'file-1',
-                file_version_id: 'version-1',
-                source_path: 'projects/example/report.pdf',
-                source_filename: 'report.pdf',
-                source_content_type: 'application/pdf',
-                markdown_path: 'projects/example/.tomd/report.md',
-                markdown_url: '',
-                download_command: 'hyper workspaces download demo/projects/example/report.pdf --output report.pdf',
+                path: 'projects/example/report.pdf',
+                version: 1,
+                part_count: 1,
+                state: 'processed',
+                keywords: ['handoff'],
+                summary: 'Report summary.',
               },
             ],
           }),
@@ -200,7 +199,7 @@ describe('Workspaces SDK', () => {
     const manifest = await api.manifest('demo', { agentId: 'agent-1' });
 
     expect(file.processingState).toBe('pending');
-    expect(manifest.markdownFiles[0]?.markdown_path).toBe('projects/example/.tomd/report.md');
+    expect(manifest.markdownFiles[0]?.path).toBe('projects/example/report.pdf');
     expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/demo/files');
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ keywords: ['handoff'] });
     expect(fetchMock.mock.calls[1][0]).toBe('http://workspaces.test/workspaces/demo/manifest');
@@ -234,7 +233,7 @@ describe('Workspaces SDK', () => {
     );
 
     expect(file.path).toBe('docs/source.md');
-    expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/demo/upload');
+    expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/upload');
     expect(fetchMock.mock.calls[0][1]).toMatchObject({
       method: 'POST',
       headers: expect.objectContaining({ Authorization: 'Bearer key' }),
@@ -364,66 +363,52 @@ describe('Workspaces SDK', () => {
           workspace_slug: 'demo',
           snapshot_id: 'snapshot-1',
           base_path: '/home/node/Workspaces/demo',
-          markdown_files: [
-            {
-              file_id: 'file-1',
-              file_version_id: 'version-1',
-              source_path: 'docs/source.md',
-              source_filename: 'source.md',
-              source_content_type: 'text/markdown',
-              markdown_path: 'docs/.tomd/source.md',
-              markdown_url: 'https://storage.example.test/source.md',
-              detected_type: 'markdown',
-              keywords: ['handoff', 'launch'],
-              summary: 'Launch handoff notes.',
-              status: 'processed',
-              download_command: 'hyper workspaces download demo/docs/source.md --output source.md',
-            },
-          ],
-        }),
+            markdown_files: [
+              {
+                file_id: 'file-1',
+                path: 'docs/source.md',
+                version: 1,
+                part_count: 1,
+                keywords: ['handoff', 'launch'],
+                summary: 'Launch handoff notes.',
+                state: 'processed',
+              },
+            ],
+          }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       ),
     )
-      .mockResolvedValueOnce(new Response('# Source\n', { status: 200 }));
+      .mockResolvedValueOnce(
+        new Response(
+          '---\npath: "docs/source.md"\nkeywords: ["handoff","launch"]\nsummary: "Launch handoff notes."\ndownload_command: "hyper workspaces download demo/docs/source.md --raw"\n---\n\n# Source\n',
+          { status: 200 },
+        ),
+      );
     vi.stubGlobal('fetch', fetchMock);
 
     const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
     const result = await api.markdownFile('demo', 'docs/source.md', { agentId: 'agent-1' });
 
-    expect(result.markdownFile.markdown_path).toBe('docs/.tomd/source.md');
-    expect(result.markdown).toContain('source_path: "docs/source.md"');
-    expect(result.markdown).toContain('detected_type: "markdown"');
+    expect(result.markdownFile.path).toBe('docs/source.md');
+    expect(result.markdown).toContain('path: "docs/source.md"');
     expect(result.markdown).toContain('keywords: ["handoff","launch"]');
     expect(result.markdown).toContain('summary: "Launch handoff notes."');
-    expect(result.markdown).toContain('download_command: "hyper workspaces download demo/docs/source.md --output source.md"');
+    expect(result.markdown).toContain('download_command: "hyper workspaces download demo/docs/source.md --raw"');
+    expect(fetchMock.mock.calls[1][0]).toBe('http://workspaces.test/workspaces/tomd');
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ workspace: 'demo', path: 'docs/source.md', index: 1 });
     vi.unstubAllGlobals();
   });
 
-  it('downloads original file bytes through the signed URL descriptor', async () => {
+  it('downloads file bytes through the backend download endpoint', async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            file_id: 'file-1',
-            file_version_id: 'version-1',
-            source_path: 'docs/source.md',
-            source_s3_key: 'test/workspaces/workspace-1/originals/file-1/version-1/source.md',
-            s3_bucket: 'hypercli-workspaces',
-            s3_endpoint: 'https://storage.streamformation.com',
-            url: 'https://storage.example.test/signed-source',
-            download_command: 'hyper workspaces download demo/docs/source.md --output source.md',
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
-      )
       .mockResolvedValueOnce(new Response(new Uint8Array([35, 32, 83, 111, 117, 114, 99, 101]), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
     const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
-    const result = await api.downloadFileBytes('demo', 'docs/source.md');
+    const result = await api.downloadFileBytes('demo', 'docs/source.md', {}, { raw: true });
 
-    expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/demo/files/docs/source.md/download-url');
-    expect(fetchMock.mock.calls[1][0]).toBe('https://storage.example.test/signed-source');
+    expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/download');
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ workspace: 'demo', path: 'docs/source.md', raw: true, index: 1 });
     expect(result.path).toBe('docs/source.md');
     expect(result.name).toBe('source.md');
     expect(Array.from(result.content)).toEqual([35, 32, 83, 111, 117, 114, 99, 101]);

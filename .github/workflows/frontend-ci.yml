@@ -20,7 +20,6 @@ jobs:
     secrets: inherit
 
   publish-sites:
-    needs: sdk
     uses: ./.github/workflows/publish-sites.yml
     with:
       deploy_environment: ${{ github.ref_name == 'main' && 'feat' || 'dev' }}
