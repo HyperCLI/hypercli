@@ -358,25 +358,42 @@ def download(
     workspace: str | None = typer.Argument(None, help="Workspace slug or ID, or omit to read workspace/path from stdin"),
     file_ref: str | None = typer.Argument(None, help="Workspace-relative source path or file ID"),
     output_path: Path | None = typer.Option(None, "--output", "-o", help="Output file path"),
-    md: bool = typer.Option(False, "--md", help="Download the Markdown projection instead of the original source file"),
+    raw: bool = typer.Option(False, "--raw", help="Download the original source file instead of the Markdown projection"),
+    md: bool = typer.Option(False, "--md", help="Download the Markdown projection"),
     agent_id: str | None = typer.Option(None, "--agent-id", help="Fetch as an agent subject"),
     user_id: str | None = typer.Option(None, "--user-id", help="Fetch as a user subject"),
-    json_output: bool = typer.Option(False, "--json", help="Download the source file and print machine-readable metadata"),
+    json_output: bool = typer.Option(False, "--json", help="Download the file and print machine-readable metadata"),
 ):
-    """Download an original workspace file, or the Markdown projection with --md."""
+    """Download a Markdown projection by default, or the original source with --raw."""
     if workspace is None:
         workspace, file_ref = _parse_workspace_file_ref(sys.stdin.read())
     elif file_ref is None and "/" in workspace.strip().strip("/"):
         workspace, file_ref = _parse_workspace_file_ref(workspace)
     if workspace is None or file_ref is None:
         raise typer.BadParameter("Pass workspace and file_ref, or pipe workspace/path on stdin")
+    if raw and md:
+        raise typer.BadParameter("Pass either --raw or --md, not both")
     workspaces = _get_workspaces()
-    if md:
+    if not raw:
         projection, body = workspaces.projection_markdown(workspace, file_ref, user_id=user_id, agent_id=agent_id)
         projection_path = PurePosixPath(projection.get("projection_path") or f"{PurePosixPath(file_ref).stem}.md")
         target = output_path or Path(projection_path.name)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(body, encoding="utf-8")
+        if json_output:
+            _print_json(
+                {
+                    "address": f"{workspace}/{projection.get('source_path') or file_ref}",
+                    "workspace": workspace,
+                    "path": projection.get("source_path") or file_ref,
+                    "local_path": str(target),
+                    "file_id": projection.get("file_id"),
+                    "file_version_id": projection.get("file_version_id"),
+                    "projection_id": projection.get("projection_id"),
+                    "projection_path": projection.get("projection_path"),
+                }
+            )
+            return
         console.print(f"[green]Downloaded[/green] {projection.get('source_path') or file_ref} -> {target}")
         return
 
@@ -412,6 +429,22 @@ def download(
         )
         return
     console.print(f"[green]Downloaded[/green] {value.source_path} -> {target}")
+
+
+@app.command("download-url")
+def download_url(
+    workspace: str = typer.Argument(help="Workspace slug or ID"),
+    file_ref: str = typer.Argument(help="Workspace-relative source path or file ID"),
+    agent_id: str | None = typer.Option(None, "--agent-id", help="Fetch as an agent subject"),
+    user_id: str | None = typer.Option(None, "--user-id", help="Fetch as a user subject"),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """Return a signed download URL for the original source file."""
+    value = _get_workspaces().download_url(workspace, file_ref, user_id=user_id, agent_id=agent_id)
+    if output == "json":
+        _print_json(value.__dict__)
+        return
+    console.print(value.url or "")
 
 
 @app.command("enrich")

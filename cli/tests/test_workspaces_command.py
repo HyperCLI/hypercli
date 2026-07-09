@@ -446,7 +446,7 @@ def test_workspaces_download_writes_markdown_projection(monkeypatch, tmp_path: P
     target = tmp_path / "report.md"
     result = runner.invoke(
         app,
-        ["workspaces", "download", "demo", "projects/example/report.pdf", "--md", "--agent-id", "agent-1", "--output", str(target)],
+        ["workspaces", "download", "demo", "projects/example/report.pdf", "--agent-id", "agent-1", "--output", str(target)],
     )
 
     assert result.exit_code == 0, result.stdout
@@ -495,7 +495,7 @@ def test_workspaces_download_fetches_original(monkeypatch, tmp_path: Path):
     target = tmp_path / "report.pdf"
     result = runner.invoke(
         app,
-        ["workspaces", "download", "demo", "projects/example/report.pdf", "--agent-id", "agent-1", "--output", str(target)],
+        ["workspaces", "download", "demo", "projects/example/report.pdf", "--raw", "--agent-id", "agent-1", "--output", str(target)],
     )
 
     assert result.exit_code == 0, result.stdout
@@ -506,6 +506,33 @@ def test_workspaces_download_fetches_original(monkeypatch, tmp_path: Path):
         "agent_id": "agent-1",
     }
     assert target.read_bytes() == b"raw-pdf"
+
+
+def test_workspaces_download_url_outputs_json(monkeypatch):
+    import hypercli_cli.workspaces as workspaces_mod
+
+    captured = {}
+
+    class _FakeWorkspaces:
+        def download_url(self, workspace, file_ref, *, user_id=None, agent_id=None):
+            captured.update({"workspace": workspace, "file_ref": file_ref, "user_id": user_id, "agent_id": agent_id})
+            return _FakeDownloadUrl()
+
+    monkeypatch.setattr(workspaces_mod, "_get_workspaces", lambda: _FakeWorkspaces())
+
+    result = runner.invoke(
+        app,
+        ["workspaces", "download-url", "demo", "projects/example/report.pdf", "--agent-id", "agent-1", "--output", "json"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert captured == {
+        "workspace": "demo",
+        "file_ref": "projects/example/report.pdf",
+        "user_id": None,
+        "agent_id": "agent-1",
+    }
+    assert '"url": "https://download.example/report.pdf"' in result.stdout
 
 
 def test_workspaces_enrich_outputs_fileset_json(tmp_path: Path):
