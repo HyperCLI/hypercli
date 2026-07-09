@@ -11,6 +11,7 @@ on:
       - "site/**"
       - "ts-sdk/**"
       - "sdk/**"
+      - "cli/**"
   workflow_dispatch:
 
 jobs:

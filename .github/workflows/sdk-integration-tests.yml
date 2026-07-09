@@ -80,6 +80,7 @@ jobs:
             sdk/tests/test_node_proxy.py \
             sdk/tests/test_workspaces.py \
             sdk/tests/test_exec_shell_dryrun.py \
+            cli/tests/test_llm_command.py \
             cli/tests/test_jobs_list_tags.py \
             cli/tests/test_workspaces_command.py \
             cli/tests/test_exec_shell_dryrun.py
