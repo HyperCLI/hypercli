@@ -37,14 +37,14 @@ class _FakeFile:
         self.current_version_id = "version-1"
         self.file_state = "uploaded"
         self.upload_status = "uploaded"
-        self.projection_status = "pending"
+        self.processing_state = "pending"
 
 
 class _FakeSearchFile(_FakeFile):
     def __init__(self):
         super().__init__()
         self.file_state = "processed"
-        self.projection_status = "finished"
+        self.processing_state = "processed"
         self.match_reasons = ["vector"]
         self.keyword_score = 0.0
         self.vector_score = 0.92
@@ -283,7 +283,7 @@ def test_workspaces_wait_until_processed_invokes_cli(monkeypatch):
             )
             item = _FakeFile()
             item.file_state = "processed"
-            item.projection_status = "finished"
+            item.processing_state = "processed"
             return item
 
     monkeypatch.setattr(workspaces_mod, "_get_workspaces", lambda: _FakeWorkspaces())
@@ -428,16 +428,16 @@ def test_workspaces_sync_all_resolves_runtime_agent_from_auth_me(monkeypatch, tm
     }
 
 
-def test_workspaces_download_writes_markdown_projection(monkeypatch, tmp_path: Path):
+def test_workspaces_download_writes_markdown_file(monkeypatch, tmp_path: Path):
     import hypercli_cli.workspaces as workspaces_mod
 
     captured = {}
 
     class _FakeWorkspaces:
-        def projection_markdown(self, workspace, file_ref, *, user_id=None, agent_id=None):
+        def markdown_file(self, workspace, file_ref, *, user_id=None, agent_id=None):
             captured.update({"workspace": workspace, "file_ref": file_ref, "user_id": user_id, "agent_id": agent_id})
             return (
-                {"source_path": "projects/example/report.pdf", "projection_path": "projects/example/.tomd/report.md"},
+                {"source_path": "projects/example/report.pdf", "markdown_path": "projects/example/.tomd/report.md"},
                 '---\nsource_path: "projects/example/report.pdf"\ndownload_command: "hyper workspaces download demo/projects/example/report.pdf --output report.pdf"\n---\n',
             )
 

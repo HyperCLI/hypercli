@@ -63,7 +63,7 @@ describe('Workspaces SDK', () => {
             current_version_id: 'version-1',
             file_state: 'processed',
             upload_status: 'uploaded',
-            projection_status: 'finished',
+            processing_state: 'processed',
             match_reasons: ['keyword'],
             keyword_score: 0.8,
             vector_score: null,
@@ -160,7 +160,7 @@ describe('Workspaces SDK', () => {
             current_version_id: 'version-1',
             file_state: 'uploaded',
             upload_status: 'uploaded',
-            projection_status: 'pending',
+            processing_state: 'pending',
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
@@ -173,20 +173,15 @@ describe('Workspaces SDK', () => {
             workspace_slug: 'demo',
             snapshot_id: 'snapshot-1',
             base_path: '/home/node/Workspaces/demo',
-            projections: [
+            markdown_files: [
               {
                 file_id: 'file-1',
                 file_version_id: 'version-1',
-                projection_id: 'projection-1',
                 source_path: 'projects/example/report.pdf',
                 source_filename: 'report.pdf',
                 source_content_type: 'application/pdf',
-                source_size_bytes: 123,
-                source_s3_key: 'test/workspaces/workspace-1/originals/file-1/version-1/report.pdf',
-                projection_path: 'projects/example/.tomd/report.md',
-                source_sha256: 'a'.repeat(64),
-                source_etag: 'etag-1',
-                source_last_modified: '2026-07-08T00:00:00Z',
+                markdown_path: 'projects/example/.tomd/report.md',
+                markdown_url: '',
                 download_command: 'hyper workspaces download demo/projects/example/report.pdf --output report.pdf',
               },
             ],
@@ -204,8 +199,8 @@ describe('Workspaces SDK', () => {
     );
     const manifest = await api.manifest('demo', { agentId: 'agent-1' });
 
-    expect(file.projectionStatus).toBe('pending');
-    expect(manifest.projections[0]?.projection_path).toBe('projects/example/.tomd/report.md');
+    expect(file.processingState).toBe('pending');
+    expect(manifest.markdownFiles[0]?.markdown_path).toBe('projects/example/.tomd/report.md');
     expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/demo/files');
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ keywords: ['handoff'] });
     expect(fetchMock.mock.calls[1][0]).toBe('http://workspaces.test/workspaces/demo/manifest');
@@ -223,7 +218,7 @@ describe('Workspaces SDK', () => {
           current_version_id: 'version-1',
           file_state: 'uploaded',
           upload_status: 'uploaded',
-          projection_status: 'pending',
+          processing_state: 'pending',
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       ),
@@ -262,7 +257,7 @@ describe('Workspaces SDK', () => {
             current_version_id: 'version-1',
             file_state: 'processed',
             upload_status: 'uploaded',
-            projection_status: 'finished',
+            processing_state: 'processed',
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
@@ -278,7 +273,7 @@ describe('Workspaces SDK', () => {
     );
 
     expect(file.fileState).toBe('processed');
-    expect(file.projectionStatus).toBe('finished');
+    expect(file.processingState).toBe('processed');
     expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/demo/files/docs/source.md');
     expect(fetchMock.mock.calls[0][1]).toMatchObject({
       method: 'GET',
@@ -301,7 +296,7 @@ describe('Workspaces SDK', () => {
               current_version_id: 'version-1',
               file_state: 'uploaded',
               upload_status: 'uploaded',
-              projection_status: 'pending',
+              processing_state: 'pending',
             },
           ]),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -331,9 +326,8 @@ describe('Workspaces SDK', () => {
           current_version_id: 'version-1',
           file_state: 'processed',
           upload_status: 'uploaded',
-          projection_status: 'finished',
+          processing_state: 'processed',
           keywords: ['pricing', 'retention'],
-          title: 'Customer Pricing Brief',
           summary: 'Pricing retention guidance.',
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -345,7 +339,6 @@ describe('Workspaces SDK', () => {
     const file = await api.updateFile('demo', 'docs/source.md', {
       displayName: 'customer-pricing-brief.md',
       keywords: ['pricing', 'retention'],
-      title: 'Customer Pricing Brief',
       summary: 'Pricing retention guidance.',
     });
 
@@ -354,56 +347,16 @@ describe('Workspaces SDK', () => {
     expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
       display_name: 'customer-pricing-brief.md',
       keywords: ['pricing', 'retention'],
-      title: 'Customer Pricing Brief',
       summary: 'Pricing retention guidance.',
     });
     expect(file.keywords).toEqual(['pricing', 'retention']);
-    expect(file.title).toBe('Customer Pricing Brief');
     expect(file.summary).toBe('Pricing retention guidance.');
     vi.unstubAllGlobals();
   });
 
-  it('lists workspace projections with semantic metadata', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify([
-          {
-            id: 'projection-1',
-            workspace_id: 'workspace-1',
-            file_id: 'file-1',
-            file_version_id: 'version-1',
-            projection_path: 'docs/.tomd/source.md',
-            projection_s3_key: 'test/workspaces/workspace-1/views/docs/.tomd/source.md',
-            status: 'finished',
-            kind: 'document',
-            title: 'Source Notes',
-            detected_type: 'markdown',
-            markdown_sha256: 'c'.repeat(64),
-            semantic_metadata: { keywords: ['handoff', 'launch'] },
-            system_metadata: { converter: 'tomd' },
-          },
-        ]),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-
-    const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
-    await expect(api.listProjections('demo', { agentId: 'agent-1' })).resolves.toMatchObject([
-      {
-        id: 'projection-1',
-        projectionPath: 'docs/.tomd/source.md',
-        title: 'Source Notes',
-        detectedType: 'markdown',
-        semanticMetadata: { keywords: ['handoff', 'launch'] },
-      },
-    ]);
-    expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/demo/projections');
-    vi.unstubAllGlobals();
-  });
-
-  it('renders a single-file Markdown projection with front matter', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
+  it('renders a single-file Markdown file with front matter', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(
       new Response(
         JSON.stringify({
           workspace_id: 'workspace-1',
@@ -411,41 +364,34 @@ describe('Workspaces SDK', () => {
           workspace_slug: 'demo',
           snapshot_id: 'snapshot-1',
           base_path: '/home/node/Workspaces/demo',
-          projections: [
+          markdown_files: [
             {
               file_id: 'file-1',
               file_version_id: 'version-1',
-              projection_id: 'projection-1',
               source_path: 'docs/source.md',
               source_filename: 'source.md',
               source_content_type: 'text/markdown',
-              source_size_bytes: 12,
-              source_s3_key: 'test/workspaces/workspace-1/originals/file-1/version-1/source.md',
-              projection_path: 'docs/.tomd/source.md',
-              source_sha256: 'b'.repeat(64),
-              source_etag: 'etag-2',
-              source_last_modified: '2026-07-08T01:00:00Z',
-              title: 'Source Brief',
+              markdown_path: 'docs/.tomd/source.md',
+              markdown_url: 'https://storage.example.test/source.md',
               detected_type: 'markdown',
               keywords: ['handoff', 'launch'],
-              semantic_metadata: { summary: 'Launch handoff notes.' },
-              status: 'pending',
+              summary: 'Launch handoff notes.',
+              status: 'processed',
               download_command: 'hyper workspaces download demo/docs/source.md --output source.md',
             },
           ],
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       ),
-    );
+    )
+      .mockResolvedValueOnce(new Response('# Source\n', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
     const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
-    const result = await api.projectionMarkdown('demo', 'docs/source.md', { agentId: 'agent-1' });
+    const result = await api.markdownFile('demo', 'docs/source.md', { agentId: 'agent-1' });
 
-    expect(result.projection.projection_path).toBe('docs/.tomd/source.md');
+    expect(result.markdownFile.markdown_path).toBe('docs/.tomd/source.md');
     expect(result.markdown).toContain('source_path: "docs/source.md"');
-    expect(result.markdown).toContain('source_size_bytes: 12');
-    expect(result.markdown).toContain('title: "Source Brief"');
     expect(result.markdown).toContain('detected_type: "markdown"');
     expect(result.markdown).toContain('keywords: ["handoff","launch"]');
     expect(result.markdown).toContain('summary: "Launch handoff notes."');

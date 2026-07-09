@@ -28,9 +28,8 @@ function workspaceFile(overrides = {}) {
     currentVersionId: "version-1",
     fileState: "uploaded",
     uploadStatus: "uploaded",
-    projectionStatus: "queued",
+    processingState: "pending",
     keywords: ["handoff", "brief"],
-    title: "Brief",
     summary: "Projected workspace content.",
     ...overrides,
   };
@@ -56,23 +55,18 @@ function workspaceManifest(overrides = {}) {
     workspaceSlug: "team-knowledge",
     snapshotId: "snapshot-1",
     basePath: "/home/node/workspaces/team-knowledge",
-    projections: [
+    markdownFiles: [
       {
         file_id: "file-1",
         file_version_id: "version-1",
-        projection_id: "projection-1",
         source_path: "docs/brief.md",
         source_filename: "brief.md",
         source_content_type: "text/markdown",
-        source_size_bytes: 128,
-        source_sha256: "sha256-brief",
-        source_etag: "etag-brief",
-        source_last_modified: "2026-07-09T12:00:00Z",
-        projection_path: "docs/.tomd/brief.md",
-        markdown_sha256: "sha256-projection",
+        markdown_path: "docs/.tomd/brief.md",
+        markdown_url: "",
         keywords: ["handoff", "brief"],
-        status: "finished",
-        markdown_body: "# Brief\n\nProjected workspace content.",
+        summary: "Projected workspace content.",
+        status: "processed",
       },
     ],
     ...overrides,
@@ -87,8 +81,8 @@ function mockWorkspaces(overrides = {}) {
     listFiles: vi.fn(async () => [workspaceFile()]),
     listGrants: vi.fn(async () => [workspaceGrant()]),
     manifest: vi.fn(async () => workspaceManifest()),
-    projectionMarkdown: vi.fn(async () => ({
-      projection: workspaceManifest().projections[0],
+    markdownFile: vi.fn(async () => ({
+      markdownFile: workspaceManifest().markdownFiles[0],
       markdown: "---\nkeywords: [\"handoff\",\"brief\"]\nsource_path: \"docs/brief.md\"\n---\n\n# Brief\n\nProjected workspace content.\n",
     })),
     downloadUrl: vi.fn(async () => ({
@@ -107,12 +101,13 @@ function mockWorkspaces(overrides = {}) {
       name: "brief.md",
     })),
     update: vi.fn(async () => workspace({ name: "Renamed Workspace", description: "Updated notes" })),
-    updateFile: vi.fn(async () => workspaceFile({ displayName: "brief-renamed.md", title: "Renamed Brief" })),
+    updateFile: vi.fn(async () => workspaceFile({ displayName: "brief-renamed.md" })),
     delete: vi.fn(async () => undefined),
     grant: vi.fn(async () => workspaceGrant({ id: "grant-2", subjectId: "agent-brand" })),
     revokeGrant: vi.fn(async () => undefined),
     uploadFile: vi.fn(async () => workspaceFile({ id: "file-2", path: "upload.md", displayName: "upload.md" })),
     deleteFile: vi.fn(async () => undefined),
+    regenerateFile: vi.fn(async () => workspaceFile({ processingState: "pending" })),
     ...overrides,
   };
 }
@@ -197,14 +192,15 @@ describe("SharedKnowledgePanel", () => {
     await waitFor(() => expect(workspaces.deleteFile).toHaveBeenCalledWith("team-knowledge", "docs/brief.md"));
   });
 
-  it("opens files through synthesized projection markdown", async () => {
+  it("opens files through synthesized Markdown", async () => {
     const workspaces = renderSharedKnowledgePanel();
     await waitForTeamWorkspace();
 
     fireEvent.click(await screen.findByText("docs"));
     fireEvent.click(await screen.findByText("brief.md"));
+    fireEvent.click(screen.getByRole("button", { name: /markdown/i }));
 
-    await waitFor(() => expect(workspaces.projectionMarkdown).toHaveBeenCalledWith("team-knowledge", "docs/brief.md"));
+    await waitFor(() => expect(workspaces.markdownFile).toHaveBeenCalledWith("team-knowledge", "docs/brief.md"));
     expect(await screen.findByText(/Projected workspace content/i)).toBeInTheDocument();
   });
 
@@ -216,14 +212,12 @@ describe("SharedKnowledgePanel", () => {
     fireEvent.click(await screen.findByText("brief.md"));
 
     fireEvent.change(await screen.findByDisplayValue("brief.md"), { target: { value: "brief-renamed.md" } });
-    fireEvent.change(screen.getByDisplayValue("Brief"), { target: { value: "Renamed Brief" } });
     fireEvent.change(screen.getByDisplayValue("handoff, brief"), { target: { value: "pricing, retention" } });
     fireEvent.change(screen.getByDisplayValue("Projected workspace content."), { target: { value: "Renewal notes." } });
     fireEvent.click(screen.getByRole("button", { name: /save metadata/i }));
 
     await waitFor(() => expect(workspaces.updateFile).toHaveBeenCalledWith("team-knowledge", "docs/brief.md", {
       displayName: "brief-renamed.md",
-      title: "Renamed Brief",
       keywords: ["pricing", "retention"],
       summary: "Renewal notes.",
     }));

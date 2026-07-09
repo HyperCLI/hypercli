@@ -49,9 +49,8 @@ export interface WorkspaceFile {
   currentVersionId: string | null;
   fileState: string;
   uploadStatus: string | null;
-  projectionStatus: string | null;
+  processingState: string | null;
   keywords: string[];
-  title: string | null;
   summary: string | null;
 }
 
@@ -62,29 +61,13 @@ export interface WorkspaceFileSearchResult extends WorkspaceFile {
   score: number;
 }
 
-export interface WorkspaceProjection {
-  id: string;
-  workspaceId: string;
-  fileId: string;
-  fileVersionId: string;
-  projectionPath: string;
-  projectionS3Key: string | null;
-  status: string;
-  kind: string;
-  title: string | null;
-  detectedType: string | null;
-  markdownSha256: string | null;
-  systemMetadata: Record<string, any>;
-  semanticMetadata: Record<string, any>;
-}
-
 export interface WorkspaceManifest {
   workspaceId: string;
   workspaceName: string;
   workspaceSlug: string;
   snapshotId: string;
   basePath: string;
-  projections: Array<Record<string, any>>;
+  markdownFiles: Array<Record<string, any>>;
 }
 
 export interface WorkspaceDownloadUrl {
@@ -141,9 +124,8 @@ function fileFromDict(data: any): WorkspaceFile {
     currentVersionId: data?.current_version_id || data?.currentVersionId || null,
     fileState: data?.file_state || data?.fileState || '',
     uploadStatus: data?.upload_status || data?.uploadStatus || null,
-    projectionStatus: data?.projection_status || data?.projectionStatus || null,
+    processingState: data?.processing_state || data?.processingState || null,
     keywords: Array.isArray(data?.keywords) ? data.keywords.map(String) : [],
-    title: data?.title || null,
     summary: data?.summary || null,
   };
 }
@@ -163,24 +145,6 @@ function fileSearchResultFromDict(data: any): WorkspaceFileSearchResult {
   };
 }
 
-function projectionFromDict(data: any): WorkspaceProjection {
-  return {
-    id: String(data?.id || ''),
-    workspaceId: String(data?.workspace_id || data?.workspaceId || ''),
-    fileId: String(data?.file_id || data?.fileId || ''),
-    fileVersionId: String(data?.file_version_id || data?.fileVersionId || ''),
-    projectionPath: data?.projection_path || data?.projectionPath || '',
-    projectionS3Key: data?.projection_s3_key || data?.projectionS3Key || null,
-    status: data?.status || '',
-    kind: data?.kind || '',
-    title: data?.title || null,
-    detectedType: data?.detected_type || data?.detectedType || null,
-    markdownSha256: data?.markdown_sha256 || data?.markdownSha256 || null,
-    systemMetadata: data?.system_metadata || data?.systemMetadata || {},
-    semanticMetadata: data?.semantic_metadata || data?.semanticMetadata || {},
-  };
-}
-
 function manifestFromDict(data: any): WorkspaceManifest {
   return {
     workspaceId: String(data?.workspace_id || data?.workspaceId || ''),
@@ -188,7 +152,7 @@ function manifestFromDict(data: any): WorkspaceManifest {
     workspaceSlug: data?.workspace_slug || data?.workspaceSlug || '',
     snapshotId: data?.snapshot_id || data?.snapshotId || '',
     basePath: data?.base_path || data?.basePath || '',
-    projections: Array.isArray(data?.projections) ? data.projections : [],
+    markdownFiles: Array.isArray(data?.markdown_files) ? data.markdown_files : Array.isArray(data?.markdownFiles) ? data.markdownFiles : [],
   };
 }
 
@@ -379,15 +343,19 @@ export class WorkspacesAPI {
   async updateFile(
     workspaceRef: string,
     fileRef: string,
-    body: { displayName?: string; keywords?: string[]; title?: string | null; summary?: string | null },
+    body: { displayName?: string; keywords?: string[]; summary?: string | null },
     subject: WorkspaceSubjectOptions = {},
   ): Promise<WorkspaceFile> {
     const data = await this.request('PATCH', `/${workspaceRef}/files/${fileRef}`, subject, {
       ...(body.displayName !== undefined ? { display_name: body.displayName } : {}),
       ...(body.keywords !== undefined ? { keywords: body.keywords } : {}),
-      ...(body.title !== undefined ? { title: body.title } : {}),
       ...(body.summary !== undefined ? { summary: body.summary } : {}),
     });
+    return fileFromDict(data);
+  }
+
+  async regenerateFile(workspaceRef: string, fileRef: string, subject: WorkspaceSubjectOptions = {}): Promise<WorkspaceFile> {
+    const data = await this.request('POST', `/${workspaceRef}/files/${fileRef}/regenerate`, subject);
     return fileFromDict(data);
   }
 
@@ -402,11 +370,11 @@ export class WorkspacesAPI {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       const file = await this.getFile(workspaceRef, fileRef, subject);
-      if (file.fileState === 'processed' && file.projectionStatus === 'finished') {
+      if (file.fileState === 'processed' && file.processingState === 'processed') {
         return file;
       }
-      if (file.fileState === 'failed' || file.fileState === 'deleted' || file.projectionStatus === 'failed' || file.projectionStatus === 'deleted') {
-        throw new Error(`Workspace file ${fileRef} is ${file.fileState} with projection ${file.projectionStatus || 'unknown'}`);
+      if (file.fileState === 'failed' || file.fileState === 'deleted' || file.processingState === 'failed' || file.processingState === 'deleted') {
+        throw new Error(`Workspace file ${fileRef} is ${file.fileState} with processing ${file.processingState || 'unknown'}`);
       }
       await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
     }
@@ -427,11 +395,6 @@ export class WorkspacesAPI {
     const params = new URLSearchParams({ q: query, vector: String(options.vector ?? true) });
     const data = await this.request<any[]>('GET', `/${workspaceRef}/files/search?${params.toString()}`, subject);
     return (data || []).map(fileSearchResultFromDict);
-  }
-
-  async listProjections(workspaceRef: string, subject: WorkspaceSubjectOptions = {}): Promise<WorkspaceProjection[]> {
-    const data = await this.request<any[]>('GET', `/${workspaceRef}/projections`, subject);
-    return (data || []).map(projectionFromDict);
   }
 
   async manifest(workspaceRef: string, subject: WorkspaceSubjectOptions = {}): Promise<WorkspaceManifest> {
@@ -473,60 +436,51 @@ export class WorkspacesAPI {
     await this.request('DELETE', `/${workspaceRef}/files/${fileRef}`, subject);
   }
 
-  async projectionMarkdown(
+  async markdownFile(
     workspaceRef: string,
     fileRef: string,
     subject: WorkspaceSubjectOptions = {},
-  ): Promise<{ projection: Record<string, any>; markdown: string }> {
+  ): Promise<{ markdownFile: Record<string, any>; markdown: string }> {
     const manifest = await this.manifest(workspaceRef, subject);
-    const projection = findProjection(manifest, fileRef);
-    return { projection, markdown: projectionMarkdown(manifest, projection) };
+    const markdownFile = findMarkdownFile(manifest, fileRef);
+    return { markdownFile, markdown: await markdownFileBody(manifest, markdownFile) };
   }
 }
 
-function findProjection(manifest: WorkspaceManifest, fileRef: string): Record<string, any> {
+function findMarkdownFile(manifest: WorkspaceManifest, fileRef: string): Record<string, any> {
   const normalizedRef = normalizePosixPath(fileRef);
-  for (const projection of manifest.projections) {
-    if (!projection || typeof projection !== 'object') continue;
-    if (fileRef === String(projection.file_id || '') || fileRef === String(projection.projection_id || '')) {
-      return projection;
+  for (const markdownFile of manifest.markdownFiles) {
+    if (!markdownFile || typeof markdownFile !== 'object') continue;
+    if (fileRef === String(markdownFile.file_id || '') || fileRef === String(markdownFile.file_version_id || '')) {
+      return markdownFile;
     }
     if (
-      normalizedRef === normalizePosixPath(String(projection.source_path || '')) ||
-      normalizedRef === normalizePosixPath(String(projection.projection_path || ''))
+      normalizedRef === normalizePosixPath(String(markdownFile.source_path || '')) ||
+      normalizedRef === normalizePosixPath(String(markdownFile.markdown_path || ''))
     ) {
-      return projection;
+      return markdownFile;
     }
   }
-  throw new Error(`Workspace projection not found for ${fileRef}`);
+  throw new Error(`Workspace Markdown file not found for ${fileRef}`);
 }
 
-function projectionMarkdown(manifest: WorkspaceManifest, projection: Record<string, any>): string {
-  const sourcePath = String(projection.source_path || '');
-  const downloadCommand = projection.download_command || `hyper workspaces download ${manifest.workspaceSlug}/${sourcePath}`;
+async function markdownFileBody(manifest: WorkspaceManifest, markdownFile: Record<string, any>): Promise<string> {
+  const sourcePath = String(markdownFile.source_path || '');
+  const downloadCommand = markdownFile.download_command || `hyper workspaces download ${manifest.workspaceSlug}/${sourcePath}`;
   const frontmatter: Record<string, unknown> = {
     workspace_id: manifest.workspaceId,
     workspace_slug: manifest.workspaceSlug,
     snapshot_id: manifest.snapshotId,
-    file_id: projection.file_id || '',
-    file_version_id: projection.file_version_id || '',
-    projection_id: projection.projection_id || '',
+    file_id: markdownFile.file_id || '',
+    file_version_id: markdownFile.file_version_id || '',
     source_path: sourcePath,
-    source_filename: projection.source_filename || '',
-    source_content_type: projection.source_content_type || '',
-    source_size_bytes: projection.source_size_bytes ?? null,
-    source_s3_key: projection.source_s3_key || '',
-    source_sha256: projection.source_sha256 || '',
-    source_etag: projection.source_etag || '',
-    source_last_modified: projection.source_last_modified || '',
-    projection_path: projection.projection_path || '',
-    markdown_sha256: projection.markdown_sha256 || '',
-    title: projection.title || '',
-    detected_type: projection.detected_type || '',
-    keywords: projection.keywords || [],
-    summary: projection.semantic_metadata?.summary || '',
-    semantic_metadata: projection.semantic_metadata || {},
-    status: projection.status || '',
+    source_filename: markdownFile.source_filename || '',
+    source_content_type: markdownFile.source_content_type || '',
+    markdown_path: markdownFile.markdown_path || '',
+    detected_type: markdownFile.detected_type || '',
+    keywords: markdownFile.keywords || [],
+    summary: markdownFile.summary || '',
+    status: markdownFile.status || '',
     download_command: downloadCommand,
   };
   const lines = ['---'];
@@ -534,10 +488,20 @@ function projectionMarkdown(manifest: WorkspaceManifest, projection: Record<stri
     lines.push(`${key}: ${yamlScalar(value)}`);
   }
   lines.push('---', '');
-  if (typeof projection.markdown_body === 'string' && projection.markdown_body) {
-    lines.push(projection.markdown_body.trimEnd(), '');
+  const body = await fetchMarkdownBody(markdownFile);
+  if (body) {
+    lines.push(body.trimEnd(), '');
   }
   return lines.join('\n');
+}
+
+async function fetchMarkdownBody(markdownFile: Record<string, any>): Promise<string> {
+  if (!markdownFile.markdown_url) return '';
+  const response = await fetch(String(markdownFile.markdown_url));
+  if (!response.ok) {
+    throw new Error(`Unable to fetch workspace Markdown (${response.status}).`);
+  }
+  return response.text();
 }
 
 function normalizePosixPath(path: string): string {

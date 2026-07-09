@@ -94,7 +94,9 @@ class WorkspaceFile:
     current_version_id: str | None = None
     file_state: str = ""
     upload_status: str | None = None
-    projection_status: str | None = None
+    processing_state: str | None = None
+    keywords: list[str] = field(default_factory=list)
+    summary: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "WorkspaceFile":
@@ -106,7 +108,9 @@ class WorkspaceFile:
             current_version_id=str(data["current_version_id"]) if data.get("current_version_id") else None,
             file_state=data.get("file_state", ""),
             upload_status=data.get("upload_status"),
-            projection_status=data.get("projection_status"),
+            processing_state=data.get("processing_state"),
+            keywords=list(data.get("keywords") or []),
+            summary=data.get("summary"),
         )
 
 
@@ -159,7 +163,7 @@ class WorkspaceManifest:
     workspace_slug: str
     snapshot_id: str
     base_path: str
-    projections: list[dict] = field(default_factory=list)
+    markdown_files: list[dict] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict) -> "WorkspaceManifest":
@@ -169,7 +173,7 @@ class WorkspaceManifest:
             workspace_slug=data.get("workspace_slug", ""),
             snapshot_id=data.get("snapshot_id", ""),
             base_path=data.get("base_path", ""),
-            projections=list(data.get("projections") or []),
+            markdown_files=list(data.get("markdown_files") or []),
         )
 
 
@@ -350,6 +354,15 @@ class WorkspacesAPI:
         )
         return WorkspaceFile.from_dict(data)
 
+    def regenerate_file(self, workspace_ref: str, file_ref: str, *, user_id: str | None = None) -> WorkspaceFile:
+        data = _request(
+            "POST",
+            f"{self.api_base}/{workspace_ref}/files/{file_ref}/regenerate",
+            api_key=self.api_key,
+            user_id=user_id,
+        )
+        return WorkspaceFile.from_dict(data)
+
     def wait_until_processed(
         self,
         workspace_ref: str,
@@ -364,13 +377,10 @@ class WorkspacesAPI:
         terminal_failures = {"failed", "deleted"}
         while time.monotonic() - start < timeout:
             item = self.get_file(workspace_ref, file_ref, user_id=user_id, agent_id=agent_id)
-            if item.file_state == "processed" and item.projection_status == "finished":
+            if item.file_state == "processed" and item.processing_state == "processed":
                 return item
-            if item.file_state in terminal_failures or item.projection_status in terminal_failures:
-                raise ValueError(
-                    f"Workspace file {file_ref} is {item.file_state}"
-                    f" with projection {item.projection_status or 'unknown'}"
-                )
+            if item.file_state in terminal_failures or item.processing_state in terminal_failures:
+                raise ValueError(f"Workspace file {file_ref} is {item.file_state} with processing {item.processing_state or 'unknown'}")
             time.sleep(poll_interval)
         raise TimeoutError(f"Workspace file {file_ref} did not process within {timeout}s")
 
@@ -388,10 +398,10 @@ class WorkspacesAPI:
         )
         return DownloadUrl.from_dict(data)
 
-    def projection_markdown(self, workspace_ref: str, file_ref: str, *, user_id: str | None = None, agent_id: str | None = None) -> tuple[dict, str]:
+    def markdown_file(self, workspace_ref: str, file_ref: str, *, user_id: str | None = None, agent_id: str | None = None) -> tuple[dict, str]:
         manifest = self.manifest(workspace_ref, user_id=user_id, agent_id=agent_id)
-        projection = _find_projection(manifest, file_ref)
-        return projection, _projection_markdown(manifest, projection)
+        markdown_file = _find_markdown_file(manifest, file_ref)
+        return markdown_file, _markdown_file_body(manifest, markdown_file)
 
     def delete_file(self, workspace_ref: str, file_ref: str, *, user_id: str | None = None) -> dict:
         return _request("DELETE", f"{self.api_base}/{workspace_ref}/files/{file_ref}", api_key=self.api_key, user_id=user_id)
@@ -427,16 +437,16 @@ class WorkspacesAPI:
         manifest = self.manifest(workspace_ref, user_id=user_id, agent_id=agent_id)
         workspace_root = os.path.join(output_dir, manifest.workspace_slug)
         written: list[str] = []
-        for projection in manifest.projections:
-            if ready_only and projection.get("status") != "finished":
+        for markdown_file in manifest.markdown_files:
+            if ready_only and markdown_file.get("status") != "processed":
                 continue
-            projection_path = PurePosixPath(projection["projection_path"])
-            target = os.path.abspath(os.path.join(workspace_root, *projection_path.parts))
+            markdown_path = PurePosixPath(markdown_file["markdown_path"])
+            target = os.path.abspath(os.path.join(workspace_root, *markdown_path.parts))
             root_abs = os.path.abspath(workspace_root)
             if not target.startswith(root_abs + os.sep):
-                raise ValueError(f"Unsafe projection path: {projection_path}")
+                raise ValueError(f"Unsafe markdown path: {markdown_path}")
             os.makedirs(os.path.dirname(target), exist_ok=True)
-            body = _projection_markdown(manifest, projection)
+            body = _markdown_file_body(manifest, markdown_file)
             with open(target, "w", encoding="utf-8") as handle:
                 handle.write(body)
             written.append(target)
@@ -462,28 +472,23 @@ class WorkspacesAPI:
         return synced
 
 
-def _projection_markdown(manifest: WorkspaceManifest, projection: dict) -> str:
-    source_path = projection.get("source_path", "")
-    status = projection.get("status", "")
-    download_command = projection.get("download_command") or f"hyper workspaces download {manifest.workspace_slug}/{source_path}"
+def _markdown_file_body(manifest: WorkspaceManifest, markdown_file: dict) -> str:
+    source_path = markdown_file.get("source_path", "")
+    status = markdown_file.get("status", "")
+    download_command = markdown_file.get("download_command") or f"hyper workspaces download {manifest.workspace_slug}/{source_path}"
     frontmatter = {
         "workspace_id": manifest.workspace_id,
         "workspace_slug": manifest.workspace_slug,
         "snapshot_id": manifest.snapshot_id,
-        "file_id": projection.get("file_id", ""),
-        "file_version_id": projection.get("file_version_id", ""),
-        "projection_id": projection.get("projection_id", ""),
+        "file_id": markdown_file.get("file_id", ""),
+        "file_version_id": markdown_file.get("file_version_id", ""),
         "source_path": source_path,
-        "source_filename": projection.get("source_filename", ""),
-        "source_content_type": projection.get("source_content_type") or "",
-        "source_size_bytes": projection.get("source_size_bytes"),
-        "source_s3_key": projection.get("source_s3_key", ""),
-        "source_sha256": projection.get("source_sha256") or "",
-        "source_etag": projection.get("source_etag") or "",
-        "source_last_modified": projection.get("source_last_modified") or "",
-        "projection_path": projection.get("projection_path", ""),
-        "markdown_sha256": projection.get("markdown_sha256") or "",
-        "keywords": projection.get("keywords") or [],
+        "source_filename": markdown_file.get("source_filename", ""),
+        "source_content_type": markdown_file.get("source_content_type") or "",
+        "markdown_path": markdown_file.get("markdown_path", ""),
+        "keywords": markdown_file.get("keywords") or [],
+        "summary": markdown_file.get("summary") or "",
+        "detected_type": markdown_file.get("detected_type") or "",
         "status": status,
         "download_command": download_command,
     }
@@ -491,25 +496,35 @@ def _projection_markdown(manifest: WorkspaceManifest, projection: dict) -> str:
     for key, value in frontmatter.items():
         lines.append(f"{key}: {_yaml_scalar(value)}")
     lines.extend(["---", ""])
-    body = projection.get("markdown_body")
-    if isinstance(body, str) and body:
+    body = _fetch_markdown_body(markdown_file)
+    if body:
         lines.extend([body.rstrip(), ""])
     return "\n".join(lines)
 
 
-def _find_projection(manifest: WorkspaceManifest, file_ref: str) -> dict:
+def _find_markdown_file(manifest: WorkspaceManifest, file_ref: str) -> dict:
     normalized_ref = str(PurePosixPath(file_ref.strip().replace("\\", "/")))
-    for projection in manifest.projections:
-        if not isinstance(projection, dict):
+    for markdown_file in manifest.markdown_files:
+        if not isinstance(markdown_file, dict):
             continue
-        if file_ref in {str(projection.get("file_id", "")), str(projection.get("projection_id", ""))}:
-            return projection
+        if file_ref in {str(markdown_file.get("file_id", "")), str(markdown_file.get("file_version_id", ""))}:
+            return markdown_file
         if normalized_ref in {
-            str(PurePosixPath(str(projection.get("source_path", "")))),
-            str(PurePosixPath(str(projection.get("projection_path", "")))),
+            str(PurePosixPath(str(markdown_file.get("source_path", "")))),
+            str(PurePosixPath(str(markdown_file.get("markdown_path", "")))),
         }:
-            return projection
-    raise ValueError(f"Workspace projection not found for {file_ref}")
+            return markdown_file
+    raise ValueError(f"Workspace Markdown file not found for {file_ref}")
+
+
+def _fetch_markdown_body(markdown_file: dict) -> str:
+    url = markdown_file.get("markdown_url")
+    if not url:
+        return ""
+    with httpx.Client(timeout=60) as client:
+        response = client.get(str(url))
+    response.raise_for_status()
+    return response.text
 
 
 def _yaml_scalar(value) -> str:

@@ -118,7 +118,7 @@ def list_workspaces(
 
 @app.command("search")
 def search_workspaces(
-    query: str = typer.Argument(help="Search workspace names, file paths, filenames, and projection metadata"),
+    query: str = typer.Argument(help="Search workspace names, file paths, filenames, and file metadata"),
     agent_id: str | None = typer.Option(None, "--agent-id", help="Search as an agent subject"),
     user_id: str | None = typer.Option(None, "--user-id", help="Search as a user subject"),
     vector: bool = typer.Option(True, "--vector/--no-vector", help="Use backend vector search in addition to exact search"),
@@ -141,7 +141,7 @@ def search_workspaces(
 @app.command("search-files")
 def search_files(
     workspace: str = typer.Argument(help="Workspace slug or ID"),
-    query: str = typer.Argument(help="Search file paths, filenames, keywords, summaries, and projection metadata"),
+    query: str = typer.Argument(help="Search file paths, filenames, keywords, and summaries"),
     agent_id: str | None = typer.Option(None, "--agent-id", help="Search as an agent subject"),
     user_id: str | None = typer.Option(None, "--user-id", help="Search as a user subject"),
     vector: bool = typer.Option(True, "--vector/--no-vector", help="Use backend vector search in addition to exact search"),
@@ -268,7 +268,7 @@ def upload(
     if output == "json":
         _print_json(item.__dict__)
         return
-    console.print(f"[green]Uploaded[/green] {item.path} ({item.file_state}, projection {item.projection_status})")
+    console.print(f"[green]Uploaded[/green] {item.path} ({item.file_state}, processing {item.processing_state})")
 
 
 @app.command("manifest")
@@ -277,7 +277,7 @@ def manifest(
     agent_id: str | None = typer.Option(None, "--agent-id", help="Fetch as an agent subject"),
     user_id: str | None = typer.Option(None, "--user-id", help="Fetch as a user subject"),
 ):
-    """Print a workspace Markdown projection manifest."""
+    """Print a workspace Markdown manifest."""
     value = _get_workspaces().manifest(workspace, user_id=user_id, agent_id=agent_id)
     _print_json(value.__dict__)
 
@@ -292,7 +292,7 @@ def wait_until_processed(
     poll_interval: float = typer.Option(2.0, "--poll-interval", help="Seconds between polls"),
     output: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
 ):
-    """Poll a workspace file until its Markdown projection is finished."""
+    """Poll a workspace file until its Markdown processing is finished."""
     item = _get_workspaces().wait_until_processed(
         workspace,
         file_ref,
@@ -304,7 +304,7 @@ def wait_until_processed(
     if output == "json":
         _print_json(item.__dict__)
         return
-    console.print(f"[green]Processed[/green] {item.path} ({item.file_state}, projection {item.projection_status})")
+    console.print(f"[green]Processed[/green] {item.path} ({item.file_state}, processing {item.processing_state})")
 
 
 @app.command("sync")
@@ -314,10 +314,10 @@ def sync(
     all_workspaces: bool = typer.Option(False, "--all", help="Sync every workspace accessible to the subject"),
     agent_id: str | None = typer.Option(None, "--agent-id", help="Sync as an agent subject"),
     user_id: str | None = typer.Option(None, "--user-id", help="Sync as a user subject"),
-    ready_only: bool = typer.Option(False, "--ready-only", help="Only write ready projections"),
+    ready_only: bool = typer.Option(False, "--ready-only", help="Only write ready Markdown files"),
     json_output: bool = typer.Option(False, "--json", help="Print JSON output"),
 ):
-    """Sync workspace Markdown projections to a local Workspaces directory."""
+    """Sync workspace Markdown files to a local Workspaces directory."""
     user_id, agent_id = _resolve_auth_subject(user_id, agent_id)
     if all_workspaces:
         if workspace:
@@ -332,7 +332,7 @@ def sync(
             _print_json({"synced": synced})
             return
         total = sum(len(paths) for paths in synced.values())
-        console.print(f"[green]Synced[/green] {total} projection(s) from {len(synced)} workspace(s) to {output_dir}")
+        console.print(f"[green]Synced[/green] {total} Markdown file(s) from {len(synced)} workspace(s) to {output_dir}")
         for slug, paths in synced.items():
             console.print(f"  {slug}: {len(paths)}")
         return
@@ -348,7 +348,7 @@ def sync(
     if json_output:
         _print_json({"written": written})
         return
-    console.print(f"[green]Synced[/green] {len(written)} projection(s) to {output_dir}")
+    console.print(f"[green]Synced[/green] {len(written)} Markdown file(s) to {output_dir}")
     for path in written:
         console.print(f"  {path}")
 
@@ -358,13 +358,13 @@ def download(
     workspace: str | None = typer.Argument(None, help="Workspace slug or ID, or omit to read workspace/path from stdin"),
     file_ref: str | None = typer.Argument(None, help="Workspace-relative source path or file ID"),
     output_path: Path | None = typer.Option(None, "--output", "-o", help="Output file path"),
-    raw: bool = typer.Option(False, "--raw", help="Download the original source file instead of the Markdown projection"),
-    md: bool = typer.Option(False, "--md", help="Download the Markdown projection"),
+    raw: bool = typer.Option(False, "--raw", help="Download the original source file instead of Markdown"),
+    md: bool = typer.Option(False, "--md", help="Download the Markdown file"),
     agent_id: str | None = typer.Option(None, "--agent-id", help="Fetch as an agent subject"),
     user_id: str | None = typer.Option(None, "--user-id", help="Fetch as a user subject"),
     json_output: bool = typer.Option(False, "--json", help="Download the file and print machine-readable metadata"),
 ):
-    """Download a Markdown projection by default, or the original source with --raw."""
+    """Download Markdown by default, or the original source with --raw."""
     if workspace is None:
         workspace, file_ref = _parse_workspace_file_ref(sys.stdin.read())
     elif file_ref is None and "/" in workspace.strip().strip("/"):
@@ -375,26 +375,25 @@ def download(
         raise typer.BadParameter("Pass either --raw or --md, not both")
     workspaces = _get_workspaces()
     if not raw:
-        projection, body = workspaces.projection_markdown(workspace, file_ref, user_id=user_id, agent_id=agent_id)
-        projection_path = PurePosixPath(projection.get("projection_path") or f"{PurePosixPath(file_ref).stem}.md")
-        target = output_path or Path(projection_path.name)
+        markdown_file, body = workspaces.markdown_file(workspace, file_ref, user_id=user_id, agent_id=agent_id)
+        markdown_path = PurePosixPath(markdown_file.get("markdown_path") or f"{PurePosixPath(file_ref).name}.md")
+        target = output_path or Path(markdown_path.name)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(body, encoding="utf-8")
         if json_output:
             _print_json(
                 {
-                    "address": f"{workspace}/{projection.get('source_path') or file_ref}",
+                    "address": f"{workspace}/{markdown_file.get('source_path') or file_ref}",
                     "workspace": workspace,
-                    "path": projection.get("source_path") or file_ref,
+                    "path": markdown_file.get("source_path") or file_ref,
                     "local_path": str(target),
-                    "file_id": projection.get("file_id"),
-                    "file_version_id": projection.get("file_version_id"),
-                    "projection_id": projection.get("projection_id"),
-                    "projection_path": projection.get("projection_path"),
+                    "file_id": markdown_file.get("file_id"),
+                    "file_version_id": markdown_file.get("file_version_id"),
+                    "markdown_path": markdown_file.get("markdown_path"),
                 }
             )
             return
-        console.print(f"[green]Downloaded[/green] {projection.get('source_path') or file_ref} -> {target}")
+        console.print(f"[green]Downloaded[/green] {markdown_file.get('source_path') or file_ref} -> {target}")
         return
 
     value = workspaces.download_url(workspace, file_ref, user_id=user_id, agent_id=agent_id)
@@ -462,6 +461,21 @@ def enrich(
         _print_json(payload)
         return
     console.print(f"[green]Prepared enrichment[/green] {payload['address']} ({len(payload['files'])} Markdown file(s))")
+
+
+@app.command("regenerate")
+def regenerate(
+    workspace: str = typer.Argument(help="Workspace slug or ID"),
+    file_ref: str = typer.Argument(help="Workspace-relative source path or file ID"),
+    user_id: str | None = typer.Option(None, "--user-id", help="Explicit acting user subject for local/dev testing"),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """Queue Markdown regeneration for a workspace file."""
+    item = _get_workspaces().regenerate_file(workspace, file_ref, user_id=user_id)
+    if output == "json":
+        _print_json(item.__dict__)
+        return
+    console.print(f"[green]Queued regeneration[/green] {item.path} ({item.file_state}, processing {item.processing_state})")
 
 
 @app.command("delete-file")

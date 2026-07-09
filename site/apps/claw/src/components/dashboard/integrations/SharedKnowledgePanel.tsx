@@ -2,6 +2,7 @@
 
 import React from "react";
 import type { Workspace, WorkspaceFile, WorkspaceGrant, WorkspaceManifest, WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
+import { FileRow } from "@hypercli/shared-ui/files";
 import type { FileEntry } from "@hypercli/shared-ui/files";
 import {
   AlertCircle,
@@ -9,6 +10,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  FileText,
   HardDrive,
   Loader2,
   Pencil,
@@ -18,7 +20,6 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { AgentFilesPanel, type AgentFileOpenResponse } from "@/components/dashboard/agents/AgentFilesPanel";
 import type { AgentMeta } from "@/lib/avatar";
 import { agentAvatar } from "@/lib/avatar";
 
@@ -98,14 +99,31 @@ function bytesToArrayBuffer(content: Uint8Array): ArrayBuffer {
   return content.buffer.slice(content.byteOffset, content.byteOffset + content.byteLength) as ArrayBuffer;
 }
 
-function projectionForPath(base: KnowledgeBase, path: string): Record<string, any> | null {
+async function fileToBytes(file: File): Promise<Uint8Array> {
+  if (typeof file.arrayBuffer === "function") {
+    return new Uint8Array(await file.arrayBuffer());
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("Unable to read file."));
+    reader.onload = () => {
+      const result = reader.result;
+      if (result instanceof ArrayBuffer) resolve(new Uint8Array(result));
+      else if (typeof result === "string") resolve(new TextEncoder().encode(result));
+      else reject(new Error("Unable to read file."));
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function markdownFileForPath(base: KnowledgeBase, path: string): Record<string, any> | null {
   const normalized = normalizeWorkspacePath(path);
-  return base.manifest?.projections.find((projection) => {
-    if (!projection || typeof projection !== "object") return false;
-    return normalizeWorkspacePath(String(projection.source_path || "")) === normalized
-      || normalizeWorkspacePath(String(projection.projection_path || "")) === normalized
-      || String(projection.file_id || "") === path
-      || String(projection.projection_id || "") === path;
+  return base.manifest?.markdownFiles.find((markdownFile) => {
+    if (!markdownFile || typeof markdownFile !== "object") return false;
+    return normalizeWorkspacePath(String(markdownFile.source_path || "")) === normalized
+      || normalizeWorkspacePath(String(markdownFile.markdown_path || "")) === normalized
+      || String(markdownFile.file_id || "") === path
+      || String(markdownFile.file_version_id || "") === path;
   }) ?? null;
 }
 
@@ -128,15 +146,10 @@ function workspaceFileEntries(base: KnowledgeBase, prefix = ""): FileEntry[] {
       }
       continue;
     }
-    const projection = projectionForPath(base, path);
     files.push({
       name: file.displayName || baseName(path),
       path,
       type: "file",
-      size: Number.isFinite(Number(projection?.source_size_bytes)) ? Number(projection?.source_size_bytes) : undefined,
-      lastModified: typeof projection?.source_last_modified === "string" ? projection.source_last_modified : undefined,
-      sha256: typeof projection?.source_sha256 === "string" ? projection.source_sha256 : undefined,
-      etag: typeof projection?.source_etag === "string" ? projection.source_etag : undefined,
       versionId: file.currentVersionId ?? undefined,
       source: "s3",
     });
@@ -170,21 +183,12 @@ function parseKeywords(value: string): string[] {
   return keywords;
 }
 
-function projectionSummary(projection: Record<string, any> | null): string {
-  const summary = projection?.semantic_metadata?.summary;
-  return typeof summary === "string" ? summary : "";
-}
-
 function formatBytes(value: unknown): string {
   const bytes = Number(value);
   if (!Number.isFinite(bytes) || bytes <= 0) return "Unknown size";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-async function fetchOriginalBytes(workspaces: WorkspacesAPI, workspaceRef: string, path: string): Promise<AgentFileOpenResponse<Uint8Array>> {
-  return workspaces.downloadFileBytes(workspaceRef, path);
 }
 
 function AgentChip({ agent, selected, disabled, onClick }: { agent: SharedKnowledgeAgent; selected?: boolean; disabled?: boolean; onClick?: () => void }) {
@@ -348,54 +352,18 @@ function EditKnowledgeBaseModal({ base, onClose, onSave }: { base: KnowledgeBase
   );
 }
 
-function FileMetadataEditor({
-  base,
-  selectedPath,
-  busy,
-  onSave,
-}: {
-  base: KnowledgeBase;
-  selectedPath: string | null;
-  busy?: boolean;
-  onSave: (path: string, patch: WorkspaceFilePatch) => Promise<void>;
-}) {
-  const file = (selectedPath ? workspaceFileByPath(base, selectedPath) : null) ?? base.files[0] ?? null;
-  const projection = file ? projectionForPath(base, file.path) : null;
-
-  if (!file) {
-    return (
-      <div className="mt-3 rounded-xl border border-border bg-surface-low/20 px-4 py-3 text-[12px] text-text-muted">
-        Select a file to inspect its workspace metadata.
-      </div>
-    );
-  }
-
-  return (
-    <FileMetadataForm
-      key={`${file.id}:${file.displayName}:${file.title || ""}:${file.summary || ""}:${file.keywords.join("|")}`}
-      file={file}
-      projection={projection}
-      busy={busy}
-      onSave={onSave}
-    />
-  );
-}
-
 function FileMetadataForm({
   file,
-  projection,
   busy,
   onSave,
 }: {
   file: WorkspaceFile;
-  projection: Record<string, any> | null;
   busy?: boolean;
   onSave: (path: string, patch: WorkspaceFilePatch) => Promise<void>;
 }) {
   const [displayName, setDisplayName] = React.useState(file.displayName || "");
-  const [title, setTitle] = React.useState(file.title || (typeof projection?.title === "string" ? projection.title : ""));
   const [keywords, setKeywords] = React.useState(keywordsInput(file.keywords));
-  const [summary, setSummary] = React.useState(file.summary || projectionSummary(projection));
+  const [summary, setSummary] = React.useState(file.summary || "");
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -407,7 +375,6 @@ function FileMetadataForm({
     try {
       await onSave(file.path, {
         displayName: displayName.trim(),
-        title: title.trim() || null,
         keywords: parseKeywords(keywords),
         summary: summary.trim() || null,
       });
@@ -422,16 +389,10 @@ function FileMetadataForm({
     <section className="mt-3 rounded-xl border border-border bg-surface-low/20 p-4">
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
         <div className="min-w-0 space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block">
-              <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">Display Name</span>
-              <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} className="h-9 w-full rounded-lg border border-border bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-primary/50" />
-            </label>
-            <label className="block">
-              <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">Title</span>
-              <input value={title} onChange={(event) => setTitle(event.target.value)} className="h-9 w-full rounded-lg border border-border bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-primary/50" />
-            </label>
-          </div>
+          <label className="block">
+            <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">Display Name</span>
+            <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} className="h-9 w-full rounded-lg border border-border bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-primary/50" />
+          </label>
           <label className="block">
             <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">Keywords</span>
             <input value={keywords} onChange={(event) => setKeywords(event.target.value)} placeholder="pricing, retention, onboarding" className="h-9 w-full rounded-lg border border-border bg-background px-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50" />
@@ -445,9 +406,9 @@ function FileMetadataForm({
         <div className="min-w-0 rounded-lg border border-border bg-background/60 p-3">
           <p className="truncate text-[12px] font-medium text-foreground">{file.path}</p>
           <dl className="mt-3 space-y-2 text-[11px] text-text-muted">
-            <div className="flex justify-between gap-3"><dt>Status</dt><dd className="text-text-secondary">{file.projectionStatus || file.fileState}</dd></div>
-            <div className="flex justify-between gap-3"><dt>Size</dt><dd className="text-text-secondary">{formatBytes(projection?.source_size_bytes)}</dd></div>
-            <div className="flex justify-between gap-3"><dt>Hash</dt><dd className="max-w-[120px] truncate text-text-secondary">{projection?.source_sha256 || "None"}</dd></div>
+            <div className="flex justify-between gap-3"><dt>Status</dt><dd className="text-text-secondary">{file.processingState || file.fileState}</dd></div>
+            <div className="flex justify-between gap-3"><dt>Size</dt><dd className="text-text-secondary">{formatBytes(undefined)}</dd></div>
+            <div className="flex justify-between gap-3"><dt>Version</dt><dd className="max-w-[120px] truncate text-text-secondary">{file.currentVersionId || "None"}</dd></div>
           </dl>
           <button type="button" onClick={() => void handleSave()} disabled={!canSave} className="mt-4 inline-flex h-8 w-full items-center justify-center gap-2 rounded-lg bg-foreground px-3 text-[12px] font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-45">
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
@@ -456,6 +417,229 @@ function FileMetadataForm({
         </div>
       </div>
     </section>
+  );
+}
+
+type WorkspaceFileTab = "raw" | "metadata" | "markdown";
+
+function textPreviewFromBytes(bytes: Uint8Array): { text: string; binary: boolean } {
+  const sample = bytes.slice(0, Math.min(bytes.length, 256 * 1024));
+  const text = new TextDecoder("utf-8", { fatal: false }).decode(sample);
+  const controlChars = text.match(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g)?.length ?? 0;
+  return { text, binary: controlChars > 8 };
+}
+
+function WorkspaceFilesView({
+  base,
+  workspaces,
+  busy,
+  onUploadFile,
+  onDeletePath,
+  onUpdateFile,
+  onRegenerateFile,
+}: {
+  base: KnowledgeBase;
+  workspaces: WorkspacesAPI | null;
+  busy?: boolean;
+  onUploadFile: (path: string, content: Uint8Array) => Promise<void>;
+  onDeletePath: (path: string, options?: { recursive?: boolean }) => Promise<void>;
+  onUpdateFile: (path: string, patch: WorkspaceFilePatch) => Promise<void>;
+  onRegenerateFile: (path: string) => Promise<void>;
+}) {
+  const [currentPath, setCurrentPath] = React.useState("");
+  const [selectedPath, setSelectedPath] = React.useState<string | null>(null);
+  const [tab, setTab] = React.useState<WorkspaceFileTab>("metadata");
+  const [loadingView, setLoadingView] = React.useState(false);
+  const [viewError, setViewError] = React.useState<string | null>(null);
+  const [rawPreview, setRawPreview] = React.useState<{ text: string; binary: boolean } | null>(null);
+  const [markdown, setMarkdown] = React.useState<string | null>(null);
+  const [dragOver, setDragOver] = React.useState(false);
+  const inputRef = React.useRef<HTMLInputElement | null>(null);
+
+  const entries = React.useMemo(() => workspaceFileEntries(base, currentPath), [base, currentPath]);
+  const selectedFile = selectedPath ? workspaceFileByPath(base, selectedPath) : null;
+  const selectedMarkdownFile = selectedPath ? markdownFileForPath(base, selectedPath) : null;
+
+  React.useEffect(() => {
+    if (!selectedFile || !workspaces || tab === "metadata") return;
+    let cancelled = false;
+    setLoadingView(true);
+    setViewError(null);
+    setRawPreview(null);
+    setMarkdown(null);
+    void (async () => {
+      try {
+        if (tab === "raw") {
+          const result = await workspaces.downloadFileBytes(base.workspace.slug, selectedFile.path);
+          if (!cancelled) setRawPreview(textPreviewFromBytes(result.content));
+          return;
+        }
+        const result = await workspaces.markdownFile(base.workspace.slug, selectedFile.path);
+        if (!cancelled) setMarkdown(result.markdown);
+      } catch (err) {
+        if (!cancelled) setViewError(err instanceof Error ? err.message : "Unable to load file view.");
+      } finally {
+        if (!cancelled) setLoadingView(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [base.workspace.slug, selectedFile, tab, workspaces]);
+
+  const uploadFiles = React.useCallback(async (fileList: FileList | File[]) => {
+    const files = Array.from(fileList);
+    for (const file of files) {
+      const path = currentPath ? `${currentPath}/${file.name}` : file.name;
+      await onUploadFile(path, await fileToBytes(file));
+    }
+  }, [currentPath, onUploadFile]);
+
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setDragOver(false);
+    if (!event.dataTransfer.files.length || busy) return;
+    void uploadFiles(event.dataTransfer.files);
+  };
+
+  const goUp = () => {
+    if (!currentPath) return;
+    const parts = currentPath.split("/").filter(Boolean);
+    setCurrentPath(parts.slice(0, -1).join("/"));
+    setSelectedPath(null);
+  };
+
+  return (
+    <div
+      className={`relative grid h-[520px] overflow-hidden rounded-xl border bg-background lg:grid-cols-[minmax(240px,34%)_minmax(0,1fr)] ${dragOver ? "border-primary/60 bg-primary/5" : "border-border"}`}
+      onDragOver={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!busy) setDragOver(true);
+      }}
+      onDragLeave={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.currentTarget === event.target) setDragOver(false);
+      }}
+      onDrop={handleDrop}
+    >
+      {dragOver && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-background/70 backdrop-blur-[1px]">
+          <div className="rounded-xl border border-primary/40 bg-background px-4 py-3 text-[13px] font-medium text-foreground shadow-xl">
+            Drop files to upload to {currentPath || "this workspace"}
+          </div>
+        </div>
+      )}
+      <div className="flex min-h-0 flex-col border-b border-border lg:border-b-0 lg:border-r">
+        <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
+          <button type="button" onClick={goUp} disabled={!currentPath} className="h-7 rounded-lg border border-border px-2 text-[11px] text-text-secondary transition-colors hover:bg-surface-low disabled:opacity-40">
+            Up
+          </button>
+          <p className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground">{currentPath || base.workspace.slug}</p>
+          <button type="button" title="Upload files" onClick={() => inputRef.current?.click()} disabled={busy} className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border px-2 text-[11px] text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-45">
+            <Plus className="h-3 w-3" />
+            Upload
+          </button>
+          <input
+            ref={inputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(event) => {
+              if (event.target.files) void uploadFiles(event.target.files);
+              event.currentTarget.value = "";
+            }}
+          />
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          {entries.length === 0 ? (
+            <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-border text-[12px] text-text-muted">
+              Drop files here
+            </div>
+          ) : (
+            entries.map((entry) => (
+              <FileRow
+                key={entry.path}
+                entry={entry}
+                searchQuery=""
+                onOpen={(item) => {
+                  if (item.type === "file") {
+                    setSelectedPath(item.path);
+                    setTab("metadata");
+                  }
+                }}
+                onToggle={(item) => {
+                  setCurrentPath(normalizeWorkspacePath(item.path));
+                  setSelectedPath(null);
+                }}
+                onDelete={(item) => void onDeletePath(item.path, item.type === "directory" ? { recursive: true } : undefined)}
+                onCopyPath={(item) => void navigator.clipboard?.writeText(item.path)}
+              />
+            ))
+          )}
+        </div>
+      </div>
+      <div className="flex min-h-0 flex-col">
+        {selectedFile ? (
+          <>
+            <div className="flex min-h-[44px] shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2">
+              <FileText className="h-4 w-4 text-text-muted" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[13px] font-semibold text-foreground">{selectedFile.displayName || baseName(selectedFile.path)}</p>
+                <p className="truncate text-[10px] text-text-muted">{selectedFile.path}</p>
+              </div>
+              <div className="flex rounded-lg border border-border bg-surface-low p-0.5">
+                {(["raw", "metadata", "markdown"] as const).map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setTab(value)}
+                    className={`h-7 rounded-md px-2.5 text-[11px] font-medium capitalize transition-colors ${tab === value ? "bg-background text-foreground" : "text-text-muted hover:text-foreground"}`}
+                  >
+                    {value}
+                  </button>
+                ))}
+              </div>
+              <button type="button" onClick={() => void onRegenerateFile(selectedFile.path)} disabled={busy} className="inline-flex h-8 items-center gap-2 rounded-lg border border-border px-3 text-[12px] font-semibold text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-45">
+                <RefreshCw className="h-3.5 w-3.5" />
+                Regenerate
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-3">
+              {tab === "metadata" ? (
+                <FileMetadataForm key={`${selectedFile.id}:${selectedFile.displayName}:${selectedFile.summary || ""}:${selectedFile.keywords.join("|")}`} file={selectedFile} busy={busy} onSave={onUpdateFile} />
+              ) : loadingView ? (
+                <div className="flex h-full items-center justify-center text-text-muted">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                </div>
+              ) : viewError ? (
+                <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-[12px] text-destructive">{viewError}</div>
+              ) : tab === "raw" ? (
+                rawPreview?.binary ? (
+                  <div className="rounded-xl border border-border bg-surface-low/20 p-4 text-[12px] text-text-muted">
+                    Binary source file. Use download from the file actions menu to inspect it locally.
+                  </div>
+                ) : (
+                  <pre className="min-h-full whitespace-pre-wrap rounded-xl border border-border bg-surface-low/20 p-4 text-[12px] leading-relaxed text-foreground">{rawPreview?.text || ""}</pre>
+                )
+              ) : selectedMarkdownFile ? (
+                <pre className="min-h-full whitespace-pre-wrap rounded-xl border border-border bg-surface-low/20 p-4 text-[12px] leading-relaxed text-foreground">{markdown || ""}</pre>
+              ) : (
+                <div className="rounded-xl border border-border bg-surface-low/20 p-4 text-[12px] text-text-muted">
+                  Markdown is not ready yet. Current state: {selectedFile.processingState || selectedFile.fileState}.
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="flex h-full items-center justify-center px-5 text-center text-[12px] text-text-muted">
+            Select a file to view raw contents, edit metadata, or inspect generated Markdown.
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -475,6 +659,7 @@ function KnowledgeBaseCard({
   onUploadFile,
   onDeletePath,
   onUpdateFile,
+  onRegenerateFile,
 }: {
   base: KnowledgeBase;
   agents: SharedKnowledgeAgent[];
@@ -491,22 +676,9 @@ function KnowledgeBaseCard({
   onUploadFile: (path: string, content: Uint8Array) => Promise<void>;
   onDeletePath: (path: string, options?: { recursive?: boolean }) => Promise<void>;
   onUpdateFile: (path: string, patch: WorkspaceFilePatch) => Promise<void>;
+  onRegenerateFile: (path: string) => Promise<void>;
 }) {
   const assignedAgents = assignedAgentsForBase(base, agentById);
-  const [selectedPath, setSelectedPath] = React.useState<string | null>(null);
-  const listFiles = React.useCallback(async (path?: string) => workspaceFileEntries(base, path), [base]);
-  const openProjection = React.useCallback(async (path: string): Promise<AgentFileOpenResponse<string>> => {
-    if (!workspaces) throw new Error("Workspaces client is unavailable.");
-    setSelectedPath(path);
-    const { projection, markdown } = await workspaces.projectionMarkdown(base.workspace.slug, path);
-    const projectionPath = String(projection.projection_path || `${path}.md`);
-    return { content: markdown, path: projectionPath, name: baseName(projectionPath) };
-  }, [base.workspace.slug, workspaces]);
-  const openOriginalBytes = React.useCallback(async (path: string) => {
-    if (!workspaces) throw new Error("Workspaces client is unavailable.");
-    setSelectedPath(path);
-    return fetchOriginalBytes(workspaces, base.workspace.slug, path);
-  }, [base.workspace.slug, workspaces]);
 
   return (
     <article className="overflow-hidden rounded-2xl border border-border bg-background/70 transition-colors hover:border-border-strong">
@@ -541,28 +713,15 @@ function KnowledgeBaseCard({
             <h4 className="text-[11px] font-semibold uppercase tracking-[0.24em] text-text-muted">Contents</h4>
           </div>
 
-          <div className="h-[420px] overflow-hidden rounded-xl border border-border bg-background">
-            <AgentFilesPanel
-              agentId={base.workspace.id}
-              agentName={base.workspace.name}
-              connected={Boolean(workspaces)}
-              showSourceTabs={false}
-              defaultSource="agent"
-              isDesktopViewport
-              error={busy ? "Updating workspace files" : undefined}
-              onListFiles={listFiles}
-              onOpenFile={openProjection}
-              onOpenFileBytes={openOriginalBytes}
-              onDownloadFileBytes={openOriginalBytes}
-              onSaveFile={async () => {
-                throw new Error("Workspace projection editing is not available yet.");
-              }}
-              onDeleteFile={onDeletePath}
-              onUploadFile={onUploadFile}
-              isReadOnlyFile={() => true}
-            />
-          </div>
-          <FileMetadataEditor base={base} selectedPath={selectedPath} busy={busy} onSave={onUpdateFile} />
+          <WorkspaceFilesView
+            base={base}
+            workspaces={workspaces}
+            busy={busy}
+            onUploadFile={onUploadFile}
+            onDeletePath={onDeletePath}
+            onUpdateFile={onUpdateFile}
+            onRegenerateFile={onRegenerateFile}
+          />
 
           <div className="mt-4">
             <h4 className="text-[11px] font-semibold uppercase tracking-[0.24em] text-text-muted">Assigned Agents</h4>
@@ -778,6 +937,21 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
     }
   };
 
+  const regenerateFile = async (base: KnowledgeBase, path: string) => {
+    if (!workspaces) return;
+    setBusyBaseId(base.workspace.id);
+    setError(null);
+    try {
+      await workspaces.regenerateFile(base.workspace.slug, normalizeWorkspacePath(path));
+      await loadWorkspaces();
+      setExpandedBaseId(base.workspace.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to queue file regeneration.");
+    } finally {
+      setBusyBaseId(null);
+    }
+  };
+
   return (
     <div className="h-full min-h-0 overflow-y-auto bg-background text-foreground">
       <div className="w-full px-5 py-5">
@@ -840,6 +1014,7 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
               onUploadFile={(path, content) => uploadFileContent(base, path, content)}
               onDeletePath={(path, options) => deleteFilePath(base, path, options)}
               onUpdateFile={(path, patch) => updateFileFields(base, path, patch)}
+              onRegenerateFile={(path) => regenerateFile(base, path)}
             />
           ))}
           {workspaces && !loading && knowledgeBases.length === 0 && (
