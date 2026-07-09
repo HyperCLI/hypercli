@@ -26,6 +26,20 @@ _GLOBAL_AGENTS_WS_URL: str | None = None
 AGENT_KEY_PATH = Path.home() / ".hypercli" / "agent-key.json"
 STATE_DIR = Path.home() / ".hypercli"
 AGENTS_STATE = STATE_DIR / "agents.json"
+LAUNCH_FIELD_KEYS = {
+    "command",
+    "entrypoint",
+    "env",
+    "image",
+    "ports",
+    "registry_auth",
+    "registry_url",
+    "routes",
+    "sync_enabled",
+    "sync_gid",
+    "sync_root",
+    "sync_uid",
+}
 
 
 def _default_openclaw_image(image: str | None, config: dict | None = None) -> str:
@@ -66,6 +80,20 @@ def _desktop_enabled_from_launch(desktop: bool | None, env: dict | None = None, 
             return False
     image = str((launch_config or {}).get("image") or "")
     return "hypercli-openclaw:pro" in image or image.endswith("-pro")
+
+
+def _split_saved_launch_config(launch_config: dict | None) -> tuple[dict, dict]:
+    if not isinstance(launch_config, dict):
+        return {}, {}
+    launch_fields = {key: value for key, value in launch_config.items() if key in LAUNCH_FIELD_KEYS}
+    openclaw_config = launch_config.get("config")
+    if isinstance(openclaw_config, dict):
+        return launch_fields, dict(openclaw_config)
+    return launch_fields, {
+        key: value
+        for key, value in launch_config.items()
+        if key not in LAUNCH_FIELD_KEYS and key != "config"
+    }
 
 
 def _openclaw_env_with_desktop(env: dict | None, enabled: bool, *, force: bool = False) -> dict:
@@ -655,15 +683,24 @@ def start(
     command_argv = _parse_argv_option(command, "--command")
     entrypoint_argv = _parse_argv_option(entrypoint, "--entrypoint")
     registry_auth = _build_registry_auth(registry_username, registry_password)
-    launch_config = dict(local.get("launch_config") or {})
+    saved_launch_fields, saved_openclaw_config = _split_saved_launch_config(local.get("launch_config"))
     effective_gateway_token = gateway_token or local.get("gateway_token")
-    desktop_enabled = _desktop_enabled_from_launch(desktop, env_dict, launch_config)
-    effective_env = _openclaw_env_with_desktop(env_dict, desktop_enabled, force=desktop is not None)
+    saved_env = saved_launch_fields.get("env") if isinstance(saved_launch_fields.get("env"), dict) else {}
+    merged_env = {**dict(saved_env or {}), **dict(env_dict or {})}
+    desktop_enabled = _desktop_enabled_from_launch(desktop, merged_env, saved_launch_fields)
+    effective_env = _openclaw_env_with_desktop(merged_env, desktop_enabled, force=desktop is not None)
     effective_image = (
-        _default_openclaw_pro_image(image, launch_config)
+        _default_openclaw_pro_image(image, saved_launch_fields)
         if desktop_enabled
-        else _default_openclaw_image(image, launch_config)
+        else _default_openclaw_image(image, saved_launch_fields)
     )
+    effective_ports = ports_list if ports_list is not None else saved_launch_fields.get("ports")
+    effective_command = command_argv if command_argv is not None else saved_launch_fields.get("command")
+    effective_entrypoint = entrypoint_argv if entrypoint_argv is not None else saved_launch_fields.get("entrypoint")
+    effective_registry_url = registry_url if registry_url is not None else saved_launch_fields.get("registry_url")
+    effective_registry_auth = registry_auth if registry_auth is not None else saved_launch_fields.get("registry_auth")
+    effective_sync_uid = sync_uid if sync_uid is not None else saved_launch_fields.get("sync_uid")
+    effective_sync_gid = sync_gid if sync_gid is not None else saved_launch_fields.get("sync_gid")
     memory_index = _build_memory_index_options(
         memory_search=memory_search,
         index_on_session_start=index_on_session_start,
@@ -677,16 +714,19 @@ def start(
         start_func = agents.start_openclaw_pro if desktop_enabled else agents.start_openclaw
         pod = start_func(
             agent_id,
-            config=launch_config,
+            config=saved_openclaw_config,
             env=effective_env,
-            ports=ports_list,
-            command=command_argv,
-            entrypoint=entrypoint_argv,
+            ports=effective_ports,
+            routes=saved_launch_fields.get("routes"),
+            command=effective_command,
+            entrypoint=effective_entrypoint,
             image=effective_image,
-            registry_url=registry_url,
-            registry_auth=registry_auth,
-            sync_uid=sync_uid,
-            sync_gid=sync_gid,
+            registry_url=effective_registry_url,
+            registry_auth=effective_registry_auth,
+            sync_root=saved_launch_fields.get("sync_root"),
+            sync_enabled=saved_launch_fields.get("sync_enabled"),
+            sync_uid=effective_sync_uid,
+            sync_gid=effective_sync_gid,
             gateway_token=effective_gateway_token,
             dry_run=dry_run,
             openclaw_route_options={"include_desktop": desktop_enabled},

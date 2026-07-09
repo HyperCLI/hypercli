@@ -312,6 +312,61 @@ def test_agents_create_accepts_memory_index_flags(monkeypatch):
     }
 
 
+def test_agents_start_reuses_saved_launch_fields_as_top_level(monkeypatch):
+    captured = {}
+    agent_id = "agent-123456789"
+
+    saved_state = {
+        agent_id: {
+            "id": agent_id,
+            "gateway_token": "saved-gateway-token",
+            "launch_config": {
+                "config": {"agents": {"defaults": {"mode": "normal"}}},
+                "env": {
+                    "HYPER_WORKSPACES_BOOT_SYNC": "1",
+                    "HYPER_WORKSPACES_DIR": "/home/node/workspaces",
+                    "OPENCLAW_DESKTOP_ENABLED": "0",
+                },
+                "image": "git.nedos.co/hypercli/hypercli-openclaw:untested",
+                "routes": {"openclaw": {"port": 4096, "auth": True, "prefix": ""}},
+                "sync_root": ".openclaw",
+                "sync_enabled": True,
+            },
+        }
+    }
+
+    class FakeDeployments:
+        def start_openclaw(self, agent_id_arg, **kwargs):
+            captured["agent_id"] = agent_id_arg
+            captured.update(kwargs)
+            return SimpleNamespace(
+                id=agent_id_arg,
+                pod_name="agent-pod",
+                dry_run=True,
+                vnc_url=None,
+            )
+
+    monkeypatch.setattr("hypercli_cli.agents._load_state", lambda: saved_state)
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
+
+    result = runner.invoke(
+        app,
+        ["agents", "start", "agent-123", "--dry-run", "--env", "HYPER_WORKSPACES_SYNC_WORKSPACE=docs"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["agent_id"] == agent_id
+    assert captured["config"] == {"agents": {"defaults": {"mode": "normal"}}}
+    assert captured["env"]["HYPER_WORKSPACES_BOOT_SYNC"] == "1"
+    assert captured["env"]["HYPER_WORKSPACES_DIR"] == "/home/node/workspaces"
+    assert captured["env"]["HYPER_WORKSPACES_SYNC_WORKSPACE"] == "docs"
+    assert captured["image"] == "git.nedos.co/hypercli/hypercli-openclaw:untested"
+    assert captured["routes"] == {"openclaw": {"port": 4096, "auth": True, "prefix": ""}}
+    assert captured["sync_root"] == ".openclaw"
+    assert captured["sync_enabled"] is True
+    assert captured["gateway_token"] == "saved-gateway-token"
+
+
 def test_agents_cp_reports_directory_path_error(monkeypatch, tmp_path):
     class FakeDeployments:
         def cp_from(self, _pod, src_path, dst_path):
