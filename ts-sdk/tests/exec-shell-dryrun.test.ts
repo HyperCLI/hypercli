@@ -106,21 +106,21 @@ describe('HyperClaw agents SDK', () => {
     });
   });
 
-  it('buildOpenClawRoutes returns the default gateway and desktop routes', () => {
+  it('buildOpenClawRoutes returns the default gateway route', () => {
     expect(buildOpenClawRoutes()).toEqual({
       openclaw: { port: 18789, auth: false, prefix: '' },
-      desktop: { port: 3000, auth: true, prefix: 'desktop' },
     });
   });
 
   it('buildOpenClawRoutes allows route overrides', () => {
     expect(buildOpenClawRoutes({
-      includeDesktop: false,
+      includeDesktop: true,
       gatewayPort: 19999,
       gatewayAuth: true,
       gatewayPrefix: 'app',
     })).toEqual({
       openclaw: { port: 19999, auth: true, prefix: 'app' },
+      desktop: { port: 3000, auth: true, prefix: 'desktop' },
     });
   });
 
@@ -153,7 +153,6 @@ describe('HyperClaw agents SDK', () => {
       }),
       routes: {
         openclaw: { port: 18789, auth: false, prefix: '' },
-        desktop: { port: 3000, auth: true, prefix: 'desktop' },
       },
     }));
   });
@@ -351,7 +350,6 @@ describe('HyperClaw agents SDK', () => {
       }),
       routes: {
         openclaw: { port: 18789, auth: false, prefix: '' },
-        desktop: { port: 3000, auth: true, prefix: 'desktop' },
       },
     }));
   });

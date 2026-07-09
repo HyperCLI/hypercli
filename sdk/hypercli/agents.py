@@ -273,7 +273,7 @@ def _is_directory_listing_payload(value: object) -> bool:
 def build_openclaw_routes(
     *,
     include_gateway: bool = True,
-    include_desktop: bool = True,
+    include_desktop: bool = False,
     gateway_port: int = 18789,
     desktop_port: int = 3000,
     gateway_auth: bool = False,

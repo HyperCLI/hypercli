@@ -849,7 +849,7 @@ export function buildOpenClawRoutes(options: OpenClawRouteOptions = {}): Record<
       prefix: options.gatewayPrefix ?? '',
     };
   }
-  if (options.includeDesktop ?? true) {
+  if (options.includeDesktop ?? false) {
     routes.desktop = {
       port: options.desktopPort ?? 3000,
       auth: options.desktopAuth ?? true,

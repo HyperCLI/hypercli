@@ -476,18 +476,18 @@ def test_build_agent_launch_merges_heartbeat_defaults():
 def test_build_openclaw_routes_defaults():
     assert build_openclaw_routes() == {
         "openclaw": {"port": 18789, "auth": False, "prefix": ""},
-        "desktop": {"port": 3000, "auth": True, "prefix": "desktop"},
     }
 
 
 def test_build_openclaw_routes_allows_overrides():
     assert build_openclaw_routes(
-        include_desktop=False,
+        include_desktop=True,
         gateway_port=19999,
         gateway_auth=True,
         gateway_prefix="app",
     ) == {
         "openclaw": {"port": 19999, "auth": True, "prefix": "app"},
+        "desktop": {"port": 3000, "auth": True, "prefix": "desktop"},
     }
 
 
@@ -519,7 +519,6 @@ def test_create_openclaw_defaults_routes_when_omitted(agents_client):
         assert posted_json["env"]["HYPER_WORKSPACES_SYNC_READY_ONLY"] == "1"
         assert posted_json["routes"] == {
             "openclaw": {"port": 18789, "auth": False, "prefix": ""},
-            "desktop": {"port": 3000, "auth": True, "prefix": "desktop"},
         }
 
 
