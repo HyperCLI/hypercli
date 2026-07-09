@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+import tempfile
 from pathlib import Path
 from pathlib import PurePosixPath
 
@@ -37,6 +39,45 @@ def _resolve_auth_subject(user_id: str | None, agent_id: str | None) -> tuple[st
 
 def _print_json(value) -> None:
     typer.echo(json.dumps(value, indent=2, default=str))
+
+
+def _parse_workspace_file_ref(value: str) -> tuple[str, str]:
+    normalized = value.strip().strip("/")
+    if "/" not in normalized:
+        raise typer.BadParameter("Expected workspace/path")
+    workspace, file_ref = normalized.split("/", 1)
+    if not workspace or not file_ref:
+        raise typer.BadParameter("Expected workspace/path")
+    return workspace, file_ref
+
+
+def _markdown_files_from_dir(directory: Path) -> list[Path]:
+    if not directory.exists() or not directory.is_dir():
+        raise typer.BadParameter(f"Not a directory: {directory}")
+    files = sorted(path for path in directory.rglob("*.md") if path.is_file())
+    if not files:
+        raise typer.BadParameter(f"No Markdown files found in {directory}")
+    return files
+
+
+def _enrich_payload(address: str, md_files: list[Path], *, root: Path | None = None) -> dict:
+    workspace, file_ref = _parse_workspace_file_ref(address)
+    file_payloads = []
+    for index, path in enumerate(md_files):
+        relative_path = str(path.relative_to(root)) if root and path.is_relative_to(root) else path.name
+        file_payloads.append(
+            {
+                "path": relative_path.replace(os.sep, "/"),
+                "markdown_body": path.read_text(encoding="utf-8"),
+                "primary": index == 0,
+            }
+        )
+    return {
+        "address": f"{workspace}/{file_ref}",
+        "workspace": workspace,
+        "path": file_ref,
+        "files": file_payloads,
+    }
 
 
 @app.command("create")
@@ -209,37 +250,6 @@ def revoke_workspace_grant(
     console.print(f"[red]Revoked grant[/red] {grant_id}")
 
 
-@app.command("register-file")
-def register_file(
-    workspace: str = typer.Argument(help="Workspace slug or ID"),
-    path: str = typer.Argument(help="Workspace-relative source file path"),
-    filename: str | None = typer.Option(None, "--filename", help="Original filename"),
-    content_type: str | None = typer.Option(None, "--content-type", help="Source content type"),
-    size: int | None = typer.Option(None, "--size", help="Source file size in bytes"),
-    sha256: str | None = typer.Option(None, "--sha256", help="Source SHA-256"),
-    etag: str | None = typer.Option(None, "--etag", help="Source storage ETag"),
-    keyword: list[str] | None = typer.Option(None, "--keyword", help="Keyword metadata for backend workspace search; repeatable"),
-    user_id: str | None = typer.Option(None, "--user-id", help="Explicit acting user subject for local/dev testing"),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
-):
-    """Register a workspace file and queue its Markdown projection."""
-    item = _get_workspaces().register_file(
-        workspace,
-        path=path,
-        source_filename=filename,
-        source_content_type=content_type,
-        source_size_bytes=size,
-        source_sha256=sha256,
-        source_etag=etag,
-        keywords=keyword or None,
-        user_id=user_id,
-    )
-    if output == "json":
-        _print_json(item.__dict__)
-        return
-    console.print(f"[green]Registered[/green] {item.path} ({item.file_state}, projection {item.projection_status})")
-
-
 @app.command("upload")
 def upload(
     workspace: str = typer.Argument(help="Workspace slug or ID"),
@@ -270,31 +280,6 @@ def manifest(
     """Print a workspace Markdown projection manifest."""
     value = _get_workspaces().manifest(workspace, user_id=user_id, agent_id=agent_id)
     _print_json(value.__dict__)
-
-
-@app.command("wait-until-processed")
-def wait_until_processed(
-    workspace: str = typer.Argument(help="Workspace slug or ID"),
-    file_ref: str = typer.Argument(help="Workspace-relative source path or file ID"),
-    agent_id: str | None = typer.Option(None, "--agent-id", help="Wait as an agent subject"),
-    user_id: str | None = typer.Option(None, "--user-id", help="Wait as a user subject"),
-    timeout: float = typer.Option(300.0, "--timeout", help="Maximum seconds to wait"),
-    poll_interval: float = typer.Option(2.0, "--poll-interval", help="Seconds between polls"),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
-):
-    """Wait until a workspace file has a finished Markdown projection."""
-    item = _get_workspaces().wait_until_processed(
-        workspace,
-        file_ref,
-        user_id=user_id,
-        agent_id=agent_id,
-        timeout=timeout,
-        poll_interval=poll_interval,
-    )
-    if output == "json":
-        _print_json(item.__dict__)
-        return
-    console.print(f"[green]Processed[/green] {item.path} ({item.file_state}, projection {item.projection_status})")
 
 
 @app.command("sync")
@@ -343,34 +328,25 @@ def sync(
         console.print(f"  {path}")
 
 
-@app.command("download-url")
-def download_url(
-    workspace: str = typer.Argument(help="Workspace slug or ID"),
-    file_ref: str = typer.Argument(help="Workspace-relative source path or file ID"),
-    agent_id: str | None = typer.Option(None, "--agent-id", help="Fetch as an agent subject"),
-    user_id: str | None = typer.Option(None, "--user-id", help="Fetch as a user subject"),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
-):
-    """Print a presigned URL for the original source file."""
-    value = _get_workspaces().download_url(workspace, file_ref, user_id=user_id, agent_id=agent_id)
-    if output == "json":
-        _print_json(value.__dict__)
-        return
-    console.print(value.url or "")
-
-
 @app.command("download")
 def download(
-    workspace: str = typer.Argument(help="Workspace slug or ID"),
-    file_ref: str = typer.Argument(help="Workspace-relative source path or file ID"),
+    workspace: str | None = typer.Argument(None, help="Workspace slug or ID, or omit to read workspace/path from stdin"),
+    file_ref: str | None = typer.Argument(None, help="Workspace-relative source path or file ID"),
     output_path: Path | None = typer.Option(None, "--output", "-o", help="Output file path"),
-    raw: bool = typer.Option(False, "--raw", help="Download the original source file instead of the Markdown projection"),
+    md: bool = typer.Option(False, "--md", help="Download the Markdown projection instead of the original source file"),
     agent_id: str | None = typer.Option(None, "--agent-id", help="Fetch as an agent subject"),
     user_id: str | None = typer.Option(None, "--user-id", help="Fetch as a user subject"),
+    json_output: bool = typer.Option(False, "--json", help="Download the source file and print machine-readable metadata"),
 ):
-    """Download a Markdown projection, or the original source file with --raw."""
+    """Download an original workspace file, or the Markdown projection with --md."""
+    if workspace is None:
+        workspace, file_ref = _parse_workspace_file_ref(sys.stdin.read())
+    elif file_ref is None and "/" in workspace.strip().strip("/"):
+        workspace, file_ref = _parse_workspace_file_ref(workspace)
+    if workspace is None or file_ref is None:
+        raise typer.BadParameter("Pass workspace and file_ref, or pipe workspace/path on stdin")
     workspaces = _get_workspaces()
-    if not raw:
+    if md:
         projection, body = workspaces.projection_markdown(workspace, file_ref, user_id=user_id, agent_id=agent_id)
         projection_path = PurePosixPath(projection.get("projection_path") or f"{PurePosixPath(file_ref).stem}.md")
         target = output_path or Path(projection_path.name)
@@ -382,45 +358,52 @@ def download(
     value = workspaces.download_url(workspace, file_ref, user_id=user_id, agent_id=agent_id)
     if not value.url:
         raise typer.BadParameter("Workspaces API did not return a download URL")
-    target = output_path or Path(os.path.basename(value.source_path))
+    if output_path is not None:
+        target = output_path
+    elif json_output:
+        suffix = PurePosixPath(value.source_path).suffix or ".bin"
+        handle = tempfile.NamedTemporaryFile(prefix="hyper-workspace-", suffix=suffix, delete=False)
+        handle.close()
+        target = Path(handle.name)
+    else:
+        target = Path(os.path.basename(value.source_path))
     with httpx.Client(timeout=120) as client:
         response = client.get(value.url)
         response.raise_for_status()
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(response.content)
+    if json_output:
+        _print_json(
+            {
+                "address": f"{workspace}/{value.source_path}",
+                "workspace": workspace,
+                "path": value.source_path,
+                "local_path": str(target),
+                "file_id": value.file_id,
+                "file_version_id": value.file_version_id,
+                "source_s3_key": value.source_s3_key,
+                "source_content_type": None,
+            }
+        )
+        return
     console.print(f"[green]Downloaded[/green] {value.source_path} -> {target}")
 
 
-@app.command("complete-task")
-def complete_task(
-    task_id: str = typer.Argument(help="Workspaces conversion task ID"),
-    markdown_file: Path = typer.Option(..., "--markdown-file", help="Markdown file produced by the worker"),
-    title: str | None = typer.Option(None, "--title", help="Best-effort document title"),
-    detected_type: str | None = typer.Option(None, "--detected-type", help="Detected source type, such as pdf or docx"),
-    projection_kind: str | None = typer.Option(None, "--projection-kind", help="Projection kind, defaults to backend task kind"),
-    keyword: list[str] | None = typer.Option(None, "--keyword", help="Keyword metadata for backend workspace search; repeatable"),
-    converter: str | None = typer.Option("tomd-worker", "--converter", help="Converter name"),
-    converter_version: str | None = typer.Option(None, "--converter-version", help="Converter version"),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+@app.command("enrich")
+def enrich(
+    address: str | None = typer.Argument(None, help="Workspace file address: workspace/path, or omit to read stdin"),
+    directory: Path = typer.Option(..., "--dir", help="Directory containing generated Markdown files"),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable enrichment payload"),
 ):
-    """Complete a Workspaces conversion task from a worker runtime."""
-    markdown_body = markdown_file.read_text(encoding="utf-8")
-    result = _get_workspaces().complete_task(
-        task_id,
-        markdown_body=markdown_body,
-        title=title,
-        detected_type=detected_type,
-        projection_kind=projection_kind,
-        keywords=keyword or [],
-        semantic_metadata={},
-        converter=converter,
-        converter_version=converter_version,
-    )
-    if output == "json":
-        _print_json(result)
+    """Build a Workspaces enrichment payload from generated Markdown files."""
+    resolved_address = address or sys.stdin.read().strip()
+    if not resolved_address:
+        raise typer.BadParameter("Pass workspace/path or pipe it on stdin")
+    payload = _enrich_payload(resolved_address, _markdown_files_from_dir(directory), root=directory)
+    if json_output:
+        _print_json(payload)
         return
-    projection_path = result.get("path") or result.get("projection_path") or result.get("id") or task_id
-    console.print(f"[green]Completed conversion task[/green] {task_id} -> {projection_path}")
+    console.print(f"[green]Prepared enrichment[/green] {payload['address']} ({len(payload['files'])} Markdown file(s))")
 
 
 @app.command("delete-file")

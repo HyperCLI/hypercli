@@ -187,7 +187,7 @@ describe('Workspaces SDK', () => {
                 source_sha256: 'a'.repeat(64),
                 source_etag: 'etag-1',
                 source_last_modified: '2026-07-08T00:00:00Z',
-                download_command: 'hyper workspaces download demo projects/example/report.pdf --raw --output report.pdf',
+                download_command: 'hyper workspaces download demo/projects/example/report.pdf --output report.pdf',
               },
             ],
           }),
@@ -359,64 +359,6 @@ describe('Workspaces SDK', () => {
     vi.unstubAllGlobals();
   });
 
-  it('completes worker tasks through the canonical admin callback endpoint', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          id: 'projection-1',
-          workspace_id: 'workspace-1',
-          file_id: 'file-1',
-          file_version_id: 'version-1',
-          projection_path: 'projects/example/.tomd/report.md',
-          status: 'finished',
-          kind: 'document',
-          title: 'Report',
-          detected_type: 'pdf',
-          markdown_sha256: 'c'.repeat(64),
-          semantic_metadata: {},
-          system_metadata: {},
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-
-    const api = new WorkspacesAPI('worker-key', { apiBase: 'http://workspaces.test/workspaces' });
-    const projection = await api.completeTask(
-      'task-1',
-      {
-        markdownBody: '# Report\n',
-        title: 'Report',
-        detectedType: 'pdf',
-        projectionKind: 'document',
-        keywords: ['handoff', 'launch'],
-        converter: 'tomd-worker',
-        converterVersion: 'dev',
-      },
-      { backendApiKey: 'backend-secret' },
-    );
-
-    expect(projection.status).toBe('finished');
-    expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/admin/conversion-tasks/task-1/complete');
-    expect(fetchMock.mock.calls[0][1]).toMatchObject({
-      method: 'POST',
-      headers: expect.objectContaining({
-        Authorization: 'Bearer worker-key',
-        'X-BACKEND-API-KEY': 'backend-secret',
-      }),
-    });
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
-      markdown_body: '# Report\n',
-      title: 'Report',
-      detected_type: 'pdf',
-      projection_kind: 'document',
-      keywords: ['handoff', 'launch'],
-      converter: 'tomd-worker',
-      converter_version: 'dev',
-    });
-    vi.unstubAllGlobals();
-  });
-
   it('renders a single-file Markdown projection with front matter', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
@@ -442,7 +384,7 @@ describe('Workspaces SDK', () => {
               source_last_modified: '2026-07-08T01:00:00Z',
               keywords: ['handoff', 'launch'],
               status: 'pending',
-              download_command: 'hyper workspaces download demo docs/source.md --raw --output source.md',
+              download_command: 'hyper workspaces download demo/docs/source.md --output source.md',
             },
           ],
         }),
@@ -458,7 +400,7 @@ describe('Workspaces SDK', () => {
     expect(result.markdown).toContain('source_path: "docs/source.md"');
     expect(result.markdown).toContain('source_size_bytes: 12');
     expect(result.markdown).toContain('keywords: ["handoff","launch"]');
-    expect(result.markdown).toContain('download_command: "hyper workspaces download demo docs/source.md --raw --output source.md"');
+    expect(result.markdown).toContain('download_command: "hyper workspaces download demo/docs/source.md --output source.md"');
     vi.unstubAllGlobals();
   });
 });

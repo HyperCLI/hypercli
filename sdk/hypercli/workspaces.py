@@ -72,10 +72,6 @@ def _request(
     return _handle_response(response)
 
 
-def _get_workspaces_backend_api_key() -> str | None:
-    return get_config_value("HYPER_WORKSPACES_BACKEND_API_KEY") or get_config_value("BACKEND_API_KEY")
-
-
 @dataclass
 class Workspace:
     id: str
@@ -423,46 +419,6 @@ class WorkspacesAPI:
         )
         return [WorkspaceFileSearchResult.from_dict(item) for item in data]
 
-    def complete_task(
-        self,
-        task_id: str,
-        *,
-        markdown_body: str,
-        title: str | None = None,
-        detected_type: str | None = None,
-        projection_kind: str | None = None,
-        keywords: list[str] | None = None,
-        semantic_metadata: dict | None = None,
-        converter: str | None = None,
-        converter_version: str | None = None,
-        backend_api_key: str | None = None,
-    ) -> dict:
-        admin_key = backend_api_key or _get_workspaces_backend_api_key()
-        if not admin_key:
-            raise ValueError("Set HYPER_WORKSPACES_BACKEND_API_KEY or BACKEND_API_KEY to complete Workspaces conversion tasks")
-        payload = {
-            "markdown_body": markdown_body,
-            "keywords": keywords or [],
-            "semantic_metadata": semantic_metadata or {},
-        }
-        if title is not None:
-            payload["title"] = title
-        if detected_type is not None:
-            payload["detected_type"] = detected_type
-        if projection_kind is not None:
-            payload["projection_kind"] = projection_kind
-        if converter is not None:
-            payload["converter"] = converter
-        if converter_version is not None:
-            payload["converter_version"] = converter_version
-        return _request(
-            "POST",
-            f"{self.api_base}/admin/conversion-tasks/{task_id}/complete",
-            api_key=self.api_key,
-            backend_api_key=admin_key,
-            json=payload,
-        )
-
     def sync_manifest(
         self,
         workspace_ref: str,
@@ -513,7 +469,7 @@ class WorkspacesAPI:
 def _projection_markdown(manifest: WorkspaceManifest, projection: dict) -> str:
     source_path = projection.get("source_path", "")
     status = projection.get("status", "")
-    download_command = projection.get("download_command") or f"hyper workspaces download {manifest.workspace_slug} {source_path} --raw"
+    download_command = projection.get("download_command") or f"hyper workspaces download {manifest.workspace_slug}/{source_path}"
     frontmatter = {
         "workspace_id": manifest.workspace_id,
         "workspace_slug": manifest.workspace_slug,

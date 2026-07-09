@@ -95,17 +95,6 @@ export interface WorkspaceDownloadUrl {
   downloadCommand: string;
 }
 
-export interface WorkspaceTaskCompleteBody {
-  markdownBody: string;
-  title?: string | null;
-  detectedType?: string | null;
-  projectionKind?: string | null;
-  keywords?: string[];
-  semanticMetadata?: Record<string, any>;
-  converter?: string | null;
-  converterVersion?: string | null;
-}
-
 export interface WorkspaceSubjectOptions {
   userId?: string;
   agentId?: string;
@@ -438,38 +427,6 @@ export class WorkspacesAPI {
     await this.request('DELETE', `/${workspaceRef}/files/${fileRef}`, subject);
   }
 
-  async completeTask(
-    taskId: string,
-    body: WorkspaceTaskCompleteBody,
-    options: { backendApiKey?: string } = {},
-  ): Promise<WorkspaceProjection> {
-    const backendApiKey =
-      options.backendApiKey || envValue('HYPER_WORKSPACES_BACKEND_API_KEY') || envValue('BACKEND_API_KEY');
-    if (!backendApiKey) {
-      throw new Error('Set HYPER_WORKSPACES_BACKEND_API_KEY or BACKEND_API_KEY to complete Workspaces conversion tasks');
-    }
-    const response = await requestWithRetry({
-      method: 'POST',
-      url: `${this.apiBase}/admin/conversion-tasks/${taskId}/complete`,
-      headers: {
-        ...this.headers(),
-        'X-BACKEND-API-KEY': backendApiKey,
-      },
-      body: {
-        markdown_body: body.markdownBody,
-        title: body.title,
-        detected_type: body.detectedType,
-        projection_kind: body.projectionKind,
-        keywords: body.keywords || [],
-        semantic_metadata: body.semanticMetadata || {},
-        converter: body.converter,
-        converter_version: body.converterVersion,
-      },
-      timeout: this.timeout,
-    });
-    return projectionFromDict(await handleResponse(response));
-  }
-
   async projectionMarkdown(
     workspaceRef: string,
     fileRef: string,
@@ -500,7 +457,7 @@ function findProjection(manifest: WorkspaceManifest, fileRef: string): Record<st
 
 function projectionMarkdown(manifest: WorkspaceManifest, projection: Record<string, any>): string {
   const sourcePath = String(projection.source_path || '');
-  const downloadCommand = projection.download_command || `hyper workspaces download ${manifest.workspaceSlug} ${sourcePath} --raw`;
+  const downloadCommand = projection.download_command || `hyper workspaces download ${manifest.workspaceSlug}/${sourcePath}`;
   const frontmatter: Record<string, unknown> = {
     workspace_id: manifest.workspaceId,
     workspace_slug: manifest.workspaceSlug,

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -59,7 +60,7 @@ class _FakeDownloadUrl:
         self.s3_bucket = "hypercli-workspaces"
         self.s3_endpoint = "https://storage.streamformation.com"
         self.url = "https://download.example/report.pdf"
-        self.download_command = "hyper workspaces download demo projects/example/report.pdf --raw"
+        self.download_command = "hyper workspaces download demo/projects/example/report.pdf"
 
 
 def test_workspaces_create_invokes_cli(monkeypatch):
@@ -228,63 +229,6 @@ def test_workspaces_update_delete_and_grants_invokes_cli(monkeypatch):
     assert '"grant-1"' in listed.stdout
 
 
-def test_workspaces_register_file_and_download_url(monkeypatch):
-    import hypercli_cli.workspaces as workspaces_mod
-
-    calls = []
-
-    class _FakeWorkspaces:
-        def register_file(self, workspace, **kwargs):
-            calls.append(("register_file", workspace, kwargs))
-            return _FakeFile()
-
-        def download_url(self, workspace, file_ref, **kwargs):
-            calls.append(("download_url", workspace, file_ref, kwargs))
-            return _FakeDownloadUrl()
-
-    monkeypatch.setattr(workspaces_mod, "_get_workspaces", lambda: _FakeWorkspaces())
-
-    registered = runner.invoke(
-        app,
-        [
-            "workspaces",
-            "register-file",
-            "demo",
-            "projects/example/report.pdf",
-            "--sha256",
-            "a" * 64,
-            "--content-type",
-            "application/pdf",
-            "--size",
-            "123",
-            "--keyword",
-            "handoff",
-            "--keyword",
-            "launch",
-        ],
-    )
-    downloaded = runner.invoke(app, ["workspaces", "download-url", "demo", "projects/example/report.pdf"])
-
-    assert registered.exit_code == 0, registered.stdout
-    assert downloaded.exit_code == 0, downloaded.stdout
-    assert calls[0] == (
-        "register_file",
-        "demo",
-        {
-            "path": "projects/example/report.pdf",
-            "source_filename": None,
-            "source_content_type": "application/pdf",
-            "source_size_bytes": 123,
-            "source_sha256": "a" * 64,
-            "source_etag": None,
-            "keywords": ["handoff", "launch"],
-            "user_id": None,
-        },
-    )
-    assert calls[1][0:3] == ("download_url", "demo", "projects/example/report.pdf")
-    assert "https://download.example/report.pdf" in downloaded.stdout
-
-
 def test_workspaces_upload_invokes_cli(monkeypatch, tmp_path: Path):
     import hypercli_cli.workspaces as workspaces_mod
 
@@ -440,7 +384,7 @@ def test_workspaces_download_writes_markdown_projection(monkeypatch, tmp_path: P
             captured.update({"workspace": workspace, "file_ref": file_ref, "user_id": user_id, "agent_id": agent_id})
             return (
                 {"source_path": "projects/example/report.pdf", "projection_path": "projects/example/.tomd/report.md"},
-                '---\nsource_path: "projects/example/report.pdf"\ndownload_command: "hyper workspaces download demo projects/example/report.pdf --raw --output report.pdf"\n---\n',
+                '---\nsource_path: "projects/example/report.pdf"\ndownload_command: "hyper workspaces download demo/projects/example/report.pdf --output report.pdf"\n---\n',
             )
 
     monkeypatch.setattr(workspaces_mod, "_get_workspaces", lambda: _FakeWorkspaces())
@@ -448,7 +392,7 @@ def test_workspaces_download_writes_markdown_projection(monkeypatch, tmp_path: P
     target = tmp_path / "report.md"
     result = runner.invoke(
         app,
-        ["workspaces", "download", "demo", "projects/example/report.pdf", "--agent-id", "agent-1", "--output", str(target)],
+        ["workspaces", "download", "demo", "projects/example/report.pdf", "--md", "--agent-id", "agent-1", "--output", str(target)],
     )
 
     assert result.exit_code == 0, result.stdout
@@ -458,10 +402,10 @@ def test_workspaces_download_writes_markdown_projection(monkeypatch, tmp_path: P
         "user_id": None,
         "agent_id": "agent-1",
     }
-    assert 'download_command: "hyper workspaces download demo projects/example/report.pdf --raw --output report.pdf"' in target.read_text()
+    assert 'download_command: "hyper workspaces download demo/projects/example/report.pdf --output report.pdf"' in target.read_text()
 
 
-def test_workspaces_download_raw_fetches_original(monkeypatch, tmp_path: Path):
+def test_workspaces_download_fetches_original(monkeypatch, tmp_path: Path):
     import hypercli_cli.workspaces as workspaces_mod
 
     captured = {}
@@ -497,7 +441,7 @@ def test_workspaces_download_raw_fetches_original(monkeypatch, tmp_path: Path):
     target = tmp_path / "report.pdf"
     result = runner.invoke(
         app,
-        ["workspaces", "download", "demo", "projects/example/report.pdf", "--raw", "--agent-id", "agent-1", "--output", str(target)],
+        ["workspaces", "download", "demo", "projects/example/report.pdf", "--agent-id", "agent-1", "--output", str(target)],
     )
 
     assert result.exit_code == 0, result.stdout
@@ -510,111 +454,29 @@ def test_workspaces_download_raw_fetches_original(monkeypatch, tmp_path: Path):
     assert target.read_bytes() == b"raw-pdf"
 
 
-def test_workspaces_wait_until_processed_invokes_cli(monkeypatch):
-    import hypercli_cli.workspaces as workspaces_mod
-
-    captured = {}
-
-    class _FakeWorkspaces:
-        def wait_until_processed(self, workspace, file_ref, *, user_id=None, agent_id=None, timeout=300.0, poll_interval=2.0):
-            captured.update(
-                {
-                    "workspace": workspace,
-                    "file_ref": file_ref,
-                    "user_id": user_id,
-                    "agent_id": agent_id,
-                    "timeout": timeout,
-                    "poll_interval": poll_interval,
-                }
-            )
-            item = _FakeFile()
-            item.file_state = "processed"
-            item.projection_status = "finished"
-            return item
-
-    monkeypatch.setattr(workspaces_mod, "_get_workspaces", lambda: _FakeWorkspaces())
+def test_workspaces_enrich_outputs_fileset_json(tmp_path: Path):
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+    (output_dir / "book.md").write_text("---\ntitle: Book\nkeywords:\n  - alpha\n---\n# Book\n", encoding="utf-8")
+    (output_dir / "chapter-01.md").write_text("# Chapter\n", encoding="utf-8")
 
     result = runner.invoke(
         app,
         [
             "workspaces",
-            "wait-until-processed",
-            "demo",
-            "projects/example/report.pdf",
-            "--agent-id",
-            "agent-1",
-            "--timeout",
-            "10",
-            "--poll-interval",
-            "0",
-            "--output",
-            "json",
+            "enrich",
+            "demo/projects/example/report.pdf",
+            "--dir",
+            str(output_dir),
+            "--json",
         ],
     )
 
     assert result.exit_code == 0, result.stdout
-    assert captured == {
-        "workspace": "demo",
-        "file_ref": "projects/example/report.pdf",
-        "user_id": None,
-        "agent_id": "agent-1",
-        "timeout": 10.0,
-        "poll_interval": 0.0,
-    }
-    assert '"projection_status": "finished"' in result.stdout
-
-
-def test_workspaces_complete_task_invokes_cli(monkeypatch, tmp_path: Path):
-    import hypercli_cli.workspaces as workspaces_mod
-
-    markdown_file = tmp_path / "result.md"
-    markdown_file.write_text("# Report\n\nSummary body.\n", encoding="utf-8")
-    captured = {}
-
-    class _FakeWorkspaces:
-        def complete_task(self, task_id, **kwargs):
-            captured.update({"task_id": task_id, **kwargs})
-            return {
-                "id": "projection-1",
-                "path": "projects/example/.tomd/report.md",
-                "status": "finished",
-            }
-
-    monkeypatch.setattr(workspaces_mod, "_get_workspaces", lambda: _FakeWorkspaces())
-
-    result = runner.invoke(
-        app,
-        [
-            "workspaces",
-            "complete-task",
-            "task-1",
-            "--markdown-file",
-            str(markdown_file),
-            "--title",
-            "Report",
-            "--detected-type",
-            "pdf",
-            "--projection-kind",
-            "document",
-            "--keyword",
-            "handoff",
-            "--keyword",
-            "launch",
-            "--converter-version",
-            "dev",
-        ],
-    )
-
-    assert result.exit_code == 0, result.stdout
-    assert captured == {
-        "task_id": "task-1",
-        "markdown_body": "# Report\n\nSummary body.\n",
-        "title": "Report",
-        "detected_type": "pdf",
-        "projection_kind": "document",
-        "keywords": ["handoff", "launch"],
-        "semantic_metadata": {},
-        "converter": "tomd-worker",
-        "converter_version": "dev",
-    }
-    assert "Completed conversion task" in result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["address"] == "demo/projects/example/report.pdf"
+    assert payload["workspace"] == "demo"
+    assert payload["path"] == "projects/example/report.pdf"
+    assert [item["path"] for item in payload["files"]] == ["book.md", "chapter-01.md"]
+    assert payload["files"][0]["primary"] is True
+    assert "title: Book" in payload["files"][0]["markdown_body"]

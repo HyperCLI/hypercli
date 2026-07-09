@@ -275,65 +275,6 @@ def test_wait_until_processed_polls_file_state(monkeypatch):
     ]
 
 
-def test_complete_task_uses_admin_callback_endpoint(monkeypatch):
-    calls = []
-    monkeypatch.setenv("HYPER_WORKSPACES_BACKEND_API_KEY", "backend-secret")
-
-    def fake_request(method, url, *, api_key, user_id=None, agent_id=None, backend_api_key=None, **kwargs):
-        calls.append((method, url, api_key, user_id, agent_id, backend_api_key, kwargs.get("json")))
-        return {
-            "id": "projection-1",
-            "workspace_id": "workspace-1",
-            "file_id": "file-1",
-            "file_version_id": "version-1",
-            "path": "projects/example/.tomd/report.md",
-            "kind": "document",
-            "title": kwargs["json"]["title"],
-            "detected_type": kwargs["json"]["detected_type"],
-            "markdown_body": kwargs["json"]["markdown_body"],
-            "markdown_sha256": "b" * 64,
-            "system_metadata": {},
-            "semantic_metadata": {},
-            "status": "finished",
-        }
-
-    monkeypatch.setattr("hypercli.workspaces._request", fake_request)
-    api = WorkspacesAPI("worker-key", api_base="http://workspaces.test/workspaces")
-
-    result = api.complete_task(
-        "task-1",
-        markdown_body="# Report\n",
-        title="Report",
-        detected_type="pdf",
-        projection_kind="document",
-        keywords=["handoff", "launch"],
-        converter="tomd-worker",
-        converter_version="dev",
-    )
-
-    assert result["status"] == "finished"
-    assert calls == [
-        (
-            "POST",
-            "http://workspaces.test/workspaces/admin/conversion-tasks/task-1/complete",
-            "worker-key",
-            None,
-            None,
-            "backend-secret",
-            {
-                "markdown_body": "# Report\n",
-                "keywords": ["handoff", "launch"],
-                "semantic_metadata": {},
-                "title": "Report",
-                "detected_type": "pdf",
-                "projection_kind": "document",
-                "converter": "tomd-worker",
-                "converter_version": "dev",
-            },
-        ),
-    ]
-
-
 def test_sync_manifest_writes_tomd_projection(monkeypatch, tmp_path: Path):
     def fake_request(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
         assert method == "GET"
@@ -362,7 +303,7 @@ def test_sync_manifest_writes_tomd_projection(monkeypatch, tmp_path: Path):
                     "markdown_sha256": None,
                     "keywords": ["handoff", "launch"],
                     "status": "pending",
-                    "download_command": "hyper workspaces download demo projects/example/report.pdf --raw --output report.pdf",
+                    "download_command": "hyper workspaces download demo/projects/example/report.pdf --output report.pdf",
                 }
             ],
         }
@@ -380,7 +321,7 @@ def test_sync_manifest_writes_tomd_projection(monkeypatch, tmp_path: Path):
     assert "source_size_bytes: 123" in markdown
     assert 'source_etag: "etag-1"' in markdown
     assert 'keywords: ["handoff", "launch"]' in markdown
-    assert 'download_command: "hyper workspaces download demo projects/example/report.pdf --raw --output report.pdf"' in markdown
+    assert 'download_command: "hyper workspaces download demo/projects/example/report.pdf --output report.pdf"' in markdown
 
 
 def test_projection_markdown_finds_single_file(monkeypatch):
@@ -408,7 +349,7 @@ def test_projection_markdown_finds_single_file(monkeypatch):
                     "source_last_modified": "2026-07-08T01:00:00Z",
                     "markdown_sha256": None,
                     "status": "pending",
-                    "download_command": "hyper workspaces download demo docs/source.md --raw --output source.md",
+                    "download_command": "hyper workspaces download demo/docs/source.md --output source.md",
                 }
             ],
         }
@@ -420,4 +361,4 @@ def test_projection_markdown_finds_single_file(monkeypatch):
 
     assert projection["projection_path"] == "docs/.tomd/source.md"
     assert 'source_path: "docs/source.md"' in markdown
-    assert 'download_command: "hyper workspaces download demo docs/source.md --raw --output source.md"' in markdown
+    assert 'download_command: "hyper workspaces download demo/docs/source.md --output source.md"' in markdown
