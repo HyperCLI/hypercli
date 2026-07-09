@@ -1,0 +1,85 @@
+---
+title: Workspaces
+description: Shared, searchable files for agents with generated Markdown projections.
+---
+
+## Overview
+
+Workspaces are durable file collections that agents and users can share across sessions. A Workspace stores versioned original files, explicit grants, conversion state, and generated Markdown projections under deterministic `.tomd` paths.
+
+Use Workspaces for reusable context: briefs, runbooks, reference documents, data dictionaries, and design notes.
+
+## Model
+
+- Workspaces have stable IDs and human-readable slugs.
+- Grants give users or agents `viewer`, `contributor`, or `admin` access.
+- Files are stored at Workspace-relative paths and can have multiple versions.
+- Original files remain available for raw download.
+- Conversion creates Markdown projections and tracks task/projection state.
+- Frontmatter is injected when Markdown is downloaded or synced.
+
+For a source file:
+
+```text
+projects/example/report.pdf
+```
+
+the generated Markdown projection is exposed at:
+
+```text
+projects/example/.tomd/report.md
+```
+
+## CLI
+
+Create a Workspace and upload a file:
+
+```bash
+hyper workspaces create "Team Knowledge" --slug team-knowledge
+hyper workspaces upload team-knowledge ./report.pdf --path projects/example/report.pdf
+hyper workspaces wait-until-processed team-knowledge projects/example/report.pdf
+```
+
+Download Markdown by default:
+
+```bash
+hyper workspaces download team-knowledge projects/example/report.pdf --output report.md
+```
+
+Download the original source with `--raw`:
+
+```bash
+hyper workspaces download team-knowledge projects/example/report.pdf --raw --output report.pdf
+```
+
+Sync generated Markdown projections locally:
+
+```bash
+hyper workspaces sync team-knowledge --output-dir ~/workspaces
+hyper workspaces sync --all --ready-only --output-dir ~/workspaces
+```
+
+Prepare an enrichment payload from generated Markdown files:
+
+```bash
+hyper workspaces enrich team-knowledge/projects/example/report.pdf --dir ./generated --json
+```
+
+## OpenClaw Sync
+
+OpenClaw agents sync accessible Workspace projections into `/home/node/workspaces` by default. For the default `node` user, `~/workspaces` resolves to that same local root.
+
+Boot sync is controlled by:
+
+| Environment variable | Default | Meaning |
+| --- | --- | --- |
+| `HYPER_WORKSPACES_BOOT_SYNC` | `1` | Enable Workspaces sync during startup |
+| `HYPER_WORKSPACES_DIR` | `/home/node/workspaces` | Local sync root |
+| `HYPER_WORKSPACES_SYNC_READY_ONLY` | `1` | Sync only finished projections |
+| `HYPER_WORKSPACES_SYNC_WORKSPACE` | unset | Optional single Workspace slug or ID |
+
+Grant the agent access before launch if it should sync a Workspace at boot:
+
+```bash
+hyper workspaces grant team-knowledge --agent-id agent-id --role viewer
+```

@@ -309,7 +309,7 @@ def wait_until_processed(
 @app.command("sync")
 def sync(
     workspace: str | None = typer.Argument(None, help="Workspace slug or ID"),
-    output_dir: Path = typer.Option(Path.home() / "Workspaces", "--output-dir", "--output", "-o", help="Local Workspaces root"),
+    output_dir: Path = typer.Option(Path.home() / "workspaces", "--output-dir", "--output", "-o", help="Local Workspaces root"),
     all_workspaces: bool = typer.Option(False, "--all", help="Sync every workspace accessible to the subject"),
     agent_id: str | None = typer.Option(None, "--agent-id", help="Sync as an agent subject"),
     user_id: str | None = typer.Option(None, "--user-id", help="Sync as a user subject"),

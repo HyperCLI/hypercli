@@ -1,32 +1,30 @@
 ---
 title: hyper workspaces
-description: Manage shared Workspaces, uploaded originals, Markdown projections, search, sync, and grants.
+description: Manage shared Workspaces, uploaded originals, Markdown projections, search, sync, enrichment, and grants.
 ---
 
 ## Overview
 
-`hyper workspaces` manages durable shared Workspaces. A Workspace stores original source files, exposes generated `.tomd` Markdown projections with synthesized frontmatter, supports keyword and vector search, and can be granted to agents for boot sync into `/home/node/workspaces`.
+`hyper workspaces` manages durable shared Workspaces. A Workspace stores versioned original files, generates deterministic `.tomd` Markdown projections, injects frontmatter when projections are accessed, supports search, and can be granted to agents for sync into `/home/node/workspaces`.
 
-For the full storage and agent-access model, see [Workspaces](/agents/workspaces).
+For the storage and agent-access model, see [Workspaces](/agents/workspaces).
 
-## Workspace Commands
+## Workspaces
 
 ```bash
 hyper workspaces create "Team Knowledge" --slug team-knowledge
 hyper workspaces list
-hyper workspaces search "handoff"
-hyper workspaces update team-knowledge --name "Shared Knowledge"
+hyper workspaces update team-knowledge --description "Shared launch context"
 hyper workspaces delete team-knowledge
 ```
 
 Common options:
 
 - `--output table|json`
-- `--user-id` for explicit local or development subject testing
 - `--agent-id` on read/search operations that should run as an agent subject
 - `--vector / --no-vector` on search commands
 
-## Files
+## Files And State
 
 Upload an original source file:
 
@@ -34,13 +32,13 @@ Upload an original source file:
 hyper workspaces upload team-knowledge ./report.pdf --path projects/example/report.pdf
 ```
 
-Poll until the generated Markdown projection is ready:
+Poll until the file is processed and the Markdown projection is finished:
 
 ```bash
 hyper workspaces wait-until-processed team-knowledge projects/example/report.pdf
 ```
 
-Inspect the manifest:
+Inspect active files and generated projection paths:
 
 ```bash
 hyper workspaces manifest team-knowledge
@@ -54,11 +52,11 @@ hyper workspaces delete-file team-knowledge projects/example/report.pdf
 
 ## Download
 
-`download` writes the Markdown projection by default:
+`download` writes the Markdown projection by default. The projection includes access-time frontmatter.
 
 ```bash
 hyper workspaces download team-knowledge projects/example/report.pdf --output report.md
-hyper workspaces download team-knowledge/projects/example/report.pdf --md
+hyper workspaces download team-knowledge/projects/example/report.pdf
 ```
 
 Use `--raw` for the original S3-backed file:
@@ -66,8 +64,6 @@ Use `--raw` for the original S3-backed file:
 ```bash
 hyper workspaces download team-knowledge projects/example/report.pdf --raw --output report.pdf
 ```
-
-The default download path writes Markdown. The `--raw` path retrieves the original source file.
 
 ## Sync
 
@@ -77,23 +73,23 @@ Sync one Workspace's Markdown projections:
 hyper workspaces sync team-knowledge --output-dir ~/workspaces
 ```
 
-Sync every Workspace accessible to the subject:
+Sync every Workspace accessible to the current subject:
 
 ```bash
 hyper workspaces sync --all --ready-only --output-dir ~/workspaces --json
 ```
 
-The synced layout is:
+The synced layout is deterministic:
 
 ```text
-~/workspaces/<workspace-slug>/<source-folder>/.tomd/<projection>.md
+~/workspaces/<workspace-slug>/<source-folder>/.tomd/<source-stem>.md
 ```
 
-OpenClaw agents use `/home/node/workspaces` as the default boot-sync root.
+OpenClaw agents use `/home/node/workspaces` as the default boot-sync root. Boot sync is enabled by `HYPER_WORKSPACES_BOOT_SYNC=1`; `HYPER_WORKSPACES_DIR`, `HYPER_WORKSPACES_SYNC_READY_ONLY`, and `HYPER_WORKSPACES_SYNC_WORKSPACE` can adjust the local root, ready-only behavior, or selected Workspace.
 
 ## Search
 
-Search Workspaces:
+Search accessible Workspaces:
 
 ```bash
 hyper workspaces search "launch notes"
@@ -107,7 +103,17 @@ hyper workspaces search-files team-knowledge "visual language"
 hyper workspaces search-files team-knowledge "visual language" --no-vector
 ```
 
-Search includes paths, filenames, compact keyword/summary metadata, projection metadata, and vector matches when vector search is enabled.
+Search includes paths, filenames, compact keyword and summary metadata, projection metadata, and vector matches when vector search is enabled.
+
+## Enrich
+
+`enrich` builds a machine-readable payload from generated Markdown files for a Workspace file address:
+
+```bash
+hyper workspaces enrich team-knowledge/projects/example/report.pdf --dir ./generated --json
+```
+
+Use it when a converter or local processor has produced Markdown files that should be submitted as an enrichment fileset.
 
 ## Grants
 
@@ -131,13 +137,3 @@ hyper workspaces revoke-grant team-knowledge grant-id
 ```
 
 Roles are `viewer`, `contributor`, and `admin`.
-
-## Enrichment Payloads
-
-`enrich` builds a machine-readable payload from generated Markdown files for a Workspace file address:
-
-```bash
-hyper workspaces enrich team-knowledge/projects/example/report.pdf --dir ./generated --json
-```
-
-The payload includes the Workspace, source path, and Markdown files found in the directory.

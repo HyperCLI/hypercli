@@ -5,140 +5,125 @@ description: Shared, searchable Workspaces for durable files, Markdown projectio
 
 ## Overview
 
-Workspaces are durable, shared file collections that HyperCLI agents can read as knowledge. They are designed for material that should outlive an individual agent session: project briefs, reference documents, runbooks, data dictionaries, design notes, and other reusable context.
+Workspaces are durable file collections that agents and users can share across sessions. Use them for reusable context such as briefs, runbooks, reference documents, data dictionaries, and design notes.
 
-Each Workspace has:
+A Workspace contains:
 
-- a stable ID and human-readable slug
-- uploaded source files stored as original files
-- generated Markdown projections exposed under `.tomd/`
-- compact file/version/projection metadata for frontmatter, keywords, and search indexes
-- explicit access grants for users and agents
+- a stable Workspace ID and human-readable slug
+- grants for user and agent subjects
+- Workspace-relative files and file versions
+- original files stored in S3-backed object storage
+- conversion state for generated Markdown projections
+- deterministic `.tomd` projection paths
+- compact metadata for frontmatter, keywords, and search
 
-Agents can boot-sync accessible Workspace projections into `/home/node/workspaces`, so the files appear on disk before a session starts.
+Agents can sync accessible Markdown projections before a session starts. In OpenClaw, the local sync root is `/home/node/workspaces`; shell paths such as `~/workspaces` resolve to the same root for the default `node` user.
 
 ## Workspaces vs Files
 
-Workspaces are different from HyperCLI Files and OpenClaw workspace files.
+Workspaces are separate from task-scoped HyperCLI Files and from an agent's editable OpenClaw working directory.
 
-| Surface | Purpose | Lifetime | Agent path |
-| --- | --- | --- | --- |
-| HyperCLI Files | Render and workflow assets uploaded through `client.files` | Asset-oriented; usually referenced by file ID or internal URL | Not automatically mounted as shared knowledge |
-| OpenClaw workspace files | Live files in an agent's `.openclaw/workspace` | Tied to the agent workspace and sync root | `.openclaw/workspace` through gateway/files APIs |
-| Workspaces | Durable shared knowledge with searchable projections | Service-backed and reusable across agents | Boot-synced Markdown projections under `/home/node/workspaces/<workspace-slug>` |
+| Surface | Use it for | Local agent path |
+| --- | --- | --- |
+| HyperCLI Files | Render or workflow assets referenced by file ID or URL | Not automatically mounted |
+| OpenClaw workspace files | Temporary or editable files for one agent session | Agent working directory |
+| Workspaces | Shared durable knowledge with generated Markdown projections | `/home/node/workspaces/<workspace-slug>` |
 
-Use HyperCLI Files when a render or workflow needs a task-scoped input asset. Use OpenClaw workspace files for temporary or working files inside one agent environment. Use Workspaces when multiple sessions or agents should share a managed knowledge collection.
+## Files, Versions, And Projections
 
-## Storage Model
-
-Uploading a file creates or updates a Workspace file record. The original source is stored in S3-backed object storage and remains available for raw download.
-
-The Workspaces worker then creates a Markdown projection. Projection paths preserve the source folder and expose generated Markdown under `.tomd/` next to the original path:
+Uploading a file creates or updates a Workspace file at a Workspace-relative source path:
 
 ```text
 projects/example/report.pdf
+```
+
+The original source is versioned and kept available for raw download. Reuploading the same Workspace path creates a new version for the same logical file.
+
+Conversion produces a Markdown projection under a deterministic `.tomd` path next to the source path:
+
+```text
 projects/example/.tomd/report.md
 ```
 
-The source file is the authoritative original. Compact searchable metadata such as display name, keywords, title, summary, hashes, and source type is stored with the file, file version, or projection row so it can be indexed and serialized quickly. The `.tomd` file is the generated Markdown/frontmatter view that agents read during sync and download.
+That `.tomd` path is the path used by manifests, sync, search results, and projection downloads. The stored projection body and S3 object path are deterministic from the source path; authoritative Workspace/provenance frontmatter is injected when the projection is downloaded or synced. Do not treat frontmatter as a separately editable sidecar.
 
-Markdown projection bodies and metadata are served from Workspaces database state. The service synthesizes `.tomd` frontmatter when a projection is downloaded or synced; frontmatter edits do not rewrite a separate S3 sidecar object.
+## Processing State
 
-## Markdown Projections
+Workspace files and projections move through a small lifecycle:
 
-Markdown projections include YAML frontmatter followed by extracted or generated Markdown content. The frontmatter is synthesized from Workspace file, version, and projection metadata when a projection is downloaded or synced. A projection looks like:
+- files are uploaded, processed, failed, or deleted
+- conversion tasks and projections use `pending`, `running`, `finished`, `failed`, and `deleted`
+- a file is ready for sync when the file is processed and the projection is finished
 
-```md
----
-workspace_id: "workspace-id"
-workspace_slug: "team-knowledge"
-snapshot_id: "snapshot-id"
-file_id: "file-id"
-file_version_id: "version-id"
-projection_id: "projection-id"
-source_path: "projects/example/report.pdf"
-source_filename: "report.pdf"
-source_content_type: "application/pdf"
-source_size_bytes: 123456
-source_s3_key: "env/workspaces/workspace-id/originals/file-id/version-id/report.pdf"
-source_sha256: "..."
-source_etag: "..."
-source_last_modified: "2026-07-08T00:00:00Z"
-projection_path: "projects/example/.tomd/report.md"
-markdown_sha256: "..."
-keywords: ["handoff", "launch"]
-status: "finished"
-download_command: "hyper workspaces download team-knowledge/projects/example/report.pdf --raw --output report.pdf"
----
-
-# Report
-
-Projected Markdown content appears here.
-```
-
-Important fields:
-
-- `source_path` is the Workspace-relative path of the original file.
-- `projection_path` is where the `.tomd` Markdown projection is written during sync.
-- `source_s3_key`, checksums, and size identify the stored original version.
-- `keywords` improve exact and semantic search.
-- `status` reflects projection readiness.
-- `download_command` gives an agent or user a direct command for retrieving the original source file when the Markdown projection is not enough. Projection download remains the default `hyper workspaces download` behavior.
-
-## CLI
-
-The command group is `hyper workspaces`.
-
-Create and list Workspaces:
-
-```bash
-hyper workspaces create "Team Knowledge" --slug team-knowledge
-hyper workspaces list
-```
-
-Upload files:
+Use `hyper workspaces wait-until-processed` before a workflow depends on the generated Markdown.
 
 ```bash
 hyper workspaces upload team-knowledge ./report.pdf --path projects/example/report.pdf
 hyper workspaces wait-until-processed team-knowledge projects/example/report.pdf
 ```
 
-Download the Markdown projection. This is the default behavior; `--md` is accepted for explicitness:
+## Download
+
+`hyper workspaces download` writes the Markdown projection by default:
 
 ```bash
 hyper workspaces download team-knowledge projects/example/report.pdf --output report.md
-hyper workspaces download team-knowledge/projects/example/report.pdf --md
+hyper workspaces download team-knowledge/projects/example/report.pdf
 ```
 
-Download the original S3-backed file with `--raw`:
+Use `--raw` when you need the original uploaded file:
 
 ```bash
 hyper workspaces download team-knowledge projects/example/report.pdf --raw --output report.pdf
 ```
 
-Sync Markdown projections locally:
+Projection frontmatter includes provenance for the original file and a `download_command` that points back to the raw source.
+
+## Sync
+
+Sync copies finished Markdown projections into a local directory:
 
 ```bash
 hyper workspaces sync team-knowledge --output-dir ~/workspaces
 hyper workspaces sync --all --ready-only --output-dir ~/workspaces
 ```
 
-Inside OpenClaw agents, the default boot-sync target is:
+The synced layout is:
 
 ```text
-/home/node/workspaces/<workspace-slug>
+~/workspaces/<workspace-slug>/<source-folder>/.tomd/<source-stem>.md
 ```
 
-Search accessible Workspaces and files:
+OpenClaw boot sync uses `/home/node/workspaces` by default and runs before the gateway starts when boot sync is enabled.
+
+| Environment variable | Default | Meaning |
+| --- | --- | --- |
+| `HYPER_WORKSPACES_BOOT_SYNC` | `1` | Enable Workspaces sync during OpenClaw startup |
+| `HYPER_WORKSPACES_DIR` | `/home/node/workspaces` | Local sync root |
+| `HYPER_WORKSPACES_SYNC_READY_ONLY` | `1` | Sync only finished projections |
+| `HYPER_WORKSPACES_SYNC_WORKSPACE` | unset | Optional single Workspace slug or ID |
+
+## Search And Enrichment
+
+Search works across accessible Workspaces and inside a single Workspace:
 
 ```bash
-hyper workspaces search "handoff"
-hyper workspaces search "handoff" --no-vector
+hyper workspaces search "launch notes"
 hyper workspaces search-files team-knowledge "visual language"
-hyper workspaces search-files team-knowledge "visual language" --output json
+hyper workspaces search-files team-knowledge "visual language" --no-vector
 ```
 
-Grant access to an agent or another user subject:
+Search uses paths, filenames, keywords, summaries, projection metadata, and vector matches when enabled. Use `--no-vector` for exact-only matching.
+
+`hyper workspaces enrich` prepares a machine-readable enrichment payload from generated Markdown files for one Workspace file address:
+
+```bash
+hyper workspaces enrich team-knowledge/projects/example/report.pdf --dir ./generated --json
+```
+
+## Grants
+
+Workspace access is explicit. Grants can target users or agents.
 
 ```bash
 hyper workspaces grant team-knowledge --agent-id agent-id --role viewer
@@ -147,150 +132,18 @@ hyper workspaces grants team-knowledge
 hyper workspaces revoke-grant team-knowledge grant-id
 ```
 
-Useful administrative commands:
-
-```bash
-hyper workspaces update team-knowledge --description "Shared launch context"
-hyper workspaces manifest team-knowledge
-hyper workspaces delete-file team-knowledge projects/example/report.pdf
-hyper workspaces delete team-knowledge
-```
-
-## SDK
-
-Python clients expose Workspaces at `client.workspaces`:
-
-```python
-from hypercli import HyperCLI
-
-client = HyperCLI()
-
-workspace = client.workspaces.create(
-    name="Team Knowledge",
-    slug="team-knowledge",
-)
-
-uploaded = client.workspaces.upload(
-    workspace.slug,
-    "./report.pdf",
-    workspace_path="projects/example/report.pdf",
-)
-
-ready = client.workspaces.wait_until_processed(
-    workspace.slug,
-    uploaded.path,
-)
-
-projection, markdown = client.workspaces.projection_markdown(
-    workspace.slug,
-    ready.path,
-)
-```
-
-Registering a file record directly can include keywords:
-
-```python
-client.workspaces.register_file(
-    "team-knowledge",
-    path="docs/brief.md",
-    source_content_type="text/markdown",
-    keywords=["brief", "launch"],
-)
-```
-
-TypeScript clients expose the same service through `WorkspacesAPI`:
-
-```ts
-import { WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
-
-const workspaces = new WorkspacesAPI(process.env.HYPER_API_KEY!);
-
-const workspace = await workspaces.create({
-  name: "Team Knowledge",
-  slug: "team-knowledge",
-});
-
-const results = await workspaces.searchFiles(
-  workspace.slug,
-  "launch notes",
-  {},
-  { vector: true },
-);
-```
-
-## Search
-
-Workspace search has two levels:
-
-- `hyper workspaces search` finds accessible Workspaces by names, file paths, filenames, and projection metadata.
-- `hyper workspaces search-files` searches files inside a single Workspace by paths, filenames, keywords, summaries, and projection metadata.
-
-Vector search is enabled by default in both commands. Use `--no-vector` when you want exact and keyword-style matching only.
-
-Search results can include match reasons, keyword score, vector score, and total score. A file may be found because a query matched its path, filename, keywords, extracted summary, or semantic embedding.
-
-## Grants And Agent Access
-
-Workspace access is explicit. A user who owns or administers a Workspace can grant access to:
-
-- another user subject
-- an agent subject
-
 Roles are:
 
 - `viewer`: read manifests, projections, originals, and search
-- `contributor`: read plus add or update files
-- `admin`: manage Workspace metadata and grants
+- `contributor`: viewer rights plus upload or replace files
+- `admin`: contributor rights plus Workspace metadata and grant management
 
-Workspaces identity is resolved from the bearer credential. Grant an agent access before expecting that agent's runtime credential to list, search, download, or boot-sync a Workspace. The CLI also exposes `--agent-id` on read-oriented commands for agent-subject flows and local development compatibility.
-
-OpenClaw launch helpers enable Workspaces boot sync by default, so projections accessible to the runtime subject are copied into the agent at startup.
-
-Boot sync environment defaults:
-
-| Environment variable | Default | Meaning |
-| --- | --- | --- |
-| `HYPER_WORKSPACES_BOOT_SYNC` | `1` | Enable Workspaces sync on agent boot |
-| `HYPER_WORKSPACES_DIR` | `/home/node/workspaces` | Local root for synced projections |
-| `HYPER_WORKSPACES_SYNC_READY_ONLY` | `1` | Sync only finished projections |
-| `HYPER_WORKSPACES_SYNC_WORKSPACE` | unset | Optional single Workspace slug or ID to sync |
-
-Python launch helpers accept `workspaces_sync` to override these values:
-
-```python
-agent = client.deployments.create_openclaw(
-    name="docs-agent",
-    workspaces_sync={
-        "output_dir": "/home/node/workspaces",
-        "ready_only": True,
-        "workspace": "team-knowledge",
-    },
-)
-```
-
-Pass `workspaces_sync=False` to disable boot sync for a launch.
-
-## Processing Lifecycle
-
-At a high level, Workspace processing follows this sequence:
-
-1. A file is uploaded or registered under a Workspace path.
-2. The original source is stored in S3-backed object storage with version metadata.
-3. The Workspace file enters an uploaded or processing state.
-4. A worker extracts text and metadata, creates Markdown, updates compact file/version/projection metadata, derives or stores keywords, and prepares embeddings for vector search.
-5. The projection status moves to `finished` when the `.tomd` Markdown is ready.
-6. Manifest sync and search return the new projection once the backend snapshot includes it.
-
-Use `hyper workspaces wait-until-processed` or SDK `wait_until_processed()` / `waitUntilProcessed()` when a workflow needs the projection before continuing.
+Grant an agent access before expecting that agent's runtime credential to list, search, download, or boot-sync a Workspace.
 
 ## Operational Notes
 
-- Treat `.tomd` files as generated projections. Metadata used for frontmatter and search is stored with the file, file version, or projection row and serialized into Markdown at access time.
-- Do not create separate metadata sidecar files for search. Updating user-editable metadata should update the compact Workspace metadata fields and refresh the index.
-- Use stable Workspace slugs for agent instructions and scripts; keep IDs for audit logs and automation that should not depend on names.
-- `hyper workspaces sync --ready-only` avoids partially processed projections. OpenClaw boot sync uses ready-only behavior by default.
-- `hyper workspaces download` writes Markdown by default. Use `--raw` when the original PDF, image, spreadsheet, archive, or other source file is needed.
-- Signed download URLs are for original files and should be treated as temporary credentials.
-- Local sync writes below the selected output directory and Workspace slug. Avoid using the same directory for unrelated editable source trees.
-- `HYPER_WORKSPACES_API_BASE` can override the Workspaces API base in local or development environments.
-- Deleting a Workspace or file removes it from active use and search surfaces. Keep separate backups for business-critical originals if your retention process requires them.
+- Treat `.tomd` files as generated projections, not source files.
+- Store user-editable metadata in Workspace file/version/projection metadata, then let access-time frontmatter injection serialize it.
+- Use `hyper workspaces download` for Markdown and `hyper workspaces download --raw` for originals.
+- Use `hyper workspaces sync --ready-only` for agent boot and local sync workflows that should avoid incomplete projections.
+- Avoid using the sync directory as an editable source tree.
