@@ -69,11 +69,11 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.getByText("Test Agent")).toBeInTheDocument();
   });
 
-  it("renders shared knowledge after scheduled in the workspace list", () => {
+  it("renders workspaces after scheduled in the workspace list", () => {
     renderAgentWorkspaceSidebar();
 
     const labels = screen.getAllByRole("button").map((button) => button.textContent ?? "");
-    expect(labels.findIndex((label) => label.includes("Shared Knowledge"))).toBeGreaterThan(labels.findIndex((label) => label.includes("Scheduled")));
+    expect(labels.findIndex((label) => label.includes("Workspaces"))).toBeGreaterThan(labels.findIndex((label) => label.includes("Scheduled")));
   });
 
   it("creates a session from the primary workspace action and highlights the selected session", async () => {
@@ -678,7 +678,7 @@ describe("AgentWorkspaceSidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: /files/i }));
     fireEvent.click(screen.getByRole("button", { name: /integrations/i }));
     fireEvent.click(screen.getByRole("button", { name: /skills/i }));
-    fireEvent.click(screen.getByRole("button", { name: /shared knowledge/i }));
+    fireEvent.click(screen.getByRole("button", { name: /workspaces/i }));
     fireEvent.click(screen.getByRole("button", { name: /scheduled/i }));
     fireEvent.click(advanced);
     expect(props.onCreateSession).not.toHaveBeenCalled();
@@ -707,7 +707,7 @@ describe("AgentWorkspaceSidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: /files/i }));
     fireEvent.click(screen.getByRole("button", { name: /integrations/i }));
     fireEvent.click(screen.getByRole("button", { name: /skills/i }));
-    fireEvent.click(screen.getByRole("button", { name: /shared knowledge/i }));
+    fireEvent.click(screen.getByRole("button", { name: /workspaces/i }));
     fireEvent.click(screen.getByRole("button", { name: /scheduled/i }));
 
     expect(props.onCreateSession).not.toHaveBeenCalled();

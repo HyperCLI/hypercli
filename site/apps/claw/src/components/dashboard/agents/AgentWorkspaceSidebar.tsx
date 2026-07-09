@@ -686,7 +686,7 @@ export function AgentWorkspaceSidebar({
       onClick: onOpenScheduled,
       ...(scheduledDisabled ? { disabled: true, disabledReason: scheduledDisabledReason } : disabledItemProps),
     },
-    { id: "knowledge", label: "Shared Knowledge", icon: HardDrive, active: activeTab === "knowledge" || knowledgeActive, onClick: onOpenKnowledge, ...disabledItemProps },
+    { id: "knowledge", label: "Workspaces", icon: HardDrive, active: activeTab === "knowledge" || knowledgeActive, onClick: onOpenKnowledge, ...disabledItemProps },
   ];
 
   const advancedDropdownDisabled = disabled || noSelectedAgent;

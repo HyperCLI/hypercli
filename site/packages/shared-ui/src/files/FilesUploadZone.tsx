@@ -152,7 +152,7 @@ export function FilesUploadZone({ currentPath, onUpload, compact = false }: File
         onClick={handleClickUpload}
         animate={{
           borderColor: dragOver ? "color-mix(in srgb, var(--selection-accent) 50%, transparent)" : "var(--border)",
-          backgroundColor: dragOver ? "color-mix(in srgb, var(--selection-accent) 8%, transparent)" : "transparent",
+          backgroundColor: dragOver ? "color-mix(in srgb, var(--selection-accent) 8%, transparent)" : "rgba(0, 0, 0, 0)",
         }}
         transition={{ duration: 0.15 }}
         className={`border border-dashed rounded-lg flex items-center justify-center gap-2 cursor-pointer transition-colors hover:border-text-muted/30 hover:bg-surface-low/30 ${

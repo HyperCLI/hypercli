@@ -403,4 +403,35 @@ describe('Workspaces SDK', () => {
     expect(result.markdown).toContain('download_command: "hyper workspaces download demo/docs/source.md --output source.md"');
     vi.unstubAllGlobals();
   });
+
+  it('downloads original file bytes through the signed URL descriptor', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            file_id: 'file-1',
+            file_version_id: 'version-1',
+            source_path: 'docs/source.md',
+            source_s3_key: 'test/workspaces/workspace-1/originals/file-1/version-1/source.md',
+            s3_bucket: 'hypercli-workspaces',
+            s3_endpoint: 'https://storage.streamformation.com',
+            url: 'https://storage.example.test/signed-source',
+            download_command: 'hyper workspaces download demo/docs/source.md --output source.md',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(new Uint8Array([35, 32, 83, 111, 117, 114, 99, 101]), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
+    const result = await api.downloadFileBytes('demo', 'docs/source.md');
+
+    expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/demo/files/docs/source.md/download-url');
+    expect(fetchMock.mock.calls[1][0]).toBe('https://storage.example.test/signed-source');
+    expect(result.path).toBe('docs/source.md');
+    expect(result.name).toBe('source.md');
+    expect(Array.from(result.content)).toEqual([35, 32, 83, 111, 117, 114, 99, 101]);
+    vi.unstubAllGlobals();
+  });
 });

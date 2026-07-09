@@ -1,15 +1,14 @@
 "use client";
 
 import React from "react";
-import type { Workspace, WorkspaceFile, WorkspaceGrant, WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
+import type { Workspace, WorkspaceFile, WorkspaceGrant, WorkspaceManifest, WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
+import type { FileEntry } from "@hypercli/shared-ui/files";
 import {
   AlertCircle,
   Bot,
   Check,
   ChevronDown,
   ChevronRight,
-  FileText,
-  Folder,
   HardDrive,
   Loader2,
   Pencil,
@@ -17,9 +16,9 @@ import {
   RefreshCw,
   Search,
   Trash2,
-  Upload,
   X,
 } from "lucide-react";
+import { AgentFilesPanel, type AgentFileOpenResponse } from "@/components/dashboard/agents/AgentFilesPanel";
 import type { AgentMeta } from "@/lib/avatar";
 import { agentAvatar } from "@/lib/avatar";
 
@@ -31,21 +30,12 @@ export type SharedKnowledgeAgent = {
   meta?: AgentMeta | null;
 };
 
-type KnowledgeNode = {
-  id: string;
-  name: string;
-  path: string;
-  type: "file" | "folder";
-  status?: string | null;
-  children?: KnowledgeNode[];
-};
-
 type KnowledgeBase = {
   workspace: Workspace;
   agentIds: string[];
   files: WorkspaceFile[];
   grants: WorkspaceGrant[];
-  contents: KnowledgeNode[];
+  manifest: WorkspaceManifest | null;
 };
 
 type SharedKnowledgePanelProps = {
@@ -76,17 +66,12 @@ function assignedAgentsForBase(base: KnowledgeBase, agentById: Map<string, Share
   });
 }
 
-function countFiles(nodes: KnowledgeNode[]): number {
-  return nodes.reduce((count, node) => count + (node.type === "file" ? 1 : countFiles(node.children ?? [])), 0);
-}
-
-function countFolders(nodes: KnowledgeNode[]): number {
-  return nodes.reduce((count, node) => count + (node.type === "folder" ? 1 + countFolders(node.children ?? []) : 0), 0);
-}
-
 function contentCountLabel(base: KnowledgeBase): string {
-  const files = countFiles(base.contents);
-  const folders = countFolders(base.contents);
+  const files = base.files.length;
+  const folders = new Set(base.files.flatMap((file) => {
+    const parts = normalizeWorkspacePath(file.path).split("/").filter(Boolean);
+    return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/"));
+  })).size;
   return `${files} file${files === 1 ? "" : "s"}${folders > 0 ? `, ${folders} folder${folders === 1 ? "" : "s"}` : ""}`;
 }
 
@@ -94,62 +79,80 @@ function agentCountLabel(count: number): string {
   return `${count} agent${count === 1 ? "" : "s"}`;
 }
 
-function fileStatusLabel(file: WorkspaceFile): string {
-  const status = file.projectionStatus || file.uploadStatus || file.fileState;
-  return status ? status.replace(/_/g, " ") : "";
-}
-
-function buildKnowledgeTree(files: WorkspaceFile[]): KnowledgeNode[] {
-  const roots: KnowledgeNode[] = [];
-  const folders = new Map<string, KnowledgeNode>();
-
-  const getFolder = (path: string, name: string): KnowledgeNode => {
-    const existing = folders.get(path);
-    if (existing) return existing;
-    const node: KnowledgeNode = { id: `folder:${path}`, name, path, type: "folder", children: [] };
-    folders.set(path, node);
-    const parentPath = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
-    if (parentPath) {
-      getFolder(parentPath, parentPath.slice(parentPath.lastIndexOf("/") + 1)).children?.push(node);
-    } else {
-      roots.push(node);
-    }
-    return node;
-  };
-
-  for (const file of files) {
-    const normalized = file.path.replace(/^\/+/, "");
-    const parts = normalized.split("/").filter(Boolean);
-    const name = file.displayName || parts.at(-1) || normalized;
-    const parentParts = parts.slice(0, -1);
-    const node: KnowledgeNode = {
-      id: `file:${file.id}`,
-      name,
-      path: file.path,
-      type: "file",
-      status: fileStatusLabel(file),
-    };
-    if (parentParts.length === 0) {
-      roots.push(node);
-      continue;
-    }
-    const parentPath = parentParts.join("/");
-    getFolder(parentPath, parentParts.at(-1) || parentPath).children?.push(node);
-  }
-
-  const sortNodes = (nodes: KnowledgeNode[]) => {
-    nodes.sort((a, b) => {
-      if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
-    nodes.forEach((node) => sortNodes(node.children ?? []));
-  };
-  sortNodes(roots);
-  return roots;
-}
-
 function activeAgentGrant(grants: WorkspaceGrant[], agentId: string): WorkspaceGrant | null {
   return grants.find((grant) => grant.subjectType === "agent" && grant.subjectId === agentId && !grant.revokedAt) ?? null;
+}
+
+function normalizeWorkspacePath(path: string): string {
+  return path.trim().replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "").replace(/^\.\//, "");
+}
+
+function baseName(path: string): string {
+  const normalized = normalizeWorkspacePath(path);
+  return normalized.split("/").filter(Boolean).at(-1) || normalized || "file";
+}
+
+function bytesToArrayBuffer(content: Uint8Array): ArrayBuffer {
+  return content.buffer.slice(content.byteOffset, content.byteOffset + content.byteLength) as ArrayBuffer;
+}
+
+function projectionForPath(base: KnowledgeBase, path: string): Record<string, any> | null {
+  const normalized = normalizeWorkspacePath(path);
+  return base.manifest?.projections.find((projection) => {
+    if (!projection || typeof projection !== "object") return false;
+    return normalizeWorkspacePath(String(projection.source_path || "")) === normalized
+      || normalizeWorkspacePath(String(projection.projection_path || "")) === normalized
+      || String(projection.file_id || "") === path
+      || String(projection.projection_id || "") === path;
+  }) ?? null;
+}
+
+function workspaceFileEntries(base: KnowledgeBase, prefix = ""): FileEntry[] {
+  const normalizedPrefix = normalizeWorkspacePath(prefix);
+  const directories = new Map<string, FileEntry>();
+  const files: FileEntry[] = [];
+
+  for (const file of base.files) {
+    const path = normalizeWorkspacePath(file.path);
+    if (!path) continue;
+    if (normalizedPrefix && path !== normalizedPrefix && !path.startsWith(`${normalizedPrefix}/`)) continue;
+    const relative = normalizedPrefix ? path.slice(normalizedPrefix.length).replace(/^\/+/, "") : path;
+    if (!relative) continue;
+    const [firstSegment, ...rest] = relative.split("/");
+    if (rest.length > 0) {
+      const dirPath = normalizedPrefix ? `${normalizedPrefix}/${firstSegment}` : firstSegment;
+      if (!directories.has(dirPath)) {
+        directories.set(dirPath, { name: firstSegment, path: dirPath, type: "directory", source: "s3" });
+      }
+      continue;
+    }
+    const projection = projectionForPath(base, path);
+    files.push({
+      name: file.displayName || baseName(path),
+      path,
+      type: "file",
+      size: Number.isFinite(Number(projection?.source_size_bytes)) ? Number(projection?.source_size_bytes) : undefined,
+      lastModified: typeof projection?.source_last_modified === "string" ? projection.source_last_modified : undefined,
+      sha256: typeof projection?.source_sha256 === "string" ? projection.source_sha256 : undefined,
+      etag: typeof projection?.source_etag === "string" ? projection.source_etag : undefined,
+      versionId: file.currentVersionId ?? undefined,
+      source: "s3",
+    });
+  }
+
+  return [
+    ...Array.from(directories.values()).sort((a, b) => a.name.localeCompare(b.name)),
+    ...files.sort((a, b) => a.name.localeCompare(b.name)),
+  ];
+}
+
+function workspaceFileByPath(base: KnowledgeBase, path: string): WorkspaceFile | null {
+  const normalized = normalizeWorkspacePath(path);
+  return base.files.find((file) => normalizeWorkspacePath(file.path) === normalized || file.id === path) ?? null;
+}
+
+async function fetchOriginalBytes(workspaces: WorkspacesAPI, workspaceRef: string, path: string): Promise<AgentFileOpenResponse<Uint8Array>> {
+  return workspaces.downloadFileBytes(workspaceRef, path);
 }
 
 function AgentChip({ agent, selected, disabled, onClick }: { agent: SharedKnowledgeAgent; selected?: boolean; disabled?: boolean; onClick?: () => void }) {
@@ -180,42 +183,6 @@ function AgentChip({ agent, selected, disabled, onClick }: { agent: SharedKnowle
   );
 }
 
-function KnowledgeTreeNode({
-  node,
-  depth,
-  expandedFolders,
-  onToggleFolder,
-}: {
-  node: KnowledgeNode;
-  depth: number;
-  expandedFolders: Set<string>;
-  onToggleFolder: (id: string) => void;
-}) {
-  const expanded = expandedFolders.has(node.id);
-  const isFolder = node.type === "folder";
-  const Icon = isFolder ? Folder : FileText;
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={() => isFolder && onToggleFolder(node.id)}
-        className="group flex min-h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] text-foreground transition-colors hover:bg-surface-low/55"
-        style={{ paddingLeft: `${8 + depth * 18}px` }}
-      >
-        <span className="flex h-4 w-4 shrink-0 items-center justify-center text-text-muted">
-          {isFolder ? (expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />) : null}
-        </span>
-        <Icon className={`h-4 w-4 shrink-0 ${isFolder && expanded ? "text-warning" : "text-text-secondary"}`} />
-        <span className="min-w-0 flex-1 truncate font-medium">{node.name}</span>
-        {node.status && <span className="shrink-0 rounded-md border border-border px-1.5 py-0.5 text-[10px] font-medium text-text-muted">{node.status}</span>}
-      </button>
-      {isFolder && expanded && node.children?.map((child) => (
-        <KnowledgeTreeNode key={child.id} node={child} depth={depth + 1} expandedFolders={expandedFolders} onToggleFolder={onToggleFolder} />
-      ))}
-    </div>
-  );
-}
-
 function NewKnowledgeBaseModal({ agents, onClose, onCreate }: { agents: SharedKnowledgeAgent[]; onClose: () => void; onCreate: (name: string, description: string, agentIds: string[]) => void }) {
   const [name, setName] = React.useState("");
   const [description, setDescription] = React.useState("");
@@ -230,16 +197,16 @@ function NewKnowledgeBaseModal({ agents, onClose, onCreate }: { agents: SharedKn
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
-      <button type="button" aria-label="Close new knowledge base" onClick={onClose} className="absolute inset-0 cursor-default bg-background/75 backdrop-blur-sm" />
-      <section role="dialog" aria-modal="true" aria-labelledby="new-knowledge-title" className="relative flex max-h-[92vh] w-full max-w-[520px] flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
+      <button type="button" aria-label="Close new workspace" onClick={onClose} className="absolute inset-0 cursor-default bg-background/75 backdrop-blur-sm" />
+      <section role="dialog" aria-modal="true" aria-labelledby="new-workspace-title" className="relative flex max-h-[92vh] w-full max-w-[520px] flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
         <header className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
           <div className="flex items-start gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-surface-low text-text-secondary">
               <HardDrive className="h-4 w-4" />
             </div>
             <div>
-              <h2 id="new-knowledge-title" className="text-[16px] font-semibold leading-tight text-foreground">New Knowledge Base</h2>
-              <p className="mt-1 text-[12px] leading-snug text-text-muted">Create a workspace-backed knowledge base.</p>
+              <h2 id="new-workspace-title" className="text-[16px] font-semibold leading-tight text-foreground">New Workspace</h2>
+              <p className="mt-1 text-[12px] leading-snug text-text-muted">Create a shared workspace for agent-accessible files.</p>
             </div>
           </div>
           <button type="button" aria-label="Close" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground">
@@ -254,13 +221,13 @@ function NewKnowledgeBaseModal({ agents, onClose, onCreate }: { agents: SharedKn
             </div>
             <label className="block">
               <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.22em] text-text-muted">Name</span>
-              <input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g., Team Knowledge" className="h-10 w-full rounded-xl border border-border bg-surface-low/40 px-3 text-sm text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50" />
+              <input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g., Team Workspace" className="h-10 w-full rounded-xl border border-border bg-surface-low/40 px-3 text-sm text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50" />
             </label>
 
             <div />
             <label className="block">
               <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.22em] text-text-muted">Description</span>
-              <textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={4} maxLength={280} placeholder="What knowledge will this base contain?" className="min-h-[98px] w-full resize-none rounded-xl border border-border bg-surface-low/40 px-3 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50" />
+              <textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={4} maxLength={280} placeholder="What should agents find here?" className="min-h-[98px] w-full resize-none rounded-xl border border-border bg-surface-low/40 px-3 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50" />
               <span className="mt-1 block text-right text-[11px] text-text-muted">{description.length} chars</span>
             </label>
           </div>
@@ -295,7 +262,7 @@ function NewKnowledgeBaseModal({ agents, onClose, onCreate }: { agents: SharedKn
           </button>
           <button type="button" onClick={handleCreate} disabled={!canCreate} className="inline-flex h-9 items-center gap-2 rounded-xl bg-foreground px-4 text-sm font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-45">
             <Plus className="h-4 w-4" />
-            Create Knowledge Base
+            Create Workspace
           </button>
         </footer>
       </section>
@@ -310,15 +277,15 @@ function EditKnowledgeBaseModal({ base, onClose, onSave }: { base: KnowledgeBase
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
-      <button type="button" aria-label="Close edit knowledge base" onClick={onClose} className="absolute inset-0 cursor-default bg-background/75 backdrop-blur-sm" />
-      <section role="dialog" aria-modal="true" aria-labelledby="edit-knowledge-title" className="relative flex max-h-[92vh] w-full max-w-[520px] flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
+      <button type="button" aria-label="Close edit workspace" onClick={onClose} className="absolute inset-0 cursor-default bg-background/75 backdrop-blur-sm" />
+      <section role="dialog" aria-modal="true" aria-labelledby="edit-workspace-title" className="relative flex max-h-[92vh] w-full max-w-[520px] flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
         <header className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
           <div className="flex items-start gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-surface-low text-text-secondary">
               <Pencil className="h-4 w-4" />
             </div>
             <div>
-              <h2 id="edit-knowledge-title" className="text-[16px] font-semibold leading-tight text-foreground">Edit Knowledge Base</h2>
+              <h2 id="edit-workspace-title" className="text-[16px] font-semibold leading-tight text-foreground">Edit Workspace</h2>
               <p className="mt-1 text-[12px] leading-snug text-text-muted">Update workspace name and description.</p>
             </div>
           </div>
@@ -353,37 +320,46 @@ function KnowledgeBaseCard({
   base,
   agents,
   agentById,
+  workspaces,
   expanded,
   assignmentOpen,
-  expandedFolders,
   busy,
   onToggle,
   onToggleAssignment,
   onToggleAgent,
-  onToggleFolder,
   onEdit,
   onDeleteWorkspace,
-  onUpload,
-  onDeleteFile,
+  onUploadFile,
+  onDeletePath,
 }: {
   base: KnowledgeBase;
   agents: SharedKnowledgeAgent[];
   agentById: Map<string, SharedKnowledgeAgent>;
+  workspaces: WorkspacesAPI | null;
   expanded: boolean;
   assignmentOpen: boolean;
-  expandedFolders: Set<string>;
   busy?: boolean;
   onToggle: () => void;
   onToggleAssignment: () => void;
   onToggleAgent: (agentId: string) => void;
-  onToggleFolder: (id: string) => void;
   onEdit: () => void;
   onDeleteWorkspace: () => void;
-  onUpload: (file: File) => void;
-  onDeleteFile: (file: WorkspaceFile) => void;
+  onUploadFile: (path: string, content: Uint8Array) => Promise<void>;
+  onDeletePath: (path: string, options?: { recursive?: boolean }) => Promise<void>;
 }) {
   const assignedAgents = assignedAgentsForBase(base, agentById);
-  const fileInputId = `workspace-upload-${base.workspace.id}`;
+  const listFiles = React.useCallback(async (path?: string) => workspaceFileEntries(base, path), [base]);
+  const openProjection = React.useCallback(async (path: string): Promise<AgentFileOpenResponse<string>> => {
+    if (!workspaces) throw new Error("Workspaces client is unavailable.");
+    const { projection, markdown } = await workspaces.projectionMarkdown(base.workspace.slug, path);
+    const projectionPath = String(projection.projection_path || `${path}.md`);
+    return { content: markdown, path: projectionPath, name: baseName(projectionPath) };
+  }, [base.workspace.slug, workspaces]);
+  const openOriginalBytes = React.useCallback(async (path: string) => {
+    if (!workspaces) throw new Error("Workspaces client is unavailable.");
+    return fetchOriginalBytes(workspaces, base.workspace.slug, path);
+  }, [base.workspace.slug, workspaces]);
+
   return (
     <article className="overflow-hidden rounded-2xl border border-border bg-background/70 transition-colors hover:border-border-strong">
       <div className="grid w-full gap-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
@@ -413,44 +389,31 @@ function KnowledgeBaseCard({
 
       {expanded && (
         <div className="border-t border-border px-4 pb-4 pt-4">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="mb-3">
             <h4 className="text-[11px] font-semibold uppercase tracking-[0.24em] text-text-muted">Contents</h4>
-            <div className="flex items-center gap-2">
-              <input
-                id={fileInputId}
-                type="file"
-                className="hidden"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  event.currentTarget.value = "";
-                  if (file) onUpload(file);
-                }}
-              />
-              <label htmlFor={fileInputId} className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-border px-2.5 text-[11px] font-medium text-text-secondary transition-colors hover:border-border-strong hover:text-foreground">
-                {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />} Upload
-              </label>
-            </div>
           </div>
 
-          <div className="rounded-xl border border-border bg-surface-low/25 px-2 py-2">
-            {base.contents.length > 0 ? base.contents.map((node) => (
-              <KnowledgeTreeNode key={node.id} node={node} depth={0} expandedFolders={expandedFolders} onToggleFolder={onToggleFolder} />
-            )) : <p className="px-2 py-4 text-[12px] text-text-muted">No files yet.</p>}
+          <div className="h-[420px] overflow-hidden rounded-xl border border-border bg-background">
+            <AgentFilesPanel
+              agentId={base.workspace.id}
+              agentName={base.workspace.name}
+              connected={Boolean(workspaces)}
+              showSourceTabs={false}
+              defaultSource="agent"
+              isDesktopViewport
+              error={busy ? "Updating workspace files" : undefined}
+              onListFiles={listFiles}
+              onOpenFile={openProjection}
+              onOpenFileBytes={openOriginalBytes}
+              onDownloadFileBytes={openOriginalBytes}
+              onSaveFile={async () => {
+                throw new Error("Workspace projection editing is not available yet.");
+              }}
+              onDeleteFile={onDeletePath}
+              onUploadFile={onUploadFile}
+              isReadOnlyFile={() => true}
+            />
           </div>
-
-          {base.files.length > 0 && (
-            <div className="mt-3 space-y-1">
-              {base.files.map((file) => (
-                <div key={file.id} className="flex min-h-8 items-center gap-2 rounded-lg px-2 text-[12px] text-text-secondary hover:bg-surface-low/45">
-                  <FileText className="h-3.5 w-3.5 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">{file.path}</span>
-                  <button type="button" aria-label={`Delete ${file.path}`} onClick={() => onDeleteFile(file)} className="flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-low hover:text-destructive">
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
 
           <div className="mt-4">
             <h4 className="text-[11px] font-semibold uppercase tracking-[0.24em] text-text-muted">Assigned Agents</h4>
@@ -488,7 +451,6 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
   const [query, setQuery] = React.useState("");
   const [expandedBaseId, setExpandedBaseId] = React.useState<string | null>(null);
   const [assignmentBaseId, setAssignmentBaseId] = React.useState<string | null>(null);
-  const [expandedFolders, setExpandedFolders] = React.useState<Set<string>>(new Set());
   const [createOpen, setCreateOpen] = React.useState(false);
   const [editingBaseId, setEditingBaseId] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
@@ -508,9 +470,10 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
       const searchTerm = query.trim();
       const listed = searchTerm ? await workspaces.search(searchTerm) : await workspaces.list();
       const hydrated = await Promise.all(listed.map(async (workspace) => {
-        const [files, grants] = await Promise.all([
+        const [files, grants, manifest] = await Promise.all([
           workspaces.listFiles(workspace.slug).catch(() => [] as WorkspaceFile[]),
           workspaces.listGrants(workspace.slug).catch(() => [] as WorkspaceGrant[]),
+          workspaces.manifest(workspace.slug).catch(() => null as WorkspaceManifest | null),
         ]);
         const agentIds = Array.from(new Set(grants
           .filter((grant) => grant.subjectType === "agent" && !grant.revokedAt)
@@ -520,13 +483,13 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
           files,
           grants,
           agentIds,
-          contents: buildKnowledgeTree(files),
+          manifest,
         };
       }));
       setKnowledgeBases(hydrated);
       setExpandedBaseId((current) => current && hydrated.some((base) => base.workspace.id === current) ? current : hydrated[0]?.workspace.id ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load shared knowledge.");
+      setError(err instanceof Error ? err.message : "Unable to load workspaces.");
       setKnowledgeBases([]);
     } finally {
       setLoading(false);
@@ -536,15 +499,6 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
   React.useEffect(() => {
     void loadWorkspaces();
   }, [loadWorkspaces]);
-
-  const toggleFolder = (id: string) => {
-    setExpandedFolders((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
 
   const createBase = async (name: string, description: string, agentIds: string[]) => {
     if (!workspaces) return;
@@ -560,7 +514,7 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
       setAssignmentBaseId(null);
       setQuery("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to create knowledge base.");
+      setError(err instanceof Error ? err.message : "Unable to create workspace.");
     } finally {
       setLoading(false);
     }
@@ -576,7 +530,7 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
       await loadWorkspaces();
       setExpandedBaseId(updated.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to update knowledge base.");
+      setError(err instanceof Error ? err.message : "Unable to update workspace.");
     } finally {
       setBusyBaseId(null);
     }
@@ -592,7 +546,7 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
       setAssignmentBaseId((current) => current === base.workspace.id ? null : current);
       setExpandedBaseId((current) => current === base.workspace.id ? null : current);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to delete knowledge base.");
+      setError(err instanceof Error ? err.message : "Unable to delete workspace.");
     } finally {
       setBusyBaseId(null);
     }
@@ -617,12 +571,18 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
     }
   };
 
-  const uploadFile = async (base: KnowledgeBase, file: File) => {
+  const uploadFileContent = async (base: KnowledgeBase, path: string, content: Uint8Array) => {
     if (!workspaces) return;
     setBusyBaseId(base.workspace.id);
     setError(null);
     try {
-      await workspaces.uploadFile(base.workspace.slug, file, { path: file.name, filename: file.name });
+      const normalizedPath = normalizeWorkspacePath(path);
+      const filename = baseName(normalizedPath);
+      const body = bytesToArrayBuffer(content);
+      const blob = typeof File !== "undefined"
+        ? new File([body], filename, { type: "application/octet-stream" })
+        : new Blob([body], { type: "application/octet-stream" });
+      await workspaces.uploadFile(base.workspace.slug, blob, { path: normalizedPath, filename });
       await loadWorkspaces();
       setExpandedBaseId(base.workspace.id);
     } catch (err) {
@@ -632,12 +592,18 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
     }
   };
 
-  const deleteFile = async (base: KnowledgeBase, file: WorkspaceFile) => {
+  const deleteFilePath = async (base: KnowledgeBase, path: string, options?: { recursive?: boolean }) => {
     if (!workspaces) return;
     setBusyBaseId(base.workspace.id);
     setError(null);
     try {
-      await workspaces.deleteFile(base.workspace.slug, file.path);
+      const normalizedPath = normalizeWorkspacePath(path);
+      const targets = options?.recursive
+        ? base.files.filter((file) => normalizeWorkspacePath(file.path).startsWith(`${normalizedPath}/`))
+        : [workspaceFileByPath(base, normalizedPath)].filter((file): file is WorkspaceFile => Boolean(file));
+      for (const file of targets) {
+        await workspaces.deleteFile(base.workspace.slug, file.path);
+      }
       await loadWorkspaces();
       setExpandedBaseId(base.workspace.id);
     } catch (err) {
@@ -653,21 +619,21 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
         <div className="mb-7 space-y-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h2 className="text-[20px] font-semibold leading-tight text-foreground">Shared Knowledge</h2>
-              <p className="mt-1 text-[13px] leading-snug text-text-muted">Workspace knowledge bases that agents can access during conversations.</p>
+              <h2 className="text-[20px] font-semibold leading-tight text-foreground">Workspaces</h2>
+              <p className="mt-1 text-[13px] leading-snug text-text-muted">Shared workspace files that agents can access during conversations.</p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <button type="button" onClick={() => void loadWorkspaces()} disabled={!workspaces || loading} aria-label="Refresh shared knowledge" className="flex h-9 w-9 items-center justify-center rounded-xl border border-border text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-50">
+              <button type="button" onClick={() => void loadWorkspaces()} disabled={!workspaces || loading} aria-label="Refresh workspaces" className="flex h-9 w-9 items-center justify-center rounded-xl border border-border text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-50">
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               </button>
               <button type="button" onClick={() => setCreateOpen(true)} disabled={!workspaces || loading} className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl bg-foreground px-4 text-sm font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-45">
-                <Plus className="h-4 w-4" /> New Knowledge Base
+                <Plus className="h-4 w-4" /> New Workspace
               </button>
             </div>
           </div>
           <label className="relative block">
             <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search knowledge bases..." className="h-10 w-full rounded-xl border border-border bg-surface-low/35 pl-10 pr-4 text-sm text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search workspaces..." className="h-10 w-full rounded-xl border border-border bg-surface-low/35 pl-10 pr-4 text-sm text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50" />
           </label>
           {error && (
             <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-[12px] text-destructive">
@@ -681,14 +647,14 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
           {!workspaces && (
             <div className="rounded-2xl border border-dashed border-border bg-surface-low/25 px-5 py-10 text-center">
               <HardDrive className="mx-auto mb-2 h-5 w-5 text-text-muted" />
-              <p className="text-[13px] font-semibold text-foreground">Shared knowledge is not connected.</p>
+              <p className="text-[13px] font-semibold text-foreground">Workspaces are not connected.</p>
               <p className="mt-1 text-[11px] text-text-muted">Sign in again if the workspace client is unavailable.</p>
             </div>
           )}
           {workspaces && loading && knowledgeBases.length === 0 && (
             <div className="rounded-2xl border border-border bg-surface-low/25 px-5 py-10 text-center">
               <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin text-text-muted" />
-              <p className="text-[13px] font-semibold text-foreground">Loading shared knowledge</p>
+              <p className="text-[13px] font-semibold text-foreground">Loading workspaces</p>
             </div>
           )}
           {workspaces && !loading && knowledgeBases.map((base) => (
@@ -697,24 +663,23 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
               base={base}
               agents={agents}
               agentById={agentById}
+              workspaces={workspaces}
               expanded={expandedBaseId === base.workspace.id}
               assignmentOpen={assignmentBaseId === base.workspace.id}
-              expandedFolders={expandedFolders}
               busy={busyBaseId === base.workspace.id}
               onToggle={() => setExpandedBaseId((current) => current === base.workspace.id ? null : base.workspace.id)}
               onToggleAssignment={() => setAssignmentBaseId((current) => current === base.workspace.id ? null : base.workspace.id)}
               onToggleAgent={(agentId) => void toggleAssignedAgent(base, agentId)}
-              onToggleFolder={toggleFolder}
               onEdit={() => setEditingBaseId(base.workspace.id)}
               onDeleteWorkspace={() => void deleteBase(base)}
-              onUpload={(file) => void uploadFile(base, file)}
-              onDeleteFile={(file) => void deleteFile(base, file)}
+              onUploadFile={(path, content) => uploadFileContent(base, path, content)}
+              onDeletePath={(path, options) => deleteFilePath(base, path, options)}
             />
           ))}
           {workspaces && !loading && knowledgeBases.length === 0 && (
             <div className="rounded-2xl border border-dashed border-border bg-surface-low/25 px-5 py-10 text-center">
               <HardDrive className="mx-auto mb-2 h-5 w-5 text-text-muted" />
-              <p className="text-[13px] font-semibold text-foreground">No knowledge bases found.</p>
+              <p className="text-[13px] font-semibold text-foreground">No workspaces found.</p>
               <p className="mt-1 text-[11px] text-text-muted">Create one to start sharing files with agents.</p>
             </div>
           )}

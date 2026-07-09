@@ -95,6 +95,12 @@ export interface WorkspaceDownloadUrl {
   downloadCommand: string;
 }
 
+export interface WorkspaceFileBytes {
+  content: Uint8Array;
+  path: string;
+  name: string;
+}
+
 export interface WorkspaceSubjectOptions {
   /** @deprecated Workspaces identity is resolved from the bearer credential. */
   userId?: string;
@@ -421,6 +427,27 @@ export class WorkspacesAPI {
     return downloadUrlFromDict(data);
   }
 
+  async downloadFileBytes(
+    workspaceRef: string,
+    fileRef: string,
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<WorkspaceFileBytes> {
+    const descriptor = await this.downloadUrl(workspaceRef, fileRef, subject);
+    if (!descriptor.url) {
+      throw new Error('Workspace file download URL is unavailable.');
+    }
+    const response = await fetch(descriptor.url);
+    if (!response.ok) {
+      throw new Error(`Unable to fetch workspace file (${response.status}).`);
+    }
+    const path = descriptor.sourcePath || fileRef;
+    return {
+      content: new Uint8Array(await response.arrayBuffer()),
+      path,
+      name: fileNameFromPath(path),
+    };
+  }
+
   async deleteFile(workspaceRef: string, fileRef: string, subject: WorkspaceSubjectOptions = {}): Promise<void> {
     await this.request('DELETE', `/${workspaceRef}/files/${fileRef}`, subject);
   }
@@ -490,6 +517,11 @@ function projectionMarkdown(manifest: WorkspaceManifest, projection: Record<stri
 
 function normalizePosixPath(path: string): string {
   return path.trim().replace(/\\/g, '/').replace(/^\.\/+/, '');
+}
+
+function fileNameFromPath(path: string): string {
+  const normalized = normalizePosixPath(path).replace(/^\/+/, '').replace(/\/+$/, '');
+  return normalized.split('/').filter(Boolean).at(-1) || normalized || 'file';
 }
 
 function yamlScalar(value: unknown): string {
