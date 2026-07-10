@@ -11,6 +11,7 @@ env:
   BOOTSTRAP_REQUEST_BACKOFF_SECONDS: "5"
   SDK_INTEGRATION_RETRIES: "2"
   SDK_INTEGRATION_RETRY_DELAY_SECONDS: "20"
+  PYTHON_PIP_CONSTRAINT: "pip>=24.3.1,<26"
 
 jobs:
   ts-sdk-unit:
@@ -62,9 +63,10 @@ jobs:
 
       - name: Install Python SDK and CLI
         run: |
+          rm -rf .venv
           python -m venv .venv
           source .venv/bin/activate
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade "${PYTHON_PIP_CONSTRAINT}"
           python -m pip install -e "sdk[dev]" -e cli
 
       - name: Run Python SDK and CLI unit tests
@@ -124,10 +126,11 @@ jobs:
           else
             echo "BACKEND_API_KEY len=${#BACKEND_API_KEY} prefix_ok=$([[ ${BACKEND_API_KEY} == orchestra_dev_* ]] && echo yes || echo no) suffix=${BACKEND_API_KEY: -6}"
           fi
+          rm -rf .bootstrap-venv
           python3 -m venv .bootstrap-venv
           source .bootstrap-venv/bin/activate
-          python -m pip install --upgrade pip
-          python -m pip install requests
+          python -m pip install --upgrade "${PYTHON_PIP_CONSTRAINT}"
+          python -m pip install requests "PyYAML>=6,<7"
           for attempt in $(seq 1 "${SDK_INTEGRATION_RETRIES}"); do
             if python .github/scripts/bootstrap_dev_test_keys.py bootstrap --format github-env >> "$GITHUB_ENV"; then
               break
@@ -216,10 +219,11 @@ jobs:
           else
             echo "BACKEND_API_KEY len=${#BACKEND_API_KEY} prefix_ok=$([[ ${BACKEND_API_KEY} == orchestra_dev_* ]] && echo yes || echo no) suffix=${BACKEND_API_KEY: -6}"
           fi
+          rm -rf .bootstrap-venv
           python -m venv .bootstrap-venv
           source .bootstrap-venv/bin/activate
-          python -m pip install --upgrade pip
-          python -m pip install requests
+          python -m pip install --upgrade "${PYTHON_PIP_CONSTRAINT}"
+          python -m pip install requests "PyYAML>=6,<7"
           for attempt in $(seq 1 "${SDK_INTEGRATION_RETRIES}"); do
             if python .github/scripts/bootstrap_dev_test_keys.py bootstrap --format github-env >> "$GITHUB_ENV"; then
               break
@@ -233,9 +237,10 @@ jobs:
 
       - name: Install Python SDK
         run: |
+          rm -rf .venv
           python -m venv .venv
           source .venv/bin/activate
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade "${PYTHON_PIP_CONSTRAINT}"
           python -m pip install -e ".[dev]"
 
       - name: Run Python SDK integration tests
@@ -312,10 +317,11 @@ jobs:
           else
             echo "BACKEND_API_KEY len=${#BACKEND_API_KEY} prefix_ok=$([[ ${BACKEND_API_KEY} == orchestra_dev_* ]] && echo yes || echo no) suffix=${BACKEND_API_KEY: -6}"
           fi
+          rm -rf .bootstrap-venv
           python -m venv .bootstrap-venv
           source .bootstrap-venv/bin/activate
-          python -m pip install --upgrade pip
-          python -m pip install requests
+          python -m pip install --upgrade "${PYTHON_PIP_CONSTRAINT}"
+          python -m pip install requests "PyYAML>=6,<7"
           for attempt in $(seq 1 "${SDK_INTEGRATION_RETRIES}"); do
             if python .github/scripts/bootstrap_dev_test_keys.py bootstrap --format github-env >> "$GITHUB_ENV"; then
               break
@@ -329,9 +335,10 @@ jobs:
 
       - name: Install CLI
         run: |
+          rm -rf .venv
           python -m venv .venv
           source .venv/bin/activate
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade "${PYTHON_PIP_CONSTRAINT}"
           python -m pip install -e "../sdk[dev]" -e .
 
       - name: Run CLI dry-run integration tests
