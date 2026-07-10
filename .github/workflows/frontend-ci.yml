@@ -19,7 +19,12 @@ jobs:
     uses: ./.github/workflows/sdk-integration-tests.yml
     secrets: inherit
 
+  build-site-builder:
+    uses: ./.github/workflows/build-site-builder.yml
+    secrets: inherit
+
   publish-main:
+    needs: build-site-builder
     uses: ./.github/workflows/publish-sites.yml
     with:
       deploy_environment: ${{ github.ref_name == 'main' && 'feat' || 'dev' }}
@@ -27,6 +32,7 @@ jobs:
     secrets: inherit
 
   publish-console:
+    needs: build-site-builder
     uses: ./.github/workflows/publish-sites.yml
     with:
       deploy_environment: ${{ github.ref_name == 'main' && 'feat' || 'dev' }}
@@ -34,6 +40,7 @@ jobs:
     secrets: inherit
 
   publish-claw:
+    needs: build-site-builder
     uses: ./.github/workflows/publish-sites.yml
     with:
       deploy_environment: ${{ github.ref_name == 'main' && 'feat' || 'dev' }}

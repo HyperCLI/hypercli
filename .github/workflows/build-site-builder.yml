@@ -2,6 +2,7 @@ name: Build Site Builder
 run-name: Build Site Builder
 
 on:
+  workflow_call:
   workflow_dispatch:
 
 jobs:
