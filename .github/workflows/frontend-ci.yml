@@ -19,10 +19,25 @@ jobs:
     uses: ./.github/workflows/sdk-integration-tests.yml
     secrets: inherit
 
-  publish-sites:
+  publish-main:
     uses: ./.github/workflows/publish-sites.yml
     with:
       deploy_environment: ${{ github.ref_name == 'main' && 'feat' || 'dev' }}
+      site: main
+    secrets: inherit
+
+  publish-console:
+    uses: ./.github/workflows/publish-sites.yml
+    with:
+      deploy_environment: ${{ github.ref_name == 'main' && 'feat' || 'dev' }}
+      site: console
+    secrets: inherit
+
+  publish-claw:
+    uses: ./.github/workflows/publish-sites.yml
+    with:
+      deploy_environment: ${{ github.ref_name == 'main' && 'feat' || 'dev' }}
+      site: claw
     secrets: inherit
 
   e2e-console:

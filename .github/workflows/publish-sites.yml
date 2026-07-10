@@ -1,18 +1,23 @@
 name: Publish Sites
-run-name: Publish Sites
+run-name: Publish ${{ inputs.site }} Sites
 
 on:
   workflow_call:
     inputs:
       deploy_environment:
-        description: Netlify environment to publish after building all sites.
+        description: Netlify environment to publish.
         required: false
         type: string
         default: dev
+      site:
+        description: Site target to publish.
+        required: false
+        type: string
+        default: all
   workflow_dispatch:
     inputs:
       deploy_environment:
-        description: Netlify environment to publish after building all sites.
+        description: Netlify environment to publish.
         required: true
         type: choice
         options:
@@ -20,6 +25,16 @@ on:
           - feat
           - prod
         default: prod
+      site:
+        description: Site target to publish.
+        required: true
+        type: choice
+        options:
+          - all
+          - main
+          - console
+          - claw
+        default: all
 
 env:
   GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -30,21 +45,27 @@ env:
 jobs:
   publish:
     runs-on: self-hosted
+    env:
+      SITE_BUILDER_REGISTRY: ${{ secrets.SITE_BUILDER_REGISTRY }}
+      SITE_BUILDER_REGISTRY_USERNAME: ${{ secrets.SITE_BUILDER_REGISTRY_USERNAME }}
+      SITE_BUILDER_REGISTRY_PASSWORD: ${{ secrets.SITE_BUILDER_REGISTRY_PASSWORD }}
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v4
         with:
-          clean: false
+          clean: true
 
-      - name: Build site image
-        id: build_site
-        run: |
-          set -euo pipefail
-          IMAGE_TAG="${GITHUB_SHA}" .github/scripts/build_site_image.sh
+      - name: Log in to site builder registry
+        if: ${{ env.SITE_BUILDER_REGISTRY != '' && env.SITE_BUILDER_REGISTRY_USERNAME != '' && env.SITE_BUILDER_REGISTRY_PASSWORD != '' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.SITE_BUILDER_REGISTRY }}
+          username: ${{ env.SITE_BUILDER_REGISTRY_USERNAME }}
+          password: ${{ env.SITE_BUILDER_REGISTRY_PASSWORD }}
 
-      - name: Build and publish sites in container
+      - name: Build and publish site in container
         id: site_build
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
@@ -57,49 +78,79 @@ jobs:
           NETLIFY_MAIN_DEV_SITE_ID: ${{ secrets.NETLIFY_MAIN_DEV_SITE_ID }}
           NETLIFY_MAIN_FEAT_SITE_ID: ${{ secrets.NETLIFY_MAIN_FEAT_SITE_ID }}
           NETLIFY_MAIN_PROD_SITE_ID: ${{ secrets.NETLIFY_MAIN_PROD_SITE_ID }}
+          SITE_BUILDER_IMAGE: ${{ secrets.SITE_BUILDER_IMAGE }}
         run: |
           set -euo pipefail
+
+          require_value() {
+            local value="$1"
+            local name="$2"
+            if [ -z "${value}" ]; then
+              echo "${name} is required" >&2
+              exit 1
+            fi
+          }
 
           require_site_id() {
             local value="$1"
             local name="$2"
             if [ -z "${value}" ]; then
-              echo "${name} is required for deploy_environment=${deploy_env}" >&2
+              echo "${name} is required for deploy_environment=${deploy_env} site=${publish_site}" >&2
               exit 1
             fi
           }
 
+          target_line() {
+            local name="$1"
+            case "${name}" in
+              main)
+                require_site_id "${main_site_id}" "${main_site_id_name}"
+                printf '%s\n' "main|@hypercli/main|apps/main|.site-artifact/main|${main_site_id}"
+                ;;
+              console)
+                require_site_id "${console_site_id}" "${console_site_id_name}"
+                printf '%s\n' "console|@hypercli/console|apps/console|.site-artifact/console|${console_site_id}"
+                ;;
+              claw)
+                require_site_id "${claw_site_id}" "${claw_site_id_name}"
+                printf '%s\n' "claw|@hypercli/claw|apps/claw|.site-artifact/claw|${claw_site_id}"
+                ;;
+              *)
+                echo "Unknown site=${name}" >&2
+                exit 1
+                ;;
+            esac
+          }
+
           deploy_env="${{ inputs.deploy_environment }}"
+          publish_site="${{ inputs.site }}"
           case "${deploy_env}" in
             prod)
               env_file="site/env.prod"
-              require_site_id "${NETLIFY_MAIN_PROD_SITE_ID:-}" "NETLIFY_MAIN_PROD_SITE_ID"
-              require_site_id "${NETLIFY_CONSOLE_PROD_SITE_ID:-}" "NETLIFY_CONSOLE_PROD_SITE_ID"
-              require_site_id "${NETLIFY_CLAW_PROD_SITE_ID:-}" "NETLIFY_CLAW_PROD_SITE_ID"
-              site_targets="$(printf '%s\n' \
-                "main|@hypercli/main|apps/main|.site-artifact/main|${NETLIFY_MAIN_PROD_SITE_ID}" \
-                "console|@hypercli/console|apps/console|.site-artifact/console|${NETLIFY_CONSOLE_PROD_SITE_ID}" \
-                "claw|@hypercli/claw|apps/claw|.site-artifact/claw|${NETLIFY_CLAW_PROD_SITE_ID}")"
+              main_site_id="${NETLIFY_MAIN_PROD_SITE_ID:-}"
+              main_site_id_name="NETLIFY_MAIN_PROD_SITE_ID"
+              console_site_id="${NETLIFY_CONSOLE_PROD_SITE_ID:-}"
+              console_site_id_name="NETLIFY_CONSOLE_PROD_SITE_ID"
+              claw_site_id="${NETLIFY_CLAW_PROD_SITE_ID:-}"
+              claw_site_id_name="NETLIFY_CLAW_PROD_SITE_ID"
               ;;
             feat)
               env_file="site/env.feat"
-              require_site_id "${NETLIFY_MAIN_FEAT_SITE_ID:-}" "NETLIFY_MAIN_FEAT_SITE_ID"
-              require_site_id "${NETLIFY_CONSOLE_FEAT_SITE_ID:-}" "NETLIFY_CONSOLE_FEAT_SITE_ID"
-              require_site_id "${NETLIFY_CLAW_FEAT_SITE_ID:-}" "NETLIFY_CLAW_FEAT_SITE_ID"
-              site_targets="$(printf '%s\n' \
-                "main|@hypercli/main|apps/main|.site-artifact/main|${NETLIFY_MAIN_FEAT_SITE_ID}" \
-                "console|@hypercli/console|apps/console|.site-artifact/console|${NETLIFY_CONSOLE_FEAT_SITE_ID}" \
-                "claw|@hypercli/claw|apps/claw|.site-artifact/claw|${NETLIFY_CLAW_FEAT_SITE_ID}")"
+              main_site_id="${NETLIFY_MAIN_FEAT_SITE_ID:-}"
+              main_site_id_name="NETLIFY_MAIN_FEAT_SITE_ID"
+              console_site_id="${NETLIFY_CONSOLE_FEAT_SITE_ID:-}"
+              console_site_id_name="NETLIFY_CONSOLE_FEAT_SITE_ID"
+              claw_site_id="${NETLIFY_CLAW_FEAT_SITE_ID:-}"
+              claw_site_id_name="NETLIFY_CLAW_FEAT_SITE_ID"
               ;;
             dev)
               env_file="site/env.dev"
-              require_site_id "${NETLIFY_MAIN_DEV_SITE_ID:-}" "NETLIFY_MAIN_DEV_SITE_ID"
-              require_site_id "${NETLIFY_CONSOLE_DEV_SITE_ID:-}" "NETLIFY_CONSOLE_DEV_SITE_ID"
-              require_site_id "${NETLIFY_CLAW_DEV_SITE_ID:-}" "NETLIFY_CLAW_DEV_SITE_ID"
-              site_targets="$(printf '%s\n' \
-                "main|@hypercli/main|apps/main|.site-artifact/main|${NETLIFY_MAIN_DEV_SITE_ID}" \
-                "console|@hypercli/console|apps/console|.site-artifact/console|${NETLIFY_CONSOLE_DEV_SITE_ID}" \
-                "claw|@hypercli/claw|apps/claw|.site-artifact/claw|${NETLIFY_CLAW_DEV_SITE_ID}")"
+              main_site_id="${NETLIFY_MAIN_DEV_SITE_ID:-}"
+              main_site_id_name="NETLIFY_MAIN_DEV_SITE_ID"
+              console_site_id="${NETLIFY_CONSOLE_DEV_SITE_ID:-}"
+              console_site_id_name="NETLIFY_CONSOLE_DEV_SITE_ID"
+              claw_site_id="${NETLIFY_CLAW_DEV_SITE_ID:-}"
+              claw_site_id_name="NETLIFY_CLAW_DEV_SITE_ID"
               ;;
             *)
               echo "Unknown deploy_environment=${deploy_env}" >&2
@@ -107,41 +158,55 @@ jobs:
               ;;
           esac
 
-          if [ -z "${NETLIFY_AUTH_TOKEN:-}" ]; then
-            echo "NETLIFY_AUTH_TOKEN is required for Netlify deploy" >&2
-            exit 1
+          site_parallel=false
+          case "${publish_site}" in
+            all)
+              site_targets="$(printf '%s\n%s\n%s\n' "$(target_line main)" "$(target_line console)" "$(target_line claw)")"
+              site_parallel=true
+              ;;
+            main|console|claw)
+              site_targets="$(target_line "${publish_site}")"
+              ;;
+            *)
+              echo "Unknown site=${publish_site}" >&2
+              exit 1
+              ;;
+          esac
+
+          require_value "${NETLIFY_AUTH_TOKEN:-}" "NETLIFY_AUTH_TOKEN"
+
+          pull_image=1
+          if [ -z "${SITE_BUILDER_IMAGE:-}" ]; then
+            echo "::warning::SITE_BUILDER_IMAGE is not configured; building a local site builder image for this run"
+            SITE_BUILDER_IMAGE="hypercli-site-builder:${GITHUB_SHA}"
+            IMAGE_TAG="${GITHUB_SHA}" SITE_IMAGE="${SITE_BUILDER_IMAGE}" .github/scripts/build_site_image.sh
+            pull_image=0
           fi
 
-          SITE_IMAGE="${{ steps.build_site.outputs.site_image }}" \
+          SITE_IMAGE="${SITE_BUILDER_IMAGE}" \
+          PULL_IMAGE="${pull_image}" \
           SITE_ACTION=deploy \
-          SITE_PARALLEL=true \
+          SITE_PARALLEL="${site_parallel}" \
+          SITE_CLEAN=true \
           SITE_ENV_FILE="${env_file}" \
           SITE_TARGETS="${site_targets}" \
           NETLIFY_PROD=true \
-          NETLIFY_DEPLOY_MESSAGE="GitHub CI ${GITHUB_SHA} (${deploy_env})" \
+          NETLIFY_DEPLOY_MESSAGE="GitHub CI ${GITHUB_SHA} (${deploy_env}/${publish_site})" \
             .github/scripts/run_site_image.sh
 
       - name: Notify site build result
         if: always()
         continue-on-error: true
         env:
-          IMAGE_STATUS: ${{ steps.build_site.outcome }}
           BUILD_STATUS: ${{ steps.site_build.outcome }}
         run: |
-          status="${BUILD_STATUS}"
-          if [ "${IMAGE_STATUS}" != "success" ]; then
-            status="${IMAGE_STATUS}"
-          fi
-          if [ "${BUILD_STATUS}" = "skipped" ] && [ "${IMAGE_STATUS}" = "success" ]; then
-            status="failure"
-          fi
           python3 .github/scripts/ci_notify.py \
             --category frontend \
             --phase build \
-            --status "${status}" \
+            --status "${BUILD_STATUS}" \
             --event "${{ github.event_name }}" \
-            --message "Site container build and publish ${{ inputs.deploy_environment }} ${status}" \
-            --workflow "publish-sites" \
+            --message "Site build and publish ${{ inputs.deploy_environment }}/${{ inputs.site }} ${BUILD_STATUS}" \
+            --workflow "publish-${{ inputs.site }}" \
             --channel frontend \
             --run-url "${GITHUB_RUN_URL}"
 
@@ -156,7 +221,7 @@ jobs:
             --phase publish \
             --status "${PUBLISH_STATUS}" \
             --event "${{ github.event_name }}" \
-            --message "Site Netlify publish ${{ inputs.deploy_environment }} ${PUBLISH_STATUS}" \
-            --workflow "publish-sites" \
+            --message "Site Netlify publish ${{ inputs.deploy_environment }}/${{ inputs.site }} ${PUBLISH_STATUS}" \
+            --workflow "publish-${{ inputs.site }}" \
             --channel frontend \
             --run-url "${GITHUB_RUN_URL}"

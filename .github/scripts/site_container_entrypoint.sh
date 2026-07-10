@@ -2,11 +2,77 @@
 
 set -euo pipefail
 
-cd /workspace/site
+SITE_WORKSPACE="${SITE_WORKSPACE:-/workspace/site}"
+TS_SDK_WORKSPACE="${TS_SDK_WORKSPACE:-/workspace/ts-sdk}"
+SITE_SOURCE_DIR="${SITE_SOURCE_DIR:-/workspace/site-src}"
+TS_SDK_SOURCE_DIR="${TS_SDK_SOURCE_DIR:-/workspace/ts-sdk-src}"
 
 deploy_message="${NETLIFY_DEPLOY_MESSAGE:-CI deploy ${GITHUB_SHA:-local}}"
 default_site_targets=$'main|@hypercli/main|apps/main|.site-artifact/main|\nconsole|@hypercli/console|apps/console|.site-artifact/console|\nclaw|@hypercli/claw|apps/claw|.site-artifact/claw|'
 site_targets="${SITE_TARGETS:-${default_site_targets}}"
+
+copy_src() {
+  local src="$1"
+  local dest="$2"
+  rm -rf "${dest}"
+  mkdir -p "${dest}"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a \
+      --exclude 'node_modules' \
+      --exclude '.next' \
+      --exclude '.turbo' \
+      --exclude '.cache' \
+      --exclude '.netlify' \
+      --exclude 'dist' \
+      --exclude 'coverage' \
+      --exclude 'playwright-report' \
+      --exclude 'test-results' \
+      "${src}/" "${dest}/"
+  else
+    cp -a "${src}/." "${dest}/"
+    rm -rf \
+      "${dest}/node_modules" \
+      "${dest}/.next" \
+      "${dest}/.turbo" \
+      "${dest}/.cache" \
+      "${dest}/.netlify" \
+      "${dest}/dist" \
+      "${dest}/coverage" \
+      "${dest}/playwright-report" \
+      "${dest}/test-results"
+  fi
+}
+
+prepare_workspace() {
+  if [[ -d "${SITE_SOURCE_DIR}" ]]; then
+    copy_src "${SITE_SOURCE_DIR}" "${SITE_WORKSPACE}"
+  fi
+  if [[ -d "${TS_SDK_SOURCE_DIR}" ]]; then
+    copy_src "${TS_SDK_SOURCE_DIR}" "${TS_SDK_WORKSPACE}"
+  fi
+
+  if [[ "${SITE_CLEAN:-true}" == "true" || "${SITE_CLEAN:-true}" == "1" ]]; then
+    rm -rf \
+      "${SITE_WORKSPACE}/.site-artifact" \
+      "${SITE_WORKSPACE}/.turbo" \
+      "${SITE_WORKSPACE}/apps/main/.next" \
+      "${SITE_WORKSPACE}/apps/console/.next" \
+      "${SITE_WORKSPACE}/apps/claw/.next" \
+      "${TS_SDK_WORKSPACE}/dist"
+  fi
+
+  pushd "${TS_SDK_WORKSPACE}" >/dev/null
+  npm ci
+  npm run build
+  popd >/dev/null
+
+  pushd "${SITE_WORKSPACE}" >/dev/null
+  npm ci
+  popd >/dev/null
+}
+
+prepare_workspace
+cd "${SITE_WORKSPACE}"
 
 if [[ "${AGENTS_WS_URL:-}" == '$NEXT_PUBLIC_AGENTS_WS_URL' ]]; then
   export AGENTS_WS_URL="${NEXT_PUBLIC_AGENTS_WS_URL:-}"
