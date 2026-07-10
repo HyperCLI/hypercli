@@ -20,7 +20,12 @@ import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { ResourceImage } from "@/components/ResourceImage";
 import { createAgentClient } from "@/lib/agent-client";
 import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
-import { buildOpenClawLaunchOptions, buildOpenClawMemoryIndexEnv } from "@/lib/openclaw-launch";
+import {
+  buildOpenClawLaunchOptions,
+  buildOpenClawMemoryIndexEnv,
+  buildOpenClawWorkspacesSyncEnv,
+  type OpenClawWorkspacesSyncOptions,
+} from "@/lib/openclaw-launch";
 import { agentAvatar } from "@/lib/avatar";
 import { parseAgentCapacityError } from "@/lib/agent-tier";
 import type { WorkspaceFile } from "@/lib/openclaw-chat";
@@ -492,6 +497,13 @@ type MemoryIndexSettings = {
   intervalMinutes: number;
 };
 
+type WorkspacesSyncSettings = {
+  enabled: boolean;
+  readyOnly: boolean;
+  outputDir: string;
+  workspace: string;
+};
+
 const DEFAULT_MEMORY_INDEX_SETTINGS: MemoryIndexSettings = {
   enabled: true,
   onSessionStart: false,
@@ -499,6 +511,13 @@ const DEFAULT_MEMORY_INDEX_SETTINGS: MemoryIndexSettings = {
   watch: false,
   watchDebounceMs: 30000,
   intervalMinutes: 0,
+};
+
+const DEFAULT_WORKSPACES_SYNC_SETTINGS: WorkspacesSyncSettings = {
+  enabled: true,
+  readyOnly: true,
+  outputDir: "/home/node/workspaces",
+  workspace: "",
 };
 
 const SETTINGS_FIELD_CLASS =
@@ -550,9 +569,9 @@ const MANAGED_LAUNCH_ENV_KEYS = new Set([
 ]);
 
 const MANAGED_LAUNCH_ENV_PREFIXES = [
+  "HYPER_",
   "LAGOON_",
   "REEF_",
-  "HYPER_WORKSPACES_",
   "OPENCLAW_MEMORY_SEARCH_",
 ];
 
@@ -612,20 +631,41 @@ function buildUpdatedLaunchConfig(
   agent: Agent,
   image: string,
   additionalEnvText: string,
+  desktopEnabled: boolean,
+  workspacesSync: WorkspacesSyncSettings,
   memoryIndex: MemoryIndexSettings | null = null,
 ): Record<string, unknown> {
   const launchConfig = launchConfigFromAgent(agent);
   if (image) launchConfig.image = image;
+  const routes = isRecord(launchConfig.routes) ? { ...launchConfig.routes } : {};
+  if (!isRecord(routes.openclaw)) {
+    routes.openclaw = { port: 18789, auth: false, prefix: "" };
+  }
+  if (desktopEnabled) {
+    routes.desktop = isRecord(routes.desktop) ? routes.desktop : { port: 3000, auth: true, prefix: "desktop" };
+  } else {
+    delete routes.desktop;
+  }
+  launchConfig.routes = routes;
   const preservedEnv = Object.fromEntries(
     Object.entries(launchConfigEnv(agent)).filter(([key]) => isManagedLaunchEnvKey(key)),
   );
+  const workspaceOptions: OpenClawWorkspacesSyncOptions = {
+    enabled: workspacesSync.enabled,
+    outputDir: workspacesSync.outputDir,
+    readyOnly: workspacesSync.readyOnly,
+    workspace: workspacesSync.workspace.trim() || null,
+  };
   launchConfig.env = {
     ...preservedEnv,
+    OPENCLAW_DESKTOP_ENABLED: desktopEnabled ? "1" : "0",
+    ...buildOpenClawWorkspacesSyncEnv(workspaceOptions),
     // Keep the injected indexing envs in line with the saved toggles; the
     // container entrypoint re-applies them to openclaw.json on every boot.
     ...(memoryIndex ? buildOpenClawMemoryIndexEnv(memoryIndex) : {}),
     ...parseAdditionalEnvText(additionalEnvText),
   };
+  launchConfig.workspacesSync = workspaceOptions;
   return launchConfig;
 }
 
@@ -635,6 +675,53 @@ function booleanFromConfig(value: unknown, fallback: boolean): boolean {
 
 function nonNegativeIntegerFromConfig(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : fallback;
+}
+
+function envBooleanFromString(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on", "enabled"].includes(normalized)) return true;
+  if (["0", "false", "no", "off", "disabled"].includes(normalized)) return false;
+  return fallback;
+}
+
+function getDesktopEnabled(agent: Agent | null): boolean {
+  const env = launchConfigEnv(agent);
+  if (env.OPENCLAW_DESKTOP_ENABLED !== undefined) {
+    return envBooleanFromString(env.OPENCLAW_DESKTOP_ENABLED, false);
+  }
+  const launchConfig = launchConfigFromAgent(agent);
+  const routes = isRecord(launchConfig.routes) ? launchConfig.routes : {};
+  return isRecord(routes.desktop) || Boolean(agent?.hasDesktop);
+}
+
+function getWorkspacesSyncSettings(agent: Agent | null): WorkspacesSyncSettings {
+  const launchConfig = launchConfigFromAgent(agent);
+  const launchWorkspaces = isRecord(launchConfig.workspacesSync) ? launchConfig.workspacesSync : {};
+  const env = launchConfigEnv(agent);
+  return {
+    enabled: booleanFromConfig(
+      launchWorkspaces.enabled,
+      envBooleanFromString(env.HYPER_WORKSPACES_BOOT_SYNC, DEFAULT_WORKSPACES_SYNC_SETTINGS.enabled),
+    ),
+    readyOnly: booleanFromConfig(
+      launchWorkspaces.readyOnly,
+      envBooleanFromString(env.HYPER_WORKSPACES_SYNC_READY_ONLY, DEFAULT_WORKSPACES_SYNC_SETTINGS.readyOnly),
+    ),
+    outputDir: typeof launchWorkspaces.outputDir === "string" && launchWorkspaces.outputDir.trim()
+      ? launchWorkspaces.outputDir
+      : env.HYPER_WORKSPACES_DIR || DEFAULT_WORKSPACES_SYNC_SETTINGS.outputDir,
+    workspace: typeof launchWorkspaces.workspace === "string"
+      ? launchWorkspaces.workspace
+      : env.HYPER_WORKSPACES_SYNC_WORKSPACE || DEFAULT_WORKSPACES_SYNC_SETTINGS.workspace,
+  };
+}
+
+function workspacesSyncSettingsEqual(left: WorkspacesSyncSettings, right: WorkspacesSyncSettings): boolean {
+  return left.enabled === right.enabled
+    && left.readyOnly === right.readyOnly
+    && left.outputDir === right.outputDir
+    && left.workspace === right.workspace;
 }
 
 function getMemoryIndexSettings(config: Record<string, unknown> | null | undefined): MemoryIndexSettings {
@@ -860,6 +947,10 @@ function AgentSectionSettingsContent({
   onAgentImageChange,
   additionalEnvDraft,
   onAdditionalEnvChange,
+  desktopEnabled,
+  onDesktopEnabledChange,
+  workspacesSync,
+  onWorkspacesSyncChange,
   modelDraft,
   modelOptions,
   modelSelectionDisabled,
@@ -889,6 +980,10 @@ function AgentSectionSettingsContent({
   onAgentImageChange: (value: string) => void;
   additionalEnvDraft: string;
   onAdditionalEnvChange: (value: string) => void;
+  desktopEnabled: boolean;
+  onDesktopEnabledChange: (value: boolean) => void;
+  workspacesSync: WorkspacesSyncSettings;
+  onWorkspacesSyncChange: (settings: WorkspacesSyncSettings) => void;
   modelDraft: string;
   modelOptions: OpenClawModelOption[];
   modelSelectionDisabled?: boolean;
@@ -1052,6 +1147,58 @@ function AgentSectionSettingsContent({
               aria-label="Agent Docker image"
               className={SETTINGS_FIELD_CLASS}
             />
+          </AgentProfileSettingsRow>
+
+          <AgentProfileSettingsRow label="Desktop" description="Expose the protected browser desktop route when the agent starts.">
+            <label className="flex h-9 items-center gap-2 text-sm font-medium text-foreground">
+              <input
+                type="checkbox"
+                checked={desktopEnabled}
+                onChange={(event) => onDesktopEnabledChange(event.target.checked)}
+                className={SETTINGS_CHECKBOX_CLASS}
+              />
+              Enable desktop route
+            </label>
+          </AgentProfileSettingsRow>
+
+          <AgentProfileSettingsRow label="Workspaces" description="Sync shared Workspaces Markdown before OpenClaw starts.">
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="flex h-9 items-center gap-2 text-sm font-medium text-foreground">
+                <input
+                  type="checkbox"
+                  checked={workspacesSync.enabled}
+                  onChange={(event) => onWorkspacesSyncChange({ ...workspacesSync, enabled: event.target.checked })}
+                  className={SETTINGS_CHECKBOX_CLASS}
+                />
+                Boot sync
+              </label>
+              <label className="flex h-9 items-center gap-2 text-sm font-medium text-foreground">
+                <input
+                  type="checkbox"
+                  checked={workspacesSync.readyOnly}
+                  onChange={(event) => onWorkspacesSyncChange({ ...workspacesSync, readyOnly: event.target.checked })}
+                  disabled={!workspacesSync.enabled}
+                  className={SETTINGS_CHECKBOX_CLASS}
+                />
+                Ready files only
+              </label>
+              <input
+                value={workspacesSync.outputDir}
+                onChange={(event) => onWorkspacesSyncChange({ ...workspacesSync, outputDir: event.target.value })}
+                disabled={!workspacesSync.enabled}
+                placeholder="/home/node/workspaces"
+                aria-label="Workspaces sync directory"
+                className={SETTINGS_FIELD_CLASS}
+              />
+              <input
+                value={workspacesSync.workspace}
+                onChange={(event) => onWorkspacesSyncChange({ ...workspacesSync, workspace: event.target.value })}
+                disabled={!workspacesSync.enabled}
+                placeholder="All accessible workspaces"
+                aria-label="Workspaces sync workspace"
+                className={SETTINGS_FIELD_CLASS}
+              />
+            </div>
           </AgentProfileSettingsRow>
 
           <AgentProfileSettingsRow label="Additional env" description="Extra runtime variables, one KEY=value per line.">
@@ -1396,6 +1543,10 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const [agentImageDraft, setAgentImageDraft] = React.useState(() => launchConfigImage(agent));
   const [savedAdditionalEnvDraft, setSavedAdditionalEnvDraft] = React.useState(() => additionalEnvTextFromAgent(agent));
   const [additionalEnvDraft, setAdditionalEnvDraft] = React.useState(() => additionalEnvTextFromAgent(agent));
+  const [savedDesktopEnabled, setSavedDesktopEnabled] = React.useState(() => getDesktopEnabled(agent));
+  const [desktopEnabledDraft, setDesktopEnabledDraft] = React.useState(() => getDesktopEnabled(agent));
+  const [savedWorkspacesSyncDraft, setSavedWorkspacesSyncDraft] = React.useState(() => getWorkspacesSyncSettings(agent));
+  const [workspacesSyncDraft, setWorkspacesSyncDraft] = React.useState(() => getWorkspacesSyncSettings(agent));
   const [savedArchiveDraft, setSavedArchiveDraft] = React.useState("not-configured");
   const [archiveDraft, setArchiveDraft] = React.useState("not-configured");
   const [savedModelDraft, setSavedModelDraft] = React.useState(() => getOpenClawDefaultModel(openclawConfig));
@@ -1453,10 +1604,16 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     setAgentAvatarDraft(nextAvatar);
     const nextImage = launchConfigImage(agent);
     const nextAdditionalEnv = additionalEnvTextFromAgent(agent);
+    const nextDesktopEnabled = getDesktopEnabled(agent);
+    const nextWorkspacesSync = getWorkspacesSyncSettings(agent);
     setSavedAgentImage(nextImage);
     setAgentImageDraft(nextImage);
     setSavedAdditionalEnvDraft(nextAdditionalEnv);
     setAdditionalEnvDraft(nextAdditionalEnv);
+    setSavedDesktopEnabled(nextDesktopEnabled);
+    setDesktopEnabledDraft(nextDesktopEnabled);
+    setSavedWorkspacesSyncDraft(nextWorkspacesSync);
+    setWorkspacesSyncDraft(nextWorkspacesSync);
     setSavedArchiveDraft("not-configured");
     setArchiveDraft("not-configured");
     setAgentSettingsError(null);
@@ -1488,7 +1645,12 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
 
   const profileChanged = profileName !== savedProfileName;
   const agentProfileChanged = agentNameDraft !== savedAgentName || agentAvatarDraft !== savedAgentAvatar || archiveDraft !== savedArchiveDraft;
-  const agentLaunchChanged = agentImageDraft !== savedAgentImage || additionalEnvDraft !== savedAdditionalEnvDraft;
+  const desktopChanged = desktopEnabledDraft !== savedDesktopEnabled;
+  const workspacesSyncChanged = !workspacesSyncSettingsEqual(workspacesSyncDraft, savedWorkspacesSyncDraft);
+  const agentLaunchChanged = agentImageDraft !== savedAgentImage
+    || additionalEnvDraft !== savedAdditionalEnvDraft
+    || desktopChanged
+    || workspacesSyncChanged;
   const modelChanged = modelDraft !== savedModelDraft;
   const memoryIndexChanged = !memoryIndexSettingsEqual(memoryIndexDraft, savedMemoryIndexDraft);
   const agentChanged = agentProfileChanged || agentLaunchChanged || modelChanged || memoryIndexChanged;
@@ -1501,12 +1663,14 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     setAgentAvatarDraft(savedAgentAvatar);
     setAgentImageDraft(savedAgentImage);
     setAdditionalEnvDraft(savedAdditionalEnvDraft);
+    setDesktopEnabledDraft(savedDesktopEnabled);
+    setWorkspacesSyncDraft(savedWorkspacesSyncDraft);
     setArchiveDraft(savedArchiveDraft);
     setModelDraft(savedModelDraft);
     setMemoryIndexDraft(savedMemoryIndexDraft);
     setAgentSettingsError(null);
     setAgentSettingsSuccess(null);
-  }, [savedAdditionalEnvDraft, savedAgentAvatar, savedAgentImage, savedAgentName, savedArchiveDraft, savedMemoryIndexDraft, savedModelDraft, savedProfileAvatar, savedProfileName]);
+  }, [savedAdditionalEnvDraft, savedAgentAvatar, savedAgentImage, savedAgentName, savedArchiveDraft, savedDesktopEnabled, savedMemoryIndexDraft, savedModelDraft, savedProfileAvatar, savedProfileName, savedWorkspacesSyncDraft]);
 
   const saveProfileChanges = React.useCallback(async () => {
     setProfileError(null);
@@ -1589,17 +1753,21 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         setAgentSettingsSuccess("Agent settings updated.");
       }
 
-      if ((agentImageChanged || additionalEnvChanged || memoryIndexChanged) && onUpdateAgentLaunchConfig) {
+      if ((agentImageChanged || additionalEnvChanged || desktopChanged || workspacesSyncChanged || memoryIndexChanged) && onUpdateAgentLaunchConfig) {
         savingSection = "agent";
         await onUpdateAgentLaunchConfig(agent.id, buildUpdatedLaunchConfig(
           agent,
           nextAgentImage,
           additionalEnvDraft,
+          desktopEnabledDraft,
+          workspacesSyncDraft,
           memoryIndexChanged ? memoryIndexDraft : null,
         ));
         setAgentImageDraft(nextAgentImage);
         setSavedAgentImage(nextAgentImage);
         setSavedAdditionalEnvDraft(additionalEnvDraft);
+        setSavedDesktopEnabled(desktopEnabledDraft);
+        setSavedWorkspacesSyncDraft(workspacesSyncDraft);
         setAgentSettingsSuccess("Agent settings updated.");
       }
 
@@ -1638,6 +1806,8 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     agentNameDraft,
     agent,
     archiveDraft,
+    desktopChanged,
+    desktopEnabledDraft,
     getToken,
     hasSettingsChanges,
     memoryIndexChanged,
@@ -1653,9 +1823,13 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     savedAdditionalEnvDraft,
     savedAgentImage,
     savedAgentName,
+    savedDesktopEnabled,
     savedMemoryIndexDraft,
     savedModelDraft,
     savedProfileName,
+    savedWorkspacesSyncDraft,
+    workspacesSyncChanged,
+    workspacesSyncDraft,
   ]);
 
   const handleAvatarSelect = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1745,6 +1919,10 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             onAgentImageChange={setAgentImageDraft}
             additionalEnvDraft={additionalEnvDraft}
             onAdditionalEnvChange={setAdditionalEnvDraft}
+            desktopEnabled={desktopEnabledDraft}
+            onDesktopEnabledChange={setDesktopEnabledDraft}
+            workspacesSync={workspacesSyncDraft}
+            onWorkspacesSyncChange={setWorkspacesSyncDraft}
             modelDraft={modelDraft}
             modelOptions={modelOptions}
             modelSelectionDisabled={!onSaveOpenClawConfig}

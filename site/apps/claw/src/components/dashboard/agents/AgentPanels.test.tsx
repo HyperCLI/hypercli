@@ -81,6 +81,7 @@ const agent: Agent = {
     env: {
       OPENCLAW_GATEWAY_TOKEN: "gateway-token",
       OPENCLAW_DESKTOP_ENABLED: "0",
+      HYPER_API_BASE: "https://api.hypercli.com",
       HYPER_WORKSPACES_BOOT_SYNC: "1",
       HYPER_WORKSPACES_DIR: "/home/node/workspaces",
       HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
@@ -411,6 +412,7 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByRole("textbox", { name: "Agent Docker image" })).toHaveValue("ghcr.io/hypercli/hypercli-openclaw:prod");
     expect(screen.getByRole("textbox", { name: "Additional env" })).toHaveValue("FOO=bar");
     expect(screen.queryByDisplayValue(/OPENCLAW_GATEWAY_TOKEN/)).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue(/HYPER_API_BASE/)).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue(/HYPER_WORKSPACES_BOOT_SYNC/)).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue(/OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES/)).not.toBeInTheDocument();
 
@@ -428,6 +430,7 @@ describe("AgentSettingsPanel", () => {
         env: {
           OPENCLAW_GATEWAY_TOKEN: "gateway-token",
           OPENCLAW_DESKTOP_ENABLED: "0",
+          HYPER_API_BASE: "https://api.hypercli.com",
           HYPER_WORKSPACES_BOOT_SYNC: "1",
           HYPER_WORKSPACES_DIR: "/home/node/workspaces",
           HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
@@ -440,6 +443,12 @@ describe("AgentSettingsPanel", () => {
         },
         sync_root: "/home/node",
         sync_enabled: true,
+        workspacesSync: {
+          enabled: true,
+          outputDir: "/home/node/workspaces",
+          readyOnly: true,
+          workspace: null,
+        },
       });
     });
     expect(screen.getByText("Agent settings updated.")).toBeInTheDocument();
@@ -488,6 +497,44 @@ describe("AgentSettingsPanel", () => {
     expect(startButton).toBeDisabled();
     expect(startButton).toHaveTextContent("Start agent");
     expect(screen.queryByText("Starting...")).not.toBeInTheDocument();
+  });
+
+  it("saves desktop and workspace launch settings as managed config", async () => {
+    const onUpdateAgentLaunchConfig = vi.fn(async () => undefined);
+    renderAgentSettingsPanel({ onUpdateAgentLaunchConfig });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Enable desktop route" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Ready files only" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Workspaces sync directory" }), {
+      target: { value: "/home/node/TeamWorkspaces" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "Workspaces sync workspace" }), {
+      target: { value: "team-docs" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      expect(onUpdateAgentLaunchConfig).toHaveBeenCalledWith("agent-1", expect.objectContaining({
+        env: expect.objectContaining({
+          OPENCLAW_DESKTOP_ENABLED: "1",
+          HYPER_WORKSPACES_BOOT_SYNC: "1",
+          HYPER_WORKSPACES_DIR: "/home/node/TeamWorkspaces",
+          HYPER_WORKSPACES_SYNC_READY_ONLY: "0",
+          HYPER_WORKSPACES_SYNC_WORKSPACE: "team-docs",
+        }),
+        routes: expect.objectContaining({
+          openclaw: { port: 18789, auth: false, prefix: "" },
+          desktop: { port: 3000, auth: true, prefix: "desktop" },
+        }),
+        workspacesSync: {
+          enabled: true,
+          outputDir: "/home/node/TeamWorkspaces",
+          readyOnly: false,
+          workspace: "team-docs",
+        },
+      }));
+    });
   });
 
   it("renders usage when selected", () => {
@@ -540,6 +587,7 @@ describe("AgentSettingsPanel", () => {
       env: {
         OPENCLAW_GATEWAY_TOKEN: "gateway-token",
         OPENCLAW_DESKTOP_ENABLED: "0",
+        HYPER_API_BASE: "https://api.hypercli.com",
         HYPER_WORKSPACES_BOOT_SYNC: "1",
         HYPER_WORKSPACES_DIR: "/home/node/workspaces",
         HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
@@ -556,6 +604,12 @@ describe("AgentSettingsPanel", () => {
       },
       sync_root: "/home/node",
       sync_enabled: true,
+      workspacesSync: {
+        enabled: true,
+        outputDir: "/home/node/workspaces",
+        readyOnly: true,
+        workspace: null,
+      },
     });
   });
 
