@@ -21,7 +21,10 @@ from hypercli.agents import (
     OpenClawProAgent,
     ExecResult,
     _build_agent_launch,
+    agent_config_has_desktop,
     build_openclaw_routes,
+    flatten_launch_config,
+    launch_config_has_desktop,
 )
 from hypercli.http import APIError, HTTPClient
 
@@ -91,6 +94,42 @@ def test_agent_urls_and_running_state():
     assert agent.shell_url is None
     assert agent.executor_url is None
     assert agent.is_running is True
+
+
+def test_launch_config_desktop_detection_uses_explicit_config_not_pro_image():
+    assert launch_config_has_desktop({"env": {"OPENCLAW_DESKTOP_ENABLED": "1"}}) is True
+    assert launch_config_has_desktop({"routes": {"desktop": {"port": 3000, "auth": True, "prefix": "screen"}}}) is True
+    assert launch_config_has_desktop({"routes": {"browser": {"port": 3000, "auth": True, "prefix": "desktop"}}}) is True
+    assert launch_config_has_desktop({"ports": [{"port": 3000, "auth": True}]}) is True
+    assert launch_config_has_desktop({"image": DEFAULT_OPENCLAW_PRO_IMAGE}) is False
+    assert agent_config_has_desktop({"routes": {"desktop": {"port": 3000, "auth": True, "prefix": "desktop"}}}) is True
+
+
+def test_flatten_launch_config_and_agent_has_desktop():
+    launch_config = {
+        "env": {"OPENCLAW_DESKTOP_ENABLED": "0"},
+        "routes": {"openclaw": {"port": 18789, "prefix": ""}},
+        "ports": [{"port": 3000, "auth": True}],
+    }
+
+    assert flatten_launch_config(launch_config)["env.OPENCLAW_DESKTOP_ENABLED"] == "0"
+    assert flatten_launch_config(launch_config)["routes.openclaw.port"] == 18789
+    assert flatten_launch_config(launch_config)["ports[0].port"] == 3000
+
+    agent = Agent.from_dict(
+        {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "pod_id": "pod-789",
+            "pod_name": "test-pod",
+            "state": "running",
+            "hostname": "agent.hypercli.com",
+            "routes": {"desktop": {"port": 3000, "auth": True, "prefix": "screen"}},
+        }
+    )
+
+    assert agent.has_desktop is True
+    assert agent.desktop_url == "https://screen-agent.hypercli.com"
 
 
 def test_openclaw_agent_from_dict():

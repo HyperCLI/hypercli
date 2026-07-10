@@ -114,6 +114,15 @@ export interface AgentRouteConfig {
   [key: string]: any;
 }
 
+export type LaunchConfigFlatMap = Record<string, unknown>;
+
+export interface AgentDesktopConfigSource {
+  launchConfig?: unknown;
+  launch_config?: unknown;
+  routes?: unknown;
+  ports?: unknown;
+}
+
 export interface RegistryAuth {
   username?: string;
   password?: string;
@@ -604,11 +613,95 @@ function isTruthyEnv(value: unknown): boolean {
   return ['1', 'true', 'yes', 'on', 'enabled'].includes(String(value ?? '').trim().toLowerCase());
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function flattenConfigValue(value: unknown, prefix: string, out: LaunchConfigFlatMap): void {
+  if (!prefix) {
+    if (isPlainRecord(value)) {
+      for (const [key, child] of Object.entries(value)) {
+        flattenConfigValue(child, key, out);
+      }
+      return;
+    }
+    out[''] = value;
+    return;
+  }
+
+  out[prefix] = value;
+  if (Array.isArray(value)) {
+    value.forEach((child, index) => flattenConfigValue(child, `${prefix}[${index}]`, out));
+    return;
+  }
+  if (isPlainRecord(value)) {
+    for (const [key, child] of Object.entries(value)) {
+      flattenConfigValue(child, `${prefix}.${key}`, out);
+    }
+  }
+}
+
+export function flattenLaunchConfig(launchConfig: unknown): LaunchConfigFlatMap {
+  const flat: LaunchConfigFlatMap = {};
+  if (!isPlainRecord(launchConfig)) return flat;
+  flattenConfigValue(launchConfig, '', flat);
+  return flat;
+}
+
+function pathParts(path: string | Array<string | number>): Array<string | number> {
+  if (Array.isArray(path)) return path;
+  const parts: Array<string | number> = [];
+  for (const part of path.replace(/\[(\d+)\]/g, '.$1').split('.')) {
+    if (!part) continue;
+    parts.push(/^\d+$/.test(part) ? Number(part) : part);
+  }
+  return parts;
+}
+
+export function getLaunchConfigValue(launchConfig: unknown, path: string | Array<string | number>): unknown {
+  let current = launchConfig;
+  for (const part of pathParts(path)) {
+    if (typeof part === 'number') {
+      if (!Array.isArray(current)) return undefined;
+      current = current[part];
+      continue;
+    }
+    if (!isPlainRecord(current)) return undefined;
+    current = current[part];
+  }
+  return current;
+}
+
+export function routesHaveDesktop(routes: unknown): boolean {
+  if (!isPlainRecord(routes)) return false;
+  if (isPlainRecord(routes.desktop)) return true;
+  return Object.values(routes).some((route) => isPlainRecord(route) && route.prefix === 'desktop');
+}
+
+export function portsHaveDesktop(ports: unknown): boolean {
+  return Array.isArray(ports) && ports.some((port) => isPlainRecord(port) && Number(port.port) === 3000);
+}
+
+export function launchConfigHasDesktop(launchConfig: unknown): boolean {
+  if (!isPlainRecord(launchConfig)) return false;
+  if (isTruthyEnv(getLaunchConfigValue(launchConfig, 'env.OPENCLAW_DESKTOP_ENABLED'))) return true;
+  if (routesHaveDesktop(getLaunchConfigValue(launchConfig, 'routes'))) return true;
+  return portsHaveDesktop(getLaunchConfigValue(launchConfig, 'ports'));
+}
+
+export function agentConfigHasDesktop(source: AgentDesktopConfigSource | null | undefined): boolean {
+  if (!source) return false;
+  return (
+    launchConfigHasDesktop(source.launchConfig ?? source.launch_config) ||
+    routesHaveDesktop(source.routes) ||
+    portsHaveDesktop(source.ports)
+  );
+}
+
 function isOpenClawProHydrationData(data: AgentHydrationData): boolean {
   const launchConfig = data.launch_config;
   if (!launchConfig || typeof launchConfig !== 'object' || Array.isArray(launchConfig)) return false;
-  const env = launchConfig.env;
-  if (env && typeof env === 'object' && !Array.isArray(env) && isTruthyEnv((env as Record<string, unknown>).OPENCLAW_DESKTOP_ENABLED)) {
+  if (launchConfigHasDesktop(launchConfig)) {
     return true;
   }
   const image = String(launchConfig.image ?? '');
@@ -1034,6 +1127,14 @@ export class Agent {
 
   get isRunning(): boolean {
     return this.state.toLowerCase() === 'running';
+  }
+
+  get hasDesktop(): boolean {
+    return agentConfigHasDesktop({
+      launchConfig: this.launchConfig,
+      routes: this.routes,
+      ports: this.ports,
+    });
   }
 
   protected requireDeployments(): Deployments {

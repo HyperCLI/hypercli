@@ -566,6 +566,101 @@ def _truthy_env(value: object) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on", "enabled"}
 
 
+def _flatten_config_value(value: object, prefix: str, out: dict[str, Any]) -> None:
+    if not prefix:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                _flatten_config_value(child, str(key), out)
+            return
+        out[""] = value
+        return
+
+    out[prefix] = value
+    if isinstance(value, list):
+        for index, child in enumerate(value):
+            _flatten_config_value(child, f"{prefix}[{index}]", out)
+        return
+    if isinstance(value, dict):
+        for key, child in value.items():
+            _flatten_config_value(child, f"{prefix}.{key}", out)
+
+
+def flatten_launch_config(launch_config: object) -> dict[str, Any]:
+    flat: dict[str, Any] = {}
+    if not isinstance(launch_config, dict):
+        return flat
+    _flatten_config_value(launch_config, "", flat)
+    return flat
+
+
+def _path_parts(path: str | list[str | int] | tuple[str | int, ...]) -> list[str | int]:
+    if isinstance(path, (list, tuple)):
+        return list(path)
+    normalized = re.sub(r"\[(\d+)\]", r".\1", path)
+    parts: list[str | int] = []
+    for part in normalized.split("."):
+        if not part:
+            continue
+        parts.append(int(part) if part.isdigit() else part)
+    return parts
+
+
+def get_launch_config_value(launch_config: object, path: str | list[str | int] | tuple[str | int, ...]) -> Any:
+    current: Any = launch_config
+    for part in _path_parts(path):
+        if isinstance(part, int):
+            if not isinstance(current, list) or part >= len(current):
+                return None
+            current = current[part]
+            continue
+        if not isinstance(current, dict):
+            return None
+        current = current.get(part)
+    return current
+
+
+def routes_have_desktop(routes: object) -> bool:
+    if not isinstance(routes, dict):
+        return False
+    if isinstance(routes.get("desktop"), dict):
+        return True
+    return any(isinstance(route, dict) and route.get("prefix") == "desktop" for route in routes.values())
+
+
+def ports_have_desktop(ports: object) -> bool:
+    if not isinstance(ports, list):
+        return False
+    for port in ports:
+        if not isinstance(port, dict):
+            continue
+        try:
+            if int(port.get("port") or 0) == 3000:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
+def launch_config_has_desktop(launch_config: object) -> bool:
+    if not isinstance(launch_config, dict):
+        return False
+    if _truthy_env(get_launch_config_value(launch_config, "env.OPENCLAW_DESKTOP_ENABLED")):
+        return True
+    if routes_have_desktop(get_launch_config_value(launch_config, "routes")):
+        return True
+    return ports_have_desktop(get_launch_config_value(launch_config, "ports"))
+
+
+def agent_config_has_desktop(source: object) -> bool:
+    if not isinstance(source, dict):
+        return False
+    return (
+        launch_config_has_desktop(source.get("launch_config") or source.get("launchConfig"))
+        or routes_have_desktop(source.get("routes"))
+        or ports_have_desktop(source.get("ports"))
+    )
+
+
 def _parse_dt(val):
     if isinstance(val, str) and val:
         return datetime.fromisoformat(val.replace("Z", "+00:00"))
@@ -628,8 +723,7 @@ def _is_openclaw_pro_agent_data(data: dict) -> bool:
     launch_config = data.get("launch_config")
     if not isinstance(launch_config, dict):
         return False
-    env = launch_config.get("env")
-    if isinstance(env, dict) and _truthy_env(env.get("OPENCLAW_DESKTOP_ENABLED")):
+    if launch_config_has_desktop(launch_config):
         return True
     image = str(launch_config.get("image") or "")
     return "hypercli-openclaw:pro" in image or image.endswith("-pro")
@@ -710,6 +804,16 @@ class Agent:
     @property
     def is_running(self) -> bool:
         return self.state == "running"
+
+    @property
+    def has_desktop(self) -> bool:
+        return agent_config_has_desktop(
+            {
+                "launch_config": self.launch_config,
+                "routes": self.routes,
+                "ports": self.ports,
+            }
+        )
 
     def _require_deployments(self) -> "Deployments":
         if self._deployments is None:

@@ -11,6 +11,7 @@ import {
   FolderOpen,
   HardDrive,
   Loader2,
+  Monitor,
   MoreVertical,
   PanelLeft,
   PanelRight,
@@ -58,6 +59,7 @@ interface AgentWorkspaceSidebarProps {
   onOpenSkills: () => void;
   onOpenKnowledge?: () => void;
   onOpenScheduled: () => void;
+  onOpenDesktop?: (agent: Agent) => Promise<void> | void;
   onOpenLogs: () => void;
   onOpenShell: () => void;
   onOpenOpenClaw: () => void;
@@ -75,6 +77,7 @@ interface AgentWorkspaceSidebarProps {
   onSelectSession?: (sessionKey: string) => void;
   onRenameSession?: (sessionKey: string, title: string) => Promise<void> | void;
   onDeleteSession?: (sessionKey: string) => Promise<void> | void;
+  openingDesktop?: boolean;
 }
 
 type WorkspaceItem = {
@@ -565,6 +568,7 @@ export function AgentWorkspaceSidebar({
   onOpenSkills,
   onOpenKnowledge = () => undefined,
   onOpenScheduled,
+  onOpenDesktop,
   onOpenLogs,
   onOpenShell,
   onOpenOpenClaw,
@@ -582,6 +586,7 @@ export function AgentWorkspaceSidebar({
   onSelectSession,
   onRenameSession,
   onDeleteSession,
+  openingDesktop = false,
 }: AgentWorkspaceSidebarProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [recentOpen, setRecentOpen] = useState(true);
@@ -649,6 +654,18 @@ export function AgentWorkspaceSidebar({
             : onCreateSession
               ? undefined
               : "New sessions are unavailable.";
+  const showDesktop = Boolean(selectedAgent?.hasDesktop);
+  const openDesktopDisabledReason = disabled
+    ? disabledReason
+    : noSelectedAgent
+      ? emptyStateReason
+      : agentNotRunning
+        ? stoppedReason
+        : !selectedAgent?.hostname
+          ? "Desktop hostname is not ready."
+          : onOpenDesktop
+            ? undefined
+            : "Desktop is unavailable.";
   const createNewSession = async () => {
     if (newSessionDisabledReason || !onCreateSession) return;
     setCreatingSession(true);
@@ -686,6 +703,17 @@ export function AgentWorkspaceSidebar({
       onClick: onOpenScheduled,
       ...(scheduledDisabled ? { disabled: true, disabledReason: scheduledDisabledReason } : disabledItemProps),
     },
+    ...(showDesktop ? [{
+      id: "desktop",
+      label: openingDesktop ? "Opening Desktop" : "Desktop",
+      icon: openingDesktop ? Loader2 : Monitor,
+      busy: openingDesktop,
+      disabled: Boolean(openDesktopDisabledReason),
+      disabledReason: openDesktopDisabledReason,
+      onClick: () => {
+        if (selectedAgent && onOpenDesktop) void onOpenDesktop(selectedAgent);
+      },
+    } satisfies WorkspaceItem] : []),
     { id: "knowledge", label: "Workspaces", icon: HardDrive, active: activeTab === "knowledge" || knowledgeActive, onClick: onOpenKnowledge, ...disabledItemProps },
   ];
 
@@ -788,7 +816,7 @@ export function AgentWorkspaceSidebar({
       <div className={`flex-1 overflow-y-auto py-5 ${isCollapsed ? "px-1.5" : "px-3"}`}>
         {!isCollapsed && (
           <div className="mb-2 flex items-center justify-between gap-2 px-3">
-            <p className="text-xs text-text-muted">Workspace</p>
+            <p className="text-xs text-text-muted">Agent</p>
           </div>
         )}
         <nav className={`space-y-1 ${isCollapsed ? "flex flex-col items-center" : ""}`}>

@@ -46,6 +46,7 @@ function renderAgentWorkspaceSidebar(overrides: Partial<ComponentProps<typeof Ag
     onOpenSkills: vi.fn(),
     onOpenKnowledge: vi.fn(),
     onOpenScheduled: vi.fn(),
+    onOpenDesktop: vi.fn(),
     onOpenLogs: vi.fn(),
     onOpenShell: vi.fn(),
     onOpenOpenClaw: vi.fn(),
@@ -72,8 +73,29 @@ describe("AgentWorkspaceSidebar", () => {
   it("renders workspaces after scheduled in the workspace list", () => {
     renderAgentWorkspaceSidebar();
 
+    expect(screen.getByText("Agent")).toBeInTheDocument();
+    expect(screen.queryByText("Workspace")).not.toBeInTheDocument();
     const labels = screen.getAllByRole("button").map((button) => button.textContent ?? "");
     expect(labels.findIndex((label) => label.includes("Workspaces"))).toBeGreaterThan(labels.findIndex((label) => label.includes("Scheduled")));
+  });
+
+  it("shows and opens desktop only when the selected agent has desktop", () => {
+    const props = renderAgentWorkspaceSidebar({
+      selectedAgent: {
+        ...agent,
+        hasDesktop: true,
+        desktopUrl: "https://desktop-agent.example.com",
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Desktop" }));
+    expect(props.onOpenDesktop).toHaveBeenCalledWith(expect.objectContaining({ id: "agent-1", hasDesktop: true }));
+  });
+
+  it("hides desktop when the selected agent does not have desktop", () => {
+    renderAgentWorkspaceSidebar();
+
+    expect(screen.queryByRole("button", { name: "Desktop" })).not.toBeInTheDocument();
   });
 
   it("creates a session from the primary workspace action and highlights the selected session", async () => {
@@ -115,6 +137,7 @@ describe("AgentWorkspaceSidebar", () => {
         onOpenSkills={vi.fn()}
         onOpenKnowledge={vi.fn()}
         onOpenScheduled={vi.fn()}
+        onOpenDesktop={vi.fn()}
         onOpenLogs={vi.fn()}
         onOpenShell={vi.fn()}
         onOpenOpenClaw={vi.fn()}

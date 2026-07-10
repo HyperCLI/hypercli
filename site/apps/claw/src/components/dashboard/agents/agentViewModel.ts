@@ -29,12 +29,14 @@ export function toAgentViewModel(agent: SdkAgent): Agent {
     cpu_millicores: Math.round((agent.cpu || 0) * 1000),
     memory_mib: Math.round((agent.memory || 0) * 1024),
     hostname: agent.hostname ?? null,
+    desktopUrl: agent.desktopUrl,
     started_at: agent.startedAt?.toISOString() ?? null,
     stopped_at: agent.stoppedAt?.toISOString() ?? null,
     last_error: agent.lastError ?? null,
     created_at: agent.createdAt?.toISOString() ?? null,
     updated_at: agent.updatedAt?.toISOString() ?? null,
     launchConfig: agent.launchConfig ?? null,
+    hasDesktop: agent.hasDesktop,
     meta: agent.meta ?? null,
   };
 }

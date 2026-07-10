@@ -62,7 +62,7 @@ import type {
   HyperAgentSubscriptionSummary,
   HyperAgentTypeCatalog,
 } from "@hypercli.com/sdk/agent";
-import type { Agent, AgentBudget, AgentState } from "./types";
+import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentState } from "./types";
 import {
   describeAgentTierStartGuidance,
   describeAgentsPageError,
@@ -871,6 +871,7 @@ function AgentsPageContent() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [startingId, setStartingId] = useState<string | null>(null);
   const [stoppingId, setStoppingId] = useState<string | null>(null);
+  const [openingDesktopId, setOpeningDesktopId] = useState<string | null>(null);
   const [recentlyStoppedIds, setRecentlyStoppedIds] = useState<Set<string>>(new Set());
   const [pendingSlotReleases, setPendingSlotReleases] = useState<Record<string, number>>({});
   const stoppedTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -1094,6 +1095,37 @@ function AgentsPageContent() {
     if (deployments) return deployments;
     return createAgentClient(await getToken());
   }, [deployments, getToken]);
+
+  const handleOpenDesktop = useCallback(async (agent: Agent) => {
+    const desktopBaseUrl = agent.desktopUrl || (agent.hostname ? `https://desktop-${agent.hostname}` : "");
+    if (!desktopBaseUrl) {
+      setError("Desktop hostname is not ready.");
+      return;
+    }
+
+    const popup = window.open("about:blank", "_blank");
+    if (popup) popup.opener = null;
+    setOpeningDesktopId(agent.id);
+    setError(null);
+    try {
+      const tokenData = await (await getAgentClient()).refreshToken(agent.id) as AgentDesktopTokenResponse;
+      const token = tokenData.token?.trim();
+      if (!token) throw new Error("Desktop token was not returned.");
+      const desktopUrl = new URL("/_jwt_auth", desktopBaseUrl);
+      desktopUrl.searchParams.set("jwt", token);
+      if (popup) {
+        popup.location.href = desktopUrl.toString();
+      } else {
+        const fallback = window.open(desktopUrl.toString(), "_blank");
+        if (fallback) fallback.opener = null;
+      }
+    } catch (err) {
+      if (popup) popup.close();
+      setError(err instanceof Error ? err.message : "Failed to open desktop");
+    } finally {
+      setOpeningDesktopId(null);
+    }
+  }, [getAgentClient]);
 
   const refreshAgentsForChildren = useCallback(async () => {
     await fetchAgents();
@@ -3189,6 +3221,8 @@ function AgentsPageContent() {
                 onOpenSkills={openSkillsTab}
                 onOpenKnowledge={openKnowledgeTab}
                 onOpenScheduled={openScheduledTab}
+                onOpenDesktop={handleOpenDesktop}
+                openingDesktop={openingDesktopId === selectedAgent?.id}
                 onOpenLogs={openLogsTab}
                 onOpenShell={openShellTab}
                 onOpenOpenClaw={openOpenClawSettings}
@@ -3262,6 +3296,8 @@ function AgentsPageContent() {
           onOpenSkills={openSkillsTab}
           onOpenKnowledge={openKnowledgeTab}
           onOpenScheduled={openScheduledTab}
+          onOpenDesktop={handleOpenDesktop}
+          openingDesktop={openingDesktopId === selectedAgent?.id}
           onOpenLogs={openLogsTab}
           onOpenShell={openShellTab}
           onOpenOpenClaw={openOpenClawSettings}

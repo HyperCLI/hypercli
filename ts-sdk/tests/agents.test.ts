@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildAgentConfig, Deployments, OpenClawAgent } from '../src/agents.js';
+import {
+  Agent,
+  agentConfigHasDesktop,
+  buildAgentConfig,
+  Deployments,
+  flattenLaunchConfig,
+  launchConfigHasDesktop,
+  OpenClawAgent,
+} from '../src/agents.js';
 import { HTTPClient } from '../src/http.js';
 
 describe('Agents SDK', () => {
@@ -177,6 +185,42 @@ describe('Agents SDK', () => {
         refresh_from_lagoon: true,
       },
     ]);
+  });
+
+  it('detects desktop from explicit launch config and hydrated routes only', () => {
+    expect(launchConfigHasDesktop({ env: { OPENCLAW_DESKTOP_ENABLED: '1' } })).toBe(true);
+    expect(launchConfigHasDesktop({ routes: { desktop: { port: 3000, auth: true, prefix: 'screen' } } })).toBe(true);
+    expect(launchConfigHasDesktop({ routes: { browser: { port: 3000, auth: true, prefix: 'desktop' } } })).toBe(true);
+    expect(launchConfigHasDesktop({ ports: [{ port: 3000, auth: true }] })).toBe(true);
+    expect(launchConfigHasDesktop({ image: 'ghcr.io/hypercli/hypercli-openclaw:pro-prod' })).toBe(false);
+    expect(agentConfigHasDesktop({ routes: { desktop: { port: 3000, auth: true, prefix: 'desktop' } } })).toBe(true);
+  });
+
+  it('flattens launch config and exposes desktop capability on agents', () => {
+    const launchConfig = {
+      env: { OPENCLAW_DESKTOP_ENABLED: '0' },
+      routes: { openclaw: { port: 18789, prefix: '' } },
+      ports: [{ port: 3000, auth: true }],
+    };
+
+    expect(flattenLaunchConfig(launchConfig)).toMatchObject({
+      'env.OPENCLAW_DESKTOP_ENABLED': '0',
+      'routes.openclaw.port': 18789,
+      'ports[0].port': 3000,
+    });
+
+    const agent = Agent.fromDict({
+      id: 'agent-123',
+      user_id: 'user-456',
+      pod_id: 'pod-789',
+      pod_name: 'pod-789',
+      state: 'running',
+      hostname: 'agent.hypercli.com',
+      routes: { desktop: { port: 3000, auth: true, prefix: 'screen' } },
+    });
+
+    expect(agent.hasDesktop).toBe(true);
+    expect(agent.desktopUrl).toBe('https://screen-agent.hypercli.com');
   });
 
   it('supports bound resize on hydrated agents', async () => {
