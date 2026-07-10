@@ -2,8 +2,7 @@ import type { OpenClawCreateAgentOptions, OpenClawStartAgentOptions } from "@hyp
 
 const OPENCLAW_IMAGE_ENV = "NEXT_PUBLIC_OPENCLAW_IMAGE";
 const OPENCLAW_PRO_IMAGE_ENV = "NEXT_PUBLIC_OPENCLAW_PRO_IMAGE";
-const HYPER_API_BASE_ENV = "NEXT_PUBLIC_HYPER_API_BASE";
-const LEGACY_API_BASE_ENV = "NEXT_PUBLIC_API_BASE_URL";
+const API_BASE_ENV = "NEXT_PUBLIC_API_BASE_URL";
 
 export type OpenClawMemoryIndexOptions = {
   enabled?: boolean | null;
@@ -47,9 +46,7 @@ function envValue(name: string): string | undefined {
       ? process.env.NEXT_PUBLIC_OPENCLAW_IMAGE?.trim()
       : name === OPENCLAW_PRO_IMAGE_ENV
         ? process.env.NEXT_PUBLIC_OPENCLAW_PRO_IMAGE?.trim()
-        : name === HYPER_API_BASE_ENV
-          ? process.env.NEXT_PUBLIC_HYPER_API_BASE?.trim()
-          : name === LEGACY_API_BASE_ENV
+        : name === API_BASE_ENV
             ? process.env.NEXT_PUBLIC_API_BASE_URL?.trim()
             : undefined;
   return value || undefined;
@@ -65,9 +62,7 @@ function stripApiSuffix(value: string): string {
 }
 
 function productApiBaseEnv(): string | undefined {
-  const configured = envValue(HYPER_API_BASE_ENV);
-  if (configured) return stripApiSuffix(configured);
-  const apiBase = envValue(LEGACY_API_BASE_ENV);
+  const apiBase = envValue(API_BASE_ENV);
   return apiBase ? stripApiSuffix(apiBase) : undefined;
 }
 
