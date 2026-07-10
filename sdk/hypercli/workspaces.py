@@ -75,6 +75,7 @@ def _request_bytes(
     user_id: str | None = None,
     agent_id: str | None = None,
     backend_api_key: str | None = None,
+    log_errors: bool = True,
     **kwargs,
 ) -> bytes:
     with httpx.Client(timeout=120) as client:
@@ -84,7 +85,7 @@ def _request_bytes(
             headers=_headers(api_key, user_id=user_id, agent_id=agent_id, backend_api_key=backend_api_key),
             **kwargs,
         )
-    return _handle_bytes_response(response)
+    return _handle_bytes_response(response, log_errors=log_errors)
 
 
 @dataclass
@@ -505,6 +506,7 @@ class WorkspacesAPI:
                     api_key=self.api_key,
                     user_id=user_id,
                     agent_id=agent_id,
+                    log_errors=not ready_only,
                     json={"workspace": workspace_ref, "path": markdown_file["path"], "index": 1},
                 ).decode("utf-8")
             except APIError as exc:

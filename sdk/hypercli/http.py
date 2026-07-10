@@ -104,7 +104,7 @@ def _handle_response(response: httpx.Response) -> Any:
     return response.json()
 
 
-def _handle_bytes_response(response: httpx.Response) -> bytes:
+def _handle_bytes_response(response: httpx.Response, *, log_errors: bool = True) -> bytes:
     """Handle API response and return raw bytes on success."""
     if response.status_code >= 400:
         try:
@@ -114,14 +114,15 @@ def _handle_bytes_response(response: httpx.Response) -> bytes:
         body = response.text or ""
         method = response.request.method if response.request else None
         url = str(response.request.url) if response.request else None
-        logger.error(
-            "HyperCLI API request failed: method=%s url=%s status=%s detail=%r body=%r",
-            method,
-            url,
-            response.status_code,
-            detail,
-            _truncate_for_log(body),
-        )
+        if log_errors:
+            logger.error(
+                "HyperCLI API request failed: method=%s url=%s status=%s detail=%r body=%r",
+                method,
+                url,
+                response.status_code,
+                detail,
+                _truncate_for_log(body),
+            )
         raise APIError(
             response.status_code,
             detail,
