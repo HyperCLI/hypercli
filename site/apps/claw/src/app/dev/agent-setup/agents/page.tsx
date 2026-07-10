@@ -996,7 +996,10 @@ export default function DevAgentSetupAgentsPage() {
     async (agentId: string, hostname: string): Promise<string> => {
       const authToken = await getToken();
       const tokenData = await createAgentClient(authToken).refreshToken(agentId) as AgentDesktopTokenResponse;
-      return `https://desktop-${hostname}/_jwt_auth?jwt=${encodeURIComponent(tokenData.token)}`;
+      const desktopUrl = new URL(`https://desktop-${hostname}/_jwt_auth`);
+      desktopUrl.searchParams.set("jwt", tokenData.token);
+      desktopUrl.searchParams.set("redirect", "vnc.html");
+      return desktopUrl.toString();
     },
     [getToken]
   );

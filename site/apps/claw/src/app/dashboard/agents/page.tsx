@@ -1113,6 +1113,7 @@ function AgentsPageContent() {
       if (!token) throw new Error("Desktop token was not returned.");
       const desktopUrl = new URL("/_jwt_auth", desktopBaseUrl);
       desktopUrl.searchParams.set("jwt", token);
+      desktopUrl.searchParams.set("redirect", "vnc.html");
       if (popup) {
         popup.location.href = desktopUrl.toString();
       } else {
