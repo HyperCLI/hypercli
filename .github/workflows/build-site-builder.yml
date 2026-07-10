@@ -1,0 +1,54 @@
+name: Build Site Builder
+run-name: Build Site Builder
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: self-hosted
+    env:
+      SITE_BUILDER_IMAGE: ${{ secrets.SITE_BUILDER_IMAGE }}
+      SITE_BUILDER_REGISTRY: ${{ secrets.SITE_BUILDER_REGISTRY }}
+      SITE_BUILDER_REGISTRY_USERNAME: ${{ secrets.SITE_BUILDER_REGISTRY_USERNAME }}
+      SITE_BUILDER_REGISTRY_PASSWORD: ${{ secrets.SITE_BUILDER_REGISTRY_PASSWORD }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Validate site builder secrets
+        run: |
+          set -euo pipefail
+
+          require_value() {
+            local value="$1"
+            local name="$2"
+            if [ -z "${value}" ]; then
+              echo "${name} is required" >&2
+              exit 1
+            fi
+          }
+
+          require_value "${SITE_BUILDER_IMAGE:-}" "SITE_BUILDER_IMAGE"
+          require_value "${SITE_BUILDER_REGISTRY:-}" "SITE_BUILDER_REGISTRY"
+          require_value "${SITE_BUILDER_REGISTRY_USERNAME:-}" "SITE_BUILDER_REGISTRY_USERNAME"
+          require_value "${SITE_BUILDER_REGISTRY_PASSWORD:-}" "SITE_BUILDER_REGISTRY_PASSWORD"
+
+      - name: Log in to site builder registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.SITE_BUILDER_REGISTRY }}
+          username: ${{ env.SITE_BUILDER_REGISTRY_USERNAME }}
+          password: ${{ env.SITE_BUILDER_REGISTRY_PASSWORD }}
+
+      - name: Build and push site builder image
+        run: |
+          set -euo pipefail
+          IMAGE_TAG="${GITHUB_SHA}" \
+          SITE_IMAGE="${SITE_BUILDER_IMAGE}" \
+          PUSH_IMAGE=1 \
+            .github/scripts/build_site_image.sh
