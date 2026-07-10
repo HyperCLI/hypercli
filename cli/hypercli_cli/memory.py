@@ -42,6 +42,13 @@ KEYWORD_STOPWORDS = {
 }
 
 
+def _memory_enrich_temperature(model: str) -> float:
+    normalized = model.lower()
+    if "kimi" in normalized or "moonshot" in normalized:
+        return 1.0
+    return 0.2
+
+
 def _split_csv(value: str | None) -> list[str] | None:
     if not value:
         return None
@@ -238,7 +245,7 @@ def enrich_text_metadata(
     response = client.chat.completions.create(
         model=resolved_model,
         stream=False,
-        temperature=0.2,
+        temperature=_memory_enrich_temperature(resolved_model),
         max_tokens=MEMORY_ENRICH_MAX_TOKENS,
         messages=[
             {
