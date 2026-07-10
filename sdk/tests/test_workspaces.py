@@ -327,7 +327,7 @@ def test_sync_manifest_writes_tomd_markdown(monkeypatch, tmp_path: Path):
     ]
 
 
-def test_sync_manifest_ready_only_skips_missing_projection(monkeypatch, tmp_path: Path):
+def test_sync_manifest_ready_only_skips_missing_markdown(monkeypatch, tmp_path: Path):
     calls = []
 
     def fake_request(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
@@ -352,7 +352,7 @@ def test_sync_manifest_ready_only_skips_missing_projection(monkeypatch, tmp_path
 
     def fake_request_bytes(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
         calls.append((method, url, kwargs.get("json"), agent_id))
-        raise APIError(404, "Workspace projection not found for projects/example/stale.pdf")
+        raise APIError(404, "Workspace Markdown not found for projects/example/stale.pdf")
 
     monkeypatch.setattr("hypercli.workspaces._request", fake_request)
     monkeypatch.setattr("hypercli.workspaces._request_bytes", fake_request_bytes)

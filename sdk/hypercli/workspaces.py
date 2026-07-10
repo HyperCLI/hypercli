@@ -508,7 +508,8 @@ class WorkspacesAPI:
                     json={"workspace": workspace_ref, "path": markdown_file["path"], "index": 1},
                 ).decode("utf-8")
             except APIError as exc:
-                if ready_only and exc.status_code == 404 and "projection not found" in str(exc.detail).lower():
+                detail = str(exc.detail).lower()
+                if ready_only and exc.status_code == 404 and "workspace markdown not found" in detail:
                     continue
                 raise
             with open(target, "w", encoding="utf-8") as handle:
