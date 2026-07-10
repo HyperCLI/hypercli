@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from hypercli.http import APIError
 from hypercli.workspaces import WorkspacesAPI, _derive_workspaces_base
 
 
@@ -321,6 +322,52 @@ def test_sync_manifest_writes_tomd_markdown(monkeypatch, tmp_path: Path):
             "POST",
             "http://workspaces.test/workspaces/tomd",
             {"workspace": "demo", "path": "projects/example/report.pdf", "index": 1},
+            "agent-1",
+        ),
+    ]
+
+
+def test_sync_manifest_ready_only_skips_missing_projection(monkeypatch, tmp_path: Path):
+    calls = []
+
+    def fake_request(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
+        calls.append((method, url, kwargs.get("json"), agent_id))
+        return {
+            "workspace_id": "workspace-1",
+            "workspace_name": "Demo Workspace",
+            "workspace_slug": "demo",
+            "snapshot_id": "snapshot-1",
+            "generated_at": "2026-07-08T00:00:00Z",
+            "base_path": "/home/node/workspaces/demo",
+            "markdown_files": [
+                {
+                    "file_id": "file-1",
+                    "path": "projects/example/stale.pdf",
+                    "version": 1,
+                    "part_count": 1,
+                    "state": "processed",
+                }
+            ],
+        }
+
+    def fake_request_bytes(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
+        calls.append((method, url, kwargs.get("json"), agent_id))
+        raise APIError(404, "Workspace projection not found for projects/example/stale.pdf")
+
+    monkeypatch.setattr("hypercli.workspaces._request", fake_request)
+    monkeypatch.setattr("hypercli.workspaces._request_bytes", fake_request_bytes)
+    api = WorkspacesAPI("key", api_base="http://workspaces.test/workspaces")
+
+    written = api.sync_manifest("demo", str(tmp_path), agent_id="agent-1", ready_only=True)
+
+    assert written == []
+    assert not (tmp_path / "demo" / "projects" / "example" / "stale.pdf.md").exists()
+    assert calls == [
+        ("GET", "http://workspaces.test/workspaces/demo/manifest", None, "agent-1"),
+        (
+            "POST",
+            "http://workspaces.test/workspaces/tomd",
+            {"workspace": "demo", "path": "projects/example/stale.pdf", "index": 1},
             "agent-1",
         ),
     ]

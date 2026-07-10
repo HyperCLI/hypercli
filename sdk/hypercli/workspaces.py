@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from .config import get_agents_api_base_url, get_config_value
-from .http import _handle_bytes_response, _handle_response
+from .http import APIError, _handle_bytes_response, _handle_response
 
 
 def _derive_workspaces_base(agents_api_base: str | None = None) -> str:
@@ -498,14 +498,19 @@ class WorkspacesAPI:
             if not target.startswith(root_abs + os.sep):
                 raise ValueError(f"Unsafe markdown path: {markdown_path}")
             os.makedirs(os.path.dirname(target), exist_ok=True)
-            body = _request_bytes(
-                "POST",
-                f"{self.api_base}/tomd",
-                api_key=self.api_key,
-                user_id=user_id,
-                agent_id=agent_id,
-                json={"workspace": workspace_ref, "path": markdown_file["path"], "index": 1},
-            ).decode("utf-8")
+            try:
+                body = _request_bytes(
+                    "POST",
+                    f"{self.api_base}/tomd",
+                    api_key=self.api_key,
+                    user_id=user_id,
+                    agent_id=agent_id,
+                    json={"workspace": workspace_ref, "path": markdown_file["path"], "index": 1},
+                ).decode("utf-8")
+            except APIError as exc:
+                if ready_only and exc.status_code == 404 and "projection not found" in str(exc.detail).lower():
+                    continue
+                raise
             with open(target, "w", encoding="utf-8") as handle:
                 handle.write(body)
             written.append(target)
