@@ -190,7 +190,7 @@ jobs:
           require_value "${NETLIFY_AUTH_TOKEN:-}" "NETLIFY_AUTH_TOKEN"
           require_value "${SITE_BUILDER_IMAGE:-}" "SITE_BUILDER_IMAGE"
 
-          SITE_IMAGE="${SITE_BUILDER_IMAGE}" \
+          SITE_IMAGE="${SITE_BUILDER_IMAGE}:${GITHUB_SHA}" \
           PULL_IMAGE=1 \
           SITE_ACTION=deploy \
           SITE_PARALLEL="${site_parallel}" \
