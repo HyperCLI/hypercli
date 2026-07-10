@@ -34,25 +34,24 @@ jobs:
         with:
           clean: true
 
-      - name: Validate site builder secrets
+      - name: Check site builder image config
+        id: site_builder_config
         run: |
           set -euo pipefail
 
-          require_value() {
-            local value="$1"
-            local name="$2"
-            if [ -z "${value}" ]; then
-              echo "${name} is required" >&2
-              exit 1
-            fi
-          }
+          if [ -z "${SITE_BUILDER_IMAGE:-}" ] \
+            || [ -z "${SITE_BUILDER_REGISTRY:-}" ] \
+            || [ -z "${SITE_BUILDER_REGISTRY_USERNAME:-}" ] \
+            || [ -z "${SITE_BUILDER_REGISTRY_PASSWORD:-}" ]; then
+            echo "::warning::Site builder image secrets are not fully configured; publish jobs will build a local builder image"
+            echo "configured=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
 
-          require_value "${SITE_BUILDER_IMAGE:-}" "SITE_BUILDER_IMAGE"
-          require_value "${SITE_BUILDER_REGISTRY:-}" "SITE_BUILDER_REGISTRY"
-          require_value "${SITE_BUILDER_REGISTRY_USERNAME:-}" "SITE_BUILDER_REGISTRY_USERNAME"
-          require_value "${SITE_BUILDER_REGISTRY_PASSWORD:-}" "SITE_BUILDER_REGISTRY_PASSWORD"
+          echo "configured=true" >> "${GITHUB_OUTPUT}"
 
       - name: Log in to site builder registry
+        if: ${{ steps.site_builder_config.outputs.configured == 'true' }}
         uses: docker/login-action@v3
         with:
           registry: ${{ env.SITE_BUILDER_REGISTRY }}
@@ -60,6 +59,7 @@ jobs:
           password: ${{ env.SITE_BUILDER_REGISTRY_PASSWORD }}
 
       - name: Build and push site builder image
+        if: ${{ steps.site_builder_config.outputs.configured == 'true' }}
         run: |
           set -euo pipefail
           IMAGE_TAG="${GITHUB_SHA}" \
