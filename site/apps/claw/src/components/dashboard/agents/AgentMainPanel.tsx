@@ -4,6 +4,7 @@ import React from "react";
 import { ArrowLeft, Gauge, PanelLeft, RefreshCw } from "lucide-react";
 
 import type { Agent } from "@/app/dashboard/agents/types";
+import { isAgentFailureState, isAgentTransitionalState } from "@/app/dashboard/agents/types";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import { agentAvatar } from "@/lib/avatar";
 import { ResourceImage } from "@/components/ResourceImage";
@@ -99,17 +100,28 @@ export function AgentMainPanel({
   onReconnect,
 }: AgentMainPanelProps) {
   const selectedAgentState = selectedAgent?.state ?? null;
-  const isProvisioning = selectedAgentState === "PENDING";
-  const isBooting = selectedAgentState === "STARTING";
-  const isStopping = selectedAgentState === "STOPPING";
-  const isLifecycleBusy = isProvisioning || isBooting || isStopping;
-  const isStartable = selectedAgentState === "STOPPED" || selectedAgentState === "FAILED";
+  const isLifecycleBusy = isAgentTransitionalState(selectedAgentState);
+  const isStartable = selectedAgentState === "STOPPED" || isAgentFailureState(selectedAgentState);
   const lifecycleAgentStatus: AgentStatusChipModel | null = (() => {
     if (!selectedAgent) return null;
     if (selectedAgent.state === "FAILED") {
       return {
         label: "Failed",
         detail: selectedAgent.last_error || "Needs attention before it can run.",
+        tone: "failed",
+      };
+    }
+    if (selectedAgent.state === "RESTORE_FAILED") {
+      return {
+        label: "Restore failed",
+        detail: selectedAgent.last_error || "File restore failed before the agent could boot.",
+        tone: "failed",
+      };
+    }
+    if (selectedAgent.state === "SYNC_FAILED") {
+      return {
+        label: "Sync failed",
+        detail: selectedAgent.last_error || "Workspace sync failed before the agent could boot.",
         tone: "failed",
       };
     }
@@ -124,6 +136,22 @@ export function AgentMainPanel({
       return {
         label: "Provisioning",
         detail: "Reserving compute and preparing the workspace.",
+        tone: "starting",
+        loading: true,
+      };
+    }
+    if (selectedAgent.state === "RESTORING") {
+      return {
+        label: "Restoring files",
+        detail: "Restoring the agent home directory before boot.",
+        tone: "starting",
+        loading: true,
+      };
+    }
+    if (selectedAgent.state === "SYNCING") {
+      return {
+        label: "Syncing workspaces",
+        detail: "Syncing shared workspace Markdown before boot.",
         tone: "starting",
         loading: true,
       };
@@ -164,9 +192,13 @@ export function AgentMainPanel({
     : null;
   const effectiveAgentStatus = agentStatus ?? lifecycleAgentStatus ?? connectionAgentStatus;
   const legacyConnectionStatus = activeConnectionStatus ?? null;
+  const isStartupState =
+    selectedAgentState === "PENDING" ||
+    selectedAgentState === "RESTORING" ||
+    selectedAgentState === "SYNCING" ||
+    selectedAgentState === "STARTING";
   const shouldShowStartupAnimation =
-    isProvisioning ||
-    isBooting ||
+    isStartupState ||
     (selectedAgentState === "RUNNING" && selectedAgent !== null && burstAgentId === selectedAgent.id);
   React.useEffect(() => {
     if (selectedAgent?.state !== "RUNNING" || burstAgentId !== selectedAgent.id) return;
@@ -226,7 +258,7 @@ export function AgentMainPanel({
       return panelContent;
     }
 
-    if (isStopping) {
+    if (selectedAgentState === "STOPPING") {
       return (
         <AgentLoadingState
           title="Stopping agent"
@@ -245,6 +277,18 @@ export function AgentMainPanel({
               detail: "Reserving compute and preparing the workspace.",
               stage: "runtime" as const,
             }
+          : activeAgent.state === "RESTORING"
+            ? {
+                title: "Restoring files",
+                detail: "Restoring the agent home directory before boot.",
+                stage: "runtime" as const,
+              }
+          : activeAgent.state === "SYNCING"
+            ? {
+                title: "Syncing workspaces",
+                detail: "Syncing shared workspace Markdown before boot.",
+                stage: "runtime" as const,
+              }
           : activeAgent.state === "STARTING"
             ? {
                 title: "Booting agent",

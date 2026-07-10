@@ -63,6 +63,7 @@ import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.c
 import type { WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
 import type { HyperAgentCurrentPlan, HyperAgentPlan, HyperAgentSubscriptionSummary, HyperAgentTypeCatalog } from "@hypercli.com/sdk/agent";
 import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentState } from "@/app/dashboard/agents/types";
+import { isAgentFailureState, isAgentTransitionalState } from "@/app/dashboard/agents/types";
 import {
   describeAgentTierStartGuidance,
   describeAgentsPageError,
@@ -455,7 +456,7 @@ export default function DevAgentSetupAgentsPage() {
     const prev = prevStatesRef.current;
     for (const agent of agents) {
       const prevState = prev.get(agent.id);
-      if (prevState && (prevState === "STARTING" || prevState === "PENDING") && agent.state === "RUNNING") {
+      if (prevState && isAgentTransitionalState(prevState) && agent.state === "RUNNING") {
         setBurstAgentId(agent.id);
       }
     }
@@ -479,10 +480,10 @@ export default function DevAgentSetupAgentsPage() {
     [selectedSdkAgent],
   );
   const selectedAgentState = selectedAgent?.state ?? null;
-  const isSelectedTransitioning = selectedAgent && ["PENDING", "STARTING", "STOPPING"].includes(selectedAgent.state);
+  const isSelectedTransitioning = selectedAgent && isAgentTransitionalState(selectedAgent.state);
   const isSelectedRunning = selectedAgent?.state === "RUNNING";
   useEffect(() => {
-    if (!selectedAgentId || !selectedAgentState || !["PENDING", "STARTING", "STOPPING"].includes(selectedAgentState)) {
+    if (!selectedAgentId || !selectedAgentState || !isAgentTransitionalState(selectedAgentState)) {
       return;
     }
 
@@ -495,7 +496,7 @@ export default function DevAgentSetupAgentsPage() {
 
   const selectedAgentStartGuidance = useMemo(
     () =>
-      selectedAgent && (selectedAgent.state === "STOPPED" || selectedAgent.state === "FAILED")
+      selectedAgent && (selectedAgent.state === "STOPPED" || isAgentFailureState(selectedAgent.state))
         ? describeAgentTierStartGuidance(selectedAgent, budget)
         : null,
     [selectedAgent, budget],

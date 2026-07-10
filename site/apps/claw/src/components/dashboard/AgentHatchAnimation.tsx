@@ -4,7 +4,7 @@ import { useId } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AgentLifecycleSteps } from "@/components/dashboard/AgentLifecycleSteps";
 
-type HatchState = "PENDING" | "STARTING" | "RUNNING";
+type HatchState = "PENDING" | "RESTORING" | "SYNCING" | "STARTING" | "RUNNING";
 
 interface AgentHatchAnimationProps {
   state: HatchState;
@@ -16,6 +16,14 @@ const STATUS_TEXT: Record<HatchState, { title: string; detail: string }> = {
   PENDING: {
     title: "Provisioning runtime",
     detail: "Reserving compute and preparing the workspace.",
+  },
+  RESTORING: {
+    title: "Restoring files",
+    detail: "Restoring the agent home directory.",
+  },
+  SYNCING: {
+    title: "Syncing workspaces",
+    detail: "Syncing shared workspace Markdown.",
   },
   STARTING: {
     title: "Booting agent",
@@ -38,11 +46,11 @@ const STATUS_TEXT: Record<HatchState, { title: string; detail: string }> = {
 export function AgentHatchAnimation({ state, onBurstComplete }: AgentHatchAnimationProps) {
   const id = useId().replace(/:/g, "");
   const isPending = state === "PENDING";
-  const isStarting = state === "STARTING";
+  const isStarting = state === "RESTORING" || state === "SYNCING" || state === "STARTING";
   const isRunning = state === "RUNNING";
   const accent = isRunning ? "var(--selection-accent)" : "#f0c56c";
   const secondaryAccent = isRunning ? "var(--primary-hover)" : "#4ea7ff";
-  const lifecycleStage = state === "PENDING" ? "runtime" : state === "STARTING" ? "agent" : "complete";
+  const lifecycleStage = state === "PENDING" || state === "RESTORING" || state === "SYNCING" ? "runtime" : state === "STARTING" ? "agent" : "complete";
   const ringGradientId = `agent-hatch-ring-${id}`;
   const coreGradientId = `agent-hatch-core-${id}`;
   const glowColor = (opacity: number) => isRunning

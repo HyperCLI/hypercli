@@ -63,6 +63,7 @@ import type {
   HyperAgentTypeCatalog,
 } from "@hypercli.com/sdk/agent";
 import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentState } from "./types";
+import { isAgentFailureState, isAgentTransitionalState } from "./types";
 import {
   describeAgentTierStartGuidance,
   describeAgentsPageError,
@@ -1337,7 +1338,7 @@ function AgentsPageContent() {
     const prev = prevStatesRef.current;
     for (const agent of agents) {
       const prevState = prev.get(agent.id);
-      if (prevState && (prevState === "STARTING" || prevState === "PENDING") && agent.state === "RUNNING") {
+      if (prevState && isAgentTransitionalState(prevState) && agent.state === "RUNNING") {
         setBurstAgentId(agent.id);
       }
     }
@@ -1361,7 +1362,7 @@ function AgentsPageContent() {
     [selectedSdkAgent],
   );
   const selectedAgentState = selectedAgent?.state ?? null;
-  const isSelectedTransitioning = selectedAgent && ["PENDING", "STARTING", "STOPPING"].includes(selectedAgent.state);
+  const isSelectedTransitioning = selectedAgent && isAgentTransitionalState(selectedAgent.state);
   const isSelectedRunning = selectedAgent?.state === "RUNNING";
   const filesDefaultSource: AgentFilesPanelSource = isSelectedRunning ? "agent" : "backup";
   const filesSourceDisabledReasons = useMemo<Partial<Record<AgentFilesPanelSource, string>>>(() => {
@@ -1378,7 +1379,7 @@ function AgentsPageContent() {
     return reasons;
   }, [isSelectedRunning, selectedAgentId, selectedOpenClawAgent]);
   useEffect(() => {
-    if (!selectedAgentId || !selectedAgentState || !["PENDING", "STARTING", "STOPPING"].includes(selectedAgentState)) {
+    if (!selectedAgentId || !selectedAgentState || !isAgentTransitionalState(selectedAgentState)) {
       return;
     }
 
@@ -1414,7 +1415,7 @@ function AgentsPageContent() {
 
   const selectedAgentStartGuidance = useMemo(
     () =>
-      selectedAgent && (selectedAgent.state === "STOPPED" || selectedAgent.state === "FAILED")
+      selectedAgent && (selectedAgent.state === "STOPPED" || isAgentFailureState(selectedAgent.state))
         ? describeAgentTierStartGuidance(selectedAgent, budget)
         : null,
     [selectedAgent, budget],
@@ -1744,6 +1745,22 @@ function AgentsPageContent() {
       };
     }
 
+    if (selectedAgent.state === "RESTORE_FAILED") {
+      return {
+        label: "Restore failed",
+        detail: selectedAgent.last_error || "File restore failed before the agent could boot.",
+        tone: "failed",
+      };
+    }
+
+    if (selectedAgent.state === "SYNC_FAILED") {
+      return {
+        label: "Sync failed",
+        detail: selectedAgent.last_error || "Workspace sync failed before the agent could boot.",
+        tone: "failed",
+      };
+    }
+
     if (selectedAgent.state === "STOPPED") {
       return {
         label: "Stopped",
@@ -1756,6 +1773,24 @@ function AgentsPageContent() {
       return {
         label: "Provisioning",
         detail: "Reserving compute and preparing the workspace.",
+        tone: "starting",
+        loading: true,
+      };
+    }
+
+    if (selectedAgent.state === "RESTORING") {
+      return {
+        label: "Restoring files",
+        detail: "Restoring the agent home directory before boot.",
+        tone: "starting",
+        loading: true,
+      };
+    }
+
+    if (selectedAgent.state === "SYNCING") {
+      return {
+        label: "Syncing workspaces",
+        detail: "Syncing shared workspace Markdown before boot.",
         tone: "starting",
         loading: true,
       };

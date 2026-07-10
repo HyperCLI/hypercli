@@ -1825,7 +1825,7 @@ class Deployments:
             last_state = str(agent.state or "")
             if last_state.lower() == "running":
                 return agent
-            if last_state.lower() in {"failed", "error"}:
+            if last_state.lower() in {"failed", "error", "restore_failed", "sync_failed"}:
                 raise RuntimeError(f"Agent entered {last_state} while waiting for RUNNING")
             time.sleep(poll_interval)
         raise TimeoutError(f"Timed out waiting for agent {agent_id} to reach RUNNING (last={last_state})")

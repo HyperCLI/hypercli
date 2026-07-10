@@ -56,8 +56,8 @@ function normalizeState(state: string | null | undefined): string {
 
 function stateDotClass(state: string): string {
   if (state === "RUNNING") return "bg-primary";
-  if (state === "FAILED") return "bg-destructive";
-  if (state === "PENDING" || state === "STARTING" || state === "STOPPING") return "bg-warning";
+  if (state === "FAILED" || state === "RESTORE_FAILED" || state === "SYNC_FAILED") return "bg-destructive";
+  if (state === "PENDING" || state === "RESTORING" || state === "SYNCING" || state === "STARTING" || state === "STOPPING") return "bg-warning";
   return "bg-text-muted";
 }
 

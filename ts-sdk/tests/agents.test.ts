@@ -71,6 +71,39 @@ describe('Agents SDK', () => {
     expect(agent.tags).toEqual(['team=dev']);
   });
 
+  it('hydrates granular restore and workspace sync states', async () => {
+    const http = {
+      get: vi.fn().mockResolvedValue({
+        id: 'agent-123',
+        user_id: 'user-456',
+        pod_id: 'pod-789',
+        pod_name: 'pod-789',
+        state: 'SYNCING',
+      }),
+    } as unknown as HTTPClient;
+
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+    const agent = await deployments.get('agent-123');
+
+    expect(agent.state).toBe('SYNCING');
+  });
+
+  it('fails waitRunning on granular init failure states', async () => {
+    const http = {
+      get: vi.fn().mockResolvedValue({
+        id: 'agent-123',
+        user_id: 'user-456',
+        pod_id: 'pod-789',
+        pod_name: 'pod-789',
+        state: 'SYNC_FAILED',
+      }),
+    } as unknown as HTTPClient;
+
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+
+    await expect(deployments.waitRunning('agent-123', 100, 0)).rejects.toThrow('SYNC_FAILED');
+  });
+
   it('hydrates only meta.ui on agent responses', async () => {
     const http = {
       get: vi.fn().mockResolvedValue({

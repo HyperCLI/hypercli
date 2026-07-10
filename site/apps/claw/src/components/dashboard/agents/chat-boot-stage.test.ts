@@ -33,6 +33,54 @@ describe("getAgentChatBootStatus", () => {
     });
   });
 
+  it("shows restore and workspace sync phases before gateway readiness", () => {
+    expect(getAgentChatBootStatus({
+      ...baseInput,
+      agentState: "RESTORING",
+      gatewayConnected: true,
+      ready: true,
+      connected: true,
+    })).toMatchObject({
+      status: "loading",
+      phase: "restoring",
+      title: "Restoring files",
+      stage: "runtime",
+    });
+
+    expect(getAgentChatBootStatus({
+      ...baseInput,
+      agentState: "SYNCING",
+      gatewayConnected: true,
+      ready: true,
+      connected: true,
+    })).toMatchObject({
+      status: "loading",
+      phase: "syncing",
+      title: "Syncing workspaces",
+      stage: "runtime",
+    });
+  });
+
+  it("shows init-container failure states directly", () => {
+    expect(getAgentChatBootStatus({
+      ...baseInput,
+      agentState: "RESTORE_FAILED",
+      isSelectedRunning: false,
+    })).toMatchObject({
+      status: "error",
+      title: "Restore failed",
+    });
+
+    expect(getAgentChatBootStatus({
+      ...baseInput,
+      agentState: "SYNC_FAILED",
+      isSelectedRunning: false,
+    })).toMatchObject({
+      status: "error",
+      title: "Sync failed",
+    });
+  });
+
   it("moves connected transport into workspace hydration before chat is ready", () => {
     expect(getAgentChatBootStatus({
       ...baseInput,

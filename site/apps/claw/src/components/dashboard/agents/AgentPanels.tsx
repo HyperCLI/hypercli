@@ -9,6 +9,7 @@ import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.co
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 
 import type { Agent, JsonObject } from "@/app/dashboard/agents/types";
+import { isAgentFailureState, isAgentTransitionalState } from "@/app/dashboard/agents/types";
 import { AUTH_BASE_URL } from "@/lib/api";
 import { asObject, getOpenClawUiHint, humanizeKey } from "@/lib/openclaw-config";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@hypercli/shared-ui";
@@ -909,13 +910,17 @@ function AgentSectionSettingsContent({
 }) {
   const avatarInputRef = React.useRef<HTMLInputElement | null>(null);
   const agentAvatarUpdatesEnabled = false;
-  const canStartAgent = agent.state === "STOPPED" || agent.state === "FAILED";
+  const canStartAgent = agent.state === "STOPPED" || isAgentFailureState(agent.state);
   const canStopAgent = agent.state === "RUNNING";
-  const lifecycleBusy = Boolean(agentStarting || agentStopping || agent.state === "PENDING" || agent.state === "STARTING" || agent.state === "STOPPING");
+  const lifecycleBusy = Boolean(agentStarting || agentStopping || isAgentTransitionalState(agent.state));
   const lifecycleDescription = canStopAgent
     ? "Pause compute and disconnect the gateway"
     : canStartAgent
       ? (agentStartBlockedReason ?? "Start compute and reconnect the gateway")
+      : agent.state === "RESTORING"
+        ? "Agent is restoring files"
+      : agent.state === "SYNCING"
+        ? "Agent is syncing workspaces"
       : agent.state === "PENDING" || agent.state === "STARTING"
         ? "Agent is starting"
         : agent.state === "STOPPING"
@@ -950,7 +955,7 @@ function AgentSectionSettingsContent({
               title={agentStartBlockedReason ?? undefined}
               className="inline-flex h-8 shrink-0 items-center gap-2 rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.4)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-3 text-xs font-medium text-[var(--selection-accent)] transition-colors hover:bg-[rgb(var(--selection-accent-rgb)_/_0.15)] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {agentStarting || agent.state === "PENDING" || agent.state === "STARTING" ? "Starting..." : "Start agent"}
+              {agentStarting || isAgentTransitionalState(agent.state) ? "Starting..." : "Start agent"}
               <Play className="h-3.5 w-3.5 fill-current" />
             </button>
           )}

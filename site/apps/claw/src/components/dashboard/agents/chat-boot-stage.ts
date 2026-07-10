@@ -4,7 +4,7 @@ import type { AgentLifecycleStage } from "@/components/dashboard/AgentLifecycleS
 export type AgentChatBootStatus =
   | {
       status: "loading";
-      phase: "provisioning" | "booting" | "stopping" | "gateway" | "workspace";
+      phase: "provisioning" | "restoring" | "syncing" | "booting" | "stopping" | "gateway" | "workspace";
       title: string;
       detail: string;
       tone: "starting" | "connecting" | "loading";
@@ -24,10 +24,12 @@ export type AgentBootDisplayStatus = Extract<AgentChatBootStatus, { status: "loa
 
 const LOADING_PHASE_ORDER: Record<Extract<AgentChatBootStatus, { status: "loading" }>["phase"], number> = {
   provisioning: 0,
-  booting: 1,
-  gateway: 2,
-  workspace: 3,
-  stopping: 4,
+  restoring: 1,
+  syncing: 2,
+  booting: 3,
+  gateway: 4,
+  workspace: 5,
+  stopping: 6,
 };
 
 interface AgentChatBootStatusInput {
@@ -62,6 +64,28 @@ export function getAgentChatBootStatus({
     };
   }
 
+  if (agentState === "RESTORING") {
+    return {
+      status: "loading",
+      phase: "restoring",
+      title: "Restoring files",
+      detail: "Restoring the agent home directory before boot.",
+      tone: "starting",
+      stage: "runtime",
+    };
+  }
+
+  if (agentState === "SYNCING") {
+    return {
+      status: "loading",
+      phase: "syncing",
+      title: "Syncing workspaces",
+      detail: "Syncing shared workspace Markdown before boot.",
+      tone: "starting",
+      stage: "runtime",
+    };
+  }
+
   if (agentState === "STARTING") {
     return {
       status: "loading",
@@ -70,6 +94,26 @@ export function getAgentChatBootStatus({
       detail: "Starting the container and OpenClaw services.",
       tone: "starting",
       stage: "agent",
+    };
+  }
+
+  if (agentState === "RESTORE_FAILED") {
+    return {
+      status: "error",
+      phase: "error",
+      title: "Restore failed",
+      detail: "File restore failed before the agent could boot.",
+      stage: "runtime",
+    };
+  }
+
+  if (agentState === "SYNC_FAILED") {
+    return {
+      status: "error",
+      phase: "error",
+      title: "Sync failed",
+      detail: "Workspace sync failed before the agent could boot.",
+      stage: "runtime",
     };
   }
 

@@ -12,7 +12,7 @@ import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import { formatCpu, formatMemory, formatTokens } from "@/lib/format";
 import { ResourceImage } from "@/components/ResourceImage";
 
-type AgentState = "PENDING" | "STARTING" | "RUNNING" | "STOPPING" | "STOPPED" | "FAILED";
+type AgentState = "PENDING" | "RESTORING" | "RESTORE_FAILED" | "SYNCING" | "SYNC_FAILED" | "STARTING" | "RUNNING" | "STOPPING" | "STOPPED" | "FAILED";
 
 interface SidebarAgent {
   id: string;
@@ -47,7 +47,7 @@ export interface LegacyAgentSidebarProps {
 
 function stateClass(state: AgentState): string {
   if (state === "RUNNING") return "bg-success/15 text-success";
-  if (state === "FAILED") return "bg-destructive/15 text-destructive";
+  if (state === "FAILED" || state === "RESTORE_FAILED" || state === "SYNC_FAILED") return "bg-destructive/15 text-destructive";
   if (state === "STOPPED") return "bg-surface-low text-text-muted";
   return "bg-warning/15 text-warning";
 }
@@ -55,7 +55,7 @@ function stateClass(state: AgentState): string {
 function AgentStateBadge({ state, pulsing }: { state: AgentState; pulsing: boolean }) {
   const color =
     state === "RUNNING" ? "bg-success" :
-    state === "FAILED" ? "bg-destructive" :
+    state === "FAILED" || state === "RESTORE_FAILED" || state === "SYNC_FAILED" ? "bg-destructive" :
     state === "STOPPED" ? "bg-text-muted" : "bg-warning";
   return (
     <motion.span
@@ -157,7 +157,7 @@ export function LegacyAgentSidebar({
           <div>
             {agents.map((agent) => {
               const isSelected = selectedAgentId === agent.id;
-              const isTransitioning = ["PENDING", "STARTING", "STOPPING"].includes(agent.state);
+              const isTransitioning = ["PENDING", "RESTORING", "SYNCING", "STARTING", "STOPPING"].includes(agent.state);
               const avatar = agentAvatar(agent.name || agent.id, agent.meta);
               const AvatarIcon = avatar.icon;
 
@@ -218,7 +218,7 @@ export function LegacyAgentSidebar({
                     <p className="text-xs text-text-muted mt-0.5">
                       {formatCpu(agent.cpu_millicores)} · {formatMemory(agent.memory_mib)}
                     </p>
-                    {agent.last_error && agent.state === "FAILED" && (
+                    {agent.last_error && (agent.state === "FAILED" || agent.state === "RESTORE_FAILED" || agent.state === "SYNC_FAILED") && (
                       <p className="mt-0.5 truncate text-xs text-destructive">{agent.last_error}</p>
                     )}
                   </div>

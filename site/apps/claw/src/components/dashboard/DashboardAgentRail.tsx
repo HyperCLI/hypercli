@@ -38,6 +38,8 @@ function stateDotClass(state: string | null | undefined) {
     case "RUNNING":
       return "bg-primary";
     case "FAILED":
+    case "RESTORE_FAILED":
+    case "SYNC_FAILED":
       return "bg-[#d05f5f]";
     case "STOPPED":
       return "bg-text-muted";

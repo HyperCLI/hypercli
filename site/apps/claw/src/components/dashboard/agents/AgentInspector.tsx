@@ -6,6 +6,7 @@ import { Sheet, SheetContent } from "@hypercli/shared-ui";
 import { AgentView } from "@/components/dashboard/AgentView";
 import type { AgentViewProps } from "@/components/dashboard/agentViewTypes";
 import type { Agent } from "@/app/dashboard/agents/types";
+import { isAgentFailureState, isAgentTransitionalState } from "@/app/dashboard/agents/types";
 
 interface AgentInspectorProps {
   isDesktopViewport: boolean;
@@ -38,9 +39,9 @@ function buildAgentStatus(selectedAgent: Agent, isSelectedRunning: boolean): Age
   }
 
   return {
-    state: (selectedAgent.state === "PENDING"
+    state: (isAgentTransitionalState(selectedAgent.state)
       ? "STARTING"
-      : selectedAgent.state === "FAILED"
+      : isAgentFailureState(selectedAgent.state)
         ? "STOPPED"
       : selectedAgent.state) as "RUNNING" | "STOPPED" | "STARTING" | "STOPPING",
     uptime: 0,

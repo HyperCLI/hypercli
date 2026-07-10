@@ -48,6 +48,30 @@ def test_agent_from_dict_minimal():
     assert agent.ports == []
 
 
+def test_wait_running_fails_on_restore_and_sync_failures(monkeypatch):
+    http = MagicMock(spec=HTTPClient)
+    http.api_key = "hyper_api_test"
+    deployments = Deployments(http)
+
+    for state in ("RESTORE_FAILED", "SYNC_FAILED"):
+        monkeypatch.setattr(
+            deployments,
+            "get",
+            lambda _agent_id, state=state: Agent.from_dict(
+                {
+                    "id": "agent-123",
+                    "user_id": "user-456",
+                    "pod_id": "pod-789",
+                    "pod_name": "pod-789",
+                    "state": state,
+                }
+            ),
+        )
+
+        with pytest.raises(RuntimeError, match=state):
+            deployments.wait_running("agent-123", timeout=1, poll_interval=0)
+
+
 def test_agent_from_dict_hydrates_only_meta_ui():
     agent = Agent.from_dict(
         {

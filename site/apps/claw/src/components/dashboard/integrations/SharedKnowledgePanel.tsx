@@ -52,12 +52,12 @@ function agentDisplayName(agent: SharedKnowledgeAgent): string {
 }
 
 function normalizeAgentState(state?: string | null): string {
-  return state ? state.toLowerCase() : "unknown";
+  return state ? state.toLowerCase().replaceAll("_", " ") : "unknown";
 }
 
 function agentStateDotClass(state?: string | null): string {
   if (state === "RUNNING") return "bg-success";
-  if (state === "FAILED") return "bg-destructive";
+  if (state === "FAILED" || state === "RESTORE_FAILED" || state === "SYNC_FAILED") return "bg-destructive";
   if (state === "STOPPED") return "bg-text-muted";
   return "bg-warning";
 }

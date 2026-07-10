@@ -47,7 +47,21 @@ export class OpenClawErrorBoundary extends React.Component<
 export type AgentStatusTone = "ready" | "starting" | "stopping" | "connecting" | "disconnected" | "stopped" | "failed";
 
 export interface AgentStatusChipModel {
-  label: "Ready" | "Provisioning" | "Booting" | "Starting" | "Stopping" | "Connecting" | "Reconnecting" | "Disconnected" | "Stopped" | "Failed";
+  label:
+    | "Ready"
+    | "Provisioning"
+    | "Restoring files"
+    | "Syncing workspaces"
+    | "Booting"
+    | "Starting"
+    | "Stopping"
+    | "Connecting"
+    | "Reconnecting"
+    | "Disconnected"
+    | "Stopped"
+    | "Failed"
+    | "Restore failed"
+    | "Sync failed";
   detail: string;
   tone: AgentStatusTone;
   loading?: boolean;

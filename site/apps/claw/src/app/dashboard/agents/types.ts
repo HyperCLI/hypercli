@@ -1,8 +1,29 @@
 import type { AgentMeta } from "@/lib/avatar";
 import type { SlotInventory } from "@/lib/format";
 
-export type AgentState = "PENDING" | "STARTING" | "RUNNING" | "STOPPING" | "STOPPED" | "FAILED";
+export type AgentState =
+  | "PENDING"
+  | "RESTORING"
+  | "RESTORE_FAILED"
+  | "SYNCING"
+  | "SYNC_FAILED"
+  | "STARTING"
+  | "RUNNING"
+  | "STOPPING"
+  | "STOPPED"
+  | "FAILED";
 export type JsonObject = Record<string, unknown>;
+
+export const AGENT_TRANSITIONAL_STATES: AgentState[] = ["PENDING", "RESTORING", "SYNCING", "STARTING", "STOPPING"];
+export const AGENT_FAILURE_STATES: AgentState[] = ["RESTORE_FAILED", "SYNC_FAILED", "FAILED"];
+
+export function isAgentTransitionalState(state: AgentState | string | null | undefined): boolean {
+  return AGENT_TRANSITIONAL_STATES.includes(state as AgentState);
+}
+
+export function isAgentFailureState(state: AgentState | string | null | undefined): boolean {
+  return AGENT_FAILURE_STATES.includes(state as AgentState);
+}
 
 export interface Agent {
   id: string;

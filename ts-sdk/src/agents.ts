@@ -514,12 +514,25 @@ export interface AgentDirectoryListing {
   [key: string]: any;
 }
 
+export type AgentState =
+  | 'PENDING'
+  | 'RESTORING'
+  | 'RESTORE_FAILED'
+  | 'SYNCING'
+  | 'SYNC_FAILED'
+  | 'STARTING'
+  | 'RUNNING'
+  | 'STOPPING'
+  | 'STOPPED'
+  | 'FAILED'
+  | (string & {});
+
 export interface AgentStateFields {
   id: string;
   userId: string;
   podId: string;
   podName: string;
-  state: string;
+  state: AgentState;
   name?: string | null;
   cpu: number;
   memory: number;
@@ -546,7 +559,7 @@ export interface AgentHydrationData {
   user_id?: string;
   pod_id?: string;
   pod_name?: string;
-  state?: string;
+  state?: AgentState;
   name?: string | null;
   cpu?: number;
   memory?: number;
@@ -2074,7 +2087,7 @@ export class Deployments {
       if (lastState.toLowerCase() === 'running') {
         return agent;
       }
-      if (lastState.toLowerCase() === 'failed' || lastState.toLowerCase() === 'error') {
+      if (['failed', 'error', 'restore_failed', 'sync_failed'].includes(lastState.toLowerCase())) {
         throw new Error(`Agent entered ${lastState} while waiting for RUNNING`);
       }
       await sleep(pollIntervalMs);

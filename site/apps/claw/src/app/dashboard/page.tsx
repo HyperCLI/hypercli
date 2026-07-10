@@ -34,7 +34,17 @@ import type {
 } from "@hypercli.com/sdk/agent";
 import type { Agent as SdkAgent } from "@hypercli.com/sdk/agents";
 
-type AgentState = "PENDING" | "STARTING" | "RUNNING" | "STOPPING" | "STOPPED" | "FAILED";
+type AgentState =
+  | "PENDING"
+  | "RESTORING"
+  | "RESTORE_FAILED"
+  | "SYNCING"
+  | "SYNC_FAILED"
+  | "STARTING"
+  | "RUNNING"
+  | "STOPPING"
+  | "STOPPED"
+  | "FAILED";
 
 interface UsageInfo {
   totalTokens: number;
