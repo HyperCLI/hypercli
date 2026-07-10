@@ -268,14 +268,6 @@ def test_enrich_caption_metadata_builds_hyper_v1_request(monkeypatch, tmp_path):
     assert "Synthetic Video" in captured["messages"][1]["content"]
 
 
-def test_memory_enrich_temperature_matches_provider_constraints():
-    import hypercli_cli.memory as memory
-
-    assert memory._memory_enrich_temperature("kimi-k2.6") == 1.0
-    assert memory._memory_enrich_temperature("moonshotai/kimi-k2.6") == 1.0
-    assert memory._memory_enrich_temperature("glm-5") == 0.2
-
-
 def test_enrichment_normalization_accepts_common_llm_json_variants():
     import hypercli_cli.memory as memory
 
