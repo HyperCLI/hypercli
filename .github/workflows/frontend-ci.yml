@@ -19,7 +19,86 @@ jobs:
     uses: ./.github/workflows/sdk-integration-tests.yml
     secrets: inherit
 
+  build-site-builder:
+    runs-on: self-hosted
+    env:
+      SITE_BUILDER_IMAGE: ${{ secrets.SITE_BUILDER_IMAGE }}
+      SITE_BUILDER_REGISTRY: ${{ secrets.SITE_BUILDER_REGISTRY }}
+      SITE_BUILDER_REGISTRY_USERNAME: ${{ secrets.SITE_BUILDER_REGISTRY_USERNAME }}
+      SITE_BUILDER_REGISTRY_PASSWORD: ${{ secrets.SITE_BUILDER_REGISTRY_PASSWORD }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: false
+          fetch-depth: 2
+
+      - name: Normalize workspace ownership
+        run: sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
+
+      - name: Require site builder image config
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SITE_BUILDER_IMAGE:-}" ] \
+            || [ -z "${SITE_BUILDER_REGISTRY:-}" ] \
+            || [ -z "${SITE_BUILDER_REGISTRY_USERNAME:-}" ] \
+            || [ -z "${SITE_BUILDER_REGISTRY_PASSWORD:-}" ]; then
+            echo "::error::SITE_BUILDER_IMAGE, SITE_BUILDER_REGISTRY, SITE_BUILDER_REGISTRY_USERNAME, and SITE_BUILDER_REGISTRY_PASSWORD are required for site publishing."
+            exit 1
+          fi
+
+      - name: Log in to site builder registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.SITE_BUILDER_REGISTRY }}
+          username: ${{ env.SITE_BUILDER_REGISTRY_USERNAME }}
+          password: ${{ env.SITE_BUILDER_REGISTRY_PASSWORD }}
+
+      - name: Detect site builder changes
+        id: site_builder_changes
+        run: |
+          set -euo pipefail
+
+          should_build=false
+          reason="unchanged"
+
+          before="${{ github.event.before }}"
+          if [ "${{ github.event_name }}" != "push" ] || [ -z "${before}" ] || [[ "${before}" =~ ^0+$ ]]; then
+            should_build=true
+            reason="manual-or-initial-run"
+          else
+            if ! changed_files="$(git diff --name-only "${before}" "${GITHUB_SHA}" 2>/dev/null)"; then
+              should_build=true
+              reason="unable-to-diff"
+            elif printf '%s\n' "${changed_files}" | grep -Eq '^(\.github/docker/build-site\.Dockerfile|\.github/scripts/(build_site_image|site_container_entrypoint)\.sh|ts-sdk/package(-lock)?\.json|site/package(-lock)?\.json|site/(apps/(main|console|claw)|packages/shared-ui|mock-server)/package\.json)$'; then
+              should_build=true
+              reason="builder-inputs-changed"
+            fi
+          fi
+
+          if [ "${should_build}" != "true" ] && ! docker pull "${SITE_BUILDER_IMAGE}" >/dev/null 2>&1; then
+            should_build=true
+            reason="image-missing"
+          fi
+
+          echo "should_build=${should_build}" >> "${GITHUB_OUTPUT}"
+          echo "reason=${reason}" >> "${GITHUB_OUTPUT}"
+          echo "Site builder refresh: ${should_build} (${reason})"
+
+      - name: Build and push site builder image
+        if: ${{ steps.site_builder_changes.outputs.should_build == 'true' }}
+        run: |
+          set -euo pipefail
+          IMAGE_TAG=latest \
+          SITE_IMAGE="${SITE_BUILDER_IMAGE}" \
+          PUSH_IMAGE=1 \
+            .github/scripts/build_site_image.sh
+
   publish-main:
+    needs: build-site-builder
     uses: ./.github/workflows/publish-sites.yml
     with:
       deploy_environment: ${{ github.ref_name == 'main' && 'feat' || 'dev' }}
@@ -27,6 +106,7 @@ jobs:
     secrets: inherit
 
   publish-console:
+    needs: build-site-builder
     uses: ./.github/workflows/publish-sites.yml
     with:
       deploy_environment: ${{ github.ref_name == 'main' && 'feat' || 'dev' }}
@@ -34,6 +114,7 @@ jobs:
     secrets: inherit
 
   publish-claw:
+    needs: build-site-builder
     uses: ./.github/workflows/publish-sites.yml
     with:
       deploy_environment: ${{ github.ref_name == 'main' && 'feat' || 'dev' }}
