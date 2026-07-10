@@ -87,6 +87,7 @@ const agent: Agent = {
       HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
       OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES: "0",
       FOO: "bar",
+      HYPER_CUSTOM_FLAG: "visible",
     },
     routes: {
       openclaw: { port: 18789, auth: false, prefix: "" },
@@ -410,7 +411,7 @@ describe("AgentSettingsPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
 
     expect(screen.getByRole("textbox", { name: "Agent Docker image" })).toHaveValue("ghcr.io/hypercli/hypercli-openclaw:prod");
-    expect(screen.getByRole("textbox", { name: "Additional env" })).toHaveValue("FOO=bar");
+    expect(screen.getByRole("textbox", { name: "Additional env" })).toHaveValue("FOO=bar\nHYPER_CUSTOM_FLAG=visible");
     expect(screen.queryByDisplayValue(/OPENCLAW_GATEWAY_TOKEN/)).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue(/HYPER_API_BASE/)).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue(/HYPER_WORKSPACES_BOOT_SYNC/)).not.toBeInTheDocument();
@@ -420,7 +421,7 @@ describe("AgentSettingsPanel", () => {
       target: { value: "ghcr.io/hypercli/hypercli-openclaw:custom" },
     });
     fireEvent.change(screen.getByRole("textbox", { name: "Additional env" }), {
-      target: { value: "FOO=baz\nCUSTOM_FLAG=1" },
+      target: { value: "FOO=baz\nCUSTOM_FLAG=1\nHYPER_CUSTOM_FLAG=edited" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
@@ -437,6 +438,7 @@ describe("AgentSettingsPanel", () => {
           OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES: "0",
           FOO: "baz",
           CUSTOM_FLAG: "1",
+          HYPER_CUSTOM_FLAG: "edited",
         },
         routes: {
           openclaw: { port: 18789, auth: false, prefix: "" },
@@ -598,6 +600,7 @@ describe("AgentSettingsPanel", () => {
         OPENCLAW_MEMORY_SEARCH_SYNC_WATCH_DEBOUNCE_MS: "60000",
         OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES: "120",
         FOO: "bar",
+        HYPER_CUSTOM_FLAG: "visible",
       },
       routes: {
         openclaw: { port: 18789, auth: false, prefix: "" },
