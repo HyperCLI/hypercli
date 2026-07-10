@@ -1037,26 +1037,34 @@ async function gotoLocalReturnUrl(page: Page, localReturnUrl: string): Promise<v
     return urlsEquivalent(currentUrl, localReturnUrl) || urlsShareOrigin(currentUrl, localReturnUrl);
   };
 
-  try {
-    await page.goto(localReturnUrl, { waitUntil: "domcontentloaded" });
-  } catch (error) {
-    if (!isNavigationAbortError(error)) throw error;
-
-    if (!isAcceptableReturnUrl()) {
+  let lastAbortError: unknown;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      await page.goto(localReturnUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
+      return;
+    } catch (error) {
+      if (!isNavigationAbortError(error)) throw error;
+      lastAbortError = error;
+      if (isAcceptableReturnUrl()) {
+        console.log(`Local return navigation was browser-aborted after reaching ${page.url()}; continuing.`);
+        return;
+      }
       try {
         await page.waitForURL(
           (url) => urlsEquivalent(url.href, localReturnUrl) || urlsShareOrigin(url.href, localReturnUrl),
           { timeout: 15_000 }
         );
+        console.log(`Local return navigation settled at ${page.url()} after browser abort.`);
+        return;
       } catch {
-        if (!isAcceptableReturnUrl()) {
-          throw error;
+        if (attempt === 1) {
+          await page.waitForTimeout(1_000);
+          continue;
         }
       }
     }
-
-    console.log(`Local return navigation was browser-aborted after reaching ${page.url()}; continuing.`);
   }
+  throw lastAbortError;
 }
 
 export async function completeStripeCheckout(

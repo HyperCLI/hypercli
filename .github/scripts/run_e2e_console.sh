@@ -11,12 +11,30 @@ export SITE_ROOT
 
 source "${REPO_ROOT}/.github/scripts/allocate_e2e_env.sh"
 
+load_local_env_if_needed() {
+  if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    return 0
+  fi
+  for env_file in "${REPO_ROOT}/.env" "${SITE_ROOT}/tests/claw/.env"; do
+    if [[ -f "${env_file}" ]]; then
+      set -a
+      # shellcheck source=/dev/null
+      source "${env_file}"
+      set +a
+    fi
+  done
+}
+
 cleanup() {
   if [[ -n "${CONSOLE_PID:-}" ]]; then
     kill "${CONSOLE_PID}" >/dev/null 2>&1 || true
   fi
   if [[ -n "${CLAW_PID:-}" ]]; then
     kill "${CLAW_PID}" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${LOCAL_BOOTSTRAP_STATE_FILE:-}" && -f "${LOCAL_BOOTSTRAP_STATE_FILE}" ]]; then
+    python3 "${REPO_ROOT}/.github/scripts/bootstrap_console_test_key.py" cleanup \
+      --state-file "${LOCAL_BOOTSTRAP_STATE_FILE}" >/dev/null 2>&1 || true
   fi
 }
 
@@ -96,7 +114,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, "/workspace/notify")
-from notify_client import notify  # type: ignore
+try:
+    from notify_client import notify  # type: ignore
+except ModuleNotFoundError:
+    raise SystemExit(0)
 
 notify_api_key = os.getenv("NOTIFY_API_KEY", "").strip()
 if not notify_api_key:
@@ -197,10 +218,33 @@ notify_failure_once() {
   notify_failure_artifact || true
 }
 
+bootstrap_console_key_if_needed() {
+  if [[ -n "${TEST_API_KEY:-}" ]]; then
+    return 0
+  fi
+  if [[ -z "${BACKEND_API_KEY:-}" ]]; then
+    echo "TEST_API_KEY is not set and BACKEND_API_KEY is unavailable for local bootstrap." >&2
+    return 1
+  fi
+  if [[ -z "${TEST_EMAIL:-}" ]]; then
+    echo "TEST_API_KEY is not set and TEST_EMAIL is unavailable for local bootstrap." >&2
+    return 1
+  fi
+
+  local bootstrap_json
+  bootstrap_json="$(python3 "${REPO_ROOT}/.github/scripts/bootstrap_console_test_key.py" bootstrap --format json)"
+  TEST_API_KEY="$(printf '%s' "${bootstrap_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["test_api_key"])')"
+  EXPECTED_TEST_EMAIL="$(printf '%s' "${bootstrap_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["email"])')"
+  LOCAL_BOOTSTRAP_STATE_FILE="$(printf '%s' "${bootstrap_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["state_file"])')"
+  export TEST_API_KEY EXPECTED_TEST_EMAIL LOCAL_BOOTSTRAP_STATE_FILE
+}
+
 trap on_exit EXIT
 
 cd "${SITE_ROOT}"
 ./scripts/setup-local-env.sh
+load_local_env_if_needed
+bootstrap_console_key_if_needed
 rm -rf "${SITE_ROOT}/apps/console/.next" "${SITE_ROOT}/apps/claw/.next"
 npm run build --workspace @hypercli/console --workspace @hypercli/claw
 
@@ -219,6 +263,8 @@ wait_for_url "${TEST_BASE_URL}" "Claw" "${CLAW_LOG}" "${CLAW_PID}"
 set +e
 npx playwright test \
   --config tests/claw/playwright.config.ts \
+  --project=chromium \
+  --max-failures=1 \
   --workers=1 \
   tests/claw/console-login.spec.ts
 login_status=$?
@@ -227,6 +273,8 @@ topup_status=0
 if [[ ${login_status} -eq 0 ]]; then
   npx playwright test \
     --config tests/claw/playwright.config.ts \
+    --project=chromium \
+    --max-failures=1 \
     --workers=1 \
     tests/claw/console-topup.spec.ts
   topup_status=$?

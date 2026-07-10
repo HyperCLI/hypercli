@@ -104,7 +104,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, "/workspace/notify")
-from notify_client import notify  # type: ignore
+try:
+    from notify_client import notify  # type: ignore
+except ModuleNotFoundError:
+    raise SystemExit(0)
 
 notify_api_key = os.getenv("NOTIFY_API_KEY", "").strip()
 if not notify_api_key:
@@ -231,11 +234,28 @@ wait_for_url "${TEST_BASE_URL}" "Claw" "${CLAW_LOG}" "${CLAW_PID}"
 set +e
 npx playwright test \
   --config tests/claw/playwright.config.ts \
+  --project=chromium \
+  --max-failures=1 \
   --workers=1 \
-  tests/claw/agents-subscription.spec.ts \
-  tests/claw/agents-mobile.spec.ts
-status=$?
+  tests/claw/agents-subscription.spec.ts
+subscription_status=$?
+
+mobile_status=0
+if [[ ${subscription_status} -eq 0 ]]; then
+  npx playwright test \
+    --config tests/claw/playwright.config.ts \
+    --project=mobile-chromium \
+    --max-failures=1 \
+    --workers=1 \
+    tests/claw/agents-mobile.spec.ts
+  mobile_status=$?
+fi
 set -e
+
+status=0
+if [[ ${subscription_status} -ne 0 || ${mobile_status} -ne 0 ]]; then
+  status=1
+fi
 
 if [[ ${status} -ne 0 ]]; then
   sync_artifacts
