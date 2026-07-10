@@ -178,8 +178,11 @@ jobs:
           pull_image=1
           if [ -z "${SITE_BUILDER_IMAGE:-}" ]; then
             echo "::warning::SITE_BUILDER_IMAGE is not configured; building a local site builder image for this run"
-            SITE_BUILDER_IMAGE="hypercli-site-builder:${GITHUB_SHA}"
-            IMAGE_TAG="${GITHUB_SHA}" SITE_IMAGE="${SITE_BUILDER_IMAGE}" .github/scripts/build_site_image.sh
+            SITE_BUILDER_IMAGE="hypercli-site-builder:${GITHUB_SHA}-${publish_site}"
+            IMAGE_TAG="${GITHUB_SHA}-${publish_site}" \
+            BUILD_CTX="${RUNNER_TEMP:-/tmp}/hypercli-build-site-${GITHUB_RUN_ID:-local}-${publish_site}" \
+            SITE_IMAGE="${SITE_BUILDER_IMAGE}" \
+              .github/scripts/build_site_image.sh
             pull_image=0
           fi
 
