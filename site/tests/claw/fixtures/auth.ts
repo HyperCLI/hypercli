@@ -1724,7 +1724,9 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
     const readyStatus = page.getByText("Ready", { exact: true });
     const connectingStatus = page
       .locator("main")
-      .getByText(/Connecting|Preparing chat|Loading workspace|Fetching messages|Checking your workspace|Waiting for gateway|Gateway disconnected|runtime is up/i);
+      .getByText(
+        /Connecting|Preparing chat|Loading workspace|Fetching messages|Checking your workspace|Waiting for gateway|Gateway disconnected|runtime is up|Restoring files|Syncing Workspaces|RESTORING|SYNCING/i
+      );
     const readinessStartedAt = Date.now();
     let refreshedAgentRoute = false;
     await expect

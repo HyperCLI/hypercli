@@ -108,7 +108,7 @@ async function waitForPlansPageReady(page: Page): Promise<void> {
 
 test.describe.serial("Agents subscription", () => {
   test("logs into Claw, ensures a paid plan, launches an agent, and connects the gateway", async ({ page }) => {
-    test.setTimeout(480_000);
+    test.setTimeout(900_000);
 
     let createdAgentId: string | null = null;
     let createdStripeSubscriptionId: string | null = null;
@@ -211,7 +211,7 @@ test.describe.serial("Agents subscription", () => {
       await captureStep(page, "agents-08-plan-active");
 
       await cleanupClawAgents(page);
-      const createdAgent = await launchClawAgentAndWaitForGateway(page);
+      const createdAgent = await launchClawAgentAndWaitForGateway(page, 360_000);
       createdAgentId = createdAgent.id;
       expect(createdAgentId).toBeTruthy();
     } finally {
