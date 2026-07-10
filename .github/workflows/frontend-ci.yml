@@ -32,7 +32,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          clean: true
+          clean: false
+
+      - name: Normalize workspace ownership
+        run: sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
 
       - name: Check site builder image config
         id: site_builder_config
