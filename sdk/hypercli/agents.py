@@ -556,6 +556,12 @@ def _default_openclaw_pro_image(image: str | None) -> str | None:
     return DEFAULT_OPENCLAW_PRO_IMAGE
 
 
+def _product_api_base_from_agents_api_base(api_base: str) -> str:
+    normalized = _normalize_agents_api_base(api_base).rstrip("/")
+    suffix = "/agents"
+    return normalized[: -len(suffix)] if normalized.endswith(suffix) else normalized
+
+
 def _truthy_env(value: object) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on", "enabled"}
 
@@ -1574,6 +1580,7 @@ class Deployments:
         workspaces_sync: dict | bool | None = None,
     ) -> Agent:
         effective_env = {
+            "HYPER_API_BASE": _product_api_base_from_agents_api_base(self._api_base),
             **build_openclaw_workspaces_sync_env(workspaces_sync),
             **build_openclaw_memory_index_env(memory_index),
             **dict(env or {}),

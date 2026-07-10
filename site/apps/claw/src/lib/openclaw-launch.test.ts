@@ -6,6 +6,8 @@ describe("buildOpenClawLaunchOptions", () => {
   beforeEach(() => {
     process.env.NEXT_PUBLIC_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:prod";
     process.env.NEXT_PUBLIC_OPENCLAW_PRO_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-prod";
+    delete process.env.NEXT_PUBLIC_HYPER_API_BASE;
+    delete process.env.NEXT_PUBLIC_API_BASE_URL;
   });
 
   it("launches headless agents with only the root gateway route", () => {
@@ -106,6 +108,28 @@ describe("buildOpenClawLaunchOptions", () => {
         outputDir: "/home/node/CustomWorkspaces",
         readyOnly: false,
         workspace: "team-knowledge",
+      },
+    });
+  });
+
+  it("passes the configured product API base to launched OpenClaw containers", () => {
+    process.env.NEXT_PUBLIC_HYPER_API_BASE = "https://api.dev.hypercli.com/";
+
+    expect(buildOpenClawLaunchOptions({ desktopEnabled: false })).toMatchObject({
+      env: {
+        HYPER_API_BASE: "https://api.dev.hypercli.com",
+        HYPER_WORKSPACES_BOOT_SYNC: "1",
+      },
+    });
+  });
+
+  it("derives the product API base from the existing public API base env", () => {
+    process.env.NEXT_PUBLIC_API_BASE_URL = "https://api.dev.hypercli.com/api";
+
+    expect(buildOpenClawLaunchOptions({ desktopEnabled: false })).toMatchObject({
+      env: {
+        HYPER_API_BASE: "https://api.dev.hypercli.com",
+        HYPER_WORKSPACES_BOOT_SYNC: "1",
       },
     });
   });

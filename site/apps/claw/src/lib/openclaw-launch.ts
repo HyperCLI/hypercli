@@ -2,6 +2,8 @@ import type { OpenClawCreateAgentOptions, OpenClawStartAgentOptions } from "@hyp
 
 const OPENCLAW_IMAGE_ENV = "NEXT_PUBLIC_OPENCLAW_IMAGE";
 const OPENCLAW_PRO_IMAGE_ENV = "NEXT_PUBLIC_OPENCLAW_PRO_IMAGE";
+const HYPER_API_BASE_ENV = "NEXT_PUBLIC_HYPER_API_BASE";
+const LEGACY_API_BASE_ENV = "NEXT_PUBLIC_API_BASE_URL";
 
 export type OpenClawMemoryIndexOptions = {
   enabled?: boolean | null;
@@ -45,12 +47,28 @@ function envValue(name: string): string | undefined {
       ? process.env.NEXT_PUBLIC_OPENCLAW_IMAGE?.trim()
       : name === OPENCLAW_PRO_IMAGE_ENV
         ? process.env.NEXT_PUBLIC_OPENCLAW_PRO_IMAGE?.trim()
-        : undefined;
+        : name === HYPER_API_BASE_ENV
+          ? process.env.NEXT_PUBLIC_HYPER_API_BASE?.trim()
+          : name === LEGACY_API_BASE_ENV
+            ? process.env.NEXT_PUBLIC_API_BASE_URL?.trim()
+            : undefined;
   return value || undefined;
 }
 
 export function getOpenClawDefaultImage(desktopEnabled: boolean): string {
   return envValue(desktopEnabled ? OPENCLAW_PRO_IMAGE_ENV : OPENCLAW_IMAGE_ENV) ?? "";
+}
+
+function stripApiSuffix(value: string): string {
+  const trimmed = value.replace(/\/+$/, "");
+  return trimmed.endsWith("/api") ? trimmed.slice(0, -4) : trimmed;
+}
+
+function productApiBaseEnv(): string | undefined {
+  const configured = envValue(HYPER_API_BASE_ENV);
+  if (configured) return stripApiSuffix(configured);
+  const apiBase = envValue(LEGACY_API_BASE_ENV);
+  return apiBase ? stripApiSuffix(apiBase) : undefined;
 }
 
 function envBool(value: unknown): string {
@@ -134,10 +152,12 @@ export function buildOpenClawLaunchOptions({
   if (desktopEnabled && !image) {
     throw new Error(`${OPENCLAW_PRO_IMAGE_ENV} is required to launch desktop agents.`);
   }
+  const hyperApiBase = productApiBaseEnv();
 
   return {
     image,
     env: {
+      ...(hyperApiBase ? { HYPER_API_BASE: hyperApiBase } : {}),
       ...buildOpenClawWorkspacesSyncEnv(workspacesSync ?? null),
       ...buildOpenClawMemoryIndexEnv(memoryIndex ?? null),
       OPENCLAW_DESKTOP_ENABLED: desktopEnabled ? "1" : "0",

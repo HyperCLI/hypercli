@@ -840,6 +840,12 @@ function defaultOpenClawProImage(
   return DEFAULT_OPENCLAW_PRO_IMAGE;
 }
 
+function productApiBaseFromAgentsApiBase(apiBase: string): string {
+  const normalized = apiBase.replace(/\/+$/, '');
+  const agentsSuffix = '/agents';
+  return normalized.endsWith(agentsSuffix) ? normalized.slice(0, -agentsSuffix.length) : normalized;
+}
+
 export function buildOpenClawRoutes(options: OpenClawRouteOptions = {}): Record<string, AgentRouteConfig> {
   const routes: Record<string, AgentRouteConfig> = {};
   if (options.includeGateway ?? true) {
@@ -1916,6 +1922,7 @@ export class Deployments {
   async createOpenClaw(options: OpenClawCreateAgentOptions = {}): Promise<Agent> {
     const effectiveOptions: CreateAgentOptions = { ...options };
     effectiveOptions.env = {
+      HYPER_API_BASE: productApiBaseFromAgentsApiBase(this.apiBase),
       ...buildOpenClawWorkspacesSyncEnv(options.workspacesSync ?? null),
       ...buildOpenClawMemoryIndexEnv(options.memoryIndex),
       ...(options.env ?? {}),
@@ -1992,6 +1999,7 @@ export class Deployments {
   async startOpenClaw(agentId: string, options: OpenClawStartAgentOptions = {}): Promise<Agent> {
     const effectiveOptions: StartAgentOptions = { ...options };
     effectiveOptions.env = {
+      HYPER_API_BASE: productApiBaseFromAgentsApiBase(this.apiBase),
       ...buildOpenClawWorkspacesSyncEnv(options.workspacesSync ?? null),
       ...buildOpenClawMemoryIndexEnv(options.memoryIndex),
       ...(options.env ?? {}),

@@ -147,6 +147,7 @@ describe('HyperClaw agents SDK', () => {
       sync_root: '/home/node',
       sync_enabled: true,
       env: expect.objectContaining({
+        HYPER_API_BASE: 'https://api.dev.hypercli.com',
         HYPER_WORKSPACES_BOOT_SYNC: '1',
         HYPER_WORKSPACES_DIR: '/home/node/workspaces',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
@@ -178,6 +179,7 @@ describe('HyperClaw agents SDK', () => {
       sync_root: '/home/node',
       sync_enabled: true,
       env: expect.objectContaining({
+        HYPER_API_BASE: 'https://api.dev.hypercli.com',
         HYPER_WORKSPACES_BOOT_SYNC: '1',
         HYPER_WORKSPACES_DIR: '/home/node/workspaces',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
@@ -212,6 +214,7 @@ describe('HyperClaw agents SDK', () => {
       sync_root: '/home/node',
       sync_enabled: true,
       env: expect.objectContaining({
+        HYPER_API_BASE: 'https://api.dev.hypercli.com',
         HYPER_WORKSPACES_BOOT_SYNC: '1',
         HYPER_WORKSPACES_DIR: '/home/node/workspaces',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
@@ -294,6 +297,32 @@ describe('HyperClaw agents SDK', () => {
         HYPER_WORKSPACES_DIR: '/home/node/CustomWorkspaces',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '0',
         HYPER_WORKSPACES_SYNC_WORKSPACE: 'team-knowledge',
+      }),
+    }));
+  });
+
+  it('createOpenClaw lets explicit HYPER_API_BASE override the derived product API base', async () => {
+    const post = vi.fn().mockResolvedValue({
+      id: 'agent-openclaw',
+      user_id: 'user-1',
+      pod_id: 'pod-1',
+      pod_name: 'pod-1',
+      state: 'starting',
+    });
+    const deployments = new Deployments(
+      { post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      'sk-hyper-test',
+      'https://api.dev.hypercli.com',
+    );
+
+    await deployments.createOpenClaw({
+      name: 'test-agent',
+      env: { HYPER_API_BASE: 'https://api.override.test' },
+    });
+
+    expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
+      env: expect.objectContaining({
+        HYPER_API_BASE: 'https://api.override.test',
       }),
     }));
   });

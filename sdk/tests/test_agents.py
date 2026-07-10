@@ -514,6 +514,7 @@ def test_create_openclaw_defaults_routes_when_omitted(agents_client):
 
         posted_json = mock_client.post.call_args[1]["json"]
         assert posted_json["image"] == DEFAULT_OPENCLAW_IMAGE
+        assert posted_json["env"]["HYPER_API_BASE"] == "https://api.test.hypercli.com"
         assert posted_json["env"]["HYPER_WORKSPACES_BOOT_SYNC"] == "1"
         assert posted_json["env"]["HYPER_WORKSPACES_DIR"] == "/home/node/workspaces"
         assert posted_json["env"]["HYPER_WORKSPACES_SYNC_READY_ONLY"] == "1"
@@ -572,6 +573,7 @@ def test_create_openclaw_pro_defaults_desktop_image_env_and_routes(agents_client
 
         posted_json = mock_client.post.call_args[1]["json"]
         assert posted_json["image"] == DEFAULT_OPENCLAW_PRO_IMAGE
+        assert posted_json["env"]["HYPER_API_BASE"] == "https://api.test.hypercli.com"
         assert posted_json["env"]["HYPER_WORKSPACES_BOOT_SYNC"] == "1"
         assert posted_json["env"]["HYPER_WORKSPACES_DIR"] == "/home/node/workspaces"
         assert posted_json["env"]["HYPER_WORKSPACES_SYNC_READY_ONLY"] == "1"
@@ -582,6 +584,32 @@ def test_create_openclaw_pro_defaults_desktop_image_env_and_routes(agents_client
             "desktop": {"port": 3000, "auth": True, "prefix": "desktop"},
         }
         assert isinstance(agent, OpenClawProAgent)
+
+
+def test_create_openclaw_allows_hyper_api_base_override(agents_client):
+    with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"):
+        mock_client = MagicMock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "pod_id": "pod-789",
+            "pod_name": "test-pod",
+            "state": "starting",
+        }
+        mock_client.post.return_value = mock_response
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client_class.return_value = mock_client
+
+        agents_client.create_openclaw(
+            name="test-agent",
+            env={"HYPER_API_BASE": "https://api.override.test"},
+        )
+
+        posted_json = mock_client.post.call_args[1]["json"]
+        assert posted_json["env"]["HYPER_API_BASE"] == "https://api.override.test"
 
 
 def test_create_openclaw_accepts_memory_index_options(agents_client):
