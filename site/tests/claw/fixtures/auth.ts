@@ -1729,6 +1729,10 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
       );
     const readinessStartedAt = Date.now();
     let refreshedAgentRoute = false;
+    const refreshAgentRoute = async (): Promise<void> => {
+      refreshedAgentRoute = true;
+      await page.goto(`/dashboard/agents?agentId=${encodeURIComponent(created.id)}`, { waitUntil: "domcontentloaded" }).catch(() => {});
+    };
     await expect
       .poll(
         async () => {
@@ -1747,15 +1751,17 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
             .isVisible()
             .catch(() => false);
           if (loadingShellVisible && !refreshedAgentRoute && Date.now() - readinessStartedAt > 60_000) {
-            refreshedAgentRoute = true;
-            await page.goto(`/dashboard/agents?agentId=${encodeURIComponent(created.id)}`, { waitUntil: "domcontentloaded" }).catch(() => {});
+            await refreshAgentRoute();
           }
 
           const visibleWaiting = await findLastVisible(connectingStatus, 250);
           const waitingText = visibleWaiting ? await visibleWaiting.textContent({ timeout: 500 }).catch(() => "") : "";
+          if (waitingText && !refreshedAgentRoute && Date.now() - readinessStartedAt > 60_000) {
+            await refreshAgentRoute();
+          }
           return waitingText ? `waiting:${waitingText.trim()}` : "waiting";
         },
-        { timeout: 180_000, intervals: [1_000, 2_000, 5_000] }
+        { timeout: Math.max(timeout, 180_000), intervals: [1_000, 2_000, 5_000] }
       )
       .toBe("ready");
     const visibleComposer = await findLastVisible(composer, 5_000);
