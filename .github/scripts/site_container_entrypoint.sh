@@ -11,13 +11,20 @@ deploy_message="${NETLIFY_DEPLOY_MESSAGE:-CI deploy ${GITHUB_SHA:-local}}"
 default_site_targets=$'main|@hypercli/main|apps/main|.site-artifact/main|\nconsole|@hypercli/console|apps/console|.site-artifact/console|\nclaw|@hypercli/claw|apps/claw|.site-artifact/claw|'
 site_targets="${SITE_TARGETS:-${default_site_targets}}"
 
+cd /workspace
+
 copy_src() {
   local src="$1"
   local dest="$2"
-  rm -rf "${dest}"
+  local preserved=""
   mkdir -p "${dest}"
+  if [[ -d "${dest}/node_modules" ]]; then
+    preserved="$(mktemp -d)"
+    mv "${dest}/node_modules" "${preserved}/node_modules"
+  fi
   if command -v rsync >/dev/null 2>&1; then
     rsync -a \
+      --delete \
       --exclude 'node_modules' \
       --exclude '.next' \
       --exclude '.turbo' \
@@ -41,6 +48,11 @@ copy_src() {
       "${dest}/playwright-report" \
       "${dest}/test-results"
   fi
+  if [[ -n "${preserved}" ]]; then
+    rm -rf "${dest}/node_modules"
+    mv "${preserved}/node_modules" "${dest}/node_modules"
+    rmdir "${preserved}"
+  fi
 }
 
 prepare_workspace() {
@@ -61,13 +73,20 @@ prepare_workspace() {
       "${TS_SDK_WORKSPACE}/dist"
   fi
 
-  pushd "${TS_SDK_WORKSPACE}" >/dev/null
-  npm ci
-  npm run build
-  popd >/dev/null
+  if [[ ! -d "${TS_SDK_WORKSPACE}/node_modules" ]]; then
+    pushd "${TS_SDK_WORKSPACE}" >/dev/null
+    npm ci
+    popd >/dev/null
+  fi
 
-  pushd "${SITE_WORKSPACE}" >/dev/null
-  npm ci
+  if [[ ! -d "${SITE_WORKSPACE}/node_modules" ]]; then
+    pushd "${SITE_WORKSPACE}" >/dev/null
+    npm ci
+    popd >/dev/null
+  fi
+
+  pushd "${TS_SDK_WORKSPACE}" >/dev/null
+  npm run build
   popd >/dev/null
 }
 
