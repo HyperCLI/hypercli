@@ -19,53 +19,7 @@ jobs:
     uses: ./.github/workflows/sdk-integration-tests.yml
     secrets: inherit
 
-  build-site-builder:
-    runs-on: self-hosted
-    env:
-      SITE_BUILDER_IMAGE: ${{ secrets.SITE_BUILDER_IMAGE }}
-      SITE_BUILDER_REGISTRY: ${{ secrets.SITE_BUILDER_REGISTRY }}
-      SITE_BUILDER_REGISTRY_USERNAME: ${{ secrets.SITE_BUILDER_REGISTRY_USERNAME }}
-      SITE_BUILDER_REGISTRY_PASSWORD: ${{ secrets.SITE_BUILDER_REGISTRY_PASSWORD }}
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          clean: false
-
-      - name: Normalize workspace ownership
-        run: sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
-
-      - name: Require site builder image config
-        run: |
-          set -euo pipefail
-
-          if [ -z "${SITE_BUILDER_IMAGE:-}" ] \
-            || [ -z "${SITE_BUILDER_REGISTRY:-}" ] \
-            || [ -z "${SITE_BUILDER_REGISTRY_USERNAME:-}" ] \
-            || [ -z "${SITE_BUILDER_REGISTRY_PASSWORD:-}" ]; then
-            echo "::error::SITE_BUILDER_IMAGE, SITE_BUILDER_REGISTRY, SITE_BUILDER_REGISTRY_USERNAME, and SITE_BUILDER_REGISTRY_PASSWORD are required so site publishing builds the builder image once."
-            exit 1
-          fi
-
-      - name: Log in to site builder registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.SITE_BUILDER_REGISTRY }}
-          username: ${{ env.SITE_BUILDER_REGISTRY_USERNAME }}
-          password: ${{ env.SITE_BUILDER_REGISTRY_PASSWORD }}
-
-      - name: Build and push site builder image
-        run: |
-          set -euo pipefail
-          IMAGE_TAG="${GITHUB_SHA}" \
-          SITE_IMAGE="${SITE_BUILDER_IMAGE}:${GITHUB_SHA}" \
-          PUSH_IMAGE=1 \
-            .github/scripts/build_site_image.sh
-
   publish-main:
-    needs: build-site-builder
     uses: ./.github/workflows/publish-sites.yml
     with:
       deploy_environment: ${{ github.ref_name == 'main' && 'feat' || 'dev' }}
@@ -73,7 +27,6 @@ jobs:
     secrets: inherit
 
   publish-console:
-    needs: build-site-builder
     uses: ./.github/workflows/publish-sites.yml
     with:
       deploy_environment: ${{ github.ref_name == 'main' && 'feat' || 'dev' }}
@@ -81,7 +34,6 @@ jobs:
     secrets: inherit
 
   publish-claw:
-    needs: build-site-builder
     uses: ./.github/workflows/publish-sites.yml
     with:
       deploy_environment: ${{ github.ref_name == 'main' && 'feat' || 'dev' }}
