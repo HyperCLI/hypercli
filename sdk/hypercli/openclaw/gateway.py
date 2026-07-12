@@ -29,10 +29,12 @@ from nacl.signing import SigningKey
 from websockets.asyncio.client import ClientConnection
 
 
-MIN_PROTOCOL_VERSION = 3
-PROTOCOL_VERSION = 4
-DEFAULT_TIMEOUT = 15.0
-CHAT_TIMEOUT = 120.0
+MIN_GATEWAY_VERSION = 3
+MAX_GATEWAY_VERSION = 4
+MIN_PROTOCOL_VERSION = MIN_GATEWAY_VERSION
+PROTOCOL_VERSION = MAX_GATEWAY_VERSION
+DEFAULT_CONNECTION_TIMEOUT = 30.0
+DEFAULT_AGENT_TIMEOUT = 900.0
 INITIAL_RECONNECT_DELAY = 0.8
 MAX_RECONNECT_DELAY = 15.0
 BACKOFF_MULTIPLIER = 1.7
@@ -739,7 +741,7 @@ def _same_session_key(left: str | None, right: str | None) -> bool:
 
 class GatewayClient:
     """
-    Async WebSocket client for the OpenClaw Gateway protocol v3.
+    Async WebSocket client for the OpenClaw Gateway protocol v3-v4.
 
     The implementation follows the TS SDK's handshake and storage model closely.
     """
@@ -749,6 +751,11 @@ class GatewayClient:
         url: str,
         token: str | None = None,
         gateway_token: str | None = None,
+        bootstrap_token: str | None = None,
+        device_token: str | None = None,
+        password: str | None = None,
+        approval_runtime_token: str | None = None,
+        agent_runtime_identity_token: str | None = None,
         deployment_id: str | None = None,
         api_key: str | None = None,
         api_base: str | None = None,
@@ -764,10 +771,14 @@ class GatewayClient:
         role: str = OPERATOR_ROLE,
         scopes: list[str] | None = None,
         commands: list[str] | None = None,
+        permissions: dict[str, bool] | None = None,
+        path_env: str | None = None,
+        min_protocol: int = MIN_GATEWAY_VERSION,
+        max_protocol: int = MAX_GATEWAY_VERSION,
         device_store_path: str | None = None,
         origin: str | None = None,
-        timeout: float = DEFAULT_TIMEOUT,
-        chat_timeout: float = CHAT_TIMEOUT,
+        timeout: float = DEFAULT_CONNECTION_TIMEOUT,
+        chat_timeout: float = DEFAULT_AGENT_TIMEOUT,
         on_hello: Callable[[dict[str, Any]], None] | None = None,
         on_close: Callable[[GatewayCloseInfo], None] | None = None,
         on_gap: Callable[[dict[str, int]], None] | None = None,
@@ -776,6 +787,31 @@ class GatewayClient:
         self.url = url
         self.token = token
         self.gateway_token = gateway_token
+        self.bootstrap_token = (
+            bootstrap_token.strip()
+            if isinstance(bootstrap_token, str) and bootstrap_token.strip()
+            else None
+        )
+        self.device_token = (
+            device_token.strip()
+            if isinstance(device_token, str) and device_token.strip()
+            else None
+        )
+        self.password = (
+            password.strip()
+            if isinstance(password, str) and password.strip()
+            else None
+        )
+        self.approval_runtime_token = (
+            approval_runtime_token.strip()
+            if isinstance(approval_runtime_token, str) and approval_runtime_token.strip()
+            else None
+        )
+        self.agent_runtime_identity_token = (
+            agent_runtime_identity_token.strip()
+            if isinstance(agent_runtime_identity_token, str) and agent_runtime_identity_token.strip()
+            else None
+        )
         self.deployment_id = deployment_id
         self.api_key = api_key
         self.api_base = api_base.rstrip("/") if api_base else None
@@ -797,6 +833,26 @@ class GatewayClient:
             else (list(OPERATOR_SCOPES) if self.role == OPERATOR_ROLE else [])
         )
         self.commands = list(commands or [])
+        self.permissions = {
+            str(key).strip(): value
+            for key, value in (permissions or {}).items()
+            if str(key).strip() and isinstance(value, bool)
+        } or None
+        self.path_env = (
+            path_env.strip()
+            if isinstance(path_env, str) and path_env.strip()
+            else None
+        )
+        self.min_protocol = (
+            int(min_protocol)
+            if isinstance(min_protocol, int) and min_protocol > 0
+            else MIN_GATEWAY_VERSION
+        )
+        self.max_protocol = (
+            int(max_protocol)
+            if isinstance(max_protocol, int) and max_protocol > 0
+            else MAX_GATEWAY_VERSION
+        )
         self._device_store_path = device_store_path
         # Non-browser SDK clients should not send Origin by default. OpenClaw
         # treats any Origin header as browser-originated and enforces the
@@ -1003,7 +1059,16 @@ class GatewayClient:
             self.role,
             store_path=self._device_store_path,
         )
-        auth_token = stored_device_token.token if stored_device_token else self.gateway_token
+        stored_token = stored_device_token.token if stored_device_token else None
+        resolved_device_token = self.device_token or stored_token
+        auth_token = self.gateway_token or resolved_device_token
+        auth_bootstrap_token = (
+            self.bootstrap_token
+            if not self.gateway_token and not resolved_device_token and not self.password
+            else None
+        )
+        auth_device_token = self.device_token
+        signature_token = auth_token or auth_bootstrap_token
         signed_at_ms = _now_ms()
         payload = _build_device_auth_payload(
             device_id=identity.device_id,
@@ -1012,13 +1077,26 @@ class GatewayClient:
             role=self.role,
             scopes=self.scopes,
             signed_at_ms=signed_at_ms,
-            token=auth_token,
+            token=signature_token,
             nonce=nonce,
         )
         request_id = str(uuid.uuid4())
+        auth: dict[str, str] = {}
+        if auth_token:
+            auth["token"] = auth_token
+        if auth_bootstrap_token:
+            auth["bootstrapToken"] = auth_bootstrap_token
+        if auth_device_token:
+            auth["deviceToken"] = auth_device_token
+        if self.password:
+            auth["password"] = self.password
+        if self.approval_runtime_token:
+            auth["approvalRuntimeToken"] = self.approval_runtime_token
+        if self.agent_runtime_identity_token:
+            auth["agentRuntimeIdentityToken"] = self.agent_runtime_identity_token
         params: dict[str, Any] = {
-            "minProtocol": MIN_PROTOCOL_VERSION,
-            "maxProtocol": PROTOCOL_VERSION,
+            "minProtocol": self.min_protocol,
+            "maxProtocol": self.max_protocol,
             "client": {
                 "id": self.client_id,
                 **({"displayName": self.client_display_name} if self.client_display_name else {}),
@@ -1041,7 +1119,9 @@ class GatewayClient:
             # Nodes advertise the command surface they can execute; the gateway
             # activates the intersection with policy on pairing approval.
             **({"commands": list(self.commands)} if self.commands else {}),
-            **({"auth": {"token": auth_token}} if auth_token else {}),
+            **({"permissions": self.permissions} if self.permissions else {}),
+            **({"pathEnv": self.path_env} if self.path_env else {}),
+            **({"auth": auth} if auth else {}),
         }
         await ws.send(
             json.dumps(
@@ -1464,7 +1544,7 @@ class GatewayClient:
         if attachments:
             params["attachments"] = attachments
 
-        result = await self.call("chat.send", params, timeout=30)
+        result = await self.call("chat.send", params, timeout=self.chat_timeout)
         accepted_run_ids = {idempotency_key}
         server_run_id = str((result or {}).get("runId") or "").strip()
         if server_run_id:
@@ -1878,7 +1958,7 @@ class NodeServer:
         deployment_id: str | None = None,
         device_store_path: str | None = None,
         origin: str | None = None,
-        timeout: float = DEFAULT_TIMEOUT,
+        timeout: float = DEFAULT_CONNECTION_TIMEOUT,
         client_version: str = "hypercli-sdk",
         **client_kwargs: Any,
     ):

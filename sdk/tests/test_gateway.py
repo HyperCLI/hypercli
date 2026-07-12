@@ -96,6 +96,106 @@ async def test_connection_state_transitions(monkeypatch: pytest.MonkeyPatch) -> 
     assert "disconnected" in seen
     unsubscribe()
 
+
+@pytest.mark.asyncio
+async def test_connect_sends_upstream_metadata_and_auth_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    sockets: list[MockConnection] = []
+
+    async def fake_connect(*args, **kwargs):
+        conn = MockConnection()
+        sockets.append(conn)
+        return conn
+
+    monkeypatch.setattr("hypercli.openclaw.gateway.websockets.connect", fake_connect)
+
+    client = GatewayClient(
+        url="wss://openclaw-agent.example",
+        gateway_token="gw-token",
+        device_token="explicit-device-token",
+        password="password-token",
+        approval_runtime_token="approval-runtime-token",
+        agent_runtime_identity_token="agent-runtime-token",
+        client_id="openclaw-worker",
+        client_mode="worker",
+        client_device_family="Linux",
+        permissions={"screen": True, "shell": False},
+        path_env="/usr/local/bin:/usr/bin",
+        min_protocol=4,
+        max_protocol=4,
+    )
+
+    connect_task = asyncio.create_task(client.connect())
+    while not sockets:
+        await asyncio.sleep(0)
+
+    first = sockets[0]
+    first.push({"type": "event", "event": "connect.challenge", "payload": {"nonce": "nonce-1"}})
+    while not first.sent:
+        await asyncio.sleep(0)
+
+    connect_request = first.sent[0]
+    assert connect_request["params"]["minProtocol"] == 4
+    assert connect_request["params"]["maxProtocol"] == 4
+    assert connect_request["params"]["client"]["id"] == "openclaw-worker"
+    assert connect_request["params"]["client"]["mode"] == "worker"
+    assert connect_request["params"]["client"]["deviceFamily"] == "Linux"
+    assert connect_request["params"]["permissions"] == {"screen": True, "shell": False}
+    assert connect_request["params"]["pathEnv"] == "/usr/local/bin:/usr/bin"
+    assert connect_request["params"]["auth"] == {
+        "token": "gw-token",
+        "deviceToken": "explicit-device-token",
+        "password": "password-token",
+        "approvalRuntimeToken": "approval-runtime-token",
+        "agentRuntimeIdentityToken": "agent-runtime-token",
+    }
+
+    first.push({
+        "type": "res",
+        "id": connect_request["id"],
+        "ok": True,
+        "payload": {"protocol": 4, "server": {"version": "test"}},
+    })
+    await connect_task
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_connect_uses_bootstrap_auth_without_shared_or_device_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    sockets: list[MockConnection] = []
+
+    async def fake_connect(*args, **kwargs):
+        conn = MockConnection()
+        sockets.append(conn)
+        return conn
+
+    monkeypatch.setattr("hypercli.openclaw.gateway.websockets.connect", fake_connect)
+
+    client = GatewayClient(
+        url="wss://openclaw-agent.example/bootstrap",
+        bootstrap_token="bootstrap-token",
+    )
+
+    connect_task = asyncio.create_task(client.connect())
+    while not sockets:
+        await asyncio.sleep(0)
+
+    first = sockets[0]
+    first.push({"type": "event", "event": "connect.challenge", "payload": {"nonce": "nonce-1"}})
+    while not first.sent:
+        await asyncio.sleep(0)
+
+    connect_request = first.sent[0]
+    assert connect_request["params"]["auth"] == {"bootstrapToken": "bootstrap-token"}
+
+    first.push({
+        "type": "res",
+        "id": connect_request["id"],
+        "ok": True,
+        "payload": {"protocol": 3, "server": {"version": "test"}},
+    })
+    await connect_task
+    await client.close()
+
 @pytest.mark.asyncio
 async def test_connect_auto_approves_pairing_and_reconnects(monkeypatch: pytest.MonkeyPatch) -> None:
     sockets: list[MockConnection] = []
@@ -374,6 +474,7 @@ async def test_chat_send_accepts_chat_content_and_done_events() -> None:
 
     assert [chunk.type for chunk in chunks] == ["content", "content", "done"]
     assert "".join(chunk.text or "" for chunk in chunks if chunk.type == "content") == "SMOKE_OK"
+    assert events[0]["timeout"] == 900.0
 
 
 @pytest.mark.asyncio

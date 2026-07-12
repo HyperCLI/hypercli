@@ -218,6 +218,56 @@ describe("GatewayClient", () => {
     expect(stored.tokens[URL_SCOPE_KEY].scopes).toEqual(["operator.admin"]);
   });
 
+  it("passes upstream gateway client metadata and auth fields through the handshake", async () => {
+    const { request } = await connectClient(new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+      deviceToken: "explicit-device-token",
+      password: "password-token",
+      approvalRuntimeToken: "approval-runtime-token",
+      agentRuntimeIdentityToken: "agent-runtime-token",
+      clientId: "openclaw-worker",
+      clientMode: "worker",
+      deviceFamily: "Linux",
+      permissions: {
+        screen: true,
+        shell: false,
+      },
+      pathEnv: "/usr/local/bin:/usr/bin",
+      minProtocol: 4,
+      maxProtocol: 4,
+    }));
+
+    expect(request.params.minProtocol).toBe(4);
+    expect(request.params.maxProtocol).toBe(4);
+    expect(request.params.client.id).toBe("openclaw-worker");
+    expect(request.params.client.mode).toBe("worker");
+    expect(request.params.client.deviceFamily).toBe("Linux");
+    expect(request.params.permissions).toEqual({
+      screen: true,
+      shell: false,
+    });
+    expect(request.params.pathEnv).toBe("/usr/local/bin:/usr/bin");
+    expect(request.params.auth).toMatchObject({
+      token: "gw-token",
+      deviceToken: "explicit-device-token",
+      password: "password-token",
+      approvalRuntimeToken: "approval-runtime-token",
+      agentRuntimeIdentityToken: "agent-runtime-token",
+    });
+  });
+
+  it("uses bootstrap auth when no shared or device token is available", async () => {
+    const { request } = await connectClient(new GatewayClient({
+      url: "wss://openclaw-agent.example/bootstrap",
+      bootstrapToken: "bootstrap-token",
+    }));
+
+    expect(request.params.auth).toEqual({
+      bootstrapToken: "bootstrap-token",
+    });
+  });
+
   it("uses the shared gateway token on reconnect even when a cached device token exists", async () => {
     await connectClient();
 
@@ -642,7 +692,7 @@ describe("GatewayClient", () => {
     });
     (client as any).connected = true;
     (client as any).ws = { readyState: MockWebSocket.OPEN };
-    vi.spyOn(client as any, "rpc").mockResolvedValue({ runId: "server-run-1" });
+    const rpc = vi.spyOn(client as any, "rpc").mockResolvedValue({ runId: "server-run-1" });
 
     const streamPromise = (async () => {
       const events = [];
@@ -670,8 +720,108 @@ describe("GatewayClient", () => {
     }));
 
     const events = await streamPromise;
+    expect(rpc).toHaveBeenCalledWith(
+      "chat.send",
+      expect.objectContaining({
+        message: "Reply with exactly: SMOKE_OK",
+        sessionKey: "main",
+      }),
+      900_000,
+    );
     expect(events.map((event) => event.type)).toEqual(["content", "content", "done"]);
     expect(events.filter((event) => event.type === "content").map((event) => event.text).join("")).toBe("SMOKE_OK");
+  });
+
+  it("request supports an upstream-style null timeout for long-lived RPCs", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = new GatewayClient({
+        url: "wss://openclaw-agent.example",
+        gatewayToken: "gw-token",
+      });
+      const ws = new MockWebSocket("wss://openclaw-agent.example");
+      (client as any).connected = true;
+      (client as any).ws = ws;
+      ws.readyState = MockWebSocket.OPEN;
+
+      const promise = client.request("slow.method", {}, null);
+      await flushMicrotasks();
+
+      expect(ws.sent).toHaveLength(1);
+      const request = JSON.parse(ws.sent[0]!);
+      let rejected: unknown;
+      promise.catch((error) => {
+        rejected = error;
+      });
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      await flushMicrotasks();
+      expect(rejected).toBeUndefined();
+
+      (client as any).handleMessage(JSON.stringify({
+        type: "res",
+        id: request.id,
+        ok: true,
+        payload: { ok: true },
+      }));
+      await expect(promise).resolves.toEqual({ ok: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("request keeps expectFinal calls pending across accepted responses", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const ws = new MockWebSocket("wss://openclaw-agent.example");
+    (client as any).connected = true;
+    (client as any).ws = ws;
+    ws.readyState = MockWebSocket.OPEN;
+    const acceptedPayloads: unknown[] = [];
+
+    const promise = client.request("slow.final", {}, {
+      expectFinal: true,
+      onAccepted: (payload) => acceptedPayloads.push(payload),
+    });
+    await flushMicrotasks();
+
+    const request = JSON.parse(ws.sent[0]!);
+    (client as any).handleMessage(JSON.stringify({
+      type: "res",
+      id: request.id,
+      ok: true,
+      payload: { status: "accepted", runId: "run-1" },
+    }));
+    await flushMicrotasks();
+
+    expect(acceptedPayloads).toEqual([{ status: "accepted", runId: "run-1" }]);
+    (client as any).handleMessage(JSON.stringify({
+      type: "res",
+      id: request.id,
+      ok: true,
+      payload: { status: "done", value: 42 },
+    }));
+
+    await expect(promise).resolves.toEqual({ status: "done", value: 42 });
+  });
+
+  it("request cleans up pending state when websocket send throws", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = {
+      readyState: MockWebSocket.OPEN,
+      send: () => {
+        throw new Error("send failed");
+      },
+    };
+
+    expect(() => client.request("broken.method")).toThrow("send failed");
+    expect((client as any).pending.size).toBe(0);
   });
 
   it("chatSend streams legacy chat deltas and treats final without message as done", async () => {

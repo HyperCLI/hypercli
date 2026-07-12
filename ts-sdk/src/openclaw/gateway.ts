@@ -17,6 +17,16 @@ export interface GatewayOptions {
   token?: string;
   /** Shared gateway auth token used in the WebSocket connect handshake. */
   gatewayToken?: string;
+  /** Bootstrap auth token used by newer OpenClaw gateway handshakes. */
+  bootstrapToken?: string;
+  /** Explicit device auth token used by newer OpenClaw gateway handshakes. */
+  deviceToken?: string;
+  /** Password auth field used by compatible gateway deployments. */
+  password?: string;
+  /** Approval-runtime auth token used by compatible gateway deployments. */
+  approvalRuntimeToken?: string;
+  /** Agent-runtime identity token used by compatible gateway deployments. */
+  agentRuntimeIdentityToken?: string;
   /** Deployment id used for trusted pairing approval via agent exec. */
   deploymentId?: string;
   /** HyperCLI API bearer token used for trusted pairing approval via agent exec. */
@@ -35,6 +45,8 @@ export interface GatewayOptions {
   clientVersion?: string;
   /** Client platform sent to the gateway */
   platform?: string;
+  /** Optional device family sent to the gateway */
+  deviceFamily?: string;
   /** Optional client instance ID */
   instanceId?: string;
   /** Optional gateway capability list */
@@ -45,9 +57,17 @@ export interface GatewayOptions {
   scopes?: string[];
   /** Declared node command surface advertised in the connect handshake (node role). */
   commands?: string[];
+  /** Optional policy permissions advertised in the connect handshake. */
+  permissions?: Record<string, boolean>;
+  /** Optional PATH-like environment hint advertised in the connect handshake. */
+  pathEnv?: string;
+  /** Minimum gateway protocol version this client can speak. Defaults to v3 for live-agent compatibility. */
+  minProtocol?: number;
+  /** Maximum gateway protocol version this client can speak. */
+  maxProtocol?: number;
   /** Origin header (default: omitted for non-browser SDK clients) */
   origin?: string;
-  /** Default RPC timeout in ms (default: 15000) */
+  /** Default RPC timeout in ms (default: 30000) */
   timeout?: number;
   /** Called after a successful hello-ok response */
   onHello?: (hello: Record<string, any>) => void;
@@ -510,10 +530,22 @@ export interface GatewayIntegrationDisconnectResult {
 export type GatewayEventHandler = (event: GatewayEvent) => void;
 export type GatewayConnectionStateHandler = (state: GatewayConnectionState) => void;
 
+export type GatewayClientRequestOptions = {
+  expectFinal?: boolean;
+  timeoutMs?: number | null;
+  signal?: AbortSignal;
+  /** Called once for expectFinal requests after an accepted response, before the final result. */
+  onAccepted?: (payload: unknown) => void;
+};
+
 type PendingRequest = {
   resolve: (value: any) => void;
   reject: (err: unknown) => void;
-  timer: ReturnType<typeof setTimeout>;
+  expectFinal: boolean;
+  timer: ReturnType<typeof setTimeout> | null;
+  cleanup: () => void;
+  onAccepted?: (payload: unknown) => void;
+  acceptedNotified?: boolean;
 };
 
 type DeviceTokenEntry = {
@@ -570,10 +602,11 @@ class GatewayRequestError extends Error {
   }
 }
 
-const MIN_PROTOCOL_VERSION = 3;
-const PROTOCOL_VERSION = 4;
-const DEFAULT_TIMEOUT = 15_000;
-const CHAT_TIMEOUT = 120_000;
+export const MIN_GATEWAY_VERSION = 3;
+export const MAX_GATEWAY_VERSION = 4;
+const DEFAULT_CONNECTION_TIMEOUT = 30_000;
+const WEB_LOGIN_WAIT_TIMEOUT = 120_000;
+const DEFAULT_AGENT_TIMEOUT = 900_000;
 const SKILLS_MUTATION_TIMEOUT = 300_000;
 const RECONNECT_CLOSE_CODE = 4008;
 const DEFAULT_CLIENT_ID = "cli";
@@ -594,13 +627,16 @@ const CONNECT_ERROR_DEVICE_TOKEN_MISMATCH = "AUTH_DEVICE_TOKEN_MISMATCH";
 const VALID_CLIENT_IDS = new Set([
   "webchat-ui",
   "openclaw-control-ui",
+  "openclaw-tui",
   "webchat",
   "cli",
   "gateway-client",
   "openclaw-macos",
   "openclaw-ios",
+  "openclaw-watchos",
   "openclaw-android",
   "node-host",
+  "openclaw-worker",
   "test",
   "fingerprint",
   "openclaw-probe",
@@ -611,6 +647,7 @@ const VALID_CLIENT_MODES = new Set([
   "ui",
   "backend",
   "node",
+  "worker",
   "probe",
   "test",
 ]);
@@ -1284,6 +1321,26 @@ function normalizeClientMode(value: string | undefined): string {
   return normalized && VALID_CLIENT_MODES.has(normalized) ? normalized : DEFAULT_CLIENT_MODE;
 }
 
+function normalizeOptionalString(value: string | undefined): string | undefined {
+  return value?.trim() || undefined;
+}
+
+function normalizeProtocolVersion(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.trunc(value)
+    : fallback;
+}
+
+function normalizePermissions(value: Record<string, boolean> | undefined): Record<string, boolean> | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const entries = Object.entries(value)
+    .filter(([key, allowed]) => key.trim() && typeof allowed === "boolean")
+    .map(([key, allowed]) => [key.trim(), allowed] as const);
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
 function getNavigatorLike(): NavigatorLike | null {
   const maybeNavigator = (globalThis as typeof globalThis & { navigator?: NavigatorLike }).navigator;
   return maybeNavigator ?? null;
@@ -1724,6 +1781,11 @@ export class GatewayClient {
   private url: string;
   private token?: string;
   private gatewayToken?: string;
+  private bootstrapToken?: string;
+  private deviceToken?: string;
+  private password?: string;
+  private approvalRuntimeToken?: string;
+  private agentRuntimeIdentityToken?: string;
   private deploymentId?: string;
   private apiKey?: string;
   private apiBase?: string;
@@ -1733,11 +1795,16 @@ export class GatewayClient {
   private clientDisplayName?: string;
   private clientVersion: string;
   private clientPlatform: string;
+  private clientDeviceFamily?: string;
   private clientInstanceId?: string;
   private caps: string[];
   private role: string;
   private scopes: string[];
   private commands?: string[];
+  private permissions?: Record<string, boolean>;
+  private pathEnv?: string;
+  private minProtocol: number;
+  private maxProtocol: number;
   private origin?: string;
   private defaultTimeout: number;
   private ws: GatewaySocket | null = null;
@@ -1768,18 +1835,24 @@ export class GatewayClient {
 
   constructor(options: GatewayOptions) {
     this.url = options.url;
-    this.token = options.token?.trim() || undefined;
-    this.gatewayToken = options.gatewayToken?.trim() || undefined;
-    this.deploymentId = options.deploymentId?.trim() || undefined;
-    this.apiKey = options.apiKey?.trim() || undefined;
+    this.token = normalizeOptionalString(options.token);
+    this.gatewayToken = normalizeOptionalString(options.gatewayToken);
+    this.bootstrapToken = normalizeOptionalString(options.bootstrapToken);
+    this.deviceToken = normalizeOptionalString(options.deviceToken);
+    this.password = normalizeOptionalString(options.password);
+    this.approvalRuntimeToken = normalizeOptionalString(options.approvalRuntimeToken);
+    this.agentRuntimeIdentityToken = normalizeOptionalString(options.agentRuntimeIdentityToken);
+    this.deploymentId = normalizeOptionalString(options.deploymentId);
+    this.apiKey = normalizeOptionalString(options.apiKey);
     this.apiBase = options.apiBase?.trim().replace(/\/$/, "") || undefined;
     this.autoApprovePairing = options.autoApprovePairing === true;
     this.clientId = normalizeClientId(options.clientId);
     this.clientMode = normalizeClientMode(options.clientMode);
     this.clientVersion = options.clientVersion?.trim() || DEFAULT_CLIENT_VERSION;
     this.clientPlatform = resolvePlatform(options.platform);
+    this.clientDeviceFamily = normalizeOptionalString(options.deviceFamily);
     this.clientDisplayName = resolveClientDisplayName(options.clientDisplayName, this.clientPlatform);
-    this.clientInstanceId = options.instanceId?.trim() || makeId();
+    this.clientInstanceId = normalizeOptionalString(options.instanceId) || makeId();
     this.caps = Array.isArray(options.caps)
       ? options.caps.map((cap) => cap.trim()).filter(Boolean)
       : [...DEFAULT_CAPS];
@@ -1792,13 +1865,17 @@ export class GatewayClient {
     this.commands = Array.isArray(options.commands)
       ? options.commands.map((command) => command.trim()).filter(Boolean)
       : undefined;
+    this.permissions = normalizePermissions(options.permissions);
+    this.pathEnv = normalizeOptionalString(options.pathEnv);
+    this.minProtocol = normalizeProtocolVersion(options.minProtocol, MIN_GATEWAY_VERSION);
+    this.maxProtocol = normalizeProtocolVersion(options.maxProtocol, MAX_GATEWAY_VERSION);
     // Non-browser SDK clients should not send Origin by default. OpenClaw
     // treats any Origin header as browser-originated and applies browser
     // origin checks to the connection.
     this.origin = typeof options.origin === "string" && options.origin.trim()
       ? options.origin.trim()
       : undefined;
-    this.defaultTimeout = options.timeout ?? DEFAULT_TIMEOUT;
+    this.defaultTimeout = options.timeout ?? DEFAULT_CONNECTION_TIMEOUT;
     this.onHello = options.onHello;
     this.onClose = options.onClose;
     this.onGap = options.onGap;
@@ -2062,7 +2139,7 @@ export class GatewayClient {
 
   private flushPending(error: Error): void {
     for (const [, pending] of this.pending) {
-      clearTimeout(pending.timer);
+      pending.cleanup();
       pending.reject(error);
     }
     this.pending.clear();
@@ -2130,8 +2207,15 @@ export class GatewayClient {
         this.storageScope(),
         this.role,
       )?.token ?? null;
-      const authToken = this.gatewayToken ?? storedDeviceToken;
-      const authDeviceToken = this.pendingDeviceTokenRetry ? (storedDeviceToken ?? undefined) : undefined;
+      const resolvedDeviceToken = this.deviceToken ?? storedDeviceToken ?? undefined;
+      const authToken = this.gatewayToken ?? resolvedDeviceToken;
+      const authBootstrapToken =
+        !this.gatewayToken && !resolvedDeviceToken && !this.password
+          ? this.bootstrapToken
+          : undefined;
+      const authDeviceToken =
+        this.deviceToken ?? (this.pendingDeviceTokenRetry ? resolvedDeviceToken : undefined);
+      const signatureToken = authToken ?? authBootstrapToken;
       const signedAtMs = Date.now();
       const payload = buildDeviceAuthPayload({
         deviceId: identity.deviceId,
@@ -2140,19 +2224,28 @@ export class GatewayClient {
         role: this.role,
         scopes: this.scopes,
         signedAtMs,
-        token: authToken ?? null,
+        token: signatureToken ?? null,
         nonce,
       });
       const signature = await signDevicePayload(identity.privateKey, payload);
 
+      const auth: Record<string, string> = {};
+      if (authToken) auth.token = authToken;
+      if (authBootstrapToken) auth.bootstrapToken = authBootstrapToken;
+      if (authDeviceToken) auth.deviceToken = authDeviceToken;
+      if (this.password) auth.password = this.password;
+      if (this.approvalRuntimeToken) auth.approvalRuntimeToken = this.approvalRuntimeToken;
+      if (this.agentRuntimeIdentityToken) auth.agentRuntimeIdentityToken = this.agentRuntimeIdentityToken;
+
       const params: Record<string, any> = {
-        minProtocol: MIN_PROTOCOL_VERSION,
-        maxProtocol: PROTOCOL_VERSION,
+        minProtocol: this.minProtocol,
+        maxProtocol: this.maxProtocol,
         client: {
           id: this.clientId,
           ...(this.clientDisplayName ? { displayName: this.clientDisplayName } : {}),
           version: this.clientVersion,
           platform: this.clientPlatform,
+          ...(this.clientDeviceFamily ? { deviceFamily: this.clientDeviceFamily } : {}),
           mode: this.clientMode,
           ...(this.clientInstanceId ? { instanceId: this.clientInstanceId } : {}),
         },
@@ -2167,20 +2260,9 @@ export class GatewayClient {
         },
         caps: this.caps,
         ...(this.commands ? { commands: this.commands } : {}),
-        ...(authToken
-          ? {
-              auth: {
-                ...(authToken ? { token: authToken } : {}),
-                ...(authDeviceToken ? { deviceToken: authDeviceToken } : {}),
-              },
-            }
-          : authDeviceToken
-            ? {
-                auth: {
-                  deviceToken: authDeviceToken,
-                },
-              }
-            : {}),
+        ...(this.permissions ? { permissions: this.permissions } : {}),
+        ...(this.pathEnv ? { pathEnv: this.pathEnv } : {}),
+        ...(Object.keys(auth).length ? { auth } : {}),
         ...(resolveUserAgent() ? { userAgent: resolveUserAgent() } : {}),
         ...(resolveLocale() ? { locale: resolveLocale() } : {}),
       };
@@ -2188,7 +2270,7 @@ export class GatewayClient {
       const hello = await this.sendRawRequest<Record<string, any>>(
         "connect",
         params,
-        this.defaultTimeout,
+        { timeoutMs: this.defaultTimeout },
         true,
       );
 
@@ -2360,8 +2442,20 @@ export class GatewayClient {
     if (!pending) {
       return;
     }
+    const payload = message.payload as { status?: unknown } | undefined;
+    if (pending.expectFinal && payload?.status === "accepted") {
+      if (!pending.acceptedNotified) {
+        pending.acceptedNotified = true;
+        try {
+          pending.onAccepted?.(message.payload);
+        } catch {
+          // Accepted callbacks are observational and must not break the request.
+        }
+      }
+      return;
+    }
     this.pending.delete(message.id);
-    clearTimeout(pending.timer);
+    pending.cleanup();
 
     if (message.ok) {
       pending.resolve(message.payload);
@@ -2380,7 +2474,7 @@ export class GatewayClient {
   private sendRawRequest<T>(
     method: string,
     params: Record<string, any> = {},
-    timeout = this.defaultTimeout,
+    options: GatewayClientRequestOptions = {},
     allowBeforeHello = false,
   ): Promise<T> {
     if (!this.ws || !isSocketOpen(this.ws)) {
@@ -2389,30 +2483,87 @@ export class GatewayClient {
     if (!allowBeforeHello && !this.connected) {
       return Promise.reject(new Error("gateway not connected"));
     }
+    if (options.signal?.aborted) {
+      return Promise.reject(createGatewayRequestAbortError(method));
+    }
 
     const id = makeId();
     const request = { type: "req", id, method, params };
-    return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
+    const expectFinal = options.expectFinal === true;
+    const timeout =
+      options.timeoutMs === null
+        ? null
+        : typeof options.timeoutMs === "number" && Number.isFinite(options.timeoutMs)
+          ? Math.max(0, options.timeoutMs)
+          : expectFinal
+            ? null
+            : this.defaultTimeout;
+    const promise = new Promise<T>((resolve, reject) => {
+      const timer =
+        timeout === null
+          ? null
+          : setTimeout(() => {
+              this.pending.delete(id);
+              reject(new Error(`RPC timeout: ${method}`));
+            }, timeout);
+      const abortHandler = () => {
+        const pending = this.pending.get(id);
         this.pending.delete(id);
-        reject(new Error(`RPC timeout: ${method}`));
-      }, timeout);
+        pending?.cleanup();
+        reject(createGatewayRequestAbortError(method));
+      };
+      const cleanup = () => {
+        if (timer) {
+          clearTimeout(timer);
+        }
+        options.signal?.removeEventListener("abort", abortHandler);
+      };
 
-      this.pending.set(id, { resolve, reject, timer });
-      this.ws?.send(JSON.stringify(request));
+      this.pending.set(id, {
+        resolve,
+        reject,
+        expectFinal,
+        timer,
+        cleanup,
+        onAccepted: options.onAccepted,
+      });
+      options.signal?.addEventListener("abort", abortHandler, { once: true });
     });
+    try {
+      this.ws?.send(JSON.stringify(request));
+    } catch (error) {
+      const pending = this.pending.get(id);
+      this.pending.delete(id);
+      pending?.cleanup();
+      throw error;
+    }
+    return promise;
   }
 
   // ---------------------------------------------------------------------------
   // RPC
   // ---------------------------------------------------------------------------
 
-  private rpc(method: string, params: Record<string, any> = {}, timeout?: number): Promise<any> {
-    return this.sendRawRequest(method, params, timeout ?? this.defaultTimeout);
+  private rpc(
+    method: string,
+    params: Record<string, any> = {},
+    timeout?: number | null,
+  ): Promise<any> {
+    return this.sendRawRequest(method, params, {
+      timeoutMs: timeout === undefined ? this.defaultTimeout : timeout,
+    });
   }
 
-  request<T = any>(method: string, params: Record<string, any> = {}, timeout?: number): Promise<T> {
-    return this.rpc(method, params, timeout);
+  request<T = any>(
+    method: string,
+    params: Record<string, any> = {},
+    options?: number | null | GatewayClientRequestOptions,
+  ): Promise<T> {
+    return this.sendRawRequest(
+      method,
+      params,
+      typeof options === "object" && options !== null ? options : { timeoutMs: options },
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -2595,7 +2746,7 @@ export class GatewayClient {
     const params: Record<string, any> = {};
     if (options.timeoutMs !== undefined) params.timeoutMs = options.timeoutMs;
     if (options.accountId) params.accountId = options.accountId;
-    return await this.rpc("web.login.wait", params, CHAT_TIMEOUT);
+    return await this.rpc("web.login.wait", params, WEB_LOGIN_WAIT_TIMEOUT);
   }
 
   // ---------------------------------------------------------------------------
@@ -2644,7 +2795,7 @@ export class GatewayClient {
     };
     if (agentId) params.agentId = agentId;
     if (normalizedAttachments) params.attachments = normalizedAttachments;
-    return this.rpc("chat.send", params, CHAT_TIMEOUT);
+    return this.rpc("chat.send", params, DEFAULT_AGENT_TIMEOUT);
   }
 
   async sessionsReset(sessionKey: string, reason?: "new" | "reset"): Promise<void> {
@@ -2777,14 +2928,14 @@ export class GatewayClient {
       };
       if (normalizedAttachments) params.attachments = normalizedAttachments;
 
-      const ack = await this.rpc("chat.send", params, CHAT_TIMEOUT);
+      const ack = await this.rpc("chat.send", params, DEFAULT_AGENT_TIMEOUT);
       const serverRunId = typeof ack?.runId === "string" ? ack.runId.trim() : "";
       if (serverRunId) {
         acceptedRunIds.add(serverRunId);
       }
 
       const waitForHistoryText = async (timeoutMs = 10_000): Promise<string> => {
-        const historyDeadline = Date.now() + Math.min(timeoutMs, CHAT_TIMEOUT);
+        const historyDeadline = Date.now() + Math.min(timeoutMs, DEFAULT_AGENT_TIMEOUT);
         while (true) {
           const historyText = latestHistoryAssistantText(
             await this.chatHistory(sessionKey, 20),
@@ -2796,7 +2947,7 @@ export class GatewayClient {
         }
       };
 
-      let deadline = Date.now() + CHAT_TIMEOUT;
+      let deadline = Date.now() + DEFAULT_AGENT_TIMEOUT;
       while (Date.now() < deadline) {
         if (queuedEvents.length === 0) {
           const remainingMs = Math.max(100, Math.min(1000, deadline - Date.now()));
@@ -2828,7 +2979,7 @@ export class GatewayClient {
           continue;
         }
 
-        deadline = Date.now() + CHAT_TIMEOUT;
+        deadline = Date.now() + DEFAULT_AGENT_TIMEOUT;
 
         if (evt.event === "chat.content") {
           const text = typeof payload.text === "string" ? payload.text : "";
@@ -3132,6 +3283,12 @@ export class GatewayClient {
   async status(): Promise<Record<string, any>> {
     return this.rpc("status");
   }
+}
+
+function createGatewayRequestAbortError(method: string): Error {
+  const err = new Error(`gateway request aborted for ${method}`);
+  err.name = "AbortError";
+  return err;
 }
 
 // -----------------------------------------------------------------------------
