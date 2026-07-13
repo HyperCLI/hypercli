@@ -115,9 +115,29 @@ def test_agent_urls_and_running_state():
     assert agent.public_url == "https://test.hypercli.com"
     assert agent.desktop_url == "https://desktop-test.hypercli.com"
     assert agent.vnc_url == "https://desktop-test.hypercli.com"
+    assert (
+        agent.browser_desktop_url(" jwt-123 ")
+        == "https://desktop-test.hypercli.com/_jwt_auth?jwt=jwt-123&redirect=vnc.html%3Fresize%3Dscale"
+    )
     assert agent.shell_url is None
     assert agent.executor_url is None
     assert agent.is_running is True
+
+
+def test_browser_desktop_url_preserves_redirect_query_and_forces_scale():
+    agent = Agent(
+        id="agent-123",
+        user_id="user-456",
+        pod_id="pod-789",
+        pod_name="test-pod",
+        state="running",
+        hostname="test.hypercli.com",
+    )
+
+    assert (
+        agent.browser_desktop_url("jwt-123", redirect="vnc.html?autoconnect=1&resize=remote")
+        == "https://desktop-test.hypercli.com/_jwt_auth?jwt=jwt-123&redirect=vnc.html%3Fautoconnect%3D1%26resize%3Dscale"
+    )
 
 
 def test_launch_config_desktop_detection_uses_explicit_config_not_pro_image():

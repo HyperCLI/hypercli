@@ -62,6 +62,11 @@ export interface AgentTokenResponse {
   expires_at?: string | null;
 }
 
+export interface BrowserDesktopUrlOptions {
+  redirect?: string | null;
+  resize?: string | null;
+}
+
 export interface AgentGatewayContext {
   agent_id?: string;
   hostname?: string | null;
@@ -711,6 +716,41 @@ export function agentConfigHasDesktop(source: AgentDesktopConfigSource | null | 
   );
 }
 
+function browserDesktopRedirectPath(options: BrowserDesktopUrlOptions = {}): string {
+  const redirect = (options.redirect ?? 'vnc.html').trim() || 'vnc.html';
+  if (redirect.includes('\\')) {
+    throw new Error('Desktop redirect must be a relative path');
+  }
+
+  const base = 'https://desktop.local';
+  const parsed = new URL(redirect, `${base}/`);
+  if (parsed.origin !== base) {
+    throw new Error('Desktop redirect must be a relative path');
+  }
+
+  if (options.resize !== null) {
+    const resize = options.resize ?? 'scale';
+    if (resize.trim()) parsed.searchParams.set('resize', resize);
+  }
+
+  const pathname = parsed.pathname.replace(/^\/+/, '') || 'vnc.html';
+  return `${pathname}${parsed.search}${parsed.hash}`;
+}
+
+export function buildBrowserDesktopUrl(
+  desktopBaseUrl: string,
+  token: string,
+  options: BrowserDesktopUrlOptions = {},
+): string {
+  const jwt = token.trim();
+  if (!jwt) throw new Error('Desktop token is required');
+
+  const url = new URL('/_jwt_auth', desktopBaseUrl);
+  url.searchParams.set('jwt', jwt);
+  url.searchParams.set('redirect', browserDesktopRedirectPath(options));
+  return url.toString();
+}
+
 function isOpenClawProHydrationData(data: AgentHydrationData): boolean {
   const launchConfig = data.launch_config;
   if (!launchConfig || typeof launchConfig !== 'object' || Array.isArray(launchConfig)) return false;
@@ -1128,6 +1168,11 @@ export class Agent {
 
   get vncUrl(): string | null {
     return this.desktopUrl;
+  }
+
+  browserDesktopUrl(token: string, options: BrowserDesktopUrlOptions = {}): string | null {
+    if (!this.desktopUrl) return null;
+    return buildBrowserDesktopUrl(this.desktopUrl, token, options);
   }
 
   get shellUrl(): string | null {

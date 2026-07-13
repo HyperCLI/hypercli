@@ -3,6 +3,7 @@ import {
   Agent,
   agentConfigHasDesktop,
   buildAgentConfig,
+  buildBrowserDesktopUrl,
   Deployments,
   flattenLaunchConfig,
   launchConfigHasDesktop,
@@ -254,6 +255,33 @@ describe('Agents SDK', () => {
 
     expect(agent.hasDesktop).toBe(true);
     expect(agent.desktopUrl).toBe('https://screen-agent.hypercli.com');
+  });
+
+  it('builds browser desktop auth URLs with scaled noVNC redirects', () => {
+    const url = buildBrowserDesktopUrl('https://desktop-agent.hypercli.com', ' jwt-123 ');
+
+    expect(url).toBe('https://desktop-agent.hypercli.com/_jwt_auth?jwt=jwt-123&redirect=vnc.html%3Fresize%3Dscale');
+  });
+
+  it('builds browser desktop auth URLs with query-preserving redirects', () => {
+    const url = buildBrowserDesktopUrl('https://desktop-agent.hypercli.com/', 'jwt-123', {
+      redirect: 'vnc.html?autoconnect=1&resize=remote',
+    });
+
+    expect(url).toBe('https://desktop-agent.hypercli.com/_jwt_auth?jwt=jwt-123&redirect=vnc.html%3Fautoconnect%3D1%26resize%3Dscale');
+  });
+
+  it('exposes browser desktop auth URL construction on agents', () => {
+    const agent = Agent.fromDict({
+      id: 'agent-123',
+      user_id: 'user-456',
+      pod_id: 'pod-789',
+      pod_name: 'pod-789',
+      state: 'running',
+      hostname: 'agent.hypercli.com',
+    });
+
+    expect(agent.browserDesktopUrl('jwt-123')).toBe('https://desktop-agent.hypercli.com/_jwt_auth?jwt=jwt-123&redirect=vnc.html%3Fresize%3Dscale');
   });
 
   it('supports bound resize on hydrated agents', async () => {

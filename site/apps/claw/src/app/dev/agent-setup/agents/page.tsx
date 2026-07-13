@@ -59,6 +59,7 @@ import { getCategoryForPlugin, type DirectoryCategory } from "@/components/dashb
 import { buildSkillsSnapshotCommand, parseSkillSnapshotOutput } from "@/components/dashboard/directory/workspace-skills";
 import type { AgentFileEntry, SdkAgent } from "@/types";
 import type { FileEntry } from "@hypercli/shared-ui/files";
+import { buildBrowserDesktopUrl } from "@hypercli.com/sdk/agents";
 import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
 import type { WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
 import type { HyperAgentCurrentPlan, HyperAgentPlan, HyperAgentSubscriptionSummary, HyperAgentTypeCatalog } from "@hypercli.com/sdk/agent";
@@ -997,10 +998,7 @@ export default function DevAgentSetupAgentsPage() {
     async (agentId: string, hostname: string): Promise<string> => {
       const authToken = await getToken();
       const tokenData = await createAgentClient(authToken).refreshToken(agentId) as AgentDesktopTokenResponse;
-      const desktopUrl = new URL(`https://desktop-${hostname}/_jwt_auth`);
-      desktopUrl.searchParams.set("jwt", tokenData.token);
-      desktopUrl.searchParams.set("redirect", "vnc.html");
-      return desktopUrl.toString();
+      return buildBrowserDesktopUrl(`https://desktop-${hostname}`, tokenData.token);
     },
     [getToken]
   );

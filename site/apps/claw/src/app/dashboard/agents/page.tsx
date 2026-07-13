@@ -52,6 +52,7 @@ import { PlanComparisonModal } from "@/components/dashboard/agents/PlanCompariso
 import { AgentCreationSetupWizard, type AgentCreationSetupCreateParams } from "@/components/dashboard/agents/AgentCreationSetupWizard";
 import type { AgentFileEntry, SdkAgent } from "@/types";
 import type { FileEntry } from "@hypercli/shared-ui/files";
+import { buildBrowserDesktopUrl } from "@hypercli.com/sdk/agents";
 import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
 import type { WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
 import type {
@@ -1112,13 +1113,11 @@ function AgentsPageContent() {
       const tokenData = await (await getAgentClient()).refreshToken(agent.id) as AgentDesktopTokenResponse;
       const token = tokenData.token?.trim();
       if (!token) throw new Error("Desktop token was not returned.");
-      const desktopUrl = new URL("/_jwt_auth", desktopBaseUrl);
-      desktopUrl.searchParams.set("jwt", token);
-      desktopUrl.searchParams.set("redirect", "vnc.html");
+      const desktopUrl = buildBrowserDesktopUrl(desktopBaseUrl, token);
       if (popup) {
-        popup.location.href = desktopUrl.toString();
+        popup.location.href = desktopUrl;
       } else {
-        const fallback = window.open(desktopUrl.toString(), "_blank");
+        const fallback = window.open(desktopUrl, "_blank");
         if (fallback) fallback.opener = null;
       }
     } catch (err) {

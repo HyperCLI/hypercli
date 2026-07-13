@@ -18,7 +18,7 @@ import re
 import secrets
 import time
 from typing import Callable, Literal, Optional, Any, AsyncIterator
-from urllib.parse import quote, urlsplit
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 from contextlib import asynccontextmanager
 
 import httpx
@@ -661,6 +661,47 @@ def agent_config_has_desktop(source: object) -> bool:
     )
 
 
+def _browser_desktop_redirect_path(
+    redirect: str | None = None,
+    *,
+    resize: str | None = "scale",
+) -> str:
+    target = (redirect or "vnc.html").strip() or "vnc.html"
+    if "\\" in target:
+        raise ValueError("Desktop redirect must be a relative path")
+
+    parsed = urlsplit(target)
+    if parsed.scheme or parsed.netloc:
+        raise ValueError("Desktop redirect must be a relative path")
+
+    path = (parsed.path or "vnc.html").lstrip("/") or "vnc.html"
+    query_items = [(key, value) for key, value in parse_qsl(parsed.query, keep_blank_values=True) if key != "resize"]
+    if resize is not None and resize.strip():
+        query_items.append(("resize", resize))
+    query = urlencode(query_items)
+    return urlunsplit(("", "", path, query, parsed.fragment))
+
+
+def build_browser_desktop_url(
+    desktop_base_url: str,
+    token: str,
+    *,
+    redirect: str | None = None,
+    resize: str | None = "scale",
+) -> str:
+    jwt = token.strip()
+    if not jwt:
+        raise ValueError("Desktop token is required")
+
+    query = urlencode(
+        {
+            "jwt": jwt,
+            "redirect": _browser_desktop_redirect_path(redirect, resize=resize),
+        }
+    )
+    return f"{desktop_base_url.rstrip('/')}/_jwt_auth?{query}"
+
+
 def _parse_dt(val):
     if isinstance(val, str) and val:
         return datetime.fromisoformat(val.replace("Z", "+00:00"))
@@ -792,6 +833,17 @@ class Agent:
     @property
     def vnc_url(self) -> Optional[str]:
         return self.desktop_url
+
+    def browser_desktop_url(
+        self,
+        token: str,
+        *,
+        redirect: str | None = None,
+        resize: str | None = "scale",
+    ) -> Optional[str]:
+        if not self.desktop_url:
+            return None
+        return build_browser_desktop_url(self.desktop_url, token, redirect=redirect, resize=resize)
 
     @property
     def shell_url(self) -> Optional[str]:
