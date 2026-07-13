@@ -118,6 +118,24 @@ describe("agent-client", () => {
     }));
   });
 
+  it("does not send an empty routes object when the saved launch config has no routes", async () => {
+    deploymentsInstance.get.mockResolvedValue({
+      launchConfig: {
+        image: "ghcr.io/hypercli/hypercli-openclaw:prod",
+        env: {
+          OPENCLAW_DESKTOP_ENABLED: "0",
+        },
+      },
+    });
+    deploymentsInstance.startOpenClaw.mockResolvedValue({ id: "agent-123" });
+
+    await startOpenClawAgent("hyper_api_test", "agent-123");
+
+    expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledWith("agent-123", expect.not.objectContaining({
+      routes: expect.anything(),
+    }));
+  });
+
   it("preserves the saved desktop route when start overrides only touch env or config", async () => {
     deploymentsInstance.get.mockResolvedValue({
       launchConfig: {

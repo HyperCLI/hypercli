@@ -218,22 +218,29 @@ function mergeStartOptions(
   base: FrontendOpenClawStartOptions,
   overrides: FrontendOpenClawStartOptions,
 ): FrontendOpenClawStartOptions {
-  return {
+  const merged: FrontendOpenClawStartOptions = {
     ...base,
     ...overrides,
-    config: {
+  };
+  if (base.config !== undefined || overrides.config !== undefined) {
+    merged.config = {
       ...(base.config ?? {}),
       ...(overrides.config ?? {}),
-    },
-    env: {
+    };
+  }
+  if (base.env !== undefined || overrides.env !== undefined) {
+    merged.env = {
       ...(base.env ?? {}),
       ...(overrides.env ?? {}),
-    },
-    routes: {
+    };
+  }
+  if (base.routes !== undefined || overrides.routes !== undefined) {
+    merged.routes = {
       ...(base.routes ?? {}),
       ...(overrides.routes ?? {}),
-    },
-  };
+    };
+  }
+  return merged;
 }
 
 function resolveAgentApiBaseUrl(rawBaseUrl: string): string {

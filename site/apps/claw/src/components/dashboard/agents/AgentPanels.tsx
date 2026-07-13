@@ -714,9 +714,8 @@ function getDesktopEnabled(agent: Agent | null): boolean {
   const launchConfig = launchConfigFromAgent(agent);
   const routes = isRecord(launchConfig.routes) ? launchConfig.routes : {};
   const hasDesktopRoute = isRecord(routes.desktop);
-  if (hasDesktopRoute) return true;
   if (env.OPENCLAW_DESKTOP_ENABLED !== undefined) {
-    return envBooleanFromString(env.OPENCLAW_DESKTOP_ENABLED, Boolean(agent?.hasDesktop));
+    return envBooleanFromString(env.OPENCLAW_DESKTOP_ENABLED, hasDesktopRoute || Boolean(agent?.hasDesktop));
   }
   return hasDesktopRoute || Boolean(agent?.hasDesktop);
 }

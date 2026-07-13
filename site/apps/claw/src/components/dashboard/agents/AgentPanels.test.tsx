@@ -577,7 +577,7 @@ describe("AgentSettingsPanel", () => {
     });
   });
 
-  it("rehydrates the desktop toggle from a saved desktop route after refresh", () => {
+  it("rehydrates the desktop toggle from saved desktop launch config after refresh", () => {
     const initialAgent = {
       ...agent,
       launchConfig: {
@@ -592,6 +592,10 @@ describe("AgentSettingsPanel", () => {
       ...initialAgent,
       launchConfig: {
         ...initialAgent.launchConfig,
+        env: {
+          ...(initialAgent.launchConfig?.env as Record<string, string>),
+          OPENCLAW_DESKTOP_ENABLED: "1",
+        },
         routes: {
           ...(initialAgent.launchConfig?.routes as Record<string, unknown>),
           desktop: { port: 3000, auth: true, prefix: "desktop" },
@@ -606,6 +610,29 @@ describe("AgentSettingsPanel", () => {
     rerender(<AgentSettingsPanel {...props} agent={refreshedAgent} />);
 
     expect(screen.getByRole("checkbox", { name: "Enable desktop route" })).toBeChecked();
+  });
+
+  it("keeps the desktop toggle disabled when saved env disables a stale desktop route", () => {
+    renderAgentSettingsPanel({
+      agent: {
+        ...agent,
+        launchConfig: {
+          ...agent.launchConfig,
+          env: {
+            ...(agent.launchConfig?.env as Record<string, string>),
+            OPENCLAW_DESKTOP_ENABLED: "0",
+          },
+          routes: {
+            ...(agent.launchConfig?.routes as Record<string, unknown>),
+            desktop: { port: 3000, auth: true, prefix: "desktop" },
+          },
+        },
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+
+    expect(screen.getByRole("checkbox", { name: "Enable desktop route" })).not.toBeChecked();
   });
 
   it("renders usage when selected", () => {
