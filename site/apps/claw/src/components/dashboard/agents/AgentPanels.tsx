@@ -596,6 +596,9 @@ const MANAGED_LAUNCH_ENV_PREFIXES = [
   "REEF_",
 ];
 
+const DEFAULT_OPENCLAW_ROUTE = { port: 18789, auth: false, prefix: "" } as const;
+const DEFAULT_DESKTOP_ROUTE = { port: 3000, auth: true, prefix: "desktop" } as const;
+
 function isManagedLaunchEnvKey(key: string): boolean {
   return MANAGED_LAUNCH_ENV_KEYS.has(key) || MANAGED_LAUNCH_ENV_PREFIXES.some((prefix) => key.startsWith(prefix));
 }
@@ -660,10 +663,10 @@ function buildUpdatedLaunchConfig(
   if (image) launchConfig.image = image;
   const routes = isRecord(launchConfig.routes) ? { ...launchConfig.routes } : {};
   if (!isRecord(routes.openclaw)) {
-    routes.openclaw = { port: 18789, auth: false, prefix: "" };
+    routes.openclaw = { ...DEFAULT_OPENCLAW_ROUTE };
   }
   if (desktopEnabled) {
-    routes.desktop = isRecord(routes.desktop) ? routes.desktop : { port: 3000, auth: true, prefix: "desktop" };
+    routes.desktop = { ...DEFAULT_DESKTOP_ROUTE };
   } else {
     delete routes.desktop;
   }
@@ -708,12 +711,14 @@ function envBooleanFromString(value: string | undefined, fallback: boolean): boo
 
 function getDesktopEnabled(agent: Agent | null): boolean {
   const env = launchConfigEnv(agent);
-  if (env.OPENCLAW_DESKTOP_ENABLED !== undefined) {
-    return envBooleanFromString(env.OPENCLAW_DESKTOP_ENABLED, false);
-  }
   const launchConfig = launchConfigFromAgent(agent);
   const routes = isRecord(launchConfig.routes) ? launchConfig.routes : {};
-  return isRecord(routes.desktop) || Boolean(agent?.hasDesktop);
+  const hasDesktopRoute = isRecord(routes.desktop);
+  if (hasDesktopRoute) return true;
+  if (env.OPENCLAW_DESKTOP_ENABLED !== undefined) {
+    return envBooleanFromString(env.OPENCLAW_DESKTOP_ENABLED, Boolean(agent?.hasDesktop));
+  }
+  return hasDesktopRoute || Boolean(agent?.hasDesktop);
 }
 
 function getWorkspacesSyncSettings(agent: Agent | null): WorkspacesSyncSettings {

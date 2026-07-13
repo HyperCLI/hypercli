@@ -229,6 +229,10 @@ function mergeStartOptions(
       ...(base.env ?? {}),
       ...(overrides.env ?? {}),
     },
+    routes: {
+      ...(base.routes ?? {}),
+      ...(overrides.routes ?? {}),
+    },
   };
 }
 

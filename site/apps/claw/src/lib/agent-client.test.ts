@@ -118,6 +118,47 @@ describe("agent-client", () => {
     }));
   });
 
+  it("preserves the saved desktop route when start overrides only touch env or config", async () => {
+    deploymentsInstance.get.mockResolvedValue({
+      launchConfig: {
+        env: {
+          OPENCLAW_DESKTOP_ENABLED: "1",
+          FOO: "bar",
+        },
+        routes: {
+          openclaw: { port: 18789, auth: false, prefix: "" },
+          desktop: { port: 3000, auth: true, prefix: "desktop" },
+        },
+      },
+    });
+    deploymentsInstance.startOpenClaw.mockResolvedValue({ id: "agent-123" });
+
+    await startOpenClawAgent("hyper_api_test", "agent-123", {
+      config: {
+        gateway: {
+          controlUi: {
+            requirePairing: true,
+          },
+        },
+      },
+      env: {
+        EXTRA: "value",
+      },
+    });
+
+    expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledWith("agent-123", expect.objectContaining({
+      env: {
+        OPENCLAW_DESKTOP_ENABLED: "1",
+        FOO: "bar",
+        EXTRA: "value",
+      },
+      routes: {
+        openclaw: { port: 18789, auth: false, prefix: "" },
+        desktop: { port: 3000, auth: true, prefix: "desktop" },
+      },
+    }));
+  });
+
   it("creates OpenClaw agents with origin locking on by default", async () => {
     deploymentsInstance.createOpenClaw.mockResolvedValue({ id: "agent-123" });
 
