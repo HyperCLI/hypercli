@@ -1,10 +1,29 @@
 "use client";
 
-import { useTheme } from "next-themes";
-import { Toaster as Sonner, ToasterProps } from "sonner";
+import { useSyncExternalStore } from "react";
+import { toast, Toaster as Sonner, ToasterProps } from "sonner";
+import { subscribeToThemeChanges } from "../../utils/theme";
 
-const Toaster = ({ ...props }: ToasterProps) => {
-  const { theme = "system" } = useTheme();
+function subscribeToProductTheme(onStoreChange: () => void) {
+  const unsubscribe = subscribeToThemeChanges(() => onStoreChange());
+  const observer = typeof MutationObserver === "undefined"
+    ? null
+    : new MutationObserver(onStoreChange);
+  observer?.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  return () => {
+    observer?.disconnect();
+    unsubscribe();
+  };
+}
+
+function getProductThemeSnapshot() {
+  if (typeof document === "undefined") return "default";
+  return document.documentElement.getAttribute("data-theme") ?? "default";
+}
+
+const Toaster = ({ theme: themeOverride, ...props }: ToasterProps) => {
+  const productTheme = useSyncExternalStore(subscribeToProductTheme, getProductThemeSnapshot, () => "default");
+  const theme = themeOverride ?? (productTheme === "light" ? "light" : "dark");
 
   return (
     <Sonner
@@ -15,6 +34,15 @@ const Toaster = ({ ...props }: ToasterProps) => {
           "--normal-bg": "var(--popover)",
           "--normal-text": "var(--popover-foreground)",
           "--normal-border": "var(--border)",
+          "--success-bg": "var(--popover)",
+          "--success-text": "var(--popover-foreground)",
+          "--success-border": "color-mix(in srgb, var(--success) 30%, transparent)",
+          "--error-bg": "var(--popover)",
+          "--error-text": "var(--popover-foreground)",
+          "--error-border": "color-mix(in srgb, var(--error) 30%, transparent)",
+          "--warning-bg": "var(--popover)",
+          "--warning-text": "var(--popover-foreground)",
+          "--warning-border": "color-mix(in srgb, var(--warning) 30%, transparent)",
         } as React.CSSProperties
       }
       {...props}
@@ -22,4 +50,4 @@ const Toaster = ({ ...props }: ToasterProps) => {
   );
 };
 
-export { Toaster };
+export { Toaster, toast };

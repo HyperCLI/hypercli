@@ -396,6 +396,7 @@ export function FilePreview({
                 value={editContent}
                 onChange={(e) => setEditContent(e.target.value)}
                 readOnly={readOnly}
+                aria-label={`${entry.name} contents`}
                 className="w-full h-full p-3 bg-transparent text-xs font-mono text-foreground leading-relaxed resize-none focus:outline-none"
                 spellCheck={false}
               />

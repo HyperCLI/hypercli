@@ -208,6 +208,24 @@ export {
   type AgentExecOptions,
 } from './agents.js';
 
+export {
+  type AgentSkillOrigin,
+  type AgentSkillAvailability,
+  type AgentSkillResourceAccess,
+  type AgentSkillResourceEntry,
+  type AgentSkillRequirements,
+  type AgentSkillSummary,
+  type AgentSkillDocument,
+  type AgentSkillUpdate,
+  type AgentSkillSearchItem,
+  type AgentSkillInstallRequest,
+  type AgentSkillInstallResult,
+  type AgentSkillCreateRequest,
+  type AgentSkillCreateResult,
+  type AgentSkillsProviderCapabilities,
+  type AgentSkillsProvider,
+} from './skills.js';
+
 // Job helpers
 export {
   BaseJob,
@@ -245,6 +263,8 @@ export {
   type GatewayOptions,
   type GatewayEvent,
   type ChatEvent,
+  type GatewayEphemeralChatOptions,
+  type GatewayAbortSignal,
   type ChatAttachment,
   type BrowserChatAttachment,
   type GatewayChatAttachmentPayload,

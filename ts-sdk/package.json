@@ -26,9 +26,17 @@
       "import": "./dist/gateway.js",
       "types": "./dist/gateway.d.ts"
     },
+    "./skills": {
+      "import": "./dist/skills.js",
+      "types": "./dist/skills.d.ts"
+    },
     "./openclaw/gateway": {
       "import": "./dist/openclaw/gateway.js",
       "types": "./dist/openclaw/gateway.d.ts"
+    },
+    "./openclaw/skills": {
+      "import": "./dist/openclaw/skills.js",
+      "types": "./dist/openclaw/skills.d.ts"
     },
     "./keys": {
       "import": "./dist/keys.js",
@@ -53,7 +61,7 @@
     "clean": "rm -rf dist",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "test": "vitest run tests/config.test.ts tests/client.test.ts tests/jobs.test.ts tests/keys.test.ts tests/models.test.ts tests/workspaces.test.ts tests/exec-shell-dryrun.test.ts tests/gateway.test.ts",
+    "test": "vitest run tests/config.test.ts tests/client.test.ts tests/jobs.test.ts tests/keys.test.ts tests/models.test.ts tests/workspaces.test.ts tests/exec-shell-dryrun.test.ts tests/gateway.test.ts tests/openclaw-skills.test.ts",
     "test:integration": "vitest run tests/integration",
     "test:watch": "vitest"
   },

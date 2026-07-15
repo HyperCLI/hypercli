@@ -172,6 +172,19 @@ export function scanSourceText(source, filePath = "<inline>") {
   const codeLines = maskSourceLiteralsAndComments(source).split(/\r?\n/);
 
   lines.forEach((line, index) => {
+    const normalizedFilePath = filePath.replace(/\\/g, "/");
+    if (
+      normalizedFilePath.includes("/components/dashboard/skills/") &&
+      /["']@hypercli\.com\/sdk\/openclaw(?:\/|["'])/.test(line)
+    ) {
+      violations.push({
+        filePath,
+        line: index + 1,
+        rule: "provider-specific Skills import",
+        source: line.trim(),
+        replacement: "Use @hypercli.com/sdk/skills and inject an AgentSkillsProvider.",
+      });
+    }
     for (const forbidden of FORBIDDEN_IMPORT_PATTERNS) {
       if (forbidden.pattern.test(line)) {
         violations.push({

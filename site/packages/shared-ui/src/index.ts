@@ -1,6 +1,12 @@
 // Utils
 export { cn } from "./utils/cn";
-export * from "./skills";
+export {
+  DEFAULT_EMOJI_ICON_OPTIONS,
+  EmojiIconPicker,
+  KNOWLEDGE_EMOJI_ICON_OPTIONS,
+  SKILL_EMOJI_ICON_OPTIONS,
+} from "./components/EmojiIconPicker";
+export type { EmojiIconOption, EmojiIconPickerProps } from "./components/EmojiIconPicker";
 export {
   AuthContext as PrivyAuthContext,
   AuthProvider as PrivyAuthProvider,
@@ -295,7 +301,7 @@ export {
   useSidebar,
 } from "./components/ui/sidebar";
 export { Slider } from "./components/ui/slider";
-export { Toaster } from "./components/ui/sonner";
+export { Toaster, toast } from "./components/ui/sonner";
 export { Textarea } from "./components/ui/textarea";
 export { ToggleGroup, ToggleGroupItem } from "./components/ui/toggle-group";
 export { Toggle, toggleVariants } from "./components/ui/toggle";

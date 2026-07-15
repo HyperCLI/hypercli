@@ -92,6 +92,18 @@ export interface ChatEvent {
   data?: Record<string, any>;
 }
 
+export interface GatewayAbortSignal {
+  readonly aborted: boolean;
+  addEventListener(type: "abort", listener: () => void, options?: { once?: boolean }): void;
+  removeEventListener(type: "abort", listener: () => void): void;
+}
+
+export interface GatewayEphemeralChatOptions {
+  signal?: GatewayAbortSignal;
+  timeoutMs?: number;
+  maxResponseChars?: number;
+}
+
 export interface GatewayChatToolCall {
   id?: string;
   name: string;
@@ -3209,6 +3221,86 @@ export class GatewayClient {
       throw new Error("Streaming chat.send timed out");
     } finally {
       this.eventHandlers.delete(handler);
+    }
+  }
+
+  async runEphemeralChat(
+    message: string,
+    options: GatewayEphemeralChatOptions = {},
+  ): Promise<string> {
+    const prompt = message.trim();
+    if (!prompt) throw new Error("Ephemeral chat requires a message.");
+    if (!this.connected || !this.ws) throw new Error("Not connected");
+
+    const timeoutMs = options.timeoutMs ?? DEFAULT_AGENT_TIMEOUT;
+    const maxResponseChars = options.maxResponseChars ?? 128 * 1024;
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > DEFAULT_AGENT_TIMEOUT) {
+      throw new Error(`Ephemeral chat timeout must be between 1 and ${DEFAULT_AGENT_TIMEOUT} milliseconds.`);
+    }
+    if (!Number.isSafeInteger(maxResponseChars) || maxResponseChars <= 0) {
+      throw new Error("Ephemeral chat response limit must be a positive integer.");
+    }
+
+    const sessionKey = `session-${makeId()}`;
+    let created = false;
+    let terminal = false;
+    let stream: AsyncGenerator<ChatEvent> | null = null;
+    let stopError: Error | null = null;
+    let abortPromise: Promise<void> | null = null;
+    const requestAbort = (error: Error) => {
+      stopError ??= error;
+      if (created && !terminal && !abortPromise) {
+        abortPromise = this.chatAbort(sessionKey).catch(() => undefined);
+      }
+      void stream?.return(undefined).catch(() => undefined);
+    };
+    const abortError = () => {
+      const error = new Error("Ephemeral chat was cancelled.");
+      error.name = "AbortError";
+      return error;
+    };
+    const handleSignalAbort = () => requestAbort(abortError());
+    const timeout = setTimeout(() => requestAbort(new Error("Ephemeral chat timed out.")), timeoutMs);
+    options.signal?.addEventListener("abort", handleSignalAbort, { once: true });
+
+    try {
+      if (options.signal?.aborted) throw abortError();
+      await this.sessionsReset(sessionKey, "new");
+      created = true;
+      if (options.signal?.aborted) throw abortError();
+      if (stopError) throw stopError;
+
+      let content = "";
+      stream = this.chatSend(prompt, sessionKey);
+      for await (const event of stream) {
+        if (stopError) throw stopError;
+        if (event.type === "content") {
+          content += event.text ?? "";
+          if (content.length > maxResponseChars) {
+            const error = new Error("Ephemeral chat response exceeds the configured limit.");
+            requestAbort(error);
+            throw error;
+          }
+        } else if (event.type === "error") {
+          terminal = true;
+          throw new Error(event.text || "Ephemeral chat failed.");
+        } else if (event.type === "done") {
+          terminal = true;
+        }
+      }
+      if (stopError) throw stopError;
+      if (!terminal) throw new Error("Ephemeral chat ended without completing.");
+      if (!content.trim()) throw new Error("Ephemeral chat returned an empty response.");
+      return content;
+    } catch (error) {
+      if (created && !terminal) requestAbort(error instanceof Error ? error : new Error("Ephemeral chat failed."));
+      await abortPromise;
+      throw stopError ?? error;
+    } finally {
+      clearTimeout(timeout);
+      options.signal?.removeEventListener("abort", handleSignalAbort);
+      await stream?.return(undefined).catch(() => undefined);
+      if (created) await this.sessionsReset(sessionKey, "reset").catch(() => undefined);
     }
   }
 

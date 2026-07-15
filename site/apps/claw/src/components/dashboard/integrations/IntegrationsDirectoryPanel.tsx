@@ -1,31 +1,14 @@
 "use client";
 
 import React from "react";
-import Markdown from "react-markdown";
-import { AlertTriangle, ArrowRight, CheckCircle2, Code2, ExternalLink, FileText, Loader2, Mail, Plus, RefreshCw, Search, Upload, X } from "lucide-react";
-import {
-  SkillCard,
-  SkillsCreateModal,
-  SkillsEmptyState,
-  SkillsImportModal,
-  SkillsWorkspaceShell,
-  skillCardBadgeIcons,
-  skillSlugFromName,
-  type SkillCardBadge,
-  type SkillCardModel,
-  type SkillGeneratedOutput,
-  type SkillImportItem,
-} from "@hypercli/shared-ui/skills";
+import { ArrowRight, CheckCircle2, Code2, ExternalLink, Loader2, Mail, Plus, RefreshCw, Search } from "lucide-react";
 
 import { DirectoryDetail } from "../directory/DirectoryDetail";
-import { SkillsLoadingState } from "../directory/SkillsLoadingState";
 import { isPluginAvailableInSchema, isPluginConnected, schemaPathExists, type DirectoryCategory } from "../directory/directory-utils";
-import { loadSystemSkills, parseSkillFile, type AgentFileSource, type WorkspaceSkill } from "../directory/workspace-skills";
 import { PLUGIN_REGISTRY, type PluginMeta } from "./plugin-registry";
 import { INTEGRATION_BRAND_LOGOS, type IntegrationBrandIcon } from "./integration-brand-icons";
 import { AgentLoadingState } from "../agents/page-helpers";
 import { getAgentGatewayPanelBootStatus } from "../agents/chat-boot-stage";
-import type { FileEntry } from "@hypercli/shared-ui/files";
 import type {
   GatewayIntegrationAuthStartParams,
   GatewayIntegrationAuthStartResult,
@@ -36,39 +19,14 @@ import type {
   GatewayIntegrationStatusEntry,
   GatewayIntegrationStatusParams,
   GatewayIntegrationStatusResult,
-  GatewaySkillSearchResultItem,
-  GatewaySkillsInstallParams,
-  GatewaySkillsInstallResult,
-  GatewaySkillsSearchParams,
-  GatewaySkillsSearchResult,
   OpenClawConfigSchemaResponse,
 } from "@hypercli.com/sdk/openclaw/gateway";
 
-type IntegrationFilter = "all" | "web" | "channels" | "tools" | "media" | "skills";
+type IntegrationFilter = "all" | "web" | "channels" | "tools" | "media";
 type IntegrationIcon = IntegrationBrandIcon;
-type SkillStatus = "active" | "needs-setup" | "disabled" | "preview";
-type SkillStatusFilter = "all" | SkillStatus;
-type SkillsPanelTab = "installed" | "library";
 type CatalogIntegrationStatus = "planned" | "oauth-required";
 type IntegrationStatusTone = "accent" | "warning" | "neutral";
 type ServiceConnectorId = "github";
-
-interface SkillListRow {
-  skill: WorkspaceSkill;
-  status: SkillStatus;
-  requirement: string | null;
-  localPreview?: boolean;
-}
-
-interface SkillFrontmatterRow {
-  key: string;
-  value: string;
-}
-
-interface SkillConfigEntry {
-  enabled?: boolean;
-  env?: Record<string, string>;
-}
 
 interface IntegrationsDirectoryPanelProps {
   initialCategory?: DirectoryCategory | null;
@@ -82,15 +40,12 @@ interface IntegrationsDirectoryPanelProps {
   onSaveConfig: (patch: Record<string, unknown>) => Promise<void>;
   onChannelProbe: () => Promise<Record<string, unknown>>;
   onOpenShell: () => void;
-  onLoadSkills?: () => Promise<WorkspaceSkill[]>;
-  onListFiles?: (path?: string, source?: AgentFileSource) => Promise<FileEntry[]>;
-  onReadFile?: (path: string, source?: AgentFileSource) => Promise<string>;
+  availableSkillIds: ReadonlySet<string>;
+  onOpenSkill: (skillId: string) => void;
   onIntegrationAuthStart?: (params: GatewayIntegrationAuthStartParams) => Promise<GatewayIntegrationAuthStartResult>;
   onIntegrationAuthStatus?: (params: GatewayIntegrationAuthStatusParams) => Promise<GatewayIntegrationAuthStatusResult>;
   onIntegrationStatus?: (params?: GatewayIntegrationStatusParams) => Promise<GatewayIntegrationStatusResult>;
   onIntegrationDisconnect?: (params: GatewayIntegrationDisconnectParams) => Promise<GatewayIntegrationDisconnectResult>;
-  onSearchLibrarySkills?: (params?: GatewaySkillsSearchParams) => Promise<GatewaySkillsSearchResult>;
-  onInstallLibrarySkill?: (params: GatewaySkillsInstallParams) => Promise<GatewaySkillsInstallResult>;
 }
 
 interface CatalogServiceIntegration {
@@ -115,7 +70,7 @@ interface IntegrationTile {
   icon: IntegrationIcon;
   iconColor?: string;
   plugin?: PluginMeta;
-  skill?: WorkspaceSkill;
+  skillId?: string;
   service?: CatalogServiceIntegration;
   connectorAvailable?: boolean;
   available: boolean;
@@ -136,49 +91,6 @@ const FILTERS: Array<{ id: IntegrationFilter; label: string }> = [
   { id: "media", label: "Media" },
 ];
 
-const SKILL_STATUS_FILTERS: Array<{ id: SkillStatusFilter; label: string }> = [
-  { id: "all", label: "All" },
-  { id: "active", label: "Active" },
-  { id: "needs-setup", label: "Needs setup" },
-  { id: "disabled", label: "Disabled" },
-  { id: "preview", label: "Preview" },
-];
-
-const SKILL_MARKDOWN_COMPONENTS: Parameters<typeof Markdown>[0]["components"] = {
-  h1: ({ children }) => <h1 className="mb-3 text-[17px] font-semibold leading-tight text-[#f5f5f5]">{children}</h1>,
-  h2: ({ children }) => <h2 className="mb-2 mt-5 text-[14px] font-semibold leading-tight text-[#f5f5f5] first:mt-0">{children}</h2>,
-  h3: ({ children }) => <h3 className="mb-2 mt-4 text-[12px] font-semibold leading-tight text-[#f5f5f5] first:mt-0">{children}</h3>,
-  p: ({ children }) => <p className="mb-3 text-[12px] leading-relaxed text-[#d0d0d4] last:mb-0">{children}</p>,
-  ul: ({ children }) => <ul className="mb-3 list-disc space-y-1 pl-5 text-[12px] leading-relaxed text-[#d0d0d4]">{children}</ul>,
-  ol: ({ children }) => <ol className="mb-3 list-decimal space-y-1 pl-5 text-[12px] leading-relaxed text-[#d0d0d4]">{children}</ol>,
-  li: ({ children }) => <li className="pl-0.5">{children}</li>,
-  strong: ({ children }) => <strong className="font-semibold text-[#f5f5f5]">{children}</strong>,
-  code: ({ children, className }) => {
-    const isBlock = className?.includes("language-");
-    if (isBlock) {
-      return (
-        <pre className="my-3 overflow-x-auto rounded-[8px] border border-[#303036] bg-[#09090b] p-3 text-[11px] leading-relaxed text-[#d0d0d4]">
-          <code>{children}</code>
-        </pre>
-      );
-    }
-    return (
-      <code className="rounded-[5px] border border-[#303036] bg-[#09090b] px-1.5 py-0.5 font-mono text-[10px] text-[#f5f5f5]">
-        {children}
-      </code>
-    );
-  },
-  pre: ({ children }) => <>{children}</>,
-  blockquote: ({ children }) => (
-    <blockquote className="my-3 border-l-2 border-[#56565c] pl-3 text-[12px] text-[#a7a7ad]">{children}</blockquote>
-  ),
-  a: ({ href, children }) => (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="text-[var(--selection-accent)] hover:underline">
-      {children}
-    </a>
-  ),
-};
-
 const CATALOG_SERVICE_INTEGRATIONS: CatalogServiceIntegration[] = [
   { id: "notion", displayName: "Notion", subtitle: "Docs & wiki", description: "Open and configure the Notion workspace skill when it is installed.", category: "tools", icon: INTEGRATION_BRAND_LOGOS.notion.icon, status: "planned", skillIds: ["notion"] },
   { id: "google-drive", displayName: "Google Drive", subtitle: "File storage", description: "Requires first-party Google Workspace OAuth before files can be connected safely.", category: "tools", icon: INTEGRATION_BRAND_LOGOS["google-drive"].icon, status: "oauth-required" },
@@ -195,8 +107,6 @@ const CATALOG_SERVICE_INTEGRATIONS: CatalogServiceIntegration[] = [
   { id: "linear", displayName: "Linear", subtitle: "Project tracking", description: "Planned service connector; no safe in-app connection is available yet.", category: "tools", icon: INTEGRATION_BRAND_LOGOS.linear.icon, status: "planned" },
   { id: "vercel", displayName: "Vercel", subtitle: "Deployment", description: "Planned deployment connector; no in-app setup flow is available yet.", category: "web", icon: INTEGRATION_BRAND_LOGOS.vercel.icon, status: "planned" },
 ];
-
-const CATALOG_SKILL_IDS = new Set(CATALOG_SERVICE_INTEGRATIONS.flatMap((item) => item.skillIds ?? []));
 
 function categoryForPlugin(plugin: PluginMeta): IntegrationFilter {
   if (plugin.category === "chat") return "channels";
@@ -215,17 +125,15 @@ function subtitleForPlugin(plugin: PluginMeta, category: IntegrationFilter): str
 }
 
 function filterFromInitialCategory(category?: DirectoryCategory | null): IntegrationFilter {
-  if (category === "web" || category === "channels" || category === "tools" || category === "media" || category === "skills") {
+  if (category === "web" || category === "channels" || category === "tools" || category === "media") {
     return category;
   }
   return "all";
 }
 
-function catalogSkillForItem(item: CatalogServiceIntegration, skills: WorkspaceSkill[]): WorkspaceSkill | undefined {
+function catalogSkillForItem(item: CatalogServiceIntegration, availableSkillIds: ReadonlySet<string>): string | undefined {
   if (!item.skillIds) return undefined;
-  return item.skillIds
-    .map((skillId) => skills.find((skill) => skill.id === skillId))
-    .find((skill): skill is WorkspaceSkill => Boolean(skill));
+  return item.skillIds.find((skillId) => availableSkillIds.has(skillId));
 }
 
 function catalogConnectorAvailable(item: CatalogServiceIntegration, configSchema: OpenClawConfigSchemaResponse): boolean {
@@ -246,14 +154,14 @@ function catalogConnectorAvailable(item: CatalogServiceIntegration, configSchema
   );
 }
 
-function catalogStatusLabel(item: CatalogServiceIntegration, skill?: WorkspaceSkill): string {
-  if (skill) return "Available as skill";
+function catalogStatusLabel(item: CatalogServiceIntegration, skillId?: string): string {
+  if (skillId) return "Available as skill";
   if (item.status === "oauth-required") return "Needs OAuth";
   return "Planned";
 }
 
-function catalogStatusTone(item: CatalogServiceIntegration, skill?: WorkspaceSkill): IntegrationStatusTone {
-  if (skill) return "accent";
+function catalogStatusTone(item: CatalogServiceIntegration, skillId?: string): IntegrationStatusTone {
+  if (skillId) return "accent";
   if (item.status === "oauth-required") return "warning";
   return "neutral";
 }
@@ -267,7 +175,7 @@ function statusBadgeClass(tone?: IntegrationStatusTone): string {
 function buildTiles(
   configSchema: OpenClawConfigSchemaResponse,
   config: Record<string, unknown> | null,
-  workspaceSkills: WorkspaceSkill[],
+  availableSkillIds: ReadonlySet<string>,
   connectorActionsAvailable: boolean,
   integrationStatuses: Record<string, GatewayIntegrationStatusEntry> = {},
 ): IntegrationTile[] {
@@ -296,19 +204,19 @@ function buildTiles(
       const statusEntry = item.connectorId ? integrationStatuses[item.connectorId] ?? null : null;
       const connected = connectorActionsAvailable && isIntegrationUsable(statusEntry);
       const connectorAvailable = connected || (connectorActionsAvailable && catalogConnectorAvailable(item, configSchema));
-      const skill = catalogSkillForItem(item, workspaceSkills);
+      const skillId = catalogSkillForItem(item, availableSkillIds);
       return {
         ...item,
         icon: INTEGRATION_BRAND_LOGOS[item.id]?.icon ?? item.icon,
         iconColor: INTEGRATION_BRAND_LOGOS[item.id]?.color,
         service: item,
-        skill,
+        skillId,
         connectorAvailable,
-        available: connectorAvailable || connected || Boolean(skill),
+        available: connectorAvailable || connected || Boolean(skillId),
         active: connected,
         activeLabel: connected ? "Connected" : undefined,
-        statusLabel: connectorAvailable ? undefined : catalogStatusLabel(item, skill),
-        statusTone: connectorAvailable ? undefined : catalogStatusTone(item, skill),
+        statusLabel: connectorAvailable ? undefined : catalogStatusLabel(item, skillId),
+        statusTone: connectorAvailable ? undefined : catalogStatusTone(item, skillId),
       };
     });
 
@@ -321,7 +229,7 @@ function buildTiles(
 
 function IntegrationCard({ tile, onOpen }: { tile: IntegrationTile; onOpen: () => void }) {
   const Icon = tile.icon;
-  const clickable = tile.available || Boolean(tile.skill);
+  const clickable = tile.available || Boolean(tile.skillId);
 
   return (
     <button
@@ -364,451 +272,6 @@ function IntegrationCard({ tile, onOpen }: { tile: IntegrationTile; onOpen: () =
         <p className="mt-4 line-clamp-1 text-[13px] leading-tight text-[#858585]">{tile.description}</p>
       </div>
     </button>
-  );
-}
-
-function formatSkillRequirement(skill: WorkspaceSkill, entry?: SkillConfigEntry): string | null {
-  const requirements: string[] = [];
-  const missingEnv = entry
-    ? skill.requiresEnv.filter((key) => !hasEnvValue(entry.env?.[key]))
-    : skill.requiresEnv;
-  if (missingEnv.length > 0) requirements.push(missingEnv.join(", "));
-  if (skill.requiresBins.length > 0) requirements.push(`${skill.requiresBins.join(", ")} on PATH`);
-  if (skill.os.length > 0) requirements.push(`${skill.os.join(", ")} only`);
-  if (requirements.length > 0) return `Requires ${requirements.join("; ")}`;
-  if (skill.installHints.length > 0) return "Setup instructions available";
-  return null;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
-}
-
-function envFromConfigEntry(entry: Record<string, unknown> | null): Record<string, string> {
-  const env = asRecord(entry?.env);
-  if (!env) return {};
-  return Object.fromEntries(
-    Object.entries(env)
-      .filter(([, value]) => typeof value === "string")
-      .map(([key, value]) => [key, value as string]),
-  );
-}
-
-function getSkillConfigEntry(
-  config: Record<string, unknown> | null,
-  skillId: string,
-  overrides: Record<string, SkillConfigEntry> = {},
-): SkillConfigEntry {
-  const skills = asRecord(config?.skills);
-  const entries = asRecord(skills?.entries);
-  const entry = asRecord(entries?.[skillId]);
-  const override = overrides[skillId];
-  return {
-    enabled: override?.enabled ?? (typeof entry?.enabled === "boolean" ? entry.enabled : undefined),
-    env: {
-      ...envFromConfigEntry(entry),
-      ...(override?.env ?? {}),
-    },
-  };
-}
-
-function hasEnvValue(value: unknown): boolean {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
-function hasConfiguredRequiredEnv(skill: WorkspaceSkill, entry: SkillConfigEntry): boolean {
-  if (skill.requiresEnv.length === 0) return true;
-  const env = entry.env ?? {};
-  return skill.requiresEnv.every((key) => hasEnvValue(env[key]));
-}
-
-function statusForSkill(
-  skill: WorkspaceSkill,
-  config: Record<string, unknown> | null,
-  overrides: Record<string, SkillConfigEntry> = {},
-): SkillStatus {
-  const entry = getSkillConfigEntry(config, skill.id, overrides);
-  if (skill.disabled || entry.enabled === false) return "disabled";
-  if (!hasConfiguredRequiredEnv(skill, entry)) return "needs-setup";
-  if (skill.requiresBins.length > 0 || skill.os.length > 0 || skill.installHints.length > 0) return "needs-setup";
-  return "active";
-}
-
-function frontmatterScalarValue(frontmatter: string, key: string): string | null {
-  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = frontmatter.match(new RegExp(`^\\s*["']?${escaped}["']?\\s*:\\s*(.+?)\\s*$`, "mi"));
-  const value = match?.[1]?.trim();
-  if (!value || value === "|" || value === ">") return null;
-  return value.replace(/,\s*$/, "").replace(/^["']|["']$/g, "");
-}
-
-function firstInlineFrontmatterRows(frontmatter: string): SkillFrontmatterRow[] {
-  return frontmatter
-    .split(/\r?\n/)
-    .map((line) => line.match(/^\s*["']?([a-zA-Z0-9_.-]+)["']?\s*:\s*(.+?)\s*$/))
-    .filter((match): match is RegExpMatchArray => Boolean(match?.[1] && match?.[2]))
-    .filter((match) => match[2] !== "|" && match[2] !== ">")
-    .slice(0, 6)
-    .map((match) => ({
-      key: match[1],
-      value: match[2].replace(/,\s*$/, "").replace(/^["']|["']$/g, ""),
-    }));
-}
-
-function skillFrontmatterRows(skill: WorkspaceSkill): SkillFrontmatterRow[] {
-  const rows: SkillFrontmatterRow[] = [];
-  const seen = new Set<string>();
-  const add = (key: string, value: string | null | undefined) => {
-    if (!value || seen.has(key)) return;
-    seen.add(key);
-    rows.push({ key, value });
-  };
-
-  add("requires.env", skill.requiresEnv.join(", "));
-  add("requires.bins", skill.requiresBins.join(", "));
-  add("os", skill.os.join(", "));
-  add("primaryEnv", frontmatterScalarValue(skill.frontmatter, "primaryEnv"));
-  add("user-invocable", frontmatterScalarValue(skill.frontmatter, "user-invocable"));
-  add("model-invocable", frontmatterScalarValue(skill.frontmatter, "model-invocable"));
-  add("homepage", skill.homepage);
-
-  if (rows.length > 0) return rows.slice(0, 8);
-
-  return firstInlineFrontmatterRows(skill.frontmatter);
-}
-
-function SkillSetupInstruction({ skill }: { skill: WorkspaceSkill }) {
-  if (skill.requiresEnv.length > 0) {
-    return (
-      <>
-        Set <code className="rounded-[5px] border border-[#554017] bg-[#09090b] px-1.5 py-0.5 font-mono text-[10px] text-[#f5f5f5]">{skill.requiresEnv.join(", ")}</code>{" "}
-        in your shell or in <code className="rounded-[5px] border border-[#554017] bg-[#09090b] px-1.5 py-0.5 font-mono text-[10px] text-[#f5f5f5]">skills.entries.{skill.id}.env</code>.
-      </>
-    );
-  }
-  if (skill.requiresBins.length > 0) {
-    return (
-      <>
-        Install <code className="rounded-[5px] border border-[#554017] bg-[#09090b] px-1.5 py-0.5 font-mono text-[10px] text-[#f5f5f5]">{skill.requiresBins.join(", ")}</code> and make it available on PATH.
-      </>
-    );
-  }
-  if (skill.os.length > 0) return <>This skill is limited to {skill.os.join(", ")} hosts.</>;
-  return <>Review the setup notes in this skill before enabling it.</>;
-}
-
-function buildSkillConfigPatch(skill: WorkspaceSkill, env: Record<string, string>): Record<string, unknown> {
-  const cleanEnv = Object.fromEntries(
-    Object.entries(env)
-      .map(([key, value]) => [key, value.trim()])
-      .filter(([, value]) => value.length > 0),
-  );
-  const entry: Record<string, unknown> = { enabled: true };
-  if (Object.keys(cleanEnv).length > 0) entry.env = cleanEnv;
-  return { skills: { entries: { [skill.id]: entry } } };
-}
-
-function skillStatusLabel(status: SkillStatus): string {
-  if (status === "needs-setup") return "Needs setup";
-  if (status === "disabled") return "Disabled";
-  if (status === "preview") return "Local preview";
-  return "Active";
-}
-
-function skillBadges(skill: WorkspaceSkill): SkillCardBadge[] {
-  return [
-    skill.hasScripts ? { label: "Scripts", icon: skillCardBadgeIcons.scripts } : null,
-    skill.hasReferences ? { label: "References", icon: skillCardBadgeIcons.references } : null,
-    skill.hasAssets ? { label: "Assets", icon: skillCardBadgeIcons.assets } : null,
-    skill.requiresBins.length > 0 ? { label: `${skill.requiresBins.length} bin${skill.requiresBins.length === 1 ? "" : "s"}`, icon: skillCardBadgeIcons.assets, tone: "needs-setup" as const } : null,
-  ].filter(Boolean) as SkillCardBadge[];
-}
-
-function skillCardForRow(row: SkillListRow): SkillCardModel {
-  return {
-    id: row.skill.id,
-    name: row.skill.name,
-    description: row.skill.description,
-    category: row.skill.category,
-    emoji: row.skill.emoji,
-    statusLabel: skillStatusLabel(row.status),
-    statusTone: row.status,
-    pathLabel: `/${row.skill.id}`,
-    requirement: row.requirement,
-    badges: skillBadges(row.skill),
-    mocked: row.localPreview,
-  };
-}
-
-function librarySkillCard(item: GatewaySkillSearchResultItem): SkillCardModel {
-  return {
-    id: item.slug,
-    name: item.displayName || item.slug,
-    description: item.summary || "Community skill from the library.",
-    category: item.ownerHandle ? `@${item.ownerHandle}` : "Library",
-    statusLabel: item.version ? `v${item.version}` : "Library",
-    statusTone: "library",
-    pathLabel: item.slug,
-  };
-}
-
-function generatedSkillToWorkspaceSkill(skill: SkillGeneratedOutput): WorkspaceSkill {
-  return parseSkillFile(
-    skill.id,
-    `/app/skills/${skill.id}/SKILL.md`,
-    skill.content,
-    [],
-  );
-}
-
-function skillContentForImport(item: SkillImportItem): { id: string; content: string; entries: Array<{ name: string; path: string; type: "file" | "directory" }> } {
-  if (item.type === "folder") {
-    const skillFile = item.files?.find((file) => /(^|\/)skill\.md$/i.test(file.path)) ?? item.files?.find((file) => /\.md$/i.test(file.name));
-    const id = skillSlugFromName(item.name) || "imported-skill";
-    const content = skillFile?.content || `---\nname: ${id}\ndescription: "Imported skill preview from ${item.name}."\n---\n# ${item.name}\n\nReview this imported folder before installing it on the agent.\n`;
-    const directoryNames = new Set(
-      (item.files ?? [])
-        .map((file) => file.path.split("/").slice(1, -1)[0])
-        .filter(Boolean),
-    );
-    return {
-      id,
-      content,
-      entries: Array.from(directoryNames).map((name) => ({ name, path: `/app/skills/${id}/${name}`, type: "directory" as const })),
-    };
-  }
-
-  const id = skillSlugFromName(item.name.replace(/\.(md|txt|zip)$/i, "")) || "imported-skill";
-  if (item.type === "zip") {
-    return {
-      id,
-      content: `---\nname: ${id}\ndescription: "Imported ZIP preview from ${item.name}."\n---\n# ${item.name}\n\nZIP import is mocked in this UI until archive ingestion lands.\n`,
-      entries: [],
-    };
-  }
-  return {
-    id,
-    content: item.content || `---\nname: ${id}\ndescription: "Imported skill preview from ${item.name}."\n---\n# ${item.name}\n`,
-    entries: [],
-  };
-}
-
-function importItemToWorkspaceSkill(item: SkillImportItem): WorkspaceSkill {
-  const { id, content, entries } = skillContentForImport(item);
-  return parseSkillFile(id, `/app/skills/${id}/SKILL.md`, content, entries);
-}
-
-function SkillDrawer({
-  skill,
-  row,
-  configEntry,
-  onClose,
-  onSaveConfig,
-  onConfigured,
-}: {
-  skill: WorkspaceSkill;
-  row: SkillListRow;
-  configEntry: SkillConfigEntry;
-  onClose: () => void;
-  onSaveConfig: (patch: Record<string, unknown>) => Promise<void>;
-  onConfigured: (skillId: string, entry: SkillConfigEntry) => void;
-}) {
-  const frontmatterRows = skillFrontmatterRows(skill);
-  const needsSetup = row.status === "needs-setup";
-  const localPreview = row.status === "preview";
-  const statusLabel = row.status === "needs-setup" ? "Needs setup" : row.status === "disabled" ? "Disabled" : localPreview ? "Local preview" : "Active";
-  const statusClass = row.status === "needs-setup"
-    ? "border-[#765415] bg-[#2f2209] text-[#f5c45e]"
-    : row.status === "disabled"
-      ? "border-[#333333] bg-[#151515] text-[#858585]"
-      : row.status === "preview"
-        ? "border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] text-[var(--selection-accent)]"
-        : "border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] text-[var(--selection-accent)]";
-  const StatusIcon = row.status === "active" ? CheckCircle2 : localPreview ? FileText : AlertTriangle;
-  const configEntryEnvSignature = JSON.stringify(configEntry.env ?? {});
-  const [envDraft, setEnvDraft] = React.useState<Record<string, string>>(() => configEntry.env ?? {});
-  const [saving, setSaving] = React.useState(false);
-  const [saveError, setSaveError] = React.useState<string | null>(null);
-  const [saveSuccess, setSaveSuccess] = React.useState<string | null>(null);
-  const requiredEnvMissing = skill.requiresEnv.some((key) => !hasEnvValue(envDraft[key]));
-  const canSaveSetup = !saving && row.status !== "disabled" && !localPreview && !requiredEnvMissing;
-
-  React.useEffect(() => {
-    setEnvDraft(configEntry.env ?? {});
-  }, [configEntryEnvSignature, skill.path]);
-
-  React.useEffect(() => {
-    setSaveError(null);
-    setSaveSuccess(null);
-  }, [skill.path]);
-
-  const handleSaveSetup = async () => {
-    if (!canSaveSetup) return;
-    setSaving(true);
-    setSaveError(null);
-    setSaveSuccess(null);
-    try {
-      const patch = buildSkillConfigPatch(skill, envDraft);
-      await onSaveConfig(patch);
-      const cleanEnv = Object.fromEntries(
-        Object.entries(envDraft)
-          .map(([key, value]) => [key, value.trim()])
-          .filter(([, value]) => value.length > 0),
-      );
-      onConfigured(skill.id, { enabled: true, env: cleanEnv });
-      setSaveSuccess("Saved skill config.");
-    } catch (error) {
-      setSaveError(error instanceof Error ? error.message : "Failed to save skill config.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  React.useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
-
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <button
-        type="button"
-        aria-label="Close skill details"
-        onClick={onClose}
-        className="absolute inset-0 cursor-default bg-black/45 backdrop-blur-[3px]"
-      />
-      <aside className="relative flex h-full w-full max-w-[432px] flex-col border-l border-[#303036] bg-[#070708] text-[#f5f5f5] shadow-[-20px_0_60px_rgba(0,0,0,0.45)]">
-        <header className="flex shrink-0 items-start gap-3 border-b border-[#222226] px-4 py-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[7px] border border-[#303036] bg-[#151519]">
-            {skill.emoji ? (
-              <span className="text-[16px] leading-none" aria-hidden="true">{skill.emoji}</span>
-            ) : (
-              <FileText className="h-4 w-4 text-[#8d8d96]" />
-            )}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-2">
-              <h2 className="truncate font-mono text-[14px] font-semibold leading-tight">{skill.name}</h2>
-              <span className="max-w-[42%] shrink-0 truncate font-mono text-[10px] font-semibold text-[#a7a7ad]">/{skill.id}</span>
-            </div>
-            <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-[#a7a7ad]">{skill.description}</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] text-[#a7a7ad] transition-colors hover:bg-[#151519] hover:text-[#f5f5f5]"
-            aria-label="Close skill details"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </header>
-
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-          <div className={`rounded-[8px] border px-3.5 py-3 ${needsSetup ? "border-[#765415] bg-[#1c1507]" : "border-[#303036] bg-[#111113]"}`}>
-            <div className="flex items-start gap-3">
-              <div className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] border ${statusClass}`}>
-                <StatusIcon className="h-3.5 w-3.5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-[12px] font-semibold leading-tight text-[#f5f5f5]">{statusLabel}</p>
-                <p className="mt-1 text-[11px] leading-relaxed text-[#c0c0c5]">
-                  {needsSetup
-                    ? <SkillSetupInstruction skill={skill} />
-                    : row.status === "disabled"
-                      ? "This skill is present but disabled by its metadata."
-                      : localPreview
-                        ? "This is a local UI preview. It has not been installed on the agent yet."
-                        : "This skill is bundled and ready for this agent."}
-                </p>
-                {skill.requiresEnv.length > 0 && row.status !== "disabled" && (
-                  <div className="mt-3 space-y-2">
-                    {skill.requiresEnv.map((envKey) => (
-                      <label key={envKey} className="block">
-                        <span className="mb-1 block font-mono text-[10px] font-semibold text-[#f5c45e]">{envKey}</span>
-                        <input
-                          type="password"
-                          value={envDraft[envKey] ?? ""}
-                          onChange={(event) => {
-                            const value = event.target.value;
-                            setEnvDraft((prev) => ({ ...prev, [envKey]: value }));
-                            setSaveError(null);
-                            setSaveSuccess(null);
-                          }}
-                          placeholder={`Enter ${envKey}`}
-                          className="h-8 w-full rounded-[7px] border border-[#554017] bg-[#09090b] px-2.5 font-mono text-[11px] text-[#f5f5f5] outline-none placeholder:text-[#626266] focus:border-[#f5c45e]"
-                        />
-                      </label>
-                    ))}
-                  </div>
-                )}
-                {saveError && <p className="mt-3 text-[11px] leading-relaxed text-[#ff6b6b]">{saveError}</p>}
-                {saveSuccess && <p className="mt-3 text-[11px] leading-relaxed text-[var(--selection-accent)]">{saveSuccess}</p>}
-              </div>
-            </div>
-          </div>
-
-          {frontmatterRows.length > 0 && (
-            <section className="mt-5">
-              <h3 className="mb-3 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[#85858e]">Frontmatter</h3>
-              <dl className="space-y-2">
-                {frontmatterRows.map((item) => (
-                  <div key={item.key} className="grid grid-cols-[96px_minmax(0,1fr)] items-start gap-3">
-                    <dt className="truncate font-mono text-[10px] leading-6 text-[#85858e]">{item.key}</dt>
-                    <dd className="min-w-0">
-                      <code className="inline-block max-w-full truncate rounded-[5px] border border-[#303036] bg-[#111113] px-1.5 py-1 font-mono text-[10px] leading-none text-[#f5f5f5]">
-                        {item.value}
-                      </code>
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </section>
-          )}
-
-          <section className="mt-6">
-            <h3 className="mb-3 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[#85858e]">SKILL.md</h3>
-            <div className="rounded-[8px] border border-[#303036] bg-[#151519] px-3.5 py-3.5">
-              <Markdown components={SKILL_MARKDOWN_COMPONENTS}>{skill.body || skill.content}</Markdown>
-            </div>
-          </section>
-        </div>
-
-        <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-[#222226] px-4 py-3">
-          <p className="min-w-0 truncate font-mono text-[10px] text-[#85858e]">skills/{skill.id}/SKILL.md · {localPreview ? "local preview" : "bundled"}</p>
-          {needsSetup ? (
-            <button
-              type="button"
-              onClick={handleSaveSetup}
-              disabled={!canSaveSetup}
-              title={requiredEnvMissing ? "Enter the required environment values first." : "Save this skill config."}
-              className="inline-flex h-8 shrink-0 items-center justify-center rounded-[7px] bg-[var(--button-primary)] px-3 text-[12px] font-semibold leading-none text-[var(--button-primary-foreground)] transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
-            >
-              {saving ? "Saving..." : "Set up & enable"}
-            </button>
-          ) : row.status === "disabled" ? (
-            <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-semibold leading-none ${statusClass}`}>
-              Disabled
-            </span>
-          ) : localPreview ? (
-            <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-semibold leading-none ${statusClass}`}>
-              Local preview
-            </span>
-          ) : (
-            <button
-              type="button"
-              onClick={handleSaveSetup}
-              disabled={!canSaveSetup}
-              className="inline-flex h-8 shrink-0 items-center justify-center rounded-[7px] bg-[var(--button-primary)] px-3 text-[12px] font-semibold leading-none text-[var(--button-primary-foreground)] transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
-            >
-              {saving ? "Saving..." : configEntry.enabled === true ? "Save config" : "Enable skill"}
-            </button>
-          )}
-        </footer>
-      </aside>
-    </div>
   );
 }
 
@@ -1153,47 +616,25 @@ export function IntegrationsDirectoryPanel({
   onSaveConfig,
   onChannelProbe,
   onOpenShell,
-  onLoadSkills,
-  onListFiles,
-  onReadFile,
+  availableSkillIds,
+  onOpenSkill,
   onIntegrationAuthStart,
   onIntegrationAuthStatus,
   onIntegrationStatus,
   onIntegrationDisconnect,
-  onSearchLibrarySkills,
-  onInstallLibrarySkill,
 }: IntegrationsDirectoryPanelProps) {
   const [activeFilter, setActiveFilter] = React.useState<IntegrationFilter>(() => filterFromInitialCategory(initialCategory));
   const [searchQuery, setSearchQuery] = React.useState("");
-  const [skillStatusFilter, setSkillStatusFilter] = React.useState<SkillStatusFilter>("all");
-  const [skillsPanelTab, setSkillsPanelTab] = React.useState<SkillsPanelTab>("installed");
-  const [createSkillOpen, setCreateSkillOpen] = React.useState(false);
-  const [importSkillOpen, setImportSkillOpen] = React.useState(false);
   const [selectedPluginId, setSelectedPluginId] = React.useState<string | null>(null);
   const [selectedConnectorId, setSelectedConnectorId] = React.useState<ServiceConnectorId | null>(null);
-  const [selectedSkillPath, setSelectedSkillPath] = React.useState<string | null>(null);
-  const [skillConfigOverrides, setSkillConfigOverrides] = React.useState<Record<string, SkillConfigEntry>>({});
-  const [workspaceSkills, setWorkspaceSkills] = React.useState<WorkspaceSkill[]>([]);
-  const [mockSkills, setMockSkills] = React.useState<WorkspaceSkill[]>([]);
-  const [skillsLoading, setSkillsLoading] = React.useState(false);
-  const [skillsError, setSkillsError] = React.useState<string | null>(null);
-  const [librarySkills, setLibrarySkills] = React.useState<GatewaySkillSearchResultItem[]>([]);
-  const [libraryLoading, setLibraryLoading] = React.useState(false);
-  const [libraryError, setLibraryError] = React.useState<string | null>(null);
-  const [installingLibrarySlug, setInstallingLibrarySlug] = React.useState<string | null>(null);
   const [integrationStatuses, setIntegrationStatuses] = React.useState<Record<string, GatewayIntegrationStatusEntry>>({});
   const scopeLabel = agentName?.trim() || "this agent";
-  const canLoadWorkspaceSkills = Boolean(onListFiles && onReadFile);
   const connectorActionsAvailable = Boolean(onIntegrationAuthStart && onIntegrationAuthStatus && onIntegrationStatus);
 
   React.useEffect(() => {
     setSelectedPluginId(initialPluginId ?? null);
     setSelectedConnectorId(null);
-    setSelectedSkillPath(null);
-    setSkillConfigOverrides({});
     setActiveFilter(filterFromInitialCategory(initialCategory));
-    setSkillStatusFilter("all");
-    setSkillsPanelTab("installed");
     setSearchQuery("");
   }, [initialCategory, initialPluginId]);
 
@@ -1202,11 +643,11 @@ export function IntegrationsDirectoryPanel({
     return buildTiles(
       configSchema,
       config,
-      workspaceSkills,
+      availableSkillIds,
       connectorActionsAvailable,
       integrationStatuses,
     );
-  }, [config, configSchema, connectorActionsAvailable, integrationStatuses, workspaceSkills]);
+  }, [availableSkillIds, config, configSchema, connectorActionsAvailable, integrationStatuses]);
 
   React.useEffect(() => {
     if (!connected || !configSchema || !onIntegrationStatus) {
@@ -1252,7 +693,6 @@ export function IntegrationsDirectoryPanel({
   }, [onDetailBack]);
 
   const filteredTiles = React.useMemo(() => {
-    if (activeFilter === "skills") return [];
     const query = searchQuery.trim().toLowerCase();
     return tiles.filter((tile) => {
       if (activeFilter !== "all" && tile.category !== activeFilter) return false;
@@ -1267,204 +707,6 @@ export function IntegrationsDirectoryPanel({
       );
     });
   }, [activeFilter, searchQuery, tiles]);
-
-  React.useEffect(() => {
-    if (!connected || (activeFilter !== "skills" && CATALOG_SKILL_IDS.size === 0)) return;
-    const loadSkills = onLoadSkills ?? (onListFiles && onReadFile ? () => loadSystemSkills(onListFiles, onReadFile) : null);
-    if (!loadSkills) return;
-
-    let cancelled = false;
-    void Promise.resolve()
-      .then(() => {
-        if (cancelled) return null;
-        setSkillsLoading(true);
-        setSkillsError(null);
-        return loadSkills();
-      })
-      .then((skills) => {
-        if (!cancelled && skills) setWorkspaceSkills(skills);
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setWorkspaceSkills([]);
-          setSkillsError(error instanceof Error ? error.message : "Failed to load app skills.");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setSkillsLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeFilter, connected, onListFiles, onLoadSkills, onReadFile]);
-
-  const skillRows = React.useMemo<SkillListRow[]>(() => (
-    [
-      ...workspaceSkills.map((skill) => {
-      const entry = getSkillConfigEntry(config, skill.id, skillConfigOverrides);
-      return {
-        skill,
-        requirement: formatSkillRequirement(skill, entry),
-        status: statusForSkill(skill, config, skillConfigOverrides),
-      };
-      }),
-      ...mockSkills.map((skill) => ({
-        skill,
-        requirement: "Preview only - not installed on the agent",
-        status: "preview" as const,
-        localPreview: true,
-      })),
-    ]
-  ), [config, mockSkills, skillConfigOverrides, workspaceSkills]);
-
-  const skillCounts = React.useMemo(() => {
-    return skillRows.reduce(
-      (counts, row) => {
-        counts[row.status] += 1;
-        return counts;
-      },
-      { active: 0, "needs-setup": 0, disabled: 0, preview: 0 } as Record<SkillStatus, number>,
-    );
-  }, [skillRows]);
-
-  const filteredSkillRows = React.useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    return skillRows.filter((row) => {
-      const { skill } = row;
-      if (skillStatusFilter !== "all" && row.status !== skillStatusFilter) return false;
-      if (!query) return true;
-      return (
-        skill.name.toLowerCase().includes(query) ||
-        skill.description.toLowerCase().includes(query) ||
-        skill.id.toLowerCase().includes(query) ||
-        skill.category.toLowerCase().includes(query) ||
-        skill.requiresEnv.some((env) => env.toLowerCase().includes(query)) ||
-        skill.requiresBins.some((bin) => bin.toLowerCase().includes(query)) ||
-        skill.os.some((os) => os.toLowerCase().includes(query))
-      );
-    });
-  }, [searchQuery, skillRows, skillStatusFilter]);
-
-  React.useEffect(() => {
-    if (activeFilter !== "skills" || skillsPanelTab !== "library") return;
-    if (!onSearchLibrarySkills) {
-      setLibrarySkills([]);
-      setLibraryError("Library search is not available in this session.");
-      return;
-    }
-
-    let cancelled = false;
-    setLibraryLoading(true);
-    setLibraryError(null);
-    void onSearchLibrarySkills({ query: searchQuery.trim() || undefined, limit: 24 })
-      .then((result) => {
-        if (!cancelled) setLibrarySkills(result.results ?? []);
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setLibrarySkills([]);
-          setLibraryError(error instanceof Error ? error.message : "Failed to search the skill library.");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLibraryLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeFilter, onSearchLibrarySkills, searchQuery, skillsPanelTab]);
-
-  const reloadWorkspaceSkills = React.useCallback(async () => {
-    const loadSkills = onLoadSkills ?? (onListFiles && onReadFile ? () => loadSystemSkills(onListFiles, onReadFile) : null);
-    if (!loadSkills) return;
-    setSkillsLoading(true);
-    setSkillsError(null);
-    try {
-      const skills = await loadSkills();
-      setWorkspaceSkills(skills);
-    } catch (error) {
-      setWorkspaceSkills([]);
-      setSkillsError(error instanceof Error ? error.message : "Failed to load app skills.");
-    } finally {
-      setSkillsLoading(false);
-    }
-  }, [onListFiles, onLoadSkills, onReadFile]);
-
-  const handleCreateMockSkill = React.useCallback((generated: SkillGeneratedOutput) => {
-    const skill = generatedSkillToWorkspaceSkill(generated);
-    setMockSkills((current) => [skill, ...current.filter((item) => item.id !== skill.id)]);
-    setSkillsPanelTab("installed");
-    setSkillStatusFilter("preview");
-    setSearchQuery("");
-    setSelectedSkillPath(skill.path);
-  }, []);
-
-  const handleImportMockSkills = React.useCallback((items: SkillImportItem[]) => {
-    const imported = items.map(importItemToWorkspaceSkill);
-    setMockSkills((current) => {
-      const byId = new Map(current.map((skill) => [skill.id, skill]));
-      imported.forEach((skill) => byId.set(skill.id, skill));
-      return Array.from(byId.values());
-    });
-    setSkillsPanelTab("installed");
-    setSkillStatusFilter("preview");
-    setSearchQuery("");
-    if (imported[0]) setSelectedSkillPath(imported[0].path);
-  }, []);
-
-  const handleInstallLibrarySkill = React.useCallback(async (slug: string) => {
-    if (!onInstallLibrarySkill) {
-      setLibraryError("Library install is not available in this session.");
-      return;
-    }
-    setInstallingLibrarySlug(slug);
-    setLibraryError(null);
-    try {
-      const result = await onInstallLibrarySkill({ source: "clawhub", slug });
-      if (!result.ok) throw new Error(result.message || `Could not install ${slug}.`);
-      await reloadWorkspaceSkills();
-      setSkillsPanelTab("installed");
-      setSkillStatusFilter("all");
-      setSearchQuery("");
-    } catch (error) {
-      setLibraryError(error instanceof Error ? error.message : `Could not install ${slug}.`);
-    } finally {
-      setInstallingLibrarySlug(null);
-    }
-  }, [onInstallLibrarySkill, reloadWorkspaceSkills]);
-
-  const showingSkills = activeFilter === "skills";
-  const selectedSkillRow = selectedSkillPath ? skillRows.find((row) => row.skill.path === selectedSkillPath) ?? null : null;
-  const selectedSkillConfigEntry: SkillConfigEntry = selectedSkillRow
-    ? getSkillConfigEntry(config, selectedSkillRow.skill.id, skillConfigOverrides)
-    : { env: {} };
-  const skillsSummary = skillsLoading
-    ? "Loading app skills"
-    : `${workspaceSkills.length} bundled · ${skillCounts.active} active${mockSkills.length > 0 ? ` · ${mockSkills.length} local preview` : ""}`;
-  const effectiveSkillsError = showingSkills && !onLoadSkills && !canLoadWorkspaceSkills
-    ? "Workspace file access is unavailable for this agent."
-    : skillsError;
-  const skillTabs = React.useMemo(() => ([
-    { id: "installed" as const, label: "Installed", count: skillRows.length },
-    { id: "library" as const, label: "Library", count: librarySkills.length },
-  ]), [librarySkills.length, skillRows.length]);
-  const skillFilterOptions = React.useMemo(() => SKILL_STATUS_FILTERS.map((filter) => ({
-    ...filter,
-    count: filter.id === "all" ? skillRows.length : skillCounts[filter.id],
-  })), [skillCounts, skillRows.length]);
-  const mockedSkillNotice = "Create and import are local previews until skill creation/import APIs are available. They are not installed on the agent and disappear on reload.";
-
-  React.useEffect(() => {
-    if (activeFilter !== "skills") setSelectedSkillPath(null);
-  }, [activeFilter]);
-
-  React.useEffect(() => {
-    if (selectedSkillPath && !skillRows.some((row) => row.skill.path === selectedSkillPath)) {
-      setSelectedSkillPath(null);
-    }
-  }, [selectedSkillPath, skillRows]);
 
   if (!connected || !configSchema) {
     const bootStatus = getAgentGatewayPanelBootStatus({
@@ -1529,145 +771,27 @@ export function IntegrationsDirectoryPanel({
   }
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-[#030303] text-[#f5f5f5]">
-      {showingSkills ? (
-        <div className="px-5 py-5">
-          <SkillsWorkspaceShell
-            title="Skills"
-            description={(
-              <>
-                Skills are instruction packs backed by <code className="rounded-md border border-border bg-background/70 px-1.5 py-0.5 font-mono text-[11px] text-foreground">SKILL.md</code> files.
-                Installed skills come from the agent; created and imported skills stay as local previews until backend support lands.
-              </>
-            )}
-            summary={skillsPanelTab === "installed" ? skillsSummary : libraryLoading ? "Searching library" : `${librarySkills.length} library result${librarySkills.length === 1 ? "" : "s"}`}
-            actions={(
-              <>
-                <button
-                  type="button"
-                  onClick={() => setImportSkillOpen(true)}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-surface-low/50 px-2.5 text-xs font-semibold text-foreground transition-colors hover:border-border-strong hover:bg-surface-low"
-                >
-                  <Upload className="h-3.5 w-3.5" />
-                  Import
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCreateSkillOpen(true)}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Create Skill
-                </button>
-              </>
-            )}
-            searchValue={searchQuery}
-            onSearchChange={setSearchQuery}
-            searchPlaceholder={skillsPanelTab === "library" ? "Search library skills..." : "Search installed skills..."}
-            tabs={skillTabs}
-            activeTab={skillsPanelTab}
-            onTabChange={(tab) => {
-              setSkillsPanelTab(tab);
-              setSkillStatusFilter("all");
-              setSearchQuery("");
-              setSelectedSkillPath(null);
-            }}
-            filters={skillsPanelTab === "installed" ? skillFilterOptions : undefined}
-            activeFilter={skillsPanelTab === "installed" ? skillStatusFilter : undefined}
-            onFilterChange={skillsPanelTab === "installed" ? setSkillStatusFilter : undefined}
-          >
-            {skillsPanelTab === "installed" ? (
-              skillsLoading ? (
-                <SkillsLoadingState className="rounded-2xl border border-border bg-surface-low/25" />
-              ) : effectiveSkillsError ? (
-                <div className="rounded-2xl border border-border bg-surface-low/25 px-5 py-10 text-center text-sm text-text-muted">
-                  {effectiveSkillsError}
-                </div>
-              ) : filteredSkillRows.length > 0 ? (
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  {filteredSkillRows.map((row) => (
-                    <SkillCard
-                      key={row.skill.path}
-                      skill={skillCardForRow(row)}
-                      actionLabel={row.status === "preview" ? "Review" : "Configure"}
-                      onAction={() => setSelectedSkillPath(row.skill.path)}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <SkillsEmptyState
-                  title={mockSkills.length > 0 || workspaceSkills.length > 0 ? "No skills match your filters." : "No app skills found."}
-                  detail={mockSkills.length > 0 || workspaceSkills.length > 0 ? "Try another status filter or search term." : "Create or import a local preview, or install a skill from the library."}
-                />
-              )
-            ) : libraryLoading ? (
-              <SkillsLoadingState title="Searching library" detail="Looking for available skills." className="rounded-2xl border border-border bg-surface-low/25" />
-            ) : libraryError ? (
-              <div className="rounded-2xl border border-border bg-surface-low/25 px-5 py-10 text-center text-sm text-text-muted">
-                {libraryError}
-              </div>
-            ) : librarySkills.length > 0 ? (
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {librarySkills.map((item) => (
-                  <SkillCard
-                    key={item.slug}
-                    skill={librarySkillCard(item)}
-                    actionLabel="Add to agent"
-                    actionDisabled={!onInstallLibrarySkill}
-                    actionLoading={installingLibrarySlug === item.slug}
-                    onAction={() => void handleInstallLibrarySkill(item.slug)}
-                  />
-                ))}
-              </div>
-            ) : (
-              <SkillsEmptyState
-                title="No library skills found."
-                detail={searchQuery.trim() ? "Try a broader search term." : "Search the library to find installable skills."}
-              />
-            )}
-          </SkillsWorkspaceShell>
+    <div className="h-full min-h-0 overflow-y-auto bg-background text-foreground">
+      <div className="border-b border-[#222222] px-5 py-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <h2 className="text-[19px] font-semibold leading-none">All integrations</h2>
+          <label className="relative w-full lg:w-[360px]">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#858585]" />
+            <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search integrations..." className="h-10 w-full rounded-[11px] border border-[#3a3a3d] bg-[#101010] pl-10 pr-3 text-[14px] text-[#f5f5f5] outline-none placeholder:text-[#858585] focus:border-[#5a5a5e]" />
+          </label>
         </div>
-      ) : (
-        <div className="border-b border-[#222222] px-5 py-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <h2 className="text-[19px] font-semibold leading-none">All integrations</h2>
-            <label className="relative w-full lg:w-[360px]">
-              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#858585]" />
-              <input
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Search integrations..."
-                className="h-10 w-full rounded-[11px] border border-[#3a3a3d] bg-[#101010] pl-10 pr-3 text-[14px] text-[#f5f5f5] outline-none placeholder:text-[#858585] focus:border-[#5a5a5e]"
-              />
-            </label>
-          </div>
 
-          <div className="mt-8 flex flex-wrap gap-2.5">
-            {FILTERS.map((filter) => (
-              <button
-                key={filter.id}
-                type="button"
-                onClick={() => {
-                  setActiveFilter(filter.id);
-                  setSkillStatusFilter("all");
-                  setSearchQuery("");
-                }}
-                className={`h-9 rounded-full border px-3.5 text-[14px] font-medium transition-colors ${
-                  activeFilter === filter.id
-                    ? "border-[#f5f5f5] bg-[#f5f5f5] text-[#111111]"
-                    : "border-[#3d3d40] bg-[#151515] text-[#f5f5f5] hover:border-[#626266]"
-                }`}
-              >
-                {filter.label}
-              </button>
-            ))}
-          </div>
+        <div className="mt-8 flex flex-wrap gap-2.5">
+          {FILTERS.map((filter) => (
+            <button key={filter.id} type="button" onClick={() => { setActiveFilter(filter.id); setSearchQuery(""); }} className={`h-9 rounded-full border px-3.5 text-[14px] font-medium transition-colors ${activeFilter === filter.id ? "border-[#f5f5f5] bg-[#f5f5f5] text-[#111111]" : "border-[#3d3d40] bg-[#151515] text-[#f5f5f5] hover:border-[#626266]"}`}>
+              {filter.label}
+            </button>
+          ))}
         </div>
-      )}
+      </div>
 
-      {!showingSkills && (
-        <div className="px-5 py-7">
-          {filteredTiles.length > 0 ? (
+      <div className="px-5 py-7">
+        {filteredTiles.length > 0 ? (
           <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
             {filteredTiles.map((tile) => (
               <IntegrationCard
@@ -1676,52 +800,17 @@ export function IntegrationsDirectoryPanel({
                 onOpen={() => {
                   if (tile.plugin) setSelectedPluginId(tile.plugin.id);
                   else if (tile.service?.connectorId && tile.connectorAvailable && onIntegrationAuthStart && onIntegrationAuthStatus && onIntegrationStatus) setSelectedConnectorId(tile.service.connectorId);
-                  else if (tile.skill) setSelectedSkillPath(tile.skill.path);
+                  else if (tile.skillId) onOpenSkill(tile.skillId);
                 }}
               />
             ))}
           </div>
-          ) : (
+        ) : (
           <div className="rounded-[12px] border border-[#333333] bg-[#181818] px-5 py-10 text-center text-sm text-[#858585]">
             No integrations match this search.
           </div>
-          )}
-        </div>
-      )}
-      <SkillsCreateModal
-        open={createSkillOpen}
-        onClose={() => setCreateSkillOpen(false)}
-        onSave={handleCreateMockSkill}
-        notice={mockedSkillNotice}
-      />
-      <SkillsImportModal
-        open={importSkillOpen}
-        onClose={() => setImportSkillOpen(false)}
-        onImport={handleImportMockSkills}
-        notice={mockedSkillNotice}
-      />
-      {selectedSkillRow && (
-        <SkillDrawer
-          skill={selectedSkillRow.skill}
-          row={selectedSkillRow}
-          configEntry={selectedSkillConfigEntry}
-          onClose={() => setSelectedSkillPath(null)}
-          onSaveConfig={onSaveConfig}
-          onConfigured={(skillId, entry) => {
-            setSkillConfigOverrides((prev) => ({
-              ...prev,
-              [skillId]: {
-                ...prev[skillId],
-                ...entry,
-                env: {
-                  ...(prev[skillId]?.env ?? {}),
-                  ...(entry.env ?? {}),
-                },
-              },
-            }));
-          }}
-        />
-      )}
+        )}
+      </div>
     </div>
   );
 }

@@ -70,6 +70,7 @@ function buildGateway(initialState: TestGatewayConnectionState = "connected") {
     chatSend: vi.fn(async function* (): AsyncGenerator<ChatEvent, void, unknown> {
       yield { type: "done" as const };
     }),
+    runEphemeralChat: vi.fn(async () => "generated response"),
     configPatch: vi.fn(async (): Promise<void> => undefined),
     configSet: vi.fn(async (): Promise<void> => undefined),
     channelsStatus: vi.fn(async () => ({ channels: {} })),
@@ -94,6 +95,34 @@ function deferred<T>() {
 describe("useOpenClawSession", () => {
   beforeEach(() => {
     window.localStorage.clear();
+  });
+
+  it("routes ephemeral prompts through the connected SDK gateway client", async () => {
+    const gateway = buildGateway();
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    const controller = new AbortController();
+
+    let response = "";
+    await act(async () => {
+      response = await result.current.runEphemeralPrompt("generate a skill", {
+        signal: controller.signal,
+        timeoutMs: 30_000,
+      });
+    });
+
+    expect(response).toBe("generated response");
+    expect(gateway.runEphemeralChat).toHaveBeenCalledWith("generate a skill", {
+      signal: controller.signal,
+      timeoutMs: 30_000,
+    });
+    unmount();
   });
 
   it("tracks image attachment reads before the preview payload is ready", async () => {
@@ -1817,6 +1846,44 @@ describe("useOpenClawSession", () => {
     });
 
     expect(gateway.chatSend).toHaveBeenCalledWith("hello new session", `agent:default:${newSessionKey}`, undefined);
+    unmount();
+  });
+
+  it("sends an initial message to a new session only after the session is created", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([{ key: "main", title: "Main" }]);
+    const reset = deferred<void>();
+    gateway.sessionsReset.mockReturnValueOnce(reset.promise);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+
+    let newSessionKey = "";
+    await act(async () => {
+      newSessionKey = await result.current.createSession({ initialMessage: "Test the weather skill safely." });
+    });
+
+    expect(gateway.sessionsReset).toHaveBeenCalledWith(newSessionKey, "new");
+    expect(gateway.chatSend).not.toHaveBeenCalled();
+
+    await act(async () => {
+      reset.resolve(undefined);
+      await reset.promise;
+    });
+
+    await waitFor(() => {
+      expect(gateway.chatSend).toHaveBeenCalledWith("Test the weather skill safely.", newSessionKey, undefined);
+    });
+    expect(gateway.chatSend.mock.calls.map(([, sessionKey]) => sessionKey)).not.toContain("main");
     unmount();
   });
 

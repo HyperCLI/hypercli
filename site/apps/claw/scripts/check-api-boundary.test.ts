@@ -53,4 +53,14 @@ describe("check-api-boundary", () => {
 
     expect(scanSourceText(source)).toEqual([]);
   });
+
+  it("keeps the Skills UI independent from provider-specific SDK modules", () => {
+    const filePath = "/repo/src/components/dashboard/skills/provider.ts";
+    const source = 'import type { GatewaySkillStatusEntry } from "@hypercli.com/sdk/openclaw/gateway";';
+
+    expect(scanSourceText(source, filePath).map((violation) => violation.rule))
+      .toEqual(["provider-specific Skills import"]);
+    expect(scanSourceText('import type { AgentSkillSummary } from "@hypercli.com/sdk/skills";', filePath))
+      .toEqual([]);
+  });
 });

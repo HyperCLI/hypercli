@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { OpenClawAgent } from "@hypercli.com/sdk/agents";
+import { OpenClawSkillsProvider } from "@hypercli.com/sdk/openclaw/skills";
 import type {
   ChatEvent,
   GatewayClient,
@@ -12,10 +13,9 @@ import type {
   GatewayIntegrationDisconnectParams,
   GatewayIntegrationStatusParams,
   GatewayIntegrationStatusResult,
-  GatewaySkillsDetailParams,
+  GatewayEphemeralChatOptions,
   GatewaySkillsInstallParams,
   GatewaySkillsSearchParams,
-  GatewaySkillsSecurityVerdictsParams,
   GatewaySkillsSkillCardParams,
   GatewaySkillsStatusParams,
   GatewaySkillsUpdateParams,
@@ -93,6 +93,10 @@ let fallbackSessionCounter = 0;
 interface SendMessageOptions {
   displayContent?: string;
   files?: ChatPendingFile[];
+}
+
+interface CreateSessionOptions {
+  initialMessage?: string;
 }
 
 interface ComposerDraftState {
@@ -1550,6 +1554,12 @@ export function useOpenClawSession(
     }
   }, [gateway, ready, agentId, activeSessionKey, activeGatewaySessionKey, markAbortingForTarget, markCurrentReplyInterrupted, clearSendingForTarget, clearAbortingForTarget, appendActivity]);
 
+  const runEphemeralPrompt = useCallback(async (message: string, options?: GatewayEphemeralChatOptions) => {
+    if (!gateway || !ready) throw new Error("Chat is not ready");
+    if (typeof gateway.runEphemeralChat !== "function") throw new Error("Ephemeral generation is unavailable for this agent.");
+    return gateway.runEphemeralChat(message, options);
+  }, [gateway, ready]);
+
   useEffect(() => {
     if (!ready) return;
     const nextMessageIndex = pendingMessages.findIndex((message) => (
@@ -1617,12 +1627,13 @@ export function useOpenClawSession(
     return refreshSessionList();
   }, [refreshSessionList]);
 
-  const createSession = useCallback(async () => {
+  const createSession = useCallback(async (options: CreateSessionOptions = {}) => {
     if (!gateway) throw new Error("Not connected");
     if (sessionsFetchedAgentId !== agentId) throw new Error("Sessions are still loading.");
 
     const sessionKey = createOpenClawSessionKey(sessions);
     const target = { agentId, sessionKey };
+    const initialMessage = options.initialMessage?.trim() ?? "";
     clearCachedOpenClawChatHistory(agentId, sessionKey);
     setSessionTitleOverride(sessionKey, OPENCLAW_NEW_SESSION_TITLE);
     creatingSessionKeysRef.current.add(sessionKey);
@@ -1644,6 +1655,7 @@ export function useOpenClawSession(
       try {
         await createOpenClawSession(gateway, sessionKey);
         finishCreatingSession(sessionKey);
+        if (initialMessage) void sendMessage(initialMessage, {}, target);
         try {
           const nextSessions = await fetchSessionList(gateway);
           const refreshedSessions = nextSessions.some((session) => sameOpenClawSelectableSessionKey(session.key, sessionKey))
@@ -1659,7 +1671,7 @@ export function useOpenClawSession(
       }
     })();
     return sessionKey;
-  }, [gateway, sessionsFetchedAgentId, agentId, sessions, applyFetchedSessions, setSessionTitleOverride, setTitledSessions, appendActivity, fetchSessionList, finishCreatingSession, dispatchChatHistory, updateComposerDraftForTarget]);
+  }, [gateway, sessionsFetchedAgentId, agentId, sessions, applyFetchedSessions, setSessionTitleOverride, setTitledSessions, appendActivity, fetchSessionList, finishCreatingSession, dispatchChatHistory, sendMessage, updateComposerDraftForTarget]);
 
   const renameSession = useCallback(async (sessionKey: string, title: string) => {
     if (!agentId) throw new Error("Session rename is unavailable.");
@@ -1753,16 +1765,6 @@ export function useOpenClawSession(
     return gateway.skillsSearch(params);
   }, [gateway]);
 
-  const skillsDetail = useCallback(async (params: GatewaySkillsDetailParams) => {
-    if (!gateway) throw new Error("Not connected");
-    return gateway.skillsDetail(params);
-  }, [gateway]);
-
-  const skillsSecurityVerdicts = useCallback(async (params: GatewaySkillsSecurityVerdictsParams = {}) => {
-    if (!gateway) throw new Error("Not connected");
-    return gateway.skillsSecurityVerdicts(params);
-  }, [gateway]);
-
   const skillsSkillCard = useCallback(async (params: GatewaySkillsSkillCardParams) => {
     if (!gateway) throw new Error("Not connected");
     return gateway.skillsSkillCard(params);
@@ -1787,6 +1789,19 @@ export function useOpenClawSession(
     appendActivity({ type: "skill", action: "Skills updated", detail });
     return result;
   }, [gateway, appendActivity]);
+
+  const skillsProvider = useMemo(() => new OpenClawSkillsProvider({
+    skillsStatus,
+    skillsSkillCard,
+    skillsUpdate,
+    skillsSearch,
+    skillsInstall,
+  }, {
+    exec: async (command) => {
+      if (!agent) throw new Error("Agent command access is unavailable.");
+      return agent.exec(command, { timeout: 15_000 });
+    },
+  }), [agent, skillsInstall, skillsSearch, skillsSkillCard, skillsStatus, skillsUpdate]);
 
   const integrationsAuthStart = useCallback(async (params: GatewayIntegrationAuthStartParams) => {
     if (!gateway) throw new Error("Not connected");
@@ -1889,18 +1904,13 @@ export function useOpenClawSession(
     refreshSessions,
     renameSession,
     deleteSession: removeSession,
+    runEphemeralPrompt,
     refreshCron,
     addCron,
     updateCron,
     removeCron,
     runCron,
-    skillsStatus,
-    skillsSearch,
-    skillsDetail,
-    skillsSecurityVerdicts,
-    skillsSkillCard,
-    skillsInstall,
-    skillsUpdate,
+    skillsProvider,
     integrationsAuthStart,
     integrationsAuthStatus,
     integrationsStatus,

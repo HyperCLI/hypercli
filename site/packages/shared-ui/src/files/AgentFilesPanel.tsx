@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowUpDown,
@@ -166,11 +166,13 @@ export interface AgentFilesPanelProps {
   onOpenFile: (path: string, source?: AgentFilesPanelSource) => Promise<AgentFileOpenResponse<string>>;
   onOpenFileBytes?: (path: string, source?: AgentFilesPanelSource) => Promise<AgentFileOpenResponse<Uint8Array>>;
   onDownloadFileBytes?: (path: string, source?: AgentFilesPanelSource) => Promise<AgentFileOpenResponse<Uint8Array>>;
-  onSaveFile: (path: string, content: string, source?: AgentFilesPanelSource) => Promise<void>;
-  onDeleteFile: (path: string, options?: { recursive?: boolean }) => Promise<void>;
-  onUploadFile: (path: string, content: Uint8Array) => Promise<void>;
+  onSaveFile?: (path: string, content: string, source?: AgentFilesPanelSource) => Promise<void>;
+  onDeleteFile?: (path: string, options?: { recursive?: boolean }) => Promise<void>;
+  onUploadFile?: (path: string, content: Uint8Array) => Promise<void>;
   onCreateDirectory?: (path: string) => Promise<void>;
   isReadOnlyFile?: (path: string) => boolean;
+  readOnlyLabel?: string;
+  readOnlyDescription?: ReactNode;
   renderMarkdown?: FilePreviewMarkdownRenderer;
   downloadBytes?: (fileName: string, bytes: Uint8Array, mimeType?: string) => void;
   copyText?: (text: string) => boolean | Promise<boolean>;
@@ -196,6 +198,8 @@ export function AgentFilesPanel({
   onUploadFile,
   onCreateDirectory,
   isReadOnlyFile = () => false,
+  readOnlyLabel,
+  readOnlyDescription,
   renderMarkdown,
   downloadBytes = downloadFileBytes,
   copyText = writeClipboardText,
@@ -474,12 +478,14 @@ export function AgentFilesPanel({
   }, [connected, handleOpenFile, normalizedInitialPreviewPath, normalizedRootPath]);
 
   const handleSaveFile = useCallback(async (path: string, content: string) => {
+    if (!onSaveFile) return;
     await onSaveFile(path, content, sourceMode);
     setPreviewContent(content);
     void loadFiles();
   }, [loadFiles, onSaveFile, sourceMode]);
 
   const handleDeleteFile = useCallback(async (entry: FileEntry) => {
+    if (!onDeleteFile) return;
     await onDeleteFile(entry.path, entry.type === "directory" ? { recursive: true } : undefined);
     if (previewEntry?.path === entry.path) {
       setPreviewEntry(null);
@@ -489,6 +495,7 @@ export function AgentFilesPanel({
   }, [loadFiles, onDeleteFile, previewEntry]);
 
   const handleUploadFile = useCallback(async (path: string, content: Uint8Array) => {
+    if (!onUploadFile) return;
     await onUploadFile(path, content);
     await loadFiles();
   }, [loadFiles, onUploadFile]);
@@ -568,8 +575,10 @@ export function AgentFilesPanel({
       loading={previewLoading}
       error={previewError}
       readOnly={!isGatewaySource && isReadOnlyFile(previewEntry.path)}
+      readOnlyLabel={readOnlyLabel}
+      readOnlyDescription={readOnlyDescription}
       onClose={() => setPreviewEntry(null)}
-      onSave={handleSaveFile}
+      onSave={onSaveFile ? handleSaveFile : undefined}
       onDownload={onDownloadFileBytes ? handleDownloadFile : undefined}
       renderMarkdown={renderMarkdown}
       copyText={copyText}
@@ -644,7 +653,7 @@ export function AgentFilesPanel({
           </button>
         )}
 
-        <button
+        {onUploadFile && <button
           type="button"
           onClick={() => {
             setShowUpload((open) => !open);
@@ -657,7 +666,7 @@ export function AgentFilesPanel({
           title={isGatewaySource ? "Uploads are not available for gateway files" : "Upload files"}
         >
           <Upload className="h-3.5 w-3.5" />
-        </button>
+        </button>}
 
         <button
           type="button"
@@ -768,7 +777,7 @@ export function AgentFilesPanel({
       </AnimatePresence>
 
       <AnimatePresence>
-        {showUpload && currentSourceAvailable && !isGatewaySource && (
+        {onUploadFile && showUpload && currentSourceAvailable && !isGatewaySource && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
@@ -838,7 +847,7 @@ export function AgentFilesPanel({
                 showHidden={showHidden}
                 onOpenFile={handleOpenFile}
                 onOpenDirectory={handleOpenFile}
-                onDeleteFile={isGatewaySource || !currentSourceAvailable ? undefined : handleDeleteFile}
+                onDeleteFile={isGatewaySource || !currentSourceAvailable || !onDeleteFile ? undefined : handleDeleteFile}
                 onDownloadFile={onDownloadFileBytes ? handleDownloadFile : undefined}
                 onCopyPath={handleCopyPath}
               />

@@ -824,6 +824,67 @@ describe("GatewayClient", () => {
     expect((client as any).pending.size).toBe(0);
   });
 
+  it("runs an ephemeral chat and resets its hidden session after completion", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    const sessionsReset = vi.spyOn(client, "sessionsReset").mockResolvedValue(undefined);
+    vi.spyOn(client, "chatSend").mockImplementation(async function* () {
+      yield { type: "content", text: '{"schema":' };
+      yield { type: "content", text: '"test"}' };
+      yield { type: "done" };
+    });
+    const chatAbort = vi.spyOn(client, "chatAbort").mockResolvedValue(undefined);
+
+    await expect(client.runEphemeralChat("Generate JSON")).resolves.toBe('{"schema":"test"}');
+    expect(sessionsReset).toHaveBeenCalledTimes(2);
+    const sessionKey = sessionsReset.mock.calls[0]?.[0];
+    expect(sessionKey).toMatch(/^session-[0-9a-f-]+$/);
+    expect(sessionsReset).toHaveBeenNthCalledWith(1, sessionKey, "new");
+    expect(sessionsReset).toHaveBeenNthCalledWith(2, sessionKey, "reset");
+    expect(chatAbort).not.toHaveBeenCalled();
+  });
+
+  it("aborts and resets an ephemeral chat when its response exceeds the limit", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    const sessionsReset = vi.spyOn(client, "sessionsReset").mockResolvedValue(undefined);
+    vi.spyOn(client, "chatSend").mockImplementation(async function* () {
+      yield { type: "content", text: "too large" };
+      yield { type: "done" };
+    });
+    const chatAbort = vi.spyOn(client, "chatAbort").mockResolvedValue(undefined);
+
+    await expect(client.runEphemeralChat("Generate", { maxResponseChars: 4 })).rejects.toThrow(/exceeds/i);
+    const sessionKey = sessionsReset.mock.calls[0]?.[0];
+    expect(chatAbort).toHaveBeenCalledWith(sessionKey);
+    expect(sessionsReset).toHaveBeenLastCalledWith(sessionKey, "reset");
+  });
+
+  it("cancels an in-flight ephemeral chat through chat.abort", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    const sessionsReset = vi.spyOn(client, "sessionsReset").mockResolvedValue(undefined);
+    let releaseStream: (() => void) | undefined;
+    vi.spyOn(client, "chatSend").mockImplementation(async function* () {
+      yield { type: "content", text: "partial" };
+      await new Promise<void>((resolve) => { releaseStream = resolve; });
+      yield { type: "done" };
+    });
+    const chatAbort = vi.spyOn(client, "chatAbort").mockImplementation(async () => { releaseStream?.(); });
+    const controller = new AbortController();
+    const completion = client.runEphemeralChat("Generate", { signal: controller.signal });
+    await flushMicrotasks();
+    controller.abort();
+
+    await expect(completion).rejects.toMatchObject({ name: "AbortError" });
+    const sessionKey = sessionsReset.mock.calls[0]?.[0];
+    expect(chatAbort).toHaveBeenCalledWith(sessionKey);
+    expect(sessionsReset).toHaveBeenLastCalledWith(sessionKey, "reset");
+  });
+
   it("chatSend streams legacy chat deltas and treats final without message as done", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",

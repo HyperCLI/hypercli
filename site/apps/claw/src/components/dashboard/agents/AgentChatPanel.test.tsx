@@ -1,6 +1,7 @@
 import { createRef, useState, type ComponentProps } from "react";
 import { act, fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AgentSkillsProvider } from "@hypercli.com/sdk/skills";
 
 import { buildSdkAgent } from "@/test/factories";
 import { renderWithClient } from "@/test/utils";
@@ -96,13 +97,14 @@ function buildChat(overrides: Partial<ChatSession> = {}): ChatSession {
     addCron: vi.fn(async () => undefined),
     removeCron: vi.fn(async () => undefined),
     runCron: vi.fn(async () => undefined),
-    skillsStatus: vi.fn(async () => ({ workspaceDir: "/workspace", managedSkillsDir: "/app/skills", skills: [] })),
-    skillsSearch: vi.fn(async () => ({ results: [] })),
-    skillsDetail: vi.fn(async () => ({ skill: null })),
-    skillsSecurityVerdicts: vi.fn(async () => ({ schema: "openclaw.skills.security-verdicts.v1", items: [] })),
-    skillsSkillCard: vi.fn(async () => ({ schema: "openclaw.skills.skill-card.v1", skillKey: "test", path: "/app/skills/test/SKILL.md", sizeBytes: 0, content: "" })),
-    skillsInstall: vi.fn(async () => ({ ok: true })),
-    skillsUpdate: vi.fn(async () => ({ ok: true, skillKey: "test", config: {} })),
+    skillsProvider: {
+      capabilities: { readDocument: true, configure: true, searchRegistry: true, installRegistry: true, installUpload: false, resources: false, createSkill: false },
+      list: vi.fn(async () => []),
+      readDocument: vi.fn(async () => null),
+      update: vi.fn(async () => undefined),
+      search: vi.fn(async () => []),
+      install: vi.fn(async ({ id }) => ({ ok: true, skillId: id })),
+    },
     integrationsAuthStart: vi.fn(async () => ({ authId: "auth-1" })),
     integrationsAuthStatus: vi.fn(async () => ({ status: "pending" })),
     integrationsStatus: vi.fn(async () => ({ integrations: { github: { configured: false, authenticated: false, usable: false } } })),
@@ -1287,17 +1289,12 @@ describe("AgentChatPanel", () => {
     expect(screen.getByRole("status", { name: /skills opened/i })).toBeInTheDocument();
   });
 
-  it("searches ClawHub skills from the skill slash command", async () => {
-    const skillsSearch = vi.fn(async () => ({
-      results: [
-        {
-          score: 1,
-          slug: "code-review",
-          displayName: "Code Review",
-          summary: "Review changes before shipping.",
-        },
-      ],
-    }));
+  it("searches catalog skills from the skill slash command", async () => {
+    const search = vi.fn(async () => [{ id: "code-review", name: "Code Review", description: "Review changes before shipping." }]);
+    const skillsProvider = {
+      ...buildChat().skillsProvider,
+      search,
+    } satisfies AgentSkillsProvider;
     const handleSendChat = vi.fn();
     renderAgentChatPanel({
       chat: buildChat({
@@ -1306,7 +1303,7 @@ describe("AgentChatPanel", () => {
         ready: true,
         connected: true,
         input: "/skill search review",
-        skillsSearch,
+        skillsProvider,
       }),
       isSelectedRunning: true,
       handleSendChat,
@@ -1317,15 +1314,20 @@ describe("AgentChatPanel", () => {
     });
 
     expect(handleSendChat).not.toHaveBeenCalled();
-    expect(skillsSearch).toHaveBeenCalledWith({ query: "review", limit: 5 });
+    expect(search).toHaveBeenCalledWith("review", 5);
     expect(screen.getByText(/code-review: Review changes before shipping\./i)).toBeInTheDocument();
     expect(screen.getByRole("status", { name: /1 skill found/i })).toBeInTheDocument();
   });
 
-  it("confirms and installs a ClawHub skill from chat", async () => {
+  it("confirms and installs a catalog skill from chat", async () => {
     const setInput = vi.fn();
-    const skillsInstall = vi.fn(async () => ({ ok: true, slug: "code-review", message: "Installed Code Review." }));
-    const skillsStatus = vi.fn(async () => ({ workspaceDir: "/workspace", managedSkillsDir: "/app/skills", skills: [] }));
+    const install = vi.fn(async () => ({ ok: true, skillId: "code-review", message: "Installed Code Review." }));
+    const list = vi.fn(async () => []);
+    const skillsProvider = {
+      ...buildChat().skillsProvider,
+      install,
+      list,
+    } satisfies AgentSkillsProvider;
     renderAgentChatPanel({
       chat: buildChat({
         status: "connected",
@@ -1334,8 +1336,7 @@ describe("AgentChatPanel", () => {
         connected: true,
         input: "/skill install code-review",
         setInput,
-        skillsInstall,
-        skillsStatus,
+        skillsProvider,
       }),
       isSelectedRunning: true,
     });
@@ -1345,15 +1346,15 @@ describe("AgentChatPanel", () => {
     });
 
     expect(screen.getByRole("heading", { name: "Install skill" })).toBeInTheDocument();
-    expect(screen.getByText("Install code-review from ClawHub? This can add files and tools to the workspace.")).toBeInTheDocument();
-    expect(skillsInstall).not.toHaveBeenCalled();
+    expect(screen.getByText("Install code-review from the skill catalog? This can add files and tools to the agent.")).toBeInTheDocument();
+    expect(install).not.toHaveBeenCalled();
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Install" }));
     });
 
-    expect(skillsInstall).toHaveBeenCalledWith({ source: "clawhub", slug: "code-review" });
-    expect(skillsStatus).toHaveBeenCalledTimes(1);
+    expect(install).toHaveBeenCalledWith({ source: "registry", id: "code-review" });
+    expect(list).toHaveBeenCalledTimes(1);
     expect(setInput).toHaveBeenCalledWith("");
     expect(screen.getByRole("status", { name: /installed code review/i })).toBeInTheDocument();
   });

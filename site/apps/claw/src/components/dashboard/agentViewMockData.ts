@@ -35,7 +35,6 @@ import {
 } from "lucide-react";
 import type {
   Connection,
-  Skill,
   ActivityEntry,
   ActivityType,
   AgentStatus,
@@ -110,14 +109,6 @@ export const FEATURED_INTEGRATIONS: Array<{
   { id: "slack",    name: "Slack",    brand: "#4A154B", iconKey: "slack",    description: "Team messaging and channels" },
   { id: "teams",    name: "Teams",    brand: "#5059C9", iconKey: "teams",    description: "Microsoft Teams chat and meetings" },
   { id: "telegram", name: "Telegram", brand: "#229ED9", iconKey: "telegram", description: "Send and receive messages via Telegram bot" },
-];
-
-export const MOCK_SKILLS: Skill[] = [
-  { id: "web-search", name: "Web Search", description: "Search the internet for information", enabled: true, icon: Globe },
-  { id: "code-exec", name: "Code Execution", description: "Run code in a sandboxed environment", enabled: true, icon: Play },
-  { id: "file-ops", name: "File Operations", description: "Read, write, and manage files", enabled: true, icon: FolderOpen },
-  { id: "data-analysis", name: "Data Analysis", description: "Analyze datasets and generate insights", enabled: false, icon: BarChart3 },
-  { id: "image-gen", name: "Image Generation", description: "Create images from text prompts", enabled: false, icon: Image },
 ];
 
 export const MOCK_ACTIVITY: ActivityEntry[] = [

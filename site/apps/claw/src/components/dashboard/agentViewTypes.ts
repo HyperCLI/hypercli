@@ -19,14 +19,6 @@ export interface Connection {
   description: string;
 }
 
-export interface Skill {
-  id: string;
-  name: string;
-  description: string;
-  enabled: boolean;
-  icon: LucideIcon;
-}
-
 export interface ActivityEntry {
   id: string;
   type: ActivityType;
@@ -117,7 +109,6 @@ export interface AgentViewProps {
   showCronManager?: boolean;
   showRecentToolCalls?: boolean;
   showSubAgents?: boolean;
-  skillsVariant?: StyleVariant;
   activityVariant?: StyleVariant;
   completenessRingVariant?: StyleVariant;
   quickActionsVariant?: StyleVariant;

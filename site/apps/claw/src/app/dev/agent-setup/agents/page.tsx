@@ -51,12 +51,17 @@ import { agentAvatar } from "@/lib/avatar";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { IntegrationsDirectoryPanel } from "@/components/dashboard/integrations";
 import { SharedKnowledgePanel } from "@/components/dashboard/integrations/SharedKnowledgePanel";
+import {
+  SkillsPanel,
+  buildSkillTestPrompt,
+  useAgentSkills,
+  type AgentSkill,
+} from "@/components/dashboard/skills";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 import type { TabId as AgentViewTabId } from "@/components/dashboard/agentViewTypes";
 import { MOCK_PARTICIPANTS, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
 import { ChannelCreationWizard } from "@/components/dashboard/ChannelCreationWizard";
 import { getCategoryForPlugin, type DirectoryCategory } from "@/components/dashboard/directory/directory-utils";
-import { buildSkillsSnapshotCommand, parseSkillSnapshotOutput } from "@/components/dashboard/directory/workspace-skills";
 import type { AgentFileEntry, SdkAgent } from "@/types";
 import type { FileEntry } from "@hypercli/shared-ui/files";
 import { buildBrowserDesktopUrl } from "@hypercli.com/sdk/agents";
@@ -104,6 +109,7 @@ import { normalizeCronJob } from "@/lib/cron-jobs";
 
 type MainTab = AgentMainTab;
 type AgentFileSource = "auto" | "pod" | "s3";
+const AGENT_DIRECTORY_MARKER_NAME = ".hypercli-folder";
 
 function buildBillingBudget(
   summary: HyperAgentSubscriptionSummary | null,
@@ -312,6 +318,7 @@ export default function DevAgentSetupAgentsPage() {
 
   // Selection and tabs
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [selectedSessionKeysByAgent, setSelectedSessionKeysByAgent] = useState<Record<string, string>>({});
   const [mainTab, setMainTab] = useState<MainTab>("chat");
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [mobileAgentMenuOpen, setMobileAgentMenuOpen] = useState(false);
@@ -351,6 +358,7 @@ export default function DevAgentSetupAgentsPage() {
   const [directoryCategory, setDirectoryCategory] = useState<DirectoryCategory | undefined>();
   const [directoryItemId, setDirectoryItemId] = useState<string | undefined>();
   const [directoryDetailOrigin, setDirectoryDetailOrigin] = useState<"chat" | null>(null);
+  const [requestedSkillId, setRequestedSkillId] = useState<string | null>(null);
 
   // Hatching animation state tracking
   const prevStatesRef = useRef<Map<string, AgentState>>(new Map());
@@ -589,11 +597,23 @@ export default function DevAgentSetupAgentsPage() {
   }, [clearShellOutput, mainTab, shellStatus]);
 
   const gatewayEnabled = isSelectedRunning;
+  const selectedSessionKey = selectedAgentId
+    ? selectedSessionKeysByAgent[selectedAgentId] ?? resolveOpenClawSessionKey(selectedAgentId)
+    : resolveOpenClawSessionKey(null);
   const chat = useOpenClawSession(
     selectedAgent && isSelectedRunning ? selectedOpenClawAgent : null,
     gatewayEnabled,
+    selectedSessionKey,
   );
   const gatewayChat = asAgentGatewaySession(chat);
+  const testSkillInNewSession = async (skill: AgentSkill) => {
+    if (!selectedAgentId) throw new Error("Select an agent before testing a skill.");
+    const sessionKey = await chat.createSession({ initialMessage: buildSkillTestPrompt(skill) });
+    setSelectedSessionKeysByAgent((prev) => ({ ...prev, [selectedAgentId]: sessionKey }));
+    setDirectoryDetailOrigin(null);
+    setMainTab("chat");
+    setMobileShowChat(true);
+  };
   const draftTeamPrompt = useCallback(() => {
     if (!teamSetupSummary) return;
     setMainTab("chat");
@@ -707,7 +727,7 @@ export default function DevAgentSetupAgentsPage() {
     }
     if (mainTab === "logs") return wsStatus;
     if (mainTab === "shell") return shellStatus;
-    if (mainTab === "chat" || mainTab === "workspace" || mainTab === "openclaw" || mainTab === "integrations" || mainTab === "settings") {
+    if (mainTab === "chat" || mainTab === "workspace" || mainTab === "openclaw" || mainTab === "integrations" || mainTab === "skills" || mainTab === "settings") {
       if (chat.connected) return "connected" as const;
       if (chat.connecting) return "connecting" as const;
       return "disconnected" as const;
@@ -732,15 +752,12 @@ export default function DevAgentSetupAgentsPage() {
     return agentClient.fileRead(selectedAgentId, normalizeAgentFilePath(path), source);
   }, [getAgentClient, selectedAgentId]);
 
-  const loadAgentSkills = useCallback(async () => {
-    if (!selectedAgentId) return [];
-    const agentClient = await getAgentClient();
-    const result = await agentClient.exec(selectedAgentId, buildSkillsSnapshotCommand(), { timeout: 15_000 });
-    if (result.exitCode !== 0) {
-      throw new Error(result.stderr || "Failed to read /app/skills from the agent.");
-    }
-    return parseSkillSnapshotOutput(result.stdout);
-  }, [getAgentClient, selectedAgentId]);
+  const agentSkills = useAgentSkills({
+    enabled: mainTab === "integrations" || mainTab === "skills",
+    connected: chat.connected,
+    provider: selectedAgentId ? chat.skillsProvider : null,
+  });
+  const availableSkillIds = useMemo(() => new Set(agentSkills.skills.map((skill) => skill.id)), [agentSkills.skills]);
 
   // ── Agent inspector data wiring ──
 
@@ -1440,6 +1457,7 @@ export default function DevAgentSetupAgentsPage() {
       ? "settings"
       : mainTab === "files" ||
         mainTab === "integrations" ||
+        mainTab === "skills" ||
         mainTab === "knowledge" ||
         mainTab === "scheduled" ||
         mainTab === "logs" ||
@@ -1827,13 +1845,34 @@ export default function DevAgentSetupAgentsPage() {
                 onSaveConfig={async (patch) => { await chat.saveConfig(patch); }}
                 onChannelProbe={async () => chat.channelsStatus(true)}
                 onOpenShell={() => setMainTab("shell")}
-                onLoadSkills={loadAgentSkills}
-                onListFiles={listAgentFiles}
-                onReadFile={readAgentFile}
+                availableSkillIds={availableSkillIds}
+                onOpenSkill={(skillId) => {
+                  setRequestedSkillId(skillId);
+                  setMainTab("skills");
+                  setMobileShowChat(true);
+                }}
                 onIntegrationAuthStart={chat.integrationsAuthStart}
                 onIntegrationAuthStatus={chat.integrationsAuthStatus}
                 onIntegrationStatus={chat.integrationsStatus}
                 onIntegrationDisconnect={chat.integrationsDisconnect}
+              />
+            ) : mainTab === "skills" ? (
+              <SkillsPanel
+                key={selectedAgent?.id ?? "no-agent"}
+                agentName={selectedAgent?.name || selectedAgent?.pod_name || "Agent"}
+                connected={chat.connected}
+                isDesktopViewport={isDesktopViewport}
+                installedSkills={agentSkills.skills}
+                loading={agentSkills.loading}
+                error={agentSkills.error}
+                requestedSkillId={requestedSkillId}
+                onUpdateSkill={agentSkills.capabilities?.configure ? agentSkills.update : undefined}
+                onLoadSkillDocument={agentSkills.capabilities?.readDocument ? agentSkills.loadDocument : undefined}
+                skillResourceOperations={agentSkills.resourceOperations}
+                onCreateSkill={agentSkills.capabilities?.createSkill ? agentSkills.create : undefined}
+                onRefreshSkills={agentSkills.refresh}
+                onGenerateSkill={chat.ready ? chat.runEphemeralPrompt : undefined}
+                onTestSkill={testSkillInNewSession}
               />
             ) : mainTab === "knowledge" ? (
               <SharedKnowledgePanel agents={agents} workspaces={workspacesClient} ready={Boolean(workspacesClient)} />

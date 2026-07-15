@@ -401,7 +401,6 @@ export default function DevChatPage() {
   const [showCronManager, setShowCronManager] = useState(true);
   const [showRecentToolCalls, setShowRecentToolCalls] = useState(true);
   const [showSubAgents, setShowSubAgents] = useState(true);
-  const [skillsVariant, setSkillsVariant] = useState<FeatureVariant>("off");
   const [activityVariant, setActivityVariant] = useState<FeatureVariant>("off");
   const [completenessRingVariant, setCompletenessRingVariant] = useState<FeatureVariant>("v1");
   const [quickActionsVariant, setQuickActionsVariant] = useState<FeatureVariant>("off");
@@ -1215,17 +1214,6 @@ export default function DevChatPage() {
                 { value: "v1", label: "Alt 1 — pill tabs" },
                 { value: "v2", label: "Alt 2 — segmented control" },
                 { value: "v3", label: "Alt 3 — icon tabs" },
-              ]}
-            />
-            <VariantGroup
-              label="Skills"
-              value={skillsVariant}
-              onChange={setSkillsVariant}
-              options={[
-                { value: "off", label: "Default — rows + pulse" },
-                { value: "v1", label: "Alt 1 — cards" },
-                { value: "v2", label: "Alt 2 — pill chips" },
-                { value: "v3", label: "Alt 3 — minimal hover" },
               ]}
             />
             <VariantGroup
@@ -2062,7 +2050,6 @@ export default function DevChatPage() {
             showCronManager={showCronManager}
             showRecentToolCalls={showRecentToolCalls}
             showSubAgents={showSubAgents}
-            skillsVariant={skillsVariant}
             activityVariant={activityVariant}
             completenessRingVariant={completenessRingVariant}
             quickActionsVariant={quickActionsVariant}

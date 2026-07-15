@@ -1,6 +1,7 @@
 "use client";
 
 import React, { forwardRef, useImperativeHandle, useMemo, useState } from "react";
+import type { AgentSkillSearchItem, AgentSkillSummary } from "@hypercli.com/sdk/skills";
 import {
   Activity,
   Bot,
@@ -207,25 +208,20 @@ function parseSkillCommandArgs(args: string): { action: "open" | "search" | "ins
   return { action: "search", value: trimmed };
 }
 
-function formatSkillSearchStatus(results: Awaited<ReturnType<ChatSession["skillsSearch"]>>["results"]): string {
-  if (results.length === 0) return "No ClawHub skills found.";
+function formatSkillSearchStatus(results: AgentSkillSearchItem[]): string {
+  if (results.length === 0) return "No catalog skills found.";
   return results
     .slice(0, 5)
     .map((skill) => {
-      const summary = compactStatusText(skill.summary, 72);
-      return summary ? `${skill.slug}: ${summary}` : skill.slug;
+      const summary = compactStatusText(skill.description, 72);
+      return summary ? `${skill.id}: ${summary}` : skill.id;
     })
     .join(" | ");
 }
 
-function formatSkillsStatus(report: Awaited<ReturnType<ChatSession["skillsStatus"]>>): string {
-  const installed = report.skills.length;
-  const active = report.skills.filter((skill) => (
-    !skill.disabled &&
-    skill.eligible &&
-    !skill.blockedByAllowlist &&
-    !skill.blockedByAgentFilter
-  )).length;
+function formatSkillsStatus(skills: AgentSkillSummary[]): string {
+  const installed = skills.length;
+  const active = skills.filter((skill) => skill.availability === "active").length;
   return `${installed} skill${installed === 1 ? "" : "s"} installed, ${active} active.`;
 }
 
@@ -629,7 +625,7 @@ function buildSlashCommands(): SlashCommand[] {
       id: "skill",
       aliases: ["skill"],
       title: "Skill command",
-      description: "Search, status, or install a ClawHub skill.",
+      description: "Search, inspect, or install a catalog skill.",
       category: "Skills",
       mode: "confirm",
       Icon: Sparkles,
@@ -637,8 +633,11 @@ function buildSlashCommands(): SlashCommand[] {
         const parsed = parseSkillCommandArgs(args);
         if (parsed.action === "open") return actions.onOpenSkills ? true : "Skills browser is unavailable here.";
         if (!chat.connected) return "Connect the gateway before managing skills.";
+        if (!chat.skillsProvider) return "Skills are unavailable for this agent.";
         if (parsed.action === "search" && !parsed.value) return "Pass a search query, for example /skill search code review.";
-        if (parsed.action === "install" && !parsed.value) return "Pass a ClawHub skill slug, for example /skill install code-review.";
+        if (parsed.action === "search" && !chat.skillsProvider.capabilities.searchRegistry) return "Skill catalog search is unavailable for this agent.";
+        if (parsed.action === "install" && !parsed.value) return "Pass a catalog skill ID, for example /skill install code-review.";
+        if (parsed.action === "install" && !chat.skillsProvider.capabilities.installRegistry) return "Catalog installation is unavailable for this agent.";
         return true;
       },
       confirm: ({ args }) => {
@@ -646,7 +645,7 @@ function buildSlashCommands(): SlashCommand[] {
         if (parsed.action !== "install" || !parsed.value) return null;
         return {
           title: "Install skill",
-          message: `Install ${parsed.value} from ClawHub? This can add files and tools to the workspace.`,
+          message: `Install ${parsed.value} from the skill catalog? This can add files and tools to the agent.`,
           confirmLabel: "Install",
         };
       },
@@ -661,24 +660,26 @@ function buildSlashCommands(): SlashCommand[] {
         }
 
         if (parsed.action === "status") {
-          const status = await chat.skillsStatus();
-          setStatus(formatSkillsStatus(status));
+          const skills = await chat.skillsProvider.list();
+          setStatus(formatSkillsStatus(skills));
           showFeedback("Skill status loaded.");
           return;
         }
 
         if (parsed.action === "search") {
-          const search = await chat.skillsSearch({ query: parsed.value, limit: 5 });
-          setStatus(formatSkillSearchStatus(search.results));
-          showFeedback(`${search.results.length} skill${search.results.length === 1 ? "" : "s"} found.`);
+          if (!chat.skillsProvider.search) throw new Error("Skill catalog search is unavailable for this agent.");
+          const results = await chat.skillsProvider.search(parsed.value, 5);
+          setStatus(formatSkillSearchStatus(results));
+          showFeedback(`${results.length} skill${results.length === 1 ? "" : "s"} found.`);
           return;
         }
 
-        const result = await chat.skillsInstall({ source: "clawhub", slug: parsed.value });
+        if (!chat.skillsProvider.install) throw new Error("Skill installation is unavailable for this agent.");
+        const result = await chat.skillsProvider.install({ source: "registry", id: parsed.value });
         if (!result.ok) throw new Error(result.message || `Could not install ${parsed.value}.`);
-        await chat.skillsStatus().catch(() => undefined);
+        await chat.skillsProvider.list().catch(() => undefined);
         chat.setInput("");
-        showFeedback(result.message || `Installed ${result.slug ?? parsed.value}.`);
+        showFeedback(result.message || `Installed ${result.skillId ?? parsed.value}.`);
         close();
       },
     },

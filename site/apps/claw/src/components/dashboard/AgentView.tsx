@@ -65,7 +65,7 @@ import type { TabId, StyleVariant, ActivityType, ActivityEntry, Connection, Agen
 import type { ConversationThread } from "./AgentsChannelsSidebar";
 import {
   CATEGORY_ICONS, ACTIVITY_TYPE_COLORS,
-  MOCK_CONNECTIONS, MOCK_SKILLS, MOCK_STATUS,
+  MOCK_CONNECTIONS, MOCK_STATUS,
   MOCK_CONFIG, MOCK_SESSIONS,
   MOCK_CRONS,
   FEATURED_INTEGRATIONS,
@@ -97,7 +97,6 @@ export function AgentView({
   showMarketplace: showMarketplaceProp = true,
   connectionRowStyle = "off",
   tabBarStyle = "off",
-  skillsVariant = "off",
   activityVariant = "off",
   completenessRingVariant = "off",
   quickActionsVariant = "off",
