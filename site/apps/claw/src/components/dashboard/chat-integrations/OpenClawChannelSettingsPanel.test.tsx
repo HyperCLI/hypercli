@@ -264,6 +264,8 @@ describe("OpenClawChannelSettingsPanel", () => {
       accountId: "work",
       patch: {
         enabled: true,
+        mode: "socket",
+        enterpriseOrgInstall: false,
         dmPolicy: "allowlist",
         allowFrom: ["U0123456789"],
         groupPolicy: "allowlist",
@@ -368,6 +370,108 @@ describe("OpenClawChannelSettingsPanel", () => {
     expect(screen.getByText("Signing secret")).toBeInTheDocument();
     expect(screen.getByText("Configured, unavailable · secret-ref")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Replace app token" })).not.toBeInTheDocument();
+  });
+
+  it("derives the Slack HTTP Request URL and saves a write-only signing secret", async () => {
+    const provider = channelsProvider({
+      enabled: true,
+      mode: "http",
+      botToken: "xoxb-stored",
+      signingSecret: "stored-signing-secret",
+      webhookPath: "/slack/events",
+    });
+    render(<OpenClawChannelSettingsPanel
+      channelId="slack"
+      channel={groupedChannel("slack", { mode: "http" })}
+      provider={provider}
+      runtime={runtime}
+      connected
+      slackPublicBaseUrl="https://agent.example.test"
+    />);
+
+    expect(await screen.findByLabelText("Slack Request URL")).toHaveValue("https://agent.example.test/slack/events");
+    fireEvent.change(screen.getByLabelText("Slack webhook path"), { target: { value: "hooks/slack" } });
+    expect(screen.getByLabelText("Slack Request URL")).toHaveValue("https://agent.example.test/hooks/slack");
+    fireEvent.click(screen.getByRole("button", { name: "Replace signing secret" }));
+    fireEvent.change(screen.getByLabelText("Slack new signing secret"), { target: { value: "new-signing-secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+
+    await waitFor(() => expect(provider.update).toHaveBeenCalledWith({
+      channelId: "slack",
+      accountId: "work",
+      patch: {
+        enabled: true,
+        mode: "http",
+        enterpriseOrgInstall: false,
+        dmPolicy: null,
+        allowFrom: null,
+        groupPolicy: null,
+        webhookPath: "/hooks/slack",
+        signingSecret: "new-signing-secret",
+      },
+    }));
+    expect(screen.queryByLabelText("Slack new signing secret")).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("new-signing-secret");
+  });
+
+  it("saves Relay endpoint fields and a write-only relay authentication token", async () => {
+    const provider = channelsProvider({
+      enabled: true,
+      mode: "relay",
+      botToken: "xoxb-stored",
+      relay: {
+        url: "wss://relay.example.test/slack",
+        gatewayId: "gateway-1",
+        authToken: "stored-relay-secret",
+      },
+    });
+    render(<OpenClawChannelSettingsPanel channelId="slack" channel={groupedChannel("slack", { mode: "relay" })} provider={provider} runtime={runtime} connected />);
+
+    expect(await screen.findByLabelText("Slack transport")).toHaveValue("relay");
+    expect(screen.getByLabelText("Slack relay WebSocket URL")).toHaveValue("wss://relay.example.test/slack");
+    expect(screen.getByLabelText("Slack relay gateway ID")).toHaveValue("gateway-1");
+    expect(document.body.textContent).not.toContain("stored-relay-secret");
+    fireEvent.click(screen.getByRole("button", { name: "Replace relay authentication token" }));
+    fireEvent.change(screen.getByLabelText("Slack new relay authentication token"), { target: { value: "new-relay-secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+
+    await waitFor(() => expect(provider.update).toHaveBeenCalledWith({
+      channelId: "slack",
+      accountId: "work",
+      patch: {
+        enabled: true,
+        mode: "relay",
+        enterpriseOrgInstall: false,
+        dmPolicy: null,
+        allowFrom: null,
+        groupPolicy: null,
+        relay: {
+          url: "wss://relay.example.test/slack",
+          gatewayId: "gateway-1",
+          authToken: "new-relay-secret",
+        },
+      },
+    }));
+    expect(screen.queryByLabelText("Slack new relay authentication token")).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("new-relay-secret");
+  });
+
+  it("rejects Relay mode while Enterprise Grid organization install is enabled", async () => {
+    const provider = channelsProvider({
+      enabled: true,
+      mode: "socket",
+      enterpriseOrgInstall: true,
+      botToken: "xoxb-stored",
+      appToken: "xapp-stored",
+    });
+    render(<OpenClawChannelSettingsPanel channelId="slack" channel={groupedChannel("slack", { mode: "socket" })} provider={provider} runtime={runtime} connected />);
+
+    await screen.findByLabelText("Slack transport");
+    fireEvent.change(screen.getByLabelText("Slack transport"), { target: { value: "relay" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Relay mode is unavailable for Enterprise Grid/i);
+    expect(provider.update).not.toHaveBeenCalled();
   });
 
   it("reports the selected account probe failure instead of unconditional success", async () => {

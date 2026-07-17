@@ -200,7 +200,8 @@ describe("useOpenClawSession", () => {
         qrDataUrl: "data:image/png;base64,cXI=",
       });
     });
-    expect(agent.webLoginStart).toHaveBeenCalledOnce();
+    expect(gateway.webLoginStart).toHaveBeenCalledWith({ timeoutMs: 5_000 });
+    expect(agent.webLoginStart).not.toHaveBeenCalled();
     expect(agent.exec).not.toHaveBeenCalled();
     expect(events.map((event) => [event.stage, event.status])).toEqual([
       ["requesting-qr", "running"],
@@ -208,6 +209,47 @@ describe("useOpenClawSession", () => {
       ["waiting-for-scan", "running"],
       ["waiting-for-scan", "succeeded"],
     ]);
+    unmount();
+  });
+
+  it("atomically activates an installed WhatsApp plugin on the active gateway", async () => {
+    const gateway = buildGateway();
+    gateway.configGet.mockResolvedValue({
+      plugins: { allow: ["brave"] },
+    });
+    gateway.webLoginStart
+      .mockRejectedValueOnce(new Error("web login provider is not available"))
+      .mockResolvedValueOnce({ connected: false, message: "Scan QR", qrDataUrl: "data:image/png;base64,cXI=" });
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+      exec: vi.fn(async (command: string) => ({
+        exitCode: 0,
+        stdout: command === "openclaw plugins list --json"
+          ? JSON.stringify({ plugins: [{ id: "whatsapp", installed: true, enabled: true, state: "enabled" }] })
+          : "",
+        stderr: "",
+      })),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+
+    await act(async () => {
+      await result.current.whatsAppPairingStart();
+    });
+
+    expect(gateway.configPatch).toHaveBeenCalledWith({
+      plugins: {
+        entries: { whatsapp: { enabled: true } },
+        allow: ["brave", "whatsapp"],
+      },
+      channels: { whatsapp: { enabled: true } },
+    });
+    expect(agent.exec.mock.calls.map(([command]) => command)).toEqual(["openclaw plugins list --json"]);
+    expect(gateway.webLoginStart).toHaveBeenCalledTimes(2);
+    expect(gateway.webLoginWait).toHaveBeenCalled();
     unmount();
   });
 
@@ -249,7 +291,7 @@ describe("useOpenClawSession", () => {
     expect(gateway.pluginsRefresh).toHaveBeenCalledTimes(1);
     expect(agent.exec).toHaveBeenCalledWith("openclaw gateway restart", { timeout: 60 });
     expect(agent.waitReady).toHaveBeenCalledWith(120_000, { probe: "config", retryIntervalMs: 2_000 });
-    expect(agent.configPatch).toHaveBeenCalledWith({ channels: { whatsapp: { enabled: true } } });
+    expect(gateway.configPatch).toHaveBeenCalledWith({ channels: { whatsapp: { enabled: true } } });
     expect(result.current.config).toEqual(expect.objectContaining({ channels: { whatsapp: { enabled: true } } }));
     unmount();
   });
@@ -297,7 +339,7 @@ describe("useOpenClawSession", () => {
       expect.objectContaining({ command: "openclaw gateway restart", status: "succeeded", detail: "Exit code 0" }),
     ]));
     expect(agent.waitReady).toHaveBeenCalledWith(120_000, { probe: "config", retryIntervalMs: 2_000 });
-    expect(agent.configPatch).toHaveBeenCalledWith({ channels: { whatsapp: { enabled: true } } });
+    expect(gateway.configPatch).toHaveBeenCalledWith({ channels: { whatsapp: { enabled: true } } });
     unmount();
   });
 
@@ -330,7 +372,7 @@ describe("useOpenClawSession", () => {
 
     expect(agent.exec).not.toHaveBeenCalled();
     expect(agent.waitReady).not.toHaveBeenCalled();
-    expect(agent.configPatch).not.toHaveBeenCalled();
+    expect(gateway.configPatch).not.toHaveBeenCalled();
     unmount();
   });
 
@@ -363,7 +405,7 @@ describe("useOpenClawSession", () => {
       "openclaw gateway restart",
     ]);
     expect(agent.waitReady).toHaveBeenCalledWith(120_000, { probe: "config", retryIntervalMs: 2_000 });
-    expect(agent.configPatch).toHaveBeenCalledWith({ channels: { whatsapp: { enabled: true } } });
+    expect(gateway.configPatch).toHaveBeenCalledWith({ channels: { whatsapp: { enabled: true } } });
     unmount();
   });
 
@@ -402,7 +444,7 @@ describe("useOpenClawSession", () => {
       "openclaw plugins install whatsapp --force",
       { timeout: 300 },
     );
-    expect(agent.configPatch).toHaveBeenCalledWith({ channels: { whatsapp: { enabled: true } } });
+    expect(gateway.configPatch).toHaveBeenCalledWith({ channels: { whatsapp: { enabled: true } } });
     unmount();
   });
 
@@ -427,7 +469,7 @@ describe("useOpenClawSession", () => {
     );
     expect(agent.exec).toHaveBeenCalledTimes(2);
     expect(agent.waitReady).not.toHaveBeenCalled();
-    expect(agent.configPatch).not.toHaveBeenCalled();
+    expect(gateway.configPatch).not.toHaveBeenCalled();
     unmount();
   });
 

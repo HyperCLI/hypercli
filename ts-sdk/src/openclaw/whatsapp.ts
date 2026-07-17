@@ -58,7 +58,7 @@ export interface OpenClawWhatsAppPairingStartOptions extends GatewayWebLoginStar
 export interface OpenClawWhatsAppPairingOperations {
   webLoginStart(options: GatewayWebLoginStartOptions): Promise<GatewayWebLoginStartResult>;
   webLoginWait(options: GatewayWebLoginWaitOptions): Promise<GatewayWebLoginWaitResult>;
-  waitReady(timeoutMs: number, options: { probe: 'status'; retryIntervalMs: number }): Promise<unknown>;
+  activate(): Promise<void>;
 }
 
 export interface OpenClawWhatsAppSupportResult {
@@ -125,11 +125,6 @@ export function isOpenClawWhatsAppProviderUnavailable(cause: unknown): boolean {
   return /web login provider is not available|not connected|gateway.*(?:closing|closed|reconnect)|socket.*(?:closing|closed)/i.test(message);
 }
 
-function isOpenClawWhatsAppProviderMissing(cause: unknown): boolean {
-  const message = cause instanceof Error ? cause.message : typeof cause === 'string' ? cause : '';
-  return /web login provider is not available/i.test(message);
-}
-
 export class OpenClawWhatsAppProvider {
   constructor(
     private readonly client: OpenClawWhatsAppClient,
@@ -173,27 +168,24 @@ export class OpenClawWhatsAppProvider {
     const pairing = this.options.pairing;
     if (!pairing) throw new Error('WhatsApp pairing operations are unavailable.');
     const {
-      retryAttempts = 5,
+      retryAttempts = 20,
       retryIntervalMs = 1_500,
       ...loginOptions
     } = options;
-    let forceGatewayRestart = false;
+    const initialLoginOptions = {
+      ...loginOptions,
+      timeoutMs: Math.min(loginOptions.timeoutMs ?? 5_000, 5_000),
+    };
     try {
       return await this.runOperation('requesting-qr', 'Requesting a WhatsApp pairing code', () => (
-        pairing.webLoginStart(loginOptions)
+        pairing.webLoginStart(initialLoginOptions)
       ));
     } catch (cause) {
       if (!isOpenClawWhatsAppProviderUnavailable(cause)) throw cause;
-      forceGatewayRestart = isOpenClawWhatsAppProviderMissing(cause);
     }
 
-    const support = await this.ensureSupport();
-    if (support.restartRequired || forceGatewayRestart) {
-      await this.restartGateway();
-      await this.runOperation('waiting-for-gateway', 'Waiting for the workspace gateway', () => (
-        pairing.waitReady(120_000, { probe: 'status', retryIntervalMs: 2_000 })
-      ));
-    }
+    await this.ensureSupport();
+    await this.runOperation('configuring-channel', 'Activating WhatsApp in the workspace gateway', () => pairing.activate());
 
     for (let attempt = 0; attempt < retryAttempts; attempt += 1) {
       try {
@@ -236,6 +228,13 @@ export class OpenClawWhatsAppProvider {
     if (!pluginsList) throw new Error('unsupported method: plugins.list');
     const support = await this.runOperation('inspecting-plugin', 'Inspecting WhatsApp support', () => pluginsList.call(this.client));
     let plugin: GatewayPluginCatalogEntry | undefined = support.plugins.find((candidate) => candidate.id === 'whatsapp');
+    this.options.onProgress?.({
+      id: 'operation:plugin-inventory',
+      kind: 'operation',
+      label: 'WhatsApp support inventory',
+      status: 'succeeded',
+      detail: plugin ? `Installed: ${plugin.installed ? 'yes' : 'no'}; enabled: ${plugin.enabled ? 'yes' : 'no'}` : 'WhatsApp support is not installed.',
+    });
     if ((!plugin?.installed || !plugin.enabled) && !support.mutationAllowed) {
       throw new Error('This workspace does not allow WhatsApp support changes.');
     }
@@ -282,6 +281,13 @@ export class OpenClawWhatsAppProvider {
       throw new Error(`Could not inspect WhatsApp support.${detail ? ` ${detail}` : ''}`);
     }
     const status = parseCliPluginStatus(inventory.stdout);
+    this.options.onProgress?.({
+      id: 'operation:plugin-inventory',
+      kind: 'operation',
+      label: 'WhatsApp support inventory',
+      status: 'succeeded',
+      detail: `Installed: ${status.installed ? 'yes' : 'no'}; enabled: ${status.enabled ? 'yes' : 'no'}`,
+    });
     const incompatibleInstall = status.installed && /requires plugin api/i.test(status.error ?? '');
     let changed = false;
     if (!status.installed || incompatibleInstall) {

@@ -30,8 +30,8 @@ import {
   buildOpenClawWhatsAppPatch,
   parseDelimitedIds,
   parseOpenClawChannelConfig,
+  normalizeSlackWebhookPath,
   readOpenClawCredentialState,
-  readOpenClawSlackMode,
   type MentionBehavior,
   type OpenClawConfiguredChannelId,
   type SafeOpenClawChannelConfig,
@@ -52,6 +52,7 @@ export interface OpenClawChannelSettingsPanelProps {
   connected: boolean;
   onRefresh?: () => Promise<void> | void;
   onOpenPairing?: () => void;
+  slackPublicBaseUrl?: string;
 }
 
 type OptionalProviderOperations = Partial<Pick<AgentChannelsProvider, "readConfig" | "update" | "read" | "removeConfig">>;
@@ -69,10 +70,19 @@ interface ChannelFormState {
   guildId: string;
   userId: string;
   slackChannels: SlackChannelRule[];
+  slackMode: "socket" | "http" | "relay";
+  enterpriseOrgInstall: boolean;
+  webhookPath: string;
+  relayUrl: string;
+  relayGatewayId: string;
   replaceBotToken: boolean;
   replaceAppToken: boolean;
+  replaceSigningSecret: boolean;
+  replaceRelayAuthToken: boolean;
   botToken: string;
   appToken: string;
+  signingSecret: string;
+  relayAuthToken: string;
 }
 
 const CHANNEL_NAMES: Record<OpenClawConfiguredChannelId, string> = {
@@ -105,10 +115,19 @@ function formFromConfig(config: SafeOpenClawChannelConfig): ChannelFormState {
     guildId: config.channelId === "discord" ? config.guildId : "",
     userId: config.channelId === "discord" ? config.userId : "",
     slackChannels: config.channelId === "slack" ? config.channels : [],
+    slackMode: config.channelId === "slack" && config.mode !== "runtime-default" ? config.mode : "socket",
+    enterpriseOrgInstall: config.channelId === "slack" ? config.enterpriseOrgInstall : false,
+    webhookPath: config.channelId === "slack" ? config.webhookPath : "/slack/events",
+    relayUrl: config.channelId === "slack" ? config.relayUrl : "",
+    relayGatewayId: config.channelId === "slack" ? config.relayGatewayId : "",
     replaceBotToken: false,
     replaceAppToken: false,
+    replaceSigningSecret: false,
+    replaceRelayAuthToken: false,
     botToken: "",
     appToken: "",
+    signingSecret: "",
+    relayAuthToken: "",
   };
 }
 
@@ -125,6 +144,27 @@ function rawStatusLabel(value: unknown): string | null {
   const candidate = [record.statusState, record.mode, record.healthState]
     .find((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
   return candidate?.trim() ?? null;
+}
+
+function validSlackRelayUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    const loopback = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]";
+    return url.protocol === "wss:" || (loopback && url.protocol === "ws:");
+  } catch {
+    return false;
+  }
+}
+
+function buildSlackRequestUrl(baseUrl: string | undefined, webhookPath: string): string | null {
+  if (!baseUrl) return null;
+  try {
+    const base = new URL(baseUrl);
+    if (base.protocol !== "https:") return null;
+    return new URL(normalizeSlackWebhookPath(webhookPath), `${base.origin}/`).toString();
+  } catch {
+    return null;
+  }
 }
 
 function readTelegramPrivacyMode(...sources: unknown[]): TelegramPrivacyMode {
@@ -159,6 +199,7 @@ export function OpenClawChannelSettingsPanel({
   connected,
   onRefresh,
   onOpenPairing,
+  slackPublicBaseUrl,
 }: OpenClawChannelSettingsPanelProps) {
   const operations = provider as OptionalProviderOperations;
   const name = CHANNEL_NAMES[channelId];
@@ -256,7 +297,10 @@ export function OpenClawChannelSettingsPanel({
   const validate = (): string | null => {
     if (!connected) return "Reconnect the workspace before changing integration settings.";
     if (!canUpdate) return "This agent cannot update integration settings.";
-    if ((form.replaceBotToken && !form.botToken.trim()) || (form.replaceAppToken && !form.appToken.trim())) {
+    if ((form.replaceBotToken && !form.botToken.trim())
+      || (channelId === "slack" && form.slackMode === "socket" && form.replaceAppToken && !form.appToken.trim())
+      || (channelId === "slack" && form.slackMode === "http" && form.replaceSigningSecret && !form.signingSecret.trim())
+      || (channelId === "slack" && form.slackMode === "relay" && form.replaceRelayAuthToken && !form.relayAuthToken.trim())) {
       return "Enter each credential selected for replacement.";
     }
     if (channelId === "telegram") {
@@ -275,7 +319,7 @@ export function OpenClawChannelSettingsPanel({
     }
     if (channelId === "slack") {
       if (form.replaceBotToken && !form.botToken.trim().startsWith("xoxb-")) return "Slack bot tokens must start with xoxb-.";
-      if (form.replaceAppToken && !form.appToken.trim().startsWith("xapp-")) return "Slack app tokens must start with xapp-.";
+      if (form.slackMode === "socket" && form.replaceAppToken && !form.appToken.trim().startsWith("xapp-")) return "Slack app tokens must start with xapp-.";
       const allowFrom = parseDelimitedIds(form.allowFrom);
       if (form.dmPolicy === "allowlist" && allowFrom.length === 0) return "Add at least one Slack user ID for direct-message allowlist access.";
       if (!allowFrom.every((entry) => /^U[A-Z0-9]{8,}$/.test(entry) || (entry === "*" && form.dmPolicy === "open"))) {
@@ -285,6 +329,29 @@ export function OpenClawChannelSettingsPanel({
       if (form.groupPolicy === "allowlist" && channelIds.length === 0) return "Add at least one Slack channel for channel allowlist access.";
       if (!channelIds.every((entry) => /^C[A-Z0-9]{8,}$/.test(entry))) return "Slack channel IDs must be uppercase C... IDs, not channel names.";
       if (new Set(channelIds).size !== channelIds.length) return "Each Slack channel ID can only be listed once.";
+      const credentialAvailable = (configured: boolean, status?: string) => configured || status === "available" || status === "configured_unavailable";
+      if (!credentialAvailable(safeConfig.channelId === "slack" && safeConfig.botTokenConfigured, slackBotCredential.status) && !(form.replaceBotToken && form.botToken.trim())) {
+        return "Enter a Slack bot token for this transport.";
+      }
+      if (form.slackMode === "socket" && !credentialAvailable(safeConfig.channelId === "slack" && safeConfig.appTokenConfigured, slackAppCredential.status) && !(form.replaceAppToken && form.appToken.trim())) {
+        return "Enter a Slack app token for Socket Mode.";
+      }
+      if (form.slackMode === "http") {
+        if (!slackRequestUrl) return "This agent needs a public HTTPS hostname before HTTP Request URLs can be enabled.";
+        if (!credentialAvailable(safeConfig.channelId === "slack" && safeConfig.signingSecretConfigured, slackSigningSecretCredential.status) && !(form.replaceSigningSecret && form.signingSecret.trim())) {
+          return "Enter the Slack signing secret for HTTP Request URLs.";
+        }
+        const webhookPath = normalizeSlackWebhookPath(form.webhookPath);
+        if (webhookPath === "/" || /[\s?#]/.test(webhookPath)) return "Slack webhook paths must be a non-root path without spaces, queries, or fragments.";
+      }
+      if (form.slackMode === "relay") {
+        if (form.enterpriseOrgInstall) return "Relay mode is unavailable for Enterprise Grid organization installs.";
+        if (!validSlackRelayUrl(form.relayUrl.trim())) return "Relay URLs must use wss://. ws:// is allowed only for loopback hosts.";
+        if (!form.relayGatewayId.trim()) return "Enter the relay gateway ID.";
+        if (!(safeConfig.channelId === "slack" && safeConfig.relayAuthTokenConfigured) && !(form.replaceRelayAuthToken && form.relayAuthToken.trim())) {
+          return "Enter the relay authentication token.";
+        }
+      }
     }
     return null;
   };
@@ -323,12 +390,19 @@ export function OpenClawChannelSettingsPanel({
       } else if (channelId === "slack" && safeConfig.channelId === "slack") {
         patch = buildOpenClawSlackPatch(safeConfig, {
           enabled: form.enabled,
+          mode: form.slackMode,
+          enterpriseOrgInstall: form.enterpriseOrgInstall,
+          webhookPath: form.webhookPath,
+          relayUrl: form.relayUrl,
+          relayGatewayId: form.relayGatewayId,
           dmPolicy: form.dmPolicy,
           allowFrom: parseDelimitedIds(form.allowFrom),
           groupPolicy: form.groupPolicy,
           channels: form.slackChannels.map((rule) => ({ ...rule, channelId: rule.channelId.trim() })),
           ...(form.replaceBotToken ? { replacementBotToken: form.botToken } : {}),
           ...(form.replaceAppToken ? { replacementAppToken: form.appToken } : {}),
+          ...(form.replaceSigningSecret ? { replacementSigningSecret: form.signingSecret } : {}),
+          ...(form.replaceRelayAuthToken ? { replacementRelayAuthToken: form.relayAuthToken } : {}),
         });
       } else {
         patch = buildOpenClawWhatsAppPatch(form.enabled);
@@ -343,7 +417,15 @@ export function OpenClawChannelSettingsPanel({
         setSafeConfig({
           channelId: "slack",
           enabled: form.enabled,
-          mode: safeConfig.channelId === "slack" ? safeConfig.mode : "socket",
+          mode: form.slackMode,
+          enterpriseOrgInstall: form.slackMode === "relay" ? false : form.enterpriseOrgInstall,
+          webhookPath: normalizeSlackWebhookPath(form.webhookPath),
+          relayUrl: form.relayUrl.trim(),
+          relayGatewayId: form.relayGatewayId.trim(),
+          botTokenConfigured: (safeConfig.channelId === "slack" && safeConfig.botTokenConfigured) || Boolean(form.replaceBotToken && form.botToken.trim()),
+          appTokenConfigured: (safeConfig.channelId === "slack" && safeConfig.appTokenConfigured) || Boolean(form.replaceAppToken && form.appToken.trim()),
+          signingSecretConfigured: (safeConfig.channelId === "slack" && safeConfig.signingSecretConfigured) || Boolean(form.replaceSigningSecret && form.signingSecret.trim()),
+          relayAuthTokenConfigured: (safeConfig.channelId === "slack" && safeConfig.relayAuthTokenConfigured) || Boolean(form.replaceRelayAuthToken && form.relayAuthToken.trim()),
           dmPolicy: form.dmPolicy,
           allowFrom: parseDelimitedIds(form.allowFrom),
           groupPolicy: form.groupPolicy,
@@ -353,10 +435,16 @@ export function OpenClawChannelSettingsPanel({
       }
       setForm((current) => ({
         ...current,
+        enterpriseOrgInstall: current.slackMode === "relay" ? false : current.enterpriseOrgInstall,
+        webhookPath: normalizeSlackWebhookPath(current.webhookPath),
         replaceBotToken: false,
         replaceAppToken: false,
+        replaceSigningSecret: false,
+        replaceRelayAuthToken: false,
         botToken: "",
         appToken: "",
+        signingSecret: "",
+        relayAuthToken: "",
       }));
       setNotice("Settings saved.");
       await refresh();
@@ -517,6 +605,44 @@ export function OpenClawChannelSettingsPanel({
 
       <div className="space-y-3">
         <div>
+          <h4 className="text-xs font-bold uppercase tracking-[0.12em] text-text-secondary">Connection</h4>
+          <p className="mt-1 text-xs text-text-muted">Choose how Slack delivers events to this agent. Switching transport keeps credentials saved for other modes.</p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          {fieldLabel("Transport", (
+            <select aria-label="Slack transport" className={INPUT_CLASS} value={form.slackMode} onChange={(event) => {
+              const mode = event.target.value as ChannelFormState["slackMode"];
+              setField("slackMode", mode);
+            }}>
+              <option value="socket">Socket Mode</option>
+              <option value="http">HTTP Request URLs</option>
+              <option value="relay">Relay</option>
+            </select>
+          ))}
+          <label className="mt-[1.45rem] flex h-10 items-center gap-2 rounded-lg border border-border bg-input-background px-3 text-xs text-text-secondary">
+            <input type="checkbox" aria-label="Slack Enterprise Grid organization install" checked={form.enterpriseOrgInstall} onChange={(event) => setField("enterpriseOrgInstall", event.target.checked)} className="h-4 w-4 accent-[var(--channel-accent)]" />
+            Enterprise Grid organization install
+          </label>
+        </div>
+        {form.slackMode === "socket" ? (
+          <p className="rounded-lg border border-border bg-background px-3 py-2 text-xs leading-5 text-text-muted">Enable Socket Mode and app-level connections in Slack, then use a bot token and an app token with the <code>connections:write</code> scope.</p>
+        ) : form.slackMode === "http" ? (
+          <div className="grid gap-4 md:grid-cols-2">
+            {fieldLabel("Webhook path", <input aria-label="Slack webhook path" className={INPUT_CLASS} value={form.webhookPath} onChange={(event) => setField("webhookPath", event.target.value)} placeholder="/slack/events" spellCheck={false} />)}
+            {fieldLabel("Slack Request URL", <input aria-label="Slack Request URL" className={INPUT_CLASS} value={slackRequestUrl ?? "Public agent hostname unavailable"} readOnly spellCheck={false} />)}
+            <p className="md:col-span-2 text-xs leading-5 text-text-muted">Paste the Request URL into Slack Event Subscriptions and Interactivity. The URL updates when the webhook path changes.</p>
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2">
+            {fieldLabel("Relay WebSocket URL", <input aria-label="Slack relay WebSocket URL" className={INPUT_CLASS} value={form.relayUrl} onChange={(event) => setField("relayUrl", event.target.value)} placeholder="wss://relay.example.com/slack" spellCheck={false} />)}
+            {fieldLabel("Relay gateway ID", <input aria-label="Slack relay gateway ID" className={INPUT_CLASS} value={form.relayGatewayId} onChange={(event) => setField("relayGatewayId", event.target.value)} placeholder="gateway-1" spellCheck={false} />)}
+            <p className="md:col-span-2 text-xs leading-5 text-text-muted">Relay mode is for a managed Slack relay endpoint and is unavailable for Enterprise Grid organization installs.</p>
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-3 border-t border-border pt-5">
+        <div>
           <h4 className="text-xs font-bold uppercase tracking-[0.12em] text-text-secondary">Direct messages</h4>
           <p className="mt-1 text-xs text-text-muted">Choose who may start direct conversations with this agent.</p>
         </div>
@@ -590,41 +716,65 @@ export function OpenClawChannelSettingsPanel({
     </div>
   );
 
-  const slackBotCredential = readOpenClawCredentialState(selectedAccount?.rawRuntimeStatus, "botToken");
-  const slackAppCredential = readOpenClawCredentialState(selectedAccount?.rawRuntimeStatus, "appToken");
-  const slackSigningSecretCredential = readOpenClawCredentialState(selectedAccount?.rawRuntimeStatus, "signingSecret");
-  const slackMode = readOpenClawSlackMode(selectedAccount?.rawRuntimeStatus)
-    ?? (safeConfig.channelId === "slack" && safeConfig.mode !== "runtime-default" ? safeConfig.mode : "socket");
+  const credentialState = (credential: "botToken" | "appToken" | "signingSecret" | "relayAuthToken", configured: boolean) => {
+    const reported = readOpenClawCredentialState(selectedAccount?.rawRuntimeStatus, credential);
+    return reported.status ? reported : configured ? { status: "configured_unavailable" as const, source: "saved settings" } : reported;
+  };
+  const slackBotCredential = credentialState("botToken", safeConfig.channelId === "slack" && safeConfig.botTokenConfigured);
+  const slackAppCredential = credentialState("appToken", safeConfig.channelId === "slack" && safeConfig.appTokenConfigured);
+  const slackSigningSecretCredential = credentialState("signingSecret", safeConfig.channelId === "slack" && safeConfig.signingSecretConfigured);
+  const slackRelayAuthCredential = credentialState("relayAuthToken", safeConfig.channelId === "slack" && safeConfig.relayAuthTokenConfigured);
+  const slackMode = form.slackMode;
   const slackModeLabel = slackMode === "http" ? "HTTP Request URLs" : slackMode === "relay" ? "Relay" : "Socket Mode";
-  const renderCredentialReplacement = (kind: "bot" | "app") => {
-    const isApp = kind === "app";
-    const enabled = isApp ? form.replaceAppToken : form.replaceBotToken;
-    const value = isApp ? form.appToken : form.botToken;
-    const label = isApp ? "app token" : "bot token";
+  const slackRequestUrl = buildSlackRequestUrl(slackPublicBaseUrl, form.webhookPath);
+  const renderCredentialReplacement = (kind: "bot" | "app" | "signing" | "relay") => {
+    const enabled = kind === "app" ? form.replaceAppToken
+      : kind === "signing" ? form.replaceSigningSecret
+        : kind === "relay" ? form.replaceRelayAuthToken
+          : form.replaceBotToken;
+    const value = kind === "app" ? form.appToken
+      : kind === "signing" ? form.signingSecret
+        : kind === "relay" ? form.relayAuthToken
+          : form.botToken;
+    const label = kind === "app" ? "app token" : kind === "signing" ? "signing secret" : kind === "relay" ? "relay authentication token" : "bot token";
+    const title = kind === "app" ? "App token" : kind === "signing" ? "Signing secret" : kind === "relay" ? "Relay authentication token" : "Bot token";
+    const state = kind === "app" ? slackAppCredential : kind === "signing" ? slackSigningSecretCredential : kind === "relay" ? slackRelayAuthCredential : slackBotCredential;
+    const setReplacementEnabled = (next: boolean) => {
+      if (kind === "app") setField("replaceAppToken", next);
+      else if (kind === "signing") setField("replaceSigningSecret", next);
+      else if (kind === "relay") setField("replaceRelayAuthToken", next);
+      else setField("replaceBotToken", next);
+    };
+    const setCredentialValue = (next: string) => {
+      if (kind === "app") setField("appToken", next);
+      else if (kind === "signing") setField("signingSecret", next);
+      else if (kind === "relay") setField("relayAuthToken", next);
+      else setField("botToken", next);
+    };
     return (
       <div className="rounded-xl border border-border bg-background p-3.5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <p className="text-sm font-semibold text-foreground">{isApp ? "App token" : "Bot token"}</p>
+            <p className="text-sm font-semibold text-foreground">{title}</p>
             {channelId === "slack" ? (
               <p className="mt-0.5 text-[11px] text-text-muted">
-                {credentialStatusLabel((isApp ? slackAppCredential : slackBotCredential).status)}
-                {(isApp ? slackAppCredential : slackBotCredential).source ? ` · ${(isApp ? slackAppCredential : slackBotCredential).source}` : ""}
+                {credentialStatusLabel(state.status)}
+                {state.source ? ` · ${state.source}` : ""}
               </p>
             ) : <p className="mt-0.5 text-[11px] text-text-muted">Current value is never loaded into this page.</p>}
           </div>
           {!enabled ? (
-            <button type="button" className={SECONDARY_BUTTON} onClick={() => setField(isApp ? "replaceAppToken" : "replaceBotToken", true)}>
+            <button type="button" className={SECONDARY_BUTTON} onClick={() => setReplacementEnabled(true)}>
               <KeyRound className="h-3.5 w-3.5" /> Replace {label}
             </button>
           ) : null}
         </div>
         {enabled ? (
           <div className="mt-3">
-            {fieldLabel(`New ${label}`, <input aria-label={`${name} new ${label}`} className={INPUT_CLASS} type="password" autoComplete="new-password" spellCheck={false} value={value} onChange={(event) => setField(isApp ? "appToken" : "botToken", event.target.value)} />)}
+            {fieldLabel(`New ${label}`, <input aria-label={`${name} new ${label}`} className={INPUT_CLASS} type="password" autoComplete="new-password" spellCheck={false} value={value} onChange={(event) => setCredentialValue(event.target.value)} />)}
             <button type="button" className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-text-muted hover:text-foreground" onClick={() => {
-              setField(isApp ? "replaceAppToken" : "replaceBotToken", false);
-              setField(isApp ? "appToken" : "botToken", "");
+              setReplacementEnabled(false);
+              setCredentialValue("");
             }}>
               <X className="h-3 w-3" /> Keep current {label}
             </button>
@@ -633,15 +783,6 @@ export function OpenClawChannelSettingsPanel({
       </div>
     );
   };
-
-  const renderCredentialStatus = (label: string, state: { status?: string; source?: string }) => (
-    <div className="rounded-xl border border-border bg-background p-3.5">
-      <p className="text-sm font-semibold text-foreground">{label}</p>
-      <p className="mt-0.5 text-[11px] text-text-muted">
-        {credentialStatusLabel(state.status)}{state.source ? ` · ${state.source}` : ""}
-      </p>
-    </div>
-  );
 
   return (
     <section className="relative overflow-hidden rounded-2xl border border-border bg-background text-foreground [box-shadow:var(--glass-card-shadow)]" style={style} aria-labelledby={`${channelId}-settings-title`}>
@@ -809,9 +950,9 @@ export function OpenClawChannelSettingsPanel({
             {slackMode === "socket" ? (
               <div className="grid gap-3 md:grid-cols-2">{renderCredentialReplacement("bot")}{renderCredentialReplacement("app")}</div>
             ) : slackMode === "http" ? (
-              <div className="grid gap-3 md:grid-cols-2">{renderCredentialStatus("Bot token", slackBotCredential)}{renderCredentialStatus("Signing secret", slackSigningSecretCredential)}</div>
+              <div className="grid gap-3 md:grid-cols-2">{renderCredentialReplacement("bot")}{renderCredentialReplacement("signing")}</div>
             ) : (
-              <div className="grid gap-3 md:grid-cols-2">{renderCredentialStatus("Bot token", slackBotCredential)}{renderCredentialStatus("Relay credentials", { status: selectedAccount?.configured ? "available" : "missing" })}</div>
+              <div className="grid gap-3 md:grid-cols-2">{renderCredentialReplacement("bot")}{renderCredentialReplacement("relay")}</div>
             )}
           </div>
         ) : null}

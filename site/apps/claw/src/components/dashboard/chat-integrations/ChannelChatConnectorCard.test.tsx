@@ -359,6 +359,40 @@ describe("ChannelChatConnectorCard", () => {
     expect(screen.queryByText("openclaw channels login --channel whatsapp")).not.toBeInTheDocument();
   });
 
+  it("restores an SDK-owned WhatsApp QR after the card remounts", async () => {
+    const onWhatsAppPairingStart = vi.fn();
+    render(
+      <ChannelChatConnectorCard
+        channelId="whatsapp"
+        connected
+        directSetup
+        config={{ channels: { whatsapp: { enabled: true } } }}
+        connectorsProvider={provider("whatsapp", { configured: true })}
+        onWhatsAppPairingStart={onWhatsAppPairingStart}
+        whatsAppPairingState={{
+          status: "waiting",
+          qrDataUrl: "data:image/png;base64,cXItMQ==",
+          message: "Scan this code",
+          progress: [{
+            id: "operation:requesting-qr",
+            kind: "operation",
+            label: "Requesting a WhatsApp pairing code",
+            stage: "requesting-qr",
+            status: "succeeded",
+          }],
+          error: null,
+        }}
+        onWebLoginWait={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole("img", { name: /whatsapp pairing qr code/i })).toHaveAttribute(
+      "src",
+      "data:image/png;base64,cXItMQ==",
+    );
+    expect(onWhatsAppPairingStart).not.toHaveBeenCalled();
+  });
+
   it("shows live WhatsApp setup command execution for debugging", async () => {
     let reportCommand: ((event: OpenClawWhatsAppProgressEvent) => void) | undefined;
     let finishPreparation: (() => void) | undefined;

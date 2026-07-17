@@ -1892,13 +1892,14 @@ export default function DevAgentSetupAgentsPage() {
                   setMobileShowChat(true);
                 } : undefined}
                 agentName={selectedAgent?.name || selectedAgent?.pod_name || "Agent"}
+                agentPublicUrl={selectedOpenClawAgent?.publicUrl ?? (selectedAgent?.hostname ? `https://${selectedAgent.hostname}` : null)}
                 gatewaySession={gatewayChat}
-                 channelsProvider={chat.channelsProvider}
-                 reportedChannels={chat.reportedChannels}
-                 reportedChannelSnapshot={chat.reportedChannelSnapshot}
-                 reportedChannelsReady={chat.reportedChannelsReady}
-                 reportedChannelsError={chat.reportedChannelsError}
-                 onRefreshChannels={chat.refreshReportedChannels}
+                channelsProvider={chat.channelsProvider}
+                reportedChannels={chat.reportedChannels}
+                reportedChannelSnapshot={chat.reportedChannelSnapshot}
+                reportedChannelsReady={chat.reportedChannelsReady}
+                reportedChannelsError={chat.reportedChannelsError}
+                onRefreshChannels={chat.refreshReportedChannels}
                 config={chat.config as Record<string, unknown> | null}
                 connected={chat.connected}
                 onSaveConfig={async (patch) => { await chat.saveConfig(patch); }}

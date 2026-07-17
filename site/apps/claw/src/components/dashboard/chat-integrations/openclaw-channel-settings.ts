@@ -35,6 +35,14 @@ export interface SafeSlackChannelConfig {
   channelId: "slack";
   enabled: boolean;
   mode: SlackTransportMode;
+  enterpriseOrgInstall: boolean;
+  webhookPath: string;
+  relayUrl: string;
+  relayGatewayId: string;
+  botTokenConfigured: boolean;
+  appTokenConfigured: boolean;
+  signingSecretConfigured: boolean;
+  relayAuthTokenConfigured: boolean;
   dmPolicy: SlackDmPolicy;
   allowFrom: string[];
   groupPolicy: SlackGroupPolicy;
@@ -79,12 +87,19 @@ export interface DiscordSettingsUpdate {
 
 export interface SlackSettingsUpdate {
   enabled: boolean;
+  mode: Exclude<SlackTransportMode, "runtime-default">;
+  enterpriseOrgInstall: boolean;
+  webhookPath: string;
+  relayUrl: string;
+  relayGatewayId: string;
   dmPolicy: SlackDmPolicy;
   allowFrom: string[];
   groupPolicy: SlackGroupPolicy;
   channels: SlackChannelRule[];
   replacementBotToken?: string;
   replacementAppToken?: string;
+  replacementSigningSecret?: string;
+  replacementRelayAuthToken?: string;
 }
 
 export interface RuntimeCredentialState {
@@ -118,6 +133,12 @@ function isTelegramGroupPolicy(value: unknown): value is Exclude<TelegramGroupPo
 
 function enabledValue(config: UnknownRecord | null): boolean {
   return typeof config?.enabled === "boolean" ? config.enabled : true;
+}
+
+function configuredSecret(value: unknown): boolean {
+  if (typeof value === "string") return value.trim().length > 0;
+  const secret = asRecord(value);
+  return Boolean(secret && typeof secret.provider === "string" && secret.provider.trim() && typeof secret.id === "string" && secret.id.trim());
 }
 
 export function parseOpenClawTelegramConfig(value: unknown): SafeTelegramChannelConfig {
@@ -177,11 +198,20 @@ export function parseOpenClawSlackConfig(value: unknown): SafeSlackChannelConfig
   const config = asRecord(value);
   const mode = config?.mode;
   const channels = asRecord(config?.channels);
+  const relay = asRecord(config?.relay);
   const existingChannelKeys = ownKeys(channels);
   return {
     channelId: "slack",
     enabled: enabledValue(config),
     mode: mode === "socket" || mode === "http" || mode === "relay" ? mode : "runtime-default",
+    enterpriseOrgInstall: config?.enterpriseOrgInstall === true,
+    webhookPath: typeof config?.webhookPath === "string" ? normalizeSlackWebhookPath(config.webhookPath) : "/slack/events",
+    relayUrl: typeof relay?.url === "string" ? relay.url.trim() : "",
+    relayGatewayId: typeof relay?.gatewayId === "string" ? relay.gatewayId.trim() : "",
+    botTokenConfigured: configuredSecret(config?.botToken),
+    appTokenConfigured: configuredSecret(config?.appToken),
+    signingSecretConfigured: configuredSecret(config?.signingSecret),
+    relayAuthTokenConfigured: configuredSecret(relay?.authToken),
     dmPolicy: isTelegramDmPolicy(config?.dmPolicy) ? config.dmPolicy : "runtime-default",
     allowFrom: cleanStrings(config?.allowFrom),
     groupPolicy: isTelegramGroupPolicy(config?.groupPolicy) ? config.groupPolicy : "runtime-default",
@@ -316,6 +346,8 @@ export function buildOpenClawSlackPatch(
 
   return {
     enabled: update.enabled,
+    mode: update.mode,
+    enterpriseOrgInstall: update.mode === "relay" ? false : update.enterpriseOrgInstall,
     dmPolicy: update.dmPolicy === "runtime-default" ? null : update.dmPolicy,
     allowFrom: allowFrom.length > 0 ? allowFrom : null,
     groupPolicy: update.groupPolicy === "runtime-default" ? null : update.groupPolicy,
@@ -323,8 +355,25 @@ export function buildOpenClawSlackPatch(
       ? { channels: null }
       : Object.keys(channels).length > 0 ? { channels } : {}),
     ...(update.replacementBotToken?.trim() ? { botToken: update.replacementBotToken.trim() } : {}),
-    ...(update.replacementAppToken?.trim() ? { appToken: update.replacementAppToken.trim() } : {}),
+    ...(update.mode === "socket" && update.replacementAppToken?.trim() ? { appToken: update.replacementAppToken.trim() } : {}),
+    ...(update.mode === "http" ? {
+      webhookPath: normalizeSlackWebhookPath(update.webhookPath),
+      ...(update.replacementSigningSecret?.trim() ? { signingSecret: update.replacementSigningSecret.trim() } : {}),
+    } : {}),
+    ...(update.mode === "relay" ? {
+      relay: {
+        url: update.relayUrl.trim(),
+        gatewayId: update.relayGatewayId.trim(),
+        ...(update.replacementRelayAuthToken?.trim() ? { authToken: update.replacementRelayAuthToken.trim() } : {}),
+      },
+    } : {}),
   };
+}
+
+export function normalizeSlackWebhookPath(value: string): string {
+  const path = value.trim();
+  if (!path) return "/slack/events";
+  return path.startsWith("/") ? path : `/${path}`;
 }
 
 export function buildOpenClawWhatsAppPatch(enabled: boolean): UnknownRecord {
@@ -333,7 +382,7 @@ export function buildOpenClawWhatsAppPatch(enabled: boolean): UnknownRecord {
 
 export function readOpenClawCredentialState(
   rawRuntimeStatus: unknown,
-  credential: "token" | "botToken" | "appToken" | "signingSecret" | "userToken",
+  credential: "token" | "botToken" | "appToken" | "signingSecret" | "relayAuthToken" | "userToken",
 ): RuntimeCredentialState {
   const status = asRecord(rawRuntimeStatus);
   const rawStatus = status?.[`${credential}Status`];

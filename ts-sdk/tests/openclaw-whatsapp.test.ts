@@ -53,7 +53,7 @@ describe('OpenClawWhatsAppProvider', () => {
       pairing: {
         webLoginStart,
         webLoginWait: vi.fn(),
-        waitReady: vi.fn(async () => ({})),
+        activate: vi.fn(async () => undefined),
       },
     });
 
@@ -62,6 +62,7 @@ describe('OpenClawWhatsAppProvider', () => {
     });
     expect(runCommand).not.toHaveBeenCalled();
     expect(sdk.pluginsList).not.toHaveBeenCalled();
+    expect(webLoginStart).toHaveBeenCalledWith({ timeoutMs: 5_000 });
     expect(events).toEqual([
       {
         id: 'operation:requesting-qr',
@@ -80,7 +81,7 @@ describe('OpenClawWhatsAppProvider', () => {
     ]);
   });
 
-  it('visibly restarts and retries when an installed plugin is absent from the live gateway', async () => {
+  it('activates the gateway config and retries when an installed plugin is absent from the live gateway', async () => {
     const events: OpenClawWhatsAppProgressEvent[] = [];
     const webLoginStart = vi.fn()
       .mockRejectedValueOnce(new Error('web login provider is not available'))
@@ -92,36 +93,32 @@ describe('OpenClawWhatsAppProvider', () => {
         : '',
       stderr: '',
     }));
-    const waitReady = vi.fn(async () => ({}));
+    const activate = vi.fn(async () => undefined);
     const provider = new OpenClawWhatsAppProvider(client(), {
       runCommand,
       onProgress: (event) => events.push(event),
       pairing: {
         webLoginStart,
         webLoginWait: vi.fn(),
-        waitReady,
+        activate,
       },
     });
 
     await expect(provider.startPairing()).resolves.toMatchObject({
       qrDataUrl: 'data:image/png;base64,cXI=',
     });
-    expect(runCommand.mock.calls).toEqual([
-      ['openclaw plugins list --json', 60],
-      ['openclaw gateway restart', 60],
-    ]);
-    expect(waitReady).toHaveBeenCalledWith(120_000, { probe: 'status', retryIntervalMs: 2_000 });
+    expect(runCommand.mock.calls).toEqual([['openclaw plugins list --json', 60]]);
+    expect(activate).toHaveBeenCalledOnce();
     expect(events).toEqual(expect.arrayContaining([
       expect.objectContaining({ stage: 'requesting-qr', status: 'failed' }),
       expect.objectContaining({ stage: 'checking-runtime', status: 'running' }),
       expect.objectContaining({ command: 'openclaw plugins list --json', status: 'succeeded' }),
-      expect.objectContaining({ command: 'openclaw gateway restart', status: 'succeeded' }),
-      expect.objectContaining({ stage: 'waiting-for-gateway', status: 'succeeded' }),
+      expect.objectContaining({ stage: 'configuring-channel', status: 'succeeded' }),
       expect.objectContaining({ stage: 'retrying-qr', status: 'succeeded' }),
     ]));
   });
 
-  it('restarts when the login provider is missing even if channel status reports WhatsApp', async () => {
+  it('activates gateway config when the login provider is missing even if channel status reports WhatsApp', async () => {
     const sdk = client({
       channelsStatus: vi.fn(async () => ({
         channels: { whatsapp: { configured: true, running: false } },
@@ -132,19 +129,21 @@ describe('OpenClawWhatsAppProvider', () => {
       .mockRejectedValueOnce(new Error('web login provider is not available'))
       .mockResolvedValueOnce({ connected: false, message: 'Scan', qrDataUrl: 'data:image/png;base64,cXI=' });
     const runCommand = vi.fn(async () => ({ exitCode: 0, stdout: '', stderr: '' }));
+    const activate = vi.fn(async () => undefined);
     const provider = new OpenClawWhatsAppProvider(sdk, {
       runCommand,
       pairing: {
         webLoginStart,
         webLoginWait: vi.fn(),
-        waitReady: vi.fn(async () => ({})),
+        activate,
       },
     });
 
     await expect(provider.startPairing()).resolves.toMatchObject({
       qrDataUrl: 'data:image/png;base64,cXI=',
     });
-    expect(runCommand).toHaveBeenCalledWith('openclaw gateway restart', 60);
+    expect(runCommand).not.toHaveBeenCalled();
+    expect(activate).toHaveBeenCalledOnce();
     expect(sdk.pluginsList).not.toHaveBeenCalled();
   });
 
@@ -178,6 +177,36 @@ describe('OpenClawWhatsAppProvider', () => {
       { id: 'command:openclaw plugins enable whatsapp', kind: 'command', label: 'Running workspace command', command: 'openclaw plugins enable whatsapp', status: 'running' },
       { id: 'command:openclaw plugins enable whatsapp', kind: 'command', label: 'Running workspace command', command: 'openclaw plugins enable whatsapp', status: 'succeeded', detail: 'Exit code 0' },
     ]);
+  });
+
+  it('keeps QR wait polling in the SDK and publishes replacement codes', async () => {
+    const updates: Array<{ connected: boolean; qrDataUrl?: string }> = [];
+    const webLoginWait = vi.fn()
+      .mockResolvedValueOnce({ connected: false, message: 'New code', qrDataUrl: 'data:image/png;base64,cXItMg==' })
+      .mockResolvedValueOnce({ connected: true, message: 'Connected' });
+    const provider = new OpenClawWhatsAppProvider(client(), {
+      runCommand: vi.fn(),
+      pairing: {
+        webLoginStart: vi.fn(),
+        webLoginWait,
+        activate: vi.fn(async () => undefined),
+      },
+    });
+
+    await expect(provider.waitForPairing({
+      timeoutMs: 30_000,
+      currentQrDataUrl: 'data:image/png;base64,cXItMQ==',
+      onUpdate: (result) => updates.push(result),
+    })).resolves.toMatchObject({ connected: true });
+    expect(webLoginWait).toHaveBeenNthCalledWith(1, {
+      timeoutMs: 30_000,
+      currentQrDataUrl: 'data:image/png;base64,cXItMQ==',
+    });
+    expect(webLoginWait).toHaveBeenNthCalledWith(2, {
+      timeoutMs: 30_000,
+      currentQrDataUrl: 'data:image/png;base64,cXItMg==',
+    });
+    expect(updates).toHaveLength(2);
   });
 
   it('restarts through the SDK command runner and reports failures', async () => {

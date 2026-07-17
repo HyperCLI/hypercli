@@ -248,8 +248,8 @@ export function ChannelChatConnectorCard({
   const slackMode = channelId === "slack" ? configuredSlackMode(config) : "socket";
   const advancedSlackTransport = channelId === "slack" && slackMode !== "socket";
   const directWhatsAppSetup = directSetup && channelId === "whatsapp";
-  const [mode, setMode] = useState<CardMode>(configuredFromConfig && !directWhatsAppSetup ? "manage" : directSetup ? "setup" : "overview");
-  const [runtimeConfigured, setRuntimeConfigured] = useState<boolean | null>(null);
+  const [localMode, setMode] = useState<CardMode>(configuredFromConfig && !directWhatsAppSetup ? "manage" : directSetup ? "setup" : "overview");
+  const [localRuntimeConfigured, setRuntimeConfigured] = useState<boolean | null>(null);
   const [accountName, setAccountName] = useState<string | null>(null);
   const [values, setValues] = useState<FieldValues>({});
   const [visibleFields, setVisibleFields] = useState<Set<string>>(new Set());
@@ -260,15 +260,40 @@ export function ChannelChatConnectorCard({
   const [workflowUnavailable, setWorkflowUnavailable] = useState(false);
   const [saving, setSaving] = useState(false);
   const [probing, setProbing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [whatsAppPairingStatus, setWhatsAppPairingStatus] = useState<WhatsAppPairingStatus>("idle");
-  const [whatsAppQrDataUrl, setWhatsAppQrDataUrl] = useState<string | null>(null);
-  const [whatsAppPairingMessage, setWhatsAppPairingMessage] = useState<string | null>(null);
-  const [whatsAppSetupProgress, setWhatsAppSetupProgress] = useState<OpenClawWhatsAppProgressEvent[]>([]);
+  const [localError, setError] = useState<string | null>(null);
+  const [localWhatsAppPairingStatus, setWhatsAppPairingStatus] = useState<WhatsAppPairingStatus>("idle");
+  const [localWhatsAppQrDataUrl, setWhatsAppQrDataUrl] = useState<string | null>(null);
+  const [localWhatsAppPairingMessage, setWhatsAppPairingMessage] = useState<string | null>(null);
+  const [localWhatsAppSetupProgress, setWhatsAppSetupProgress] = useState<OpenClawWhatsAppProgressEvent[]>([]);
   const directSetupStartedRef = useRef(false);
   const whatsAppPairingRequestRef = useRef(0);
   const whatsAppSupportPreparedRef = useRef(false);
-  const configured = runtimeConfigured ?? configuredFromConfig;
+  const persistedWhatsAppPairing = channelId === "whatsapp" && whatsAppPairingState?.status !== "idle"
+    ? whatsAppPairingState
+    : null;
+  const mode = persistedWhatsAppPairing?.status === "connected"
+    ? "ready"
+    : persistedWhatsAppPairing
+      ? "setup"
+      : localMode;
+  const configured = persistedWhatsAppPairing?.status === "connected" || (localRuntimeConfigured ?? configuredFromConfig);
+  const error = persistedWhatsAppPairing?.status === "failed"
+    ? persistedWhatsAppPairing.error ?? "WhatsApp pairing failed."
+    : localError;
+  const whatsAppPairingStatus: WhatsAppPairingStatus = persistedWhatsAppPairing?.status === "starting"
+    ? "preparing"
+    : persistedWhatsAppPairing?.status === "waiting"
+      ? "waiting"
+      : persistedWhatsAppPairing
+        ? "idle"
+        : localWhatsAppPairingStatus;
+  const whatsAppQrDataUrl = persistedWhatsAppPairing
+    ? persistedWhatsAppPairing.qrDataUrl
+    : localWhatsAppQrDataUrl;
+  const whatsAppPairingMessage = persistedWhatsAppPairing
+    ? persistedWhatsAppPairing.message
+    : localWhatsAppPairingMessage;
+  const whatsAppSetupProgress = persistedWhatsAppPairing?.progress ?? localWhatsAppSetupProgress;
   const canConfigure = connected && Boolean(channelsProvider?.configure || connectorsProvider || onSaveConfig);
   const canRemove = Boolean(onSaveConfig || channelsProvider?.removeConfig);
   const whatsAppPairingStarting = whatsAppPairingStatus === "preparing" || whatsAppPairingStatus === "configuring" || whatsAppPairingStatus === "starting";
@@ -293,30 +318,6 @@ export function ChannelChatConnectorCard({
       cancelled = true;
     };
   }, [channelId, connected, connectorsProvider]);
-
-  useEffect(() => {
-    if (channelId !== "whatsapp" || !whatsAppPairingState) return;
-    setWhatsAppSetupProgress(whatsAppPairingState.progress);
-    setWhatsAppQrDataUrl(whatsAppPairingState.qrDataUrl);
-    setWhatsAppPairingMessage(whatsAppPairingState.message);
-    if (whatsAppPairingState.status === "starting") {
-      setMode("setup");
-      setWhatsAppPairingStatus("preparing");
-      setError(null);
-    } else if (whatsAppPairingState.status === "waiting") {
-      setMode("setup");
-      setWhatsAppPairingStatus("waiting");
-      setError(null);
-    } else if (whatsAppPairingState.status === "connected") {
-      setWhatsAppPairingStatus("idle");
-      setRuntimeConfigured(true);
-      setMode("ready");
-      setError(null);
-    } else if (whatsAppPairingState.status === "failed") {
-      setWhatsAppPairingStatus("idle");
-      setError(whatsAppPairingState.error ?? "WhatsApp pairing failed.");
-    }
-  }, [channelId, whatsAppPairingState]);
 
   const persistChannelConfig = async (nextConfig: Record<string, unknown>) => {
     if (channelsProvider?.configure) await channelsProvider.configure(channelId, nextConfig);

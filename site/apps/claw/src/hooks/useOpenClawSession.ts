@@ -121,6 +121,20 @@ function whatsAppChannelEnabled(config: Record<string, unknown> | null): boolean
   return whatsapp?.enabled === true;
 }
 
+function whatsAppActivationPatch(config: Record<string, unknown> | null): Record<string, unknown> {
+  const plugins = isRecord(config?.plugins) ? config.plugins : null;
+  const allow = Array.isArray(plugins?.allow)
+    ? plugins.allow.filter((entry): entry is string => typeof entry === "string")
+    : null;
+  return {
+    plugins: {
+      entries: { whatsapp: { enabled: true } },
+      ...(allow && allow.length > 0 && !allow.includes("whatsapp") ? { allow: [...allow, "whatsapp"] } : {}),
+    },
+    channels: { whatsapp: { enabled: true } },
+  };
+}
+
 interface SendMessageOptions {
   displayContent?: string;
   files?: ChatPendingFile[];
@@ -1650,14 +1664,14 @@ export function useOpenClawSession(
   }, [gateway]);
 
   const applyWhatsAppConfigPatch = useCallback(async (patch: Record<string, unknown>) => {
-    if (!agent) throw new Error("Automatic WhatsApp setup is unavailable for this workspace.");
-    await agent.configPatch(patch);
+    if (!gateway) throw new Error("Automatic WhatsApp setup is unavailable for this workspace.");
+    await gateway.configPatch(patch);
     clearGatewayStatusCaches();
     setConfig((current) => mergeOpenClawConfigPatch(current, patch));
     updateConnectionHydration((connection) => {
       connection.config = mergeOpenClawConfigPatch(connection.config, patch);
     });
-  }, [agent, clearGatewayStatusCaches, updateConnectionHydration]);
+  }, [clearGatewayStatusCaches, gateway, updateConnectionHydration]);
 
   const ensureWhatsAppSupport = useCallback(async (reportProgress?: WhatsAppSupportProgressReporter) => {
     if (!gateway || !agent) throw new Error("Automatic WhatsApp setup is unavailable for this workspace.");
@@ -1695,18 +1709,21 @@ export function useOpenClawSession(
         return { ...current, progress };
       });
     };
+    let channelConfigured = whatsAppChannelEnabled(config);
     const provider = new OpenClawWhatsAppProvider(gateway, {
       runCommand: (command, timeoutSeconds) => agent.exec(command, { timeout: timeoutSeconds }),
       onProgress: publishProgress,
       pairing: {
-        webLoginStart: (loginOptions) => agent.webLoginStart(loginOptions),
+        webLoginStart: (loginOptions) => gateway.webLoginStart(loginOptions),
         webLoginWait: (waitOptions) => gateway.webLoginWait(waitOptions),
-        waitReady: (timeoutMs, readyOptions) => agent.waitReady(timeoutMs, readyOptions),
+        activate: async () => {
+          await applyWhatsAppConfigPatch(whatsAppActivationPatch(config));
+          channelConfigured = true;
+        },
       },
     });
-    const channelEnabled = whatsAppChannelEnabled(config);
     const configureChannel = async () => {
-      if (channelEnabled) return;
+      if (channelConfigured) return;
       const id = "operation:configuring-channel";
       const baseEvent = {
         id,
@@ -1717,6 +1734,7 @@ export function useOpenClawSession(
       publishProgress({ ...baseEvent, status: "running" });
       try {
         await applyWhatsAppConfigPatch({ channels: { whatsapp: { enabled: true } } });
+        channelConfigured = true;
         publishProgress({ ...baseEvent, status: "succeeded" });
       } catch (cause) {
         publishProgress({
@@ -1800,8 +1818,6 @@ export function useOpenClawSession(
     return agent.webLoginWait(options);
   }, [agent]);
 
-  // The provider stores callbacks and invokes them only from effects or user actions.
-  // eslint-disable-next-line react-hooks/refs
   const channelsProvider = useMemo(
     () => gateway ? new OpenClawChannelsProvider({
       channelsStatus: async (probe, timeoutMs, channel) => await channelsStatus(probe, timeoutMs, channel) as ChannelsStatusResult,
@@ -2168,8 +2184,6 @@ export function useOpenClawSession(
     return promise;
   }, [agent, clearGatewayStatusCaches, gateway]);
 
-  // The provider stores these callbacks and invokes them only from user actions or effects.
-  // eslint-disable-next-line react-hooks/refs
   const connectorsProvider = useMemo(() => gateway ? new OpenClawConnectorsProvider({
     channelsStatus,
     configPatch: saveConfig,

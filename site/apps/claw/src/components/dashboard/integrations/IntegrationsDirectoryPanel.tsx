@@ -27,6 +27,7 @@ interface IntegrationsDirectoryPanelProps {
   detailBackLabel?: string;
   onDetailBack?: () => void;
   agentName?: string | null;
+  agentPublicUrl?: string | null;
   gatewaySession: AgentGatewaySession;
   channelsProvider: AgentChannelsProvider | null;
   reportedChannels?: AgentChannelSummary[];
@@ -354,6 +355,7 @@ export function IntegrationsDirectoryPanel({
   detailBackLabel = "Back to integrations",
   onDetailBack,
   agentName,
+  agentPublicUrl,
   gatewaySession,
   channelsProvider,
   reportedChannels = [],
@@ -660,6 +662,7 @@ export function IntegrationsDirectoryPanel({
                 else await refreshIntegrations();
               }}
               onOpenPairing={selectedTile.id === "whatsapp" ? onOpenShell : undefined}
+              slackPublicBaseUrl={selectedTile.id === "slack" ? agentPublicUrl ?? undefined : undefined}
             />
           </div>
         </div>
