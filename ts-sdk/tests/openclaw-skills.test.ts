@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { exec as execCallback } from 'node:child_process';
-import { chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -359,10 +359,9 @@ describe('OpenClawSkillsProvider', () => {
     const skillsRoot = join(workspaceDir, 'skills');
     const managedSkillsDir = join(root, 'managed');
     await mkdir(join(skillsRoot, 'scripts'), { recursive: true });
-    await mkdir(managedSkillsDir);
+    await writeFile(managedSkillsDir, 'not a directory');
     await writeFile(join(skillsRoot, 'SKILL.md'), '# Loose');
     await writeFile(join(skillsRoot, 'scripts/run.sh'), '#!/bin/sh\n');
-    await chmod(managedSkillsDir, 0o500);
     const provider = new OpenClawSkillsProvider(client({
       skillsStatus: vi.fn(async () => ({ agentId: 'default', workspaceDir, managedSkillsDir, skills: [] })),
     }), { exec: localExec });
@@ -373,7 +372,6 @@ describe('OpenClawSkillsProvider', () => {
       await expect(readFile(join(skillsRoot, 'scripts/run.sh'), 'utf8')).resolves.toBe('#!/bin/sh\n');
       expect((await readdir(skillsRoot)).filter((name) => name.startsWith('.hypercli-recover-'))).toEqual([]);
     } finally {
-      await chmod(managedSkillsDir, 0o700);
       await rm(root, { recursive: true, force: true });
     }
   });
