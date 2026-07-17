@@ -11,6 +11,15 @@ import {
   type OpenClawChannelsSnapshot,
 } from "@hypercli.com/sdk/openclaw/channels";
 import { OpenClawConnectorsProvider } from "@hypercli.com/sdk/openclaw/connectors";
+import {
+  OpenClawSlackProvider,
+  type OpenClawSlackEnsurePluginResult,
+} from "@hypercli.com/sdk/openclaw/slack";
+import {
+  OpenClawWhatsAppProvider,
+  type OpenClawWhatsAppPairingStartOptions,
+  type OpenClawWhatsAppProgressEvent,
+} from "@hypercli.com/sdk/openclaw/whatsapp";
 import { OpenClawSkillsProvider } from "@hypercli.com/sdk/openclaw/skills";
 import type {
   ChatEvent,
@@ -22,6 +31,8 @@ import type {
   GatewayIntegrationDisconnectParams,
   GatewayIntegrationStatusParams,
   GatewayIntegrationStatusResult,
+  GatewayWebLoginStartOptions,
+  GatewayWebLoginWaitOptions,
   ChannelsStatusResult,
   GatewayEphemeralChatOptions,
   GatewaySkillsInstallParams,
@@ -68,6 +79,7 @@ import {
   deleteOpenClawSession,
   fallbackOpenClawSessionDisplayName,
   findOpenClawSelectableSession,
+  isEphemeralOpenClawSessionName,
   isGeneratedOpenClawSessionName,
   listOpenClawSessions,
   normalizeOpenClawSessionDisplayName,
@@ -84,6 +96,7 @@ import {
   unscopedOpenClawSessionKey,
 } from "@/lib/openclaw-session-sdk-surface";
 import { cronScheduleLabel } from "@/lib/cron-jobs";
+import { CONNECTOR_IDS } from "@/lib/connector-workflow";
 import { useConnectorWorkflow } from "@/hooks/useConnectorWorkflow";
 
 const E2E_OPENCLAW_CONNECTED_KEY = "claw_e2e_openclaw_connected";
@@ -94,12 +107,19 @@ const OPENCLAW_DELETED_SESSION_TOMBSTONE_TTL_MS = 30_000;
 const GATEWAY_CONNECTING_STALL_MS = 30_000;
 const GATEWAY_STATUS_CACHE_TTL_MS = 5_000;
 const OPENCLAW_PASSIVE_COMPLETION_REFRESH_DEBOUNCE_MS = 100;
+const WHATSAPP_GATEWAY_READY_TIMEOUT_MS = 120_000;
 const GATEWAY_CONNECTING_STALL_MESSAGE =
   "Timed out opening the agent session. The gateway is still reconnecting in the background.";
 const GENERIC_OPENCLAW_CONNECTION_ERROR = "Could not connect to the agent session.";
 const OPENCLAW_ORIGIN_DENIED_MESSAGE =
   "This agent was opened from another dashboard address. Stop and start it from this page, then retry.";
 let fallbackSessionCounter = 0;
+
+function whatsAppChannelEnabled(config: Record<string, unknown> | null): boolean {
+  const channels = isRecord(config?.channels) ? config.channels : null;
+  const whatsapp = isRecord(channels?.whatsapp) ? channels.whatsapp : null;
+  return whatsapp?.enabled === true;
+}
 
 interface SendMessageOptions {
   displayContent?: string;
@@ -332,25 +352,6 @@ function writeStoredSessions(agentId: string | null, sessions: OpenClawSessionRe
   } catch {}
 }
 
-function rawSessionString(session: OpenClawSessionRecord, field: string): string {
-  const value = session.raw?.[field];
-  return typeof value === "string" ? value.trim().toLowerCase() : "";
-}
-
-function isGeneratedDirectBrowserSession(session: OpenClawSessionRecord): boolean {
-  if (session.readOnly || !isGeneratedOpenClawSessionName(session.key)) return false;
-  const sourceChannel = session.sourceChannelId?.trim().toLowerCase() ?? "";
-  if (sourceChannel && sourceChannel !== "webchat" && sourceChannel !== "browser") return false;
-
-  const kind = rawSessionString(session, "kind");
-  const chatType = rawSessionString(session, "chatType");
-  const lastChannel = rawSessionString(session, "lastChannel");
-  if (kind && kind !== "direct") return false;
-  if (chatType && chatType !== "direct") return false;
-  if (lastChannel && lastChannel !== "webchat" && lastChannel !== "browser") return false;
-  return true;
-}
-
 function hasLocalSessionIdentity(
   session: OpenClawSessionRecord,
   titleMap: Record<string, string>,
@@ -376,6 +377,7 @@ function isUnclaimedGeneratedSession(
   titleMap: Record<string, string>,
   creatingSessionKeys: Set<string>,
 ): boolean {
+  if (isEphemeralOpenClawSessionName(session.key)) return true;
   if (session.readOnly || !isGeneratedOpenClawSessionName(session.key)) return false;
   if (hasLocalSessionIdentity(session, titleMap, creatingSessionKeys)) return false;
   return !hasMeaningfulSessionIdentity(session);
@@ -419,42 +421,6 @@ function shouldWaitForSessionListBeforeHistory(activeSessionKey: string): boolea
   const unscoped = unscopedOpenClawSessionKey(activeSessionKey);
   if (unscoped === OPENCLAW_DEFAULT_SESSION_KEY) return true;
   return /^[a-z0-9._-]+:.+$/i.test(unscoped);
-}
-
-function reconcileSessionsForActiveSession({
-  sessions,
-  activeSessionKey,
-  titleMap,
-  creatingSessionKeys,
-}: {
-  sessions: OpenClawSessionRecord[];
-  activeSessionKey: string;
-  titleMap: Record<string, string>;
-  creatingSessionKeys: Set<string>;
-}): OpenClawSessionRecord[] {
-  if (!shouldReconcileGeneratedSessionsAsMain(sessions, activeSessionKey)) return sessions;
-
-  const generatedMainCandidates = sessions
-    .filter((session) => isGeneratedDirectBrowserSession(session) && !hasLocalSessionIdentity(session, titleMap, creatingSessionKeys));
-  const candidate = [...generatedMainCandidates].sort((a, b) => b.lastMessageAt - a.lastMessageAt)[0];
-  if (!candidate) return sessions;
-
-  const existingMain = findOpenClawSelectableSession(sessions, OPENCLAW_DEFAULT_SESSION_KEY);
-  const ignoredGeneratedSessions = new Set(generatedMainCandidates);
-
-  const mainSession: OpenClawSessionRecord = {
-    ...(existingMain ?? candidate),
-    key: OPENCLAW_DEFAULT_SESSION_KEY,
-    gatewaySessionKey: existingMain?.gatewaySessionKey ?? candidate.gatewaySessionKey ?? candidate.key,
-    lastMessageAt: Math.max(existingMain?.lastMessageAt ?? 0, candidate.lastMessageAt),
-    messageCount: Math.max(existingMain?.messageCount ?? 0, candidate.messageCount),
-    title: "",
-    clientDisplayName: fallbackOpenClawSessionDisplayName(OPENCLAW_DEFAULT_SESSION_KEY),
-  };
-  return [
-    mainSession,
-    ...sessions.filter((session) => session !== existingMain && !ignoredGeneratedSessions.has(session)),
-  ];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -535,6 +501,25 @@ function safeRuntimeImage(value: unknown): string | undefined {
   return image;
 }
 
+interface SlackSupportEnsureResult extends OpenClawSlackEnsurePluginResult {
+  restarted: boolean;
+}
+
+interface SlackSupportEnsureEntry {
+  agentId: string;
+  promise: Promise<SlackSupportEnsureResult>;
+}
+
+type WhatsAppSupportProgressReporter = (event: OpenClawWhatsAppProgressEvent) => void;
+
+interface WhatsAppPairingSessionState {
+  status: "idle" | "starting" | "waiting" | "connected" | "failed";
+  qrDataUrl: string | null;
+  message: string | null;
+  progress: OpenClawWhatsAppProgressEvent[];
+  error: string | null;
+}
+
 export function useOpenClawSession(
   agent: OpenClawAgent | null,
   enabled: boolean = true,
@@ -579,6 +564,13 @@ export function useOpenClawSession(
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [pendingAttachmentReads, setPendingAttachmentReads] = useState(0);
   const [pendingFiles, setPendingFiles] = useState<ChatPendingFile[]>([]);
+  const [whatsAppPairingState, setWhatsAppPairingState] = useState<WhatsAppPairingSessionState>({
+    status: "idle",
+    qrDataUrl: null,
+    message: null,
+    progress: [],
+    error: null,
+  });
   const [aborting, setAborting] = useState(false);
   const [abortingTarget, setAbortingTarget] = useState<ChatHistoryTarget | null>(null);
   const [retrySignal, setRetrySignal] = useState(0);
@@ -592,7 +584,6 @@ export function useOpenClawSession(
   const sendingRef = useRef(false);
   const sendingTargetsRef = useRef<Map<string, ChatHistoryTarget>>(new Map());
   const abortingTargetRef = useRef<ChatHistoryTarget | null>(null);
-  const activeSessionKeyRef = useRef(activeSessionKey);
   const chatHistoryTargetRef = useRef<ChatHistoryTarget>({ agentId, sessionKey: activeSessionKey });
   const cacheRestoreTargetRef = useRef<ChatHistoryTarget | null>(null);
   const sessionTitleMapRef = useRef<Record<string, string>>({});
@@ -604,6 +595,10 @@ export function useOpenClawSession(
   const sessionSnapshotRef = useRef<SessionSnapshotEntry>({ agentId: null, fetchedAgentId: null, sessions: [] });
   const channelsStatusCacheRef = useRef<GatewayStatusCacheEntry<Record<string, unknown>> | null>(null);
   const integrationsStatusCacheRef = useRef<Map<string, GatewayStatusCacheEntry<GatewayIntegrationStatusResult>>>(new Map());
+  const lastChannelsStatusConfigRef = useRef<Record<string, unknown> | null>(null);
+  const channelRecoveryProbeRef = useRef<{ provider: OpenClawChannelsProvider; config: Record<string, unknown> } | null>(null);
+  const slackSupportEnsureRef = useRef<SlackSupportEnsureEntry | null>(null);
+  const whatsAppPairingRequestRef = useRef(0);
   const seededE2EConnection = hasSeededE2EConnection();
 
   useEffect(() => {
@@ -701,10 +696,6 @@ export function useOpenClawSession(
   }, [updateComposerDraftForTarget]);
 
   useLayoutEffect(() => {
-    activeSessionKeyRef.current = activeSessionKey;
-  }, [activeSessionKey]);
-
-  useLayoutEffect(() => {
     chatHistoryTargetRef.current = { agentId, sessionKey: activeSessionKey };
   }, [agentId, activeSessionKey]);
 
@@ -738,12 +729,11 @@ export function useOpenClawSession(
   useLayoutEffect(() => {
     const titleMap = readStoredSessionTitles(agentId);
     writeStoredSessionTitles(agentId, titleMap);
-    const cachedSessions = applyOpenClawSessionTitleMap(reconcileSessionsForActiveSession({
-      sessions: readStoredSessions(agentId),
-      activeSessionKey: activeSessionKeyRef.current,
-      titleMap,
-      creatingSessionKeys: new Set(),
-    }), titleMap);
+    const storedSessions = readStoredSessions(agentId).filter((session) => !(
+      session.key === OPENCLAW_DEFAULT_SESSION_KEY &&
+      isGeneratedOpenClawSessionName(openClawGatewaySessionKey(session))
+    ));
+    const cachedSessions = applyOpenClawSessionTitleMap(storedSessions, titleMap);
     writeStoredSessions(agentId, cachedSessions);
     setDeletedSessionKeys({});
     setSessions(cachedSessions);
@@ -988,13 +978,7 @@ export function useOpenClawSession(
     setSessionsAgentId(agentId);
     setSessions((prev) => {
       const next = typeof value === "function" ? value(prev) : value;
-      const reconciledSessions = reconcileSessionsForActiveSession({
-        sessions: next,
-        activeSessionKey,
-        titleMap: sessionTitleMapRef.current,
-        creatingSessionKeys: creatingSessionKeysRef.current,
-      });
-      const titledSessions = applyOpenClawSessionTitleMap(reconciledSessions, sessionTitleMapRef.current);
+      const titledSessions = applyOpenClawSessionTitleMap(next, sessionTitleMapRef.current);
       const displaySessions = markEphemeralSessions(titledSessions, sessionTitleMapRef.current, creatingSessionKeysRef.current);
       if (canSkipUnchangedWrite && sameOpenClawSessionListForDisplay(prev, displaySessions)) {
         return prev;
@@ -1002,7 +986,7 @@ export function useOpenClawSession(
       writeStoredSessions(agentId, displaySessions);
       return sameOpenClawSessionListForDisplay(prev, displaySessions) ? prev : displaySessions;
     });
-  }, [agentId, activeSessionKey]);
+  }, [agentId]);
 
   const pruneDeletedSessionTombstones = useCallback(() => {
     const now = Date.now();
@@ -1206,7 +1190,8 @@ export function useOpenClawSession(
       );
     };
     const unsubscribe = gateway.onEvent((gatewayEvent) => {
-      const eventMatchesActiveSession = openClawEventMatchesSession(gatewayEvent.payload, activeSessionKey);
+      const eventMatchesActiveSession = openClawEventMatchesSession(gatewayEvent.payload, activeGatewaySessionKey);
+      const suppressChatStreamEvents = activeChatSendTargetsRef.current.has(targetKey);
       handleOpenClawSessionEvent({
         gatewayEvent,
         setMessages: (update) => dispatchChatHistory({ type: "apply-update", update }, target),
@@ -1214,8 +1199,8 @@ export function useOpenClawSession(
         setSessions: applyFetchedSessions,
         refreshSessions: () => queuePassiveCompletionRefresh({ sessions: true }),
         appendActivity,
-        activeSessionKey,
-        suppressChatStreamEvents: activeChatSendTargetsRef.current.has(targetKey),
+        activeSessionKey: activeGatewaySessionKey,
+        suppressChatStreamEvents,
       });
       const payload = gatewayEvent.payload ?? {};
       const payloadRecord = payload as Record<string, unknown>;
@@ -1223,7 +1208,7 @@ export function useOpenClawSession(
       const isAgentLifecycleEnd = gatewayEvent.event === "agent" &&
         String(payloadRecord.stream || "").toLowerCase() === "lifecycle" &&
         String(lifecycleData?.phase || "").toLowerCase() === "end";
-      const isPassiveCompletion = !activeChatSendTargetsRef.current.has(targetKey) && eventMatchesActiveSession && (
+      const isPassiveCompletion = !suppressChatStreamEvents && eventMatchesActiveSession && (
         gatewayEvent.event === "chat.done" ||
         (gatewayEvent.event === "chat" && payloadRecord.state === "final") ||
         isAgentLifecycleEnd
@@ -1234,7 +1219,7 @@ export function useOpenClawSession(
       if (passiveCompletionRefreshTimer !== null) window.clearTimeout(passiveCompletionRefreshTimer);
       unsubscribe();
     };
-  }, [gateway, agentId, activeSessionKey, appendActivity, applyFetchedSessions, dispatchChatHistory, fullHydrationEnabled, refreshMessagesFromHistory, refreshSessionList, setSendingForTarget]);
+  }, [gateway, agentId, activeSessionKey, activeGatewaySessionKey, appendActivity, applyFetchedSessions, dispatchChatHistory, fullHydrationEnabled, refreshMessagesFromHistory, refreshSessionList, setSendingForTarget]);
 
   useEffect(() => {
     if (!gateway || status !== "connected") return;
@@ -1592,10 +1577,10 @@ export function useOpenClawSession(
   }, [gateway, ready, agentId, activeSessionKey, activeGatewaySessionKey, markAbortingForTarget, markCurrentReplyInterrupted, clearSendingForTarget, clearAbortingForTarget, appendActivity]);
 
   const runEphemeralPrompt = useCallback(async (message: string, options?: GatewayEphemeralChatOptions) => {
-    if (!gateway || !ready) throw new Error("Chat is not ready");
+    if (!gateway || status !== "connected") throw new Error("Chat is not connected");
     if (typeof gateway.runEphemeralChat !== "function") throw new Error("Ephemeral generation is unavailable for this agent.");
     return gateway.runEphemeralChat(message, options);
-  }, [gateway, ready]);
+  }, [gateway, status]);
 
   useEffect(() => {
     if (!ready) return;
@@ -1664,6 +1649,157 @@ export function useOpenClawSession(
     return promise;
   }, [gateway]);
 
+  const applyWhatsAppConfigPatch = useCallback(async (patch: Record<string, unknown>) => {
+    if (!agent) throw new Error("Automatic WhatsApp setup is unavailable for this workspace.");
+    await agent.configPatch(patch);
+    clearGatewayStatusCaches();
+    setConfig((current) => mergeOpenClawConfigPatch(current, patch));
+    updateConnectionHydration((connection) => {
+      connection.config = mergeOpenClawConfigPatch(connection.config, patch);
+    });
+  }, [agent, clearGatewayStatusCaches, updateConnectionHydration]);
+
+  const ensureWhatsAppSupport = useCallback(async (reportProgress?: WhatsAppSupportProgressReporter) => {
+    if (!gateway || !agent) throw new Error("Automatic WhatsApp setup is unavailable for this workspace.");
+    const provider = new OpenClawWhatsAppProvider(gateway, {
+      runCommand: (command, timeoutSeconds) => agent.exec(command, { timeout: timeoutSeconds }),
+      onProgress: reportProgress,
+    });
+    const support = await provider.ensureSupport();
+    if (support.restartRequired) {
+      await provider.restartGateway();
+      await agent.waitReady(WHATSAPP_GATEWAY_READY_TIMEOUT_MS, { probe: "config", retryIntervalMs: 2_000 });
+      appendActivity({ type: "connection", action: "WhatsApp support prepared" });
+    }
+    if (!whatsAppChannelEnabled(config)) {
+      await applyWhatsAppConfigPatch({ channels: { whatsapp: { enabled: true } } });
+    }
+  }, [agent, appendActivity, applyWhatsAppConfigPatch, config, gateway]);
+
+  const whatsAppPairingStart = useCallback(async (
+    options: GatewayWebLoginStartOptions = {},
+    reportProgress?: WhatsAppSupportProgressReporter,
+  ) => {
+    if (!gateway || !agent) throw new Error("Automatic WhatsApp pairing is unavailable for this workspace.");
+    const requestId = whatsAppPairingRequestRef.current + 1;
+    whatsAppPairingRequestRef.current = requestId;
+    setWhatsAppPairingState({ status: "starting", qrDataUrl: null, message: null, progress: [], error: null });
+    const publishProgress = (event: OpenClawWhatsAppProgressEvent) => {
+      if (whatsAppPairingRequestRef.current !== requestId) return;
+      reportProgress?.(event);
+      setWhatsAppPairingState((current) => {
+        const existingIndex = current.progress.findIndex((entry) => entry.id === event.id);
+        const progress = existingIndex === -1
+          ? [...current.progress, event]
+          : current.progress.map((entry, index) => index === existingIndex ? event : entry);
+        return { ...current, progress };
+      });
+    };
+    const provider = new OpenClawWhatsAppProvider(gateway, {
+      runCommand: (command, timeoutSeconds) => agent.exec(command, { timeout: timeoutSeconds }),
+      onProgress: publishProgress,
+      pairing: {
+        webLoginStart: (loginOptions) => agent.webLoginStart(loginOptions),
+        webLoginWait: (waitOptions) => gateway.webLoginWait(waitOptions),
+        waitReady: (timeoutMs, readyOptions) => agent.waitReady(timeoutMs, readyOptions),
+      },
+    });
+    const channelEnabled = whatsAppChannelEnabled(config);
+    const configureChannel = async () => {
+      if (channelEnabled) return;
+      const id = "operation:configuring-channel";
+      const baseEvent = {
+        id,
+        kind: "operation" as const,
+        label: "Enabling the WhatsApp channel",
+        stage: "configuring-channel" as const,
+      };
+      publishProgress({ ...baseEvent, status: "running" });
+      try {
+        await applyWhatsAppConfigPatch({ channels: { whatsapp: { enabled: true } } });
+        publishProgress({ ...baseEvent, status: "succeeded" });
+      } catch (cause) {
+        publishProgress({
+          ...baseEvent,
+          status: "failed",
+          detail: cause instanceof Error ? cause.message : "Could not enable the WhatsApp channel.",
+        });
+        throw cause;
+      }
+    };
+    try {
+      const started = await provider.startPairing({
+        ...options,
+      } satisfies OpenClawWhatsAppPairingStartOptions);
+      if (whatsAppPairingRequestRef.current !== requestId) return started;
+      if (started.connected) {
+        await configureChannel();
+        setWhatsAppPairingState((current) => ({ ...current, status: "connected", qrDataUrl: null, message: started.message, error: null }));
+        return started;
+      }
+      if (!started.qrDataUrl) throw new Error(started.message || "WhatsApp did not provide a pairing code.");
+      setWhatsAppPairingState((current) => ({
+        ...current,
+        status: "waiting",
+        qrDataUrl: started.qrDataUrl ?? null,
+        message: started.message,
+        error: null,
+      }));
+      void provider.waitForPairing({
+        timeoutMs: 30_000,
+        currentQrDataUrl: started.qrDataUrl,
+        onUpdate: (result) => {
+          if (whatsAppPairingRequestRef.current !== requestId) return;
+          setWhatsAppPairingState((current) => ({
+            ...current,
+            status: result.connected ? "connected" : "waiting",
+            qrDataUrl: result.connected ? null : result.qrDataUrl ?? current.qrDataUrl,
+            message: result.message,
+            error: null,
+          }));
+        },
+      }).then(async (result) => {
+        if (whatsAppPairingRequestRef.current !== requestId) return;
+        await configureChannel();
+        setWhatsAppPairingState((current) => ({ ...current, status: "connected", qrDataUrl: null, message: result.message, error: null }));
+      }).catch((cause) => {
+        if (whatsAppPairingRequestRef.current !== requestId) return;
+        setWhatsAppPairingState((current) => ({
+          ...current,
+          status: "failed",
+          qrDataUrl: null,
+          error: cause instanceof Error ? cause.message : "WhatsApp pairing failed.",
+        }));
+      });
+      return started;
+    } catch (cause) {
+      if (whatsAppPairingRequestRef.current === requestId) {
+        setWhatsAppPairingState((current) => ({
+          ...current,
+          status: "failed",
+          qrDataUrl: null,
+          error: cause instanceof Error ? cause.message : "WhatsApp pairing failed.",
+        }));
+      }
+      throw cause;
+    }
+  }, [agent, applyWhatsAppConfigPatch, config, gateway]);
+
+  const cancelWhatsAppPairing = useCallback(() => {
+    whatsAppPairingRequestRef.current += 1;
+    setWhatsAppPairingState({ status: "idle", qrDataUrl: null, message: null, progress: [], error: null });
+  }, []);
+
+  const webLoginStart = useCallback(async (options: GatewayWebLoginStartOptions = {}) => {
+    if (!agent) throw new Error("Not connected");
+    return agent.webLoginStart(options);
+  }, [agent]);
+
+  const webLoginWait = useCallback(async (options: GatewayWebLoginWaitOptions = {}) => {
+    if (!agent) throw new Error("Not connected");
+    return agent.webLoginWait(options);
+  }, [agent]);
+
   // The provider stores callbacks and invokes them only from effects or user actions.
   // eslint-disable-next-line react-hooks/refs
   const channelsProvider = useMemo(
@@ -1688,7 +1824,14 @@ export function useOpenClawSession(
   useEffect(() => {
     if (!channelsProvider || status !== "connected") return;
     let cancelled = false;
-    void channelsStatus()
+    const hasConfiguredChannels = Boolean(
+      config &&
+      isRecord(config.channels) &&
+      Object.values(config.channels).some((channel) => isRecord(channel)),
+    );
+    const configChanged = Boolean(hasConfiguredChannels && lastChannelsStatusConfigRef.current !== config);
+    lastChannelsStatusConfigRef.current = config;
+    void channelsStatus(configChanged)
       .then((result) => {
         const snapshot = normalizeOpenClawChannelsSnapshot(result);
         const channels = normalizeOpenClawChannelsStatus(result);
@@ -1712,6 +1855,29 @@ export function useOpenClawSession(
       cancelled = true;
     };
   }, [channelsProvider, channelsStatus, config, status]);
+
+  useEffect(() => {
+    if (!channelsProvider || status !== "connected" || !config) return;
+    if (
+      reportedChannelsState.provider !== channelsProvider ||
+      reportedChannelsState.config !== config ||
+      !reportedChannelsState.loaded ||
+      reportedChannelsState.error
+    ) return;
+    const configuredChannels = isRecord(config.channels) ? Object.keys(config.channels) : [];
+    const reportedChannelIds = new Set(reportedChannelsState.channels.map((channel) => channel.channelId));
+    const needsRecoveryProbe = reportedChannelsState.snapshot?.partial === true || configuredChannels.some((channelId) => (
+      isRecord((config.channels as Record<string, unknown>)[channelId]) && !reportedChannelIds.has(channelId)
+    ));
+    if (!needsRecoveryProbe) return;
+    const previous = channelRecoveryProbeRef.current;
+    if (previous?.provider === channelsProvider && previous.config === config) return;
+    channelRecoveryProbeRef.current = { provider: channelsProvider, config };
+    const timer = window.setTimeout(() => {
+      void refreshReportedChannels(true).catch(() => undefined);
+    }, 1_500);
+    return () => window.clearTimeout(timer);
+  }, [channelsProvider, config, refreshReportedChannels, reportedChannelsState, status]);
 
   const reportedChannels = useMemo(
     () => reportedChannelsState.provider === channelsProvider
@@ -1955,8 +2121,8 @@ export function useOpenClawSession(
   const connectorRuntime = useMemo<AgentRuntimeDescriptor>(() => {
     const launchImage = safeRuntimeImage(agent?.launchConfig?.image);
     const capabilities = [
-      ...(reportedChannelsReady ? ["channels.status"] : []),
-      ...(configSchema ? ["config.patch"] : []),
+      ...(typeof gateway?.channelsStatus === "function" ? ["channels.status"] : []),
+      ...(typeof gateway?.configPatch === "function" ? ["config.patch"] : []),
       ...(typeof gateway?.runEphemeralChat === "function" ? ["ephemeral.chat"] : []),
     ];
     return {
@@ -1964,10 +2130,9 @@ export function useOpenClawSession(
       ...(gateway?.version ? { version: gateway.version } : {}),
       ...(gateway?.protocol ? { protocol: `gateway-v${gateway.protocol}` } : {}),
       ...(launchImage ? { image: launchImage } : {}),
-      ...(configSchema?.version ? { schemaVersion: configSchema.version } : {}),
       capabilities,
     };
-  }, [agent?.launchConfig?.image, configSchema, gateway, reportedChannelsReady]);
+  }, [agent?.launchConfig?.image, gateway]);
 
   const runConnectorShellProposal = useCallback(async (command: string) => {
     if (!agent) throw new Error("Workspace command access is unavailable.");
@@ -1977,6 +2142,31 @@ export function useOpenClawSession(
     }
     appendActivity({ type: "tool", action: "Approved connector command completed" });
   }, [agent, appendActivity]);
+
+  const ensureSlackSupport = useCallback((): Promise<SlackSupportEnsureResult> => {
+    if (!agent || !gateway) return Promise.reject(new Error("Slack support cannot be prepared while the agent is disconnected."));
+    const existing = slackSupportEnsureRef.current;
+    if (existing?.agentId === agent.id) return existing.promise;
+    const provider = new OpenClawSlackProvider(gateway, {
+      runCommand: async (command) => {
+        const timeout = command === "openclaw plugins install @openclaw/slack" ? 300 : 60;
+        return await agent.exec(command, { timeout });
+      },
+    });
+    const promise = (async (): Promise<SlackSupportEnsureResult> => {
+      const result = await provider.ensurePluginInstalledWithCli();
+      clearGatewayStatusCaches();
+      await provider.restartGateway();
+      await agent.waitReady(120_000, { probe: "config", retryIntervalMs: 2_000 });
+      await provider.verifyPluginRuntimeWithCli();
+      return { ...result, restartRequired: true, restarted: true };
+    })();
+    slackSupportEnsureRef.current = { agentId: agent.id, promise };
+    void promise.catch(() => {
+      if (slackSupportEnsureRef.current?.promise === promise) slackSupportEnsureRef.current = null;
+    });
+    return promise;
+  }, [agent, clearGatewayStatusCaches, gateway]);
 
   // The provider stores these callbacks and invokes them only from user actions or effects.
   // eslint-disable-next-line react-hooks/refs
@@ -2021,28 +2211,17 @@ export function useOpenClawSession(
     .filter((item) => sameChatHistoryTarget(item.target, activeSessionTarget))
     .map((item) => item.message);
 
-  const connectorPreloadKeyRef = useRef("");
+  const connectorPreloadProviderRef = useRef<OpenClawConnectorsProvider | null>(null);
   useEffect(() => {
-    if (!connected || !ready || !reportedChannelsReady || !connectorsProvider || sendingTargets.length > 0) return;
-    const preloadIds = ["telegram", "discord", "slack", "whatsapp"] as const;
-    const channelState = preloadIds.map((channelId) => {
-      const summaries = reportedChannels.filter((channel) => channel.channelId === channelId);
-      return `${channelId}:${summaries.some((channel) => channel.configured)}:${summaries.some((channel) => channel.running === true)}`;
-    }).join("|");
-    const preloadKey = [
-      agentId,
-      connectorRuntime.provider,
-      connectorRuntime.version,
-      connectorRuntime.protocol,
-      connectorRuntime.image,
-      connectorRuntime.schemaVersion,
-      [...connectorRuntime.capabilities].sort().join(","),
-      channelState,
-    ].join(":");
-    if (connectorPreloadKeyRef.current === preloadKey) return;
-    connectorPreloadKeyRef.current = preloadKey;
-    void preloadConnectorWorkflows(preloadIds);
-  }, [agentId, connected, connectorRuntime, connectorsProvider, preloadConnectorWorkflows, ready, reportedChannels, reportedChannelsReady, sendingTargets.length]);
+    if (!connectorsProvider) {
+      connectorPreloadProviderRef.current = null;
+      return;
+    }
+    if (status !== "connected" || sendingTargets.length > 0) return;
+    if (connectorPreloadProviderRef.current === connectorsProvider) return;
+    connectorPreloadProviderRef.current = connectorsProvider;
+    void preloadConnectorWorkflows(CONNECTOR_IDS.filter((connectorId) => connectorId !== "whatsapp"));
+  }, [connectorsProvider, preloadConnectorWorkflows, sendingTargets.length, status]);
 
   return {
     gateway,
@@ -2076,6 +2255,12 @@ export function useOpenClawSession(
     saveConfig,
     saveFullConfig,
     channelsStatus,
+    ensureWhatsAppSupport,
+    whatsAppPairingStart,
+    whatsAppPairingState,
+    cancelWhatsAppPairing,
+    webLoginStart,
+    webLoginWait,
     channelsProvider,
     connectorsProvider,
     connectorRuntime,
@@ -2083,6 +2268,7 @@ export function useOpenClawSession(
     reportedChannels,
     reportedChannelSnapshot,
     reportedChannelsReady,
+    reportedChannelsError: reportedChannelsState.provider === channelsProvider ? reportedChannelsState.error : null,
     refreshReportedChannels,
     pendingFiles,
     pendingAttachments,
@@ -2112,6 +2298,7 @@ export function useOpenClawSession(
     integrationsAuthStatus,
     integrationsStatus,
     integrationsDisconnect,
+    ensureSlackSupport,
     retry,
     retryAndRefreshSessions,
   };

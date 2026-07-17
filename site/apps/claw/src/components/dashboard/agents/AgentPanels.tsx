@@ -1172,7 +1172,7 @@ function AgentSectionSettingsContent({
             <input
               value={agentImageDraft}
               onChange={(event) => onAgentImageChange(event.target.value)}
-              placeholder="ghcr.io/hypercli/hypercli-openclaw:prod"
+              placeholder="ghcr.io/hypercli/hypercli-openclaw:pro-latest"
               aria-label="Agent Docker image"
               className={SETTINGS_FIELD_CLASS}
             />

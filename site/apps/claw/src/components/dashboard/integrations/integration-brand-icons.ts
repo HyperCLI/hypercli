@@ -23,7 +23,6 @@ import {
   SiOpenai,
   SiPerplexity,
   SiSignal,
-  SiSlack,
   SiTelegram,
   SiTwitch,
   SiVercel,
@@ -33,7 +32,7 @@ import {
   SiZalo,
 } from "react-icons/si";
 
-import { TeamsIcon } from "../BrandIcons";
+import { SlackIcon, TeamsIcon } from "../BrandIcons";
 
 export type IntegrationBrandIcon = ComponentType<{ className?: string; style?: CSSProperties }>;
 
@@ -66,7 +65,7 @@ export const INTEGRATION_BRAND_LOGOS: Record<string, { icon: IntegrationBrandIco
   openai: { icon: SiOpenai, color: THEMED_BRAND_COLOR },
   perplexity: { icon: SiPerplexity, color: THEMED_BRAND_COLOR },
   signal: { icon: SiSignal, color: THEMED_BRAND_COLOR },
-  slack: { icon: SiSlack, color: "var(--integration-slack)", foreground: "var(--integration-slack-foreground)" },
+  slack: { icon: SlackIcon, color: "var(--integration-slack)", foreground: "var(--integration-slack-foreground)" },
   telegram: { icon: SiTelegram, color: "var(--integration-telegram)", foreground: "var(--integration-telegram-foreground)" },
   twitch: { icon: SiTwitch, color: THEMED_BRAND_COLOR },
   "vercel-ai-gateway": { icon: SiVercel, color: THEMED_BRAND_COLOR },

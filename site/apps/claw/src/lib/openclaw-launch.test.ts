@@ -4,14 +4,14 @@ import { buildOpenClawLaunchOptions } from "./openclaw-launch";
 
 describe("buildOpenClawLaunchOptions", () => {
   beforeEach(() => {
-    process.env.NEXT_PUBLIC_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:prod";
-    process.env.NEXT_PUBLIC_OPENCLAW_PRO_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-prod";
+    process.env.NEXT_PUBLIC_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-latest";
+    process.env.NEXT_PUBLIC_OPENCLAW_PRO_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-latest";
     delete process.env.NEXT_PUBLIC_API_BASE_URL;
   });
 
   it("launches headless agents with only the root gateway route", () => {
     expect(buildOpenClawLaunchOptions({ desktopEnabled: false })).toEqual({
-      image: "ghcr.io/hypercli/hypercli-openclaw:prod",
+      image: "ghcr.io/hypercli/hypercli-openclaw:pro-latest",
       env: {
         HYPER_WORKSPACES_BOOT_SYNC: "1",
         HYPER_WORKSPACES_DIR: "/home/node/workspaces",
@@ -26,7 +26,7 @@ describe("buildOpenClawLaunchOptions", () => {
 
   it("launches desktop agents with the pro image and desktop route", () => {
     expect(buildOpenClawLaunchOptions({ desktopEnabled: true })).toEqual({
-      image: "ghcr.io/hypercli/hypercli-openclaw:pro-prod",
+      image: "ghcr.io/hypercli/hypercli-openclaw:pro-latest",
       env: {
         HYPER_WORKSPACES_BOOT_SYNC: "1",
         HYPER_WORKSPACES_DIR: "/home/node/workspaces",

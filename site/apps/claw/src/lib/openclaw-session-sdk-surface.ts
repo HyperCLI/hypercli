@@ -23,6 +23,7 @@ export interface OpenClawSessionRecord {
 export const OPENCLAW_DEFAULT_SESSION_KEY = "main";
 export const OPENCLAW_NEW_SESSION_TITLE = "New Session";
 const GENERATED_OPENCLAW_SESSION_KEY = /^session-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|local-[a-z0-9-]+)$/i;
+const EPHEMERAL_OPENCLAW_SESSION_KEY = /^session-hypercli-ephemeral-[0-9a-f-]+$/i;
 const INTERNAL_OPENCLAW_SESSION_LABEL_PATTERNS = [
   /^Hyper Agent Web\b/i,
   /^HEARTBEAT(?:\.md|_OK)?$/i,
@@ -314,6 +315,10 @@ export function isGeneratedOpenClawSessionName(value: string | null | undefined)
   return GENERATED_OPENCLAW_SESSION_KEY.test(key);
 }
 
+export function isEphemeralOpenClawSessionName(value: string | null | undefined): boolean {
+  return EPHEMERAL_OPENCLAW_SESSION_KEY.test(unscopedOpenClawSessionKey(value));
+}
+
 function isInternalOpenClawSessionDisplayName(value: string): boolean {
   return INTERNAL_OPENCLAW_SESSION_LABEL_PATTERNS.some((pattern) => pattern.test(value));
 }
@@ -321,16 +326,19 @@ function isInternalOpenClawSessionDisplayName(value: string): boolean {
 export function normalizeOpenClawSessionDisplayName(value: unknown, sessionKey?: string | null): string | null {
   const label = nonEmptyString(value);
   if (!label) return null;
+  if (isEphemeralOpenClawSessionName(label)) return null;
   if (isGeneratedOpenClawSessionName(label)) return null;
   if (isInternalOpenClawSessionDisplayName(label)) return null;
   if (sessionKey && label === sessionKey && unscopedOpenClawSessionKey(sessionKey) === OPENCLAW_DEFAULT_SESSION_KEY) return null;
-  if (sessionKey && label === sessionKey && isGeneratedOpenClawSessionName(sessionKey)) return null;
+  if (sessionKey && label === sessionKey && (isGeneratedOpenClawSessionName(sessionKey) || isEphemeralOpenClawSessionName(sessionKey))) return null;
   return label;
 }
 
 export function fallbackOpenClawSessionDisplayName(sessionKey: string): string {
   if (unscopedOpenClawSessionKey(sessionKey) === OPENCLAW_DEFAULT_SESSION_KEY) return "Main Session";
-  return isGeneratedOpenClawSessionName(sessionKey) ? OPENCLAW_NEW_SESSION_TITLE : sessionKey;
+  return isGeneratedOpenClawSessionName(sessionKey) || isEphemeralOpenClawSessionName(sessionKey)
+    ? OPENCLAW_NEW_SESSION_TITLE
+    : sessionKey;
 }
 
 export function displayOpenClawSessionName(
@@ -423,7 +431,7 @@ export function resolveOpenClawGatewaySessionKey(
 }
 
 export function openClawEventMatchesSession(payload: unknown, sessionKey: string): boolean {
-  if (!isRecord(payload)) return true;
+  if (!isRecord(payload)) return false;
   const sourceChannelId = sessionSourceChannelId(payload);
   const derivedChannelSessionKey = channelSessionKeyFromMetadata(payload, sourceChannelId);
   const eventSessionKey = firstNonEmptyString(payload.sessionKey, payload.session_key, payload.key);
@@ -432,7 +440,7 @@ export function openClawEventMatchesSession(payload: unknown, sessionKey: string
     if (unscopedOpenClawSessionKey(eventSessionKey) === OPENCLAW_DEFAULT_SESSION_KEY) return false;
     return sameOpenClawSessionKey(eventSessionKey, sessionKey);
   }
-  return !eventSessionKey || sameOpenClawSessionKey(eventSessionKey, sessionKey);
+  return Boolean(eventSessionKey && sameOpenClawSessionKey(eventSessionKey, sessionKey));
 }
 
 export function normalizeOpenClawSession(session: unknown): OpenClawSessionRecord | null {

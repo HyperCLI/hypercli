@@ -1,11 +1,15 @@
 "use client";
 
-import { AlertTriangle, ArrowRight, Check, Copy, ExternalLink, Loader2, RotateCcw } from "lucide-react";
+import { AlertTriangle, ArrowRight, Check, Copy, ExternalLink, Loader2, RefreshCw, RotateCcw } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 
 import { ResourceImage } from "@/components/ResourceImage";
 import { ApprovalCard, type ApprovalState } from "@/components/dashboard/chat/ApprovalCard";
-import type { ConnectorWorkflow, ConnectorWorkflowInputSlot } from "@/lib/connector-workflow";
+import {
+  connectorWorkflowContentKey,
+  type ConnectorWorkflow,
+  type ConnectorWorkflowInputSlot,
+} from "@/lib/connector-workflow";
 
 export type ConnectorWorkflowInputValue = string | number | boolean | null;
 
@@ -47,10 +51,22 @@ interface ConnectorWorkflowGuideProps {
   loading?: boolean;
   unavailable?: boolean;
   inputControls?: ConnectorWorkflowInputControls;
-  showRuntimeFingerprint?: boolean;
   onRunShellProposal?: (command: string) => Promise<void>;
+  onVerifyConnection?: () => Promise<ConnectorWorkflowVerificationResult>;
+  verificationDisabled?: boolean;
+  verificationDisabledReason?: string;
   onRetry?: () => void;
 }
+
+export interface ConnectorWorkflowVerificationResult {
+  success: boolean;
+  message?: string;
+}
+
+type VerificationState = {
+  status: "testing" | "success" | "error";
+  message?: string;
+};
 
 function externalLinkLabel(url: string): string {
   try {
@@ -147,8 +163,10 @@ export function ConnectorWorkflowGuide({
   loading = false,
   unavailable = false,
   inputControls,
-  showRuntimeFingerprint = true,
   onRunShellProposal,
+  onVerifyConnection,
+  verificationDisabled = false,
+  verificationDisabledReason,
   onRetry,
 }: ConnectorWorkflowGuideProps) {
   const [approvalStates, setApprovalStates] = useState<Record<string, ApprovalState>>({});
@@ -156,9 +174,12 @@ export function ConnectorWorkflowGuide({
   const [activeStepState, setActiveStepState] = useState<{ workflowIdentity: string; stepId: string } | null>(null);
   const [completionState, setCompletionState] = useState<{ workflowIdentity: string; stepIds: Set<string> } | null>(null);
   const [disclosureState, setDisclosureState] = useState<{ workflowIdentity: string; inputSlots: Set<ConnectorWorkflowInputSlot> } | null>(null);
+  const [verificationStates, setVerificationStates] = useState<Record<string, VerificationState>>({});
   const [copiedValueKey, setCopiedValueKey] = useState<string | null>(null);
   const stepTitleRefs = useRef(new Map<string, HTMLButtonElement>());
-  const workflowIdentity = workflow ? `${workflow.connectorId}:${workflow.runtimeFingerprint}:${workflow.steps.map((step) => step.id).join(",")}` : "";
+  const workflowIdentity = workflow
+    ? `${workflow.connectorId}:${workflow.runtimeFingerprint}:${connectorWorkflowContentKey(workflow)}`
+    : "";
   const activeStepId = activeStepState?.workflowIdentity === workflowIdentity ? activeStepState.stepId : null;
   const completedStepIds = completionState?.workflowIdentity === workflowIdentity ? completionState.stepIds : new Set<string>();
   const activateStep = (stepId: string) => setActiveStepState({ workflowIdentity, stepId });
@@ -173,7 +194,7 @@ export function ConnectorWorkflowGuide({
     }
   };
 
-  if (loading) {
+  if (loading && !workflow) {
     return (
       <div role="status" className="flex items-center gap-2 rounded-2xl border border-border bg-background/60 px-3 py-3 text-text-secondary">
         <Loader2 className="h-4 w-4 animate-spin" />
@@ -206,7 +227,7 @@ export function ConnectorWorkflowGuide({
         {workflow.steps.length > 1 ? (
           <span
             aria-hidden="true"
-            className="absolute bottom-6 left-5 top-6 w-px bg-border sm:left-6"
+            className="absolute bottom-6 left-5 top-6 w-px bg-border"
           />
         ) : null}
         {workflow.steps.map((step, index) => {
@@ -214,12 +235,16 @@ export function ConnectorWorkflowGuide({
           const nextStep = workflow.steps[index + 1] ?? null;
           const firstStep = workflow.steps[0] ?? null;
           const command = step.command;
+          const verificationStep = step.kind === "verify" || step.operation?.endsWith(".verify");
+          const verificationKey = `${workflowIdentity}:${step.id}`;
+          const verificationState = verificationStates[verificationKey];
+          const verificationSucceeded = verificationState?.status === "success";
           const approvalState = approvalStates[step.id] ?? "pending";
           const stepInputControls = (step.inputSlots ?? [])
             .map((inputSlot) => ({ inputSlot, control: inputControls?.[inputSlot] }))
             .filter(({ inputSlot, control }) => !control || connectorWorkflowInputControlIsVisible(inputSlot, inputControls ?? {}));
           const inputsValid = stepInputControls.every(({ inputSlot, control }) => Boolean(control) && connectorWorkflowInputControlIsValid(inputSlot, inputControls ?? {}));
-          const completed = completedStepIds.has(step.id) && inputsValid;
+          const completed = completedStepIds.has(step.id) && inputsValid && (!verificationStep || verificationSucceeded);
           const highlighted = expanded || approvalState === "approved" || completed;
           const reviewingCompletedFinalStep = !nextStep && completed;
           return (
@@ -401,6 +426,77 @@ export function ConnectorWorkflowGuide({
                         ) : null}
                       </div>
                     ) : null}
+                    {verificationStep ? (
+                      <div className="mt-4 max-w-xl rounded-2xl border border-border-strong bg-background/70 p-3 shadow-sm">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold text-foreground">Connection check</p>
+                            <p className="mt-1 text-xs leading-5 text-text-muted">
+                              {verificationState?.status === "testing"
+                                ? "Checking authentication and connection health..."
+                                : verificationState?.message ?? verificationDisabledReason ?? "Run a live check using the saved channel settings."}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={verificationDisabled || !onVerifyConnection || verificationState?.status === "testing"}
+                            onClick={async () => {
+                              if (!onVerifyConnection || verificationDisabled) return;
+                              setVerificationStates((current) => ({
+                                ...current,
+                                [verificationKey]: { status: "testing" },
+                              }));
+                              try {
+                                const result = await onVerifyConnection();
+                                setVerificationStates((current) => ({
+                                  ...current,
+                                  [verificationKey]: {
+                                    status: result.success ? "success" : "error",
+                                    message: result.message,
+                                  },
+                                }));
+                                if (result.success) {
+                                  setCompletionState((current) => {
+                                    const stepIds = current?.workflowIdentity === workflowIdentity ? current.stepIds : new Set<string>();
+                                    return { workflowIdentity, stepIds: new Set(stepIds).add(step.id) };
+                                  });
+                                }
+                              } catch {
+                                setVerificationStates((current) => ({
+                                  ...current,
+                                  [verificationKey]: { status: "error", message: "Could not test the connection right now." },
+                                }));
+                              }
+                            }}
+                            className="inline-flex h-9 shrink-0 items-center gap-2 rounded-xl border border-border-strong bg-surface-high px-3.5 text-sm font-semibold text-foreground transition-all hover:-translate-y-0.5 hover:border-[var(--channel-accent,rgb(var(--selection-accent-rgb)))] disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-45"
+                          >
+                            {verificationState?.status === "testing" ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : verificationSucceeded ? (
+                              <Check className="h-4 w-4 text-selection-accent" />
+                            ) : (
+                              <RefreshCw className="h-4 w-4" />
+                            )}
+                            {verificationState?.status === "testing"
+                              ? "Testing"
+                              : verificationSucceeded
+                                ? "Test again"
+                                : verificationState?.status === "error"
+                                  ? "Retry test"
+                                  : "Test connection"}
+                          </button>
+                        </div>
+                        {verificationState?.status === "success" ? (
+                          <p role="status" className="mt-3 flex items-center gap-2 rounded-xl border border-selection-accent/25 bg-selection-accent/10 px-3 py-2 text-xs font-medium text-selection-accent">
+                            <Check className="h-4 w-4 shrink-0" /> Connection test passed.
+                          </p>
+                        ) : verificationState?.status === "error" ? (
+                          <p role="alert" className="mt-3 flex items-start gap-2 rounded-xl border border-destructive/25 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {verificationState.message ?? "The connection is not reachable yet."}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
                     {nextStep || firstStep ? (
                       <div data-workflow-navigation className="mt-5 flex justify-start border-t border-border/70 pt-4">
                         <button
@@ -410,7 +506,7 @@ export function ConnectorWorkflowGuide({
                             : reviewingCompletedFinalStep
                               ? "Walkthrough complete: review from start"
                               : "Complete step"}
-                          disabled={!inputsValid}
+                          disabled={!inputsValid || (verificationStep && !verificationSucceeded)}
                           onClick={() => {
                             if (!inputsValid) return;
                             if (!reviewingCompletedFinalStep) {
@@ -451,7 +547,6 @@ export function ConnectorWorkflowGuide({
           );
         })}
       </ol>
-      {showRuntimeFingerprint ? <p className="text-[11px] text-text-muted">Guidance generated for runtime {workflow.runtimeFingerprint}.</p> : null}
     </div>
   );
 }

@@ -155,12 +155,86 @@ describe("OpenClaw configured-channel settings", () => {
     })).not.toHaveProperty("groups");
   });
 
-  it("keeps Slack credential replacements independent", () => {
-    const parsed = parseOpenClawSlackConfig({ enabled: true, botToken: "old-bot", appToken: "old-app" });
-    expect(parsed).toEqual({ channelId: "slack", enabled: true });
-    expect(buildOpenClawSlackPatch({ enabled: false, replacementAppToken: " new-app " })).toEqual({
+  it("hydrates safe Slack access settings without exposing credentials or advanced channel fields", () => {
+    const parsed = parseOpenClawSlackConfig({
+      enabled: true,
+      mode: "socket",
+      botToken: "old-bot",
+      appToken: "old-app",
+      dmPolicy: "allowlist",
+      allowFrom: ["U0123456789"],
+      groupPolicy: "allowlist",
+      channels: {
+        C0123456789: { enabled: true, requireMention: true, systemPrompt: "private", tools: { allow: ["read"] } },
+        C9876543210: { enabled: false, requireMention: false },
+      },
+    });
+
+    expect(parsed).toEqual({
+      channelId: "slack",
+      enabled: true,
+      mode: "socket",
+      dmPolicy: "allowlist",
+      allowFrom: ["U0123456789"],
+      groupPolicy: "allowlist",
+      channels: [
+        { channelId: "C0123456789", enabled: true, mentionBehavior: "required" },
+        { channelId: "C9876543210", enabled: false, mentionBehavior: "not-required" },
+      ],
+      existingChannelKeys: ["C0123456789", "C9876543210"],
+    });
+    expect(parsed).not.toHaveProperty("botToken");
+    expect(parsed).not.toHaveProperty("appToken");
+    expect(JSON.stringify(parsed)).not.toContain("private");
+  });
+
+  it("builds minimal Slack access deltas and keeps credential replacements independent", () => {
+    const current = parseOpenClawSlackConfig({
+      enabled: true,
+      mode: "socket",
+      channels: {
+        C0123456789: { enabled: true, requireMention: true, systemPrompt: "preserve" },
+        C9876543210: { enabled: true },
+      },
+    });
+    expect(buildOpenClawSlackPatch(current, {
       enabled: false,
+      dmPolicy: "open",
+      allowFrom: ["U0123456789"],
+      groupPolicy: "allowlist",
+      channels: [
+        { channelId: "C0123456789", enabled: true, mentionBehavior: "not-required" },
+        { channelId: "C1111111111", enabled: true, mentionBehavior: "runtime-default" },
+      ],
+      replacementAppToken: " new-app ",
+    })).toEqual({
+      enabled: false,
+      dmPolicy: "open",
+      allowFrom: ["*", "U0123456789"],
+      groupPolicy: "allowlist",
+      channels: {
+        C0123456789: { requireMention: false },
+        C9876543210: null,
+        C1111111111: { enabled: true, requireMention: null },
+      },
       appToken: "new-app",
+    });
+  });
+
+  it("removes Slack policy overrides and channel rules explicitly", () => {
+    const current = parseOpenClawSlackConfig({ channels: { C0123456789: { requireMention: true } } });
+    expect(buildOpenClawSlackPatch(current, {
+      enabled: true,
+      dmPolicy: "runtime-default",
+      allowFrom: [],
+      groupPolicy: "runtime-default",
+      channels: [],
+    })).toEqual({
+      enabled: true,
+      dmPolicy: null,
+      allowFrom: null,
+      groupPolicy: null,
+      channels: null,
     });
   });
 });

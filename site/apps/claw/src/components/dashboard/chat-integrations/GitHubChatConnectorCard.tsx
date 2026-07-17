@@ -47,11 +47,13 @@ interface GitHubChatConnectorCardProps {
   agentSetupStatus?: GitHubAgentSetupStatus;
   onStartAgentGitHubSetup?: () => Promise<void> | void;
   onVerifyAgentGitHubSetup?: () => Promise<void> | void;
+  cachedWorkflow?: ConnectorWorkflow | null;
   onGenerateConnectorWorkflow?: (connectorId: "github") => Promise<ConnectorWorkflow>;
   onRunShellProposal?: (command: string) => Promise<void>;
   onOpenIntegrationDetails?: () => void;
   onOpenFullSetup?: () => void;
   onDismiss?: () => void;
+  directSetup?: boolean;
 }
 
 function hasGitHubCapability(configSchema: OpenClawConfigSchemaResponse | null): boolean {
@@ -312,11 +314,13 @@ export function GitHubChatConnectorCard({
   agentSetupStatus,
   onStartAgentGitHubSetup,
   onVerifyAgentGitHubSetup,
+  cachedWorkflow,
   onGenerateConnectorWorkflow,
   onRunShellProposal,
   onOpenIntegrationDetails,
   onOpenFullSetup,
   onDismiss,
+  directSetup = false,
 }: GitHubChatConnectorCardProps) {
   const hasCapability = hasGitHubCapability(configSchema);
   const hasManagedMethods = Boolean(connectorsProvider || (onAuthStart && onAuthStatus && onIntegrationStatus));
@@ -332,9 +336,11 @@ export function GitHubChatConnectorCard({
   const [copiedCode, setCopiedCode] = React.useState(false);
   const [codeRippleActive, setCodeRippleActive] = React.useState(false);
   const [disconnecting, setDisconnecting] = React.useState(false);
-  const [workflow, setWorkflow] = React.useState<ConnectorWorkflow | null>(null);
+  const [generatedWorkflow, setWorkflow] = React.useState<ConnectorWorkflow | null>(null);
+  const workflow = cachedWorkflow ?? generatedWorkflow;
   const [workflowLoading, setWorkflowLoading] = React.useState(false);
   const [workflowUnavailable, setWorkflowUnavailable] = React.useState(false);
+  const directSetupStartedRef = React.useRef(false);
   const codeRippleTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastFocusVerifyRef = React.useRef<number | null>(null);
   const authId = runtimeSetup?.setupId ?? (typeof authStart?.authId === "string" ? authStart.authId : "");
@@ -347,7 +353,8 @@ export function GitHubChatConnectorCard({
   const accountDisplayName = entry?.accountDisplayName ?? authStart?.accountDisplayName;
   const githubAgentStatus: GitHubAgentSetupStatus = agentSetupStatus ?? { phase: "idle", recentCommands: [] };
   const agentFlowActive = agentSetupStarted || githubAgentStatus.phase !== "idle";
-  const workflowActive = workflowLoading || Boolean(workflow) || workflowUnavailable;
+  const effectiveWorkflowUnavailable = workflowUnavailable && !workflow;
+  const workflowActive = workflowLoading || Boolean(workflow) || effectiveWorkflowUnavailable;
   const agentSetupSucceeded = githubAgentStatus.phase === "ready";
   const agentSetupFailed = githubAgentStatus.phase === "failed";
   const agentDeviceCode = githubAgentStatus.userCode;
@@ -522,13 +529,18 @@ export function GitHubChatConnectorCard({
       setWorkflow(await onGenerateConnectorWorkflow("github"));
       return true;
     } catch {
-      setWorkflow(null);
-      setWorkflowUnavailable(true);
+      if (!workflow) setWorkflowUnavailable(true);
       return false;
     } finally {
       setWorkflowLoading(false);
     }
-  }, [onGenerateConnectorWorkflow]);
+  }, [onGenerateConnectorWorkflow, workflow]);
+
+  React.useEffect(() => {
+    if (!directSetup || !connected || !onGenerateConnectorWorkflow || directSetupStartedRef.current) return;
+    directSetupStartedRef.current = true;
+    void generateWorkflow();
+  }, [connected, directSetup, generateWorkflow, onGenerateConnectorWorkflow]);
 
   const startAgentSetup = React.useCallback(async () => {
     if (onGenerateConnectorWorkflow) {
@@ -655,7 +667,7 @@ export function GitHubChatConnectorCard({
 
   const visibleStep = (!connectorsProvider && (!hasCapability || !onIntegrationStatus)) && step === "checking" ? "idle" : step;
   const tone: GitHubCardTone = workflowActive
-    ? workflowUnavailable ? "warning" : "info"
+    ? effectiveWorkflowUnavailable ? "warning" : "info"
     : agentFlowActive
     ? agentSetupSucceeded
       ? "primary"
@@ -664,16 +676,16 @@ export function GitHubChatConnectorCard({
         : "neutral"
     : visibleStep === "connected" ? "primary" : visibleStep === "failed" ? "danger" : visibleStep === "idle" ? "neutral" : "warning";
   const heroLabel = workflowActive
-    ? workflowLoading ? "Preparing setup" : workflowUnavailable ? "Guidance unavailable" : "Setup guide"
+    ? workflow ? "Setup guide" : workflowLoading ? "Preparing setup" : "Guidance unavailable"
     : agentFlowActive
     ? settingEverythingUpActive ? SETTING_UP_ROTATING_COPY[settingUpCopyIndex] ?? SETTING_UP_ROTATING_COPY[0] : agentSetupHeroLabel
     : managedHeroLabel(visibleStep, managedUserCode);
   const heroSubtitle = workflowActive
-    ? workflowLoading ? "Reading this workspace runtime before suggesting steps." : "Review each runtime-specific step before making changes."
+    ? workflow ? "Review each setup step before making changes." : "Preparing setup guidance."
     : agentFlowActive
     ? ""
     : managedHeroSubtitle(visibleStep);
-  const iconLoading = workflowLoading || (agentFlowActive
+  const iconLoading = (workflowLoading && !workflow) || (agentFlowActive
     ? !agentSetupSucceeded && !agentSetupFailed
     : visibleStep === "starting" || visibleStep === "pending");
 
@@ -686,7 +698,7 @@ export function GitHubChatConnectorCard({
       actions={(
         <>
           {workflowActive ? (
-            workflowUnavailable ? (
+            effectiveWorkflowUnavailable ? (
               <button type="button" className={buttonClass("primary")} disabled={workflowLoading} onClick={() => void generateWorkflow()}>
                 Try again
               </button>
@@ -744,7 +756,7 @@ export function GitHubChatConnectorCard({
         <ConnectorWorkflowGuide
           workflow={workflow}
           loading={workflowLoading}
-          unavailable={workflowUnavailable}
+          unavailable={effectiveWorkflowUnavailable}
           onRunShellProposal={onRunShellProposal}
         />
       ) : agentFlowActive ? (

@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { AlertTriangle, Loader2, MessageSquare, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import { AlertTriangle, Loader2, MessageSquare, Plus, RefreshCw, Search } from "lucide-react";
 import type { AgentChannel, AgentChannelSummary, AgentChannelsProvider, AgentChannelsSnapshot } from "@hypercli.com/sdk/channels";
 import type { AgentConnectorDescriptor, AgentConnectorsProvider } from "@hypercli.com/sdk/connectors";
 
@@ -19,6 +19,7 @@ import { getAgentGatewayPanelBootStatus } from "../agents/chat-boot-stage";
 
 type IntegrationIcon = IntegrationBrandIcon;
 type StatusTone = "success" | "warning" | "neutral";
+type IntegrationFilter = "messaging" | "all";
 
 interface IntegrationsDirectoryPanelProps {
   initialCategory?: DirectoryCategory | null;
@@ -31,6 +32,7 @@ interface IntegrationsDirectoryPanelProps {
   reportedChannels?: AgentChannelSummary[];
   reportedChannelSnapshot?: AgentChannelsSnapshot | null;
   reportedChannelsReady?: boolean;
+  reportedChannelsError?: string | null;
   onRefreshChannels?: (probe?: boolean) => Promise<AgentChannelsSnapshot | void>;
   config: Record<string, unknown> | null;
   connected: boolean;
@@ -50,7 +52,8 @@ interface IntegrationTile {
   channel?: AgentChannel;
   connector?: AgentConnectorDescriptor;
   supported: boolean;
-  staleConfiguration?: boolean;
+  runtimeReported: boolean;
+  defaultAccountId?: string;
 }
 
 interface ConnectorState {
@@ -68,6 +71,12 @@ interface ChannelState {
 interface ChannelSelectionState {
   requestedId: string | null;
   selectedId: string | null;
+}
+
+interface SlackPreparationState {
+  operation: AgentGatewaySession["ensureSlackSupport"];
+  status: "preparing" | "ready" | "error";
+  error: string | null;
 }
 
 function displayNameFromId(id: string): string {
@@ -97,6 +106,25 @@ function tileIsConfigured(tile: IntegrationTile): boolean {
   return tile.connector?.configured === true || tile.channels.some((channel) => channel.configured);
 }
 
+function configuredChannelSummaries(
+  channelId: OpenClawConfiguredChannelId,
+  configuredChannel: Record<string, unknown>,
+): AgentChannelSummary[] {
+  const accounts = asRecord(configuredChannel.accounts);
+  const accountIds = accounts ? Object.keys(accounts) : [];
+  if (accountIds.length > 0) {
+    const defaultAccountId = typeof configuredChannel.defaultAccount === "string" ? configuredChannel.defaultAccount : null;
+    accountIds.sort((a, b) => (a === defaultAccountId ? -1 : b === defaultAccountId ? 1 : 0));
+    return accountIds.map((accountId) => ({
+      channelId,
+      accountId,
+      configured: true,
+      healthState: "unknown",
+    }));
+  }
+  return [{ channelId, accountId: "default", configured: true, healthState: "unknown" }];
+}
+
 function buildTiles(
   channels: AgentChannelSummary[],
   github: AgentConnectorDescriptor | null,
@@ -124,7 +152,7 @@ function buildTiles(
         ? accountNames[0]
         : entries.length > 1
           ? `${entries.length} accounts`
-          : "Channel";
+          : "Integration";
       return {
         id,
         displayName: channel?.label ?? plugin?.displayName ?? displayNameFromId(id),
@@ -135,23 +163,27 @@ function buildTiles(
         channels: entries,
         channel,
         supported: true,
+        runtimeReported: true,
       };
     });
   const configuredChannels = asRecord(config?.channels);
   CHANNEL_SETUP_CANDIDATE_IDS.forEach((id) => {
-    if (grouped.has(id) || !asRecord(configuredChannels?.[id])) return;
+    if (grouped.has(id)) return;
     const plugin = PLUGIN_REGISTRY.find((candidate) => candidate.id === id && candidate.category === "chat");
     const brand = INTEGRATION_BRAND_LOGOS[id];
+    const savedConfiguration = asRecord(configuredChannels?.[id]);
+    const hasSavedConfiguration = Boolean(savedConfiguration);
     tiles.push({
       id,
       displayName: plugin?.displayName ?? displayNameFromId(id),
-      subtitle: "Saved configuration is not reported by this runtime",
+      subtitle: hasSavedConfiguration ? "Configured · live status unavailable" : plugin?.description ?? "Messaging integration",
       icon: brand?.icon ?? plugin?.icon ?? MessageSquare,
       iconColor: themedBrandColor(brand?.color),
       plugin,
-      channels: [{ channelId: id, configured: true, healthState: "unknown" }],
-      supported: false,
-      staleConfiguration: true,
+      channels: savedConfiguration ? configuredChannelSummaries(id, savedConfiguration) : [],
+      ...(typeof savedConfiguration?.defaultAccount === "string" ? { defaultAccountId: savedConfiguration.defaultAccount } : {}),
+      supported: true,
+      runtimeReported: false,
     });
   });
   const githubPlugin = PLUGIN_REGISTRY.find((candidate) => candidate.id === "github");
@@ -166,6 +198,7 @@ function buildTiles(
       plugin: githubPlugin,
       channels: [],
       supported: true,
+      runtimeReported: Boolean(github),
       ...(github ? { connector: github } : {}),
     });
   }
@@ -238,7 +271,85 @@ function IntegrationCard({ tile, onOpen }: { tile: IntegrationTile; onOpen: () =
   );
 }
 
+function RuntimeStatusNotice({
+  displayName,
+  detail,
+  refreshing,
+  onRefresh,
+  slackPreparation,
+  onRetrySlack,
+}: {
+  displayName: string;
+  detail: string;
+  refreshing: boolean;
+  onRefresh: () => void;
+  slackPreparation?: SlackPreparationState | null;
+  onRetrySlack?: () => void;
+}) {
+  const preparingSlack = slackPreparation === null || slackPreparation?.status === "preparing";
+
+  return (
+    <section className="mb-4 overflow-hidden rounded-2xl border border-warning/25 bg-surface-low">
+      <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-start sm:justify-between sm:p-5">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-warning/25 bg-warning/10 text-warning">
+            <AlertTriangle className="h-4 w-4" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold text-foreground">{displayName} status is not currently reported</h2>
+            <p className="mt-1 text-xs leading-5 text-text-muted">{detail}</p>
+            {preparingSlack ? (
+              <p role="status" className="mt-2 flex items-center gap-1.5 text-xs text-text-secondary">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Preparing Slack support. The gateway will reconnect automatically.
+              </p>
+            ) : slackPreparation?.status === "ready" ? (
+              <p className="mt-2 text-xs text-text-secondary">Slack support is installed. Waiting for live status.</p>
+            ) : null}
+            {slackPreparation?.error ? <p role="alert" className="mt-2 text-xs text-destructive">{slackPreparation.error}</p> : null}
+          </div>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <button type="button" onClick={onRefresh} disabled={refreshing} className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-semibold text-text-secondary transition-colors hover:bg-surface-high hover:text-foreground disabled:opacity-45">
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} /> Refresh status
+          </button>
+          {slackPreparation?.status === "error" && onRetrySlack ? (
+            <button type="button" onClick={onRetrySlack} className="inline-flex h-9 items-center rounded-lg border border-selection-accent/30 bg-selection-accent/10 px-3 text-xs font-semibold text-selection-accent transition-colors hover:bg-selection-accent/15">
+              Retry Slack preparation
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SlackPreparationBanner({
+  state,
+  onRetry,
+}: {
+  state: SlackPreparationState | null;
+  onRetry: () => void;
+}) {
+  if (state?.status === "ready") return null;
+  return (
+    <section className="mb-4 flex items-center justify-between gap-4 rounded-xl border border-border bg-surface-low p-4">
+      <div className="flex min-w-0 items-center gap-2 text-xs text-text-secondary">
+        {state?.status === "error" ? <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" /> : <Loader2 className="h-4 w-4 shrink-0 animate-spin" />}
+        <span role={state?.status === "error" ? "alert" : "status"}>
+          {state?.error ?? "Preparing Slack support. The gateway will reconnect automatically."}
+        </span>
+      </div>
+      {state?.status === "error" ? (
+        <button type="button" onClick={onRetry} className="shrink-0 rounded-lg border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-surface-high">
+          Retry
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
 export function IntegrationsDirectoryPanel({
+  initialCategory,
   initialPluginId,
   detailBackLabel = "Back to integrations",
   onDetailBack,
@@ -248,6 +359,7 @@ export function IntegrationsDirectoryPanel({
   reportedChannels = [],
   reportedChannelSnapshot = null,
   reportedChannelsReady = false,
+  reportedChannelsError = null,
   onRefreshChannels,
   config,
   connected,
@@ -264,8 +376,7 @@ export function IntegrationsDirectoryPanel({
   const [channelState, setChannelState] = React.useState<ChannelState>({ provider: null, channels: [], snapshot: null, error: null });
   const [connectorState, setConnectorState] = React.useState<ConnectorState>({ provider: null, github: null });
   const [refreshing, setRefreshing] = React.useState(false);
-  const [confirmingStaleRemoval, setConfirmingStaleRemoval] = React.useState(false);
-  const [removingStaleConfiguration, setRemovingStaleConfiguration] = React.useState(false);
+  const [slackPreparationState, setSlackPreparationState] = React.useState<SlackPreparationState | null>(null);
   const scopeLabel = agentName?.trim() || "this agent";
   const selectedChannelId = selection.requestedId === requestedChannelId
     ? selection.selectedId
@@ -291,7 +402,7 @@ export function IntegrationsDirectoryPanel({
             provider: channelsProvider,
             channels: [],
             snapshot: null,
-            error: cause instanceof Error ? cause.message : "Could not read available channels.",
+            error: cause instanceof Error ? cause.message : "Could not read available integrations.",
           });
         }
       });
@@ -320,7 +431,7 @@ export function IntegrationsDirectoryPanel({
     };
   }, [connected, gatewaySession.connectorsProvider]);
 
-  const refreshIntegrations = async () => {
+  const refreshIntegrations = React.useCallback(async () => {
     const connectorsProvider = gatewaySession.connectorsProvider;
     if (!channelsProvider && !connectorsProvider) return;
     setRefreshing(true);
@@ -345,12 +456,12 @@ export function IntegrationsDirectoryPanel({
         provider: channelsProvider,
         channels: [],
         snapshot: null,
-        error: cause instanceof Error ? cause.message : "Could not refresh available channels.",
+        error: cause instanceof Error ? cause.message : "Could not refresh available integrations.",
       });
     } finally {
       setRefreshing(false);
     }
-  };
+  }, [channelsProvider, gatewaySession.connectorsProvider, onRefreshChannels]);
 
   const channels = React.useMemo(() => {
     if (reportedChannelsReady) return reportedChannels;
@@ -370,6 +481,7 @@ export function IntegrationsDirectoryPanel({
   );
   const githubConnector = connectorState.provider === gatewaySession.connectorsProvider ? connectorState.github : null;
   const tiles = React.useMemo(() => buildTiles(channels, githubConnector, channelSnapshot, config), [channelSnapshot, channels, config, githubConnector]);
+  const [integrationFilter, setIntegrationFilter] = React.useState<IntegrationFilter>(initialCategory === "channels" ? "messaging" : "all");
   const selectedTile = React.useMemo(() => {
     if (!selectedChannelId) return null;
     const existing = tiles.find((tile) => tile.id === selectedChannelId);
@@ -380,28 +492,54 @@ export function IntegrationsDirectoryPanel({
     return {
       id: selectedChannelId,
       displayName: plugin?.displayName ?? displayNameFromId(selectedChannelId),
-      subtitle: "Not available in this runtime",
+      subtitle: "Not available for this agent",
       icon: brand?.icon ?? plugin?.icon ?? MessageSquare,
       iconColor: themedBrandColor(brand?.color),
       plugin,
       channels: [],
       supported: false,
+      runtimeReported: false,
     } satisfies IntegrationTile;
   }, [selectedChannelId, tiles]);
+
+  const prepareSlackSupport = React.useCallback(async () => {
+    const operation = gatewaySession.ensureSlackSupport;
+    await Promise.resolve();
+    setSlackPreparationState({ operation, status: "preparing", error: null });
+    try {
+      await operation();
+      await refreshIntegrations();
+      setSlackPreparationState({ operation, status: "ready", error: null });
+    } catch (cause) {
+      setSlackPreparationState({
+        operation,
+        status: "error",
+        error: cause instanceof Error ? cause.message : "Could not update Slack support.",
+      });
+    }
+  }, [gatewaySession.ensureSlackSupport, refreshIntegrations]);
+
+  React.useEffect(() => {
+    if (!connected || selectedTile?.id !== "slack" || selectedTile.runtimeReported || gatewaySession.backend !== "openclaw") return;
+    void Promise.resolve().then(() => prepareSlackSupport());
+  }, [connected, gatewaySession.backend, prepareSlackSupport, selectedTile?.id, selectedTile?.runtimeReported]);
+
   const handleDetailBack = React.useCallback(() => {
-    setConfirmingStaleRemoval(false);
     selectChannel(null);
     onDetailBack?.();
   }, [onDetailBack, selectChannel]);
   const filteredTiles = React.useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return tiles;
-    return tiles.filter((tile) => (
+    const selectedTiles = integrationFilter === "messaging"
+      ? tiles.filter((tile) => CHANNEL_SETUP_CANDIDATE_IDS.includes(tile.id as (typeof CHANNEL_SETUP_CANDIDATE_IDS)[number]))
+      : tiles;
+    if (!query) return selectedTiles;
+    return selectedTiles.filter((tile) => (
       tile.displayName.toLowerCase().includes(query) ||
       tile.subtitle.toLowerCase().includes(query) ||
       tile.id.toLowerCase().includes(query)
     ));
-  }, [searchQuery, tiles]);
+  }, [integrationFilter, searchQuery, tiles]);
 
   if (!connected) {
     const bootStatus = getAgentGatewayPanelBootStatus({
@@ -423,7 +561,7 @@ export function IntegrationsDirectoryPanel({
       <div className="h-full min-h-0 overflow-y-auto bg-background px-5 py-7 text-foreground">
         <div className="mx-auto w-full max-w-6xl rounded-[12px] border border-border bg-surface-low px-5 py-10 text-center">
           <h2 className="text-base font-semibold">No integrations reported</h2>
-          <p className="mt-2 text-sm text-text-muted">This workspace does not publish communication channel capabilities.</p>
+          <p className="mt-2 text-sm text-text-muted">This workspace does not publish integration capabilities.</p>
         </div>
       </div>
     );
@@ -432,22 +570,8 @@ export function IntegrationsDirectoryPanel({
   if (
     selectedTile &&
     isConfiguredChannelId(selectedTile.id) &&
-    (!selectedTile.supported || gatewaySession.backend !== "openclaw")
+    gatewaySession.backend !== "openclaw"
   ) {
-    const runtime = gatewaySession.connectorsProvider?.runtime;
-    const runtimeName = runtime?.provider === "openclaw" ? "OpenClaw" : runtime?.provider || gatewaySession.backend;
-    const adapterUnavailable = selectedTile.supported && gatewaySession.backend !== "openclaw";
-    const removeStaleConfiguration = async () => {
-      if (!channelsProvider?.removeConfig) return;
-      setRemovingStaleConfiguration(true);
-      try {
-        await channelsProvider.removeConfig(selectedTile.id);
-        await onRefreshChannels?.(true);
-        selectChannel(null);
-      } finally {
-        setRemovingStaleConfiguration(false);
-      }
-    };
     return (
       <div className="h-full min-h-0 overflow-y-auto bg-background px-5 py-5">
         <div className="mx-auto w-full max-w-6xl">
@@ -460,32 +584,10 @@ export function IntegrationsDirectoryPanel({
               <div>
                 <h2 className="text-lg font-semibold text-foreground">{selectedTile.displayName} is not available</h2>
                 <p className="mt-1 text-sm leading-6 text-text-secondary">
-                  {selectedTile.staleConfiguration
-                    ? `A saved configuration exists, but the ${runtimeName} runtime does not currently report this channel.`
-                    : adapterUnavailable
-                      ? `${selectedTile.displayName} controls are not available for the ${runtimeName} runtime yet.`
-                    : `This ${runtimeName} runtime does not report support for ${selectedTile.displayName}.`}
+                  {selectedTile.displayName} controls are not available for this agent yet.
                 </p>
-                {runtime ? <p className="mt-2 font-mono text-[11px] text-text-muted">{runtimeName} runtime{runtime.version ? ` · v${runtime.version.replace(/^v/i, "")}` : ""}</p> : null}
               </div>
             </div>
-            {selectedTile.staleConfiguration ? (
-              <div className="flex flex-wrap items-center justify-between gap-3 p-5">
-                <p className="max-w-md text-xs leading-5 text-text-muted">Settings cannot be edited safely until runtime support returns. You can remove the saved configuration now.</p>
-                {!confirmingStaleRemoval ? (
-                  <button type="button" onClick={() => setConfirmingStaleRemoval(true)} disabled={!channelsProvider?.removeConfig} className="inline-flex h-9 items-center gap-2 rounded-lg border border-destructive/35 bg-destructive/10 px-3 text-xs font-semibold text-destructive disabled:opacity-45">
-                    <Trash2 className="h-3.5 w-3.5" /> Remove configuration
-                  </button>
-                ) : (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button type="button" onClick={() => void removeStaleConfiguration()} disabled={removingStaleConfiguration} className="inline-flex h-9 items-center gap-2 rounded-lg border border-destructive/35 bg-destructive/10 px-3 text-xs font-semibold text-destructive disabled:opacity-45">
-                      {removingStaleConfiguration ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Confirm remove
-                    </button>
-                    <button type="button" onClick={() => setConfirmingStaleRemoval(false)} disabled={removingStaleConfiguration} className="h-9 rounded-lg border border-border px-3 text-xs text-text-secondary transition-colors hover:bg-surface-high hover:text-foreground disabled:opacity-45">Cancel</button>
-                  </div>
-                )}
-              </div>
-            ) : null}
           </section>
         </div>
       </div>
@@ -493,9 +595,14 @@ export function IntegrationsDirectoryPanel({
   }
 
   if (selectedTile && isRuntimeConnectorId(selectedTile.id)) {
+    const needsWhatsAppPairing = selectedTile.id === "whatsapp" && !tileIsOnline(selectedTile);
+    const selectedSlackPreparation = selectedTile.id === "slack"
+      ? slackPreparationState?.operation === gatewaySession.ensureSlackSupport ? slackPreparationState : null
+      : null;
     if (
       isConfiguredChannelId(selectedTile.id) &&
       tileIsConfigured(selectedTile) &&
+      !needsWhatsAppPairing &&
       selectedTile.supported &&
       channelsProvider &&
       gatewaySession.backend === "openclaw"
@@ -503,6 +610,7 @@ export function IntegrationsDirectoryPanel({
       const groupedChannel = selectedTile.channel ?? {
         channelId: selectedTile.id,
         label: selectedTile.displayName,
+        defaultAccountId: selectedTile.defaultAccountId,
         rawChannelStatus: {},
         accounts: selectedTile.channels.map((summary) => ({
           accountId: summary.accountId,
@@ -517,12 +625,29 @@ export function IntegrationsDirectoryPanel({
           rawRuntimeStatus: {},
         })),
       } satisfies AgentChannel;
+      const runtimeStatusDetail = loadingChannels
+        ? `Checking the live ${selectedTile.displayName} connection. Saved settings remain available while status loads.`
+        : reportedChannelsError || loadError
+          ? `Live status could not be refreshed. Saved settings remain available. ${reportedChannelsError || loadError}`
+          : channelSnapshot?.partial
+            ? `The agent returned an incomplete integration snapshot. Saved settings remain available while status is refreshed.`
+            : `A saved configuration exists, but the agent is not currently publishing live ${selectedTile.displayName} status. You can safely review settings or refresh status.`;
       return (
         <div className="h-full min-h-0 overflow-y-auto bg-background px-5 py-5">
           <div className="mx-auto w-full max-w-6xl">
             <button type="button" onClick={handleDetailBack} className="mb-5 rounded-full border border-border px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground">
               {detailBackLabel}
             </button>
+            {!selectedTile.runtimeReported ? (
+              <RuntimeStatusNotice
+                displayName={selectedTile.displayName}
+                detail={runtimeStatusDetail}
+                refreshing={refreshing}
+                onRefresh={() => void refreshIntegrations()}
+                slackPreparation={selectedTile.id === "slack" ? selectedSlackPreparation : undefined}
+                onRetrySlack={() => void prepareSlackSupport()}
+              />
+            ) : null}
             <OpenClawChannelSettingsPanel
               channelId={selectedTile.id}
               channel={groupedChannel}
@@ -547,10 +672,14 @@ export function IntegrationsDirectoryPanel({
           <button type="button" onClick={handleDetailBack} className="mb-5 rounded-full border border-border px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground">
             {detailBackLabel}
           </button>
+          {selectedTile.id === "slack" ? (
+            <SlackPreparationBanner state={selectedSlackPreparation} onRetry={() => void prepareSlackSupport()} />
+          ) : null}
           <IntegrationChatCardHost
             action={action}
             chat={gatewaySession}
             agentName={agentName}
+            directSetup
             onOpenFullSetup={selectedTile.id === "whatsapp" ? () => onOpenShell() : undefined}
           />
         </div>
@@ -589,7 +718,7 @@ export function IntegrationsDirectoryPanel({
           </button>
           <div className="max-w-2xl rounded-xl border border-border bg-surface-low p-5">
             <h2 className="text-xl font-semibold">{selectedTile.displayName}</h2>
-            <p className="mt-2 text-sm text-text-secondary">This channel is available in this workspace, but guided setup is not available yet.</p>
+            <p className="mt-2 text-sm text-text-secondary">This integration is available in this workspace, but guided setup is not available yet.</p>
           </div>
         </div>
       </div>
@@ -600,19 +729,20 @@ export function IntegrationsDirectoryPanel({
     <div className="h-full min-h-0 overflow-y-auto bg-background text-foreground">
       <div className="mx-auto w-full max-w-6xl">
         <div className="border-b border-border px-5 py-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h2 className="text-[19px] font-semibold leading-none">Channels</h2>
-              <p className="mt-2 text-xs text-text-muted">Communication channels reported by this workspace.</p>
-            </div>
-            <div className="flex w-full gap-2 lg:w-auto">
-              <label className="relative min-w-0 flex-1 lg:w-[360px]">
-                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
-                <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search channels..." className="h-10 w-full rounded-[11px] border border-border bg-input-background pl-10 pr-3 text-[14px] text-foreground outline-none placeholder:text-text-muted focus:border-border-strong focus:ring-2 focus:ring-ring" />
+          <div className="flex flex-col gap-5">
+            <div className="flex items-center justify-between gap-4">
+              <h2 className="shrink-0 text-[22px] font-semibold leading-none">{integrationFilter === "all" ? "All integrations" : "Messaging integrations"}</h2>
+              <label className="relative min-w-0 flex-1 lg:max-w-[560px]">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-text-muted" />
+                <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search integrations..." className="h-12 w-full rounded-2xl border border-border bg-input-background pl-12 pr-12 text-base text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-border-strong focus:ring-2 focus:ring-ring" />
+                <button type="button" onClick={() => void refreshIntegrations()} disabled={refreshing} aria-label="Refresh integrations" className="absolute right-1.5 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-xl text-text-secondary transition-colors hover:bg-surface-high hover:text-foreground disabled:opacity-50">
+                  <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+                </button>
               </label>
-              <button type="button" onClick={() => void refreshIntegrations()} disabled={refreshing} aria-label="Refresh channels" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px] border border-border bg-surface-low text-text-secondary transition-colors hover:border-border-strong hover:bg-surface-high hover:text-foreground disabled:opacity-50">
-                <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-              </button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2.5" aria-label="Integration type">
+              <button type="button" aria-pressed={integrationFilter === "all"} onClick={() => setIntegrationFilter("all")} className={`h-10 rounded-full border px-5 text-sm font-semibold transition-colors ${integrationFilter === "all" ? "border-foreground bg-foreground text-background" : "border-border bg-surface-low text-text-secondary hover:border-border-strong hover:text-foreground"}`}>All</button>
+              <button type="button" aria-pressed={integrationFilter === "messaging"} onClick={() => setIntegrationFilter("messaging")} className={`h-10 rounded-full border px-5 text-sm font-semibold transition-colors ${integrationFilter === "messaging" ? "border-foreground bg-foreground text-background" : "border-border bg-surface-low text-text-secondary hover:border-border-strong hover:text-foreground"}`}>Messaging</button>
             </div>
           </div>
         </div>
@@ -621,17 +751,17 @@ export function IntegrationsDirectoryPanel({
           {channelSnapshot?.partial ? (
             <div role="status" className="mb-4 flex items-start gap-2 rounded-[10px] border border-warning/25 bg-warning/10 px-3.5 py-3 text-xs leading-5 text-warning">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              Some channel status checks did not complete{channelSnapshot.warnings?.length ? ` (${channelSnapshot.warnings.length})` : ""}. Saved settings remain available; refresh before relying on live health.
+              Some integration status checks did not complete{channelSnapshot.warnings?.length ? ` (${channelSnapshot.warnings.length})` : ""}. Saved settings remain available; refresh before relying on live health.
             </div>
           ) : null}
           {loadingChannels ? (
             <div className="flex items-center justify-center gap-3 py-14 text-sm text-text-muted">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Reading available channels...
+              Reading available integrations...
             </div>
           ) : loadError ? (
             <div className="rounded-[12px] border border-destructive/30 bg-destructive/10 px-5 py-10 text-center">
-              <p className="text-sm text-destructive">This workspace could not report its communication channels.</p>
+              <p className="text-sm text-destructive">This workspace could not report its integrations.</p>
               <button type="button" onClick={() => void refreshIntegrations()} className="mt-4 rounded-lg border border-destructive/30 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-destructive/10">Try again</button>
             </div>
           ) : filteredTiles.length > 0 ? (
@@ -642,7 +772,7 @@ export function IntegrationsDirectoryPanel({
             </div>
           ) : (
             <div className="rounded-[12px] border border-border bg-surface-low px-5 py-10 text-center text-sm text-text-muted">
-              {tiles.length === 0 ? "This workspace reports no communication channels." : "No channels match this search."}
+              {tiles.length === 0 ? "This workspace reports no integrations." : "No integrations match this search."}
             </div>
           )}
         </div>

@@ -4,6 +4,10 @@ export type RuntimeDefaultChoice<T extends string> = T | "runtime-default";
 export type TelegramDmPolicy = RuntimeDefaultChoice<"allowlist" | "pairing" | "open" | "disabled">;
 export type TelegramGroupPolicy = RuntimeDefaultChoice<"allowlist" | "open" | "disabled">;
 export type MentionBehavior = "runtime-default" | "required" | "not-required" | "mixed";
+export type SlackTransportMode = "socket" | "http" | "relay" | "runtime-default";
+export type SlackDmPolicy = TelegramDmPolicy;
+export type SlackGroupPolicy = TelegramGroupPolicy;
+export type SlackMentionBehavior = Exclude<MentionBehavior, "mixed">;
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -30,6 +34,18 @@ export interface SafeDiscordChannelConfig {
 export interface SafeSlackChannelConfig {
   channelId: "slack";
   enabled: boolean;
+  mode: SlackTransportMode;
+  dmPolicy: SlackDmPolicy;
+  allowFrom: string[];
+  groupPolicy: SlackGroupPolicy;
+  channels: SlackChannelRule[];
+  existingChannelKeys: string[];
+}
+
+export interface SlackChannelRule {
+  channelId: string;
+  enabled: boolean;
+  mentionBehavior: SlackMentionBehavior;
 }
 
 export interface SafeWhatsAppChannelConfig {
@@ -63,6 +79,10 @@ export interface DiscordSettingsUpdate {
 
 export interface SlackSettingsUpdate {
   enabled: boolean;
+  dmPolicy: SlackDmPolicy;
+  allowFrom: string[];
+  groupPolicy: SlackGroupPolicy;
+  channels: SlackChannelRule[];
   replacementBotToken?: string;
   replacementAppToken?: string;
 }
@@ -154,9 +174,28 @@ export function parseOpenClawDiscordConfig(value: unknown): SafeDiscordChannelCo
 }
 
 export function parseOpenClawSlackConfig(value: unknown): SafeSlackChannelConfig {
+  const config = asRecord(value);
+  const mode = config?.mode;
+  const channels = asRecord(config?.channels);
+  const existingChannelKeys = ownKeys(channels);
   return {
     channelId: "slack",
-    enabled: enabledValue(asRecord(value)),
+    enabled: enabledValue(config),
+    mode: mode === "socket" || mode === "http" || mode === "relay" ? mode : "runtime-default",
+    dmPolicy: isTelegramDmPolicy(config?.dmPolicy) ? config.dmPolicy : "runtime-default",
+    allowFrom: cleanStrings(config?.allowFrom),
+    groupPolicy: isTelegramGroupPolicy(config?.groupPolicy) ? config.groupPolicy : "runtime-default",
+    channels: existingChannelKeys.map((channelId) => {
+      const rule = asRecord(channels?.[channelId]);
+      return {
+        channelId,
+        enabled: typeof rule?.enabled === "boolean" ? rule.enabled : true,
+        mentionBehavior: typeof rule?.requireMention !== "boolean"
+          ? "runtime-default"
+          : rule.requireMention ? "required" : "not-required",
+      };
+    }),
+    existingChannelKeys,
   };
 }
 
@@ -245,9 +284,44 @@ export function buildOpenClawDiscordPatch(
   };
 }
 
-export function buildOpenClawSlackPatch(update: SlackSettingsUpdate): UnknownRecord {
+export function buildOpenClawSlackPatch(
+  current: SafeSlackChannelConfig,
+  update: SlackSettingsUpdate,
+): UnknownRecord {
+  const allowFrom = update.dmPolicy === "open"
+    ? Array.from(new Set(["*", ...update.allowFrom]))
+    : Array.from(new Set(update.allowFrom));
+  const nextRules = new Map(update.channels.map((rule) => [rule.channelId.trim(), rule]));
+  const currentRules = new Map(current.channels.map((rule) => [rule.channelId, rule]));
+  const channels: UnknownRecord = {};
+
+  current.existingChannelKeys.forEach((channelId) => {
+    if (!nextRules.has(channelId)) channels[channelId] = null;
+  });
+  nextRules.forEach((rule, channelId) => {
+    if (!channelId) return;
+    const existing = currentRules.get(channelId);
+    const mentionChanged = !existing || existing.mentionBehavior !== rule.mentionBehavior;
+    const enabledChanged = !existing || existing.enabled !== rule.enabled;
+    if (!mentionChanged && !enabledChanged) return;
+    channels[channelId] = {
+      ...(enabledChanged ? { enabled: rule.enabled } : {}),
+      ...(mentionChanged ? {
+        requireMention: rule.mentionBehavior === "runtime-default"
+          ? null
+          : rule.mentionBehavior === "required",
+      } : {}),
+    };
+  });
+
   return {
     enabled: update.enabled,
+    dmPolicy: update.dmPolicy === "runtime-default" ? null : update.dmPolicy,
+    allowFrom: allowFrom.length > 0 ? allowFrom : null,
+    groupPolicy: update.groupPolicy === "runtime-default" ? null : update.groupPolicy,
+    ...(update.channels.length === 0 && current.existingChannelKeys.length > 0
+      ? { channels: null }
+      : Object.keys(channels).length > 0 ? { channels } : {}),
     ...(update.replacementBotToken?.trim() ? { botToken: update.replacementBotToken.trim() } : {}),
     ...(update.replacementAppToken?.trim() ? { appToken: update.replacementAppToken.trim() } : {}),
   };
@@ -259,7 +333,7 @@ export function buildOpenClawWhatsAppPatch(enabled: boolean): UnknownRecord {
 
 export function readOpenClawCredentialState(
   rawRuntimeStatus: unknown,
-  credential: "token" | "botToken" | "appToken",
+  credential: "token" | "botToken" | "appToken" | "signingSecret" | "userToken",
 ): RuntimeCredentialState {
   const status = asRecord(rawRuntimeStatus);
   const rawStatus = status?.[`${credential}Status`];
@@ -270,6 +344,11 @@ export function readOpenClawCredentialState(
       : undefined,
     source: typeof rawSource === "string" && rawSource.trim() ? rawSource.trim() : undefined,
   };
+}
+
+export function readOpenClawSlackMode(rawRuntimeStatus: unknown): Exclude<SlackTransportMode, "runtime-default"> | undefined {
+  const mode = asRecord(rawRuntimeStatus)?.mode;
+  return mode === "socket" || mode === "http" || mode === "relay" ? mode : undefined;
 }
 
 export function parseDelimitedIds(value: string): string[] {

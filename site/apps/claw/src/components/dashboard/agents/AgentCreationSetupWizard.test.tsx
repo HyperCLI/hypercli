@@ -151,8 +151,8 @@ function getPlanCard(name: string): HTMLElement {
 
 describe("AgentCreationSetupWizard", () => {
   beforeEach(() => {
-    process.env.NEXT_PUBLIC_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:prod";
-    process.env.NEXT_PUBLIC_OPENCLAW_PRO_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-prod";
+    process.env.NEXT_PUBLIC_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-latest";
+    process.env.NEXT_PUBLIC_OPENCLAW_PRO_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-latest";
   });
 
   it("marks desktop, memory indexing, and custom image as Pro features", () => {
@@ -170,12 +170,12 @@ describe("AgentCreationSetupWizard", () => {
     fireEvent.click(screen.getByLabelText(/Custom image/i));
     const imageInput = screen.getByRole("textbox", { name: "Custom agent image" }) as HTMLInputElement;
 
-    expect(imageInput).toHaveValue("ghcr.io/hypercli/hypercli-openclaw:prod");
+    expect(imageInput).toHaveValue("ghcr.io/hypercli/hypercli-openclaw:pro-latest");
 
     fireEvent.click(screen.getByLabelText(/Desktop browser/i));
 
     await waitFor(() => {
-      expect(imageInput).toHaveValue("ghcr.io/hypercli/hypercli-openclaw:pro-prod");
+      expect(imageInput).toHaveValue("ghcr.io/hypercli/hypercli-openclaw:pro-latest");
     });
   });
 

@@ -2,15 +2,18 @@
 
 import type { CSSProperties } from "react";
 import { useEffect, useRef, useState } from "react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@hypercli/shared-ui";
 import type { AgentChannel, AgentChannelsProvider } from "@hypercli.com/sdk/channels";
 import type { AgentConnectorsProvider, AgentRuntimeDescriptor } from "@hypercli.com/sdk/connectors";
 import {
   AlertTriangle,
   Check,
+  CircleHelp,
   CircleDot,
   FlaskConical,
   KeyRound,
   Loader2,
+  Plus,
   RefreshCw,
   ShieldCheck,
   Trash2,
@@ -19,7 +22,7 @@ import {
 
 import { INTEGRATION_BRAND_LOGOS } from "@/components/dashboard/integrations/integration-brand-icons";
 import { ConnectorAuthorizationGuide } from "./ConnectorAuthorizationGuide";
-import { TELEGRAM_PAIRING_AUTHORIZATION_FLOW } from "./connector-authorization-flows";
+import { SLACK_PAIRING_AUTHORIZATION_FLOW, TELEGRAM_PAIRING_AUTHORIZATION_FLOW } from "./connector-authorization-flows";
 import {
   buildOpenClawDiscordPatch,
   buildOpenClawSlackPatch,
@@ -28,9 +31,14 @@ import {
   parseDelimitedIds,
   parseOpenClawChannelConfig,
   readOpenClawCredentialState,
+  readOpenClawSlackMode,
   type MentionBehavior,
   type OpenClawConfiguredChannelId,
   type SafeOpenClawChannelConfig,
+  type SlackChannelRule,
+  type SlackDmPolicy,
+  type SlackGroupPolicy,
+  type SlackMentionBehavior,
   type TelegramDmPolicy,
   type TelegramGroupPolicy,
 } from "./openclaw-channel-settings";
@@ -48,6 +56,7 @@ export interface OpenClawChannelSettingsPanelProps {
 
 type OptionalProviderOperations = Partial<Pick<AgentChannelsProvider, "readConfig" | "update" | "read" | "removeConfig">>;
 type Operation = "save" | "probe" | "remove" | null;
+type TelegramPrivacyMode = "enabled" | "disabled" | "unknown";
 
 interface ChannelFormState {
   enabled: boolean;
@@ -59,6 +68,7 @@ interface ChannelFormState {
   mentionBehavior: MentionBehavior;
   guildId: string;
   userId: string;
+  slackChannels: SlackChannelRule[];
   replaceBotToken: boolean;
   replaceAppToken: boolean;
   botToken: string;
@@ -86,38 +96,20 @@ function initialForm(channelId: OpenClawConfiguredChannelId): ChannelFormState {
 function formFromConfig(config: SafeOpenClawChannelConfig): ChannelFormState {
   return {
     enabled: config.enabled,
-    dmPolicy: config.channelId === "telegram" ? config.dmPolicy : "runtime-default",
-    allowFrom: config.channelId === "telegram" ? config.allowFrom.join(", ") : "",
-    groupPolicy: config.channelId === "telegram" ? config.groupPolicy : "runtime-default",
+    dmPolicy: config.channelId === "telegram" || config.channelId === "slack" ? config.dmPolicy : "runtime-default",
+    allowFrom: config.channelId === "telegram" || config.channelId === "slack" ? config.allowFrom.join(", ") : "",
+    groupPolicy: config.channelId === "telegram" || config.channelId === "slack" ? config.groupPolicy : "runtime-default",
     groupAllowFrom: config.channelId === "telegram" ? config.groupAllowFrom.join(", ") : "",
     groupIds: config.channelId === "telegram" ? config.groupIds.join(", ") : "",
     mentionBehavior: config.channelId === "telegram" ? config.mentionBehavior : "runtime-default",
     guildId: config.channelId === "discord" ? config.guildId : "",
     userId: config.channelId === "discord" ? config.userId : "",
+    slackChannels: config.channelId === "slack" ? config.channels : [],
     replaceBotToken: false,
     replaceAppToken: false,
     botToken: "",
     appToken: "",
   };
-}
-
-function providerLabel(provider: string): string {
-  if (provider.toLowerCase() === "openclaw") return "OpenClaw";
-  return provider
-    .split(/[-_.]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function runtimeLabel(runtime: AgentRuntimeDescriptor): string {
-  const version = runtime.version?.trim();
-  const protocol = runtime.protocol?.trim();
-  return [
-    `${providerLabel(runtime.provider)} runtime`,
-    version ? (version.toLowerCase().startsWith("v") ? version : `v${version}`) : null,
-    protocol || null,
-  ].filter(Boolean).join(" · ");
 }
 
 function credentialStatusLabel(status?: string): string {
@@ -135,6 +127,21 @@ function rawStatusLabel(value: unknown): string | null {
   return candidate?.trim() ?? null;
 }
 
+function readTelegramPrivacyMode(...sources: unknown[]): TelegramPrivacyMode {
+  for (const source of sources) {
+    if (!source || typeof source !== "object" || Array.isArray(source)) continue;
+    const probe = (source as Record<string, unknown>).probe;
+    if (!probe || typeof probe !== "object" || Array.isArray(probe)) continue;
+    const bot = (probe as Record<string, unknown>).bot;
+    if (!bot || typeof bot !== "object" || Array.isArray(bot)) continue;
+    const canReadAllGroupMessages = (bot as Record<string, unknown>).canReadAllGroupMessages;
+    if (typeof canReadAllGroupMessages === "boolean") {
+      return canReadAllGroupMessages ? "disabled" : "enabled";
+    }
+  }
+  return "unknown";
+}
+
 function fieldLabel(label: string, content: React.ReactNode) {
   return (
     <label className="block min-w-0">
@@ -149,7 +156,6 @@ export function OpenClawChannelSettingsPanel({
   channel,
   provider,
   connectorsProvider,
-  runtime,
   connected,
   onRefresh,
   onOpenPairing,
@@ -171,10 +177,12 @@ export function OpenClawChannelSettingsPanel({
   const [form, setForm] = useState<ChannelFormState>(() => initialForm(channelId));
   const [resolvedAccountId, setResolvedAccountId] = useState<string | undefined>();
   const [savedTelegramDmPolicy, setSavedTelegramDmPolicy] = useState<TelegramDmPolicy>("runtime-default");
+  const [savedSlackDmPolicy, setSavedSlackDmPolicy] = useState<SlackDmPolicy>("runtime-default");
   const [loadedScope, setLoadedScope] = useState<string | null>(null);
   const [operation, setOperation] = useState<Operation>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [telegramPrivacyProbe, setTelegramPrivacyProbe] = useState<{ scope: string; mode: TelegramPrivacyMode } | null>(null);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const confirmRemoveRef = useRef<HTMLButtonElement>(null);
   const selectedAccountId = accountSelection.channelId === channelId && accountSelection.accountId && knownAccountIds.includes(accountSelection.accountId)
@@ -188,6 +196,10 @@ export function OpenClawChannelSettingsPanel({
   const canRemove = typeof operations.removeConfig === "function";
   const readConfigOperation = operations.readConfig;
   const readScope = `${channelId}:${selectedAccountId ?? "default"}`;
+  const reportedTelegramPrivacyMode = readTelegramPrivacyMode(selectedAccount?.rawRuntimeStatus, channel.rawChannelStatus);
+  const telegramPrivacyMode = telegramPrivacyProbe?.scope === readScope
+    ? telegramPrivacyProbe.mode
+    : reportedTelegramPrivacyMode;
   const loading = canReadConfig && loadedScope !== readScope;
   const busy = operation !== null;
   const style = {
@@ -207,12 +219,13 @@ export function OpenClawChannelSettingsPanel({
         setForm(formFromConfig(parsed));
         setResolvedAccountId(result.accountId);
         setSavedTelegramDmPolicy(parsed.channelId === "telegram" ? parsed.dmPolicy : "runtime-default");
+        setSavedSlackDmPolicy(parsed.channelId === "slack" ? parsed.dmPolicy : "runtime-default");
         setError(null);
         setLoadedScope(readScope);
       })
       .catch(() => {
         if (!cancelled) {
-          setError(`Could not read ${name} settings from this runtime.`);
+          setError(`Could not read ${name} settings from this agent.`);
           setLoadedScope(readScope);
         }
       });
@@ -241,8 +254,8 @@ export function OpenClawChannelSettingsPanel({
   };
 
   const validate = (): string | null => {
-    if (!connected) return "Reconnect the workspace before changing channel settings.";
-    if (!canUpdate) return "This runtime cannot update channel settings.";
+    if (!connected) return "Reconnect the workspace before changing integration settings.";
+    if (!canUpdate) return "This agent cannot update integration settings.";
     if ((form.replaceBotToken && !form.botToken.trim()) || (form.replaceAppToken && !form.appToken.trim())) {
       return "Enter each credential selected for replacement.";
     }
@@ -259,6 +272,19 @@ export function OpenClawChannelSettingsPanel({
       const userId = form.userId.trim();
       if (Boolean(guildId) !== Boolean(userId)) return "Enter both the server ID and member ID, or clear both.";
       if ((guildId && !/^\d+$/.test(guildId)) || (userId && !/^\d+$/.test(userId))) return "Discord server and member IDs must be numeric.";
+    }
+    if (channelId === "slack") {
+      if (form.replaceBotToken && !form.botToken.trim().startsWith("xoxb-")) return "Slack bot tokens must start with xoxb-.";
+      if (form.replaceAppToken && !form.appToken.trim().startsWith("xapp-")) return "Slack app tokens must start with xapp-.";
+      const allowFrom = parseDelimitedIds(form.allowFrom);
+      if (form.dmPolicy === "allowlist" && allowFrom.length === 0) return "Add at least one Slack user ID for direct-message allowlist access.";
+      if (!allowFrom.every((entry) => /^U[A-Z0-9]{8,}$/.test(entry) || (entry === "*" && form.dmPolicy === "open"))) {
+        return "Slack sender IDs must be uppercase U... IDs. The wildcard is only allowed with Open access.";
+      }
+      const channelIds = form.slackChannels.map((rule) => rule.channelId.trim());
+      if (form.groupPolicy === "allowlist" && channelIds.length === 0) return "Add at least one Slack channel for channel allowlist access.";
+      if (!channelIds.every((entry) => /^C[A-Z0-9]{8,}$/.test(entry))) return "Slack channel IDs must be uppercase C... IDs, not channel names.";
+      if (new Set(channelIds).size !== channelIds.length) return "Each Slack channel ID can only be listed once.";
     }
     return null;
   };
@@ -294,17 +320,37 @@ export function OpenClawChannelSettingsPanel({
           userId: form.userId,
           ...(form.replaceBotToken ? { replacementBotToken: form.botToken } : {}),
         });
-      } else if (channelId === "slack") {
-        patch = buildOpenClawSlackPatch({
+      } else if (channelId === "slack" && safeConfig.channelId === "slack") {
+        patch = buildOpenClawSlackPatch(safeConfig, {
           enabled: form.enabled,
+          dmPolicy: form.dmPolicy,
+          allowFrom: parseDelimitedIds(form.allowFrom),
+          groupPolicy: form.groupPolicy,
+          channels: form.slackChannels.map((rule) => ({ ...rule, channelId: rule.channelId.trim() })),
           ...(form.replaceBotToken ? { replacementBotToken: form.botToken } : {}),
           ...(form.replaceAppToken ? { replacementAppToken: form.appToken } : {}),
         });
       } else {
         patch = buildOpenClawWhatsAppPatch(form.enabled);
       }
-      await update.call(provider, { channelId, ...(resolvedAccountId ? { accountId: resolvedAccountId } : {}), patch });
+      const updateAccountId = channelId === "slack"
+        ? resolvedAccountId ?? (selectedAccountId && selectedAccountId !== "default" ? selectedAccountId : undefined)
+        : resolvedAccountId;
+      await update.call(provider, { channelId, ...(updateAccountId ? { accountId: updateAccountId } : {}), patch });
       if (channelId === "telegram") setSavedTelegramDmPolicy(form.dmPolicy);
+      if (channelId === "slack") {
+        setSavedSlackDmPolicy(form.dmPolicy);
+        setSafeConfig({
+          channelId: "slack",
+          enabled: form.enabled,
+          mode: safeConfig.channelId === "slack" ? safeConfig.mode : "socket",
+          dmPolicy: form.dmPolicy,
+          allowFrom: parseDelimitedIds(form.allowFrom),
+          groupPolicy: form.groupPolicy,
+          channels: form.slackChannels.map((rule) => ({ ...rule, channelId: rule.channelId.trim() })),
+          existingChannelKeys: form.slackChannels.map((rule) => rule.channelId.trim()),
+        });
+      }
       setForm((current) => ({
         ...current,
         replaceBotToken: false,
@@ -315,7 +361,7 @@ export function OpenClawChannelSettingsPanel({
       setNotice("Settings saved.");
       await refresh();
     } catch {
-      setError(`Could not save ${name} settings. Check the runtime connection and try again.`);
+      setError(`Could not save ${name} settings. Check the agent connection and try again.`);
     } finally {
       setOperation(null);
     }
@@ -324,15 +370,31 @@ export function OpenClawChannelSettingsPanel({
   const probe = async () => {
     const read = operations.read;
     if (typeof read !== "function") {
-      setError("Connection testing is unavailable for this runtime.");
+      setError("Connection testing is unavailable for this agent.");
       return;
     }
     setOperation("probe");
     setError(null);
     setNotice(null);
     try {
-      await read.call(provider, { channelId, probe: true });
-      setNotice("Connection test complete. Runtime status refreshed.");
+      const snapshot = await read.call(provider, { channelId, probe: true });
+      const refreshedChannel = snapshot.channels.find((candidate) => candidate.channelId === channelId);
+      const refreshedAccount = selectedAccountId
+        ? refreshedChannel?.accounts.find((candidate) => candidate.accountId === selectedAccountId)
+        : refreshedChannel?.accounts.length === 1 ? refreshedChannel.accounts[0] : undefined;
+      if (channelId === "telegram") {
+        setTelegramPrivacyProbe({
+          scope: readScope,
+          mode: readTelegramPrivacyMode(refreshedAccount?.rawRuntimeStatus, refreshedChannel?.rawChannelStatus),
+        });
+      }
+      if (!refreshedAccount) {
+        setError(`Could not identify the selected ${name} account after testing.`);
+      } else if (refreshedAccount.configured && refreshedAccount.running === true && refreshedAccount.healthState === "healthy") {
+        setNotice("Connection test passed. Connection status refreshed.");
+      } else {
+        setError(refreshedAccount.lastError?.trim() || `${name} is configured but not healthy yet.`);
+      }
       await refresh();
     } catch {
       setError(`Could not test the ${name} connection right now.`);
@@ -344,21 +406,54 @@ export function OpenClawChannelSettingsPanel({
   const remove = async () => {
     const removeConfig = operations.removeConfig;
     if (typeof removeConfig !== "function") {
-      setError("Configuration removal is unavailable for this runtime.");
+      setError("Configuration removal is unavailable for this agent.");
       return;
     }
     setOperation("remove");
     setError(null);
     setNotice(null);
     try {
-      await removeConfig.call(provider, channelId, resolvedAccountId);
-      setConfirmingRemove(false);
-      setForm(initialForm(channelId));
-      setSavedTelegramDmPolicy("runtime-default");
-      setNotice("Configuration removed.");
-      await refresh();
+      const resolvedRemovalAccountId = resolvedAccountId ?? selectedAccountId;
+      const removalAccountId = resolvedRemovalAccountId && resolvedRemovalAccountId !== "default"
+        ? resolvedRemovalAccountId
+        : undefined;
+      if (removalAccountId) await removeConfig.call(provider, channelId, removalAccountId);
+      else await removeConfig.call(provider, channelId);
     } catch {
       setError(`Could not remove the ${name} configuration.`);
+      setOperation(null);
+      return;
+    }
+
+    setConfirmingRemove(false);
+    setForm(initialForm(channelId));
+    setSavedTelegramDmPolicy("runtime-default");
+    setSavedSlackDmPolicy("runtime-default");
+    let remainsConfigured = false;
+    let statusUnavailable = false;
+    try {
+      if (typeof operations.read === "function") {
+        const snapshot = await operations.read.call(provider, { channelId });
+        const refreshedChannel = snapshot.channels.find((candidate) => candidate.channelId === channelId);
+        const refreshedAccount = selectedAccountId
+          ? refreshedChannel?.accounts.find((candidate) => candidate.accountId === selectedAccountId)
+          : refreshedChannel?.accounts.length === 1 ? refreshedChannel.accounts[0] : undefined;
+        remainsConfigured = refreshedAccount?.configured === true;
+      }
+    } catch {
+      statusUnavailable = true;
+    }
+    setNotice(remainsConfigured
+      ? "Local configuration removed. Inherited or environment-backed settings still configure this account."
+      : statusUnavailable
+        ? "Configuration removed. Status refresh was unavailable."
+        : "Configuration removed.");
+    try {
+      await refresh();
+    } catch {
+      setNotice((current) => current?.includes("Status refresh was unavailable")
+        ? current
+        : `${current ?? "Configuration removed."} Status refresh was unavailable.`);
     } finally {
       setOperation(null);
     }
@@ -405,8 +500,102 @@ export function OpenClawChannelSettingsPanel({
     </div>
   );
 
+  const updateSlackChannel = <K extends keyof SlackChannelRule>(index: number, field: K, value: SlackChannelRule[K]) => {
+    setForm((current) => ({
+      ...current,
+      slackChannels: current.slackChannels.map((rule, ruleIndex) => ruleIndex === index ? { ...rule, [field]: value } : rule),
+    }));
+    setError(null);
+    setNotice(null);
+  };
+
+  const renderSlackSettings = () => (
+    <div className="space-y-5">
+      <div className="rounded-lg border border-border bg-background p-3 text-xs leading-5 text-text-muted">
+        This account uses {slackModeLabel}. Create or manage the app at <a href="https://api.slack.com/apps" target="_blank" rel="noopener noreferrer" className="font-semibold text-text-secondary underline-offset-2 hover:text-foreground hover:underline">Slack API</a>, then keep its bot invited to every allowed channel.
+      </div>
+
+      <div className="space-y-3">
+        <div>
+          <h4 className="text-xs font-bold uppercase tracking-[0.12em] text-text-secondary">Direct messages</h4>
+          <p className="mt-1 text-xs text-text-muted">Choose who may start direct conversations with this agent.</p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          {fieldLabel("Direct-message policy", (
+            <select aria-label="Slack direct-message policy" className={INPUT_CLASS} value={form.dmPolicy} onChange={(event) => setField("dmPolicy", event.target.value as SlackDmPolicy)}>
+              <option value="runtime-default">Runtime default</option>
+              <option value="pairing">Pairing approval</option>
+              <option value="allowlist">Allowlist</option>
+              <option value="open">Open</option>
+              <option value="disabled">Disabled</option>
+            </select>
+          ))}
+          {fieldLabel("Allowed Slack user IDs", (
+            <input aria-label="Slack allowed user IDs" className={INPUT_CLASS} value={form.allowFrom} onChange={(event) => setField("allowFrom", event.target.value)} placeholder="U0123456789, U9876543210" spellCheck={false} />
+          ))}
+        </div>
+        {form.dmPolicy === "open" ? (
+          <div role="alert" className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">Open access allows any workspace member to direct-message this agent.</div>
+        ) : null}
+      </div>
+
+      <div className="space-y-3 border-t border-border pt-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h4 className="text-xs font-bold uppercase tracking-[0.12em] text-text-secondary">Channel access</h4>
+            <p className="mt-1 text-xs leading-5 text-text-muted">Use stable C... channel IDs from Slack channel links, never #channel-name.</p>
+          </div>
+          <button type="button" className={SECONDARY_BUTTON} onClick={() => setField("slackChannels", [
+            ...form.slackChannels,
+            { channelId: "", enabled: true, mentionBehavior: "required" },
+          ])} disabled={busy}>
+            <Plus className="h-3.5 w-3.5" /> Add channel
+          </button>
+        </div>
+        {fieldLabel("Channel policy", (
+          <select aria-label="Slack channel policy" className={INPUT_CLASS} value={form.groupPolicy} onChange={(event) => setField("groupPolicy", event.target.value as SlackGroupPolicy)}>
+            <option value="runtime-default">Runtime default</option>
+            <option value="allowlist">Allowlist</option>
+            <option value="open">Open</option>
+            <option value="disabled">Disabled</option>
+          </select>
+        ))}
+        <div className="space-y-2">
+          {form.slackChannels.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border px-3 py-4 text-center text-xs text-text-muted">No channel rules configured.</div>
+          ) : form.slackChannels.map((rule, index) => (
+            <div key={`slack-channel-${index}`} className="grid gap-3 rounded-lg border border-border bg-background p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end">
+              {fieldLabel("Channel ID", (
+                <input aria-label={`Slack channel ID ${index + 1}`} className={INPUT_CLASS} value={rule.channelId} onChange={(event) => updateSlackChannel(index, "channelId", event.target.value)} placeholder="C0123456789" spellCheck={false} />
+              ))}
+              {fieldLabel("Mention behavior", (
+                <select aria-label={`Slack channel mention behavior ${index + 1}`} className={INPUT_CLASS} value={rule.mentionBehavior} onChange={(event) => updateSlackChannel(index, "mentionBehavior", event.target.value as SlackMentionBehavior)}>
+                  <option value="runtime-default">Runtime default</option>
+                  <option value="required">Require mention</option>
+                  <option value="not-required">Do not require mention</option>
+                </select>
+              ))}
+              <div className="flex items-center gap-2 md:pb-0.5">
+                <label className="inline-flex h-10 items-center gap-2 rounded-lg border border-border px-3 text-xs text-text-secondary">
+                  <input type="checkbox" aria-label={`Enable Slack channel ${index + 1}`} checked={rule.enabled} onChange={(event) => updateSlackChannel(index, "enabled", event.target.checked)} className="h-4 w-4 accent-[var(--channel-accent)]" /> Enabled
+                </label>
+                <button type="button" aria-label={`Remove Slack channel ${index + 1}`} className={DANGER_BUTTON} onClick={() => setField("slackChannels", form.slackChannels.filter((_, ruleIndex) => ruleIndex !== index))}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
   const slackBotCredential = readOpenClawCredentialState(selectedAccount?.rawRuntimeStatus, "botToken");
   const slackAppCredential = readOpenClawCredentialState(selectedAccount?.rawRuntimeStatus, "appToken");
+  const slackSigningSecretCredential = readOpenClawCredentialState(selectedAccount?.rawRuntimeStatus, "signingSecret");
+  const slackMode = readOpenClawSlackMode(selectedAccount?.rawRuntimeStatus)
+    ?? (safeConfig.channelId === "slack" && safeConfig.mode !== "runtime-default" ? safeConfig.mode : "socket");
+  const slackModeLabel = slackMode === "http" ? "HTTP Request URLs" : slackMode === "relay" ? "Relay" : "Socket Mode";
   const renderCredentialReplacement = (kind: "bot" | "app") => {
     const isApp = kind === "app";
     const enabled = isApp ? form.replaceAppToken : form.replaceBotToken;
@@ -445,6 +634,15 @@ export function OpenClawChannelSettingsPanel({
     );
   };
 
+  const renderCredentialStatus = (label: string, state: { status?: string; source?: string }) => (
+    <div className="rounded-xl border border-border bg-background p-3.5">
+      <p className="text-sm font-semibold text-foreground">{label}</p>
+      <p className="mt-0.5 text-[11px] text-text-muted">
+        {credentialStatusLabel(state.status)}{state.source ? ` · ${state.source}` : ""}
+      </p>
+    </div>
+  );
+
   return (
     <section className="relative overflow-hidden rounded-2xl border border-border bg-background text-foreground [box-shadow:var(--glass-card-shadow)]" style={style} aria-labelledby={`${channelId}-settings-title`}>
       <header className="border-b border-border bg-surface-low px-4 py-4 sm:px-5">
@@ -460,7 +658,6 @@ export function OpenClawChannelSettingsPanel({
                   <CircleDot className="h-2.5 w-2.5" /> {selectedAccount?.running ? "Online" : selectedAccount?.configured ? "Configured" : "Status unknown"}
                 </span>
               </div>
-              <p className="mt-1 font-mono text-[11px] tracking-tight text-text-muted">{runtimeLabel(runtime)}</p>
             </div>
           </div>
           <div className="min-w-0 shrink-0 text-right">
@@ -480,6 +677,7 @@ export function OpenClawChannelSettingsPanel({
                 setSafeConfig(parseOpenClawChannelConfig(channelId, undefined));
                 setResolvedAccountId(undefined);
                 setSavedTelegramDmPolicy("runtime-default");
+                setSavedSlackDmPolicy("runtime-default");
                 setError(null);
                 setNotice(null);
                 setConfirmingRemove(false);
@@ -495,10 +693,10 @@ export function OpenClawChannelSettingsPanel({
 
         {!connected ? (
           <div role="alert" className="flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 px-3.5 py-3 text-xs text-warning">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> Reconnect the workspace before changing channel settings.
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> Reconnect the workspace before changing integration settings.
           </div>
         ) : null}
-        {!canReadConfig ? <div role="alert" className="rounded-xl border border-warning/30 bg-warning/10 px-3.5 py-3 text-xs text-warning">This runtime cannot read channel settings.</div> : null}
+        {!canReadConfig ? <div role="alert" className="rounded-xl border border-warning/30 bg-warning/10 px-3.5 py-3 text-xs text-warning">This agent cannot read integration settings.</div> : null}
         {error ? <div role="alert" className="rounded-xl border border-destructive/35 bg-destructive/10 px-3.5 py-3 text-xs text-destructive">{error}</div> : null}
         {notice ? <div role="status" className="flex items-center gap-2 rounded-xl border border-selection-accent/25 bg-selection-accent/10 px-3.5 py-3 text-xs text-selection-accent"><Check className="h-4 w-4" />{notice}</div> : null}
 
@@ -506,23 +704,23 @@ export function OpenClawChannelSettingsPanel({
           <div className="rounded-xl border border-border bg-surface-low p-4">
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h3 className="text-sm font-bold">Channel policy</h3>
-                <p className="mt-1 text-xs leading-5 text-text-muted">Account-scoped controls reported by this runtime.</p>
+                <h3 className="text-sm font-bold">Access policy</h3>
+                <p className="mt-1 text-xs leading-5 text-text-muted">Choose how this account can receive messages.</p>
               </div>
               <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-background px-2.5 py-2 text-xs font-semibold text-text-secondary">
-                <input type="checkbox" aria-label={`${name} enabled`} checked={form.enabled} onChange={(event) => setField("enabled", event.target.checked)} className="h-4 w-4 accent-[var(--channel-accent)]" disabled={loading || busy} /> Enabled
+                <input type="checkbox" aria-label={`Enable ${name} integration`} checked={form.enabled} onChange={(event) => setField("enabled", event.target.checked)} className="h-4 w-4 accent-[var(--channel-accent)]" disabled={loading || busy} /> Enable {name} integration
               </label>
             </div>
             {loading ? (
               <div role="status" className="flex min-h-32 items-center justify-center gap-2 text-xs text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Reading configured settings...</div>
             ) : channelId === "telegram" ? renderTelegramSettings()
               : channelId === "discord" ? renderDiscordSettings()
-                : channelId === "slack" ? <p className="text-xs leading-5 text-text-muted">Slack uses Socket Mode credentials independently. Replace only the values that need to rotate.</p>
+                : channelId === "slack" ? renderSlackSettings()
                   : (
                     <div className="space-y-3 text-xs text-text-secondary">
                       <div className="grid gap-2 sm:grid-cols-2">
                         <div className="rounded-lg border border-border bg-background p-3"><span className={LABEL_CLASS}>Account</span><p className="mt-1.5 text-sm text-foreground">{selectedAccount?.accountDisplayName || selectedAccountId || "Default account"}</p></div>
-                        <div className="rounded-lg border border-border bg-background p-3"><span className={LABEL_CLASS}>Runtime state</span><p className="mt-1.5 text-sm capitalize text-foreground">{rawStatusLabel(selectedAccount?.rawRuntimeStatus) || selectedAccount?.healthState || "Unknown"}</p></div>
+                        <div className="rounded-lg border border-border bg-background p-3"><span className={LABEL_CLASS}>Connection state</span><p className="mt-1.5 text-sm capitalize text-foreground">{rawStatusLabel(selectedAccount?.rawRuntimeStatus) || selectedAccount?.healthState || "Unknown"}</p></div>
                       </div>
                       <p className="leading-5 text-text-muted">Ordinary settings changes do not restart pairing. Use Re-pair only when the linked WhatsApp account must be replaced.</p>
                     </div>
@@ -531,12 +729,40 @@ export function OpenClawChannelSettingsPanel({
 
           <aside className="space-y-3">
             <div className="rounded-xl border border-border bg-surface-low p-3.5">
-              <div className="flex items-center gap-2 text-text-secondary"><ShieldCheck className="h-4 w-4 text-[var(--channel-accent)]" /><h3 className="text-xs font-bold uppercase tracking-[0.1em]">Runtime status</h3></div>
+              <div className="flex items-center gap-2 text-text-secondary"><ShieldCheck className="h-4 w-4 text-[var(--channel-accent)]" /><h3 className="text-xs font-bold uppercase tracking-[0.1em]">Connection status</h3></div>
               <dl className="mt-3 space-y-2 text-xs">
                 <div className="flex justify-between gap-3"><dt className="text-text-muted">Configured</dt><dd className="text-text-secondary">{selectedAccount?.configured ? "Yes" : "No"}</dd></div>
                 <div className="flex justify-between gap-3"><dt className="text-text-muted">Authenticated</dt><dd className="text-text-secondary">{selectedAccount?.authenticated === undefined ? "Not reported" : selectedAccount.authenticated ? "Yes" : "No"}</dd></div>
                 <div className="flex justify-between gap-3"><dt className="text-text-muted">Health</dt><dd className="capitalize text-text-secondary">{selectedAccount?.healthState || "Unknown"}</dd></div>
+                {channelId === "telegram" ? (
+                  <div className="flex justify-between gap-3">
+                    <dt className="flex items-center gap-1 text-text-muted">
+                      Privacy mode
+                      <Tooltip delayDuration={200}>
+                        <TooltipTrigger asChild>
+                          <button type="button" aria-label="How to change Telegram privacy mode" className="rounded-sm text-text-muted transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--channel-accent)]">
+                            <CircleHelp className="h-3.5 w-3.5" aria-hidden="true" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="left" className="max-w-72 border border-border bg-background px-3 py-2 text-text-secondary shadow-xl [&>svg]:bg-background [&>svg]:fill-background">
+                          Open BotFather, send /setprivacy, select this bot, then choose Enable to limit group messages or Disable to receive all group messages. Run Test connection afterward.
+                        </TooltipContent>
+                      </Tooltip>
+                    </dt>
+                    <dd className="text-text-secondary">{telegramPrivacyMode === "unknown" ? "Not reported" : telegramPrivacyMode === "enabled" ? "Enabled" : "Disabled"}</dd>
+                  </div>
+                ) : null}
+                {channelId === "slack" ? <div className="flex justify-between gap-3"><dt className="text-text-muted">Transport</dt><dd className="text-text-secondary">{slackModeLabel}</dd></div> : null}
               </dl>
+              {channelId === "telegram" ? (
+                <p className="mt-3 border-t border-border pt-3 text-[11px] leading-4 text-text-muted">
+                  {telegramPrivacyMode === "enabled"
+                    ? <>Telegram limits group delivery to commands, replies, and mentions. Change it with <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" className="font-semibold text-text-secondary hover:text-foreground hover:underline">BotFather&apos;s /setprivacy</a>.</>
+                    : telegramPrivacyMode === "disabled"
+                      ? "Telegram can deliver all messages from groups this bot belongs to."
+                      : "Test the connection to retrieve this setting from Telegram."}
+                </p>
+              ) : null}
             </div>
             <button type="button" className={`${PRIMARY_BUTTON} w-full`} disabled={!connected || !canProbe || busy} onClick={() => void probe()}>
               {operation === "probe" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FlaskConical className="h-3.5 w-3.5" />} Test connection
@@ -547,25 +773,25 @@ export function OpenClawChannelSettingsPanel({
           </aside>
         </div>
 
-        {channelId === "telegram" && form.dmPolicy === "pairing" ? (
+        {(channelId === "telegram" || channelId === "slack") && form.dmPolicy === "pairing" ? (
           <div className="rounded-xl border border-border bg-surface-low p-4">
             <div className="mb-4">
-              <h3 className="text-sm font-bold text-foreground">Approve Telegram pairing</h3>
+              <h3 className="text-sm font-bold text-foreground">Approve {name} pairing</h3>
               <p className="mt-1 text-xs leading-5 text-text-muted">Approve the short code returned after a new sender messages the bot.</p>
             </div>
-            {savedTelegramDmPolicy === "pairing" ? (
+            {(channelId === "telegram" ? savedTelegramDmPolicy : savedSlackDmPolicy) === "pairing" ? (
               <ConnectorAuthorizationGuide
-                connectorId="telegram"
-                displayName="Telegram"
-                flow={TELEGRAM_PAIRING_AUTHORIZATION_FLOW}
+                connectorId={channelId}
+                displayName={name}
+                flow={channelId === "telegram" ? TELEGRAM_PAIRING_AUTHORIZATION_FLOW : SLACK_PAIRING_AUTHORIZATION_FLOW}
                 provider={connectorsProvider}
-                accountId={resolvedAccountId}
+                accountId={resolvedAccountId ?? selectedAccountId}
                 variant="owner"
                 onApproved={() => setNotice("Pairing code approved.")}
               />
             ) : (
               <div role="status" className="rounded-xl border border-warning/30 bg-warning/10 px-3.5 py-3 text-xs text-warning">
-                Save Telegram with the pairing policy before approving a code.
+                Save {name} with the pairing policy before approving a code.
               </div>
             )}
           </div>
@@ -579,8 +805,14 @@ export function OpenClawChannelSettingsPanel({
         ) : null}
         {channelId === "slack" ? (
           <div className="rounded-xl border border-border bg-surface-low p-4">
-            <div className="mb-3 flex items-center gap-2"><KeyRound className="h-4 w-4 text-[var(--channel-accent)]" /><h3 className="text-sm font-bold">Socket Mode credentials</h3></div>
-            <div className="grid gap-3 md:grid-cols-2">{renderCredentialReplacement("bot")}{renderCredentialReplacement("app")}</div>
+            <div className="mb-3 flex items-center gap-2"><KeyRound className="h-4 w-4 text-[var(--channel-accent)]" /><h3 className="text-sm font-bold">{slackModeLabel} credentials</h3></div>
+            {slackMode === "socket" ? (
+              <div className="grid gap-3 md:grid-cols-2">{renderCredentialReplacement("bot")}{renderCredentialReplacement("app")}</div>
+            ) : slackMode === "http" ? (
+              <div className="grid gap-3 md:grid-cols-2">{renderCredentialStatus("Bot token", slackBotCredential)}{renderCredentialStatus("Signing secret", slackSigningSecretCredential)}</div>
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2">{renderCredentialStatus("Bot token", slackBotCredential)}{renderCredentialStatus("Relay credentials", { status: selectedAccount?.configured ? "available" : "missing" })}</div>
+            )}
           </div>
         ) : null}
 

@@ -38,7 +38,32 @@ const generatedWorkflow: ConnectorWorkflow = {
   }],
 };
 
+function provider(): AgentConnectorsProvider {
+  return {
+    runtime: { provider: "openclaw", version: "2026.7.16", capabilities: ["channels"] },
+    list: vi.fn(async () => []),
+    startSetup: vi.fn(async () => ({
+      connectorId: "telegram",
+      mode: "config" as const,
+      provenance: { provider: "openclaw", version: "2026.7.16", capabilities: ["channels"] },
+    })),
+    pollSetup: vi.fn(),
+    configure: vi.fn(async () => undefined),
+  };
+}
+
 describe("TelegramChatConnectorCard", () => {
+  it("uses the selection accent for controls while retaining Telegram branding", () => {
+    const { container } = render(
+      <TelegramChatConnectorCard connected config={null} configSchema={null} connectorsProvider={provider()} />,
+    );
+
+    const card = container.querySelector("section") as HTMLElement;
+    expect(screen.getByText("Connect Telegram")).toHaveStyle({ color: "var(--integration-telegram)" });
+    expect(card.style.getPropertyValue("--channel-accent")).toBe("var(--selection-accent)");
+    expect(card.style.getPropertyValue("--channel-accent-foreground")).toBe("var(--selection-accent-foreground)");
+  });
+
   it("uses runtime-provided setup instructions before generated guidance", async () => {
     const onGenerateConnectorWorkflow = vi.fn(async () => generatedWorkflow);
     const connectorsProvider = {
@@ -105,15 +130,15 @@ describe("TelegramChatConnectorCard", () => {
     expect(screen.queryByText("Allowed user IDs")).not.toBeInTheDocument();
     expect(screen.getByText(/never sent to the setup planner/i)).toBeInTheDocument();
     expect(screen.queryByText(/step \d+ of/i)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /complete step/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /next step: test the connection/i })).toBeDisabled();
 
     fireEvent.change(tokenInput, { target: { value: validToken } });
-    expect(screen.getByRole("button", { name: /complete step/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /next step: test the connection/i })).toBeDisabled();
     chooseAccessOptions({ dmPolicy: "allowlist" });
     expect(screen.getByPlaceholderText("123456789").closest("[data-workflow-step]")).toHaveAttribute("data-workflow-step", "create-bot");
     fireEvent.change(screen.getByPlaceholderText("123456789"), { target: { value: "123456789" } });
-    expect(screen.getByRole("button", { name: /complete step/i })).toBeEnabled();
-    fireEvent.click(screen.getByRole("button", { name: /complete step/i }));
+    expect(screen.getByRole("button", { name: /next step: test the connection/i })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: /next step: test the connection/i }));
     expect(container.querySelector('[data-workflow-step="create-bot"]')).toHaveAttribute("data-step-complete", "true");
   });
 
@@ -137,7 +162,27 @@ describe("TelegramChatConnectorCard", () => {
     expect(JSON.stringify(onGenerateConnectorWorkflow.mock.calls)).not.toContain(validToken);
   });
 
-  it("blocks save until the bot token format is valid", () => {
+  it("does not replace failed generation with static setup instructions", async () => {
+    render(
+      <TelegramChatConnectorCard
+        connected
+        config={null}
+        configSchema={telegramSchema}
+        onSaveConfig={vi.fn(async () => undefined)}
+        onGenerateConnectorWorkflow={vi.fn(async () => {
+          throw new Error("generation unavailable");
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /start setup/i }));
+
+    expect(await screen.findByText(/setup guidance is not available/i)).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/enter bot token/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /try again/i })).toBeInTheDocument();
+  });
+
+  it("blocks save until the bot token format is valid", async () => {
     const onSaveConfig = vi.fn(async (_patch: Record<string, unknown>) => undefined);
 
     render(
@@ -146,18 +191,20 @@ describe("TelegramChatConnectorCard", () => {
         config={null}
         configSchema={telegramSchema}
         onSaveConfig={onSaveConfig}
+        onGenerateConnectorWorkflow={vi.fn(async () => generatedWorkflow)}
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: /start setup/i }));
+    await screen.findByPlaceholderText(/enter bot token/i);
     chooseAccessOptions();
     fireEvent.change(screen.getByPlaceholderText(/enter bot token/i), { target: { value: "not-a-token" } });
 
-    expect(screen.getByRole("button", { name: /complete step/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /next step: test the connection/i })).toBeDisabled();
     expect(onSaveConfig).not.toHaveBeenCalled();
   });
 
-  it("reveals Telegram access fields through policy-driven progression", () => {
+  it("reveals Telegram access fields through policy-driven progression", async () => {
     const onSaveConfig = vi.fn(async () => undefined);
 
     render(
@@ -166,11 +213,12 @@ describe("TelegramChatConnectorCard", () => {
         config={null}
         configSchema={telegramSchema}
         onSaveConfig={onSaveConfig}
+        onGenerateConnectorWorkflow={vi.fn(async () => generatedWorkflow)}
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: /start setup/i }));
-    fireEvent.change(screen.getByPlaceholderText(/enter bot token/i), { target: { value: validToken } });
+    fireEvent.change(await screen.findByPlaceholderText(/enter bot token/i), { target: { value: validToken } });
     expect(screen.getByLabelText("Telegram DM policy")).toHaveValue("");
     expect(screen.getByLabelText("Telegram group policy")).toHaveValue("");
     expect(screen.queryByText("Allowed user IDs")).not.toBeInTheDocument();
@@ -201,11 +249,12 @@ describe("TelegramChatConnectorCard", () => {
         config={null}
         configSchema={telegramSchema}
         onSaveConfig={onSaveConfig}
+        onGenerateConnectorWorkflow={vi.fn(async () => generatedWorkflow)}
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: /start setup/i }));
-    fireEvent.change(screen.getByPlaceholderText(/enter bot token/i), { target: { value: validToken } });
+    fireEvent.change(await screen.findByPlaceholderText(/enter bot token/i), { target: { value: validToken } });
     chooseAccessOptions({ dmPolicy: "pairing", groupPolicy: "disabled" });
 
     expect(screen.queryByText("Allowed user IDs")).not.toBeInTheDocument();
@@ -236,13 +285,14 @@ describe("TelegramChatConnectorCard", () => {
       protocol: "short-code" as const,
       state: "complete" as const,
     }));
+    let channelConfigured = false;
     const connectorsProvider = {
       runtime: { provider: "openclaw", capabilities: ["channels", "config.patch"] },
       list: vi.fn(async () => [{
         connectorId: "telegram",
-        configured: false,
-        authenticated: false,
-        usable: false,
+        configured: channelConfigured,
+        authenticated: channelConfigured,
+        usable: channelConfigured,
         setupModes: ["config" as const],
       }]),
       startSetup: vi.fn(async () => ({
@@ -251,7 +301,9 @@ describe("TelegramChatConnectorCard", () => {
         provenance: { provider: "openclaw", capabilities: ["channels", "config.patch"] },
       })),
       pollSetup: vi.fn(),
-      configure: vi.fn(async () => undefined),
+      configure: vi.fn(async () => {
+        channelConfigured = true;
+      }),
       approveAuthorization,
     } satisfies AgentConnectorsProvider;
     const onReconnectGateway = vi.fn();
@@ -263,6 +315,7 @@ describe("TelegramChatConnectorCard", () => {
         config={null}
         configSchema={telegramSchema}
         onReconnectGateway={onReconnectGateway}
+        onGenerateConnectorWorkflow={vi.fn(async () => generatedWorkflow)}
       />,
     );
 
@@ -270,6 +323,11 @@ describe("TelegramChatConnectorCard", () => {
     fireEvent.change(await screen.findByPlaceholderText(/enter bot token/i), { target: { value: validToken } });
     chooseAccessOptions({ dmPolicy: "pairing", groupPolicy: "disabled" });
     fireEvent.click(screen.getByRole("button", { name: /save settings/i }));
+
+    fireEvent.click(await screen.findByRole("button", { name: /step 2: test the connection/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^test connection$/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /^continue$/i })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /^continue$/i }));
 
     expect(await screen.findByText("No allowed user ID is required")).toBeInTheDocument();
     expect(screen.getByText(/first message is not processed/i)).toBeInTheDocument();
@@ -294,11 +352,12 @@ describe("TelegramChatConnectorCard", () => {
         config={null}
         configSchema={telegramSchema}
         onSaveConfig={onSaveConfig}
+        onGenerateConnectorWorkflow={vi.fn(async () => generatedWorkflow)}
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: /start setup/i }));
-    fireEvent.change(screen.getByPlaceholderText(/enter bot token/i), { target: { value: validToken } });
+    fireEvent.change(await screen.findByPlaceholderText(/enter bot token/i), { target: { value: validToken } });
     chooseAccessOptions();
     fireEvent.click(screen.getByRole("button", { name: /save settings/i }));
 
@@ -315,11 +374,12 @@ describe("TelegramChatConnectorCard", () => {
         config={null}
         configSchema={telegramSchema}
         onSaveConfig={onSaveConfig}
+        onGenerateConnectorWorkflow={vi.fn(async () => generatedWorkflow)}
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: /start setup/i }));
-    fireEvent.change(screen.getByPlaceholderText(/enter bot token/i), { target: { value: validToken } });
+    fireEvent.change(await screen.findByPlaceholderText(/enter bot token/i), { target: { value: validToken } });
     chooseAccessOptions({ dmPolicy: "open", groupPolicy: "disabled" });
     fireEvent.click(screen.getByRole("button", { name: /save settings/i }));
 
@@ -344,11 +404,12 @@ describe("TelegramChatConnectorCard", () => {
         config={null}
         configSchema={telegramSchema}
         onSaveConfig={onSaveConfig}
+        onGenerateConnectorWorkflow={vi.fn(async () => generatedWorkflow)}
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: /start setup/i }));
-    fireEvent.change(screen.getByPlaceholderText(/enter bot token/i), { target: { value: validToken } });
+    fireEvent.change(await screen.findByPlaceholderText(/enter bot token/i), { target: { value: validToken } });
     chooseAccessOptions({ dmPolicy: "allowlist", groupPolicy: "allowlist" });
     fireEvent.change(screen.getByPlaceholderText("123456789"), { target: { value: "123456789" } });
     fireEvent.change(screen.getByLabelText("Telegram allowed group sender IDs"), { target: { value: "987654321" } });
@@ -375,7 +436,7 @@ describe("TelegramChatConnectorCard", () => {
     }));
   });
 
-  it("saves Telegram config, waits for a Telegram message, and refreshes sessions on finish", async () => {
+  it("saves Telegram config, tests the connection, then waits for a message and refreshes sessions", async () => {
     const onSaveConfig = vi.fn(async () => undefined);
     const onChannelProbe = vi.fn(async () => ({
       channels: {
@@ -383,6 +444,7 @@ describe("TelegramChatConnectorCard", () => {
       },
     }));
     const onReconnectGateway = vi.fn();
+    const onOpenIntegrationDetails = vi.fn();
 
     render(
       <TelegramChatConnectorCard
@@ -392,11 +454,13 @@ describe("TelegramChatConnectorCard", () => {
         onSaveConfig={onSaveConfig}
         onChannelProbe={onChannelProbe}
         onReconnectGateway={onReconnectGateway}
+        onOpenIntegrationDetails={onOpenIntegrationDetails}
+        onGenerateConnectorWorkflow={vi.fn(async () => generatedWorkflow)}
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: /start setup/i }));
-    fireEvent.change(screen.getByPlaceholderText(/enter bot token/i), { target: { value: validToken } });
+    fireEvent.change(await screen.findByPlaceholderText(/enter bot token/i), { target: { value: validToken } });
     chooseAccessOptions({ dmPolicy: "allowlist", groupPolicy: "allowlist" });
     fireEvent.change(screen.getByPlaceholderText("123456789"), { target: { value: "123456789" } });
     fireEvent.change(screen.getByLabelText("Telegram group IDs"), { target: { value: "-1001234567890" } });
@@ -418,6 +482,17 @@ describe("TelegramChatConnectorCard", () => {
         },
       },
     }));
+    expect(await screen.findByText("Settings saved")).toBeInTheDocument();
+    expect(screen.getByText(/Run the connection check below before continuing/i)).toBeInTheDocument();
+    expect(onChannelProbe).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: /step 2: test the connection/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^test connection$/i }));
+
+    await waitFor(() => expect(onChannelProbe).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("Connection test passed.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^continue$/i }));
+
     expect(await screen.findByText("Message Telegram")).toBeInTheDocument();
     expect(screen.getByText("Open your bot")).toBeInTheDocument();
     expect(screen.getByText("Send a message")).toBeInTheDocument();
@@ -430,11 +505,18 @@ describe("TelegramChatConnectorCard", () => {
     expect(screen.queryByText(/Telegram is connected for this workspace/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Inbound test/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /i sent it/i })).not.toBeInTheDocument();
-    expect(onChannelProbe).not.toHaveBeenCalled();
+    expect(onChannelProbe).toHaveBeenCalledTimes(1);
     expect(screen.queryByDisplayValue(validToken)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /open in integrations/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /open telegram settings/i })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /finish/i }));
     expect(onReconnectGateway).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("Manage Telegram settings")).toBeInTheDocument();
+    expect(screen.getByText(/Update access, privacy mode, bot credentials, and connection checks in Integrations/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /open in integrations/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /open telegram settings/i }));
+    expect(onOpenIntegrationDetails).toHaveBeenCalledTimes(1);
   });
 
   it("stays on the final Telegram message step if the gateway restarts while saving", async () => {
@@ -450,11 +532,12 @@ describe("TelegramChatConnectorCard", () => {
         configSchema={telegramSchema}
         onSaveConfig={onSaveConfig}
         onReconnectGateway={onReconnectGateway}
+        onGenerateConnectorWorkflow={vi.fn(async () => generatedWorkflow)}
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: /start setup/i }));
-    fireEvent.change(screen.getByPlaceholderText(/enter bot token/i), { target: { value: validToken } });
+    fireEvent.change(await screen.findByPlaceholderText(/enter bot token/i), { target: { value: validToken } });
     chooseAccessOptions();
     fireEvent.click(screen.getByRole("button", { name: /save settings/i }));
 
@@ -469,6 +552,7 @@ describe("TelegramChatConnectorCard", () => {
         configSchema={null}
         onSaveConfig={onSaveConfig}
         onReconnectGateway={onReconnectGateway}
+        onGenerateConnectorWorkflow={vi.fn(async () => generatedWorkflow)}
       />,
     );
 
@@ -493,11 +577,12 @@ describe("TelegramChatConnectorCard", () => {
         onSaveConfig={onSaveConfig}
         onAgentConfigUpdate={onAgentConfigUpdate}
         onChannelProbe={onChannelProbe}
+        onGenerateConnectorWorkflow={vi.fn(async () => generatedWorkflow)}
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: /reconfigure/i }));
-    fireEvent.change(screen.getByLabelText("Telegram DM policy"), { target: { value: "allowlist" } });
+    fireEvent.change(await screen.findByLabelText("Telegram DM policy"), { target: { value: "allowlist" } });
     fireEvent.change(screen.getByPlaceholderText("123456789"), { target: { value: "123456789" } });
     fireEvent.click(screen.getByRole("button", { name: /save settings/i }));
 
@@ -518,18 +603,21 @@ describe("TelegramChatConnectorCard", () => {
   });
 
   it("shows the Telegram access link when a configured bot username is known", async () => {
+    const onOpenIntegrationDetails = vi.fn();
     render(
       <TelegramChatConnectorCard
         connected
         config={{ channels: { telegram: { enabled: true, botToken: "stored", username: "helper_bot" } } }}
         configSchema={telegramSchema}
         onSaveConfig={vi.fn(async () => undefined)}
+        onOpenIntegrationDetails={onOpenIntegrationDetails}
       />,
     );
 
-    expect(await screen.findByRole("link", { name: /open @helper_bot on telegram/i })).toHaveAttribute("href", "https://t.me/helper_bot");
+    expect(await screen.findByText("Manage Telegram settings")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /^open telegram$/i })).toHaveAttribute("href", "https://t.me/helper_bot");
-    expect(screen.getByText(/Telegram settings are saved. Reconfigure the bot token if you need to update it./i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /open telegram settings/i }));
+    expect(onOpenIntegrationDetails).toHaveBeenCalledTimes(1);
     expect(screen.queryByText(/Test the connection from here/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^test$/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/Telegram is connected for this workspace/i)).not.toBeInTheDocument();
@@ -545,11 +633,12 @@ describe("TelegramChatConnectorCard", () => {
         config={{ channels: { telegram: { enabled: true, botToken: "stored", dmPolicy: "pairing" } } }}
         configSchema={telegramSchema}
         onSaveConfig={onSaveConfig}
+        onGenerateConnectorWorkflow={vi.fn(async () => generatedWorkflow)}
       />,
     );
 
     fireEvent.click(await screen.findByRole("button", { name: /reconfigure/i }));
-    expect(screen.getByLabelText("Telegram DM policy")).toHaveValue("pairing");
+    expect(await screen.findByLabelText("Telegram DM policy")).toHaveValue("pairing");
     expect(screen.getByLabelText("Telegram group policy")).toHaveValue("runtime-default");
     expect(screen.queryByLabelText("Telegram mention behavior")).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Telegram DM policy"), { target: { value: "allowlist" } });

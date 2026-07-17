@@ -19,6 +19,7 @@ interface IntegrationChatCardHostProps {
   onOpenIntegrationDetails?: (integrationId: ClawIntegrationConnectAction["integrationId"]) => void;
   onOpenFullSetup?: (integrationId: ClawIntegrationConnectAction["integrationId"]) => void;
   onDismiss?: () => void;
+  directSetup?: boolean;
 }
 
 export function IntegrationChatCardHost({
@@ -31,6 +32,7 @@ export function IntegrationChatCardHost({
   onOpenIntegrationDetails,
   onOpenFullSetup,
   onDismiss,
+  directSetup = false,
 }: IntegrationChatCardHostProps) {
   if (action.type !== "integration.connect") return null;
 
@@ -47,11 +49,13 @@ export function IntegrationChatCardHost({
         agentSetupStatus={agentSetupStatus}
         onStartAgentGitHubSetup={onStartAgentGitHubSetup}
         onVerifyAgentGitHubSetup={onVerifyAgentGitHubSetup}
+        cachedWorkflow={chat.connectorWorkflows?.github}
         onGenerateConnectorWorkflow={chat.generateConnectorWorkflow}
         onRunShellProposal={chat.runConnectorShellProposal}
         onOpenIntegrationDetails={onOpenIntegrationDetails ? () => onOpenIntegrationDetails(action.integrationId) : undefined}
         onOpenFullSetup={onOpenFullSetup ? () => onOpenFullSetup(action.integrationId) : undefined}
         onDismiss={onDismiss}
+        directSetup={directSetup}
       />
     );
   }
@@ -74,11 +78,13 @@ export function IntegrationChatCardHost({
           : typeof chat.retry === "function"
             ? chat.retry
             : undefined}
+        cachedWorkflow={chat.connectorWorkflows?.telegram}
         onGenerateConnectorWorkflow={chat.generateConnectorWorkflow}
         onRunShellProposal={chat.runConnectorShellProposal}
         onOpenIntegrationDetails={onOpenIntegrationDetails ? () => onOpenIntegrationDetails(action.integrationId) : undefined}
         onOpenFullSetup={onOpenFullSetup ? () => onOpenFullSetup(action.integrationId) : undefined}
         onDismiss={onDismiss}
+        directSetup={directSetup}
       />
     );
   }
@@ -92,6 +98,19 @@ export function IntegrationChatCardHost({
         connectorsProvider={chat.connectorsProvider}
         channelsProvider={chat.channelsProvider}
         onSaveConfig={typeof chat.saveConfig === "function" ? chat.saveConfig : undefined}
+        onEnsureWhatsAppSupport={action.integrationId === "whatsapp" && typeof chat.ensureWhatsAppSupport === "function"
+          ? chat.ensureWhatsAppSupport
+          : undefined}
+        onWhatsAppPairingStart={action.integrationId === "whatsapp" && typeof chat.whatsAppPairingStart === "function"
+          ? chat.whatsAppPairingStart
+          : undefined}
+        whatsAppPairingState={action.integrationId === "whatsapp" ? chat.whatsAppPairingState : undefined}
+        onCancelWhatsAppPairing={action.integrationId === "whatsapp" && typeof chat.cancelWhatsAppPairing === "function"
+          ? chat.cancelWhatsAppPairing
+          : undefined}
+        onWebLoginStart={typeof chat.webLoginStart === "function" ? chat.webLoginStart : undefined}
+        onWebLoginWait={typeof chat.webLoginWait === "function" ? chat.webLoginWait : undefined}
+        cachedWorkflow={chat.connectorWorkflows?.[action.integrationId]}
         onGenerateConnectorWorkflow={chat.generateConnectorWorkflow}
         onRunShellProposal={chat.runConnectorShellProposal}
         onReconnectGateway={typeof chat.retryAndRefreshSessions === "function"
@@ -102,6 +121,7 @@ export function IntegrationChatCardHost({
         onOpenIntegrationDetails={onOpenIntegrationDetails ? () => onOpenIntegrationDetails(action.integrationId) : undefined}
         onOpenFullSetup={onOpenFullSetup ? () => onOpenFullSetup(action.integrationId) : undefined}
         onDismiss={onDismiss}
+        directSetup={directSetup}
       />
     );
   }

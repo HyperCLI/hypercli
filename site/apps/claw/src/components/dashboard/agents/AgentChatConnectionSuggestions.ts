@@ -79,7 +79,7 @@ function githubConnectionSuggestion(): ChatConnectionSuggestion {
   return {
     id: "github",
     displayName: "GitHub",
-    description: "Connect repositories and issues with device authorization.",
+    description: "Repositories, issues, and pull requests.",
     category: "Tools",
     Icon: INTEGRATION_BRAND_LOGOS.github.icon,
     iconColor: INTEGRATION_BRAND_LOGOS.github.color,
@@ -95,7 +95,7 @@ export function getChatConnectorSuggestion(connectorId: ClawIntegrationConnectId
   return {
     id: "telegram",
     displayName: "Telegram",
-    description: "Bot API via grammY",
+    description: "Messages, groups, and bot conversations",
     category: "Communication",
     Icon: INTEGRATION_BRAND_LOGOS.telegram.icon,
     iconColor: INTEGRATION_BRAND_LOGOS.telegram.color,

@@ -13,7 +13,7 @@ export interface DirectoryCategoryDef {
 export const DIRECTORY_CATEGORIES: DirectoryCategoryDef[] = [
   { id: "intelligence", label: "Intelligence", icon: "Sparkles", description: "AI models and inference powering your agent" },
   { id: "web", label: "Web", icon: "Globe", description: "Search and browse the internet" },
-  { id: "channels", label: "Channels", icon: "MessageSquare", description: "Messaging platforms your agent can join" },
+  { id: "channels", label: "Messaging", icon: "MessageSquare", description: "Messaging platforms your agent can join" },
   { id: "tools", label: "Tools", icon: "Wrench", description: "Utilities, memory, code execution, and automation" },
   { id: "media", label: "Media", icon: "Palette", description: "Voice, vision, images, video, and 3D" },
 ];

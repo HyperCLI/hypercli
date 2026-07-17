@@ -442,6 +442,20 @@ describe("AgentChatPanel", () => {
         ready: true,
         connected: true,
         configSchema: schemaWith("channels.telegram"),
+        generateConnectorWorkflow: vi.fn(async () => ({
+          schema: "hypercli.connector-workflow.v1",
+          connectorId: "telegram",
+          runtimeFingerprint: "openclaw:test",
+          summary: "Configure Telegram.",
+          steps: [{
+            id: "access",
+            title: "Choose Telegram access",
+            instructions: "Enter the protected settings.",
+            kind: "input",
+            inputSlots: ["telegram.botToken"],
+            approvalRequired: false,
+          }],
+        })),
         messages: [
           {
             role: "assistant",
@@ -638,6 +652,20 @@ describe("AgentChatPanel", () => {
         ready: true,
         connected: true,
         configSchema: schemaWith("channels.telegram"),
+        generateConnectorWorkflow: vi.fn(async () => ({
+          schema: "hypercli.connector-workflow.v1",
+          connectorId: "telegram",
+          runtimeFingerprint: "openclaw:test",
+          summary: "Configure Telegram.",
+          steps: [{
+            id: "access",
+            title: "Choose Telegram access",
+            instructions: "Enter the protected settings.",
+            kind: "input",
+            inputSlots: ["telegram.botToken"],
+            approvalRequired: false,
+          }],
+        })),
         messages: [
           {
             role: "assistant",

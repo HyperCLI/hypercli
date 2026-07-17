@@ -1,16 +1,25 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
+import Image from "next/image";
 import type { AgentConnectorsProvider } from "@hypercli.com/sdk/connectors";
 import type { AgentChannelsProvider } from "@hypercli.com/sdk/channels";
-import { AlertTriangle, ArrowRight, CheckCircle2, Eye, EyeOff, Loader2, RefreshCw, Trash2, X } from "lucide-react";
+import type {
+  GatewayWebLoginStartOptions,
+  GatewayWebLoginStartResult,
+  GatewayWebLoginWaitOptions,
+  GatewayWebLoginWaitResult,
+} from "@hypercli.com/sdk/openclaw/gateway";
+import type { OpenClawWhatsAppProgressEvent } from "@hypercli.com/sdk/openclaw/whatsapp";
+import { AlertTriangle, ArrowRight, CheckCircle2, Eye, EyeOff, Loader2, RefreshCw, Terminal, Trash2, X } from "lucide-react";
 import { motion } from "framer-motion";
 
 import { INTEGRATION_BRAND_LOGOS } from "@/components/dashboard/integrations/integration-brand-icons";
 import {
   CONNECTOR_WORKFLOW_SCHEMA_ID,
   ensureConnectorWorkflowInputSlots,
+  ensureConnectorWorkflowVerificationStep,
   type ConnectorId,
   type ConnectorWorkflow,
   type ConnectorWorkflowInputSlot,
@@ -20,6 +29,7 @@ import {
   ConnectorWorkflowGuide,
   type ConnectorWorkflowInputControls,
   type ConnectorWorkflowInputVisibility,
+  type ConnectorWorkflowVerificationResult,
 } from "./ConnectorWorkflowGuide";
 import { IntegrationBrandPulse } from "./IntegrationBrandPulse";
 
@@ -32,16 +42,40 @@ interface ChannelChatConnectorCardProps {
   connectorsProvider?: AgentConnectorsProvider | null;
   channelsProvider?: AgentChannelsProvider | null;
   onSaveConfig?: (patch: Record<string, unknown>) => Promise<void>;
+  onEnsureWhatsAppSupport?: (reportProgress?: (event: OpenClawWhatsAppProgressEvent) => void) => Promise<void>;
+  onWhatsAppPairingStart?: (
+    options?: GatewayWebLoginStartOptions,
+    reportProgress?: (event: OpenClawWhatsAppProgressEvent) => void,
+  ) => Promise<GatewayWebLoginStartResult>;
+  whatsAppPairingState?: {
+    status: "idle" | "starting" | "waiting" | "connected" | "failed";
+    qrDataUrl: string | null;
+    message: string | null;
+    progress: OpenClawWhatsAppProgressEvent[];
+    error: string | null;
+  };
+  onCancelWhatsAppPairing?: () => void;
+  onWebLoginStart?: (options?: GatewayWebLoginStartOptions) => Promise<GatewayWebLoginStartResult>;
+  onWebLoginWait?: (options?: GatewayWebLoginWaitOptions) => Promise<GatewayWebLoginWaitResult>;
+  cachedWorkflow?: ConnectorWorkflow | null;
   onGenerateConnectorWorkflow?: (connectorId: ConnectorId) => Promise<ConnectorWorkflow>;
   onRunShellProposal?: (command: string) => Promise<void>;
   onReconnectGateway?: () => void;
   onOpenIntegrationDetails?: () => void;
   onOpenFullSetup?: () => void;
   onDismiss?: () => void;
+  directSetup?: boolean;
 }
 
 type CardMode = "overview" | "setup" | "saved" | "verifying" | "ready" | "failed" | "manage";
 type FieldValues = Record<string, string>;
+type WhatsAppPairingStatus = "idle" | "preparing" | "configuring" | "starting" | "waiting";
+
+const WHATSAPP_LOGIN_START_TIMEOUT_MS = 25_000;
+const WHATSAPP_LOGIN_WAIT_TIMEOUT_MS = 30_000;
+const WHATSAPP_LOGIN_WAIT_ATTEMPTS = 20;
+const WHATSAPP_VERIFY_ATTEMPTS = 6;
+const WHATSAPP_VERIFY_INTERVAL_MS = 2_500;
 
 interface ChannelDefinition {
   displayName: string;
@@ -82,7 +116,7 @@ const CHANNEL_DEFINITIONS: Record<AdditionalChannelConnectorId, ChannelDefinitio
   },
   slack: {
     displayName: "Slack",
-    description: "Connect a workspace app through the runtime.",
+    description: "Connect channels, conversations, and direct messages.",
     fields: [
       { key: "botToken", label: "Bot token", placeholder: "xoxb-...", sensitive: true, help: "Bot User OAuth token. It never enters chat or setup guidance." },
       { key: "appToken", label: "App token", placeholder: "xapp-...", sensitive: true, help: "Socket Mode app token. It is sent only when you save." },
@@ -90,7 +124,7 @@ const CHANNEL_DEFINITIONS: Record<AdditionalChannelConnectorId, ChannelDefinitio
   },
   whatsapp: {
     displayName: "WhatsApp",
-    description: "Pair this workspace using the setup method reported by the runtime.",
+    description: "Connect messages and conversations.",
     fields: [],
   },
 };
@@ -99,9 +133,24 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
+function validWhatsAppQrDataUrl(value: unknown): value is string {
+  if (typeof value !== "string" || value.length > 16_384) return false;
+  const prefix = "data:image/png;base64,";
+  return value.startsWith(prefix) && /^[A-Za-z0-9+/=]+$/.test(value.slice(prefix.length));
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 function configuredChannel(config: Record<string, unknown> | null, channelId: AdditionalChannelConnectorId): boolean {
   const channels = asRecord(config?.channels);
   return Boolean(asRecord(channels?.[channelId]));
+}
+
+function configuredSlackMode(config: Record<string, unknown> | null): "socket" | "http" | "relay" {
+  const mode = asRecord(asRecord(config?.channels)?.slack)?.mode;
+  return mode === "http" || mode === "relay" ? mode : "socket";
 }
 
 function validateFields(channelId: AdditionalChannelConnectorId, values: FieldValues, configured: boolean): string | null {
@@ -142,6 +191,7 @@ function channelConfig(channelId: AdditionalChannelConnectorId, values: FieldVal
   if (channelId === "slack") {
     return {
       enabled: true,
+      mode: "socket",
       ...(values.botToken?.trim() ? { botToken: values.botToken.trim() } : {}),
       ...(values.appToken?.trim() ? { appToken: values.appToken.trim() } : {}),
     };
@@ -176,33 +226,53 @@ export function ChannelChatConnectorCard({
   connectorsProvider,
   channelsProvider,
   onSaveConfig,
+  onEnsureWhatsAppSupport,
+  onWhatsAppPairingStart,
+  whatsAppPairingState,
+  onCancelWhatsAppPairing,
+  onWebLoginStart,
+  onWebLoginWait,
+  cachedWorkflow,
   onGenerateConnectorWorkflow,
   onRunShellProposal,
   onReconnectGateway,
   onOpenIntegrationDetails,
   onOpenFullSetup,
   onDismiss,
+  directSetup = false,
 }: ChannelChatConnectorCardProps) {
   const definition = CHANNEL_DEFINITIONS[channelId];
   const brand = INTEGRATION_BRAND_LOGOS[channelId];
   const Icon = brand.icon;
   const configuredFromConfig = configuredChannel(config, channelId);
-  const [mode, setMode] = useState<CardMode>(configuredFromConfig ? "manage" : "overview");
+  const slackMode = channelId === "slack" ? configuredSlackMode(config) : "socket";
+  const advancedSlackTransport = channelId === "slack" && slackMode !== "socket";
+  const directWhatsAppSetup = directSetup && channelId === "whatsapp";
+  const [mode, setMode] = useState<CardMode>(configuredFromConfig && !directWhatsAppSetup ? "manage" : directSetup ? "setup" : "overview");
   const [runtimeConfigured, setRuntimeConfigured] = useState<boolean | null>(null);
   const [accountName, setAccountName] = useState<string | null>(null);
   const [values, setValues] = useState<FieldValues>({});
   const [visibleFields, setVisibleFields] = useState<Set<string>>(new Set());
-  const [workflow, setWorkflow] = useState<ConnectorWorkflow | null>(null);
+  const [generatedWorkflow, setWorkflow] = useState<ConnectorWorkflow | null>(null);
+  const workflow = cachedWorkflow ?? generatedWorkflow;
   const [runtimeInstructions, setRuntimeInstructions] = useState<string | null>(null);
   const [workflowLoading, setWorkflowLoading] = useState(false);
   const [workflowUnavailable, setWorkflowUnavailable] = useState(false);
   const [saving, setSaving] = useState(false);
   const [probing, setProbing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [whatsAppPairingStatus, setWhatsAppPairingStatus] = useState<WhatsAppPairingStatus>("idle");
+  const [whatsAppQrDataUrl, setWhatsAppQrDataUrl] = useState<string | null>(null);
+  const [whatsAppPairingMessage, setWhatsAppPairingMessage] = useState<string | null>(null);
+  const [whatsAppSetupProgress, setWhatsAppSetupProgress] = useState<OpenClawWhatsAppProgressEvent[]>([]);
+  const directSetupStartedRef = useRef(false);
+  const whatsAppPairingRequestRef = useRef(0);
+  const whatsAppSupportPreparedRef = useRef(false);
   const configured = runtimeConfigured ?? configuredFromConfig;
-  const canConfigure = connected && Boolean(connectorsProvider || onSaveConfig);
+  const canConfigure = connected && Boolean(channelsProvider?.configure || connectorsProvider || onSaveConfig);
   const canRemove = Boolean(onSaveConfig || channelsProvider?.removeConfig);
-  const active = mode === "setup" || mode === "saved" || mode === "verifying";
+  const whatsAppPairingStarting = whatsAppPairingStatus === "preparing" || whatsAppPairingStatus === "configuring" || whatsAppPairingStatus === "starting";
+  const active = mode === "setup" || mode === "saved" || mode === "verifying" || whatsAppPairingStatus !== "idle";
   const style = {
     "--channel-accent": "var(--selection-accent)",
     "--channel-accent-foreground": "var(--selection-accent-foreground)",
@@ -224,12 +294,243 @@ export function ChannelChatConnectorCard({
     };
   }, [channelId, connected, connectorsProvider]);
 
+  useEffect(() => {
+    if (channelId !== "whatsapp" || !whatsAppPairingState) return;
+    setWhatsAppSetupProgress(whatsAppPairingState.progress);
+    setWhatsAppQrDataUrl(whatsAppPairingState.qrDataUrl);
+    setWhatsAppPairingMessage(whatsAppPairingState.message);
+    if (whatsAppPairingState.status === "starting") {
+      setMode("setup");
+      setWhatsAppPairingStatus("preparing");
+      setError(null);
+    } else if (whatsAppPairingState.status === "waiting") {
+      setMode("setup");
+      setWhatsAppPairingStatus("waiting");
+      setError(null);
+    } else if (whatsAppPairingState.status === "connected") {
+      setWhatsAppPairingStatus("idle");
+      setRuntimeConfigured(true);
+      setMode("ready");
+      setError(null);
+    } else if (whatsAppPairingState.status === "failed") {
+      setWhatsAppPairingStatus("idle");
+      setError(whatsAppPairingState.error ?? "WhatsApp pairing failed.");
+    }
+  }, [channelId, whatsAppPairingState]);
+
+  const persistChannelConfig = async (nextConfig: Record<string, unknown>) => {
+    if (channelsProvider?.configure) await channelsProvider.configure(channelId, nextConfig);
+    else if (connectorsProvider) await connectorsProvider.configure(channelId, nextConfig);
+    else await onSaveConfig!({ channels: { [channelId]: nextConfig } });
+  };
+
+  const save = async () => {
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    if (!channelsProvider?.configure && !connectorsProvider && !onSaveConfig) {
+      setError(`${definition.displayName} setup is unavailable here.`);
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const nextConfig = channelConfig(channelId, activeValues);
+      await persistChannelConfig(nextConfig);
+      setValues({});
+      setVisibleFields(new Set());
+      setRuntimeConfigured(true);
+      setMode("saved");
+    } catch {
+      setError(`Could not save ${definition.displayName} settings. No credential values were added to chat.`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const probeConnection = async (): Promise<ConnectorWorkflowVerificationResult> => {
+    if (!connectorsProvider && !channelsProvider) {
+      return { success: false, message: "Connection testing is unavailable here." };
+    }
+    try {
+      if (channelsProvider?.read) {
+        const snapshot = await channelsProvider.read({ channelId, probe: true });
+        const channel = snapshot.channels.find((candidate) => candidate.channelId === channelId);
+        const account = channel?.defaultAccountId
+          ? channel.accounts.find((candidate) => candidate.accountId === channel.defaultAccountId)
+          : channel?.accounts.length === 1 ? channel.accounts[0] : undefined;
+        if (account?.configured && account.running === true && account.healthState === "healthy") {
+          setRuntimeConfigured(true);
+          setAccountName(account.accountDisplayName ?? null);
+          return { success: true, message: `${definition.displayName} is online for this workspace.` };
+        }
+        if (account) {
+          return {
+            success: false,
+            message: account.lastError?.trim() || `${definition.displayName} is configured but not healthy yet.`,
+          };
+        }
+        if (channel && channel.accounts.length > 1) {
+          return { success: false, message: `Choose a ${definition.displayName} account in integrations before testing.` };
+        }
+      } else if (connectorsProvider) {
+        const connector = (await connectorsProvider.list({ connectorId: channelId, probe: true })).find((candidate) => candidate.connectorId === channelId);
+        if (connector?.usable) {
+          setRuntimeConfigured(true);
+          return { success: true, message: `${definition.displayName} is online for this workspace.` };
+        }
+      } else if (channelsProvider) {
+        const channel = (await channelsProvider.list({ probe: true })).find((candidate) => candidate.channelId === channelId);
+        if (channel?.configured && channel.running === true && channel.healthState === "healthy") {
+          setRuntimeConfigured(true);
+          setAccountName(channel.accountDisplayName ?? null);
+          return { success: true, message: `${definition.displayName} is online for this workspace.` };
+        }
+      }
+      return { success: false, message: `${definition.displayName} is configured but not reachable yet.` };
+    } catch {
+      return { success: false, message: `Could not test ${definition.displayName} right now.` };
+    }
+  };
+
+  async function verifyWhatsAppPairing(requestId: number) {
+    setWhatsAppPairingStatus("idle");
+    setWhatsAppPairingMessage(null);
+    setMode("verifying");
+    setProbing(true);
+    let failureMessage = "WhatsApp was linked, but it is not online yet.";
+    for (let attempt = 0; attempt < WHATSAPP_VERIFY_ATTEMPTS; attempt += 1) {
+      const result = await probeConnection();
+      if (whatsAppPairingRequestRef.current !== requestId) return;
+      if (result.success) {
+        setMode("ready");
+        setProbing(false);
+        return;
+      }
+      failureMessage = result.message || failureMessage;
+      if (attempt < WHATSAPP_VERIFY_ATTEMPTS - 1) await sleep(WHATSAPP_VERIFY_INTERVAL_MS);
+    }
+    if (whatsAppPairingRequestRef.current !== requestId) return;
+    setError(failureMessage);
+    setMode("failed");
+    setProbing(false);
+  }
+
+  const beginWhatsAppSetup = async (force = false) => {
+    const requestId = whatsAppPairingRequestRef.current + 1;
+    whatsAppPairingRequestRef.current = requestId;
+    setMode("setup");
+    setError(null);
+    setWhatsAppQrDataUrl(null);
+    setWhatsAppPairingMessage(null);
+    setWhatsAppSetupProgress([]);
+
+    if (!connected || (!onWhatsAppPairingStart && !onWebLoginStart) || !onWebLoginWait) {
+      setWhatsAppPairingStatus("idle");
+      setError("Automatic WhatsApp pairing is unavailable for this workspace.");
+      return;
+    }
+
+    try {
+      const reportProgress = (event: OpenClawWhatsAppProgressEvent) => {
+        if (whatsAppPairingRequestRef.current !== requestId) return;
+        setWhatsAppSetupProgress((current) => {
+          const existingIndex = current.findIndex((entry) => entry.id === event.id);
+          if (existingIndex === -1) return [...current, event];
+          return current.map((entry, index) => index === existingIndex ? event : entry);
+        });
+      };
+      let started: GatewayWebLoginStartResult;
+      if (onWhatsAppPairingStart) {
+        setWhatsAppPairingStatus("preparing");
+        started = await onWhatsAppPairingStart({
+          force,
+          timeoutMs: WHATSAPP_LOGIN_START_TIMEOUT_MS,
+          verbose: true,
+        }, reportProgress);
+        if (whatsAppPairingRequestRef.current !== requestId) return;
+        whatsAppSupportPreparedRef.current = true;
+        setRuntimeConfigured(true);
+      } else {
+        if (onEnsureWhatsAppSupport && !whatsAppSupportPreparedRef.current) {
+          setWhatsAppPairingStatus("preparing");
+          await onEnsureWhatsAppSupport(reportProgress);
+          if (whatsAppPairingRequestRef.current !== requestId) return;
+          whatsAppSupportPreparedRef.current = true;
+        }
+        if (onEnsureWhatsAppSupport) {
+          setRuntimeConfigured(true);
+        } else if (!configured) {
+          if (!canConfigure) throw new Error("WhatsApp configuration is unavailable for this workspace.");
+          setWhatsAppPairingStatus("configuring");
+          await persistChannelConfig({ enabled: true });
+          if (whatsAppPairingRequestRef.current !== requestId) return;
+          setRuntimeConfigured(true);
+        }
+        setWhatsAppPairingStatus("starting");
+        started = await onWebLoginStart!({
+          force,
+          timeoutMs: WHATSAPP_LOGIN_START_TIMEOUT_MS,
+          verbose: true,
+        });
+      }
+      if (whatsAppPairingRequestRef.current !== requestId) return;
+
+      if (started.connected) {
+        await verifyWhatsAppPairing(requestId);
+        return;
+      }
+      if (!validWhatsAppQrDataUrl(started.qrDataUrl)) {
+        throw new Error(started.message || "WhatsApp did not provide a pairing code.");
+      }
+
+      let currentQrDataUrl = started.qrDataUrl;
+      setWhatsAppQrDataUrl(currentQrDataUrl);
+      setWhatsAppPairingMessage(started.message || "Scan this code with WhatsApp to link your phone.");
+      setWhatsAppPairingStatus("waiting");
+      if (onWhatsAppPairingStart) return;
+
+      for (let attempt = 0; attempt < WHATSAPP_LOGIN_WAIT_ATTEMPTS; attempt += 1) {
+        const result = await onWebLoginWait({
+          timeoutMs: WHATSAPP_LOGIN_WAIT_TIMEOUT_MS,
+          currentQrDataUrl,
+        });
+        if (whatsAppPairingRequestRef.current !== requestId) return;
+        if (result.connected) {
+          setWhatsAppQrDataUrl(null);
+          await verifyWhatsAppPairing(requestId);
+          return;
+        }
+        if (!validWhatsAppQrDataUrl(result.qrDataUrl)) {
+          throw new Error(result.message || "The WhatsApp pairing code expired.");
+        }
+        currentQrDataUrl = result.qrDataUrl;
+        setWhatsAppQrDataUrl(currentQrDataUrl);
+        setWhatsAppPairingMessage(result.message || "The pairing code was refreshed. Scan the latest code.");
+      }
+      throw new Error("WhatsApp pairing timed out. Generate a new code to try again.");
+    } catch (cause) {
+      if (whatsAppPairingRequestRef.current !== requestId) return;
+      setWhatsAppPairingStatus("idle");
+      setWhatsAppQrDataUrl(null);
+      setError(cause instanceof Error ? cause.message : "Could not start WhatsApp pairing.");
+    }
+  };
+
   const beginSetup = () => {
+    if (channelId === "whatsapp") {
+      void beginWhatsAppSetup(configured);
+      return;
+    }
+    if (advancedSlackTransport) {
+      setError(`This Slack account uses ${slackMode === "http" ? "HTTP Request URLs" : "Relay"}. Manage it in integrations.`);
+      return;
+    }
     setMode("setup");
     setError(null);
     setWorkflowUnavailable(false);
     if (workflowLoading) return;
-    setWorkflow(null);
     setRuntimeInstructions(null);
     setWorkflowLoading(true);
     void (async () => {
@@ -243,73 +544,52 @@ export function ChannelChatConnectorCard({
         if (!onGenerateConnectorWorkflow) throw new Error("Generated guidance is unavailable.");
         setWorkflow(await onGenerateConnectorWorkflow(channelId));
       } catch {
-        setWorkflow(null);
-        setWorkflowUnavailable(true);
+        if (!workflow) setWorkflowUnavailable(true);
       } finally {
         setWorkflowLoading(false);
       }
     })();
   };
+  const beginDirectSetup = useEffectEvent(beginSetup);
 
-  const save = async () => {
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-    if (!connectorsProvider && !onSaveConfig) {
-      setError(`${definition.displayName} setup is unavailable here.`);
-      return;
-    }
-    setSaving(true);
+  useEffect(() => {
+    if (
+      !directSetup ||
+      (configured && channelId !== "whatsapp") ||
+      directSetupStartedRef.current ||
+      (channelId === "whatsapp" && whatsAppPairingState?.status !== undefined && whatsAppPairingState.status !== "idle")
+    ) return;
+    directSetupStartedRef.current = true;
+    beginDirectSetup();
+  }, [channelId, configured, directSetup, whatsAppPairingState?.status]);
+
+  useEffect(() => () => {
+    whatsAppPairingRequestRef.current += 1;
+  }, []);
+
+  const cancelWhatsAppSetup = () => {
+    whatsAppPairingRequestRef.current += 1;
+    onCancelWhatsAppPairing?.();
+    setWhatsAppPairingStatus("idle");
+    setWhatsAppQrDataUrl(null);
+    setWhatsAppPairingMessage(null);
+    setWhatsAppSetupProgress([]);
     setError(null);
-    try {
-      const nextConfig = channelConfig(channelId, activeValues);
-      if (connectorsProvider) await connectorsProvider.configure(channelId, nextConfig);
-      else await onSaveConfig!({ channels: { [channelId]: nextConfig } });
-      setValues({});
-      setVisibleFields(new Set());
-      setRuntimeConfigured(true);
-      setMode("saved");
-    } catch {
-      setError(`Could not save ${definition.displayName} settings. No credential values were added to chat.`);
-    } finally {
-      setSaving(false);
-    }
+    setMode(configured ? "manage" : "overview");
   };
 
   const verify = async () => {
-    if (!connectorsProvider && !channelsProvider) {
-      setError("Connection testing is unavailable here.");
-      return;
-    }
     setMode("verifying");
     setProbing(true);
     setError(null);
-    try {
-      if (connectorsProvider) {
-        const connector = (await connectorsProvider.list({ connectorId: channelId, probe: true })).find((candidate) => candidate.connectorId === channelId);
-        if (connector?.usable) {
-          setRuntimeConfigured(true);
-          setMode("ready");
-          return;
-        }
-      } else if (channelsProvider) {
-        const channel = (await channelsProvider.list({ probe: true })).find((candidate) => candidate.channelId === channelId);
-        if (channel?.configured && channel.running === true && channel.healthState !== "unhealthy") {
-          setRuntimeConfigured(true);
-          setAccountName(channel.accountDisplayName ?? null);
-          setMode("ready");
-          return;
-        }
-      }
-      setError(`${definition.displayName} is configured but not reachable yet.`);
+    const result = await probeConnection();
+    if (result.success) {
+      setMode("ready");
+    } else {
+      setError(result.message ?? `${definition.displayName} is configured but not reachable yet.`);
       setMode("failed");
-    } catch {
-      setError(`Could not test ${definition.displayName} right now.`);
-      setMode("failed");
-    } finally {
-      setProbing(false);
     }
+    setProbing(false);
   };
 
   const disconnect = async () => {
@@ -317,8 +597,28 @@ export function ChannelChatConnectorCard({
     setSaving(true);
     setError(null);
     try {
-      if (onSaveConfig) await onSaveConfig({ channels: { [channelId]: null } });
-      else await channelsProvider?.removeConfig?.(channelId);
+      if (channelsProvider?.removeConfig && channelsProvider.read) {
+        const snapshot = await channelsProvider.read({ channelId });
+        const channel = snapshot.channels.find((candidate) => candidate.channelId === channelId);
+        const defaultAccountId = channel?.defaultAccountId;
+        const accountScope = defaultAccountId && channelsProvider.readConfig
+          ? await channelsProvider.readConfig({ channelId, accountId: defaultAccountId })
+          : null;
+        if (channel && channel.accounts.length > 1 && !accountScope?.accountId) {
+          setError(`Open ${definition.displayName} in integrations to choose the account to disconnect.`);
+          return;
+        }
+        await channelsProvider.removeConfig(channelId, accountScope?.accountId);
+      } else if (onSaveConfig) {
+        const channelConfig = asRecord(asRecord(config?.channels)?.[channelId]);
+        if (Object.keys(asRecord(channelConfig?.accounts) ?? {}).length > 0) {
+          setError(`Open ${definition.displayName} in integrations to choose the account to disconnect.`);
+          return;
+        }
+        await onSaveConfig({ channels: { [channelId]: null } });
+      } else {
+        await channelsProvider?.removeConfig?.(channelId);
+      }
       setRuntimeConfigured(false);
       setWorkflow(null);
       setRuntimeInstructions(null);
@@ -335,6 +635,7 @@ export function ChannelChatConnectorCard({
     onReconnectGateway?.();
   };
 
+  const currentWhatsAppProgress = whatsAppSetupProgress.findLast((entry) => entry.status === "running") ?? whatsAppSetupProgress.at(-1);
   const heroLabel = !connected
     ? `${definition.displayName} setup`
     : mode === "setup"
@@ -350,10 +651,20 @@ export function ChannelChatConnectorCard({
               : configured
                 ? `${definition.displayName} configured`
                 : `Connect ${definition.displayName}`;
-  const heroSubtitle = mode === "setup"
-    ? workflow?.summary ?? runtimeInstructions ?? (workflowLoading ? "Preparing guidance for this workspace version." : definition.description)
+  const heroSubtitle = mode === "setup" && channelId === "whatsapp"
+    ? whatsAppPairingStatus === "preparing"
+      ? currentWhatsAppProgress?.label ?? "Starting WhatsApp setup."
+      : whatsAppPairingStatus === "configuring"
+      ? "Enabling WhatsApp for this workspace."
+      : whatsAppPairingStatus === "starting"
+        ? "Generating a secure pairing code."
+        : whatsAppPairingStatus === "waiting"
+          ? whatsAppPairingMessage ?? "Scan the code with WhatsApp to link your phone."
+          : "Link your phone with a secure QR code."
+    : mode === "setup"
+      ? workflow?.summary ?? runtimeInstructions ?? (workflowLoading ? "Preparing setup guidance." : definition.description)
     : mode === "saved"
-      ? "Complete any remaining runtime steps, then test the connection."
+      ? "Complete any remaining setup steps, then test the connection."
       : mode === "ready"
         ? accountName ? `Connected as ${accountName}.` : `${definition.displayName} can receive messages.`
         : definition.description;
@@ -365,39 +676,26 @@ export function ChannelChatConnectorCard({
     instructions: "Enter the protected values required by this workspace. They are sent only when you save settings.",
     inputSlots,
   };
-  const fallbackWorkflow: ConnectorWorkflow | null = !workflowLoading && inputSlots.length > 0 ? {
+  const runtimeWorkflow: ConnectorWorkflow | null = runtimeInstructions ? {
     schema: CONNECTOR_WORKFLOW_SCHEMA_ID,
     connectorId: channelId,
-    runtimeFingerprint: "workspace-inputs",
-    summary: definition.description,
-    steps: [
-      ...(runtimeInstructions ? [{
-        id: "runtime-guidance",
-        title: "Review runtime guidance",
-        instructions: runtimeInstructions,
-        kind: "instruction" as const,
-        approvalRequired: false,
-      }] : []),
-      {
-        ...inputFallback,
-        kind: "input" as const,
-        approvalRequired: false,
-      },
-    ],
-  } : null;
-  const workflowWithRuntimeInstructions = workflow && runtimeInstructions ? {
-    ...workflow,
+    runtimeFingerprint: "runtime-provided",
+    summary: `Follow the ${definition.displayName} setup guidance reported by this workspace.`,
     steps: [{
       id: "runtime-guidance",
       title: "Review runtime guidance",
       instructions: runtimeInstructions,
-      kind: "instruction" as const,
+      kind: "instruction",
       approvalRequired: false,
-    }, ...workflow.steps],
-  } : workflow;
-  const displayWorkflow = workflowWithRuntimeInstructions
-    ? ensureConnectorWorkflowInputSlots(workflowWithRuntimeInstructions, inputFallback)
-    : fallbackWorkflow;
+    }],
+  } : null;
+  const sourceWorkflow = workflow ?? runtimeWorkflow;
+  const displayWorkflowWithInputs = sourceWorkflow
+    ? ensureConnectorWorkflowInputSlots(sourceWorkflow, inputFallback)
+    : null;
+  const displayWorkflow = displayWorkflowWithInputs
+    ? ensureConnectorWorkflowVerificationStep(displayWorkflowWithInputs)
+    : null;
   const inputControls = Object.fromEntries(definition.fields.map((field) => {
     const inputSlot = `${channelId}.${field.key}` as ConnectorWorkflowInputSlot;
     const visible = visibleFields.has(field.key);
@@ -473,7 +771,7 @@ export function ChannelChatConnectorCard({
               animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
               transition={{ type: "spring", stiffness: 330, damping: 32, mass: 0.8 }}
               className="truncate text-left text-[clamp(1.55rem,5.6vw,3.05rem)] font-black uppercase leading-[0.9] tracking-[0.01em]"
-              style={{ color: "var(--channel-accent)" }}
+              style={{ color: brand.color }}
             >
               {heroLabel}
             </motion.p>
@@ -488,18 +786,112 @@ export function ChannelChatConnectorCard({
           {!connected ? (
             <div className="flex items-start gap-2 rounded-2xl border border-warning/25 bg-warning/10 px-3 py-2 text-warning">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              Reconnect the workspace before changing channel settings.
+              Reconnect the workspace before changing integration settings.
             </div>
           ) : null}
-          {mode === "setup" ? (
-            <>
+          {mode === "setup" || mode === "saved" ? (
+            channelId === "whatsapp" && mode === "setup" ? (
+              <div className="rounded-2xl border border-[var(--channel-accent-border)] bg-background/75 p-4 sm:p-5">
+                {whatsAppQrDataUrl ? (
+                  <div className="grid items-center gap-5 sm:grid-cols-[minmax(0,17rem)_1fr] sm:gap-7">
+                    <div className="relative mx-auto w-full max-w-[17rem] overflow-hidden rounded-[1.35rem] border border-[var(--channel-accent-border)] bg-white p-3 shadow-[0_18px_60px_rgba(0,0,0,0.3)]">
+                      <Image
+                        src={whatsAppQrDataUrl}
+                        alt="WhatsApp pairing QR code"
+                        width={256}
+                        height={256}
+                        unoptimized
+                        className="h-auto w-full"
+                      />
+                      <div className="absolute inset-x-3 bottom-3 flex justify-center">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-black/75 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-white backdrop-blur">
+                          <Loader2 className="h-3 w-3 animate-spin" /> Waiting for scan
+                        </span>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-foreground">Scan with your phone</p>
+                      <p className="mt-2 text-xs leading-5 text-text-secondary">
+                        Open WhatsApp, go to Settings, choose Linked Devices, then choose Link a Device and scan this code.
+                      </p>
+                      <p className="mt-3 rounded-xl border border-border bg-surface-low px-3 py-2 text-[11px] leading-4 text-text-muted">
+                        Keep this page open. The code refreshes here automatically until pairing completes.
+                      </p>
+                    </div>
+                  </div>
+                ) : whatsAppPairingStarting ? (
+                  <div role="status" className="flex min-h-40 flex-col items-center justify-center gap-3 text-center">
+                    <Loader2 className="h-7 w-7 animate-spin text-[var(--channel-accent)]" />
+                    <div>
+                      <p className="font-bold text-foreground">
+                        {whatsAppPairingStatus === "preparing"
+                          ? currentWhatsAppProgress?.label ?? "Preparing WhatsApp support"
+                          : whatsAppPairingStatus === "configuring"
+                            ? "Enabling WhatsApp"
+                            : "Generating your pairing code"}
+                      </p>
+                      <p className="mt-1 text-[11px] text-text-muted">
+                        {whatsAppPairingStatus === "preparing" ? "Installation and workspace restart are automatic." : "This usually takes only a few seconds."}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs leading-5 text-text-muted">
+                    Generate a new pairing code to continue. No terminal commands are required.
+                  </p>
+                )}
+                {whatsAppSetupProgress.length > 0 || (onWhatsAppPairingStart && whatsAppPairingStarting) ? (
+                  <div className="mt-4 overflow-hidden rounded-xl border border-border bg-surface-low/80" aria-label="WhatsApp setup activity">
+                    <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-text-muted">
+                      <Terminal className="h-3.5 w-3.5" /> Setup activity
+                    </div>
+                    <div className="divide-y divide-border">
+                      {whatsAppSetupProgress.length === 0 ? (
+                        <div className="grid grid-cols-[1rem_minmax(0,1fr)] gap-2 px-3 py-2.5">
+                          <Loader2 className="mt-0.5 h-3.5 w-3.5 animate-spin text-warning" aria-hidden="true" />
+                          <p className="text-[11px] text-text-muted">Starting WhatsApp setup</p>
+                        </div>
+                      ) : whatsAppSetupProgress.map((entry) => (
+                        <div key={entry.id} className="grid grid-cols-[1rem_minmax(0,1fr)] gap-2 px-3 py-2.5">
+                          {entry.status === "running" ? (
+                            <Loader2 className="mt-0.5 h-3.5 w-3.5 animate-spin text-warning" aria-hidden="true" />
+                          ) : entry.status === "succeeded" ? (
+                            <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 text-success" aria-hidden="true" />
+                          ) : (
+                            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 text-destructive" aria-hidden="true" />
+                          )}
+                          <div className="min-w-0">
+                            {entry.command ? (
+                              <code className="block overflow-x-auto whitespace-nowrap font-mono text-[11px] text-foreground">$ {entry.command}</code>
+                            ) : (
+                              <p className="text-[11px] font-semibold text-foreground">{entry.label}</p>
+                            )}
+                            <p className={`mt-1 text-[10px] ${entry.status === "failed" ? "text-destructive" : "text-text-muted"}`}>
+                              {entry.detail ?? (entry.status === "running" ? "Running" : entry.status === "succeeded" ? "Completed" : "Failed")}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : <>
+              {mode === "saved" ? (
+                <div className="flex items-start gap-2 rounded-2xl border border-[var(--channel-accent-border)] bg-[var(--channel-accent-soft)] px-3 py-3 text-[var(--channel-accent)]">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                  <p>Settings are stored. Run the connection check below before finishing.</p>
+                </div>
+              ) : null}
               <ConnectorWorkflowGuide
                 workflow={displayWorkflow}
                 loading={workflowLoading}
-                unavailable={workflowUnavailable && !runtimeInstructions && !fallbackWorkflow}
+                unavailable={workflowUnavailable && !runtimeInstructions}
                 inputControls={inputControls}
-                showRuntimeFingerprint={Boolean(workflow)}
                 onRunShellProposal={onRunShellProposal}
+                onVerifyConnection={probeConnection}
+                verificationDisabled={mode !== "saved"}
+                verificationDisabledReason={mode !== "saved" ? "Save settings before testing the connection." : undefined}
                 onRetry={beginSetup}
               />
               {definition.fields.length === 0 && !displayWorkflow ? (
@@ -508,12 +900,6 @@ export function ChannelChatConnectorCard({
                 </div>
               ) : null}
             </>
-          ) : null}
-          {mode === "saved" ? (
-            <div className="flex items-start gap-2 rounded-2xl border border-[var(--channel-accent-border)] bg-[var(--channel-accent-soft)] px-3 py-3 text-[var(--channel-accent)]">
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-              <p>Settings are stored. Complete any remaining steps from the runtime guidance, then test the connection.</p>
-            </div>
           ) : null}
           {mode === "verifying" ? (
             <div role="status" className="flex items-center gap-2 rounded-2xl border border-border bg-background/65 px-3 py-3">
@@ -531,18 +917,33 @@ export function ChannelChatConnectorCard({
 
       <div className="relative z-10 flex flex-wrap items-center justify-end gap-2 border-t border-border bg-surface-high/35 px-4 py-3 backdrop-blur-md sm:px-5">
         {mode === "setup" ? (
-          <>
-            <button type="button" className={buttonClass()} disabled={saving} onClick={() => setMode(configured ? "manage" : "overview")}>Back</button>
-            {channelId === "whatsapp" && onOpenFullSetup ? (
-              <button type="button" className={buttonClass()} onClick={onOpenFullSetup}>Open pairing setup</button>
-            ) : null}
-            <button type="button" className={buttonClass("primary")} disabled={!canConfigure || saving || Boolean(validationError)} onClick={() => void save()}>
-              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-              {channelId === "whatsapp" ? "Enable channel" : "Save settings"}
-              <ArrowRight className="h-3.5 w-3.5" />
-            </button>
-          </>
-        ) : mode === "saved" || mode === "failed" ? (
+          channelId === "whatsapp" ? (
+            <>
+              {!directSetup ? <button type="button" className={buttonClass()} onClick={cancelWhatsAppSetup}>Back</button> : null}
+              {error && onOpenFullSetup ? (
+                <button type="button" className={buttonClass()} onClick={onOpenFullSetup}>Use shell instead</button>
+              ) : null}
+              <button
+                type="button"
+                className={buttonClass("primary")}
+                disabled={!connected || whatsAppPairingStarting || (!onWhatsAppPairingStart && !onWebLoginStart) || !onWebLoginWait}
+                onClick={() => void beginWhatsAppSetup(true)}
+              >
+                {whatsAppPairingStarting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                {whatsAppPairingStarting ? "Preparing" : whatsAppQrDataUrl ? "Refresh QR" : "Try again"}
+              </button>
+            </>
+          ) : <>
+              {!directSetup ? <button type="button" className={buttonClass()} disabled={saving} onClick={() => setMode(configured ? "manage" : "overview")}>Back</button> : null}
+              <button type="button" className={buttonClass("primary")} disabled={!canConfigure || saving || Boolean(validationError)} onClick={() => void save()}>
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                Save settings
+                <ArrowRight className="h-3.5 w-3.5" />
+              </button>
+            </>
+        ) : mode === "saved" ? (
+          <button type="button" className={buttonClass()} onClick={finish}>Finish</button>
+        ) : mode === "failed" ? (
           <>
             <button type="button" className={buttonClass("primary")} disabled={probing || (!connectorsProvider && !channelsProvider)} onClick={() => void verify()}>
               {probing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
@@ -554,7 +955,11 @@ export function ChannelChatConnectorCard({
           <button type="button" className={buttonClass()} disabled><Loader2 className="h-3.5 w-3.5 animate-spin" />Testing</button>
         ) : configured || mode === "ready" ? (
           <>
-            <button type="button" className={buttonClass()} disabled={!canConfigure || saving} onClick={beginSetup}>Reconfigure</button>
+            {advancedSlackTransport ? (
+              <button type="button" className={buttonClass()} disabled={!onOpenIntegrationDetails} onClick={onOpenIntegrationDetails}>Manage in integrations</button>
+            ) : (
+              <button type="button" className={buttonClass()} disabled={!canConfigure || saving} onClick={beginSetup}>{channelId === "whatsapp" ? "Re-pair" : "Reconfigure"}</button>
+            )}
             <button type="button" className={buttonClass()} disabled={probing || (!connectorsProvider && !channelsProvider)} onClick={() => void verify()}>
               <RefreshCw className="h-3.5 w-3.5" />Test
             </button>
@@ -570,7 +975,7 @@ export function ChannelChatConnectorCard({
             </button>
           </>
         )}
-        {onOpenIntegrationDetails ? <button type="button" className={buttonClass()} onClick={onOpenIntegrationDetails}>Open in integrations</button> : null}
+        {onOpenIntegrationDetails && !advancedSlackTransport ? <button type="button" className={buttonClass()} onClick={onOpenIntegrationDetails}>Open in integrations</button> : null}
         {onDismiss ? <button type="button" className={buttonClass()} onClick={onDismiss}><X className="h-3.5 w-3.5" />Dismiss</button> : null}
       </div>
     </section>

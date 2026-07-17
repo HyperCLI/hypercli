@@ -24,6 +24,7 @@ import { buildTelegramAgentAccessPrompt, TELEGRAM_AGENT_ACCESS_DISPLAY_PROMPT } 
 import {
   CONNECTOR_WORKFLOW_SCHEMA_ID,
   ensureConnectorWorkflowInputSlots,
+  ensureConnectorWorkflowVerificationStep,
   type ConnectorWorkflow,
   type ConnectorWorkflowInputSlot,
 } from "@/lib/connector-workflow";
@@ -33,6 +34,7 @@ import {
   connectorWorkflowInputControlIsVisible,
   ConnectorWorkflowGuide,
   type ConnectorWorkflowInputControls,
+  type ConnectorWorkflowVerificationResult,
 } from "./ConnectorWorkflowGuide";
 import {
   activeConnectorAuthorizationFlow,
@@ -52,15 +54,17 @@ interface TelegramChatConnectorCardProps {
   onChannelProbe?: () => Promise<Record<string, unknown>>;
   onAgentConfigUpdate?: (prompt: string, displayContent: string) => Promise<void>;
   onReconnectGateway?: () => void;
+  cachedWorkflow?: ConnectorWorkflow | null;
   onGenerateConnectorWorkflow?: (connectorId: "telegram") => Promise<ConnectorWorkflow>;
   onRunShellProposal?: (command: string) => Promise<void>;
   onOpenIntegrationDetails?: () => void;
   onOpenFullSetup?: () => void;
   onDismiss?: () => void;
+  directSetup?: boolean;
 }
 
 type TelegramTone = "neutral" | "primary" | "warning" | "danger";
-type TelegramMode = "overview" | "setup" | "finish" | "verifying" | "ready" | "failed" | "manage";
+type TelegramMode = "overview" | "setup" | "saved" | "finish" | "verifying" | "ready" | "failed" | "manage";
 type DmPolicy = "allowlist" | "pairing" | "open" | "disabled";
 type GroupPolicy = "allowlist" | "open" | "disabled";
 type PolicyChoice<T extends string> = "" | "runtime-default" | T;
@@ -223,11 +227,13 @@ export function TelegramChatConnectorCard({
   onChannelProbe,
   onAgentConfigUpdate,
   onReconnectGateway,
+  cachedWorkflow,
   onGenerateConnectorWorkflow,
   onRunShellProposal,
   onOpenIntegrationDetails,
   onOpenFullSetup,
   onDismiss,
+  directSetup = false,
 }: TelegramChatConnectorCardProps) {
   const currentConfig = telegramConfig(config);
   const configured = isPluginConnected("telegram", config);
@@ -249,7 +255,7 @@ export function TelegramChatConnectorCard({
   const hasCapability = hasTelegramCapability(configSchema);
   const runtimeAvailable = hasCapability || Boolean(connectorsProvider);
   const canConfigure = connected && runtimeAvailable && Boolean(connectorsProvider || onSaveConfig);
-  const initialMode: TelegramMode = configured ? "manage" : "overview";
+  const initialMode: TelegramMode = configured ? "manage" : directSetup ? "setup" : "overview";
   const [mode, setMode] = React.useState<TelegramMode>(initialMode);
   const [token, setToken] = React.useState("");
   const [showToken, setShowToken] = React.useState(false);
@@ -269,26 +275,32 @@ export function TelegramChatConnectorCard({
   const [displayName, setDisplayName] = React.useState<string | null>(storedDisplayName);
   const [error, setError] = React.useState<string | null>(null);
   const [showManualFallback, setShowManualFallback] = React.useState(false);
-  const [workflow, setWorkflow] = React.useState<ConnectorWorkflow | null>(null);
+  const [generatedWorkflow, setWorkflow] = React.useState<ConnectorWorkflow | null>(null);
+  const workflow = cachedWorkflow ?? generatedWorkflow;
   const [workflowLoading, setWorkflowLoading] = React.useState(false);
   const [workflowUnavailable, setWorkflowUnavailable] = React.useState(false);
   const [runtimeInstructions, setRuntimeInstructions] = React.useState<string | null>(null);
   const [authorizationApproved, setAuthorizationApproved] = React.useState(false);
+  const [settingsSaved, setSettingsSaved] = React.useState(false);
+  const [setupVerified, setSetupVerified] = React.useState(false);
   const requestIdRef = React.useRef(0);
-  const effectiveMode: TelegramMode = configured && mode === "overview"
+  const directSetupStartedRef = React.useRef(false);
+  const connectionConfigured = configured || settingsSaved;
+
+  const effectiveMode: TelegramMode = connectionConfigured && mode === "overview"
     ? "manage"
-    : !configured && (mode === "manage" || mode === "ready")
+    : !connectionConfigured && (mode === "manage" || mode === "ready")
       ? "overview"
       : mode;
   const effectiveDisplayName = displayName ?? storedDisplayName;
 
   const validateToken = React.useCallback(() => {
     const trimmed = token.trim();
-    if (!trimmed && configured) return null;
+    if (!trimmed && connectionConfigured) return null;
     if (!trimmed) return "Enter the bot token.";
     if (!TELEGRAM_TOKEN_RE.test(trimmed)) return "That token format does not look right. Check the value provided by Telegram.";
     return null;
-  }, [configured, token]);
+  }, [connectionConfigured, token]);
 
   const setupUserIds = parseTelegramUserIds(allowFromInput);
   const setupGroupUserIds = parseTelegramUserIds(groupAllowFromInput);
@@ -296,8 +308,8 @@ export function TelegramChatConnectorCard({
   function validateSetup() {
     const tokenError = validateToken();
     if (tokenError) return tokenError;
-    if (!dmPolicy) return "Choose a direct-message policy or explicitly use the runtime default.";
-    if (!groupPolicy) return "Choose a group policy or explicitly use the runtime default.";
+    if (!dmPolicy) return "Choose a direct-message policy or explicitly keep the current default.";
+    if (!groupPolicy) return "Choose a group policy or explicitly keep the current default.";
     if (!connectorWorkflowInputControlIsValid("telegram.allowFrom", inputControls)) {
       return connectorWorkflowInputControlIsRequired("telegram.allowFrom", inputControls) && setupUserIds.length === 0
         ? "Allowlist access requires at least one numeric Telegram user ID."
@@ -310,60 +322,67 @@ export function TelegramChatConnectorCard({
       return "Telegram group IDs must be numeric or an explicit wildcard.";
     }
     if (connectorWorkflowInputControlIsVisible("telegram.requireMention", inputControls) && !inputControls["telegram.requireMention"]?.valid) {
-      return "Choose mention behavior or explicitly use the runtime default.";
+      return "Choose mention behavior or explicitly keep the current default.";
     }
     return null;
   }
 
-  const verifyTelegram = async (options: { poll: boolean; nextModeOnStart?: TelegramMode } = { poll: false }) => {
+  const verifyTelegram = async (options: { poll: boolean; nextModeOnStart?: TelegramMode; inline?: boolean } = { poll: false }): Promise<ConnectorWorkflowVerificationResult> => {
     if (!connectorsProvider && !onChannelProbe) {
-      setError("Telegram settings were saved, but connection testing is not available here.");
-      setMode("failed");
-      return false;
+      const message = "Telegram settings were saved, but connection testing is not available here.";
+      if (!options.inline) {
+        setError(message);
+        setMode("failed");
+      }
+      return { success: false, message };
     }
 
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
     setProbing(true);
-    setError(null);
+    if (!options.inline) setError(null);
     if (options.nextModeOnStart) setMode(options.nextModeOnStart);
 
     const attempts = options.poll ? VERIFY_ATTEMPTS : 1;
+    let failureMessage = "Telegram settings were saved, but the bot is not reachable yet.";
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
         if (connectorsProvider) {
           const descriptor = (await connectorsProvider.list({ connectorId: "telegram", probe: true })).find((candidate) => candidate.connectorId === "telegram");
-          if (requestIdRef.current !== requestId) return false;
+          if (requestIdRef.current !== requestId) return { success: false };
           if (descriptor?.usable) {
-            setMode("ready");
+            if (!options.inline) setMode("ready");
+            else setSetupVerified(true);
             setProbing(false);
-            return true;
+            return { success: true, message: "Telegram is online for this workspace." };
           }
-          if (!options.poll || attempt === attempts - 1) {
-            setError("Telegram settings were saved, but the bot is not reachable yet.");
+          if ((!options.poll || attempt === attempts - 1) && !options.inline) {
+            setError(failureMessage);
           }
           if (options.poll && attempt < attempts - 1) await sleep(VERIFY_INTERVAL_MS);
           continue;
         }
         const status = await onChannelProbe!();
-        if (requestIdRef.current !== requestId) return false;
+        if (requestIdRef.current !== requestId) return { success: false };
         setProbeStatus(status);
         const entry = telegramChannelStatus(status);
         const nextDisplayName = telegramDisplayNameFrom(entry);
         if (nextDisplayName) setDisplayName(nextDisplayName);
         if (isTelegramLive(status)) {
-          setMode("ready");
+          if (!options.inline) setMode("ready");
+          else setSetupVerified(true);
           setProbing(false);
-          return true;
+          return { success: true, message: nextDisplayName ? `Telegram is online as @${nextDisplayName}.` : "Telegram is online for this workspace." };
         }
+        failureMessage = telegramProbeError(status) ?? failureMessage;
         if (!options.poll || attempt === attempts - 1) {
-          setError(telegramProbeError(status) ?? "Telegram settings were saved, but the bot is not reachable yet.");
+          if (!options.inline) setError(failureMessage);
         }
       } catch (cause) {
-        if (requestIdRef.current !== requestId) return false;
+        if (requestIdRef.current !== requestId) return { success: false };
         if (!options.poll || attempt === attempts - 1) {
-          const message = cause instanceof Error ? cause.message : "Could not test Telegram right now.";
-          setError(redactTelegramSecrets(message));
+          failureMessage = redactTelegramSecrets(cause instanceof Error ? cause.message : "Could not test Telegram right now.");
+          if (!options.inline) setError(failureMessage);
         }
       }
 
@@ -371,10 +390,11 @@ export function TelegramChatConnectorCard({
     }
 
     if (requestIdRef.current === requestId) {
-      setMode("failed");
+      if (!options.inline) setMode("failed");
+      else setSetupVerified(false);
       setProbing(false);
     }
-    return false;
+    return { success: false, message: failureMessage };
   };
 
   React.useEffect(() => () => {
@@ -406,13 +426,17 @@ export function TelegramChatConnectorCard({
       setShowToken(false);
       setProbeStatus(null);
       setAuthorizationApproved(false);
-      setMode("finish");
+      setSettingsSaved(true);
+      setSetupVerified(false);
+      setMode("saved");
     } catch (cause) {
       if (isGatewayRestartDuringSave(cause)) {
         setToken("");
         setShowToken(false);
         setProbeStatus(null);
         setAuthorizationApproved(false);
+        setSettingsSaved(true);
+        setSetupVerified(false);
         setMode("finish");
         return;
       }
@@ -440,6 +464,8 @@ export function TelegramChatConnectorCard({
       if (requestIdRef.current !== requestId) return;
       setProbeStatus(null);
       setDisplayName(null);
+      setSettingsSaved(false);
+      setSetupVerified(false);
       setMode("overview");
     } catch {
       setError("Could not disconnect Telegram. Try again.");
@@ -485,7 +511,6 @@ export function TelegramChatConnectorCard({
     setAuthorizationApproved(false);
     setMode("setup");
     if (!workflowLoading && (connectorsProvider || onGenerateConnectorWorkflow)) {
-      setWorkflow(null);
       setRuntimeInstructions(null);
       setWorkflowLoading(true);
       setWorkflowUnavailable(false);
@@ -500,20 +525,32 @@ export function TelegramChatConnectorCard({
           if (!onGenerateConnectorWorkflow) throw new Error("Generated connector guidance is unavailable.");
           setWorkflow(await onGenerateConnectorWorkflow("telegram"));
         } catch {
-          setWorkflow(null);
-          setWorkflowUnavailable(true);
+          if (!workflow) setWorkflowUnavailable(true);
         } finally {
           setWorkflowLoading(false);
         }
       })();
     }
   };
+  const beginDirectSetup = React.useEffectEvent(beginSetup);
+
+  React.useEffect(() => {
+    if (!directSetup || configured || directSetupStartedRef.current) return;
+    directSetupStartedRef.current = true;
+    beginDirectSetup();
+  }, [configured, directSetup]);
 
   const finishTelegramSetup = () => {
     setError(null);
     setShowManualFallback(false);
     setMode("manage");
     onReconnectGateway?.();
+  };
+
+  const continueTelegramSetup = () => {
+    setError(null);
+    setShowManualFallback(false);
+    setMode("finish");
   };
 
   const live = isTelegramLive(probeStatus);
@@ -526,6 +563,8 @@ export function TelegramChatConnectorCard({
         : "neutral";
   const heroLabel = effectiveMode === "finish"
     ? "Message Telegram"
+    : effectiveMode === "saved"
+      ? "Settings saved"
     : !connected
       ? "Telegram setup"
       : !runtimeAvailable
@@ -540,13 +579,15 @@ export function TelegramChatConnectorCard({
               ? "Telegram configured"
               : "Connect Telegram";
   const heroSubtitle = effectiveMode === "finish"
-    ? "Complete the remaining authorization steps, then refresh workspace sessions."
+    ? "Complete the remaining authorization steps, then refresh conversations."
+    : effectiveMode === "saved"
+      ? "Run the connection check, then continue to message authorization."
     : !connected
       ? "Reconnect the agent before saving Telegram settings."
       : !runtimeAvailable
-        ? "This agent does not advertise Telegram channel settings yet."
+        ? "Telegram setup is not available for this agent yet."
         : effectiveMode === "setup"
-          ? workflow?.summary ?? runtimeInstructions ?? (workflowLoading ? "Preparing guidance for this workspace version." : "Complete each setup step, then save the protected settings.")
+          ? workflow?.summary ?? runtimeInstructions ?? (workflowLoading ? "Preparing setup guidance." : "Complete each setup step, then save the protected settings.")
         : effectiveMode === "verifying"
           ? "Testing whether your bot is live and reachable."
           : effectiveMode === "ready" || live
@@ -554,19 +595,22 @@ export function TelegramChatConnectorCard({
             : "Set up a Telegram bot without putting secrets in chat.";
   const telegramAccessHref = effectiveDisplayName ? `https://t.me/${effectiveDisplayName}` : null;
   const showTelegramAccess = Boolean(telegramAccessHref && (configured || effectiveMode === "ready" || live || effectiveMode === "failed"));
+  const showSettingsHandoff = effectiveMode === "manage" && connectionConfigured && Boolean(onOpenIntegrationDetails);
   const shouldRenderDetails = Boolean(
     error ||
     showManualFallback ||
     !connected ||
     !runtimeAvailable ||
     effectiveMode === "setup" ||
+    effectiveMode === "saved" ||
     effectiveMode === "finish" ||
     effectiveMode === "verifying" ||
+    showSettingsHandoff ||
     ((effectiveMode === "ready" || live) && showTelegramAccess) ||
     effectiveMode === "failed" ||
     configured,
   );
-  const telegramIconActive = effectiveMode === "setup" || effectiveMode === "finish" || effectiveMode === "verifying";
+  const telegramIconActive = effectiveMode === "setup" || effectiveMode === "saved" || effectiveMode === "finish" || effectiveMode === "verifying";
   const telegramStyle = {
     "--channel-accent": "var(--selection-accent)",
     "--channel-accent-foreground": "var(--selection-accent-foreground)",
@@ -587,39 +631,26 @@ export function TelegramChatConnectorCard({
       "telegram.requireMention",
     ] as ConnectorWorkflowInputSlot[],
   };
-  const fallbackWorkflow: ConnectorWorkflow | null = !workflowLoading ? {
+  const runtimeWorkflow: ConnectorWorkflow | null = runtimeInstructions ? {
     schema: CONNECTOR_WORKFLOW_SCHEMA_ID,
     connectorId: "telegram",
-    runtimeFingerprint: "workspace-inputs",
-    summary: "Configure Telegram securely for this workspace.",
-    steps: [
-      ...(runtimeInstructions ? [{
-        id: "runtime-guidance",
-        title: "Review runtime guidance",
-        instructions: runtimeInstructions,
-        kind: "instruction" as const,
-        approvalRequired: false,
-      }] : []),
-      {
-        ...inputFallback,
-        kind: "input" as const,
-        approvalRequired: false,
-      },
-    ],
-  } : null;
-  const workflowWithRuntimeInstructions = workflow && runtimeInstructions ? {
-    ...workflow,
+    runtimeFingerprint: "runtime-provided",
+    summary: "Follow the setup guidance reported by this workspace.",
     steps: [{
       id: "runtime-guidance",
-      title: "Review runtime guidance",
+      title: "Review setup guidance",
       instructions: runtimeInstructions,
-      kind: "instruction" as const,
+      kind: "instruction",
       approvalRequired: false,
-    }, ...workflow.steps],
-  } : workflow;
-  const displayWorkflow = workflowWithRuntimeInstructions
-    ? ensureConnectorWorkflowInputSlots(workflowWithRuntimeInstructions, inputFallback)
-    : fallbackWorkflow;
+    }],
+  } : null;
+  const sourceWorkflow = workflow ?? runtimeWorkflow;
+  const displayWorkflowWithInputs = sourceWorkflow
+    ? ensureConnectorWorkflowInputSlots(sourceWorkflow, inputFallback)
+    : null;
+  const displayWorkflow = displayWorkflowWithInputs
+    ? ensureConnectorWorkflowVerificationStep(displayWorkflowWithInputs)
+    : null;
   const inputControls: ConnectorWorkflowInputControls = {
     "telegram.botToken": {
       valid: !validateToken(),
@@ -638,7 +669,7 @@ export function TelegramChatConnectorCard({
                 setToken(event.target.value);
                 setError(null);
               }}
-              placeholder={configured ? "Leave blank to keep existing token" : "Enter bot token"}
+              placeholder={connectionConfigured ? "Leave blank to keep existing token" : "Enter bot token"}
               autoComplete="off"
               spellCheck={false}
               className="h-14 w-full rounded-2xl border border-border bg-background/80 px-4 pr-12 font-mono text-base text-foreground outline-none transition-colors placeholder:font-sans placeholder:text-text-muted focus:border-[var(--channel-accent)] sm:text-lg"
@@ -652,7 +683,7 @@ export function TelegramChatConnectorCard({
               {showToken ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
             </button>
           </div>
-          <p className="mt-2 text-[11px] leading-4 text-text-muted">This value is sent only when you approve saving the channel settings. It is never sent to the setup planner.</p>
+          <p className="mt-2 text-[11px] leading-4 text-text-muted">This value is sent only when you approve saving the integration settings. It is never sent to the setup planner.</p>
         </div>
       ),
     },
@@ -707,14 +738,14 @@ export function TelegramChatConnectorCard({
             className="mt-2 h-12 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-[var(--channel-accent)]"
           >
             <option value="">Choose a DM policy</option>
-            <option value="runtime-default">Use runtime default</option>
+            <option value="runtime-default">Keep current default</option>
             <option value="pairing">Pairing</option>
             <option value="allowlist">Allowlisted users</option>
             <option value="open">Open to anyone</option>
             <option value="disabled">Disabled</option>
           </select>
           <p className={`mt-2 text-[11px] leading-4 ${dmPolicy === "open" ? "text-warning" : "text-text-muted"}`}>
-            {dmPolicy === "open" ? "Open access allows any Telegram account that finds the bot to contact it." : "Choose explicitly, or keep the behavior supplied by the runtime."}
+            {dmPolicy === "open" ? "Open access allows any Telegram account that finds the bot to contact it." : "Choose explicitly, or keep the current behavior."}
           </p>
         </div>
       ),
@@ -737,7 +768,7 @@ export function TelegramChatConnectorCard({
             className="mt-2 h-12 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-[var(--channel-accent)]"
           >
             <option value="">Choose a group policy</option>
-            <option value="runtime-default">Use runtime default</option>
+            <option value="runtime-default">Keep current default</option>
             <option value="allowlist">Allowlisted senders</option>
             <option value="open">Open to group members</option>
             <option value="disabled">Disabled</option>
@@ -820,7 +851,7 @@ export function TelegramChatConnectorCard({
             className="mt-2 h-12 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-[var(--channel-accent)]"
           >
             <option value="">Choose mention behavior</option>
-            <option value="runtime-default">Use runtime default</option>
+            <option value="runtime-default">Keep current default</option>
             <option value="required">Require a mention</option>
             <option value="not-required">Respond without a mention</option>
           </select>
@@ -865,7 +896,8 @@ export function TelegramChatConnectorCard({
               initial={{ opacity: 0, y: 18, filter: "blur(7px)" }}
               animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
               transition={{ type: "spring", stiffness: 330, damping: 32, mass: 0.8 }}
-              className="truncate text-left text-[clamp(1.55rem,5.6vw,3.05rem)] font-black uppercase leading-[0.9] tracking-[0.01em] text-[var(--channel-accent)]"
+              className="truncate text-left text-[clamp(1.55rem,5.6vw,3.05rem)] font-black uppercase leading-[0.9] tracking-[0.01em]"
+              style={{ color: TELEGRAM_COLOR }}
             >
               {heroLabel}
             </motion.p>
@@ -937,17 +969,25 @@ export function TelegramChatConnectorCard({
         ) : !runtimeAvailable ? (
           <div className="flex items-start gap-3 rounded-2xl border border-warning/25 bg-warning/10 px-3 py-2 text-warning">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <p>Telegram is not available in this workspace settings.</p>
+            <p>Telegram setup is not available for this agent.</p>
           </div>
-        ) : effectiveMode === "setup" ? (
+        ) : effectiveMode === "setup" || effectiveMode === "saved" ? (
           <div className="space-y-3">
+            {effectiveMode === "saved" ? (
+              <div className="flex items-start gap-3 rounded-2xl border border-[var(--channel-accent-border)] bg-selection-accent/10 px-3 py-3 text-selection-accent">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                <p>Settings are stored. Run the connection check below before continuing.</p>
+              </div>
+            ) : null}
             <ConnectorWorkflowGuide
               workflow={displayWorkflow}
               loading={workflowLoading}
-              unavailable={workflowUnavailable && !runtimeInstructions && !fallbackWorkflow}
+              unavailable={workflowUnavailable && !runtimeInstructions}
               inputControls={inputControls}
-              showRuntimeFingerprint={Boolean(workflow)}
               onRunShellProposal={onRunShellProposal}
+              onVerifyConnection={() => verifyTelegram({ poll: true, inline: true })}
+              verificationDisabled={effectiveMode !== "saved"}
+              verificationDisabledReason={effectiveMode !== "saved" ? "Save settings before testing the connection." : undefined}
               onRetry={beginSetup}
             />
           </div>
@@ -955,6 +995,20 @@ export function TelegramChatConnectorCard({
           <div className="flex items-start gap-3 rounded-2xl border border-selection-accent/25 bg-selection-accent/10 px-3 py-3 text-selection-accent">
             <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
             <p>Checking Telegram. This can take a moment while the workspace applies the new settings.</p>
+          </div>
+        ) : showSettingsHandoff ? (
+          <div className="rounded-2xl border border-selection-accent/25 bg-selection-accent/10 p-3.5">
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-selection-accent" />
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold text-foreground">Manage Telegram settings</p>
+                <p className="mt-1 text-[11px] leading-4 text-text-muted">Update access, privacy mode, bot credentials, and connection checks in Integrations.</p>
+                <button type="button" className={`${buttonClass("primary")} mt-3`} onClick={onOpenIntegrationDetails}>
+                  Open Telegram settings
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
           </div>
         ) : effectiveMode === "ready" || live ? (
           showTelegramAccess && telegramAccessHref ? (
@@ -970,7 +1024,7 @@ export function TelegramChatConnectorCard({
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <p>Telegram is not reachable yet. Check the token, make sure the bot exists, then retry.</p>
           </div>
-        ) : configured ? (
+        ) : connectionConfigured ? (
           <div className="space-y-3">
             <p>Telegram settings are saved. Reconfigure the bot token if you need to update it.</p>
             {showTelegramAccess && telegramAccessHref ? (
@@ -987,13 +1041,23 @@ export function TelegramChatConnectorCard({
       <div className="relative z-10 flex flex-wrap items-center justify-end gap-2 border-t border-border bg-surface-high/35 px-4 py-3 backdrop-blur-md sm:px-5">
         {effectiveMode === "setup" ? (
           <>
-            <button type="button" className={buttonClass()} disabled={saving || probing} onClick={() => setMode(configured ? "manage" : "overview")}>
-              <ArrowLeft className="h-3.5 w-3.5" />
-              Back
-            </button>
+            {!directSetup ? (
+              <button type="button" className={buttonClass()} disabled={saving || probing} onClick={() => setMode(configured ? "manage" : "overview")}>
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Back
+              </button>
+            ) : null}
             <button type="button" className={buttonClass("primary")} disabled={!canConfigure || saving || probing || !setupLooksValid} onClick={() => void saveTelegram()}>
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
               Save settings
+              <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+          </>
+        ) : effectiveMode === "saved" ? (
+          <>
+            <button type="button" className={buttonClass()} disabled={saving || probing} onClick={beginSetup}>Edit settings</button>
+            <button type="button" className={buttonClass("primary")} disabled={!setupVerified || probing} onClick={continueTelegramSetup}>
+              Continue
               <ArrowRight className="h-3.5 w-3.5" />
             </button>
           </>
@@ -1048,7 +1112,7 @@ export function TelegramChatConnectorCard({
               </button>
             ) : null}
           </>
-        ) : configured ? (
+        ) : connectionConfigured ? (
           <>
             {showTelegramAccess && telegramAccessHref ? (
               <a href={telegramAccessHref} target="_blank" rel="noopener noreferrer" className={buttonClass("primary")}>
@@ -1071,7 +1135,7 @@ export function TelegramChatConnectorCard({
             </button>
           </>
         )}
-        {onOpenIntegrationDetails ? <button type="button" className={buttonClass()} onClick={onOpenIntegrationDetails}>Open in integrations</button> : null}
+        {onOpenIntegrationDetails && !showSettingsHandoff ? <button type="button" className={buttonClass()} onClick={onOpenIntegrationDetails}>Open in integrations</button> : null}
         {onDismiss ? <button type="button" className={buttonClass()} onClick={onDismiss}><X className="h-3.5 w-3.5" />Dismiss</button> : null}
       </div>
     </section>

@@ -3558,6 +3558,7 @@ function AgentsPageContent() {
                reportedChannels={chat.reportedChannels}
                reportedChannelSnapshot={chat.reportedChannelSnapshot}
                reportedChannelsReady={chat.reportedChannelsReady}
+               reportedChannelsError={chat.reportedChannelsError}
                onRefreshChannels={chat.refreshReportedChannels}
               config={chat.config as Record<string, unknown> | null}
               connected={chat.connected}

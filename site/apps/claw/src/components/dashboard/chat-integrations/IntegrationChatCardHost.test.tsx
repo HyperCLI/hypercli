@@ -40,7 +40,23 @@ describe("IntegrationChatCardHost", () => {
           config: null,
           configSchema: telegramSchema,
           saveConfig,
-          channelsStatus: vi.fn(async () => ({ channels: {} })),
+          generateConnectorWorkflow: vi.fn(async () => ({
+            schema: "hypercli.connector-workflow.v1",
+            connectorId: "telegram",
+            runtimeFingerprint: "openclaw:test",
+            summary: "Configure Telegram.",
+            steps: [{
+              id: "settings",
+              title: "Enter settings",
+              instructions: "Enter the protected settings.",
+              kind: "input",
+              inputSlots: ["telegram.botToken"],
+              approvalRequired: false,
+            }],
+          })),
+          channelsStatus: vi.fn(async () => ({
+            channels: { telegram: { configured: true, running: true, probe: { ok: true } } },
+          })),
           retry,
           retryAndRefreshSessions,
         } as never}
@@ -48,12 +64,16 @@ describe("IntegrationChatCardHost", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /start setup/i }));
-    fireEvent.change(screen.getByPlaceholderText(/enter bot token/i), { target: { value: "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ" } });
+    fireEvent.change(await screen.findByPlaceholderText(/enter bot token/i), { target: { value: "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ" } });
     fireEvent.change(screen.getByLabelText("Telegram DM policy"), { target: { value: "runtime-default" } });
     fireEvent.change(screen.getByLabelText("Telegram group policy"), { target: { value: "runtime-default" } });
     fireEvent.click(screen.getByRole("button", { name: /save settings/i }));
 
     await waitFor(() => expect(saveConfig).toHaveBeenCalledTimes(1));
+    fireEvent.click(await screen.findByRole("button", { name: /step 2: test the connection/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^test connection$/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /^continue$/i })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: /^continue$/i }));
     fireEvent.click(await screen.findByRole("button", { name: /finish/i }));
 
     expect(retryAndRefreshSessions).toHaveBeenCalledTimes(1);

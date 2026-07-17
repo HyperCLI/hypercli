@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isEphemeralOpenClawSessionName,
   normalizeOpenClawSessions,
   openClawEventMatchesSession,
   sameOpenClawSelectableSessionKey,
@@ -102,6 +103,12 @@ describe("openclaw-session-sdk-surface", () => {
     ]);
   });
 
+  it("recognizes reserved HyperCLI ephemeral session keys", () => {
+    expect(isEphemeralOpenClawSessionName("session-hypercli-ephemeral-019789ab-cdef-7abc-8def-0123456789ab")).toBe(true);
+    expect(isEphemeralOpenClawSessionName("agent:default:session-hypercli-ephemeral-019789ab-cdef-7abc-8def-0123456789ab")).toBe(true);
+    expect(isEphemeralOpenClawSessionName("session-019789ab-cdef-7abc-8def-0123456789ab")).toBe(false);
+  });
+
   it("keeps explicit non-default channel session keys", () => {
     const sessions = normalizeOpenClawSessions([{ key: "session-telegram", origin: { provider: "telegram", from: "telegram:489595440" } }]);
 
@@ -137,5 +144,10 @@ describe("openclaw-session-sdk-surface", () => {
 
     expect(openClawEventMatchesSession(payload, "main")).toBe(false);
     expect(openClawEventMatchesSession(payload, "telegram:489595440")).toBe(true);
+  });
+
+  it("fails closed when a live event has no session identity", () => {
+    expect(openClawEventMatchesSession({ text: "Uncorrelated" }, "main")).toBe(false);
+    expect(openClawEventMatchesSession(null, "main")).toBe(false);
   });
 });

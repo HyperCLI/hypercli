@@ -21,6 +21,13 @@ const workflow: ConnectorWorkflow = {
 };
 
 describe("ConnectorWorkflowGuide", () => {
+  it("keeps settled guidance visible while a refresh is running", () => {
+    render(<ConnectorWorkflowGuide workflow={workflow} loading />);
+
+    expect(screen.getByText("Install GitHub tools")).toBeInTheDocument();
+    expect(screen.queryByText(/preparing guidance/i)).not.toBeInTheDocument();
+  });
+
   it("offers a retry when generation is temporarily unavailable", () => {
     const onRetry = vi.fn();
     render(<ConnectorWorkflowGuide workflow={null} unavailable onRetry={onRetry} />);
@@ -99,7 +106,7 @@ describe("ConnectorWorkflowGuide", () => {
         approvalRequired: false,
       }],
     };
-    const { container } = render(
+    const { container, rerender } = render(
       <ConnectorWorkflowGuide
         workflow={timelineWorkflow}
         inputControls={{
@@ -120,6 +127,23 @@ describe("ConnectorWorkflowGuide", () => {
     fireEvent.click(screen.getByRole("button", { name: /walkthrough complete: review from start/i }));
     expect(container.querySelector('[data-workflow-step="create-bot"]')).toHaveAttribute("data-step-active", "true");
     expect(screen.getByRole("button", { name: "Create your bot" })).toHaveFocus();
+
+    rerender(
+      <ConnectorWorkflowGuide
+        workflow={{
+          ...timelineWorkflow,
+          summary: "Updated Telegram guidance.",
+          steps: timelineWorkflow.steps.map((step) => step.id === "create-bot"
+            ? { ...step, instructions: "Follow the updated bot creation guidance." }
+            : step),
+        }}
+        inputControls={{
+          "telegram.botToken": { content: <input aria-label="Protected token" />, valid: true },
+        }}
+      />,
+    );
+    expect(container.querySelector('[data-workflow-step="create-bot"]')).toHaveAttribute("data-step-complete", "false");
+    expect(container.querySelector('[data-workflow-step="enter-token"]')).toHaveAttribute("data-step-complete", "false");
   });
 
   it("blocks step completion until contained inputs are valid", () => {
@@ -327,5 +351,65 @@ describe("ConnectorWorkflowGuide", () => {
 
     await waitFor(() => expect(onRunShellProposal).toHaveBeenCalledWith("apt-get install -y gh"));
     expect(screen.getByText("Approved")).toBeInTheDocument();
+  });
+
+  it("runs verification inline and only completes the step after a successful probe", async () => {
+    let resolveProbe: ((result: { success: boolean; message?: string }) => void) | undefined;
+    const onVerifyConnection = vi.fn(() => new Promise<{ success: boolean; message?: string }>((resolve) => {
+      resolveProbe = resolve;
+    }));
+    const verificationWorkflow: ConnectorWorkflow = {
+      schema: "hypercli.connector-workflow.v1",
+      connectorId: "slack",
+      runtimeFingerprint: "openclaw:slack",
+      summary: "Verify Slack.",
+      steps: [{
+        id: "verify",
+        title: "Test the connection",
+        instructions: "Check the saved connection.",
+        kind: "verify",
+        operation: "slack.verify",
+        approvalRequired: false,
+      }],
+    };
+    const { container } = render(
+      <ConnectorWorkflowGuide workflow={verificationWorkflow} onVerifyConnection={onVerifyConnection} />,
+    );
+
+    expect(screen.getByRole("button", { name: /complete step/i })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /^test connection$/i }));
+    expect(screen.getByRole("button", { name: /^testing$/i })).toBeDisabled();
+
+    resolveProbe?.({ success: true, message: "Slack is online." });
+
+    await waitFor(() => expect(screen.getByText("Connection test passed.")).toBeInTheDocument());
+    expect(screen.getByText("Slack is online.")).toBeInTheDocument();
+    expect(container.querySelector('[data-workflow-step="verify"]')).toHaveAttribute("data-step-complete", "true");
+    expect(screen.getByRole("button", { name: /walkthrough complete: review from start/i })).toBeEnabled();
+  });
+
+  it("shows a failed verification result and allows retrying", async () => {
+    const onVerifyConnection = vi.fn(async () => ({ success: false, message: "Slack is not reachable yet." }));
+    const verificationWorkflow: ConnectorWorkflow = {
+      schema: "hypercli.connector-workflow.v1",
+      connectorId: "slack",
+      runtimeFingerprint: "openclaw:slack",
+      summary: "Verify Slack.",
+      steps: [{
+        id: "verify",
+        title: "Test the connection",
+        instructions: "Check the saved connection.",
+        kind: "verify",
+        approvalRequired: false,
+      }],
+    };
+    render(<ConnectorWorkflowGuide workflow={verificationWorkflow} onVerifyConnection={onVerifyConnection} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /^test connection$/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Slack is not reachable yet.");
+    fireEvent.click(screen.getByRole("button", { name: /retry test/i }));
+    await waitFor(() => expect(onVerifyConnection).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("button", { name: /complete step/i })).toBeDisabled();
   });
 });

@@ -76,31 +76,31 @@ export const CHANNEL_SETUP_CANDIDATE_IDS = ["telegram", "discord", "slack", "wha
 export const PLUGIN_REGISTRY: PluginMeta[] = [
   // ── Chat & Messaging (22) ──────────────────────────────────────────────
   { id: "github", displayName: "GitHub", icon: Github, category: "chat", description: "Repositories, issues, and pull requests", configPath: "integrations.github" },
-  { id: "telegram", displayName: "Telegram", icon: Send, category: "chat", description: "Bot API via grammY", configPath: "channels.telegram" },
-  { id: "discord", displayName: "Discord", icon: MessageCircle, category: "chat", description: "Servers, channels & DMs", configPath: "channels.discord" },
-  { id: "slack", displayName: "Slack", icon: Hash, category: "chat", description: "Workspace apps via Bolt", configPath: "channels.slack" },
-  { id: "whatsapp", displayName: "WhatsApp", icon: Phone, category: "chat", description: "Pair via QR code", configPath: "channels.whatsapp" },
-  { id: "signal", displayName: "Signal", icon: Shield, category: "chat", description: "Privacy-focused via signal-cli", configPath: "plugins.entries.signal", setupHint: "Enable, then open the Shell tab to complete signal-cli registration" },
-  { id: "imessage", displayName: "iMessage", icon: Smartphone, category: "chat", description: "iMessage via AppleScript bridge", configPath: "plugins.entries.imessage", setupHint: "Only works on macOS agents with iMessage configured" },
-  { id: "bluebubbles", displayName: "iMessage (BlueBubbles)", icon: Smartphone, category: "chat", description: "iMessage via BlueBubbles server", configPath: "plugins.entries.bluebubbles", setupUrl: "https://bluebubbles.app", setupHint: "Set up BlueBubbles on a Mac and enter the server URL" },
+  { id: "telegram", displayName: "Telegram", icon: Send, category: "chat", description: "Messages, groups, and bot conversations", configPath: "channels.telegram" },
+  { id: "discord", displayName: "Discord", icon: MessageCircle, category: "chat", description: "Servers, conversations, and DMs", configPath: "channels.discord" },
+  { id: "slack", displayName: "Slack", icon: Hash, category: "chat", description: "Channels, conversations, and direct messages", configPath: "channels.slack" },
+  { id: "whatsapp", displayName: "WhatsApp", icon: Phone, category: "chat", description: "Messages and conversations", configPath: "channels.whatsapp" },
+  { id: "signal", displayName: "Signal", icon: Shield, category: "chat", description: "Private messages and conversations", configPath: "plugins.entries.signal", setupHint: "Enable, then open the Shell tab to complete signal-cli registration" },
+  { id: "imessage", displayName: "iMessage", icon: Smartphone, category: "chat", description: "Messages across Apple devices", configPath: "plugins.entries.imessage", setupHint: "Only works on macOS agents with iMessage configured" },
+  { id: "bluebubbles", displayName: "iMessage (BlueBubbles)", icon: Smartphone, category: "chat", description: "Messages across Apple devices", configPath: "plugins.entries.bluebubbles", setupUrl: "https://bluebubbles.app", setupHint: "Set up BlueBubbles on a Mac and enter the server URL" },
   { id: "msteams", displayName: "Microsoft Teams", icon: Building2, category: "chat", description: "Enterprise team chat", configPath: "channels.msteams", hasWizard: true, setupUrl: "https://portal.azure.com/#create/Microsoft.AzureBot", setupHint: "Create an Azure Bot and note your App ID, Client Secret, and Tenant ID", setupFields: [
     { key: "appId", label: "App ID", placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", required: true },
     { key: "appPassword", label: "App Password", placeholder: "Client Secret from Azure Bot", sensitive: true, required: true, helpText: "Client Secret from Azure Bot registration" },
     { key: "tenantId", label: "Tenant ID", placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", required: true, helpText: "Azure AD tenant ID, or 'common' for multi-tenant" },
   ] },
-  { id: "matrix", displayName: "Matrix", icon: Globe, category: "chat", description: "Matrix protocol", configPath: "plugins.entries.matrix" },
-  { id: "nostr", displayName: "Nostr", icon: Radio, category: "chat", description: "Decentralized DMs via NIP-04", configPath: "plugins.entries.nostr" },
+  { id: "matrix", displayName: "Matrix", icon: Globe, category: "chat", description: "Decentralized rooms and conversations", configPath: "plugins.entries.matrix" },
+  { id: "nostr", displayName: "Nostr", icon: Radio, category: "chat", description: "Decentralized private messages", configPath: "plugins.entries.nostr" },
   { id: "tlon", displayName: "Tlon Messenger", icon: MessagesSquare, category: "chat", description: "P2P ownership-first chat", configPath: "plugins.entries.tlon" },
-  { id: "zalo", displayName: "Zalo", icon: MessageSquare, category: "chat", description: "Zalo Bot API", configPath: "channels.zalo", hasWizard: true, setupUrl: "https://developers.zalo.me", setupHint: "Get your App ID and Secret from Zalo Developers", setupFields: [
+  { id: "zalo", displayName: "Zalo", icon: MessageSquare, category: "chat", description: "Messages and bot conversations", configPath: "channels.zalo", hasWizard: true, setupUrl: "https://developers.zalo.me", setupHint: "Get your App ID and Secret from Zalo Developers", setupFields: [
     { key: "appId", label: "App ID", placeholder: "Your Zalo app ID", required: true },
     { key: "secretKey", label: "Secret Key", placeholder: "Your Zalo secret key", sensitive: true, required: true },
   ] },
-  { id: "zalouser", displayName: "Zalo Personal", icon: MessageSquare, category: "chat", description: "Pair via QR code", configPath: "channels.zalouser", hasWizard: true },
+  { id: "zalouser", displayName: "Zalo Personal", icon: MessageSquare, category: "chat", description: "Personal messages and conversations", configPath: "channels.zalouser", hasWizard: true },
   { id: "mattermost", displayName: "Mattermost", icon: MessageSquareMore, category: "chat", description: "Self-hosted team chat", configPath: "plugins.entries.mattermost", hasWizard: true, setupHint: "Create a bot account in your Mattermost server", setupFields: [
     { key: "serverUrl", label: "Server URL", placeholder: "https://mattermost.example.com", required: true },
     { key: "botToken", label: "Bot Token", placeholder: "Your bot access token", sensitive: true, required: true },
   ] },
-  { id: "line", displayName: "LINE", icon: MessageCircle, category: "chat", description: "LINE Messaging API", configPath: "plugins.entries.line", hasWizard: true, setupUrl: "https://developers.line.biz/console", setupHint: "Get your tokens from LINE Developers Console", setupFields: [
+  { id: "line", displayName: "LINE", icon: MessageCircle, category: "chat", description: "Messages and bot conversations", configPath: "plugins.entries.line", hasWizard: true, setupUrl: "https://developers.line.biz/console", setupHint: "Get your tokens from LINE Developers Console", setupFields: [
     { key: "channelAccessToken", label: "Channel Access Token", placeholder: "Your LINE channel access token", sensitive: true, required: true },
     { key: "channelSecret", label: "Channel Secret", placeholder: "Your LINE channel secret", sensitive: true, required: true },
   ] },
