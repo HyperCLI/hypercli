@@ -226,9 +226,8 @@ export async function x402Post(
   let ExactEvmScheme: any;
   try {
     // Dynamic import to keep x402 deps optional
-    // @ts-ignore — optional peer dependency
+    // @ts-expect-error -- optional peer dependency
     const clientMod = await import('@x402/client');
-    // @ts-ignore — optional peer dependency
     const evmMod = await import('@x402/evm');
     x402ClientClass = clientMod.x402Client ?? clientMod.default;
     ExactEvmScheme = evmMod.ExactEvmScheme;

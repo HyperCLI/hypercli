@@ -11,6 +11,22 @@ const telegramSchema = {
 };
 
 describe("IntegrationChatCardHost", () => {
+  it.each(["discord", "slack", "whatsapp"] as const)("renders the %s channel card", async (integrationId) => {
+    render(
+      <IntegrationChatCardHost
+        action={{ version: 1, type: "integration.connect", integrationId }}
+        chat={{
+          connected: true,
+          config: null,
+          saveConfig: vi.fn(async () => undefined),
+        } as never}
+      />,
+    );
+
+    expect(await screen.findByRole("button", { name: /start setup/i })).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`connect ${integrationId}`, "i"))).toBeInTheDocument();
+  });
+
   it("wires Telegram finish to gateway reconnect", async () => {
     const retry = vi.fn();
     const retryAndRefreshSessions = vi.fn();
@@ -32,9 +48,9 @@ describe("IntegrationChatCardHost", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /start setup/i }));
-    fireEvent.change(screen.getByPlaceholderText(/paste token from botfather/i), { target: { value: "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ" } });
-    fireEvent.click(screen.getByRole("button", { name: /continue/i }));
-    fireEvent.change(screen.getByPlaceholderText("123456789"), { target: { value: "123456789" } });
+    fireEvent.change(screen.getByPlaceholderText(/enter bot token/i), { target: { value: "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ" } });
+    fireEvent.change(screen.getByLabelText("Telegram DM policy"), { target: { value: "runtime-default" } });
+    fireEvent.change(screen.getByLabelText("Telegram group policy"), { target: { value: "runtime-default" } });
     fireEvent.click(screen.getByRole("button", { name: /save settings/i }));
 
     await waitFor(() => expect(saveConfig).toHaveBeenCalledTimes(1));
@@ -42,5 +58,24 @@ describe("IntegrationChatCardHost", () => {
 
     expect(retryAndRefreshSessions).toHaveBeenCalledTimes(1);
     expect(retry).not.toHaveBeenCalled();
+  });
+
+  it.each(["github", "telegram", "discord", "slack", "whatsapp"] as const)("opens the %s integrations detail when requested from chat", async (integrationId) => {
+    const onOpenIntegrationDetails = vi.fn();
+    render(
+      <IntegrationChatCardHost
+        action={{ version: 1, type: "integration.connect", integrationId }}
+        chat={{
+          connected: true,
+          config: null,
+          configSchema: telegramSchema,
+          saveConfig: vi.fn(async () => undefined),
+        } as never}
+        onOpenIntegrationDetails={onOpenIntegrationDetails}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /open in integrations/i }));
+    expect(onOpenIntegrationDetails).toHaveBeenCalledWith(integrationId);
   });
 });

@@ -1,7 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { AgentChannelSummary, AgentChannelsProvider } from "@hypercli.com/sdk/channels";
+import type { AgentRuntimeDescriptor } from "@hypercli.com/sdk/connectors";
 import type { OpenClawAgent } from "@hypercli.com/sdk/agents";
+import {
+  OpenClawChannelsProvider,
+  normalizeOpenClawChannelsSnapshot,
+  normalizeOpenClawChannelsStatus,
+  type OpenClawChannelsSnapshot,
+} from "@hypercli.com/sdk/openclaw/channels";
+import { OpenClawConnectorsProvider } from "@hypercli.com/sdk/openclaw/connectors";
 import { OpenClawSkillsProvider } from "@hypercli.com/sdk/openclaw/skills";
 import type {
   ChatEvent,
@@ -13,6 +22,7 @@ import type {
   GatewayIntegrationDisconnectParams,
   GatewayIntegrationStatusParams,
   GatewayIntegrationStatusResult,
+  ChannelsStatusResult,
   GatewayEphemeralChatOptions,
   GatewaySkillsInstallParams,
   GatewaySkillsSearchParams,
@@ -74,6 +84,7 @@ import {
   unscopedOpenClawSessionKey,
 } from "@/lib/openclaw-session-sdk-surface";
 import { cronScheduleLabel } from "@/lib/cron-jobs";
+import { useConnectorWorkflow } from "@/hooks/useConnectorWorkflow";
 
 const E2E_OPENCLAW_CONNECTED_KEY = "claw_e2e_openclaw_connected";
 const OPENCLAW_SESSION_TITLE_STORAGE_PREFIX = "openclaw.sessionTitles.v1";
@@ -97,6 +108,8 @@ interface SendMessageOptions {
 
 interface CreateSessionOptions {
   initialMessage?: string;
+  initialDisplayContent?: string;
+  waitForCreation?: boolean;
 }
 
 interface ComposerDraftState {
@@ -138,6 +151,15 @@ interface SessionListRefreshEntry {
 interface ReconnectSessionRefreshRequest {
   promise: Promise<OpenClawSessionRecord[] | undefined>;
   resolve: (sessions: OpenClawSessionRecord[] | undefined) => void;
+}
+
+interface ReportedChannelsState {
+  provider: AgentChannelsProvider | null;
+  config: Record<string, unknown> | null;
+  channels: AgentChannelSummary[];
+  snapshot: OpenClawChannelsSnapshot | null;
+  loaded: boolean;
+  error: string | null;
 }
 
 interface SessionSnapshotEntry {
@@ -506,6 +528,13 @@ function isPairingProgressMessage(value: unknown): boolean {
   return /\bpairing required\b|PAIRING_REQUIRED|pairing approved/i.test(stringifyErrorForSearch(value));
 }
 
+function safeRuntimeImage(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const image = value.trim();
+  if (/gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|:\/\/[^/@:]+:[^/@]+@/i.test(image)) return undefined;
+  return image;
+}
+
 export function useOpenClawSession(
   agent: OpenClawAgent | null,
   enabled: boolean = true,
@@ -530,6 +559,14 @@ export function useOpenClawSession(
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
   const [config, setConfig] = useState<Record<string, unknown> | null>(null);
   const [configSchema, setConfigSchema] = useState<OpenClawConfigSchemaResponse | null>(null);
+  const [reportedChannelsState, setReportedChannelsState] = useState<ReportedChannelsState>({
+    provider: null,
+    config: null,
+    channels: [],
+    snapshot: null,
+    loaded: false,
+    error: null,
+  });
   const [gwAgentId, setGwAgentId] = useState("main");
   const [sessions, setSessions] = useState<OpenClawSessionRecord[]>([]);
   const [sessionsAgentId, setSessionsAgentId] = useState<string | null>(null);
@@ -1609,9 +1646,13 @@ export function useOpenClawSession(
     appendActivity({ type: "system", action: "openclaw.json updated", detail: "Saved full OpenClaw config" });
   }, [gateway, appendActivity, clearGatewayStatusCaches, updateConnectionHydration]);
 
-  const channelsStatus = useCallback(async (probe = false, timeoutMs?: number) => {
+  const channelsStatus = useCallback(async (probe = false, timeoutMs?: number, channel?: string) => {
     if (!gateway) throw new Error("Not connected");
-    if (probe || timeoutMs !== undefined) return gateway.channelsStatus(probe, timeoutMs);
+    if (probe || timeoutMs !== undefined || channel) {
+      return channel
+        ? gateway.channelsStatus(probe, timeoutMs, channel)
+        : gateway.channelsStatus(probe, timeoutMs);
+    }
     const now = Date.now();
     const cached = channelsStatusCacheRef.current;
     if (cached && cached.expiresAt > now) return cached.promise;
@@ -1622,6 +1663,72 @@ export function useOpenClawSession(
     });
     return promise;
   }, [gateway]);
+
+  // The provider stores callbacks and invokes them only from effects or user actions.
+  // eslint-disable-next-line react-hooks/refs
+  const channelsProvider = useMemo(
+    () => gateway ? new OpenClawChannelsProvider({
+      channelsStatus: async (probe, timeoutMs, channel) => await channelsStatus(probe, timeoutMs, channel) as ChannelsStatusResult,
+      channelsLogout: (channel, accountId) => gateway.channelsLogout(channel, accountId),
+      configGet: () => gateway.configGet(),
+      configPatch: saveConfig,
+    }) : null,
+    [channelsStatus, gateway, saveConfig],
+  );
+
+  const refreshReportedChannels = useCallback(async (probe = false) => {
+    if (!channelsProvider) throw new Error("Channel status is unavailable.");
+    const result = await channelsStatus(probe);
+    const snapshot = normalizeOpenClawChannelsSnapshot(result);
+    const channels = normalizeOpenClawChannelsStatus(result);
+    setReportedChannelsState({ provider: channelsProvider, config, channels, snapshot, loaded: true, error: null });
+    return snapshot;
+  }, [channelsProvider, channelsStatus, config]);
+
+  useEffect(() => {
+    if (!channelsProvider || status !== "connected") return;
+    let cancelled = false;
+    void channelsStatus()
+      .then((result) => {
+        const snapshot = normalizeOpenClawChannelsSnapshot(result);
+        const channels = normalizeOpenClawChannelsStatus(result);
+        if (!cancelled) {
+          setReportedChannelsState({ provider: channelsProvider, config, channels, snapshot, loaded: true, error: null });
+        }
+      })
+      .catch((cause) => {
+        if (!cancelled) {
+          setReportedChannelsState({
+            provider: channelsProvider,
+            config,
+            channels: [],
+            snapshot: null,
+            loaded: true,
+            error: cause instanceof Error ? cause.message : "Could not read available channels.",
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [channelsProvider, channelsStatus, config, status]);
+
+  const reportedChannels = useMemo(
+    () => reportedChannelsState.provider === channelsProvider
+      ? reportedChannelsState.channels
+      : [],
+    [channelsProvider, reportedChannelsState.channels, reportedChannelsState.provider],
+  );
+  const reportedChannelSnapshot = reportedChannelsState.provider === channelsProvider
+    ? reportedChannelsState.snapshot
+    : null;
+  const reportedChannelsReady = Boolean(
+    channelsProvider &&
+    reportedChannelsState.provider === channelsProvider &&
+    reportedChannelsState.config === config &&
+    reportedChannelsState.loaded &&
+    !reportedChannelsState.error,
+  );
 
   const refreshSessions = useCallback(async () => {
     return refreshSessionList();
@@ -1634,6 +1741,7 @@ export function useOpenClawSession(
     const sessionKey = createOpenClawSessionKey(sessions);
     const target = { agentId, sessionKey };
     const initialMessage = options.initialMessage?.trim() ?? "";
+    const initialDisplayContent = options.initialDisplayContent?.trim() || undefined;
     clearCachedOpenClawChatHistory(agentId, sessionKey);
     setSessionTitleOverride(sessionKey, OPENCLAW_NEW_SESSION_TITLE);
     creatingSessionKeysRef.current.add(sessionKey);
@@ -1651,11 +1759,11 @@ export function useOpenClawSession(
       ...prev.filter((session) => session.key !== sessionKey),
     ]);
     appendActivity({ type: "system", action: OPENCLAW_NEW_SESSION_TITLE });
-    void (async () => {
+    const performCreation = async () => {
       try {
         await createOpenClawSession(gateway, sessionKey);
         finishCreatingSession(sessionKey);
-        if (initialMessage) void sendMessage(initialMessage, {}, target);
+        if (initialMessage) void sendMessage(initialMessage, { displayContent: initialDisplayContent }, target);
         try {
           const nextSessions = await fetchSessionList(gateway);
           const refreshedSessions = nextSessions.some((session) => sameOpenClawSelectableSessionKey(session.key, sessionKey))
@@ -1668,8 +1776,11 @@ export function useOpenClawSession(
         const errMsg = formatOpenClawConnectionError(e);
         setError(errMsg);
         appendActivity({ type: "error", action: "Session creation failed", detail: errMsg });
+        throw e;
       }
-    })();
+    };
+    if (options.waitForCreation) await performCreation();
+    else void performCreation().catch(() => undefined);
     return sessionKey;
   }, [gateway, sessionsFetchedAgentId, agentId, sessions, applyFetchedSessions, setSessionTitleOverride, setTitledSessions, appendActivity, fetchSessionList, finishCreatingSession, dispatchChatHistory, sendMessage, updateComposerDraftForTarget]);
 
@@ -1841,6 +1952,61 @@ export function useOpenClawSession(
     return result;
   }, [gateway, appendActivity, clearGatewayStatusCaches]);
 
+  const connectorRuntime = useMemo<AgentRuntimeDescriptor>(() => {
+    const launchImage = safeRuntimeImage(agent?.launchConfig?.image);
+    const capabilities = [
+      ...(reportedChannelsReady ? ["channels.status"] : []),
+      ...(configSchema ? ["config.patch"] : []),
+      ...(typeof gateway?.runEphemeralChat === "function" ? ["ephemeral.chat"] : []),
+    ];
+    return {
+      provider: "openclaw",
+      ...(gateway?.version ? { version: gateway.version } : {}),
+      ...(gateway?.protocol ? { protocol: `gateway-v${gateway.protocol}` } : {}),
+      ...(launchImage ? { image: launchImage } : {}),
+      ...(configSchema?.version ? { schemaVersion: configSchema.version } : {}),
+      capabilities,
+    };
+  }, [agent?.launchConfig?.image, configSchema, gateway, reportedChannelsReady]);
+
+  const runConnectorShellProposal = useCallback(async (command: string) => {
+    if (!agent) throw new Error("Workspace command access is unavailable.");
+    const result = await agent.exec(command, { timeout: 120 });
+    if (result.exitCode !== 0) {
+      throw new Error(result.stderr.trim() || result.stdout.trim() || `Workspace command failed with exit code ${result.exitCode}.`);
+    }
+    appendActivity({ type: "tool", action: "Approved connector command completed" });
+  }, [agent, appendActivity]);
+
+  // The provider stores these callbacks and invokes them only from user actions or effects.
+  // eslint-disable-next-line react-hooks/refs
+  const connectorsProvider = useMemo(() => gateway ? new OpenClawConnectorsProvider({
+    channelsStatus,
+    configPatch: saveConfig,
+    integrationsStatus,
+    integrationsAuthStart,
+    integrationsAuthStatus,
+    runCommand: runConnectorShellProposal,
+  }, connectorRuntime) : null, [
+    channelsStatus,
+    connectorRuntime,
+    gateway,
+    integrationsAuthStart,
+    integrationsAuthStatus,
+    integrationsStatus,
+    runConnectorShellProposal,
+    saveConfig,
+  ]);
+
+  const connectorWorkflow = useConnectorWorkflow({
+    provider: connectorsProvider,
+    scopeKey: agentId ?? "disconnected",
+    backgroundBlocked: sendingTargets.length > 0,
+    runEphemeralPrompt,
+    runShellProposal: runConnectorShellProposal,
+  });
+  const { preloadConnectorWorkflows } = connectorWorkflow;
+
   const connected = seededE2EConnection || (status === "connected" && !hydrating && (fullHydrationEnabled ? ready : true));
   const connecting = seededE2EConnection || Boolean(error)
     ? false
@@ -1854,6 +2020,29 @@ export function useOpenClawSession(
   const pendingInput = pendingMessages
     .filter((item) => sameChatHistoryTarget(item.target, activeSessionTarget))
     .map((item) => item.message);
+
+  const connectorPreloadKeyRef = useRef("");
+  useEffect(() => {
+    if (!connected || !ready || !reportedChannelsReady || !connectorsProvider || sendingTargets.length > 0) return;
+    const preloadIds = ["telegram", "discord", "slack", "whatsapp"] as const;
+    const channelState = preloadIds.map((channelId) => {
+      const summaries = reportedChannels.filter((channel) => channel.channelId === channelId);
+      return `${channelId}:${summaries.some((channel) => channel.configured)}:${summaries.some((channel) => channel.running === true)}`;
+    }).join("|");
+    const preloadKey = [
+      agentId,
+      connectorRuntime.provider,
+      connectorRuntime.version,
+      connectorRuntime.protocol,
+      connectorRuntime.image,
+      connectorRuntime.schemaVersion,
+      [...connectorRuntime.capabilities].sort().join(","),
+      channelState,
+    ].join(":");
+    if (connectorPreloadKeyRef.current === preloadKey) return;
+    connectorPreloadKeyRef.current = preloadKey;
+    void preloadConnectorWorkflows(preloadIds);
+  }, [agentId, connected, connectorRuntime, connectorsProvider, preloadConnectorWorkflows, ready, reportedChannels, reportedChannelsReady, sendingTargets.length]);
 
   return {
     gateway,
@@ -1887,6 +2076,14 @@ export function useOpenClawSession(
     saveConfig,
     saveFullConfig,
     channelsStatus,
+    channelsProvider,
+    connectorsProvider,
+    connectorRuntime,
+    ...connectorWorkflow,
+    reportedChannels,
+    reportedChannelSnapshot,
+    reportedChannelsReady,
+    refreshReportedChannels,
     pendingFiles,
     pendingAttachments,
     pendingAttachmentReads,

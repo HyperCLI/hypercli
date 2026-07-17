@@ -1,9 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { ArrowLeft, FileText, Loader2, Save, Settings2, TestTube2 } from "lucide-react";
+import { ArrowLeft, FileText, Loader2, Save, Settings2, TestTube2, Trash2 } from "lucide-react";
 import {
   Button,
+  ConfirmDialog,
   toast,
 } from "@hypercli/shared-ui";
 import { SkillMarkdownEditor, SkillRequirementNotice, SkillStatusPill } from "@hypercli/shared-ui/skills";
@@ -87,6 +88,7 @@ export interface SkillDetailProps {
   onSkillContentChanged: (content: string) => void;
   onLocalDirectoryCreated: (path: string) => void;
   onSaveToAgent?: (content: string) => Promise<void>;
+  onDiscardDraft?: () => Promise<void>;
 }
 
 export function SkillDetail({
@@ -104,6 +106,7 @@ export function SkillDetail({
   onSkillContentChanged,
   onLocalDirectoryCreated,
   onSaveToAgent,
+  onDiscardDraft,
 }: SkillDetailProps) {
   const { skill } = row;
   const frontmatterRows = skillFrontmatterRows(skill);
@@ -119,6 +122,8 @@ export function SkillDetail({
   const [activeTab, setActiveTab] = React.useState<"overview" | "files">("overview");
   const [persisting, setPersisting] = React.useState(false);
   const [persistError, setPersistError] = React.useState<string | null>(null);
+  const [discardConfirmOpen, setDiscardConfirmOpen] = React.useState(false);
+  const [discarding, setDiscarding] = React.useState(false);
   const envDraft = { ...(configEntry.env ?? {}), ...envEdits };
   const contentDraft = contentEdit ?? skill.content;
   const requiredEnvMissing = skill.requiresEnv.some((key) => !hasEnvValue(envDraft[key]));
@@ -212,6 +217,18 @@ export function SkillDetail({
     }
   };
 
+  const handleDiscardDraft = async () => {
+    if (!onDiscardDraft || discarding) return;
+    setDiscarding(true);
+    try {
+      await onDiscardDraft();
+      toast.success(`${skill.name} draft discarded.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to discard the skill draft.");
+      setDiscarding(false);
+    }
+  };
+
   return (
     <div className={`h-full min-h-0 bg-background text-foreground ${activeTab === "files" && filesAvailable ? "overflow-hidden" : "overflow-y-auto"}`}>
       <div className={`mx-auto w-full max-w-6xl px-4 py-4 sm:px-5 sm:py-5 ${activeTab === "files" && filesAvailable ? "flex h-full min-h-0 flex-col" : ""}`}>
@@ -239,6 +256,7 @@ export function SkillDetail({
               </div>
             </div>
             <div className="flex shrink-0 flex-nowrap items-center gap-1.5">
+              {localPreview && onDiscardDraft && <Button type="button" variant="outline" size="sm" onClick={() => setDiscardConfirmOpen(true)} disabled={discarding} className="h-8 min-h-0 gap-1.5 px-2.5 text-[11px] text-error hover:bg-error/10 hover:text-error"><Trash2 className="h-3.5 w-3.5" />Discard</Button>}
               {localPreview && onSaveToAgent && <Button type="button" size="sm" onClick={() => void handleSaveToAgent()} disabled={persisting} className="h-8 min-h-0 gap-1.5 px-2.5 text-[11px]">{persisting ? <Loader2 className="animate-spin" /> : <Save className="h-3.5 w-3.5" />}{persisting ? "Saving..." : "Save to agent"}</Button>}
               {skill.editable && <Button type="button" variant={editing ? "secondary" : "outline"} size="sm" onClick={() => { setActiveTab("overview"); setEditing(true); }} className="h-8 min-h-0 gap-1.5 px-2.5 text-[11px] hover:bg-surface-high hover:text-foreground dark:hover:bg-surface-high"><Settings2 className="h-3.5 w-3.5" />Edit instructions</Button>}
               <Button type="button" variant="outline" size="sm" onClick={onTest} className="h-8 min-h-0 gap-1.5 px-2.5 text-[11px] hover:bg-surface-high hover:text-foreground dark:hover:bg-surface-high"><TestTube2 className="h-3.5 w-3.5" />Test in new session</Button>
@@ -283,7 +301,7 @@ export function SkillDetail({
         ) : editing ? (
           <section id={`${skill.id}-overview-panel`} role={filesAvailable ? "tabpanel" : undefined} aria-labelledby={filesAvailable ? `${skill.id}-overview-tab` : undefined} className="mt-5 space-y-3">
             <div className="rounded-lg border border-border bg-surface-low/35 px-3 py-2 text-[11px] leading-relaxed text-text-muted">
-              {localPreview ? "Changes apply only to this browser session and disappear on reload." : "Changes are saved directly to this skill on the running agent."}
+              {localPreview ? "This draft is stored in this browser until you save or discard it." : "Changes are saved directly to this skill on the running agent."}
             </div>
             <SkillMarkdownEditor
               value={contentDraft}
@@ -292,7 +310,7 @@ export function SkillDetail({
               onCancel={() => { setContentEdit(null); setContentError(null); setEditing(false); }}
               dirty={contentIsDirty}
               saving={contentSaving}
-              applyLabel={localPreview ? "Apply for this session" : "Save to agent"}
+              applyLabel={localPreview ? "Update draft" : "Save to agent"}
               renderPreview={(content) => <SkillMarkdown content={content} />}
             />
             {contentError && <p className="rounded-lg border border-error/25 bg-error/10 px-3 py-2 text-[11px] text-error">{contentError}</p>}
@@ -323,7 +341,7 @@ export function SkillDetail({
                   <section className="rounded-xl border border-border bg-surface-low/30 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-xs font-semibold">Status</h2><SkillStatusPill label={skillStatusLabel(row.status)} tone={row.status} /></div>
                     <p className="mt-2 text-[11px] leading-relaxed text-text-muted">
-                      {localPreview ? row.status === "active" ? "Active for this browser session only. This local preview has not been installed on the agent." : "This is a local UI preview. It has not been installed on the agent yet." : row.status === "disabled" ? "This skill is disabled." : row.status === "blocked" ? "This skill is blocked for this agent." : row.status === "needs-setup" ? "This skill needs additional setup before it can run." : skill.documentState === "error" ? "Skill metadata is available, but its instructions could not be loaded." : "This skill is available for this agent."}
+                      {localPreview ? "This draft is stored in this browser and has not been installed on the agent yet." : row.status === "disabled" ? "This skill is disabled." : row.status === "blocked" ? "This skill is blocked for this agent." : row.status === "needs-setup" ? "This skill needs additional setup before it can run." : skill.documentState === "error" ? "Skill metadata is available, but its instructions could not be loaded." : "This skill is available for this agent."}
                     </p>
                   </section>
 
@@ -365,6 +383,16 @@ export function SkillDetail({
           </div>
         )}
       </div>
+      <ConfirmDialog
+        open={discardConfirmOpen}
+        title="Discard skill draft?"
+        message="This removes the draft and its local test history from this browser. Messages already sent to chat are not removed."
+        confirmLabel="Discard draft"
+        danger
+        loading={discarding}
+        onConfirm={() => void handleDiscardDraft()}
+        onCancel={() => { if (!discarding) setDiscardConfirmOpen(false); }}
+      />
     </div>
   );
 }

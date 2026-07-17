@@ -1,10 +1,11 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import type { ComponentProps } from "react";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithClient } from "@/test/utils";
 import { SkillsPanel } from "./SkillsPanel";
 import type { AgentSkill } from "./provider-skills";
+import { loadSkillDraft, saveSkillDraft } from "./skill-draft-store";
 
 beforeAll(() => {
   vi.stubGlobal("ResizeObserver", class ResizeObserver {
@@ -13,6 +14,10 @@ beforeAll(() => {
     disconnect() {}
   });
   window.HTMLElement.prototype.scrollIntoView = vi.fn();
+});
+
+beforeEach(() => {
+  window.localStorage.clear();
 });
 
 function providerSkill(overrides: Partial<AgentSkill> = {}): AgentSkill {
@@ -64,6 +69,7 @@ function renderPanel(overrides: Partial<ComponentProps<typeof SkillsPanel>> = {}
   return renderWithClient(
     <SkillsPanel
       agentName="Agent"
+      draftScope={{ ownerId: "test@example.com", agentId: "agent-1" }}
       connected
       installedSkills={[]}
       loading={false}
@@ -151,6 +157,7 @@ describe("SkillsPanel", () => {
     rerender(
       <SkillsPanel
         agentName="Agent"
+        draftScope={{ ownerId: "test@example.com", agentId: "agent-1" }}
         connected
         installedSkills={[providerSkill({ content: "", body: "", contentLoaded: false, documentState: "error", documentError: "file API unavailable" })]}
         loading={false}
@@ -211,6 +218,42 @@ describe("SkillsPanel", () => {
     expect(screen.queryByText("Notion")).not.toBeInTheDocument();
   });
 
+  it("reviews and organizes loose workspace skill files", async () => {
+    const onRecoverSkill = vi.fn(async () => ({ skillId: "chat-helper" }));
+    const onRefreshSkills = vi.fn(async () => []);
+    renderPanel({
+      recoveryCandidates: [{
+        id: "workspace-skills-root",
+        name: "Chat Helper",
+        description: "Created through chat.",
+        suggestedSkillId: "chat-helper",
+        entries: [
+          { name: "scripts", path: "scripts", type: "directory", selectedByDefault: true, selectable: true },
+          { name: "notes.txt", path: "notes.txt", type: "file", selectedByDefault: false, selectable: true },
+          { name: "existing-skill", path: "existing-skill", type: "directory", selectedByDefault: false, selectable: false, reason: "This folder is already a separate skill." },
+        ],
+      }],
+      onRecoverSkill,
+      onRefreshSkills,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /review files/i }));
+    expect(screen.getByRole("dialog", { name: /organize workspace skill/i })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /include skill.md/i })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /include scripts/i })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /include notes.txt/i })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /include existing-skill/i })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /move to skills/i }));
+
+    await waitFor(() => expect(onRecoverSkill).toHaveBeenCalledWith({
+      candidateId: "workspace-skills-root",
+      skillId: "chat-helper",
+      paths: ["scripts"],
+    }));
+    expect(onRefreshSkills).toHaveBeenCalledOnce();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /organize workspace skill/i })).not.toBeInTheDocument());
+  });
+
   it("uses the structured create stepper with validation and preview", async () => {
     renderPanel();
     fireEvent.click(screen.getByRole("button", { name: /create skill/i }));
@@ -232,6 +275,26 @@ describe("SkillsPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: /keep as preview/i }));
     expect(screen.getByText("Github Helper", { selector: "h3" })).toBeInTheDocument();
     expect(screen.getByText("Created")).toBeInTheDocument();
+  });
+
+  it("restores persisted drafts and removes them only after explicit discard", async () => {
+    const draftScope = { ownerId: "persistent@example.com", agentId: "agent-persistent" };
+    await saveSkillDraft(draftScope, {
+      id: "release-helper",
+      origin: "created",
+      content: "---\nname: release-helper\ndescription: Prepare releases.\n---\n# Release Helper",
+      directories: ["scripts"],
+    });
+    renderPanel({ draftScope });
+
+    expect(await screen.findByText("Release Helper", { selector: "h3" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Configure" }));
+    fireEvent.click(screen.getByRole("button", { name: /discard/i }));
+    expect(screen.getByRole("alertdialog", { name: /discard skill draft/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /discard draft/i }));
+
+    await waitFor(() => expect(screen.queryByText("Release Helper", { selector: "h3" })).not.toBeInTheDocument());
+    await expect(loadSkillDraft(draftScope, "release-helper")).resolves.toBeNull();
   });
 
   it("disables agent generation until chat is ready", () => {

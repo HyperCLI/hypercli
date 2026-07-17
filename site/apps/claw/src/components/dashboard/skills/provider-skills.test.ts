@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AgentSkillSummary, AgentSkillsProvider } from "@hypercli.com/sdk/skills";
 
-import { buildSkillTestPrompt, loadProviderSkills, parseSkillFile, skillFromProviderSummary } from "./provider-skills";
+import { MAX_SKILL_DRAFT_TEST_CHARS, buildSkillTestPrompt, loadProviderSkills, parseSkillFile, skillFromProviderSummary } from "./provider-skills";
 
 const summaries: AgentSkillSummary[] = [
   {
@@ -34,7 +34,7 @@ const summaries: AgentSkillSummary[] = [
 
 function provider(overrides: Partial<AgentSkillsProvider> = {}): AgentSkillsProvider {
   return {
-    capabilities: { readDocument: true, configure: true, searchRegistry: false, installRegistry: false, installUpload: false, resources: false, createSkill: false },
+    capabilities: { readDocument: true, configure: true, searchRegistry: false, installRegistry: false, installUpload: false, resources: false, createSkill: false, recoverSkill: false },
     list: vi.fn(async () => summaries),
     readDocument: vi.fn(async (skillId) => skillId === "weather" ? null : { skillId, content: "# Browser Automation\n" }),
     update: vi.fn(async () => undefined),
@@ -85,15 +85,22 @@ describe("provider skills", () => {
     expect(prompt).toContain("external, destructive, billable, or privacy-sensitive action");
   });
 
-  it("keeps local draft testing explicit, bounded, and separate from installed skills", () => {
+  it("keeps local draft testing explicit and identifies the tested revision", () => {
     const parsed = parseSkillFile("draft", "draft", "---\nname: Draft\ndescription: Test draft.\n---\n# Draft");
     const draft = { ...parsed, localPreview: true };
-    const prompt = buildSkillTestPrompt(draft);
+    const prompt = buildSkillTestPrompt(draft, { revisionHash: "abc123", directories: ["scripts"] });
 
     expect(prompt).toContain("local draft skill");
     expect(prompt).toContain("not installed or available as an agent skill");
     expect(prompt).toContain("untrusted, user-provided task instructions");
     expect(prompt).toContain("Draft SKILL.md (JSON-encoded)");
     expect(prompt).toContain(JSON.stringify(draft.content));
+    expect(prompt).toContain("Draft revision: abc123");
+    expect(prompt).toContain("scripts");
+  });
+
+  it("refuses to silently truncate oversized local drafts", () => {
+    const parsed = parseSkillFile("draft", "draft", "x".repeat(MAX_SKILL_DRAFT_TEST_CHARS + 1));
+    expect(() => buildSkillTestPrompt({ ...parsed, localPreview: true })).toThrow(/shorten it/i);
   });
 });

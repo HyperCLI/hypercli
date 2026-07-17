@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import type { AgentSkillCreateRequest, AgentSkillsProvider, AgentSkillUpdate } from "@hypercli.com/sdk/skills";
+import type { AgentSkillCreateRequest, AgentSkillRecoverRequest, AgentSkillsProvider, AgentSkillUpdate } from "@hypercli.com/sdk/skills";
 
 import type { SkillResourceOperations } from "./SkillFilesPanel";
 
@@ -17,6 +17,8 @@ export function useAgentSkills({ enabled, connected, provider }: UseAgentSkillsO
   const [skills, setSkills] = React.useState<AgentSkill[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [recoveryCandidates, setRecoveryCandidates] = React.useState<Awaited<ReturnType<NonNullable<AgentSkillsProvider["listRecoveryCandidates"]>>>>([]);
+  const [recoveryError, setRecoveryError] = React.useState<string | null>(null);
   const requestIdRef = React.useRef(0);
   const documentRequestIdsRef = React.useRef(new Map<string, number>());
 
@@ -27,11 +29,25 @@ export function useAgentSkills({ enabled, connected, provider }: UseAgentSkillsO
     setError(null);
     try {
       const nextSkills = await loadProviderSkills(provider);
-      if (requestId === requestIdRef.current) setSkills(nextSkills);
+      let nextRecoveryCandidates: typeof recoveryCandidates = [];
+      let nextRecoveryError: string | null = null;
+      if (provider.capabilities.recoverSkill && provider.listRecoveryCandidates) {
+        try {
+          nextRecoveryCandidates = await provider.listRecoveryCandidates();
+        } catch (cause) {
+          nextRecoveryError = cause instanceof Error ? cause.message : "Could not inspect workspace skill files.";
+        }
+      }
+      if (requestId === requestIdRef.current) {
+        setSkills(nextSkills);
+        setRecoveryCandidates(nextRecoveryCandidates);
+        setRecoveryError(nextRecoveryError);
+      }
       return nextSkills;
     } catch (cause) {
       if (requestId === requestIdRef.current) {
         setSkills([]);
+        setRecoveryCandidates([]);
         setError(cause instanceof Error ? cause.message : "Failed to load app skills.");
       }
       throw cause;
@@ -49,6 +65,11 @@ export function useAgentSkills({ enabled, connected, provider }: UseAgentSkillsO
   const create = React.useCallback(async (request: AgentSkillCreateRequest) => {
     if (!provider?.createSkill) throw new Error("Saving skills to this agent is unavailable.");
     return provider.createSkill(request);
+  }, [provider]);
+
+  const recover = React.useCallback(async (request: AgentSkillRecoverRequest) => {
+    if (!provider?.recoverSkill) throw new Error("Organizing workspace skills is unavailable for this agent.");
+    return provider.recoverSkill(request);
   }, [provider]);
 
   const loadDocument = React.useCallback(async (skillId: string) => {
@@ -105,5 +126,5 @@ export function useAgentSkills({ enabled, connected, provider }: UseAgentSkillsO
     };
   }, [connected, enabled, refresh]);
 
-  return { skills, loading, error, refresh, update, create, loadDocument, resourceOperations, capabilities: provider?.capabilities ?? null };
+  return { skills, recoveryCandidates, recoveryError, loading, error, refresh, update, create, recover, loadDocument, resourceOperations, capabilities: provider?.capabilities ?? null };
 }

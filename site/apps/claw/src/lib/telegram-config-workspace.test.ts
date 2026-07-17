@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildTelegramAgentAccessPrompt,
   buildTelegramAgentAllowlistPrompt,
   shouldHideTelegramAgentConfigMessage,
+  TELEGRAM_AGENT_ACCESS_DISPLAY_PROMPT,
   TELEGRAM_AGENT_ALLOWLIST_DISPLAY_PROMPT,
 } from "./telegram-config-workspace";
 
@@ -51,5 +53,26 @@ describe("telegram-config-workspace", () => {
       role: "assistant",
       content: "I can help draft a Telegram announcement.",
     })).toBe(false);
+  });
+
+  it("builds a non-secret access prompt from explicit user choices", () => {
+    const prompt = buildTelegramAgentAccessPrompt({
+      dmPolicy: "open",
+      allowFrom: ["12345", "bad-id"],
+      groupPolicy: "allowlist",
+      groupAllowFrom: ["67890", "*", "bad-id"],
+      groupIds: ["-1001234567890", "bad-id"],
+      mentionChoice: "not-required",
+    });
+
+    expect(prompt).toContain("channels.telegram.dmPolicy = \"open\"");
+    expect(prompt).toContain("channels.telegram.allowFrom = [\"*\",\"12345\"]");
+    expect(prompt).toContain("channels.telegram.groupPolicy = \"allowlist\"");
+    expect(prompt).toContain("channels.telegram.groupAllowFrom = [\"67890\",\"*\"]");
+    expect(prompt).toContain("\"-1001234567890\":{\"requireMention\":false}");
+    expect(prompt).toContain("Preserve the existing channels.telegram.botToken exactly as-is.");
+    expect(prompt).not.toContain("bad-id");
+    expect(shouldHideTelegramAgentConfigMessage({ role: "user", content: TELEGRAM_AGENT_ACCESS_DISPLAY_PROMPT })).toBe(true);
+    expect(shouldHideTelegramAgentConfigMessage({ role: "user", content: prompt })).toBe(true);
   });
 });

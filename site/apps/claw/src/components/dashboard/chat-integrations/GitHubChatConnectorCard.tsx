@@ -4,6 +4,10 @@ import React from "react";
 import { motion } from "framer-motion";
 import { AlertTriangle, ArrowRight, CheckCircle2, Copy, ExternalLink, Github, Loader2, RefreshCw, X } from "lucide-react";
 import type {
+  AgentConnectorRuntimeSetupResult,
+  AgentConnectorsProvider,
+} from "@hypercli.com/sdk/connectors";
+import type {
   GatewayIntegrationAuthStartParams,
   GatewayIntegrationAuthStartResult,
   GatewayIntegrationAuthStatusParams,
@@ -23,6 +27,8 @@ import {
   type GitHubAgentSetupPhase,
   type GitHubAgentSetupStatus,
 } from "@/lib/github-cli-workspace";
+import type { ConnectorWorkflow } from "@/lib/connector-workflow";
+import { ConnectorWorkflowGuide } from "./ConnectorWorkflowGuide";
 import { IntegrationBrandPulse } from "./IntegrationBrandPulse";
 
 const GITHUB_SCOPES = ["repo", "read:org", "gist"];
@@ -32,6 +38,7 @@ type GitHubCardTone = "neutral" | "primary" | "warning" | "danger" | "info";
 
 interface GitHubChatConnectorCardProps {
   connected: boolean;
+  connectorsProvider?: AgentConnectorsProvider | null;
   configSchema: OpenClawConfigSchemaResponse | null;
   onAuthStart?: (params: GatewayIntegrationAuthStartParams) => Promise<GatewayIntegrationAuthStartResult>;
   onAuthStatus?: (params: GatewayIntegrationAuthStatusParams) => Promise<GatewayIntegrationAuthStatusResult>;
@@ -40,6 +47,9 @@ interface GitHubChatConnectorCardProps {
   agentSetupStatus?: GitHubAgentSetupStatus;
   onStartAgentGitHubSetup?: () => Promise<void> | void;
   onVerifyAgentGitHubSetup?: () => Promise<void> | void;
+  onGenerateConnectorWorkflow?: (connectorId: "github") => Promise<ConnectorWorkflow>;
+  onRunShellProposal?: (command: string) => Promise<void>;
+  onOpenIntegrationDetails?: () => void;
   onOpenFullSetup?: () => void;
   onDismiss?: () => void;
 }
@@ -293,6 +303,7 @@ function managedHeroSubtitle(step: ConnectorStep): string {
 
 export function GitHubChatConnectorCard({
   connected,
+  connectorsProvider,
   configSchema,
   onAuthStart,
   onAuthStatus,
@@ -301,13 +312,17 @@ export function GitHubChatConnectorCard({
   agentSetupStatus,
   onStartAgentGitHubSetup,
   onVerifyAgentGitHubSetup,
+  onGenerateConnectorWorkflow,
+  onRunShellProposal,
+  onOpenIntegrationDetails,
   onOpenFullSetup,
   onDismiss,
 }: GitHubChatConnectorCardProps) {
   const hasCapability = hasGitHubCapability(configSchema);
-  const hasManagedMethods = Boolean(onAuthStart && onAuthStatus && onIntegrationStatus);
+  const hasManagedMethods = Boolean(connectorsProvider || (onAuthStart && onAuthStatus && onIntegrationStatus));
   const [step, setStep] = React.useState<ConnectorStep>("checking");
   const [authStart, setAuthStart] = React.useState<GatewayIntegrationAuthStartResult | null>(null);
+  const [runtimeSetup, setRuntimeSetup] = React.useState<AgentConnectorRuntimeSetupResult | null>(null);
   const [entry, setEntry] = React.useState<GatewayIntegrationStatusEntry | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [agentSetupStarted, setAgentSetupStarted] = React.useState(false);
@@ -317,18 +332,22 @@ export function GitHubChatConnectorCard({
   const [copiedCode, setCopiedCode] = React.useState(false);
   const [codeRippleActive, setCodeRippleActive] = React.useState(false);
   const [disconnecting, setDisconnecting] = React.useState(false);
+  const [workflow, setWorkflow] = React.useState<ConnectorWorkflow | null>(null);
+  const [workflowLoading, setWorkflowLoading] = React.useState(false);
+  const [workflowUnavailable, setWorkflowUnavailable] = React.useState(false);
   const codeRippleTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastFocusVerifyRef = React.useRef<number | null>(null);
-  const authId = typeof authStart?.authId === "string" ? authStart.authId : "";
-  const managedUserCode = typeof authStart?.userCode === "string" ? authStart.userCode : "";
-  const managedVerificationHref = typeof authStart?.verificationUri === "string"
+  const authId = runtimeSetup?.setupId ?? (typeof authStart?.authId === "string" ? authStart.authId : "");
+  const managedUserCode = runtimeSetup?.deviceCode ?? (typeof authStart?.userCode === "string" ? authStart.userCode : "");
+  const managedVerificationHref = runtimeSetup?.deviceUrl ?? (typeof authStart?.verificationUri === "string"
     ? authStart.verificationUri
     : typeof authStart?.url === "string"
       ? authStart.url
-      : GITHUB_CLI_DEVICE_URL;
+      : GITHUB_CLI_DEVICE_URL);
   const accountDisplayName = entry?.accountDisplayName ?? authStart?.accountDisplayName;
   const githubAgentStatus: GitHubAgentSetupStatus = agentSetupStatus ?? { phase: "idle", recentCommands: [] };
   const agentFlowActive = agentSetupStarted || githubAgentStatus.phase !== "idle";
+  const workflowActive = workflowLoading || Boolean(workflow) || workflowUnavailable;
   const agentSetupSucceeded = githubAgentStatus.phase === "ready";
   const agentSetupFailed = githubAgentStatus.phase === "failed";
   const agentDeviceCode = githubAgentStatus.userCode;
@@ -381,22 +400,42 @@ export function GitHubChatConnectorCard({
   }, [agentSetupFailed, agentSetupSucceeded, connected, onVerifyAgentGitHubSetup, showAgentDeviceCode, verifyAgentGitHubSetup]);
 
   const refresh = React.useCallback(async (probe = false) => {
+    if (connectorsProvider) {
+      const connectors = await connectorsProvider.list({ connectorId: "github", probe });
+      const connector = connectors.find((candidate) => candidate.connectorId === "github");
+      const nextEntry: GatewayIntegrationStatusEntry | null = connector ? {
+        configured: connector.configured,
+        authenticated: connector.authenticated,
+        usable: connector.usable,
+      } : null;
+      setEntry(nextEntry);
+      setStep(isUsable(nextEntry) ? "connected" : "idle");
+      return;
+    }
     if (!onIntegrationStatus) return;
     const result = await onIntegrationStatus({ integrationId: "github", probe });
     const nextEntry = statusEntry(result);
     setEntry(nextEntry);
     setStep(isUsable(nextEntry) ? "connected" : "idle");
-  }, [onIntegrationStatus]);
+  }, [connectorsProvider, onIntegrationStatus]);
 
   React.useEffect(() => {
-    if (!connected || !onIntegrationStatus || !hasCapability) {
+    if (!connected || (!connectorsProvider && (!onIntegrationStatus || !hasCapability))) {
       return;
     }
     let cancelled = false;
-    void onIntegrationStatus({ integrationId: "github", probe: false })
-      .then((result) => {
+    const statusPromise: Promise<GatewayIntegrationStatusEntry | null> = connectorsProvider
+      ? connectorsProvider.list({ connectorId: "github" }).then((connectors) => {
+        const connector = connectors.find((candidate) => candidate.connectorId === "github");
+        return connector ? {
+          configured: connector.configured,
+          authenticated: connector.authenticated,
+          usable: connector.usable,
+        } : null;
+      })
+      : onIntegrationStatus!({ integrationId: "github", probe: false }).then(statusEntry);
+    void statusPromise.then((nextEntry) => {
         if (cancelled) return;
-        const nextEntry = statusEntry(result);
         setEntry(nextEntry);
         setStep(isUsable(nextEntry) ? "connected" : "idle");
       })
@@ -408,19 +447,41 @@ export function GitHubChatConnectorCard({
     return () => {
       cancelled = true;
     };
-  }, [connected, hasCapability, onIntegrationStatus]);
+  }, [connected, connectorsProvider, hasCapability, onIntegrationStatus]);
 
   React.useEffect(() => {
-    if (!connected || step !== "pending" || !authId || !onAuthStatus || !onIntegrationStatus) return;
+    if (!connected || step !== "pending" || !authId || (!connectorsProvider && (!onAuthStatus || !onIntegrationStatus))) return;
     let cancelled = false;
-    const intervalMs = typeof authStart?.intervalMs === "number" ? Math.max(authStart.intervalMs, 1500) : 3000;
+    const reportedIntervalMs = runtimeSetup?.pollIntervalMs ?? authStart?.intervalMs;
+    const intervalMs = typeof reportedIntervalMs === "number" ? Math.max(reportedIntervalMs, 1500) : 3000;
     const poll = async () => {
       try {
-        const result = await onAuthStatus({ authId, integrationId: "github" });
+        if (connectorsProvider) {
+          const result = await connectorsProvider.pollSetup({ connectorId: "github", setupId: authId });
+          if (cancelled) return;
+          if (result.state === "complete") {
+            setEntry({
+              configured: true,
+              authenticated: true,
+              usable: true,
+              connectionId: result.connectionId,
+              accountDisplayName: result.accountDisplayName,
+              scopes: result.scopes,
+            });
+            setStep("connected");
+            return;
+          }
+          if (result.state === "failed") {
+            setError(result.error || "GitHub authorization did not complete.");
+            setStep("failed");
+          }
+          return;
+        }
+        const result = await onAuthStatus!({ authId, integrationId: "github" });
         if (cancelled) return;
         if (authDone(result)) {
           setAuthStart((prev) => ({ ...(prev ?? {}), ...result }));
-          const statusResult = await onIntegrationStatus({ integrationId: "github", connectionId: result.connectionId, probe: true });
+          const statusResult = await onIntegrationStatus!({ integrationId: "github", connectionId: result.connectionId, probe: true });
           if (cancelled) return;
           setEntry(statusEntry(statusResult) ?? {
             configured: true,
@@ -450,9 +511,30 @@ export function GitHubChatConnectorCard({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [authId, authStart?.intervalMs, connected, onAuthStatus, onIntegrationStatus, step]);
+  }, [authId, authStart?.intervalMs, connected, connectorsProvider, onAuthStatus, onIntegrationStatus, runtimeSetup?.pollIntervalMs, step]);
+
+  const generateWorkflow = React.useCallback(async () => {
+    if (!onGenerateConnectorWorkflow) return false;
+    setWorkflowLoading(true);
+    setWorkflowUnavailable(false);
+    setError(null);
+    try {
+      setWorkflow(await onGenerateConnectorWorkflow("github"));
+      return true;
+    } catch {
+      setWorkflow(null);
+      setWorkflowUnavailable(true);
+      return false;
+    } finally {
+      setWorkflowLoading(false);
+    }
+  }, [onGenerateConnectorWorkflow]);
 
   const startAgentSetup = React.useCallback(async () => {
+    if (onGenerateConnectorWorkflow) {
+      await generateWorkflow();
+      return;
+    }
     setAgentSetupStarted(true);
     setAgentSetupSending(true);
     setSettingUpCopyIndex(0);
@@ -468,18 +550,32 @@ export function GitHubChatConnectorCard({
     } finally {
       setAgentSetupSending(false);
     }
-  }, [onStartAgentGitHubSetup]);
+  }, [generateWorkflow, onGenerateConnectorWorkflow, onStartAgentGitHubSetup]);
 
   const start = async () => {
     setError(null);
     setAuthStart(null);
-    if (!hasManagedMethods || !onAuthStart) {
+    setRuntimeSetup(null);
+    setWorkflow(null);
+    setWorkflowUnavailable(false);
+    if (!hasManagedMethods || (!connectorsProvider && !onAuthStart)) {
       await startAgentSetup();
       return;
     }
 
     setStep("starting");
     try {
+      if (connectorsProvider) {
+        const result = await connectorsProvider.startSetup({ connectorId: "github", mode: "managed-auth", scopes: GITHUB_SCOPES });
+        setRuntimeSetup(result);
+        if (result.setupId) {
+          setStep("pending");
+        } else {
+          await refresh(true);
+        }
+        return;
+      }
+      if (!onAuthStart) throw new Error("GitHub authorization is unavailable for this workspace.");
       const result = await onAuthStart({ integrationId: "github", scopes: GITHUB_SCOPES });
       setAuthStart(result);
       if (result.authId) {
@@ -544,6 +640,7 @@ export function GitHubChatConnectorCard({
         actions={(
           <>
             {onOpenFullSetup && <button type="button" className={buttonClass()} onClick={onOpenFullSetup}>Open integrations</button>}
+            {onOpenIntegrationDetails && <button type="button" className={buttonClass()} onClick={onOpenIntegrationDetails}>Open in integrations</button>}
             {onDismiss && <button type="button" className={buttonClass()} onClick={onDismiss}>Dismiss</button>}
           </>
         )}
@@ -556,23 +653,29 @@ export function GitHubChatConnectorCard({
     );
   }
 
-  const visibleStep = (!hasCapability || !onIntegrationStatus) && step === "checking" ? "idle" : step;
-  const tone: GitHubCardTone = agentFlowActive
+  const visibleStep = (!connectorsProvider && (!hasCapability || !onIntegrationStatus)) && step === "checking" ? "idle" : step;
+  const tone: GitHubCardTone = workflowActive
+    ? workflowUnavailable ? "warning" : "info"
+    : agentFlowActive
     ? agentSetupSucceeded
       ? "primary"
       : agentSetupFailed
         ? "danger"
         : "neutral"
     : visibleStep === "connected" ? "primary" : visibleStep === "failed" ? "danger" : visibleStep === "idle" ? "neutral" : "warning";
-  const heroLabel = agentFlowActive
+  const heroLabel = workflowActive
+    ? workflowLoading ? "Preparing setup" : workflowUnavailable ? "Guidance unavailable" : "Setup guide"
+    : agentFlowActive
     ? settingEverythingUpActive ? SETTING_UP_ROTATING_COPY[settingUpCopyIndex] ?? SETTING_UP_ROTATING_COPY[0] : agentSetupHeroLabel
     : managedHeroLabel(visibleStep, managedUserCode);
-  const heroSubtitle = agentFlowActive
+  const heroSubtitle = workflowActive
+    ? workflowLoading ? "Reading this workspace runtime before suggesting steps." : "Review each runtime-specific step before making changes."
+    : agentFlowActive
     ? ""
     : managedHeroSubtitle(visibleStep);
-  const iconLoading = agentFlowActive
+  const iconLoading = workflowLoading || (agentFlowActive
     ? !agentSetupSucceeded && !agentSetupFailed
-    : visibleStep === "starting" || visibleStep === "pending";
+    : visibleStep === "starting" || visibleStep === "pending");
 
   return (
     <GitHubSignalCard
@@ -582,7 +685,13 @@ export function GitHubChatConnectorCard({
       iconLoading={iconLoading}
       actions={(
         <>
-          {agentFlowActive ? (
+          {workflowActive ? (
+            workflowUnavailable ? (
+              <button type="button" className={buttonClass("primary")} disabled={workflowLoading} onClick={() => void generateWorkflow()}>
+                Try again
+              </button>
+            ) : null
+          ) : agentFlowActive ? (
             <>
               {((githubAgentStatus.phase === "idle" && (!agentSetupStarted || Boolean(error))) || githubAgentStatus.phase === "failed") && (
                 <button type="button" className={buttonClass("primary")} disabled={agentSetupSending} onClick={() => void startAgentSetup()}>
@@ -625,12 +734,20 @@ export function GitHubChatConnectorCard({
               )}
             </>
           )}
+          {onOpenIntegrationDetails && <button type="button" className={buttonClass()} onClick={onOpenIntegrationDetails}>Open in integrations</button>}
           {onDismiss && <button type="button" className={buttonClass()} onClick={onDismiss}><X className="h-3.5 w-3.5" />Dismiss</button>}
         </>
       )}
     >
       {error && <p className="mb-2 rounded-md border border-destructive/25 bg-destructive/10 px-2.5 py-2 text-destructive">{error}</p>}
-      {agentFlowActive ? (
+      {workflowActive ? (
+        <ConnectorWorkflowGuide
+          workflow={workflow}
+          loading={workflowLoading}
+          unavailable={workflowUnavailable}
+          onRunShellProposal={onRunShellProposal}
+        />
+      ) : agentFlowActive ? (
         <>
           {agentSetupSucceeded ? <GitHubCongratulations accountDisplayName={githubAgentStatus.accountDisplayName} /> : null}
           {showAgentDeviceCode && agentDeviceCode && (
@@ -671,7 +788,7 @@ export function GitHubChatConnectorCard({
         null
       ) : visibleStep === "pending" ? (
         <div className="space-y-3">
-          <p>Enter the code on GitHub, then return here.</p>
+          <p>{runtimeSetup?.instructions ?? "Enter the code on GitHub, then return here."}</p>
           {managedUserCode && (
             <div className="rounded-lg border border-border bg-background/70 px-3 py-3 text-center">
               <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">Device code</p>

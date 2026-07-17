@@ -6,9 +6,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
-  Check,
   CheckCircle2,
-  Copy,
   ExternalLink,
   Eye,
   EyeOff,
@@ -17,15 +15,36 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import type { AgentConnectorsProvider } from "@hypercli.com/sdk/connectors";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 
 import { isPluginConnected, schemaPathExists } from "@/components/dashboard/directory/directory-utils";
 import { INTEGRATION_BRAND_LOGOS } from "@/components/dashboard/integrations/integration-brand-icons";
-import { buildTelegramAgentAllowlistPrompt, TELEGRAM_AGENT_ALLOWLIST_DISPLAY_PROMPT } from "@/lib/telegram-config-workspace";
+import { buildTelegramAgentAccessPrompt, TELEGRAM_AGENT_ACCESS_DISPLAY_PROMPT } from "@/lib/telegram-config-workspace";
+import {
+  CONNECTOR_WORKFLOW_SCHEMA_ID,
+  ensureConnectorWorkflowInputSlots,
+  type ConnectorWorkflow,
+  type ConnectorWorkflowInputSlot,
+} from "@/lib/connector-workflow";
+import {
+  connectorWorkflowInputControlIsRequired,
+  connectorWorkflowInputControlIsValid,
+  connectorWorkflowInputControlIsVisible,
+  ConnectorWorkflowGuide,
+  type ConnectorWorkflowInputControls,
+} from "./ConnectorWorkflowGuide";
+import {
+  activeConnectorAuthorizationFlow,
+  ConnectorAuthorizationGuide,
+  type ConnectorAuthorizationFlow,
+} from "./ConnectorAuthorizationGuide";
+import { TELEGRAM_PAIRING_AUTHORIZATION_FLOW } from "./connector-authorization-flows";
 import { IntegrationBrandPulse } from "./IntegrationBrandPulse";
 
 interface TelegramChatConnectorCardProps {
   connected: boolean;
+  connectorsProvider?: AgentConnectorsProvider | null;
   config: Record<string, unknown> | null;
   configSchema: OpenClawConfigSchemaResponse | null;
   agentName?: string | null;
@@ -33,14 +52,19 @@ interface TelegramChatConnectorCardProps {
   onChannelProbe?: () => Promise<Record<string, unknown>>;
   onAgentConfigUpdate?: (prompt: string, displayContent: string) => Promise<void>;
   onReconnectGateway?: () => void;
+  onGenerateConnectorWorkflow?: (connectorId: "telegram") => Promise<ConnectorWorkflow>;
+  onRunShellProposal?: (command: string) => Promise<void>;
+  onOpenIntegrationDetails?: () => void;
   onOpenFullSetup?: () => void;
   onDismiss?: () => void;
 }
 
 type TelegramTone = "neutral" | "primary" | "warning" | "danger";
 type TelegramMode = "overview" | "setup" | "finish" | "verifying" | "ready" | "failed" | "manage";
-type TelegramSetupStep = "bot" | "allowlist";
 type DmPolicy = "allowlist" | "pairing" | "open" | "disabled";
+type GroupPolicy = "allowlist" | "open" | "disabled";
+type PolicyChoice<T extends string> = "" | "runtime-default" | T;
+type MentionChoice = "" | "runtime-default" | "required" | "not-required";
 
 const TELEGRAM_COLOR = INTEGRATION_BRAND_LOGOS.telegram.color;
 const TelegramIcon = INTEGRATION_BRAND_LOGOS.telegram.icon;
@@ -48,20 +72,11 @@ const TELEGRAM_TOKEN_RE = /^\d+:[A-Za-z0-9_-]{20,}$/;
 const TOKEN_SHAPED_RE = /\b\d{5,}:[A-Za-z0-9_-]{20,}\b/g;
 const VERIFY_ATTEMPTS = 6;
 const VERIFY_INTERVAL_MS = 2500;
-
-const SETUP_STEP_LABELS: Record<TelegramSetupStep, string> = {
-  bot: "Create bot",
-  allowlist: "Add user ID",
-};
-
-const SETUP_STEP_COPY: Record<TelegramSetupStep, string> = {
-  bot: "Create the bot in Telegram first, then come back here.",
-  allowlist: "Add the numeric Telegram user ID allowed to DM the agent.",
-};
+const CONNECTOR_AUTHORIZATION_FLOWS: readonly ConnectorAuthorizationFlow[] = [TELEGRAM_PAIRING_AUTHORIZATION_FLOW];
 
 const CARD_TONE_CLASS: Record<TelegramTone, string> = {
   neutral: "border-border shadow-background/30",
-  primary: "border-[#26a5e4]/45 shadow-[#26a5e4]/10",
+  primary: "border-[var(--channel-accent-border)] shadow-[0_0_32px_var(--channel-accent-shadow)]",
   warning: "border-warning/40 shadow-warning/10",
   danger: "border-destructive/40 shadow-destructive/10",
 };
@@ -130,31 +145,21 @@ function parseTelegramUserIds(value: string): string[] {
   return Array.from(new Set(value.split(/[\s,]+/).map((item) => item.trim()).filter(Boolean)));
 }
 
+function valuesAreValid(values: string[], pattern: RegExp, allowEmpty = true): boolean {
+  return (allowEmpty || values.length > 0) && values.every((value) => pattern.test(value));
+}
+
 function stringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim());
 }
 
-function userIdsAreValid(userIds: string[]): boolean {
-  return userIds.length > 0 && userIds.every((id) => /^\d+$/.test(id));
+function isDmPolicy(value: unknown): value is DmPolicy {
+  return value === "allowlist" || value === "pairing" || value === "open" || value === "disabled";
 }
 
-function telegramBotNameSuggestion(agentName: string | null | undefined): string {
-  const trimmed = agentName?.trim().replace(/\s+/g, " ");
-  return trimmed || "HyperCLI Agent";
-}
-
-function telegramBotUsernameSuggestion(agentName: string | null | undefined): string {
-  const words = telegramBotNameSuggestion(agentName).match(/[A-Za-z0-9]+/g) ?? ["agent"];
-  const base = words
-    .map((word, index) => {
-      const lower = word.toLowerCase();
-      return index === 0 ? lower : `${lower.charAt(0).toUpperCase()}${lower.slice(1)}`;
-    })
-    .join("")
-    .replace(/^[^A-Za-z]+/, "");
-  const safeBase = (base || "agent").slice(0, 28);
-  return `${safeBase}_bot`;
+function isGroupPolicy(value: unknown): value is GroupPolicy {
+  return value === "allowlist" || value === "open" || value === "disabled";
 }
 
 function sleep(ms: number): Promise<void> {
@@ -163,7 +168,7 @@ function sleep(ms: number): Promise<void> {
 
 function buttonClass(tone: "primary" | "secondary" | "danger" = "secondary") {
   if (tone === "primary") {
-    return "inline-flex h-8 items-center gap-1.5 rounded-full bg-button-primary px-3 text-xs font-black uppercase tracking-[0.12em] text-button-primary-foreground shadow-[0_0_24px_rgba(38,165,228,0.22)] transition-all hover:-translate-y-0.5 hover:bg-button-primary-hover disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50";
+    return "inline-flex h-8 items-center gap-1.5 rounded-full bg-button-primary px-3 text-xs font-black uppercase tracking-[0.12em] text-button-primary-foreground shadow-[0_0_24px_rgb(var(--button-primary-rgb)_/_0.22)] transition-all hover:-translate-y-0.5 hover:bg-button-primary-hover disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50";
   }
   if (tone === "danger") {
     return "inline-flex h-8 items-center gap-1.5 rounded-full border border-destructive/35 bg-destructive/10 px-3 text-xs font-black uppercase tracking-[0.12em] text-destructive transition-all hover:-translate-y-0.5 hover:bg-destructive/15 disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50";
@@ -171,14 +176,33 @@ function buttonClass(tone: "primary" | "secondary" | "danger" = "secondary") {
   return "inline-flex h-8 items-center gap-1.5 rounded-full border border-border bg-surface-low/70 px-3 text-xs font-black uppercase tracking-[0.12em] text-text-secondary backdrop-blur transition-all hover:-translate-y-0.5 hover:border-border-strong hover:bg-surface-high hover:text-foreground disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50";
 }
 
-function buildTelegramPatch(token: string, dmPolicy: DmPolicy, requireMention: boolean, allowFrom: string[]): Record<string, unknown> {
+interface TelegramAccessSettings {
+  dmPolicy: PolicyChoice<DmPolicy>;
+  allowFrom: string[];
+  groupPolicy: PolicyChoice<GroupPolicy>;
+  groupAllowFrom: string[];
+  groupIds: string[];
+  mentionChoice: MentionChoice;
+}
+
+function buildTelegramPatch(token: string, settings: TelegramAccessSettings): Record<string, unknown> {
   const telegramConfig: Record<string, unknown> = {
     enabled: true,
-    dmPolicy,
-    groups: { "*": { requireMention } },
   };
   if (token.trim()) telegramConfig.botToken = token.trim();
-  if (dmPolicy === "allowlist") telegramConfig.allowFrom = allowFrom;
+  if (settings.dmPolicy && settings.dmPolicy !== "runtime-default") telegramConfig.dmPolicy = settings.dmPolicy;
+  const allowFrom = settings.dmPolicy === "open"
+    ? Array.from(new Set(["*", ...settings.allowFrom]))
+    : settings.allowFrom;
+  if (allowFrom.length > 0) telegramConfig.allowFrom = allowFrom;
+  if (settings.groupPolicy && settings.groupPolicy !== "runtime-default") telegramConfig.groupPolicy = settings.groupPolicy;
+  if (settings.groupAllowFrom.length > 0) telegramConfig.groupAllowFrom = settings.groupAllowFrom;
+  if (settings.groupIds.length > 0) {
+    telegramConfig.groups = Object.fromEntries(settings.groupIds.map((groupId) => [groupId, {
+      ...(settings.mentionChoice === "required" ? { requireMention: true } : {}),
+      ...(settings.mentionChoice === "not-required" ? { requireMention: false } : {}),
+    }]));
+  }
   return {
     channels: {
       telegram: telegramConfig,
@@ -186,33 +210,22 @@ function buildTelegramPatch(token: string, dmPolicy: DmPolicy, requireMention: b
   };
 }
 
-function setupStepsFor(): TelegramSetupStep[] {
-  return ["bot", "allowlist"];
-}
-
-function nextSetupStep(step: TelegramSetupStep): TelegramSetupStep | null {
-  const steps = setupStepsFor();
-  const index = steps.indexOf(step);
-  if (index === -1) return steps[0] ?? null;
-  return steps[index + 1] ?? null;
-}
-
-function previousSetupStep(step: TelegramSetupStep): TelegramSetupStep | null {
-  const steps = setupStepsFor();
-  const index = steps.indexOf(step);
-  if (index <= 0) return null;
-  return steps[index - 1] ?? null;
+function buildTelegramConfig(token: string, settings: TelegramAccessSettings): Record<string, unknown> {
+  return asRecord(asRecord(buildTelegramPatch(token, settings).channels)?.telegram) ?? {};
 }
 
 export function TelegramChatConnectorCard({
   connected,
+  connectorsProvider,
   config,
   configSchema,
-  agentName,
   onSaveConfig,
   onChannelProbe,
   onAgentConfigUpdate,
   onReconnectGateway,
+  onGenerateConnectorWorkflow,
+  onRunShellProposal,
+  onOpenIntegrationDetails,
   onOpenFullSetup,
   onDismiss,
 }: TelegramChatConnectorCardProps) {
@@ -220,54 +233,90 @@ export function TelegramChatConnectorCard({
   const configured = isPluginConnected("telegram", config);
   const storedDisplayName = telegramDisplayNameFrom(currentConfig);
   const configuredAllowFrom = stringArray(currentConfig?.allowFrom);
+  const configuredGroupAllowFrom = stringArray(currentConfig?.groupAllowFrom);
+  const configuredGroups = asRecord(currentConfig?.groups);
+  const configuredGroupIds = Object.keys(configuredGroups ?? {});
+  const configuredMentionValues = Object.values(configuredGroups ?? {})
+    .map((entry) => asRecord(entry)?.requireMention)
+    .filter((value): value is boolean => typeof value === "boolean");
+  const configuredMentionChoice: MentionChoice = configuredMentionValues.length === 0
+    ? "runtime-default"
+    : configuredMentionValues.every(Boolean)
+      ? "required"
+      : configuredMentionValues.every((value) => !value)
+        ? "not-required"
+        : "runtime-default";
   const hasCapability = hasTelegramCapability(configSchema);
-  const canConfigure = connected && hasCapability && Boolean(onSaveConfig);
+  const runtimeAvailable = hasCapability || Boolean(connectorsProvider);
+  const canConfigure = connected && runtimeAvailable && Boolean(connectorsProvider || onSaveConfig);
   const initialMode: TelegramMode = configured ? "manage" : "overview";
   const [mode, setMode] = React.useState<TelegramMode>(initialMode);
-  const [setupStep, setSetupStep] = React.useState<TelegramSetupStep>("bot");
   const [token, setToken] = React.useState("");
   const [showToken, setShowToken] = React.useState(false);
-  const [copiedCommand, setCopiedCommand] = React.useState<string | null>(null);
+  const [dmPolicy, setDmPolicy] = React.useState<PolicyChoice<DmPolicy>>(
+    isDmPolicy(currentConfig?.dmPolicy) ? currentConfig.dmPolicy : configured ? "runtime-default" : "",
+  );
   const [allowFromInput, setAllowFromInput] = React.useState(configuredAllowFrom.join(", "));
-  const [savedAllowFrom, setSavedAllowFrom] = React.useState<string[]>(configuredAllowFrom);
+  const [groupPolicy, setGroupPolicy] = React.useState<PolicyChoice<GroupPolicy>>(
+    isGroupPolicy(currentConfig?.groupPolicy) ? currentConfig.groupPolicy : configured ? "runtime-default" : "",
+  );
+  const [groupAllowFromInput, setGroupAllowFromInput] = React.useState(configuredGroupAllowFrom.join(", "));
+  const [groupIdsInput, setGroupIdsInput] = React.useState(configuredGroupIds.join(", "));
+  const [mentionChoice, setMentionChoice] = React.useState<MentionChoice>(configured ? configuredMentionChoice : "");
   const [saving, setSaving] = React.useState(false);
   const [probing, setProbing] = React.useState(false);
   const [probeStatus, setProbeStatus] = React.useState<Record<string, unknown> | null>(null);
   const [displayName, setDisplayName] = React.useState<string | null>(storedDisplayName);
   const [error, setError] = React.useState<string | null>(null);
   const [showManualFallback, setShowManualFallback] = React.useState(false);
+  const [workflow, setWorkflow] = React.useState<ConnectorWorkflow | null>(null);
+  const [workflowLoading, setWorkflowLoading] = React.useState(false);
+  const [workflowUnavailable, setWorkflowUnavailable] = React.useState(false);
+  const [runtimeInstructions, setRuntimeInstructions] = React.useState<string | null>(null);
+  const [authorizationApproved, setAuthorizationApproved] = React.useState(false);
   const requestIdRef = React.useRef(0);
-  const copiedCommandTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const effectiveMode: TelegramMode = configured && mode === "overview"
     ? "manage"
     : !configured && (mode === "manage" || mode === "ready")
       ? "overview"
       : mode;
   const effectiveDisplayName = displayName ?? storedDisplayName;
-  const botNameSuggestion = telegramBotNameSuggestion(agentName);
-  const botUsernameSuggestion = telegramBotUsernameSuggestion(agentName);
 
   const validateToken = React.useCallback(() => {
     const trimmed = token.trim();
     if (!trimmed && configured) return null;
-    if (!trimmed) return "Enter the bot token from BotFather.";
-    if (!TELEGRAM_TOKEN_RE.test(trimmed)) return "That token format does not look right. Check the value from BotFather.";
+    if (!trimmed) return "Enter the bot token.";
+    if (!TELEGRAM_TOKEN_RE.test(trimmed)) return "That token format does not look right. Check the value provided by Telegram.";
     return null;
   }, [configured, token]);
 
   const setupUserIds = parseTelegramUserIds(allowFromInput);
-  const effectiveAllowFrom = savedAllowFrom.length > 0 ? savedAllowFrom : configuredAllowFrom;
-  const validateSetup = React.useCallback(() => {
+  const setupGroupUserIds = parseTelegramUserIds(groupAllowFromInput);
+  const setupGroupIds = parseTelegramUserIds(groupIdsInput);
+  function validateSetup() {
     const tokenError = validateToken();
     if (tokenError) return tokenError;
-    if (!userIdsAreValid(setupUserIds)) {
-      return "Enter at least one numeric Telegram user ID for the allowlist.";
+    if (!dmPolicy) return "Choose a direct-message policy or explicitly use the runtime default.";
+    if (!groupPolicy) return "Choose a group policy or explicitly use the runtime default.";
+    if (!connectorWorkflowInputControlIsValid("telegram.allowFrom", inputControls)) {
+      return connectorWorkflowInputControlIsRequired("telegram.allowFrom", inputControls) && setupUserIds.length === 0
+        ? "Allowlist access requires at least one numeric Telegram user ID."
+        : "Direct-message user IDs must be numeric.";
+    }
+    if (connectorWorkflowInputControlIsVisible("telegram.groupAllowFrom", inputControls) && !inputControls["telegram.groupAllowFrom"]?.valid) {
+      return "Group sender IDs must be numeric or an explicit wildcard.";
+    }
+    if (connectorWorkflowInputControlIsVisible("telegram.groups", inputControls) && !inputControls["telegram.groups"]?.valid) {
+      return "Telegram group IDs must be numeric or an explicit wildcard.";
+    }
+    if (connectorWorkflowInputControlIsVisible("telegram.requireMention", inputControls) && !inputControls["telegram.requireMention"]?.valid) {
+      return "Choose mention behavior or explicitly use the runtime default.";
     }
     return null;
-  }, [setupUserIds, validateToken]);
+  }
 
   const verifyTelegram = async (options: { poll: boolean; nextModeOnStart?: TelegramMode } = { poll: false }) => {
-    if (!onChannelProbe) {
+    if (!connectorsProvider && !onChannelProbe) {
       setError("Telegram settings were saved, but connection testing is not available here.");
       setMode("failed");
       return false;
@@ -282,7 +331,21 @@ export function TelegramChatConnectorCard({
     const attempts = options.poll ? VERIFY_ATTEMPTS : 1;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
-        const status = await onChannelProbe();
+        if (connectorsProvider) {
+          const descriptor = (await connectorsProvider.list({ connectorId: "telegram", probe: true })).find((candidate) => candidate.connectorId === "telegram");
+          if (requestIdRef.current !== requestId) return false;
+          if (descriptor?.usable) {
+            setMode("ready");
+            setProbing(false);
+            return true;
+          }
+          if (!options.poll || attempt === attempts - 1) {
+            setError("Telegram settings were saved, but the bot is not reachable yet.");
+          }
+          if (options.poll && attempt < attempts - 1) await sleep(VERIFY_INTERVAL_MS);
+          continue;
+        }
+        const status = await onChannelProbe!();
         if (requestIdRef.current !== requestId) return false;
         setProbeStatus(status);
         const entry = telegramChannelStatus(status);
@@ -316,27 +379,7 @@ export function TelegramChatConnectorCard({
 
   React.useEffect(() => () => {
     requestIdRef.current += 1;
-    if (copiedCommandTimerRef.current) clearTimeout(copiedCommandTimerRef.current);
   }, []);
-
-  const copyTelegramCommand = async (command: string) => {
-    setError(null);
-    if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
-      setError(`Could not copy ${command}. Select it manually.`);
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(command);
-      setCopiedCommand(command);
-      if (copiedCommandTimerRef.current) clearTimeout(copiedCommandTimerRef.current);
-      copiedCommandTimerRef.current = setTimeout(() => {
-        setCopiedCommand(null);
-        copiedCommandTimerRef.current = null;
-      }, 1800);
-    } catch {
-      setError(`Could not copy ${command}. Select it manually.`);
-    }
-  };
 
   const saveTelegram = async () => {
     const validationError = validateSetup();
@@ -344,35 +387,39 @@ export function TelegramChatConnectorCard({
       setError(validationError);
       return;
     }
-    if (!onSaveConfig) {
+    if (!connectorsProvider && !onSaveConfig) {
       setError("Telegram setup is unavailable here.");
       return;
     }
 
-    const allowFrom = setupUserIds;
+    const accessSettings = currentTelegramAccessSettings();
     setSaving(true);
     setError(null);
     setShowManualFallback(false);
     try {
-      await onSaveConfig(buildTelegramPatch(token, "allowlist", true, allowFrom));
-      setSavedAllowFrom(allowFrom);
+      if (connectorsProvider) {
+        await connectorsProvider.configure("telegram", buildTelegramConfig(token, accessSettings));
+      } else {
+        await onSaveConfig!(buildTelegramPatch(token, accessSettings));
+      }
       setToken("");
       setShowToken(false);
       setProbeStatus(null);
+      setAuthorizationApproved(false);
       setMode("finish");
     } catch (cause) {
       if (isGatewayRestartDuringSave(cause)) {
-        setSavedAllowFrom(allowFrom);
         setToken("");
         setShowToken(false);
         setProbeStatus(null);
+        setAuthorizationApproved(false);
         setMode("finish");
         return;
       }
       const protectedConfig = isProtectedConfigError(cause);
       setShowManualFallback(protectedConfig);
       setError(configured && protectedConfig
-        ? "Could not patch Telegram settings from here. The agent can update the non-secret allowlist directly."
+        ? "Could not patch Telegram settings from here. The agent can update the selected non-secret access controls directly."
         : configured
           ? "Could not patch Telegram settings from here. Try again."
           : null);
@@ -393,7 +440,6 @@ export function TelegramChatConnectorCard({
       if (requestIdRef.current !== requestId) return;
       setProbeStatus(null);
       setDisplayName(null);
-      setSavedAllowFrom([]);
       setMode("overview");
     } catch {
       setError("Could not disconnect Telegram. Try again.");
@@ -402,11 +448,11 @@ export function TelegramChatConnectorCard({
     }
   };
 
-  const requestAgentAllowlistUpdate = async () => {
+  const requestAgentAccessUpdate = async () => {
     if (!onAgentConfigUpdate || !configured) return;
-    const userIds = setupUserIds.length > 0 ? setupUserIds : effectiveAllowFrom;
-    if (!userIdsAreValid(userIds)) {
-      setError("Enter a numeric Telegram user ID before asking the agent to update the allowlist.");
+    const validationError = validateSetup();
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
@@ -414,12 +460,18 @@ export function TelegramChatConnectorCard({
     setError(null);
     setShowManualFallback(false);
     try {
-      await onAgentConfigUpdate(buildTelegramAgentAllowlistPrompt(userIds, true), TELEGRAM_AGENT_ALLOWLIST_DISPLAY_PROMPT);
-      setSavedAllowFrom(userIds);
+      const accessSettings = currentTelegramAccessSettings();
+      await onAgentConfigUpdate(buildTelegramAgentAccessPrompt({
+        ...accessSettings,
+        dmPolicy: accessSettings.dmPolicy || "runtime-default",
+        groupPolicy: accessSettings.groupPolicy || "runtime-default",
+        mentionChoice: accessSettings.mentionChoice || "runtime-default",
+      }), TELEGRAM_AGENT_ACCESS_DISPLAY_PROMPT);
       setProbeStatus(null);
+      setAuthorizationApproved(false);
       setMode("finish");
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : "The agent could not update Telegram allowlist settings.";
+      const message = cause instanceof Error ? cause.message : "The agent could not update Telegram access settings.";
       setError(redactTelegramSecrets(message));
       setMode("failed");
     } finally {
@@ -428,10 +480,33 @@ export function TelegramChatConnectorCard({
   };
 
   const beginSetup = () => {
-    setSetupStep("bot");
     setError(null);
     setShowManualFallback(false);
+    setAuthorizationApproved(false);
     setMode("setup");
+    if (!workflowLoading && (connectorsProvider || onGenerateConnectorWorkflow)) {
+      setWorkflow(null);
+      setRuntimeInstructions(null);
+      setWorkflowLoading(true);
+      setWorkflowUnavailable(false);
+      void (async () => {
+        try {
+          if (connectorsProvider) {
+            const setup = await connectorsProvider.startSetup({ connectorId: "telegram", mode: "config" });
+            const instructions = setup.instructions?.trim() || null;
+            setRuntimeInstructions(instructions);
+            if (instructions) return;
+          }
+          if (!onGenerateConnectorWorkflow) throw new Error("Generated connector guidance is unavailable.");
+          setWorkflow(await onGenerateConnectorWorkflow("telegram"));
+        } catch {
+          setWorkflow(null);
+          setWorkflowUnavailable(true);
+        } finally {
+          setWorkflowLoading(false);
+        }
+      })();
+    }
   };
 
   const finishTelegramSetup = () => {
@@ -441,32 +516,10 @@ export function TelegramChatConnectorCard({
     onReconnectGateway?.();
   };
 
-  const setupSteps = setupStepsFor();
-  const effectiveSetupStep = setupSteps.includes(setupStep) ? setupStep : "bot";
-  const setupStepCanContinue = effectiveSetupStep === "bot"
-    ? !validateToken()
-    : effectiveSetupStep === "allowlist"
-      ? userIdsAreValid(setupUserIds)
-      : true;
-
-  const goPreviousSetupStep = () => {
-    const previous = previousSetupStep(effectiveSetupStep);
-    if (previous) {
-      setSetupStep(previous);
-      return;
-    }
-    setMode(configured ? "manage" : "overview");
-  };
-
-  const goNextSetupStep = () => {
-    const next = nextSetupStep(effectiveSetupStep);
-    if (next) setSetupStep(next);
-  };
-
   const live = isTelegramLive(probeStatus);
   const tone: TelegramTone = effectiveMode === "ready" || live || effectiveMode === "finish"
     ? "primary"
-    : !connected || !hasCapability
+    : !connected || !runtimeAvailable
       ? "warning"
       : effectiveMode === "failed" || error
         ? "danger"
@@ -475,10 +528,10 @@ export function TelegramChatConnectorCard({
     ? "Message Telegram"
     : !connected
       ? "Telegram setup"
-      : !hasCapability
+      : !runtimeAvailable
         ? "Telegram unavailable"
         : effectiveMode === "setup"
-          ? SETUP_STEP_LABELS[effectiveSetupStep]
+          ? "Connect Telegram"
         : effectiveMode === "verifying"
           ? "Verifying bot"
           : effectiveMode === "ready" || live
@@ -487,27 +540,25 @@ export function TelegramChatConnectorCard({
               ? "Telegram configured"
               : "Connect Telegram";
   const heroSubtitle = effectiveMode === "finish"
-    ? "Send one Telegram message so the workspace can create the Telegram session."
+    ? "Complete the remaining authorization steps, then refresh workspace sessions."
     : !connected
       ? "Reconnect the agent before saving Telegram settings."
-      : !hasCapability
+      : !runtimeAvailable
         ? "This agent does not advertise Telegram channel settings yet."
         : effectiveMode === "setup"
-          ? SETUP_STEP_COPY[effectiveSetupStep]
+          ? workflow?.summary ?? runtimeInstructions ?? (workflowLoading ? "Preparing guidance for this workspace version." : "Complete each setup step, then save the protected settings.")
         : effectiveMode === "verifying"
           ? "Testing whether your bot is live and reachable."
           : effectiveMode === "ready" || live
             ? effectiveDisplayName ? `Your agent is reachable as @${effectiveDisplayName}.` : "Your agent can receive Telegram messages."
             : "Set up a Telegram bot without putting secrets in chat.";
-  const setupValidationError = effectiveMode === "setup" ? validateSetup() : null;
-  const setupLooksValid = !setupValidationError;
   const telegramAccessHref = effectiveDisplayName ? `https://t.me/${effectiveDisplayName}` : null;
   const showTelegramAccess = Boolean(telegramAccessHref && (configured || effectiveMode === "ready" || live || effectiveMode === "failed"));
   const shouldRenderDetails = Boolean(
     error ||
     showManualFallback ||
     !connected ||
-    !hasCapability ||
+    !runtimeAvailable ||
     effectiveMode === "setup" ||
     effectiveMode === "finish" ||
     effectiveMode === "verifying" ||
@@ -516,9 +567,289 @@ export function TelegramChatConnectorCard({
     configured,
   );
   const telegramIconActive = effectiveMode === "setup" || effectiveMode === "finish" || effectiveMode === "verifying";
+  const telegramStyle = {
+    "--channel-accent": "var(--selection-accent)",
+    "--channel-accent-foreground": "var(--selection-accent-foreground)",
+    "--channel-accent-border": "color-mix(in srgb, var(--channel-accent) 45%, transparent)",
+    "--channel-accent-shadow": "color-mix(in srgb, var(--channel-accent) 10%, transparent)",
+  } as React.CSSProperties;
+  const inputFallback = {
+    id: "required-settings",
+    title: "Choose Telegram access",
+    instructions: "Choose how direct messages and groups should work. Relevant options appear as you make each choice, and only visible settings are saved.",
+    inputSlots: [
+      "telegram.botToken",
+      "telegram.dmPolicy",
+      "telegram.allowFrom",
+      "telegram.groupPolicy",
+      "telegram.groupAllowFrom",
+      "telegram.groups",
+      "telegram.requireMention",
+    ] as ConnectorWorkflowInputSlot[],
+  };
+  const fallbackWorkflow: ConnectorWorkflow | null = !workflowLoading ? {
+    schema: CONNECTOR_WORKFLOW_SCHEMA_ID,
+    connectorId: "telegram",
+    runtimeFingerprint: "workspace-inputs",
+    summary: "Configure Telegram securely for this workspace.",
+    steps: [
+      ...(runtimeInstructions ? [{
+        id: "runtime-guidance",
+        title: "Review runtime guidance",
+        instructions: runtimeInstructions,
+        kind: "instruction" as const,
+        approvalRequired: false,
+      }] : []),
+      {
+        ...inputFallback,
+        kind: "input" as const,
+        approvalRequired: false,
+      },
+    ],
+  } : null;
+  const workflowWithRuntimeInstructions = workflow && runtimeInstructions ? {
+    ...workflow,
+    steps: [{
+      id: "runtime-guidance",
+      title: "Review runtime guidance",
+      instructions: runtimeInstructions,
+      kind: "instruction" as const,
+      approvalRequired: false,
+    }, ...workflow.steps],
+  } : workflow;
+  const displayWorkflow = workflowWithRuntimeInstructions
+    ? ensureConnectorWorkflowInputSlots(workflowWithRuntimeInstructions, inputFallback)
+    : fallbackWorkflow;
+  const inputControls: ConnectorWorkflowInputControls = {
+    "telegram.botToken": {
+      valid: !validateToken(),
+      value: token,
+      content: (
+        <div className="min-w-0 rounded-2xl border border-border bg-background/65 p-3 text-text-secondary">
+          <label htmlFor="telegram-bot-token" className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">Secure input</label>
+          <p className="mt-1 text-lg font-black text-foreground">Bot token</p>
+          <div className="relative mt-2 min-w-0">
+            <input
+              id="telegram-bot-token"
+              aria-label="Telegram bot token"
+              type={showToken ? "text" : "password"}
+              value={token}
+              onChange={(event) => {
+                setToken(event.target.value);
+                setError(null);
+              }}
+              placeholder={configured ? "Leave blank to keep existing token" : "Enter bot token"}
+              autoComplete="off"
+              spellCheck={false}
+              className="h-14 w-full rounded-2xl border border-border bg-background/80 px-4 pr-12 font-mono text-base text-foreground outline-none transition-colors placeholder:font-sans placeholder:text-text-muted focus:border-[var(--channel-accent)] sm:text-lg"
+            />
+            <button
+              type="button"
+              onClick={() => setShowToken((current) => !current)}
+              className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-xl text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+              aria-label={showToken ? "Hide Telegram token" : "Show Telegram token"}
+            >
+              {showToken ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+            </button>
+          </div>
+          <p className="mt-2 text-[11px] leading-4 text-text-muted">This value is sent only when you approve saving the channel settings. It is never sent to the setup planner.</p>
+        </div>
+      ),
+    },
+    "telegram.allowFrom": {
+      valid: valuesAreValid(setupUserIds, /^\d+$/),
+      value: allowFromInput,
+      visibleWhen: {
+        all: [{ inputSlot: "telegram.dmPolicy", operator: "one-of", values: ["allowlist", "pairing"] }],
+      },
+      requiredWhen: {
+        all: [{ inputSlot: "telegram.dmPolicy", operator: "equals", value: "allowlist" }],
+      },
+      disclosureWhen: {
+        all: [{ inputSlot: "telegram.dmPolicy", operator: "equals", value: "pairing" }],
+      },
+      disclosureLabel: "Pre-authorize a user",
+      content: (
+        <div className="min-w-0 rounded-2xl border border-border bg-background/65 p-3 text-text-secondary">
+          <label htmlFor="telegram-allow-from" className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">Direct messages</label>
+          <p className="mt-1 text-lg font-black text-foreground">Allowed user IDs</p>
+          <input
+            id="telegram-allow-from"
+            value={allowFromInput}
+            onChange={(event) => {
+              setAllowFromInput(event.target.value);
+              setError(null);
+              setShowManualFallback(false);
+            }}
+            placeholder="123456789"
+            inputMode="numeric"
+            className="mt-2 h-14 w-full rounded-2xl border border-border bg-background/80 px-4 font-mono text-base text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-[var(--channel-accent)] sm:text-lg"
+          />
+          <p className="mt-2 text-[11px] leading-4 text-text-muted">Required for allowlist access and optional for pre-authorized pairing senders. Use numeric IDs, not usernames.</p>
+        </div>
+      ),
+    },
+    "telegram.dmPolicy": {
+      valid: Boolean(dmPolicy),
+      value: dmPolicy,
+      content: (
+        <div className="min-w-0 rounded-2xl border border-border bg-background/65 p-3 text-text-secondary">
+          <label htmlFor="telegram-dm-policy" className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">Direct messages</label>
+          <p className="mt-1 text-lg font-black text-foreground">DM policy</p>
+          <select
+            id="telegram-dm-policy"
+            aria-label="Telegram DM policy"
+            value={dmPolicy}
+            onChange={(event) => {
+              setDmPolicy(event.target.value as PolicyChoice<DmPolicy>);
+              setError(null);
+            }}
+            className="mt-2 h-12 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-[var(--channel-accent)]"
+          >
+            <option value="">Choose a DM policy</option>
+            <option value="runtime-default">Use runtime default</option>
+            <option value="pairing">Pairing</option>
+            <option value="allowlist">Allowlisted users</option>
+            <option value="open">Open to anyone</option>
+            <option value="disabled">Disabled</option>
+          </select>
+          <p className={`mt-2 text-[11px] leading-4 ${dmPolicy === "open" ? "text-warning" : "text-text-muted"}`}>
+            {dmPolicy === "open" ? "Open access allows any Telegram account that finds the bot to contact it." : "Choose explicitly, or keep the behavior supplied by the runtime."}
+          </p>
+        </div>
+      ),
+    },
+    "telegram.groupPolicy": {
+      valid: Boolean(groupPolicy),
+      value: groupPolicy,
+      content: (
+        <div className="min-w-0 rounded-2xl border border-border bg-background/65 p-3 text-text-secondary">
+          <label htmlFor="telegram-group-policy" className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">Groups</label>
+          <p className="mt-1 text-lg font-black text-foreground">Group policy</p>
+          <select
+            id="telegram-group-policy"
+            aria-label="Telegram group policy"
+            value={groupPolicy}
+            onChange={(event) => {
+              setGroupPolicy(event.target.value as PolicyChoice<GroupPolicy>);
+              setError(null);
+            }}
+            className="mt-2 h-12 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-[var(--channel-accent)]"
+          >
+            <option value="">Choose a group policy</option>
+            <option value="runtime-default">Use runtime default</option>
+            <option value="allowlist">Allowlisted senders</option>
+            <option value="open">Open to group members</option>
+            <option value="disabled">Disabled</option>
+          </select>
+          <p className="mt-2 text-[11px] leading-4 text-text-muted">This controls who may trigger the bot inside configured groups.</p>
+        </div>
+      ),
+    },
+    "telegram.groupAllowFrom": {
+      valid: valuesAreValid(setupGroupUserIds, /^(?:\*|\d+)$/),
+      value: groupAllowFromInput,
+      visibleWhen: {
+        all: [{ inputSlot: "telegram.groupPolicy", operator: "equals", value: "allowlist" }],
+      },
+      content: (
+        <div className="min-w-0 rounded-2xl border border-border bg-background/65 p-3 text-text-secondary">
+          <label htmlFor="telegram-group-allow-from" className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">Groups</label>
+          <p className="mt-1 text-lg font-black text-foreground">Allowed group sender IDs</p>
+          <input
+            id="telegram-group-allow-from"
+            aria-label="Telegram allowed group sender IDs"
+            value={groupAllowFromInput}
+            onChange={(event) => {
+              setGroupAllowFromInput(event.target.value);
+              setError(null);
+            }}
+            placeholder="123456789 or *"
+            className="mt-2 h-12 w-full rounded-xl border border-border bg-background px-3 font-mono text-sm text-foreground outline-none placeholder:text-text-muted focus:border-[var(--channel-accent)]"
+          />
+          <p className="mt-2 text-[11px] leading-4 text-text-muted">Optional numeric user IDs. Use an explicit * only when every member of an allowed group should be accepted.</p>
+        </div>
+      ),
+    },
+    "telegram.groups": {
+      valid: valuesAreValid(setupGroupIds, /^(?:\*|-?\d+)$/),
+      value: groupIdsInput,
+      visibleWhen: {
+        all: [{ inputSlot: "telegram.groupPolicy", operator: "one-of", values: ["allowlist", "open"] }],
+      },
+      content: (
+        <div className="min-w-0 rounded-2xl border border-border bg-background/65 p-3 text-text-secondary">
+          <label htmlFor="telegram-group-ids" className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">Groups</label>
+          <p className="mt-1 text-lg font-black text-foreground">Telegram group IDs</p>
+          <input
+            id="telegram-group-ids"
+            aria-label="Telegram group IDs"
+            value={groupIdsInput}
+            onChange={(event) => {
+              setGroupIdsInput(event.target.value);
+              setError(null);
+            }}
+            placeholder="-1001234567890 or *"
+            className="mt-2 h-12 w-full rounded-xl border border-border bg-background px-3 font-mono text-sm text-foreground outline-none placeholder:text-text-muted focus:border-[var(--channel-accent)]"
+          />
+          <p className="mt-2 text-[11px] leading-4 text-text-muted">Optional explicit group chat IDs. Leaving this empty does not silently enable every group.</p>
+        </div>
+      ),
+    },
+    "telegram.requireMention": {
+      valid: Boolean(mentionChoice),
+      value: mentionChoice,
+      visibleWhen: {
+        all: [
+          { inputSlot: "telegram.groupPolicy", operator: "one-of", values: ["allowlist", "open"] },
+          { inputSlot: "telegram.groups", operator: "not-empty" },
+        ],
+      },
+      content: (
+        <div className="min-w-0 rounded-2xl border border-border bg-background/65 p-3 text-text-secondary">
+          <label htmlFor="telegram-mention-policy" className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">Groups</label>
+          <p className="mt-1 text-lg font-black text-foreground">Mention behavior</p>
+          <select
+            id="telegram-mention-policy"
+            aria-label="Telegram mention behavior"
+            value={mentionChoice}
+            onChange={(event) => {
+              setMentionChoice(event.target.value as MentionChoice);
+              setError(null);
+            }}
+            className="mt-2 h-12 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus:border-[var(--channel-accent)]"
+          >
+            <option value="">Choose mention behavior</option>
+            <option value="runtime-default">Use runtime default</option>
+            <option value="required">Require a mention</option>
+            <option value="not-required">Respond without a mention</option>
+          </select>
+          <p className="mt-2 text-[11px] leading-4 text-text-muted">Applied to every group ID listed above.</p>
+        </div>
+      ),
+    },
+  };
+  const inputIsVisible = (inputSlot: ConnectorWorkflowInputSlot) => connectorWorkflowInputControlIsVisible(inputSlot, inputControls);
+  const activeAuthorizationFlow = activeConnectorAuthorizationFlow(CONNECTOR_AUTHORIZATION_FLOWS, inputControls);
+  function currentTelegramAccessSettings(): TelegramAccessSettings {
+    return {
+      dmPolicy,
+      allowFrom: inputIsVisible("telegram.allowFrom") ? setupUserIds : [],
+      groupPolicy,
+      groupAllowFrom: inputIsVisible("telegram.groupAllowFrom") ? setupGroupUserIds : [],
+      groupIds: inputIsVisible("telegram.groups") ? setupGroupIds : [],
+      mentionChoice: inputIsVisible("telegram.requireMention") ? mentionChoice : "runtime-default",
+    };
+  }
+  const setupValidationError = effectiveMode === "setup" ? validateSetup() : null;
+  const setupLooksValid = !setupValidationError;
 
   return (
-    <section className={`group relative mb-3 overflow-hidden rounded-[1.75rem] border bg-background shadow-2xl ${CARD_TONE_CLASS[tone]}`} aria-live="polite">
+    <section
+      className={`group relative mb-3 overflow-hidden rounded-[1.75rem] border bg-background shadow-2xl ${CARD_TONE_CLASS[tone]}`}
+      style={telegramStyle}
+      aria-live="polite"
+    >
       <TelegramIcon
         className="pointer-events-none absolute -right-14 -top-10 h-52 w-52 rotate-12 opacity-[0.16] sm:-right-16 sm:h-64 sm:w-64"
         style={{ color: TELEGRAM_COLOR }}
@@ -534,7 +865,7 @@ export function TelegramChatConnectorCard({
               initial={{ opacity: 0, y: 18, filter: "blur(7px)" }}
               animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
               transition={{ type: "spring", stiffness: 330, damping: 32, mass: 0.8 }}
-              className="truncate text-left text-[clamp(1.55rem,5.6vw,3.05rem)] font-black uppercase leading-[0.9] tracking-[0.01em] text-[#26a5e4]"
+              className="truncate text-left text-[clamp(1.55rem,5.6vw,3.05rem)] font-black uppercase leading-[0.9] tracking-[0.01em] text-[var(--channel-accent)]"
             >
               {heroLabel}
             </motion.p>
@@ -555,228 +886,81 @@ export function TelegramChatConnectorCard({
         {showManualFallback ? (
           <div className="mb-3 rounded-2xl border border-warning/25 bg-warning/10 p-3 text-warning">
             <p className="font-semibold text-foreground">Settings fallback</p>
-            <p className="mt-1">{configured ? "The bot token is already stored. The agent can update only the non-secret allowlist settings." : "Apply these settings locally:"}</p>
+            <p className="mt-1">{configured ? "The bot token is already stored. The agent can apply the access choices shown in this card without reading or replacing it." : "Apply the selected access settings locally:"}</p>
             <ul className="mt-2 list-disc space-y-1 pl-4">
-              <li>Set <span className="font-mono text-foreground">channels.telegram.dmPolicy</span> to <span className="font-mono text-foreground">allowlist</span>.</li>
-              <li>Set <span className="font-mono text-foreground">channels.telegram.allowFrom</span> to your numeric Telegram user ID.</li>
+              <li>Use the selected DM and group policies; do not substitute a different access model.</li>
+              <li>Apply only the user IDs and group IDs entered above.</li>
               <li>{configured ? "Keep your existing bot token; do not paste it into chat." : "Apply the bot token through secure local settings; do not paste it into chat."}</li>
             </ul>
             {configured && onAgentConfigUpdate ? (
-              <button type="button" className={`${buttonClass("primary")} mt-3`} disabled={saving} onClick={() => void requestAgentAllowlistUpdate()}>
+              <button type="button" className={`${buttonClass("primary")} mt-3`} disabled={saving} onClick={() => void requestAgentAccessUpdate()}>
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                Ask agent to update allowlist
+                Ask agent to apply access settings
               </button>
             ) : null}
           </div>
         ) : null}
 
         {effectiveMode === "finish" ? (
-          <div className="grid gap-3 sm:grid-cols-3 sm:items-start">
-            <div className="min-w-0 py-1">
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">First</p>
-              <p className="mt-1 text-lg font-black text-foreground">Open your bot</p>
-              <p className="mt-1 text-[11px] leading-4 text-text-muted">Use the Telegram chat you started with <span className="font-mono text-foreground">/start</span>.</p>
+          activeAuthorizationFlow ? (
+            <ConnectorAuthorizationGuide
+              connectorId="telegram"
+              displayName="Telegram"
+              flow={activeAuthorizationFlow}
+              provider={connectorsProvider}
+              onApproved={() => setAuthorizationApproved(true)}
+            />
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-3 sm:items-start">
+              <div className="min-w-0 py-1">
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">First</p>
+                <p className="mt-1 text-lg font-black text-foreground">Open your bot</p>
+                <p className="mt-1 text-[11px] leading-4 text-text-muted">Use the bot conversation described in the setup guidance.</p>
+              </div>
+              <div className="min-w-0 py-1">
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">Then</p>
+                <p className="mt-1 text-lg font-black text-foreground">Send a message</p>
+                <p className="mt-1 text-[11px] leading-4 text-text-muted">Any short message is fine. The session appears after the message arrives.</p>
+              </div>
+              <div className="min-w-0 py-1">
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">Finally</p>
+                <p className="mt-1 text-lg font-black text-foreground">Finish here</p>
+                <p className="mt-1 text-[11px] leading-4 text-text-muted">Click Finish after sending it to refresh sessions.</p>
+              </div>
             </div>
-            <div className="min-w-0 py-1">
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">Then</p>
-              <p className="mt-1 text-lg font-black text-foreground">Send a message</p>
-              <p className="mt-1 text-[11px] leading-4 text-text-muted">Any short message is fine. The Telegram session appears after the first message arrives.</p>
-            </div>
-            <div className="min-w-0 py-1">
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">Finally</p>
-              <p className="mt-1 text-lg font-black text-foreground">Finish here</p>
-              <p className="mt-1 text-[11px] leading-4 text-text-muted">Click Finish after sending it to refresh sessions.</p>
-            </div>
-          </div>
+          )
         ) : !connected ? (
           <div className="flex items-start gap-3 rounded-2xl border border-warning/25 bg-warning/10 px-3 py-2 text-warning">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <p>Start or reconnect the agent before saving Telegram settings.</p>
           </div>
-        ) : !hasCapability ? (
+        ) : !runtimeAvailable ? (
           <div className="flex items-start gap-3 rounded-2xl border border-warning/25 bg-warning/10 px-3 py-2 text-warning">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <p>Telegram is not available in this workspace settings.</p>
           </div>
         ) : effectiveMode === "setup" ? (
           <div className="space-y-3">
-            {effectiveSetupStep === "bot" ? (
-              <motion.div
-                key="bot"
-                initial={{ opacity: 0, y: 12, filter: "blur(6px)" }}
-                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                transition={{ type: "spring", stiffness: 340, damping: 34, mass: 0.72 }}
-                className="relative text-text-secondary"
-              >
-                <div className="space-y-4">
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:items-start">
-                    <div className="min-w-0 py-1">
-                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">First</p>
-                      <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex items-center gap-1 text-lg font-black text-[#8edcff] transition-colors hover:text-[#26a5e4] hover:underline">
-                        Message @BotFather <ExternalLink className="h-3.5 w-3.5" />
-                      </a>
-                    </div>
-                    <div className="min-w-0 py-1">
-                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">Then</p>
-                      <p className="mt-1 text-lg font-black text-foreground">Create a new bot</p>
-                      <p className="mt-1 text-[11px] leading-4 text-text-muted">
-                        Use{" "}
-                        <button
-                          type="button"
-                          aria-label="Copy Telegram command /newbot"
-                          title="Copy /newbot"
-                          onClick={() => void copyTelegramCommand("/newbot")}
-                          className="inline-flex items-center gap-1 rounded-md border border-[#26a5e4]/25 bg-[#26a5e4]/10 px-1.5 py-0.5 font-mono text-[#8edcff] transition-colors hover:bg-[#26a5e4]/18 hover:text-foreground"
-                        >
-                          <span>/newbot</span>
-                          {copiedCommand === "/newbot" ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                          {copiedCommand === "/newbot" ? <span className="font-sans text-[10px] font-black uppercase tracking-[0.12em]">Copied</span> : null}
-                        </button>{" "}
-                        to start the bot flow.
-                      </p>
-                    </div>
-                    <div className="min-w-0 py-1">
-                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">Then</p>
-                      <p className="mt-1 text-lg font-black text-foreground">Give it a name</p>
-                      <p className="mt-1 text-[11px] leading-4 text-text-muted">
-                        Preferably{" "}
-                        <button
-                          type="button"
-                          aria-label={`Copy Telegram bot name ${botNameSuggestion}`}
-                          title={`Copy ${botNameSuggestion}`}
-                          onClick={() => void copyTelegramCommand(botNameSuggestion)}
-                          className="inline-flex max-w-full items-center gap-1 rounded-md border border-[#26a5e4]/25 bg-[#26a5e4]/10 px-1.5 py-0.5 font-mono text-[#8edcff] transition-colors hover:bg-[#26a5e4]/18 hover:text-foreground"
-                        >
-                          <span className="truncate">{botNameSuggestion}</span>
-                          {copiedCommand === botNameSuggestion ? <Check className="h-3 w-3 shrink-0" /> : <Copy className="h-3 w-3 shrink-0" />}
-                          {copiedCommand === botNameSuggestion ? <span className="font-sans text-[10px] font-black uppercase tracking-[0.12em]">Copied</span> : null}
-                        </button>
-                        .
-                      </p>
-                    </div>
-                    <div className="min-w-0 py-1">
-                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">Then</p>
-                      <p className="mt-1 text-lg font-black text-foreground">Give it a username</p>
-                      <p className="mt-1 text-[11px] leading-4 text-text-muted">
-                        Preferably{" "}
-                        <button
-                          type="button"
-                          aria-label={`Copy Telegram bot username ${botUsernameSuggestion}`}
-                          title={`Copy ${botUsernameSuggestion}`}
-                          onClick={() => void copyTelegramCommand(botUsernameSuggestion)}
-                          className="inline-flex max-w-full items-center gap-1 rounded-md border border-[#26a5e4]/25 bg-[#26a5e4]/10 px-1.5 py-0.5 font-mono text-[#8edcff] transition-colors hover:bg-[#26a5e4]/18 hover:text-foreground"
-                        >
-                          <span className="truncate">{botUsernameSuggestion}</span>
-                          {copiedCommand === botUsernameSuggestion ? <Check className="h-3 w-3 shrink-0" /> : <Copy className="h-3 w-3 shrink-0" />}
-                          {copiedCommand === botUsernameSuggestion ? <span className="font-sans text-[10px] font-black uppercase tracking-[0.12em]">Copied</span> : null}
-                        </button>
-                        . BotFather sends the token after this.
-                      </p>
-                    </div>
-                    <div className="min-w-0 py-1">
-                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">Then</p>
-                      <p className="mt-1 text-lg font-black text-foreground">Paste the token</p>
-                      <div className="relative mt-2 min-w-0">
-                        <input
-                          id="telegram-bot-token"
-                          aria-label="Telegram bot token"
-                          type={showToken ? "text" : "password"}
-                          value={token}
-                          onChange={(event) => {
-                            setToken(event.target.value);
-                            setError(null);
-                          }}
-                          placeholder={configured ? "Leave blank to keep existing token" : "Paste token from BotFather"}
-                          autoComplete="off"
-                          spellCheck={false}
-                          className="h-14 w-full rounded-2xl border border-border bg-background/80 px-4 pr-12 font-mono text-base text-foreground outline-none transition-colors placeholder:font-sans placeholder:text-text-muted focus:border-[#26a5e4]/55 sm:text-lg"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowToken((current) => !current)}
-                          className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-xl text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
-                          aria-label={showToken ? "Hide Telegram token" : "Show Telegram token"}
-                        >
-                          {showToken ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                        </button>
-                      </div>
-                      <p className="mt-2 text-[11px] leading-4 text-text-muted">It stays local until you save.</p>
-                    </div>
-                    <div className="min-w-0 py-1">
-                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">Finally</p>
-                      <p className="mt-1 text-lg font-black text-foreground">Message it</p>
-                      <p className="mt-1 text-[11px] leading-4 text-text-muted">
-                        Open your new bot, send{" "}
-                        <button
-                          type="button"
-                          aria-label="Copy Telegram command /start"
-                          title="Copy /start"
-                          onClick={() => void copyTelegramCommand("/start")}
-                          className="inline-flex items-center gap-1 rounded-md border border-[#26a5e4]/25 bg-[#26a5e4]/10 px-1.5 py-0.5 font-mono text-[#8edcff] transition-colors hover:bg-[#26a5e4]/18 hover:text-foreground"
-                        >
-                          <span>/start</span>
-                          {copiedCommand === "/start" ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                          {copiedCommand === "/start" ? <span className="font-sans text-[10px] font-black uppercase tracking-[0.12em]">Copied</span> : null}
-                        </button>
-                        , then come back here and click Continue.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            ) : (
-              <motion.div
-                key="allowlist"
-                initial={{ opacity: 0, y: 12, filter: "blur(6px)" }}
-                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                transition={{ type: "spring", stiffness: 340, damping: 34, mass: 0.72 }}
-                className="relative text-text-secondary"
-              >
-                <div className="grid gap-3 sm:grid-cols-3 sm:items-start">
-                  <div className="min-w-0 py-1">
-                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">First</p>
-                    <a href="https://t.me/userinfobot" target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex items-center gap-1 text-lg font-black text-[#8edcff] transition-colors hover:text-[#26a5e4] hover:underline">
-                      Open @userinfobot <ExternalLink className="h-3.5 w-3.5" />
-                    </a>
-                  </div>
-                  <div className="min-w-0 py-1">
-                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">Then</p>
-                    <p className="mt-1 text-lg font-black text-foreground">Hit Start</p>
-                    <p className="mt-1 text-[11px] leading-4 text-text-muted">
-                      It replies with a number like <span className="font-mono text-foreground">123456789</span>. Telegram usernames cannot be used for this allowlist.
-                    </p>
-                  </div>
-                  <div className="min-w-0 py-1">
-                    <label htmlFor="telegram-allow-from" className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">Finally</label>
-                    <p className="mt-1 text-lg font-black text-foreground">Paste it here</p>
-                    <input
-                      id="telegram-allow-from"
-                      value={allowFromInput}
-                      onChange={(event) => {
-                        setAllowFromInput(event.target.value);
-                        setError(null);
-                        setShowManualFallback(false);
-                      }}
-                      placeholder="123456789"
-                      inputMode="numeric"
-                      className="mt-2 h-14 w-full rounded-2xl border border-border bg-background/80 px-4 font-mono text-base text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-[#26a5e4]/55 sm:text-lg"
-                    />
-                    <p className="mt-2 text-[11px] leading-4 text-text-muted">Only this Telegram user can DM the agent.</p>
-                  </div>
-                </div>
-              </motion.div>
-            )}
+            <ConnectorWorkflowGuide
+              workflow={displayWorkflow}
+              loading={workflowLoading}
+              unavailable={workflowUnavailable && !runtimeInstructions && !fallbackWorkflow}
+              inputControls={inputControls}
+              showRuntimeFingerprint={Boolean(workflow)}
+              onRunShellProposal={onRunShellProposal}
+              onRetry={beginSetup}
+            />
           </div>
         ) : effectiveMode === "verifying" ? (
-          <div className="flex items-start gap-3 rounded-2xl border border-[#26a5e4]/25 bg-[#26a5e4]/10 px-3 py-3 text-[#8edcff]">
+          <div className="flex items-start gap-3 rounded-2xl border border-selection-accent/25 bg-selection-accent/10 px-3 py-3 text-selection-accent">
             <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
             <p>Checking Telegram. This can take a moment while the workspace applies the new settings.</p>
           </div>
         ) : effectiveMode === "ready" || live ? (
           showTelegramAccess && telegramAccessHref ? (
-            <div className="flex items-start gap-3 rounded-2xl border border-[#26a5e4]/25 bg-[#26a5e4]/10 px-3 py-2 text-[#8edcff]">
+            <div className="flex items-start gap-3 rounded-2xl border border-success/25 bg-success/10 px-3 py-2 text-success">
               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-              <a href={telegramAccessHref} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#8edcff] hover:text-foreground hover:underline">
+              <a href={telegramAccessHref} target="_blank" rel="noopener noreferrer" className="font-semibold text-success hover:text-foreground hover:underline">
                 Open @{effectiveDisplayName} on Telegram
               </a>
             </div>
@@ -790,7 +974,7 @@ export function TelegramChatConnectorCard({
           <div className="space-y-3">
             <p>Telegram settings are saved. Reconfigure the bot token if you need to update it.</p>
             {showTelegramAccess && telegramAccessHref ? (
-              <a href={telegramAccessHref} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 font-semibold text-[#8edcff] hover:text-foreground hover:underline">
+              <a href={telegramAccessHref} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 font-semibold text-selection-accent hover:text-foreground hover:underline">
                 Open @{effectiveDisplayName} on Telegram
                 <ExternalLink className="h-3.5 w-3.5" />
               </a>
@@ -803,22 +987,15 @@ export function TelegramChatConnectorCard({
       <div className="relative z-10 flex flex-wrap items-center justify-end gap-2 border-t border-border bg-surface-high/35 px-4 py-3 backdrop-blur-md sm:px-5">
         {effectiveMode === "setup" ? (
           <>
-            <button type="button" className={buttonClass()} disabled={saving || probing} onClick={goPreviousSetupStep}>
+            <button type="button" className={buttonClass()} disabled={saving || probing} onClick={() => setMode(configured ? "manage" : "overview")}>
               <ArrowLeft className="h-3.5 w-3.5" />
               Back
             </button>
-            {effectiveSetupStep === "allowlist" ? (
-              <button type="button" className={buttonClass("primary")} disabled={!canConfigure || saving || probing || !setupLooksValid} onClick={() => void saveTelegram()}>
-                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                Save settings
-                <ArrowRight className="h-3.5 w-3.5" />
-              </button>
-            ) : (
-              <button type="button" className={buttonClass("primary")} disabled={saving || probing || !setupStepCanContinue} onClick={goNextSetupStep}>
-                Continue
-                <ArrowRight className="h-3.5 w-3.5" />
-              </button>
-            )}
+            <button type="button" className={buttonClass("primary")} disabled={!canConfigure || saving || probing || !setupLooksValid} onClick={() => void saveTelegram()}>
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              Save settings
+              <ArrowRight className="h-3.5 w-3.5" />
+            </button>
           </>
         ) : effectiveMode === "finish" ? (
           <>
@@ -828,7 +1005,12 @@ export function TelegramChatConnectorCard({
                 <ExternalLink className="h-3.5 w-3.5" />
               </a>
             ) : null}
-            <button type="button" className={buttonClass("primary")} disabled={!onReconnectGateway} onClick={finishTelegramSetup}>
+            <button
+              type="button"
+              className={buttonClass("primary")}
+              disabled={!onReconnectGateway || Boolean(activeAuthorizationFlow && !authorizationApproved)}
+              onClick={finishTelegramSetup}
+            >
               Finish
               <ArrowRight className="h-3.5 w-3.5" />
             </button>
@@ -854,7 +1036,7 @@ export function TelegramChatConnectorCard({
           </>
         ) : effectiveMode === "failed" ? (
           <>
-            <button type="button" className={buttonClass("primary")} disabled={!onChannelProbe || probing} onClick={() => void verifyTelegram({ poll: false, nextModeOnStart: "verifying" })}>
+            <button type="button" className={buttonClass("primary")} disabled={(!connectorsProvider && !onChannelProbe) || probing} onClick={() => void verifyTelegram({ poll: false, nextModeOnStart: "verifying" })}>
               {probing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
               Retry test
             </button>
@@ -889,6 +1071,7 @@ export function TelegramChatConnectorCard({
             </button>
           </>
         )}
+        {onOpenIntegrationDetails ? <button type="button" className={buttonClass()} onClick={onOpenIntegrationDetails}>Open in integrations</button> : null}
         {onDismiss ? <button type="button" className={buttonClass()} onClick={onDismiss}><X className="h-3.5 w-3.5" />Dismiss</button> : null}
       </div>
     </section>

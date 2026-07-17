@@ -1,6 +1,6 @@
 import { GITHUB_CLI_DEVICE_URL, type GitHubAgentSetupPhase } from "@/lib/github-cli-workspace";
 
-export type ClawIntegrationConnectId = "github" | "telegram";
+export type ClawIntegrationConnectId = "github" | "telegram" | "discord" | "slack" | "whatsapp";
 
 export type ClawIntegrationConnectAction = {
   version: 1;
@@ -47,7 +47,7 @@ export interface ParsedClawUiActions {
 }
 
 const ACTION_BLOCK_RE = /```claw-ui-action\s*\r?\n([\s\S]*?)\r?\n```/g;
-const ALLOWED_INTEGRATION_IDS = new Set<ClawIntegrationConnectId>(["github", "telegram"]);
+const ALLOWED_INTEGRATION_IDS = new Set<ClawIntegrationConnectId>(["github", "telegram", "discord", "slack", "whatsapp"]);
 const SENTINEL_PREFIX = "@@hypercli.ui-action/v1";
 const CONNECT_SENTINEL_RE = /^@@hypercli\.ui-action\/v1\s+integration\.connect\s+([a-z0-9-]+)\s*$/i;
 const DEVICE_CODE_SENTINEL_RE = /^@@hypercli\.ui-action\/v1\s+integration\.github\.device-code\s+([A-Z0-9]{4}-[A-Z0-9]{4})(?:\s+(https:\/\/github\.com\/login\/device))?\s*$/i;

@@ -20,10 +20,6 @@ vi.mock("@/components/dashboard/modules/AgentCardModule", () => ({
   AgentCardTooltip: () => null,
 }));
 
-vi.mock("@/components/dashboard/integrations", () => ({
-  IntegrationsPage: () => null,
-}));
-
 vi.mock("./FirstAgentSetupWizard", () => ({
   FirstAgentSetupWizard: () => null,
 }));

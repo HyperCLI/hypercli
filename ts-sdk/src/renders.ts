@@ -56,7 +56,7 @@ export class Renders {
   constructor(private http: HTTPClient, private authHttp: HTTPClient = http) {}
 
   private async authMe(): Promise<any> {
-    if (this.authMeCache == null) {
+    if (this.authMeCache === null || this.authMeCache === undefined) {
       this.authMeCache = await this.authHttp.get('/api/auth/me');
     }
     return this.authMeCache;
@@ -226,10 +226,10 @@ export class Renders {
       const now = Date.now();
       if (now >= deadline) {
         const startedAt = this.parseRenderTimestamp(render.startedAt);
-        if (!queueGraceUsed && startedAt == null) {
+        if (!queueGraceUsed && (startedAt === null || startedAt === undefined)) {
           queueGraceUsed = true;
           deadline = now + queueGraceMs;
-        } else if (!activeGraceUsed && startedAt != null) {
+        } else if (!activeGraceUsed && startedAt !== null && startedAt !== undefined) {
           activeGraceUsed = true;
           deadline = Math.max(deadline, startedAt + activeGraceMs);
         } else {
@@ -250,7 +250,7 @@ export class Renders {
   // =========================================================================
 
   private parseRenderTimestamp(value: unknown): number | null {
-    if (value == null) return null;
+    if (value === null || value === undefined) return null;
     if (typeof value === 'number') return value;
     if (typeof value === 'string') {
       const parsed = Date.parse(value);

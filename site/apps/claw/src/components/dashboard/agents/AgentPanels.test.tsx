@@ -14,6 +14,29 @@ vi.mock("@hypercli/shared-ui", () => ({
   Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipContent: ({ children }: { children: ReactNode }) => <>{children}</>,
+  ConfirmDialog: ({
+    open,
+    title,
+    message,
+    confirmLabel,
+    loading,
+    onCancel,
+    onConfirm,
+  }: {
+    open: boolean;
+    title: string;
+    message: string;
+    confirmLabel: string;
+    loading?: boolean;
+    onCancel: () => void;
+    onConfirm: () => void;
+  }) => open ? (
+    <div role="dialog" aria-label={title}>
+      <p>{message}</p>
+      <button type="button" disabled={loading} onClick={onCancel}>Cancel</button>
+      <button type="button" disabled={loading} onClick={onConfirm}>{confirmLabel}</button>
+    </div>
+  ) : null,
 }));
 
 const sdkMocks = vi.hoisted(() => ({
@@ -406,7 +429,7 @@ describe("AgentSettingsPanel", () => {
 
   it("saves Docker image and user additional env while preserving managed launch env", async () => {
     const onUpdateAgentLaunchConfig = vi.fn(async () => undefined);
-    renderAgentSettingsPanel({ onUpdateAgentLaunchConfig });
+    renderAgentSettingsPanel({ onUpdateAgentLaunchConfig, reportedChannelsReady: true });
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
 
@@ -454,6 +477,55 @@ describe("AgentSettingsPanel", () => {
       });
     });
     expect(screen.getByText("Agent settings updated.")).toBeInTheDocument();
+  });
+
+  it("removes configured channels before saving a changed Docker image", async () => {
+    const onSaveOpenClawConfig = vi.fn(async () => undefined);
+    const onUpdateAgentLaunchConfig = vi.fn(async () => undefined);
+    renderAgentSettingsPanel({
+      onSaveOpenClawConfig,
+      onUpdateAgentLaunchConfig,
+      reportedChannelsReady: true,
+      reportedChannels: [
+        { channelId: "telegram", configured: true, healthState: "healthy" },
+        { channelId: "discord", configured: false, healthState: "unknown" },
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Agent Docker image" }), {
+      target: { value: "ghcr.io/hypercli/hypercli-openclaw:custom" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(screen.getByRole("dialog", { name: "Remove channels and change image?" })).toBeInTheDocument();
+    expect(screen.getByText(/permanently removing setup for Telegram/i)).toBeInTheDocument();
+    expect(onSaveOpenClawConfig).not.toHaveBeenCalled();
+    expect(onUpdateAgentLaunchConfig).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove channels and save" }));
+
+    await waitFor(() => {
+      expect(onSaveOpenClawConfig).toHaveBeenCalledWith({ channels: null });
+      expect(onUpdateAgentLaunchConfig).toHaveBeenCalledTimes(1);
+    });
+    expect(onSaveOpenClawConfig.mock.invocationCallOrder[0]).toBeLessThan(
+      onUpdateAgentLaunchConfig.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("blocks Docker image changes until the live channel preflight succeeds", () => {
+    const onUpdateAgentLaunchConfig = vi.fn(async () => undefined);
+    renderAgentSettingsPanel({ onUpdateAgentLaunchConfig, reportedChannelsReady: false });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Agent Docker image" }), {
+      target: { value: "ghcr.io/hypercli/hypercli-openclaw:custom" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(screen.getByText(/wait for its channels to load before changing the Docker image/i)).toBeInTheDocument();
+    expect(onUpdateAgentLaunchConfig).not.toHaveBeenCalled();
   });
 
   it("lists OpenClaw models and saves the selected default model through config patch", async () => {

@@ -423,7 +423,7 @@ export interface HyperAgentX402PurchaseRequest {
   bundle?: Record<string, number>;
 }
 
-export interface HyperAgentX402PurchaseResponse extends HyperAgentX402CheckoutResponse {}
+export type HyperAgentX402PurchaseResponse = HyperAgentX402CheckoutResponse;
 
 export interface HyperAgentBrowserX402PurchaseRequest extends HyperAgentX402PurchaseRequest {
   amountUsd: number;

@@ -1,6 +1,7 @@
 import type { ChatMessage } from "@/lib/openclaw-chat";
 
 export const TELEGRAM_AGENT_ALLOWLIST_DISPLAY_PROMPT = "Update Telegram allowlist settings.";
+export const TELEGRAM_AGENT_ACCESS_DISPLAY_PROMPT = "Update Telegram access settings.";
 
 const TOKEN_SHAPED_RE = /\b\d{5,}:[A-Za-z0-9_-]{20,}\b/g;
 
@@ -23,10 +24,59 @@ export function buildTelegramAgentAllowlistPrompt(userIds: string[], requireMent
   ].join("\n");
 }
 
+interface TelegramAgentAccessSettings {
+  dmPolicy: "runtime-default" | "allowlist" | "pairing" | "open" | "disabled";
+  allowFrom: string[];
+  groupPolicy: "runtime-default" | "allowlist" | "open" | "disabled";
+  groupAllowFrom: string[];
+  groupIds: string[];
+  mentionChoice: "runtime-default" | "required" | "not-required";
+}
+
+export function buildTelegramAgentAccessPrompt(settings: TelegramAgentAccessSettings): string {
+  const allowFrom = settings.allowFrom.filter((id) => /^\d+$/.test(id));
+  const effectiveAllowFrom = settings.dmPolicy === "open" ? Array.from(new Set(["*", ...allowFrom])) : allowFrom;
+  const groupAllowFrom = settings.groupAllowFrom.filter((id) => id === "*" || /^\d+$/.test(id));
+  const groupIds = settings.groupIds.filter((id) => id === "*" || /^-?\d+$/.test(id));
+  const groups = Object.fromEntries(groupIds.map((groupId) => [groupId, {
+    ...(settings.mentionChoice === "required" ? { requireMention: true } : {}),
+    ...(settings.mentionChoice === "not-required" ? { requireMention: false } : {}),
+  }]));
+  return [
+    "Update Telegram access settings in this workspace config.",
+    "",
+    "Use your file/process tools. This is a config-only update; do not ask for, print, replace, or expose the Telegram bot token.",
+    "Preserve the existing channels.telegram.botToken exactly as-is.",
+    "Do not paste openclaw.json contents into chat.",
+    "",
+    "Apply only these selected access settings to the active OpenClaw config, usually /home/node/.openclaw/openclaw.json:",
+    "- channels.telegram.enabled = true",
+    settings.dmPolicy === "runtime-default"
+      ? "- remove channels.telegram.dmPolicy so the runtime default applies"
+      : `- channels.telegram.dmPolicy = ${JSON.stringify(settings.dmPolicy)}`,
+    effectiveAllowFrom.length > 0
+      ? `- channels.telegram.allowFrom = ${JSON.stringify(effectiveAllowFrom)}`
+      : "- remove channels.telegram.allowFrom",
+    settings.groupPolicy === "runtime-default"
+      ? "- remove channels.telegram.groupPolicy so the runtime default applies"
+      : `- channels.telegram.groupPolicy = ${JSON.stringify(settings.groupPolicy)}`,
+    groupAllowFrom.length > 0
+      ? `- channels.telegram.groupAllowFrom = ${JSON.stringify(groupAllowFrom)}`
+      : "- remove channels.telegram.groupAllowFrom",
+    groupIds.length > 0
+      ? `- channels.telegram.groups = ${JSON.stringify(groups)}`
+      : "- remove channels.telegram.groups",
+    "",
+    "Reply with one short sentence. Do not include config contents, file contents, command output, or secrets.",
+  ].join("\n");
+}
+
 function isTelegramConfigPromptContent(content: string): boolean {
   const trimmed = content.trim();
   return (
     trimmed === TELEGRAM_AGENT_ALLOWLIST_DISPLAY_PROMPT ||
+    trimmed === TELEGRAM_AGENT_ACCESS_DISPLAY_PROMPT ||
+    (trimmed.startsWith("Update Telegram access settings in this workspace config.") && trimmed.includes("channels.telegram")) ||
     (trimmed.startsWith("Update Telegram allowlist settings in this workspace config.") && trimmed.includes("channels.telegram.allowFrom"))
   );
 }

@@ -1,32 +1,24 @@
 "use client";
 
 import React from "react";
-import { ArrowRight, CheckCircle2, Code2, ExternalLink, Loader2, Mail, Plus, RefreshCw, Search } from "lucide-react";
+import { AlertTriangle, Loader2, MessageSquare, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import type { AgentChannel, AgentChannelSummary, AgentChannelsProvider, AgentChannelsSnapshot } from "@hypercli.com/sdk/channels";
+import type { AgentConnectorDescriptor, AgentConnectorsProvider } from "@hypercli.com/sdk/connectors";
 
+import type { AgentGatewaySession } from "../agents/AgentGatewayProvider";
+import { IntegrationChatCardHost } from "../chat-integrations/IntegrationChatCardHost";
+import { OpenClawChannelSettingsPanel } from "../chat-integrations/OpenClawChannelSettingsPanel";
+import type { OpenClawConfiguredChannelId } from "../chat-integrations/openclaw-channel-settings";
+import type { ClawIntegrationConnectId } from "../chat-integrations/claw-ui-actions";
 import { DirectoryDetail } from "../directory/DirectoryDetail";
-import { isPluginAvailableInSchema, isPluginConnected, schemaPathExists, type DirectoryCategory } from "../directory/directory-utils";
-import { PLUGIN_REGISTRY, type PluginMeta } from "./plugin-registry";
+import type { DirectoryCategory } from "../directory/directory-utils";
+import { CHANNEL_SETUP_CANDIDATE_IDS, PLUGIN_REGISTRY, type PluginMeta } from "./plugin-registry";
 import { INTEGRATION_BRAND_LOGOS, type IntegrationBrandIcon } from "./integration-brand-icons";
 import { AgentLoadingState } from "../agents/page-helpers";
 import { getAgentGatewayPanelBootStatus } from "../agents/chat-boot-stage";
-import type {
-  GatewayIntegrationAuthStartParams,
-  GatewayIntegrationAuthStartResult,
-  GatewayIntegrationAuthStatusParams,
-  GatewayIntegrationAuthStatusResult,
-  GatewayIntegrationDisconnectParams,
-  GatewayIntegrationDisconnectResult,
-  GatewayIntegrationStatusEntry,
-  GatewayIntegrationStatusParams,
-  GatewayIntegrationStatusResult,
-  OpenClawConfigSchemaResponse,
-} from "@hypercli.com/sdk/openclaw/gateway";
 
-type IntegrationFilter = "all" | "web" | "channels" | "tools" | "media";
 type IntegrationIcon = IntegrationBrandIcon;
-type CatalogIntegrationStatus = "planned" | "oauth-required";
-type IntegrationStatusTone = "accent" | "warning" | "neutral";
-type ServiceConnectorId = "github";
+type StatusTone = "success" | "warning" | "neutral";
 
 interface IntegrationsDirectoryPanelProps {
   initialCategory?: DirectoryCategory | null;
@@ -34,782 +26,626 @@ interface IntegrationsDirectoryPanelProps {
   detailBackLabel?: string;
   onDetailBack?: () => void;
   agentName?: string | null;
+  gatewaySession: AgentGatewaySession;
+  channelsProvider: AgentChannelsProvider | null;
+  reportedChannels?: AgentChannelSummary[];
+  reportedChannelSnapshot?: AgentChannelsSnapshot | null;
+  reportedChannelsReady?: boolean;
+  onRefreshChannels?: (probe?: boolean) => Promise<AgentChannelsSnapshot | void>;
   config: Record<string, unknown> | null;
-  configSchema: OpenClawConfigSchemaResponse | null;
   connected: boolean;
   onSaveConfig: (patch: Record<string, unknown>) => Promise<void>;
   onChannelProbe: () => Promise<Record<string, unknown>>;
   onOpenShell: () => void;
-  availableSkillIds: ReadonlySet<string>;
-  onOpenSkill: (skillId: string) => void;
-  onIntegrationAuthStart?: (params: GatewayIntegrationAuthStartParams) => Promise<GatewayIntegrationAuthStartResult>;
-  onIntegrationAuthStatus?: (params: GatewayIntegrationAuthStatusParams) => Promise<GatewayIntegrationAuthStatusResult>;
-  onIntegrationStatus?: (params?: GatewayIntegrationStatusParams) => Promise<GatewayIntegrationStatusResult>;
-  onIntegrationDisconnect?: (params: GatewayIntegrationDisconnectParams) => Promise<GatewayIntegrationDisconnectResult>;
-}
-
-interface CatalogServiceIntegration {
-  id: string;
-  displayName: string;
-  subtitle: string;
-  description: string;
-  category: IntegrationFilter;
-  icon: IntegrationIcon;
-  status: CatalogIntegrationStatus;
-  skillIds?: string[];
-  connectorId?: ServiceConnectorId;
-  connectorScopes?: string[];
 }
 
 interface IntegrationTile {
   id: string;
   displayName: string;
   subtitle: string;
-  description: string;
-  category: IntegrationFilter;
   icon: IntegrationIcon;
   iconColor?: string;
   plugin?: PluginMeta;
-  skillId?: string;
-  service?: CatalogServiceIntegration;
-  connectorAvailable?: boolean;
-  available: boolean;
-  active: boolean;
-  activeLabel?: string;
-  statusLabel?: string;
-  statusTone?: IntegrationStatusTone;
+  channels: AgentChannelSummary[];
+  channel?: AgentChannel;
+  connector?: AgentConnectorDescriptor;
+  supported: boolean;
+  staleConfiguration?: boolean;
 }
 
-const WEB_PLUGIN_IDS = new Set(["brave", "duckduckgo", "exa", "tavily", "firecrawl"]);
-const MEDIA_PLUGIN_IDS = new Set(["elevenlabs", "deepgram", "fal", "voice-call", "talk-voice", "phone-control"]);
-
-const FILTERS: Array<{ id: IntegrationFilter; label: string }> = [
-  { id: "all", label: "All" },
-  { id: "web", label: "Web" },
-  { id: "channels", label: "Channels" },
-  { id: "tools", label: "Tools" },
-  { id: "media", label: "Media" },
-];
-
-const CATALOG_SERVICE_INTEGRATIONS: CatalogServiceIntegration[] = [
-  { id: "notion", displayName: "Notion", subtitle: "Docs & wiki", description: "Open and configure the Notion workspace skill when it is installed.", category: "tools", icon: INTEGRATION_BRAND_LOGOS.notion.icon, status: "planned", skillIds: ["notion"] },
-  { id: "google-drive", displayName: "Google Drive", subtitle: "File storage", description: "Requires first-party Google Workspace OAuth before files can be connected safely.", category: "tools", icon: INTEGRATION_BRAND_LOGOS["google-drive"].icon, status: "oauth-required" },
-  { id: "google-calendar", displayName: "Google Calendar", subtitle: "Scheduling", description: "Requires first-party Google Workspace OAuth before calendars can be connected safely.", category: "tools", icon: INTEGRATION_BRAND_LOGOS["google-calendar"].icon, status: "oauth-required" },
-  { id: "asana", displayName: "Asana", subtitle: "Task management", description: "Planned service connector; no in-app setup flow is available yet.", category: "tools", icon: INTEGRATION_BRAND_LOGOS.asana.icon, status: "planned" },
-  { id: "github", displayName: "GitHub", subtitle: "Repos & issues", description: "Connect repositories and issues with GitHub's device authorization flow.", category: "tools", icon: INTEGRATION_BRAND_LOGOS.github.icon, status: "planned", skillIds: ["github", "gh-issues"], connectorId: "github", connectorScopes: ["repo", "read:org", "gist"] },
-  { id: "hubspot", displayName: "HubSpot", subtitle: "CRM", description: "Planned CRM connector; secure account setup is not available in this UI yet.", category: "tools", icon: INTEGRATION_BRAND_LOGOS.hubspot.icon, status: "planned" },
-  { id: "jira", displayName: "Jira", subtitle: "Issue tracking", description: "Planned connector; needs packaged Atlassian setup before it can be enabled here.", category: "tools", icon: INTEGRATION_BRAND_LOGOS.jira.icon, status: "planned" },
-  { id: "vscode", displayName: "VS Code", subtitle: "IDE", description: "Planned local workflow connector; setup is not available in this UI yet.", category: "tools", icon: Code2, status: "planned" },
-  { id: "gmail", displayName: "Gmail", subtitle: "Email", description: "Requires first-party Google Workspace OAuth before mail can be connected safely.", category: "channels", icon: INTEGRATION_BRAND_LOGOS.gmail.icon, status: "oauth-required" },
-  { id: "outlook", displayName: "Outlook", subtitle: "Email & calendar", description: "Requires first-party Microsoft OAuth before mail and calendar can be connected safely.", category: "channels", icon: Mail, status: "oauth-required" },
-  { id: "trello", displayName: "Trello", subtitle: "Boards", description: "Planned service connector; no in-app setup flow is available yet.", category: "tools", icon: INTEGRATION_BRAND_LOGOS.trello.icon, status: "planned" },
-  { id: "gitlab", displayName: "GitLab", subtitle: "Repos & CI", description: "Planned service connector; no in-app setup flow is available yet.", category: "tools", icon: INTEGRATION_BRAND_LOGOS.gitlab.icon, status: "planned" },
-  { id: "linear", displayName: "Linear", subtitle: "Project tracking", description: "Planned service connector; no safe in-app connection is available yet.", category: "tools", icon: INTEGRATION_BRAND_LOGOS.linear.icon, status: "planned" },
-  { id: "vercel", displayName: "Vercel", subtitle: "Deployment", description: "Planned deployment connector; no in-app setup flow is available yet.", category: "web", icon: INTEGRATION_BRAND_LOGOS.vercel.icon, status: "planned" },
-];
-
-function categoryForPlugin(plugin: PluginMeta): IntegrationFilter {
-  if (plugin.category === "chat") return "channels";
-  if (plugin.category === "built-in" || MEDIA_PLUGIN_IDS.has(plugin.id)) return "media";
-  if (WEB_PLUGIN_IDS.has(plugin.id)) return "web";
-  return "tools";
+interface ConnectorState {
+  provider: AgentConnectorsProvider | null;
+  github: AgentConnectorDescriptor | null;
 }
 
-function subtitleForPlugin(plugin: PluginMeta, category: IntegrationFilter): string {
-  if (plugin.category === "ai-providers") return "AI provider";
-  if (plugin.category === "built-in") return "Built in";
-  if (category === "channels") return "Channel";
-  if (category === "web") return "Web";
-  if (category === "media") return "Media";
-  return "Tool";
+interface ChannelState {
+  provider: AgentChannelsProvider | null;
+  channels: AgentChannelSummary[];
+  snapshot: AgentChannelsSnapshot | null;
+  error: string | null;
 }
 
-function filterFromInitialCategory(category?: DirectoryCategory | null): IntegrationFilter {
-  if (category === "web" || category === "channels" || category === "tools" || category === "media") {
-    return category;
-  }
-  return "all";
+interface ChannelSelectionState {
+  requestedId: string | null;
+  selectedId: string | null;
 }
 
-function catalogSkillForItem(item: CatalogServiceIntegration, availableSkillIds: ReadonlySet<string>): string | undefined {
-  if (!item.skillIds) return undefined;
-  return item.skillIds.find((skillId) => availableSkillIds.has(skillId));
+function displayNameFromId(id: string): string {
+  return id
+    .split(/[-_.]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
-function catalogConnectorAvailable(item: CatalogServiceIntegration, configSchema: OpenClawConfigSchemaResponse): boolean {
-  if (!item.connectorId) return false;
-  const connectorId = item.connectorId;
-  const hintKeys = [
-    `integrations.${connectorId}`,
-    `integrations.${connectorId}.auth`,
-    `integrations.${connectorId}.connect`,
-    `services.${connectorId}`,
-    `services.${connectorId}.auth`,
-    `services.${connectorId}.connect`,
-  ];
-  return (
-    schemaPathExists(configSchema.schema, `integrations.${connectorId}`) ||
-    schemaPathExists(configSchema.schema, `services.${connectorId}`) ||
-    hintKeys.some((key) => Boolean(configSchema.uiHints?.[key]))
-  );
+const RUNTIME_CONNECTOR_IDS = new Set<ClawIntegrationConnectId>(["github", "telegram", "discord", "slack", "whatsapp"]);
+const CONFIGURED_CHANNEL_IDS = new Set<OpenClawConfiguredChannelId>(["telegram", "discord", "slack", "whatsapp"]);
+
+function isRuntimeConnectorId(id: string): id is ClawIntegrationConnectId {
+  return RUNTIME_CONNECTOR_IDS.has(id as ClawIntegrationConnectId);
 }
 
-function catalogStatusLabel(item: CatalogServiceIntegration, skillId?: string): string {
-  if (skillId) return "Available as skill";
-  if (item.status === "oauth-required") return "Needs OAuth";
-  return "Planned";
+function themedBrandColor(color?: string): string {
+  return color?.startsWith("var(--") ? color : "var(--selection-accent)";
 }
 
-function catalogStatusTone(item: CatalogServiceIntegration, skillId?: string): IntegrationStatusTone {
-  if (skillId) return "accent";
-  if (item.status === "oauth-required") return "warning";
-  return "neutral";
+function tileIsOnline(tile: IntegrationTile): boolean {
+  return tile.connector?.usable === true || tile.channels.some((channel) => channel.running === true);
 }
 
-function statusBadgeClass(tone?: IntegrationStatusTone): string {
-  if (tone === "accent") return "border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] text-[var(--selection-accent)]";
-  if (tone === "warning") return "border-[#765415] bg-[#2f2209] text-[#f5c45e]";
-  return "border-[#3a3a3d] bg-[#222222] text-[#858585]";
+function tileIsConfigured(tile: IntegrationTile): boolean {
+  return tile.connector?.configured === true || tile.channels.some((channel) => channel.configured);
 }
 
 function buildTiles(
-  configSchema: OpenClawConfigSchemaResponse,
+  channels: AgentChannelSummary[],
+  github: AgentConnectorDescriptor | null,
+  snapshot: AgentChannelsSnapshot | null,
   config: Record<string, unknown> | null,
-  availableSkillIds: ReadonlySet<string>,
-  connectorActionsAvailable: boolean,
-  integrationStatuses: Record<string, GatewayIntegrationStatusEntry> = {},
 ): IntegrationTile[] {
-  const pluginTiles = PLUGIN_REGISTRY.map((plugin) => {
-    const category = categoryForPlugin(plugin);
-    const available = isPluginAvailableInSchema(plugin, configSchema);
-    const brand = INTEGRATION_BRAND_LOGOS[plugin.id];
-    return {
-      id: plugin.id,
-      displayName: plugin.displayName,
-      subtitle: subtitleForPlugin(plugin, category),
-      description: plugin.description,
-      category,
-      icon: brand?.icon ?? plugin.icon,
-      iconColor: brand?.color,
-      plugin,
-      available,
-      active: available && (plugin.category === "built-in" || isPluginConnected(plugin.id, config)),
-    };
+  const grouped = new Map<string, AgentChannelSummary[]>();
+  channels.forEach((channel) => {
+    const entries = grouped.get(channel.channelId) ?? [];
+    entries.push(channel);
+    grouped.set(channel.channelId, entries);
   });
 
-  const pluginIds = new Set(pluginTiles.map((tile) => tile.id));
-  const catalogTiles = CATALOG_SERVICE_INTEGRATIONS
-    .filter((item) => !pluginIds.has(item.id))
-    .map((item) => {
-      const statusEntry = item.connectorId ? integrationStatuses[item.connectorId] ?? null : null;
-      const connected = connectorActionsAvailable && isIntegrationUsable(statusEntry);
-      const connectorAvailable = connected || (connectorActionsAvailable && catalogConnectorAvailable(item, configSchema));
-      const skillId = catalogSkillForItem(item, availableSkillIds);
+  const runtimeChannels = new Map(snapshot?.channels.map((channel) => [channel.channelId, channel]) ?? []);
+  const runtimeOrder = new Map(snapshot?.channels.map((channel, index) => [channel.channelId, index]) ?? []);
+  const tiles: IntegrationTile[] = Array.from(grouped.entries())
+    .map(([id, entries]) => {
+      const channel = runtimeChannels.get(id);
+      const plugin = PLUGIN_REGISTRY.find((candidate) => candidate.id === id && candidate.category === "chat");
+      const brand = INTEGRATION_BRAND_LOGOS[id];
+      const accountNames = entries
+        .map((entry) => entry.accountDisplayName)
+        .filter((name): name is string => Boolean(name));
+      const subtitle = accountNames.length === 1
+        ? accountNames[0]
+        : entries.length > 1
+          ? `${entries.length} accounts`
+          : "Channel";
       return {
-        ...item,
-        icon: INTEGRATION_BRAND_LOGOS[item.id]?.icon ?? item.icon,
-        iconColor: INTEGRATION_BRAND_LOGOS[item.id]?.color,
-        service: item,
-        skillId,
-        connectorAvailable,
-        available: connectorAvailable || connected || Boolean(skillId),
-        active: connected,
-        activeLabel: connected ? "Connected" : undefined,
-        statusLabel: connectorAvailable ? undefined : catalogStatusLabel(item, skillId),
-        statusTone: connectorAvailable ? undefined : catalogStatusTone(item, skillId),
+        id,
+        displayName: channel?.label ?? plugin?.displayName ?? displayNameFromId(id),
+        subtitle: channel?.detailLabel ?? subtitle,
+        icon: brand?.icon ?? plugin?.icon ?? MessageSquare,
+        iconColor: themedBrandColor(brand?.color),
+        plugin,
+        channels: entries,
+        channel,
+        supported: true,
       };
     });
-
-  return [...pluginTiles, ...catalogTiles].sort((a, b) => {
-    if (a.active !== b.active) return a.active ? -1 : 1;
-    if (a.available !== b.available) return a.available ? -1 : 1;
-    return a.displayName.localeCompare(b.displayName);
+  const configuredChannels = asRecord(config?.channels);
+  CHANNEL_SETUP_CANDIDATE_IDS.forEach((id) => {
+    if (grouped.has(id) || !asRecord(configuredChannels?.[id])) return;
+    const plugin = PLUGIN_REGISTRY.find((candidate) => candidate.id === id && candidate.category === "chat");
+    const brand = INTEGRATION_BRAND_LOGOS[id];
+    tiles.push({
+      id,
+      displayName: plugin?.displayName ?? displayNameFromId(id),
+      subtitle: "Saved configuration is not reported by this runtime",
+      icon: brand?.icon ?? plugin?.icon ?? MessageSquare,
+      iconColor: themedBrandColor(brand?.color),
+      plugin,
+      channels: [{ channelId: id, configured: true, healthState: "unknown" }],
+      supported: false,
+      staleConfiguration: true,
+    });
   });
+  const githubPlugin = PLUGIN_REGISTRY.find((candidate) => candidate.id === "github");
+  const githubBrand = INTEGRATION_BRAND_LOGOS.github;
+  if (githubPlugin && !grouped.has("github")) {
+    tiles.push({
+      id: "github",
+      displayName: githubPlugin.displayName,
+      subtitle: "Repositories, issues, and pull requests",
+      icon: githubBrand?.icon ?? githubPlugin.icon,
+      iconColor: themedBrandColor(githubBrand?.color),
+      plugin: githubPlugin,
+      channels: [],
+      supported: true,
+      ...(github ? { connector: github } : {}),
+    });
+  }
+  return tiles.sort((a, b) => {
+      const aOrder = runtimeOrder.get(a.id);
+      const bOrder = runtimeOrder.get(b.id);
+      if (aOrder !== undefined || bOrder !== undefined) return (aOrder ?? Number.MAX_SAFE_INTEGER) - (bOrder ?? Number.MAX_SAFE_INTEGER);
+      return a.displayName.localeCompare(b.displayName);
+    });
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function isConfiguredChannelId(id: string): id is OpenClawConfiguredChannelId {
+  return CONFIGURED_CHANNEL_IDS.has(id as OpenClawConfiguredChannelId);
+}
+
+function tileStatus(tile: IntegrationTile): { label: string; tone: StatusTone; setupRequired: boolean } {
+  if (tile.channels.some((channel) => channel.healthState === "unhealthy" || Boolean(channel.lastError))) {
+    return { label: "Needs attention", tone: "warning", setupRequired: false };
+  }
+  if (tileIsOnline(tile)) {
+    return { label: "Online", tone: "success", setupRequired: false };
+  }
+  if (tileIsConfigured(tile)) {
+    return { label: "Configured", tone: "neutral", setupRequired: false };
+  }
+  return { label: "Setup required", tone: "neutral", setupRequired: true };
+}
+
+function statusClass(tone: StatusTone): string {
+  if (tone === "success") return "border border-selection-accent/30 bg-selection-accent/10 text-selection-accent";
+  if (tone === "warning") return "border border-warning/30 bg-warning/10 text-warning";
+  return "border border-border bg-surface-high text-text-secondary";
 }
 
 function IntegrationCard({ tile, onOpen }: { tile: IntegrationTile; onOpen: () => void }) {
   const Icon = tile.icon;
-  const clickable = tile.available || Boolean(tile.skillId);
+  const status = tileStatus(tile);
 
   return (
     <button
       type="button"
-      disabled={!clickable}
-      onClick={clickable ? onOpen : undefined}
-      className={`group flex min-h-[92px] w-full items-start gap-3 rounded-[10px] border bg-[#181818] p-4 text-left transition-colors ${
-        clickable
-          ? "border-[#333333] hover:border-[#4a4a4d] hover:bg-[#1e1e1e]"
-          : "cursor-default border-[#292929] opacity-70"
-      }`}
+      onClick={onOpen}
+      className="group flex min-h-[76px] w-full items-start gap-3 rounded-[10px] border border-border bg-surface-low p-4 text-left transition-colors hover:border-border-strong hover:bg-surface-high"
     >
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border border-[#343434] bg-[#151515] text-[#f3f3f3]">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border border-border bg-background text-foreground">
         <Icon className="h-5 w-5" style={{ color: tile.iconColor }} />
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2.5">
           <div className="min-w-0">
-            <h3 className="truncate text-[15px] font-semibold leading-tight text-[#f5f5f5]">{tile.displayName}</h3>
-            <p className="mt-1 text-[13px] leading-tight text-[#858585]">{tile.subtitle}</p>
+            <h3 className="truncate text-[15px] font-semibold leading-tight text-foreground">{tile.displayName}</h3>
+            <p className="mt-1 text-[13px] leading-tight text-text-muted">{tile.subtitle}</p>
           </div>
-          {tile.active ? (
-            <span className="shrink-0 rounded-full bg-[#073f21] px-2.5 py-1 text-[12px] font-medium leading-none text-[#29d76f]">
-              {tile.activeLabel ?? "Active"}
-            </span>
-          ) : tile.statusLabel ? (
-            <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-medium leading-none ${statusBadgeClass(tile.statusTone)}`}>
-              {tile.statusLabel}
-            </span>
-          ) : tile.available ? (
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-[#2a2b2f] text-[#f5f5f5] transition-colors group-hover:bg-[#32343a]">
+          {status.setupRequired && tile.plugin ? (
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-surface-high text-foreground transition-colors group-hover:bg-secondary" aria-label="Set up">
               <Plus className="h-5 w-5" />
             </span>
           ) : (
-            <span className="shrink-0 rounded-full border border-[#3a3a3d] bg-[#222222] px-2.5 py-1 text-[10px] font-medium text-[#858585]">
-              Coming soon
+            <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-medium leading-none ${statusClass(status.tone)}`}>
+              {status.label}
             </span>
           )}
         </div>
-        <p className="mt-4 line-clamp-1 text-[13px] leading-tight text-[#858585]">{tile.description}</p>
       </div>
     </button>
   );
 }
 
-type ConnectorStep = "checking" | "idle" | "starting" | "pending" | "connected" | "failed";
-
-function asIntegrationStatusEntry(value: unknown): GatewayIntegrationStatusEntry | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const entry = value as GatewayIntegrationStatusEntry;
-  if (
-    entry.configured !== undefined ||
-    entry.authenticated !== undefined ||
-    entry.usable !== undefined ||
-    entry.connectionId !== undefined ||
-    entry.accountDisplayName !== undefined
-  ) {
-    return entry;
-  }
-  return null;
-}
-
-function integrationStatusMap(result: GatewayIntegrationStatusResult | null | undefined): Record<string, GatewayIntegrationStatusEntry> {
-  const entries: Record<string, GatewayIntegrationStatusEntry> = {};
-  if (!result) return entries;
-
-  for (const [integrationId, entry] of Object.entries(result.integrations ?? {})) {
-    const normalized = asIntegrationStatusEntry(entry);
-    if (normalized) entries[integrationId] = normalized;
-  }
-
-  const singleEntry = asIntegrationStatusEntry(result.integration);
-  if (singleEntry) {
-    const integrationId = typeof singleEntry.integrationId === "string"
-      ? singleEntry.integrationId
-      : typeof singleEntry.id === "string"
-        ? singleEntry.id
-        : null;
-    if (integrationId) entries[integrationId] = singleEntry;
-  }
-
-  for (const item of CATALOG_SERVICE_INTEGRATIONS) {
-    const connectorId = item.connectorId;
-    if (!connectorId || entries[connectorId]) continue;
-    const entry = asIntegrationStatusEntry((result as Record<string, unknown>)[connectorId]);
-    if (entry) entries[connectorId] = entry;
-  }
-
-  return entries;
-}
-
-function integrationStatusEntry(result: GatewayIntegrationStatusResult | null | undefined, integrationId: string): GatewayIntegrationStatusEntry | null {
-  if (!result) return null;
-  return integrationStatusMap(result)[integrationId] ?? asIntegrationStatusEntry(result);
-}
-
-function isIntegrationUsable(entry: GatewayIntegrationStatusEntry | null): boolean {
-  if (!entry) return false;
-  if (entry.usable === true) return true;
-  return entry.configured === true && entry.authenticated === true && entry.usable !== false;
-}
-
-function authStatusDone(result: GatewayIntegrationAuthStatusResult): boolean {
-  const status = String(result.status ?? "").toLowerCase();
-  return Boolean(result.connectionId) || ["authorized", "connected", "complete", "completed", "success"].includes(status);
-}
-
-function authStatusFailed(result: GatewayIntegrationAuthStatusResult): boolean {
-  const status = String(result.status ?? "").toLowerCase();
-  return ["failed", "error", "expired", "denied", "cancelled", "canceled"].includes(status);
-}
-
-function GitHubConnectorPanel({
-  service,
-  onBack,
-  onAuthStart,
-  onAuthStatus,
-  onIntegrationStatus,
-  onStatusChange,
-  onDisconnect,
-}: {
-  service: CatalogServiceIntegration;
-  onBack: () => void;
-  onAuthStart: (params: GatewayIntegrationAuthStartParams) => Promise<GatewayIntegrationAuthStartResult>;
-  onAuthStatus: (params: GatewayIntegrationAuthStatusParams) => Promise<GatewayIntegrationAuthStatusResult>;
-  onIntegrationStatus: (params?: GatewayIntegrationStatusParams) => Promise<GatewayIntegrationStatusResult>;
-  onStatusChange?: (integrationId: string, entry: GatewayIntegrationStatusEntry | null) => void;
-  onDisconnect?: (params: GatewayIntegrationDisconnectParams) => Promise<GatewayIntegrationDisconnectResult>;
-}) {
-  const integrationId = service.connectorId ?? service.id;
-  const scopes = service.connectorScopes ?? [];
-  const [step, setStep] = React.useState<ConnectorStep>("checking");
-  const [authStart, setAuthStart] = React.useState<GatewayIntegrationAuthStartResult | null>(null);
-  const [statusEntry, setStatusEntry] = React.useState<GatewayIntegrationStatusEntry | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
-  const [disconnecting, setDisconnecting] = React.useState(false);
-  const Icon = INTEGRATION_BRAND_LOGOS.github.icon ?? service.icon;
-  const iconColor = INTEGRATION_BRAND_LOGOS.github.color;
-  const authId = typeof authStart?.authId === "string" ? authStart.authId : "";
-  const verificationHref = typeof authStart?.verificationUri === "string"
-    ? authStart.verificationUri
-    : typeof authStart?.url === "string"
-      ? authStart.url
-      : "https://github.com/login/device";
-  const userCode = typeof authStart?.userCode === "string" ? authStart.userCode : "";
-  const accountDisplayName = statusEntry?.accountDisplayName ?? authStart?.accountDisplayName;
-
-  const refreshStatus = React.useCallback(async (probe = false) => {
-    const result = await onIntegrationStatus({ integrationId, probe });
-    const entry = integrationStatusEntry(result, integrationId);
-    setStatusEntry(entry);
-    onStatusChange?.(integrationId, entry);
-    setStep(isIntegrationUsable(entry) ? "connected" : "idle");
-  }, [integrationId, onIntegrationStatus, onStatusChange]);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    void refreshStatus(false).catch((cause) => {
-      if (cancelled) return;
-      setStep("idle");
-      setError(cause instanceof Error ? cause.message : "Could not read GitHub connection status.");
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshStatus]);
-
-  React.useEffect(() => {
-    if (step !== "pending" || !authId) return;
-    let cancelled = false;
-    const intervalMs = typeof authStart?.intervalMs === "number" ? Math.max(authStart.intervalMs, 1500) : 3000;
-    const poll = async () => {
-      try {
-        const result = await onAuthStatus({ authId, integrationId });
-        if (cancelled) return;
-        if (authStatusDone(result)) {
-          setAuthStart((prev) => ({ ...(prev ?? {}), ...result }));
-          const statusResult = await onIntegrationStatus({ integrationId, connectionId: result.connectionId, probe: true });
-          if (cancelled) return;
-          const entry = integrationStatusEntry(statusResult, integrationId) ?? {
-            configured: true,
-            authenticated: true,
-            usable: true,
-            connectionId: result.connectionId,
-            accountDisplayName: result.accountDisplayName,
-            scopes: result.scopes,
-          };
-          setStatusEntry(entry);
-          onStatusChange?.(integrationId, entry);
-          setStep("connected");
-          return;
-        }
-        if (authStatusFailed(result)) {
-          setError(result.error || "GitHub authorization did not complete.");
-          setStep("failed");
-        }
-      } catch (cause) {
-        if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : "Could not check GitHub authorization status.");
-          setStep("failed");
-        }
-      }
-    };
-    const timer = window.setInterval(() => void poll(), intervalMs);
-    void poll();
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [authId, authStart?.intervalMs, integrationId, onAuthStatus, onIntegrationStatus, onStatusChange, step]);
-
-  const handleStart = async () => {
-    setStep("starting");
-    setError(null);
-    try {
-      const result = await onAuthStart({ integrationId, scopes });
-      setAuthStart(result);
-      setStep(result.authId ? "pending" : "connected");
-      if (!result.authId) await refreshStatus(true);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not start GitHub authorization.");
-      setStep("failed");
-    }
-  };
-
-  const handleDisconnect = async () => {
-    if (!onDisconnect) return;
-    setDisconnecting(true);
-    setError(null);
-    try {
-      await onDisconnect({ integrationId, connectionId: statusEntry?.connectionId, revoke: true });
-      setStatusEntry(null);
-      onStatusChange?.(integrationId, null);
-      setAuthStart(null);
-      setStep("idle");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not disconnect GitHub.");
-    } finally {
-      setDisconnecting(false);
-    }
-  };
-
-  return (
-    <div className="h-full min-h-0 overflow-y-auto bg-[#030303] px-5 py-5">
-      <button
-        type="button"
-        onClick={onBack}
-        className="mb-5 rounded-full border border-[#333333] px-3 py-1.5 text-xs text-[#d8d8d8] transition-colors hover:bg-[#1b1b1b] hover:text-[#f5f5f5]"
-      >
-        Back to integrations
-      </button>
-
-      <div className="max-w-2xl">
-        <div className="mb-6 flex items-start gap-4">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-[#333333] bg-[#151515]">
-            <Icon className="h-6 w-6" style={{ color: iconColor }} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h3 className="text-xl font-semibold text-[#f5f5f5]">Connect GitHub</h3>
-            <p className="mt-1 text-sm text-[#a7a7ad]">Use GitHub device authorization to connect repositories and issues without pasting a token into chat.</p>
-          </div>
-        </div>
-
-        <div className="mb-5 rounded-xl border border-[#333333] bg-[#111113] p-4">
-          <p className="text-sm font-medium text-[#f5f5f5]">Requested access</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {scopes.map((scope) => (
-              <code key={scope} className="rounded-[6px] border border-[#303036] bg-[#09090b] px-2 py-1 font-mono text-[11px] text-[#f5f5f5]">{scope}</code>
-            ))}
-          </div>
-          <p className="mt-3 text-xs leading-relaxed text-[#a7a7ad]">
-            GitHub&apos;s <code className="rounded bg-[#09090b] px-1 py-0.5 font-mono text-[10px] text-[#f5f5f5]">repo</code> scope can include private repositories. Choose a dedicated GitHub account or narrow permissions when backend support adds scope choices.
-          </p>
-        </div>
-
-        {step === "checking" && (
-          <div className="flex items-center gap-3 rounded-xl border border-[#333333] bg-[#111113] p-4 text-sm text-[#d0d0d4]">
-            <Loader2 className="h-4 w-4 animate-spin text-[var(--selection-accent)]" />
-            Checking GitHub connection status...
-          </div>
-        )}
-
-        {(step === "idle" || step === "failed") && (
-          <div className="space-y-4">
-            {error && (
-              <div className="rounded-xl border border-[#6d2b2b] bg-[#241010] p-4 text-sm text-[#ff8a8a]">
-                {error}
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={handleStart}
-              className="inline-flex items-center gap-2 rounded-lg bg-[var(--button-primary)] px-4 py-2 text-sm font-semibold text-[var(--button-primary-foreground)]"
-            >
-              Connect GitHub
-              <ArrowRight className="h-4 w-4" />
-            </button>
-          </div>
-        )}
-
-        {step === "starting" && (
-          <div className="flex items-center gap-3 rounded-xl border border-[#333333] bg-[#111113] p-4 text-sm text-[#d0d0d4]">
-            <Loader2 className="h-4 w-4 animate-spin text-[var(--selection-accent)]" />
-            Starting GitHub authorization...
-          </div>
-        )}
-
-        {step === "pending" && (
-          <div className="space-y-4 rounded-xl border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] p-4">
-            <div>
-              <p className="text-sm font-semibold text-[#f5f5f5]">Authorize in GitHub</p>
-              <p className="mt-1 text-xs leading-relaxed text-[#cfd0d4]">Open GitHub&apos;s device page, enter the code, then keep this panel open while the agent confirms the connection.</p>
-            </div>
-            {userCode && (
-              <div className="rounded-[10px] border border-[#303036] bg-[#09090b] p-4 text-center">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#85858e]">Device code</p>
-                <p className="mt-2 font-mono text-2xl font-semibold tracking-[0.12em] text-[#f5f5f5]">{userCode}</p>
-              </div>
-            )}
-            <a
-              href={verificationHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-lg bg-[var(--button-primary)] px-4 py-2 text-sm font-semibold text-[var(--button-primary-foreground)]"
-            >
-              Open GitHub
-              <ExternalLink className="h-4 w-4" />
-            </a>
-            <div className="flex items-center gap-2 text-xs text-[#cfd0d4]">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Waiting for authorization and gateway restart...
-            </div>
-          </div>
-        )}
-
-        {step === "connected" && (
-          <div className="space-y-4">
-            <div className="rounded-xl border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] p-4">
-              <div className="flex items-center gap-3">
-                <CheckCircle2 className="h-5 w-5 text-[var(--selection-accent)]" />
-                <div>
-                  <p className="text-sm font-semibold text-[var(--selection-accent)]">GitHub connected</p>
-                  <p className="mt-0.5 text-xs text-[#cfd0d4]">{accountDisplayName ? String(accountDisplayName) : "The agent can use the connected GitHub account."}</p>
-                </div>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => void refreshStatus(true)}
-                className="inline-flex items-center gap-2 rounded-lg border border-[#333333] px-3 py-2 text-xs font-medium text-[#d8d8d8] transition-colors hover:bg-[#1b1b1b]"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                Test connection
-              </button>
-              {onDisconnect && (
-                <button
-                  type="button"
-                  onClick={handleDisconnect}
-                  disabled={disconnecting}
-                  className="inline-flex items-center gap-2 rounded-lg border border-[#6d2b2b] px-3 py-2 text-xs font-medium text-[#ff8a8a] transition-colors hover:bg-[#241010] disabled:opacity-50"
-                >
-                  {disconnecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                  Disconnect GitHub
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export function IntegrationsDirectoryPanel({
-  initialCategory,
   initialPluginId,
   detailBackLabel = "Back to integrations",
   onDetailBack,
   agentName,
+  gatewaySession,
+  channelsProvider,
+  reportedChannels = [],
+  reportedChannelSnapshot = null,
+  reportedChannelsReady = false,
+  onRefreshChannels,
   config,
-  configSchema,
   connected,
   onSaveConfig,
   onChannelProbe,
   onOpenShell,
-  availableSkillIds,
-  onOpenSkill,
-  onIntegrationAuthStart,
-  onIntegrationAuthStatus,
-  onIntegrationStatus,
-  onIntegrationDisconnect,
 }: IntegrationsDirectoryPanelProps) {
-  const [activeFilter, setActiveFilter] = React.useState<IntegrationFilter>(() => filterFromInitialCategory(initialCategory));
   const [searchQuery, setSearchQuery] = React.useState("");
-  const [selectedPluginId, setSelectedPluginId] = React.useState<string | null>(null);
-  const [selectedConnectorId, setSelectedConnectorId] = React.useState<ServiceConnectorId | null>(null);
-  const [integrationStatuses, setIntegrationStatuses] = React.useState<Record<string, GatewayIntegrationStatusEntry>>({});
+  const requestedChannelId = initialPluginId ?? null;
+  const [selection, setSelection] = React.useState<ChannelSelectionState>({
+    requestedId: requestedChannelId,
+    selectedId: requestedChannelId,
+  });
+  const [channelState, setChannelState] = React.useState<ChannelState>({ provider: null, channels: [], snapshot: null, error: null });
+  const [connectorState, setConnectorState] = React.useState<ConnectorState>({ provider: null, github: null });
+  const [refreshing, setRefreshing] = React.useState(false);
+  const [confirmingStaleRemoval, setConfirmingStaleRemoval] = React.useState(false);
+  const [removingStaleConfiguration, setRemovingStaleConfiguration] = React.useState(false);
   const scopeLabel = agentName?.trim() || "this agent";
-  const connectorActionsAvailable = Boolean(onIntegrationAuthStart && onIntegrationAuthStatus && onIntegrationStatus);
+  const selectedChannelId = selection.requestedId === requestedChannelId
+    ? selection.selectedId
+    : requestedChannelId;
+  const selectChannel = React.useCallback((channelId: string | null) => {
+    setSelection({ requestedId: requestedChannelId, selectedId: channelId });
+  }, [requestedChannelId]);
 
   React.useEffect(() => {
-    setSelectedPluginId(initialPluginId ?? null);
-    setSelectedConnectorId(null);
-    setActiveFilter(filterFromInitialCategory(initialCategory));
-    setSearchQuery("");
-  }, [initialCategory, initialPluginId]);
-
-  const tiles = React.useMemo(() => {
-    if (!configSchema) return [];
-    return buildTiles(
-      configSchema,
-      config,
-      availableSkillIds,
-      connectorActionsAvailable,
-      integrationStatuses,
-    );
-  }, [availableSkillIds, config, configSchema, connectorActionsAvailable, integrationStatuses]);
-
-  React.useEffect(() => {
-    if (!connected || !configSchema || !onIntegrationStatus) {
-      return;
-    }
-
+    if (!connected || !channelsProvider) return;
+    if (reportedChannelsReady) return;
     let cancelled = false;
-    void onIntegrationStatus({ probe: false })
-      .then((result) => {
-        if (!cancelled) setIntegrationStatuses(integrationStatusMap(result));
+    void Promise.all([
+      channelsProvider.list(),
+      channelsProvider.read?.().catch(() => null) ?? Promise.resolve(null),
+    ])
+      .then(([channels, snapshot]) => {
+        if (!cancelled) setChannelState({ provider: channelsProvider, channels, snapshot, error: null });
       })
-      .catch(() => {
-        if (!cancelled) setIntegrationStatuses({});
+      .catch((cause) => {
+        if (!cancelled) {
+          setChannelState({
+            provider: channelsProvider,
+            channels: [],
+            snapshot: null,
+            error: cause instanceof Error ? cause.message : "Could not read available channels.",
+          });
+        }
       });
-
     return () => {
       cancelled = true;
     };
-  }, [connected, configSchema, onIntegrationStatus]);
+  }, [channelsProvider, connected, reportedChannelSnapshot, reportedChannels, reportedChannelsReady]);
 
-  const handleIntegrationStatusChange = React.useCallback((integrationId: string, entry: GatewayIntegrationStatusEntry | null) => {
-    setIntegrationStatuses((prev) => {
-      if (!entry) {
-        if (!Object.prototype.hasOwnProperty.call(prev, integrationId)) return prev;
-        const next = { ...prev };
-        delete next[integrationId];
-        return next;
+  React.useEffect(() => {
+    const provider = gatewaySession.connectorsProvider;
+    if (!connected || !provider) return;
+    let cancelled = false;
+    void provider.list({ connectorId: "github" })
+      .then((connectors) => {
+        if (cancelled) return;
+        setConnectorState({
+          provider,
+          github: connectors.find((connector) => connector.connectorId === "github") ?? null,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setConnectorState({ provider, github: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [connected, gatewaySession.connectorsProvider]);
+
+  const refreshIntegrations = async () => {
+    const connectorsProvider = gatewaySession.connectorsProvider;
+    if (!channelsProvider && !connectorsProvider) return;
+    setRefreshing(true);
+    try {
+      const [refreshedSnapshot, channels, githubConnectors] = await Promise.all([
+        onRefreshChannels?.(true) ?? Promise.resolve(undefined),
+        onRefreshChannels ? Promise.resolve(null) : channelsProvider?.list({ probe: true }) ?? Promise.resolve([]),
+        connectorsProvider?.list({ connectorId: "github", probe: true }) ?? Promise.resolve([]),
+      ]);
+      if (channelsProvider && channels) setChannelState({ provider: channelsProvider, channels, snapshot: null, error: null });
+      if (channelsProvider && refreshedSnapshot) {
+        setChannelState((current) => ({ ...current, provider: channelsProvider, snapshot: refreshedSnapshot, error: null }));
       }
-      return { ...prev, [integrationId]: entry };
-    });
-  }, []);
+      if (connectorsProvider) {
+        setConnectorState({
+          provider: connectorsProvider,
+          github: githubConnectors.find((connector) => connector.connectorId === "github") ?? null,
+        });
+      }
+    } catch (cause) {
+      setChannelState({
+        provider: channelsProvider,
+        channels: [],
+        snapshot: null,
+        error: cause instanceof Error ? cause.message : "Could not refresh available channels.",
+      });
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
-  const selectedTile = selectedPluginId
-    ? tiles.find((tile) => tile.id === selectedPluginId && tile.available && tile.plugin)
-    : null;
-  const selectedConnectorTile = selectedConnectorId
-    ? tiles.find((tile) => tile.service?.connectorId === selectedConnectorId && tile.connectorAvailable && tile.service)
-    : null;
+  const channels = React.useMemo(() => {
+    if (reportedChannelsReady) return reportedChannels;
+    const providerChannels = channelState.provider === channelsProvider ? channelState.channels : [];
+    return providerChannels.length > 0 ? providerChannels : reportedChannels;
+  }, [channelState.channels, channelState.provider, channelsProvider, reportedChannels, reportedChannelsReady]);
+  const channelSnapshot = reportedChannelsReady
+    ? reportedChannelSnapshot
+    : channelState.provider === channelsProvider ? channelState.snapshot : reportedChannelSnapshot;
+  const loadError = channels.length === 0 && channelState.provider === channelsProvider ? channelState.error : null;
+  const loadingChannels = Boolean(
+    connected &&
+    channelsProvider &&
+    channels.length === 0 &&
+    !reportedChannelsReady &&
+    channelState.provider !== channelsProvider,
+  );
+  const githubConnector = connectorState.provider === gatewaySession.connectorsProvider ? connectorState.github : null;
+  const tiles = React.useMemo(() => buildTiles(channels, githubConnector, channelSnapshot, config), [channelSnapshot, channels, config, githubConnector]);
+  const selectedTile = React.useMemo(() => {
+    if (!selectedChannelId) return null;
+    const existing = tiles.find((tile) => tile.id === selectedChannelId);
+    if (existing) return existing;
+    if (!isRuntimeConnectorId(selectedChannelId)) return null;
+    const plugin = PLUGIN_REGISTRY.find((candidate) => candidate.id === selectedChannelId);
+    const brand = INTEGRATION_BRAND_LOGOS[selectedChannelId];
+    return {
+      id: selectedChannelId,
+      displayName: plugin?.displayName ?? displayNameFromId(selectedChannelId),
+      subtitle: "Not available in this runtime",
+      icon: brand?.icon ?? plugin?.icon ?? MessageSquare,
+      iconColor: themedBrandColor(brand?.color),
+      plugin,
+      channels: [],
+      supported: false,
+    } satisfies IntegrationTile;
+  }, [selectedChannelId, tiles]);
   const handleDetailBack = React.useCallback(() => {
-    setSelectedPluginId(null);
-    setSelectedConnectorId(null);
+    setConfirmingStaleRemoval(false);
+    selectChannel(null);
     onDetailBack?.();
-  }, [onDetailBack]);
-
+  }, [onDetailBack, selectChannel]);
   const filteredTiles = React.useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    return tiles.filter((tile) => {
-      if (activeFilter !== "all" && tile.category !== activeFilter) return false;
-      if (!query) return true;
-      return (
-        tile.displayName.toLowerCase().includes(query) ||
-        tile.subtitle.toLowerCase().includes(query) ||
-        tile.description.toLowerCase().includes(query) ||
-        tile.activeLabel?.toLowerCase().includes(query) ||
-        tile.statusLabel?.toLowerCase().includes(query) ||
-        tile.id.toLowerCase().includes(query)
-      );
-    });
-  }, [activeFilter, searchQuery, tiles]);
+    if (!query) return tiles;
+    return tiles.filter((tile) => (
+      tile.displayName.toLowerCase().includes(query) ||
+      tile.subtitle.toLowerCase().includes(query) ||
+      tile.id.toLowerCase().includes(query)
+    ));
+  }, [searchQuery, tiles]);
 
-  if (!connected || !configSchema) {
+  if (!connected) {
     const bootStatus = getAgentGatewayPanelBootStatus({
       connected,
-      loading: connected && !configSchema,
       loadingTitle: "Loading integrations",
       loadingDetail: `Reading available capabilities for ${scopeLabel}.`,
       connectingDetail: "Opening the integrations workspace.",
       waitingDetail: "Start the agent gateway to manage integrations.",
     });
-
     return (
-      <div className="h-full min-h-0 bg-[#030303]">
-        <AgentLoadingState
-          bootStatus={bootStatus ?? undefined}
-        />
+      <div className="h-full min-h-0 bg-background">
+        <AgentLoadingState bootStatus={bootStatus ?? undefined} />
+      </div>
+    );
+  }
+
+  if (!channelsProvider && !gatewaySession.connectorsProvider) {
+    return (
+      <div className="h-full min-h-0 overflow-y-auto bg-background px-5 py-7 text-foreground">
+        <div className="mx-auto w-full max-w-6xl rounded-[12px] border border-border bg-surface-low px-5 py-10 text-center">
+          <h2 className="text-base font-semibold">No integrations reported</h2>
+          <p className="mt-2 text-sm text-text-muted">This workspace does not publish communication channel capabilities.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (
+    selectedTile &&
+    isConfiguredChannelId(selectedTile.id) &&
+    (!selectedTile.supported || gatewaySession.backend !== "openclaw")
+  ) {
+    const runtime = gatewaySession.connectorsProvider?.runtime;
+    const runtimeName = runtime?.provider === "openclaw" ? "OpenClaw" : runtime?.provider || gatewaySession.backend;
+    const adapterUnavailable = selectedTile.supported && gatewaySession.backend !== "openclaw";
+    const removeStaleConfiguration = async () => {
+      if (!channelsProvider?.removeConfig) return;
+      setRemovingStaleConfiguration(true);
+      try {
+        await channelsProvider.removeConfig(selectedTile.id);
+        await onRefreshChannels?.(true);
+        selectChannel(null);
+      } finally {
+        setRemovingStaleConfiguration(false);
+      }
+    };
+    return (
+      <div className="h-full min-h-0 overflow-y-auto bg-background px-5 py-5">
+        <div className="mx-auto w-full max-w-6xl">
+          <button type="button" onClick={handleDetailBack} className="mb-5 rounded-full border border-border px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground">
+            {detailBackLabel}
+          </button>
+          <section className="max-w-2xl overflow-hidden rounded-2xl border border-warning/25 bg-surface-low">
+            <div className="flex items-start gap-3 border-b border-warning/20 bg-warning/10 p-5">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">{selectedTile.displayName} is not available</h2>
+                <p className="mt-1 text-sm leading-6 text-text-secondary">
+                  {selectedTile.staleConfiguration
+                    ? `A saved configuration exists, but the ${runtimeName} runtime does not currently report this channel.`
+                    : adapterUnavailable
+                      ? `${selectedTile.displayName} controls are not available for the ${runtimeName} runtime yet.`
+                    : `This ${runtimeName} runtime does not report support for ${selectedTile.displayName}.`}
+                </p>
+                {runtime ? <p className="mt-2 font-mono text-[11px] text-text-muted">{runtimeName} runtime{runtime.version ? ` · v${runtime.version.replace(/^v/i, "")}` : ""}</p> : null}
+              </div>
+            </div>
+            {selectedTile.staleConfiguration ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 p-5">
+                <p className="max-w-md text-xs leading-5 text-text-muted">Settings cannot be edited safely until runtime support returns. You can remove the saved configuration now.</p>
+                {!confirmingStaleRemoval ? (
+                  <button type="button" onClick={() => setConfirmingStaleRemoval(true)} disabled={!channelsProvider?.removeConfig} className="inline-flex h-9 items-center gap-2 rounded-lg border border-destructive/35 bg-destructive/10 px-3 text-xs font-semibold text-destructive disabled:opacity-45">
+                    <Trash2 className="h-3.5 w-3.5" /> Remove configuration
+                  </button>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button type="button" onClick={() => void removeStaleConfiguration()} disabled={removingStaleConfiguration} className="inline-flex h-9 items-center gap-2 rounded-lg border border-destructive/35 bg-destructive/10 px-3 text-xs font-semibold text-destructive disabled:opacity-45">
+                      {removingStaleConfiguration ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Confirm remove
+                    </button>
+                    <button type="button" onClick={() => setConfirmingStaleRemoval(false)} disabled={removingStaleConfiguration} className="h-9 rounded-lg border border-border px-3 text-xs text-text-secondary transition-colors hover:bg-surface-high hover:text-foreground disabled:opacity-45">Cancel</button>
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </section>
+        </div>
+      </div>
+    );
+  }
+
+  if (selectedTile && isRuntimeConnectorId(selectedTile.id)) {
+    if (
+      isConfiguredChannelId(selectedTile.id) &&
+      tileIsConfigured(selectedTile) &&
+      selectedTile.supported &&
+      channelsProvider &&
+      gatewaySession.backend === "openclaw"
+    ) {
+      const groupedChannel = selectedTile.channel ?? {
+        channelId: selectedTile.id,
+        label: selectedTile.displayName,
+        rawChannelStatus: {},
+        accounts: selectedTile.channels.map((summary) => ({
+          accountId: summary.accountId,
+          accountDisplayName: summary.accountDisplayName,
+          enabled: summary.enabled,
+          configured: summary.configured,
+          running: summary.running,
+          authenticated: summary.authenticated,
+          healthState: summary.healthState,
+          lastError: summary.lastError,
+          lastProbeAt: summary.lastProbeAt,
+          rawRuntimeStatus: {},
+        })),
+      } satisfies AgentChannel;
+      return (
+        <div className="h-full min-h-0 overflow-y-auto bg-background px-5 py-5">
+          <div className="mx-auto w-full max-w-6xl">
+            <button type="button" onClick={handleDetailBack} className="mb-5 rounded-full border border-border px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground">
+              {detailBackLabel}
+            </button>
+            <OpenClawChannelSettingsPanel
+              channelId={selectedTile.id}
+              channel={groupedChannel}
+              provider={channelsProvider}
+              connectorsProvider={gatewaySession.connectorsProvider}
+              runtime={gatewaySession.connectorsProvider?.runtime ?? gatewaySession.connectorRuntime}
+              connected={connected}
+              onRefresh={async () => {
+                if (onRefreshChannels) await onRefreshChannels(true);
+                else await refreshIntegrations();
+              }}
+              onOpenPairing={selectedTile.id === "whatsapp" ? onOpenShell : undefined}
+            />
+          </div>
+        </div>
+      );
+    }
+    const action = { version: 1, type: "integration.connect", integrationId: selectedTile.id } as const;
+    return (
+      <div className="h-full min-h-0 overflow-y-auto bg-background px-5 py-5">
+        <div className="mx-auto w-full max-w-6xl">
+          <button type="button" onClick={handleDetailBack} className="mb-5 rounded-full border border-border px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground">
+            {detailBackLabel}
+          </button>
+          <IntegrationChatCardHost
+            action={action}
+            chat={gatewaySession}
+            agentName={agentName}
+            onOpenFullSetup={selectedTile.id === "whatsapp" ? () => onOpenShell() : undefined}
+          />
+        </div>
       </div>
     );
   }
 
   if (selectedTile?.plugin) {
     return (
-      <div className="h-full min-h-0 overflow-y-auto bg-[#030303] px-5 py-5">
-        <button
-          type="button"
-          onClick={handleDetailBack}
-          className="mb-5 rounded-full border border-[#333333] px-3 py-1.5 text-xs text-[#d8d8d8] transition-colors hover:bg-[#1b1b1b] hover:text-[#f5f5f5]"
-        >
-          {detailBackLabel}
-        </button>
-        <DirectoryDetail
-          pluginId={selectedTile.plugin.id}
-          config={config}
-          connected={connected}
-          onSaveConfig={onSaveConfig}
-          onChannelProbe={onChannelProbe}
-          onOpenShell={onOpenShell}
-          onBack={handleDetailBack}
-          onCloseModal={handleDetailBack}
-        />
+      <div className="h-full min-h-0 overflow-y-auto bg-background px-5 py-5">
+        <div className="mx-auto w-full max-w-6xl">
+          <button type="button" onClick={handleDetailBack} className="mb-5 rounded-full border border-border px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground">
+            {detailBackLabel}
+          </button>
+          <DirectoryDetail
+            pluginId={selectedTile.plugin.id}
+            config={config}
+            connected={connected}
+            onSaveConfig={onSaveConfig}
+            onChannelProbe={onChannelProbe}
+            onOpenShell={onOpenShell}
+            onBack={handleDetailBack}
+            onCloseModal={handleDetailBack}
+          />
+        </div>
       </div>
     );
   }
 
-  if (
-    selectedConnectorTile?.service?.connectorId === "github" &&
-    onIntegrationAuthStart &&
-    onIntegrationAuthStatus &&
-    onIntegrationStatus
-  ) {
+  if (selectedTile) {
     return (
-      <GitHubConnectorPanel
-        service={selectedConnectorTile.service}
-        onBack={handleDetailBack}
-        onAuthStart={onIntegrationAuthStart}
-        onAuthStatus={onIntegrationAuthStatus}
-        onIntegrationStatus={onIntegrationStatus}
-        onStatusChange={handleIntegrationStatusChange}
-        onDisconnect={onIntegrationDisconnect}
-      />
+      <div className="h-full min-h-0 overflow-y-auto bg-background px-5 py-5">
+        <div className="mx-auto w-full max-w-6xl">
+          <button type="button" onClick={handleDetailBack} className="mb-5 rounded-full border border-border px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground">
+            {detailBackLabel}
+          </button>
+          <div className="max-w-2xl rounded-xl border border-border bg-surface-low p-5">
+            <h2 className="text-xl font-semibold">{selectedTile.displayName}</h2>
+            <p className="mt-2 text-sm text-text-secondary">This channel is available in this workspace, but guided setup is not available yet.</p>
+          </div>
+        </div>
+      </div>
     );
   }
 
   return (
     <div className="h-full min-h-0 overflow-y-auto bg-background text-foreground">
-      <div className="border-b border-[#222222] px-5 py-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <h2 className="text-[19px] font-semibold leading-none">All integrations</h2>
-          <label className="relative w-full lg:w-[360px]">
-            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#858585]" />
-            <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search integrations..." className="h-10 w-full rounded-[11px] border border-[#3a3a3d] bg-[#101010] pl-10 pr-3 text-[14px] text-[#f5f5f5] outline-none placeholder:text-[#858585] focus:border-[#5a5a5e]" />
-          </label>
+      <div className="mx-auto w-full max-w-6xl">
+        <div className="border-b border-border px-5 py-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h2 className="text-[19px] font-semibold leading-none">Channels</h2>
+              <p className="mt-2 text-xs text-text-muted">Communication channels reported by this workspace.</p>
+            </div>
+            <div className="flex w-full gap-2 lg:w-auto">
+              <label className="relative min-w-0 flex-1 lg:w-[360px]">
+                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+                <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search channels..." className="h-10 w-full rounded-[11px] border border-border bg-input-background pl-10 pr-3 text-[14px] text-foreground outline-none placeholder:text-text-muted focus:border-border-strong focus:ring-2 focus:ring-ring" />
+              </label>
+              <button type="button" onClick={() => void refreshIntegrations()} disabled={refreshing} aria-label="Refresh channels" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px] border border-border bg-surface-low text-text-secondary transition-colors hover:border-border-strong hover:bg-surface-high hover:text-foreground disabled:opacity-50">
+                <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div className="mt-8 flex flex-wrap gap-2.5">
-          {FILTERS.map((filter) => (
-            <button key={filter.id} type="button" onClick={() => { setActiveFilter(filter.id); setSearchQuery(""); }} className={`h-9 rounded-full border px-3.5 text-[14px] font-medium transition-colors ${activeFilter === filter.id ? "border-[#f5f5f5] bg-[#f5f5f5] text-[#111111]" : "border-[#3d3d40] bg-[#151515] text-[#f5f5f5] hover:border-[#626266]"}`}>
-              {filter.label}
-            </button>
-          ))}
+        <div className="px-5 py-7">
+          {channelSnapshot?.partial ? (
+            <div role="status" className="mb-4 flex items-start gap-2 rounded-[10px] border border-warning/25 bg-warning/10 px-3.5 py-3 text-xs leading-5 text-warning">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              Some channel status checks did not complete{channelSnapshot.warnings?.length ? ` (${channelSnapshot.warnings.length})` : ""}. Saved settings remain available; refresh before relying on live health.
+            </div>
+          ) : null}
+          {loadingChannels ? (
+            <div className="flex items-center justify-center gap-3 py-14 text-sm text-text-muted">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Reading available channels...
+            </div>
+          ) : loadError ? (
+            <div className="rounded-[12px] border border-destructive/30 bg-destructive/10 px-5 py-10 text-center">
+              <p className="text-sm text-destructive">This workspace could not report its communication channels.</p>
+              <button type="button" onClick={() => void refreshIntegrations()} className="mt-4 rounded-lg border border-destructive/30 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-destructive/10">Try again</button>
+            </div>
+          ) : filteredTiles.length > 0 ? (
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+              {filteredTiles.map((tile) => (
+                <IntegrationCard key={tile.id} tile={tile} onOpen={() => selectChannel(tile.id)} />
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-[12px] border border-border bg-surface-low px-5 py-10 text-center text-sm text-text-muted">
+              {tiles.length === 0 ? "This workspace reports no communication channels." : "No channels match this search."}
+            </div>
+          )}
         </div>
-      </div>
-
-      <div className="px-5 py-7">
-        {filteredTiles.length > 0 ? (
-          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-            {filteredTiles.map((tile) => (
-              <IntegrationCard
-                key={tile.id}
-                tile={tile}
-                onOpen={() => {
-                  if (tile.plugin) setSelectedPluginId(tile.plugin.id);
-                  else if (tile.service?.connectorId && tile.connectorAvailable && onIntegrationAuthStart && onIntegrationAuthStatus && onIntegrationStatus) setSelectedConnectorId(tile.service.connectorId);
-                  else if (tile.skillId) onOpenSkill(tile.skillId);
-                }}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="rounded-[12px] border border-[#333333] bg-[#181818] px-5 py-10 text-center text-sm text-[#858585]">
-            No integrations match this search.
-          </div>
-        )}
       </div>
     </div>
   );

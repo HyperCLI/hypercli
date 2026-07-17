@@ -102,6 +102,9 @@ export interface GatewayEphemeralChatOptions {
   signal?: GatewayAbortSignal;
   timeoutMs?: number;
   maxResponseChars?: number;
+  /** Request the selected model's fastest supported service tier for this hidden session. */
+  fastMode?: boolean;
+  onEvent?: (event: ChatEvent) => void | Promise<void>;
 }
 
 export interface GatewayChatToolCall {
@@ -539,6 +542,98 @@ export interface GatewayIntegrationDisconnectResult {
   [key: string]: unknown;
 }
 
+export interface ChannelsStatusParams {
+  probe?: boolean;
+  timeoutMs?: number;
+  channel?: string;
+}
+
+export type ChannelCredentialStatus = "available" | "configured_unavailable" | "missing";
+
+export interface ChannelAccountSnapshot {
+  accountId: string;
+  name?: string;
+  enabled?: boolean;
+  configured?: boolean;
+  linked?: boolean;
+  running?: boolean;
+  connected?: boolean;
+  restartPending?: boolean;
+  reconnectAttempts?: number;
+  lastConnectedAt?: number;
+  lastError?: string;
+  healthState?: string;
+  lastStartAt?: number;
+  lastStopAt?: number;
+  lastInboundAt?: number;
+  lastOutboundAt?: number;
+  lastMessageAt?: number | null;
+  lastEventAt?: number | null;
+  lastTransportActivityAt?: number;
+  statusState?: string;
+  terminalDisconnect?: boolean;
+  busy?: boolean;
+  activeRuns?: number;
+  lastRunActivityAt?: number;
+  lastProbeAt?: number;
+  mode?: string;
+  dmPolicy?: string;
+  allowFrom?: string[];
+  tokenSource?: string;
+  botTokenSource?: string;
+  appTokenSource?: string;
+  signingSecretSource?: string;
+  tokenStatus?: ChannelCredentialStatus;
+  botTokenStatus?: ChannelCredentialStatus;
+  appTokenStatus?: ChannelCredentialStatus;
+  signingSecretStatus?: ChannelCredentialStatus;
+  userTokenStatus?: ChannelCredentialStatus;
+  baseUrl?: string;
+  allowUnmentionedGroups?: boolean;
+  cliPath?: string | null;
+  dbPath?: string | null;
+  port?: number | null;
+  probe?: unknown;
+  audit?: unknown;
+  application?: unknown;
+  [key: string]: unknown;
+}
+
+export interface ChannelUiMeta {
+  id: string;
+  label: string;
+  detailLabel: string;
+  systemImage?: string;
+  [key: string]: unknown;
+}
+
+export interface ChannelEventLoopHealth {
+  degraded: boolean;
+  reasons: Array<"event_loop_delay" | "event_loop_utilization" | "cpu">;
+  intervalMs: number;
+  delayP99Ms: number;
+  delayMaxMs: number;
+  utilization: number;
+  cpuCoreRatio: number;
+  [key: string]: unknown;
+}
+
+export interface ChannelsStatusResult {
+  ts: number;
+  channelOrder: string[];
+  channelLabels: Record<string, string>;
+  channelDetailLabels?: Record<string, string>;
+  channelSystemImages?: Record<string, string>;
+  channelMeta?: ChannelUiMeta[];
+  channels: Record<string, unknown>;
+  channelAccounts: Record<string, ChannelAccountSnapshot[]>;
+  channelDefaultAccountId: Record<string, string>;
+  eventLoop?: ChannelEventLoopHealth;
+  partial?: boolean;
+  warnings?: string[];
+  [key: string]: unknown;
+}
+
 export type GatewayEventHandler = (event: GatewayEvent) => void;
 export type GatewayConnectionStateHandler = (state: GatewayConnectionState) => void;
 
@@ -740,7 +835,7 @@ function normalizeToolArgs(value: unknown): unknown {
 }
 
 function stringifyToolResult(value: unknown): string | undefined {
-  if (value == null) {
+  if (value === null || value === undefined) {
     return undefined;
   }
   if (typeof value === "string") {
@@ -790,7 +885,7 @@ function mergeGatewayToolResult(
       index = cursor;
       break;
     }
-    if (result.name && entry.name === result.name && entry.result == null) {
+    if (result.name && entry.name === result.name && (entry.result === null || entry.result === undefined)) {
       index = cursor;
       break;
     }
@@ -2725,9 +2820,10 @@ export class GatewayClient {
     throw new Error(`Gateway readiness probe timed out after ${timeoutMs}ms${detail}`);
   }
 
-  async channelsStatus(probe = false, timeoutMs?: number): Promise<Record<string, any>> {
-    const params: Record<string, any> = { probe };
+  async channelsStatus(probe = false, timeoutMs?: number, channel?: string): Promise<ChannelsStatusResult> {
+    const params: ChannelsStatusParams = { probe };
     if (timeoutMs !== undefined) params.timeoutMs = timeoutMs;
+    if (channel !== undefined) params.channel = channel;
     return await this.rpc("channels.status", params);
   }
 
@@ -2810,10 +2906,12 @@ export class GatewayClient {
     return this.rpc("chat.send", params, DEFAULT_AGENT_TIMEOUT);
   }
 
-  async sessionsReset(sessionKey: string, reason?: "new" | "reset"): Promise<void> {
+  async sessionsReset(sessionKey: string, reason?: "new" | "reset"): Promise<string> {
     const params: Record<string, any> = { key: sessionKey };
     if (reason) params.reason = reason;
-    await this.rpc("sessions.reset", params);
+    const result = await this.rpc("sessions.reset", params);
+    const canonicalKey = result?.key ?? result?.sessionKey ?? result?.session?.key;
+    return typeof canonicalKey === "string" && canonicalKey.trim() ? canonicalKey.trim() : sessionKey;
   }
 
   // ---------------------------------------------------------------------------
@@ -3241,18 +3339,33 @@ export class GatewayClient {
       throw new Error("Ephemeral chat response limit must be a positive integer.");
     }
 
-    const sessionKey = `session-${makeId()}`;
+    const requestedSessionKey = `session-${makeId()}`;
+    let sessionKey = requestedSessionKey;
     let created = false;
     let terminal = false;
     let stream: AsyncGenerator<ChatEvent> | null = null;
     let stopError: Error | null = null;
     let abortPromise: Promise<void> | null = null;
+    let resolveStop: ((error: Error) => void) | null = null;
+    const stopped = new Promise<Error>((resolve) => {
+      resolveStop = resolve;
+    });
     const requestAbort = (error: Error) => {
-      stopError ??= error;
+      if (!stopError) {
+        stopError = error;
+        resolveStop?.(error);
+      }
       if (created && !terminal && !abortPromise) {
         abortPromise = this.chatAbort(sessionKey).catch(() => undefined);
       }
       void stream?.return(undefined).catch(() => undefined);
+    };
+    const dispatchEvent = async (event: ChatEvent) => {
+      if (!options.onEvent) return;
+      await Promise.race([
+        Promise.resolve().then(() => options.onEvent?.(event)),
+        stopped.then((error) => Promise.reject(error)),
+      ]);
     };
     const abortError = () => {
       const error = new Error("Ephemeral chat was cancelled.");
@@ -3265,14 +3378,44 @@ export class GatewayClient {
 
     try {
       if (options.signal?.aborted) throw abortError();
-      await this.sessionsReset(sessionKey, "new");
+      sessionKey = await this.sessionsReset(requestedSessionKey, "new");
       created = true;
       if (options.signal?.aborted) throw abortError();
       if (stopError) throw stopError;
 
+      if (options.fastMode) {
+        let fastModeTerminal = false;
+        stream = this.chatSend("/fast on", sessionKey);
+        while (true) {
+          const next = await Promise.race([
+            stream.next(),
+            stopped.then((error) => Promise.reject(error)),
+          ]);
+          if (next.done) break;
+          const event = next.value;
+          if (event.type === "error") {
+            fastModeTerminal = true;
+            break;
+          }
+          if (event.type === "done") {
+            fastModeTerminal = true;
+            break;
+          }
+        }
+        stream = null;
+        if (stopError) throw stopError;
+        if (!fastModeTerminal) throw new Error("Ephemeral fast mode ended without completing.");
+      }
+
       let content = "";
       stream = this.chatSend(prompt, sessionKey);
-      for await (const event of stream) {
+      while (true) {
+        const next = await Promise.race([
+          stream.next(),
+          stopped.then((error) => Promise.reject(error)),
+        ]);
+        if (next.done) break;
+        const event = next.value;
         if (stopError) throw stopError;
         if (event.type === "content") {
           content += event.text ?? "";
@@ -3281,7 +3424,9 @@ export class GatewayClient {
             requestAbort(error);
             throw error;
           }
-        } else if (event.type === "error") {
+        }
+        await dispatchEvent(event);
+        if (event.type === "error") {
           terminal = true;
           throw new Error(event.text || "Ephemeral chat failed.");
         } else if (event.type === "done") {
@@ -3299,7 +3444,7 @@ export class GatewayClient {
     } finally {
       clearTimeout(timeout);
       options.signal?.removeEventListener("abort", handleSignalAbort);
-      await stream?.return(undefined).catch(() => undefined);
+      void stream?.return(undefined).catch(() => undefined);
       if (created) await this.sessionsReset(sessionKey, "reset").catch(() => undefined);
     }
   }

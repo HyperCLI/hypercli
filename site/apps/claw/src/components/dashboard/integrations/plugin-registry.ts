@@ -1,6 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  Send, MessageCircle, Hash, Phone, MessageSquareMore,
+  Send, MessageCircle, Hash, Phone, MessageSquareMore, Github,
   Shield, Smartphone, Monitor, Radio, Globe, Tv,
   MessageSquare, MessagesSquare, Building2, Server,
   Brain, Cloud, Cpu, Zap, Bot, Sparkles, CircuitBoard,
@@ -32,7 +32,7 @@ export interface PluginMeta {
   description: string;
   /** Config path: "channels.<name>" for legacy wizards, "plugins.entries.<name>" for everything else */
   configPath: string;
-  /** True for telegram, discord, slack — keep existing wizard UI */
+  /** Legacy marker for integrations with a specialized setup surface. */
   hasWizard?: boolean;
   /** True for tts, stt, vision, images, video, 3d — keep existing panel UI */
   hasBuiltinPanel?: boolean;
@@ -67,16 +67,19 @@ export const CATEGORIES: CategoryDefinition[] = [
   { id: "built-in", label: "Built-in Capabilities", description: "Your agent already has these superpowers" },
 ];
 
+export const CHANNEL_SETUP_CANDIDATE_IDS = ["telegram", "discord", "slack", "whatsapp"] as const;
+
 // ---------------------------------------------------------------------------
 // Plugin Registry (80 plugins + 6 built-in)
 // ---------------------------------------------------------------------------
 
 export const PLUGIN_REGISTRY: PluginMeta[] = [
   // ── Chat & Messaging (22) ──────────────────────────────────────────────
-  { id: "telegram", displayName: "Telegram", icon: Send, category: "chat", description: "Bot API via grammY", configPath: "channels.telegram", hasWizard: true },
-  { id: "discord", displayName: "Discord", icon: MessageCircle, category: "chat", description: "Servers, channels & DMs", configPath: "channels.discord", hasWizard: true },
-  { id: "slack", displayName: "Slack", icon: Hash, category: "chat", description: "Workspace apps via Bolt", configPath: "channels.slack", hasWizard: true },
-  { id: "whatsapp", displayName: "WhatsApp", icon: Phone, category: "chat", description: "Pair via QR code", configPath: "channels.whatsapp", hasWizard: true },
+  { id: "github", displayName: "GitHub", icon: Github, category: "chat", description: "Repositories, issues, and pull requests", configPath: "integrations.github" },
+  { id: "telegram", displayName: "Telegram", icon: Send, category: "chat", description: "Bot API via grammY", configPath: "channels.telegram" },
+  { id: "discord", displayName: "Discord", icon: MessageCircle, category: "chat", description: "Servers, channels & DMs", configPath: "channels.discord" },
+  { id: "slack", displayName: "Slack", icon: Hash, category: "chat", description: "Workspace apps via Bolt", configPath: "channels.slack" },
+  { id: "whatsapp", displayName: "WhatsApp", icon: Phone, category: "chat", description: "Pair via QR code", configPath: "channels.whatsapp" },
   { id: "signal", displayName: "Signal", icon: Shield, category: "chat", description: "Privacy-focused via signal-cli", configPath: "plugins.entries.signal", setupHint: "Enable, then open the Shell tab to complete signal-cli registration" },
   { id: "imessage", displayName: "iMessage", icon: Smartphone, category: "chat", description: "iMessage via AppleScript bridge", configPath: "plugins.entries.imessage", setupHint: "Only works on macOS agents with iMessage configured" },
   { id: "bluebubbles", displayName: "iMessage (BlueBubbles)", icon: Smartphone, category: "chat", description: "iMessage via BlueBubbles server", configPath: "plugins.entries.bluebubbles", setupUrl: "https://bluebubbles.app", setupHint: "Set up BlueBubbles on a Mac and enter the server URL" },

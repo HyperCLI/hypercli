@@ -173,7 +173,7 @@ export function TokenSetupWizard({
       <div className="flex flex-col items-center gap-4 py-12">
         {verification.verifyError ? (
           <>
-            <AlertCircle className="w-8 h-8 text-amber-400" />
+            <AlertCircle className="w-8 h-8 text-warning" />
             <p className="text-sm text-text-secondary text-center">{verification.verifyError}</p>
             <div className="flex gap-2">
               <button
@@ -204,8 +204,8 @@ export function TokenSetupWizard({
   return (
     <div className="space-y-5">
       <div className="flex flex-col items-center gap-4 py-8">
-        <div className="w-12 h-12 rounded-full bg-emerald-500/15 flex items-center justify-center">
-          <Check className="w-6 h-6 text-emerald-400" />
+        <div className="w-12 h-12 rounded-full bg-selection-accent/15 flex items-center justify-center">
+          <Check className="w-6 h-6 text-selection-accent" />
         </div>
         <div className="text-center">
           <p className="text-sm font-medium text-foreground">{displayName} is live!</p>

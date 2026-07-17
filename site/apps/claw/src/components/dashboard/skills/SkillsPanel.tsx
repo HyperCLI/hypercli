@@ -1,14 +1,13 @@
 "use client";
 
 import * as React from "react";
-import type { AgentSkillCreateRequest } from "@hypercli.com/sdk/skills";
-import { Plus, Search, Settings2, TestTube2, Upload } from "lucide-react";
+import type { AgentSkillCreateRequest, AgentSkillRecoverRequest, AgentSkillRecoverResult, AgentSkillRecoveryCandidate } from "@hypercli.com/sdk/skills";
+import { FolderInput, Plus, Search, Settings2, TestTube2, Upload } from "lucide-react";
 import { Button, Switch, toast } from "@hypercli/shared-ui";
 import {
   SkillCard,
   SkillCategoryFilter,
   SkillsEmptyState,
-  type SkillCardOrigin,
 } from "@hypercli/shared-ui/skills";
 
 import { AgentLoadingState } from "../agents/page-helpers";
@@ -19,6 +18,9 @@ import { SkillMarkdown } from "./SkillMarkdown";
 import { SkillsCreateModal } from "./SkillsCreateModal";
 import { SkillsImportModal } from "./SkillsImportModal";
 import { SkillsLoadingState } from "./SkillsLoadingState";
+import { SkillsRecoveryModal } from "./SkillsRecoveryModal";
+import { type SkillDraftRecord, type SkillDraftScope } from "./skill-draft-store";
+import { useSkillDrafts } from "./useSkillDrafts";
 import { buildSkillGenerationPrompt, parseGeneratedSkillDraft, skillSlugFromName, type SkillGeneratedOutput, type SkillImportItem } from "./skill-authoring";
 import {
   formatSkillRequirement,
@@ -93,36 +95,64 @@ function importItemToAgentSkill(item: SkillImportItem): AgentSkill {
   };
 }
 
+function storedDraftToAgentSkill(draft: SkillDraftRecord): AgentSkill {
+  const parsed = parseSkillFile(
+    draft.id,
+    `/local-preview/skills/${draft.id}/SKILL.md`,
+    draft.content,
+    draft.directories.map((path) => ({ name: path.split("/").filter(Boolean).pop() || path, path, type: "directory" as const })),
+  );
+  return {
+    ...parsed,
+    origin: draft.origin,
+    editable: true,
+    persistent: false,
+    localPreview: true,
+    localDirectories: draft.directories,
+    contentLoaded: true,
+    resourcesAvailable: true,
+    resourceAccess: "read-only",
+  };
+}
+
 export interface SkillsPanelProps {
   agentName?: string | null;
+  draftScope: SkillDraftScope;
   connected: boolean;
   isDesktopViewport?: boolean;
   installedSkills: AgentSkill[];
   loading: boolean;
   error: string | null;
+  recoveryCandidates?: AgentSkillRecoveryCandidate[];
+  recoveryError?: string | null;
   requestedSkillId?: string | null;
   onUpdateSkill?: (skillId: string, update: { enabled?: boolean; env?: Record<string, string> }) => Promise<void>;
   onLoadSkillDocument?: (skillId: string) => Promise<unknown>;
   skillResourceOperations?: SkillResourceOperations;
   onCreateSkill?: (request: AgentSkillCreateRequest) => Promise<unknown>;
   onRefreshSkills?: () => Promise<AgentSkill[]>;
+  onRecoverSkill?: (request: AgentSkillRecoverRequest) => Promise<AgentSkillRecoverResult>;
   onGenerateSkill?: (prompt: string, options: { signal: AbortSignal; timeoutMs: number; maxResponseChars: number }) => Promise<string>;
   onTestSkill: (skill: AgentSkill) => Promise<void> | void;
 }
 
 export function SkillsPanel({
   agentName,
+  draftScope,
   connected,
   isDesktopViewport = true,
   installedSkills,
   loading,
   error,
+  recoveryCandidates = [],
+  recoveryError,
   requestedSkillId,
   onUpdateSkill,
   onLoadSkillDocument,
   skillResourceOperations,
   onCreateSkill,
   onRefreshSkills,
+  onRecoverSkill,
   onGenerateSkill,
   onTestSkill,
 }: SkillsPanelProps) {
@@ -131,15 +161,18 @@ export function SkillsPanel({
   const [selectedFilters, setSelectedFilters] = React.useState<string[]>([]);
   const [createOpen, setCreateOpen] = React.useState(false);
   const [importOpen, setImportOpen] = React.useState(false);
+  const [recoveryCandidateId, setRecoveryCandidateId] = React.useState<string | null>(null);
+  const [dismissedRecoveryCandidateIds, setDismissedRecoveryCandidateIds] = React.useState<string[]>([]);
   const [selectedSkillId, setSelectedSkillId] = React.useState<string | null>(null);
   const [dismissedRequestedSkillId, setDismissedRequestedSkillId] = React.useState<string | null>(null);
   const [configOverrides, setConfigOverrides] = React.useState<Record<string, SkillConfigEntry>>({});
-  const [localStatuses, setLocalStatuses] = React.useState<Record<string, SkillStatus>>({});
-  const [localOrigins, setLocalOrigins] = React.useState<Record<string, SkillCardOrigin>>({});
   const [togglingSkillId, setTogglingSkillId] = React.useState<string | null>(null);
-  const [localSkills, setLocalSkills] = React.useState<AgentSkill[]>([]);
   const [installedSkillEdits, setInstalledSkillEdits] = React.useState<Record<string, AgentSkill>>({});
+  const skillDrafts = useSkillDrafts(draftScope);
+  const localSkills = React.useMemo(() => skillDrafts.drafts.map(storedDraftToAgentSkill), [skillDrafts.drafts]);
   const scopeLabel = agentName?.trim() || "this agent";
+  const visibleRecoveryCandidates = recoveryCandidates.filter((candidate) => !dismissedRecoveryCandidateIds.includes(candidate.id));
+  const recoveryCandidate = visibleRecoveryCandidates.find((candidate) => candidate.id === recoveryCandidateId) ?? null;
 
   const effectiveInstalledSkills = React.useMemo(
     () => installedSkills.map((skill) => installedSkillEdits[skill.id] ?? skill),
@@ -158,12 +191,12 @@ export function SkillsPanel({
     }),
     ...localSkills.map((skill) => ({
       skill,
-      origin: localOrigins[skill.id] ?? "created",
-        requirement: "Local only - not installed on the agent",
-      status: localStatuses[skill.id] ?? "preview",
+      origin: skill.origin === "imported" ? "imported" as const : "created" as const,
+      requirement: "Local only - not installed on the agent",
+      status: "preview" as const,
       localPreview: true,
     })),
-  ], [configOverrides, effectiveInstalledSkills, localOrigins, localSkills, localStatuses]);
+  ], [configOverrides, effectiveInstalledSkills, localSkills]);
 
   const counts = React.useMemo(() => skillRows.reduce(
     (result, row) => {
@@ -227,9 +260,7 @@ export function SkillsPanel({
   const handleCreate = async (generated: SkillGeneratedOutput) => {
     if ([...effectiveInstalledSkills, ...localSkills].some((skill) => skill.id === generated.id)) throw new Error(`A skill named "${generated.id}" already exists.`);
     const skill = generatedSkillToAgentSkill(generated);
-    setLocalSkills((current) => [skill, ...current.filter((item) => item.id !== skill.id)]);
-    setLocalStatuses((current) => ({ ...current, [skill.id]: "preview" }));
-    setLocalOrigins((current) => ({ ...current, [skill.id]: "created" }));
+    await skillDrafts.save({ id: skill.id, origin: "created", content: skill.content, directories: skill.localDirectories ?? [] });
     resetFilters();
   };
 
@@ -240,9 +271,9 @@ export function SkillsPanel({
       if (knownIds.has(skill.id)) throw new Error(`A skill named "${skill.id}" already exists.`);
       knownIds.add(skill.id);
     }
-    setLocalSkills((current) => [...imported, ...current]);
-    setLocalStatuses((current) => ({ ...current, ...Object.fromEntries(imported.map((skill) => [skill.id, "preview" as const])) }));
-    setLocalOrigins((current) => ({ ...current, ...Object.fromEntries(imported.map((skill) => [skill.id, "imported" as const])) }));
+    for (const skill of imported) {
+      await skillDrafts.save({ id: skill.id, origin: "imported", content: skill.content, directories: skill.localDirectories ?? [] });
+    }
     resetFilters();
   };
 
@@ -257,8 +288,7 @@ export function SkillsPanel({
   const handleToggle = async (row: SkillListRow, enabled: boolean) => {
     if (togglingSkillId) return;
     if (row.localPreview) {
-      setLocalStatuses((current) => ({ ...current, [row.skill.id]: enabled ? "active" : "disabled" }));
-      toast.success(`${row.skill.name} ${enabled ? "active" : "disabled"} for this session.`);
+      toast.error("Save this draft to the agent before changing its active state.");
       return;
     }
     setTogglingSkillId(row.skill.id);
@@ -275,23 +305,22 @@ export function SkillsPanel({
     }
   };
 
-  const handleContentSaved = (skillId: string, content: string) => {
+  const handleContentSaved = async (skillId: string, content: string) => {
     const update = (skill: AgentSkill) => {
       return applySkillDocument(skill, content);
     };
-    setLocalSkills((current) => current.map((skill) => skill.id === skillId ? update(skill) : skill));
+    const local = localSkills.find((skill) => skill.id === skillId);
+    if (local) await skillDrafts.save({ id: local.id, origin: local.origin === "imported" ? "imported" : "created", content, directories: local.localDirectories ?? [] });
     const installed = effectiveInstalledSkills.find((skill) => skill.id === skillId);
     if (installed) setInstalledSkillEdits((current) => ({ ...current, [skillId]: update(installed) }));
   };
 
-  const handleLocalDirectoryCreated = (skillId: string, path: string) => {
-    setLocalSkills((current) => current.map((skill) => {
-      if (skill.id !== skillId) return skill;
-      const directories = skill.localDirectories ?? [];
-      return directories.includes(path)
-        ? skill
-        : { ...skill, localDirectories: [...directories, path].sort() };
-    }));
+  const handleLocalDirectoryCreated = async (skillId: string, path: string) => {
+    const local = localSkills.find((skill) => skill.id === skillId);
+    if (!local) return;
+    const directories = local.localDirectories ?? [];
+    if (directories.includes(path)) return;
+    await skillDrafts.save({ id: local.id, origin: local.origin === "imported" ? "imported" : "created", content: local.content, directories: [...directories, path] });
   };
 
   const persistLocalSkills = async (requestedSkills: AgentSkill[]) => {
@@ -314,9 +343,7 @@ export function SkillsPanel({
       } catch {
         toast.error("The skills were saved, but the catalog could not be refreshed. Reload to see them.");
       }
-      setLocalSkills((current) => current.filter((skill) => !savedIds.has(skill.id)));
-      setLocalStatuses((current) => Object.fromEntries(Object.entries(current).filter(([id]) => !savedIds.has(id))));
-      setLocalOrigins((current) => Object.fromEntries(Object.entries(current).filter(([id]) => !savedIds.has(id))));
+      for (const id of savedIds) await skillDrafts.discard(id);
     }
 
     const failures = outcomes.filter((outcome): outcome is PromiseRejectedResult => outcome.status === "rejected");
@@ -333,7 +360,20 @@ export function SkillsPanel({
       }
       await skillResourceOperations.writeResource(row.skill.id, "SKILL.md", new TextEncoder().encode(content));
     }
-    handleContentSaved(row.skill.id, content);
+    await handleContentSaved(row.skill.id, content);
+  };
+
+  const handleRecoverSkill = async (request: AgentSkillRecoverRequest) => {
+    if (!onRecoverSkill) throw new Error("Organizing workspace skills is unavailable for this agent.");
+    const result = await onRecoverSkill(request);
+    setDismissedRecoveryCandidateIds((current) => [...new Set([...current, request.candidateId])]);
+    toast.success(`${result.skillId} moved to Skills.`);
+    try {
+      await onRefreshSkills?.();
+    } catch {
+      toast.error("The skill was moved, but the catalog could not be refreshed. Reload to see it.");
+    }
+    return result;
   };
 
   if (!connected) {
@@ -362,9 +402,10 @@ export function SkillsPanel({
         connected={connected}
         isDesktopViewport={isDesktopViewport}
         resourceOperations={skillResourceOperations}
-        onSkillContentChanged={(content) => handleContentSaved(selectedRow.skill.id, content)}
-        onLocalDirectoryCreated={(path) => handleLocalDirectoryCreated(selectedRow.skill.id, path)}
-        onSaveToAgent={selectedRow.localPreview && onCreateSkill ? (content) => persistLocalSkills([{ ...selectedRow.skill, content }]) : undefined}
+         onSkillContentChanged={(content) => { void handleContentSaved(selectedRow.skill.id, content); }}
+         onLocalDirectoryCreated={(path) => { void handleLocalDirectoryCreated(selectedRow.skill.id, path); }}
+         onSaveToAgent={selectedRow.localPreview && onCreateSkill ? (content) => persistLocalSkills([{ ...selectedRow.skill, content }]) : undefined}
+         onDiscardDraft={selectedRow.localPreview ? async () => { await skillDrafts.discard(selectedRow.skill.id); setSelectedSkillId(null); } : undefined}
         onConfigured={(skillId, entry) => setConfigOverrides((current) => ({ ...current, [skillId]: entry }))}
       />
     );
@@ -391,6 +432,18 @@ export function SkillsPanel({
             <input type="text" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search skills..." className="h-10 w-full rounded-xl border border-border bg-surface-low/35 pl-10 pr-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50" />
           </label>
 
+          {visibleRecoveryCandidates.length > 0 && (
+            <div className="flex flex-col gap-3 rounded-2xl border border-warning/30 bg-warning/10 px-4 py-3 sm:flex-row sm:items-center">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-warning/25 bg-background/65"><FolderInput className="h-4 w-4 text-warning" /></span>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-foreground">Unorganized workspace skill found</p>
+                <p className="mt-0.5 text-[11px] leading-snug text-text-secondary">Review SKILL.md and nearby files before moving them into Skills.</p>
+              </div>
+              <Button type="button" size="sm" onClick={() => setRecoveryCandidateId(visibleRecoveryCandidates[0]!.id)} className="shrink-0">Review files</Button>
+            </div>
+          )}
+          {recoveryError && <p className="rounded-xl border border-warning/25 bg-warning/10 px-3 py-2 text-[11px] text-warning">{recoveryError}</p>}
+
           <div className="flex flex-wrap items-center gap-1.5">
             {filterOptions.map((filter) => {
               const active = statusFilter === filter.id;
@@ -401,8 +454,8 @@ export function SkillsPanel({
 
           {loading ? (
             <SkillsLoadingState className="rounded-2xl border border-border bg-surface-low/25" />
-          ) : error ? (
-            <div className="rounded-2xl border border-border bg-surface-low/25 px-5 py-10 text-center text-sm text-text-muted">{error}</div>
+          ) : error || skillDrafts.error ? (
+            <div className="rounded-2xl border border-border bg-surface-low/25 px-5 py-10 text-center text-sm text-text-muted">{error || skillDrafts.error}</div>
           ) : filteredRows.length > 0 ? (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
               {filteredRows.map((row) => (
@@ -436,7 +489,7 @@ export function SkillsPanel({
         onGenerate={onGenerateSkill ? async (description, signal) => parseGeneratedSkillDraft(await onGenerateSkill(buildSkillGenerationPrompt(description), { signal, timeoutMs: 120_000, maxResponseChars: 128 * 1024 })) : undefined}
         onActivate={(generated) => persistLocalSkills([generatedSkillToAgentSkill(generated)])}
         onTest={(generated) => handleTest(generatedSkillToAgentSkill(generated))}
-        onKeepPreview={(generated) => { setLocalStatuses((current) => ({ ...current, [generated.id]: "preview" })); toast.success(`${generated.name} kept as a local preview.`); }}
+        onKeepPreview={(generated) => { toast.success(`${generated.name} kept as a local draft.`); }}
       />
       <SkillsImportModal
         open={importOpen}
@@ -447,8 +500,9 @@ export function SkillsPanel({
         activateLabel="Save to agent"
         onActivate={(items) => persistLocalSkills(items.map(importItemToAgentSkill))}
         onTest={(items) => { const skill = items[0] ? importItemToAgentSkill(items[0]) : null; if (skill) return handleTest(skill); }}
-        onKeepPreview={(items) => { const ids = items.map((item) => importItemToAgentSkill(item).id); setLocalStatuses((current) => ({ ...current, ...Object.fromEntries(ids.map((id) => [id, "preview" as const])) })); toast.success(`${items.length === 1 ? "Skill" : `${items.length} skills`} kept as local preview.`); }}
+        onKeepPreview={(items) => { toast.success(`${items.length === 1 ? "Skill" : `${items.length} skills`} kept as ${items.length === 1 ? "a local draft" : "local drafts"}.`); }}
       />
+      {recoveryCandidate && <SkillsRecoveryModal key={recoveryCandidate.id} candidate={recoveryCandidate} onClose={() => setRecoveryCandidateId(null)} onRecover={handleRecoverSkill} />}
     </div>
   );
 }

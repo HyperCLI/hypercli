@@ -222,9 +222,61 @@ export {
   type AgentSkillInstallResult,
   type AgentSkillCreateRequest,
   type AgentSkillCreateResult,
+  type AgentSkillRecoveryEntry,
+  type AgentSkillRecoveryCandidate,
+  type AgentSkillRecoverRequest,
+  type AgentSkillRecoverResult,
   type AgentSkillsProviderCapabilities,
   type AgentSkillsProvider,
 } from './skills.js';
+
+export {
+  type AgentChannelHealthState,
+  type AgentChannelSummary,
+  type AgentChannelAccountStatus,
+  type AgentChannel,
+  type AgentChannelGroup,
+  type AgentChannelsSnapshot,
+  type AgentChannelsProviderCapabilities,
+  type AgentChannelListOptions,
+  type AgentChannelReadOptions,
+  type AgentChannelConfigurationReadRequest,
+  type AgentChannelConfigurationReadResult,
+  type AgentChannelUpdateRequest,
+  type AgentChannelsProvider,
+} from './channels.js';
+
+export {
+  OpenClawChannelsProvider,
+  normalizeOpenClawChannelsSnapshot,
+  normalizeOpenClawChannelsStatus,
+  type OpenClawChannelsClient,
+  type OpenClawChannel,
+  type OpenClawChannelsDiagnostics,
+  type OpenClawChannelsSnapshot,
+} from './openclaw/channels.js';
+
+export {
+  type AgentConnectorSetupMode,
+  type AgentConnectorAuthorizationProtocol,
+  type AgentConnectorAuthorizationRequest,
+  type AgentConnectorAuthorizationResult,
+  type AgentRuntimeDescriptor,
+  type AgentConnectorDescriptor,
+  type AgentConnectorListOptions,
+  type AgentConnectorSetupRequest,
+  type AgentConnectorRuntimeSetupResult,
+  type AgentConnectorSetupState,
+  type AgentConnectorSetupStatus,
+  type AgentConnectorSetupStatusRequest,
+  type AgentConnectorsProvider,
+} from './connectors.js';
+
+export {
+  OpenClawConnectorsProvider,
+  normalizeOpenClawConnectors,
+  type OpenClawConnectorsClient,
+} from './openclaw/connectors.js';
 
 // Job helpers
 export {
@@ -271,6 +323,12 @@ export {
   type GatewayChatToolCall,
   type GatewayChatMessageSummary,
   type GatewayEventHandler,
+  type ChannelsStatusParams,
+  type ChannelCredentialStatus,
+  type ChannelAccountSnapshot,
+  type ChannelUiMeta,
+  type ChannelEventLoopHealth,
+  type ChannelsStatusResult,
   NodeServer,
   type NodeCommandHandler,
   type NodeServerOptions,

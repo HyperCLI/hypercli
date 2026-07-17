@@ -20,7 +20,7 @@ const summary: AgentSkillSummary = {
 
 function provider(readDocument: AgentSkillsProvider["readDocument"]): AgentSkillsProvider {
   return {
-    capabilities: { readDocument: true, configure: false, searchRegistry: false, installRegistry: false, installUpload: false, resources: false, createSkill: false },
+    capabilities: { readDocument: true, configure: false, searchRegistry: false, installRegistry: false, installUpload: false, resources: false, createSkill: false, recoverSkill: false },
     list: vi.fn(async () => [summary]),
     readDocument,
   };
@@ -81,5 +81,28 @@ describe("useAgentSkills", () => {
 
     await act(async () => { await expect(result.current.create(request)).resolves.toEqual({ skillId: "release-helper" }); });
     expect(createSkill).toHaveBeenCalledWith(request);
+  });
+
+  it("loads and recovers provider-owned workspace skill candidates", async () => {
+    const candidate = {
+      id: "workspace-skills-root",
+      name: "Chat Helper",
+      description: "Created through chat.",
+      suggestedSkillId: "chat-helper",
+      entries: [{ name: "scripts", path: "scripts", type: "directory" as const, selectedByDefault: true, selectable: true }],
+    };
+    const recoverSkill = vi.fn(async () => ({ skillId: "chat-helper" }));
+    const skillsProvider = provider(vi.fn(async () => null));
+    skillsProvider.capabilities.recoverSkill = true;
+    skillsProvider.listRecoveryCandidates = vi.fn(async () => [candidate]);
+    skillsProvider.recoverSkill = recoverSkill;
+    const { result } = renderHook(() => useAgentSkills({ enabled: true, connected: true, provider: skillsProvider }));
+
+    await waitFor(() => expect(result.current.recoveryCandidates).toEqual([candidate]));
+    const request = { candidateId: candidate.id, skillId: "chat-helper", paths: ["scripts"] };
+    await act(async () => { await expect(result.current.recover(request)).resolves.toEqual({ skillId: "chat-helper" }); });
+
+    expect(recoverSkill).toHaveBeenCalledWith(request);
+    expect(result.current.recoveryError).toBeNull();
   });
 });

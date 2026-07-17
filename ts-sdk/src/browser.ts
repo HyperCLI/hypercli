@@ -22,12 +22,7 @@ export {
 } from './openclaw/gateway.js';
 import { HTTPClient } from './http.js';
 import { Instances } from './instances.js';
-import {
-  API_KEY_BASELINE_FAMILIES,
-  KeysAPI,
-  type ApiKeyBaselineFamily,
-  type ApiKeyBaselineValue,
-} from './keys.js';
+import { KeysAPI } from './keys.js';
 import { HyperAgent } from './agent.js';
 import { UserAPI } from './user.js';
 import { VoiceAPI } from './voice.js';

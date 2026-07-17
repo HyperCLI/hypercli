@@ -695,21 +695,10 @@ function buildSlashCommands(): SlashCommand[] {
         const { args, actions, chat, setStatus, showFeedback, close } = ctx;
         const requested = args.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
         const suggestion = requested
-          ? getConnectCommandSuggestions(requested, chat.config, chat.configSchema, 1)[0]
+          ? getConnectCommandSuggestions(requested, chat.reportedChannels, 1)[0]
           : undefined;
         if (suggestion) {
           await openConnectionSuggestion(ctx, suggestion);
-          return;
-        }
-        if (requested === "github" || requested === "git hub") {
-          if (!actions.onOpenIntegrationChatCard) {
-            setStatus("GitHub setup is unavailable in chat here.");
-            return;
-          }
-          actions.onOpenIntegrationChatCard("github");
-          chat.setInput("");
-          showFeedback("GitHub connection opened.");
-          close();
           return;
         }
         if (requested) {
@@ -1032,9 +1021,9 @@ export const AgentSlashCommandMenu = forwardRef<AgentSlashCommandMenuHandle, Age
     const isVisible = Boolean(activeInput);
     const connectSuggestions = useMemo(() => (
       connectSuggestionMode
-        ? getConnectCommandSuggestions(connectQuery ?? "", chat.config, chat.configSchema)
+        ? getConnectCommandSuggestions(connectQuery ?? "", chat.reportedChannels)
         : []
-    ), [chat.config, chat.configSchema, connectQuery, connectSuggestionMode]);
+    ), [chat.reportedChannels, connectQuery, connectSuggestionMode]);
 
     const matchingCommands = useMemo(() => {
       if (!isVisible) return [];

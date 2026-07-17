@@ -23,6 +23,16 @@ describe("parseClawUiActionBlocks", () => {
     expect(parsed.actions).toEqual([{ version: 1, type: "integration.connect", integrationId: "telegram" }]);
   });
 
+  it.each(["discord", "slack", "whatsapp"] as const)("extracts %s connection intent", (integrationId) => {
+    const parsed = parseClawUiActionBlocks(
+      `Open setup.\n@@hypercli.ui-action/v1 integration.connect ${integrationId}`,
+      "assistant",
+    );
+
+    expect(parsed.displayContent).toBe("Open setup.");
+    expect(parsed.actions).toEqual([{ version: 1, type: "integration.connect", integrationId }]);
+  });
+
   it("keeps fenced action blocks working as a temporary fallback", () => {
     const parsed = parseClawUiActionBlocks(
       'Connect GitHub without pasting a token.\n\n```claw-ui-action\n{"version":1,"type":"integration.connect","integrationId":"github"}\n```',

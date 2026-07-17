@@ -76,6 +76,33 @@ export interface AgentSkillCreateResult {
   skillId: string;
 }
 
+export interface AgentSkillRecoveryEntry {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  selectedByDefault: boolean;
+  selectable: boolean;
+  reason?: string;
+}
+
+export interface AgentSkillRecoveryCandidate {
+  id: string;
+  name: string;
+  description: string;
+  suggestedSkillId: string;
+  entries: AgentSkillRecoveryEntry[];
+}
+
+export interface AgentSkillRecoverRequest {
+  candidateId: string;
+  skillId: string;
+  paths: string[];
+}
+
+export interface AgentSkillRecoverResult {
+  skillId: string;
+}
+
 export interface AgentSkillsProviderCapabilities {
   readDocument: boolean;
   configure: boolean;
@@ -84,6 +111,7 @@ export interface AgentSkillsProviderCapabilities {
   installUpload: boolean;
   resources: boolean;
   createSkill: boolean;
+  recoverSkill: boolean;
 }
 
 export interface AgentSkillsProvider {
@@ -94,6 +122,8 @@ export interface AgentSkillsProvider {
   search?(query: string, limit?: number): Promise<AgentSkillSearchItem[]>;
   install?(request: AgentSkillInstallRequest): Promise<AgentSkillInstallResult>;
   createSkill?(request: AgentSkillCreateRequest): Promise<AgentSkillCreateResult>;
+  listRecoveryCandidates?(): Promise<AgentSkillRecoveryCandidate[]>;
+  recoverSkill?(request: AgentSkillRecoverRequest): Promise<AgentSkillRecoverResult>;
   listResources?(skillId: string, path?: string): Promise<AgentSkillResourceEntry[]>;
   readResource?(skillId: string, path: string): Promise<Uint8Array>;
   writeResource?(skillId: string, path: string, content: Uint8Array): Promise<void>;

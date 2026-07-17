@@ -52,9 +52,15 @@ import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { IntegrationsDirectoryPanel } from "@/components/dashboard/integrations";
 import { SharedKnowledgePanel } from "@/components/dashboard/integrations/SharedKnowledgePanel";
 import {
+  SkillDraftTestBanner,
   SkillsPanel,
+  assertSkillDraftTestable,
   buildSkillTestPrompt,
+  createSkillDraftRevision,
+  linkSkillDraftTestSession,
+  saveSkillDraftFromTest,
   useAgentSkills,
+  useSkillDraftTestSession,
   type AgentSkill,
 } from "@/components/dashboard/skills";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
@@ -600,6 +606,8 @@ export default function DevAgentSetupAgentsPage() {
   const selectedSessionKey = selectedAgentId
     ? selectedSessionKeysByAgent[selectedAgentId] ?? resolveOpenClawSessionKey(selectedAgentId)
     : resolveOpenClawSessionKey(null);
+  const skillDraftScope = useMemo(() => ({ ownerId: user?.email ?? "local", agentId: selectedAgentId ?? "unknown-agent" }), [selectedAgentId, user?.email]);
+  const activeSkillDraftTest = useSkillDraftTestSession(skillDraftScope, selectedSessionKey);
   const chat = useOpenClawSession(
     selectedAgent && isSelectedRunning ? selectedOpenClawAgent : null,
     gatewayEnabled,
@@ -608,10 +616,34 @@ export default function DevAgentSetupAgentsPage() {
   const gatewayChat = asAgentGatewaySession(chat);
   const testSkillInNewSession = async (skill: AgentSkill) => {
     if (!selectedAgentId) throw new Error("Select an agent before testing a skill.");
-    const sessionKey = await chat.createSession({ initialMessage: buildSkillTestPrompt(skill) });
+    let revision = null;
+    if (skill.localPreview) {
+      assertSkillDraftTestable(skill);
+      revision = await createSkillDraftRevision(skillDraftScope, { id: skill.id, content: skill.content, directories: skill.localDirectories ?? [] });
+    }
+    const sessionKey = await chat.createSession({
+      initialMessage: buildSkillTestPrompt(skill, revision ? { revisionHash: revision.contentHash, directories: revision.directories } : undefined),
+      initialDisplayContent: skill.localPreview ? `Test the ${skill.name} draft.` : `Test the ${skill.name} skill.`,
+      waitForCreation: true,
+    });
+    if (revision) {
+      await linkSkillDraftTestSession(skillDraftScope, {
+        draftId: skill.id,
+        revisionId: revision.id,
+        skillId: skill.id,
+        skillName: skill.name,
+        requestedSessionKey: sessionKey,
+      });
+    }
     setSelectedSessionKeysByAgent((prev) => ({ ...prev, [selectedAgentId]: sessionKey }));
     setDirectoryDetailOrigin(null);
     setMainTab("chat");
+    setMobileShowChat(true);
+  };
+  const openSkillDraft = (draftId: string) => {
+    setRequestedSkillId(draftId);
+    setDirectoryDetailOrigin(null);
+    setMainTab("skills");
     setMobileShowChat(true);
   };
   const draftTeamPrompt = useCallback(() => {
@@ -757,7 +789,21 @@ export default function DevAgentSetupAgentsPage() {
     connected: chat.connected,
     provider: selectedAgentId ? chat.skillsProvider : null,
   });
-  const availableSkillIds = useMemo(() => new Set(agentSkills.skills.map((skill) => skill.id)), [agentSkills.skills]);
+  const saveActiveSkillDraft = async () => {
+    const testSession = activeSkillDraftTest.testSession;
+    if (!testSession) throw new Error("This session is not linked to a skill draft.");
+    if (!agentSkills.capabilities?.createSkill) throw new Error("Saving skills to this agent is unavailable.");
+    await saveSkillDraftFromTest({
+      scope: skillDraftScope,
+      testSession,
+      createSkill: agentSkills.create,
+      closeSession: async (sessionKey) => {
+        await chat.deleteSession(sessionKey);
+        if (selectedAgentId) setSelectedSessionKeysByAgent((current) => ({ ...current, [selectedAgentId]: resolveOpenClawSessionKey(selectedAgentId) }));
+      },
+      openSkill: openSkillDraft,
+    });
+  };
 
   // ── Agent inspector data wiring ──
 
@@ -1765,6 +1811,13 @@ export default function DevAgentSetupAgentsPage() {
                 handleSendChat={handleSendChat}
                 formatDuration={formatDuration}
                 onConnectionCta={openConnectionSuggestion}
+                skillDraftTestBanner={activeSkillDraftTest.testSession ? (
+                  <SkillDraftTestBanner
+                    testSession={activeSkillDraftTest.testSession}
+                    onOpenDraft={() => openSkillDraft(activeSkillDraftTest.testSession!.draftId)}
+                    onSaveDraft={agentSkills.capabilities?.createSkill ? saveActiveSkillDraft : undefined}
+                  />
+                ) : undefined}
                 onOpenFileFromChat={(path) => {
                   if (!selectedAgent) return;
                   const base = `/dashboard/agents/${selectedAgent.id}/files`;
@@ -1839,38 +1892,37 @@ export default function DevAgentSetupAgentsPage() {
                   setMobileShowChat(true);
                 } : undefined}
                 agentName={selectedAgent?.name || selectedAgent?.pod_name || "Agent"}
+                gatewaySession={gatewayChat}
+                 channelsProvider={chat.channelsProvider}
+                 reportedChannels={chat.reportedChannels}
+                 reportedChannelSnapshot={chat.reportedChannelSnapshot}
+                 reportedChannelsReady={chat.reportedChannelsReady}
+                 onRefreshChannels={chat.refreshReportedChannels}
                 config={chat.config as Record<string, unknown> | null}
-                configSchema={chat.configSchema}
                 connected={chat.connected}
                 onSaveConfig={async (patch) => { await chat.saveConfig(patch); }}
                 onChannelProbe={async () => chat.channelsStatus(true)}
                 onOpenShell={() => setMainTab("shell")}
-                availableSkillIds={availableSkillIds}
-                onOpenSkill={(skillId) => {
-                  setRequestedSkillId(skillId);
-                  setMainTab("skills");
-                  setMobileShowChat(true);
-                }}
-                onIntegrationAuthStart={chat.integrationsAuthStart}
-                onIntegrationAuthStatus={chat.integrationsAuthStatus}
-                onIntegrationStatus={chat.integrationsStatus}
-                onIntegrationDisconnect={chat.integrationsDisconnect}
               />
             ) : mainTab === "skills" ? (
               <SkillsPanel
                 key={selectedAgent?.id ?? "no-agent"}
                 agentName={selectedAgent?.name || selectedAgent?.pod_name || "Agent"}
+                draftScope={skillDraftScope}
                 connected={chat.connected}
                 isDesktopViewport={isDesktopViewport}
                 installedSkills={agentSkills.skills}
                 loading={agentSkills.loading}
                 error={agentSkills.error}
+                recoveryCandidates={agentSkills.recoveryCandidates}
+                recoveryError={agentSkills.recoveryError}
                 requestedSkillId={requestedSkillId}
                 onUpdateSkill={agentSkills.capabilities?.configure ? agentSkills.update : undefined}
                 onLoadSkillDocument={agentSkills.capabilities?.readDocument ? agentSkills.loadDocument : undefined}
                 skillResourceOperations={agentSkills.resourceOperations}
                 onCreateSkill={agentSkills.capabilities?.createSkill ? agentSkills.create : undefined}
                 onRefreshSkills={agentSkills.refresh}
+                onRecoverSkill={agentSkills.capabilities?.recoverSkill ? agentSkills.recover : undefined}
                 onGenerateSkill={chat.ready ? chat.runEphemeralPrompt : undefined}
                 onTestSkill={testSkillInNewSession}
               />
@@ -1893,6 +1945,8 @@ export default function DevAgentSetupAgentsPage() {
                 agentStartBlockedReason={selectedAgentStartBlockedTitle}
                 openclawConfig={chat.config}
                 openclawModels={chat.models}
+                reportedChannels={chat.reportedChannels}
+                reportedChannelsReady={chat.reportedChannelsReady}
                 onUpdateAgentName={async (agentId, name) => {
                   const token = await getToken();
                   const updatedAgent = await createAgentClient(token).update(agentId, { name });

@@ -49,6 +49,14 @@
   --selection-accent-soft: rgba(99, 228, 82, 0.1);
   --selection-accent-border: rgba(99, 228, 82, 0.3);
   --selection-background: rgba(99, 228, 82, 0.3);
+  --integration-discord: #5865f2;
+  --integration-discord-foreground: #ffffff;
+  --integration-slack: #e01e5a;
+  --integration-slack-foreground: #ffffff;
+  --integration-telegram: #26a5e4;
+  --integration-telegram-foreground: #06131a;
+  --integration-whatsapp: #25d366;
+  --integration-whatsapp-foreground: #06180d;
   --glass-card-background: rgba(20, 20, 22, 0.7);
   --glass-card-background-fallback: rgba(20, 20, 22, 0.94);
   --glass-card-border: rgba(255, 255, 255, 0.06);

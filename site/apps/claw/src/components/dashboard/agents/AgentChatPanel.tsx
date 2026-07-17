@@ -14,7 +14,7 @@ import { AgentLoadingState } from "@/components/dashboard/agents/page-helpers";
 import { AgentEmptyHistory } from "@/components/dashboard/agents/AgentEmptyHistory";
 import { JourneyIntroPanel, type JourneyIntroPanelProps } from "@/components/dashboard/journey/JourneyIntroPanel";
 import { JourneyMissionChatCard, type JourneyMissionChatCardProps } from "@/components/dashboard/journey/JourneyMissionChatCard";
-import { getChatConnectorSuggestion, getConnectionSuggestions, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
+import { detectChatIntegrationIntent, getChatConnectorSuggestion, getConnectionSuggestions, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
 import { IntegrationChatCardHost } from "@/components/dashboard/chat-integrations/IntegrationChatCardHost";
 import { parseClawUiActionBlocks, type ClawIntegrationConnectAction, type ClawUiAction } from "@/components/dashboard/chat-integrations/claw-ui-actions";
 import {
@@ -84,6 +84,12 @@ interface ActiveFileMention {
 interface FileReferenceSuggestion {
   file: ChatPendingFile;
   displayPath: string;
+}
+
+interface ActiveIntegrationCard {
+  action: ClawIntegrationConnectAction;
+  agentId: string;
+  sessionKey: string;
 }
 
 type FileReferenceCandidate = ChatSession["files"][number] | ChatPendingFile;
@@ -293,6 +299,7 @@ interface AgentChatPanelProps {
   fileReferenceCandidates?: ChatPendingFile[];
   journeyIntro?: (JourneyIntroPanelProps & { enabled: boolean }) | null;
   journeyMissionCard?: (JourneyMissionChatCardProps & { enabled: boolean }) | null;
+  skillDraftTestBanner?: React.ReactNode;
 }
 
 export function AgentChatPanel({
@@ -328,6 +335,7 @@ export function AgentChatPanel({
   fileReferenceCandidates = [],
   journeyIntro,
   journeyMissionCard,
+  skillDraftTestBanner,
 }: AgentChatPanelProps) {
   const slashCommandMenuRef = React.useRef<AgentSlashCommandMenuHandle>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
@@ -335,7 +343,7 @@ export function AgentChatPanel({
   const [dismissedSlashInput, setDismissedSlashInput] = React.useState<string | null>(null);
   const [dismissedFileMentionInput, setDismissedFileMentionInput] = React.useState<string | null>(null);
   const [slashCommandFeedback, setSlashCommandFeedback] = React.useState("");
-  const [activeIntegrationAction, setActiveIntegrationAction] = React.useState<ClawIntegrationConnectAction | null>(null);
+  const [activeIntegrationCard, setActiveIntegrationCard] = React.useState<ActiveIntegrationCard | null>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
   const fileMentionOptionRefs = React.useRef(new Map<string, HTMLButtonElement>());
   const [composerSelectionStart, setComposerSelectionStart] = React.useState<number | null>(null);
@@ -345,13 +353,41 @@ export function AgentChatPanel({
   const historyIndexRef = React.useRef<number | null>(null);
   const draftBeforeHistoryRef = React.useRef("");
   const pendingHistoryInputRef = React.useRef<string | null>(null);
+  const setChatInput = chat.setInput;
   const connectionSuggestions = React.useMemo(
-    () => getConnectionSuggestions(chat.input, chat.config, chat.configSchema),
-    [chat.config, chat.configSchema, chat.input],
+    () => getConnectionSuggestions(chat.input, chat.reportedChannels),
+    [chat.input, chat.reportedChannels],
   );
   const openIntegrationChatCard = React.useCallback((integrationId: ClawIntegrationConnectAction["integrationId"]) => {
-    setActiveIntegrationAction({ version: 1, type: "integration.connect", integrationId });
-  }, []);
+    setActiveIntegrationCard({
+      action: { version: 1, type: "integration.connect", integrationId },
+      agentId: selectedAgent.id,
+      sessionKey: chat.activeSessionKey,
+    });
+  }, [chat.activeSessionKey, selectedAgent.id]);
+  const activeIntegrationAction = activeIntegrationCard?.agentId === selectedAgent.id && activeIntegrationCard.sessionKey === chat.activeSessionKey
+    ? activeIntegrationCard.action
+    : null;
+  const handleSendChatWithIntegrationIntent = React.useCallback(() => {
+    const input = chat.input;
+    if (input.trimStart().startsWith("/")) {
+      handleSendChat();
+      return;
+    }
+    const intent = detectChatIntegrationIntent(input, chat.reportedChannels);
+    if (intent?.kind === "connector") {
+      setChatInput("");
+      openIntegrationChatCard(intent.integrationId);
+      return;
+    }
+    if (intent?.kind === "directory") {
+      setChatInput("");
+      setActiveIntegrationCard(null);
+      void slashCommandActions?.onOpenIntegrations?.();
+      return;
+    }
+    handleSendChat();
+  }, [chat.input, chat.reportedChannels, handleSendChat, openIntegrationChatCard, setChatInput, slashCommandActions]);
   const visibleChatMessages = React.useMemo(
     () => chat.messages
       .map((message, index) => ({ message, index }))
@@ -412,7 +448,6 @@ export function AgentChatPanel({
       slashFeedbackTimerRef.current = null;
     }, 2600);
   }, []);
-  const setChatInput = chat.setInput;
   const syncComposerSelection = React.useCallback((textarea: HTMLTextAreaElement) => {
     setComposerSelectionStart(textarea.selectionStart ?? null);
   }, []);
@@ -461,9 +496,9 @@ export function AgentChatPanel({
       resizeComposer(textarea);
     });
   }, [setChatInput]);
-  const openFullIntegrationSetup = React.useCallback((integrationId: ClawIntegrationConnectAction["integrationId"]) => {
-    if (integrationId === "telegram" && onConnectionCta) {
-      onConnectionCta(getChatConnectorSuggestion("telegram"));
+  const openIntegrationDetails = React.useCallback((integrationId: ClawIntegrationConnectAction["integrationId"]) => {
+    if (onConnectionCta) {
+      onConnectionCta(getChatConnectorSuggestion(integrationId));
       return;
     }
     void slashCommandActions?.onOpenIntegrations?.();
@@ -672,6 +707,7 @@ export function AgentChatPanel({
           </div>
         </div>
       )}
+      {skillDraftTestBanner}
       <div ref={chatScrollRef} onScroll={handleChatScroll} className="flex min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
         <div className="mx-auto flex min-h-full w-full max-w-5xl min-w-0 flex-1 flex-col gap-4 overflow-x-hidden px-3 py-3 sm:px-4 sm:py-4">
           {visibleChatMessages.length === 0 && !activeIntegrationAction && (
@@ -680,7 +716,9 @@ export function AgentChatPanel({
 
           {visibleChatMessages.map(({ message: msg, index: i }) => {
             const parsedUiActions = parseClawUiActionBlocks(msg.content, msg.role);
-            const integrationConnectActions = parsedUiActions.actions.filter(isIntegrationConnectAction);
+            const integrationConnectActions = parsedUiActions.actions
+              .filter(isIntegrationConnectAction)
+              .filter((action) => action.integrationId !== activeIntegrationAction?.integrationId);
             const displayMessage = parsedUiActions.displayContent === msg.content
               ? msg
               : { ...msg, content: parsedUiActions.displayContent };
@@ -721,7 +759,7 @@ export function AgentChatPanel({
                           agentSetupStatus={githubAgentSetupStatus}
                           onStartAgentGitHubSetup={startAgentGitHubSetup}
                           onVerifyAgentGitHubSetup={verifyAgentGitHubSetup}
-                          onOpenFullSetup={openFullIntegrationSetup}
+                          onOpenIntegrationDetails={openIntegrationDetails}
                         />
                       ))}
                     </div>
@@ -741,14 +779,15 @@ export function AgentChatPanel({
             <div className="flex w-full justify-stretch">
               <div className="w-full min-w-0">
                 <IntegrationChatCardHost
+                  key={`${selectedAgent.id}:${chat.activeSessionKey}:${activeIntegrationAction.integrationId}`}
                   action={activeIntegrationAction}
                   chat={chat}
                   agentName={selectedAgent.name || selectedAgent.id}
                   agentSetupStatus={githubAgentSetupStatus}
                   onStartAgentGitHubSetup={startAgentGitHubSetup}
                   onVerifyAgentGitHubSetup={verifyAgentGitHubSetup}
-                  onOpenFullSetup={openFullIntegrationSetup}
-                  onDismiss={() => setActiveIntegrationAction(null)}
+                  onOpenIntegrationDetails={openIntegrationDetails}
+                  onDismiss={() => setActiveIntegrationCard(null)}
                 />
               </div>
             </div>
@@ -1034,7 +1073,7 @@ export function AgentChatPanel({
                           void slashCommandMenuRef.current.executeCurrentInput();
                           return;
                         }
-                        handleSendChat();
+                        handleSendChatWithIntegrationIntent();
                       }
                     }}
                     onPaste={(e) => {
@@ -1154,7 +1193,7 @@ export function AgentChatPanel({
                         {activeSessionAborting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />}
                       </button>
                     ) : null}
-                    <button onClick={handleSendChat} disabled={!canSendChatDraft} className="w-8 h-8 btn-primary rounded-full disabled:opacity-40 flex items-center justify-center" title="Send message">
+                    <button onClick={handleSendChatWithIntegrationIntent} disabled={!canSendChatDraft} className="w-8 h-8 btn-primary rounded-full disabled:opacity-40 flex items-center justify-center" title="Send message">
                       <Send className="w-3.5 h-3.5" />
                     </button>
                   </div>

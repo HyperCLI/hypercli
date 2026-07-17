@@ -9,7 +9,7 @@ export type ApprovalRisk = "low" | "medium" | "high";
 export type ApprovalState = "pending" | "approved" | "denied";
 
 export interface ApprovalCardProps {
-  /** Stable id used by the gateway when approving / denying. */
+  /** Stable id used by the approval owner when approving or denying. */
   approvalId: string;
   /** Action verb shown in the title (e.g. "Run shell command", "Modify file"). */
   action: string;
@@ -23,9 +23,9 @@ export interface ApprovalCardProps {
   preview?: string;
   /** Current approval state. Defaults to "pending". */
   state?: ApprovalState;
-  /** Approval handler. Should call gateway `execApprove` and update state. */
+  /** Approval handler. The owner performs the reviewed action and updates state. */
   onApprove?: (approvalId: string) => Promise<void> | void;
-  /** Denial handler. Should call gateway `execDeny`. */
+  /** Denial handler. */
   onDeny?: (approvalId: string) => Promise<void> | void;
 }
 

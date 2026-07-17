@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { exec as execCallback } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -223,6 +223,158 @@ describe('OpenClawSkillsProvider', () => {
       expect((await readdir(managedRoot)).filter((name) => name.startsWith('.hypercli-create-'))).toEqual([]);
     } finally {
       await rm(managedRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('finds loose workspace skill files without absorbing existing child skills', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'openclaw-recovery-scan-'));
+    const workspaceDir = join(root, 'workspace');
+    const skillsRoot = join(workspaceDir, 'skills');
+    const managedSkillsDir = join(root, 'managed');
+    await mkdir(join(skillsRoot, 'scripts'), { recursive: true });
+    await mkdir(join(skillsRoot, 'existing-skill'), { recursive: true });
+    await writeFile(join(skillsRoot, 'SKILL.md'), '---\nname: chat-helper\ndescription: Created through chat.\n---\n# Chat Helper\n');
+    await writeFile(join(skillsRoot, 'notes.txt'), 'notes');
+    await writeFile(join(skillsRoot, 'existing-skill/SKILL.md'), '# Existing');
+    const provider = new OpenClawSkillsProvider(client({
+      skillsStatus: vi.fn(async () => ({ agentId: 'default', workspaceDir, managedSkillsDir, skills: [] })),
+    }), { exec: localExec });
+
+    try {
+      await expect(provider.listRecoveryCandidates()).resolves.toEqual([
+        expect.objectContaining({
+          id: 'workspace-skills-root',
+          name: 'chat-helper',
+          description: 'Created through chat.',
+          suggestedSkillId: 'chat-helper',
+          entries: expect.arrayContaining([
+            expect.objectContaining({ path: 'scripts', type: 'directory', selectable: true, selectedByDefault: true }),
+            expect.objectContaining({ path: 'notes.txt', type: 'file', selectable: true, selectedByDefault: false }),
+            expect.objectContaining({ path: 'existing-skill', selectable: false, reason: 'This folder is already a separate skill.' }),
+          ]),
+        }),
+      ]);
+      expect(provider.capabilities.recoverSkill).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps a provider-reported loose root skill out of the normal editable catalog', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'openclaw-recovery-catalog-'));
+    const workspaceDir = join(root, 'workspace');
+    const skillsRoot = join(workspaceDir, 'skills');
+    const managedSkillsDir = join(root, 'managed');
+    await mkdir(skillsRoot, { recursive: true });
+    await writeFile(join(skillsRoot, 'SKILL.md'), '---\nname: chat-helper\n---\n# Chat Helper\n');
+    const looseEntry = statusEntry({
+      skillKey: 'chat-helper',
+      name: 'Chat Helper',
+      source: 'workspace',
+      bundled: false,
+      baseDir: skillsRoot,
+      filePath: join(skillsRoot, 'SKILL.md'),
+    });
+    const provider = new OpenClawSkillsProvider(client({
+      skillsStatus: vi.fn(async () => ({ agentId: 'default', workspaceDir, managedSkillsDir, skills: [looseEntry, statusEntry()] })),
+    }), { exec: localExec });
+
+    try {
+      await expect(provider.list()).resolves.toEqual([expect.objectContaining({ id: 'weather' })]);
+      expect(normalizeOpenClawSkill(looseEntry, { resources: true, workspaceDir, managedSkillsDir })).toMatchObject({ resourceAccess: 'none' });
+      await expect(provider.listRecoveryCandidates()).resolves.toHaveLength(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('recovers selected loose workspace resources and leaves unrelated entries in place', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'openclaw-recovery-'));
+    const workspaceDir = join(root, 'workspace');
+    const skillsRoot = join(workspaceDir, 'skills');
+    const managedSkillsDir = join(root, 'managed');
+    await mkdir(join(skillsRoot, 'scripts'), { recursive: true });
+    await mkdir(join(skillsRoot, 'assets/empty'), { recursive: true });
+    await mkdir(join(skillsRoot, 'existing-skill'), { recursive: true });
+    const content = '---\nname: chat-helper\ndescription: Created through chat.\n---\n# Chat Helper\n';
+    await writeFile(join(skillsRoot, 'SKILL.md'), content);
+    await writeFile(join(skillsRoot, 'scripts/run.sh'), '#!/bin/sh\n');
+    await writeFile(join(skillsRoot, 'assets/icon.bin'), Buffer.from([0, 1, 2, 255]));
+    await writeFile(join(skillsRoot, 'notes.txt'), 'leave me');
+    await writeFile(join(skillsRoot, 'existing-skill/SKILL.md'), '# Existing');
+    const provider = new OpenClawSkillsProvider(client({
+      skillsStatus: vi.fn(async () => ({ agentId: 'default', workspaceDir, managedSkillsDir, skills: [] })),
+    }), { exec: localExec });
+
+    try {
+      await expect(provider.recoverSkill({
+        candidateId: 'workspace-skills-root',
+        skillId: 'chat-helper',
+        paths: ['scripts', 'assets'],
+      })).resolves.toEqual({ skillId: 'chat-helper' });
+      await expect(readFile(join(managedSkillsDir, 'chat-helper/SKILL.md'), 'utf8')).resolves.toBe(content);
+      await expect(readFile(join(managedSkillsDir, 'chat-helper/scripts/run.sh'), 'utf8')).resolves.toBe('#!/bin/sh\n');
+      await expect(readFile(join(managedSkillsDir, 'chat-helper/assets/icon.bin'))).resolves.toEqual(Buffer.from([0, 1, 2, 255]));
+      await expect(stat(join(managedSkillsDir, 'chat-helper/assets/empty'))).resolves.toMatchObject({});
+      await expect(readFile(join(skillsRoot, 'notes.txt'), 'utf8')).resolves.toBe('leave me');
+      await expect(readFile(join(skillsRoot, 'existing-skill/SKILL.md'), 'utf8')).resolves.toBe('# Existing');
+      await expect(stat(join(skillsRoot, 'SKILL.md'))).rejects.toThrow();
+      expect((await readdir(managedSkillsDir)).filter((name) => name.startsWith('.hypercli-recover-'))).toEqual([]);
+      expect((await readdir(skillsRoot)).filter((name) => name.startsWith('.hypercli-recover-'))).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not overwrite collisions or recover unsafe sibling folders', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'openclaw-recovery-safety-'));
+    const workspaceDir = join(root, 'workspace');
+    const skillsRoot = join(workspaceDir, 'skills');
+    const managedSkillsDir = join(root, 'managed');
+    await mkdir(join(skillsRoot, 'nested'), { recursive: true });
+    await mkdir(join(managedSkillsDir, 'chat-helper'), { recursive: true });
+    await writeFile(join(skillsRoot, 'SKILL.md'), '# Loose');
+    await writeFile(join(skillsRoot, 'nested/SKILL.md'), '# Separate');
+    await writeFile(join(managedSkillsDir, 'chat-helper/SKILL.md'), '# Managed');
+    const provider = new OpenClawSkillsProvider(client({
+      skillsStatus: vi.fn(async () => ({ agentId: 'default', workspaceDir, managedSkillsDir, skills: [] })),
+    }), { exec: localExec });
+
+    try {
+      await expect(provider.recoverSkill({ candidateId: 'workspace-skills-root', skillId: 'chat-helper', paths: [] })).rejects.toThrow(/already exists/i);
+      await expect(readFile(join(skillsRoot, 'SKILL.md'), 'utf8')).resolves.toBe('# Loose');
+      await expect(readFile(join(managedSkillsDir, 'chat-helper/SKILL.md'), 'utf8')).resolves.toBe('# Managed');
+      await rm(join(managedSkillsDir, 'chat-helper'), { recursive: true });
+      await expect(provider.recoverSkill({ candidateId: 'workspace-skills-root', skillId: 'chat-helper', paths: ['nested'] })).rejects.toThrow(/contains another skill/i);
+      await expect(readFile(join(skillsRoot, 'nested/SKILL.md'), 'utf8')).resolves.toBe('# Separate');
+      await expect(stat(join(managedSkillsDir, 'chat-helper'))).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('restores quarantined workspace files when managed staging fails', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'openclaw-recovery-rollback-'));
+    const workspaceDir = join(root, 'workspace');
+    const skillsRoot = join(workspaceDir, 'skills');
+    const managedSkillsDir = join(root, 'managed');
+    await mkdir(join(skillsRoot, 'scripts'), { recursive: true });
+    await mkdir(managedSkillsDir);
+    await writeFile(join(skillsRoot, 'SKILL.md'), '# Loose');
+    await writeFile(join(skillsRoot, 'scripts/run.sh'), '#!/bin/sh\n');
+    await chmod(managedSkillsDir, 0o500);
+    const provider = new OpenClawSkillsProvider(client({
+      skillsStatus: vi.fn(async () => ({ agentId: 'default', workspaceDir, managedSkillsDir, skills: [] })),
+    }), { exec: localExec });
+
+    try {
+      await expect(provider.recoverSkill({ candidateId: 'workspace-skills-root', skillId: 'chat-helper', paths: ['scripts'] })).rejects.toThrow();
+      await expect(readFile(join(skillsRoot, 'SKILL.md'), 'utf8')).resolves.toBe('# Loose');
+      await expect(readFile(join(skillsRoot, 'scripts/run.sh'), 'utf8')).resolves.toBe('#!/bin/sh\n');
+      expect((await readdir(skillsRoot)).filter((name) => name.startsWith('.hypercli-recover-'))).toEqual([]);
+    } finally {
+      await chmod(managedSkillsDir, 0o700);
+      await rm(root, { recursive: true, force: true });
     }
   });
 

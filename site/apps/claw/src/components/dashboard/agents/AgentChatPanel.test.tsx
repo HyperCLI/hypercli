@@ -1,6 +1,7 @@
 import { createRef, useState, type ComponentProps } from "react";
 import { act, fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AgentChannelSummary } from "@hypercli.com/sdk/channels";
 import type { AgentSkillsProvider } from "@hypercli.com/sdk/skills";
 
 import { buildSdkAgent } from "@/test/factories";
@@ -48,6 +49,10 @@ vi.mock("@/components/dashboard/ConfirmDialog", () => ({
 type AgentChatPanelProps = ComponentProps<typeof AgentChatPanel>;
 type ChatSession = AgentChatPanelProps["chat"];
 
+function channel(channelId: string, configured = false): AgentChannelSummary {
+  return { channelId, configured, healthState: "unknown" };
+}
+
 function buildChat(overrides: Partial<ChatSession> = {}): ChatSession {
   return {
     gateway: null,
@@ -80,6 +85,8 @@ function buildChat(overrides: Partial<ChatSession> = {}): ChatSession {
     saveConfig: vi.fn(async () => undefined),
     saveFullConfig: vi.fn(async () => undefined),
     channelsStatus: vi.fn(async () => ({ channels: {} })),
+    channelsProvider: null,
+    reportedChannels: [],
     pendingFiles: [],
     pendingAttachments: [],
     pendingAttachmentReads: 0,
@@ -98,7 +105,7 @@ function buildChat(overrides: Partial<ChatSession> = {}): ChatSession {
     removeCron: vi.fn(async () => undefined),
     runCron: vi.fn(async () => undefined),
     skillsProvider: {
-      capabilities: { readDocument: true, configure: true, searchRegistry: true, installRegistry: true, installUpload: false, resources: false, createSkill: false },
+      capabilities: { readDocument: true, configure: true, searchRegistry: true, installRegistry: true, installUpload: false, resources: false, createSkill: false, recoverSkill: false },
       list: vi.fn(async () => []),
       readDocument: vi.fn(async () => null),
       update: vi.fn(async () => undefined),
@@ -450,7 +457,140 @@ describe("AgentChatPanel", () => {
     expect(chatMessageBubbleMock).not.toHaveBeenCalled();
   });
 
-  it("opens a GitHub connector card from the composer suggestion", async () => {
+  it.each([
+    ["connect Telegram", "start setup", "telegram"],
+    ["set up Discord", "start setup", "discord"],
+    ["configure Slack", "start setup", "slack"],
+    ["connect my WhatsApp channel", "start setup", "whatsapp"],
+    ["connect GitHub", "start connection", "github"],
+  ] as const)("opens the matching connector card when the user sends %s", async (input, actionLabel, integrationId) => {
+    const handleSendChat = vi.fn();
+    const onConnectionCta = vi.fn();
+    const setInput = vi.fn();
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input,
+        setInput,
+        configSchema: schemaWith("channels.telegram", "integrations.github"),
+      }),
+      isSelectedRunning: true,
+      handleSendChat,
+      onConnectionCta,
+    });
+
+    fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
+
+    expect(handleSendChat).not.toHaveBeenCalled();
+    expect(setInput).toHaveBeenCalledWith("");
+    expect(await screen.findByRole("button", { name: new RegExp(actionLabel, "i") })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /open in integrations/i }));
+    expect(onConnectionCta).toHaveBeenCalledWith(expect.objectContaining({
+      connectorId: integrationId,
+      directoryPluginId: integrationId,
+    }));
+  });
+
+  it("detects connector intent from the send button", async () => {
+    const handleSendChat = vi.fn();
+    const setInput = vi.fn();
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input: "please connect Slack",
+        setInput,
+      }),
+      isSelectedRunning: true,
+      handleSendChat,
+    });
+
+    fireEvent.click(screen.getByTitle("Send message"));
+
+    expect(handleSendChat).not.toHaveBeenCalled();
+    expect(setInput).toHaveBeenCalledWith("");
+    expect(await screen.findByRole("button", { name: /start setup/i })).toBeInTheDocument();
+  });
+
+  it.each([
+    "connect a channel",
+    "make a messaging integration",
+    "connect Telegram and Slack",
+    "connect Signal",
+  ])("opens the integrations directory for generic or unsupported intent: %s", (input) => {
+    const handleSendChat = vi.fn();
+    const onOpenIntegrations = vi.fn();
+    const setInput = vi.fn();
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input,
+        setInput,
+      }),
+      isSelectedRunning: true,
+      handleSendChat,
+      slashCommandActions: { onOpenIntegrations },
+    });
+
+    fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
+
+    expect(handleSendChat).not.toHaveBeenCalled();
+    expect(setInput).toHaveBeenCalledWith("");
+    expect(onOpenIntegrations).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: /start setup|start connection/i })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    "write a Slack announcement",
+    "compare Telegram and Discord",
+    "do not connect Telegram",
+  ])("does not open integration UI for ordinary discussion: %s", (input) => {
+    const handleSendChat = vi.fn();
+    const onOpenIntegrations = vi.fn();
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input,
+      }),
+      isSelectedRunning: true,
+      handleSendChat,
+      slashCommandActions: { onOpenIntegrations },
+    });
+
+    fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
+
+    expect(handleSendChat).toHaveBeenCalledTimes(1);
+    expect(onOpenIntegrations).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /start setup|start connection/i })).not.toBeInTheDocument();
+  });
+
+  it("does not reopen connector UI from historical user messages", () => {
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        messages: [{ role: "user", content: "connect Telegram" }],
+      }),
+      isSelectedRunning: true,
+    });
+
+    expect(screen.queryByRole("button", { name: /start setup/i })).not.toBeInTheDocument();
+  });
+
+  it("does not offer a static GitHub composer suggestion", () => {
     const onConnectionCta = vi.fn();
     renderAgentChatPanel({
       chat: buildChat({
@@ -459,19 +599,12 @@ describe("AgentChatPanel", () => {
         ready: true,
         connected: true,
         input: "connect github",
-        configSchema: schemaWith("integrations.github"),
       }),
       isSelectedRunning: true,
       onConnectionCta,
     });
 
-    fireEvent.click(screen.getByTitle("Open GitHub connection setup"));
-
-    const startConnection = await screen.findByText("Start connection");
-    expect(startConnection).toBeInTheDocument();
-    const composerShell = closestClassNameContaining(screen.getByRole("textbox", { name: /message agent/i }), "max-h-[45%]");
-    expect(composerShell).not.toBeNull();
-    expect(composerShell?.contains(startConnection)).toBe(false);
+    expect(screen.queryByTitle("Open GitHub connection setup")).not.toBeInTheDocument();
     expect(onConnectionCta).not.toHaveBeenCalled();
   });
 
@@ -484,7 +617,7 @@ describe("AgentChatPanel", () => {
         ready: true,
         connected: true,
         input: "connect telegram",
-        configSchema: schemaWith("channels.telegram"),
+        reportedChannels: [channel("telegram")],
       }),
       isSelectedRunning: true,
       onConnectionCta,
@@ -519,7 +652,7 @@ describe("AgentChatPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: /start setup/i }));
 
     expect(onConnectionCta).not.toHaveBeenCalled();
-    expect(await screen.findByText("Create bot")).toBeInTheDocument();
+    expect(await screen.findByText("Choose Telegram access")).toBeInTheDocument();
   });
 
   it("starts GitHub device authorization from the chat card", async () => {
@@ -1130,7 +1263,7 @@ describe("AgentChatPanel", () => {
     expect(handleSendChat).toHaveBeenCalledTimes(1);
   });
 
-  it("opens GitHub setup from the connect slash command", async () => {
+  it("does not open static GitHub setup from the connect slash command", async () => {
     const setInput = vi.fn();
     const handleSendChat = vi.fn();
     renderAgentChatPanel({
@@ -1141,7 +1274,6 @@ describe("AgentChatPanel", () => {
         connected: true,
         input: "/connect github",
         setInput,
-        configSchema: schemaWith("integrations.github"),
       }),
       isSelectedRunning: true,
       handleSendChat,
@@ -1152,9 +1284,9 @@ describe("AgentChatPanel", () => {
     });
 
     expect(handleSendChat).not.toHaveBeenCalled();
-    expect(setInput).toHaveBeenCalledWith("");
-    expect(screen.getByRole("status", { name: /github connection opened/i })).toBeInTheDocument();
-    expect(await screen.findByText("Start connection")).toBeInTheDocument();
+    expect(setInput).not.toHaveBeenCalled();
+    expect(screen.getAllByText('No available integrations match "github".').length).toBeGreaterThan(0);
+    expect(screen.queryByText("Start connection")).not.toBeInTheDocument();
   });
 
   it("shows integration suggestions after connect slash command space", () => {
@@ -1165,14 +1297,14 @@ describe("AgentChatPanel", () => {
         ready: true,
         connected: true,
         input: "/connect ",
-        configSchema: schemaWith("channels.telegram", "plugins.entries.openai"),
+        reportedChannels: [channel("telegram"), channel("msteams")],
       }),
       isSelectedRunning: true,
     });
 
     const listbox = screen.getByRole("listbox", { name: /connect integration suggestions/i });
     expect(within(listbox).getByRole("option", { name: /Telegram/i })).toBeInTheDocument();
-    expect(within(listbox).getByRole("option", { name: /OpenAI/i })).toBeInTheDocument();
+    expect(within(listbox).getByRole("option", { name: /Microsoft Teams/i })).toBeInTheDocument();
   });
 
   it("opens selected registry integration from connect slash suggestions", async () => {
@@ -1185,9 +1317,9 @@ describe("AgentChatPanel", () => {
         gatewayConnected: true,
         ready: true,
         connected: true,
-        input: "/connect open",
+        input: "/connect teams",
         setInput,
-        configSchema: schemaWith("plugins.entries.openai"),
+        reportedChannels: [channel("msteams")],
       }),
       isSelectedRunning: true,
       handleSendChat,
@@ -1200,12 +1332,12 @@ describe("AgentChatPanel", () => {
 
     expect(handleSendChat).not.toHaveBeenCalled();
     expect(onConnectionCta).toHaveBeenCalledWith(expect.objectContaining({
-      id: "openai",
-      displayName: "OpenAI",
-      directoryPluginId: "openai",
+      id: "msteams",
+      displayName: "Microsoft Teams",
+      directoryPluginId: "msteams",
     }));
     expect(setInput).toHaveBeenCalledWith("");
-    expect(screen.getByRole("status", { name: /openai connection opened/i })).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: /microsoft teams connection opened/i })).toBeInTheDocument();
   });
 
   it("opens Telegram setup from the connect slash command", async () => {
@@ -1220,7 +1352,7 @@ describe("AgentChatPanel", () => {
         connected: true,
         input: "/connect telegram",
         setInput,
-        configSchema: schemaWith("channels.telegram"),
+        reportedChannels: [channel("telegram")],
       }),
       isSelectedRunning: true,
       handleSendChat,
@@ -1247,7 +1379,7 @@ describe("AgentChatPanel", () => {
         ready: true,
         connected: true,
         input: "/connect missing",
-        configSchema: schemaWith("channels.telegram"),
+        reportedChannels: [channel("telegram")],
       }),
       isSelectedRunning: true,
       handleSendChat,

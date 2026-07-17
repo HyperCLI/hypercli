@@ -6,9 +6,6 @@ import { ExternalLink, Loader2, CheckCircle2 } from "lucide-react";
 import { PLUGIN_REGISTRY } from "../integrations/plugin-registry";
 import { getPluginDescription } from "./directory-descriptions";
 import { isPluginConnected } from "./directory-utils";
-import { TelegramWizard } from "../integrations/TelegramWizard";
-import { DiscordWizard } from "../integrations/DiscordWizard";
-import { SlackWizard } from "../integrations/SlackWizard";
 import { TokenSetupWizard } from "../integrations/TokenSetupWizard";
 import { QrLoginWizard } from "../integrations/QrLoginWizard";
 
@@ -85,40 +82,7 @@ export function DirectoryDetail({
       );
     }
 
-    if (plugin.id === "telegram") {
-      return (
-        <TelegramWizard
-          onConnect={onSaveConfig}
-          onChannelProbe={onChannelProbe}
-          onClose={onBack}
-          onVerified={() => setJustEnabled(true)}
-        />
-      );
-    }
-
-    if (plugin.id === "discord") {
-      return (
-        <DiscordWizard
-          onConnect={onSaveConfig}
-          onChannelProbe={onChannelProbe}
-          onClose={onBack}
-          onVerified={() => setJustEnabled(true)}
-        />
-      );
-    }
-
-    if (plugin.id === "slack") {
-      return (
-        <SlackWizard
-          onConnect={onSaveConfig}
-          onChannelProbe={onChannelProbe}
-          onClose={onBack}
-          onVerified={() => setJustEnabled(true)}
-        />
-      );
-    }
-
-    if (plugin.id === "whatsapp" || plugin.id === "zalouser") {
+    if (plugin.id === "zalouser") {
       return (
         <QrLoginWizard
           pluginId={plugin.id}

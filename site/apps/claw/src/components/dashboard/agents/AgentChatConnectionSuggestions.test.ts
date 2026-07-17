@@ -1,19 +1,20 @@
-import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
+import type { AgentChannelSummary } from "@hypercli.com/sdk/channels";
 import { describe, expect, it } from "vitest";
 
 import { INTEGRATION_BRAND_LOGOS } from "@/components/dashboard/integrations/integration-brand-icons";
-import { getConnectCommandSuggestions, getConnectionSuggestions } from "./AgentChatConnectionSuggestions";
+import { detectChatIntegrationIntent, getConnectCommandSuggestions, getConnectionSuggestions } from "./AgentChatConnectionSuggestions";
 
-function schemaWith(...paths: string[]): OpenClawConfigSchemaResponse {
+function channel(channelId: string, configured = false): AgentChannelSummary {
   return {
-    schema: {},
-    uiHints: Object.fromEntries(paths.map((path) => [path, {}])),
+    channelId,
+    configured,
+    healthState: "unknown",
   };
 }
 
 describe("getConnectionSuggestions", () => {
-  it("suggests schema-available registry integrations", () => {
-    const suggestions = getConnectionSuggestions("please connect telegram", null, schemaWith("channels.telegram"));
+  it("suggests runtime-reported channels", () => {
+    const suggestions = getConnectionSuggestions("please connect telegram", [channel("telegram")]);
 
     expect(suggestions).toEqual([
       expect.objectContaining({
@@ -25,94 +26,59 @@ describe("getConnectionSuggestions", () => {
     ]);
   });
 
-  it("matches aliases for registry integrations", () => {
-    const suggestions = getConnectionSuggestions("connect teams", null, schemaWith("channels.msteams"));
+  it("matches aliases for reported channels", () => {
+    const suggestions = getConnectionSuggestions("connect teams", [channel("msteams")]);
 
     expect(suggestions).toEqual([
       expect.objectContaining({
         id: "msteams",
         displayName: "Microsoft Teams",
-        directoryPluginId: "msteams",
       }),
     ]);
   });
 
-  it("suggests GitHub when the service connector is advertised", () => {
-    const suggestions = getConnectionSuggestions("connect github", null, schemaWith("integrations.github"));
+  it("keeps core setup channels available without live status", () => {
+    expect(getConnectionSuggestions("connect telegram", [channel("discord")])).toEqual([
+      expect.objectContaining({ id: "telegram", connectorId: "telegram" }),
+    ]);
+    expect(getConnectionSuggestions("connect signal", [])).toEqual([]);
+    expect(getConnectionSuggestions("connect github", [channel("telegram")])).toEqual([]);
+  });
+
+  it("does not suggest configured channels", () => {
+    expect(getConnectionSuggestions("connect telegram", [channel("telegram", true)])).toEqual([]);
+  });
+
+  it("treats any configured account as an existing channel connection", () => {
+    const channels = [channel("telegram"), { ...channel("telegram", true), accountId: "work" }];
+    expect(getConnectionSuggestions("connect telegram", channels)).toEqual([]);
+  });
+
+  it("supports runtime-reported channels without curated metadata", () => {
+    const suggestions = getConnectionSuggestions("connect custom relay", [channel("custom-relay")]);
 
     expect(suggestions).toEqual([
       expect.objectContaining({
-        id: "github",
-        displayName: "GitHub",
-        connectorId: "github",
+        id: "custom-relay",
+        displayName: "Custom Relay",
+        directoryPluginId: "custom-relay",
       }),
     ]);
   });
 
-  it("matches the GitHub gh alias when the service connector is advertised", () => {
-    const suggestions = getConnectionSuggestions("connect gh", null, schemaWith("integrations.github"));
-
-    expect(suggestions).toEqual([
-      expect.objectContaining({
-        id: "github",
-        displayName: "GitHub",
-        connectorId: "github",
-      }),
+  it("lists core setup channels and unconfigured runtime channels for the connect command", () => {
+    const suggestions = getConnectCommandSuggestions("", [
+      channel("telegram"),
+      channel("discord"),
+      channel("msteams", true),
     ]);
+
+    expect(suggestions.map((suggestion) => suggestion.id)).toEqual(["telegram", "discord", "slack", "whatsapp"]);
+    expect(suggestions.map((suggestion) => suggestion.connectorId)).toEqual(["telegram", "discord", "slack", "whatsapp"]);
   });
 
-  it("does not suggest unavailable integrations", () => {
-    const suggestions = getConnectionSuggestions("connect openai", null, schemaWith("channels.telegram"));
-
-    expect(suggestions).toEqual([]);
-  });
-
-  it("does not suggest mock-only or coming-soon connection rows", () => {
-    const suggestions = getConnectionSuggestions(
-      "connect gmail and google calendar",
-      null,
-      schemaWith("channels.telegram", "plugins.entries.openai"),
-    );
-
-    expect(suggestions).toEqual([]);
-  });
-
-  it("does not suggest already connected channel integrations", () => {
-    const suggestions = getConnectionSuggestions(
-      "connect telegram",
-      { channels: { telegram: { enabled: true } } },
-      schemaWith("channels.telegram"),
-    );
-
-    expect(suggestions).toEqual([]);
-  });
-
-  it("does not suggest already connected plugin integrations", () => {
-    const suggestions = getConnectionSuggestions(
-      "connect openai",
-      { plugins: { entries: { openai: { enabled: true } } } },
-      schemaWith("plugins.entries.openai"),
-    );
-
-    expect(suggestions).toEqual([]);
-  });
-
-  it("lists available integrations for the connect slash command", () => {
-    const suggestions = getConnectCommandSuggestions(
-      "",
-      null,
-      schemaWith("integrations.github", "channels.telegram", "plugins.entries.openai"),
-    );
-
-    expect(suggestions.map((suggestion) => suggestion.id)).toEqual(["github", "telegram", "openai"]);
-  });
-
-  it("filters connect slash command suggestions by query", () => {
-    const suggestions = getConnectCommandSuggestions(
-      "tel",
-      null,
-      schemaWith("channels.telegram", "plugins.entries.openai"),
-    );
+  it("filters connect command suggestions by query", () => {
+    const suggestions = getConnectCommandSuggestions("tel", [channel("telegram"), channel("discord")]);
 
     expect(suggestions).toEqual([
       expect.objectContaining({
@@ -123,51 +89,65 @@ describe("getConnectionSuggestions", () => {
     ]);
   });
 
-  it("omits already connected integrations from connect slash command suggestions", () => {
-    const suggestions = getConnectCommandSuggestions(
-      "",
-      { channels: { telegram: { enabled: true } } },
-      schemaWith("channels.telegram", "plugins.entries.openai"),
-    );
-
-    expect(suggestions.map((suggestion) => suggestion.id)).toEqual(["github", "openai"]);
-  });
-
-  it("lists GitHub for the connect slash command without a config schema", () => {
-    const suggestions = getConnectCommandSuggestions("", null, null);
-
-    expect(suggestions).toEqual([
-      expect.objectContaining({
-        id: "github",
-        displayName: "GitHub",
-        connectorId: "github",
-      }),
+  it("lists core setup channels without runtime status", () => {
+    expect(getConnectCommandSuggestions("", []).map((suggestion) => suggestion.id)).toEqual([
+      "telegram",
+      "discord",
+      "slack",
+      "whatsapp",
     ]);
-  });
-
-  it("matches the GitHub gh alias for the connect slash command", () => {
-    const suggestions = getConnectCommandSuggestions("gh", null, null);
-
-    expect(suggestions).toEqual([
-      expect.objectContaining({
-        id: "github",
-        displayName: "GitHub",
-        connectorId: "github",
-      }),
-    ]);
+    expect(getConnectCommandSuggestions("gh", [])).toEqual([]);
   });
 
   it("uses shared brand icon metadata", () => {
-    const github = getConnectCommandSuggestions("gh", null, null)[0];
-    const telegram = getConnectCommandSuggestions("tel", null, schemaWith("channels.telegram"))[0];
+    const telegram = getConnectCommandSuggestions("tel", [channel("telegram")])[0];
 
-    expect(github).toEqual(expect.objectContaining({
-      Icon: INTEGRATION_BRAND_LOGOS.github.icon,
-      iconColor: INTEGRATION_BRAND_LOGOS.github.color,
-    }));
     expect(telegram).toEqual(expect.objectContaining({
       Icon: INTEGRATION_BRAND_LOGOS.telegram.icon,
       iconColor: INTEGRATION_BRAND_LOGOS.telegram.color,
     }));
+  });
+
+  it("does not suggest setup while merely discussing a channel", () => {
+    expect(getConnectionSuggestions("write a Slack announcement", [channel("slack")])).toEqual([]);
+    expect(getConnectionSuggestions("summarize this Telegram conversation", [channel("telegram")])).toEqual([]);
+  });
+});
+
+describe("detectChatIntegrationIntent", () => {
+  it.each([
+    ["connect Telegram", "telegram"],
+    ["please set up Slack", "slack"],
+    ["add a Discord integration", "discord"],
+    ["configure my WhatsApp channel", "whatsapp"],
+    ["how do I connect GitHub?", "github"],
+  ] as const)("detects %s", (input, integrationId) => {
+    expect(detectChatIntegrationIntent(input)).toEqual({ kind: "connector", integrationId });
+  });
+
+  it.each([
+    "connect a channel",
+    "make integrations for messaging",
+    "connect Telegram and Slack",
+    "connect Signal",
+  ])("routes %s to the integrations directory", (input) => {
+    expect(detectChatIntegrationIntent(input)).toEqual({ kind: "directory" });
+  });
+
+  it.each([
+    "summarize this Telegram conversation",
+    "write a Slack announcement",
+    "compare Discord and Telegram",
+    "what is a Discord integration?",
+    "is Slack connected?",
+    "do not connect Telegram",
+    "I don't want to set up Slack",
+    "disconnect Telegram",
+  ])("ignores non-setup intent: %s", (input) => {
+    expect(detectChatIntegrationIntent(input)).toBeNull();
+  });
+
+  it("recognizes unsupported runtime channels and routes them to the directory", () => {
+    expect(detectChatIntegrationIntent("connect custom relay", [channel("custom-relay")])).toEqual({ kind: "directory" });
   });
 });

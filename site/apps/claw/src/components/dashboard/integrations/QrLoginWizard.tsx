@@ -87,7 +87,7 @@ export function QrLoginWizard({
               title="Copy command"
             >
               {showCopyCheck
-                ? <Check className="w-3.5 h-3.5 text-emerald-400" />
+                ? <Check className="w-3.5 h-3.5 text-selection-accent" />
                 : <Copy className="w-3.5 h-3.5 text-text-tertiary" />
               }
             </button>

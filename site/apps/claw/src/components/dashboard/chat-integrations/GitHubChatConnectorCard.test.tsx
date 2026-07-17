@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import type { AgentConnectorsProvider } from "@hypercli.com/sdk/connectors";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -48,6 +49,57 @@ describe("GitHubChatConnectorCard", () => {
     expect(screen.getByRole("button", { name: /start connection/i })).toBeInTheDocument();
     expect(screen.queryByText(/has not finished reporting GitHub setup support/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Connect repositories and issues with GitHub device authorization/i)).not.toBeInTheDocument();
+  });
+
+  it("uses runtime-provided managed auth instructions through the connector provider", async () => {
+    const runtime = { provider: "openclaw", version: "2026.7.16", capabilities: ["integrations.auth"] };
+    const connectorsProvider = {
+      runtime,
+      list: vi.fn(async () => [{
+        connectorId: "github",
+        configured: false,
+        authenticated: false,
+        usable: false,
+        setupModes: ["managed-auth" as const],
+      }]),
+      startSetup: vi.fn(async () => ({
+        connectorId: "github",
+        mode: "managed-auth" as const,
+        setupId: "auth-runtime",
+        instructions: "Follow the GitHub authorization steps reported by this runtime.",
+        deviceUrl: "https://github.com/login/device",
+        deviceCode: "ABCD-EFGH",
+        provenance: runtime,
+      })),
+      pollSetup: vi.fn(async () => ({
+        connectorId: "github",
+        setupId: "auth-runtime",
+        state: "pending" as const,
+        provenance: runtime,
+      })),
+      configure: vi.fn(),
+    } satisfies AgentConnectorsProvider;
+
+    render(
+      <GitHubChatConnectorCard
+        connected
+        connectorsProvider={connectorsProvider}
+        configSchema={null}
+      />,
+    );
+
+    const startButton = await screen.findByRole("button", { name: /start connection/i });
+    await act(async () => {
+      fireEvent.click(startButton);
+    });
+
+    expect(connectorsProvider.startSetup).toHaveBeenCalledWith({
+      connectorId: "github",
+      mode: "managed-auth",
+      scopes: ["repo", "read:org", "gist"],
+    });
+    expect(screen.getByText("Follow the GitHub authorization steps reported by this runtime.")).toBeInTheDocument();
+    expect(screen.getByText("ABCD-EFGH")).toBeInTheDocument();
   });
 
   it("allows starting when the gateway does not advertise GitHub", async () => {

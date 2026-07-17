@@ -15,6 +15,9 @@ import type {
   AgentSkillInstallResult,
   AgentSkillOrigin,
   AgentSkillRequirements,
+  AgentSkillRecoverRequest,
+  AgentSkillRecoverResult,
+  AgentSkillRecoveryCandidate,
   AgentSkillResourceAccess,
   AgentSkillResourceEntry,
   AgentSkillSearchItem,
@@ -45,6 +48,9 @@ const MAX_SKILL_RESOURCE_BYTES = 10 * 1024 * 1024;
 const SKILL_RESOURCE_WRITE_CHUNK_BYTES = 48 * 1024;
 const MAX_SKILL_DIRECTORIES = 64;
 const MAX_SKILL_DIRECTORY_PATH_BYTES = 1024;
+const MAX_SKILL_RECOVERY_ENTRIES = 2048;
+const MAX_SKILL_RECOVERY_BYTES = 100 * 1024 * 1024;
+const LOOSE_WORKSPACE_SKILL_CANDIDATE_ID = 'workspace-skills-root';
 
 type OpenClawSkillResourceAction = 'list' | 'read' | 'write-start' | 'write-append' | 'write-finish' | 'write-abort' | 'delete' | 'mkdir';
 
@@ -69,6 +75,14 @@ interface OpenClawSkillCreateCommandInput {
   content?: Uint8Array;
 }
 
+interface OpenClawSkillRecoverCommandInput {
+  workspaceDir: string;
+  managedSkillsDir: string;
+  skillId: string;
+  paths: string[];
+  recoveryToken: string;
+}
+
 function shellQuoteArgument(value: string): string {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
@@ -85,6 +99,13 @@ function pathIsWithin(path: string, root: string | undefined): boolean {
   return normalizedRoot === '/'
     ? normalizedPath.startsWith('/')
     : normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}/`);
+}
+
+function isLooseWorkspaceSkillEntry(entry: GatewaySkillStatusEntry, workspaceDir: string | undefined): boolean {
+  if (!workspaceDir || !entry.baseDir || !entry.filePath) return false;
+  const root = `${normalizeAbsolutePath(workspaceDir)}/skills`;
+  return normalizeAbsolutePath(entry.baseDir) === root
+    && normalizeAbsolutePath(entry.filePath) === `${root}/SKILL.md`;
 }
 
 function bytesToBase64(content: Uint8Array): string {
@@ -184,6 +205,70 @@ export function buildOpenClawSkillCreateCommand(input: OpenClawSkillCreateComman
   return `node -e ${shellQuoteArgument(script)}`;
 }
 
+export function buildOpenClawSkillRecoveryScanCommand(workspaceDir: string): string {
+  const payload = {
+    workspaceDir,
+    candidateId: LOOSE_WORKSPACE_SKILL_CANDIDATE_ID,
+    maxDocumentBytes: MAX_SKILL_DOCUMENT_BYTES,
+    maxResourceBytes: MAX_SKILL_RESOURCE_BYTES,
+    maxEntries: MAX_SKILL_RECOVERY_ENTRIES,
+  };
+  const script = [
+    'const fs=require("node:fs"),p=require("node:path");',
+    `const input=${JSON.stringify(payload)};`,
+    '(()=>{',
+    'if(!fs.existsSync(input.workspaceDir)){process.stdout.write("[]");return;}',
+    'const workspace=fs.realpathSync(input.workspaceDir);const rootPath=p.join(workspace,"skills");',
+    'if(!fs.existsSync(rootPath)){process.stdout.write("[]");return;}',
+    'const rootItem=fs.lstatSync(rootPath);if(rootItem.isSymbolicLink()||!rootItem.isDirectory())throw new Error("Workspace skills root is invalid.");',
+    'const root=fs.realpathSync(rootPath);if(p.dirname(root)!==workspace)throw new Error("Workspace skills root escapes the workspace.");',
+    'const document=p.join(root,"SKILL.md");if(!fs.existsSync(document)){process.stdout.write("[]");return;}',
+    'const documentItem=fs.lstatSync(document);if(documentItem.isSymbolicLink()||!documentItem.isFile())throw new Error("Loose SKILL.md is not a regular file.");',
+    'if(documentItem.size===0||documentItem.size>input.maxDocumentBytes)throw new Error("Loose SKILL.md is empty or exceeds the 1 MiB limit.");',
+    'const content=fs.readFileSync(document,"utf8");const frontmatter=content.match(/^---\\r?\\n([\\s\\S]*?)\\r?\\n---(?:\\r?\\n|$)/)?.[1]||"";',
+    'const field=(key)=>{const line=frontmatter.split(/\\r?\\n/).find((value)=>new RegExp(`^\\\\s*${key}\\\\s*:`,"i").test(value));if(!line)return "";let value=line.slice(line.indexOf(":")+1).trim();if(value.startsWith(String.fromCharCode(34))&&value.endsWith(String.fromCharCode(34))){try{value=JSON.parse(value);}catch{}}else if(value.startsWith("\'")&&value.endsWith("\'")){value=value.slice(1,-1);}return String(value).trim();};',
+    'const rawName=field("name");const heading=content.match(/^#\\s+(.+)$/m)?.[1]?.trim()||"";const name=(rawName||heading||"Unorganized skill").slice(0,200);',
+    'const suggestedSkillId=(rawName||heading||"recovered-skill").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,80)||"recovered-skill";',
+    'const description=(field("description")||"Skill files created directly in the workspace skills folder.").replace(/[\\r\\n]+/g," ").slice(0,500);',
+    'const standard=new Set(["assets","references","scripts"]);',
+    'const inspect=(target)=>{let count=0;const visit=(value)=>{if(++count>input.maxEntries)throw new Error("Resource contains too many entries.");const item=fs.lstatSync(value);if(item.isSymbolicLink())throw new Error("Symbolic links cannot be recovered.");if(item.isFile()){if(item.size>input.maxResourceBytes)throw new Error("Resource exceeds the 10 MiB limit.");return;}if(!item.isDirectory())throw new Error("Only regular files and directories can be recovered.");for(const child of fs.readdirSync(value))visit(p.join(value,child));};try{visit(target);return null;}catch(error){return error instanceof Error?error.message:"Resource cannot be recovered.";}};',
+    'const entries=fs.readdirSync(root,{withFileTypes:true}).filter((entry)=>entry.name!=="SKILL.md"&&!entry.name.startsWith(".hypercli-")).map((entry)=>{const target=p.join(root,entry.name);let reason;if(entry.isSymbolicLink())reason="Symbolic links cannot be recovered.";else if(entry.isDirectory()&&fs.existsSync(p.join(target,"SKILL.md")))reason="This folder is already a separate skill.";else if(!entry.isFile()&&!entry.isDirectory())reason="Only regular files and directories can be recovered.";else reason=inspect(target)||undefined;return {name:entry.name,path:entry.name,type:entry.isDirectory()?"directory":"file",selectedByDefault:!reason&&entry.isDirectory()&&standard.has(entry.name.toLowerCase()),selectable:!reason,...(reason?{reason}:{})};}).sort((a,b)=>a.name.localeCompare(b.name));',
+    'process.stdout.write(JSON.stringify([{id:input.candidateId,name,description,suggestedSkillId,entries}]));',
+    '})();',
+  ].join('');
+  return `node -e ${shellQuoteArgument(script)}`;
+}
+
+export function buildOpenClawSkillRecoverCommand(input: OpenClawSkillRecoverCommandInput): string {
+  const payload = {
+    ...input,
+    maxDocumentBytes: MAX_SKILL_DOCUMENT_BYTES,
+    maxResourceBytes: MAX_SKILL_RESOURCE_BYTES,
+    maxEntries: MAX_SKILL_RECOVERY_ENTRIES,
+    maxTotalBytes: MAX_SKILL_RECOVERY_BYTES,
+  };
+  const script = [
+    'const fs=require("node:fs"),p=require("node:path");',
+    `const input=${JSON.stringify(payload)};`,
+    'if(!/^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/.test(input.skillId))throw new Error("Invalid skill identifier.");',
+    'if(!/^[a-z0-9-]+$/i.test(input.recoveryToken))throw new Error("Invalid skill recovery token.");',
+    'if(!Array.isArray(input.paths)||input.paths.some((name)=>typeof name!=="string"||!name||name==="SKILL.md"||name.startsWith(".")||p.basename(name)!==name))throw new Error("Invalid recovery path.");',
+    'input.paths=[...new Set(input.paths)];',
+    'const workspace=fs.realpathSync(input.workspaceDir);const sourcePath=p.join(workspace,"skills");const sourceItem=fs.lstatSync(sourcePath);if(sourceItem.isSymbolicLink()||!sourceItem.isDirectory())throw new Error("Workspace skills root is invalid.");const source=fs.realpathSync(sourcePath);',
+    'if(p.dirname(source)!==workspace)throw new Error("Workspace skills root is invalid.");',
+    'fs.mkdirSync(input.managedSkillsDir,{recursive:true,mode:0o700});const managed=fs.realpathSync(input.managedSkillsDir);',
+    'if(source===managed||source.startsWith(managed+p.sep)||managed.startsWith(source+p.sep))throw new Error("Skill recovery roots must be separate.");',
+    'const target=p.join(managed,input.skillId);const stage=p.join(managed,`.hypercli-recover-${input.recoveryToken}`);const quarantine=p.join(source,`.hypercli-recover-${input.recoveryToken}`);',
+    'if(p.dirname(target)!==managed||p.dirname(stage)!==managed||p.dirname(quarantine)!==source)throw new Error("Skill recovery path escapes its root.");',
+    'if(fs.existsSync(target))throw new Error("A skill with this ID already exists.");if(fs.existsSync(stage)||fs.existsSync(quarantine))throw new Error("Skill recovery staging already exists.");',
+    'let entries=0,totalBytes=0;const validate=(value,isDocument=false)=>{if(++entries>input.maxEntries)throw new Error("Skill recovery contains too many entries.");const item=fs.lstatSync(value);if(item.isSymbolicLink())throw new Error("Symbolic links cannot be recovered.");if(item.isFile()){const limit=isDocument?input.maxDocumentBytes:input.maxResourceBytes;if(item.size===0&&isDocument)throw new Error("SKILL.md cannot be empty.");if(item.size>limit)throw new Error(isDocument?"SKILL.md exceeds the 1 MiB limit.":"A skill resource exceeds the 10 MiB limit.");totalBytes+=item.size;if(totalBytes>input.maxTotalBytes)throw new Error("Skill recovery exceeds the 100 MiB total limit.");return;}if(!item.isDirectory())throw new Error("Only regular files and directories can be recovered.");for(const child of fs.readdirSync(value)){if(child.toLowerCase()==="skill.md")throw new Error("A selected folder contains another skill.");validate(p.join(value,child));}};',
+    'const document=p.join(source,"SKILL.md");if(!fs.existsSync(document))throw new Error("Loose workspace SKILL.md no longer exists.");validate(document,true);for(const name of input.paths){const value=p.join(source,name);if(!fs.existsSync(value))throw new Error(`Recovery item no longer exists: ${name}`);validate(value);}',
+    'const copy=(from,to)=>{const item=fs.lstatSync(from);if(item.isSymbolicLink())throw new Error("Symbolic links cannot be recovered.");if(item.isFile()){fs.copyFileSync(from,to,fs.constants.COPYFILE_EXCL);fs.chmodSync(to,item.mode&0o777);return;}if(!item.isDirectory())throw new Error("Only regular files and directories can be recovered.");fs.mkdirSync(to,{mode:item.mode&0o777});for(const child of fs.readdirSync(from))copy(p.join(from,child),p.join(to,child));};',
+    'let committed=false;const moved=[];try{fs.mkdirSync(quarantine,{mode:0o700});for(const name of ["SKILL.md",...input.paths]){fs.renameSync(p.join(source,name),p.join(quarantine,name));moved.push(name);}fs.mkdirSync(stage,{mode:0o700});copy(p.join(quarantine,"SKILL.md"),p.join(stage,"SKILL.md"));for(const name of input.paths)copy(p.join(quarantine,name),p.join(stage,name));if(fs.existsSync(target))throw new Error("A skill with this ID already exists.");fs.renameSync(stage,target);committed=true;try{fs.rmSync(quarantine,{recursive:true,force:true});}catch{}process.stdout.write(JSON.stringify({skillId:input.skillId}));}catch(error){if(!committed){for(const name of [...moved].reverse()){const backup=p.join(quarantine,name),original=p.join(source,name);if(fs.existsSync(backup)&&!fs.existsSync(original))fs.renameSync(backup,original);}if(fs.existsSync(stage))fs.rmSync(stage,{recursive:true,force:true});if(fs.existsSync(quarantine)&&fs.readdirSync(quarantine).length===0)fs.rmdirSync(quarantine);}throw error;}',
+  ].join('');
+  return `node -e ${shellQuoteArgument(script)}`;
+}
+
 export function buildOpenClawSkillDocumentReadCommand(path: string): string {
   const script = [
     'const fs=require("node:fs");',
@@ -239,7 +324,7 @@ export function normalizeOpenClawSkill(
   const missing = requirements(entry.missing);
   const skillOrigin = origin(entry);
   let resourceAccess: AgentSkillResourceAccess = 'none';
-  if (options.resources && entry.baseDir) {
+  if (options.resources && entry.baseDir && !isLooseWorkspaceSkillEntry(entry, options.workspaceDir)) {
     const managed = pathIsWithin(entry.baseDir, options.managedSkillsDir);
     const workspaceSkills = options.workspaceDir
       ? pathIsWithin(entry.baseDir, `${normalizeAbsolutePath(options.workspaceDir)}/skills`)
@@ -284,6 +369,7 @@ export class OpenClawSkillsProvider implements AgentSkillsProvider {
       installUpload: false,
       resources: Boolean(options.exec),
       createSkill: Boolean(options.exec),
+      recoverSkill: Boolean(options.exec),
     };
   }
 
@@ -294,8 +380,9 @@ export class OpenClawSkillsProvider implements AgentSkillsProvider {
     this.resourceAccess.clear();
     this.writableRoots = [report.managedSkillsDir, report.workspaceDir ? `${normalizeAbsolutePath(report.workspaceDir)}/skills` : undefined]
       .filter((path): path is string => Boolean(path));
-    report.skills.forEach((entry) => this.entries.set(entry.skillKey, entry));
-    const summaries = report.skills.map((entry) => normalizeOpenClawSkill(entry, {
+    const catalogSkills = report.skills.filter((entry) => !isLooseWorkspaceSkillEntry(entry, report.workspaceDir));
+    catalogSkills.forEach((entry) => this.entries.set(entry.skillKey, entry));
+    const summaries = catalogSkills.map((entry) => normalizeOpenClawSkill(entry, {
       resources: this.capabilities.resources,
       workspaceDir: report.workspaceDir,
       managedSkillsDir: report.managedSkillsDir,
@@ -411,6 +498,60 @@ export class OpenClawSkillsProvider implements AgentSkillsProvider {
     } catch (error) {
       if (staged) await this.executeCreate({ action: 'create-abort', ...baseInput }).catch(() => undefined);
       throw error;
+    }
+  }
+
+  async listRecoveryCandidates(): Promise<AgentSkillRecoveryCandidate[]> {
+    if (!this.options.exec) return [];
+    const report = await this.client.skillsStatus();
+    if (!report.workspaceDir?.trim() || !report.managedSkillsDir?.trim()) return [];
+    const result = await this.options.exec(buildOpenClawSkillRecoveryScanCommand(report.workspaceDir));
+    if (result.exitCode !== 0) throw new Error(result.stderr || 'Could not inspect workspace skill files.');
+    try {
+      const candidates = JSON.parse(result.stdout || '[]') as AgentSkillRecoveryCandidate[];
+      return Array.isArray(candidates) ? candidates : [];
+    } catch {
+      throw new Error('Workspace skill recovery returned an invalid response.');
+    }
+  }
+
+  async recoverSkill(request: AgentSkillRecoverRequest): Promise<AgentSkillRecoverResult> {
+    if (!this.options.exec) throw new Error('Recovering workspace skills is unavailable for this agent.');
+    if (request.candidateId !== LOOSE_WORKSPACE_SKILL_CANDIDATE_ID) throw new Error('Unknown workspace skill recovery candidate.');
+    const skillId = request.skillId.trim();
+    if (!/^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/.test(skillId)) {
+      throw new Error('Skill IDs must be lowercase slugs between 1 and 80 characters.');
+    }
+    const paths = [...new Set(request.paths.map((path) => validateResourcePath(path)))]
+      .filter((path) => path !== 'SKILL.md');
+    if (paths.some((path) => path.includes('/'))) throw new Error('Recovery items must be direct children of the workspace skills folder.');
+
+    const report = await this.client.skillsStatus();
+    if (!report.workspaceDir?.trim()) throw new Error('The workspace directory is unavailable.');
+    if (!report.managedSkillsDir?.trim()) throw new Error('The managed skills directory is unavailable.');
+    const sourceRoot = `${normalizeAbsolutePath(report.workspaceDir)}/skills`;
+    const collision = report.skills.some((skill) => skill.skillKey === skillId
+      && !(normalizeAbsolutePath(skill.baseDir ?? '') === sourceRoot
+        && normalizeAbsolutePath(skill.filePath ?? '') === `${sourceRoot}/SKILL.md`));
+    if (collision) throw new Error('A skill with this ID already exists.');
+
+    const result = await this.options.exec(buildOpenClawSkillRecoverCommand({
+      workspaceDir: report.workspaceDir,
+      managedSkillsDir: report.managedSkillsDir,
+      skillId,
+      paths,
+      recoveryToken: globalThis.crypto.randomUUID(),
+    }));
+    if (result.exitCode !== 0) throw new Error(result.stderr || 'Workspace skill recovery failed.');
+    try {
+      const recovered = JSON.parse(result.stdout || '{}') as AgentSkillRecoverResult;
+      if (recovered.skillId !== skillId) throw new Error();
+      this.entries.clear();
+      this.resourceAccess.clear();
+      this.writableRoots = [];
+      return recovered;
+    } catch {
+      throw new Error('Workspace skill recovery returned an invalid response.');
     }
   }
 

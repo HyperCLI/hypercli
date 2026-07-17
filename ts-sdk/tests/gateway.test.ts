@@ -511,7 +511,7 @@ describe("GatewayClient", () => {
     });
     const rpc = vi.spyOn(client, "rpc").mockResolvedValue({ ok: true });
 
-    await client.sessionsReset("agent:main:main", "new");
+    await expect(client.sessionsReset("agent:main:main", "new")).resolves.toBe("agent:main:main");
 
     expect(rpc).toHaveBeenCalledWith("sessions.reset", {
       key: "agent:main:main",
@@ -612,6 +612,29 @@ describe("GatewayClient", () => {
     expect(rpc).toHaveBeenNthCalledWith(2, "integrations.auth.status", { authId: "auth-1", integrationId: "github" });
     expect(rpc).toHaveBeenNthCalledWith(3, "integrations.status", { integrationId: "github", probe: true });
     expect(rpc).toHaveBeenNthCalledWith(4, "integrations.disconnect", { integrationId: "github", revoke: true });
+  });
+
+  it("sends channel-scoped status RPC parameters", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const result = {
+      ts: 123,
+      channelOrder: ["telegram"],
+      channelLabels: { telegram: "Telegram" },
+      channels: { telegram: { configured: true } },
+      channelAccounts: { telegram: [] },
+      channelDefaultAccountId: { telegram: "default" },
+    };
+    const rpc = vi.spyOn(client as any, "rpc").mockResolvedValue(result);
+
+    await expect(client.channelsStatus(true, 2500, "telegram")).resolves.toBe(result);
+    expect(rpc).toHaveBeenCalledWith("channels.status", {
+      probe: true,
+      timeoutMs: 2500,
+      channel: "telegram",
+    });
   });
 
   it("waitReady retries until configGet succeeds", async () => {
@@ -828,8 +851,10 @@ describe("GatewayClient", () => {
     const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
     (client as any).connected = true;
     (client as any).ws = { readyState: MockWebSocket.OPEN };
-    const sessionsReset = vi.spyOn(client, "sessionsReset").mockResolvedValue(undefined);
-    vi.spyOn(client, "chatSend").mockImplementation(async function* () {
+    const sessionsReset = vi.spyOn(client, "sessionsReset").mockImplementation(async (key, reason) => (
+      reason === "new" ? `agent:default:${key}` : key
+    ));
+    const chatSend = vi.spyOn(client, "chatSend").mockImplementation(async function* () {
       yield { type: "content", text: '{"schema":' };
       yield { type: "content", text: '"test"}' };
       yield { type: "done" };
@@ -841,15 +866,126 @@ describe("GatewayClient", () => {
     const sessionKey = sessionsReset.mock.calls[0]?.[0];
     expect(sessionKey).toMatch(/^session-[0-9a-f-]+$/);
     expect(sessionsReset).toHaveBeenNthCalledWith(1, sessionKey, "new");
-    expect(sessionsReset).toHaveBeenNthCalledWith(2, sessionKey, "reset");
+    expect(sessionsReset).toHaveBeenNthCalledWith(2, `agent:default:${sessionKey}`, "reset");
+    expect(chatSend).toHaveBeenCalledWith("Generate JSON", `agent:default:${sessionKey}`);
     expect(chatAbort).not.toHaveBeenCalled();
+  });
+
+  it("enables fast mode with a directive-only turn before the ephemeral prompt", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client, "sessionsReset").mockImplementation(async (key) => key);
+    const chatSend = vi.spyOn(client, "chatSend").mockImplementation(async function* (message) {
+      if (message === "/fast on") {
+        yield { type: "content", text: "Fast mode enabled." };
+        yield { type: "done" };
+        return;
+      }
+      yield { type: "content", text: '{"schema":"test"}' };
+      yield { type: "done" };
+    });
+
+    await expect(client.runEphemeralChat("Generate JSON", { fastMode: true })).resolves.toBe('{"schema":"test"}');
+    expect(chatSend.mock.calls.map(([message]) => message)).toEqual(["/fast on", "Generate JSON"]);
+  });
+
+  it("forwards ephemeral chat events including tool activity in order", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client, "sessionsReset").mockImplementation(async (key) => key);
+    vi.spyOn(client, "chatSend").mockImplementation(async function* () {
+      yield { type: "thinking", text: "Inspect first" };
+      yield { type: "tool_call", data: { toolCallId: "tool-1", name: "read", args: { path: "/tmp/a" } } };
+      yield { type: "tool_result", data: { toolCallId: "tool-1", name: "read", result: "value" } };
+      yield { type: "content", text: "Final answer" };
+      yield { type: "done" };
+    });
+    const events: string[] = [];
+
+    await expect(client.runEphemeralChat("Inspect", {
+      onEvent: (event) => events.push(event.type),
+    })).resolves.toBe("Final answer");
+
+    expect(events).toEqual(["thinking", "tool_call", "tool_result", "content", "done"]);
+  });
+
+  it("awaits async ephemeral chat callbacks before dispatching the next event", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client, "sessionsReset").mockImplementation(async (key) => key);
+    vi.spyOn(client, "chatSend").mockImplementation(async function* () {
+      yield { type: "content", text: "one" };
+      yield { type: "content", text: " two" };
+      yield { type: "done" };
+    });
+    const callbackOrder: string[] = [];
+
+    await expect(client.runEphemeralChat("Generate", {
+      onEvent: async (event) => {
+        callbackOrder.push(`start:${event.type}:${event.text ?? ""}`);
+        await Promise.resolve();
+        callbackOrder.push(`end:${event.type}:${event.text ?? ""}`);
+      },
+    })).resolves.toBe("one two");
+
+    expect(callbackOrder).toEqual([
+      "start:content:one",
+      "end:content:one",
+      "start:content: two",
+      "end:content: two",
+      "start:done:",
+      "end:done:",
+    ]);
+  });
+
+  it("aborts and resets an ephemeral chat when its callback fails", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    const sessionsReset = vi.spyOn(client, "sessionsReset").mockImplementation(async (key) => key);
+    vi.spyOn(client, "chatSend").mockImplementation(async function* () {
+      yield { type: "tool_call", data: { name: "read" } };
+      yield { type: "content", text: "unreachable" };
+      yield { type: "done" };
+    });
+    const chatAbort = vi.spyOn(client, "chatAbort").mockResolvedValue(undefined);
+
+    await expect(client.runEphemeralChat("Inspect", {
+      onEvent: async () => {
+        throw new Error("callback failed");
+      },
+    })).rejects.toThrow("callback failed");
+
+    const sessionKey = sessionsReset.mock.calls[0]?.[0];
+    expect(chatAbort).toHaveBeenCalledWith(sessionKey);
+    expect(sessionsReset).toHaveBeenLastCalledWith(sessionKey, "reset");
+  });
+
+  it("forwards an ephemeral chat error event before rejecting", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client, "sessionsReset").mockImplementation(async (key) => key);
+    vi.spyOn(client, "chatSend").mockImplementation(async function* () {
+      yield { type: "error", text: "workflow failed" };
+    });
+    const events: string[] = [];
+
+    await expect(client.runEphemeralChat("Inspect", {
+      onEvent: (event) => events.push(`${event.type}:${event.text}`),
+    })).rejects.toThrow("workflow failed");
+
+    expect(events).toEqual(["error:workflow failed"]);
   });
 
   it("aborts and resets an ephemeral chat when its response exceeds the limit", async () => {
     const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
     (client as any).connected = true;
     (client as any).ws = { readyState: MockWebSocket.OPEN };
-    const sessionsReset = vi.spyOn(client, "sessionsReset").mockResolvedValue(undefined);
+    const sessionsReset = vi.spyOn(client, "sessionsReset").mockImplementation(async (key) => key);
     vi.spyOn(client, "chatSend").mockImplementation(async function* () {
       yield { type: "content", text: "too large" };
       yield { type: "done" };
@@ -866,7 +1002,7 @@ describe("GatewayClient", () => {
     const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
     (client as any).connected = true;
     (client as any).ws = { readyState: MockWebSocket.OPEN };
-    const sessionsReset = vi.spyOn(client, "sessionsReset").mockResolvedValue(undefined);
+    const sessionsReset = vi.spyOn(client, "sessionsReset").mockImplementation(async (key) => key);
     let releaseStream: (() => void) | undefined;
     vi.spyOn(client, "chatSend").mockImplementation(async function* () {
       yield { type: "content", text: "partial" };
@@ -883,6 +1019,32 @@ describe("GatewayClient", () => {
     const sessionKey = sessionsReset.mock.calls[0]?.[0];
     expect(chatAbort).toHaveBeenCalledWith(sessionKey);
     expect(sessionsReset).toHaveBeenLastCalledWith(sessionKey, "reset");
+  });
+
+  it("does not wait for a stalled stream after ephemeral cancellation", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    const sessionsReset = vi.spyOn(client, "sessionsReset").mockImplementation(async (key, reason) => (
+      reason === "new" ? `agent:default:${key}` : key
+    ));
+    let streamStarted: (() => void) | undefined;
+    vi.spyOn(client, "chatSend").mockImplementation(async function* () {
+      streamStarted?.();
+      await new Promise<void>(() => undefined);
+    });
+    const chatAbort = vi.spyOn(client, "chatAbort").mockResolvedValue(undefined);
+    const controller = new AbortController();
+    const started = new Promise<void>((resolve) => { streamStarted = resolve; });
+    const completion = client.runEphemeralChat("Generate", { signal: controller.signal });
+    await started;
+
+    controller.abort();
+
+    await expect(completion).rejects.toMatchObject({ name: "AbortError" });
+    const requestedKey = sessionsReset.mock.calls[0]?.[0];
+    expect(chatAbort).toHaveBeenCalledWith(`agent:default:${requestedKey}`);
+    expect(sessionsReset).toHaveBeenLastCalledWith(`agent:default:${requestedKey}`, "reset");
   });
 
   it("chatSend streams legacy chat deltas and treats final without message as done", async () => {

@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeft, ArrowRight, BarChart3, Blocks, Check, Codepen, FolderOpen, KeyRound, Loader2, LogOut, MessageSquare, Plus, Play, SlidersHorizontal, Sparkles, Square, X } from "lucide-react";
 import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
+import type { AgentChannelSummary } from "@hypercli.com/sdk/channels";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 
 import type { Agent, JsonObject } from "@/app/dashboard/agents/types";
@@ -14,6 +15,7 @@ import { AUTH_BASE_URL } from "@/lib/api";
 import { asObject, getOpenClawUiHint, humanizeKey } from "@/lib/openclaw-config";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@hypercli/shared-ui";
 import { AgentCardTooltip, type AgentCardTooltipData } from "@/components/dashboard/modules/AgentCardModule";
+import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { AgentsChannelsSidebar, AgentsSidebarDashboardLinks, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
 import { FilePreview, type FileEntry } from "@hypercli/shared-ui/files";
 import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
@@ -462,6 +464,8 @@ interface AgentSettingsPanelProps {
   agentStartBlockedReason?: string | null;
   openclawConfig?: Record<string, unknown> | null;
   openclawModels?: Array<Record<string, unknown>> | null;
+  reportedChannels?: AgentChannelSummary[];
+  reportedChannelsReady?: boolean;
   onUpdateAgentName?: (agentId: string, name: string) => Promise<void>;
   onUpdateAgentLaunchConfig?: (agentId: string, launchConfig: Record<string, unknown>) => Promise<void>;
   onSaveOpenClawConfig?: (patch: Record<string, unknown>) => Promise<void>;
@@ -1537,6 +1541,8 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     agentStartBlockedReason = null,
     openclawConfig = null,
     openclawModels = null,
+    reportedChannels = [],
+    reportedChannelsReady = false,
     onUpdateAgentName,
     onUpdateAgentLaunchConfig,
     onSaveOpenClawConfig,
@@ -1580,6 +1586,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const [memoryIndexDraft, setMemoryIndexDraft] = React.useState(() => getMemoryIndexSettings(openclawConfig));
   const [agentSettingsError, setAgentSettingsError] = React.useState<string | null>(null);
   const [agentSettingsSuccess, setAgentSettingsSuccess] = React.useState<string | null>(null);
+  const [confirmImageChange, setConfirmImageChange] = React.useState(false);
   const objectUrlsRef = React.useRef<string[]>([]);
 
   React.useEffect(() => {
@@ -1643,6 +1650,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     setArchiveDraft("not-configured");
     setAgentSettingsError(null);
     setAgentSettingsSuccess(null);
+    setConfirmImageChange(false);
   }, [agent]);
 
   React.useEffect(() => {
@@ -1680,6 +1688,11 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const memoryIndexChanged = !memoryIndexSettingsEqual(memoryIndexDraft, savedMemoryIndexDraft);
   const agentChanged = agentProfileChanged || agentLaunchChanged || modelChanged || memoryIndexChanged;
   const hasSettingsChanges = profileChanged || agentChanged;
+  const configuredChannelIds = React.useMemo(() => Array.from(new Set(
+    reportedChannels
+      .filter((channel) => channel.configured)
+      .map((channel) => channel.channelId),
+  )), [reportedChannels]);
 
   const discardProfileChanges = React.useCallback(() => {
     setProfileName(savedProfileName);
@@ -1697,7 +1710,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     setAgentSettingsSuccess(null);
   }, [savedAdditionalEnvDraft, savedAgentAvatar, savedAgentImage, savedAgentName, savedArchiveDraft, savedDesktopEnabled, savedMemoryIndexDraft, savedModelDraft, savedProfileAvatar, savedProfileName, savedWorkspacesSyncDraft]);
 
-  const saveProfileChanges = React.useCallback(async () => {
+  const saveProfileChanges = React.useCallback(async (removeConfiguredChannels = false) => {
     setProfileError(null);
     setProfileSuccess(null);
     setAgentSettingsError(null);
@@ -1756,6 +1769,21 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
       return;
     }
 
+    if (agentImageChanged && !reportedChannelsReady) {
+      setAgentSettingsError("Connect the agent and wait for its channels to load before changing the Docker image.");
+      return;
+    }
+
+    if (agentImageChanged && configuredChannelIds.length > 0 && !removeConfiguredChannels) {
+      setConfirmImageChange(true);
+      return;
+    }
+
+    if (agentImageChanged && configuredChannelIds.length > 0 && !onSaveOpenClawConfig) {
+      setAgentSettingsError("Channel setup cannot be removed until the agent gateway is connected.");
+      return;
+    }
+
     setProfileSaving(true);
     let savingSection: "profile" | "agent" | null = null;
     try {
@@ -1778,6 +1806,11 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         setAgentSettingsSuccess("Agent settings updated.");
       }
 
+      if (agentImageChanged && configuredChannelIds.length > 0 && onSaveOpenClawConfig) {
+        savingSection = "agent";
+        await onSaveOpenClawConfig({ channels: null });
+      }
+
       if ((agentImageChanged || additionalEnvChanged || desktopChanged || workspacesSyncChanged || memoryIndexChanged) && onUpdateAgentLaunchConfig) {
         savingSection = "agent";
         await onUpdateAgentLaunchConfig(agent.id, buildUpdatedLaunchConfig(
@@ -1794,6 +1827,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         setSavedDesktopEnabled(desktopEnabledDraft);
         setSavedWorkspacesSyncDraft(workspacesSyncDraft);
         setAgentSettingsSuccess("Agent settings updated.");
+        setConfirmImageChange(false);
       }
 
       if (modelChanged && onSaveOpenClawConfig) {
@@ -1815,6 +1849,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
       setSavedArchiveDraft(archiveDraft);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to save settings.";
+      if (removeConfiguredChannels) setConfirmImageChange(false);
       if (savingSection === "agent") {
         setAgentSettingsError(message);
       } else {
@@ -1831,6 +1866,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     agentNameDraft,
     agent,
     archiveDraft,
+    configuredChannelIds,
     desktopChanged,
     desktopEnabledDraft,
     getToken,
@@ -1845,6 +1881,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     profileAvatar,
     profileChanged,
     profileName,
+    reportedChannelsReady,
     savedAdditionalEnvDraft,
     savedAgentImage,
     savedAgentName,
@@ -2003,6 +2040,16 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
           </div>
         </footer>
       </div>
+      <ConfirmDialog
+        open={confirmImageChange}
+        title="Remove channels and change image?"
+        message={`Changing the runtime image requires permanently removing setup for ${configuredChannelIds.map(humanizeKey).join(", ")}. If the image update fails, that channel setup will still be removed.`}
+        confirmLabel="Remove channels and save"
+        danger
+        loading={profileSaving}
+        onCancel={() => { if (!profileSaving) setConfirmImageChange(false); }}
+        onConfirm={() => { void saveProfileChanges(true); }}
+      />
     </div>
   );
 }

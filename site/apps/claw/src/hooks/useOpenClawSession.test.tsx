@@ -125,6 +125,115 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
+  it("preloads unconfigured channel guidance after the gateway is ready", async () => {
+    const gateway = buildGateway();
+    gateway.runEphemeralChat.mockImplementation(async (prompt: string) => {
+      const connectorId = prompt.match(/Plan a (telegram|discord|slack|whatsapp) connector/)?.[1] ?? "telegram";
+      const runtimeFingerprint = Array.from(prompt.matchAll(/"runtimeFingerprint":"([^"]+)"/g)).at(-1)?.[1];
+      return JSON.stringify({
+        schema: "hypercli.connector-workflow.v1",
+        connectorId,
+        runtimeFingerprint,
+        summary: `Connect ${connectorId}.`,
+        steps: [
+          { id: "open", title: "Open setup", instructions: "Open the official setup page.", kind: "instruction", url: `https://${connectorId}.com` },
+          { id: "create", title: "Create connection", instructions: "Create the connection.", kind: "instruction" },
+          { id: "configure", title: "Configure access", instructions: "Configure protected access.", kind: "input" },
+          { id: "verify", title: "Verify connection", instructions: "Check connection status.", kind: "verify" },
+        ],
+      });
+    });
+    const agent = {
+      id: "agent-preload",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await waitFor(() => expect(gateway.runEphemeralChat).toHaveBeenCalledTimes(4));
+
+    const prompts = gateway.runEphemeralChat.mock.calls.map(([prompt]) => prompt as string);
+    expect(prompts.map((prompt) => prompt.match(/Plan a (\w+) connector/)?.[1])).toEqual([
+      "telegram",
+      "discord",
+      "slack",
+      "whatsapp",
+    ]);
+    expect(gateway.runEphemeralChat.mock.calls.every(([, options]) => options?.fastMode === true)).toBe(true);
+    unmount();
+  });
+
+  it("exposes a runtime-provenanced connector provider backed by session operations", async () => {
+    const gateway = Object.assign(buildGateway(), {
+      version: "2026.7.16",
+      protocol: 3,
+    });
+    const agent = {
+      id: "agent-1",
+      launchConfig: { image: "ghcr.io/hypercli/openclaw@sha256:exact" },
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+      exec: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+
+    expect(result.current.connectorRuntime).toEqual(expect.objectContaining({
+      provider: "openclaw",
+      version: "2026.7.16",
+      protocol: "gateway-v3",
+      image: "ghcr.io/hypercli/openclaw@sha256:exact",
+    }));
+    expect(result.current.connectorsProvider).not.toBeNull();
+
+    await act(async () => {
+      await result.current.connectorsProvider?.configure("telegram", { enabled: true, dmPolicy: "allowlist" });
+      await result.current.connectorsProvider?.approveAuthorization?.({
+        connectorId: "telegram",
+        protocol: "short-code",
+        code: "ABCD2345",
+      });
+    });
+    expect(gateway.configPatch).toHaveBeenCalledWith({
+      channels: { telegram: { enabled: true, dmPolicy: "allowlist" } },
+    });
+    expect(result.current.config).toEqual(expect.objectContaining({
+      channels: { telegram: { enabled: true, dmPolicy: "allowlist" } },
+    }));
+    expect(agent.exec).toHaveBeenCalledWith(
+      "openclaw pairing approve telegram ABCD2345",
+      { timeout: 120 },
+    );
+    unmount();
+  });
+
+  it("rejects connector approval when the OpenClaw command exits unsuccessfully", async () => {
+    const gateway = buildGateway();
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+      exec: vi.fn(async () => ({ exitCode: 1, stdout: "", stderr: "No pending Telegram pairing request." })),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+
+    await expect(result.current.connectorsProvider?.approveAuthorization?.({
+      connectorId: "telegram",
+      protocol: "short-code",
+      code: "ABCD2345",
+    })).rejects.toThrow("No pending Telegram pairing request.");
+    expect(agent.exec).toHaveBeenCalledWith(
+      "openclaw pairing approve telegram ABCD2345",
+      { timeout: 120 },
+    );
+    unmount();
+  });
+
   it("tracks image attachment reads before the preview payload is ready", async () => {
     const originalFileReader = globalThis.FileReader;
     type FileReaderHandler = ((event: ProgressEvent<FileReader>) => void) | null;
@@ -288,6 +397,40 @@ describe("useOpenClawSession", () => {
     });
 
     expect(gateway.integrationsStatus).toHaveBeenCalledTimes(5);
+    unmount();
+  });
+
+  it("keeps the previous channel inventory while config changes are being refreshed", async () => {
+    const gateway = buildGateway();
+    const refreshedStatus = deferred<Record<string, unknown>>();
+    gateway.channelsStatus
+      .mockResolvedValueOnce({ channels: { telegram: { configured: true, running: true } } })
+      .mockImplementationOnce(async () => refreshedStatus.promise);
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+    await waitFor(() => expect(result.current.reportedChannelsReady).toBe(true));
+    expect(result.current.reportedChannels).toEqual([
+      expect.objectContaining({ channelId: "telegram", configured: true, running: true }),
+    ]);
+
+    await act(async () => {
+      await result.current.saveConfig({ channels: { telegram: null } });
+    });
+
+    expect(result.current.reportedChannelsReady).toBe(false);
+    expect(result.current.reportedChannels).toEqual([
+      expect.objectContaining({ channelId: "telegram", configured: true, running: true }),
+    ]);
+
+    refreshedStatus.resolve({ channels: {} });
+    await waitFor(() => expect(result.current.reportedChannelsReady).toBe(true));
+    expect(result.current.reportedChannels).toEqual([]);
     unmount();
   });
 
@@ -1884,6 +2027,41 @@ describe("useOpenClawSession", () => {
       expect(gateway.chatSend).toHaveBeenCalledWith("Test the weather skill safely.", newSessionKey, undefined);
     });
     expect(gateway.chatSend.mock.calls.map(([, sessionKey]) => sessionKey)).not.toContain("main");
+    unmount();
+  });
+
+  it("can wait for gateway session creation before returning a test session", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([{ key: "main", title: "Main" }]);
+    const reset = deferred<void>();
+    gateway.sessionsReset.mockReturnValueOnce(reset.promise);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+
+    let settled = false;
+    let creation!: Promise<string>;
+    act(() => {
+      creation = result.current.createSession({ initialMessage: "Test draft", waitForCreation: true }).then((key) => {
+        settled = true;
+        return key;
+      });
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    reset.resolve(undefined);
+    let sessionKey = "";
+    await act(async () => { sessionKey = await creation; });
+    expect(settled).toBe(true);
+    expect(sessionKey).toMatch(/^session-/);
+    expect(gateway.chatSend).toHaveBeenCalledWith("Test draft", sessionKey, undefined);
     unmount();
   });
 
