@@ -205,6 +205,28 @@ export interface OpenClawConfigNodeDescriptor {
   isDynamicMap: boolean;
 }
 
+export type OpenClawConfigReloadKind = "restart" | "hot" | "none";
+
+export interface OpenClawConfigSchemaLookupChild {
+  key: string;
+  path: string;
+  type?: string | string[];
+  required: boolean;
+  hasChildren: boolean;
+  reloadKind?: OpenClawConfigReloadKind;
+  hint?: OpenClawConfigUiHint;
+  hintPath?: string;
+}
+
+export interface OpenClawConfigSchemaLookupResult {
+  path: string;
+  schema: unknown;
+  reloadKind?: OpenClawConfigReloadKind;
+  hint?: OpenClawConfigUiHint;
+  hintPath?: string;
+  children: OpenClawConfigSchemaLookupChild[];
+}
+
 export interface GatewaySkillsStatusParams {
   agentId?: string;
 }
@@ -549,10 +571,308 @@ export interface GatewayIntegrationDisconnectResult {
   [key: string]: unknown;
 }
 
+export interface GatewayMessageActionParams {
+  channel: string;
+  action: string;
+  params: Record<string, unknown>;
+  accountId?: string;
+  sessionKey?: string;
+  sessionId?: string;
+  inboundTurnKind?: "user_request" | "room_event";
+  agentId?: string;
+  conversationReadOrigin?: "direct-operator";
+  idempotencyKey?: string;
+}
+
+export interface GatewaySendParams {
+  to: string;
+  message?: string;
+  mediaUrl?: string;
+  mediaUrls?: string[];
+  buffer?: string;
+  filename?: string;
+  contentType?: string;
+  asVoice?: boolean;
+  gifPlayback?: boolean;
+  channel?: string;
+  accountId?: string;
+  agentId?: string;
+  replyToId?: string;
+  threadId?: string;
+  forceDocument?: boolean;
+  silent?: boolean;
+  parseMode?: "HTML";
+  sessionKey?: string;
+  idempotencyKey?: string;
+}
+
+export interface GatewaySendResult {
+  runId: string;
+  messageId: unknown;
+  channel: string;
+  chatId?: unknown;
+  channelId?: unknown;
+  toJid?: unknown;
+  conversationId?: unknown;
+  pollId?: unknown;
+}
+
+export type GatewayPluginState = "enabled" | "disabled" | "not-installed" | "error";
+
+export type GatewayPluginCatalogInstallAction =
+  | { source: "clawhub"; packageName: string }
+  | { source: "official"; pluginId: string };
+
+export interface GatewayPluginCatalogEntry {
+  id: string;
+  name: string;
+  packageName?: string;
+  description?: string;
+  version?: string;
+  kind?: string[];
+  origin?: string;
+  installed: boolean;
+  enabled: boolean;
+  state: GatewayPluginState;
+  featured?: boolean;
+  order?: number;
+  hasIcon?: boolean;
+  install?: GatewayPluginCatalogInstallAction;
+  error?: string;
+  category?: string;
+  removable?: boolean;
+}
+
+export interface GatewayPluginsListResult {
+  plugins: GatewayPluginCatalogEntry[];
+  diagnostics: unknown[];
+  mutationAllowed: boolean;
+}
+
+export type GatewayPluginsInstallParams =
+  | {
+      source: "clawhub";
+      packageName: string;
+      version?: string;
+      acknowledgeClawHubRisk?: boolean;
+    }
+  | {
+      source: "official";
+      pluginId: string;
+    };
+
+export interface GatewayPluginsInstallResult {
+  ok: true;
+  plugin: GatewayPluginCatalogEntry;
+  restartRequired: true;
+  warnings?: string[];
+}
+
+export interface GatewayPluginsSetEnabledParams {
+  pluginId: string;
+  enabled: boolean;
+}
+
+export interface GatewayPluginsSetEnabledResult {
+  ok: true;
+  plugin: GatewayPluginCatalogEntry;
+  restartRequired: boolean;
+  warnings?: string[];
+}
+
+export interface GatewayPluginsUninstallParams {
+  pluginId: string;
+}
+
+export interface GatewayPluginsUninstallResult {
+  ok: true;
+  pluginId: string;
+  restartRequired: true;
+  removed: string[];
+  warnings?: string[];
+}
+
+export interface GatewayPluginsRefreshResult {
+  ok: true;
+}
+
+export type GatewayToolProfileId = "minimal" | "coding" | "messaging" | "full";
+export type GatewayToolSource = "core" | "plugin" | "channel" | "mcp";
+export type GatewayToolRisk = "low" | "medium" | "high";
+
+export interface GatewayToolsCatalogParams {
+  agentId?: string;
+  includePlugins?: boolean;
+}
+
+export interface GatewayToolCatalogProfile {
+  id: GatewayToolProfileId;
+  label: string;
+}
+
+export interface GatewayToolCatalogEntry {
+  id: string;
+  label: string;
+  description: string;
+  source: "core" | "plugin";
+  pluginId?: string;
+  optional?: boolean;
+  risk?: GatewayToolRisk;
+  tags?: string[];
+  defaultProfiles: GatewayToolProfileId[];
+}
+
+export interface GatewayToolCatalogGroup {
+  id: string;
+  label: string;
+  source: "core" | "plugin";
+  pluginId?: string;
+  tools: GatewayToolCatalogEntry[];
+}
+
+export interface GatewayToolsCatalogResult {
+  agentId: string;
+  profiles: GatewayToolCatalogProfile[];
+  groups: GatewayToolCatalogGroup[];
+}
+
+export interface GatewayToolsEffectiveParams {
+  agentId?: string;
+  sessionKey: string;
+}
+
+export interface GatewayToolsEffectiveEntry {
+  id: string;
+  label: string;
+  description: string;
+  rawDescription: string;
+  source: GatewayToolSource;
+  pluginId?: string;
+  channelId?: string;
+  risk?: GatewayToolRisk;
+  tags?: string[];
+}
+
+export interface GatewayToolsEffectiveGroup {
+  id: GatewayToolSource;
+  label: string;
+  source: GatewayToolSource;
+  tools: GatewayToolsEffectiveEntry[];
+}
+
+export interface GatewayToolsEffectiveNotice {
+  id: string;
+  severity: "info" | "warning";
+  message: string;
+}
+
+export interface GatewayToolsEffectiveResult {
+  agentId: string;
+  profile: string;
+  groups: GatewayToolsEffectiveGroup[];
+  notices?: GatewayToolsEffectiveNotice[];
+}
+
+export interface GatewayToolsInvokeParams {
+  name: string;
+  args?: Record<string, unknown>;
+  sessionKey?: string;
+  agentId?: string;
+  confirm?: boolean;
+  idempotencyKey?: string;
+  conversationReadOrigin?: "direct-operator";
+}
+
+export interface GatewayToolsInvokeError {
+  code: string;
+  message: string;
+  details?: unknown;
+}
+
+export interface GatewayToolsInvokeResult {
+  ok: boolean;
+  toolName: string;
+  output?: unknown;
+  requiresApproval?: boolean;
+  approvalId?: string;
+  source?: GatewayToolSource | (string & {});
+  error?: GatewayToolsInvokeError;
+}
+
+export type GatewayCommandSource = "native" | "skill" | "plugin";
+export type GatewayCommandScope = "text" | "native" | "both";
+export type GatewayCommandCategory =
+  | "session"
+  | "options"
+  | "status"
+  | "management"
+  | "media"
+  | "tools"
+  | "docks";
+
+export interface GatewayCommandArgChoice {
+  value: string;
+  label: string;
+}
+
+export interface GatewayCommandArg {
+  name: string;
+  description: string;
+  type: "string" | "number" | "boolean";
+  required?: boolean;
+  choices?: GatewayCommandArgChoice[];
+  dynamic?: boolean;
+}
+
+export interface GatewayCommandEntry {
+  name: string;
+  nativeName?: string;
+  textAliases?: string[];
+  description: string;
+  category?: GatewayCommandCategory;
+  source: GatewayCommandSource;
+  scope: GatewayCommandScope;
+  acceptsArgs: boolean;
+  args?: GatewayCommandArg[];
+}
+
+export interface GatewayCommandsListParams {
+  agentId?: string;
+  provider?: string;
+  scope?: GatewayCommandScope;
+  includeArgs?: boolean;
+}
+
+export interface GatewayCommandsListResult {
+  commands: GatewayCommandEntry[];
+}
+
 export interface ChannelsStatusParams {
   probe?: boolean;
   timeoutMs?: number;
   channel?: string;
+}
+
+export interface ChannelsStartParams {
+  channel: string;
+  accountId?: string;
+}
+
+export interface ChannelsStartResult {
+  channel: string;
+  accountId: string;
+  started: boolean;
+}
+
+export interface ChannelsStopParams {
+  channel: string;
+  accountId?: string;
+}
+
+export interface ChannelsStopResult {
+  channel: string;
+  accountId: string;
+  stopped: boolean;
 }
 
 export type ChannelCredentialStatus = "available" | "configured_unavailable" | "missing";
@@ -590,6 +910,7 @@ export interface ChannelAccountSnapshot {
   botTokenSource?: string;
   appTokenSource?: string;
   signingSecretSource?: string;
+  userTokenSource?: string;
   tokenStatus?: ChannelCredentialStatus;
   botTokenStatus?: ChannelCredentialStatus;
   appTokenStatus?: ChannelCredentialStatus;
@@ -641,8 +962,35 @@ export interface ChannelsStatusResult {
   [key: string]: unknown;
 }
 
+export interface GatewayWebLoginStartOptions {
+  force?: boolean;
+  timeoutMs?: number;
+  verbose?: boolean;
+  accountId?: string;
+}
+
+export interface GatewayWebLoginStartResult {
+  qrDataUrl?: string;
+  message: string;
+  connected?: boolean;
+}
+
+export interface GatewayWebLoginWaitOptions {
+  timeoutMs?: number;
+  accountId?: string;
+  currentQrDataUrl?: string;
+}
+
+export interface GatewayWebLoginWaitResult {
+  connected: boolean;
+  message: string;
+  qrDataUrl?: string;
+}
+
 export type GatewayEventHandler = (event: GatewayEvent) => void;
 export type GatewayConnectionStateHandler = (state: GatewayConnectionState) => void;
+
+type InternalGatewayEventHandler = (event: GatewayEvent) => boolean;
 
 export type GatewayClientRequestOptions = {
   expectFinal?: boolean;
@@ -716,12 +1064,22 @@ class GatewayRequestError extends Error {
   }
 }
 
+export function isOpenClawGatewayMethodUnsupported(error: unknown, method?: string): boolean {
+  const record = error && typeof error === "object" ? error as Record<string, unknown> : null;
+  const code = typeof record?.gatewayCode === "string" ? record.gatewayCode.trim().toUpperCase() : "";
+  if (["METHOD_NOT_FOUND", "NOT_IMPLEMENTED", "UNIMPLEMENTED", "UNSUPPORTED_METHOD"].includes(code)) return true;
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  if (!/unknown method|method not found|not implemented|unsupported method/i.test(message)) return false;
+  return !method || message.toLowerCase().includes(method.trim().toLowerCase());
+}
+
 export const MIN_GATEWAY_VERSION = 3;
 export const MAX_GATEWAY_VERSION = 4;
 const DEFAULT_CONNECTION_TIMEOUT = 30_000;
 const WEB_LOGIN_WAIT_TIMEOUT = 120_000;
 const DEFAULT_AGENT_TIMEOUT = 900_000;
 const SKILLS_MUTATION_TIMEOUT = 300_000;
+const PLUGIN_MUTATION_TIMEOUT = 300_000;
 const RECONNECT_CLOSE_CODE = 4008;
 const DEFAULT_CLIENT_ID = "cli";
 const DEFAULT_CLIENT_MODE = "cli";
@@ -734,6 +1092,7 @@ const BACKOFF_MULTIPLIER = 1.7;
 const OPERATOR_ROLE = "operator";
 const OPERATOR_SCOPES = ["operator.admin", "operator.approvals", "operator.pairing"];
 const STORAGE_KEY = "openclaw.device.auth.v1";
+const EPHEMERAL_SESSION_PREFIX = "session-hypercli-ephemeral-";
 const CONNECT_ERROR_PAIRING_REQUIRED = "PAIRING_REQUIRED";
 const CONNECT_ERROR_AUTH_TOKEN_MISMATCH = "AUTH_TOKEN_MISMATCH";
 const CONNECT_ERROR_AUTH_RATE_LIMITED = "AUTH_RATE_LIMITED";
@@ -1183,6 +1542,30 @@ function sameSessionKey(left: string | undefined, right: string | undefined): bo
     return normalizedLeft === parsedRight.rest;
   }
   return false;
+}
+
+function isReservedEphemeralSessionKey(sessionKey: string): boolean {
+  return /^session-hypercli-ephemeral-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+    sessionKey,
+  );
+}
+
+function validateEphemeralCanonicalKey(requestedKey: string, canonicalKey: string): string | null {
+  if (!isReservedEphemeralSessionKey(requestedKey)) return null;
+  if (canonicalKey === requestedKey) return canonicalKey;
+  if (!canonicalKey.startsWith("agent:")) return null;
+  const agentSeparator = canonicalKey.indexOf(":", "agent:".length);
+  if (agentSeparator <= "agent:".length) return null;
+  if (!canonicalKey.slice("agent:".length, agentSeparator).trim()) return null;
+  return canonicalKey.slice(agentSeparator + 1) === requestedKey ? canonicalKey : null;
+}
+
+function isChatStreamGatewayEvent(event: GatewayEvent): boolean {
+  if (event.event === "chat" || event.event.startsWith("chat.")) return true;
+  if (event.event !== "agent") return false;
+  const payload = asRecord(event.payload) ?? {};
+  const stream = typeof payload.stream === "string" ? payload.stream.toLowerCase() : "";
+  return stream === "tool" || stream === "lifecycle";
 }
 
 function splitConfigPath(path: string): string[] {
@@ -1924,6 +2307,8 @@ export class GatewayClient {
   private ws: GatewaySocket | null = null;
   private pending = new Map<string, PendingRequest>();
   private eventHandlers = new Set<GatewayEventHandler>();
+  private internalEventHandlers = new Set<InternalGatewayEventHandler>();
+  private activeEphemeralSessionKeys = new Set<string>();
   private connectionStateHandlers = new Set<GatewayConnectionStateHandler>();
   private connected = false;
   private connectionState: GatewayConnectionState = "disconnected";
@@ -2052,6 +2437,25 @@ export class GatewayClient {
   onEvent(handler: GatewayEventHandler): () => void {
     this.eventHandlers.add(handler);
     return () => this.eventHandlers.delete(handler);
+  }
+
+  private shouldSuppressPublicEvent(event: GatewayEvent, handledInternally: boolean): boolean {
+    if (handledInternally) return true;
+    const payload = asRecord(event.payload) ?? {};
+    const sessionKey = typeof payload.sessionKey === "string" ? payload.sessionKey.trim() : "";
+    if (
+      sessionKey &&
+      [...this.activeEphemeralSessionKeys].some((activeKey) => sameSessionKey(sessionKey, activeKey))
+    ) {
+      return true;
+    }
+    const runId = typeof payload.runId === "string" ? payload.runId.trim() : "";
+    return (
+      this.activeEphemeralSessionKeys.size > 0 &&
+      !sessionKey &&
+      !runId &&
+      isChatStreamGatewayEvent(event)
+    );
   }
 
   /** Connect and keep reconnecting until stopped */
@@ -2538,6 +2942,17 @@ export class GatewayClient {
         this.lastSeq = gatewayEvent.seq;
       }
 
+      let handledInternally = false;
+      for (const handler of this.internalEventHandlers) {
+        try {
+          handledInternally = handler(gatewayEvent) || handledInternally;
+        } catch {
+          // Internal stream handlers are isolated from the socket lifecycle.
+        }
+      }
+      if (this.shouldSuppressPublicEvent(gatewayEvent, handledInternally)) {
+        return;
+      }
       for (const handler of this.eventHandlers) {
         try {
           handler(gatewayEvent);
@@ -2702,6 +3117,10 @@ export class GatewayClient {
     return normalizeOpenClawConfigSchema(res) ?? { schema: {}, uiHints: {} };
   }
 
+  async configSchemaLookup(path: string): Promise<OpenClawConfigSchemaLookupResult> {
+    return await this.rpc("config.schema.lookup", { path });
+  }
+
   async configPatch(patch: Record<string, any>): Promise<void> {
     const { hash, baseHash } = await this.rpc("config.get") as { hash?: string; baseHash?: string };
     await this.rpc("config.patch", {
@@ -2860,18 +3279,93 @@ export class GatewayClient {
     return await this.rpc("channels.status", params);
   }
 
+  async channelsStart(channel: string, accountId?: string): Promise<ChannelsStartResult> {
+    const params: ChannelsStartParams = { channel };
+    if (accountId !== undefined) params.accountId = accountId;
+    return await this.rpc("channels.start", params);
+  }
+
+  async channelsStop(channel: string, accountId?: string): Promise<ChannelsStopResult> {
+    const params: ChannelsStopParams = { channel };
+    if (accountId !== undefined) params.accountId = accountId;
+    return await this.rpc("channels.stop", params);
+  }
+
   async channelsLogout(channel: string, accountId?: string): Promise<Record<string, any>> {
     const params: Record<string, any> = { channel };
-    if (accountId) params.accountId = accountId;
+    if (accountId !== undefined) params.accountId = accountId;
     return await this.rpc("channels.logout", params);
   }
 
-  async webLoginStart(options: {
-    force?: boolean;
-    timeoutMs?: number;
-    verbose?: boolean;
-    accountId?: string;
-  } = {}): Promise<Record<string, any>> {
+  async messageAction<TResult = unknown>(params: GatewayMessageActionParams): Promise<TResult> {
+    const request: Record<string, unknown> = {
+      channel: params.channel,
+      action: params.action,
+      params: params.params,
+      idempotencyKey: params.idempotencyKey ?? makeId(),
+    };
+    if (params.accountId !== undefined) request.accountId = params.accountId;
+    if (params.sessionKey !== undefined) request.sessionKey = params.sessionKey;
+    if (params.sessionId !== undefined) request.sessionId = params.sessionId;
+    if (params.inboundTurnKind !== undefined) request.inboundTurnKind = params.inboundTurnKind;
+    if (params.agentId !== undefined) request.agentId = params.agentId;
+    if (params.conversationReadOrigin !== undefined) {
+      request.conversationReadOrigin = params.conversationReadOrigin;
+    }
+    return await this.rpc("message.action", request);
+  }
+
+  async send(params: GatewaySendParams): Promise<GatewaySendResult> {
+    return await this.rpc("send", {
+      ...params,
+      idempotencyKey: params.idempotencyKey ?? makeId(),
+    });
+  }
+
+  async pluginsList(): Promise<GatewayPluginsListResult> {
+    return await this.rpc("plugins.list", {});
+  }
+
+  async pluginsInstall(params: GatewayPluginsInstallParams): Promise<GatewayPluginsInstallResult> {
+    return await this.rpc("plugins.install", params, Math.max(PLUGIN_MUTATION_TIMEOUT, this.defaultTimeout));
+  }
+
+  async pluginsSetEnabled(
+    params: GatewayPluginsSetEnabledParams,
+  ): Promise<GatewayPluginsSetEnabledResult> {
+    return await this.rpc("plugins.setEnabled", params);
+  }
+
+  async pluginsUninstall(
+    params: GatewayPluginsUninstallParams,
+  ): Promise<GatewayPluginsUninstallResult> {
+    return await this.rpc("plugins.uninstall", params, Math.max(PLUGIN_MUTATION_TIMEOUT, this.defaultTimeout));
+  }
+
+  async pluginsRefresh(): Promise<GatewayPluginsRefreshResult> {
+    return await this.rpc("plugins.refresh", {});
+  }
+
+  async toolsCatalog(params: GatewayToolsCatalogParams = {}): Promise<GatewayToolsCatalogResult> {
+    return await this.rpc("tools.catalog", params);
+  }
+
+  async toolsEffective(params: GatewayToolsEffectiveParams): Promise<GatewayToolsEffectiveResult> {
+    return await this.rpc("tools.effective", params);
+  }
+
+  async toolsInvoke(params: GatewayToolsInvokeParams): Promise<GatewayToolsInvokeResult> {
+    return await this.rpc("tools.invoke", {
+      ...params,
+      idempotencyKey: params.idempotencyKey ?? makeId(),
+    });
+  }
+
+  async commandsList(params: GatewayCommandsListParams = {}): Promise<GatewayCommandsListResult> {
+    return await this.rpc("commands.list", params);
+  }
+
+  async webLoginStart(options: GatewayWebLoginStartOptions = {}): Promise<GatewayWebLoginStartResult> {
     const params: Record<string, any> = {};
     if (options.force) params.force = true;
     if (options.timeoutMs !== undefined) params.timeoutMs = options.timeoutMs;
@@ -2880,13 +3374,11 @@ export class GatewayClient {
     return await this.rpc("web.login.start", params, 30_000);
   }
 
-  async webLoginWait(options: {
-    timeoutMs?: number;
-    accountId?: string;
-  } = {}): Promise<Record<string, any>> {
+  async webLoginWait(options: GatewayWebLoginWaitOptions = {}): Promise<GatewayWebLoginWaitResult> {
     const params: Record<string, any> = {};
     if (options.timeoutMs !== undefined) params.timeoutMs = options.timeoutMs;
     if (options.accountId) params.accountId = options.accountId;
+    if (options.currentQrDataUrl) params.currentQrDataUrl = options.currentQrDataUrl;
     return await this.rpc("web.login.wait", params, WEB_LOGIN_WAIT_TIMEOUT);
   }
 
@@ -3028,6 +3520,7 @@ export class GatewayClient {
     message: string,
     sessionKey: string,
     attachments?: ChatAttachment[],
+    options: { strictCorrelation?: boolean } = {},
   ): AsyncGenerator<ChatEvent> {
     if (!this.connected || !this.ws) {
       throw new Error("Not connected");
@@ -3037,29 +3530,32 @@ export class GatewayClient {
     const acceptedRunIds = new Set<string>([idempotencyKey]);
     const queuedEvents: GatewayEvent[] = [];
     let resolveWait: (() => void) | null = null;
+    let correlationReady = false;
     let streamedDisplayText = false;
     let lastLegacyText = "";
     let lastThinkingText = "";
     const seenToolCallIds = new Set<string>();
     const seenToolResultIds = new Set<string>();
 
-    const handler: GatewayEventHandler = (evt) => {
-      const isAgentStreamEvent =
-        evt.event === "agent" &&
-        (() => {
-          const payload = asRecord(evt.payload) ?? {};
-          const stream = typeof payload.stream === "string" ? payload.stream.toLowerCase() : "";
-          return stream === "tool" || stream === "lifecycle";
-        })();
-      if (evt.event === "chat" || evt.event?.startsWith("chat.") || isAgentStreamEvent) {
-        queuedEvents.push(evt);
-        const waiter = resolveWait;
-        resolveWait = null;
-        waiter?.();
+    const handler: InternalGatewayEventHandler = (evt) => {
+      if (!isChatStreamGatewayEvent(evt)) return false;
+      const payload = asRecord(evt.payload) ?? {};
+      const payloadRunId = typeof payload.runId === "string" ? payload.runId.trim() : "";
+      const payloadSessionKey =
+        typeof payload.sessionKey === "string" ? payload.sessionKey.trim() : "";
+      if (options.strictCorrelation) {
+        if (!payloadRunId && !payloadSessionKey) return false;
+        if (payloadSessionKey && !sameSessionKey(payloadSessionKey, sessionKey)) return false;
+        if (payloadRunId && correlationReady && !acceptedRunIds.has(payloadRunId)) return false;
       }
+      queuedEvents.push(evt);
+      const waiter = resolveWait;
+      resolveWait = null;
+      waiter?.();
+      return options.strictCorrelation === true;
     };
 
-    this.eventHandlers.add(handler);
+    this.internalEventHandlers.add(handler);
 
     try {
       const normalizedAttachments = normalizeChatAttachments(attachments);
@@ -3076,6 +3572,7 @@ export class GatewayClient {
       if (serverRunId) {
         acceptedRunIds.add(serverRunId);
       }
+      correlationReady = true;
 
       const waitForHistoryText = async (timeoutMs = 10_000): Promise<string> => {
         const historyDeadline = Date.now() + Math.min(timeoutMs, DEFAULT_AGENT_TIMEOUT);
@@ -3351,7 +3848,7 @@ export class GatewayClient {
 
       throw new Error("Streaming chat.send timed out");
     } finally {
-      this.eventHandlers.delete(handler);
+      this.internalEventHandlers.delete(handler);
     }
   }
 
@@ -3372,9 +3869,10 @@ export class GatewayClient {
       throw new Error("Ephemeral chat response limit must be a positive integer.");
     }
 
-    const requestedSessionKey = `session-${makeId()}`;
+    const requestedSessionKey = `${EPHEMERAL_SESSION_PREFIX}${makeId()}`;
     let sessionKey = requestedSessionKey;
     let created = false;
+    let cleanupSessionKey: string | null = null;
     let terminal = false;
     let stream: AsyncGenerator<ChatEvent> | null = null;
     let stopError: Error | null = null;
@@ -3411,14 +3909,20 @@ export class GatewayClient {
 
     try {
       if (options.signal?.aborted) throw abortError();
-      sessionKey = await this.sessionsReset(requestedSessionKey, "new");
+      const canonicalSessionKey = await this.sessionsReset(requestedSessionKey, "new");
+      sessionKey = validateEphemeralCanonicalKey(requestedSessionKey, canonicalSessionKey) ?? "";
+      cleanupSessionKey = sessionKey || requestedSessionKey;
+      if (!sessionKey) {
+        throw new Error(`Gateway returned an unsafe ephemeral session key: ${canonicalSessionKey}`);
+      }
       created = true;
+      this.activeEphemeralSessionKeys.add(sessionKey);
       if (options.signal?.aborted) throw abortError();
       if (stopError) throw stopError;
 
       if (options.fastMode) {
         let fastModeTerminal = false;
-        stream = this.chatSend("/fast on", sessionKey);
+        stream = this.chatSend("/fast on", sessionKey, undefined, { strictCorrelation: true });
         while (true) {
           const next = await Promise.race([
             stream.next(),
@@ -3428,7 +3932,7 @@ export class GatewayClient {
           const event = next.value;
           if (event.type === "error") {
             fastModeTerminal = true;
-            break;
+            throw new Error(event.text || "Ephemeral fast mode failed.");
           }
           if (event.type === "done") {
             fastModeTerminal = true;
@@ -3441,7 +3945,7 @@ export class GatewayClient {
       }
 
       let content = "";
-      stream = this.chatSend(prompt, sessionKey);
+      stream = this.chatSend(prompt, sessionKey, undefined, { strictCorrelation: true });
       while (true) {
         const next = await Promise.race([
           stream.next(),
@@ -3478,7 +3982,12 @@ export class GatewayClient {
       clearTimeout(timeout);
       options.signal?.removeEventListener("abort", handleSignalAbort);
       void stream?.return(undefined).catch(() => undefined);
-      if (created) await this.sessionsReset(sessionKey, "reset").catch(() => undefined);
+      if (cleanupSessionKey && isReservedEphemeralSessionKey(
+        parseAgentSessionKey(cleanupSessionKey)?.rest ?? cleanupSessionKey,
+      )) {
+        await this.sessionsReset(cleanupSessionKey, "reset").catch(() => undefined);
+      }
+      if (created) this.activeEphemeralSessionKeys.delete(sessionKey);
     }
   }
 

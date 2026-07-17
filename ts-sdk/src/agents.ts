@@ -18,6 +18,10 @@ import {
   type GatewayIntegrationStatusParams,
   type GatewayIntegrationStatusResult,
   type GatewayOptions,
+  type GatewayWebLoginStartOptions,
+  type GatewayWebLoginStartResult,
+  type GatewayWebLoginWaitOptions,
+  type GatewayWebLoginWaitResult,
   type GatewayWaitReadyOptions,
   type OpenClawConfigSchemaResponse,
   type OpenClawSlackRelayOptions,
@@ -28,8 +32,8 @@ const DEV_AGENTS_API_BASE = 'https://api.dev.hypercli.com/agents';
 const DEPLOYMENTS_API_PREFIX = '/deployments';
 const AGENTS_WS_URL = 'wss://api.agents.hypercli.com/ws';
 const DEV_AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
-export const DEFAULT_OPENCLAW_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:prod';
-export const DEFAULT_OPENCLAW_PRO_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:pro-prod';
+export const DEFAULT_OPENCLAW_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:pro-latest';
+export const DEFAULT_OPENCLAW_PRO_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:pro-latest';
 export const OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
   OPENCLAW_MEMORY_SEARCH_ENABLED: '1',
   OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START: '0',
@@ -1679,13 +1683,8 @@ export class OpenClawAgent extends Agent {
   }
 
   async webLoginStart(
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & {
-      force?: boolean;
-      timeoutMs?: number;
-      verbose?: boolean;
-      accountId?: string;
-    } = {},
-  ): Promise<Record<string, any>> {
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & GatewayWebLoginStartOptions = {},
+  ): Promise<GatewayWebLoginStartResult> {
     const client = await this.connect(options);
     try {
       return await client.webLoginStart({
@@ -1700,16 +1699,14 @@ export class OpenClawAgent extends Agent {
   }
 
   async webLoginWait(
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & {
-      timeoutMs?: number;
-      accountId?: string;
-    } = {},
-  ): Promise<Record<string, any>> {
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & GatewayWebLoginWaitOptions = {},
+  ): Promise<GatewayWebLoginWaitResult> {
     const client = await this.connect(options);
     try {
       return await client.webLoginWait({
         timeoutMs: options.timeoutMs,
         accountId: options.accountId,
+        currentQrDataUrl: options.currentQrDataUrl,
       });
     } finally {
       client.close();

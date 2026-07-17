@@ -663,6 +663,284 @@ describe("GatewayClient", () => {
     });
   });
 
+  it("starts and waits for web login while forwarding the current QR code", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const startResult = {
+      connected: false,
+      message: "Scan this QR code.",
+      qrDataUrl: "data:image/png;base64,cXItMQ==",
+    };
+    const waitResult = {
+      connected: false,
+      message: "QR refreshed.",
+      qrDataUrl: "data:image/png;base64,cXItMg==",
+    };
+    const rpc = vi.spyOn(client as any, "rpc")
+      .mockResolvedValueOnce(startResult)
+      .mockResolvedValueOnce(waitResult);
+
+    await expect(client.webLoginStart({
+      force: true,
+      timeoutMs: 25_000,
+      verbose: true,
+      accountId: "work",
+    })).resolves.toBe(startResult);
+    await expect(client.webLoginWait({
+      timeoutMs: 30_000,
+      accountId: "work",
+      currentQrDataUrl: startResult.qrDataUrl,
+    })).resolves.toBe(waitResult);
+
+    expect(rpc).toHaveBeenNthCalledWith(1, "web.login.start", {
+      force: true,
+      timeoutMs: 25_000,
+      verbose: true,
+      accountId: "work",
+    }, 30_000);
+    expect(rpc).toHaveBeenNthCalledWith(2, "web.login.wait", {
+      timeoutMs: 30_000,
+      accountId: "work",
+      currentQrDataUrl: startResult.qrDataUrl,
+    }, 120_000);
+  });
+
+  it("sends message actions with generated or supplied idempotency keys", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const rpc = vi.spyOn(client as any, "rpc")
+      .mockResolvedValueOnce({ messageId: "generated" })
+      .mockResolvedValueOnce({ messageId: "supplied" });
+
+    await client.messageAction({
+      channel: "slack",
+      action: "react",
+      params: { messageId: "1712345.678", emoji: "thumbsup" },
+      accountId: "workspace",
+      sessionKey: "main",
+      conversationReadOrigin: "direct-operator",
+      toolContext: { currentChannelId: "C123" },
+      requesterAccountId: "untrusted-account",
+      requesterSenderId: "untrusted-sender",
+      senderIsOwner: true,
+    } as any);
+    await client.messageAction({
+      channel: "slack",
+      action: "react",
+      params: { messageId: "1712345.678", emoji: "eyes" },
+      idempotencyKey: "message-action-key",
+    });
+
+    const generatedParams = rpc.mock.calls[0]?.[1];
+    expect(rpc).toHaveBeenNthCalledWith(1, "message.action", {
+      channel: "slack",
+      action: "react",
+      params: { messageId: "1712345.678", emoji: "thumbsup" },
+      accountId: "workspace",
+      sessionKey: "main",
+      conversationReadOrigin: "direct-operator",
+      idempotencyKey: expect.any(String),
+    });
+    expect(generatedParams.idempotencyKey).not.toBe("");
+    expect(generatedParams.toolContext).toBeUndefined();
+    expect(generatedParams.requesterAccountId).toBeUndefined();
+    expect(generatedParams.requesterSenderId).toBeUndefined();
+    expect(generatedParams.senderIsOwner).toBeUndefined();
+    expect(rpc).toHaveBeenNthCalledWith(2, "message.action", {
+      channel: "slack",
+      action: "react",
+      params: { messageId: "1712345.678", emoji: "eyes" },
+      idempotencyKey: "message-action-key",
+    });
+  });
+
+  it("sends outbound messages with generated or supplied idempotency keys", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const rpc = vi.spyOn(client as any, "rpc").mockResolvedValue({
+      runId: "send-run",
+      messageId: "1712345.678",
+      channel: "slack",
+    });
+
+    await client.send({
+      to: "C123",
+      message: "hello",
+      channel: "slack",
+      threadId: "1712000.000",
+    });
+    await client.send({
+      to: "C123",
+      mediaUrl: "https://example.com/image.png",
+      channel: "slack",
+      idempotencyKey: "send-key",
+    });
+
+    expect(rpc).toHaveBeenNthCalledWith(1, "send", {
+      to: "C123",
+      message: "hello",
+      channel: "slack",
+      threadId: "1712000.000",
+      idempotencyKey: expect.any(String),
+    });
+    expect(rpc.mock.calls[0]?.[1].idempotencyKey).not.toBe("");
+    expect(rpc).toHaveBeenNthCalledWith(2, "send", {
+      to: "C123",
+      mediaUrl: "https://example.com/image.png",
+      channel: "slack",
+      idempotencyKey: "send-key",
+    });
+  });
+
+  it("starts, stops, and logs out channels while preserving explicit account ids", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const rpc = vi.spyOn(client as any, "rpc")
+      .mockResolvedValueOnce({ channel: "slack", accountId: "default", started: true })
+      .mockResolvedValueOnce({ channel: "slack", accountId: "workspace", stopped: true })
+      .mockResolvedValueOnce({ channel: "slack", accountId: "", cleared: false });
+
+    await client.channelsStart("slack");
+    await client.channelsStop("slack", "workspace");
+    await client.channelsLogout("slack", "");
+
+    expect(rpc).toHaveBeenNthCalledWith(1, "channels.start", { channel: "slack" });
+    expect(rpc).toHaveBeenNthCalledWith(2, "channels.stop", {
+      channel: "slack",
+      accountId: "workspace",
+    });
+    expect(rpc).toHaveBeenNthCalledWith(3, "channels.logout", { channel: "slack", accountId: "" });
+  });
+
+  it("sends plugin catalog and lifecycle RPC payloads", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const rpc = vi.spyOn(client as any, "rpc").mockResolvedValue({ ok: true });
+
+    await client.pluginsList();
+    await client.pluginsInstall({
+      source: "clawhub",
+      packageName: "@community/slack-tools",
+      version: "1.2.3",
+      acknowledgeClawHubRisk: true,
+    });
+    await client.pluginsInstall({ source: "official", pluginId: "slack" });
+    await client.pluginsSetEnabled({ pluginId: "slack", enabled: true });
+    await client.pluginsUninstall({ pluginId: "slack" });
+    await client.pluginsRefresh();
+
+    expect(rpc).toHaveBeenNthCalledWith(1, "plugins.list", {});
+    expect(rpc).toHaveBeenNthCalledWith(2, "plugins.install", {
+      source: "clawhub",
+      packageName: "@community/slack-tools",
+      version: "1.2.3",
+      acknowledgeClawHubRisk: true,
+    }, 300_000);
+    expect(rpc).toHaveBeenNthCalledWith(3, "plugins.install", {
+      source: "official",
+      pluginId: "slack",
+    }, 300_000);
+    expect(rpc).toHaveBeenNthCalledWith(4, "plugins.setEnabled", {
+      pluginId: "slack",
+      enabled: true,
+    });
+    expect(rpc).toHaveBeenNthCalledWith(5, "plugins.uninstall", { pluginId: "slack" }, 300_000);
+    expect(rpc).toHaveBeenNthCalledWith(6, "plugins.refresh", {});
+  });
+
+  it("sends tools RPCs and passes invoke failures through", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const failure = {
+      ok: false,
+      toolName: "slack_history",
+      error: { code: "forbidden", message: "Conversation read is not allowed" },
+    };
+    const rpc = vi.spyOn(client as any, "rpc")
+      .mockResolvedValueOnce({ agentId: "main", profiles: [], groups: [] })
+      .mockResolvedValueOnce({ agentId: "main", profile: "messaging", groups: [] })
+      .mockResolvedValueOnce(failure)
+      .mockResolvedValueOnce({ ok: true, toolName: "slack_history", output: [] });
+
+    await client.toolsCatalog({ agentId: "main", includePlugins: true });
+    await client.toolsEffective({ sessionKey: "main", agentId: "main" });
+    await expect(client.toolsInvoke({
+      name: "slack_history",
+      args: { channelId: "C123" },
+      conversationReadOrigin: "direct-operator",
+    })).resolves.toBe(failure);
+    await client.toolsInvoke({
+      name: "slack_history",
+      sessionKey: "main",
+      idempotencyKey: "tools-key",
+    });
+
+    expect(rpc).toHaveBeenNthCalledWith(1, "tools.catalog", {
+      agentId: "main",
+      includePlugins: true,
+    });
+    expect(rpc).toHaveBeenNthCalledWith(2, "tools.effective", {
+      sessionKey: "main",
+      agentId: "main",
+    });
+    expect(rpc).toHaveBeenNthCalledWith(3, "tools.invoke", {
+      name: "slack_history",
+      args: { channelId: "C123" },
+      conversationReadOrigin: "direct-operator",
+      idempotencyKey: expect.any(String),
+    });
+    expect(rpc.mock.calls[2]?.[1].idempotencyKey).not.toBe("");
+    expect(rpc).toHaveBeenNthCalledWith(4, "tools.invoke", {
+      name: "slack_history",
+      sessionKey: "main",
+      idempotencyKey: "tools-key",
+    });
+  });
+
+  it("sends commands and config schema lookup RPC payloads", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const rpc = vi.spyOn(client as any, "rpc")
+      .mockResolvedValueOnce({ commands: [] })
+      .mockResolvedValueOnce({
+        path: "channels.slack",
+        schema: { type: "object" },
+        children: [],
+      });
+
+    await client.commandsList({
+      agentId: "main",
+      provider: "slack",
+      scope: "native",
+      includeArgs: true,
+    });
+    await client.configSchemaLookup("channels.slack");
+
+    expect(rpc).toHaveBeenNthCalledWith(1, "commands.list", {
+      agentId: "main",
+      provider: "slack",
+      scope: "native",
+      includeArgs: true,
+    });
+    expect(rpc).toHaveBeenNthCalledWith(2, "config.schema.lookup", {
+      path: "channels.slack",
+    });
+  });
+
   it("waitReady retries until configGet succeeds", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",
@@ -890,11 +1168,40 @@ describe("GatewayClient", () => {
     await expect(client.runEphemeralChat("Generate JSON")).resolves.toBe('{"schema":"test"}');
     expect(sessionsReset).toHaveBeenCalledTimes(2);
     const sessionKey = sessionsReset.mock.calls[0]?.[0];
-    expect(sessionKey).toMatch(/^session-[0-9a-f-]+$/);
+    expect(sessionKey).toMatch(/^session-hypercli-ephemeral-[0-9a-f-]+$/);
     expect(sessionsReset).toHaveBeenNthCalledWith(1, sessionKey, "new");
     expect(sessionsReset).toHaveBeenNthCalledWith(2, `agent:default:${sessionKey}`, "reset");
-    expect(chatSend).toHaveBeenCalledWith("Generate JSON", `agent:default:${sessionKey}`);
+    expect(chatSend).toHaveBeenCalledWith(
+      "Generate JSON",
+      `agent:default:${sessionKey}`,
+      undefined,
+      { strictCorrelation: true },
+    );
     expect(chatAbort).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "main",
+    "agent:default:main",
+    "unrelated-session",
+  ])("rejects unsafe ephemeral canonical key %s without using it", async (canonicalKey) => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    const sessionsReset = vi.spyOn(client, "sessionsReset").mockImplementation(async (key, reason) => (
+      reason === "new" ? canonicalKey : key
+    ));
+    const chatSend = vi.spyOn(client, "chatSend");
+    const chatAbort = vi.spyOn(client, "chatAbort").mockResolvedValue(undefined);
+
+    await expect(client.runEphemeralChat("Generate JSON")).rejects.toThrow(/unsafe ephemeral session key/i);
+
+    const requestedKey = sessionsReset.mock.calls[0]?.[0];
+    expect(requestedKey).toMatch(/^session-hypercli-ephemeral-[0-9a-f-]+$/);
+    expect(chatSend).not.toHaveBeenCalled();
+    expect(chatAbort).not.toHaveBeenCalled();
+    expect(sessionsReset.mock.calls).not.toContainEqual([canonicalKey, "reset"]);
+    expect(sessionsReset).toHaveBeenLastCalledWith(requestedKey, "reset");
   });
 
   it("enables fast mode with a directive-only turn before the ephemeral prompt", async () => {
@@ -914,6 +1221,100 @@ describe("GatewayClient", () => {
 
     await expect(client.runEphemeralChat("Generate JSON", { fastMode: true })).resolves.toBe('{"schema":"test"}');
     expect(chatSend.mock.calls.map(([message]) => message)).toEqual(["/fast on", "Generate JSON"]);
+  });
+
+  it("fails the ephemeral run when fast mode emits an error", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client, "sessionsReset").mockImplementation(async (key) => key);
+    const chatSend = vi.spyOn(client, "chatSend").mockImplementation(async function* () {
+      yield { type: "error", text: "fast mode unavailable" };
+    });
+
+    await expect(client.runEphemeralChat("Generate JSON", { fastMode: true })).rejects.toThrow(
+      "fast mode unavailable",
+    );
+    expect(chatSend).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps ephemeral and identity-less stream events internal while publishing other sessions", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    const sessionsReset = vi.spyOn(client, "sessionsReset").mockImplementation(async (key) => key);
+    vi.spyOn(client as any, "rpc").mockImplementation(async (method: string) => {
+      if (method === "chat.send") return { runId: "ephemeral-run" };
+      throw new Error(`unexpected RPC ${method}`);
+    });
+    const publicEvents: string[] = [];
+    client.onEvent((event) => publicEvents.push(`${event.event}:${event.payload.text ?? ""}`));
+
+    const completion = client.runEphemeralChat("Generate JSON");
+    await flushMicrotasks();
+    const sessionKey = sessionsReset.mock.calls.find(([, reason]) => reason === "new")?.[0];
+    expect(sessionKey).toMatch(/^session-hypercli-ephemeral-/);
+
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.content",
+      payload: { text: "unkeyed leak" },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "agent",
+      payload: { stream: "tool", data: { phase: "start", name: "leaked-tool" } },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.content",
+      payload: { runId: "normal-run", sessionKey: "main", text: "normal" },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.content",
+      payload: { sessionKey, text: "safe" },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.done",
+      payload: { sessionKey },
+    }));
+
+    await expect(completion).resolves.toBe("safe");
+    expect(publicEvents).toEqual(["chat.content:normal"]);
+  });
+
+  it("routes four concurrent ephemeral streams only by their accepted run IDs", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client, "sessionsReset").mockImplementation(async (key) => key);
+    vi.spyOn(client as any, "rpc").mockImplementation(async (method: string, params: Record<string, any>) => {
+      if (method === "chat.send") return { runId: `${params.message}-run` };
+      throw new Error(`unexpected RPC ${method}`);
+    });
+
+    const labels = ["first", "second", "third", "fourth"];
+    const completions = labels.map((label) => client.runEphemeralChat(label));
+    await flushMicrotasks();
+
+    for (const label of [...labels].reverse()) {
+      (client as any).handleMessage(JSON.stringify({
+        type: "event",
+        event: "chat.content",
+        payload: { runId: `${label}-run`, text: `${label} response` },
+      }));
+      (client as any).handleMessage(JSON.stringify({
+        type: "event",
+        event: "chat.done",
+        payload: { runId: `${label}-run` },
+      }));
+    }
+
+    await expect(Promise.all(completions)).resolves.toEqual(
+      labels.map((label) => `${label} response`),
+    );
   });
 
   it("forwards ephemeral chat events including tool activity in order", async () => {
@@ -1058,6 +1459,7 @@ describe("GatewayClient", () => {
     vi.spyOn(client, "chatSend").mockImplementation(async function* () {
       streamStarted?.();
       await new Promise<void>(() => undefined);
+      yield { type: "done" };
     });
     const chatAbort = vi.spyOn(client, "chatAbort").mockResolvedValue(undefined);
     const controller = new AbortController();

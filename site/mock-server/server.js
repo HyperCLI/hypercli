@@ -785,11 +785,21 @@ app.use((err, req, res, next) => {
 
 const gatewayConnections = new Map();
 const mockChatTimers = new WeakMap();
+const mockChatContexts = new WeakMap();
 let gatewayEventSeq = 0;
 
 function gwEvent(ws, event, payload) {
+  const context = mockChatContexts.get(ws);
+  const isChatStreamEvent = event === 'chat' || event.startsWith('chat.') || event === 'agent';
+  const correlatedPayload = context && isChatStreamEvent
+    ? { ...(payload || {}), sessionKey: context.sessionKey, runId: context.runId }
+    : payload || {};
   gatewayEventSeq += 1;
-  ws.send(JSON.stringify({ type: 'event', event, payload: payload || {}, seq: gatewayEventSeq }));
+  ws.send(JSON.stringify({ type: 'event', event, payload: correlatedPayload, seq: gatewayEventSeq }));
+  const state = String(correlatedPayload.state || '').toLowerCase();
+  if (event === 'chat.done' || event === 'chat.error' || (event === 'chat' && ['final', 'error', 'aborted'].includes(state))) {
+    mockChatContexts.delete(ws);
+  }
 }
 
 function scheduleMockChatTimer(ws, callback, delay) {
@@ -844,6 +854,24 @@ const mockSessions = [
     lastMessageAt: Date.now() - 1000 * 60 * 30,
   },
 ];
+let mockSlackPlugin = {
+  id: 'slack',
+  name: 'Slack',
+  description: 'Slack messaging support',
+  installed: true,
+  enabled: true,
+  state: 'enabled',
+  install: { source: 'official', pluginId: 'slack' },
+};
+let mockWhatsAppPlugin = {
+  id: 'whatsapp',
+  name: 'WhatsApp',
+  description: 'WhatsApp messaging support',
+  installed: true,
+  enabled: true,
+  state: 'enabled',
+  install: { source: 'official', pluginId: 'whatsapp' },
+};
 
 function bumpSession(key) {
   const sess = mockSessions.find((s) => s.key === key);
@@ -1771,12 +1799,17 @@ wss.on('connection', (ws, req) => {
           params?.message ||
           (Array.isArray(params?.messages) ? params.messages[params.messages.length - 1]?.text : '') ||
           '';
-        gwResponse(ws, id, { ok: true });
+        const sessionKey = typeof params?.sessionKey === 'string' && params.sessionKey.trim()
+          ? params.sessionKey.trim()
+          : 'main';
+        const runId = uuidv4();
+        mockChatContexts.set(ws, { sessionKey, runId });
+        gwResponse(ws, id, { ok: true, runId });
 
         // Real chat activity → bump the active browser session and notify
         // listeners. Other sessions occasionally tick to simulate multi-client
         // traffic so the Sessions module feels alive.
-        bumpSession('main');
+        if (!sessionKey.startsWith('session-hypercli-ephemeral-')) bumpSession(sessionKey);
         if (Math.random() < 0.35) {
           const others = mockSessions.filter((s) => s.key !== 'main');
           const pick = others[Math.floor(Math.random() * others.length)];
@@ -1908,6 +1941,40 @@ wss.on('connection', (ws, req) => {
         gwResponse(ws, id, { ok: true });
         break;
 
+      // ---- Runtime support catalog ----
+      case 'plugins.list':
+        gwResponse(ws, id, { plugins: [mockSlackPlugin, mockWhatsAppPlugin], diagnostics: [], mutationAllowed: true });
+        break;
+
+      case 'plugins.install': {
+        const pluginId = params?.pluginId === 'whatsapp' ? 'whatsapp' : 'slack';
+        const plugin = pluginId === 'whatsapp' ? mockWhatsAppPlugin : mockSlackPlugin;
+        const installed = { ...plugin, installed: true, enabled: false, state: 'disabled' };
+        if (pluginId === 'whatsapp') mockWhatsAppPlugin = installed;
+        else mockSlackPlugin = installed;
+        gwResponse(ws, id, { ok: true, plugin: installed, restartRequired: true });
+        break;
+      }
+
+      case 'plugins.setEnabled': {
+        const pluginId = params?.pluginId === 'whatsapp' ? 'whatsapp' : 'slack';
+        const plugin = pluginId === 'whatsapp' ? mockWhatsAppPlugin : mockSlackPlugin;
+        const enabled = {
+          ...plugin,
+          installed: true,
+          enabled: params?.enabled === true,
+          state: params?.enabled === true ? 'enabled' : 'disabled',
+        };
+        if (pluginId === 'whatsapp') mockWhatsAppPlugin = enabled;
+        else mockSlackPlugin = enabled;
+        gwResponse(ws, id, { ok: true, plugin: enabled, restartRequired: false });
+        break;
+      }
+
+      case 'plugins.refresh':
+        gwResponse(ws, id, { ok: true });
+        break;
+
       // ---- Files ----
       case 'agents.files.list':
         gwResponse(ws, id, {
@@ -2013,13 +2080,14 @@ wss.on('connection', (ws, req) => {
       // ---- Web Auth ----
       case 'web.login.start':
         gwResponse(ws, id, {
-          url: 'https://example.com/mock-login',
-          requestId: uuidv4(),
+          connected: false,
+          message: 'Scan this QR code with WhatsApp.',
+          qrDataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
         });
         break;
 
       case 'web.login.wait':
-        gwResponse(ws, id, { success: true });
+        gwResponse(ws, id, { connected: true, message: 'WhatsApp connected.' });
         break;
 
       // ---- Cron ----
