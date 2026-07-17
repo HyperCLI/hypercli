@@ -20,6 +20,7 @@ import {
   type GatewayOptions,
   type GatewayWaitReadyOptions,
   type OpenClawConfigSchemaResponse,
+  type OpenClawSlackRelayOptions,
 } from './openclaw/gateway.js';
 
 const AGENTS_API_BASE = 'https://api.hypercli.com/agents';
@@ -92,6 +93,16 @@ export interface AgentLogsTokenResponse {
   jwt: string;
   expires_at?: string | null;
   ws_url?: string;
+}
+
+export interface AgentRelayKey {
+  key_id?: string | null;
+  key_name?: string | null;
+  tags?: string[];
+  api_key?: string | null;
+  api_key_preview?: string | null;
+  last4?: string | null;
+  [key: string]: any;
 }
 
 export interface BraveWebSearchOptions {
@@ -285,12 +296,22 @@ export type OpenClawModelProviderPatch =
 
 export interface CreateAgentOptions extends BuildAgentConfigOptions {
   name?: string;
+  handle?: string | null;
   size?: string;
   config?: Record<string, any>;
   meta?: AgentMeta | null;
   tags?: string[];
   dryRun?: boolean;
   start?: boolean;
+}
+
+export interface CreateExternalAgentOptions {
+  name: string;
+  displayName?: string | null;
+  handle?: string | null;
+  runtime?: string;
+  status?: string;
+  meta?: Record<string, any> | null;
 }
 
 export interface StartAgentOptions extends BuildAgentConfigOptions {
@@ -300,6 +321,7 @@ export interface StartAgentOptions extends BuildAgentConfigOptions {
 
 export interface UpdateAgentOptions {
   name?: string;
+  handle?: string | null;
   size?: string;
   launchConfig?: Record<string, any> | null;
   refreshFromLagoon?: boolean;
@@ -539,6 +561,15 @@ export interface AgentStateFields {
   podName: string;
   state: AgentState;
   name?: string | null;
+  handle?: string | null;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+  displayIdentity?: Record<string, any> | null;
+  runtime?: string | null;
+  isLaunchable?: boolean;
+  gatewayId?: string | null;
+  runtimeKeyAlias?: string | null;
+  relayKey?: AgentRelayKey | null;
   cpu: number;
   memory: number;
   hostname?: string | null;
@@ -566,6 +597,16 @@ export interface AgentHydrationData {
   pod_name?: string;
   state?: AgentState;
   name?: string | null;
+  handle?: string | null;
+  display_name?: string | null;
+  avatar_url?: string | null;
+  display_identity?: Record<string, any> | null;
+  runtime?: string | null;
+  managed?: boolean | null;
+  is_launchable?: boolean;
+  gateway_id?: string | null;
+  runtime_key_alias?: string | null;
+  relay_key?: AgentRelayKey | null;
   cpu?: number;
   memory?: number;
   hostname?: string | null;
@@ -895,6 +936,15 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     podName: data.pod_name ?? '',
     state: data.state ?? 'unknown',
     name: data.name ?? null,
+    handle: data.handle ?? null,
+    displayName: data.display_name ?? data.name ?? null,
+    avatarUrl: data.avatar_url ?? null,
+    displayIdentity: data.display_identity ? structuredClone(data.display_identity) : null,
+    runtime: data.runtime ?? null,
+    isLaunchable: data.is_launchable ?? data.managed !== false,
+    gatewayId: data.gateway_id ?? null,
+    runtimeKeyAlias: data.runtime_key_alias ?? null,
+    relayKey: data.relay_key ?? null,
     cpu: data.cpu ?? 0,
     memory: data.memory ?? 0,
     hostname: data.hostname ?? null,
@@ -1091,6 +1141,15 @@ export class Agent {
   public readonly podName: string;
   public readonly state: string;
   public readonly name: string | null;
+  public readonly handle: string | null;
+  public readonly displayName: string | null;
+  public readonly avatarUrl: string | null;
+  public readonly displayIdentity: Record<string, any> | null;
+  public readonly runtime: string | null;
+  public readonly isLaunchable: boolean;
+  public readonly gatewayId: string | null;
+  public readonly runtimeKeyAlias: string | null;
+  public readonly relayKey: AgentRelayKey | null;
   public readonly cpu: number;
   public readonly memory: number;
   public readonly hostname: string | null;
@@ -1118,6 +1177,15 @@ export class Agent {
     this.podName = fields.podName;
     this.state = fields.state;
     this.name = fields.name ?? null;
+    this.handle = fields.handle ?? null;
+    this.displayName = fields.displayName ?? this.name;
+    this.avatarUrl = fields.avatarUrl ?? null;
+    this.displayIdentity = fields.displayIdentity ? structuredClone(fields.displayIdentity) : null;
+    this.runtime = fields.runtime ?? null;
+    this.isLaunchable = fields.isLaunchable ?? true;
+    this.gatewayId = fields.gatewayId ?? null;
+    this.runtimeKeyAlias = fields.runtimeKeyAlias ?? null;
+    this.relayKey = fields.relayKey ? structuredClone(fields.relayKey) : null;
     this.cpu = fields.cpu;
     this.memory = fields.memory;
     this.hostname = fields.hostname ?? null;
@@ -1516,6 +1584,21 @@ export class OpenClawAgent extends Agent {
     const client = await this.connect(options);
     try {
       await client.configPatch(patch);
+    } finally {
+      client.close();
+    }
+  }
+
+  async configureSlackRelay(
+    options: Omit<OpenClawSlackRelayOptions, 'gatewayId'> & { gatewayId?: string },
+    gatewayOptions: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<void> {
+    const client = await this.connect(gatewayOptions);
+    try {
+      await client.configureSlackRelay({
+        ...options,
+        gatewayId: options.gatewayId ?? this.gatewayId ?? `agent:${this.id}`,
+      });
     } finally {
       client.close();
     }
@@ -2063,6 +2146,7 @@ export class Deployments {
     const body: Record<string, any> = { ...config, start: options.start ?? true };
     if (options.dryRun) body.dry_run = true;
     if (options.name) body.name = options.name;
+    if (options.handle !== undefined) body.handle = options.handle;
     if (options.size) body.size = options.size;
     if (options.meta?.ui) body.meta = { ui: structuredClone(options.meta.ui) };
     if (options.tags?.length) body.tags = [...options.tags];
@@ -2121,6 +2205,23 @@ export class Deployments {
   async get(agentId: string): Promise<Agent> {
     const data = await this.agentHttp.get<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}`);
     return this.hydrateAgent(data);
+  }
+
+  async createExternalAgent(options: CreateExternalAgentOptions): Promise<Agent> {
+    const body: Record<string, any> = {
+      name: options.name,
+      runtime: options.runtime ?? 'openclaw',
+      status: options.status ?? 'active',
+    };
+    if (options.displayName !== undefined) body.display_name = options.displayName;
+    if (options.handle !== undefined) body.handle = options.handle;
+    if (options.meta !== undefined) body.meta = options.meta;
+    const data = await this.agentHttp.post<AgentHydrationData>('/external-agents', body);
+    return this.hydrateAgent(data);
+  }
+
+  async rotateExternalAgentKey(agentId: string): Promise<Record<string, any>> {
+    return this.agentHttp.post(`/external-agents/${agentId}/keys/rotate`);
   }
 
   async waitRunning(agentId: string, timeoutMs = 300_000, pollIntervalMs = 5_000): Promise<Agent> {
@@ -2184,6 +2285,7 @@ export class Deployments {
   async update(agentId: string, options: UpdateAgentOptions = {}): Promise<Agent> {
     const body: Record<string, any> = {};
     if (options.name !== undefined) body.name = options.name;
+    if (options.handle !== undefined) body.handle = options.handle;
     if (options.size !== undefined) body.size = options.size;
     if (options.launchConfig !== undefined) body.launch_config = options.launchConfig;
     if (options.refreshFromLagoon !== undefined) body.refresh_from_lagoon = options.refreshFromLagoon;

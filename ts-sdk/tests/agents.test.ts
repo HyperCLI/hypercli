@@ -263,6 +263,119 @@ describe('Agents SDK', () => {
     expect(url).toBe('https://desktop-agent.hypercli.com/_jwt_auth?jwt=jwt-123&redirect=vnc.html%3Fresize%3Dscale');
   });
 
+  it('hydrates new API agent fields without image_url fallback', () => {
+    const agent = Agent.fromDict({
+      id: 'agent-123',
+      user_id: 'user-456',
+      pod_id: 'pod-789',
+      pod_name: 'pod-789',
+      state: 'external_ready',
+      name: 'Legacy name',
+      handle: 'claw',
+      display_name: 'HyperClaw',
+      avatar_url: 'https://cdn.example/avatar.png',
+      display_identity: {
+        display_name: 'HyperClaw Coder',
+        avatar_url: 'https://cdn.example/coder.png',
+        channel_overrides: {},
+      },
+      image_url: 'https://cdn.example/legacy.png',
+      runtime: 'openclaw',
+      is_launchable: false,
+      launch_config: { image: 'ghcr.io/hypercli/hypercli-openclaw:prod' },
+      gateway_id: 'gateway-123',
+      runtime_key_alias: 'key-123',
+      relay_key: { api_key: 'hyper_api_secret', key_id: 'key-123' },
+    } as any);
+
+    expect(agent.handle).toBe('claw');
+    expect(agent.displayName).toBe('HyperClaw');
+    expect(agent.avatarUrl).toBe('https://cdn.example/avatar.png');
+    expect(agent.displayIdentity).toEqual({
+      display_name: 'HyperClaw Coder',
+      avatar_url: 'https://cdn.example/coder.png',
+      channel_overrides: {},
+    });
+    expect(agent.runtime).toBe('openclaw');
+    expect(agent.isLaunchable).toBe(false);
+    expect(agent.launchConfig).toEqual({ image: 'ghcr.io/hypercli/hypercli-openclaw:prod' });
+    expect(agent.gatewayId).toBe('gateway-123');
+    expect(agent.runtimeKeyAlias).toBe('key-123');
+    expect(agent.relayKey).toEqual({ api_key: 'hyper_api_secret', key_id: 'key-123' });
+
+    const legacy = Agent.fromDict({
+      id: 'agent-456',
+      user_id: 'user-456',
+      pod_id: 'pod-789',
+      pod_name: 'pod-789',
+      state: 'external_ready',
+      image_url: 'https://cdn.example/legacy.png',
+      managed: false,
+    } as any);
+    expect(legacy.avatarUrl).toBeNull();
+    expect(legacy.isLaunchable).toBe(false);
+  });
+
+  it('creates and rotates external agent relay keys through dedicated routes', async () => {
+    const http = {
+      post: vi
+        .fn()
+        .mockResolvedValueOnce({
+          id: 'external-123',
+          user_id: 'user-456',
+          state: 'active',
+          managed: false,
+          runtime: 'openclaw',
+          runtime_key_alias: 'key-123',
+          relay_key: { api_key: 'hyper_api_secret', key_id: 'key-123' },
+        })
+        .mockResolvedValueOnce({ relay_key: { api_key: 'hyper_api_next', key_id: 'key-456' } }),
+    } as unknown as HTTPClient;
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+
+    const agent = await deployments.createExternalAgent({
+      name: 'external-agent',
+      displayName: 'External',
+      handle: 'external',
+    });
+    const rotated = await deployments.rotateExternalAgentKey('external-123');
+
+    expect(http.post).toHaveBeenNthCalledWith(1, '/external-agents', {
+      name: 'external-agent',
+      runtime: 'openclaw',
+      status: 'active',
+      display_name: 'External',
+      handle: 'external',
+    });
+    expect(agent.isLaunchable).toBe(false);
+    expect(agent.relayKey).toEqual({ api_key: 'hyper_api_secret', key_id: 'key-123' });
+    expect(http.post).toHaveBeenNthCalledWith(2, '/external-agents/external-123/keys/rotate');
+    expect(rotated).toEqual({ relay_key: { api_key: 'hyper_api_next', key_id: 'key-456' } });
+  });
+
+  it('configures Slack relay through the gateway helper', async () => {
+    const agent = OpenClawAgent.fromDict({
+      id: '11111111-1111-1111-1111-111111111111',
+      user_id: 'user-456',
+      pod_id: 'pod-789',
+      pod_name: 'pod-789',
+      state: 'running',
+      routes: { openclaw: { port: 18789 } },
+      gateway_id: 'agent:11111111-1111-1111-1111-111111111111',
+      gateway_token: 'gw-token',
+    } as any);
+    const client = { configureSlackRelay: vi.fn(async () => undefined), close: vi.fn() };
+    vi.spyOn(agent, 'connect').mockResolvedValue(client as any);
+
+    await agent.configureSlackRelay({ url: 'wss://api.dev.hypercli.com/slack/ws' });
+
+    expect(client.configureSlackRelay).toHaveBeenCalledWith({
+      url: 'wss://api.dev.hypercli.com/slack/ws',
+      gatewayId: 'agent:11111111-1111-1111-1111-111111111111',
+    });
+    expect(client.close).toHaveBeenCalled();
+  });
+
   it('builds browser desktop auth URLs with query-preserving redirects', () => {
     const url = buildBrowserDesktopUrl('https://desktop-agent.hypercli.com/', 'jwt-123', {
       redirect: 'vnc.html?autoconnect=1&resize=remote',

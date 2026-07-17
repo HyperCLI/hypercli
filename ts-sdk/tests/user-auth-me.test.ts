@@ -15,7 +15,7 @@ describe('User auth me API', () => {
           auth_type: 'orchestra_key',
           capabilities: ['models:*', 'voice:*'],
           tags: ['runtime=agent', 'runtime_agent=agent-123'],
-          runtime: { kind: 'agent', agent_id: 'agent-123' },
+          runtime: { runtime: 'agent', agent_id: 'agent-123' },
           has_active_subscription: true,
           key_id: 'key-123',
           key_name: 'runtime-key',

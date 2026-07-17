@@ -27,17 +27,17 @@ class User:
 
 @dataclass
 class RuntimeIdentity:
-    kind: str
+    runtime: str
     agent_id: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict | None) -> "RuntimeIdentity | None":
         if not isinstance(data, dict):
             return None
-        kind = str(data.get("kind") or "").strip()
-        if not kind:
+        runtime = str(data.get("runtime") or "").strip()
+        if not runtime:
             return None
-        return cls(kind=kind, agent_id=data.get("agent_id"))
+        return cls(runtime=runtime, agent_id=data.get("agent_id"))
 
 
 @dataclass
@@ -74,7 +74,7 @@ class AuthMe:
 
     @property
     def is_runtime_agent(self) -> bool:
-        return self.runtime is not None and self.runtime.kind == "agent"
+        return self.runtime is not None and self.runtime.runtime == "agent"
 
     @property
     def runtime_agent_id(self) -> str | None:

@@ -48,6 +48,137 @@ def test_agent_from_dict_minimal():
     assert agent.ports == []
 
 
+def test_agent_from_dict_hydrates_new_api_fields_without_image_url_fallback():
+    agent = Agent.from_dict(
+        {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "pod_id": "pod-789",
+            "pod_name": "test-pod",
+            "state": "external_ready",
+            "name": "Legacy name",
+            "handle": "claw",
+            "display_name": "HyperClaw",
+            "avatar_url": "https://cdn.example/avatar.png",
+            "display_identity": {
+                "display_name": "HyperClaw Coder",
+                "avatar_url": "https://cdn.example/coder.png",
+                "channel_overrides": {},
+            },
+            "image_url": "https://cdn.example/legacy.png",
+            "runtime": "openclaw",
+            "is_launchable": False,
+            "launch_config": {"image": "ghcr.io/hypercli/hypercli-openclaw:prod"},
+            "gateway_id": "gateway-123",
+            "runtime_key_alias": "key-123",
+            "relay_key": {"api_key": "hyper_api_secret", "key_id": "key-123"},
+        }
+    )
+
+    assert agent.handle == "claw"
+    assert agent.display_name == "HyperClaw"
+    assert agent.avatar_url == "https://cdn.example/avatar.png"
+    assert agent.display_identity == {
+        "display_name": "HyperClaw Coder",
+        "avatar_url": "https://cdn.example/coder.png",
+        "channel_overrides": {},
+    }
+    assert agent.runtime == "openclaw"
+    assert agent.is_launchable is False
+    assert agent.launch_config == {"image": "ghcr.io/hypercli/hypercli-openclaw:prod"}
+    assert agent.gateway_id == "gateway-123"
+    assert agent.runtime_key_alias == "key-123"
+    assert agent.relay_key == {"api_key": "hyper_api_secret", "key_id": "key-123"}
+
+    legacy = Agent.from_dict(
+        {
+            "id": "agent-456",
+            "user_id": "user-456",
+            "pod_id": "pod-789",
+            "pod_name": "test-pod",
+            "state": "external_ready",
+            "image_url": "https://cdn.example/legacy.png",
+            "managed": False,
+        }
+    )
+    assert legacy.avatar_url is None
+    assert legacy.is_launchable is False
+
+
+def test_deployments_external_agent_helpers_call_expected_routes():
+    http = Mock(spec=HTTPClient)
+    deployments = Deployments(http, api_key="hyper_api_test", api_base="https://api.test.hypercli.com/agents")
+
+    with patch.object(deployments, "_post") as post:
+        post.return_value = {
+            "id": "external-123",
+            "user_id": "user-456",
+            "state": "active",
+            "managed": False,
+            "runtime": "openclaw",
+            "runtime_key_alias": "key-123",
+            "relay_key": {"api_key": "hyper_api_secret", "key_id": "key-123"},
+        }
+        agent = deployments.create_external_agent(name="external-agent", display_name="External", handle="external")
+
+    post.assert_called_once_with(
+        "/external-agents",
+        {
+            "name": "external-agent",
+            "runtime": "openclaw",
+            "status": "active",
+            "display_name": "External",
+            "handle": "external",
+        },
+    )
+    assert agent.is_launchable is False
+    assert agent.relay_key == {"api_key": "hyper_api_secret", "key_id": "key-123"}
+
+    with patch.object(deployments, "_post", return_value={"relay_key": {"api_key": "hyper_api_next"}}) as post:
+        assert deployments.rotate_external_agent_key("external-123") == {"relay_key": {"api_key": "hyper_api_next"}}
+
+    post.assert_called_once_with("/external-agents/external-123/keys/rotate")
+
+
+@pytest.mark.asyncio
+async def test_openclaw_agent_configure_slack_relay_uses_gateway_id(monkeypatch):
+    agent = OpenClawAgent(
+        id="11111111-1111-1111-1111-111111111111",
+        user_id="user-456",
+        pod_id="pod-789",
+        pod_name="pod-789",
+        state="running",
+        gateway_id="agent:11111111-1111-1111-1111-111111111111",
+    )
+    seen = []
+
+    class FakeGateway:
+        async def configure_slack_relay(self, **kwargs):
+            seen.append(kwargs)
+            return {"ok": True}
+
+    class FakeConnect:
+        async def __aenter__(self):
+            return FakeGateway()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+    monkeypatch.setattr(agent, "connect", lambda **_kwargs: FakeConnect())
+
+    result = await agent.configure_slack_relay(url="wss://api.dev.hypercli.com/slack/ws")
+
+    assert result == {"ok": True}
+    assert seen == [
+        {
+            "url": "wss://api.dev.hypercli.com/slack/ws",
+            "gateway_id": "agent:11111111-1111-1111-1111-111111111111",
+            "auth_token_env": "HYPER_API_KEY",
+            "account_id": None,
+        }
+    ]
+
+
 def test_wait_running_fails_on_restore_and_sync_failures(monkeypatch):
     http = MagicMock(spec=HTTPClient)
     http.api_key = "hyper_api_test"
@@ -925,6 +1056,7 @@ def test_create_openclaw_defaults_sync_root(agents_client):
         posted_json = mock_client.post.call_args[1]["json"]
         assert posted_json["sync_root"] == "/home/node"
         assert posted_json["sync_enabled"] is True
+        assert posted_json["env"]["HYPER_API_BASE"] == "https://api.test.hypercli.com"
         assert "HOME" not in posted_json["env"]
 
 
@@ -952,6 +1084,7 @@ def test_start_openclaw_defaults_sync_root(agents_client):
         posted_json = mock_client.post.call_args[1]["json"]
         assert posted_json["sync_root"] == "/home/node"
         assert posted_json["sync_enabled"] is True
+        assert posted_json["env"]["HYPER_API_BASE"] == "https://api.test.hypercli.com"
         assert "HOME" not in posted_json["env"]
 
 

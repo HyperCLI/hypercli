@@ -189,6 +189,13 @@ export interface OpenClawConfigSchemaResponse {
   generatedAt?: string;
 }
 
+export interface OpenClawSlackRelayOptions {
+  url: string;
+  gatewayId: string;
+  authTokenEnv?: string;
+  accountId?: string;
+}
+
 export interface OpenClawConfigNodeDescriptor {
   schema: Record<string, any>;
   type?: string;
@@ -2717,6 +2724,32 @@ export class GatewayClient {
       raw: JSON.stringify(config),
       baseHash: hash ?? baseHash ?? "",
     });
+  }
+
+  async configureSlackRelay(options: OpenClawSlackRelayOptions): Promise<void> {
+    const relayConfig = {
+      mode: "relay",
+      relay: {
+        url: options.url,
+        authToken: {
+          source: "env",
+          provider: "default",
+          id: options.authTokenEnv ?? "HYPER_API_KEY",
+        },
+        gatewayId: options.gatewayId,
+      },
+    };
+    const patch = options.accountId
+      ? {
+          channels: {
+            slack: {
+              accounts: { [options.accountId]: relayConfig },
+              defaultAccount: options.accountId,
+            },
+          },
+        }
+      : { channels: { slack: relayConfig } };
+    await this.configPatch(patch);
   }
 
   async modelsList(): Promise<any[]> {

@@ -373,6 +373,7 @@ describe('HyperClaw agents SDK', () => {
       sync_root: '/home/node',
       sync_enabled: true,
       env: expect.objectContaining({
+        HYPER_API_BASE: 'https://api.dev.hypercli.com',
         HYPER_WORKSPACES_BOOT_SYNC: '1',
         HYPER_WORKSPACES_DIR: '/home/node/workspaces',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',

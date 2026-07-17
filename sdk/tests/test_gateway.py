@@ -762,6 +762,39 @@ async def test_sessions_patch_forwards_raw_patch_payload() -> None:
 
 
 @pytest.mark.asyncio
+async def test_configure_slack_relay_patches_runtime_config() -> None:
+    client = GatewayClient(url="wss://openclaw-agent.example")
+    seen: list[dict] = []
+
+    async def fake_config_patch(patch: dict, base_hash: str | None = None):
+        seen.append(patch)
+        return {"ok": True}
+
+    client.config_patch = fake_config_patch  # type: ignore[method-assign]
+
+    result = await client.configure_slack_relay(
+        url="wss://api.dev.hypercli.com/slack/ws",
+        gateway_id="agent:11111111-1111-1111-1111-111111111111",
+    )
+
+    assert result == {"ok": True}
+    assert seen == [
+        {
+            "channels": {
+                "slack": {
+                    "mode": "relay",
+                    "relay": {
+                        "url": "wss://api.dev.hypercli.com/slack/ws",
+                        "authToken": {"source": "env", "provider": "default", "id": "HYPER_API_KEY"},
+                        "gatewayId": "agent:11111111-1111-1111-1111-111111111111",
+                    },
+                }
+            }
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_sessions_preview_uses_keys_shape_and_returns_first_preview_items() -> None:
     client = GatewayClient(url="wss://openclaw-agent.example")
     seen: list[tuple[str, dict | None, float | None]] = []

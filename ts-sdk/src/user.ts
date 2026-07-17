@@ -31,7 +31,7 @@ export interface AuthMe {
 }
 
 export interface RuntimeIdentity {
-  kind: string;
+  runtime: string;
   agentId: string | null;
 }
 
@@ -57,8 +57,8 @@ function userFromDict(data: any): User {
 function authMeFromDict(data: any): AuthMe {
   const runtime = data?.runtime && typeof data.runtime === 'object'
     ? {
-        kind: data.runtime.kind || '',
-        agentId: data.runtime.agent_id || data.runtime.agentId || null,
+        runtime: data.runtime.runtime || '',
+        agentId: data.runtime.agent_id || null,
       }
     : null;
   return {
@@ -78,7 +78,7 @@ function authMeFromDict(data: any): AuthMe {
 }
 
 export function runtimeAgentId(auth: AuthMe): string | null {
-  return auth.runtime?.kind === 'agent' ? auth.runtime.agentId : null;
+  return auth.runtime?.runtime === 'agent' ? auth.runtime.agentId : null;
 }
 
 export function isRuntimeAgent(auth: AuthMe): boolean {

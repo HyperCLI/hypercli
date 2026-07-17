@@ -1404,6 +1404,35 @@ class GatewayClient:
             timeout=30,
         )
 
+    async def configure_slack_relay(
+        self,
+        *,
+        url: str,
+        gateway_id: str,
+        auth_token_env: str = "HYPER_API_KEY",
+        account_id: str | None = None,
+    ) -> dict:
+        relay_config = {
+            "mode": "relay",
+            "relay": {
+                "url": url,
+                "authToken": {"source": "env", "provider": "default", "id": auth_token_env},
+                "gatewayId": gateway_id,
+            },
+        }
+        if account_id:
+            patch = {
+                "channels": {
+                    "slack": {
+                        "accounts": {account_id: relay_config},
+                        "defaultAccount": account_id,
+                    }
+                }
+            }
+        else:
+            patch = {"channels": {"slack": relay_config}}
+        return await self.config_patch(patch)
+
     async def status(self) -> dict:
         return await self.call("status")
 

@@ -720,6 +720,9 @@ def _deep_merge_config(base: dict[str, Any], patch: dict[str, Any]) -> dict[str,
 
 def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
     meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+    is_launchable = data.get("is_launchable")
+    if is_launchable is None:
+        is_launchable = data.get("managed", True) is not False
     return {
         "id": data.get("id", ""),
         "user_id": data.get("user_id", ""),
@@ -727,6 +730,15 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         "pod_name": data.get("pod_name", ""),
         "state": data.get("state", "unknown"),
         "name": data.get("name"),
+        "handle": data.get("handle"),
+        "display_name": data.get("display_name") or data.get("name"),
+        "avatar_url": data.get("avatar_url"),
+        "display_identity": copy.deepcopy(data.get("display_identity")) if isinstance(data.get("display_identity"), dict) else None,
+        "runtime": data.get("runtime"),
+        "is_launchable": bool(is_launchable),
+        "gateway_id": data.get("gateway_id"),
+        "runtime_key_alias": data.get("runtime_key_alias"),
+        "relay_key": data.get("relay_key") if isinstance(data.get("relay_key"), dict) else None,
         "cpu": data.get("cpu", 0),
         "memory": data.get("memory", 0),
         "hostname": data.get("hostname"),
@@ -779,6 +791,15 @@ class Agent:
     pod_name: str
     state: str
     name: Optional[str] = None
+    handle: Optional[str] = None
+    display_name: Optional[str] = None
+    avatar_url: Optional[str] = None
+    display_identity: Optional[dict] = None
+    runtime: Optional[str] = None
+    is_launchable: bool = True
+    gateway_id: Optional[str] = None
+    runtime_key_alias: Optional[str] = None
+    relay_key: Optional[dict] = None
     cpu: int = 0              # cores
     memory: int = 0           # GB
     hostname: Optional[str] = None
@@ -898,6 +919,7 @@ class Agent:
         launch_config: dict | None = None,
         refresh_from_lagoon: bool | None = None,
         last_error: str | None = None,
+        handle: str | None = None,
     ) -> "Agent":
         agent = self._require_deployments().update(
             self.id,
@@ -906,6 +928,7 @@ class Agent:
             launch_config=launch_config,
             refresh_from_lagoon=refresh_from_lagoon,
             last_error=last_error,
+            handle=handle,
         )
         self.__dict__.update(agent.__dict__)
         self._deployments = agent._deployments
@@ -1167,6 +1190,23 @@ class OpenClawAgent(Agent):
     async def config_patch(self, patch: dict, **kwargs) -> dict:
         async with self.connect(**kwargs) as gw:
             return await gw.config_patch(patch)
+
+    async def configure_slack_relay(
+        self,
+        *,
+        url: str,
+        gateway_id: str | None = None,
+        auth_token_env: str = "HYPER_API_KEY",
+        account_id: str | None = None,
+        **kwargs,
+    ) -> dict:
+        async with self.connect(**kwargs) as gw:
+            return await gw.configure_slack_relay(
+                url=url,
+                gateway_id=gateway_id or self.gateway_id or f"agent:{self.id}",
+                auth_token_env=auth_token_env,
+                account_id=account_id,
+            )
 
     async def config_apply(self, config: dict, **kwargs) -> dict:
         async with self.connect(**kwargs) as gw:
@@ -1636,6 +1676,7 @@ class Deployments:
     def create(
         self,
         name: str = None,
+        handle: str = None,
         size: str = None,
         config: dict = None,
         tags: list[str] = None,
@@ -1692,6 +1733,8 @@ class Deployments:
             body["dry_run"] = True
         if name:
             body["name"] = name
+        if handle is not None:
+            body["handle"] = handle
         if size:
             body["size"] = size
         if meta_ui:
@@ -1710,6 +1753,7 @@ class Deployments:
     def create_openclaw(
         self,
         name: str = None,
+        handle: str = None,
         size: str = None,
         config: dict = None,
         tags: list[str] = None,
@@ -1743,6 +1787,7 @@ class Deployments:
         }
         return self.create(
             name=name,
+            handle=handle,
             size=size,
             config=config,
             tags=tags,
@@ -1772,6 +1817,7 @@ class Deployments:
     def create_openclaw_pro(
         self,
         name: str = None,
+        handle: str = None,
         size: str = None,
         config: dict = None,
         tags: list[str] = None,
@@ -1801,6 +1847,7 @@ class Deployments:
         effective_route_options = {"include_desktop": True, **dict(openclaw_route_options or {})}
         return self.create_openclaw(
             name=name,
+            handle=handle,
             size=size,
             config=config,
             tags=tags,
@@ -1867,6 +1914,34 @@ class Deployments:
         """
         data = self._get(f"{AGENTS_API_PREFIX}/{agent_id}")
         return self._hydrate_agent(data)
+
+    def create_external_agent(
+        self,
+        *,
+        name: str,
+        display_name: str | None = None,
+        handle: str | None = None,
+        runtime: str = "openclaw",
+        status: str = "active",
+        meta: dict | None = None,
+    ) -> Agent:
+        """Register a customer-hosted external agent and return its show-once relay key."""
+        body: dict[str, Any] = {
+            "name": name,
+            "runtime": runtime,
+            "status": status,
+        }
+        if display_name is not None:
+            body["display_name"] = display_name
+        if handle is not None:
+            body["handle"] = handle
+        if meta is not None:
+            body["meta"] = meta
+        return self._hydrate_agent(self._post("/external-agents", body))
+
+    def rotate_external_agent_key(self, agent_id: str) -> dict:
+        """Rotate an external agent relay key and return the new plaintext key once."""
+        return self._post(f"/external-agents/{agent_id}/keys/rotate")
 
     def wait_running(self, agent_id: str, timeout: float = 300.0, poll_interval: float = 5.0) -> Agent:
         """Poll until an agent reaches RUNNING and return a refreshed agent."""
@@ -1964,6 +2039,7 @@ class Deployments:
         workspaces_sync: dict | bool | None = None,
     ) -> Agent:
         effective_env = {
+            "HYPER_API_BASE": _product_api_base_from_agents_api_base(self._api_base),
             **build_openclaw_workspaces_sync_env(workspaces_sync),
             **build_openclaw_memory_index_env(memory_index),
             **dict(env or {}),
@@ -2051,10 +2127,13 @@ class Deployments:
         launch_config: dict | None = None,
         refresh_from_lagoon: bool | None = None,
         last_error: str | None = None,
+        handle: str | None = None,
     ) -> Agent:
         body: dict[str, Any] = {}
         if name is not None:
             body["name"] = name
+        if handle is not None:
+            body["handle"] = handle
         if size is not None:
             body["size"] = size
         if launch_config is not None:

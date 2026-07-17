@@ -532,7 +532,12 @@ def list_agents(
 
     if json_output:
         console.print_json(json.dumps([{
-            "id": p.id, "pod_name": p.pod_name, "state": p.state,
+            "id": p.id, "handle": getattr(p, "handle", None),
+            "display_name": getattr(p, "display_name", None), "avatar_url": getattr(p, "avatar_url", None),
+            "runtime": getattr(p, "runtime", None), "is_launchable": getattr(p, "is_launchable", True),
+            "runtime_key_alias": getattr(p, "runtime_key_alias", None),
+            "launch_config": getattr(p, "launch_config", None), "gateway_id": getattr(p, "gateway_id", None),
+            "pod_name": p.pod_name, "state": p.state,
             "hostname": p.hostname, "vnc_url": p.vnc_url,
             "ports": p.ports,
         } for p in pods], indent=2, default=str))
@@ -546,6 +551,7 @@ def list_agents(
     table = Table(title="Agents")
     table.add_column("ID", style="cyan", no_wrap=True)
     table.add_column("Name", style="blue")
+    table.add_column("Handle")
     table.add_column("Size")
     table.add_column("State")
     table.add_column("Desktop URL")
@@ -560,7 +566,8 @@ def list_agents(
         size_str = f"{pod.cpu}c/{pod.memory}G" if pod.cpu else ""
         row = [
             pod.id[:12],
-            pod.name or pod.pod_name or "",
+            getattr(pod, "display_name", None) or pod.name or pod.pod_name or "",
+            getattr(pod, "handle", None) or "",
             size_str,
             f"[{style}]{pod.state}[/{style}]",
             pod.vnc_url or "",
@@ -574,6 +581,82 @@ def list_agents(
 
     console.print()
     console.print(table)
+
+
+def _print_relay_key(relay_key: dict | None) -> None:
+    if not relay_key:
+        return
+    api_key = relay_key.get("api_key")
+    if api_key:
+        console.print("\n[bold yellow]Relay key - shown once[/bold yellow]")
+        console.print(api_key)
+    if relay_key.get("key_id"):
+        console.print(f"  Key ID: {relay_key.get('key_id')}")
+    if relay_key.get("last4"):
+        console.print(f"  Last4:  {relay_key.get('last4')}")
+
+
+@app.command("external-create")
+def external_create(
+    name: str = typer.Argument(..., help="External agent name"),
+    display_name: str = typer.Option(None, "--display-name", help="Display name"),
+    handle: str = typer.Option(None, "--handle", help="User-scoped agent handle"),
+    runtime: str = typer.Option("openclaw", "--runtime", help="External runtime"),
+    json_output: bool = typer.Option(False, "--json", help="JSON output"),
+):
+    """Register a customer-hosted external agent and print its relay key once."""
+    agents = _get_deployments_client()
+    try:
+        agent = agents.create_external_agent(
+            name=name,
+            display_name=display_name,
+            handle=handle,
+            runtime=runtime,
+        )
+    except Exception as e:
+        console.print(f"[red]❌ Failed to create external agent: {e}[/red]")
+        raise typer.Exit(1)
+
+    if json_output:
+        console.print_json(json.dumps({
+            "id": agent.id,
+            "name": agent.name,
+            "handle": agent.handle,
+            "display_name": agent.display_name,
+            "avatar_url": agent.avatar_url,
+            "runtime": agent.runtime,
+            "runtime_key_alias": agent.runtime_key_alias,
+            "relay_key": agent.relay_key,
+            "gateway_id": agent.gateway_id,
+        }, indent=2, default=str))
+        return
+
+    console.print(f"[green]✅ External agent registered:[/green] [bold]{agent.id}[/bold]")
+    if agent.handle:
+        console.print(f"  Handle: @{agent.handle}")
+    console.print(f"  Runtime: {agent.runtime}")
+    _print_relay_key(agent.relay_key)
+
+
+@app.command("external-rotate-key")
+def external_rotate_key(
+    agent_id: str = typer.Argument(..., help="External agent ID"),
+    json_output: bool = typer.Option(False, "--json", help="JSON output"),
+):
+    """Rotate an external agent relay key and print the new key once."""
+    agents = _get_deployments_client()
+    try:
+        payload = agents.rotate_external_agent_key(agent_id)
+    except Exception as e:
+        console.print(f"[red]❌ Failed to rotate external agent key: {e}[/red]")
+        raise typer.Exit(1)
+
+    if json_output:
+        console.print_json(json.dumps(payload, indent=2, default=str))
+        return
+
+    console.print(f"[green]✅ External agent key rotated:[/green] [bold]{payload.get('id', agent_id)}[/bold]")
+    _print_relay_key(payload.get("relay_key"))
 
 
 @app.command("web-search")
@@ -625,6 +708,16 @@ def status(
 
     console.print(f"\n[bold]Agent {pod.id[:12]}[/bold]")
     console.print(f"  Name:       {pod.name or pod.pod_name}")
+    if getattr(pod, "handle", None):
+        console.print(f"  Handle:     @{pod.handle}")
+    if getattr(pod, "display_name", None):
+        console.print(f"  Display:    {pod.display_name}")
+    if getattr(pod, "avatar_url", None):
+        console.print(f"  Avatar:     {pod.avatar_url}")
+    if getattr(pod, "runtime", None):
+        console.print(f"  Runtime:    {pod.runtime}")
+    if getattr(pod, "runtime_key_alias", None):
+        console.print(f"  Key Ref:    {pod.runtime_key_alias}")
     console.print(f"  Pod:        {pod.pod_name}")
     console.print(f"  Size:       {pod.cpu} CPU, {pod.memory} GB")
     console.print(f"  State:      {pod.state}")

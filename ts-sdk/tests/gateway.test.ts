@@ -486,6 +486,32 @@ describe("GatewayClient", () => {
     expect(result).toEqual({ ok: true, key: "agent:main:main" });
   });
 
+  it("patches Slack relay runtime config", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const patch = vi.spyOn(client, "configPatch").mockResolvedValue(undefined);
+
+    await client.configureSlackRelay({
+      url: "wss://api.dev.hypercli.com/slack/ws",
+      gatewayId: "agent:11111111-1111-1111-1111-111111111111",
+    });
+
+    expect(patch).toHaveBeenCalledWith({
+      channels: {
+        slack: {
+          mode: "relay",
+          relay: {
+            url: "wss://api.dev.hypercli.com/slack/ws",
+            authToken: { source: "env", provider: "default", id: "HYPER_API_KEY" },
+            gatewayId: "agent:11111111-1111-1111-1111-111111111111",
+          },
+        },
+      },
+    });
+  });
+
   it("adapts sessions.preview to the upstream keys/previews shape", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",
