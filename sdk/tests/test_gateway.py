@@ -795,6 +795,113 @@ async def test_configure_slack_relay_patches_runtime_config() -> None:
 
 
 @pytest.mark.asyncio
+async def test_configure_slack_socket_patches_runtime_config() -> None:
+    client = GatewayClient(url="wss://openclaw-agent.example")
+    seen: list[dict] = []
+
+    async def fake_config_patch(patch: dict, base_hash: str | None = None):
+        seen.append(patch)
+        return {"ok": True}
+
+    client.config_patch = fake_config_patch  # type: ignore[method-assign]
+
+    result = await client.configure_slack_socket(
+        bot_token={"source": "env", "provider": "default", "id": "SLACK_BOT_TOKEN"},
+        app_token={"source": "env", "provider": "default", "id": "SLACK_APP_TOKEN"},
+        socket_mode={"clientPingTimeout": 30},
+        account_id="work",
+        config={"name": "Workspace Slack", "requireMention": True},
+    )
+
+    assert result == {"ok": True}
+    assert seen == [
+        {
+            "channels": {
+                "slack": {
+                    "accounts": {
+                        "work": {
+                            "name": "Workspace Slack",
+                            "requireMention": True,
+                            "mode": "socket",
+                            "botToken": {"source": "env", "provider": "default", "id": "SLACK_BOT_TOKEN"},
+                            "appToken": {"source": "env", "provider": "default", "id": "SLACK_APP_TOKEN"},
+                            "socketMode": {"clientPingTimeout": 30},
+                        }
+                    }
+                }
+            }
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_configure_whatsapp_patches_runtime_config() -> None:
+    client = GatewayClient(url="wss://openclaw-agent.example")
+    seen: list[dict] = []
+
+    async def fake_config_patch(patch: dict, base_hash: str | None = None):
+        seen.append(patch)
+        return {"ok": True}
+
+    client.config_patch = fake_config_patch  # type: ignore[method-assign]
+
+    result = await client.configure_whatsapp(
+        {"historyLimit": 50, "replyToMode": "all"},
+        account_id="personal",
+    )
+
+    assert result == {"ok": True}
+    assert seen == [
+        {
+            "channels": {
+                "whatsapp": {
+                    "accounts": {
+                        "personal": {
+                            "enabled": True,
+                            "historyLimit": 50,
+                            "replyToMode": "all",
+                        }
+                    },
+                    "defaultAccount": "personal",
+                }
+            }
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_channel_start_and_web_login_wait_use_gateway_rpc_shapes() -> None:
+    client = GatewayClient(url="wss://openclaw-agent.example")
+    seen: list[tuple[str, dict | None, float | None]] = []
+
+    async def fake_call(method: str, params: dict | None = None, timeout: float | None = None):
+        seen.append((method, params, timeout))
+        return {"ok": True}
+
+    client.call = fake_call  # type: ignore[method-assign]
+
+    assert await client.channels_start("whatsapp", account_id="personal") == {"ok": True}
+    assert await client.web_login_wait(
+        timeout_ms=15_000,
+        account_id="personal",
+        current_qr_data_url="data:image/png;base64,old",
+    ) == {"ok": True}
+
+    assert seen == [
+        ("channels.start", {"channel": "whatsapp", "accountId": "personal"}, None),
+        (
+            "web.login.wait",
+            {
+                "timeoutMs": 15_000,
+                "accountId": "personal",
+                "currentQrDataUrl": "data:image/png;base64,old",
+            },
+            client.chat_timeout,
+        ),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_sessions_preview_uses_keys_shape_and_returns_first_preview_items() -> None:
     client = GatewayClient(url="wss://openclaw-agent.example")
     seen: list[tuple[str, dict | None, float | None]] = []

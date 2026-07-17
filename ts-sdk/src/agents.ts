@@ -26,6 +26,15 @@ import {
   type OpenClawConfigSchemaResponse,
   type OpenClawSlackRelayOptions,
 } from './openclaw/gateway.js';
+import type {
+  OpenClawTelegramConfigPatch,
+  OpenClawWhatsAppConfigPatch,
+} from './openclaw/channels.js';
+import type {
+  OpenClawSlackHttpConfiguration,
+  OpenClawSlackRelayConfiguration,
+  OpenClawSlackSocketConfiguration,
+} from './openclaw/slack.js';
 
 const AGENTS_API_BASE = 'https://api.hypercli.com/agents';
 const DEV_AGENTS_API_BASE = 'https://api.dev.hypercli.com/agents';
@@ -1594,15 +1603,72 @@ export class OpenClawAgent extends Agent {
   }
 
   async configureSlackRelay(
-    options: Omit<OpenClawSlackRelayOptions, 'gatewayId'> & { gatewayId?: string },
-    gatewayOptions: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+    options: (Omit<OpenClawSlackRelayOptions, 'gatewayId'> & { gatewayId?: string }) | OpenClawSlackRelayConfiguration,
+    gatewayOptions: Omit<Partial<GatewayOptions>, 'url' | 'token'> & { accountId?: string } = {},
   ): Promise<void> {
+    const { accountId, ...connectOptions } = gatewayOptions;
+    const client = await this.connect(connectOptions);
+    try {
+      if ('relay' in options) {
+        await client.configureSlackRelay(options, accountId);
+      } else {
+        await client.configureSlackRelay({
+          ...options,
+          gatewayId: options.gatewayId ?? this.gatewayId ?? `agent:${this.id}`,
+        });
+      }
+    } finally {
+      client.close();
+    }
+  }
+
+  async configureSlackSocket(
+    config: OpenClawSlackSocketConfiguration,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & { accountId?: string } = {},
+  ): Promise<void> {
+    const { accountId, ...gatewayOptions } = options;
     const client = await this.connect(gatewayOptions);
     try {
-      await client.configureSlackRelay({
-        ...options,
-        gatewayId: options.gatewayId ?? this.gatewayId ?? `agent:${this.id}`,
-      });
+      await client.configureSlackSocket(config, accountId);
+    } finally {
+      client.close();
+    }
+  }
+
+  async configureSlackHttp(
+    config: OpenClawSlackHttpConfiguration,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & { accountId?: string } = {},
+  ): Promise<void> {
+    const { accountId, ...gatewayOptions } = options;
+    const client = await this.connect(gatewayOptions);
+    try {
+      await client.configureSlackHttp(config, accountId);
+    } finally {
+      client.close();
+    }
+  }
+
+  async configureTelegram(
+    config: OpenClawTelegramConfigPatch,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & { accountId?: string } = {},
+  ): Promise<void> {
+    const { accountId, ...gatewayOptions } = options;
+    const client = await this.connect(gatewayOptions);
+    try {
+      await client.configureTelegram(config, accountId);
+    } finally {
+      client.close();
+    }
+  }
+
+  async configureWhatsapp(
+    config: OpenClawWhatsAppConfigPatch,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & { accountId?: string } = {},
+  ): Promise<void> {
+    const { accountId, ...gatewayOptions } = options;
+    const client = await this.connect(gatewayOptions);
+    try {
+      await client.configureWhatsapp(config, accountId);
     } finally {
       client.close();
     }

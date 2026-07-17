@@ -103,6 +103,7 @@
               "agents/quickstart",
               "agents/tags",
               "agents/workspaces",
+              "agents/openclaw-config",
               "agents/provider",
               "agents/integrations",
               "agents/api",

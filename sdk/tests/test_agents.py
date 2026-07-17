@@ -4,7 +4,6 @@ from __future__ import annotations
 import copy
 import os
 from datetime import datetime
-from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -175,8 +174,86 @@ async def test_openclaw_agent_configure_slack_relay_uses_gateway_id(monkeypatch)
             "gateway_id": "agent:11111111-1111-1111-1111-111111111111",
             "auth_token_env": "HYPER_API_KEY",
             "account_id": None,
+            "bot_token": None,
+            "config": None,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_openclaw_agent_configure_slack_socket_delegates(monkeypatch):
+    agent = OpenClawAgent(
+        id="11111111-1111-1111-1111-111111111111",
+        user_id="user-456",
+        pod_id="pod-789",
+        pod_name="pod-789",
+        state="running",
+    )
+    seen = []
+
+    class FakeGateway:
+        async def configure_slack_socket(self, **kwargs):
+            seen.append(kwargs)
+            return {"ok": True}
+
+    class FakeConnect:
+        async def __aenter__(self):
+            return FakeGateway()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+    monkeypatch.setattr(agent, "connect", lambda **_kwargs: FakeConnect())
+
+    result = await agent.configure_slack_socket(
+        bot_token="xoxb-test",
+        app_token="xapp-test",
+        socket_mode={"serverPingTimeout": 30},
+        account_id="work",
+        config={"requireMention": True},
+    )
+
+    assert result == {"ok": True}
+    assert seen == [
+        {
+            "bot_token": "xoxb-test",
+            "app_token": "xapp-test",
+            "socket_mode": {"serverPingTimeout": 30},
+            "account_id": "work",
+            "config": {"requireMention": True},
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_openclaw_agent_configure_whatsapp_delegates(monkeypatch):
+    agent = OpenClawAgent(
+        id="11111111-1111-1111-1111-111111111111",
+        user_id="user-456",
+        pod_id="pod-789",
+        pod_name="pod-789",
+        state="running",
+    )
+    seen = []
+
+    class FakeGateway:
+        async def configure_whatsapp(self, config=None, *, account_id=None):
+            seen.append((config, account_id))
+            return {"ok": True}
+
+    class FakeConnect:
+        async def __aenter__(self):
+            return FakeGateway()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+    monkeypatch.setattr(agent, "connect", lambda **_kwargs: FakeConnect())
+
+    result = await agent.configure_whatsapp({"replyToMode": "all"}, account_id="personal")
+
+    assert result == {"ok": True}
+    assert seen == [({"replyToMode": "all"}, "personal")]
 
 
 def test_wait_running_fails_on_restore_and_sync_failures(monkeypatch):

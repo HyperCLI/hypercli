@@ -117,6 +117,10 @@ Methods:
 - `configSet()`
 - `status()`
 
+Managed HyperCLI Agents store OpenClaw runtime config at `/home/node/.openclaw/openclaw.json` inside the synced `/home/node` root. Update that config through `configPatch()` or `configApply()` on the running gateway; do not write the file directly from app code. The existing agent backup/restore path persists the synced state.
+
+Channel integration helpers such as `configureSlackSocket()`, `configureSlackRelay()`, `configureTelegram()`, and `configureWhatsapp()` are convenience wrappers over the same gateway config patch path.
+
 ## Chat And Sessions
 
 Two patterns are useful:

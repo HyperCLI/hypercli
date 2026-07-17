@@ -9,6 +9,15 @@
 
 import { getPublicKeyAsync, signAsync, utils as edUtils } from "@noble/ed25519";
 import NodeWebSocket from "ws";
+import type {
+  OpenClawSlackHttpConfiguration,
+  OpenClawSlackRelayConfiguration,
+  OpenClawSlackSocketConfiguration,
+} from "./slack.js";
+import type {
+  OpenClawTelegramConfigPatch,
+  OpenClawWhatsAppConfigPatch,
+} from "./channels.js";
 
 export interface GatewayOptions {
   /** WebSocket URL for the agent gateway (typically wss://{agent-host}) */
@@ -194,6 +203,7 @@ export interface OpenClawSlackRelayOptions {
   gatewayId: string;
   authTokenEnv?: string;
   accountId?: string;
+  botToken?: OpenClawSlackRelayConfiguration["botToken"];
 }
 
 export interface OpenClawConfigNodeDescriptor {
@@ -1135,6 +1145,23 @@ function makeId(): string {
     const random = Math.random() * 16 | 0;
     return (char === "x" ? random : (random & 0x3) | 0x8).toString(16);
   });
+}
+
+function channelConfigPatch(
+  channelId: string,
+  config: Record<string, unknown>,
+  accountId?: string,
+  defaultAccount = false,
+): Record<string, unknown> {
+  if (!accountId) return { channels: { [channelId]: config } };
+  return {
+    channels: {
+      [channelId]: {
+        accounts: { [accountId]: config },
+        ...(defaultAccount ? { defaultAccount: accountId } : {}),
+      },
+    },
+  };
 }
 
 function asRecord(value: unknown): Record<string, any> | null {
@@ -3145,9 +3172,30 @@ export class GatewayClient {
     });
   }
 
-  async configureSlackRelay(options: OpenClawSlackRelayOptions): Promise<void> {
-    const relayConfig = {
+  async configureSlackSocket(config: OpenClawSlackSocketConfiguration, accountId?: string): Promise<void> {
+    await this.configPatch(channelConfigPatch("slack", { ...config, mode: "socket" }, accountId));
+  }
+
+  async configureSlackHttp(config: OpenClawSlackHttpConfiguration, accountId?: string): Promise<void> {
+    await this.configPatch(channelConfigPatch("slack", { ...config, mode: "http" }, accountId));
+  }
+
+  async configureSlackRelay(
+    options: OpenClawSlackRelayOptions | OpenClawSlackRelayConfiguration,
+    accountId?: string,
+  ): Promise<void> {
+    if ("relay" in options) {
+      await this.configPatch(channelConfigPatch("slack", {
+        ...options,
+        enterpriseOrgInstall: false,
+        mode: "relay",
+      }, accountId));
+      return;
+    }
+
+    const relayConfig: Record<string, unknown> = {
       mode: "relay",
+      ...(options.botToken ? { botToken: options.botToken } : {}),
       relay: {
         url: options.url,
         authToken: {
@@ -3158,17 +3206,15 @@ export class GatewayClient {
         gatewayId: options.gatewayId,
       },
     };
-    const patch = options.accountId
-      ? {
-          channels: {
-            slack: {
-              accounts: { [options.accountId]: relayConfig },
-              defaultAccount: options.accountId,
-            },
-          },
-        }
-      : { channels: { slack: relayConfig } };
-    await this.configPatch(patch);
+    await this.configPatch(channelConfigPatch("slack", relayConfig, options.accountId, Boolean(options.accountId)));
+  }
+
+  async configureTelegram(config: OpenClawTelegramConfigPatch, accountId?: string): Promise<void> {
+    await this.configPatch(channelConfigPatch("telegram", config, accountId));
+  }
+
+  async configureWhatsapp(config: OpenClawWhatsAppConfigPatch, accountId?: string): Promise<void> {
+    await this.configPatch(channelConfigPatch("whatsapp", config, accountId));
   }
 
   async modelsList(): Promise<any[]> {

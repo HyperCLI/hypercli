@@ -254,6 +254,20 @@ export {
   type OpenClawChannel,
   type OpenClawChannelsDiagnostics,
   type OpenClawChannelsSnapshot,
+  type OpenClawChannelSecretRefSource,
+  type OpenClawChannelSecretRef,
+  type OpenClawChannelSecretInput,
+  type OpenClawTelegramDmPolicy,
+  type OpenClawTelegramGroupPolicy,
+  type OpenClawTelegramGroupConfig,
+  type OpenClawTelegramAccountConfig,
+  type OpenClawTelegramConfig,
+  type OpenClawTelegramAccountConfigPatch,
+  type OpenClawTelegramConfigPatch,
+  type OpenClawWhatsAppAccountConfig,
+  type OpenClawWhatsAppConfig,
+  type OpenClawWhatsAppAccountConfigPatch,
+  type OpenClawWhatsAppConfigPatch,
 } from './openclaw/channels.js';
 
 export {
@@ -368,6 +382,7 @@ export {
   type OpenClawConfigReloadKind,
   type OpenClawConfigSchemaLookupChild,
   type OpenClawConfigSchemaLookupResult,
+  type OpenClawSlackRelayOptions,
   type ChannelsStatusParams,
   type ChannelCredentialStatus,
   type ChannelAccountSnapshot,

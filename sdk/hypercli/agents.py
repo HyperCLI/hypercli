@@ -17,7 +17,7 @@ import os
 import re
 import secrets
 import time
-from typing import Callable, Literal, Optional, Any, AsyncIterator
+from typing import TYPE_CHECKING, Callable, Literal, Optional, Any, AsyncIterator
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 from contextlib import asynccontextmanager
 
@@ -25,6 +25,9 @@ import httpx
 
 from .config import get_agents_api_base_url, get_config_value
 from .http import HTTPClient, APIError
+
+if TYPE_CHECKING:
+    from .openclaw.gateway import ChatEvent, GatewayClient
 
 
 AGENTS_API_BASE = "https://api.hypercli.com/agents"
@@ -1198,6 +1201,8 @@ class OpenClawAgent(Agent):
         gateway_id: str | None = None,
         auth_token_env: str = "HYPER_API_KEY",
         account_id: str | None = None,
+        bot_token: Any | None = None,
+        config: dict[str, Any] | None = None,
         **kwargs,
     ) -> dict:
         async with self.connect(**kwargs) as gw:
@@ -1206,7 +1211,38 @@ class OpenClawAgent(Agent):
                 gateway_id=gateway_id or self.gateway_id or f"agent:{self.id}",
                 auth_token_env=auth_token_env,
                 account_id=account_id,
+                bot_token=bot_token,
+                config=config,
             )
+
+    async def configure_slack_socket(
+        self,
+        *,
+        bot_token: Any,
+        app_token: Any,
+        socket_mode: dict[str, Any] | None = None,
+        account_id: str | None = None,
+        config: dict[str, Any] | None = None,
+        **kwargs,
+    ) -> dict:
+        async with self.connect(**kwargs) as gw:
+            return await gw.configure_slack_socket(
+                bot_token=bot_token,
+                app_token=app_token,
+                socket_mode=socket_mode,
+                account_id=account_id,
+                config=config,
+            )
+
+    async def configure_whatsapp(
+        self,
+        config: dict[str, Any] | None = None,
+        *,
+        account_id: str | None = None,
+        **kwargs,
+    ) -> dict:
+        async with self.connect(**kwargs) as gw:
+            return await gw.configure_whatsapp(config, account_id=account_id)
 
     async def config_apply(self, config: dict, **kwargs) -> dict:
         async with self.connect(**kwargs) as gw:
@@ -1221,10 +1257,31 @@ class OpenClawAgent(Agent):
         *,
         probe: bool = False,
         timeout_ms: int | None = None,
+        channel: str | None = None,
         **kwargs,
     ) -> dict:
         async with self.connect(**kwargs) as gw:
-            return await gw.channels_status(probe=probe, timeout_ms=timeout_ms)
+            return await gw.channels_status(probe=probe, timeout_ms=timeout_ms, channel=channel)
+
+    async def channels_start(
+        self,
+        channel: str,
+        *,
+        account_id: str | None = None,
+        **kwargs,
+    ) -> dict:
+        async with self.connect(**kwargs) as gw:
+            return await gw.channels_start(channel, account_id=account_id)
+
+    async def channels_stop(
+        self,
+        channel: str,
+        *,
+        account_id: str | None = None,
+        **kwargs,
+    ) -> dict:
+        async with self.connect(**kwargs) as gw:
+            return await gw.channels_stop(channel, account_id=account_id)
 
     async def channels_logout(
         self,
@@ -1258,10 +1315,15 @@ class OpenClawAgent(Agent):
         *,
         timeout_ms: int | None = None,
         account_id: str | None = None,
+        current_qr_data_url: str | None = None,
         **kwargs,
     ) -> dict:
         async with self.connect(**kwargs) as gw:
-            return await gw.web_login_wait(timeout_ms=timeout_ms, account_id=account_id)
+            return await gw.web_login_wait(
+                timeout_ms=timeout_ms,
+                account_id=account_id,
+                current_qr_data_url=current_qr_data_url,
+            )
 
     async def workspace_files(self, **kwargs) -> tuple[str, list[dict]]:
         async with self.connect(**kwargs) as gw:

@@ -20,6 +20,72 @@ import type {
 
 type UnknownRecord = Record<string, unknown>;
 
+export type OpenClawChannelSecretRefSource = 'env' | 'file' | 'exec';
+
+export interface OpenClawChannelSecretRef {
+  source?: OpenClawChannelSecretRefSource;
+  provider: string;
+  id: string;
+}
+
+export type OpenClawChannelSecretInput = string | OpenClawChannelSecretRef;
+
+export type OpenClawTelegramDmPolicy = 'allowlist' | 'pairing' | 'open' | 'disabled';
+export type OpenClawTelegramGroupPolicy = 'allowlist' | 'open' | 'disabled';
+
+export interface OpenClawTelegramGroupConfig extends Record<string, unknown> {
+  enabled?: boolean;
+  requireMention?: boolean;
+  users?: Array<string | number>;
+  skills?: string[];
+  systemPrompt?: string;
+}
+
+export interface OpenClawTelegramAccountConfig extends Record<string, unknown> {
+  name?: string;
+  enabled?: boolean;
+  botToken?: OpenClawChannelSecretInput;
+  dmPolicy?: OpenClawTelegramDmPolicy;
+  allowFrom?: Array<string | number>;
+  groupPolicy?: OpenClawTelegramGroupPolicy;
+  groupAllowFrom?: Array<string | number>;
+  groups?: Record<string, OpenClawTelegramGroupConfig | null> | null;
+  defaultTo?: string | number;
+}
+
+export interface OpenClawTelegramConfig extends OpenClawTelegramAccountConfig {
+  accounts?: Record<string, OpenClawTelegramAccountConfig>;
+  defaultAccount?: string;
+}
+
+export type OpenClawTelegramAccountConfigPatch = {
+  [K in keyof OpenClawTelegramAccountConfig]?: OpenClawTelegramAccountConfig[K] | null;
+} & Record<string, unknown>;
+
+export type OpenClawTelegramConfigPatch = OpenClawTelegramAccountConfigPatch & {
+  accounts?: Record<string, OpenClawTelegramAccountConfigPatch | null> | null;
+  defaultAccount?: string | null;
+};
+
+export interface OpenClawWhatsAppAccountConfig extends Record<string, unknown> {
+  name?: string;
+  enabled?: boolean;
+}
+
+export interface OpenClawWhatsAppConfig extends OpenClawWhatsAppAccountConfig {
+  accounts?: Record<string, OpenClawWhatsAppAccountConfig>;
+  defaultAccount?: string;
+}
+
+export type OpenClawWhatsAppAccountConfigPatch = {
+  [K in keyof OpenClawWhatsAppAccountConfig]?: OpenClawWhatsAppAccountConfig[K] | null;
+} & Record<string, unknown>;
+
+export type OpenClawWhatsAppConfigPatch = OpenClawWhatsAppAccountConfigPatch & {
+  accounts?: Record<string, OpenClawWhatsAppAccountConfigPatch | null> | null;
+  defaultAccount?: string | null;
+};
+
 export interface OpenClawChannelsClient {
   channelsStatus(probe?: boolean, timeoutMs?: number, channel?: string): Promise<ChannelsStatusResult>;
   channelsLogout(channel: string, accountId?: string): Promise<Record<string, unknown>>;
@@ -346,6 +412,14 @@ export class OpenClawChannelsProvider implements AgentChannelsProvider {
 
   async configure(channelId: string, config: Record<string, unknown>, accountId?: string): Promise<void> {
     await this.update({ channelId, accountId, patch: config });
+  }
+
+  async configureTelegram(config: OpenClawTelegramConfigPatch, accountId?: string): Promise<void> {
+    await this.update({ channelId: 'telegram', accountId, patch: config });
+  }
+
+  async configureWhatsapp(config: OpenClawWhatsAppConfigPatch, accountId?: string): Promise<void> {
+    await this.update({ channelId: 'whatsapp', accountId, patch: config });
   }
 
   async logout(channelId: string, accountId?: string): Promise<void> {

@@ -376,6 +376,34 @@ describe('Agents SDK', () => {
     expect(client.close).toHaveBeenCalled();
   });
 
+  it('configures channel integrations through connected gateway helpers', async () => {
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-123',
+      user_id: 'user-456',
+      pod_id: 'pod-789',
+      pod_name: 'pod-789',
+      state: 'running',
+      routes: { openclaw: { port: 18789 } },
+      gateway_token: 'gw-token',
+    } as any);
+    const client = {
+      configureSlackSocket: vi.fn(async () => undefined),
+      configureTelegram: vi.fn(async () => undefined),
+      configureWhatsapp: vi.fn(async () => undefined),
+      close: vi.fn(),
+    };
+    vi.spyOn(agent, 'connect').mockResolvedValue(client as any);
+
+    await agent.configureSlackSocket({ botToken: 'xoxb-token', appToken: 'xapp-token' }, { accountId: 'work' });
+    await agent.configureTelegram({ enabled: true, dmPolicy: 'allowlist', allowFrom: ['123'] });
+    await agent.configureWhatsapp({ enabled: true }, { accountId: 'default' });
+
+    expect(client.configureSlackSocket).toHaveBeenCalledWith({ botToken: 'xoxb-token', appToken: 'xapp-token' }, 'work');
+    expect(client.configureTelegram).toHaveBeenCalledWith({ enabled: true, dmPolicy: 'allowlist', allowFrom: ['123'] }, undefined);
+    expect(client.configureWhatsapp).toHaveBeenCalledWith({ enabled: true }, 'default');
+    expect(client.close).toHaveBeenCalledTimes(3);
+  });
+
   it('builds browser desktop auth URLs with query-preserving redirects', () => {
     const url = buildBrowserDesktopUrl('https://desktop-agent.hypercli.com/', 'jwt-123', {
       redirect: 'vnc.html?autoconnect=1&resize=remote',

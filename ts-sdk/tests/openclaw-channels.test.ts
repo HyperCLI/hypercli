@@ -246,6 +246,8 @@ describe('OpenClawChannelsProvider', () => {
     ]);
     await provider.configure?.('telegram', { enabled: true, botToken: 'secret' });
     await provider.configure?.('slack', { enabled: true }, 'work');
+    await provider.configureTelegram({ dmPolicy: 'allowlist', allowFrom: ['123'] });
+    await provider.configureWhatsapp({ enabled: true }, 'default');
     await provider.logout?.('telegram');
     await provider.removeConfig?.('slack', 'work');
     await provider.removeConfig?.('telegram');
@@ -253,9 +255,11 @@ describe('OpenClawChannelsProvider', () => {
     expect(sdk.channelsStatus).toHaveBeenCalledWith(true, 2500);
     expect(sdk.configPatch).toHaveBeenNthCalledWith(1, { channels: { telegram: { enabled: true, botToken: 'secret' } } });
     expect(sdk.configPatch).toHaveBeenNthCalledWith(2, { channels: { slack: { accounts: { work: { enabled: true } } } } });
+    expect(sdk.configPatch).toHaveBeenNthCalledWith(3, { channels: { telegram: { dmPolicy: 'allowlist', allowFrom: ['123'] } } });
+    expect(sdk.configPatch).toHaveBeenNthCalledWith(4, { channels: { whatsapp: { accounts: { default: { enabled: true } } } } });
     expect(sdk.channelsLogout).toHaveBeenCalledWith('telegram', undefined);
-    expect(sdk.configPatch).toHaveBeenNthCalledWith(3, { channels: { slack: { accounts: { work: null } } } });
-    expect(sdk.configPatch).toHaveBeenNthCalledWith(4, { channels: { telegram: null } });
+    expect(sdk.configPatch).toHaveBeenNthCalledWith(5, { channels: { slack: { accounts: { work: null } } } });
+    expect(sdk.configPatch).toHaveBeenNthCalledWith(6, { channels: { telegram: null } });
   });
 
   it('supports channel-scoped grouped reads', async () => {

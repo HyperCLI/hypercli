@@ -512,6 +512,42 @@ describe("GatewayClient", () => {
     });
   });
 
+  it("patches typed channel runtime config helpers", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const patch = vi.spyOn(client, "configPatch").mockResolvedValue(undefined);
+
+    await client.configureSlackSocket({ botToken: "xoxb-token", appToken: "xapp-token" }, "work");
+    await client.configureSlackRelay({
+      botToken: "xoxb-token",
+      relay: { url: "wss://relay.example.test/slack", authToken: "relay-token", gatewayId: "gateway-1" },
+    });
+    await client.configureTelegram({ enabled: true, botToken: { provider: "env", id: "TELEGRAM_BOT_TOKEN" } });
+    await client.configureWhatsapp({ enabled: true }, "default");
+
+    expect(patch).toHaveBeenNthCalledWith(1, {
+      channels: { slack: { accounts: { work: { botToken: "xoxb-token", appToken: "xapp-token", mode: "socket" } } } },
+    });
+    expect(patch).toHaveBeenNthCalledWith(2, {
+      channels: {
+        slack: {
+          botToken: "xoxb-token",
+          enterpriseOrgInstall: false,
+          relay: { url: "wss://relay.example.test/slack", authToken: "relay-token", gatewayId: "gateway-1" },
+          mode: "relay",
+        },
+      },
+    });
+    expect(patch).toHaveBeenNthCalledWith(3, {
+      channels: { telegram: { enabled: true, botToken: { provider: "env", id: "TELEGRAM_BOT_TOKEN" } } },
+    });
+    expect(patch).toHaveBeenNthCalledWith(4, {
+      channels: { whatsapp: { accounts: { default: { enabled: true } } } },
+    });
+  });
+
   it("adapts sessions.preview to the upstream keys/previews shape", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",

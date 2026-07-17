@@ -1411,8 +1411,11 @@ class GatewayClient:
         gateway_id: str,
         auth_token_env: str = "HYPER_API_KEY",
         account_id: str | None = None,
+        bot_token: Any | None = None,
+        config: dict[str, Any] | None = None,
     ) -> dict:
         relay_config = {
+            **(config or {}),
             "mode": "relay",
             "relay": {
                 "url": url,
@@ -1420,6 +1423,8 @@ class GatewayClient:
                 "gatewayId": gateway_id,
             },
         }
+        if bot_token is not None:
+            relay_config["botToken"] = bot_token
         if account_id:
             patch = {
                 "channels": {
@@ -1431,6 +1436,49 @@ class GatewayClient:
             }
         else:
             patch = {"channels": {"slack": relay_config}}
+        return await self.config_patch(patch)
+
+    async def configure_slack_socket(
+        self,
+        *,
+        bot_token: Any,
+        app_token: Any,
+        socket_mode: dict[str, Any] | None = None,
+        account_id: str | None = None,
+        config: dict[str, Any] | None = None,
+    ) -> dict:
+        socket_config = {
+            **(config or {}),
+            "mode": "socket",
+            "botToken": bot_token,
+            "appToken": app_token,
+        }
+        if socket_mode is not None:
+            socket_config["socketMode"] = socket_mode
+        if account_id:
+            patch = {"channels": {"slack": {"accounts": {account_id: socket_config}}}}
+        else:
+            patch = {"channels": {"slack": socket_config}}
+        return await self.config_patch(patch)
+
+    async def configure_whatsapp(
+        self,
+        config: dict[str, Any] | None = None,
+        *,
+        account_id: str | None = None,
+    ) -> dict:
+        whatsapp_config = {"enabled": True, **(config or {})}
+        if account_id:
+            patch = {
+                "channels": {
+                    "whatsapp": {
+                        "accounts": {account_id: whatsapp_config},
+                        "defaultAccount": account_id,
+                    }
+                }
+            }
+        else:
+            patch = {"channels": {"whatsapp": whatsapp_config}}
         return await self.config_patch(patch)
 
     async def status(self) -> dict:
@@ -1466,11 +1514,30 @@ class GatewayClient:
         result = await self.call("models.list")
         return result.get("models", [])
 
-    async def channels_status(self, probe: bool = False, timeout_ms: int | None = None) -> dict:
+    async def channels_status(
+        self,
+        probe: bool = False,
+        timeout_ms: int | None = None,
+        channel: str | None = None,
+    ) -> dict:
         params: dict[str, Any] = {"probe": probe}
         if timeout_ms is not None:
             params["timeoutMs"] = timeout_ms
+        if channel is not None:
+            params["channel"] = channel
         return await self.call("channels.status", params)
+
+    async def channels_start(self, channel: str, account_id: str | None = None) -> dict:
+        params: dict[str, Any] = {"channel": channel}
+        if account_id:
+            params["accountId"] = account_id
+        return await self.call("channels.start", params)
+
+    async def channels_stop(self, channel: str, account_id: str | None = None) -> dict:
+        params: dict[str, Any] = {"channel": channel}
+        if account_id:
+            params["accountId"] = account_id
+        return await self.call("channels.stop", params)
 
     async def channels_logout(self, channel: str, account_id: str | None = None) -> dict:
         params: dict[str, Any] = {"channel": channel}
@@ -1502,12 +1569,15 @@ class GatewayClient:
         *,
         timeout_ms: int | None = None,
         account_id: str | None = None,
+        current_qr_data_url: str | None = None,
     ) -> dict:
         params: dict[str, Any] = {}
         if timeout_ms is not None:
             params["timeoutMs"] = timeout_ms
         if account_id:
             params["accountId"] = account_id
+        if current_qr_data_url is not None:
+            params["currentQrDataUrl"] = current_qr_data_url
         return await self.call("web.login.wait", params, timeout=self.chat_timeout)
 
     async def agents_list(self) -> list[dict]:

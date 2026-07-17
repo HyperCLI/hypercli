@@ -1663,8 +1663,19 @@ export function useOpenClawSession(
     return promise;
   }, [gateway]);
 
-  const applyWhatsAppConfigPatch = useCallback(async (patch: Record<string, unknown>) => {
+  const configureWhatsAppChannel = useCallback(async (patch: Record<string, unknown>) => {
     if (!gateway) throw new Error("Automatic WhatsApp setup is unavailable for this workspace.");
+    const provider = new OpenClawChannelsProvider({
+      channelsStatus: async (probe, timeoutMs, channel) => await channelsStatus(probe, timeoutMs, channel) as ChannelsStatusResult,
+      channelsLogout: (channel, accountId) => gateway.channelsLogout(channel, accountId),
+      configGet: () => gateway.configGet(),
+      configPatch: saveConfig,
+    });
+    await provider.configureWhatsapp(patch);
+  }, [channelsStatus, gateway, saveConfig]);
+
+  const applyConfigPatch = useCallback(async (patch: Record<string, unknown>) => {
+    if (!gateway) throw new Error("Not connected");
     await gateway.configPatch(patch);
     clearGatewayStatusCaches();
     setConfig((current) => mergeOpenClawConfigPatch(current, patch));
@@ -1686,9 +1697,9 @@ export function useOpenClawSession(
       appendActivity({ type: "connection", action: "WhatsApp support prepared" });
     }
     if (!whatsAppChannelEnabled(config)) {
-      await applyWhatsAppConfigPatch({ channels: { whatsapp: { enabled: true } } });
+      await configureWhatsAppChannel({ enabled: true });
     }
-  }, [agent, appendActivity, applyWhatsAppConfigPatch, config, gateway]);
+  }, [agent, appendActivity, config, configureWhatsAppChannel, gateway]);
 
   const whatsAppPairingStart = useCallback(async (
     options: GatewayWebLoginStartOptions = {},
@@ -1717,7 +1728,7 @@ export function useOpenClawSession(
         webLoginStart: (loginOptions) => gateway.webLoginStart(loginOptions),
         webLoginWait: (waitOptions) => gateway.webLoginWait(waitOptions),
         activate: async () => {
-          await applyWhatsAppConfigPatch(whatsAppActivationPatch(config));
+          await applyConfigPatch(whatsAppActivationPatch(config));
           channelConfigured = true;
         },
       },
@@ -1733,7 +1744,7 @@ export function useOpenClawSession(
       };
       publishProgress({ ...baseEvent, status: "running" });
       try {
-        await applyWhatsAppConfigPatch({ channels: { whatsapp: { enabled: true } } });
+        await configureWhatsAppChannel({ enabled: true });
         channelConfigured = true;
         publishProgress({ ...baseEvent, status: "succeeded" });
       } catch (cause) {
@@ -1801,7 +1812,7 @@ export function useOpenClawSession(
       }
       throw cause;
     }
-  }, [agent, applyWhatsAppConfigPatch, config, gateway]);
+  }, [agent, applyConfigPatch, config, configureWhatsAppChannel, gateway]);
 
   const cancelWhatsAppPairing = useCallback(() => {
     whatsAppPairingRequestRef.current += 1;

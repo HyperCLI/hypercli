@@ -1,0 +1,75 @@
+---
+title: OpenClaw Runtime Config
+description: How managed OpenClaw agents ship and persist runtime configuration.
+---
+
+Managed HyperCLI Agents run OpenClaw with a persisted runtime config at:
+
+```text
+/home/node/.openclaw/openclaw.json
+```
+
+This file is inside the managed agent sync root. For standard OpenClaw agents,
+the sync root is `/home/node`, so runtime config changes are backed up with the
+rest of the agent state.
+
+## Update Path
+
+Use the OpenClaw gateway config RPCs to update a running agent:
+
+```python
+config = await gw.config_get()
+await gw.config_patch({
+    "channels": {
+        "slack": {
+            "enabled": True,
+            "mode": "relay"
+        }
+    }
+})
+```
+
+Do not write `openclaw.json` directly from product code when the gateway is
+available. Gateway updates let OpenClaw validate, merge, and persist the config
+using its own runtime contract.
+
+## Persistence
+
+When an agent has state sync enabled:
+
+1. OpenClaw writes the updated config to `/home/node/.openclaw/openclaw.json`.
+2. The sync sidecar mirrors `/home/node` to the agent backup.
+3. On restart, the restore init container restores the backup before OpenClaw
+   starts.
+4. The OpenClaw image entrypoint only copies the baked template if the runtime
+   config file is missing after restore.
+
+This means gateway config updates are expected to survive normal container
+restarts.
+
+## Template Recovery
+
+The image includes a baked config template. That template is used only to
+bootstrap a missing runtime config.
+
+If you delete `/home/node/.openclaw/openclaw.json` in a running persisted agent
+and then restart it, the backup may restore the previous config. To force a
+fresh template, the persisted backup copy must also be absent, or the agent must
+start without restored state.
+
+Use this behavior intentionally:
+
+- update Slack, WhatsApp, Telegram, and other channel settings through the
+  gateway
+- rely on sync for persistence
+- use the baked template as a recovery/default source for fresh state
+
+## Operational Check
+
+For integration changes that must be durable, verify by reading the config back
+through the gateway after patching. For release validation, use a restart test:
+
+1. Patch a harmless channel config value through the gateway.
+2. Read it back from `config.get`.
+3. Restart the agent.
+4. Read it back again and confirm the value survived.
