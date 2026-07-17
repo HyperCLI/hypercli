@@ -6,7 +6,6 @@ import { FolderInput, Plus, Search, Settings2, TestTube2, Upload } from "lucide-
 import { Button, Switch, toast } from "@hypercli/shared-ui";
 import {
   SkillCard,
-  SkillCategoryFilter,
   SkillsEmptyState,
 } from "@hypercli/shared-ui/skills";
 
@@ -29,29 +28,24 @@ import {
   statusForSkill,
   type SkillConfigEntry,
   type SkillListRow,
-  type SkillStatus,
-  type SkillStatusFilter,
 } from "./skill-model";
 import { applySkillDocument, parseSkillFile, type AgentSkill } from "./provider-skills";
-
-const SKILL_STATUS_FILTERS: Array<{ id: SkillStatusFilter; label: string }> = [
-  { id: "all", label: "All" },
-  { id: "active", label: "Active" },
-  { id: "disabled", label: "Disabled" },
-  { id: "needs-setup", label: "Needs setup" },
-  { id: "blocked", label: "Blocked" },
-  { id: "preview", label: "Preview" },
-];
 
 const SKILL_ORIGIN_LABELS: Record<SkillListRow["origin"], string> = {
   "built-in": "Built-in",
   extension: "Extension",
   registry: "Registry",
-  custom: "Custom",
+  custom: "My skills",
   unknown: "Unknown",
-  created: "Created",
-  imported: "Imported",
+  created: "My skills",
+  imported: "My skills",
 };
+
+const MY_SKILL_ORIGINS = new Set<SkillListRow["origin"]>(["custom", "created", "imported"]);
+
+function skillOriginFilterId(origin: SkillListRow["origin"]): string {
+  return MY_SKILL_ORIGINS.has(origin) ? "origin:my-skills" : `origin:${origin}`;
+}
 
 function generatedSkillToAgentSkill(skill: SkillGeneratedOutput): AgentSkill {
   return {
@@ -157,7 +151,6 @@ export function SkillsPanel({
   onTestSkill,
 }: SkillsPanelProps) {
   const [searchQuery, setSearchQuery] = React.useState("");
-  const [statusFilter, setStatusFilter] = React.useState<SkillStatusFilter>("all");
   const [selectedFilters, setSelectedFilters] = React.useState<string[]>([]);
   const [createOpen, setCreateOpen] = React.useState(false);
   const [importOpen, setImportOpen] = React.useState(false);
@@ -198,24 +191,21 @@ export function SkillsPanel({
     })),
   ], [configOverrides, effectiveInstalledSkills, localSkills]);
 
-  const counts = React.useMemo(() => skillRows.reduce(
-    (result, row) => {
-      result[row.status] += 1;
-      return result;
-    },
-    { active: 0, disabled: 0, "needs-setup": 0, blocked: 0, preview: 0 } as Record<SkillStatus, number>,
-  ), [skillRows]);
-
   const skillFilterOptions = React.useMemo(() => {
-    const originCounts = new Map<SkillListRow["origin"], number>();
+    const originCounts = new Map<string, { label: string; count: number }>();
     const categoryCounts = new Map<string, number>();
     skillRows.forEach((row) => {
-      originCounts.set(row.origin, (originCounts.get(row.origin) ?? 0) + 1);
+      const id = skillOriginFilterId(row.origin);
+      const current = originCounts.get(id);
+      originCounts.set(id, { label: SKILL_ORIGIN_LABELS[row.origin], count: (current?.count ?? 0) + 1 });
       categoryCounts.set(row.skill.category, (categoryCounts.get(row.skill.category) ?? 0) + 1);
     });
-    const origins = Array.from(originCounts, ([origin, count]) => ({ id: `origin:${origin}`, label: SKILL_ORIGIN_LABELS[origin], count, group: "Source" }));
+    const origins = Array.from(originCounts, ([id, option]) => ({ id, ...option, group: "Source" }));
     const categories = Array.from(categoryCounts, ([category, count]) => ({ id: `category:${category}`, label: category, count, group: "Category" }));
-    return [...origins.sort((a, b) => a.label.localeCompare(b.label)), ...categories.sort((a, b) => a.label.localeCompare(b.label))];
+    return [
+      ...origins.sort((a, b) => a.id === "origin:my-skills" ? -1 : b.id === "origin:my-skills" ? 1 : a.label.localeCompare(b.label)),
+      ...categories.sort((a, b) => a.label.localeCompare(b.label)),
+    ];
   }, [skillRows]);
 
   const filteredRows = React.useMemo(() => {
@@ -224,8 +214,7 @@ export function SkillsPanel({
     const selectedSkillCategories = selectedFilters.filter((id) => id.startsWith("category:"));
     return skillRows.filter((row) => {
       const { skill } = row;
-      if (statusFilter !== "all" && row.status !== statusFilter) return false;
-      if (selectedOrigins.length > 0 && !selectedOrigins.includes(`origin:${row.origin}`)) return false;
+      if (selectedOrigins.length > 0 && !selectedOrigins.includes(skillOriginFilterId(row.origin))) return false;
       if (selectedSkillCategories.length > 0 && !selectedSkillCategories.includes(`category:${skill.category}`)) return false;
       if (!query) return true;
       return (
@@ -238,7 +227,7 @@ export function SkillsPanel({
         skill.os.some((os) => os.toLowerCase().includes(query))
       );
     });
-  }, [searchQuery, selectedFilters, skillRows, statusFilter]);
+  }, [searchQuery, selectedFilters, skillRows]);
 
   const selectedById = selectedSkillId ? skillRows.find((row) => row.skill.id === selectedSkillId) ?? null : null;
   const selectedByRequest = requestedSkillId && requestedSkillId !== dismissedRequestedSkillId
@@ -246,13 +235,7 @@ export function SkillsPanel({
     : null;
   const selectedRow = selectedById ?? selectedByRequest;
   const selectedConfig = selectedRow ? getSkillConfigEntry(selectedRow.skill.id, configOverrides) : { env: {} };
-  const filterOptions = SKILL_STATUS_FILTERS.map((filter) => ({
-    ...filter,
-    count: filter.id === "all" ? skillRows.length : counts[filter.id],
-  }));
-
   const resetFilters = () => {
-    setStatusFilter("all");
     setSelectedFilters([]);
     setSearchQuery("");
   };
@@ -444,12 +427,27 @@ export function SkillsPanel({
           )}
           {recoveryError && <p className="rounded-xl border border-warning/25 bg-warning/10 px-3 py-2 text-[11px] text-warning">{recoveryError}</p>}
 
-          <div className="flex flex-wrap items-center gap-1.5">
-            {filterOptions.map((filter) => {
-              const active = statusFilter === filter.id;
-              return <button key={filter.id} type="button" onClick={() => setStatusFilter(filter.id)} className={`h-6 rounded-full px-2.5 text-[10px] font-semibold transition-colors ${active ? "bg-surface-high text-foreground" : "text-text-muted hover:bg-surface-low hover:text-foreground"}`}>{filter.label} ({filter.count})</button>;
+          <div role="group" aria-label="Filter skills" className="flex min-w-0 flex-nowrap items-center gap-4 overflow-x-auto py-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <label className="flex shrink-0 cursor-pointer items-center gap-2 text-[11px] font-semibold text-foreground">
+              <input type="checkbox" checked={selectedFilters.length === 0} onChange={() => setSelectedFilters([])} className="h-4 w-4 rounded border-border accent-primary" />
+              <span>All skills <span className="text-text-muted">({skillRows.length})</span></span>
+            </label>
+            {skillFilterOptions.map((filter, index) => {
+              const checked = selectedFilters.includes(filter.id);
+              const previous = skillFilterOptions[index - 1];
+              const startsGroup = index > 0 && previous?.group !== filter.group;
+              return (
+                <label key={filter.id} className={`flex shrink-0 cursor-pointer items-center gap-2 text-[11px] font-medium transition-colors ${checked ? "text-foreground" : "text-text-muted hover:text-foreground"} ${startsGroup ? "border-l border-border pl-4" : ""}`}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => setSelectedFilters((current) => current.includes(filter.id) ? current.filter((id) => id !== filter.id) : [...current, filter.id])}
+                    className="h-4 w-4 rounded border-border accent-primary"
+                  />
+                  <span>{filter.label} <span className="text-text-muted">({filter.count})</span></span>
+                </label>
+              );
             })}
-            <div className="ml-auto flex items-center"><SkillCategoryFilter options={skillFilterOptions} selectedIds={selectedFilters} onSelectedIdsChange={setSelectedFilters} totalCount={skillRows.length} /></div>
           </div>
 
           {loading ? (
@@ -462,6 +460,8 @@ export function SkillsPanel({
                 <SkillCard
                   key={row.skill.id}
                   skill={skillCardForRow(row)}
+                  showMetadata={false}
+                  statusPosition="footer"
                   control={row.status !== "preview" && (row.localPreview || onUpdateSkill) ? <span onClick={(event) => event.stopPropagation()}><Switch checked={row.status !== "disabled"} disabled={togglingSkillId !== null} onCheckedChange={(enabled) => void handleToggle(row, enabled)} aria-label={`${row.status !== "disabled" ? "Disable" : "Activate"} ${row.skill.name} skill`} /></span> : undefined}
                   actions={(
                     <div className="flex flex-nowrap justify-end gap-1.5" onClick={(event) => event.stopPropagation()}>

@@ -10,6 +10,7 @@ import {
   Loader2,
   RotateCcw,
   Sparkles,
+  TestTube2,
   X,
 } from "lucide-react";
 import {
@@ -24,7 +25,6 @@ import {
 import {
   SkillConfirmationPanel,
   SkillMarkdownEditor,
-  SkillMarkdownPreview,
   type SkillConfirmationAction,
 } from "@hypercli/shared-ui/skills";
 
@@ -294,10 +294,12 @@ function SkillsCreateModalContent({
   const [previewSource, setPreviewSource] = React.useState<"form" | "ai">("form");
   const [generating, setGenerating] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
+  const [testing, setTesting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [savedSkill, setSavedSkill] = React.useState<SkillGeneratedOutput | null>(null);
   const [confirmationAction, setConfirmationAction] = React.useState<SkillConfirmationAction | null>(null);
   const generationAbortRef = React.useRef<AbortController | null>(null);
+  const draftPersistedRef = React.useRef(false);
   const operationRef = React.useRef(0);
 
   React.useEffect(() => () => {
@@ -319,9 +321,11 @@ function SkillsCreateModalContent({
     setPreviewSource("form");
     setGenerating(false);
     setSaving(false);
+    setTesting(false);
     setError(null);
     setSavedSkill(null);
     setConfirmationAction(null);
+    draftPersistedRef.current = false;
     onClose();
   }, [onClose]);
 
@@ -370,6 +374,7 @@ function SkillsCreateModalContent({
     }
     setGenerated(draftToGeneratedSkill(normalizeSkillDraft(draft)));
     setPreviewSource("form");
+    draftPersistedRef.current = false;
     setError(null);
     setMode("preview");
   };
@@ -393,6 +398,7 @@ function SkillsCreateModalContent({
       setDependencyText({ bins: nextDraft.requiresBins.join(", "), env: nextDraft.requiresEnv.join(", ") });
       setGenerated(draftToGeneratedSkill(nextDraft));
       setPreviewSource("ai");
+      draftPersistedRef.current = false;
       setMode("preview");
     } catch (cause) {
       if (operation !== operationRef.current || controller.signal.aborted) return;
@@ -424,7 +430,10 @@ function SkillsCreateModalContent({
     setSaving(true);
     setError(null);
     try {
-      await onSave(activeGenerated);
+      if (!draftPersistedRef.current) {
+        await onSave(activeGenerated);
+        draftPersistedRef.current = true;
+      }
       if (operation !== operationRef.current) return;
       if (onActivate || onTest || onKeepPreview) {
         setSavedSkill(activeGenerated);
@@ -437,6 +446,28 @@ function SkillsCreateModalContent({
       setError(cause instanceof Error ? cause.message : "Failed to save skill.");
     } finally {
       if (operation === operationRef.current) setSaving(false);
+    }
+  };
+
+  const handleTest = async () => {
+    if (!onTest || testing) return;
+    const operation = ++operationRef.current;
+    setTesting(true);
+    setError(null);
+    try {
+      if (!draftPersistedRef.current) {
+        await onSave(activeGenerated);
+        draftPersistedRef.current = true;
+      }
+      if (operation !== operationRef.current) return;
+      await onTest(activeGenerated);
+      if (operation !== operationRef.current) return;
+      handleClose();
+    } catch (cause) {
+      if (operation !== operationRef.current) return;
+      setError(cause instanceof Error ? cause.message : "Failed to test skill.");
+    } finally {
+      if (operation === operationRef.current) setTesting(false);
     }
   };
 
@@ -574,15 +605,24 @@ function SkillsCreateModalContent({
             </div>
           )}
 
-          {mode === "preview" && <SkillMarkdownPreview content={activeGenerated.content} />}
+          {mode === "preview" && (
+            <SkillMarkdownEditor
+              value={activeGenerated.content}
+              readOnly
+              showActions={false}
+              defaultMode="preview"
+              title="Generated SKILL.md"
+              renderPreview={renderPreview}
+            />
+          )}
            {mode === "confirmation" && savedSkill && (
               <SkillConfirmationPanel title={confirmationTitle ?? `${savedSkill.name} is ready`} description={confirmationDescription ?? "Save the skill to the agent, test it first, or keep it as a preview."} activateLabel={activateLabel} onActivate={onActivate ? () => void handleConfirmation("activate") : undefined} onTest={onTest ? () => void handleConfirmation("test") : undefined} onKeepPreview={() => void handleConfirmation("keep-preview")} keepPreviewLabel={keepPreviewLabel} pendingAction={confirmationAction} error={error} />
            )}
           {error && mode !== "confirmation" && <p className="mt-4 rounded-lg border border-error/30 bg-error/10 px-3 py-2 text-xs text-error">{error}</p>}
         </div>
 
-        {mode !== "confirmation" && <footer className="flex shrink-0 flex-col-reverse items-stretch gap-2 border-t border-border px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <button type="button" onClick={() => { if (mode === "choose") handleClose(); else if (mode === "form") handleFormBack(); else if (mode === "preview") handlePreviewEdit(); else cancelGeneration(); }} className="inline-flex h-8 w-full items-center justify-center gap-1 rounded-lg border border-border px-3 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-high hover:text-foreground sm:w-auto">
+        {mode !== "confirmation" && <footer className={mode === "preview" ? `grid shrink-0 gap-2 border-t border-border px-5 py-3 ${previewSource === "ai" && onTest ? "grid-cols-3" : "grid-cols-2"}` : "flex shrink-0 flex-col-reverse items-stretch gap-2 border-t border-border px-5 py-3 sm:flex-row sm:items-center sm:justify-between"}>
+          <button type="button" onClick={() => { if (mode === "choose") handleClose(); else if (mode === "form") handleFormBack(); else if (mode === "preview") handlePreviewEdit(); else cancelGeneration(); }} className={`inline-flex h-8 w-full items-center justify-center gap-1 rounded-lg border border-border px-3 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-high hover:text-foreground ${mode === "preview" ? "" : "sm:w-auto"}`}>
             {mode === "preview" ? <RotateCcw className="h-3.5 w-3.5" /> : mode === "choose" ? <X className="h-3.5 w-3.5" /> : <ArrowLeft className="h-3.5 w-3.5" />}
             {mode === "choose" ? "Cancel" : mode === "preview" ? "Edit" : mode === "form" && formStep !== "identity" ? "Previous" : "Back"}
           </button>
@@ -596,10 +636,18 @@ function SkillsCreateModalContent({
               {generating ? "Generating" : "Generate Skill"}
             </button>
           ) : mode === "preview" ? (
-            <button type="button" onClick={() => void handleSave()} disabled={saving} className="inline-flex h-8 w-full items-center justify-center gap-1 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary-hover disabled:opacity-45 sm:w-auto">
-              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-              Save Skill
-            </button>
+            <div className="contents">
+              {previewSource === "ai" && onTest ? (
+                <button type="button" onClick={() => void handleTest()} disabled={saving || testing} className="inline-flex h-8 w-full items-center justify-center gap-1 rounded-lg border border-border px-3 text-xs font-semibold text-text-secondary transition-colors hover:bg-surface-high hover:text-foreground disabled:opacity-45">
+                  {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <TestTube2 className="h-3.5 w-3.5" />}
+                  {testing ? "Starting..." : "Test"}
+                </button>
+              ) : null}
+              <button type="button" onClick={() => void handleSave()} disabled={saving || testing} className="inline-flex h-8 w-full items-center justify-center gap-1 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary-hover disabled:opacity-45">
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                Save Skill
+              </button>
+            </div>
           ) : null}
         </footer>}
       </DialogContent>

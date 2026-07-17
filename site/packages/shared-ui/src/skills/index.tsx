@@ -72,13 +72,15 @@ export interface SkillCardProps {
   skill: SkillCardModel;
   control?: React.ReactNode;
   actions?: React.ReactNode;
+  showMetadata?: boolean;
+  statusPosition?: "header" | "footer";
   actionLabel?: string;
   actionDisabled?: boolean;
   actionLoading?: boolean;
   onAction?: () => void;
 }
 
-export function SkillCard({ skill, control, actions, actionLabel, actionDisabled, actionLoading, onAction }: SkillCardProps) {
+export function SkillCard({ skill, control, actions, showMetadata = true, statusPosition = "header", actionLabel, actionDisabled, actionLoading, onAction }: SkillCardProps) {
   const statusTone = skill.statusTone ?? skill.status ?? "neutral";
   const statusLabel = skill.statusLabel ?? (skill.status ? `${skill.status.charAt(0).toUpperCase()}${skill.status.slice(1)}` : undefined);
   const originLabel = skill.origin ? `${skill.origin.charAt(0).toUpperCase()}${skill.origin.slice(1)}` : undefined;
@@ -94,14 +96,14 @@ export function SkillCard({ skill, control, actions, actionLabel, actionDisabled
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
             <h3 className="min-w-0 truncate text-[13px] font-semibold leading-5 text-foreground">{skill.name}</h3>
-            {(control || statusLabel) && <div className="flex shrink-0 items-center gap-1.5">{control}{statusLabel && <SkillStatusPill label={statusLabel} tone={statusTone} />}</div>}
+            {(control || (statusLabel && statusPosition === "header")) && <div className="flex shrink-0 items-center gap-1.5">{control}{statusLabel && statusPosition === "header" && <SkillStatusPill label={statusLabel} tone={statusTone} />}</div>}
           </div>
           <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-text-muted">{skill.description}</p>
         </div>
       </div>
 
       <div data-slot="skill-card-footer" className="mt-auto flex min-w-0 items-center gap-2 pt-2.5">
-        <div data-slot="skill-card-metadata" className="min-w-0 flex-1 overflow-hidden" title={chipSummary}>
+        {showMetadata && <div data-slot="skill-card-metadata" className="min-w-0 flex-1 overflow-hidden" title={chipSummary}>
           <div className="flex min-w-0 flex-nowrap gap-1 overflow-hidden whitespace-nowrap">
             {originLabel && <span className="shrink-0 rounded-md border border-border bg-background/50 px-1.5 py-0.5 text-[9px] leading-none text-text-muted">{originLabel}</span>}
             <span className="shrink-0 rounded-md border border-border bg-background/50 px-1.5 py-0.5 text-[9px] leading-none text-text-muted">{skill.category}</span>
@@ -110,8 +112,9 @@ export function SkillCard({ skill, control, actions, actionLabel, actionDisabled
               return <span key={badge.label} className={`inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[9px] leading-none ${toneClasses(badge.tone ?? "neutral")}`}>{Icon && <Icon className="h-3 w-3" />}{badge.label}</span>;
             })}
           </div>
-        </div>
-        {(actions || actionLabel) && <div data-slot="skill-card-actions" className="min-w-0 shrink-0">
+        </div>}
+        {statusLabel && statusPosition === "footer" && <div data-slot="skill-card-status" className="min-w-0 flex-1"><SkillStatusPill label={statusLabel} tone={statusTone} /></div>}
+        {(actions || actionLabel) && <div data-slot="skill-card-actions" className="ml-auto min-w-0 shrink-0">
           {actions ?? (actionLabel ? (
             <button type="button" onClick={onAction} disabled={actionDisabled || actionLoading} className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-border bg-background/60 px-2 text-[10px] font-semibold text-foreground transition-colors hover:border-border-strong hover:bg-surface-high disabled:cursor-not-allowed disabled:opacity-45">
               {actionLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}

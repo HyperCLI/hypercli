@@ -77,6 +77,7 @@ function skillBadges(skill: AgentSkill): SkillCardBadge[] {
 }
 
 export function skillCardForRow(row: SkillListRow): SkillCardModel {
+  const showStatus = row.status !== "active";
   return {
     id: row.skill.id,
     name: row.skill.name,
@@ -84,9 +85,11 @@ export function skillCardForRow(row: SkillListRow): SkillCardModel {
     category: row.skill.category,
     emoji: row.skill.emoji,
     origin: row.origin,
-    status: row.status,
-    statusLabel: skillStatusLabel(row.status),
-    statusTone: row.status,
+    ...(showStatus ? {
+      status: row.status,
+      statusLabel: skillStatusLabel(row.status),
+      statusTone: row.status,
+    } : {}),
     badges: skillBadges(row.skill),
   };
 }

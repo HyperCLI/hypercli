@@ -95,13 +95,16 @@ describe("SkillsPanel", () => {
     expect(screen.getByText("Skills are instruction packs that teach your agent how and when to use tools.")).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/search skills/i)).toBeInTheDocument();
     expect(screen.getByText("Weather")).toBeInTheDocument();
-    expect(screen.getByText("Built-in")).toBeInTheDocument();
-    expect(screen.getByText("Scripts").closest("[title]")).toHaveAttribute("title", "Built-in • General • Scripts • References • Assets");
-    const cardFooter = screen.getByText("Scripts").closest('[data-slot="skill-card-footer"]');
+    expect(screen.getAllByText("Built-in").length).toBeGreaterThan(0);
+    const weatherCard = screen.getByText("Weather").closest("article");
+    expect(weatherCard).not.toHaveTextContent("Built-in");
+    expect(weatherCard).not.toHaveTextContent("General");
+    expect(weatherCard).not.toHaveTextContent("Scripts");
+    expect(weatherCard).not.toHaveTextContent("Active");
+    const cardFooter = weatherCard?.querySelector('[data-slot="skill-card-footer"]');
     expect(cardFooter).toHaveClass("items-center");
-    expect(cardFooter?.querySelector('[data-slot="skill-card-metadata"]')).toBeInTheDocument();
+    expect(cardFooter?.querySelector('[data-slot="skill-card-metadata"]')).not.toBeInTheDocument();
     expect(cardFooter?.querySelector('[data-slot="skill-card-actions"]')).toBeInTheDocument();
-    expect(cardFooter?.querySelector('[data-slot="skill-card-metadata"]')?.parentElement).toBe(cardFooter);
     expect(cardFooter?.querySelector('[data-slot="skill-card-actions"]')?.parentElement).toBe(cardFooter);
     expect(screen.getByRole("switch", { name: /disable weather skill/i })).toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: /view details/i }));
@@ -196,7 +199,8 @@ describe("SkillsPanel", () => {
       })],
     });
 
-    expect(screen.getAllByText("Needs setup").length).toBeGreaterThan(0);
+    const needsSetupStatus = screen.getByText("Needs setup");
+    expect(needsSetupStatus.closest('[data-slot="skill-card-status"]')).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: /disable weather skill/i })).toBeChecked();
   });
 
@@ -207,13 +211,14 @@ describe("SkillsPanel", () => {
         providerSkill({ id: "weather", name: "Weather", category: "Lookups", origin: "built-in", path: "skill:weather", directoryPath: "skill:weather" }),
       ],
     });
-    fireEvent.click(screen.getByRole("button", { name: /filter skills.*all skills/i }));
-    expect(screen.getByText("Source")).toBeInTheDocument();
-    expect(screen.getByText("Category")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("option", { name: /built-in.*1/i }));
+    const filterCheckboxes = screen.getAllByRole("checkbox");
+    expect(filterCheckboxes[0]).toHaveAccessibleName(/all skills.*2/i);
+    expect(filterCheckboxes[0]).toBeChecked();
+    expect(filterCheckboxes[1]).toHaveAccessibleName(/my skills.*1/i);
+    fireEvent.click(screen.getByRole("checkbox", { name: /built-in.*1/i }));
     expect(screen.getByText("Weather")).toBeInTheDocument();
     expect(screen.queryByText("Notion")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("option", { name: /lookups.*1/i }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /lookups.*1/i }));
     expect(screen.getByText("Weather")).toBeInTheDocument();
     expect(screen.queryByText("Notion")).not.toBeInTheDocument();
   });
@@ -272,9 +277,12 @@ describe("SkillsPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /^preview$/i }));
     expect(screen.getByText("Generated SKILL.md")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /save skill/i }));
-    fireEvent.click(await screen.findByRole("button", { name: /keep as preview/i }));
+    const keepPreview = await screen.findByRole("button", { name: /keep as preview/i });
+    await waitFor(() => expect(keepPreview).toBeEnabled());
+    fireEvent.click(keepPreview);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.getByText("Github Helper", { selector: "h3" })).toBeInTheDocument();
-    expect(screen.getByText("Created")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /my skills.*1/i })).toBeInTheDocument();
   });
 
   it("restores persisted drafts and removes them only after explicit discard", async () => {
@@ -321,6 +329,29 @@ describe("SkillsPanel", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.getByText("Github Helper", { selector: "h3" })).toBeInTheDocument();
     expect(screen.getByText("Preview")).toBeInTheDocument();
+  });
+
+  it("opens AI-generated skills in preview mode and tests the persisted draft directly", async () => {
+    const onTestSkill = vi.fn(async () => undefined);
+    renderPanel({ onTestSkill });
+    fireEvent.click(screen.getByRole("button", { name: /create skill/i }));
+    fireEvent.click(screen.getByRole("button", { name: /describe with ai/i }));
+    fireEvent.change(screen.getByPlaceholderText(/i want a skill/i), { target: { value: "Search GitHub repos" } });
+    fireEvent.click(screen.getByRole("button", { name: /generate skill/i }));
+
+    expect(await screen.findByRole("button", { name: /^preview$/i })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /^raw$/i })).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(screen.getByRole("button", { name: /^test$/i }));
+
+    await waitFor(() => expect(onTestSkill).toHaveBeenCalledWith(expect.objectContaining({
+      id: "github-helper",
+      localPreview: true,
+    })));
+    await expect(loadSkillDraft({ ownerId: "test@example.com", agentId: "agent-1" }, "github-helper")).resolves.toEqual(expect.objectContaining({
+      id: "github-helper",
+      content: expect.stringContaining("# GitHub Helper"),
+    }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it("cancels temporary skill generation when leaving the AI step", async () => {
@@ -425,7 +456,7 @@ describe("SkillsPanel", () => {
     expect(await screen.findByRole("button", { name: /keep as preview/i })).not.toHaveClass("w-full");
     fireEvent.click(await screen.findByRole("button", { name: /test skill/i }));
     await waitFor(() => expect(onTestSkill).toHaveBeenCalledWith(expect.objectContaining({ id: "imported-skill" })));
-    expect(screen.getByText("Imported")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /my skills.*1/i })).toBeInTheDocument();
   });
 
   it("persists imported skill files to the agent", async () => {
