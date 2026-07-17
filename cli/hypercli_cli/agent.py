@@ -47,6 +47,7 @@ DEV_API_BASE = "https://api.dev.hypercli.com"
 PROD_API_BASE = "https://api.hypercli.com"
 DEV_INFERENCE_API_BASE = "https://api.agents.dev.hypercli.com"
 PROD_INFERENCE_API_BASE = "https://api.agents.hypercli.com"
+DEFAULT_X402_TIMEOUT_SECONDS = 60.0
 
 
 def require_x402_deps():
@@ -56,6 +57,17 @@ def require_x402_deps():
         console.print("\nInstall with:")
         console.print("  [bold]pip install 'hypercli-cli[wallet]'[/bold]")
         raise typer.Exit(1)
+
+
+def _resolve_x402_timeout() -> float:
+    raw = (os.getenv("HYPERCLI_X402_TIMEOUT") or "").strip()
+    if not raw:
+        return DEFAULT_X402_TIMEOUT_SECONDS
+    try:
+        timeout = float(raw)
+    except ValueError:
+        return DEFAULT_X402_TIMEOUT_SECONDS
+    return timeout if timeout > 0 else DEFAULT_X402_TIMEOUT_SECONDS
 
 
 def _resolve_agent_query_key() -> str:
@@ -206,7 +218,7 @@ async def _subscribe_async(account, plan_id: str, api_base: str, amount: str = N
     register_exact_evm_client(client, EthAccountSigner(account))
     http_client = x402HTTPClient(client)
 
-    async with httpx.AsyncClient() as http:
+    async with httpx.AsyncClient(timeout=_resolve_x402_timeout()) as http:
         try:
             url = await _resolve_plan_purchase_url(http, api_base, plan_id)
             console.print(f"\n[bold]→ Requesting:[/bold] POST {url}\n")

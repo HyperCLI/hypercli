@@ -85,6 +85,23 @@ def test_agent_subscribe_uses_product_api_base_env(monkeypatch, tmp_path):
     assert result.exit_code == 0
 
 
+def test_resolve_x402_timeout(monkeypatch):
+    monkeypatch.delenv("HYPERCLI_X402_TIMEOUT", raising=False)
+    assert agent_mod._resolve_x402_timeout() == agent_mod.DEFAULT_X402_TIMEOUT_SECONDS
+
+    monkeypatch.setenv("HYPERCLI_X402_TIMEOUT", "90")
+    assert agent_mod._resolve_x402_timeout() == 90
+
+    monkeypatch.setenv("HYPERCLI_X402_TIMEOUT", "")
+    assert agent_mod._resolve_x402_timeout() == agent_mod.DEFAULT_X402_TIMEOUT_SECONDS
+
+    monkeypatch.setenv("HYPERCLI_X402_TIMEOUT", "not-a-number")
+    assert agent_mod._resolve_x402_timeout() == agent_mod.DEFAULT_X402_TIMEOUT_SECONDS
+
+    monkeypatch.setenv("HYPERCLI_X402_TIMEOUT", "0")
+    assert agent_mod._resolve_x402_timeout() == agent_mod.DEFAULT_X402_TIMEOUT_SECONDS
+
+
 def test_extract_plan_purchase_url_from_agent_discovery():
     discovery = {
         "resources": [
