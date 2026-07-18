@@ -259,6 +259,16 @@ def _create_or_get_hyperclaw_user(
     )
 
 
+def _extract_user_id(payload: dict[str, object]) -> str:
+    raw = payload.get("id") or payload.get("user_id")
+    if not raw and isinstance(payload.get("user"), dict):
+        user_payload = payload["user"]
+        raw = user_payload.get("id") or user_payload.get("user_id")
+    if not raw:
+        raise RuntimeError(f"Agents admin user response returned no user id: {payload}")
+    return str(raw)
+
+
 def bootstrap() -> BootstrapState:
     product_base = _configured_product_base()
     orchestra_api_base = _configured_orchestra_api_base(product_base)
@@ -325,7 +335,7 @@ def bootstrap() -> BootstrapState:
         orchestra_user_id=orchestra_user_id,
         email=email,
     )
-    hyperclaw_user_id = str(hyperclaw_user_response["id"])
+    hyperclaw_user_id = _extract_user_id(hyperclaw_user_response)
     _request(
         "POST",
         f"{agents_api_base}/billing/balance/{os.getenv('HYPERCLAW_SMOKE_PLAN_ID', DEFAULT_PLAN_ID)}",
