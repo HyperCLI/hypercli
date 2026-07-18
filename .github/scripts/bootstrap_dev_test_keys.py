@@ -278,8 +278,9 @@ def bootstrap() -> BootstrapState:
     if not agents_admin_key:
         raise RuntimeError("AGENTS_BACKEND_API_KEY is required")
 
-    suffix = uuid.uuid4().hex[:10]
-    orchestra_user_id = f"sdk-int-{suffix}"
+    generated_user_uuid = uuid.uuid4()
+    suffix = generated_user_uuid.hex[:10]
+    orchestra_user_id = str(generated_user_uuid)
     email = f"sdk-int-{suffix}@example.com"
 
     _ensure_orchestra_user(
