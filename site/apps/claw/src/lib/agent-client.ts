@@ -20,6 +20,7 @@ type FrontendOpenClawCreateOptions = Omit<OpenClawCreateAgentOptions, "meta"> & 
 type FrontendOpenClawStartOptions = Omit<OpenClawStartAgentOptions, "meta"> & {
   meta?: OpenClawAgentUiMeta;
 };
+type ListedAgent = Awaited<ReturnType<Deployments["list"]>>[number];
 
 const CONTROL_UI_ALLOWED_ORIGIN_ENV = "OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN";
 const CONTROL_UI_ORIGIN_LOCK_CONFIG_ENV = "NEXT_PUBLIC_OPENCLAW_CONTROL_UI_ORIGIN_LOCK";
@@ -27,6 +28,7 @@ const CONTROL_UI_ALLOWED_ORIGINS_CONFIG_ENV = "NEXT_PUBLIC_OPENCLAW_CONTROL_UI_A
 export const AGENT_CLEANUP_START_MESSAGE = "Agent is finishing shutdown. Try again shortly.";
 export const AGENT_STOP_CLEANUP_COOLDOWN_MS = 30_000;
 const AGENT_CLEANUP_RETRY_DELAYS_MS = [2_000, 3_000, 5_000, 8_000, 12_000] as const;
+const AGENT_CREATE_RECONCILE_DELAYS_MS = [750, 1_500, 3_000] as const;
 const ENABLED_ENV_VALUES = new Set(["1", "true", "yes", "on", "enabled"]);
 const DISABLED_ENV_VALUES = new Set(["0", "false", "no", "off", "disabled"]);
 
@@ -88,6 +90,42 @@ function errorText(value: unknown): string {
 export function isAgentCleanupConflictError(value: unknown): boolean {
   const statusCode = isRecord(value) && typeof value.statusCode === "number" ? value.statusCode : null;
   return statusCode === 409 && /clean(?:ed|ing) up|cleanup/i.test(errorText(value));
+}
+
+function isAgentCreateSpecVisibilityError(value: unknown): boolean {
+  const statusCode = isRecord(value) && typeof value.statusCode === "number" ? value.statusCode : null;
+  return statusCode === 409 && /backend agent spec not found/i.test(errorText(value));
+}
+
+function agentName(value: unknown): string | null {
+  if (!isRecord(value)) return null;
+  return typeof value.name === "string" ? value.name : null;
+}
+
+function agentCreatedAtMs(value: unknown): number {
+  if (!isRecord(value)) return 0;
+  const createdAt = value.createdAt ?? value.created_at;
+  if (createdAt instanceof Date) return createdAt.getTime();
+  if (typeof createdAt !== "string") return 0;
+  const parsed = Date.parse(createdAt);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+async function reconcileCreatedAgentByName(agentClient: Deployments, name: string | undefined): Promise<ListedAgent | null> {
+  const expectedName = name?.trim();
+  if (!expectedName) return null;
+
+  for (const delay of AGENT_CREATE_RECONCILE_DELAYS_MS) {
+    await sleep(delay);
+    const agents = await agentClient.list();
+    const matches = agents
+      .filter((agent) => agentName(agent) === expectedName)
+      .sort((left, right) => agentCreatedAtMs(right) - agentCreatedAtMs(left));
+    if (matches.length > 0) {
+      return matches[0];
+    }
+  }
+  return null;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -279,10 +317,17 @@ export function createPublicHyperAgentClient(): HyperAgent {
 export async function createOpenClawAgent(apiKey: string, options: FrontendOpenClawCreateOptions = {}) {
   const preparedOptions = withConfiguredControlUiOrigins(options);
   const agentClient = createAgentClient(apiKey);
-  if (ENABLED_ENV_VALUES.has((preparedOptions.env?.OPENCLAW_DESKTOP_ENABLED ?? "").trim().toLowerCase())) {
-    return agentClient.createOpenClawPro(preparedOptions);
+  const create = ENABLED_ENV_VALUES.has((preparedOptions.env?.OPENCLAW_DESKTOP_ENABLED ?? "").trim().toLowerCase())
+    ? agentClient.createOpenClawPro.bind(agentClient)
+    : agentClient.createOpenClaw.bind(agentClient);
+  try {
+    return await create(preparedOptions);
+  } catch (error) {
+    if (!isAgentCreateSpecVisibilityError(error)) throw error;
+    const reconciled = await reconcileCreatedAgentByName(agentClient, preparedOptions.name);
+    if (reconciled) return reconciled;
+    throw error;
   }
-  return agentClient.createOpenClaw(preparedOptions);
 }
 
 export async function startOpenClawAgent(apiKey: string, agentId: string, options: FrontendOpenClawStartOptions = {}) {

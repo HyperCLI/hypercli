@@ -11,6 +11,7 @@ const { deploymentsConstructor, deploymentsInstance, hyperAgentConstructor, http
       createOpenClaw: vi.fn(),
       createOpenClawPro: vi.fn(),
       get: vi.fn(),
+      list: vi.fn(),
       startOpenClaw: vi.fn(),
     },
     hyperAgentConstructor: vi.fn(),
@@ -55,6 +56,7 @@ describe("agent-client", () => {
     deploymentsInstance.get.mockReset();
     deploymentsInstance.createOpenClaw.mockReset();
     deploymentsInstance.createOpenClawPro.mockReset();
+    deploymentsInstance.list.mockReset();
     deploymentsInstance.startOpenClaw.mockReset();
   });
 
@@ -210,6 +212,33 @@ describe("agent-client", () => {
       openClawRoutes: { includeDesktop: true },
     }));
     expect(deploymentsInstance.createOpenClaw).not.toHaveBeenCalled();
+  });
+
+  it("reconciles create spec visibility conflicts when the agent appears in the list", async () => {
+    vi.useFakeTimers();
+    const recoveredAgent = {
+      id: "agent-recovered",
+      name: "clear-window-works",
+      createdAt: new Date("2026-07-18T19:08:15.000Z"),
+    };
+    deploymentsInstance.createOpenClawPro.mockRejectedValue({
+      statusCode: 409,
+      detail: "Backend agent spec not found for agent af9e6156-bef8-4777-bac6-a261bd852bc6",
+    });
+    deploymentsInstance.list
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([recoveredAgent]);
+
+    const result = createOpenClawAgent("hyper_api_test", {
+      name: "clear-window-works",
+      env: { OPENCLAW_DESKTOP_ENABLED: "1" },
+    });
+
+    await vi.advanceTimersByTimeAsync(750);
+    await vi.advanceTimersByTimeAsync(1_500);
+
+    await expect(result).resolves.toBe(recoveredAgent);
+    expect(deploymentsInstance.list).toHaveBeenCalledTimes(2);
   });
 
   it("accepts capitalized desktop launch env values", async () => {
