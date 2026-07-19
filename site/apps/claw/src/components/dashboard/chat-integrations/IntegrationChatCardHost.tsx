@@ -2,7 +2,7 @@
 
 import type { AgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
 import type { GitHubAgentSetupStatus } from "@/lib/github-cli-workspace";
-import { ChannelChatConnectorCard } from "./ChannelChatConnectorCard";
+import { ChannelChatConnectorCard, type SlackRelaySetupOptions } from "./ChannelChatConnectorCard";
 import { GitHubChatConnectorCard } from "./GitHubChatConnectorCard";
 import { TelegramChatConnectorCard } from "./TelegramChatConnectorCard";
 import type { ClawIntegrationConnectAction } from "./claw-ui-actions";
@@ -20,6 +20,7 @@ interface IntegrationChatCardHostProps {
   onOpenFullSetup?: (integrationId: ClawIntegrationConnectAction["integrationId"]) => void;
   onDismiss?: () => void;
   directSetup?: boolean;
+  slackRelaySetup?: SlackRelaySetupOptions;
 }
 
 export function IntegrationChatCardHost({
@@ -33,6 +34,7 @@ export function IntegrationChatCardHost({
   onOpenFullSetup,
   onDismiss,
   directSetup = false,
+  slackRelaySetup,
 }: IntegrationChatCardHostProps) {
   if (action.type !== "integration.connect") return null;
 
@@ -122,6 +124,7 @@ export function IntegrationChatCardHost({
         onOpenFullSetup={onOpenFullSetup ? () => onOpenFullSetup(action.integrationId) : undefined}
         onDismiss={onDismiss}
         directSetup={directSetup}
+        slackRelaySetup={action.integrationId === "slack" ? slackRelaySetup : undefined}
       />
     );
   }

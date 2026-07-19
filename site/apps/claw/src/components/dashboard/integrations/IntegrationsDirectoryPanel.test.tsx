@@ -254,6 +254,19 @@ describe("IntegrationsDirectoryPanel", () => {
     expect(screen.queryByText("This workspace reports no integrations.")).not.toBeInTheDocument();
   });
 
+  it("does not mark unconfigured unhealthy channels as needing attention", async () => {
+    renderPanel({
+      initialCategory: null,
+      initialPluginId: null,
+      reportedChannels: [{ channelId: "slack", configured: false, healthState: "unhealthy", lastError: "not configured" }],
+      reportedChannelSnapshot: runtimeSnapshot([{ channelId: "slack", configured: false, healthState: "unhealthy", lastError: "not configured" }]),
+      reportedChannelsReady: true,
+    });
+
+    expect(await screen.findByRole("button", { name: /Slack.*Set up/i })).toBeInTheDocument();
+    expect(screen.queryByText("Needs attention")).not.toBeInTheDocument();
+  });
+
   it("shows an explicit state when the runtime has no channel provider", () => {
     renderPanel({
       channelsProvider: null,
@@ -380,7 +393,7 @@ describe("IntegrationsDirectoryPanel", () => {
     expect(screen.queryByRole("button", { name: /install Slack support/i })).not.toBeInTheDocument();
   });
 
-  it("shows Slack hosted and self-hosted choices before setup", async () => {
+  it("prompts for Slack setup mode without checking hosted status first", async () => {
     const ensureSlackSupport = vi.fn(async () => ({
       plugin: { id: "slack", name: "Slack", installed: true, enabled: true, state: "enabled" },
       changed: false,
@@ -396,10 +409,33 @@ describe("IntegrationsDirectoryPanel", () => {
       reportedChannelsReady: true,
     });
 
-    expect(await screen.findByRole("heading", { name: "Slack integration" })).toBeInTheDocument();
-    expect(screen.getByText("HyperCLI Slack App")).toBeInTheDocument();
-    expect(screen.getByText("Self-hosted Slack app")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Connect Slack" })).toHaveAttribute(
+    expect(await screen.findByText("Choose Slack connection")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /HyperCLI Slack App/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Self-hosted app" })).toBeInTheDocument();
+    expect(sdkMocks.getSlackInstallStatus).not.toHaveBeenCalled();
+    expect(ensureSlackSupport).not.toHaveBeenCalled();
+  });
+
+  it("checks Slack hosted status only after the hosted app path is selected", async () => {
+    const ensureSlackSupport = vi.fn(async () => ({
+      plugin: { id: "slack", name: "Slack", installed: true, enabled: true, state: "enabled" },
+      changed: false,
+      restartRequired: false,
+      restarted: false,
+    }));
+    renderPanel({
+      initialPluginId: "slack",
+      gatewaySession: gatewaySession({ ensureSlackSupport }),
+      config: null,
+      reportedChannels: [],
+      reportedChannelSnapshot: { observedAt: 1, channels: [] },
+      reportedChannelsReady: true,
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /HyperCLI Slack App/i }));
+
+    await waitFor(() => expect(sdkMocks.getSlackInstallStatus).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("link", { name: /Connect Slack/i })).toHaveAttribute(
       "href",
       "/slack/start?returnTo=%2Fdashboard%2Fagents%3FagentId%3Dagent-1%26integration%3Dslack",
     );
@@ -422,9 +458,10 @@ describe("IntegrationsDirectoryPanel", () => {
       reportedChannelsReady: true,
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Set up self-hosted" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Self-hosted app" }));
     expect((await screen.findAllByText(/Runtime-generated slack setup./i)).length).toBeGreaterThan(0);
     await waitFor(() => expect(ensureSlackSupport).toHaveBeenCalledTimes(1));
+    expect(sdkMocks.getSlackInstallStatus).not.toHaveBeenCalled();
   });
 
   it("configures Slack relay when the hosted app is connected", async () => {
@@ -455,6 +492,7 @@ describe("IntegrationsDirectoryPanel", () => {
       onRefreshChannels,
     });
 
+    fireEvent.click(await screen.findByRole("button", { name: /HyperCLI Slack App/i }));
     expect(await screen.findByText("Connected to Test Workspace.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Use hosted app" }));
 
