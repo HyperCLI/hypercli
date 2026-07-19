@@ -276,7 +276,7 @@ describe("IntegrationsDirectoryPanel", () => {
     expect(screen.getByText("No integrations reported")).toBeInTheDocument();
   });
 
-  it("shows the integration directory while the gateway is still offline", async () => {
+  it("waits for the gateway before mounting integration setup", () => {
     renderPanel({
       connected: false,
       channelsProvider: null,
@@ -288,9 +288,12 @@ describe("IntegrationsDirectoryPanel", () => {
       initialPluginId: null,
     });
 
-    expect(await screen.findByRole("heading", { name: "All integrations" })).toBeInTheDocument();
-    expect(screen.getByText("Slack")).toBeInTheDocument();
-    expect(screen.queryByText("Loading integrations")).not.toBeInTheDocument();
+    expect(screen.getByText("Waiting for gateway")).toBeInTheDocument();
+    expect(screen.getByText("Start the agent gateway to manage integrations.")).toBeInTheDocument();
+    expect(document.querySelector('[data-loading-stage="gateway"]')).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "All integrations" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Slack")).not.toBeInTheDocument();
+    expect(sdkMocks.getSlackInstallStatus).not.toHaveBeenCalled();
     expect(screen.queryByText("No integrations reported")).not.toBeInTheDocument();
   });
 

@@ -267,7 +267,7 @@ export function ChannelChatConnectorCard({
   const slackMode = channelId === "slack" ? configuredSlackMode(config) : "socket";
   const advancedSlackTransport = channelId === "slack" && slackMode !== "socket";
   const slackRelayChoiceActive = channelId === "slack" && Boolean(slackRelaySetup) && !configuredFromConfig;
-  const visibleSlackRelaySetup: SlackRelaySetupOptions | null = slackRelayChoiceActive && slackRelaySetup && slackRelaySetup.mode !== "self-hosted"
+  const visibleSlackRelaySetup: SlackRelaySetupOptions | null = connected && slackRelayChoiceActive && slackRelaySetup && slackRelaySetup.mode !== "self-hosted"
     ? slackRelaySetup
     : null;
   const directWhatsAppSetup = directSetup && channelId === "whatsapp";
@@ -579,6 +579,7 @@ export function ChannelChatConnectorCard({
   useEffect(() => {
     if (
       !directSetup ||
+      !connected ||
       (slackRelayChoiceActive && slackRelaySetup?.mode !== "self-hosted") ||
       (configured && channelId !== "whatsapp") ||
       directSetupStartedRef.current ||
@@ -586,7 +587,7 @@ export function ChannelChatConnectorCard({
     ) return;
     directSetupStartedRef.current = true;
     beginDirectSetup();
-  }, [channelId, configured, directSetup, slackRelayChoiceActive, slackRelaySetup?.mode, whatsAppPairingState?.status]);
+  }, [channelId, connected, configured, directSetup, slackRelayChoiceActive, slackRelaySetup?.mode, whatsAppPairingState?.status]);
 
   useEffect(() => () => {
     whatsAppPairingRequestRef.current += 1;

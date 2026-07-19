@@ -6,7 +6,7 @@ import { Suspense, useEffect, useMemo } from "react";
 import { CheckCircle2, XCircle } from "lucide-react";
 
 const SLACK_OAUTH_RETURN_STORAGE_KEY = "hypercli.slack.oauth.returnTo";
-const DEFAULT_SLACK_RETURN_PATH = "/dashboard/agents?integration=slack";
+const DEFAULT_SLACK_RETURN_PATH = "/dashboard/settings/";
 
 function safeReturnTo(value: string | null): string | null {
   const trimmed = value?.trim();

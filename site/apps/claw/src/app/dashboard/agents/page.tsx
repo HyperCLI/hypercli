@@ -1252,8 +1252,9 @@ function AgentsPageContent() {
 
   useEffect(() => {
     if (!requestedIntegrationId || !INTEGRATION_QUERY_IDS.has(requestedIntegrationId)) return;
+    if (!requestedAgentId) return;
     if (appliedIntegrationQueryRef.current === queryKey) return;
-    if (requestedAgentId && selectedAgentId !== requestedAgentId) return;
+    if (selectedAgentId !== requestedAgentId) return;
 
     appliedIntegrationQueryRef.current = queryKey;
     setDirectoryCategory("channels");
