@@ -6,6 +6,12 @@ import {
   normalizeOpenClawChannelsStatus,
   type OpenClawChannelsClient,
 } from '../src/openclaw/channels.js';
+import {
+  buildHostedSlackRelayChannelConfig,
+  buildSlackRelayWebSocketUrl,
+  configureHostedSlackRelayChannel,
+  type AgentChannelsProvider,
+} from '../src/channels.js';
 
 function client(overrides: Partial<OpenClawChannelsClient> = {}): OpenClawChannelsClient {
   return {
@@ -23,6 +29,60 @@ function client(overrides: Partial<OpenClawChannelsClient> = {}): OpenClawChanne
     ...overrides,
   };
 }
+
+describe('hosted Slack relay channel helpers', () => {
+  it('builds hosted Slack relay config from relay base URL and agent id', () => {
+    expect(buildSlackRelayWebSocketUrl('https://api.agents.dev.hypercli.com/')).toBe('wss://api.agents.dev.hypercli.com/slack/ws');
+    expect(buildSlackRelayWebSocketUrl('http://localhost:8000/base')).toBe('ws://localhost:8000/slack/ws');
+    expect(buildHostedSlackRelayChannelConfig({
+      relayBaseUrl: 'https://api.agents.dev.hypercli.com/',
+      agentId: 'agent-123',
+    })).toEqual({
+      enabled: true,
+      mode: 'relay',
+      relay: {
+        url: 'wss://api.agents.dev.hypercli.com/slack/ws',
+        authToken: { source: 'env', provider: 'default', id: 'HYPER_API_KEY' },
+        gatewayId: 'agent:agent-123',
+      },
+    });
+  });
+
+  it('configures hosted Slack relay after verifying the install', async () => {
+    const provider: Pick<AgentChannelsProvider, 'configure'> = {
+      configure: vi.fn(async () => undefined),
+    };
+    const checkInstallStatus = vi.fn(async () => ({
+      connected: true,
+      teamId: 'T123',
+      teamName: 'Test Workspace',
+      botUserId: 'U123',
+    }));
+
+    const result = await configureHostedSlackRelayChannel({
+      relayBaseUrl: 'https://api.agents.dev.hypercli.com/',
+      token: 'app-jwt',
+      agentId: 'agent-123',
+      channelsProvider: provider,
+      checkInstallStatus,
+    });
+
+    expect(result.status.connected).toBe(true);
+    expect(checkInstallStatus).toHaveBeenCalledWith({
+      relayBaseUrl: 'https://api.agents.dev.hypercli.com/',
+      token: 'app-jwt',
+    });
+    expect(provider.configure).toHaveBeenCalledWith('slack', {
+      enabled: true,
+      mode: 'relay',
+      relay: {
+        url: 'wss://api.agents.dev.hypercli.com/slack/ws',
+        authToken: { source: 'env', provider: 'default', id: 'HYPER_API_KEY' },
+        gatewayId: 'agent:agent-123',
+      },
+    });
+  });
+});
 
 describe('OpenClawChannelsProvider', () => {
   it('preserves grouped canonical status, UI metadata, diagnostics, and plugin fields', () => {

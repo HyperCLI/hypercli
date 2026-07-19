@@ -3,7 +3,7 @@
 import React from "react";
 import { AlertTriangle, Loader2, MessageSquare, Plus, RefreshCw, Search } from "lucide-react";
 import { getSlackInstallStatus, type SlackInstallStatus } from "@hypercli.com/sdk/agents";
-import type { AgentChannel, AgentChannelSummary, AgentChannelsProvider, AgentChannelsSnapshot } from "@hypercli.com/sdk/channels";
+import { configureHostedSlackRelayChannel, type AgentChannel, type AgentChannelSummary, type AgentChannelsProvider, type AgentChannelsSnapshot } from "@hypercli.com/sdk/channels";
 import type { AgentConnectorDescriptor, AgentConnectorsProvider } from "@hypercli.com/sdk/connectors";
 
 import type { AgentGatewaySession } from "../agents/AgentGatewayProvider";
@@ -15,8 +15,6 @@ import { DirectoryDetail } from "../directory/DirectoryDetail";
 import type { DirectoryCategory } from "../directory/directory-utils";
 import { CHANNEL_SETUP_CANDIDATE_IDS, PLUGIN_REGISTRY, type PluginMeta } from "./plugin-registry";
 import { INTEGRATION_BRAND_LOGOS, type IntegrationBrandIcon } from "./integration-brand-icons";
-import { AgentLoadingState } from "../agents/page-helpers";
-import { getAgentGatewayPanelBootStatus } from "../agents/chat-boot-stage";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { SLACK_APP_HANDLE, SLACK_RELAY_BASE_URL } from "@/lib/api";
 
@@ -246,20 +244,6 @@ function statusClass(tone: StatusTone): string {
   return "border border-border bg-surface-high text-text-secondary";
 }
 
-function slackRelayWebSocketUrl(relayBaseUrl: string): string | null {
-  if (!relayBaseUrl) return null;
-  try {
-    const url = new URL(relayBaseUrl);
-    url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
-    url.pathname = "/slack/ws";
-    url.search = "";
-    url.hash = "";
-    return url.toString();
-  } catch {
-    return null;
-  }
-}
-
 function slackReturnPath(agentId: string | null | undefined): string {
   const params = new URLSearchParams();
   if (agentId) params.set("agentId", agentId);
@@ -419,7 +403,6 @@ export function IntegrationsDirectoryPanel({
   const [slackRelayConfiguring, setSlackRelayConfiguring] = React.useState(false);
   const [slackInstallError, setSlackInstallError] = React.useState<string | null>(null);
   const { getToken, isAuthenticated, isLoading: authLoading } = useAgentAuth();
-  const scopeLabel = agentName?.trim() || "this agent";
   const selectedChannelId = selection.requestedId === requestedChannelId
     ? selection.selectedId
     : requestedChannelId;
@@ -605,31 +588,24 @@ export function IntegrationsDirectoryPanel({
       setSlackInstallError("Agent identity is unavailable.");
       return;
     }
-    const relayWsUrl = slackRelayWebSocketUrl(SLACK_RELAY_BASE_URL);
-    if (!relayWsUrl) {
-      setSlackInstallError("Slack relay is not configured for this environment.");
-      return;
-    }
     setSlackRelayConfiguring(true);
     setSlackInstallError(null);
     try {
-      const status = slackInstallStatus?.connected ? slackInstallStatus : await refreshSlackInstallStatus();
-      if (!status?.connected) {
-        setSlackInstallError("Connect Slack before using the hosted app.");
-        return;
-      }
-      await prepareSlackSupport();
-      const relayConfig = {
-        enabled: true,
-        mode: "relay",
-        relay: {
-          url: relayWsUrl,
-          authToken: { source: "env", provider: "default", id: "HYPER_API_KEY" },
-          gatewayId: `agent:${agentId}`,
+      const result = await configureHostedSlackRelayChannel({
+        relayBaseUrl: SLACK_RELAY_BASE_URL,
+        token: await getToken(),
+        agentId,
+        checkInstallStatus: async (options) => {
+          if (slackInstallStatus?.connected) return slackInstallStatus;
+          return getSlackInstallStatus(options);
         },
-      };
-      if (channelsProvider?.configure) await channelsProvider.configure("slack", relayConfig);
-      else await onSaveConfig({ channels: { slack: relayConfig } });
+        apply: async (relayConfig) => {
+          await prepareSlackSupport();
+          if (channelsProvider?.configure) await channelsProvider.configure("slack", relayConfig);
+          else await onSaveConfig({ channels: { slack: relayConfig } });
+        },
+      });
+      setSlackInstallStatus(result.status);
       if (onRefreshChannels) await onRefreshChannels(true);
       else await refreshIntegrations();
     } catch (cause) {
@@ -665,22 +641,7 @@ export function IntegrationsDirectoryPanel({
     ));
   }, [integrationFilter, searchQuery, tiles]);
 
-  if (!connected) {
-    const bootStatus = getAgentGatewayPanelBootStatus({
-      connected,
-      loadingTitle: "Loading integrations",
-      loadingDetail: `Reading available capabilities for ${scopeLabel}.`,
-      connectingDetail: "Opening the integrations workspace.",
-      waitingDetail: "Start the agent gateway to manage integrations.",
-    });
-    return (
-      <div className="h-full min-h-0 bg-background">
-        <AgentLoadingState bootStatus={bootStatus ?? undefined} />
-      </div>
-    );
-  }
-
-  if (!channelsProvider && !gatewaySession.connectorsProvider) {
+  if (connected && !channelsProvider && !gatewaySession.connectorsProvider) {
     return (
       <div className="h-full min-h-0 overflow-y-auto bg-background px-5 py-7 text-foreground">
         <div className="mx-auto w-full max-w-6xl rounded-[12px] border border-border bg-surface-low px-5 py-10 text-center">

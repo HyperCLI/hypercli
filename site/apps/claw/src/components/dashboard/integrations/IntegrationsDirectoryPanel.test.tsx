@@ -276,6 +276,24 @@ describe("IntegrationsDirectoryPanel", () => {
     expect(screen.getByText("No integrations reported")).toBeInTheDocument();
   });
 
+  it("shows the integration directory while the gateway is still offline", async () => {
+    renderPanel({
+      connected: false,
+      channelsProvider: null,
+      gatewaySession: gatewaySession({ connected: false, channelsProvider: null, connectorsProvider: null }),
+      reportedChannels: [],
+      reportedChannelSnapshot: { observedAt: 1, channels: [] },
+      reportedChannelsReady: true,
+      initialCategory: null,
+      initialPluginId: null,
+    });
+
+    expect(await screen.findByRole("heading", { name: "All integrations" })).toBeInTheDocument();
+    expect(screen.getByText("Slack")).toBeInTheDocument();
+    expect(screen.queryByText("Loading integrations")).not.toBeInTheDocument();
+    expect(screen.queryByText("No integrations reported")).not.toBeInTheDocument();
+  });
+
   it("uses the shared runtime connector card and generated setup guidance", async () => {
     const session = gatewaySession();
     renderPanel({ gatewaySession: session });

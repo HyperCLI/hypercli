@@ -244,6 +244,15 @@ export {
   type AgentChannelConfigurationReadResult,
   type AgentChannelUpdateRequest,
   type AgentChannelsProvider,
+  type SlackInstallStatusLike,
+  type SlackInstallStatusCheckOptions,
+  type HostedSlackRelayChannelConfigOptions,
+  type HostedSlackRelayChannelConfig,
+  type ConfigureHostedSlackRelayChannelOptions,
+  type ConfigureHostedSlackRelayChannelResult,
+  buildSlackRelayWebSocketUrl,
+  buildHostedSlackRelayChannelConfig,
+  configureHostedSlackRelayChannel,
 } from './channels.js';
 
 export {
