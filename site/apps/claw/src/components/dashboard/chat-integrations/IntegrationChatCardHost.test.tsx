@@ -27,6 +27,39 @@ describe("IntegrationChatCardHost", () => {
     expect(screen.getByText(new RegExp(`connect ${integrationId}`, "i"))).toBeInTheDocument();
   });
 
+  it("uses the Slack override when hosted relay setup state is provided", async () => {
+    render(
+      <IntegrationChatCardHost
+        action={{ version: 1, type: "integration.connect", integrationId: "slack" }}
+        chat={{
+          connected: true,
+          config: null,
+          saveConfig: vi.fn(async () => undefined),
+        } as never}
+        slackRelaySetup={{
+          mode: "prompt",
+          handle: "hyperdev",
+          connected: null,
+          workspace: null,
+          checking: false,
+          configuring: false,
+          error: null,
+          connectHref: "/slack/start",
+          onChooseHosted: vi.fn(),
+          onChooseSelfHosted: vi.fn(),
+          onBackToChoice: vi.fn(),
+          onRefreshHosted: vi.fn(),
+          onConfigureHosted: vi.fn(),
+        }}
+      />,
+    );
+
+    expect(await screen.findByText("Select Slack transport")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /HyperCLI Slack App/i }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /Self-hosted Socket Mode/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /start setup/i })).not.toBeInTheDocument();
+  });
+
   it("wires Telegram finish to gateway reconnect", async () => {
     const retry = vi.fn();
     const retryAndRefreshSessions = vi.fn();
