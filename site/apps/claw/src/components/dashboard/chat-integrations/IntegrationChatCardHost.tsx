@@ -2,8 +2,9 @@
 
 import type { AgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
 import type { GitHubAgentSetupStatus } from "@/lib/github-cli-workspace";
-import { ChannelChatConnectorCard, type SlackRelaySetupOptions } from "./ChannelChatConnectorCard";
+import { ChannelChatConnectorCard } from "./ChannelChatConnectorCard";
 import { GitHubChatConnectorCard } from "./GitHubChatConnectorCard";
+import { SlackChatConnectorCard, type SlackRelaySetupOptions } from "./SlackChatConnectorCard";
 import { TelegramChatConnectorCard } from "./TelegramChatConnectorCard";
 import type { ClawIntegrationConnectAction } from "./claw-ui-actions";
 
@@ -91,6 +92,34 @@ export function IntegrationChatCardHost({
     );
   }
 
+  if (action.integrationId === "slack") {
+    if (slackRelaySetup) {
+      return (
+        <SlackChatConnectorCard
+          connected={chat.connected}
+          config={chat.config as Record<string, unknown> | null}
+          connectorsProvider={chat.connectorsProvider}
+          channelsProvider={chat.channelsProvider}
+          onSaveConfig={typeof chat.saveConfig === "function" ? chat.saveConfig : undefined}
+          onWebLoginStart={typeof chat.webLoginStart === "function" ? chat.webLoginStart : undefined}
+          onWebLoginWait={typeof chat.webLoginWait === "function" ? chat.webLoginWait : undefined}
+          cachedWorkflow={chat.connectorWorkflows?.slack}
+          onGenerateConnectorWorkflow={chat.generateConnectorWorkflow}
+          onRunShellProposal={chat.runConnectorShellProposal}
+          onReconnectGateway={typeof chat.retryAndRefreshSessions === "function"
+            ? chat.retryAndRefreshSessions
+            : typeof chat.retry === "function"
+              ? chat.retry
+              : undefined}
+          onOpenIntegrationDetails={onOpenIntegrationDetails ? () => onOpenIntegrationDetails(action.integrationId) : undefined}
+          onOpenFullSetup={onOpenFullSetup ? () => onOpenFullSetup(action.integrationId) : undefined}
+          onDismiss={onDismiss}
+          slackRelaySetup={slackRelaySetup}
+        />
+      );
+    }
+  }
+
   if (action.integrationId === "discord" || action.integrationId === "slack" || action.integrationId === "whatsapp") {
     return (
       <ChannelChatConnectorCard
@@ -124,7 +153,6 @@ export function IntegrationChatCardHost({
         onOpenFullSetup={onOpenFullSetup ? () => onOpenFullSetup(action.integrationId) : undefined}
         onDismiss={onDismiss}
         directSetup={directSetup}
-        slackRelaySetup={action.integrationId === "slack" ? slackRelaySetup : undefined}
       />
     );
   }

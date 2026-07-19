@@ -35,23 +35,6 @@ import { IntegrationBrandPulse } from "./IntegrationBrandPulse";
 
 export type AdditionalChannelConnectorId = "discord" | "slack" | "whatsapp";
 
-export interface SlackRelaySetupOptions {
-  mode: "prompt" | "hosted" | "self-hosted";
-  handle: string;
-  connected: boolean | null;
-  workspace: string | null;
-  checking: boolean;
-  configuring: boolean;
-  error: string | null;
-  connectHref: string;
-  onChooseHosted: () => void;
-  onChooseSelfHosted: () => void;
-  onBackToChoice: () => void;
-  onRefreshHosted: () => void;
-  onConfigureHosted: () => void;
-  onRememberReturn?: () => void;
-}
-
 interface ChannelChatConnectorCardProps {
   channelId: AdditionalChannelConnectorId;
   connected: boolean;
@@ -82,7 +65,6 @@ interface ChannelChatConnectorCardProps {
   onOpenFullSetup?: () => void;
   onDismiss?: () => void;
   directSetup?: boolean;
-  slackRelaySetup?: SlackRelaySetupOptions;
 }
 
 type CardMode = "overview" | "setup" | "saved" | "verifying" | "ready" | "failed" | "manage";
@@ -258,7 +240,6 @@ export function ChannelChatConnectorCard({
   onOpenFullSetup,
   onDismiss,
   directSetup = false,
-  slackRelaySetup,
 }: ChannelChatConnectorCardProps) {
   const definition = CHANNEL_DEFINITIONS[channelId];
   const brand = INTEGRATION_BRAND_LOGOS[channelId];
@@ -266,10 +247,6 @@ export function ChannelChatConnectorCard({
   const configuredFromConfig = configuredChannel(config, channelId);
   const slackMode = channelId === "slack" ? configuredSlackMode(config) : "socket";
   const advancedSlackTransport = channelId === "slack" && slackMode !== "socket";
-  const slackRelayChoiceActive = channelId === "slack" && Boolean(slackRelaySetup) && !configuredFromConfig;
-  const visibleSlackRelaySetup: SlackRelaySetupOptions | null = connected && slackRelayChoiceActive && slackRelaySetup && slackRelaySetup.mode !== "self-hosted"
-    ? slackRelaySetup
-    : null;
   const directWhatsAppSetup = directSetup && channelId === "whatsapp";
   const [localMode, setMode] = useState<CardMode>(configuredFromConfig && !directWhatsAppSetup ? "manage" : directSetup ? "setup" : "overview");
   const [localRuntimeConfigured, setRuntimeConfigured] = useState<boolean | null>(null);
@@ -580,14 +557,13 @@ export function ChannelChatConnectorCard({
     if (
       !directSetup ||
       !connected ||
-      (slackRelayChoiceActive && slackRelaySetup?.mode !== "self-hosted") ||
       (configured && channelId !== "whatsapp") ||
       directSetupStartedRef.current ||
       (channelId === "whatsapp" && whatsAppPairingState?.status !== undefined && whatsAppPairingState.status !== "idle")
     ) return;
     directSetupStartedRef.current = true;
     beginDirectSetup();
-  }, [channelId, connected, configured, directSetup, slackRelayChoiceActive, slackRelaySetup?.mode, whatsAppPairingState?.status]);
+  }, [channelId, connected, configured, directSetup, whatsAppPairingState?.status]);
 
   useEffect(() => () => {
     whatsAppPairingRequestRef.current += 1;
@@ -663,9 +639,7 @@ export function ChannelChatConnectorCard({
 
   const currentWhatsAppProgress = whatsAppSetupProgress.findLast((entry) => entry.status === "running") ?? whatsAppSetupProgress.at(-1);
   const heroLabel = !connected
-    ? `${definition.displayName} setup`
-    : visibleSlackRelaySetup
-      ? `Create ${definition.displayName} app`
+      ? `${definition.displayName} setup`
     : mode === "setup"
       ? `Connect ${definition.displayName}`
       : mode === "saved"
@@ -689,8 +663,6 @@ export function ChannelChatConnectorCard({
         : whatsAppPairingStatus === "waiting"
           ? whatsAppPairingMessage ?? "Scan the code with WhatsApp to link your phone."
           : "Link your phone with a secure QR code."
-    : visibleSlackRelaySetup
-      ? "Select self-hosted setup or use the HyperCLI Slack App."
     : mode === "setup"
       ? workflow?.summary ?? runtimeInstructions ?? (workflowLoading ? "Preparing setup guidance." : definition.description)
     : mode === "saved"
@@ -810,46 +782,9 @@ export function ChannelChatConnectorCard({
         </div>
       </div>
 
-      {visibleSlackRelaySetup || mode === "setup" || mode === "saved" || mode === "verifying" || mode === "ready" || mode === "failed" || error || !connected ? (
+      {mode === "setup" || mode === "saved" || mode === "verifying" || mode === "ready" || mode === "failed" || error || !connected ? (
         <div className="relative z-10 space-y-3 border-t border-border bg-surface-low/70 px-4 py-4 text-xs leading-5 text-text-secondary backdrop-blur-md sm:px-5">
           {error ? <p role="alert" className="rounded-2xl border border-destructive/25 bg-destructive/10 px-3 py-2 text-destructive">{error}</p> : null}
-          {visibleSlackRelaySetup ? (
-            <div className="rounded-2xl border border-[var(--channel-accent-border)] bg-background/75 p-4 sm:p-5">
-              {visibleSlackRelaySetup.mode === "prompt" ? (
-                <>
-                  <p className="text-sm font-bold text-foreground">Create Slack app</p>
-                  <p className="mt-2 text-xs leading-5 text-text-secondary">
-                    Select self-hosted to enter Slack bot and app tokens, or use the HyperCLI Slack App for the hosted relay.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-bold text-foreground">Use the HyperCLI Slack App</p>
-                      <p className="mt-1 text-xs leading-5 text-text-secondary">
-                        The hosted @{visibleSlackRelaySetup.handle} app connects through relay. No Slack bot or app token is pasted into this agent.
-                      </p>
-                    </div>
-                    <button type="button" className={buttonClass()} onClick={visibleSlackRelaySetup.onRefreshHosted} disabled={visibleSlackRelaySetup.checking}>
-                      {visibleSlackRelaySetup.checking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-                      Refresh
-                    </button>
-                  </div>
-                  <div className="mt-4 rounded-xl border border-border bg-surface-low px-3 py-2 text-xs text-text-secondary">
-                    {visibleSlackRelaySetup.checking
-                      ? "Checking Slack connection..."
-                      : visibleSlackRelaySetup.connected
-                        ? `Connected${visibleSlackRelaySetup.workspace ? ` to ${visibleSlackRelaySetup.workspace}` : ""}.`
-                        : "Connect Slack once for this HyperCLI account, then return here to use the hosted app."}
-                  </div>
-                </>
-              )}
-              {visibleSlackRelaySetup.error ? (
-                <p role="alert" className="mt-3 rounded-xl border border-destructive/25 bg-destructive/10 px-3 py-2 text-destructive">{visibleSlackRelaySetup.error}</p>
-              ) : null}
-            </div>
-          ) : null}
           {!connected ? (
             <div className="flex items-start gap-2 rounded-2xl border border-warning/25 bg-warning/10 px-3 py-2 text-warning">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -983,31 +918,7 @@ export function ChannelChatConnectorCard({
       ) : null}
 
       <div className="relative z-10 flex flex-wrap items-center justify-end gap-2 border-t border-border bg-surface-high/35 px-4 py-3 backdrop-blur-md sm:px-5">
-        {visibleSlackRelaySetup?.mode === "prompt" ? (
-          <>
-            <button type="button" className={buttonClass()} onClick={visibleSlackRelaySetup.onChooseSelfHosted}>
-              Self-hosted
-            </button>
-            <button type="button" className={buttonClass("primary")} disabled={!connected} onClick={visibleSlackRelaySetup.onChooseHosted}>
-              Use HyperCLI Slack App <ArrowRight className="h-3.5 w-3.5" />
-            </button>
-          </>
-        ) : visibleSlackRelaySetup?.mode === "hosted" ? (
-          <>
-            <button type="button" className={buttonClass()} disabled={visibleSlackRelaySetup.configuring} onClick={visibleSlackRelaySetup.onBackToChoice}>Back</button>
-            {visibleSlackRelaySetup.connected ? (
-              <button type="button" className={buttonClass("primary")} disabled={!connected || visibleSlackRelaySetup.configuring} onClick={visibleSlackRelaySetup.onConfigureHosted}>
-                {visibleSlackRelaySetup.configuring ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                Use hosted app
-                <ArrowRight className="h-3.5 w-3.5" />
-              </button>
-            ) : (
-              <a href={visibleSlackRelaySetup.connectHref} onClick={visibleSlackRelaySetup.onRememberReturn} className={buttonClass("primary")}>
-                Connect Slack <ArrowRight className="h-3.5 w-3.5" />
-              </a>
-            )}
-          </>
-        ) : mode === "setup" ? (
+        {mode === "setup" ? (
           channelId === "whatsapp" ? (
             <>
               {!directSetup ? <button type="button" className={buttonClass()} onClick={cancelWhatsAppSetup}>Back</button> : null}

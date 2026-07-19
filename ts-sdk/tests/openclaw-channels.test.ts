@@ -40,6 +40,7 @@ describe('hosted Slack relay channel helpers', () => {
     })).toEqual({
       enabled: true,
       mode: 'relay',
+      botToken: { source: 'env', provider: 'default', id: 'SLACK_BOT_TOKEN' },
       relay: {
         url: 'wss://api.agents.dev.hypercli.com/slack/ws',
         authToken: { source: 'env', provider: 'default', id: 'HYPER_API_KEY' },
@@ -75,6 +76,7 @@ describe('hosted Slack relay channel helpers', () => {
     expect(provider.configure).toHaveBeenCalledWith('slack', {
       enabled: true,
       mode: 'relay',
+      botToken: { source: 'env', provider: 'default', id: 'SLACK_BOT_TOKEN' },
       relay: {
         url: 'wss://api.agents.dev.hypercli.com/slack/ws',
         authToken: { source: 'env', provider: 'default', id: 'HYPER_API_KEY' },

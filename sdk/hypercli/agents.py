@@ -20,6 +20,7 @@ import time
 from typing import TYPE_CHECKING, Callable, Literal, Optional, Any, AsyncIterator
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 from contextlib import asynccontextmanager
+from uuid import UUID
 
 import httpx
 
@@ -1711,7 +1712,43 @@ class Deployments:
     def _agent_id_for_target(self, target: Agent | str) -> str:
         if isinstance(target, Agent):
             return target.id
-        return str(target)
+        return self.resolve_agent_id(str(target))
+
+    def _get_by_id(self, agent_id: str) -> Agent:
+        data = self._get(f"{AGENTS_API_PREFIX}/{agent_id}")
+        return self._hydrate_agent(data)
+
+    def resolve_agent(self, agent_id_or_name: str) -> Agent:
+        """Resolve an agent UUID, unique name, pod name, or hostname to an Agent."""
+        raw = str(agent_id_or_name or "").strip()
+        if not raw:
+            raise ValueError("agent_id_or_name is required")
+        try:
+            return self._get_by_id(str(UUID(raw)))
+        except ValueError:
+            pass
+
+        matches: list[Agent] = []
+        for agent in self.list():
+            values = [agent.id, agent.name, agent.pod_name, agent.hostname]
+            if any(str(value or "") == raw for value in values):
+                matches.append(agent)
+                continue
+            if any(str(value or "").startswith(raw) for value in values):
+                matches.append(agent)
+
+        if not matches:
+            raise ValueError(f"Agent not found: {raw}")
+        if len(matches) > 1:
+            refs = ", ".join(agent.id for agent in matches[:5])
+            raise ValueError(f"Agent reference is ambiguous: {raw} ({refs})")
+        return self._get_by_id(matches[0].id)
+
+    def resolve_agent_id(self, agent_id_or_name: str) -> str:
+        raw = str(agent_id_or_name or "").strip()
+        if not raw:
+            raise ValueError("agent_id_or_name is required")
+        return raw
 
     def _file_headers(self, *, content_type: str | None = None) -> dict[str, str]:
         headers = {"Authorization": f"Bearer {self._api_key}"}
@@ -1944,7 +1981,7 @@ class Deployments:
         """
         return self._get(f"{AGENTS_API_PREFIX}/budget")
 
-    def metrics(self, agent_id: str) -> dict:
+    def metrics(self, agent_id_or_name: str) -> dict:
         """Get live CPU/memory metrics for a running agent.
 
         Args:
@@ -1953,6 +1990,7 @@ class Deployments:
         Returns:
             Dict with container metrics from k8s metrics-server.
         """
+        agent_id = self.resolve_agent_id(agent_id_or_name)
         return self._get(f"{AGENTS_API_PREFIX}/{agent_id}/metrics")
 
     def list(self) -> list[Agent]:
@@ -1965,17 +2003,28 @@ class Deployments:
         items = data.get("items", data) if isinstance(data, dict) else data
         return [self._hydrate_agent(p) for p in items]
 
-    def get(self, agent_id: str) -> Agent:
-        """Get agent details by ID (refreshes status from Lagoon).
+    def get(self, agent_id_or_name: str) -> Agent:
+        """Get agent details by UUID or unique name.
 
         Args:
-            agent_id: Agent UUID.
+            agent_id_or_name: Agent UUID, unique name, pod name, or hostname.
 
         Returns:
             Agent with current status.
         """
-        data = self._get(f"{AGENTS_API_PREFIX}/{agent_id}")
-        return self._hydrate_agent(data)
+        raw = str(agent_id_or_name or "").strip()
+        if not raw:
+            raise ValueError("agent_id_or_name is required")
+        try:
+            return self._get_by_id(raw)
+        except APIError as exc:
+            if exc.status_code != 404:
+                raise
+            try:
+                UUID(raw)
+            except ValueError:
+                return self.resolve_agent(raw)
+            raise
 
     def create_external_agent(
         self,
@@ -2001,12 +2050,14 @@ class Deployments:
             body["meta"] = meta
         return self._hydrate_agent(self._post("/external-agents", body))
 
-    def rotate_external_agent_key(self, agent_id: str) -> dict:
+    def rotate_external_agent_key(self, agent_id_or_name: str) -> dict:
         """Rotate an external agent relay key and return the new plaintext key once."""
+        agent_id = self.resolve_agent_id(agent_id_or_name)
         return self._post(f"/external-agents/{agent_id}/keys/rotate")
 
-    def wait_running(self, agent_id: str, timeout: float = 300.0, poll_interval: float = 5.0) -> Agent:
+    def wait_running(self, agent_id_or_name: str, timeout: float = 300.0, poll_interval: float = 5.0) -> Agent:
         """Poll until an agent reaches RUNNING and return a refreshed agent."""
+        agent_id = self.resolve_agent_id(agent_id_or_name)
         deadline = time.time() + timeout
         last_state = None
         while time.time() < deadline:
@@ -2067,7 +2118,8 @@ class Deployments:
         body: dict[str, Any] = dict(launch_payload)
         if dry_run:
             body["dry_run"] = True
-        data = self._post(f"{AGENTS_API_PREFIX}/{agent_id}/start", json=body)
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        data = self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/start", json=body)
         agent = self._hydrate_agent(data)
         if isinstance(agent, OpenClawAgent):
             agent.gateway_token = effective_gateway_token
@@ -2204,7 +2256,8 @@ class Deployments:
             body["refresh_from_lagoon"] = refresh_from_lagoon
         if last_error is not None:
             body["last_error"] = last_error
-        data = self._http.patch(f"{AGENTS_API_PREFIX}/{agent_id}", json=body)
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        data = self._http.patch(f"{AGENTS_API_PREFIX}/{resolved_agent_id}", json=body)
         return self._hydrate_agent(data)
 
     def resize(
@@ -2224,7 +2277,8 @@ class Deployments:
         Returns:
             Agent in stopped state.
         """
-        data = self._post(f"{AGENTS_API_PREFIX}/{agent_id}/stop")
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        data = self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/stop")
         return self._hydrate_agent(data)
 
     def delete(self, agent_id: str) -> dict:
@@ -2236,7 +2290,8 @@ class Deployments:
         Returns:
             Deletion status dict.
         """
-        return self._delete(f"{AGENTS_API_PREFIX}/{agent_id}")
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        return self._delete(f"{AGENTS_API_PREFIX}/{resolved_agent_id}")
 
     def refresh_token(self, agent_id: str) -> dict:
         """Refresh the JWT token for an agent.
@@ -2247,11 +2302,13 @@ class Deployments:
         Returns:
             Dict with agent_id, pod_id, token, expires_at.
         """
-        return self._get(f"{AGENTS_API_PREFIX}/{agent_id}/token")
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        return self._get(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/token")
 
     def create_scoped_key(self, agent_id: str, name: str | None = None) -> dict:
         payload = {"name": name} if name is not None else {}
-        return self._post(f"{AGENTS_API_PREFIX}/{agent_id}/keys", json=payload or None)
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        return self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/keys", json=payload or None)
 
     def web_search(self, query: str, *, count: int = 5, **params: Any) -> dict:
         """Run Brave web search through the HyperClaw agents API proxy.
@@ -2304,11 +2361,13 @@ class Deployments:
 
     def logs_token(self, agent_id: str) -> dict:
         """Mint a short-lived JWT token for backend log streaming."""
-        return self._post(f"{AGENTS_API_PREFIX}/{agent_id}/logs/token")
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        return self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/logs/token")
 
     def env(self, agent_id: str) -> dict:
         """Fetch runtime environment from the pod's K8s secret."""
-        return self._get(f"{AGENTS_API_PREFIX}/{agent_id}/env")
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        return self._get(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/env")
 
     # -----------------------------------------------------------------------
     # Legacy direct executor API helpers. Current shell/exec flows are backend-mediated.
@@ -2321,7 +2380,7 @@ class Deployments:
             h["Cookie"] = f"{pod.pod_name}-token={pod.jwt_token}"
         return h
 
-    def exec(self, pod: Agent, command: str, timeout: int = 30, dry_run: bool = False) -> ExecResult:
+    def exec(self, pod: Agent | str, command: str, timeout: int = 30, dry_run: bool = False) -> ExecResult:
         """Execute a one-shot command on a running agent via the backend exec API.
 
         Args:
@@ -2332,9 +2391,10 @@ class Deployments:
         Returns:
             ExecResult with exit_code, stdout, stderr.
         """
+        agent_id = self._agent_id_for_target(pod)
         with httpx.Client(timeout=max(timeout + 10, 35)) as client:
             resp = client.post(
-                f"{self._api_base}{AGENTS_API_PREFIX}/{pod.id}/exec",
+                f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/exec",
                 headers=self._headers,
                 json={"command": command, "timeout": timeout, **({"dry_run": True} if dry_run else {})},
             )
@@ -2533,11 +2593,12 @@ class Deployments:
         import websockets
 
         # Get JWT token
-        token_data = self.logs_token(agent_id)
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        token_data = self.logs_token(resolved_agent_id)
         jwt = token_data["jwt"]
 
         url = (
-            f"{self._agents_ws_url}/logs/{agent_id}"
+            f"{self._agents_ws_url}/logs/{resolved_agent_id}"
             f"?jwt={quote(jwt, safe='')}"
             f"&container={quote(container, safe='')}"
             f"&tail_lines={tail_lines}"
@@ -2561,17 +2622,18 @@ class Deployments:
         """
         import websockets
 
-        selected_shell = shell or self._detect_shell(agent_id)
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        selected_shell = shell or self._detect_shell(resolved_agent_id)
 
         # Get shell token
         payload: dict[str, Any] = {"shell": selected_shell}
         if dry_run:
             payload["dry_run"] = True
-        token_data = self._post(f"{AGENTS_API_PREFIX}/{agent_id}/shell/token", json=payload)
+        token_data = self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/shell/token", json=payload)
         jwt = token_data["jwt"]
         resolved_shell = token_data.get("shell") or selected_shell
         url = (
-            f"{self._agents_ws_url}/shell/{agent_id}"
+            f"{self._agents_ws_url}/shell/{resolved_agent_id}"
             f"?jwt={quote(jwt, safe='')}"
             f"&shell={quote(resolved_shell, safe='')}"
         )

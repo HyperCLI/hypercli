@@ -480,6 +480,10 @@ function stripRelPrefix(path: string): string {
   return path.replace(/^(?:\.\/)+/, '').replace(/^\/+/, '');
 }
 
+function isUuidRef(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
+}
+
 /** Strip a workspace prefix so gateway (name-addressed) sees the bare name. */
 function resolveGatewayFileName(path: string): string {
   if (path.startsWith('/')) {
@@ -2260,8 +2264,51 @@ export class Deployments {
     return bindAgent(agent, this);
   }
 
-  private agentIdFor(target: Agent | string): string {
-    return typeof target === 'string' ? target : target.id;
+  private async getById(agentId: string): Promise<Agent> {
+    const data = await this.agentHttp.get<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}`);
+    return this.hydrateAgent(data);
+  }
+
+  async resolveAgent(agentIdOrName: string): Promise<Agent> {
+    const raw = String(agentIdOrName || '').trim();
+    if (!raw) {
+      throw new Error('agentIdOrName is required');
+    }
+    if (isUuidRef(raw)) {
+      return this.getById(raw);
+    }
+
+    const matches: Agent[] = [];
+    for (const agent of await this.list()) {
+      const values = [agent.id, agent.name, agent.podName, agent.hostname];
+      if (values.some((value) => String(value || '') === raw)) {
+        matches.push(agent);
+        continue;
+      }
+      if (values.some((value) => String(value || '').startsWith(raw))) {
+        matches.push(agent);
+      }
+    }
+
+    if (matches.length === 0) {
+      throw new Error(`Agent not found: ${raw}`);
+    }
+    if (matches.length > 1) {
+      throw new Error(`Agent reference is ambiguous: ${raw} (${matches.slice(0, 5).map((agent) => agent.id).join(', ')})`);
+    }
+    return this.getById(matches[0].id);
+  }
+
+  async resolveAgentId(agentIdOrName: string): Promise<string> {
+    const raw = String(agentIdOrName || '').trim();
+    if (!raw) {
+      throw new Error('agentIdOrName is required');
+    }
+    return raw;
+  }
+
+  private async agentIdFor(target: Agent | string): Promise<string> {
+    return typeof target === 'string' ? this.resolveAgentId(target) : target.id;
   }
 
   private async fetchRaw(path: string, init: RequestInit = {}): Promise<Response> {
@@ -2342,7 +2389,8 @@ export class Deployments {
     return this.agentHttp.get(`${DEPLOYMENTS_API_PREFIX}/budget`);
   }
 
-  async metrics(agentId: string): Promise<Record<string, any>> {
+  async metrics(agentIdOrName: string): Promise<Record<string, any>> {
+    const agentId = await this.resolveAgentId(agentIdOrName);
     return this.agentHttp.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/metrics`);
   }
 
@@ -2352,9 +2400,17 @@ export class Deployments {
     return items.map((item: AgentHydrationData) => this.hydrateAgent(item));
   }
 
-  async get(agentId: string): Promise<Agent> {
-    const data = await this.agentHttp.get<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}`);
-    return this.hydrateAgent(data);
+  async get(agentIdOrName: string): Promise<Agent> {
+    const raw = String(agentIdOrName || '').trim();
+    if (!raw) throw new Error('agentIdOrName is required');
+    try {
+      return await this.getById(raw);
+    } catch (error) {
+      if (!(error instanceof APIError) || error.statusCode !== 404 || isUuidRef(raw)) {
+        throw error;
+      }
+      return this.resolveAgent(raw);
+    }
   }
 
   async createExternalAgent(options: CreateExternalAgentOptions): Promise<Agent> {
@@ -2370,11 +2426,13 @@ export class Deployments {
     return this.hydrateAgent(data);
   }
 
-  async rotateExternalAgentKey(agentId: string): Promise<Record<string, any>> {
+  async rotateExternalAgentKey(agentIdOrName: string): Promise<Record<string, any>> {
+    const agentId = await this.resolveAgentId(agentIdOrName);
     return this.agentHttp.post(`/external-agents/${agentId}/keys/rotate`);
   }
 
-  async waitRunning(agentId: string, timeoutMs = 300_000, pollIntervalMs = 5_000): Promise<Agent> {
+  async waitRunning(agentIdOrName: string, timeoutMs = 300_000, pollIntervalMs = 5_000): Promise<Agent> {
+    const agentId = await this.resolveAgentId(agentIdOrName);
     const deadline = Date.now() + timeoutMs;
     let lastState = '';
     while (Date.now() < deadline) {
@@ -2391,10 +2449,11 @@ export class Deployments {
     throw new Error(`Timed out waiting for agent ${agentId} to reach RUNNING (last=${lastState})`);
   }
 
-  async start(agentId: string, options: StartAgentOptions = {}): Promise<Agent> {
+  async start(agentIdOrName: string, options: StartAgentOptions = {}): Promise<Agent> {
     const { config, gatewayToken } = buildAgentConfig(options.config ?? {}, options);
     const body: Record<string, any> = { ...config };
     if (options.dryRun) body.dry_run = true;
+    const agentId = await this.resolveAgentId(agentIdOrName);
     const data = await this.agentHttp.post<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}/start`, body);
     const agent = this.hydrateAgent(data);
     if (agent instanceof OpenClawAgent) {
@@ -2406,7 +2465,7 @@ export class Deployments {
     return agent;
   }
 
-  async startOpenClaw(agentId: string, options: OpenClawStartAgentOptions = {}): Promise<Agent> {
+  async startOpenClaw(agentIdOrName: string, options: OpenClawStartAgentOptions = {}): Promise<Agent> {
     const effectiveOptions: StartAgentOptions = { ...options };
     effectiveOptions.env = {
       HYPER_API_BASE: productApiBaseFromAgentsApiBase(this.apiBase),
@@ -2420,11 +2479,11 @@ export class Deployments {
     effectiveOptions.image = defaultOpenClawImage(options.image);
     if (effectiveOptions.syncRoot === undefined) effectiveOptions.syncRoot = DEFAULT_OPENCLAW_SYNC_ROOT;
     if (effectiveOptions.syncEnabled === undefined) effectiveOptions.syncEnabled = true;
-    return this.start(agentId, effectiveOptions);
+    return this.start(agentIdOrName, effectiveOptions);
   }
 
-  async startOpenClawPro(agentId: string, options: OpenClawStartAgentOptions = {}): Promise<Agent> {
-    return this.startOpenClaw(agentId, {
+  async startOpenClawPro(agentIdOrName: string, options: OpenClawStartAgentOptions = {}): Promise<Agent> {
+    return this.startOpenClaw(agentIdOrName, {
       ...options,
       env: { OPENCLAW_DESKTOP_ENABLED: '1', ...(options.env ?? {}) },
       image: defaultOpenClawProImage(options.image),
@@ -2432,7 +2491,7 @@ export class Deployments {
     });
   }
 
-  async update(agentId: string, options: UpdateAgentOptions = {}): Promise<Agent> {
+  async update(agentIdOrName: string, options: UpdateAgentOptions = {}): Promise<Agent> {
     const body: Record<string, any> = {};
     if (options.name !== undefined) body.name = options.name;
     if (options.handle !== undefined) body.handle = options.handle;
@@ -2440,6 +2499,7 @@ export class Deployments {
     if (options.launchConfig !== undefined) body.launch_config = options.launchConfig;
     if (options.refreshFromLagoon !== undefined) body.refresh_from_lagoon = options.refreshFromLagoon;
     if (options.lastError !== undefined) body.last_error = options.lastError;
+    const agentId = await this.resolveAgentId(agentIdOrName);
     const data = await this.agentHttp.patch<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}`, body);
     return this.hydrateAgent(data);
   }
@@ -2461,7 +2521,8 @@ export class Deployments {
       body = content;
       headers.set('Content-Type', contentType || 'image/png');
     }
-    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${agentId}/profile-image`, {
+    const resolvedAgentId = await this.resolveAgentId(agentId);
+    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${resolvedAgentId}/profile-image`, {
       method: 'POST',
       headers,
       body,
@@ -2476,22 +2537,26 @@ export class Deployments {
     return this.update(agentId, options);
   }
 
-  async stop(agentId: string): Promise<Agent> {
+  async stop(agentIdOrName: string): Promise<Agent> {
+    const agentId = await this.resolveAgentId(agentIdOrName);
     const data = await this.agentHttp.post<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}/stop`);
     return this.hydrateAgent(data);
   }
 
-  async delete(agentId: string): Promise<Record<string, any>> {
+  async delete(agentIdOrName: string): Promise<Record<string, any>> {
+    const agentId = await this.resolveAgentId(agentIdOrName);
     return this.agentHttp.delete(`${DEPLOYMENTS_API_PREFIX}/${agentId}`);
   }
 
-  async refreshToken(agentId: string): Promise<AgentTokenResponse> {
+  async refreshToken(agentIdOrName: string): Promise<AgentTokenResponse> {
+    const agentId = await this.resolveAgentId(agentIdOrName);
     return this.agentHttp.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/token`);
   }
 
-  async createScopedKey(agentId: string, name?: string): Promise<Record<string, any>> {
+  async createScopedKey(agentIdOrName: string, name?: string): Promise<Record<string, any>> {
     const payload: Record<string, string> = {};
     if (name) payload.name = name;
+    const agentId = await this.resolveAgentId(agentIdOrName);
     return this.agentHttp.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/keys`, Object.keys(payload).length ? payload : undefined);
   }
 
@@ -2515,16 +2580,18 @@ export class Deployments {
     return (await response.json()) as BraveWebSearchResponse;
   }
 
-  async logsToken(agentId: string): Promise<AgentLogsTokenResponse> {
+  async logsToken(agentIdOrName: string): Promise<AgentLogsTokenResponse> {
+    const agentId = await this.resolveAgentId(agentIdOrName);
     return this.agentHttp.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/logs/token`);
   }
 
-  async env(agentId: string): Promise<{ agent_id: string; env: Record<string, string> }> {
+  async env(agentIdOrName: string): Promise<{ agent_id: string; env: Record<string, string> }> {
+    const agentId = await this.resolveAgentId(agentIdOrName);
     return this.agentHttp.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/env`);
   }
 
   async exec(target: Agent | string, command: string, options: AgentExecOptions = {}): Promise<AgentExecResult> {
-    const agentId = this.agentIdFor(target);
+    const agentId = await this.agentIdFor(target);
     const payload: Record<string, any> = {
       command,
       timeout: options.timeout ?? 30,
@@ -2556,7 +2623,8 @@ export class Deployments {
     const encodedPath = encodeFilePath(path);
     const suffix = encodedPath ? `/${encodedPath}` : '';
     const params = new URLSearchParams({ source });
-    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files${suffix}?${params.toString()}`);
+    const agentId = await this.agentIdFor(target);
+    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${agentId}/files${suffix}?${params.toString()}`);
     const payload = (await response.json()) as AgentDirectoryListing;
     return [...(payload.directories ?? []), ...(payload.files ?? [])];
   }
@@ -2564,7 +2632,8 @@ export class Deployments {
   async fileReadBytes(target: Agent | string, path: string, source: 'auto' | 'pod' | 's3' = 'auto'): Promise<Uint8Array> {
     const encodedPath = encodeFilePath(path);
     const params = new URLSearchParams({ source });
-    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files/${encodedPath}?${params.toString()}`, {
+    const agentId = await this.agentIdFor(target);
+    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${agentId}/files/${encodedPath}?${params.toString()}`, {
       redirect: 'follow',
     });
     const bytes = new Uint8Array(await response.arrayBuffer());
@@ -2600,7 +2669,8 @@ export class Deployments {
     if (bytes.byteLength > AGENT_FILE_MAX_BYTES) {
       throw new Error(`Agent file writes are limited to ${AGENT_FILE_MAX_BYTES / 1024 / 1024} MiB`);
     }
-    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files/${encodedPath}?${params.toString()}`, {
+    const agentId = await this.agentIdFor(target);
+    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${agentId}/files/${encodedPath}?${params.toString()}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: bytes,
@@ -2621,8 +2691,9 @@ export class Deployments {
     const params = new URLSearchParams();
     if (options.recursive) params.set('recursive', 'true');
     const suffix = params.toString() ? `?${params.toString()}` : '';
+    const agentId = await this.agentIdFor(target);
     const response = await this.fetchRaw(
-      `${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files/${encodedPath}${suffix}`,
+      `${DEPLOYMENTS_API_PREFIX}/${agentId}/files/${encodedPath}${suffix}`,
       { method: 'DELETE' },
     );
     return (await response.json()) as Record<string, any>;
@@ -2647,9 +2718,10 @@ export class Deployments {
   }
 
   async logsConnect(
-    agentId: string,
+    agentIdOrName: string,
     options: { tailLines?: number; container?: string } = {},
   ): Promise<WebSocket> {
+    const agentId = await this.resolveAgentId(agentIdOrName);
     const tokenData = await this.logsToken(agentId);
     const container = options.container ?? 'reef';
     const tailLines = options.tailLines ?? 100;
@@ -2673,14 +2745,16 @@ export class Deployments {
     });
   }
 
-  async shellToken(agentId: string, shell?: string, dryRun: boolean = false): Promise<AgentShellTokenResponse> {
+  async shellToken(agentIdOrName: string, shell?: string, dryRun: boolean = false): Promise<AgentShellTokenResponse> {
     const selectedShell = shell ?? '/bin/bash';
     const payload: Record<string, any> = { shell: selectedShell };
     if (dryRun) payload.dry_run = true;
+    const agentId = await this.resolveAgentId(agentIdOrName);
     return this.agentHttp.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/shell/token`, payload);
   }
 
-  async shellConnect(agentId: string, shell?: string): Promise<WebSocket> {
+  async shellConnect(agentIdOrName: string, shell?: string): Promise<WebSocket> {
+    const agentId = await this.resolveAgentId(agentIdOrName);
     const connectWithShell = async (requestedShell: string): Promise<WebSocket> => {
       const tokenData = await this.shellToken(agentId, requestedShell);
       const baseUrl = `${this.agentsWsUrl}/shell/${agentId}`;

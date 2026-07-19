@@ -431,7 +431,8 @@ describe("IntegrationsDirectoryPanel", () => {
     });
 
     expect((await screen.findAllByText("Create Slack app")).length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: /Use HyperCLI Slack App/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /HyperCLI Slack App$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Self-hosted Socket Mode/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Self-hosted" })).toBeInTheDocument();
     expect(screen.queryByLabelText("Slack Bot token")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Slack App token")).not.toBeInTheDocument();
@@ -455,7 +456,7 @@ describe("IntegrationsDirectoryPanel", () => {
       reportedChannelsReady: true,
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: /Use HyperCLI Slack App/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^HyperCLI Slack App$/i }));
 
     await waitFor(() => expect(sdkMocks.getSlackInstallStatus).toHaveBeenCalledTimes(1));
     expect(screen.getByRole("link", { name: /Connect Slack/i })).toHaveAttribute(
@@ -517,14 +518,15 @@ describe("IntegrationsDirectoryPanel", () => {
       onRefreshChannels,
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: /Use HyperCLI Slack App/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /^HyperCLI Slack App$/i }));
     expect(await screen.findByText("Connected to Test Workspace.")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Use hosted app" }));
+    fireEvent.click(screen.getByRole("button", { name: "Attach agent" }));
 
     await waitFor(() => expect(ensureSlackSupport).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(configure).toHaveBeenCalledWith("slack", {
       enabled: true,
       mode: "relay",
+      botToken: { source: "env", provider: "default", id: "SLACK_BOT_TOKEN" },
       relay: {
         url: "wss://api.agents.dev.hypercli.com/slack/ws",
         authToken: { source: "env", provider: "default", id: "HYPER_API_KEY" },

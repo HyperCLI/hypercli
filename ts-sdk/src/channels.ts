@@ -126,6 +126,7 @@ export interface HostedSlackRelayChannelConfigOptions {
   relayBaseUrl: string;
   agentId?: string | null;
   gatewayId?: string | null;
+  botTokenEnv?: string | null;
   authTokenEnv?: string | null;
 }
 
@@ -133,6 +134,11 @@ export interface HostedSlackRelayChannelConfig {
   [key: string]: unknown;
   enabled: true;
   mode: 'relay';
+  botToken: {
+    source: 'env';
+    provider: 'default';
+    id: string;
+  };
   relay: {
     url: string;
     authToken: {
@@ -181,6 +187,11 @@ export function buildHostedSlackRelayChannelConfig(options: HostedSlackRelayChan
   return {
     enabled: true,
     mode: 'relay',
+    botToken: {
+      source: 'env',
+      provider: 'default',
+      id: options.botTokenEnv?.trim() || 'SLACK_BOT_TOKEN',
+    },
     relay: {
       url: buildSlackRelayWebSocketUrl(options.relayBaseUrl),
       authToken: {
