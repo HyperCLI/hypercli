@@ -664,7 +664,7 @@ export function ChannelChatConnectorCard({
   const heroLabel = !connected
     ? `${definition.displayName} setup`
     : visibleSlackRelaySetup
-      ? `Connect ${definition.displayName}`
+      ? `Create ${definition.displayName} app`
     : mode === "setup"
       ? `Connect ${definition.displayName}`
       : mode === "saved"
@@ -689,7 +689,7 @@ export function ChannelChatConnectorCard({
           ? whatsAppPairingMessage ?? "Scan the code with WhatsApp to link your phone."
           : "Link your phone with a secure QR code."
     : visibleSlackRelaySetup
-      ? `Choose the hosted @${visibleSlackRelaySetup.handle} app or bring your own Slack app.`
+      ? "Select self-hosted setup or use the HyperCLI Slack App."
     : mode === "setup"
       ? workflow?.summary ?? runtimeInstructions ?? (workflowLoading ? "Preparing setup guidance." : definition.description)
     : mode === "saved"
@@ -816,16 +816,16 @@ export function ChannelChatConnectorCard({
             <div className="rounded-2xl border border-[var(--channel-accent-border)] bg-background/75 p-4 sm:p-5">
               {visibleSlackRelaySetup.mode === "prompt" ? (
                 <>
-                  <p className="text-sm font-bold text-foreground">Choose Slack connection</p>
+                  <p className="text-sm font-bold text-foreground">Create Slack app</p>
                   <p className="mt-2 text-xs leading-5 text-text-secondary">
-                    Use the HyperCLI-hosted Slack app for the shortest setup, or use Socket Mode when this agent needs a customer-owned Slack app.
+                    Select self-hosted to enter Slack bot and app tokens, or use the HyperCLI Slack App for the hosted relay.
                   </p>
                 </>
               ) : (
                 <>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-bold text-foreground">HyperCLI Slack App</p>
+                      <p className="text-sm font-bold text-foreground">Use the HyperCLI Slack App</p>
                       <p className="mt-1 text-xs leading-5 text-text-secondary">
                         The hosted @{visibleSlackRelaySetup.handle} app connects through relay. No Slack bot or app token is pasted into this agent.
                       </p>
@@ -985,10 +985,10 @@ export function ChannelChatConnectorCard({
         {visibleSlackRelaySetup?.mode === "prompt" ? (
           <>
             <button type="button" className={buttonClass()} onClick={visibleSlackRelaySetup.onChooseSelfHosted}>
-              Self-hosted app
+              Self-hosted
             </button>
             <button type="button" className={buttonClass("primary")} disabled={!connected} onClick={visibleSlackRelaySetup.onChooseHosted}>
-              HyperCLI Slack App <ArrowRight className="h-3.5 w-3.5" />
+              Use HyperCLI Slack App <ArrowRight className="h-3.5 w-3.5" />
             </button>
           </>
         ) : visibleSlackRelaySetup?.mode === "hosted" ? (

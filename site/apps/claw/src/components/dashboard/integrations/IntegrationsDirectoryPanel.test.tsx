@@ -409,9 +409,11 @@ describe("IntegrationsDirectoryPanel", () => {
       reportedChannelsReady: true,
     });
 
-    expect(await screen.findByText("Choose Slack connection")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /HyperCLI Slack App/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Self-hosted app" })).toBeInTheDocument();
+    expect((await screen.findAllByText("Create Slack app")).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /Use HyperCLI Slack App/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Self-hosted" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Slack Bot token")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Slack App token")).not.toBeInTheDocument();
     expect(sdkMocks.getSlackInstallStatus).not.toHaveBeenCalled();
     expect(ensureSlackSupport).not.toHaveBeenCalled();
   });
@@ -432,7 +434,7 @@ describe("IntegrationsDirectoryPanel", () => {
       reportedChannelsReady: true,
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: /HyperCLI Slack App/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Use HyperCLI Slack App/i }));
 
     await waitFor(() => expect(sdkMocks.getSlackInstallStatus).toHaveBeenCalledTimes(1));
     expect(screen.getByRole("link", { name: /Connect Slack/i })).toHaveAttribute(
@@ -458,8 +460,10 @@ describe("IntegrationsDirectoryPanel", () => {
       reportedChannelsReady: true,
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Self-hosted app" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Self-hosted" }));
     expect((await screen.findAllByText(/Runtime-generated slack setup./i)).length).toBeGreaterThan(0);
+    expect(await screen.findByLabelText("Slack Bot token")).toBeInTheDocument();
+    expect(screen.getByLabelText("Slack App token")).toBeInTheDocument();
     await waitFor(() => expect(ensureSlackSupport).toHaveBeenCalledTimes(1));
     expect(sdkMocks.getSlackInstallStatus).not.toHaveBeenCalled();
   });
@@ -492,7 +496,7 @@ describe("IntegrationsDirectoryPanel", () => {
       onRefreshChannels,
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: /HyperCLI Slack App/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Use HyperCLI Slack App/i }));
     expect(await screen.findByText("Connected to Test Workspace.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Use hosted app" }));
 
