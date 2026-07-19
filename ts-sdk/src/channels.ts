@@ -215,7 +215,7 @@ export function buildHostedSlackRelayChannelConfig(options: HostedSlackRelayChan
       authToken: {
         source: 'env',
         provider: 'default',
-        id: options.authTokenEnv?.trim() || 'HYPER_API_KEY',
+        id: options.authTokenEnv?.trim() || 'HYPER_AGENTS_API_KEY',
       },
       gatewayId,
     },

@@ -172,7 +172,7 @@ async def test_openclaw_agent_configure_slack_relay_uses_gateway_id(monkeypatch)
         {
             "url": "wss://api.dev.hypercli.com/slack/ws",
             "gateway_id": "agent:11111111-1111-1111-1111-111111111111",
-            "auth_token_env": "HYPER_API_KEY",
+            "auth_token_env": "HYPER_AGENTS_API_KEY",
             "account_id": None,
             "bot_token": None,
             "config": None,

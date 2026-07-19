@@ -1200,7 +1200,7 @@ class OpenClawAgent(Agent):
         *,
         url: str,
         gateway_id: str | None = None,
-        auth_token_env: str = "HYPER_API_KEY",
+        auth_token_env: str = "HYPER_AGENTS_API_KEY",
         account_id: str | None = None,
         bot_token: Any | None = None,
         config: dict[str, Any] | None = None,

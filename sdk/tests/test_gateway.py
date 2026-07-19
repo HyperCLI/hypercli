@@ -785,7 +785,7 @@ async def test_configure_slack_relay_patches_runtime_config() -> None:
                     "mode": "relay",
                     "relay": {
                         "url": "wss://api.dev.hypercli.com/slack/ws",
-                        "authToken": {"source": "env", "provider": "default", "id": "HYPER_API_KEY"},
+                        "authToken": {"source": "env", "provider": "default", "id": "HYPER_AGENTS_API_KEY"},
                         "gatewayId": "agent:11111111-1111-1111-1111-111111111111",
                     },
                 }

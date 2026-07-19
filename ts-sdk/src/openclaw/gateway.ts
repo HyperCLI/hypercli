@@ -3201,7 +3201,7 @@ export class GatewayClient {
         authToken: {
           source: "env",
           provider: "default",
-          id: options.authTokenEnv ?? "HYPER_API_KEY",
+          id: options.authTokenEnv ?? "HYPER_AGENTS_API_KEY",
         },
         gatewayId: options.gatewayId,
       },
