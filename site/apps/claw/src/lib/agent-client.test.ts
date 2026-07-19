@@ -2,9 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AGENT_CLEANUP_START_MESSAGE, createHyperAgentClient, createOpenClawAgent, startOpenClawAgent } from "./agent-client";
 
-const { deploymentsConstructor, deploymentsInstance, hyperAgentConstructor, httpClientConstructor, httpClientInstance } = vi.hoisted(() => {
+const { deploymentsConstructor, deploymentsInstance, getSlackInstallStatus, hyperAgentConstructor, httpClientConstructor, httpClientInstance } = vi.hoisted(() => {
   process.env.NEXT_PUBLIC_API_BASE_URL = "https://api.hypercli.com";
   process.env.NEXT_PUBLIC_AGENTS_URL = "https://agents.hypercli.com";
+  process.env.NEXT_PUBLIC_SLACK_RELAY_BASE_URL = "https://api.agents.hypercli.com";
   return {
     deploymentsConstructor: vi.fn(),
     deploymentsInstance: {
@@ -14,6 +15,7 @@ const { deploymentsConstructor, deploymentsInstance, hyperAgentConstructor, http
       list: vi.fn(),
       startOpenClaw: vi.fn(),
     },
+    getSlackInstallStatus: vi.fn(),
     hyperAgentConstructor: vi.fn(),
     httpClientConstructor: vi.fn(),
     httpClientInstance: { marker: "http-client" },
@@ -31,6 +33,11 @@ vi.mock("@hypercli.com/sdk/agents", () => ({
     deploymentsConstructor(...args);
     return deploymentsInstance;
   }),
+  getSlackInstallStatus,
+}));
+vi.mock("@hypercli.com/sdk/channels", () => ({
+  buildSlackRelayApiUrl: (relayBaseUrl: string) => `${relayBaseUrl.replace(/\/+$/, "")}/slack/api/`,
+  buildSlackRelayWebSocketUrl: (relayBaseUrl: string) => `${relayBaseUrl.replace(/^http/, "ws").replace(/\/+$/, "")}/slack/ws`,
 }));
 vi.mock("@hypercli.com/sdk/http", () => ({
   HTTPClient: vi.fn(function HTTPClientMock(...args) {
@@ -58,6 +65,14 @@ describe("agent-client", () => {
     deploymentsInstance.createOpenClawPro.mockReset();
     deploymentsInstance.list.mockReset();
     deploymentsInstance.startOpenClaw.mockReset();
+    getSlackInstallStatus.mockReset();
+    getSlackInstallStatus.mockResolvedValue({
+      connected: false,
+      teamId: null,
+      teamName: null,
+      botUserId: null,
+      updatedAt: null,
+    });
   });
 
   afterEach(() => {
@@ -192,6 +207,85 @@ describe("agent-client", () => {
       env: {
         FOO: "bar",
       },
+    }));
+  });
+
+  it("adds hosted Slack relay launch config when the signed-in account has Slack connected", async () => {
+    getSlackInstallStatus.mockResolvedValue({
+      connected: true,
+      teamId: "T123",
+      teamName: "Test Workspace",
+      botUserId: "U123",
+      updatedAt: "2026-07-19T12:00:00Z",
+    });
+    deploymentsInstance.createOpenClaw.mockResolvedValue({ id: "agent-123" });
+
+    await createOpenClawAgent("hyper_api_test", {
+      env: { FOO: "bar" },
+    });
+
+    expect(getSlackInstallStatus).toHaveBeenCalledWith({
+      relayBaseUrl: "https://api.agents.hypercli.com",
+      token: "hyper_api_test",
+    });
+    expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledWith(expect.objectContaining({
+      env: {
+        FOO: "bar",
+        HYPER_SLACK_APP_ENABLED: "1",
+        HYPER_SLACK_RELAY_URL: "wss://api.agents.hypercli.com/slack/ws",
+        HYPER_SLACK_API_URL: "https://api.agents.hypercli.com/slack/api/",
+      },
+      config: {
+        channels: {
+          slack: {
+            enabled: true,
+            mode: "relay",
+            botToken: { source: "env", provider: "default", id: "SLACK_BOT_TOKEN" },
+            relay: {
+              url: "wss://api.agents.hypercli.com/slack/ws",
+              authToken: { source: "env", provider: "default", id: "HYPER_API_KEY" },
+            },
+          },
+        },
+      },
+    }));
+  });
+
+  it("does not replace explicit self-hosted Slack launch config", async () => {
+    getSlackInstallStatus.mockResolvedValue({
+      connected: true,
+      teamId: "T123",
+      teamName: "Test Workspace",
+      botUserId: "U123",
+      updatedAt: "2026-07-19T12:00:00Z",
+    });
+    deploymentsInstance.createOpenClaw.mockResolvedValue({ id: "agent-123" });
+
+    await createOpenClawAgent("hyper_api_test", {
+      config: {
+        channels: {
+          slack: {
+            enabled: true,
+            mode: "socket",
+            botToken: "xoxb-custom",
+            appToken: "xapp-custom",
+          },
+        },
+      },
+    });
+
+    expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledWith(expect.objectContaining({
+      config: {
+        channels: {
+          slack: {
+            enabled: true,
+            mode: "socket",
+            botToken: "xoxb-custom",
+            appToken: "xapp-custom",
+          },
+        },
+      },
+      env: {},
     }));
   });
 

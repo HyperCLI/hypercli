@@ -1,9 +1,10 @@
 import { HyperAgent } from "@hypercli.com/sdk/agent";
 import type { OpenClawCreateAgentOptions, OpenClawStartAgentOptions } from "@hypercli.com/sdk/agents";
-import { Deployments } from "@hypercli.com/sdk/agents";
+import { Deployments, getSlackInstallStatus } from "@hypercli.com/sdk/agents";
+import { buildSlackRelayApiUrl, buildSlackRelayWebSocketUrl } from "@hypercli.com/sdk/channels";
 import { HTTPClient } from "@hypercli.com/sdk/http";
 import { WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
-import { API_BASE_URL } from "./api";
+import { API_BASE_URL, SLACK_RELAY_BASE_URL } from "./api";
 
 interface AgentUiMeta {
   avatar?: {
@@ -178,6 +179,61 @@ function stripConfigAllowedOrigins(config: unknown): Record<string, unknown> {
   return next;
 }
 
+function openClawSecretEnvRef(id: string): Record<string, string> {
+  return { source: "env", provider: "default", id };
+}
+
+function hasSelfHostedSlackConfig(slack: Record<string, unknown>): boolean {
+  const mode = typeof slack.mode === "string" ? slack.mode : "";
+  if (mode === "socket" || mode === "http") return true;
+  return ["appToken", "signingSecret", "userToken"].some((field) => slack[field] !== undefined);
+}
+
+function withHostedSlackRelayConfig<T extends FrontendOpenClawCreateOptions | FrontendOpenClawStartOptions>(options: T): T {
+  const config = isRecord(options.config) ? cloneRecord(options.config) : {};
+  const channels = isRecord(config.channels) ? cloneRecord(config.channels) : {};
+  const existingSlack = isRecord(channels.slack) ? cloneRecord(channels.slack) : {};
+  if (hasSelfHostedSlackConfig(existingSlack)) return options;
+
+  const relay = isRecord(existingSlack.relay) ? cloneRecord(existingSlack.relay) : {};
+  const relayUrl = typeof relay.url === "string" && relay.url.trim()
+    ? relay.url
+    : buildSlackRelayWebSocketUrl(SLACK_RELAY_BASE_URL);
+  relay.url = relayUrl;
+  relay.authToken = isRecord(relay.authToken) ? relay.authToken : openClawSecretEnvRef("HYPER_API_KEY");
+
+  channels.slack = {
+    ...existingSlack,
+    enabled: true,
+    mode: "relay",
+    botToken: isRecord(existingSlack.botToken) ? existingSlack.botToken : openClawSecretEnvRef("SLACK_BOT_TOKEN"),
+    relay,
+  };
+  config.channels = channels;
+  return {
+    ...options,
+    config,
+    env: {
+      ...(options.env ?? {}),
+      HYPER_SLACK_APP_ENABLED: "1",
+      HYPER_SLACK_RELAY_URL: relayUrl,
+      HYPER_SLACK_API_URL: buildSlackRelayApiUrl(SLACK_RELAY_BASE_URL),
+    },
+  } as T;
+}
+
+async function withUserSlackRelayLaunchConfig<T extends FrontendOpenClawCreateOptions | FrontendOpenClawStartOptions>(apiKey: string, options: T): Promise<T> {
+  if (!SLACK_RELAY_BASE_URL) return options;
+  try {
+    const status = await getSlackInstallStatus({ relayBaseUrl: SLACK_RELAY_BASE_URL, token: apiKey });
+    if (!status.connected) return options;
+  } catch (cause) {
+    console.warn("Could not check hosted Slack install status before launch.", cause);
+    return options;
+  }
+  return withHostedSlackRelayConfig(options);
+}
+
 function withConfiguredControlUiOrigins<T extends FrontendOpenClawCreateOptions | FrontendOpenClawStartOptions>(options: T): T {
   const origin = currentUiOrigin();
   const env = { ...(options.env ?? {}) };
@@ -315,7 +371,7 @@ export function createPublicHyperAgentClient(): HyperAgent {
 }
 
 export async function createOpenClawAgent(apiKey: string, options: FrontendOpenClawCreateOptions = {}) {
-  const preparedOptions = withConfiguredControlUiOrigins(options);
+  const preparedOptions = withConfiguredControlUiOrigins(await withUserSlackRelayLaunchConfig(apiKey, options));
   const agentClient = createAgentClient(apiKey);
   const create = ENABLED_ENV_VALUES.has((preparedOptions.env?.OPENCLAW_DESKTOP_ENABLED ?? "").trim().toLowerCase())
     ? agentClient.createOpenClawPro.bind(agentClient)
@@ -337,7 +393,7 @@ export async function startOpenClawAgent(apiKey: string, agentId: string, option
     const existingAgent = await agentClient.get(agentId);
     existingOptions = launchConfigStartOptions(existingAgent.launchConfig);
   } catch {}
-  const startOptions = withConfiguredControlUiOrigins(mergeStartOptions(existingOptions, options));
+  const startOptions = withConfiguredControlUiOrigins(await withUserSlackRelayLaunchConfig(apiKey, mergeStartOptions(existingOptions, options)));
   for (let attempt = 0; attempt <= AGENT_CLEANUP_RETRY_DELAYS_MS.length; attempt += 1) {
     try {
       return await agentClient.startOpenClaw(agentId, startOptions);

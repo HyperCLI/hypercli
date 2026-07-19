@@ -309,7 +309,14 @@ describe("IntegrationsDirectoryPanel", () => {
     expect(screen.queryByText("No integrations reported")).not.toBeInTheDocument();
   });
 
-  it("allows hosted Slack setup before the gateway connects", async () => {
+  it("allows hosted Slack setup before the gateway connects when Slack is connected", async () => {
+    sdkMocks.getSlackInstallStatus.mockResolvedValue({
+      connected: true,
+      teamId: "T123",
+      teamName: "Test Workspace",
+      botUserId: "U123",
+      updatedAt: "2026-07-19T18:56:53+00:00",
+    });
     renderPanel({
       connected: false,
       channelsProvider: null,
@@ -321,9 +328,9 @@ describe("IntegrationsDirectoryPanel", () => {
     });
 
     expect((await screen.findAllByText("Create Slack app")).length).toBeGreaterThan(0);
+    await waitFor(() => expect(sdkMocks.getSlackInstallStatus).toHaveBeenCalledTimes(1));
     expect(screen.getByRole("button", { name: /^HyperCLI Slack App$/i })).toBeInTheDocument();
     expect(screen.queryByText("Waiting for gateway")).not.toBeInTheDocument();
-    expect(sdkMocks.getSlackInstallStatus).not.toHaveBeenCalled();
   });
 
   it("uses the shared runtime connector card and generated setup guidance", async () => {
@@ -422,7 +429,7 @@ describe("IntegrationsDirectoryPanel", () => {
     expect(await screen.findByText(/configuration removed/i)).toBeInTheDocument();
   });
 
-  it("opens configured Slack without auto-preparing support", async () => {
+  it("opens configured Slack in the Slack-specific setup flow", async () => {
     const ensureSlackSupport = vi.fn(async () => ({
       plugin: { id: "slack", name: "Slack", installed: true, enabled: true, state: "enabled" },
       changed: true,
@@ -438,12 +445,14 @@ describe("IntegrationsDirectoryPanel", () => {
       reportedChannelsReady: true,
     });
 
-    expect(await screen.findByRole("heading", { name: "Slack configuration" })).toBeInTheDocument();
+    expect((await screen.findAllByText("Create Slack app")).length).toBeGreaterThan(0);
+    await waitFor(() => expect(sdkMocks.getSlackInstallStatus).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("heading", { name: "Slack configuration" })).not.toBeInTheDocument();
     expect(ensureSlackSupport).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: /install Slack support/i })).not.toBeInTheDocument();
   });
 
-  it("prompts for Slack setup mode without checking hosted status first", async () => {
+  it("prompts for self-hosted Slack when hosted Slack is not connected", async () => {
     const ensureSlackSupport = vi.fn(async () => ({
       plugin: { id: "slack", name: "Slack", installed: true, enabled: true, state: "enabled" },
       changed: false,
@@ -460,16 +469,23 @@ describe("IntegrationsDirectoryPanel", () => {
     });
 
     expect((await screen.findAllByText("Create Slack app")).length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: /HyperCLI Slack App$/i })).toBeInTheDocument();
+    await waitFor(() => expect(sdkMocks.getSlackInstallStatus).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("button", { name: /HyperCLI Slack App$/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Self-hosted Socket Mode/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Self-hosted" })).toBeInTheDocument();
     expect(screen.queryByLabelText("Slack Bot token")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Slack App token")).not.toBeInTheDocument();
-    expect(sdkMocks.getSlackInstallStatus).not.toHaveBeenCalled();
     expect(ensureSlackSupport).not.toHaveBeenCalled();
   });
 
-  it("checks Slack hosted status only after the hosted app path is selected", async () => {
+  it("shows hosted Slack once connected status is loaded", async () => {
+    sdkMocks.getSlackInstallStatus.mockResolvedValue({
+      connected: true,
+      teamId: "T123",
+      teamName: "Test Workspace",
+      botUserId: "U123",
+      updatedAt: "2026-07-19T18:56:53+00:00",
+    });
     const ensureSlackSupport = vi.fn(async () => ({
       plugin: { id: "slack", name: "Slack", installed: true, enabled: true, state: "enabled" },
       changed: false,
@@ -485,13 +501,9 @@ describe("IntegrationsDirectoryPanel", () => {
       reportedChannelsReady: true,
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: /^HyperCLI Slack App$/i }));
-
     await waitFor(() => expect(sdkMocks.getSlackInstallStatus).toHaveBeenCalledTimes(1));
-    expect(screen.getByRole("link", { name: /Connect Slack/i })).toHaveAttribute(
-      "href",
-      "/slack/start",
-    );
+    expect(await screen.findByText(/HyperCLI Slack App Enabled/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^HyperCLI Slack App$/i })).toBeInTheDocument();
     expect(ensureSlackSupport).not.toHaveBeenCalled();
   });
 
@@ -561,7 +573,7 @@ describe("IntegrationsDirectoryPanel", () => {
     expect(await screen.findByLabelText("Slack Bot token")).toBeInTheDocument();
     expect(screen.getByLabelText("Slack App token")).toBeInTheDocument();
     await waitFor(() => expect(ensureSlackSupport).toHaveBeenCalledTimes(1));
-    expect(sdkMocks.getSlackInstallStatus).not.toHaveBeenCalled();
+    expect(sdkMocks.getSlackInstallStatus).toHaveBeenCalledTimes(1);
   });
 
   it("configures Slack relay when the hosted app is connected", async () => {
@@ -601,7 +613,7 @@ describe("IntegrationsDirectoryPanel", () => {
     expect(onRefreshChannels).toHaveBeenCalledWith(true);
   });
 
-  it("hydrates saved Slack account IDs when runtime status is unavailable", async () => {
+  it("keeps saved Slack accounts behind the self-hosted flow when runtime status is unavailable", async () => {
     renderPanel({
       initialPluginId: "slack",
       config: { channels: { slack: { accounts: { primary: { enabled: true }, alerts: { enabled: true } } } } },
@@ -610,12 +622,11 @@ describe("IntegrationsDirectoryPanel", () => {
       reportedChannelsReady: true,
     });
 
-    const selector = await screen.findByLabelText("Slack configured account");
-    expect(selector).toHaveTextContent("primary");
-    expect(selector).toHaveTextContent("alerts");
+    expect((await screen.findAllByText("Create Slack app")).length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText("Slack configured account")).not.toBeInTheDocument();
   });
 
-  it("selects the saved default Slack account when runtime status is unavailable", async () => {
+  it("does not show generic Slack account settings before self-hosted is selected", async () => {
     renderPanel({
       initialPluginId: "slack",
       config: { channels: { slack: { defaultAccount: "alerts", accounts: { primary: { enabled: true }, alerts: { enabled: true } } } } },
@@ -624,7 +635,8 @@ describe("IntegrationsDirectoryPanel", () => {
       reportedChannelsReady: true,
     });
 
-    expect(await screen.findByLabelText("Slack configured account")).toHaveValue("alerts");
+    expect((await screen.findAllByText("Create Slack app")).length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText("Slack configured account")).not.toBeInTheDocument();
   });
 
   it("opens GitHub with the shared runtime connector card", async () => {

@@ -181,6 +181,24 @@ export function buildSlackRelayWebSocketUrl(relayBaseUrl: string): string {
   return url.toString();
 }
 
+export function buildSlackRelayApiUrl(relayBaseUrl: string): string {
+  const normalized = relayBaseUrl.trim();
+  if (!normalized) throw new Error('Slack relay base URL is required');
+  let url: URL;
+  try {
+    url = new URL(normalized);
+  } catch {
+    throw new Error('Slack relay base URL is invalid');
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new Error('Slack relay base URL must use http or https');
+  }
+  url.pathname = '/slack/api/';
+  url.search = '';
+  url.hash = '';
+  return url.toString();
+}
+
 export function buildHostedSlackRelayChannelConfig(options: HostedSlackRelayChannelConfigOptions): HostedSlackRelayChannelConfig {
   const gatewayId = options.gatewayId?.trim() || (options.agentId?.trim() ? `agent:${options.agentId.trim()}` : '');
   if (!gatewayId) throw new Error('Slack relay gateway id requires an agent id');

@@ -8,6 +8,7 @@ import {
 } from '../src/openclaw/channels.js';
 import {
   buildHostedSlackRelayChannelConfig,
+  buildSlackRelayApiUrl,
   buildSlackRelayWebSocketUrl,
   configureHostedSlackRelayChannel,
   type AgentChannelsProvider,
@@ -34,6 +35,8 @@ describe('hosted Slack relay channel helpers', () => {
   it('builds hosted Slack relay config from relay base URL and agent id', () => {
     expect(buildSlackRelayWebSocketUrl('https://api.agents.dev.hypercli.com/')).toBe('wss://api.agents.dev.hypercli.com/slack/ws');
     expect(buildSlackRelayWebSocketUrl('http://localhost:8000/base')).toBe('ws://localhost:8000/slack/ws');
+    expect(buildSlackRelayApiUrl('https://api.agents.dev.hypercli.com/')).toBe('https://api.agents.dev.hypercli.com/slack/api/');
+    expect(buildSlackRelayApiUrl('http://localhost:8000/base')).toBe('http://localhost:8000/slack/api/');
     expect(buildHostedSlackRelayChannelConfig({
       relayBaseUrl: 'https://api.agents.dev.hypercli.com/',
       agentId: 'agent-123',

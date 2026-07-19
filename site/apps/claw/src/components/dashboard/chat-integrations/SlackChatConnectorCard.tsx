@@ -10,6 +10,7 @@ import { IntegrationBrandPulse } from "./IntegrationBrandPulse";
 export interface SlackRelaySetupOptions {
   mode: "prompt" | "hosted" | "self-hosted";
   handle: string;
+  hostedAvailable: boolean;
   connected: boolean | null;
   workspace: string | null;
   attached: boolean;
@@ -48,13 +49,25 @@ export function SlackChatConnectorCard({
   onDismiss,
   ...channelProps
 }: SlackChatConnectorCardProps) {
+  const hostedReady = slackRelaySetup.hostedAvailable && slackRelaySetup.connected === true;
+  const docsHref = "https://docs.hypercli.com/agents/integrations";
+
   if (slackRelaySetup.mode === "self-hosted") {
     return (
       <div className="space-y-3">
-        <div className="flex justify-start">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <button type="button" className={buttonClass()} onClick={slackRelaySetup.onBackToChoice}>
             Back to Slack options
           </button>
+          {hostedReady ? (
+            <button type="button" className={buttonClass("primary")} onClick={slackRelaySetup.onChooseHosted}>
+              Use the HyperCLI Slack App instead
+            </button>
+          ) : (
+            <a href={docsHref} target="_blank" rel="noopener noreferrer" className={buttonClass()}>
+              Read the docs
+            </a>
+          )}
         </div>
         <ChannelChatConnectorCard
           {...channelProps}
@@ -104,17 +117,33 @@ export function SlackChatConnectorCard({
           <div className="rounded-2xl border border-[var(--channel-accent-border)] bg-background/75 p-4 sm:p-5">
             <p className="text-sm font-bold text-foreground">Select Slack transport</p>
             <p className="mt-2 text-xs leading-5 text-text-secondary">
-              Self-hosted uses your own Slack app token and bot token. The HyperCLI Slack App uses hosted relay and saves this agent's Slack config after Slack is connected.
+              Self-hosted uses your own Slack app token and bot token. The HyperCLI Slack App appears here only after this HyperCLI account has connected Slack.
             </p>
-            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            {slackRelaySetup.checking ? (
+              <p role="status" className="mt-3 flex items-center gap-1.5 text-xs text-text-secondary">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Checking HyperCLI Slack App status...
+              </p>
+            ) : hostedReady ? (
+              <div className="mt-3 rounded-xl border border-[var(--channel-accent-border)] bg-[var(--channel-accent-soft)] px-3 py-2 text-xs leading-5 text-text-secondary">
+                <span className="font-semibold text-foreground">HyperCLI Slack App Enabled</span>
+                {slackRelaySetup.workspace ? ` for ${slackRelaySetup.workspace}` : ""}. <a href={docsHref} target="_blank" rel="noopener noreferrer" className="font-semibold text-[var(--channel-accent)] underline-offset-2 hover:underline">Read the docs</a>
+              </div>
+            ) : (
+              <div className="mt-3 rounded-xl border border-border bg-surface-low px-3 py-2 text-xs leading-5 text-text-secondary">
+                HyperCLI Slack App is not connected for this account. Use self-hosted Slack here, or connect Slack from Settings.
+              </div>
+            )}
+            <div className={`mt-4 grid gap-2 ${hostedReady ? "sm:grid-cols-2" : ""}`}>
               <button type="button" className={choiceClass()} onClick={slackRelaySetup.onChooseSelfHosted}>
                 <span className="text-xs font-black uppercase tracking-[0.12em] text-foreground">Self-hosted Socket Mode</span>
                 <span className="mt-1 text-[11px] leading-4 text-text-muted">Use a custom Slack app for this agent.</span>
               </button>
-              <button type="button" className={choiceClass("primary")} onClick={slackRelaySetup.onChooseHosted}>
-                <span className="text-xs font-black uppercase tracking-[0.12em] text-foreground">HyperCLI Slack App</span>
-                <span className="mt-1 text-[11px] leading-4 text-text-muted">Install the HyperCLI Slack App once, then attach this agent.</span>
-              </button>
+              {hostedReady ? (
+                <button type="button" className={choiceClass("primary")} onClick={slackRelaySetup.onChooseHosted}>
+                  <span className="text-xs font-black uppercase tracking-[0.12em] text-foreground">HyperCLI Slack App</span>
+                  <span className="mt-1 text-[11px] leading-4 text-text-muted">Use hosted relay for @{slackRelaySetup.handle}.</span>
+                </button>
+              ) : null}
             </div>
           </div>
         ) : (
@@ -174,9 +203,11 @@ export function SlackChatConnectorCard({
             <button type="button" className={buttonClass()} onClick={slackRelaySetup.onChooseSelfHosted}>
               Self-hosted
             </button>
-            <button type="button" className={buttonClass("primary")} onClick={slackRelaySetup.onChooseHosted}>
-              HyperCLI Slack App <ArrowRight className="h-3.5 w-3.5" />
-            </button>
+            {hostedReady ? (
+              <button type="button" className={buttonClass("primary")} onClick={slackRelaySetup.onChooseHosted}>
+                HyperCLI Slack App <ArrowRight className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
           </>
         )}
         {onDismiss ? <button type="button" className={buttonClass()} onClick={onDismiss}><X className="h-3.5 w-3.5" />Dismiss</button> : null}
