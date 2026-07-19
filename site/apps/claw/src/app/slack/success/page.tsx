@@ -5,26 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo } from "react";
 import { CheckCircle2, XCircle } from "lucide-react";
 
-const SLACK_OAUTH_RETURN_STORAGE_KEY = "hypercli.slack.oauth.returnTo";
 const DEFAULT_SLACK_RETURN_PATH = "/dashboard/settings/";
 
-function safeReturnTo(value: string | null): string | null {
-  const trimmed = value?.trim();
-  if (!trimmed || !trimmed.startsWith("/") || trimmed.startsWith("//")) return null;
-  return trimmed;
-}
-
-function readStoredReturnTo(): string {
-  if (typeof window === "undefined") return DEFAULT_SLACK_RETURN_PATH;
-  try {
-    return safeReturnTo(window.sessionStorage.getItem(SLACK_OAUTH_RETURN_STORAGE_KEY)) ?? DEFAULT_SLACK_RETURN_PATH;
-  } catch {
-    return DEFAULT_SLACK_RETURN_PATH;
-  }
-}
-
 function integrationReturnUrl(searchParams: Pick<URLSearchParams, "get">): string {
-  const base = new URL(readStoredReturnTo(), typeof window === "undefined" ? "https://agents.hypercli.com" : window.location.origin);
+  const base = new URL(DEFAULT_SLACK_RETURN_PATH, typeof window === "undefined" ? "https://agents.hypercli.com" : window.location.origin);
   base.searchParams.set("integration", "slack");
   base.searchParams.set("slack_oauth_ok", searchParams.get("ok") === "true" ? "true" : "false");
   const teamId = searchParams.get("team_id")?.trim();
@@ -64,14 +48,14 @@ function SlackSuccessContent() {
         </h1>
         <p className="mt-3 text-sm leading-6 text-text-muted">
           {ok
-            ? "Returning to integrations in 10 seconds."
-            : "Returning to integrations in 10 seconds so you can retry or inspect status."}
+            ? "Returning to settings in 10 seconds."
+            : "Returning to settings in 10 seconds so you can retry or inspect status."}
         </p>
         {teamId ? <p className="mt-4 text-xs font-medium uppercase tracking-[0.16em] text-text-muted">Team {teamId}</p> : null}
         {error ? <p className="mt-4 text-xs font-medium uppercase tracking-[0.16em] text-destructive">Error: {error}</p> : null}
         <div className="mt-6 flex flex-wrap justify-center gap-3">
           <Link href={returnUrl} className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground">
-            Integrations
+            Settings
           </Link>
           <Link href="/slack/status" className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground">
             Slack status

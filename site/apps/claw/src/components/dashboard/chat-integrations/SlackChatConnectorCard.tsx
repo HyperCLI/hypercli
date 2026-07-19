@@ -12,6 +12,7 @@ export interface SlackRelaySetupOptions {
   handle: string;
   connected: boolean | null;
   workspace: string | null;
+  attached: boolean;
   checking: boolean;
   configuring: boolean;
   error: string | null;
@@ -103,7 +104,7 @@ export function SlackChatConnectorCard({
           <div className="rounded-2xl border border-[var(--channel-accent-border)] bg-background/75 p-4 sm:p-5">
             <p className="text-sm font-bold text-foreground">Select Slack transport</p>
             <p className="mt-2 text-xs leading-5 text-text-secondary">
-              Self-hosted uses your own Slack app token and bot token. The HyperCLI Slack App uses hosted relay and writes agent config after Slack is connected.
+              Self-hosted uses your own Slack app token and bot token. The HyperCLI Slack App uses hosted relay and saves this agent's Slack config after Slack is connected.
             </p>
             <div className="mt-4 grid gap-2 sm:grid-cols-2">
               <button type="button" className={choiceClass()} onClick={slackRelaySetup.onChooseSelfHosted}>
@@ -133,14 +134,16 @@ export function SlackChatConnectorCard({
             <div className="mt-4 rounded-xl border border-border bg-surface-low px-3 py-2 text-xs text-text-secondary">
               {slackRelaySetup.checking
                 ? "Checking Slack connection..."
-                : slackRelaySetup.connected
+                : slackRelaySetup.attached
+                  ? `Relay config saved${slackRelaySetup.workspace ? ` for ${slackRelaySetup.workspace}` : ""}. Stop and start the agent to load it.`
+                  : slackRelaySetup.connected
                   ? `Connected${slackRelaySetup.workspace ? ` to ${slackRelaySetup.workspace}` : ""}.`
                   : "Connect Slack once for this HyperCLI account, then return here to attach this agent."}
             </div>
             {slackRelaySetup.connected ? (
               <div className="mt-3 flex items-start gap-2 rounded-xl border border-[var(--channel-accent-border)] bg-[var(--channel-accent-soft)] px-3 py-2 text-[var(--channel-accent)]">
                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                <p>Slack OAuth is connected. Attach this agent to write relay config through the gateway.</p>
+                <p>{slackRelaySetup.attached ? "Hosted relay is attached. Restart the agent to load Slack." : "Slack OAuth is connected. Attach this agent, then stop and start it to load hosted relay."}</p>
               </div>
             ) : null}
           </div>
@@ -155,7 +158,7 @@ export function SlackChatConnectorCard({
           <>
             <button type="button" className={buttonClass()} disabled={slackRelaySetup.configuring} onClick={slackRelaySetup.onBackToChoice}>Back</button>
             {slackRelaySetup.connected ? (
-              <button type="button" className={buttonClass("primary")} disabled={!channelProps.connected || slackRelaySetup.configuring} onClick={slackRelaySetup.onConfigureHosted}>
+              <button type="button" className={buttonClass("primary")} disabled={slackRelaySetup.configuring} onClick={slackRelaySetup.onConfigureHosted}>
                 {slackRelaySetup.configuring ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                 Attach agent
                 <ArrowRight className="h-3.5 w-3.5" />

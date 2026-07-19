@@ -148,6 +148,23 @@ export interface SlackInstallStatus {
   updatedAt?: string | null;
 }
 
+export interface AttachSlackRelayAgentOptions {
+  relayBaseUrl: string;
+  token: string;
+  agentId: string;
+}
+
+export interface AttachSlackRelayAgentResult {
+  connected: boolean;
+  agentId: string;
+  gatewayId: string;
+  config: Record<string, unknown>;
+  restartRequired: boolean;
+  teamId?: string | null;
+  teamName?: string | null;
+  botUserId?: string | null;
+}
+
 export interface BraveWebSearchOptions {
   count?: number;
   country?: string;
@@ -1143,6 +1160,40 @@ export async function getSlackInstallStatus(options: SlackInstallStatusOptions):
     teamName: typeof payload.team_name === 'string' ? payload.team_name : null,
     botUserId: typeof payload.bot_user_id === 'string' ? payload.bot_user_id : null,
     updatedAt: typeof payload.updated_at === 'string' ? payload.updated_at : null,
+  };
+}
+
+export async function attachSlackRelayAgent(options: AttachSlackRelayAgentOptions): Promise<AttachSlackRelayAgentResult> {
+  const relayBaseUrl = options.relayBaseUrl.replace(/\/+$/, '');
+  const agentId = options.agentId.trim();
+  if (!relayBaseUrl) throw new Error('Slack relay base URL is required');
+  if (!options.token) throw new Error('Slack relay attach requires an app token');
+  if (!agentId) throw new Error('Slack relay attach requires an agent id');
+  const response = await fetch(`${relayBaseUrl}/slack/agents/${encodeURIComponent(agentId)}/relay`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${options.token}` },
+  });
+  if (!response.ok) {
+    let detail = response.statusText || 'Slack relay attach failed';
+    try {
+      const payload = await response.json() as { detail?: unknown };
+      if (typeof payload.detail === 'string' && payload.detail) detail = payload.detail;
+    } catch {}
+    throw new APIError(response.status, detail);
+  }
+  const payload = await response.json() as Record<string, unknown>;
+  const agentIdValue = typeof payload.agent_id === 'string' ? payload.agent_id : '';
+  const gatewayIdValue = typeof payload.gateway_id === 'string' ? payload.gateway_id : '';
+  if (!agentIdValue || !gatewayIdValue) throw new Error('Slack relay attach response is missing agent identity');
+  return {
+    connected: payload.connected === true,
+    agentId: agentIdValue,
+    gatewayId: gatewayIdValue,
+    config: payload.config && typeof payload.config === 'object' && !Array.isArray(payload.config) ? payload.config as Record<string, unknown> : {},
+    restartRequired: payload.restart_required !== false,
+    teamId: typeof payload.team_id === 'string' ? payload.team_id : null,
+    teamName: typeof payload.team_name === 'string' ? payload.team_name : null,
+    botUserId: typeof payload.bot_user_id === 'string' ? payload.bot_user_id : null,
   };
 }
 

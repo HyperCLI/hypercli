@@ -8,6 +8,7 @@ import {
   flattenLaunchConfig,
   launchConfigHasDesktop,
   OpenClawAgent,
+  attachSlackRelayAgent,
   getSlackInstallStatus,
   startSlackOAuth,
 } from '../src/agents.js';
@@ -320,6 +321,47 @@ describe('Agents SDK', () => {
       'https://api.agents.dev.hypercli.com/slack/install',
       expect.objectContaining({
         method: 'GET',
+        headers: { Authorization: 'Bearer app-jwt' },
+      }),
+    );
+  });
+
+  it('attaches an agent to hosted Slack relay through the relay REST endpoint', async () => {
+    const fetchMock = vi.fn(async () => new Response(
+      JSON.stringify({
+        connected: true,
+        agent_id: 'agent-123',
+        gateway_id: 'agent:agent-123',
+        config: { enabled: true, mode: 'relay' },
+        restart_required: true,
+        team_id: 'T123',
+        team_name: 'Test Workspace',
+        bot_user_id: 'U123',
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await attachSlackRelayAgent({
+      relayBaseUrl: 'https://api.agents.dev.hypercli.com/',
+      token: 'app-jwt',
+      agentId: 'agent-123',
+    });
+
+    expect(result).toEqual({
+      connected: true,
+      agentId: 'agent-123',
+      gatewayId: 'agent:agent-123',
+      config: { enabled: true, mode: 'relay' },
+      restartRequired: true,
+      teamId: 'T123',
+      teamName: 'Test Workspace',
+      botUserId: 'U123',
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.agents.dev.hypercli.com/slack/agents/agent-123/relay',
+      expect.objectContaining({
+        method: 'POST',
         headers: { Authorization: 'Bearer app-jwt' },
       }),
     );

@@ -2,8 +2,8 @@
 
 import React from "react";
 import { AlertTriangle, Loader2, MessageSquare, Plus, RefreshCw, Search } from "lucide-react";
-import { getSlackInstallStatus, type SlackInstallStatus } from "@hypercli.com/sdk/agents";
-import { configureHostedSlackRelayChannel, type AgentChannel, type AgentChannelSummary, type AgentChannelsProvider, type AgentChannelsSnapshot } from "@hypercli.com/sdk/channels";
+import { attachSlackRelayAgent, getSlackInstallStatus, type SlackInstallStatus } from "@hypercli.com/sdk/agents";
+import type { AgentChannel, AgentChannelSummary, AgentChannelsProvider, AgentChannelsSnapshot } from "@hypercli.com/sdk/channels";
 import type { AgentConnectorDescriptor, AgentConnectorsProvider } from "@hypercli.com/sdk/connectors";
 
 import type { AgentGatewaySession } from "../agents/AgentGatewayProvider";
@@ -27,7 +27,7 @@ type SlackSetupMode = "prompt" | "hosted" | "self-hosted";
 type SlackRelayState =
   | { mode: "prompt" }
   | { mode: "self-hosted" }
-  | { mode: "hosted"; phase: "idle" | "checking" | "configuring"; installStatus: SlackInstallStatus | null; error: string | null };
+  | { mode: "hosted"; phase: "idle" | "checking" | "configuring"; installStatus: SlackInstallStatus | null; error: string | null; attached: boolean };
 
 type SlackRelayAction =
   | { type: "reset" }
@@ -102,28 +102,26 @@ interface SlackPreparationState {
   error: string | null;
 }
 
-const SLACK_OAUTH_RETURN_STORAGE_KEY = "hypercli.slack.oauth.returnTo";
-
 function slackRelayReducer(state: SlackRelayState, action: SlackRelayAction): SlackRelayState {
   switch (action.type) {
     case "reset":
       return { mode: "prompt" };
     case "choose-hosted":
-      return { mode: "hosted", phase: "idle", installStatus: null, error: null };
+      return { mode: "hosted", phase: "idle", installStatus: null, error: null, attached: false };
     case "choose-self-hosted":
       return { mode: "self-hosted" };
     case "check-start":
-      return { mode: "hosted", phase: "checking", installStatus: state.mode === "hosted" ? state.installStatus : null, error: null };
+      return { mode: "hosted", phase: "checking", installStatus: state.mode === "hosted" ? state.installStatus : null, error: null, attached: state.mode === "hosted" ? state.attached : false };
     case "check-success":
-      return { mode: "hosted", phase: "idle", installStatus: action.installStatus, error: null };
+      return { mode: "hosted", phase: "idle", installStatus: action.installStatus, error: null, attached: state.mode === "hosted" ? state.attached : false };
     case "check-error":
-      return { mode: "hosted", phase: "idle", installStatus: null, error: action.error };
+      return { mode: "hosted", phase: "idle", installStatus: null, error: action.error, attached: false };
     case "configure-start":
-      return { mode: "hosted", phase: "configuring", installStatus: state.mode === "hosted" ? state.installStatus : null, error: null };
+      return { mode: "hosted", phase: "configuring", installStatus: state.mode === "hosted" ? state.installStatus : null, error: null, attached: state.mode === "hosted" ? state.attached : false };
     case "configure-success":
-      return { mode: "hosted", phase: "idle", installStatus: action.installStatus, error: null };
+      return { mode: "hosted", phase: "idle", installStatus: action.installStatus, error: null, attached: true };
     case "configure-error":
-      return { mode: "hosted", phase: "idle", installStatus: state.mode === "hosted" ? state.installStatus : null, error: action.error };
+      return { mode: "hosted", phase: "idle", installStatus: state.mode === "hosted" ? state.installStatus : null, error: action.error, attached: state.mode === "hosted" ? state.attached : false };
   }
 }
 
@@ -286,15 +284,8 @@ function statusClass(tone: StatusTone): string {
   return "border border-border bg-surface-high text-text-secondary";
 }
 
-function slackReturnPath(agentId: string | null | undefined): string {
-  const params = new URLSearchParams();
-  if (agentId) params.set("agentId", agentId);
-  params.set("integration", "slack");
-  return `/dashboard/agents?${params.toString()}`;
-}
-
-function slackStartHref(agentId: string | null | undefined): string {
-  return `/slack/start?returnTo=${encodeURIComponent(slackReturnPath(agentId))}`;
+function slackStartHref(): string {
+  return "/slack/start";
 }
 
 function IntegrationCard({ tile, onOpen }: { tile: IntegrationTile; onOpen: () => void }) {
@@ -571,6 +562,7 @@ export function IntegrationsDirectoryPanel({
       runtimeReported: false,
     } satisfies IntegrationTile;
   }, [selectedChannelId, tiles]);
+  const selectedIsSlackRelaySetup = selectedChannelId === "slack" && Boolean(SLACK_RELAY_BASE_URL);
 
   const prepareSlackSupport = React.useCallback(async () => {
     const operation = gatewaySession.ensureSlackSupport;
@@ -632,13 +624,6 @@ export function IntegrationsDirectoryPanel({
     });
   }, [agentId, refreshSlackInstallStatus, requestedChannelId, slackOAuthError, slackOAuthResult]);
 
-  const rememberSlackReturn = React.useCallback(() => {
-    if (typeof window === "undefined") return;
-    try {
-      window.sessionStorage.setItem(SLACK_OAUTH_RETURN_STORAGE_KEY, slackReturnPath(agentId));
-    } catch {}
-  }, [agentId]);
-
   const configureHostedSlack = React.useCallback(async () => {
     if (!agentId) {
       dispatchSlackRelay({ type: "configure-error", error: "Agent identity is unavailable." });
@@ -648,22 +633,22 @@ export function IntegrationsDirectoryPanel({
     slackRelayOperationRef.current = operationId;
     dispatchSlackRelay({ type: "configure-start" });
     try {
-      const result = await configureHostedSlackRelayChannel({
+      const result = await attachSlackRelayAgent({
         relayBaseUrl: SLACK_RELAY_BASE_URL,
         token: await getToken(),
         agentId,
-        checkInstallStatus: async (options) => {
-          if (slackRelayState.mode === "hosted" && slackRelayState.installStatus?.connected) return slackRelayState.installStatus;
-          return getSlackInstallStatus(options);
-        },
-        apply: async (relayConfig) => {
-          await prepareSlackSupport();
-          if (channelsProvider?.configure) await channelsProvider.configure("slack", relayConfig);
-          else await onSaveConfig({ channels: { slack: relayConfig } });
-        },
       });
       if (slackRelayOperationRef.current !== operationId) return;
-      dispatchSlackRelay({ type: "configure-success", installStatus: result.status });
+      dispatchSlackRelay({
+        type: "configure-success",
+        installStatus: {
+          connected: result.connected,
+          teamId: result.teamId ?? null,
+          teamName: result.teamName ?? null,
+          botUserId: result.botUserId ?? null,
+          updatedAt: new Date().toISOString(),
+        },
+      });
       if (onRefreshChannels) await onRefreshChannels(true);
       else await refreshIntegrations();
     } catch (cause) {
@@ -672,13 +657,9 @@ export function IntegrationsDirectoryPanel({
     }
   }, [
     agentId,
-    channelsProvider,
     getToken,
     onRefreshChannels,
-    onSaveConfig,
-    prepareSlackSupport,
     refreshIntegrations,
-    slackRelayState,
   ]);
 
   const handleDetailBack = React.useCallback(() => {
@@ -698,7 +679,7 @@ export function IntegrationsDirectoryPanel({
     ));
   }, [integrationFilter, searchQuery, tiles]);
 
-  if (!connected) {
+  if (!connected && !selectedIsSlackRelaySetup) {
     const bootStatus = getAgentGatewayPanelBootStatus({
       connected,
       loadingTitle: "Loading integrations",
@@ -713,7 +694,7 @@ export function IntegrationsDirectoryPanel({
     );
   }
 
-  if (!channelsProvider && !gatewaySession.connectorsProvider) {
+  if (!channelsProvider && !gatewaySession.connectorsProvider && !selectedIsSlackRelaySetup) {
     return (
       <div className="h-full min-h-0 overflow-y-auto bg-background px-5 py-7 text-foreground">
         <div className="mx-auto w-full max-w-6xl rounded-[12px] border border-border bg-surface-low px-5 py-10 text-center">
@@ -830,10 +811,11 @@ export function IntegrationsDirectoryPanel({
       handle: SLACK_APP_HANDLE,
       connected: slackInstallStatus?.connected ?? null,
       workspace: slackInstallStatus?.teamName || slackInstallStatus?.teamId || null,
+      attached: slackRelayState.mode === "hosted" ? slackRelayState.attached : false,
       checking: (slackRelayState.mode === "hosted" && slackRelayState.phase === "checking") || authLoading,
       configuring: slackRelayState.mode === "hosted" && slackRelayState.phase === "configuring",
       error: slackRelayState.mode === "hosted" ? slackRelayState.error : null,
-      connectHref: slackStartHref(agentId),
+      connectHref: slackStartHref(),
       onChooseHosted: () => {
         dispatchSlackRelay({ type: "choose-hosted" });
         void refreshSlackInstallStatus();
@@ -849,7 +831,6 @@ export function IntegrationsDirectoryPanel({
       },
       onRefreshHosted: () => void refreshSlackInstallStatus(),
       onConfigureHosted: () => void configureHostedSlack(),
-      onRememberReturn: rememberSlackReturn,
     } : undefined;
     return (
       <div className="h-full min-h-0 overflow-y-auto bg-background px-5 py-5">

@@ -41,6 +41,7 @@ describe("IntegrationChatCardHost", () => {
           handle: "hyperdev",
           connected: null,
           workspace: null,
+          attached: false,
           checking: false,
           configuring: false,
           error: null,
