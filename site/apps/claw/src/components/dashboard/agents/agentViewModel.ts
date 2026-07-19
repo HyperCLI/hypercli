@@ -26,6 +26,10 @@ export function toAgentViewModel(agent: SdkAgent): Agent {
   return {
     id: agent.id,
     name: agent.name ?? agent.id,
+    handle: agent.handle ?? null,
+    displayName: agent.displayName ?? null,
+    avatarUrl: agent.avatarUrl ?? null,
+    displayIdentity: agent.displayIdentity ?? null,
     user_id: agent.userId,
     pod_id: agent.podId || null,
     pod_name: agent.podName || null,

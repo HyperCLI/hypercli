@@ -28,6 +28,10 @@ export function isAgentFailureState(state: AgentState | string | null | undefine
 export interface Agent {
   id: string;
   name: string;
+  handle?: string | null;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+  displayIdentity?: Record<string, unknown> | null;
   user_id: string;
   pod_id: string | null;
   pod_name: string | null;

@@ -8,6 +8,7 @@ import {
   flattenLaunchConfig,
   launchConfigHasDesktop,
   OpenClawAgent,
+  startSlackOAuth,
 } from '../src/agents.js';
 import { HTTPClient } from '../src/http.js';
 
@@ -219,6 +220,72 @@ describe('Agents SDK', () => {
         refresh_from_lagoon: true,
       },
     ]);
+  });
+
+  it('uploads profile images through the deployments API', async () => {
+    const fetchMock = vi.fn(async () => new Response(
+      JSON.stringify({
+        id: 'agent-123',
+        avatar_url: 'https://cdn.example.test/prod/user-456/agent-123.png',
+        s3_key: 'prod/user-456/agent-123.png',
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+    const http = { apiKey: 'hyper_api_test', get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() } as unknown as HTTPClient;
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+    const file = new Blob(['png'], { type: 'image/png' });
+
+    const result = await deployments.uploadProfileImage('agent-123', file);
+
+    expect(result).toEqual({
+      id: 'agent-123',
+      avatar_url: 'https://cdn.example.test/prod/user-456/agent-123.png',
+      s3_key: 'prod/user-456/agent-123.png',
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.test.hypercli.com/agents/deployments/agent-123/profile-image',
+      expect.objectContaining({
+        method: 'POST',
+        body: file,
+      }),
+    );
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const headers = new Headers(init.headers);
+    expect(headers.get('Authorization')).toBe('Bearer hyper_api_test');
+    expect(headers.get('Content-Type')).toBe('image/png');
+  });
+
+  it('starts Slack OAuth through the relay REST endpoint', async () => {
+    const fetchMock = vi.fn(async () => new Response(
+      JSON.stringify({
+        authorize_url: 'https://slack.com/oauth/v2/authorize?state=abc',
+        expires_at: '2026-07-19T13:30:00+00:00',
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await startSlackOAuth({
+      relayBaseUrl: 'https://api.agents.dev.hypercli.com/',
+      hyperclawUserId: 'user-123',
+    });
+
+    expect(result).toEqual({
+      authorizeUrl: 'https://slack.com/oauth/v2/authorize?state=abc',
+      expiresAt: '2026-07-19T13:30:00+00:00',
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.agents.dev.hypercli.com/slack/oauth/start',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          hyperclaw_user_id: 'user-123',
+          hyperclaw_workspace_id: null,
+          redirect_uri: null,
+        }),
+      }),
+    );
   });
 
   it('detects desktop from explicit launch config and hydrated routes only', () => {

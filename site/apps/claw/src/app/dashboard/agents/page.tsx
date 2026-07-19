@@ -3655,6 +3655,19 @@ function AgentsPageContent() {
                 const updatedAgent = await createAgentClient(token).update(agentId, { name });
                 setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
               }}
+              onUpdateAgentProfile={async (agentId, profile) => {
+                const token = await getToken();
+                const updatedAgent = await createAgentClient(token).update(agentId, profile);
+                setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
+              }}
+              onUploadAgentAvatar={async (agentId, file) => {
+                const token = await getToken();
+                const client = createAgentClient(token);
+                const upload = await client.uploadProfileImage(agentId, file, file.type || "image/png");
+                const updatedAgent = await client.get(agentId);
+                setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
+                return upload.avatar_url;
+              }}
               onUpdateAgentLaunchConfig={async (agentId, launchConfig) => {
                 const token = await getToken();
                 const updatedAgent = await createAgentClient(token).update(agentId, { launchConfig });

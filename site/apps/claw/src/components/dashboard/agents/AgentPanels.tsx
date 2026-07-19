@@ -6,12 +6,13 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeft, ArrowRight, BarChart3, Blocks, Check, Codepen, FolderOpen, KeyRound, Loader2, LogOut, MessageSquare, Plus, Play, SlidersHorizontal, Sparkles, Square, X } from "lucide-react";
 import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
+import { startSlackOAuth } from "@hypercli.com/sdk/agents";
 import type { AgentChannelSummary } from "@hypercli.com/sdk/channels";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 
 import type { Agent, JsonObject } from "@/app/dashboard/agents/types";
 import { isAgentFailureState, isAgentTransitionalState } from "@/app/dashboard/agents/types";
-import { AUTH_BASE_URL } from "@/lib/api";
+import { AUTH_BASE_URL, SLACK_APP_HANDLE, SLACK_RELAY_BASE_URL } from "@/lib/api";
 import { asObject, getOpenClawUiHint, humanizeKey } from "@/lib/openclaw-config";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@hypercli/shared-ui";
 import { AgentCardTooltip, type AgentCardTooltipData } from "@/components/dashboard/modules/AgentCardModule";
@@ -467,6 +468,8 @@ interface AgentSettingsPanelProps {
   reportedChannels?: AgentChannelSummary[];
   reportedChannelsReady?: boolean;
   onUpdateAgentName?: (agentId: string, name: string) => Promise<void>;
+  onUpdateAgentProfile?: (agentId: string, profile: { name?: string; handle?: string | null }) => Promise<void>;
+  onUploadAgentAvatar?: (agentId: string, file: File) => Promise<string>;
   onUpdateAgentLaunchConfig?: (agentId: string, launchConfig: Record<string, unknown>) => Promise<void>;
   onSaveOpenClawConfig?: (patch: Record<string, unknown>) => Promise<void>;
   showFileSourceTabs?: boolean;
@@ -555,9 +558,34 @@ function agentSettingsName(agent: Agent | null): string {
   return agent?.name || agent?.pod_name || agent?.id || "";
 }
 
+function agentSettingsHandle(agent: Agent | null): string {
+  return agent?.handle || "";
+}
+
 function agentSettingsAvatar(agent: Agent | null): string | null {
   if (!agent) return null;
+  if (agent.avatarUrl) return agent.avatarUrl;
+  if (agent.displayIdentity?.avatar_url && typeof agent.displayIdentity.avatar_url === "string") {
+    return agent.displayIdentity.avatar_url;
+  }
   return agentAvatar(agent.name || agent.id, agent.meta).imageUrl ?? null;
+}
+
+function normalizeAgentHandle(value: string): string | null {
+  const normalized = value.trim().replace(/^@+/, "").toLowerCase();
+  return normalized || null;
+}
+
+function validAgentHandle(value: string | null): boolean {
+  return value === null || /^[a-z0-9][a-z0-9_-]{1,63}$/.test(value);
+}
+
+function oauthWindowFeatures(): string {
+  const width = 720;
+  const height = 780;
+  const left = typeof window !== "undefined" ? Math.max(Math.round(window.screenX + (window.outerWidth - width) / 2), 0) : 0;
+  const top = typeof window !== "undefined" ? Math.max(Math.round(window.screenY + (window.outerHeight - height) / 2), 0) : 0;
+  return `popup=yes,width=${width},height=${height},left=${left},top=${top}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -913,7 +941,7 @@ function AgentGeneralSettingsContent({
               </button>
               <div className="min-w-0">
                 <p className="text-[16px] font-semibold leading-5 text-foreground">Upload Image</p>
-                <p className="mt-1 text-[13px] font-semibold leading-5 text-text-muted">Min 300x430px, PNG or JPEG</p>
+                <p className="mt-1 text-[13px] font-semibold leading-5 text-text-muted">PNG, JPEG, WebP, or GIF up to 2MB</p>
                 <input
                   ref={avatarInputRef}
                   type="file"
@@ -968,10 +996,13 @@ function AgentGeneralSettingsContent({
 function AgentSectionSettingsContent({
   agent,
   agentName,
+  agentHandle,
   agentAvatarPreview,
   onAgentNameChange,
+  onAgentHandleChange,
   onAgentAvatarSelect,
   onAgentAvatarRemove,
+  agentAvatarUploadPending,
   agentImageDraft,
   onAgentImageChange,
   additionalEnvDraft,
@@ -998,13 +1029,19 @@ function AgentSectionSettingsContent({
   agentDeleting,
   agentStartBlocked,
   agentStartBlockedReason,
+  slackConnecting,
+  slackStatus,
+  onConnectSlack,
 }: {
   agent: Agent;
   agentName: string;
+  agentHandle: string;
   agentAvatarPreview: string | null;
   onAgentNameChange: (value: string) => void;
+  onAgentHandleChange: (value: string) => void;
   onAgentAvatarSelect: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onAgentAvatarRemove: () => void;
+  agentAvatarUploadPending?: boolean;
   agentImageDraft: string;
   onAgentImageChange: (value: string) => void;
   additionalEnvDraft: string;
@@ -1031,9 +1068,12 @@ function AgentSectionSettingsContent({
   agentDeleting?: boolean;
   agentStartBlocked?: boolean;
   agentStartBlockedReason?: string | null;
+  slackConnecting?: boolean;
+  slackStatus?: { tone: "success" | "error" | "info"; message: string } | null;
+  onConnectSlack?: () => void;
 }) {
   const avatarInputRef = React.useRef<HTMLInputElement | null>(null);
-  const agentAvatarUpdatesEnabled = false;
+  const agentAvatarUpdatesEnabled = true;
   const canStartAgent = agent.state === "STOPPED" || isAgentFailureState(agent.state);
   const canStopAgent = agent.state === "RUNNING";
   const lifecycleBusy = Boolean(agentStarting || agentStopping || isAgentTransitionalState(agent.state));
@@ -1110,6 +1150,16 @@ function AgentSectionSettingsContent({
             />
           </AgentProfileSettingsRow>
 
+          <AgentProfileSettingsRow label="Slack handle" description={`Mention as @${SLACK_APP_HANDLE} ${agentHandle || "agent"}.`}>
+            <input
+              value={agentHandle}
+              onChange={(event) => onAgentHandleChange(event.target.value)}
+              placeholder="coder"
+              spellCheck={false}
+              className={SETTINGS_FIELD_CLASS}
+            />
+          </AgentProfileSettingsRow>
+
           <AgentProfileSettingsRow
             label="Avatar"
             description="Helps identify this agent."
@@ -1138,7 +1188,7 @@ function AgentSectionSettingsContent({
                 <input
                   ref={avatarInputRef}
                   type="file"
-                  accept="image/png,image/jpeg"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
                   onChange={onAgentAvatarSelect}
                   disabled={!agentAvatarUpdatesEnabled}
                   className="hidden"
@@ -1147,11 +1197,11 @@ function AgentSectionSettingsContent({
                   <button
                     type="button"
                     onClick={onAgentAvatarRemove}
-                    disabled={!agentAvatarUpdatesEnabled}
-                    title={!agentAvatarUpdatesEnabled ? "Avatar uploads are coming soon." : undefined}
+                    disabled={!agentAvatarUpdatesEnabled || !agentAvatarUploadPending}
+                    title={agentAvatarUploadPending ? undefined : "Select a new avatar to replace the current image."}
                     className={`mt-3 ${SETTINGS_DANGER_BUTTON_CLASS}`}
                   >
-                    Remove
+                    Cancel
                   </button>
                 ) : (
                   <button
@@ -1161,10 +1211,39 @@ function AgentSectionSettingsContent({
                     title={!agentAvatarUpdatesEnabled ? "Avatar uploads are coming soon." : undefined}
                     className={`mt-3 ${SETTINGS_SMALL_BUTTON_CLASS}`}
                   >
-                    Upload
+                    {agentAvatarUploadPending ? "Selected" : "Upload"}
                   </button>
                 )}
               </div>
+            </div>
+          </AgentProfileSettingsRow>
+
+          <AgentProfileSettingsRow label="Slack" description="Connect this account's Slack workspace to HyperCLI Agents.">
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={onConnectSlack}
+                disabled={!onConnectSlack || slackConnecting}
+                className={`${SETTINGS_SMALL_BUTTON_CLASS} gap-2`}
+              >
+                {slackConnecting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <MessageSquare className="h-3.5 w-3.5" />
+                )}
+                {slackConnecting ? "Connecting..." : "Connect Slack"}
+              </button>
+              {slackStatus ? (
+                <p className={`text-xs leading-5 ${
+                  slackStatus.tone === "error"
+                    ? "text-destructive"
+                    : slackStatus.tone === "success"
+                      ? "text-[var(--selection-accent)]"
+                      : "text-text-muted"
+                }`}>
+                  {slackStatus.message}
+                </p>
+              ) : null}
             </div>
           </AgentProfileSettingsRow>
 
@@ -1544,6 +1623,8 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     reportedChannels = [],
     reportedChannelsReady = false,
     onUpdateAgentName,
+    onUpdateAgentProfile,
+    onUploadAgentAvatar,
     onUpdateAgentLaunchConfig,
     onSaveOpenClawConfig,
     showFileSourceTabs = false,
@@ -1568,8 +1649,11 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const [profileSuccess, setProfileSuccess] = React.useState<string | null>(null);
   const [savedAgentName, setSavedAgentName] = React.useState(() => agentSettingsName(agent));
   const [agentNameDraft, setAgentNameDraft] = React.useState(() => agentSettingsName(agent));
+  const [savedAgentHandle, setSavedAgentHandle] = React.useState(() => agentSettingsHandle(agent));
+  const [agentHandleDraft, setAgentHandleDraft] = React.useState(() => agentSettingsHandle(agent));
   const [savedAgentAvatar, setSavedAgentAvatar] = React.useState<string | null>(() => agentSettingsAvatar(agent));
   const [agentAvatarDraft, setAgentAvatarDraft] = React.useState<string | null>(() => agentSettingsAvatar(agent));
+  const [agentAvatarFile, setAgentAvatarFile] = React.useState<File | null>(null);
   const [savedAgentImage, setSavedAgentImage] = React.useState(() => launchConfigImage(agent));
   const [agentImageDraft, setAgentImageDraft] = React.useState(() => launchConfigImage(agent));
   const [savedAdditionalEnvDraft, setSavedAdditionalEnvDraft] = React.useState(() => additionalEnvTextFromAgent(agent));
@@ -1586,6 +1670,8 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const [memoryIndexDraft, setMemoryIndexDraft] = React.useState(() => getMemoryIndexSettings(openclawConfig));
   const [agentSettingsError, setAgentSettingsError] = React.useState<string | null>(null);
   const [agentSettingsSuccess, setAgentSettingsSuccess] = React.useState<string | null>(null);
+  const [slackConnecting, setSlackConnecting] = React.useState(false);
+  const [slackStatus, setSlackStatus] = React.useState<{ tone: "success" | "error" | "info"; message: string } | null>(null);
   const [confirmImageChange, setConfirmImageChange] = React.useState(false);
   const objectUrlsRef = React.useRef<string[]>([]);
 
@@ -1629,11 +1715,15 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
 
   React.useEffect(() => {
     const nextName = agentSettingsName(agent);
+    const nextHandle = agentSettingsHandle(agent);
     const nextAvatar = agentSettingsAvatar(agent);
     setSavedAgentName(nextName);
     setAgentNameDraft(nextName);
+    setSavedAgentHandle(nextHandle);
+    setAgentHandleDraft(nextHandle);
     setSavedAgentAvatar(nextAvatar);
     setAgentAvatarDraft(nextAvatar);
+    setAgentAvatarFile(null);
     const nextImage = launchConfigImage(agent);
     const nextAdditionalEnv = additionalEnvTextFromAgent(agent);
     const nextDesktopEnabled = getDesktopEnabled(agent);
@@ -1650,6 +1740,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     setArchiveDraft("not-configured");
     setAgentSettingsError(null);
     setAgentSettingsSuccess(null);
+    setSlackStatus(null);
     setConfirmImageChange(false);
   }, [agent]);
 
@@ -1677,7 +1768,12 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   );
 
   const profileChanged = profileName !== savedProfileName;
-  const agentProfileChanged = agentNameDraft !== savedAgentName || agentAvatarDraft !== savedAgentAvatar || archiveDraft !== savedArchiveDraft;
+  const normalizedSavedAgentHandle = normalizeAgentHandle(savedAgentHandle);
+  const normalizedAgentHandleDraft = normalizeAgentHandle(agentHandleDraft);
+  const agentProfileChanged = agentNameDraft !== savedAgentName
+    || normalizedAgentHandleDraft !== normalizedSavedAgentHandle
+    || Boolean(agentAvatarFile)
+    || archiveDraft !== savedArchiveDraft;
   const desktopChanged = desktopEnabledDraft !== savedDesktopEnabled;
   const workspacesSyncChanged = !workspacesSyncSettingsEqual(workspacesSyncDraft, savedWorkspacesSyncDraft);
   const agentLaunchChanged = agentImageDraft !== savedAgentImage
@@ -1698,7 +1794,9 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     setProfileName(savedProfileName);
     setProfileAvatar(savedProfileAvatar);
     setAgentNameDraft(savedAgentName);
+    setAgentHandleDraft(savedAgentHandle);
     setAgentAvatarDraft(savedAgentAvatar);
+    setAgentAvatarFile(null);
     setAgentImageDraft(savedAgentImage);
     setAdditionalEnvDraft(savedAdditionalEnvDraft);
     setDesktopEnabledDraft(savedDesktopEnabled);
@@ -1708,7 +1806,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     setMemoryIndexDraft(savedMemoryIndexDraft);
     setAgentSettingsError(null);
     setAgentSettingsSuccess(null);
-  }, [savedAdditionalEnvDraft, savedAgentAvatar, savedAgentImage, savedAgentName, savedArchiveDraft, savedDesktopEnabled, savedMemoryIndexDraft, savedModelDraft, savedProfileAvatar, savedProfileName, savedWorkspacesSyncDraft]);
+  }, [savedAdditionalEnvDraft, savedAgentAvatar, savedAgentHandle, savedAgentImage, savedAgentName, savedArchiveDraft, savedDesktopEnabled, savedMemoryIndexDraft, savedModelDraft, savedProfileAvatar, savedProfileName, savedWorkspacesSyncDraft]);
 
   const saveProfileChanges = React.useCallback(async (removeConfiguredChannels = false) => {
     setProfileError(null);
@@ -1726,12 +1824,19 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
 
     const agentNameChanged = agentNameDraft !== savedAgentName;
     const nextAgentName = agentNameDraft.trim();
+    const agentHandleChanged = normalizedAgentHandleDraft !== normalizedSavedAgentHandle;
+    const nextAgentHandle = normalizedAgentHandleDraft;
     const agentImageChanged = agentImageDraft !== savedAgentImage;
     const additionalEnvChanged = additionalEnvDraft !== savedAdditionalEnvDraft;
     const nextAgentImage = agentImageDraft.trim();
 
     if (agentNameChanged && !nextAgentName) {
       setAgentSettingsError("Agent name is required.");
+      return;
+    }
+
+    if (!validAgentHandle(nextAgentHandle)) {
+      setAgentSettingsError("Slack handles must be 2-64 lowercase letters, numbers, underscores, or dashes.");
       return;
     }
 
@@ -1749,8 +1854,13 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
       }
     }
 
-    if (agentNameChanged && !onUpdateAgentName) {
-      setAgentSettingsError("Agent name updates are unavailable.");
+    if ((agentNameChanged || agentHandleChanged) && !onUpdateAgentProfile && !(agentNameChanged && onUpdateAgentName)) {
+      setAgentSettingsError("Agent profile updates are unavailable.");
+      return;
+    }
+
+    if (agentAvatarFile && !onUploadAgentAvatar) {
+      setAgentSettingsError("Agent avatar uploads are unavailable.");
       return;
     }
 
@@ -1798,11 +1908,35 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         setProfileSuccess("Profile updated.");
       }
 
-      if (agentNameChanged && onUpdateAgentName) {
+      if ((agentNameChanged || agentHandleChanged) && onUpdateAgentProfile) {
+        savingSection = "agent";
+        await onUpdateAgentProfile(agent.id, {
+          ...(agentNameChanged ? { name: nextAgentName } : {}),
+          ...(agentHandleChanged ? { handle: nextAgentHandle } : {}),
+        });
+        if (agentNameChanged) {
+          setAgentNameDraft(nextAgentName);
+          setSavedAgentName(nextAgentName);
+        }
+        if (agentHandleChanged) {
+          setAgentHandleDraft(nextAgentHandle ?? "");
+          setSavedAgentHandle(nextAgentHandle ?? "");
+        }
+        setAgentSettingsSuccess("Agent settings updated.");
+      } else if (agentNameChanged && onUpdateAgentName) {
         savingSection = "agent";
         await onUpdateAgentName(agent.id, nextAgentName);
         setAgentNameDraft(nextAgentName);
         setSavedAgentName(nextAgentName);
+        setAgentSettingsSuccess("Agent settings updated.");
+      }
+
+      if (agentAvatarFile && onUploadAgentAvatar) {
+        savingSection = "agent";
+        const avatarUrl = await onUploadAgentAvatar(agent.id, agentAvatarFile);
+        setAgentAvatarDraft(avatarUrl);
+        setSavedAgentAvatar(avatarUrl);
+        setAgentAvatarFile(null);
         setAgentSettingsSuccess("Agent settings updated.");
       }
 
@@ -1845,7 +1979,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
       }
 
       setSavedProfileAvatar(profileAvatar);
-      setSavedAgentAvatar(agentAvatarDraft);
+      if (!agentAvatarFile) setSavedAgentAvatar(agentAvatarDraft);
       setSavedArchiveDraft(archiveDraft);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to save settings.";
@@ -1862,6 +1996,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     additionalEnvDraft,
     agentLaunchChanged,
     agentAvatarDraft,
+    agentAvatarFile,
     agentImageDraft,
     agentNameDraft,
     agent,
@@ -1875,8 +2010,12 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     memoryIndexDraft,
     modelChanged,
     modelDraft,
+    normalizedAgentHandleDraft,
+    normalizedSavedAgentHandle,
     onUpdateAgentLaunchConfig,
     onUpdateAgentName,
+    onUpdateAgentProfile,
+    onUploadAgentAvatar,
     onSaveOpenClawConfig,
     profileAvatar,
     profileChanged,
@@ -1885,11 +2024,6 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     savedAdditionalEnvDraft,
     savedAgentImage,
     savedAgentName,
-    savedDesktopEnabled,
-    savedMemoryIndexDraft,
-    savedModelDraft,
-    savedProfileName,
-    savedWorkspacesSyncDraft,
     workspacesSyncChanged,
     workspacesSyncDraft,
   ]);
@@ -1909,8 +2043,61 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     if (!file) return;
     const nextUrl = URL.createObjectURL(file);
     objectUrlsRef.current.push(nextUrl);
+    setAgentAvatarFile(file);
     setAgentAvatarDraft(nextUrl);
   }, []);
+
+  React.useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      const payload = event.data as { source?: unknown; ok?: unknown; teamId?: unknown; error?: unknown } | null;
+      if (!payload || payload.source !== "hypercli.slack-oauth") return;
+      setSlackConnecting(false);
+      if (payload.ok) {
+        setSlackStatus({
+          tone: "success",
+          message: `Slack connected${typeof payload.teamId === "string" ? ` for ${payload.teamId}` : ""}.`,
+        });
+      } else {
+        setSlackStatus({
+          tone: "error",
+          message: typeof payload.error === "string" && payload.error ? `Slack connection failed: ${payload.error}.` : "Slack connection failed.",
+        });
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+
+  const connectSlack = React.useCallback(async () => {
+    if (!agent) return;
+    if (!SLACK_RELAY_BASE_URL) {
+      setSlackStatus({ tone: "error", message: "Slack relay is not configured for this environment." });
+      return;
+    }
+    const ownerId = agent.user_id || user?.id || "";
+    if (!ownerId) {
+      setSlackStatus({ tone: "error", message: "The current account could not be resolved for Slack." });
+      return;
+    }
+    setSlackConnecting(true);
+    setSlackStatus({ tone: "info", message: "Opening Slack authorization." });
+    try {
+      const oauth = await startSlackOAuth({
+        relayBaseUrl: SLACK_RELAY_BASE_URL,
+        hyperclawUserId: ownerId,
+      });
+      const popup = window.open(oauth.authorizeUrl, "hypercli-slack-oauth", oauthWindowFeatures());
+      if (!popup) {
+        window.location.assign(oauth.authorizeUrl);
+        return;
+      }
+      popup.focus();
+    } catch (error) {
+      setSlackConnecting(false);
+      setSlackStatus({ tone: "error", message: error instanceof Error ? error.message : "Slack connection failed." });
+    }
+  }, [agent, user?.id]);
 
   if (!agent) return null;
 
@@ -1973,10 +2160,16 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
           <AgentSectionSettingsContent
             agent={agent}
             agentName={agentNameDraft}
+            agentHandle={agentHandleDraft}
             agentAvatarPreview={agentAvatarDraft}
             onAgentNameChange={setAgentNameDraft}
+            onAgentHandleChange={setAgentHandleDraft}
             onAgentAvatarSelect={handleAgentAvatarSelect}
-            onAgentAvatarRemove={() => setAgentAvatarDraft(null)}
+            onAgentAvatarRemove={() => {
+              setAgentAvatarFile(null);
+              setAgentAvatarDraft(savedAgentAvatar);
+            }}
+            agentAvatarUploadPending={Boolean(agentAvatarFile)}
             agentImageDraft={agentImageDraft}
             onAgentImageChange={setAgentImageDraft}
             additionalEnvDraft={additionalEnvDraft}
@@ -2003,6 +2196,9 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             agentDeleting={agentDeleting}
             agentStartBlocked={agentStartBlocked}
             agentStartBlockedReason={agentStartBlockedReason}
+            slackConnecting={slackConnecting}
+            slackStatus={slackStatus}
+            onConnectSlack={connectSlack}
           />
         ) : activeSettingsSection === "index" ? (
           <AgentIndexSettingsContent

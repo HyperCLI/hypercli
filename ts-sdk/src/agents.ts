@@ -118,6 +118,24 @@ export interface AgentRelayKey {
   [key: string]: any;
 }
 
+export interface AgentProfileImageUploadResult {
+  id: string;
+  avatar_url: string;
+  s3_key: string;
+}
+
+export interface SlackOAuthStartOptions {
+  relayBaseUrl: string;
+  hyperclawUserId?: string | null;
+  hyperclawWorkspaceId?: string | null;
+  redirectUri?: string | null;
+}
+
+export interface SlackOAuthStartResult {
+  authorizeUrl: string;
+  expiresAt?: string | null;
+}
+
 export interface BraveWebSearchOptions {
   count?: number;
   country?: string;
@@ -1053,6 +1071,35 @@ function productApiBaseFromAgentsApiBase(apiBase: string): string {
   const normalized = apiBase.replace(/\/+$/, '');
   const agentsSuffix = '/agents';
   return normalized.endsWith(agentsSuffix) ? normalized.slice(0, -agentsSuffix.length) : normalized;
+}
+
+export async function startSlackOAuth(options: SlackOAuthStartOptions): Promise<SlackOAuthStartResult> {
+  const relayBaseUrl = options.relayBaseUrl.replace(/\/+$/, '');
+  if (!relayBaseUrl) throw new Error('Slack relay base URL is required');
+  const response = await fetch(`${relayBaseUrl}/slack/oauth/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      hyperclaw_user_id: options.hyperclawUserId ?? null,
+      hyperclaw_workspace_id: options.hyperclawWorkspaceId ?? null,
+      redirect_uri: options.redirectUri ?? null,
+    }),
+  });
+  if (!response.ok) {
+    let detail = response.statusText || 'Slack OAuth start failed';
+    try {
+      const payload = await response.json() as { detail?: unknown };
+      if (typeof payload.detail === 'string' && payload.detail) detail = payload.detail;
+    } catch {}
+    throw new APIError(response.status, detail);
+  }
+  const payload = await response.json() as { authorize_url?: unknown; expires_at?: unknown };
+  const authorizeUrl = typeof payload.authorize_url === 'string' ? payload.authorize_url : '';
+  if (!authorizeUrl) throw new Error('Slack OAuth start did not return an authorization URL');
+  return {
+    authorizeUrl,
+    expiresAt: typeof payload.expires_at === 'string' ? payload.expires_at : null,
+  };
 }
 
 export function buildOpenClawRoutes(options: OpenClawRouteOptions = {}): Record<string, AgentRouteConfig> {
@@ -2355,6 +2402,31 @@ export class Deployments {
     if (options.lastError !== undefined) body.last_error = options.lastError;
     const data = await this.agentHttp.patch<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}`, body);
     return this.hydrateAgent(data);
+  }
+
+  async uploadProfileImage(
+    agentId: string,
+    content: Blob | ArrayBuffer | ArrayBufferView,
+    contentType?: string,
+  ): Promise<AgentProfileImageUploadResult> {
+    const headers = new Headers();
+    let body: any;
+    if (content instanceof Blob) {
+      body = content;
+      headers.set('Content-Type', contentType || content.type || 'image/png');
+    } else if (ArrayBuffer.isView(content)) {
+      body = content;
+      headers.set('Content-Type', contentType || 'image/png');
+    } else {
+      body = content;
+      headers.set('Content-Type', contentType || 'image/png');
+    }
+    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${agentId}/profile-image`, {
+      method: 'POST',
+      headers,
+      body,
+    });
+    return response.json() as Promise<AgentProfileImageUploadResult>;
   }
 
   async resize(
