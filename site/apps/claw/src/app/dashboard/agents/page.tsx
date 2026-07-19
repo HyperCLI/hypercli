@@ -844,6 +844,9 @@ function AgentsPageContent() {
   const requestedAgentId = searchParams.get("agentId")?.trim() || null;
   const requestedIntegrationId = searchParams.get("integration")?.trim() || null;
   const requestedOpen = searchParams.get("open")?.trim() || null;
+  const slackOAuthOk = searchParams.get("slack_oauth_ok")?.trim() || null;
+  const slackOAuthError = searchParams.get("slack_oauth_error")?.trim() || null;
+  const slackOAuthResult = slackOAuthOk === "true" ? "success" : slackOAuthOk === "false" ? "failure" : null;
   const queryKey = searchParams.toString();
   const shouldOpenAgentLauncherFromQuery = requestedOpen ? AGENT_LAUNCHER_OPEN_VALUES.has(requestedOpen) : false;
   const { setAgentMenu } = useDashboardMobileAgentMenu();
@@ -3568,6 +3571,8 @@ function AgentsPageContent() {
             <IntegrationsDirectoryPanel
               initialCategory={directoryCategory}
               initialPluginId={directoryItemId}
+              slackOAuthResult={slackOAuthResult}
+              slackOAuthError={slackOAuthError}
               detailBackLabel={directoryDetailOrigin === "chat" ? "Back to chat" : undefined}
               onDetailBack={directoryDetailOrigin === "chat" ? openChatTab : undefined}
               agentId={selectedAgent?.id ?? selectedAgentId}

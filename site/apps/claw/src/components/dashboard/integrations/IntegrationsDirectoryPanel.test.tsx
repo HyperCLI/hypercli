@@ -466,6 +466,51 @@ describe("IntegrationsDirectoryPanel", () => {
     expect(ensureSlackSupport).not.toHaveBeenCalled();
   });
 
+  it("opens hosted Slack status after returning from OAuth success", async () => {
+    sdkMocks.getSlackInstallStatus.mockResolvedValue({
+      connected: true,
+      teamId: "T123",
+      teamName: "Test Workspace",
+      botUserId: "U123",
+      updatedAt: "2026-07-19T18:56:53+00:00",
+    });
+    const ensureSlackSupport = vi.fn(async () => ({
+      plugin: { id: "slack", name: "Slack", installed: true, enabled: true, state: "enabled" },
+      changed: false,
+      restartRequired: false,
+      restarted: false,
+    }));
+    renderPanel({
+      initialPluginId: "slack",
+      slackOAuthResult: "success",
+      gatewaySession: gatewaySession({ ensureSlackSupport }),
+      config: null,
+      reportedChannels: [],
+      reportedChannelSnapshot: { observedAt: 1, channels: [] },
+      reportedChannelsReady: true,
+    });
+
+    await waitFor(() => expect(sdkMocks.getSlackInstallStatus).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("Connected to Test Workspace.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Attach agent" })).toBeInTheDocument();
+    expect(ensureSlackSupport).not.toHaveBeenCalled();
+  });
+
+  it("opens hosted Slack with an error after returning from OAuth failure", async () => {
+    renderPanel({
+      initialPluginId: "slack",
+      slackOAuthResult: "failure",
+      slackOAuthError: "access_denied",
+      config: null,
+      reportedChannels: [],
+      reportedChannelSnapshot: { observedAt: 1, channels: [] },
+      reportedChannelsReady: true,
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("access_denied");
+    expect(sdkMocks.getSlackInstallStatus).not.toHaveBeenCalled();
+  });
+
   it("prepares Slack support when self-hosted setup is selected", async () => {
     const ensureSlackSupport = vi.fn(async () => ({
       plugin: { id: "slack", name: "Slack", installed: true, enabled: true, state: "enabled" },

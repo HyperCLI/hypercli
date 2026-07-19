@@ -43,6 +43,8 @@ type SlackRelayAction =
 interface IntegrationsDirectoryPanelProps {
   initialCategory?: DirectoryCategory | null;
   initialPluginId?: string | null;
+  slackOAuthResult?: "success" | "failure" | null;
+  slackOAuthError?: string | null;
   detailBackLabel?: string;
   onDetailBack?: () => void;
   agentId?: string | null;
@@ -409,6 +411,8 @@ function SlackPreparationBanner({
 export function IntegrationsDirectoryPanel({
   initialCategory,
   initialPluginId,
+  slackOAuthResult = null,
+  slackOAuthError = null,
   detailBackLabel = "Back to integrations",
   onDetailBack,
   agentId,
@@ -439,6 +443,7 @@ export function IntegrationsDirectoryPanel({
   const [slackPreparationState, setSlackPreparationState] = React.useState<SlackPreparationState | null>(null);
   const [slackRelayState, dispatchSlackRelay] = React.useReducer(slackRelayReducer, { mode: "prompt" });
   const slackRelayOperationRef = React.useRef(0);
+  const appliedSlackOAuthResultRef = React.useRef<string | null>(null);
   const { getToken, isAuthenticated, isLoading: authLoading } = useAgentAuth();
   const scopeLabel = agentName?.trim() || "this agent";
   const selectedChannelId = selection.requestedId === requestedChannelId
@@ -610,6 +615,22 @@ export function IntegrationsDirectoryPanel({
       return null;
     }
   }, [getToken, isAuthenticated]);
+
+  React.useEffect(() => {
+    if (requestedChannelId !== "slack" || !slackOAuthResult) return;
+    const key = `${agentId ?? ""}:${slackOAuthResult}:${slackOAuthError ?? ""}`;
+    if (appliedSlackOAuthResultRef.current === key) return;
+    appliedSlackOAuthResultRef.current = key;
+    dispatchSlackRelay({ type: "choose-hosted" });
+    if (slackOAuthResult === "success") {
+      void refreshSlackInstallStatus();
+      return;
+    }
+    dispatchSlackRelay({
+      type: "check-error",
+      error: slackOAuthError || "Slack OAuth did not complete.",
+    });
+  }, [agentId, refreshSlackInstallStatus, requestedChannelId, slackOAuthError, slackOAuthResult]);
 
   const rememberSlackReturn = React.useCallback(() => {
     if (typeof window === "undefined") return;
