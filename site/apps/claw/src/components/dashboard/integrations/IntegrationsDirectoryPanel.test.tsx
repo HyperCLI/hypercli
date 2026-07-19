@@ -2,11 +2,42 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import type { AgentChannelSummary, AgentChannelsProvider, AgentChannelsSnapshot } from "@hypercli.com/sdk/channels";
 import type { AgentConnectorsProvider } from "@hypercli.com/sdk/connectors";
 import type { ComponentProps } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
 import { renderWithClient } from "@/test/utils";
 import { IntegrationsDirectoryPanel } from "./IntegrationsDirectoryPanel";
+
+const authMocks = vi.hoisted(() => ({
+  getToken: vi.fn(),
+  isAuthenticated: true,
+  isLoading: false,
+}));
+
+const sdkMocks = vi.hoisted(() => ({
+  getSlackInstallStatus: vi.fn(),
+}));
+
+vi.mock("@/hooks/useAgentAuth", () => ({
+  useAgentAuth: () => authMocks,
+}));
+
+vi.mock("@hypercli.com/sdk/agents", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@hypercli.com/sdk/agents")>();
+  return {
+    ...actual,
+    getSlackInstallStatus: sdkMocks.getSlackInstallStatus,
+  };
+});
+
+vi.mock("@/lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api")>();
+  return {
+    ...actual,
+    SLACK_APP_HANDLE: "hyperdev",
+    SLACK_RELAY_BASE_URL: "https://api.agents.dev.hypercli.com",
+  };
+});
 
 const runtimeChannelSummaries: AgentChannelSummary[] = ["telegram", "discord", "slack", "whatsapp"].map((channelId) => ({
   channelId,
@@ -51,6 +82,7 @@ const channelsProvider: AgentChannelsProvider = {
   read: vi.fn(async () => runtimeSnapshot()),
   readConfig: vi.fn(async ({ channelId, accountId }) => ({ channelId, accountId, config: { enabled: true } })),
   update: vi.fn(async () => undefined),
+  configure: vi.fn(async () => undefined),
   removeConfig: vi.fn(async () => undefined),
 };
 
@@ -114,6 +146,7 @@ function renderPanel(overrides: Partial<ComponentProps<typeof IntegrationsDirect
     <IntegrationsDirectoryPanel
       initialCategory="channels"
       initialPluginId="telegram"
+      agentId="agent-1"
       agentName="Agent"
       gatewaySession={gatewaySession()}
       channelsProvider={channelsProvider}
@@ -131,6 +164,20 @@ function renderPanel(overrides: Partial<ComponentProps<typeof IntegrationsDirect
 }
 
 describe("IntegrationsDirectoryPanel", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    authMocks.getToken.mockResolvedValue("jwt-token");
+    authMocks.isAuthenticated = true;
+    authMocks.isLoading = false;
+    sdkMocks.getSlackInstallStatus.mockResolvedValue({
+      connected: false,
+      teamId: null,
+      teamName: null,
+      botUserId: null,
+      updatedAt: null,
+    });
+  });
+
   it("uses the integrations back label by default", async () => {
     renderPanel();
     expect(await screen.findByRole("button", { name: /back to integrations/i })).toBeInTheDocument();
@@ -312,7 +359,7 @@ describe("IntegrationsDirectoryPanel", () => {
     expect(await screen.findByText(/configuration removed/i)).toBeInTheDocument();
   });
 
-  it("automatically prepares Slack support when the configured Slack page opens", async () => {
+  it("opens configured Slack without auto-preparing support", async () => {
     const ensureSlackSupport = vi.fn(async () => ({
       plugin: { id: "slack", name: "Slack", installed: true, enabled: true, state: "enabled" },
       changed: true,
@@ -329,61 +376,16 @@ describe("IntegrationsDirectoryPanel", () => {
     });
 
     expect(await screen.findByRole("heading", { name: "Slack configuration" })).toBeInTheDocument();
-    await waitFor(() => expect(ensureSlackSupport).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText(/Slack support is installed/i)).toBeInTheDocument();
+    expect(ensureSlackSupport).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: /install Slack support/i })).not.toBeInTheDocument();
   });
 
-  it("refreshes Slack status without restarting when support is already installed", async () => {
+  it("shows Slack hosted and self-hosted choices before setup", async () => {
     const ensureSlackSupport = vi.fn(async () => ({
       plugin: { id: "slack", name: "Slack", installed: true, enabled: true, state: "enabled" },
       changed: false,
       restartRequired: false,
       restarted: false,
-    }));
-    const onRefreshChannels = vi.fn(async () => ({ observedAt: 2, channels: [] }));
-    renderPanel({
-      initialPluginId: "slack",
-      gatewaySession: gatewaySession({ ensureSlackSupport }),
-      config: { channels: { slack: { enabled: true } } },
-      reportedChannels: [],
-      reportedChannelSnapshot: { observedAt: 1, channels: [] },
-      reportedChannelsReady: true,
-      onRefreshChannels,
-    });
-
-    await waitFor(() => expect(onRefreshChannels).toHaveBeenCalledWith(true));
-    expect(ensureSlackSupport).toHaveBeenCalledTimes(1);
-  });
-
-  it("shows a retry when automatic Slack preparation fails", async () => {
-    const ensureSlackSupport = vi.fn()
-      .mockRejectedValueOnce(new Error("Installation is blocked by workspace policy."))
-      .mockResolvedValueOnce({
-        plugin: { id: "slack", name: "Slack", installed: true, enabled: true, state: "enabled" },
-        changed: true,
-        restartRequired: true,
-        restarted: true,
-      });
-    renderPanel({
-      initialPluginId: "slack",
-      gatewaySession: gatewaySession({ ensureSlackSupport }),
-      config: { channels: { slack: { enabled: true } } },
-      reportedChannels: [],
-      reportedChannelSnapshot: { observedAt: 1, channels: [] },
-      reportedChannelsReady: true,
-    });
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(/blocked by workspace policy/i);
-    fireEvent.click(screen.getByRole("button", { name: /retry Slack preparation/i }));
-    await waitFor(() => expect(ensureSlackSupport).toHaveBeenCalledTimes(2));
-    expect(await screen.findByText(/Slack support is installed/i)).toBeInTheDocument();
-  });
-
-  it("prepares Slack support when an unconfigured Slack page opens", async () => {
-    let resolvePreparation: (() => void) | undefined;
-    const ensureSlackSupport = vi.fn(() => new Promise<never>(() => {
-      resolvePreparation = () => undefined;
     }));
     renderPanel({
       initialPluginId: "slack",
@@ -394,9 +396,79 @@ describe("IntegrationsDirectoryPanel", () => {
       reportedChannelsReady: true,
     });
 
-    expect(await screen.findByText(/Preparing Slack support/i)).toBeInTheDocument();
-    expect(ensureSlackSupport).toHaveBeenCalledTimes(1);
-    expect(resolvePreparation).toBeTypeOf("function");
+    expect(await screen.findByRole("heading", { name: "Slack integration" })).toBeInTheDocument();
+    expect(screen.getByText("HyperCLI Slack App")).toBeInTheDocument();
+    expect(screen.getByText("Self-hosted Slack app")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Connect Slack" })).toHaveAttribute(
+      "href",
+      "/slack/start?returnTo=%2Fdashboard%2Fagents%3FagentId%3Dagent-1%26integration%3Dslack",
+    );
+    expect(ensureSlackSupport).not.toHaveBeenCalled();
+  });
+
+  it("prepares Slack support when self-hosted setup is selected", async () => {
+    const ensureSlackSupport = vi.fn(async () => ({
+      plugin: { id: "slack", name: "Slack", installed: true, enabled: true, state: "enabled" },
+      changed: false,
+      restartRequired: false,
+      restarted: false,
+    }));
+    renderPanel({
+      initialPluginId: "slack",
+      gatewaySession: gatewaySession({ ensureSlackSupport }),
+      config: null,
+      reportedChannels: [],
+      reportedChannelSnapshot: { observedAt: 1, channels: [] },
+      reportedChannelsReady: true,
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Set up self-hosted" }));
+    expect((await screen.findAllByText(/Runtime-generated slack setup./i)).length).toBeGreaterThan(0);
+    await waitFor(() => expect(ensureSlackSupport).toHaveBeenCalledTimes(1));
+  });
+
+  it("configures Slack relay when the hosted app is connected", async () => {
+    sdkMocks.getSlackInstallStatus.mockResolvedValue({
+      connected: true,
+      teamId: "T123",
+      teamName: "Test Workspace",
+      botUserId: "U123",
+      updatedAt: "2026-07-19T13:30:00+00:00",
+    });
+    const ensureSlackSupport = vi.fn(async () => ({
+      plugin: { id: "slack", name: "Slack", installed: true, enabled: true, state: "enabled" },
+      changed: false,
+      restartRequired: false,
+      restarted: false,
+    }));
+    const configure = vi.fn(async () => undefined);
+    const provider = { ...channelsProvider, configure };
+    const onRefreshChannels = vi.fn(async () => ({ observedAt: 2, channels: [] }));
+    renderPanel({
+      initialPluginId: "slack",
+      gatewaySession: gatewaySession({ ensureSlackSupport }),
+      channelsProvider: provider,
+      config: null,
+      reportedChannels: [],
+      reportedChannelSnapshot: { observedAt: 1, channels: [] },
+      reportedChannelsReady: true,
+      onRefreshChannels,
+    });
+
+    expect(await screen.findByText("Connected to Test Workspace.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Use hosted app" }));
+
+    await waitFor(() => expect(ensureSlackSupport).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(configure).toHaveBeenCalledWith("slack", {
+      enabled: true,
+      mode: "relay",
+      relay: {
+        url: "wss://api.agents.dev.hypercli.com/slack/ws",
+        authToken: { source: "env", provider: "default", id: "HYPER_API_KEY" },
+        gatewayId: "agent:agent-1",
+      },
+    }));
+    expect(onRefreshChannels).toHaveBeenCalledWith(true);
   });
 
   it("hydrates saved Slack account IDs when runtime status is unavailable", async () => {
@@ -433,7 +505,7 @@ describe("IntegrationsDirectoryPanel", () => {
     expect(screen.queryByRole("button", { name: /open in integrations/i })).not.toBeInTheDocument();
   });
 
-  it.each(["discord", "slack"] as const)("opens %s with the shared runtime connector card", async (integrationId) => {
+  it.each(["discord"] as const)("opens %s with the shared runtime connector card", async (integrationId) => {
     renderPanel({ initialPluginId: integrationId, gatewaySession: gatewaySession() });
 
     expect((await screen.findAllByText(`Runtime-generated ${integrationId} setup.`)).length).toBeGreaterThan(0);

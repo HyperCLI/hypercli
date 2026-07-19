@@ -180,6 +180,7 @@ const BILLING_MOCK_PARAM = "billingMock";
 const BILLING_MOCK_ACTIVE_NO_SLOT = "active-no-slot";
 const AGENTS_DESKTOP_MEDIA_QUERY = "(min-width: 640px)";
 const AGENT_LAUNCHER_OPEN_VALUES = new Set(["agent-launcher", "launcher", "launch-agent"]);
+const INTEGRATION_QUERY_IDS = new Set(["telegram", "discord", "slack", "whatsapp", "github"]);
 const TOKEN_USAGE_RECONCILE_DELAYS_MS = [2000, 5000] as const;
 const TOKEN_USAGE_RUNNING_REFRESH_INTERVAL_MS = 60_000;
 const AGENT_DASHBOARD_ENRICHMENT_TIMEOUT_MS = 10_000;
@@ -841,6 +842,7 @@ function AgentsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedAgentId = searchParams.get("agentId")?.trim() || null;
+  const requestedIntegrationId = searchParams.get("integration")?.trim() || null;
   const requestedOpen = searchParams.get("open")?.trim() || null;
   const queryKey = searchParams.toString();
   const shouldOpenAgentLauncherFromQuery = requestedOpen ? AGENT_LAUNCHER_OPEN_VALUES.has(requestedOpen) : false;
@@ -893,6 +895,7 @@ function AgentsPageContent() {
   const tokenUsageRefreshInFlightRef = useRef(false);
   const checkoutReturnHandledRef = useRef(false);
   const appliedAgentQueryRef = useRef<string | null>(null);
+  const appliedIntegrationQueryRef = useRef<string | null>(null);
   const appliedOpenQueryRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -1246,6 +1249,20 @@ function AgentsPageContent() {
     setSelectedAgentId(requestedAgentId);
     setMobileShowChat(true);
   }, [requestedAgentId, sdkAgents]);
+
+  useEffect(() => {
+    if (!requestedIntegrationId || !INTEGRATION_QUERY_IDS.has(requestedIntegrationId)) return;
+    if (appliedIntegrationQueryRef.current === queryKey) return;
+    if (requestedAgentId && selectedAgentId !== requestedAgentId) return;
+
+    appliedIntegrationQueryRef.current = queryKey;
+    setDirectoryCategory("channels");
+    setDirectoryItemId(requestedIntegrationId);
+    setDirectoryDetailOrigin(null);
+    setOpenclawSettingsOpen(false);
+    setMainTab("integrations");
+    setMobileShowChat(true);
+  }, [queryKey, requestedAgentId, requestedIntegrationId, selectedAgentId]);
 
   useEffect(() => {
     if (!shouldOpenAgentLauncherFromQuery || appliedOpenQueryRef.current === queryKey) return;
@@ -3552,6 +3569,7 @@ function AgentsPageContent() {
               initialPluginId={directoryItemId}
               detailBackLabel={directoryDetailOrigin === "chat" ? "Back to chat" : undefined}
               onDetailBack={directoryDetailOrigin === "chat" ? openChatTab : undefined}
+              agentId={selectedAgent?.id ?? selectedAgentId}
               agentName={selectedAgent?.name || selectedAgent?.pod_name || "Agent"}
               agentPublicUrl={selectedOpenClawAgent?.publicUrl ?? (selectedAgent?.hostname ? `https://${selectedAgent.hostname}` : null)}
               gatewaySession={gatewayChat}

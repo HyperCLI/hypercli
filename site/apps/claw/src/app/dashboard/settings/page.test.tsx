@@ -38,7 +38,6 @@ const billingMocks = vi.hoisted(() => {
     createPaymentMethodUpdatePortalUrl: vi.fn(async () => "https://billing.stripe.com/p/session/test"),
     hyperAgent,
     openBillingPortalUrl: vi.fn(),
-    getSlackInstallStatus: vi.fn(),
   };
 });
 
@@ -54,10 +53,6 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: navigationMocks.push }),
 }));
 
-vi.mock("@hypercli.com/sdk/agents", () => ({
-  getSlackInstallStatus: billingMocks.getSlackInstallStatus,
-}));
-
 vi.mock("@/lib/agent-client", () => ({
   createAgentClient: billingMocks.createAgentClient,
   createHyperAgentClient: billingMocks.createHyperAgentClient,
@@ -67,8 +62,6 @@ vi.mock("@/lib/agent-client", () => ({
 vi.mock("@/lib/api", () => ({
   API_BASE_URL: "https://api.hypercli.com/agents",
   AUTH_BASE_URL: "https://api.hypercli.com/api",
-  SLACK_APP_HANDLE: "hyperdev",
-  SLACK_RELAY_BASE_URL: "https://api.agents.dev.hypercli.com",
 }));
 
 vi.mock("@/components/dashboard/agents/AgentPanels", () => ({
@@ -290,13 +283,6 @@ describe("SettingsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setupBillingMocks();
-    billingMocks.getSlackInstallStatus.mockResolvedValue({
-      connected: true,
-      teamId: "T123",
-      teamName: "Test Workspace",
-      botUserId: "U123",
-      updatedAt: "2026-07-19T13:30:00+00:00",
-    });
   });
 
   it("renders billing beside the agents list without a settings sections menu", async () => {
@@ -307,7 +293,6 @@ describe("SettingsPage", () => {
     expect(screen.queryByRole("heading", { name: "Settings" })).not.toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "Sections" })).not.toBeInTheDocument();
     expect(await screen.findByTestId("agent-list")).toBeInTheDocument();
-    expect(await screen.findByText("Connected to Test Workspace.")).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: "Research Agent" }));
 
     expect(navigationMocks.push).toHaveBeenCalledWith("/dashboard/agents?agentId=agent-1");

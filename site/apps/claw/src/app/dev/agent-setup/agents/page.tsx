@@ -1891,6 +1891,7 @@ export default function DevAgentSetupAgentsPage() {
                   setMainTab("chat");
                   setMobileShowChat(true);
                 } : undefined}
+                agentId={selectedAgent?.id ?? selectedAgentId}
                 agentName={selectedAgent?.name || selectedAgent?.pod_name || "Agent"}
                 agentPublicUrl={selectedOpenClawAgent?.publicUrl ?? (selectedAgent?.hostname ? `https://${selectedAgent.hostname}` : null)}
                 gatewaySession={gatewayChat}

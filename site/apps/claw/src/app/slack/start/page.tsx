@@ -10,12 +10,31 @@ import { SLACK_APP_HANDLE, SLACK_RELAY_BASE_URL } from "@/lib/api";
 
 type StartState = "checking" | "login" | "starting" | "error";
 
+const SLACK_OAUTH_RETURN_STORAGE_KEY = "hypercli.slack.oauth.returnTo";
+const DEFAULT_SLACK_RETURN_PATH = "/dashboard/agents?integration=slack";
+
+function safeReturnTo(value: string | null): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed || !trimmed.startsWith("/") || trimmed.startsWith("//")) return null;
+  return trimmed;
+}
+
 export default function SlackStartPage() {
   const { getToken, isAuthenticated, isLoading, login } = useAgentAuth();
   const [state, setState] = useState<StartState>("checking");
   const [error, setError] = useState<string | null>(null);
+  const [returnTo, setReturnTo] = useState(DEFAULT_SLACK_RETURN_PATH);
 
   useEffect(() => {
+    const requestedReturnTo = typeof window === "undefined"
+      ? null
+      : safeReturnTo(new URLSearchParams(window.location.search).get("returnTo"));
+    if (requestedReturnTo) {
+      setReturnTo(requestedReturnTo);
+      try {
+        window.sessionStorage.setItem(SLACK_OAUTH_RETURN_STORAGE_KEY, requestedReturnTo);
+      } catch {}
+    }
     if (isLoading) {
       setState("checking");
       return;
@@ -83,8 +102,8 @@ export default function SlackStartPage() {
         ) : null}
         {state === "error" ? (
           <div className="mt-6 flex flex-wrap justify-center gap-3">
-            <Link href="/dashboard/settings/" className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground">
-              Settings
+            <Link href={returnTo} className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground">
+              Integrations
             </Link>
             <Link href="/slack/status" className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground">
               Slack status

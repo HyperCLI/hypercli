@@ -1,7 +1,8 @@
 "use client";
 
 import React from "react";
-import { AlertTriangle, Loader2, MessageSquare, Plus, RefreshCw, Search } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, MessageSquare, Plus, RefreshCw, Search } from "lucide-react";
+import { getSlackInstallStatus, type SlackInstallStatus } from "@hypercli.com/sdk/agents";
 import type { AgentChannel, AgentChannelSummary, AgentChannelsProvider, AgentChannelsSnapshot } from "@hypercli.com/sdk/channels";
 import type { AgentConnectorDescriptor, AgentConnectorsProvider } from "@hypercli.com/sdk/connectors";
 
@@ -16,16 +17,20 @@ import { CHANNEL_SETUP_CANDIDATE_IDS, PLUGIN_REGISTRY, type PluginMeta } from ".
 import { INTEGRATION_BRAND_LOGOS, type IntegrationBrandIcon } from "./integration-brand-icons";
 import { AgentLoadingState } from "../agents/page-helpers";
 import { getAgentGatewayPanelBootStatus } from "../agents/chat-boot-stage";
+import { useAgentAuth } from "@/hooks/useAgentAuth";
+import { SLACK_APP_HANDLE, SLACK_RELAY_BASE_URL } from "@/lib/api";
 
 type IntegrationIcon = IntegrationBrandIcon;
 type StatusTone = "success" | "warning" | "neutral";
 type IntegrationFilter = "messaging" | "all";
+type SlackSetupMode = "choice" | "self-hosted";
 
 interface IntegrationsDirectoryPanelProps {
   initialCategory?: DirectoryCategory | null;
   initialPluginId?: string | null;
   detailBackLabel?: string;
   onDetailBack?: () => void;
+  agentId?: string | null;
   agentName?: string | null;
   agentPublicUrl?: string | null;
   gatewaySession: AgentGatewaySession;
@@ -79,6 +84,8 @@ interface SlackPreparationState {
   status: "preparing" | "ready" | "error";
   error: string | null;
 }
+
+const SLACK_OAUTH_RETURN_STORAGE_KEY = "hypercli.slack.oauth.returnTo";
 
 function displayNameFromId(id: string): string {
   return id
@@ -238,6 +245,31 @@ function statusClass(tone: StatusTone): string {
   return "border border-border bg-surface-high text-text-secondary";
 }
 
+function slackRelayWebSocketUrl(relayBaseUrl: string): string | null {
+  if (!relayBaseUrl) return null;
+  try {
+    const url = new URL(relayBaseUrl);
+    url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
+    url.pathname = "/slack/ws";
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function slackReturnPath(agentId: string | null | undefined): string {
+  const params = new URLSearchParams();
+  if (agentId) params.set("agentId", agentId);
+  params.set("integration", "slack");
+  return `/dashboard/agents?${params.toString()}`;
+}
+
+function slackStartHref(agentId: string | null | undefined): string {
+  return `/slack/start?returnTo=${encodeURIComponent(slackReturnPath(agentId))}`;
+}
+
 function IntegrationCard({ tile, onOpen }: { tile: IntegrationTile; onOpen: () => void }) {
   const Icon = tile.icon;
   const status = tileStatus(tile);
@@ -349,11 +381,176 @@ function SlackPreparationBanner({
   );
 }
 
+function SlackSetupChoice({
+  agentId,
+  connected,
+  channelsProvider,
+  onSaveConfig,
+  onRefresh,
+  onPrepareSlack,
+  onSelfHosted,
+}: {
+  agentId?: string | null;
+  connected: boolean;
+  channelsProvider: AgentChannelsProvider | null;
+  onSaveConfig: (patch: Record<string, unknown>) => Promise<void>;
+  onRefresh: () => Promise<void>;
+  onPrepareSlack: () => Promise<void>;
+  onSelfHosted: () => void;
+}) {
+  const { getToken, isAuthenticated, isLoading } = useAgentAuth();
+  const [installStatus, setInstallStatus] = React.useState<SlackInstallStatus | null>(null);
+  const [statusLoading, setStatusLoading] = React.useState(false);
+  const [configuring, setConfiguring] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const relayWsUrl = slackRelayWebSocketUrl(SLACK_RELAY_BASE_URL);
+  const hostedConnected = installStatus?.connected === true;
+  const workspace = installStatus?.teamName || installStatus?.teamId || null;
+
+  const refreshStatus = React.useCallback(async () => {
+    if (!SLACK_RELAY_BASE_URL || !isAuthenticated) {
+      setInstallStatus(null);
+      return;
+    }
+    setStatusLoading(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      setInstallStatus(await getSlackInstallStatus({ relayBaseUrl: SLACK_RELAY_BASE_URL, token }));
+    } catch (cause) {
+      setInstallStatus(null);
+      setError(cause instanceof Error ? cause.message : "Could not check Slack installation.");
+    } finally {
+      setStatusLoading(false);
+    }
+  }, [getToken, isAuthenticated]);
+
+  React.useEffect(() => {
+    void refreshStatus();
+  }, [refreshStatus]);
+
+  const configureHosted = async () => {
+    if (!agentId) {
+      setError("Agent identity is unavailable.");
+      return;
+    }
+    if (!relayWsUrl) {
+      setError("Slack relay is not configured for this environment.");
+      return;
+    }
+    setConfiguring(true);
+    setError(null);
+    try {
+      await onPrepareSlack();
+      const relayConfig = {
+        enabled: true,
+        mode: "relay",
+        relay: {
+          url: relayWsUrl,
+          authToken: { source: "env", provider: "default", id: "HYPER_API_KEY" },
+          gatewayId: `agent:${agentId}`,
+        },
+      };
+      if (channelsProvider?.configure) await channelsProvider.configure("slack", relayConfig);
+      else await onSaveConfig({ channels: { slack: relayConfig } });
+      await onRefresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not configure hosted Slack relay.");
+    } finally {
+      setConfiguring(false);
+    }
+  };
+
+  const connectHref = slackStartHref(agentId);
+  const rememberReturn = () => {
+    if (typeof window === "undefined") return;
+    try {
+      window.sessionStorage.setItem(SLACK_OAUTH_RETURN_STORAGE_KEY, slackReturnPath(agentId));
+    } catch {}
+  };
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-border bg-background text-foreground [box-shadow:var(--glass-card-shadow)]">
+      <header className="border-b border-border bg-surface-low px-4 py-4 sm:px-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h2 className="text-base font-bold tracking-tight">Slack integration</h2>
+            <p className="mt-1 text-sm leading-6 text-text-muted">Choose how this agent connects to Slack.</p>
+          </div>
+          <button type="button" onClick={() => void refreshStatus()} disabled={statusLoading || isLoading} className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-semibold text-text-secondary transition-colors hover:bg-surface-high hover:text-foreground disabled:opacity-45">
+            {statusLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            Refresh
+          </button>
+        </div>
+      </header>
+
+      <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-2">
+        <div className="flex min-h-[220px] flex-col rounded-xl border border-selection-accent/30 bg-selection-accent/10 p-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-selection-accent/30 bg-background text-selection-accent">
+              {hostedConnected ? <CheckCircle2 className="h-5 w-5" /> : <MessageSquare className="h-5 w-5" />}
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold text-foreground">HyperCLI Slack App</h3>
+              <p className="mt-1 text-xs leading-5 text-text-secondary">
+                Use the hosted @{SLACK_APP_HANDLE} app. No Slack bot or app token is pasted into this agent.
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 rounded-lg border border-border/70 bg-background/70 px-3 py-2 text-xs text-text-secondary">
+            {isLoading || statusLoading
+              ? "Checking Slack installation..."
+              : hostedConnected
+                ? `Connected${workspace ? ` to ${workspace}` : ""}.`
+                : "Connect Slack once for this HyperCLI account, then select this option again."}
+          </div>
+          <div className="mt-auto pt-4">
+            {hostedConnected ? (
+              <button type="button" onClick={() => void configureHosted()} disabled={!connected || configuring || !agentId} className="inline-flex h-9 items-center gap-2 rounded-lg bg-selection-accent px-3.5 text-xs font-black uppercase tracking-[0.1em] text-[var(--selection-accent-foreground)] transition-[filter,transform] hover:-translate-y-px hover:brightness-110 disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-45">
+                {configuring ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                Use hosted app
+              </button>
+            ) : (
+              <a href={connectHref} onClick={rememberReturn} className="inline-flex h-9 items-center rounded-lg border border-selection-accent/35 bg-selection-accent/10 px-3.5 text-xs font-black uppercase tracking-[0.1em] text-selection-accent transition-colors hover:bg-selection-accent/15">
+                Connect Slack
+              </a>
+            )}
+          </div>
+        </div>
+
+        <div className="flex min-h-[220px] flex-col rounded-xl border border-border bg-surface-low p-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-text-secondary">
+              <MessageSquare className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold text-foreground">Self-hosted Slack app</h3>
+              <p className="mt-1 text-xs leading-5 text-text-secondary">
+                Bring your own Slack app with Socket Mode. You will provide the bot token and app token for this agent.
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 rounded-lg border border-border bg-background/70 px-3 py-2 text-xs leading-5 text-text-muted">
+            Best when a customer wants their own Slack app identity, app ownership, or workspace-specific controls.
+          </div>
+          <div className="mt-auto pt-4">
+            <button type="button" onClick={onSelfHosted} className="inline-flex h-9 items-center rounded-lg border border-border bg-background px-3.5 text-xs font-black uppercase tracking-[0.1em] text-text-secondary transition-colors hover:bg-surface-high hover:text-foreground">
+              Set up self-hosted
+            </button>
+          </div>
+        </div>
+      </div>
+      {error ? <p role="alert" className="border-t border-destructive/20 bg-destructive/10 px-4 py-3 text-xs text-destructive sm:px-5">{error}</p> : null}
+    </section>
+  );
+}
+
 export function IntegrationsDirectoryPanel({
   initialCategory,
   initialPluginId,
   detailBackLabel = "Back to integrations",
   onDetailBack,
+  agentId,
   agentName,
   agentPublicUrl,
   gatewaySession,
@@ -379,12 +576,14 @@ export function IntegrationsDirectoryPanel({
   const [connectorState, setConnectorState] = React.useState<ConnectorState>({ provider: null, github: null });
   const [refreshing, setRefreshing] = React.useState(false);
   const [slackPreparationState, setSlackPreparationState] = React.useState<SlackPreparationState | null>(null);
+  const [slackSetupMode, setSlackSetupMode] = React.useState<SlackSetupMode>("choice");
   const scopeLabel = agentName?.trim() || "this agent";
   const selectedChannelId = selection.requestedId === requestedChannelId
     ? selection.selectedId
     : requestedChannelId;
   const selectChannel = React.useCallback((channelId: string | null) => {
     setSelection({ requestedId: requestedChannelId, selectedId: channelId });
+    setSlackSetupMode("choice");
   }, [requestedChannelId]);
 
   React.useEffect(() => {
@@ -513,18 +712,15 @@ export function IntegrationsDirectoryPanel({
       await refreshIntegrations();
       setSlackPreparationState({ operation, status: "ready", error: null });
     } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Could not update Slack support.";
       setSlackPreparationState({
         operation,
         status: "error",
-        error: cause instanceof Error ? cause.message : "Could not update Slack support.",
+        error: message,
       });
+      throw new Error(message);
     }
   }, [gatewaySession.ensureSlackSupport, refreshIntegrations]);
-
-  React.useEffect(() => {
-    if (!connected || selectedTile?.id !== "slack" || selectedTile.runtimeReported || gatewaySession.backend !== "openclaw") return;
-    void Promise.resolve().then(() => prepareSlackSupport());
-  }, [connected, gatewaySession.backend, prepareSlackSupport, selectedTile?.id, selectedTile?.runtimeReported]);
 
   const handleDetailBack = React.useCallback(() => {
     selectChannel(null);
@@ -647,7 +843,7 @@ export function IntegrationsDirectoryPanel({
                 refreshing={refreshing}
                 onRefresh={() => void refreshIntegrations()}
                 slackPreparation={selectedTile.id === "slack" ? selectedSlackPreparation : undefined}
-                onRetrySlack={() => void prepareSlackSupport()}
+                onRetrySlack={() => void prepareSlackSupport().catch(() => undefined)}
               />
             ) : null}
             <OpenClawChannelSettingsPanel
@@ -669,6 +865,32 @@ export function IntegrationsDirectoryPanel({
       );
     }
     const action = { version: 1, type: "integration.connect", integrationId: selectedTile.id } as const;
+    if (selectedTile.id === "slack" && slackSetupMode === "choice") {
+      return (
+        <div className="h-full min-h-0 overflow-y-auto bg-background px-5 py-5">
+          <div className="mx-auto w-full max-w-6xl">
+            <button type="button" onClick={handleDetailBack} className="mb-5 rounded-full border border-border px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground">
+              {detailBackLabel}
+            </button>
+            <SlackSetupChoice
+              agentId={agentId}
+              connected={connected}
+              channelsProvider={channelsProvider}
+              onSaveConfig={onSaveConfig}
+              onRefresh={async () => {
+                if (onRefreshChannels) await onRefreshChannels(true);
+                else await refreshIntegrations();
+              }}
+              onPrepareSlack={prepareSlackSupport}
+              onSelfHosted={() => {
+                setSlackSetupMode("self-hosted");
+                void prepareSlackSupport().catch(() => undefined);
+              }}
+            />
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="h-full min-h-0 overflow-y-auto bg-background px-5 py-5">
         <div className="mx-auto w-full max-w-6xl">
@@ -676,7 +898,7 @@ export function IntegrationsDirectoryPanel({
             {detailBackLabel}
           </button>
           {selectedTile.id === "slack" ? (
-            <SlackPreparationBanner state={selectedSlackPreparation} onRetry={() => void prepareSlackSupport()} />
+            <SlackPreparationBanner state={selectedSlackPreparation} onRetry={() => void prepareSlackSupport().catch(() => undefined)} />
           ) : null}
           <IntegrationChatCardHost
             action={action}
