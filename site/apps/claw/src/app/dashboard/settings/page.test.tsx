@@ -41,6 +41,10 @@ const billingMocks = vi.hoisted(() => {
   };
 });
 
+const slackMocks = vi.hoisted(() => ({
+  getSlackInstallStatus: vi.fn(),
+}));
+
 vi.mock("@/hooks/useAgentAuth", () => ({
   useAgentAuth: () => ({
     getToken: authMocks.getToken,
@@ -62,7 +66,17 @@ vi.mock("@/lib/agent-client", () => ({
 vi.mock("@/lib/api", () => ({
   API_BASE_URL: "https://api.hypercli.com/agents",
   AUTH_BASE_URL: "https://api.hypercli.com/api",
+  SLACK_APP_HANDLE: "hyperdev",
+  SLACK_RELAY_BASE_URL: "https://api.agents.dev.hypercli.com",
 }));
+
+vi.mock("@hypercli.com/sdk/agents", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@hypercli.com/sdk/agents")>();
+  return {
+    ...actual,
+    getSlackInstallStatus: slackMocks.getSlackInstallStatus,
+  };
+});
 
 vi.mock("@/components/dashboard/agents/AgentPanels", () => ({
   AgentList: ({
@@ -283,6 +297,13 @@ describe("SettingsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setupBillingMocks();
+    slackMocks.getSlackInstallStatus.mockResolvedValue({
+      connected: false,
+      teamId: null,
+      teamName: null,
+      botUserId: null,
+      updatedAt: null,
+    });
   });
 
   it("renders billing beside the agents list without a settings sections menu", async () => {
@@ -293,10 +314,30 @@ describe("SettingsPage", () => {
     expect(screen.queryByRole("heading", { name: "Settings" })).not.toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "Sections" })).not.toBeInTheDocument();
     expect(await screen.findByTestId("agent-list")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Slack" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Connect Slack" })).toHaveAttribute("href", "/slack/start");
+    expect(screen.getByRole("link", { name: "Debug" })).toHaveAttribute("href", "/slack/status");
     await user.click(await screen.findByRole("button", { name: "Research Agent" }));
 
     expect(navigationMocks.push).toHaveBeenCalledWith("/dashboard/agents?agentId=agent-1");
     expect((await screen.findAllByText(/Pro Plan/)).length).toBeGreaterThan(0);
+  });
+
+  it("shows connected Slack workspace status in settings", async () => {
+    slackMocks.getSlackInstallStatus.mockResolvedValue({
+      connected: true,
+      teamId: "T123",
+      teamName: "Test Workspace",
+      botUserId: "U123",
+      updatedAt: "2026-07-19T19:00:00+00:00",
+    });
+
+    render(<SettingsPage />);
+
+    expect(await screen.findByText("@hyperdev is connected to Test Workspace.")).toBeInTheDocument();
+    expect(screen.getByText("Team T123")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Disconnect Slack" })).toBeDisabled();
+    expect(screen.getByRole("link", { name: "Reconnect Slack" })).toHaveAttribute("href", "/slack/start");
   });
 
   it("renders consolidated billing with card management, cancellation, and agent attribution", async () => {
