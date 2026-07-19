@@ -6,13 +6,12 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeft, ArrowRight, BarChart3, Blocks, Check, Codepen, FolderOpen, KeyRound, Loader2, LogOut, MessageSquare, Plus, Play, SlidersHorizontal, Sparkles, Square, X } from "lucide-react";
 import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
-import { startSlackOAuth } from "@hypercli.com/sdk/agents";
 import type { AgentChannelSummary } from "@hypercli.com/sdk/channels";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 
 import type { Agent, JsonObject } from "@/app/dashboard/agents/types";
 import { isAgentFailureState, isAgentTransitionalState } from "@/app/dashboard/agents/types";
-import { AUTH_BASE_URL, SLACK_APP_HANDLE, SLACK_RELAY_BASE_URL } from "@/lib/api";
+import { AUTH_BASE_URL, SLACK_APP_HANDLE } from "@/lib/api";
 import { asObject, getOpenClawUiHint, humanizeKey } from "@/lib/openclaw-config";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@hypercli/shared-ui";
 import { AgentCardTooltip, type AgentCardTooltipData } from "@/components/dashboard/modules/AgentCardModule";
@@ -580,14 +579,6 @@ function validAgentHandle(value: string | null): boolean {
   return value === null || /^[a-z0-9][a-z0-9_-]{1,63}$/.test(value);
 }
 
-function oauthWindowFeatures(): string {
-  const width = 720;
-  const height = 780;
-  const left = typeof window !== "undefined" ? Math.max(Math.round(window.screenX + (window.outerWidth - width) / 2), 0) : 0;
-  const top = typeof window !== "undefined" ? Math.max(Math.round(window.screenY + (window.outerHeight - height) / 2), 0) : 0;
-  return `popup=yes,width=${width},height=${height},left=${left},top=${top}`;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -1029,9 +1020,6 @@ function AgentSectionSettingsContent({
   agentDeleting,
   agentStartBlocked,
   agentStartBlockedReason,
-  slackConnecting,
-  slackStatus,
-  onConnectSlack,
 }: {
   agent: Agent;
   agentName: string;
@@ -1068,9 +1056,6 @@ function AgentSectionSettingsContent({
   agentDeleting?: boolean;
   agentStartBlocked?: boolean;
   agentStartBlockedReason?: string | null;
-  slackConnecting?: boolean;
-  slackStatus?: { tone: "success" | "error" | "info"; message: string } | null;
-  onConnectSlack?: () => void;
 }) {
   const avatarInputRef = React.useRef<HTMLInputElement | null>(null);
   const agentAvatarUpdatesEnabled = true;
@@ -1215,35 +1200,6 @@ function AgentSectionSettingsContent({
                   </button>
                 )}
               </div>
-            </div>
-          </AgentProfileSettingsRow>
-
-          <AgentProfileSettingsRow label="Slack" description="Connect this account's Slack workspace to HyperCLI Agents.">
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={onConnectSlack}
-                disabled={!onConnectSlack || slackConnecting}
-                className={`${SETTINGS_SMALL_BUTTON_CLASS} gap-2`}
-              >
-                {slackConnecting ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <MessageSquare className="h-3.5 w-3.5" />
-                )}
-                {slackConnecting ? "Connecting..." : "Connect Slack"}
-              </button>
-              {slackStatus ? (
-                <p className={`text-xs leading-5 ${
-                  slackStatus.tone === "error"
-                    ? "text-destructive"
-                    : slackStatus.tone === "success"
-                      ? "text-[var(--selection-accent)]"
-                      : "text-text-muted"
-                }`}>
-                  {slackStatus.message}
-                </p>
-              ) : null}
             </div>
           </AgentProfileSettingsRow>
 
@@ -1670,8 +1626,6 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const [memoryIndexDraft, setMemoryIndexDraft] = React.useState(() => getMemoryIndexSettings(openclawConfig));
   const [agentSettingsError, setAgentSettingsError] = React.useState<string | null>(null);
   const [agentSettingsSuccess, setAgentSettingsSuccess] = React.useState<string | null>(null);
-  const [slackConnecting, setSlackConnecting] = React.useState(false);
-  const [slackStatus, setSlackStatus] = React.useState<{ tone: "success" | "error" | "info"; message: string } | null>(null);
   const [confirmImageChange, setConfirmImageChange] = React.useState(false);
   const objectUrlsRef = React.useRef<string[]>([]);
 
@@ -1740,7 +1694,6 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     setArchiveDraft("not-configured");
     setAgentSettingsError(null);
     setAgentSettingsSuccess(null);
-    setSlackStatus(null);
     setConfirmImageChange(false);
   }, [agent]);
 
@@ -2047,58 +2000,6 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     setAgentAvatarDraft(nextUrl);
   }, []);
 
-  React.useEffect(() => {
-    const onMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return;
-      const payload = event.data as { source?: unknown; ok?: unknown; teamId?: unknown; error?: unknown } | null;
-      if (!payload || payload.source !== "hypercli.slack-oauth") return;
-      setSlackConnecting(false);
-      if (payload.ok) {
-        setSlackStatus({
-          tone: "success",
-          message: `Slack connected${typeof payload.teamId === "string" ? ` for ${payload.teamId}` : ""}.`,
-        });
-      } else {
-        setSlackStatus({
-          tone: "error",
-          message: typeof payload.error === "string" && payload.error ? `Slack connection failed: ${payload.error}.` : "Slack connection failed.",
-        });
-      }
-    };
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, []);
-
-  const connectSlack = React.useCallback(async () => {
-    if (!agent) return;
-    if (!SLACK_RELAY_BASE_URL) {
-      setSlackStatus({ tone: "error", message: "Slack relay is not configured for this environment." });
-      return;
-    }
-    const ownerId = agent.user_id || user?.id || "";
-    if (!ownerId) {
-      setSlackStatus({ tone: "error", message: "The current account could not be resolved for Slack." });
-      return;
-    }
-    setSlackConnecting(true);
-    setSlackStatus({ tone: "info", message: "Opening Slack authorization." });
-    try {
-      const oauth = await startSlackOAuth({
-        relayBaseUrl: SLACK_RELAY_BASE_URL,
-        hyperclawUserId: ownerId,
-      });
-      const popup = window.open(oauth.authorizeUrl, "hypercli-slack-oauth", oauthWindowFeatures());
-      if (!popup) {
-        window.location.assign(oauth.authorizeUrl);
-        return;
-      }
-      popup.focus();
-    } catch (error) {
-      setSlackConnecting(false);
-      setSlackStatus({ tone: "error", message: error instanceof Error ? error.message : "Slack connection failed." });
-    }
-  }, [agent, user?.id]);
-
   if (!agent) return null;
 
   return (
@@ -2196,9 +2097,6 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             agentDeleting={agentDeleting}
             agentStartBlocked={agentStartBlocked}
             agentStartBlockedReason={agentStartBlockedReason}
-            slackConnecting={slackConnecting}
-            slackStatus={slackStatus}
-            onConnectSlack={connectSlack}
           />
         ) : activeSettingsSection === "index" ? (
           <AgentIndexSettingsContent

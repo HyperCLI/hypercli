@@ -8,6 +8,7 @@ import {
   flattenLaunchConfig,
   launchConfigHasDesktop,
   OpenClawAgent,
+  getSlackInstallStatus,
   startSlackOAuth,
 } from '../src/agents.js';
 import { HTTPClient } from '../src/http.js';
@@ -268,7 +269,7 @@ describe('Agents SDK', () => {
 
     const result = await startSlackOAuth({
       relayBaseUrl: 'https://api.agents.dev.hypercli.com/',
-      hyperclawUserId: 'user-123',
+      token: 'app-jwt',
     });
 
     expect(result).toEqual({
@@ -279,11 +280,47 @@ describe('Agents SDK', () => {
       'https://api.agents.dev.hypercli.com/slack/oauth/start',
       expect.objectContaining({
         method: 'POST',
+        headers: {
+          Authorization: 'Bearer app-jwt',
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
-          hyperclaw_user_id: 'user-123',
-          hyperclaw_workspace_id: null,
           redirect_uri: null,
         }),
+      }),
+    );
+  });
+
+  it('reads Slack install status through the relay REST endpoint', async () => {
+    const fetchMock = vi.fn(async () => new Response(
+      JSON.stringify({
+        connected: true,
+        team_id: 'T123',
+        team_name: 'Test Workspace',
+        bot_user_id: 'U123',
+        updated_at: '2026-07-19T13:30:00+00:00',
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await getSlackInstallStatus({
+      relayBaseUrl: 'https://api.agents.dev.hypercli.com/',
+      token: 'app-jwt',
+    });
+
+    expect(result).toEqual({
+      connected: true,
+      teamId: 'T123',
+      teamName: 'Test Workspace',
+      botUserId: 'U123',
+      updatedAt: '2026-07-19T13:30:00+00:00',
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.agents.dev.hypercli.com/slack/install',
+      expect.objectContaining({
+        method: 'GET',
+        headers: { Authorization: 'Bearer app-jwt' },
       }),
     );
   });

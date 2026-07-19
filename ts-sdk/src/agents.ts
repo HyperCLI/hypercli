@@ -126,14 +126,26 @@ export interface AgentProfileImageUploadResult {
 
 export interface SlackOAuthStartOptions {
   relayBaseUrl: string;
-  hyperclawUserId?: string | null;
-  hyperclawWorkspaceId?: string | null;
+  token: string;
   redirectUri?: string | null;
 }
 
 export interface SlackOAuthStartResult {
   authorizeUrl: string;
   expiresAt?: string | null;
+}
+
+export interface SlackInstallStatusOptions {
+  relayBaseUrl: string;
+  token: string;
+}
+
+export interface SlackInstallStatus {
+  connected: boolean;
+  teamId?: string | null;
+  teamName?: string | null;
+  botUserId?: string | null;
+  updatedAt?: string | null;
 }
 
 export interface BraveWebSearchOptions {
@@ -1076,12 +1088,14 @@ function productApiBaseFromAgentsApiBase(apiBase: string): string {
 export async function startSlackOAuth(options: SlackOAuthStartOptions): Promise<SlackOAuthStartResult> {
   const relayBaseUrl = options.relayBaseUrl.replace(/\/+$/, '');
   if (!relayBaseUrl) throw new Error('Slack relay base URL is required');
+  if (!options.token) throw new Error('Slack OAuth requires an app token');
   const response = await fetch(`${relayBaseUrl}/slack/oauth/start`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Authorization': `Bearer ${options.token}`,
+      'Content-Type': 'application/json',
+    },
     body: JSON.stringify({
-      hyperclaw_user_id: options.hyperclawUserId ?? null,
-      hyperclaw_workspace_id: options.hyperclawWorkspaceId ?? null,
       redirect_uri: options.redirectUri ?? null,
     }),
   });
@@ -1099,6 +1113,32 @@ export async function startSlackOAuth(options: SlackOAuthStartOptions): Promise<
   return {
     authorizeUrl,
     expiresAt: typeof payload.expires_at === 'string' ? payload.expires_at : null,
+  };
+}
+
+export async function getSlackInstallStatus(options: SlackInstallStatusOptions): Promise<SlackInstallStatus> {
+  const relayBaseUrl = options.relayBaseUrl.replace(/\/+$/, '');
+  if (!relayBaseUrl) throw new Error('Slack relay base URL is required');
+  if (!options.token) throw new Error('Slack install status requires an app token');
+  const response = await fetch(`${relayBaseUrl}/slack/install`, {
+    method: 'GET',
+    headers: { 'Authorization': `Bearer ${options.token}` },
+  });
+  if (!response.ok) {
+    let detail = response.statusText || 'Slack install status failed';
+    try {
+      const payload = await response.json() as { detail?: unknown };
+      if (typeof payload.detail === 'string' && payload.detail) detail = payload.detail;
+    } catch {}
+    throw new APIError(response.status, detail);
+  }
+  const payload = await response.json() as Record<string, unknown>;
+  return {
+    connected: payload.connected === true,
+    teamId: typeof payload.team_id === 'string' ? payload.team_id : null,
+    teamName: typeof payload.team_name === 'string' ? payload.team_name : null,
+    botUserId: typeof payload.bot_user_id === 'string' ? payload.bot_user_id : null,
+    updatedAt: typeof payload.updated_at === 'string' ? payload.updated_at : null,
   };
 }
 
