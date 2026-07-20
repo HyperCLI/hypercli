@@ -56,9 +56,9 @@ describe("IntegrationChatCardHost", () => {
       />,
     );
 
-    expect(await screen.findByText("Select Slack transport")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: /HyperCLI Slack App/i }).length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: /Self-hosted Socket Mode/i })).toBeInTheDocument();
+    expect(await screen.findByText("Express mode")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Continue Express setup/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Advanced mode/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start setup/i })).not.toBeInTheDocument();
   });
 

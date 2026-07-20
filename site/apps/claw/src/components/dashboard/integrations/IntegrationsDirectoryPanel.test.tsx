@@ -316,9 +316,9 @@ describe("IntegrationsDirectoryPanel", () => {
       initialPluginId: "slack",
     });
 
-    expect((await screen.findAllByText("Create Slack app")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Connect Slack")).length).toBeGreaterThan(0);
     await waitFor(() => expect(sdkMocks.getSlackInstallStatus).toHaveBeenCalledTimes(1));
-    expect(screen.getByRole("button", { name: /^HyperCLI Slack App$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Continue Express setup/i })).toBeInTheDocument();
     expect(screen.queryByText("Waiting for gateway")).not.toBeInTheDocument();
   });
 
@@ -434,14 +434,14 @@ describe("IntegrationsDirectoryPanel", () => {
       reportedChannelsReady: true,
     });
 
-    expect((await screen.findAllByText("Create Slack app")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Connect Slack")).length).toBeGreaterThan(0);
     await waitFor(() => expect(sdkMocks.getSlackInstallStatus).toHaveBeenCalledTimes(1));
     expect(screen.queryByRole("heading", { name: "Slack configuration" })).not.toBeInTheDocument();
     expect(ensureSlackSupport).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: /install Slack support/i })).not.toBeInTheDocument();
   });
 
-  it("prompts for self-hosted Slack when hosted Slack is not connected", async () => {
+  it("offers Express OAuth and Advanced Socket Mode when Slack is not connected", async () => {
     const ensureSlackSupport = vi.fn(async () => ({
       plugin: { id: "slack", name: "Slack", installed: true, enabled: true, state: "enabled" },
       changed: false,
@@ -457,11 +457,10 @@ describe("IntegrationsDirectoryPanel", () => {
       reportedChannelsReady: true,
     });
 
-    expect((await screen.findAllByText("Create Slack app")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Connect Slack")).length).toBeGreaterThan(0);
     await waitFor(() => expect(sdkMocks.getSlackInstallStatus).toHaveBeenCalledTimes(1));
-    expect(screen.queryByRole("button", { name: /HyperCLI Slack App$/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Self-hosted Socket Mode/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Self-hosted" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Connect with Slack/i })).toHaveAttribute("href", "/slack/start");
+    expect(screen.getByRole("button", { name: /Advanced mode/i })).toBeInTheDocument();
     expect(screen.queryByLabelText("Slack Bot token")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Slack App token")).not.toBeInTheDocument();
     expect(ensureSlackSupport).not.toHaveBeenCalled();
@@ -491,8 +490,7 @@ describe("IntegrationsDirectoryPanel", () => {
     });
 
     await waitFor(() => expect(sdkMocks.getSlackInstallStatus).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText(/HyperCLI Slack App Enabled/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^HyperCLI Slack App$/i })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Continue Express setup/i })).toBeInTheDocument();
     expect(ensureSlackSupport).not.toHaveBeenCalled();
   });
 
@@ -521,7 +519,7 @@ describe("IntegrationsDirectoryPanel", () => {
     });
 
     await waitFor(() => expect(sdkMocks.getSlackInstallStatus).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText("Connected to Test Workspace.")).toBeInTheDocument();
+    expect(await screen.findByText(/^Connected to Test Workspace\./)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Attach agent" })).toBeInTheDocument();
     expect(ensureSlackSupport).not.toHaveBeenCalled();
   });
@@ -557,7 +555,7 @@ describe("IntegrationsDirectoryPanel", () => {
       reportedChannelsReady: true,
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Self-hosted" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Advanced mode/i }));
     expect((await screen.findAllByText(/Runtime-generated slack setup./i)).length).toBeGreaterThan(0);
     expect(await screen.findByLabelText("Slack Bot token")).toBeInTheDocument();
     expect(screen.getByLabelText("Slack App token")).toBeInTheDocument();
@@ -589,8 +587,8 @@ describe("IntegrationsDirectoryPanel", () => {
       onRefreshChannels,
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: /^HyperCLI Slack App$/i }));
-    expect(await screen.findByText("Connected to Test Workspace.")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: /Continue Express setup/i }));
+    expect(await screen.findByText(/^Connected to Test Workspace\./)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Attach agent" }));
 
     await waitFor(() => expect(configure).toHaveBeenCalledWith("slack", {
@@ -617,7 +615,7 @@ describe("IntegrationsDirectoryPanel", () => {
       reportedChannelsReady: true,
     });
 
-    expect((await screen.findAllByText("Create Slack app")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Connect Slack")).length).toBeGreaterThan(0);
     expect(screen.queryByLabelText("Slack configured account")).not.toBeInTheDocument();
   });
 
@@ -630,7 +628,7 @@ describe("IntegrationsDirectoryPanel", () => {
       reportedChannelsReady: true,
     });
 
-    expect((await screen.findAllByText("Create Slack app")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Connect Slack")).length).toBeGreaterThan(0);
     expect(screen.queryByLabelText("Slack configured account")).not.toBeInTheDocument();
   });
 
