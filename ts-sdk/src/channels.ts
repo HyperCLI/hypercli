@@ -114,6 +114,7 @@ export interface SlackInstallStatusLike {
   teamId?: string | null;
   teamName?: string | null;
   botUserId?: string | null;
+  installerUserId?: string | null;
   updatedAt?: string | null;
 }
 
@@ -148,6 +149,7 @@ export interface HostedSlackRelayChannelConfig {
     };
     gatewayId: string;
   };
+  allowFrom?: string[];
 }
 
 export interface ConfigureHostedSlackRelayChannelOptions extends HostedSlackRelayChannelConfigOptions {
@@ -232,6 +234,8 @@ export async function configureHostedSlackRelayChannel(
   if (!status.connected) throw new Error('Connect Slack before using the hosted app.');
 
   const config = buildHostedSlackRelayChannelConfig(options);
+  const installerUserId = status.installerUserId?.trim();
+  if (installerUserId) config.allowFrom = [installerUserId];
   if (options.apply) {
     await options.apply(config);
   } else if (options.channelsProvider?.configure) {

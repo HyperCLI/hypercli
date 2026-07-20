@@ -16,7 +16,6 @@ const authMocks = vi.hoisted(() => ({
 
 const sdkMocks = vi.hoisted(() => ({
   getSlackInstallStatus: vi.fn(),
-  attachSlackRelayAgent: vi.fn(),
 }));
 
 vi.mock("@/hooks/useAgentAuth", () => ({
@@ -28,7 +27,6 @@ vi.mock("@hypercli.com/sdk/agents", async (importOriginal) => {
   return {
     ...actual,
     getSlackInstallStatus: sdkMocks.getSlackInstallStatus,
-    attachSlackRelayAgent: sdkMocks.attachSlackRelayAgent,
   };
 });
 
@@ -176,17 +174,8 @@ describe("IntegrationsDirectoryPanel", () => {
       teamId: null,
       teamName: null,
       botUserId: null,
+      installerUserId: null,
       updatedAt: null,
-    });
-    sdkMocks.attachSlackRelayAgent.mockResolvedValue({
-      connected: true,
-      agentId: "agent-1",
-      gatewayId: "agent:agent-1",
-      config: { enabled: true, mode: "relay" },
-      restartRequired: true,
-      teamId: "T123",
-      teamName: "Test Workspace",
-      botUserId: "U123",
     });
   });
 
@@ -582,6 +571,7 @@ describe("IntegrationsDirectoryPanel", () => {
       teamId: "T123",
       teamName: "Test Workspace",
       botUserId: "U123",
+      installerUserId: "UINSTALLER",
       updatedAt: "2026-07-19T13:30:00+00:00",
     });
     const ensureSlackSupport = vi.fn();
@@ -603,13 +593,18 @@ describe("IntegrationsDirectoryPanel", () => {
     expect(await screen.findByText("Connected to Test Workspace.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Attach agent" }));
 
-    await waitFor(() => expect(sdkMocks.attachSlackRelayAgent).toHaveBeenCalledWith({
-      relayBaseUrl: "https://api.agents.dev.hypercli.com",
-      token: "jwt-token",
-      agentId: "agent-1",
+    await waitFor(() => expect(configure).toHaveBeenCalledWith("slack", {
+      enabled: true,
+      mode: "relay",
+      botToken: { source: "env", provider: "default", id: "SLACK_BOT_TOKEN" },
+      relay: {
+        url: "wss://api.agents.dev.hypercli.com/slack/ws",
+        authToken: { source: "env", provider: "default", id: "HYPER_AGENTS_API_KEY" },
+        gatewayId: "agent:agent-1",
+      },
+      allowFrom: ["UINSTALLER"],
     }));
     expect(ensureSlackSupport).not.toHaveBeenCalled();
-    expect(configure).not.toHaveBeenCalled();
     expect(onRefreshChannels).toHaveBeenCalledWith(true);
   });
 

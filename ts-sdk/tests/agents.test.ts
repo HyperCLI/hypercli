@@ -299,6 +299,7 @@ describe('Agents SDK', () => {
         team_id: 'T123',
         team_name: 'Test Workspace',
         bot_user_id: 'U123',
+        installer_user_id: 'UINSTALLER',
         updated_at: '2026-07-19T13:30:00+00:00',
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -315,6 +316,7 @@ describe('Agents SDK', () => {
       teamId: 'T123',
       teamName: 'Test Workspace',
       botUserId: 'U123',
+      installerUserId: 'UINSTALLER',
       updatedAt: '2026-07-19T13:30:00+00:00',
     });
     expect(fetchMock).toHaveBeenCalledWith(

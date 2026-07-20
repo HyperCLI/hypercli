@@ -61,6 +61,7 @@ describe('hosted Slack relay channel helpers', () => {
       teamId: 'T123',
       teamName: 'Test Workspace',
       botUserId: 'U123',
+      installerUserId: 'UINSTALLER',
     }));
 
     const result = await configureHostedSlackRelayChannel({
@@ -85,6 +86,7 @@ describe('hosted Slack relay channel helpers', () => {
         authToken: { source: 'env', provider: 'default', id: 'HYPER_AGENTS_API_KEY' },
         gatewayId: 'agent:agent-123',
       },
+      allowFrom: ['UINSTALLER'],
     });
   });
 });

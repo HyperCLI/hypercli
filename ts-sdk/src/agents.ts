@@ -145,6 +145,7 @@ export interface SlackInstallStatus {
   teamId?: string | null;
   teamName?: string | null;
   botUserId?: string | null;
+  installerUserId?: string | null;
   updatedAt?: string | null;
 }
 
@@ -1159,6 +1160,7 @@ export async function getSlackInstallStatus(options: SlackInstallStatusOptions):
     teamId: typeof payload.team_id === 'string' ? payload.team_id : null,
     teamName: typeof payload.team_name === 'string' ? payload.team_name : null,
     botUserId: typeof payload.bot_user_id === 'string' ? payload.bot_user_id : null,
+    installerUserId: typeof payload.installer_user_id === 'string' ? payload.installer_user_id : null,
     updatedAt: typeof payload.updated_at === 'string' ? payload.updated_at : null,
   };
 }

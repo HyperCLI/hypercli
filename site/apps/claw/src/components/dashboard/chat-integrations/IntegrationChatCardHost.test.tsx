@@ -39,8 +39,9 @@ describe("IntegrationChatCardHost", () => {
         slackRelaySetup={{
           mode: "prompt",
           handle: "hyperdev",
-          connected: null,
-          workspace: null,
+          hostedAvailable: true,
+          connected: true,
+          workspace: "Test Workspace",
           attached: false,
           checking: false,
           configuring: false,

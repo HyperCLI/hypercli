@@ -2,8 +2,8 @@
 
 import React from "react";
 import { AlertTriangle, Loader2, MessageSquare, Plus, RefreshCw, Search } from "lucide-react";
-import { attachSlackRelayAgent, getSlackInstallStatus, type SlackInstallStatus } from "@hypercli.com/sdk/agents";
-import type { AgentChannel, AgentChannelSummary, AgentChannelsProvider, AgentChannelsSnapshot } from "@hypercli.com/sdk/channels";
+import { getSlackInstallStatus, type SlackInstallStatus } from "@hypercli.com/sdk/agents";
+import { configureHostedSlackRelayChannel, type AgentChannel, type AgentChannelSummary, type AgentChannelsProvider, type AgentChannelsSnapshot } from "@hypercli.com/sdk/channels";
 import type { AgentConnectorDescriptor, AgentConnectorsProvider } from "@hypercli.com/sdk/connectors";
 
 import type { AgentGatewaySession } from "../agents/AgentGatewayProvider";
@@ -645,25 +645,25 @@ export function IntegrationsDirectoryPanel({
       dispatchSlackRelay({ type: "configure-error", error: "Agent identity is unavailable." });
       return;
     }
+    if (!channelsProvider?.configure) {
+      dispatchSlackRelay({ type: "configure-error", error: "Agent gateway configuration is unavailable." });
+      return;
+    }
     const operationId = slackRelayOperationRef.current + 1;
     slackRelayOperationRef.current = operationId;
     dispatchSlackRelay({ type: "configure-start" });
     try {
-      const result = await attachSlackRelayAgent({
+      const result = await configureHostedSlackRelayChannel({
         relayBaseUrl: SLACK_RELAY_BASE_URL,
         token: await getToken(),
         agentId,
+        channelsProvider,
+        checkInstallStatus: getSlackInstallStatus,
       });
       if (slackRelayOperationRef.current !== operationId) return;
       dispatchSlackRelay({
         type: "configure-success",
-        installStatus: {
-          connected: result.connected,
-          teamId: result.teamId ?? null,
-          teamName: result.teamName ?? null,
-          botUserId: result.botUserId ?? null,
-          updatedAt: new Date().toISOString(),
-        },
+        installStatus: result.status,
       });
       if (onRefreshChannels) await onRefreshChannels(true);
       else await refreshIntegrations();
@@ -673,6 +673,7 @@ export function IntegrationsDirectoryPanel({
     }
   }, [
     agentId,
+    channelsProvider,
     getToken,
     onRefreshChannels,
     refreshIntegrations,
