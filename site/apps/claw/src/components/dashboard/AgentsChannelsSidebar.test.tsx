@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({
@@ -17,7 +17,14 @@ vi.mock("framer-motion", () => ({
       transition?: unknown;
       whileTap?: unknown;
     }) => <button {...props}>{children}</button>,
-    div: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+    div: ({ children, initial: _initial, animate: _animate, exit: _exit, transition: _transition, whileDrag: _whileDrag, layoutScroll: _layoutScroll, ...props }: HTMLAttributes<HTMLDivElement> & {
+      initial?: unknown;
+      animate?: unknown;
+      exit?: unknown;
+      transition?: unknown;
+      whileDrag?: unknown;
+      layoutScroll?: unknown;
+    }) => <div {...props}>{children}</div>,
     span: "span",
   },
   useDragControls: () => ({ start: vi.fn() }),
@@ -107,5 +114,52 @@ describe("AgentsSidebarDashboardLinks", () => {
     fireEvent.click(screen.getByRole("button", { name: "Account links" }));
     expect(screen.queryByRole("menuitem", { name: /^Settings$/i })).not.toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /api keys/i })).toBeInTheDocument();
+  });
+});
+
+describe("AgentsChannelsSidebar", () => {
+  it("exposes agent rows as selectable buttons", () => {
+    const onSelectThread = vi.fn();
+    render(
+      <AgentsChannelsSidebar
+        variant="v3"
+        threads={[
+          {
+            id: "agent-1",
+            sessionKey: "main",
+            participants: [{ id: "agent-1", name: "Primary Agent", type: "agent" }],
+            kind: "user-agent",
+            lastMessage: "Connected",
+            lastMessageBy: "agent-1",
+            lastMessageAt: Date.now(),
+            messageCount: 0,
+            unreadCount: 0,
+            isActive: true,
+          },
+          {
+            id: "agent-2",
+            sessionKey: "main",
+            participants: [{ id: "agent-2", name: "Secondary Agent", type: "agent" }],
+            kind: "user-agent",
+            lastMessage: "Connected",
+            lastMessageBy: "agent-2",
+            lastMessageAt: Date.now(),
+            messageCount: 0,
+            unreadCount: 0,
+            isActive: true,
+          },
+        ]}
+        selectedThreadId="agent-1"
+        onSelectThread={onSelectThread}
+        showChannels={false}
+      />,
+    );
+
+    const secondary = screen.getByRole("button", { name: "Select Secondary Agent" });
+    fireEvent.click(secondary);
+    expect(onSelectThread).toHaveBeenCalledWith("agent-2");
+    fireEvent.keyDown(secondary, { key: "Enter" });
+    expect(onSelectThread).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("button", { name: "Select Primary Agent" })).toHaveAttribute("aria-current", "page");
   });
 });

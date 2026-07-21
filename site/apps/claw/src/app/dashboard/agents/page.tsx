@@ -1034,7 +1034,7 @@ function AgentsPageContent() {
   const scheduledInitialCommandIdRef = useRef(0);
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [mobileAgentsSidebarOpen, setMobileAgentsSidebarOpen] = useState(false);
-  const [showMobileOfflineAgents, setShowMobileOfflineAgents] = useState(true);
+  const [showMobileOfflineAgents, setShowMobileOfflineAgents] = useState(false);
   const [mobileWorkspaceSidebarOpen, setMobileWorkspaceSidebarOpen] = useState(false);
   const [mobileAgentLauncherOpen, setMobileAgentLauncherOpen] = useState(false);
   const [sidebarCreatorSignal, setSidebarCreatorSignal] = useState(0);

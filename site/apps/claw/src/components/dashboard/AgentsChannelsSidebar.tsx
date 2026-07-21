@@ -470,8 +470,18 @@ function ThreadRow({
     setEditing(false);
   }, [editValue, onRename]);
 
+  const handleRowKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onSelect();
+  }, [onSelect]);
+
   return (
     <motion.div
+      role="button"
+      tabIndex={0}
+      aria-label={`Select ${resolvedTitle}`}
+      aria-current={selected ? "page" : undefined}
       className={`w-full text-left px-3 ${mobileMode ? "py-3 gap-3" : "border-r border-border py-2.5 gap-2.5"} flex items-start transition-colors relative group/row cursor-pointer ${
         selected
           ? "bg-surface-low border-l-2 border-l-[var(--selection-accent)]"
@@ -482,6 +492,7 @@ function ThreadRow({
       exit={{ opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0, marginTop: 0, marginBottom: 0, overflow: "hidden" }}
       transition={{ duration: 0.15 }}
       onClick={onSelect}
+      onKeyDown={handleRowKeyDown}
     >
       {reorderHandle}
       {!compact && (
