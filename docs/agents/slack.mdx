@@ -1,0 +1,159 @@
+---
+title: Slack App
+description: Install the hosted HyperCLI Slack App and route Slack messages to HyperCLI Agents.
+---
+
+HyperCLI provides a hosted Slack App that routes Slack mentions to managed or
+external HyperCLI Agents.
+
+Production uses `@hyper`. Development and staging work should use the separate
+dev Slack app, normally `@hyperdev`, with its own Slack credentials and callback
+URLs.
+
+## Install
+
+Install the hosted app from the HyperCLI product UI. The install flow starts
+Slack OAuth from:
+
+```text
+GET https://api.agents.hypercli.com/slack/oauth/start
+```
+
+After OAuth completes, HyperCLI stores the Slack workspace install and encrypted
+bot token. You can check the current user's install state with:
+
+```text
+GET https://api.agents.hypercli.com/slack/install
+Authorization: Bearer <HyperCLI user JWT>
+```
+
+In v1, one Slack workspace install is owned by one HyperCLI user. That owner
+controls which agent handles are reachable through `@hyper`.
+
+## Enable An Agent
+
+After Slack is connected, enable the app on each agent that should receive Slack
+messages. The product UI calls:
+
+```text
+POST https://api.agents.hypercli.com/slack/agents/{agent_id}/relay
+Authorization: Bearer <HyperCLI user JWT>
+```
+
+This patches the agent's persisted OpenClaw launch config. Restart the managed
+agent after enabling Slack so the runtime starts with the relay config.
+
+The CLI uses the same attach path:
+
+```bash
+hyper agent enable <agent-name-or-id>
+hyper agent enable <agent-name-or-id> --restart --wait
+```
+
+`hyper agent start <agent-name-or-id>` and `hyper agent stop <agent-name-or-id>`
+are singular aliases for lifecycle operations against the persisted backend
+agent spec.
+
+Managed OpenClaw config persists at:
+
+```text
+/home/node/.openclaw/openclaw.json
+```
+
+The hosted app uses OpenClaw Slack relay mode. HyperCLI injects relay runtime
+env such as:
+
+```text
+HYPER_SLACK_APP_ENABLED=1
+HYPER_SLACK_RELAY_URL=wss://api.agents.hypercli.com/slack/ws
+HYPER_SLACK_API_URL=https://api.agents.hypercli.com/slack/api/
+HYPER_SLACK_GATEWAY_ID=agent:<agent_uuid>
+```
+
+The existing managed runtime key is used for websocket auth; no separate Slack
+relay key is needed for managed agents.
+
+## Commands
+
+Use the app mention plus a command or agent handle:
+
+```text
+@hyper help
+@hyper list
+@hyper status
+@hyper start <agent>
+@hyper stop <agent>
+@hyper <agent> <message>
+@hyper agent <agent> <message>
+```
+
+Development uses the same shape with `@hyperdev`.
+
+`list` shows Slack-addressable managed and external agents for the install
+owner. `status` reports Slack install status and agent counts. `start` and
+`stop` control managed agents; external agents must be started or stopped from
+their own host.
+
+Reserved command words cannot be used as Slack agent handles:
+
+```text
+help
+list
+status
+agent
+agents
+start
+stop
+```
+
+## App Manifest
+
+The hosted production manifest is published at:
+
+```text
+https://api.agents.hypercli.com/slack/manifest.yaml
+```
+
+The dev app uses the dev API host:
+
+```text
+https://api.agents.dev.hypercli.com/slack/manifest.yaml
+```
+
+The manifest uses Slack OAuth V2, HTTP Events API, `agent_view`, app messages,
+and bot scopes required by the OpenClaw Slack adapter. Socket Mode and Slack
+slash commands are not used for v1.
+
+## Self-Hosted Relay
+
+Most users should use the hosted OAuth app. Self-hosted/static mode is for
+customers who own their Slack app and relay deployment.
+
+Hosted mode:
+
+- HyperCLI owns the Slack app and relay service.
+- Workspaces install through OAuth.
+- Bot tokens are stored encrypted per workspace.
+- Agents connect to the hosted `/slack/ws` relay.
+
+Self-hosted mode:
+
+- You create and own the Slack app.
+- Your relay uses one `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET`.
+- You still configure OpenClaw for Slack relay mode and connect agents to that
+  relay.
+- You own app scopes, Slack distribution, and relay operations.
+
+## Troubleshooting
+
+If install fails, check that the OAuth redirect URL in Slack matches the current
+environment's `/slack/oauth/callback` URL.
+
+If `@hyper list` works but `@hyper <agent>` does not, check the agent handle,
+avoid reserved words, and confirm Slack is enabled on that agent.
+
+If the relay says Slack is not enabled, re-enable the agent integration and
+restart the managed agent so the persisted OpenClaw config is loaded.
+
+If OpenClaw receives messages but cannot reply, check the bot is installed in
+the workspace/channel and that the runtime has `HYPER_SLACK_API_URL`.

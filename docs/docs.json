@@ -101,6 +101,7 @@
             "pages": [
               "agents/index",
               "agents/quickstart",
+              "agents/slack",
               "agents/tags",
               "agents/workspaces",
               "agents/openclaw-config",

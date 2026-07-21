@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
+from hypercli.agents import Agent
 from hypercli_cli.cli import app
 import hypercli_cli.agent as agent_mod
 
@@ -184,3 +185,116 @@ def test_agent_activate_code_can_request_extension(monkeypatch):
 
     assert result.exit_code == 0
     assert calls == [("promo-123", {"extend_existing": True})]
+
+
+def test_agent_enable_attaches_slack_relay_without_restart(monkeypatch):
+    calls: list[tuple[str, object]] = []
+
+    class _FakeDeployments:
+        def get(self, agent):
+            calls.append(("get", agent))
+            return Agent(
+                id="11111111-1111-4111-8111-111111111111",
+                user_id="user-1",
+                pod_id="pod-1",
+                pod_name="clear-window-works",
+                name="clear-window-works",
+                state="RUNNING",
+            )
+
+        def attach_slack_relay_agent(self, agent_id, *, relay_base_url):
+            calls.append(("attach", (agent_id, relay_base_url)))
+            return {
+                "connected": True,
+                "gateway_id": f"agent:{agent_id}",
+                "team_name": "HyperCLI",
+                "restart_required": True,
+            }
+
+    monkeypatch.setattr(agent_mod, "_get_deployments_client", lambda dev=False: _FakeDeployments())
+
+    result = runner.invoke(app, ["agent", "enable", "clear-window-works", "--relay-base-url", "https://relay.test"])
+
+    assert result.exit_code == 0
+    assert calls == [
+        ("get", "clear-window-works"),
+        ("attach", ("11111111-1111-4111-8111-111111111111", "https://relay.test")),
+    ]
+    assert "Slack enabled for" in result.output
+    assert "Restart:    required" in result.output
+
+
+def test_agent_start_alias_starts_by_name(monkeypatch):
+    calls: list[tuple[str, object]] = []
+
+    class _FakeDeployments:
+        def get(self, agent):
+            calls.append(("get", agent))
+            return Agent(
+                id="11111111-1111-4111-8111-111111111111",
+                user_id="user-1",
+                pod_id="pod-1",
+                pod_name="clear-window-works",
+                name="clear-window-works",
+                state="STOPPED",
+            )
+
+        def start(self, agent_id, *, dry_run=False):
+            calls.append(("start", (agent_id, dry_run)))
+            return Agent(
+                id=agent_id,
+                user_id="user-1",
+                pod_id="pod-1",
+                pod_name="clear-window-works",
+                name="clear-window-works",
+                state="STARTING",
+            )
+
+    monkeypatch.setattr(agent_mod, "_get_deployments_client", lambda dev=False: _FakeDeployments())
+
+    result = runner.invoke(app, ["agent", "start", "clear-window-works"])
+
+    assert result.exit_code == 0
+    assert calls == [
+        ("get", "clear-window-works"),
+        ("start", ("11111111-1111-4111-8111-111111111111", False)),
+    ]
+    assert "Agent starting" in result.output
+
+
+def test_agent_stop_alias_stops_by_name(monkeypatch):
+    calls: list[tuple[str, object]] = []
+
+    class _FakeDeployments:
+        def get(self, agent):
+            calls.append(("get", agent))
+            return Agent(
+                id="11111111-1111-4111-8111-111111111111",
+                user_id="user-1",
+                pod_id="pod-1",
+                pod_name="clear-window-works",
+                name="clear-window-works",
+                state="RUNNING",
+            )
+
+        def stop(self, agent_id):
+            calls.append(("stop", agent_id))
+            return Agent(
+                id=agent_id,
+                user_id="user-1",
+                pod_id="pod-1",
+                pod_name="clear-window-works",
+                name="clear-window-works",
+                state="STOPPED",
+            )
+
+    monkeypatch.setattr(agent_mod, "_get_deployments_client", lambda dev=False: _FakeDeployments())
+
+    result = runner.invoke(app, ["agent", "stop", "clear-window-works", "--force"])
+
+    assert result.exit_code == 0
+    assert calls == [
+        ("get", "clear-window-works"),
+        ("stop", "11111111-1111-4111-8111-111111111111"),
+    ]
+    assert "Agent stopped" in result.output

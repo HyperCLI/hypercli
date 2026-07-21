@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from datetime import datetime, timedelta
 from urllib.parse import urlsplit
@@ -13,7 +14,9 @@ from rich.console import Console
 from rich.table import Table
 
 from hypercli import HyperCLI
+from hypercli.agents import Agent as DeploymentAgent, Deployments
 from hypercli.config import get_agent_api_key, get_agents_api_base_url_from_product_base
+from hypercli.http import HTTPClient
 
 from .onboard import onboard as _onboard_fn
 from .voice import app as voice_app
@@ -48,6 +51,10 @@ PROD_API_BASE = "https://api.hypercli.com"
 DEV_INFERENCE_API_BASE = "https://api.agents.dev.hypercli.com"
 PROD_INFERENCE_API_BASE = "https://api.agents.hypercli.com"
 DEFAULT_X402_TIMEOUT_SECONDS = 60.0
+DEV_AGENTS_BACKEND_BASE = "https://api.dev.hypercli.com/agents"
+PROD_AGENTS_BACKEND_BASE = "https://api.hypercli.com/agents"
+DEV_SLACK_RELAY_BASE = "https://api.agents.dev.hypercli.com"
+PROD_SLACK_RELAY_BASE = "https://api.agents.hypercli.com"
 
 
 def require_x402_deps():
@@ -94,6 +101,84 @@ def _get_agent_query_client(dev: bool) -> HyperCLI:
     key = _resolve_agent_query_key()
     api_base = DEV_API_BASE if dev else PROD_API_BASE
     return HyperCLI(api_key=key, agent_api_key=key, api_url=api_base, agent_dev=dev)
+
+
+def _resolve_agents_backend_base(dev: bool) -> str:
+    return (
+        os.environ.get("AGENTS_API_BASE_URL")
+        or os.environ.get("HYPER_AGENTS_API_BASE")
+        or (DEV_AGENTS_BACKEND_BASE if dev else PROD_AGENTS_BACKEND_BASE)
+    ).rstrip("/")
+
+
+def _resolve_slack_relay_base(dev: bool, relay_base_url: str | None = None) -> str:
+    return (
+        relay_base_url
+        or os.environ.get("HYPER_SLACK_RELAY_BASE_URL")
+        or os.environ.get("SLACK_RELAY_BASE_URL")
+        or (DEV_SLACK_RELAY_BASE if dev else PROD_SLACK_RELAY_BASE)
+    ).rstrip("/")
+
+
+def _get_deployments_client(dev: bool = False) -> Deployments:
+    key = _resolve_agent_query_key()
+    api_base = _resolve_agents_backend_base(dev)
+    return Deployments(HTTPClient(api_base, key), api_key=key, api_base=api_base)
+
+
+def _wait_agent_state(
+    deployments: Deployments,
+    agent_id: str,
+    states: set[str],
+    *,
+    timeout: float = 300.0,
+    poll_interval: float = 5.0,
+) -> DeploymentAgent:
+    deadline = time.monotonic() + timeout
+    last: DeploymentAgent | None = None
+    normalized_states = {state.lower() for state in states}
+    while time.monotonic() < deadline:
+        last = deployments.get(agent_id)
+        if str(last.state or "").lower() in normalized_states:
+            return last
+        time.sleep(poll_interval)
+    raise TimeoutError(
+        f"Timed out waiting for agent {agent_id} to reach {', '.join(sorted(states))} "
+        f"(last={getattr(last, 'state', None)})"
+    )
+
+
+def _start_deployment_agent(
+    deployments: Deployments,
+    agent: DeploymentAgent,
+    *,
+    dry_run: bool = False,
+) -> DeploymentAgent:
+    return deployments.start(agent.id, dry_run=dry_run)
+
+
+def _print_agent_lifecycle_result(action: str, agent: DeploymentAgent, *, json_output: bool = False) -> None:
+    if json_output:
+        console.print_json(
+            json.dumps(
+                {
+                    "id": agent.id,
+                    "name": agent.name,
+                    "state": agent.state,
+                    "hostname": agent.hostname,
+                    "pod_name": agent.pod_name,
+                    "launch_config": agent.launch_config,
+                },
+                default=str,
+            )
+        )
+        return
+    label = agent.name or agent.pod_name or agent.id
+    console.print(f"[green]✓[/green] Agent {action}: [bold]{label}[/bold]")
+    console.print(f"  ID:    {agent.id}")
+    console.print(f"  State: {agent.state}")
+    if agent.hostname:
+        console.print(f"  URL:   https://{agent.hostname}")
 
 
 @app.command("subscribe")
@@ -573,6 +658,106 @@ def subscription_summary(
             f"  {tier}: {inventory.get('used', 0)}/{inventory.get('granted', 0)} "
             f"({inventory.get('available', 0)} available)"
         )
+
+
+@app.command("start")
+def start_agent(
+    agent: str = typer.Argument(..., help="Agent ID, unique name, pod name, or prefix"),
+    dev: bool = typer.Option(False, "--dev", help="Use dev agents API"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Validate launch configuration without starting"),
+    wait: bool = typer.Option(False, "--wait", help="Wait for RUNNING after starting"),
+    timeout: float = typer.Option(900.0, "--timeout", min=1.0, help="Wait timeout in seconds"),
+    json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
+):
+    """Start an agent by ID or name."""
+    deployments = _get_deployments_client(dev)
+    try:
+        resolved = deployments.get(agent)
+        started = _start_deployment_agent(deployments, resolved, dry_run=dry_run)
+        if wait and not dry_run:
+            started = deployments.wait_running(started.id, timeout=timeout)
+    except Exception as exc:
+        console.print(f"[red]❌ Failed to start agent: {exc}[/red]")
+        raise typer.Exit(1)
+    _print_agent_lifecycle_result("start validated" if dry_run else "starting", started, json_output=json_output)
+
+
+@app.command("stop")
+def stop_agent(
+    agent: str = typer.Argument(..., help="Agent ID, unique name, pod name, or prefix"),
+    dev: bool = typer.Option(False, "--dev", help="Use dev agents API"),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
+    wait: bool = typer.Option(False, "--wait", help="Wait for STOPPED after stopping"),
+    timeout: float = typer.Option(900.0, "--timeout", min=1.0, help="Wait timeout in seconds"),
+    json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
+):
+    """Stop an agent by ID or name."""
+    deployments = _get_deployments_client(dev)
+    try:
+        resolved = deployments.get(agent)
+        label = resolved.name or resolved.pod_name or resolved.id
+        if not force and not typer.confirm(f"Stop agent {label}?"):
+            raise typer.Exit(0)
+        stopped = deployments.stop(resolved.id)
+        if wait:
+            stopped = _wait_agent_state(deployments, resolved.id, {"stopped"}, timeout=timeout)
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        console.print(f"[red]❌ Failed to stop agent: {exc}[/red]")
+        raise typer.Exit(1)
+    _print_agent_lifecycle_result("stopped", stopped, json_output=json_output)
+
+
+@app.command("enable")
+def enable_agent(
+    agent: str = typer.Argument(..., help="Agent ID, unique name, pod name, or prefix"),
+    dev: bool = typer.Option(False, "--dev", help="Use dev agents API and dev Slack relay"),
+    relay_base_url: str = typer.Option(None, "--relay-base-url", help="Hosted Slack relay base URL override"),
+    restart: bool = typer.Option(False, "--restart", help="Stop/start the agent after enabling Slack"),
+    wait: bool = typer.Option(False, "--wait", help="Wait for RUNNING after --restart"),
+    timeout: float = typer.Option(900.0, "--timeout", min=1.0, help="Wait timeout in seconds"),
+    json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
+):
+    """Enable the hosted HyperCLI Slack App for an agent."""
+    deployments = _get_deployments_client(dev)
+    relay_base = _resolve_slack_relay_base(dev, relay_base_url)
+    try:
+        resolved = deployments.get(agent)
+        attach = deployments.attach_slack_relay_agent(resolved.id, relay_base_url=relay_base)
+        restarted = None
+        if restart:
+            if str(resolved.state or "").lower() == "running":
+                deployments.stop(resolved.id)
+                _wait_agent_state(deployments, resolved.id, {"stopped"}, timeout=timeout)
+            restarted = _start_deployment_agent(deployments, resolved)
+            if wait:
+                restarted = deployments.wait_running(restarted.id, timeout=timeout)
+    except Exception as exc:
+        console.print(f"[red]❌ Failed to enable agent: {exc}[/red]")
+        raise typer.Exit(1)
+
+    if json_output:
+        payload = {"slack": attach, "agent": None if restarted is None else {
+            "id": restarted.id,
+            "name": restarted.name,
+            "state": restarted.state,
+            "hostname": restarted.hostname,
+            "pod_name": restarted.pod_name,
+        }}
+        console.print_json(json.dumps(payload, default=str))
+        return
+
+    label = resolved.name or resolved.pod_name or resolved.id
+    console.print(f"[green]✓[/green] Slack enabled for [bold]{label}[/bold]")
+    console.print(f"  Relay:      {relay_base}")
+    console.print(f"  Gateway ID: {attach.get('gateway_id') or ''}")
+    if attach.get("team_name") or attach.get("team_id"):
+        console.print(f"  Workspace:  {attach.get('team_name') or attach.get('team_id')}")
+    if restart:
+        console.print(f"  Restart:    {'running' if wait else 'started'}")
+    elif attach.get("restart_required", True):
+        console.print("  Restart:    required before OpenClaw reads the Slack config")
 
 
 @app.command("activate-code")

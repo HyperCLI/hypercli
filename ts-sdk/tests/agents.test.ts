@@ -162,6 +162,56 @@ describe('Agents SDK', () => {
     ]);
   });
 
+  it('resolves unique agent names before lifecycle calls', async () => {
+    const get = vi.fn(async (path: string) => {
+      if (path === '/deployments') {
+        return {
+          items: [{
+            id: '11111111-1111-4111-8111-111111111111',
+            user_id: 'user-456',
+            pod_id: 'pod-789',
+            pod_name: 'clear-window-works',
+            name: 'clear-window-works',
+            state: 'STOPPED',
+          }],
+        };
+      }
+      if (path === '/deployments/11111111-1111-4111-8111-111111111111') {
+        return {
+          id: '11111111-1111-4111-8111-111111111111',
+          user_id: 'user-456',
+          pod_id: 'pod-789',
+          pod_name: 'clear-window-works',
+          name: 'clear-window-works',
+          state: 'STOPPED',
+        };
+      }
+      throw new Error(`unexpected GET ${path}`);
+    });
+    const post = vi.fn(async () => ({
+      id: '11111111-1111-4111-8111-111111111111',
+      user_id: 'user-456',
+      pod_id: 'pod-789',
+      pod_name: 'clear-window-works',
+      name: 'clear-window-works',
+      state: 'STARTING',
+    }));
+    const http = { get, post } as unknown as HTTPClient;
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+
+    const result = await deployments.start('clear-window-works');
+
+    expect(result.id).toBe('11111111-1111-4111-8111-111111111111');
+    expect(post).toHaveBeenCalledWith(
+      '/deployments/11111111-1111-4111-8111-111111111111/start',
+      expect.objectContaining({
+        env: expect.objectContaining({
+          OPENCLAW_GATEWAY_TOKEN: expect.any(String),
+        }),
+      }),
+    );
+  });
+
   it('searches the web through the Brave proxy', async () => {
     const fetchMock = vi.fn(async () => new Response(
       JSON.stringify({ web: { results: [{ title: 'HyperCLI', url: 'https://hypercli.com' }] } }),
@@ -363,6 +413,61 @@ describe('Agents SDK', () => {
       expect.objectContaining({
         method: 'POST',
         headers: { Authorization: 'Bearer app-jwt' },
+      }),
+    );
+  });
+
+  it('attaches hosted Slack relay through a deployment client using agent names', async () => {
+    const http = {
+      get: vi.fn(async (path: string) => {
+        if (path === '/deployments') {
+          return {
+            items: [{
+              id: '11111111-1111-4111-8111-111111111111',
+              user_id: 'user-456',
+              pod_id: 'pod-789',
+              pod_name: 'clear-window-works',
+              name: 'clear-window-works',
+              state: 'STOPPED',
+            }],
+          };
+        }
+        if (path === '/deployments/11111111-1111-4111-8111-111111111111') {
+          return {
+            id: '11111111-1111-4111-8111-111111111111',
+            user_id: 'user-456',
+            pod_id: 'pod-789',
+            pod_name: 'clear-window-works',
+            name: 'clear-window-works',
+            state: 'STOPPED',
+          };
+        }
+        throw new Error(`unexpected GET ${path}`);
+      }),
+    } as unknown as HTTPClient;
+    const fetchMock = vi.fn(async () => new Response(
+      JSON.stringify({
+        connected: true,
+        agent_id: '11111111-1111-4111-8111-111111111111',
+        gateway_id: 'agent:11111111-1111-4111-8111-111111111111',
+        config: { enabled: true, mode: 'relay' },
+        restart_required: true,
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+    const result = await deployments.attachSlackRelayAgent('clear-window-works', {
+      relayBaseUrl: 'https://api.agents.hypercli.com',
+    });
+
+    expect(result.agentId).toBe('11111111-1111-4111-8111-111111111111');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.agents.hypercli.com/slack/agents/11111111-1111-4111-8111-111111111111/relay',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { Authorization: 'Bearer hyper_api_test' },
       }),
     );
   });

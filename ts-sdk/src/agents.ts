@@ -165,6 +165,11 @@ export interface AttachSlackRelayAgentResult {
   botUserId?: string | null;
 }
 
+export interface AttachDeploymentSlackRelayAgentOptions {
+  relayBaseUrl: string;
+  token?: string;
+}
+
 export interface BraveWebSearchOptions {
   count?: number;
   country?: string;
@@ -499,6 +504,11 @@ function stripRelPrefix(path: string): string {
 
 function isUuidRef(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
+}
+
+function isDirectAgentIdRef(value: string): boolean {
+  const raw = value.trim();
+  return isUuidRef(raw) || /^[0-9a-f]{6,}$/i.test(raw) || /^(agent|external)[-_:]/i.test(raw);
 }
 
 /** Strip a workspace prefix so gateway (name-addressed) sees the bare name. */
@@ -2352,7 +2362,10 @@ export class Deployments {
     if (!raw) {
       throw new Error('agentIdOrName is required');
     }
-    return raw;
+    if (isDirectAgentIdRef(raw)) {
+      return raw;
+    }
+    return (await this.resolveAgent(raw)).id;
   }
 
   private async agentIdFor(target: Agent | string): Promise<string> {
@@ -2477,6 +2490,18 @@ export class Deployments {
   async rotateExternalAgentKey(agentIdOrName: string): Promise<Record<string, any>> {
     const agentId = await this.resolveAgentId(agentIdOrName);
     return this.agentHttp.post(`/external-agents/${agentId}/keys/rotate`);
+  }
+
+  async attachSlackRelayAgent(
+    agentIdOrName: string,
+    options: AttachDeploymentSlackRelayAgentOptions,
+  ): Promise<AttachSlackRelayAgentResult> {
+    const agentId = await this.resolveAgentId(agentIdOrName);
+    return attachSlackRelayAgent({
+      relayBaseUrl: options.relayBaseUrl,
+      token: options.token || this.apiKey,
+      agentId,
+    });
   }
 
   async waitRunning(agentIdOrName: string, timeoutMs = 300_000, pollIntervalMs = 5_000): Promise<Agent> {

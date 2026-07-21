@@ -776,6 +776,18 @@ def _is_openclaw_agent_data(data: dict) -> bool:
     return False
 
 
+def _is_direct_agent_id_ref(value: str) -> bool:
+    raw = str(value or "").strip()
+    if not raw:
+        return False
+    try:
+        UUID(raw)
+        return True
+    except ValueError:
+        pass
+    return bool(re.fullmatch(r"[0-9a-fA-F]{6,}", raw) or re.match(r"^(agent|external)[-_:]", raw, re.I))
+
+
 def _is_openclaw_pro_agent_data(data: dict) -> bool:
     launch_config = data.get("launch_config")
     if not isinstance(launch_config, dict):
@@ -1748,7 +1760,9 @@ class Deployments:
         raw = str(agent_id_or_name or "").strip()
         if not raw:
             raise ValueError("agent_id_or_name is required")
-        return raw
+        if _is_direct_agent_id_ref(raw):
+            return raw
+        return self.resolve_agent(raw).id
 
     def _file_headers(self, *, content_type: str | None = None) -> dict[str, str]:
         headers = {"Authorization": f"Bearer {self._api_key}"}
@@ -2054,6 +2068,35 @@ class Deployments:
         """Rotate an external agent relay key and return the new plaintext key once."""
         agent_id = self.resolve_agent_id(agent_id_or_name)
         return self._post(f"/external-agents/{agent_id}/keys/rotate")
+
+    def attach_slack_relay_agent(
+        self,
+        agent_id_or_name: str,
+        *,
+        relay_base_url: str,
+        token: str | None = None,
+    ) -> dict:
+        """Attach an agent to the hosted HyperCLI Slack relay.
+
+        The relay verifies the caller's Slack install and persists the OpenClaw
+        Slack relay launch config on the backend. Running agents still need a
+        restart before OpenClaw reads the updated channel config.
+        """
+        resolved_agent_id = self.resolve_agent_id(agent_id_or_name)
+        relay_base = str(relay_base_url or "").strip().rstrip("/")
+        if not relay_base:
+            raise ValueError("relay_base_url is required")
+        auth_token = token or self._api_key
+        headers = {"Authorization": f"Bearer {auth_token}", "Content-Type": "application/json"}
+        with httpx.Client(timeout=30) as client:
+            resp = client.post(f"{relay_base}/slack/agents/{resolved_agent_id}/relay", headers=headers)
+        if resp.status_code >= 400:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            raise APIError(resp.status_code, detail)
+        return resp.json()
 
     def wait_running(self, agent_id_or_name: str, timeout: float = 300.0, poll_interval: float = 5.0) -> Agent:
         """Poll until an agent reaches RUNNING and return a refreshed agent."""
