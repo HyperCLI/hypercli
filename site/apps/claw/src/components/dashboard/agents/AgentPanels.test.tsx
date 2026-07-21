@@ -15,6 +15,13 @@ vi.mock("@hypercli/shared-ui", () => ({
   TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipContent: ({ children }: { children: ReactNode }) => <>{children}</>,
   ThemeToggle: () => <button type="button">Theme</button>,
+  Switch: ({ checked, onCheckedChange, "aria-label": ariaLabel }: {
+    checked: boolean;
+    onCheckedChange: (checked: boolean) => void;
+    "aria-label"?: string;
+  }) => (
+    <button type="button" role="switch" aria-label={ariaLabel} aria-checked={checked} onClick={() => onCheckedChange(!checked)} />
+  ),
   ConfirmDialog: ({
     open,
     title,
@@ -151,6 +158,7 @@ function agentThread(item: Agent) {
     sessionKey: item.id,
     participants: [{ id: item.id, name: item.name, type: "agent" as const }],
     kind: "user-agent" as const,
+    title: item.displayName?.trim() || item.name,
     lastMessage: item.state === "RUNNING" ? "Connected" : item.state.toLowerCase(),
     lastMessageBy: item.id,
     lastMessageAt: Date.now(),
@@ -255,15 +263,47 @@ describe("AgentList", () => {
     fireEvent.click(screen.getByRole("button", { name: /select test agent/i }));
     expect(props.setSidebarCollapsed).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByTitle("Expand sidebar"));
+    fireEvent.click(screen.getByRole("button", { name: "Expand agents sidebar" }));
     expect(props.setSidebarCollapsed).toHaveBeenCalledWith(false);
   });
 
   it("only collapses the expanded agents/channels sidebar from its explicit collapse control", () => {
     const props = renderAgentList({ sidebarCollapsed: false });
 
-    fireEvent.click(screen.getByTitle("Collapse sidebar"));
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
     expect(props.setSidebarCollapsed).toHaveBeenCalledWith(true);
+  });
+
+  it("places My Agents or search below the desktop roster actions", () => {
+    renderAgentList({ sidebarCollapsed: false });
+
+    const rosterHeader = document.querySelector(".agents-roster-header");
+    const actions = document.querySelector(".agents-roster-actions");
+    const sectionHeader = document.querySelector(".agents-roster-section-header");
+    const search = screen.getByRole("button", { name: "Search agents" });
+    const collapse = screen.getByRole("button", { name: "Collapse sidebar" });
+
+    expect(actions).toContainElement(collapse);
+    expect(sectionHeader).toContainElement(screen.getByRole("heading", { name: /^My Agents/ }));
+    expect(screen.queryByRole("button", { name: /^My Agents/ })).not.toBeInTheDocument();
+    expect(sectionHeader).toContainElement(search);
+    const myAgentsLabel = screen.getByText(/^My Agents\(\d+\)$/);
+    expect(myAgentsLabel).toHaveClass("text-[13px]", "text-text-secondary");
+    expect(myAgentsLabel).not.toHaveClass("uppercase");
+    expect(screen.getByText("Administration")).toHaveClass("text-text-secondary");
+    expect(sectionHeader).toHaveClass("pl-5", "pr-3");
+    expect(document.querySelector(".agents-roster-administration > div")).toHaveClass("pl-5", "pr-3");
+    expect(sectionHeader?.querySelector(".h-px")).not.toBeInTheDocument();
+    expect(document.querySelector(".agents-roster-administration .h-px")).not.toBeInTheDocument();
+    expect(rosterHeader).not.toContainElement(search);
+    expect(rosterHeader).not.toContainElement(collapse);
+
+    fireEvent.click(search);
+    const searchRow = document.querySelector(".agents-roster-search");
+    expect(searchRow).toContainElement(screen.getByPlaceholderText("Search Agents"));
+    expect(searchRow?.firstElementChild).toHaveClass("px-4", "pb-3", "pt-2");
+    expect(sectionHeader).toContainElement(screen.getByRole("button", { name: "Close search" }));
+    expect(document.querySelector(".agents-roster-section-header")).toBeInTheDocument();
   });
 
   it("opens the launch agent wizard from the expanded agents list button", () => {
@@ -273,11 +313,79 @@ describe("AgentList", () => {
     expect(screen.getByText("First agent setup wizard")).toBeInTheDocument();
   });
 
+  it("aligns the expanded launch action with reorderable agent rows", () => {
+    const agents = [agent, failedAgent];
+    renderAgentList({
+      sidebarCollapsed: false,
+      agents,
+      syntheticThreads: agents.map(agentThread),
+    });
+
+    const launch = screen.getByRole("button", { name: "Launch agent" });
+    expect(launch).toHaveClass("items-start", "border-l-2", "border-r", "border-border", "px-3", "py-2.5");
+    expect(launch.children[0]).toHaveAttribute("aria-hidden", "true");
+    expect(launch.children[0]).toHaveClass("-ml-2", "h-7", "w-6");
+    expect(launch.children[1]).toHaveClass("h-7", "w-7", "rounded-full");
+    expect(launch).toHaveTextContent("Create a new workspace");
+    expect(document.querySelector(".agents-roster-section-header")).toHaveClass("pl-5", "pr-3");
+    expect(document.querySelector(".agents-roster-administration > div")).toHaveClass("pl-5", "pr-3");
+    expect(document.querySelector(".agents-roster-expanded .agents-roster-header")).toBeInTheDocument();
+    expect(document.querySelector(".agents-roster-expanded .agents-roster-scroll")).toBeInTheDocument();
+  });
+
+  it("uses display names and omits a redundant sender from agent status", () => {
+    const displayAgent: Agent = {
+      ...agent,
+      id: "agent-marketing",
+      name: "rapid-forge-engine",
+      displayName: "Marketing",
+    };
+    const agents = [agent, displayAgent];
+    renderAgentList({
+      sidebarCollapsed: false,
+      agents,
+      syntheticThreads: agents.map(agentThread),
+    });
+
+    expect(screen.getByText("Marketing")).toBeInTheDocument();
+    expect(screen.getByText((_, element) => (
+      element?.tagName === "P" && element.textContent === "Connected"
+    ))).toBeInTheDocument();
+    expect(screen.queryByText("Test Agent: Connected")).not.toBeInTheDocument();
+    expect(screen.getByText((_, element) => (
+      element?.tagName === "P" && element.textContent === "rapid-forge-engine: Connected"
+    ))).toBeInTheDocument();
+  });
+
   it("shows the launch agent button in the collapsed rail", () => {
     renderAgentList();
 
     fireEvent.click(screen.getByRole("button", { name: /launch agent/i }));
     expect(screen.getByText("First agent setup wizard")).toBeInTheDocument();
+  });
+
+  it("shows Home and Shared Knowledge actions in the collapsed rail", () => {
+    const onOpenHome = vi.fn();
+    const onOpenKnowledge = vi.fn();
+    renderAgentList({ onOpenHome, onOpenKnowledge, knowledgeActive: true });
+
+    const home = screen.getByRole("button", { name: "Home" });
+    const sharedKnowledge = screen.getByRole("button", { name: "Shared Knowledge" });
+    const dividers = document.querySelectorAll(".agents-roster-rail-divider");
+
+    expect(dividers).toHaveLength(2);
+    expect(dividers[0]).toHaveAttribute("aria-hidden", "true");
+    expect(dividers[1]).toHaveAttribute("aria-hidden", "true");
+    expect(dividers[0]).toHaveClass("my-2");
+    expect(dividers[1]).toHaveClass("my-2");
+    expect(document.querySelector(".agents-roster-rail-primary")).toHaveClass("gap-2");
+    expect(document.querySelector(".agents-roster-rail-agents")).toHaveClass("gap-2");
+    expect(sharedKnowledge).toHaveAttribute("aria-current", "page");
+    expect(sharedKnowledge).toHaveClass("text-[var(--selection-accent)]");
+    fireEvent.click(home);
+    fireEvent.click(sharedKnowledge);
+    expect(onOpenHome).toHaveBeenCalledOnce();
+    expect(onOpenKnowledge).toHaveBeenCalledOnce();
   });
 
   it("hides only stopped agents from the collapsed rail by default", () => {
@@ -316,6 +424,23 @@ describe("AgentList", () => {
     ]));
   });
 
+  it("hides agent hover cards while a collapsed reorder handle is active", () => {
+    const agents = [agent, failedAgent];
+    renderAgentList({
+      agents,
+      syntheticThreads: agents.map(agentThread),
+    });
+
+    const handle = screen.getByRole("button", { name: "Move Test Agent" });
+    expect(screen.getAllByText("agent.example.com")).toHaveLength(2);
+
+    fireEvent.pointerDown(handle);
+    expect(screen.queryByText("agent.example.com")).not.toBeInTheDocument();
+
+    fireEvent.pointerUp(handle);
+    expect(screen.getAllByText("agent.example.com")).toHaveLength(2);
+  });
+
   it("reveals offline agents from the expanded roster and remembers the choice when collapsed", async () => {
     const agents = [agent, stoppedAgent, failedAgent, startingAgent];
     const baseProps = createAgentListProps({
@@ -335,18 +460,18 @@ describe("AgentList", () => {
     expect(screen.getAllByText("Failed Agent").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Starting Agent").length).toBeGreaterThan(0);
 
-    const showOffline = screen.getByRole("button", { name: "Show offline agents" });
-    expect(showOffline).toHaveAttribute("aria-pressed", "false");
-    expect(showOffline).toHaveTextContent("Offline1");
+    const showOffline = screen.getByRole("switch", { name: "Show offline agents" });
+    expect(showOffline).toHaveAttribute("aria-checked", "false");
+    expect(showOffline.parentElement).toHaveTextContent("Show Offline(1)");
     fireEvent.click(showOffline);
 
     expect(screen.getAllByText("Stopped Agent").length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "Hide offline agents" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("switch", { name: "Show offline agents" })).toHaveAttribute("aria-checked", "true");
 
-    fireEvent.click(screen.getByTitle("Collapse sidebar"));
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Select Stopped Agent" })).toBeInTheDocument());
-    fireEvent.click(screen.getByTitle("Expand sidebar"));
-    const hideOffline = await screen.findByRole("button", { name: "Hide offline agents" });
+    fireEvent.click(screen.getByRole("button", { name: "Expand agents sidebar" }));
+    const hideOffline = await screen.findByRole("switch", { name: "Show offline agents" });
     expect(screen.getAllByText("Stopped Agent").length).toBeGreaterThan(0);
     fireEvent.click(hideOffline);
     await waitFor(() => expect(screen.queryAllByText("Stopped Agent")).toHaveLength(0));
@@ -361,7 +486,7 @@ describe("AgentList", () => {
     });
 
     expect(screen.queryByText("Stopped Agent")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Show offline agents" })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Show offline agents" })).toBeInTheDocument();
   });
 
   it("reorders agents from the drag handle without selecting them", async () => {
@@ -399,7 +524,7 @@ describe("AgentList", () => {
       "Move Failed Agent",
     ]));
 
-    fireEvent.click(screen.getByTitle("Collapse sidebar"));
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
     await waitFor(() => expect(
       screen.getAllByRole("button", { name: /^Select / }).map((button) => button.getAttribute("aria-label")),
     ).toEqual([
@@ -463,8 +588,8 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByRole("button", { name: "Agent" })).toHaveAttribute("aria-current", "page");
     expect(screen.queryByRole("heading", { name: "Profile" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Agent Settings" })).toBeInTheDocument();
-    expect(screen.getByText("Agent Name")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Test Agent")).toBeInTheDocument();
+    expect(screen.getByText("Display name")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Agent display name" })).toHaveValue("Test Agent");
     expect(screen.getByText("Default model")).toBeInTheDocument();
     expect(screen.getByText("Visibility")).toBeInTheDocument();
     expect(screen.getByText("Auto-archive idle projects")).toBeInTheDocument();
@@ -570,16 +695,32 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByText("Profile updated.")).toBeInTheDocument();
   });
 
-  it("saves the agent name through the agent update callback", async () => {
+  it("saves the display name through the agent name update callback", async () => {
     const onUpdateAgentName = vi.fn(async () => undefined);
     renderAgentSettingsPanel({ onUpdateAgentName });
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
-    fireEvent.change(screen.getByDisplayValue("Test Agent"), { target: { value: "Renamed Agent" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Agent display name" }), { target: { value: "Renamed Agent" } });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => {
       expect(onUpdateAgentName).toHaveBeenCalledWith("agent-1", "Renamed Agent");
+    });
+    expect(screen.getByText("Agent settings updated.")).toBeInTheDocument();
+  });
+
+  it("saves the display name as the managed agent name", async () => {
+    const onUpdateAgentProfile = vi.fn(async () => undefined);
+    renderAgentSettingsPanel({ onUpdateAgentProfile });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Agent display name" }), {
+      target: { value: "Marketing" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      expect(onUpdateAgentProfile).toHaveBeenCalledWith("agent-1", { name: "Marketing" });
     });
     expect(screen.getByText("Agent settings updated.")).toBeInTheDocument();
   });

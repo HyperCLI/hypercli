@@ -1187,6 +1187,496 @@ describe("GatewayClient", () => {
     expect((client as any).pending.size).toBe(0);
   });
 
+  it("reuses an ephemeral session for sequential turns without intermediate resets", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    const sessionsReset = vi.spyOn(client, "sessionsReset").mockImplementation(async (key, reason) => (
+      reason === "new" ? `agent:default:${key}` : key
+    ));
+    const chatSend = vi.spyOn(client, "chatSend").mockImplementation(async function* (message) {
+      yield { type: "content", text: `${message} response` };
+      yield { type: "done" };
+    });
+
+    const session = await client.createEphemeralChatSession();
+    const firstStream = session.chatSend("first");
+    expect(() => session.chatSend("concurrent")).toThrow(/active turn/i);
+    const firstEvents = [];
+    for await (const event of firstStream) firstEvents.push(event);
+
+    expect(firstEvents).toEqual([
+      { type: "content", text: "first response" },
+      { type: "done" },
+    ]);
+    expect(sessionsReset).toHaveBeenCalledTimes(1);
+
+    const secondEvents = [];
+    for await (const event of session.chatSend("second")) secondEvents.push(event);
+
+    expect(secondEvents).toEqual([
+      { type: "content", text: "second response" },
+      { type: "done" },
+    ]);
+    expect(chatSend.mock.calls.map(([message, sessionKey]) => [message, sessionKey])).toEqual([
+      ["first", session.sessionKey],
+      ["second", session.sessionKey],
+    ]);
+    expect(sessionsReset).toHaveBeenCalledTimes(1);
+
+    await session.close();
+    expect(sessionsReset).toHaveBeenCalledTimes(2);
+    expect(sessionsReset).toHaveBeenLastCalledWith(session.sessionKey, "reset");
+  });
+
+  it("uses strict correlation and forwards attachments for every ephemeral session turn", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client, "sessionsReset").mockImplementation(async (key) => key);
+    const chatSend = vi.spyOn(client, "chatSend").mockImplementation(async function* () {
+      yield { type: "done" };
+    });
+    const attachments = [{
+      type: "image",
+      mimeType: "image/png",
+      content: "cG5n",
+      fileName: "diagram.png",
+    }];
+
+    const session = await client.createEphemeralChatSession();
+    for await (const _event of session.chatSend("Inspect", attachments)) {
+      // Consume the turn so the session can accept another one.
+    }
+
+    expect(chatSend).toHaveBeenCalledWith(
+      "Inspect",
+      session.sessionKey,
+      attachments,
+      { strictCorrelation: true, ephemeralSession: true },
+    );
+    await session.close();
+  });
+
+  it("closes an ephemeral session idempotently and resets it exactly once", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    const sessionsReset = vi.spyOn(client, "sessionsReset").mockImplementation(async (key) => key);
+    const session = await client.createEphemeralChatSession();
+
+    const firstClose = session.close();
+    const secondClose = session.close();
+
+    expect(session.closed).toBe(true);
+    expect(secondClose).toBe(firstClose);
+    await Promise.all([firstClose, secondClose, session.close()]);
+    expect(sessionsReset).toHaveBeenCalledTimes(2);
+    expect(sessionsReset).toHaveBeenNthCalledWith(1, session.sessionKey, "new");
+    expect(sessionsReset).toHaveBeenNthCalledWith(2, session.sessionKey, "reset");
+  });
+
+  it("rejects ephemeral session sends after close", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client, "sessionsReset").mockImplementation(async (key) => key);
+    const chatSend = vi.spyOn(client, "chatSend");
+    const session = await client.createEphemeralChatSession();
+    await session.close();
+
+    expect(() => session.chatSend("too late")).toThrow(/closed/i);
+    expect(chatSend).not.toHaveBeenCalled();
+  });
+
+  it("keeps an ephemeral session reusable after aborting its active turn", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client, "sessionsReset").mockImplementation(async (key) => key);
+    vi.spyOn(client, "chatAbort").mockResolvedValue(undefined);
+    vi.spyOn(client, "chatSend").mockImplementation(async function* (message) {
+      yield { type: "content", text: message };
+      await new Promise<void>(() => undefined);
+    });
+    const session = await client.createEphemeralChatSession();
+    const firstTurn = session.chatSend("first");
+    await expect(firstTurn.next()).resolves.toMatchObject({ value: { type: "content", text: "first" } });
+
+    await session.chatAbort();
+    await flushMicrotasks();
+
+    const secondTurn = session.chatSend("second");
+    await expect(secondTurn.next()).resolves.toMatchObject({ value: { type: "content", text: "second" } });
+    await secondTurn.return(undefined);
+    await session.close();
+  });
+
+  it("requires aborting a locally closed turn before starting another ephemeral turn", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client, "sessionsReset").mockImplementation(async (key) => key);
+    vi.spyOn(client, "chatAbort").mockResolvedValue(undefined);
+    vi.spyOn(client, "chatSend").mockImplementation(async function* (message) {
+      yield { type: "content", text: message };
+    });
+    const session = await client.createEphemeralChatSession();
+    const firstTurn = session.chatSend("first");
+    await firstTurn.next();
+    await firstTurn.return(undefined);
+
+    expect(() => session.chatSend("overlap")).toThrow(/active turn/i);
+    await session.chatAbort();
+    const secondTurn = session.chatSend("second");
+    await expect(secondTurn.next()).resolves.toMatchObject({ value: { type: "content", text: "second" } });
+    await session.chatAbort();
+    await session.close();
+  });
+
+  it("aborts and closes an active turn before resetting its ephemeral session", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    const lifecycle: string[] = [];
+    const sessionsReset = vi.spyOn(client, "sessionsReset").mockImplementation(async (key, reason) => {
+      lifecycle.push(`reset:${reason}`);
+      return key;
+    });
+    let releaseTurn: (() => void) | undefined;
+    vi.spyOn(client, "chatSend").mockImplementation(async function* () {
+      try {
+        yield { type: "content", text: "partial" };
+        await new Promise<void>((resolve) => { releaseTurn = resolve; });
+        yield { type: "done" };
+      } finally {
+        lifecycle.push("iterator:closed");
+      }
+    });
+    const chatAbort = vi.spyOn(client, "chatAbort").mockImplementation(async () => {
+      lifecycle.push("abort");
+      releaseTurn?.();
+    });
+    const session = await client.createEphemeralChatSession();
+    const stream = session.chatSend("Generate");
+    await expect(stream.next()).resolves.toMatchObject({ value: { type: "content", text: "partial" } });
+    const pending = stream.next();
+    await flushMicrotasks();
+
+    await session.close();
+
+    await expect(pending).resolves.toMatchObject({ value: { type: "done" } });
+    expect(chatAbort).toHaveBeenCalledWith(session.sessionKey);
+    expect(sessionsReset).toHaveBeenCalledTimes(2);
+    expect(lifecycle).toEqual(["reset:new", "abort", "iterator:closed", "reset:reset"]);
+  });
+
+  it("does not report cleanup success when aborting the active turn fails", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    const sessionsReset = vi.spyOn(client, "sessionsReset").mockImplementation(async (key) => key);
+    const chatAbort = vi.spyOn(client, "chatAbort")
+      .mockRejectedValueOnce(new Error("abort unavailable"))
+      .mockResolvedValue(undefined);
+    vi.spyOn(client, "chatSend").mockImplementation(async function* () {
+      yield { type: "content", text: "partial" };
+    });
+    const session = await client.createEphemeralChatSession();
+    const stream = session.chatSend("private");
+    await stream.next();
+
+    await expect(session.close()).rejects.toThrow(/did not stop/i);
+    expect(sessionsReset.mock.calls.filter(([, reason]) => reason === "reset")).toHaveLength(0);
+    await expect(session.close()).resolves.toBeUndefined();
+    expect(chatAbort).toHaveBeenCalledTimes(2);
+    expect(sessionsReset.mock.calls.filter(([, reason]) => reason === "reset")).toHaveLength(1);
+  });
+
+  it("suppresses reserved ephemeral session events after the session closes", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client, "sessionsReset").mockImplementation(async (key, reason) => (
+      reason === "new" ? `agent:default:${key}` : key
+    ));
+    const session = await client.createEphemeralChatSession();
+    const unscopedSessionKey = session.sessionKey.slice(session.sessionKey.lastIndexOf(":") + 1);
+    await session.close();
+    const publicEvents: string[] = [];
+    client.onEvent((event) => publicEvents.push(event.payload.text));
+
+    for (const sessionKey of [unscopedSessionKey, session.sessionKey]) {
+      (client as any).handleMessage(JSON.stringify({
+        type: "event",
+        event: "chat.content",
+        payload: { sessionKey, text: "private" },
+      }));
+    }
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.content",
+      payload: { sessionKey: "main", text: "public" },
+    }));
+
+    expect(publicEvents).toEqual(["public"]);
+  });
+
+  it("retries an ephemeral reset after cleanup fails", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    let resetAttempts = 0;
+    const sessionsReset = vi.spyOn(client, "sessionsReset").mockImplementation(async (key, reason) => {
+      if (reason === "reset" && resetAttempts++ === 0) throw new Error("reset unavailable");
+      return key;
+    });
+    const session = await client.createEphemeralChatSession();
+
+    await expect(session.close()).rejects.toThrow("reset unavailable");
+    await expect(session.close()).resolves.toBeUndefined();
+
+    expect(sessionsReset.mock.calls.filter(([, reason]) => reason === "reset")).toHaveLength(2);
+  });
+
+  it("suppresses late run-only events from a closed ephemeral session", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client, "sessionsReset").mockImplementation(async (key) => key);
+    vi.spyOn(client as any, "rpc").mockImplementation(async (method: string) => {
+      if (method === "chat.send") return { runId: "private-late-run" };
+      throw new Error(`unexpected RPC ${method}`);
+    });
+    const session = await client.createEphemeralChatSession();
+    const completion = (async () => {
+      const events = [];
+      for await (const event of session.chatSend("private")) events.push(event);
+      return events;
+    })();
+    await flushMicrotasks();
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.content",
+      payload: { runId: "private-late-run", text: "response" },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.done",
+      payload: { runId: "private-late-run" },
+    }));
+    await completion;
+    await session.close();
+    const publicEvents: string[] = [];
+    client.onEvent((event) => publicEvents.push(event.payload.text));
+
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.content",
+      payload: { runId: "private-late-run", text: "private" },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.content",
+      payload: { runId: "normal-late-run", text: "public" },
+    }));
+
+    expect(publicEvents).toEqual(["public"]);
+  });
+
+  it("re-publishes an unrelated run-only event deferred before ephemeral acknowledgement", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client, "sessionsReset").mockImplementation(async (key) => key);
+    vi.spyOn(client, "chatAbort").mockResolvedValue(undefined);
+    let resolveAck: ((value: { runId: string }) => void) | undefined;
+    vi.spyOn(client as any, "rpc").mockImplementation(async (method: string) => {
+      if (method !== "chat.send") throw new Error(`unexpected RPC ${method}`);
+      return await new Promise<{ runId: string }>((resolve) => { resolveAck = resolve; });
+    });
+    const publicEvents: string[] = [];
+    client.onEvent((event) => publicEvents.push(event.payload.text));
+    const session = await client.createEphemeralChatSession();
+    const stream = session.chatSend("private");
+    const firstEvent = stream.next();
+    await flushMicrotasks();
+
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.content",
+      payload: { runId: "unacknowledged-private-run", sessionKey: session.sessionKey, text: "private early" },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.content",
+      payload: { runId: "normal-concurrent-run", text: "normal" },
+    }));
+    expect(publicEvents).toEqual([]);
+    resolveAck?.({ runId: "private-run" });
+    await flushMicrotasks();
+
+    expect(publicEvents).toEqual(["normal"]);
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.content",
+      payload: { runId: "private-run", text: "private response" },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.done",
+      payload: { runId: "private-run" },
+    }));
+    await firstEvent;
+    await stream.return(undefined);
+    await session.close();
+  });
+
+  it("does not publish one private stream while concurrent ephemeral acknowledgements are pending", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client, "sessionsReset").mockImplementation(async (key) => key);
+    vi.spyOn(client, "chatAbort").mockResolvedValue(undefined);
+    const acknowledge = new Map<string, (value: { runId: string }) => void>();
+    vi.spyOn(client as any, "rpc").mockImplementation(async (method: string, params: Record<string, any>) => {
+      if (method !== "chat.send") throw new Error(`unexpected RPC ${method}`);
+      return await new Promise<{ runId: string }>((resolve) => acknowledge.set(params.message, resolve));
+    });
+    const publicEvents: string[] = [];
+    client.onEvent((event) => publicEvents.push(event.payload.text));
+    const firstSession = await client.createEphemeralChatSession();
+    const secondSession = await client.createEphemeralChatSession();
+    const firstStream = firstSession.chatSend("first");
+    const secondStream = secondSession.chatSend("second");
+    const firstEvent = firstStream.next();
+    const secondEvent = secondStream.next();
+    await flushMicrotasks();
+
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.content",
+      payload: { runId: "first-run", text: "first private" },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.content",
+      payload: { runId: "normal-run", text: "normal" },
+    }));
+    acknowledge.get("second")?.({ runId: "second-run" });
+    await flushMicrotasks();
+    expect(publicEvents).toEqual([]);
+
+    acknowledge.get("first")?.({ runId: "first-run" });
+    await flushMicrotasks();
+    expect(publicEvents).toEqual(["normal"]);
+    await expect(firstEvent).resolves.toMatchObject({ value: { type: "content", text: "first private" } });
+
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.done",
+      payload: { runId: "first-run" },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.content",
+      payload: { runId: "second-run", text: "second private" },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.done",
+      payload: { runId: "second-run" },
+    }));
+    await expect(secondEvent).resolves.toMatchObject({ value: { type: "content", text: "second private" } });
+    await firstStream.return(undefined);
+    await secondStream.return(undefined);
+    await firstSession.close();
+    await secondSession.close();
+  });
+
+  it("quarantines unknown run-only events after an ephemeral acknowledgement fails", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client, "sessionsReset").mockImplementation(async (key) => key);
+    vi.spyOn(client, "chatAbort").mockResolvedValue(undefined);
+    vi.spyOn(client as any, "rpc").mockImplementation(async (method: string) => {
+      if (method === "chat.send") throw new Error("acknowledgement lost");
+      throw new Error(`unexpected RPC ${method}`);
+    });
+    const session = await client.createEphemeralChatSession();
+    const stream = session.chatSend("private");
+    await expect(stream.next()).rejects.toThrow("acknowledgement lost");
+    const publicEvents: string[] = [];
+    client.onEvent((event) => publicEvents.push(event.payload.text));
+
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.content",
+      payload: { runId: "unknown-private-run", text: "private leak" },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.content",
+      payload: { runId: "normal-run", sessionKey: "main", text: "normal" },
+    }));
+
+    expect(publicEvents).toEqual(["normal"]);
+    await session.close();
+  });
+
+  it("does not quarantine public events when an ephemeral attachment fails local validation", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client, "sessionsReset").mockImplementation(async (key) => key);
+    const session = await client.createEphemeralChatSession();
+
+    expect(() => session.chatSend("private", [{
+      dataUrl: "not-a-data-url",
+      mimeType: "image/png",
+    }])).toThrow(/invalid chat attachment/i);
+    const publicEvents: string[] = [];
+    client.onEvent((event) => publicEvents.push(event.payload.text));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.content",
+      payload: { runId: "normal-run", text: "normal" },
+    }));
+
+    expect(publicEvents).toEqual(["normal"]);
+    await session.close();
+  });
+
+  it("suppresses nested session updates and identity-less activity while an ephemeral session is active", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client, "sessionsReset").mockImplementation(async (key) => key);
+    const session = await client.createEphemeralChatSession();
+    const publicEvents: string[] = [];
+    client.onEvent((event) => publicEvents.push(event.event));
+
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "sessions.updated",
+      payload: { sessions: [{ key: session.sessionKey, title: "Private chat" }] },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "activity.log",
+      payload: { text: "private activity" },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "status.updated",
+      payload: { state: "ready" },
+    }));
+
+    expect(publicEvents).toEqual(["status.updated"]);
+    await session.close();
+  });
+
   it("runs an ephemeral chat and resets its hidden session after completion", async () => {
     const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
     (client as any).connected = true;
@@ -1211,9 +1701,25 @@ describe("GatewayClient", () => {
       "Generate JSON",
       `agent:default:${sessionKey}`,
       undefined,
-      { strictCorrelation: true },
+      { strictCorrelation: true, ephemeralSession: true },
     );
     expect(chatAbort).not.toHaveBeenCalled();
+  });
+
+  it("rejects a completed ephemeral run when its session cannot be reset", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client, "sessionsReset").mockImplementation(async (key, reason) => {
+      if (reason === "reset") throw new Error("cleanup unavailable");
+      return key;
+    });
+    vi.spyOn(client, "chatSend").mockImplementation(async function* () {
+      yield { type: "content", text: "private result" };
+      yield { type: "done" };
+    });
+
+    await expect(client.runEphemeralChat("Generate JSON")).rejects.toThrow("cleanup unavailable");
   });
 
   it.each([
@@ -1431,7 +1937,7 @@ describe("GatewayClient", () => {
     const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
     (client as any).connected = true;
     (client as any).ws = { readyState: MockWebSocket.OPEN };
-    vi.spyOn(client, "sessionsReset").mockImplementation(async (key) => key);
+    const sessionsReset = vi.spyOn(client, "sessionsReset").mockImplementation(async (key) => key);
     vi.spyOn(client, "chatSend").mockImplementation(async function* () {
       yield { type: "error", text: "workflow failed" };
     });
@@ -1442,6 +1948,24 @@ describe("GatewayClient", () => {
     })).rejects.toThrow("workflow failed");
 
     expect(events).toEqual(["error:workflow failed"]);
+    expect(sessionsReset.mock.calls.filter(([, reason]) => reason === "reset")).toHaveLength(1);
+  });
+
+  it("reports both a terminal ephemeral error and a cleanup failure", async () => {
+    const client = new GatewayClient({ url: "wss://openclaw-agent.example", gatewayToken: "gw-token" });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client, "sessionsReset").mockImplementation(async (key, reason) => {
+      if (reason === "reset") throw new Error("reset unavailable");
+      return key;
+    });
+    vi.spyOn(client, "chatSend").mockImplementation(async function* () {
+      yield { type: "error", text: "workflow failed" };
+    });
+
+    await expect(client.runEphemeralChat("Inspect")).rejects.toThrow(
+      "workflow failed Private chat cleanup also failed: reset unavailable",
+    );
   });
 
   it("aborts and resets an ephemeral chat when its response exceeds the limit", async () => {
@@ -1756,6 +2280,75 @@ describe("GatewayClient", () => {
     const events = await streamPromise;
     expect(events.map((event) => event.type)).toEqual(["content", "done"]);
     expect(events[0]?.text).toBe("SMOKE_OK");
+  });
+
+  it("waits for fresh uncorrelated history on a reused ephemeral session", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client, "sessionsReset").mockImplementation(async (key) => key);
+    let secondTurnStarted = false;
+    let secondTurnHistoryReads = 0;
+    vi.spyOn(client as any, "rpc").mockImplementation(async (method: string, params: Record<string, any>) => {
+      if (method === "chat.send") {
+        if (params.message === "second") secondTurnStarted = true;
+        return { runId: `${params.message}-run` };
+      }
+      if (method === "chat.history") {
+        if (!secondTurnStarted) {
+          throw new Error("history temporarily unavailable");
+        }
+        secondTurnHistoryReads += 1;
+        return {
+          messages: secondTurnHistoryReads === 1
+            ? [{ role: "assistant", content: "first response" }]
+            : [
+                { role: "assistant", content: "first response" },
+                { role: "assistant", content: "second response" },
+              ],
+        };
+      }
+      throw new Error(`unexpected RPC ${method}`);
+    });
+    const session = await client.createEphemeralChatSession();
+    const firstCompletion = (async () => {
+      const events = [];
+      for await (const event of session.chatSend("first")) events.push(event);
+      return events;
+    })();
+    await flushMicrotasks();
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.content",
+      payload: { runId: "first-run", text: "first response" },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.done",
+      payload: { runId: "first-run" },
+    }));
+    await firstCompletion;
+
+    const secondCompletion = (async () => {
+      const events = [];
+      for await (const event of session.chatSend("second")) events.push(event);
+      return events;
+    })();
+    await flushMicrotasks();
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.done",
+      payload: { runId: "second-run" },
+    }));
+
+    const secondEvents = await secondCompletion;
+    expect(secondEvents.filter((event) => event.type === "content").map((event) => event.text)).toEqual([
+      "second response",
+    ]);
+    await session.close();
   });
 
   it("chatSend forwards pre-normalized attachments in the chat.send request", async () => {

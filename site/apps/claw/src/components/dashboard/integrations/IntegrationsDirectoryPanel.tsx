@@ -863,6 +863,7 @@ export function IntegrationsDirectoryPanel({
           <IntegrationChatCardHost
             action={action}
             chat={gatewaySession}
+            agentId={agentId}
             agentName={agentName}
             directSetup
             slackRelaySetup={slackRelaySetup}

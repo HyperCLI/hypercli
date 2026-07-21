@@ -11,6 +11,13 @@ vi.mock("@hypercli/shared-ui", () => ({
   TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipContent: ({ children }: { children: ReactNode }) => <>{children}</>,
   ThemeToggle: () => <button type="button">Theme</button>,
+  Switch: ({ checked, onCheckedChange, "aria-label": ariaLabel }: {
+    checked: boolean;
+    onCheckedChange: (checked: boolean) => void;
+    "aria-label"?: string;
+  }) => (
+    <button type="button" role="switch" aria-label={ariaLabel} aria-checked={checked} onClick={() => onCheckedChange(!checked)} />
+  ),
 }));
 
 const mocks = vi.hoisted(() => ({
@@ -53,7 +60,7 @@ describe("DashboardAgentRail", () => {
     expect(screen.getByLabelText("Agents")).toHaveClass("bg-surface-low");
     expect(screen.getByRole("link", { name: "Create agent" })).toHaveAttribute("href", "/dashboard/agents?open=agent-launcher");
     expect(screen.getByRole("link", { name: "Open Dev Agent" })).toHaveAttribute("href", "/dashboard/agents?agentId=agent-1");
-    expect(screen.getByRole("button", { name: "J" })).toHaveTextContent("J");
+    expect(screen.getByRole("button", { name: "Account links" })).toHaveTextContent("J");
 
     fireEvent.click(screen.getByRole("button", { name: "Expand agents sidebar" }));
 
@@ -73,7 +80,7 @@ describe("DashboardAgentRail", () => {
 
     expect(screen.getByRole("link", { name: "HyperCLI home" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Launch agent" })).toBeInTheDocument();
-    expect(screen.getByText("My Agents")).toBeInTheDocument();
+    expect(screen.getByText(/^My Agents\(\d+\)$/)).toBeInTheDocument();
     expect(screen.queryByText("Available Agents")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Move / })).not.toBeInTheDocument();
     expect(screen.getAllByText("Dev Agent").length).toBeGreaterThan(0);
@@ -108,7 +115,7 @@ describe("DashboardAgentRail", () => {
     fireEvent.click(screen.getByRole("button", { name: "Expand agents sidebar" }));
     expect(screen.queryByText("Stopped Agent")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Show offline agents" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Show offline agents" }));
     expect(screen.getAllByText("Stopped Agent").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
@@ -127,7 +134,7 @@ describe("DashboardAgentRail", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "J" }));
+    fireEvent.click(screen.getByRole("button", { name: "Account links" }));
     expect(screen.getByRole("menuitem", { name: "Agents" })).toHaveAttribute("href", "/dashboard/agents");
     fireEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
 

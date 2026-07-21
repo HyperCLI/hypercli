@@ -9,6 +9,11 @@ const TEST_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQxMDI0NDQ4MDB9.signature";
 const SECONDARY_SESSION_KEY = "session-secondary-focus";
 const ARCHIVED_SESSION_KEY = "session-archived-focus";
 
+interface AgentChatGatewayRequest {
+  method: string;
+  params?: { sessionKey?: string; key?: string; reason?: string; [key: string]: unknown };
+}
+
 function json(body: unknown) {
   return {
     status: 200,
@@ -17,7 +22,11 @@ function json(body: unknown) {
   };
 }
 
-async function mockAgentChat(page: Page): Promise<void> {
+async function mockAgentChat(page: Page): Promise<{ requests: AgentChatGatewayRequest[] }> {
+  const tracker = { requests: [] as AgentChatGatewayRequest[] };
+  await page.exposeFunction("__recordAgentChatGatewayRequest", (request: AgentChatGatewayRequest) => {
+    tracker.requests.push(request);
+  });
   await page.context().addCookies([
     {
       name: "auth_token",
@@ -32,8 +41,13 @@ async function mockAgentChat(page: Page): Promise<void> {
   await page.addInitScript(({ token, secondarySessionKey }) => {
     window.localStorage.setItem("claw_auth_token", token);
     window.localStorage.setItem("app_auth_token", token);
-    const gatewayCalls = { urls: [] as string[], methods: [] as string[] };
+    const gatewayCalls = {
+      urls: [] as string[],
+      methods: [] as string[],
+      requests: [] as AgentChatGatewayRequest[],
+    };
     (window as Window & { __agentChatNavigationGatewayCalls?: typeof gatewayCalls }).__agentChatNavigationGatewayCalls = gatewayCalls;
+    const NativeWebSocket = window.WebSocket;
 
     class MockWebSocket {
       static readonly CONNECTING = 0;
@@ -69,6 +83,11 @@ async function mockAgentChat(page: Page): Promise<void> {
         };
         const secondaryAgent = this.url.includes("agent-2");
         gatewayCalls.methods.push(message.method);
+        const request = { method: message.method, params: message.params };
+        gatewayCalls.requests.push(request);
+        void (window as Window & {
+          __recordAgentChatGatewayRequest?: (value: AgentChatGatewayRequest) => Promise<void>;
+        }).__recordAgentChatGatewayRequest?.(request);
 
         if (message.method === "connect") {
           this.respond(message.id, {
@@ -101,6 +120,22 @@ async function mockAgentChat(page: Page): Promise<void> {
             messages: isSecondaryFocus
               ? [{ role: "assistant", content: "Secondary focus history restored" }]
               : [],
+          });
+          return;
+        }
+
+        if (message.method === "chat.send") {
+          const runId = `agent-chat-navigation-${message.id}`;
+          this.respond(message.id, { runId });
+          this.emit({
+            type: "event",
+            event: "chat.content",
+            payload: { runId, sessionKey: message.params?.sessionKey, text: "Private reply" },
+          });
+          this.emit({
+            type: "event",
+            event: "chat.done",
+            payload: { runId, sessionKey: message.params?.sessionKey },
           });
           return;
         }
@@ -152,7 +187,13 @@ async function mockAgentChat(page: Page): Promise<void> {
     Object.defineProperty(window, "WebSocket", {
       configurable: true,
       writable: true,
-      value: MockWebSocket,
+      value: new Proxy(NativeWebSocket, {
+        construct(target, args) {
+          const url = String(args[0]);
+          if (url.includes(".example.test")) return new MockWebSocket(url);
+          return Reflect.construct(target, args);
+        },
+      }),
     });
   }, { token: TEST_JWT, secondarySessionKey: SECONDARY_SESSION_KEY });
 
@@ -230,6 +271,8 @@ async function mockAgentChat(page: Page): Promise<void> {
 
     await route.fulfill(json({}));
   });
+
+  return tracker;
 }
 
 async function expectSessionBefore(page: Page, firstName: string, secondName: string): Promise<void> {
@@ -307,4 +350,54 @@ test("pinned sessions stay first across reload and return to recency order after
   await expectSessionBefore(page, "Secondary Focus", "Archived Focus");
   await expect(page.getByTitle("Pinned session")).toHaveCount(0);
   await expect.poll(() => page.evaluate((storageKey) => window.localStorage.getItem(storageKey), "openclaw.sessionPins.v1:agent-2")).toBeNull();
+});
+
+test("private chat stays out of navigation state and resets before switching agents", async ({ page }) => {
+  const gatewayTracker = await mockAgentChat(page);
+  await page.goto("/dashboard/agents?agentId=agent-1", { waitUntil: "domcontentloaded" });
+
+  const startPrivateChat = page.getByRole("button", { name: "Start private chat" });
+  await expect(startPrivateChat).toBeEnabled();
+  const requestsBeforePrivateChat = gatewayTracker.requests.length;
+  await startPrivateChat.click();
+
+  await expect(page.getByRole("button", { name: "End private chat" })).toBeVisible();
+  await expect(page.getByText(/hidden from Sessions and is not stored in this browser/i)).toBeVisible();
+  await expect.poll(() => new URL(page.url()).searchParams.get("session")).toBeNull();
+  await expect.poll(() => (
+    gatewayTracker.requests.slice(requestsBeforePrivateChat).find((request) => (
+      request.method === "sessions.reset" &&
+      request.params?.reason === "new" &&
+      request.params.key?.startsWith("session-hypercli-ephemeral-")
+    ))?.params?.key ?? null
+  )).toMatch(/^session-hypercli-ephemeral-/);
+  const privateSessionKey = gatewayTracker.requests.slice(requestsBeforePrivateChat).find((request) => (
+    request.method === "sessions.reset" &&
+    request.params?.reason === "new" &&
+    request.params.key?.startsWith("session-hypercli-ephemeral-")
+  ))!.params!.key!;
+  await page.locator("textarea").fill("private browser secret");
+  await page.getByTitle("Send message").click();
+  await expect(page.getByText("Private reply", { exact: true })).toBeVisible();
+  await page.waitForTimeout(350);
+  const storedBrowserState = await page.evaluate(() => JSON.stringify(Object.fromEntries(
+    Array.from({ length: window.localStorage.length }, (_, index) => {
+      const key = window.localStorage.key(index) ?? "";
+      return [key, window.localStorage.getItem(key)];
+    }),
+  )));
+  expect(storedBrowserState).not.toContain("session-hypercli-ephemeral-");
+  expect(storedBrowserState).not.toContain("private browser secret");
+
+  await page.getByRole("button", { name: "Select Secondary Agent" }).click();
+
+  await expect.poll(() => new URL(page.url()).searchParams.get("agentId")).toBe("agent-2");
+  await expect.poll(() => (
+    gatewayTracker.requests.filter((request) => (
+      request.method === "sessions.reset" &&
+      request.params?.key === privateSessionKey &&
+      request.params.reason === "reset"
+    )).length
+  )).toBe(1);
+  await expect(page.getByRole("button", { name: "End private chat" })).toHaveCount(0);
 });

@@ -3,6 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import { IntegrationChatCardHost } from "./IntegrationChatCardHost";
 
+vi.mock("@/hooks/useAgentAuth", () => ({
+  useAgentAuth: () => ({ getToken: vi.fn(async () => "token"), isAuthenticated: true, isLoading: false }),
+}));
+
 const telegramSchema = {
   schema: {},
   uiHints: {
@@ -11,7 +15,7 @@ const telegramSchema = {
 };
 
 describe("IntegrationChatCardHost", () => {
-  it.each(["discord", "slack", "whatsapp"] as const)("renders the %s channel card", async (integrationId) => {
+  it.each(["discord", "whatsapp"] as const)("renders the %s channel card", async (integrationId) => {
     render(
       <IntegrationChatCardHost
         action={{ version: 1, type: "integration.connect", integrationId }}
@@ -25,6 +29,19 @@ describe("IntegrationChatCardHost", () => {
 
     expect(await screen.findByRole("button", { name: /start setup/i })).toBeInTheDocument();
     expect(screen.getByText(new RegExp(`connect ${integrationId}`, "i"))).toBeInTheDocument();
+  });
+
+  it("renders the integrations Slack card in chat", async () => {
+    render(
+      <IntegrationChatCardHost
+        action={{ version: 1, type: "integration.connect", integrationId: "slack" }}
+        chat={{ connected: true, config: null, saveConfig: vi.fn(async () => undefined) } as never}
+      />,
+    );
+
+    expect(await screen.findByText("Connect Slack")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Advanced mode/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /start setup/i })).not.toBeInTheDocument();
   });
 
   it("uses the Slack override when hosted relay setup state is provided", async () => {

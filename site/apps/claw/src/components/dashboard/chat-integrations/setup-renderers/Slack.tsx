@@ -4,9 +4,9 @@ import type { IntegrationSetupRenderContext } from "./types";
 
 export function renderSlackSetup(context: IntegrationSetupRenderContext) {
   const { chat, slackRelaySetup } = context;
-  if (!slackRelaySetup) return null;
   return (
     <SlackChatConnectorCard
+      agentId={context.agentId}
       connected={chat.connected}
       config={chat.config as Record<string, unknown> | null}
       connectorsProvider={chat.connectorsProvider}
@@ -18,6 +18,8 @@ export function renderSlackSetup(context: IntegrationSetupRenderContext) {
       onGenerateConnectorWorkflow={chat.generateConnectorWorkflow}
       onRunShellProposal={chat.runConnectorShellProposal}
       onReconnectGateway={gatewayReconnect(chat)}
+      onEnsureSlackSupport={chat.ensureSlackSupport}
+      onRefreshChannels={chat.refreshReportedChannels}
       onOpenIntegrationDetails={openIntegrationDetails(context)}
       onOpenFullSetup={openFullSetup(context)}
       onDismiss={context.onDismiss}

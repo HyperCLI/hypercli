@@ -156,6 +156,15 @@ export interface BrowserChatAttachment {
 
 export type ChatAttachment = GatewayChatAttachmentPayload | BrowserChatAttachment;
 
+export interface GatewayEphemeralChatSession {
+  readonly sessionKey: string;
+  readonly closed: boolean;
+  chatSend(message: string, attachments?: ChatAttachment[]): AsyncGenerator<ChatEvent>;
+  chatHistory(limit?: number): Promise<any[]>;
+  chatAbort(): Promise<void>;
+  close(): Promise<void>;
+}
+
 export interface GatewayCloseInfo {
   code: number;
   reason: string;
@@ -1103,6 +1112,8 @@ const OPERATOR_ROLE = "operator";
 const OPERATOR_SCOPES = ["operator.admin", "operator.approvals", "operator.pairing"];
 const STORAGE_KEY = "openclaw.device.auth.v1";
 const EPHEMERAL_SESSION_PREFIX = "session-hypercli-ephemeral-";
+const EPHEMERAL_RUN_ID_SUPPRESSION_MS = DEFAULT_AGENT_TIMEOUT + 5 * 60_000;
+const EPHEMERAL_TURN_CLOSE_WAIT_MS = 1_000;
 const CONNECT_ERROR_PAIRING_REQUIRED = "PAIRING_REQUIRED";
 const CONNECT_ERROR_AUTH_TOKEN_MISMATCH = "AUTH_TOKEN_MISMATCH";
 const CONNECT_ERROR_AUTH_RATE_LIMITED = "AUTH_RATE_LIMITED";
@@ -1496,7 +1507,42 @@ function extractMessageRunId(message: unknown): string | null {
   return metaRunId || null;
 }
 
-function latestHistoryAssistantText(messages: unknown[], acceptedRunIds: Set<string>): string | null {
+interface HistoryAssistantBaseline {
+  count: number;
+  latestText: string;
+}
+
+function historyAssistantBaseline(
+  messages: unknown[],
+  priorAssistantTexts: string[] = [],
+): HistoryAssistantBaseline {
+  const assistantTexts = messages.flatMap((candidate) => {
+    const message = asRecord(candidate);
+    const role = typeof message?.role === "string" ? message.role.trim().toLowerCase() : "";
+    const text = role === "assistant" ? extractMessageText(message)?.trim() : "";
+    return text ? [text] : [];
+  });
+  const useTrackedPrior = priorAssistantTexts.length > assistantTexts.length;
+  return {
+    count: Math.max(assistantTexts.length, priorAssistantTexts.length),
+    latestText: useTrackedPrior
+      ? priorAssistantTexts[priorAssistantTexts.length - 1] ?? ""
+      : assistantTexts[assistantTexts.length - 1] ?? "",
+  };
+}
+
+function latestHistoryAssistantText(
+  messages: unknown[],
+  acceptedRunIds: Set<string>,
+  baseline?: HistoryAssistantBaseline | null,
+): string | null {
+  const currentBaseline = historyAssistantBaseline(messages);
+  const hasNewUncorrelatedAssistant = baseline === undefined || Boolean(
+    baseline && (
+      currentBaseline.count > baseline.count ||
+      currentBaseline.latestText !== baseline.latestText
+    )
+  );
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = asRecord(messages[index]);
     if (!message) {
@@ -1508,6 +1554,9 @@ function latestHistoryAssistantText(messages: unknown[], acceptedRunIds: Set<str
     }
     const messageRunId = extractMessageRunId(message);
     if (messageRunId && acceptedRunIds.size > 0 && !acceptedRunIds.has(messageRunId)) {
+      continue;
+    }
+    if (!messageRunId && !hasNewUncorrelatedAssistant) {
       continue;
     }
     const text = extractMessageText(message)?.trim();
@@ -1573,7 +1622,7 @@ function sameSessionKey(left: string | undefined, right: string | undefined): bo
 
 function isReservedEphemeralSessionKey(sessionKey: string): boolean {
   return /^session-hypercli-ephemeral-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
-    sessionKey,
+    sessionKey.trim().toLowerCase(),
   );
 }
 
@@ -1585,6 +1634,52 @@ function validateEphemeralCanonicalKey(requestedKey: string, canonicalKey: strin
   if (agentSeparator <= "agent:".length) return null;
   if (!canonicalKey.slice("agent:".length, agentSeparator).trim()) return null;
   return canonicalKey.slice(agentSeparator + 1) === requestedKey ? canonicalKey : null;
+}
+
+function valueReferencesEphemeralSession(
+  value: unknown,
+  activeSessionKeys: string[],
+  seen = new WeakSet<object>(),
+): boolean {
+  if (typeof value === "string") {
+    const candidate = value.trim();
+    const unscoped = parseAgentSessionKey(candidate)?.rest ?? candidate;
+    return isReservedEphemeralSessionKey(unscoped) || activeSessionKeys.some((key) => sameSessionKey(candidate, key));
+  }
+  if (!value || typeof value !== "object" || seen.has(value)) return false;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    return value.some((item) => valueReferencesEphemeralSession(item, activeSessionKeys, seen));
+  }
+  return Object.values(value).some((item) => valueReferencesEphemeralSession(item, activeSessionKeys, seen));
+}
+
+async function promiseSettlesWithin(promise: Promise<unknown>, timeoutMs: number): Promise<boolean> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise.then(() => true, () => true),
+      new Promise<boolean>((resolve) => {
+        timeout = setTimeout(() => resolve(false), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+async function booleanPromiseWithin(promise: Promise<boolean>, timeoutMs: number): Promise<boolean> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise.catch(() => false),
+      new Promise<boolean>((resolve) => {
+        timeout = setTimeout(() => resolve(false), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 function isChatStreamGatewayEvent(event: GatewayEvent): boolean {
@@ -2335,7 +2430,12 @@ export class GatewayClient {
   private pending = new Map<string, PendingRequest>();
   private eventHandlers = new Set<GatewayEventHandler>();
   private internalEventHandlers = new Set<InternalGatewayEventHandler>();
-  private activeEphemeralSessionKeys = new Set<string>();
+  private activeEphemeralSessionKeys = new Map<string, number | null>();
+  private suppressedEphemeralRunIds = new Map<string, number>();
+  private pendingEphemeralChatAcks = 0;
+  private deferredEphemeralCorrelationEvents = new Set<GatewayEvent>();
+  private deferredEphemeralEventsCanRepublish = true;
+  private suppressUncorrelatedChatEventsUntil = 0;
   private connectionStateHandlers = new Set<GatewayConnectionStateHandler>();
   private connected = false;
   private connectionState: GatewayConnectionState = "disconnected";
@@ -2466,23 +2566,101 @@ export class GatewayClient {
     return () => this.eventHandlers.delete(handler);
   }
 
+  private currentEphemeralSessionKeys(): string[] {
+    const now = Date.now();
+    for (const [sessionKey, expiresAt] of this.activeEphemeralSessionKeys) {
+      if (expiresAt !== null && expiresAt <= now) this.activeEphemeralSessionKeys.delete(sessionKey);
+    }
+    return [...this.activeEphemeralSessionKeys.keys()];
+  }
+
   private shouldSuppressPublicEvent(event: GatewayEvent, handledInternally: boolean): boolean {
     if (handledInternally) return true;
     const payload = asRecord(event.payload) ?? {};
+    const activeSessionKeys = this.currentEphemeralSessionKeys();
+    if (valueReferencesEphemeralSession(payload, activeSessionKeys)) return true;
     const sessionKey = typeof payload.sessionKey === "string" ? payload.sessionKey.trim() : "";
+    const unscopedSessionKey = parseAgentSessionKey(sessionKey)?.rest ?? sessionKey;
+    if (isReservedEphemeralSessionKey(unscopedSessionKey)) return true;
     if (
       sessionKey &&
-      [...this.activeEphemeralSessionKeys].some((activeKey) => sameSessionKey(sessionKey, activeKey))
+      activeSessionKeys.some((activeKey) => sameSessionKey(sessionKey, activeKey))
     ) {
       return true;
     }
     const runId = typeof payload.runId === "string" ? payload.runId.trim() : "";
+    const suppressedRunExpiry = runId ? this.suppressedEphemeralRunIds.get(runId) : undefined;
+    if (suppressedRunExpiry !== undefined) {
+      if (suppressedRunExpiry > Date.now()) return true;
+      this.suppressedEphemeralRunIds.delete(runId);
+    }
+    if (
+      runId &&
+      !sessionKey &&
+      isChatStreamGatewayEvent(event) &&
+      this.suppressUncorrelatedChatEventsUntil > Date.now()
+    ) {
+      return true;
+    }
+    if (activeSessionKeys.length > 0 && event.event === "activity.log" && !sessionKey && !runId) {
+      return true;
+    }
     return (
-      this.activeEphemeralSessionKeys.size > 0 &&
+      activeSessionKeys.length > 0 &&
       !sessionKey &&
       !runId &&
       isChatStreamGatewayEvent(event)
     );
+  }
+
+  private suppressEphemeralRunId(runId: string): void {
+    const normalized = runId.trim();
+    if (!normalized) return;
+    const now = Date.now();
+    for (const [candidate, expiresAt] of this.suppressedEphemeralRunIds) {
+      if (expiresAt <= now) this.suppressedEphemeralRunIds.delete(candidate);
+    }
+    this.suppressedEphemeralRunIds.set(normalized, now + EPHEMERAL_RUN_ID_SUPPRESSION_MS);
+  }
+
+  private beginEphemeralChatAcknowledgement(): void {
+    if (this.pendingEphemeralChatAcks === 0) this.deferredEphemeralEventsCanRepublish = true;
+    this.pendingEphemeralChatAcks += 1;
+  }
+
+  private deferEphemeralCorrelationEvent(event: GatewayEvent): void {
+    if (this.pendingEphemeralChatAcks > 0) this.deferredEphemeralCorrelationEvents.add(event);
+  }
+
+  private finishEphemeralChatAcknowledgement(canRepublishDeferredEvents: boolean): void {
+    if (this.pendingEphemeralChatAcks <= 0) return;
+    this.deferredEphemeralEventsCanRepublish &&= canRepublishDeferredEvents;
+    this.pendingEphemeralChatAcks -= 1;
+    if (this.pendingEphemeralChatAcks > 0) return;
+
+    if (!this.deferredEphemeralEventsCanRepublish) {
+      this.suppressUncorrelatedChatEventsUntil = Math.max(
+        this.suppressUncorrelatedChatEventsUntil,
+        Date.now() + EPHEMERAL_RUN_ID_SUPPRESSION_MS,
+      );
+    }
+
+    const deferredEvents = [...this.deferredEphemeralCorrelationEvents];
+    this.deferredEphemeralCorrelationEvents.clear();
+    const shouldRepublish = this.deferredEphemeralEventsCanRepublish;
+    this.deferredEphemeralEventsCanRepublish = true;
+    if (shouldRepublish) deferredEvents.forEach((event) => this.publishPublicEvent(event));
+  }
+
+  private publishPublicEvent(event: GatewayEvent, handledInternally = false): void {
+    if (this.shouldSuppressPublicEvent(event, handledInternally)) return;
+    for (const handler of this.eventHandlers) {
+      try {
+        handler(event);
+      } catch {
+        // Event handlers are isolated from the socket lifecycle.
+      }
+    }
   }
 
   /** Connect and keep reconnecting until stopped */
@@ -2977,16 +3155,7 @@ export class GatewayClient {
           // Internal stream handlers are isolated from the socket lifecycle.
         }
       }
-      if (this.shouldSuppressPublicEvent(gatewayEvent, handledInternally)) {
-        return;
-      }
-      for (const handler of this.eventHandlers) {
-        try {
-          handler(gatewayEvent);
-        } catch {
-          // Event handlers are isolated from the socket lifecycle.
-        }
-      }
+      this.publishPublicEvent(gatewayEvent, handledInternally);
       return;
     }
 
@@ -3485,6 +3654,166 @@ export class GatewayClient {
     return typeof canonicalKey === "string" && canonicalKey.trim() ? canonicalKey.trim() : sessionKey;
   }
 
+  async createEphemeralChatSession(): Promise<GatewayEphemeralChatSession> {
+    if (!this.connected || !this.ws) throw new Error("Not connected");
+
+    const requestedSessionKey = `${EPHEMERAL_SESSION_PREFIX}${makeId()}`;
+    const canonicalSessionKey = await this.sessionsReset(requestedSessionKey, "new");
+    const sessionKey = validateEphemeralCanonicalKey(requestedSessionKey, canonicalSessionKey);
+    if (!sessionKey) {
+      await this.sessionsReset(requestedSessionKey, "reset").catch(() => undefined);
+      throw new Error(`Gateway returned an unsafe ephemeral session key: ${canonicalSessionKey}`);
+    }
+
+    this.activeEphemeralSessionKeys.set(sessionKey, null);
+    let closed = false;
+    let activeStream: AsyncGenerator<ChatEvent> | null = null;
+    let closePromise: Promise<void> | null = null;
+    let turnsStarted = 0;
+    let backendTurnMayBeActive = false;
+    const priorAssistantTexts: string[] = [];
+    const assertOpen = () => {
+      if (closed) throw new Error("Ephemeral chat session is closed.");
+    };
+
+    const session: GatewayEphemeralChatSession = {
+      sessionKey,
+      get closed() {
+        return closed;
+      },
+      chatSend: (message, attachments) => {
+        assertOpen();
+        if (activeStream || backendTurnMayBeActive) {
+          throw new Error("Ephemeral chat session already has an active turn.");
+        }
+
+        normalizeChatAttachments(attachments);
+        const source = this.chatSend(message, sessionKey, attachments, {
+          strictCorrelation: true,
+          ephemeralSession: true,
+          ...(turnsStarted > 0 ? { captureHistoryBaseline: true } : {}),
+          ...(priorAssistantTexts.length > 0 ? { priorAssistantTexts: [...priorAssistantTexts] } : {}),
+        });
+        turnsStarted += 1;
+        backendTurnMayBeActive = true;
+        let turnText = "";
+        let turnRecorded = false;
+        const observeEvent = (event: ChatEvent) => {
+          if (event.type === "content") turnText += event.text ?? "";
+          if (event.type !== "done" && event.type !== "error") return;
+          backendTurnMayBeActive = false;
+          if (event.type === "done" && turnText.trim() && !turnRecorded) {
+            turnRecorded = true;
+            priorAssistantTexts.push(turnText.trim());
+          }
+        };
+        const release = () => {
+          if (activeStream === stream) activeStream = null;
+        };
+        const stream = {
+          async next(value?: unknown) {
+            try {
+              const result = await source.next(value);
+              if (result.done) {
+                backendTurnMayBeActive = false;
+                release();
+              } else {
+                observeEvent(result.value);
+              }
+              return result;
+            } catch (error) {
+              release();
+              throw error;
+            }
+          },
+          async return(value?: any) {
+            try {
+              return await source.return(value);
+            } finally {
+              release();
+            }
+          },
+          async throw(error?: any) {
+            try {
+              const result = await source.throw(error);
+              if (result.done) {
+                backendTurnMayBeActive = false;
+                release();
+              } else {
+                observeEvent(result.value);
+              }
+              return result;
+            } catch (cause) {
+              release();
+              throw cause;
+            }
+          },
+          [Symbol.asyncIterator]() {
+            return stream;
+          },
+        } as AsyncGenerator<ChatEvent>;
+        activeStream = stream;
+        return stream;
+      },
+      chatHistory: (limit = 50) => {
+        assertOpen();
+        return this.chatHistory(sessionKey, limit);
+      },
+      chatAbort: async () => {
+        assertOpen();
+        const stream = activeStream;
+        await this.chatAbort(sessionKey);
+        backendTurnMayBeActive = false;
+        if (stream && !await promiseSettlesWithin(stream.return(undefined), EPHEMERAL_TURN_CLOSE_WAIT_MS)) {
+          throw new Error("Ephemeral chat turn is still stopping.");
+        }
+      },
+      close: () => {
+        if (closePromise) return closePromise;
+        closed = true;
+        const stream = activeStream;
+        const abortPromise = backendTurnMayBeActive
+          ? this.chatAbort(sessionKey).then(
+            () => {
+              backendTurnMayBeActive = false;
+              return true;
+            },
+            () => false,
+          )
+          : Promise.resolve(true);
+        const streamReturnPromise = stream?.return(undefined);
+        let cleanupComplete = false;
+        const attempt = (async () => {
+          try {
+            const backendStopped = await booleanPromiseWithin(abortPromise, EPHEMERAL_TURN_CLOSE_WAIT_MS);
+            if (!backendStopped) throw new Error("Ephemeral chat turn did not stop before cleanup timed out.");
+            if (streamReturnPromise) {
+              await promiseSettlesWithin(streamReturnPromise, EPHEMERAL_TURN_CLOSE_WAIT_MS);
+            }
+            await this.sessionsReset(sessionKey, "reset");
+            backendTurnMayBeActive = false;
+            cleanupComplete = true;
+          } finally {
+            if (cleanupComplete) {
+              this.activeEphemeralSessionKeys.delete(sessionKey);
+            } else {
+              this.activeEphemeralSessionKeys.set(
+                sessionKey,
+                Date.now() + EPHEMERAL_RUN_ID_SUPPRESSION_MS,
+              );
+            }
+          }
+        })();
+        closePromise = attempt;
+        void attempt.catch(() => {
+          if (closePromise === attempt) closePromise = null;
+        });
+        return attempt;
+      },
+    };
+    return session;
+  }
+
   // ---------------------------------------------------------------------------
   // Nodes (operator-side: manage & drive paired nodes)
   //
@@ -3566,7 +3895,12 @@ export class GatewayClient {
     message: string,
     sessionKey: string,
     attachments?: ChatAttachment[],
-    options: { strictCorrelation?: boolean } = {},
+    options: {
+      strictCorrelation?: boolean;
+      ephemeralSession?: boolean;
+      captureHistoryBaseline?: boolean;
+      priorAssistantTexts?: string[];
+    } = {},
   ): AsyncGenerator<ChatEvent> {
     if (!this.connected || !this.ws) {
       throw new Error("Not connected");
@@ -3574,6 +3908,7 @@ export class GatewayClient {
 
     const idempotencyKey = makeId();
     const acceptedRunIds = new Set<string>([idempotencyKey]);
+    if (options.ephemeralSession) this.suppressEphemeralRunId(idempotencyKey);
     const queuedEvents: GatewayEvent[] = [];
     let resolveWait: (() => void) | null = null;
     let correlationReady = false;
@@ -3582,6 +3917,8 @@ export class GatewayClient {
     let lastThinkingText = "";
     const seenToolCallIds = new Set<string>();
     const seenToolResultIds = new Set<string>();
+    let acknowledgementPending = false;
+    let historyBaseline: HistoryAssistantBaseline | null | undefined;
 
     const handler: InternalGatewayEventHandler = (evt) => {
       if (!isChatStreamGatewayEvent(evt)) return false;
@@ -3593,6 +3930,15 @@ export class GatewayClient {
         if (!payloadRunId && !payloadSessionKey) return false;
         if (payloadSessionKey && !sameSessionKey(payloadSessionKey, sessionKey)) return false;
         if (payloadRunId && correlationReady && !acceptedRunIds.has(payloadRunId)) return false;
+        if (
+          options.ephemeralSession &&
+          !correlationReady &&
+          payloadRunId &&
+          !payloadSessionKey &&
+          !acceptedRunIds.has(payloadRunId)
+        ) {
+          this.deferEphemeralCorrelationEvent(evt);
+        }
       }
       queuedEvents.push(evt);
       const waiter = resolveWait;
@@ -3601,10 +3947,23 @@ export class GatewayClient {
       return options.strictCorrelation === true;
     };
 
-    this.internalEventHandlers.add(handler);
-
     try {
+      if (options.captureHistoryBaseline) {
+        try {
+          historyBaseline = historyAssistantBaseline(
+            await this.chatHistory(sessionKey, 20),
+            options.priorAssistantTexts,
+          );
+        } catch {
+          historyBaseline = historyAssistantBaseline([], options.priorAssistantTexts);
+        }
+      }
       const normalizedAttachments = normalizeChatAttachments(attachments);
+      if (options.ephemeralSession) {
+        this.beginEphemeralChatAcknowledgement();
+        acknowledgementPending = true;
+      }
+      this.internalEventHandlers.add(handler);
       const params: Record<string, any> = {
         message,
         deliver: false,
@@ -3617,8 +3976,25 @@ export class GatewayClient {
       const serverRunId = typeof ack?.runId === "string" ? ack.runId.trim() : "";
       if (serverRunId) {
         acceptedRunIds.add(serverRunId);
+        if (options.ephemeralSession) this.suppressEphemeralRunId(serverRunId);
       }
       correlationReady = true;
+      if (options.strictCorrelation && queuedEvents.length > 0) {
+        for (let index = queuedEvents.length - 1; index >= 0; index -= 1) {
+          const payload = asRecord(queuedEvents[index]?.payload) ?? {};
+          const queuedRunId = typeof payload.runId === "string" ? payload.runId.trim() : "";
+          const queuedSessionKey = typeof payload.sessionKey === "string" ? payload.sessionKey.trim() : "";
+          const mismatchedSession = Boolean(queuedSessionKey && !sameSessionKey(queuedSessionKey, sessionKey));
+          const unacceptedRunOnlyEvent = Boolean(!queuedSessionKey && queuedRunId && !acceptedRunIds.has(queuedRunId));
+          if (mismatchedSession || unacceptedRunOnlyEvent) {
+            queuedEvents.splice(index, 1);
+          }
+        }
+      }
+      if (acknowledgementPending) {
+        acknowledgementPending = false;
+        this.finishEphemeralChatAcknowledgement(Boolean(serverRunId));
+      }
 
       const waitForHistoryText = async (timeoutMs = 10_000): Promise<string> => {
         const historyDeadline = Date.now() + Math.min(timeoutMs, DEFAULT_AGENT_TIMEOUT);
@@ -3626,6 +4002,7 @@ export class GatewayClient {
           const historyText = latestHistoryAssistantText(
             await this.chatHistory(sessionKey, 20),
             acceptedRunIds,
+            historyBaseline,
           );
           if (historyText) return historyText;
           if (Date.now() >= historyDeadline) return "";
@@ -3714,7 +4091,7 @@ export class GatewayClient {
               hasNonTextActivity
                 ? ""
                 : streamedDisplayText || lastLegacyText
-                ? latestHistoryAssistantText(await this.chatHistory(sessionKey, 20), acceptedRunIds)
+                ? latestHistoryAssistantText(await this.chatHistory(sessionKey, 20), acceptedRunIds, historyBaseline)
                 : await waitForHistoryText();
             if (historyText) {
               const streamed = streamDelta(lastLegacyText, historyText);
@@ -3894,6 +4271,7 @@ export class GatewayClient {
 
       throw new Error("Streaming chat.send timed out");
     } finally {
+      if (acknowledgementPending) this.finishEphemeralChatAcknowledgement(false);
       this.internalEventHandlers.delete(handler);
     }
   }
@@ -3915,14 +4293,14 @@ export class GatewayClient {
       throw new Error("Ephemeral chat response limit must be a positive integer.");
     }
 
-    const requestedSessionKey = `${EPHEMERAL_SESSION_PREFIX}${makeId()}`;
-    let sessionKey = requestedSessionKey;
-    let created = false;
-    let cleanupSessionKey: string | null = null;
+    let session: GatewayEphemeralChatSession | null = null;
     let terminal = false;
     let stream: AsyncGenerator<ChatEvent> | null = null;
     let stopError: Error | null = null;
     let abortPromise: Promise<void> | null = null;
+    let primaryError: unknown = null;
+    let cleanupError: unknown = null;
+    let resultContent: string | null = null;
     let resolveStop: ((error: Error) => void) | null = null;
     const stopped = new Promise<Error>((resolve) => {
       resolveStop = resolve;
@@ -3932,8 +4310,8 @@ export class GatewayClient {
         stopError = error;
         resolveStop?.(error);
       }
-      if (created && !terminal && !abortPromise) {
-        abortPromise = this.chatAbort(sessionKey).catch(() => undefined);
+      if (session && !terminal && !abortPromise) {
+        abortPromise = session.chatAbort().catch(() => undefined);
       }
       void stream?.return(undefined).catch(() => undefined);
     };
@@ -3955,20 +4333,13 @@ export class GatewayClient {
 
     try {
       if (options.signal?.aborted) throw abortError();
-      const canonicalSessionKey = await this.sessionsReset(requestedSessionKey, "new");
-      sessionKey = validateEphemeralCanonicalKey(requestedSessionKey, canonicalSessionKey) ?? "";
-      cleanupSessionKey = sessionKey || requestedSessionKey;
-      if (!sessionKey) {
-        throw new Error(`Gateway returned an unsafe ephemeral session key: ${canonicalSessionKey}`);
-      }
-      created = true;
-      this.activeEphemeralSessionKeys.add(sessionKey);
+      session = await this.createEphemeralChatSession();
       if (options.signal?.aborted) throw abortError();
       if (stopError) throw stopError;
 
       if (options.fastMode) {
         let fastModeTerminal = false;
-        stream = this.chatSend("/fast on", sessionKey, undefined, { strictCorrelation: true });
+        stream = session.chatSend("/fast on");
         while (true) {
           const next = await Promise.race([
             stream.next(),
@@ -3985,13 +4356,14 @@ export class GatewayClient {
             break;
           }
         }
+        await stream.return(undefined).catch(() => undefined);
         stream = null;
         if (stopError) throw stopError;
         if (!fastModeTerminal) throw new Error("Ephemeral fast mode ended without completing.");
       }
 
       let content = "";
-      stream = this.chatSend(prompt, sessionKey, undefined, { strictCorrelation: true });
+      stream = session.chatSend(prompt);
       while (true) {
         const next = await Promise.race([
           stream.next(),
@@ -4019,22 +4391,37 @@ export class GatewayClient {
       if (stopError) throw stopError;
       if (!terminal) throw new Error("Ephemeral chat ended without completing.");
       if (!content.trim()) throw new Error("Ephemeral chat returned an empty response.");
-      return content;
+      resultContent = content;
     } catch (error) {
-      if (created && !terminal) requestAbort(error instanceof Error ? error : new Error("Ephemeral chat failed."));
+      if (session && !terminal) requestAbort(error instanceof Error ? error : new Error("Ephemeral chat failed."));
       await abortPromise;
-      throw stopError ?? error;
+      primaryError = stopError ?? error;
     } finally {
       clearTimeout(timeout);
       options.signal?.removeEventListener("abort", handleSignalAbort);
-      void stream?.return(undefined).catch(() => undefined);
-      if (cleanupSessionKey && isReservedEphemeralSessionKey(
-        parseAgentSessionKey(cleanupSessionKey)?.rest ?? cleanupSessionKey,
-      )) {
-        await this.sessionsReset(cleanupSessionKey, "reset").catch(() => undefined);
+      if (stream && !primaryError) {
+        await promiseSettlesWithin(stream.return(undefined), EPHEMERAL_TURN_CLOSE_WAIT_MS);
       }
-      if (created) this.activeEphemeralSessionKeys.delete(sessionKey);
+      if (session) {
+        try {
+          await session.close();
+        } catch (error) {
+          cleanupError = error;
+        }
+      }
     }
+    if (primaryError && cleanupError) {
+      const primaryMessage = primaryError instanceof Error ? primaryError.message : String(primaryError);
+      const cleanupMessage = cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
+      const combinedError = new Error(`${primaryMessage} Private chat cleanup also failed: ${cleanupMessage}`);
+      combinedError.name = primaryError instanceof Error ? primaryError.name : "Error";
+      (combinedError as Error & { cause?: unknown }).cause = cleanupError;
+      throw combinedError;
+    }
+    if (primaryError) throw primaryError;
+    if (cleanupError) throw cleanupError;
+    if (resultContent === null) throw new Error("Ephemeral chat ended without a result.");
+    return resultContent;
   }
 
   // ---------------------------------------------------------------------------

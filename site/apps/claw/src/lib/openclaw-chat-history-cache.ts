@@ -1,6 +1,7 @@
 "use client";
 
 import type { ChatMessage } from "@/lib/openclaw-chat";
+import { isEphemeralOpenClawSessionName } from "@/lib/openclaw-session-sdk-surface";
 
 const CACHE_VERSION = 1;
 const CACHE_KEY_PREFIX = "hypercli:openclaw-chat-history:v1";
@@ -43,6 +44,7 @@ export function openClawChatHistoryCacheKey(
   const normalized = normalizedAgentId(agentId);
   if (!normalized) return null;
   const session = normalizedSessionKey(sessionKey);
+  if (session && isEphemeralOpenClawSessionName(session)) return null;
   const agentKey = `${CACHE_KEY_PREFIX}:${encodeURIComponent(normalized)}`;
   return session ? `${agentKey}:session:${encodeURIComponent(session)}` : agentKey;
 }

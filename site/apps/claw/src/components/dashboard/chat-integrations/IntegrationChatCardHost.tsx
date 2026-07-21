@@ -11,6 +11,7 @@ type ChatSession = AgentGatewaySession;
 interface IntegrationChatCardHostProps {
   action: ClawIntegrationConnectAction;
   chat: ChatSession;
+  agentId?: string | null;
   agentName?: string | null;
   agentSetupStatus?: GitHubAgentSetupStatus;
   onStartAgentGitHubSetup?: () => Promise<void> | void;

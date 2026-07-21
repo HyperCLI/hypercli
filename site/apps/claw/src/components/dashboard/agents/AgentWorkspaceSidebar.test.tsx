@@ -9,6 +9,20 @@ import { AgentWorkspaceSidebar } from "./AgentWorkspaceSidebar";
 type SidebarSession = NonNullable<ComponentProps<typeof AgentWorkspaceSidebar>["sessions"]>[number];
 
 vi.mock("@hypercli/shared-ui", () => ({
+  DropdownMenu: ({ children }: { children: ReactNode }) => <>{children}</>,
+  DropdownMenuTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
+  DropdownMenuContent: ({ children }: { children: ReactNode }) => <div role="menu">{children}</div>,
+  DropdownMenuLabel: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  DropdownMenuSeparator: () => <hr />,
+  DropdownMenuItem: ({ children, disabled, onSelect }: {
+    children: ReactNode;
+    disabled?: boolean;
+    onSelect?: (event: { preventDefault: () => void }) => void;
+  }) => (
+    <button type="button" role="menuitem" disabled={disabled} onClick={() => onSelect?.({ preventDefault: () => undefined })}>
+      {children}
+    </button>
+  ),
   Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipContent: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -46,7 +60,6 @@ function agentWorkspaceSidebarProps(overrides: Partial<ComponentProps<typeof Age
     onOpenFiles: vi.fn(),
     onOpenIntegrations: vi.fn(),
     onOpenSkills: vi.fn(),
-    onOpenKnowledge: vi.fn(),
     onOpenScheduled: vi.fn(),
     onOpenDesktop: vi.fn(),
     onOpenLogs: vi.fn(),
@@ -76,19 +89,30 @@ describe("AgentWorkspaceSidebar", () => {
     window.localStorage.clear();
   });
 
-  it("shows the selected agent name in the expanded header", () => {
-    renderAgentWorkspaceSidebar();
+  it("shows the current workspace selector without routing workspace creation to the agent launcher", () => {
+    renderAgentWorkspaceSidebar({
+      workspaceName: "Marketing",
+      workspaceInitial: "M",
+    });
 
-    expect(screen.getByText("Test Agent")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Current workspace: Marketing" })).toHaveTextContent("Marketing");
+    expect(screen.getByText("Workspaces")).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /New Workspace/ })).toBeDisabled();
+    expect(screen.getByText("Coming soon")).toBeInTheDocument();
   });
 
-  it("renders shared knowledge after scheduled in the workspace list", () => {
+  it("forces the desktop workspace sidebar expanded without a collapse control", () => {
+    window.localStorage.setItem("agents.workspaceCollapsed.v2", "1");
+    renderAgentWorkspaceSidebar({ forceExpanded: true });
+
+    expect(document.querySelector(".agent-workspace-shell")).toHaveAttribute("data-collapsed", "false");
+    expect(screen.queryByRole("button", { name: /workspace sidebar/i })).not.toBeInTheDocument();
+  });
+
+  it("does not render shared knowledge in the agent workspace list", () => {
     renderAgentWorkspaceSidebar();
 
-    expect(screen.getByText("Agent")).toBeInTheDocument();
-    expect(screen.queryByText("Workspace")).not.toBeInTheDocument();
-    const labels = screen.getAllByRole("button").map((button) => button.textContent ?? "");
-    expect(labels.findIndex((label) => label.includes("Shared knowledge"))).toBeGreaterThan(labels.findIndex((label) => label.includes("Scheduled")));
+    expect(screen.queryByRole("button", { name: /shared knowledge/i })).not.toBeInTheDocument();
   });
 
   it("shows and opens desktop only when the selected agent has desktop", () => {
@@ -147,7 +171,6 @@ describe("AgentWorkspaceSidebar", () => {
         onOpenFiles={vi.fn()}
         onOpenIntegrations={vi.fn()}
         onOpenSkills={vi.fn()}
-        onOpenKnowledge={vi.fn()}
         onOpenScheduled={vi.fn()}
         onOpenDesktop={vi.fn()}
         onOpenLogs={vi.fn()}
@@ -249,7 +272,11 @@ describe("AgentWorkspaceSidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Unpin", exact: true }));
     expect(onSetSessionPinned).toHaveBeenLastCalledWith("session-old", false);
     view.rerender(<AgentWorkspaceSidebar {...props} pinnedSessionKeys={[]} />);
-    await waitFor(() => expect(screen.queryByTitle("Pinned session")).not.toBeInTheDocument());
+    expect(screen.queryByTitle("Pinned session")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Old chat", exact: true }).closest("[data-session-pinned]"))
+      .toHaveAttribute("data-session-pinned", "false");
+    expectSessionBefore("Recent chat", "Old chat");
+    await waitFor(() => expect(document.querySelector("[data-session-unpin-animation]")).not.toBeInTheDocument());
   });
 
   it("matches an unscoped pin to a scoped session key", () => {
@@ -754,7 +781,6 @@ describe("AgentWorkspaceSidebar", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Session options for What is an agent" }));
-    expect(screen.getByRole("button", { name: /move to channels/i })).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: /rename/i }));
     expect(screen.getByText("Rename session")).toBeInTheDocument();
@@ -826,7 +852,6 @@ describe("AgentWorkspaceSidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: /files/i }));
     fireEvent.click(screen.getByRole("button", { name: /integrations/i }));
     fireEvent.click(screen.getByRole("button", { name: /skills/i }));
-    fireEvent.click(screen.getByRole("button", { name: /shared knowledge/i }));
     fireEvent.click(screen.getByRole("button", { name: /scheduled/i }));
     fireEvent.click(advanced);
     expect(props.onCreateSession).not.toHaveBeenCalled();
@@ -855,7 +880,6 @@ describe("AgentWorkspaceSidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: /files/i }));
     fireEvent.click(screen.getByRole("button", { name: /integrations/i }));
     fireEvent.click(screen.getByRole("button", { name: /skills/i }));
-    fireEvent.click(screen.getByRole("button", { name: /shared knowledge/i }));
     fireEvent.click(screen.getByRole("button", { name: /scheduled/i }));
 
     expect(props.onCreateSession).not.toHaveBeenCalled();
@@ -863,7 +887,6 @@ describe("AgentWorkspaceSidebar", () => {
     expect(props.onOpenFiles).toHaveBeenCalledWith();
     expect(props.onOpenIntegrations).toHaveBeenCalledTimes(1);
     expect(props.onOpenSkills).toHaveBeenCalledTimes(1);
-    expect(props.onOpenKnowledge).toHaveBeenCalledTimes(1);
     expect(props.onOpenScheduled).toHaveBeenCalledTimes(1);
     expect(props.onOpenScheduled).toHaveBeenCalledWith();
   });

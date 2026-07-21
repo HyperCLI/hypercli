@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { ArrowRight, FileText, Loader2, Mic, Paperclip, Pause, Play, Send, Sparkles, Square, X } from "lucide-react";
+import { ArrowRight, FileText, Loader2, LockKeyhole, Mic, Paperclip, Pause, Play, Send, Sparkles, Square, X } from "lucide-react";
 import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import { extractVoicePathFromMessage, OPENCLAW_WORKSPACE_DIR } from "@/lib/openclaw-config";
 import type { ChatPendingFile } from "@/lib/openclaw-chat";
@@ -604,10 +604,12 @@ export function AgentChatPanel({
   const bootStatus = useSettledChatBootStatus(selectedAgent.id, rawBootStatus);
   const displayBootStatus = bootStatus;
   const hasPendingAttachmentWork = chat.pendingAttachments.length > 0 || chat.pendingAttachmentReads > 0;
+  const temporaryChatTransitioning = chat.temporaryChatState === "starting" || chat.temporaryChatState === "ending";
   const readOnlyComposerReason = chat.activeSessionReadOnlyReason ?? "This connected conversation is read-only here.";
   const canSendChatDraft =
     chat.connected &&
     !chat.activeSessionReadOnly &&
+    !temporaryChatTransitioning &&
     chat.pendingAttachmentReads === 0 &&
     (chat.input.trim().length > 0 || chat.pendingAttachments.length > 0 || chat.pendingFiles.length > 0);
   const composerHasDraft =
@@ -617,7 +619,7 @@ export function AgentChatPanel({
     hasPendingAttachmentWork ||
     chat.pendingFiles.length > 0;
   const showComposer = displayBootStatus.status === "ready" || composerHasDraft;
-  const composerDisabled = displayBootStatus.status !== "ready" || !chat.connected || chat.activeSessionReadOnly;
+  const composerDisabled = displayBootStatus.status !== "ready" || !chat.connected || chat.activeSessionReadOnly || temporaryChatTransitioning;
   const composerPlaceholder = chat.activeSessionReadOnly
     ? readOnlyComposerReason
     : chat.connected
@@ -669,7 +671,7 @@ export function AgentChatPanel({
       onDragEnter={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (chat.activeSessionReadOnly) return;
+        if (chat.activeSessionReadOnly || temporaryChatTransitioning) return;
         if (!e.dataTransfer.types.includes("Files")) return;
         chatDragDepthRef.current += 1;
         setChatDragActive(true);
@@ -677,12 +679,12 @@ export function AgentChatPanel({
       onDragOver={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (chat.activeSessionReadOnly) return;
+        if (chat.activeSessionReadOnly || temporaryChatTransitioning) return;
       }}
       onDragLeave={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (chat.activeSessionReadOnly) return;
+        if (chat.activeSessionReadOnly || temporaryChatTransitioning) return;
         chatDragDepthRef.current = Math.max(0, chatDragDepthRef.current - 1);
         if (chatDragDepthRef.current === 0) {
           setChatDragActive(false);
@@ -693,7 +695,7 @@ export function AgentChatPanel({
         e.stopPropagation();
         chatDragDepthRef.current = 0;
         setChatDragActive(false);
-        if (chat.activeSessionReadOnly) return;
+        if (chat.activeSessionReadOnly || temporaryChatTransitioning) return;
         if (e.dataTransfer.files?.length) {
           void handleChatFileDrop(e.dataTransfer.files);
         }
@@ -708,6 +710,20 @@ export function AgentChatPanel({
         </div>
       )}
       {skillDraftTestBanner}
+      {chat.temporaryChatError ? (
+        <div role="alert" className="mx-3 mt-3 shrink-0 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning sm:mx-4">
+          {chat.temporaryChatError}
+        </div>
+      ) : null}
+      {chat.temporaryChatActive ? (
+        <div role="status" aria-label="Private chat is active" className="mx-3 mt-3 flex shrink-0 items-start gap-2 rounded-xl border border-[rgb(var(--selection-accent-rgb)_/_0.28)] bg-[rgb(var(--selection-accent-rgb)_/_0.08)] px-3 py-2 text-xs text-text-secondary sm:mx-4">
+          <LockKeyhole className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--selection-accent)]" />
+          <p>
+            <span className="font-medium text-foreground">Private chat.</span>{" "}
+            This conversation is hidden from Sessions and is not stored in this browser. Cleanup on the agent is best effort if the connection is interrupted. Agent actions can still affect shared files, memory, integrations, and settings.
+          </p>
+        </div>
+      ) : null}
       <div ref={chatScrollRef} onScroll={handleChatScroll} className="flex min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
         <div className="mx-auto flex min-h-full w-full max-w-5xl min-w-0 flex-1 flex-col gap-4 overflow-x-hidden px-3 py-3 sm:px-4 sm:py-4">
           {visibleChatMessages.length === 0 && !activeIntegrationAction && (
@@ -755,6 +771,7 @@ export function AgentChatPanel({
                           key={`${action.type}:${action.integrationId}:${actionIndex}`}
                           action={action}
                           chat={chat}
+                          agentId={selectedAgent.id}
                           agentName={selectedAgent.name || selectedAgent.id}
                           agentSetupStatus={githubAgentSetupStatus}
                           onStartAgentGitHubSetup={startAgentGitHubSetup}
@@ -782,6 +799,7 @@ export function AgentChatPanel({
                   key={`${selectedAgent.id}:${chat.activeSessionKey}:${activeIntegrationAction.integrationId}`}
                   action={activeIntegrationAction}
                   chat={chat}
+                  agentId={selectedAgent.id}
                   agentName={selectedAgent.name || selectedAgent.id}
                   agentSetupStatus={githubAgentSetupStatus}
                   onStartAgentGitHubSetup={startAgentGitHubSetup}
@@ -935,7 +953,7 @@ export function AgentChatPanel({
                   <button onClick={discardAudio} className="px-2 py-2 rounded-full border border-border text-text-muted hover:text-destructive hover:bg-surface-low flex items-center justify-center transition-colors" title="Discard" type="button">
                     <X className="w-4 h-4" />
                   </button>
-                  <button onClick={sendAudio} disabled={!chat.connected || chat.activeSessionReadOnly || activeSessionSending || sendingAudio} className="btn-primary px-3 py-2 rounded-full disabled:opacity-50 flex items-center justify-center" type="button">
+                  <button onClick={sendAudio} disabled={composerDisabled || activeSessionSending || sendingAudio} className="btn-primary px-3 py-2 rounded-full disabled:opacity-50 flex items-center justify-center" type="button">
                     {sendingAudio ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                   </button>
                 </>

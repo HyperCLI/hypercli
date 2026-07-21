@@ -5,29 +5,17 @@ import { ArrowRight, CheckCircle2, ExternalLink, Loader2, RefreshCw, X } from "l
 
 import { INTEGRATION_BRAND_LOGOS } from "@/components/dashboard/integrations/integration-brand-icons";
 import { ChannelChatConnectorCard } from "./ChannelChatConnectorCard";
+import { SLACK_CONNECTOR_HERO_ICON_CLASS, SLACK_CONNECTOR_HERO_TITLE_CLASS } from "./connector-card-hero";
 import { IntegrationBrandPulse } from "./IntegrationBrandPulse";
+import { useSlackRelaySetup, type SlackRelaySetupOptions } from "./useSlackRelaySetup";
 
-export interface SlackRelaySetupOptions {
-  mode: "prompt" | "hosted" | "self-hosted";
-  handle: string;
-  hostedAvailable: boolean;
-  connected: boolean | null;
-  workspace: string | null;
-  attached: boolean;
-  checking: boolean;
-  configuring: boolean;
-  error: string | null;
-  connectHref: string;
-  onChooseHosted: () => void;
-  onChooseSelfHosted: () => void;
-  onBackToChoice: () => void;
-  onRefreshHosted: () => void;
-  onConfigureHosted: () => void;
-  onRememberReturn?: () => void;
-}
+export type { SlackRelaySetupOptions } from "./useSlackRelaySetup";
 
 type SlackChatConnectorCardProps = Omit<ComponentProps<typeof ChannelChatConnectorCard>, "channelId" | "directSetup"> & {
-  slackRelaySetup: SlackRelaySetupOptions;
+  slackRelaySetup?: SlackRelaySetupOptions;
+  agentId?: string | null;
+  onEnsureSlackSupport?: () => Promise<unknown>;
+  onRefreshChannels?: (probe?: boolean) => Promise<unknown>;
 };
 
 function buttonClass(tone: "primary" | "secondary" = "secondary") {
@@ -39,9 +27,47 @@ function buttonClass(tone: "primary" | "secondary" = "secondary") {
 
 export function SlackChatConnectorCard({
   slackRelaySetup,
+  agentId,
+  onEnsureSlackSupport,
+  onRefreshChannels,
+  ...cardProps
+}: SlackChatConnectorCardProps) {
+  if (slackRelaySetup) {
+    return <SlackChatConnectorCardContent {...cardProps} slackRelaySetup={slackRelaySetup} />;
+  }
+  return (
+    <UncontrolledSlackChatConnectorCard
+      {...cardProps}
+      agentId={agentId}
+      onEnsureSlackSupport={onEnsureSlackSupport}
+      onRefreshChannels={onRefreshChannels}
+    />
+  );
+}
+
+function UncontrolledSlackChatConnectorCard({
+  agentId,
+  onEnsureSlackSupport,
+  onRefreshChannels,
+  ...cardProps
+}: Omit<SlackChatConnectorCardProps, "slackRelaySetup">) {
+  const slackRelaySetup = useSlackRelaySetup({
+    enabled: true,
+    agentId,
+    channelsProvider: cardProps.channelsProvider,
+    onEnsureSlackSupport,
+    onRefreshChannels,
+  });
+  return <SlackChatConnectorCardContent {...cardProps} slackRelaySetup={slackRelaySetup} />;
+}
+
+function SlackChatConnectorCardContent({
+  slackRelaySetup,
   onDismiss,
   ...channelProps
-}: SlackChatConnectorCardProps) {
+}: Omit<SlackChatConnectorCardProps, "agentId" | "onEnsureSlackSupport" | "onRefreshChannels"> & {
+  slackRelaySetup: SlackRelaySetupOptions;
+}) {
   const docsHref = "https://docs.hypercli.com/agents/integrations";
 
   if (slackRelaySetup.mode === "self-hosted") {
@@ -109,10 +135,10 @@ export function SlackChatConnectorCard({
       <div className="relative z-10 p-4 sm:p-5">
         <div className="flex items-center gap-4 sm:gap-5">
           <IntegrationBrandPulse active={active} accentColor={brand.color}>
-            <Icon className="h-14 w-14 sm:h-[4.5rem] sm:w-[4.5rem]" style={{ color: brand.color }} />
+            <Icon className={SLACK_CONNECTOR_HERO_ICON_CLASS} style={{ color: brand.color }} />
           </IntegrationBrandPulse>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-left text-[clamp(1.55rem,5.6vw,3.05rem)] font-black uppercase leading-[0.9] tracking-[0.01em]" style={{ color: brand.color }}>
+            <p className={SLACK_CONNECTOR_HERO_TITLE_CLASS} style={{ color: brand.color }}>
               Connect Slack
             </p>
             <p className="mt-2 line-clamp-2 text-xs leading-5 text-text-secondary sm:text-sm">
@@ -260,6 +286,11 @@ export function SlackChatConnectorCard({
         )}
         {slackRelaySetup.error ? (
           <p role="alert" className="rounded-xl border border-destructive/25 bg-destructive/10 px-3 py-2 text-destructive">{slackRelaySetup.error}</p>
+        ) : null}
+        {channelProps.onOpenIntegrationDetails ? (
+          <button type="button" className={buttonClass()} onClick={channelProps.onOpenIntegrationDetails}>
+            Open in integrations
+          </button>
         ) : null}
       </div>
     </section>

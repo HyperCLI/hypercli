@@ -163,46 +163,64 @@ function downloadUrlFromDict(data: any): WorkspaceDownloadUrl {
   };
 }
 
+async function responseErrorDetail(response: Response): Promise<string> {
+  const text = await response.text();
+  if (!text) return response.statusText;
+  try {
+    const payload: any = JSON.parse(text);
+    const detail = payload?.detail ?? payload?.message ?? payload?.error;
+    if (typeof detail === 'string') return detail;
+    if (detail !== undefined && detail !== null) return JSON.stringify(detail);
+    return text;
+  } catch {
+    return text;
+  }
+}
+
 async function handleResponse<T = any>(response: Response): Promise<T> {
   if (response.status >= 400) {
-    let detail = response.statusText;
-    try {
-      const payload: any = await response.json();
-      detail = payload.detail || detail;
-    } catch {
-      detail = await response.text();
-    }
-    throw new APIError(response.status, detail);
+    throw new APIError(response.status, await responseErrorDetail(response));
   }
-  return (await response.json()) as T;
+  if (response.status === 204 || response.status === 205) return undefined as T;
+  const text = await response.text();
+  if (!text) return undefined as T;
+  return JSON.parse(text) as T;
 }
 
 async function handleBytesResponse(response: Response): Promise<Uint8Array> {
   if (response.status >= 400) {
-    let detail = response.statusText;
-    try {
-      const payload: any = await response.json();
-      detail = payload.detail || detail;
-    } catch {
-      detail = await response.text();
-    }
-    throw new APIError(response.status, detail);
+    throw new APIError(response.status, await responseErrorDetail(response));
   }
   return new Uint8Array(await response.arrayBuffer());
+}
+
+function encodeRef(value: string): string {
+  return encodeURIComponent(value);
+}
+
+function encodeFileRef(value: string): string {
+  return normalizePosixPath(value)
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '')
+    .split('/')
+    .map(encodeURIComponent)
+    .join('/');
 }
 
 export class WorkspacesAPI {
   private apiBase: string;
   private apiKey: string;
   private timeout: number;
+  private uploadTimeout: number;
 
-  constructor(apiKey: string, options: { apiBase?: string; agentsApiBase?: string; timeout?: number } = {}) {
+  constructor(apiKey: string, options: { apiBase?: string; agentsApiBase?: string; timeout?: number; uploadTimeout?: number } = {}) {
     if (!apiKey) {
       throw new Error('API key required for shared knowledge');
     }
     this.apiKey = apiKey;
     this.apiBase = (options.apiBase || deriveWorkspacesApiBase(options.agentsApiBase)).replace(/\/$/, '');
-    this.timeout = options.timeout || 30000;
+    this.timeout = options.timeout ?? 30000;
+    this.uploadTimeout = options.uploadTimeout ?? Math.max(this.timeout, 120000);
   }
 
   private headers(_subject: WorkspaceSubjectOptions = {}): Record<string, string> {
@@ -231,6 +249,7 @@ export class WorkspacesAPI {
       url: `${this.apiBase}${path}`,
       headers: this.headers(subject),
       body,
+      retries: method === 'GET' ? 3 : 1,
       timeout: this.timeout,
     });
     return handleResponse<T>(response);
@@ -264,12 +283,12 @@ export class WorkspacesAPI {
     body: { name?: string; slug?: string; description?: string },
     subject: WorkspaceSubjectOptions = {},
   ): Promise<Workspace> {
-    const data = await this.request('PATCH', `/${workspaceRef}`, subject, body);
+    const data = await this.request('PATCH', `/${encodeRef(workspaceRef)}`, subject, body);
     return workspaceFromDict(data);
   }
 
   async delete(workspaceRef: string, subject: WorkspaceSubjectOptions = {}): Promise<void> {
-    await this.request('DELETE', `/${workspaceRef}`, subject);
+    await this.request('DELETE', `/${encodeRef(workspaceRef)}`, subject);
   }
 
   async grant(
@@ -277,7 +296,7 @@ export class WorkspacesAPI {
     body: { subjectType: 'user' | 'agent'; subjectId: string; role?: 'viewer' | 'contributor' | 'admin' },
     subject: WorkspaceSubjectOptions = {},
   ): Promise<WorkspaceGrant> {
-    const data = await this.request('POST', `/${workspaceRef}/grants`, subject, {
+    const data = await this.request('POST', `/${encodeRef(workspaceRef)}/grants`, subject, {
       subject_type: body.subjectType,
       subject_id: body.subjectId,
       role: body.role || 'viewer',
@@ -286,12 +305,12 @@ export class WorkspacesAPI {
   }
 
   async listGrants(workspaceRef: string, subject: WorkspaceSubjectOptions = {}): Promise<WorkspaceGrant[]> {
-    const data = await this.request<any[]>('GET', `/${workspaceRef}/grants`, subject);
+    const data = await this.request<any[]>('GET', `/${encodeRef(workspaceRef)}/grants`, subject);
     return (data || []).map(grantFromDict);
   }
 
   async revokeGrant(workspaceRef: string, grantId: string, subject: WorkspaceSubjectOptions = {}): Promise<void> {
-    await this.request('DELETE', `/${workspaceRef}/grants/${grantId}`, subject);
+    await this.request('DELETE', `/${encodeRef(workspaceRef)}/grants/${encodeRef(grantId)}`, subject);
   }
 
   async registerFile(
@@ -307,7 +326,7 @@ export class WorkspacesAPI {
     },
     subject: WorkspaceSubjectOptions = {},
   ): Promise<WorkspaceFile> {
-    const data = await this.request('POST', `/${workspaceRef}/files`, subject, {
+    const data = await this.request('POST', `/${encodeRef(workspaceRef)}/files`, subject, {
       path: body.path,
       source_filename: body.sourceFilename,
       source_content_type: body.sourceContentType,
@@ -332,12 +351,19 @@ export class WorkspacesAPI {
     if (options.path) formData.append('path', options.path);
     if (options.sourceEtag) formData.append('source_etag', options.sourceEtag);
 
-    const response = await fetch(`${this.apiBase}/upload`, {
-      method: 'POST',
-      headers: this.authHeaders(subject),
-      body: formData,
-    });
-    return fileFromDict(await handleResponse(response));
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.uploadTimeout);
+    try {
+      const response = await fetch(`${this.apiBase}/upload`, {
+        method: 'POST',
+        headers: this.authHeaders(subject),
+        body: formData,
+        signal: controller.signal,
+      });
+      return fileFromDict(await handleResponse(response));
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   async getFile(
@@ -345,7 +371,7 @@ export class WorkspacesAPI {
     fileRef: string,
     subject: WorkspaceSubjectOptions = {},
   ): Promise<WorkspaceFile> {
-    const data = await this.request('GET', `/${workspaceRef}/files/${fileRef}`, subject);
+    const data = await this.request('GET', `/${encodeRef(workspaceRef)}/files/${encodeFileRef(fileRef)}`, subject);
     return fileFromDict(data);
   }
 
@@ -355,7 +381,7 @@ export class WorkspacesAPI {
     body: { displayName?: string; keywords?: string[]; summary?: string | null },
     subject: WorkspaceSubjectOptions = {},
   ): Promise<WorkspaceFile> {
-    const data = await this.request('PATCH', `/${workspaceRef}/files/${fileRef}`, subject, {
+    const data = await this.request('PATCH', `/${encodeRef(workspaceRef)}/files/${encodeFileRef(fileRef)}`, subject, {
       ...(body.displayName !== undefined ? { display_name: body.displayName } : {}),
       ...(body.keywords !== undefined ? { keywords: body.keywords } : {}),
       ...(body.summary !== undefined ? { summary: body.summary } : {}),
@@ -364,7 +390,7 @@ export class WorkspacesAPI {
   }
 
   async regenerateFile(workspaceRef: string, fileRef: string, subject: WorkspaceSubjectOptions = {}): Promise<WorkspaceFile> {
-    const data = await this.request('POST', `/${workspaceRef}/files/${fileRef}/regenerate`, subject);
+    const data = await this.request('POST', `/${encodeRef(workspaceRef)}/files/${encodeFileRef(fileRef)}/regenerate`, subject);
     return fileFromDict(data);
   }
 
@@ -391,7 +417,7 @@ export class WorkspacesAPI {
   }
 
   async listFiles(workspaceRef: string, subject: WorkspaceSubjectOptions = {}): Promise<WorkspaceFile[]> {
-    const data = await this.request<any[]>('GET', `/${workspaceRef}/files`, subject);
+    const data = await this.request<any[]>('GET', `/${encodeRef(workspaceRef)}/files`, subject);
     return (data || []).map(fileFromDict);
   }
 
@@ -402,12 +428,12 @@ export class WorkspacesAPI {
     options: { vector?: boolean } = {},
   ): Promise<WorkspaceFileSearchResult[]> {
     const params = new URLSearchParams({ q: query, vector: String(options.vector ?? true) });
-    const data = await this.request<any[]>('GET', `/${workspaceRef}/files/search?${params.toString()}`, subject);
+    const data = await this.request<any[]>('GET', `/${encodeRef(workspaceRef)}/files/search?${params.toString()}`, subject);
     return (data || []).map(fileSearchResultFromDict);
   }
 
   async manifest(workspaceRef: string, subject: WorkspaceSubjectOptions = {}): Promise<WorkspaceManifest> {
-    const data = await this.request('GET', `/${workspaceRef}/manifest`, subject);
+    const data = await this.request('GET', `/${encodeRef(workspaceRef)}/manifest`, subject);
     return manifestFromDict(data);
   }
 
@@ -442,7 +468,7 @@ export class WorkspacesAPI {
   }
 
   async deleteFile(workspaceRef: string, fileRef: string, subject: WorkspaceSubjectOptions = {}): Promise<void> {
-    await this.request('DELETE', `/${workspaceRef}/files/${fileRef}`, subject);
+    await this.request('DELETE', `/${encodeRef(workspaceRef)}/files/${encodeFileRef(fileRef)}`, subject);
   }
 
   async markdownFile(

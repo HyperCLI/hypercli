@@ -3,7 +3,7 @@
 import Link from "next/link";
 import React from "react";
 import { AnimatePresence, motion, Reorder } from "framer-motion";
-import { ArrowLeft, ArrowRight, BarChart3, Blocks, Check, Codepen, FolderOpen, KeyRound, Loader2, LogOut, MessageSquare, Plus, Play, SlidersHorizontal, Sparkles, Square, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, BarChart3, Blocks, Check, Codepen, FolderOpen, HardDrive, House, KeyRound, Loader2, LogOut, MessageSquare, PanelRight, Plus, Play, SlidersHorizontal, Sparkles, Square, X } from "lucide-react";
 import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import type { AgentChannelSummary } from "@hypercli.com/sdk/channels";
@@ -1128,11 +1128,12 @@ function AgentSectionSettingsContent({
         )}
 
         <section className="mt-4 divide-y divide-foreground border-b border-foreground md:mt-7">
-          <AgentProfileSettingsRow label="Agent Name" description="Shown when users interact with this agent.">
+          <AgentProfileSettingsRow label="Display name" description="Shown in the agent roster and other user-facing views.">
             <input
+              aria-label="Agent display name"
               value={agentName}
               onChange={(event) => onAgentNameChange(event.target.value)}
-              placeholder="Agent name"
+              placeholder="Display name"
               className={SETTINGS_FIELD_CLASS}
             />
           </AgentProfileSettingsRow>
@@ -2324,6 +2325,10 @@ interface AgentListProps {
   subscriptionSummary?: HyperAgentSubscriptionSummary | null;
   catalogPlans?: HyperAgentPlan[] | null;
   onOpenPlanCatalog?: () => void | Promise<void>;
+  onOpenHome?: () => void;
+  onOpenKnowledge?: () => void;
+  knowledgeActive?: boolean;
+  knowledgeHref?: string;
   pendingSlotReleases?: Record<string, number>;
   /**
    * When true, surfaces the Channels section and the inline user/agent picker that lets
@@ -2373,11 +2378,16 @@ export function AgentList({
   subscriptionSummary,
   catalogPlans,
   onOpenPlanCatalog,
+  onOpenHome,
+  onOpenKnowledge,
+  knowledgeActive = false,
+  knowledgeHref,
   pendingSlotReleases,
   showChannels = false,
 }: AgentListProps) {
   const [showAgentLauncher, setShowAgentLauncher] = React.useState(false);
   const [showOfflineAgents, setShowOfflineAgents] = React.useState(false);
+  const [reorderingAgentId, setReorderingAgentId] = React.useState<string | null>(null);
   const agentIds = React.useMemo(() => agents.map((agent) => agent.id), [agents]);
   const { orderedAgentIds, setVisibleAgentOrder } = useAgentRosterOrder(agentIds);
   const orderedAgents = React.useMemo(() => {
@@ -2475,11 +2485,10 @@ export function AgentList({
 
   return (
     <motion.div
-      className={`relative h-full flex-shrink-0 overflow-visible bg-surface-low ${mobileShowChat && !isDesktopViewport ? "hidden" : "flex"} flex-col`}
-      animate={{ width: sidebarCollapsed && isDesktopViewport ? 64 : 280 }}
+      className={`agents-roster-shell relative h-full flex-shrink-0 overflow-visible bg-surface-low ${mobileShowChat && !isDesktopViewport ? "hidden" : "flex"} flex-col`}
+      animate={{ width: sidebarCollapsed && isDesktopViewport ? 56 : 280 }}
       transition={{ type: "spring", stiffness: 360, damping: 32 }}
     >
-      <div aria-hidden className="pointer-events-none absolute right-0 top-0 z-30 h-full w-px bg-border" />
       <AnimatePresence initial={false} mode="wait">
         {sidebarCollapsed && isDesktopViewport ? (
           <motion.div
@@ -2488,18 +2497,54 @@ export function AgentList({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="flex h-full w-16 flex-col overflow-visible bg-surface-low"
+            className="agents-roster-rail flex h-full w-14 flex-col overflow-visible bg-surface-low"
           >
-            <div className="flex h-14 shrink-0 items-center justify-center border-b border-border">
-              <button
-                onClick={() => setSidebarCollapsed(false)}
-                title="Expand sidebar"
-                className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
-              >
+            <div className="agents-roster-header flex h-14 shrink-0 items-center justify-center border-b border-border">
+              <div className="flex h-8 w-8 items-center justify-center text-text-muted" aria-hidden="true">
                 <HyperCLILogoMark className="h-[17px] w-[17px]" />
-              </button>
+              </div>
             </div>
-            <div className="flex flex-1 flex-col items-center gap-3 overflow-y-auto py-3">
+            <div className="agents-roster-scroll flex flex-1 flex-col items-center overflow-y-auto bg-[var(--agent-roster-background)] py-3">
+              <div className="agents-roster-rail-primary flex flex-col items-center gap-2">
+              <Tooltip delayDuration={300}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setSidebarCollapsed(false)}
+                    aria-label="Expand agents sidebar"
+                    className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+                  >
+                    <PanelRight className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">Expand agents sidebar</TooltipContent>
+              </Tooltip>
+              <Tooltip delayDuration={300}>
+                <TooltipTrigger asChild>
+                  {onOpenHome ? (
+                    <button
+                      type="button"
+                      onClick={onOpenHome}
+                      aria-label="Home"
+                      className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+                    >
+                      <House className="h-4 w-4" />
+                    </button>
+                  ) : (
+                    <Link
+                      href="/dashboard"
+                      aria-label="Home"
+                      className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+                    >
+                      <House className="h-4 w-4" />
+                    </Link>
+                  )}
+                </TooltipTrigger>
+                <TooltipContent side="right">Home</TooltipContent>
+              </Tooltip>
+              </div>
+              <div aria-hidden="true" className="agents-roster-rail-divider my-2 h-px w-8 shrink-0 bg-border/70" />
+              <div className="agents-roster-rail-agents flex flex-col items-center gap-2">
               <Tooltip delayDuration={300}>
                 <TooltipTrigger asChild>
                   <button
@@ -2518,13 +2563,36 @@ export function AgentList({
                 axis="y"
                 values={visibleAgentIds}
                 onReorder={setVisibleAgentOrder}
-                className="flex flex-col items-center gap-3"
+                className="flex flex-col items-center gap-2"
               >
                 {visibleAgents.map((a) => {
                   const av = agentAvatar(a.name || a.id, a.meta);
                   const Icon = av.icon;
                   const selected = selectedAgentId === a.id;
                   const agentName = a.name || a.id;
+                  const agentButton = (
+                    <button
+                      onClick={() => {
+                        setSelectedAgentId(a.id);
+                        setMobileShowChat(true);
+                      }}
+                      aria-label={`Select ${agentName}`}
+                      className={`relative flex h-8 w-8 items-center justify-center rounded-full transition-transform hover:scale-110 ${selected ? "ring-2 ring-[var(--selection-accent)]" : ""}`}
+                      style={{ backgroundColor: av.bgColor }}
+                    >
+                      {av.imageUrl ? (
+                        <ResourceImage
+                          src={av.imageUrl}
+                          alt={`${agentName} avatar`}
+                          fill
+                          sizes="32px"
+                          className="rounded-full object-cover"
+                        />
+                      ) : (
+                        <Icon className="w-4 h-4" style={{ color: av.fgColor }} />
+                      )}
+                    </button>
+                  );
                   return (
                     <CollapsedAgentReorderItem
                       key={a.id}
@@ -2532,39 +2600,57 @@ export function AgentList({
                       agentName={agentName}
                       canReorder={visibleAgents.length > 1}
                       onMove={(direction) => moveVisibleAgent(a.id, direction)}
+                      onReorderingChange={(reordering) => {
+                        setReorderingAgentId((current) => reordering ? a.id : current === a.id ? null : current);
+                      }}
                     >
-                      <Tooltip delayDuration={300}>
-                        <TooltipTrigger asChild>
-                          <button
-                            onClick={() => {
-                              setSelectedAgentId(a.id);
-                              setMobileShowChat(true);
-                            }}
-                            aria-label={`Select ${agentName}`}
-                            className={`relative flex h-8 w-8 items-center justify-center rounded-full transition-transform hover:scale-110 ${selected ? "ring-2 ring-[var(--selection-accent)]" : ""}`}
-                            style={{ backgroundColor: av.bgColor }}
-                          >
-                            {av.imageUrl ? (
-                              <ResourceImage
-                                src={av.imageUrl}
-                                alt={`${agentName} avatar`}
-                                fill
-                                sizes="32px"
-                                className="rounded-full object-cover"
-                              />
-                            ) : (
-                              <Icon className="w-4 h-4" style={{ color: av.fgColor }} />
-                            )}
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="right" align="start" className="bg-transparent border-0 p-0 shadow-none">
-                          <AgentCardTooltip agentName={agentName} agent={mergedAgentCardDataById[a.id]} />
-                        </TooltipContent>
-                      </Tooltip>
+                      {reorderingAgentId === null ? (
+                        <Tooltip delayDuration={300}>
+                          <TooltipTrigger asChild>{agentButton}</TooltipTrigger>
+                          <TooltipContent side="right" align="start" className="bg-transparent border-0 p-0 shadow-none">
+                            <AgentCardTooltip agentName={agentName} agent={mergedAgentCardDataById[a.id]} />
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : agentButton}
                     </CollapsedAgentReorderItem>
                   );
                 })}
               </Reorder.Group>
+              </div>
+              <div aria-hidden="true" className="agents-roster-rail-divider my-2 h-px w-8 shrink-0 bg-border/70" />
+              <Tooltip delayDuration={300}>
+                <TooltipTrigger asChild>
+                  {onOpenKnowledge ? (
+                    <button
+                      type="button"
+                      onClick={onOpenKnowledge}
+                      aria-label="Shared Knowledge"
+                      aria-current={knowledgeActive ? "page" : undefined}
+                      className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+                        knowledgeActive
+                          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
+                          : "text-text-muted hover:bg-surface-low hover:text-foreground"
+                      }`}
+                    >
+                      <HardDrive className="h-4 w-4" />
+                    </button>
+                  ) : (
+                    <Link
+                      href="/dashboard/agents?section=knowledge"
+                      aria-label="Shared Knowledge"
+                      aria-current={knowledgeActive ? "page" : undefined}
+                      className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+                        knowledgeActive
+                          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
+                          : "text-text-muted hover:bg-surface-low hover:text-foreground"
+                      }`}
+                    >
+                      <HardDrive className="h-4 w-4" />
+                    </Link>
+                  )}
+                </TooltipTrigger>
+                <TooltipContent side="right">Shared Knowledge</TooltipContent>
+              </Tooltip>
             </div>
             <AgentsSidebarDashboardLinks
               compact
@@ -2574,6 +2660,9 @@ export function AgentList({
               }
               onOpenAgentSettings={onOpenSettings}
               agentSettingsActive={settingsActive}
+              knowledgeActive={knowledgeActive}
+              knowledgeHref={knowledgeHref}
+              onOpenKnowledge={onOpenKnowledge}
               onLogout={onLogout}
             />
           </motion.div>
@@ -2614,6 +2703,10 @@ export function AgentList({
               }}
               onCreateAgent={createAgentFromLauncher}
               onOpenAgentLauncher={() => setShowAgentLauncher(true)}
+              onOpenHome={onOpenHome}
+              onOpenKnowledge={onOpenKnowledge}
+              knowledgeActive={knowledgeActive}
+              knowledgeHref={knowledgeHref}
               openAgentCreatorSignal={sidebarCreatorSignal}
               accountInitial={accountInitial}
               onOpenAgentSettings={onOpenSettings}
@@ -2994,6 +3087,7 @@ export function AgentIntegrationsEmptyState({
         "Build cross-platform automations that work across your existing stack",
       ]}
       launchLabel={launchLabel}
+abel={launchLabel}
       launching={launching}
       launchBlocked={launchBlocked}
       launchBlockedReason={launchBlockedReason}

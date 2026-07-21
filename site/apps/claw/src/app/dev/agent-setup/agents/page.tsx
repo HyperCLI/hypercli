@@ -50,7 +50,7 @@ import { useAgentShellTerminal } from "@/hooks/useAgentShellTerminal";
 import { agentAvatar } from "@/lib/avatar";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { IntegrationsDirectoryPanel } from "@/components/dashboard/integrations";
-import { SharedKnowledgePanel } from "@/components/dashboard/integrations/SharedKnowledgePanel";
+import { SharedKnowledgePanel } from "@/components/dashboard/knowledge/SharedKnowledgePanel";
 import {
   SkillDraftTestBanner,
   SkillsPanel,

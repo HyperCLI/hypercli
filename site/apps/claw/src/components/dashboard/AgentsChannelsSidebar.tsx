@@ -9,7 +9,6 @@ import {
   Plus,
   Search,
   ChevronDown,
-  ChevronRight,
   Users,
   Bot,
   User,
@@ -24,15 +23,34 @@ import {
   Settings,
   LogOut,
   GripVertical,
+  HardDrive,
+  House,
 } from "lucide-react";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
-import { ThemeToggle, Tooltip, TooltipTrigger, TooltipContent } from "@hypercli/shared-ui";
+import { Switch, ThemeToggle, Tooltip, TooltipTrigger, TooltipContent } from "@hypercli/shared-ui";
 import { ResourceImage } from "@/components/ResourceImage";
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 import { AgentCardTooltip, type AgentCardTooltipData } from "./modules/AgentCardModule";
 import { QuickAgentCreator } from "./QuickAgentCreator";
 import { QuickChannelCreator } from "./QuickChannelCreator";
 import type { AgentCreationSetupCreateParams } from "./agents/AgentCreationSetupWizard";
+
+function RosterTooltip({
+  label,
+  children,
+  side = "top",
+}: {
+  label: string;
+  children: ReactNode;
+  side?: "top" | "right" | "bottom" | "left";
+}) {
+  return (
+    <Tooltip delayDuration={300}>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side={side}>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 // ── Types ──
 
@@ -132,6 +150,12 @@ export interface AgentsChannelsSidebarProps {
   onCreateAgent?: (params: AgentCreationSetupCreateParams) => Promise<string | null>;
   /** Open the full launch-agent flow used by the empty agent state. */
   onOpenAgentLauncher?: () => void;
+  /** Navigate to dashboard home, optionally performing caller-owned cleanup first. */
+  onOpenHome?: () => void;
+  /** Navigate to shared knowledge, optionally performing caller-owned cleanup first. */
+  onOpenKnowledge?: () => void;
+  knowledgeActive?: boolean;
+  knowledgeHref?: string;
   /** Increment to imperatively open the inline agent creator (e.g. from the main panel's empty state). */
   openAgentCreatorSignal?: number;
   accountInitial?: string;
@@ -146,6 +170,7 @@ export interface AgentsChannelsSidebarProps {
 const DASHBOARD_LINKS = [
   { label: "Dashboard", href: "/dashboard", icon: Bot },
   { label: "Agents", href: "/dashboard/agents", icon: Users },
+  { label: "Shared knowledge", href: "/dashboard/agents?section=knowledge", icon: HardDrive },
   { label: "API Keys", href: "/keys", icon: Key },
   { label: "Plans", href: "/plans", icon: CreditCard },
   { label: "Billing", href: "/dashboard/settings", icon: CreditCard },
@@ -432,13 +457,16 @@ function ThreadRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
+  const resolvedTitle = threadTitle(thread);
+  const lastMessageSender = senderName(thread);
+  const showLastMessageSender = Boolean(lastMessageSender && lastMessageSender !== resolvedTitle);
 
   const startEdit = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     if (!onRename) return;
-    setEditValue(thread.title || threadTitle(thread));
+    setEditValue(thread.title || resolvedTitle);
     setEditing(true);
-  }, [onRename, thread]);
+  }, [onRename, resolvedTitle, thread.title]);
 
   const commitEdit = useCallback(() => {
     const trimmed = editValue.trim();
@@ -448,10 +476,10 @@ function ThreadRow({
 
   return (
     <motion.div
-      className={`w-full text-left px-3 ${mobileMode ? "py-3 gap-3" : "py-2.5 gap-2.5"} flex items-start transition-colors relative group/row cursor-pointer ${
+      className={`w-full text-left px-3 ${mobileMode ? "py-3 gap-3" : "border-r border-border py-2.5 gap-2.5"} flex items-start transition-colors relative group/row cursor-pointer ${
         selected
-          ? "bg-surface-low border-l-2 border-[var(--selection-accent)]"
-          : "border-l-2 border-transparent hover:bg-surface-low/50"
+          ? "bg-surface-low border-l-2 border-l-[var(--selection-accent)]"
+          : "border-l-2 border-l-transparent hover:bg-surface-low/50"
       }`}
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
@@ -484,18 +512,20 @@ function ThreadRow({
               />
             ) : (
               <>
-                <span className="text-sm font-medium text-foreground truncate">{threadTitle(thread)}</span>
+                <span className="text-sm font-medium text-foreground truncate">{resolvedTitle}</span>
                 {onRename && (
-                  <button
-                    type="button"
-                    onClick={startEdit}
-                    className={`flex-shrink-0 items-center justify-center text-text-muted transition-colors hover:text-foreground ${
-                      mobileMode ? "flex h-8 w-8 rounded-lg hover:bg-surface-low" : "hidden h-4 w-4 rounded group-hover/row:flex"
-                    }`}
-                    title="Rename"
-                  >
-                    <PenLine className={mobileMode ? "h-4 w-4" : "h-2.5 w-2.5"} />
-                  </button>
+                  <RosterTooltip label="Rename agent">
+                    <button
+                      type="button"
+                      aria-label="Rename agent"
+                      onClick={startEdit}
+                      className={`flex-shrink-0 items-center justify-center text-text-muted transition-colors hover:text-foreground ${
+                        mobileMode ? "flex h-8 w-8 rounded-lg hover:bg-surface-low" : "hidden h-4 w-4 rounded group-hover/row:flex"
+                      }`}
+                    >
+                      <PenLine className={mobileMode ? "h-4 w-4" : "h-2.5 w-2.5"} />
+                    </button>
+                  </RosterTooltip>
                 )}
               </>
             )}
@@ -508,22 +538,27 @@ function ThreadRow({
           )}
           {/* Delete is hover-revealed on desktop and always visible in the mobile drawer. */}
           {!editing && onDelete && (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onDelete(); }}
-              className={`flex-shrink-0 items-center justify-center text-text-muted transition-colors hover:bg-destructive/10 hover:text-destructive ${
-                mobileMode ? "flex h-8 w-8 rounded-lg" : "hidden h-5 w-5 rounded group-hover/row:flex"
-              }`}
-              title="Delete project"
-            >
-              <Trash2 className={mobileMode ? "h-4 w-4" : "h-3 w-3"} />
-            </button>
+            <RosterTooltip label="Delete agent">
+              <button
+                type="button"
+                aria-label="Delete agent"
+                onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                className={`flex-shrink-0 items-center justify-center text-text-muted transition-colors hover:bg-destructive/10 hover:text-destructive ${
+                  mobileMode ? "flex h-8 w-8 rounded-lg" : "hidden h-5 w-5 rounded group-hover/row:flex"
+                }`}
+              >
+                <Trash2 className={mobileMode ? "h-4 w-4" : "h-3 w-3"} />
+              </button>
+            </RosterTooltip>
           )}
         </div>
         <div className="flex items-center justify-between gap-2 mt-0.5">
           <p className="text-xs text-text-muted truncate">
             {thread.lastMessage ? (
-              <><span className="text-text-secondary">{senderName(thread)}:</span>{" "}{thread.lastMessage}</>
+              <>
+                {showLastMessageSender ? <><span className="text-text-secondary">{lastMessageSender}:</span>{" "}</> : null}
+                {thread.lastMessage}
+              </>
             ) : (
               <span className="italic">No messages yet</span>
             )}
@@ -569,27 +604,28 @@ function SortableThreadRow({
   const dragControls = useDragControls();
   const title = threadTitle(thread);
   const reorderHandle = (
-    <button
-      type="button"
-      aria-label={`Move ${title}`}
-      title="Drag to reorder. Use the Up and Down arrow keys for keyboard reordering."
-      onPointerDown={(event) => {
-        event.stopPropagation();
-        dragControls.start(event);
-      }}
-      onClick={(event) => event.stopPropagation()}
-      onKeyDown={(event) => {
-        if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-        event.preventDefault();
-        event.stopPropagation();
-        onMove(event.key === "ArrowUp" ? -1 : 1);
-      }}
-      className={`flex shrink-0 touch-none cursor-grab items-center justify-center rounded-md text-text-muted/55 transition-colors hover:bg-surface-high hover:text-text-secondary active:cursor-grabbing ${
-        mobileMode ? "-ml-2 h-10 w-10" : "-ml-2 h-7 w-6 opacity-60 group-hover/row:opacity-100"
-      }`}
-    >
-      <GripVertical className={mobileMode ? "h-4 w-4" : "h-3.5 w-3.5"} />
-    </button>
+    <RosterTooltip label="Drag to reorder. Use the Up and Down arrow keys for keyboard reordering.">
+      <button
+        type="button"
+        aria-label={`Move ${title}`}
+        onPointerDown={(event) => {
+          event.stopPropagation();
+          dragControls.start(event);
+        }}
+        onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+          event.preventDefault();
+          event.stopPropagation();
+          onMove(event.key === "ArrowUp" ? -1 : 1);
+        }}
+        className={`flex shrink-0 touch-none cursor-grab items-center justify-center rounded-md text-text-muted/55 transition-colors hover:bg-surface-high hover:text-text-secondary active:cursor-grabbing ${
+          mobileMode ? "-ml-2 h-10 w-10" : "-ml-2 h-7 w-6 opacity-60 group-hover/row:opacity-100"
+        }`}
+      >
+        <GripVertical className={mobileMode ? "h-4 w-4" : "h-3.5 w-3.5"} />
+      </button>
+    </RosterTooltip>
   );
 
   return (
@@ -636,35 +672,40 @@ function SidebarHeader({
     : "flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-low hover:text-foreground";
 
   return (
-    <div className="flex-shrink-0 border-b border-border m-[-1px]">
-      <div className="flex items-center justify-between px-3 h-14">
+    <div className={`flex flex-shrink-0 flex-col ${mobileMode ? "m-[-1px] border-b border-border" : ""}`}>
+      <div className={`agents-roster-header flex h-14 items-center justify-between px-3 ${mobileMode ? "" : "border-b border-border"}`}>
         <HyperCLILogoLink
           className={mobileMode ? "h-[32px] w-[164px]" : "h-[28px] w-[144px]"}
         />
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            aria-label={showSearch ? "Close search" : "Search agents"}
-            onClick={onToggleSearch}
-            className={`${actionClassName} ${showSearch ? "border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]" : ""}`}
-          >
-            {showSearch ? <X className={iconClassName} /> : <Search className={iconClassName} />}
-          </button>
-          {onCollapse && (
-            <button
-              type="button"
-              aria-label={mobileMode ? "Close agents sidebar" : "Collapse sidebar"}
-              onClick={onCollapse}
-              title={mobileMode ? "Close sidebar" : "Collapse sidebar"}
-              className={actionClassName}
-            >
-              {mobileMode ? <X className={iconClassName} /> : <PanelLeftClose className={iconClassName} />}
-            </button>
-          )}
-        </div>
+        {mobileMode ? (
+          <div className="flex items-center gap-1">
+            <RosterTooltip label={showSearch ? "Close search" : "Search agents"} side="bottom">
+              <button
+                type="button"
+                aria-label={showSearch ? "Close search" : "Search agents"}
+                onClick={onToggleSearch}
+                className={`${actionClassName} ${showSearch ? "border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]" : ""}`}
+              >
+                {showSearch ? <X className={iconClassName} /> : <Search className={iconClassName} />}
+              </button>
+            </RosterTooltip>
+            {onCollapse && (
+              <RosterTooltip label="Close sidebar" side="bottom">
+                <button
+                  type="button"
+                  aria-label="Close agents sidebar"
+                  onClick={onCollapse}
+                  className={actionClassName}
+                >
+                  <X className={iconClassName} />
+                </button>
+              </RosterTooltip>
+            )}
+          </div>
+        ) : null}
       </div>
       <AnimatePresence>
-        {showSearch && (
+        {showSearch && mobileMode && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
@@ -678,7 +719,7 @@ function SidebarHeader({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => onSearchChange(e.target.value)}
-                placeholder="Search Agents · Channels"
+                placeholder="Search Agents"
                 className={`w-full rounded-md border border-border bg-surface-low text-foreground placeholder-text-muted focus:border-border-strong focus:outline-none ${
                   mobileMode ? "px-3 py-2 text-sm" : "px-2.5 py-1.5 text-xs"
                 }`}
@@ -698,6 +739,9 @@ export function AgentsSidebarDashboardLinks({
   agentsHref,
   onOpenAgentSettings,
   agentSettingsActive = false,
+  knowledgeActive = false,
+  knowledgeHref = "/dashboard/agents?section=knowledge",
+  onOpenKnowledge,
   onLogout,
 }: {
   compact?: boolean;
@@ -706,6 +750,9 @@ export function AgentsSidebarDashboardLinks({
   agentsHref?: string;
   onOpenAgentSettings?: () => void;
   agentSettingsActive?: boolean;
+  knowledgeActive?: boolean;
+  knowledgeHref?: string;
+  onOpenKnowledge?: () => void;
   onLogout?: () => void | Promise<void>;
 }) {
   const pathname = usePathname() ?? "";
@@ -723,7 +770,7 @@ export function AgentsSidebarDashboardLinks({
   }, [open]);
 
   return (
-    <div ref={ref} className={`relative flex-shrink-0 border-t border-border ${compact ? "flex justify-center py-2" : "px-3 py-2"}`}>
+    <div ref={ref} className={`agents-dashboard-links ${compact ? "agents-dashboard-links-compact bg-[var(--agent-roster-background)]" : ""} relative flex-shrink-0 border-t border-border ${compact ? "flex justify-center py-2" : "px-3 py-2"}`}>
       <AnimatePresence>
         {open && (
           <motion.div
@@ -738,18 +785,30 @@ export function AgentsSidebarDashboardLinks({
           >
             {DASHBOARD_LINKS.map((item) => {
               const Icon = item.icon;
-              const href = item.label === "Agents" ? agentsHref ?? item.href : item.href;
+              const href = item.label === "Agents"
+                ? agentsHref ?? item.href
+                : item.label === "Shared knowledge"
+                  ? knowledgeHref
+                  : item.href;
               const opensAgentSettings = item.label === "Settings" && Boolean(onOpenAgentSettings);
-              const active = opensAgentSettings ? agentSettingsActive : isDashboardLinkActive(pathname, href);
+              const opensKnowledge = item.label === "Shared knowledge" && Boolean(onOpenKnowledge);
+              const active = item.label === "Shared knowledge"
+                ? knowledgeActive
+                : item.label === "Agents"
+                  ? !knowledgeActive && isDashboardLinkActive(pathname, href)
+                  : opensAgentSettings
+                    ? agentSettingsActive
+                    : isDashboardLinkActive(pathname, href);
 
-              if (opensAgentSettings) {
+              if (opensAgentSettings || opensKnowledge) {
                 return (
                   <button
                     key={`${item.label}:${item.href}`}
                     type="button"
                     onClick={() => {
                       setOpen(false);
-                      onOpenAgentSettings?.();
+                      if (opensKnowledge) onOpenKnowledge?.();
+                      else onOpenAgentSettings?.();
                     }}
                     role="menuitem"
                     className={`flex w-full items-center gap-2 px-3 text-left transition-colors ${
@@ -806,38 +865,40 @@ export function AgentsSidebarDashboardLinks({
         )}
       </AnimatePresence>
 
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        title="Account links"
-        className={`flex items-center rounded-md transition-colors ${
-          compact
-            ? `h-8 w-8 justify-center ${
-                open
-                  ? "bg-surface-low text-foreground"
-                  : "text-text-muted hover:bg-surface-low hover:text-foreground"
-              }`
-            : `${mobileMode ? "h-10 rounded-lg px-3" : "h-8 px-2"} w-full justify-between text-left ${
-                open
-                  ? "bg-surface-low text-foreground"
-                  : "text-text-muted hover:bg-surface-low hover:text-foreground"
-              }`
-        }`}
-        aria-expanded={open}
-        aria-haspopup="menu"
-      >
-        <span className={`flex items-center ${compact ? "" : "min-w-0 gap-2"}`}>
-          <span className={`flex flex-shrink-0 items-center justify-center rounded-full bg-surface-high text-xs font-bold text-foreground ${
-            mobileMode && !compact ? "h-8 w-8" : "h-7 w-7"
-          }`}>
-            {initial}
+      <RosterTooltip label="Account links" side={compact ? "right" : "top"}>
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          className={`flex items-center rounded-md transition-colors ${
+            compact
+              ? `h-8 w-8 justify-center ${
+                  open
+                    ? "bg-surface-low text-foreground"
+                    : "text-text-muted hover:bg-surface-low hover:text-foreground"
+                }`
+              : `${mobileMode ? "h-10 rounded-lg px-3" : "h-8 px-2"} w-full justify-between text-left ${
+                  open
+                    ? "bg-surface-low text-foreground"
+                    : "text-text-muted hover:bg-surface-low hover:text-foreground"
+                }`
+          }`}
+          aria-label="Account links"
+          aria-expanded={open}
+          aria-haspopup="menu"
+        >
+          <span className={`flex items-center ${compact ? "" : "min-w-0 gap-2"}`}>
+            <span className={`flex flex-shrink-0 items-center justify-center rounded-full bg-surface-high text-xs font-bold text-foreground ${
+              mobileMode && !compact ? "h-8 w-8" : "h-7 w-7"
+            }`}>
+              {initial}
+            </span>
+            {!compact && <span className="truncate text-[11px] font-medium">Account</span>}
           </span>
-          {!compact && <span className="truncate text-[11px] font-medium">Account</span>}
-        </span>
-        {!compact && (
-          <ChevronDown className={`${mobileMode ? "h-5 w-5" : "h-3.5 w-3.5"} flex-shrink-0 text-text-muted transition-transform ${open ? "rotate-180" : ""}`} />
-        )}
-      </button>
+          {!compact && (
+            <ChevronDown className={`${mobileMode ? "h-5 w-5" : "h-3.5 w-3.5"} flex-shrink-0 text-text-muted transition-transform ${open ? "rotate-180" : ""}`} />
+          )}
+        </button>
+      </RosterTooltip>
     </div>
   );
 }
@@ -1301,16 +1362,49 @@ export function ConversationGraphModule({
               const isActive = activeNodeIds.has(node.id);
               if (node.type === "user") {
                 return (
+                  <RosterTooltip key={node.id} label={node.name} side="bottom">
+                    <motion.div
+                      className="relative rounded-full bg-surface-low flex items-center justify-center"
+                      style={{ width: 28, height: 28 }}
+                      initial={{ scale: 0, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      transition={{ type: "spring", stiffness: 400, damping: 25, delay: nodeIdx * 0.06 }}
+                    >
+                      <User className="w-3.5 h-3.5 text-text-muted" />
+                      {isActive && (
+                        <motion.span
+                          className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-[var(--selection-accent)] border border-background"
+                          style={{ zIndex: 3 }}
+                          animate={{ scale: [0.8, 1.2, 0.8], opacity: [0.6, 1, 0.6] }}
+                          transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                        />
+                      )}
+                    </motion.div>
+                  </RosterTooltip>
+                );
+              }
+              const avatar = agentAvatar(node.name, node.meta);
+              const Icon = avatar.icon;
+              return (
+                <RosterTooltip key={node.id} label={node.name} side="bottom">
                   <motion.div
-                    key={node.id}
-                    className="relative rounded-full bg-surface-low flex items-center justify-center"
-                    style={{ width: 28, height: 28 }}
+                    className="relative rounded-full flex items-center justify-center"
+                    style={{ width: 28, height: 28, backgroundColor: avatar.bgColor }}
                     initial={{ scale: 0, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
                     transition={{ type: "spring", stiffness: 400, damping: 25, delay: nodeIdx * 0.06 }}
-                    title={node.name}
                   >
-                    <User className="w-3.5 h-3.5 text-text-muted" />
+                    {avatar.imageUrl ? (
+                      <ResourceImage
+                        src={avatar.imageUrl}
+                        alt={`${node.name} avatar`}
+                        fill
+                        sizes="28px"
+                        className="rounded-full object-cover"
+                      />
+                    ) : (
+                      <Icon className="w-3.5 h-3.5" style={{ color: avatar.fgColor }} />
+                    )}
                     {isActive && (
                       <motion.span
                         className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-[var(--selection-accent)] border border-background"
@@ -1320,40 +1414,7 @@ export function ConversationGraphModule({
                       />
                     )}
                   </motion.div>
-                );
-              }
-              const avatar = agentAvatar(node.name, node.meta);
-              const Icon = avatar.icon;
-              return (
-                <motion.div
-                  key={node.id}
-                  className="relative rounded-full flex items-center justify-center"
-                  style={{ width: 28, height: 28, backgroundColor: avatar.bgColor }}
-                  initial={{ scale: 0, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ type: "spring", stiffness: 400, damping: 25, delay: nodeIdx * 0.06 }}
-                  title={node.name}
-                >
-                  {avatar.imageUrl ? (
-                    <ResourceImage
-                      src={avatar.imageUrl}
-                      alt={`${node.name} avatar`}
-                      fill
-                      sizes="28px"
-                      className="rounded-full object-cover"
-                    />
-                  ) : (
-                    <Icon className="w-3.5 h-3.5" style={{ color: avatar.fgColor }} />
-                  )}
-                  {isActive && (
-                    <motion.span
-                      className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-[var(--selection-accent)] border border-background"
-                      style={{ zIndex: 3 }}
-                      animate={{ scale: [0.8, 1.2, 0.8], opacity: [0.6, 1, 0.6] }}
-                      transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
-                    />
-                  )}
-                </motion.div>
+                </RosterTooltip>
               );
             })
           )}
@@ -1498,45 +1559,45 @@ export function ConversationGraphModule({
 
           if (node.type === "user") {
             return (
-              <motion.button
-                key={node.id}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedNode(isSelected ? null : node.id);
-                }}
-                className="absolute rounded-full bg-surface-low flex items-center justify-center"
-                style={{
-                  width: nodeSizeVal,
-                  height: nodeSizeVal,
-                  left: node.x - nodeSizeVal / 2,
-                  top: node.y - nodeSizeVal / 2,
-                  zIndex: 2,
-                }}
-                initial={{ scale: 0, opacity: 0 }}
-                animate={{
-                  scale: isDimmed ? 0.8 : 1,
-                  opacity: isDimmed ? 0.4 : 1,
-                  boxShadow: isSelected
-                    ? "0 0 0 2px var(--selection-accent), 0 0 12px rgb(var(--selection-accent-rgb) / 0.3)"
-                    : isActive
-                      ? "0 0 8px rgb(var(--selection-accent-rgb) / 0.15)"
-                      : "none",
-                }}
-                transition={{ type: "spring", stiffness: 400, damping: 25, delay: nodeIdx * 0.06 }}
-                whileHover={{ scale: 1.2 }}
-                whileTap={{ scale: 0.9 }}
-                title={node.name}
-              >
-                <User className={isCompact ? "w-2.5 h-2.5 text-text-muted" : "w-3.5 h-3.5 text-text-muted"} />
-                {/* Active pulse ring */}
-                {isActive && !isSelected && (
-                  <motion.span
-                    className="absolute inset-0 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.3)]"
-                    animate={{ scale: [1, 1.6], opacity: [0.4, 0] }}
-                    transition={{ duration: 2, repeat: Infinity, ease: "easeOut", delay: nodeIdx * 0.4 }}
-                  />
-                )}
-              </motion.button>
+              <RosterTooltip key={node.id} label={node.name} side="bottom">
+                <motion.button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedNode(isSelected ? null : node.id);
+                  }}
+                  className="absolute rounded-full bg-surface-low flex items-center justify-center"
+                  style={{
+                    width: nodeSizeVal,
+                    height: nodeSizeVal,
+                    left: node.x - nodeSizeVal / 2,
+                    top: node.y - nodeSizeVal / 2,
+                    zIndex: 2,
+                  }}
+                  initial={{ scale: 0, opacity: 0 }}
+                  animate={{
+                    scale: isDimmed ? 0.8 : 1,
+                    opacity: isDimmed ? 0.4 : 1,
+                    boxShadow: isSelected
+                      ? "0 0 0 2px var(--selection-accent), 0 0 12px rgb(var(--selection-accent-rgb) / 0.3)"
+                      : isActive
+                        ? "0 0 8px rgb(var(--selection-accent-rgb) / 0.15)"
+                        : "none",
+                  }}
+                  transition={{ type: "spring", stiffness: 400, damping: 25, delay: nodeIdx * 0.06 }}
+                  whileHover={{ scale: 1.2 }}
+                  whileTap={{ scale: 0.9 }}
+                >
+                  <User className={isCompact ? "w-2.5 h-2.5 text-text-muted" : "w-3.5 h-3.5 text-text-muted"} />
+                  {/* Active pulse ring */}
+                  {isActive && !isSelected && (
+                    <motion.span
+                      className="absolute inset-0 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.3)]"
+                      animate={{ scale: [1, 1.6], opacity: [0.4, 0] }}
+                      transition={{ duration: 2, repeat: Infinity, ease: "easeOut", delay: nodeIdx * 0.4 }}
+                    />
+                  )}
+                </motion.button>
+              </RosterTooltip>
             );
           }
 
@@ -1544,66 +1605,66 @@ export function ConversationGraphModule({
           const Icon = avatar.icon;
 
           return (
-            <motion.button
-              key={node.id}
-              onClick={(e) => {
-                e.stopPropagation();
-                setSelectedNode(isSelected ? null : node.id);
-              }}
-              className="absolute rounded-full flex items-center justify-center"
-              style={{
-                width: nodeSizeVal,
-                height: nodeSizeVal,
-                left: node.x - nodeSizeVal / 2,
-                top: node.y - nodeSizeVal / 2,
-                zIndex: 2,
-                backgroundColor: avatar.bgColor,
-              }}
-              initial={{ scale: 0, opacity: 0 }}
-              animate={{
-                scale: isDimmed ? 0.8 : 1,
-                opacity: isDimmed ? 0.4 : 1,
-                boxShadow: isSelected
-                  ? `0 0 0 2px var(--selection-accent), 0 0 12px rgb(var(--selection-accent-rgb) / 0.3)`
-                  : isActive
-                    ? `0 0 8px ${avatar.fgColor}33`
-                    : "none",
-              }}
-              transition={{ type: "spring", stiffness: 400, damping: 25, delay: nodeIdx * 0.06 }}
-              whileHover={{ scale: 1.2 }}
-              whileTap={{ scale: 0.9 }}
-              title={node.name}
-            >
-              {avatar.imageUrl ? (
-                <ResourceImage
-                  src={avatar.imageUrl}
-                  alt={`${node.name} avatar`}
-                  fill
-                  sizes={`${nodeSizeVal}px`}
-                  className="rounded-full object-cover"
-                />
-              ) : (
-                <Icon className={isCompact ? "w-2.5 h-2.5" : "w-3.5 h-3.5"} style={{ color: avatar.fgColor }} />
-              )}
-              {/* Active pulse ring */}
-              {isActive && !isSelected && (
-                <motion.span
-                  className="absolute inset-0 rounded-full"
-                  style={{ border: `1px solid ${avatar.fgColor}40` }}
-                  animate={{ scale: [1, 1.6], opacity: [0.5, 0] }}
-                  transition={{ duration: 2, repeat: Infinity, ease: "easeOut", delay: nodeIdx * 0.4 }}
-                />
-              )}
-              {/* Working indicator — subtle breathing */}
-              {isActive && (
-                <motion.span
-                  className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-[var(--selection-accent)] border border-background"
-                  style={{ zIndex: 3 }}
-                  animate={{ scale: [0.8, 1.2, 0.8], opacity: [0.6, 1, 0.6] }}
-                  transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
-                />
-              )}
-            </motion.button>
+            <RosterTooltip key={node.id} label={node.name} side="bottom">
+              <motion.button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedNode(isSelected ? null : node.id);
+                }}
+                className="absolute rounded-full flex items-center justify-center"
+                style={{
+                  width: nodeSizeVal,
+                  height: nodeSizeVal,
+                  left: node.x - nodeSizeVal / 2,
+                  top: node.y - nodeSizeVal / 2,
+                  zIndex: 2,
+                  backgroundColor: avatar.bgColor,
+                }}
+                initial={{ scale: 0, opacity: 0 }}
+                animate={{
+                  scale: isDimmed ? 0.8 : 1,
+                  opacity: isDimmed ? 0.4 : 1,
+                  boxShadow: isSelected
+                    ? `0 0 0 2px var(--selection-accent), 0 0 12px rgb(var(--selection-accent-rgb) / 0.3)`
+                    : isActive
+                      ? `0 0 8px ${avatar.fgColor}33`
+                      : "none",
+                }}
+                transition={{ type: "spring", stiffness: 400, damping: 25, delay: nodeIdx * 0.06 }}
+                whileHover={{ scale: 1.2 }}
+                whileTap={{ scale: 0.9 }}
+              >
+                {avatar.imageUrl ? (
+                  <ResourceImage
+                    src={avatar.imageUrl}
+                    alt={`${node.name} avatar`}
+                    fill
+                    sizes={`${nodeSizeVal}px`}
+                    className="rounded-full object-cover"
+                  />
+                ) : (
+                  <Icon className={isCompact ? "w-2.5 h-2.5" : "w-3.5 h-3.5"} style={{ color: avatar.fgColor }} />
+                )}
+                {/* Active pulse ring */}
+                {isActive && !isSelected && (
+                  <motion.span
+                    className="absolute inset-0 rounded-full"
+                    style={{ border: `1px solid ${avatar.fgColor}40` }}
+                    animate={{ scale: [1, 1.6], opacity: [0.5, 0] }}
+                    transition={{ duration: 2, repeat: Infinity, ease: "easeOut", delay: nodeIdx * 0.4 }}
+                  />
+                )}
+                {/* Working indicator — subtle breathing */}
+                {isActive && (
+                  <motion.span
+                    className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-[var(--selection-accent)] border border-background"
+                    style={{ zIndex: 3 }}
+                    animate={{ scale: [0.8, 1.2, 0.8], opacity: [0.6, 1, 0.6] }}
+                    transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                  />
+                )}
+              </motion.button>
+            </RosterTooltip>
           );
         })}
 
@@ -1833,6 +1894,10 @@ function HandoffThreadView({
   onCreateChannel,
   onCreateAgent,
   onOpenAgentLauncher,
+  onOpenHome,
+  onOpenKnowledge,
+  knowledgeActive = false,
+  knowledgeHref = "/dashboard/agents?section=knowledge",
   showChannels = true,
   availableAgents,
   offlineAgentCount = 0,
@@ -1841,6 +1906,11 @@ function HandoffThreadView({
   onReorderAgents,
   agentCardDataById,
   openAgentCreatorSignal,
+  showSearch,
+  searchQuery,
+  onToggleSearch,
+  onSearchChange,
+  onCollapse,
   mobileMode = false,
 }: {
   threads: ConversationThread[];
@@ -1852,6 +1922,10 @@ function HandoffThreadView({
   onCreateChannel?: (name: string, agents: Participant[], users: Participant[]) => void;
   onCreateAgent?: (params: AgentCreationSetupCreateParams) => Promise<string | null>;
   onOpenAgentLauncher?: () => void;
+  onOpenHome?: () => void;
+  onOpenKnowledge?: () => void;
+  knowledgeActive?: boolean;
+  knowledgeHref?: string;
   showChannels?: boolean;
   availableAgents?: Participant[];
   offlineAgentCount?: number;
@@ -1860,12 +1934,18 @@ function HandoffThreadView({
   onReorderAgents?: (agentIds: readonly string[]) => void;
   agentCardDataById?: Record<string, AgentCardTooltipData>;
   openAgentCreatorSignal?: number;
+  showSearch: boolean;
+  searchQuery: string;
+  onToggleSearch: () => void;
+  onSearchChange: (query: string) => void;
+  onCollapse?: () => void;
   mobileMode?: boolean;
 }) {
+  const pathname = usePathname() || "";
   const channelAgents = availableAgents ?? AVAILABLE_AGENTS_LIST;
   const [showAgentCreator, setShowAgentCreator] = useState(false);
   const [showChannelCreator, setShowChannelCreator] = useState(false);
-  const [myAgentsOpen, setMyAgentsOpen] = useState(true);
+  const myAgentsOpen = true;
   const [channelsOpen, setChannelsOpen] = useState(true);
 
   useEffect(() => {
@@ -1874,12 +1954,10 @@ function HandoffThreadView({
       onOpenAgentLauncher();
       setShowAgentCreator(false);
       setShowChannelCreator(false);
-      setMyAgentsOpen(true);
       return;
     }
     setShowAgentCreator(true);
     setShowChannelCreator(false);
-    setMyAgentsOpen(true);
   }, [onOpenAgentLauncher, openAgentCreatorSignal]);
 
   const privateThreads = useMemo(
@@ -1911,42 +1989,123 @@ function HandoffThreadView({
     onReorderAgents(agentIds);
   }, [onReorderAgents, privateThreads]);
   const canReorderAgents = Boolean(onReorderAgents && privateThreads.length > 1);
+  const sectionHeadingInsetClass = mobileMode ? "pl-6 pr-4" : "pl-5 pr-3";
 
   return (
-    <motion.div layoutScroll className="flex-1 overflow-y-auto">
-      {/* ── My Agents section header ── */}
-      <div className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-surface-low/40 transition-colors">
+    <motion.div layoutScroll className="agents-roster-scroll flex-1 overflow-y-auto">
+      <div className="agents-roster-actions flex w-full items-center px-3 py-1.5">
+        <div className="flex w-full items-center justify-between gap-2">
+          {offlineAgentCount > 0 && onShowOfflineAgentsChange && (
+            <RosterTooltip label={`${offlineAgentCount} offline ${offlineAgentCount === 1 ? "agent" : "agents"}`}>
+              <div className="inline-flex h-6 shrink-0 items-center gap-2 text-[11px] font-medium text-text-secondary">
+                <span>Show Offline({offlineAgentCount})</span>
+                <Switch
+                  checked={showOfflineAgents}
+                  onCheckedChange={onShowOfflineAgentsChange}
+                  aria-label="Show offline agents"
+                />
+              </div>
+            </RosterTooltip>
+          )}
+          {!mobileMode ? (
+            onCollapse ? (
+              <RosterTooltip label="Collapse sidebar" side="right">
+                <button
+                  type="button"
+                  aria-label="Collapse sidebar"
+                  onClick={onCollapse}
+                  className="ml-auto flex h-6 w-6 items-center justify-center rounded-md border border-transparent text-text-muted transition-colors hover:border-border hover:bg-background/35 hover:text-foreground"
+                >
+                  <PanelLeftClose className="h-3.5 w-3.5" />
+                </button>
+              </RosterTooltip>
+            ) : null
+          ) : null}
+        </div>
+      </div>
+
+      {onOpenHome ? (
         <button
           type="button"
-          aria-expanded={myAgentsOpen}
-          onClick={() => setMyAgentsOpen((v) => !v)}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          aria-current={isDashboardLinkActive(pathname, "/dashboard") ? "page" : undefined}
+          onClick={onOpenHome}
+          className={`agents-roster-home flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
+            mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
+          } ${
+            isDashboardLinkActive(pathname, "/dashboard")
+              ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
+              : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
+          }`}
         >
-          <ChevronDown className={`${mobileMode ? "h-4 w-4" : "h-3 w-3"} flex-shrink-0 text-text-muted transition-transform ${myAgentsOpen ? "" : "-rotate-90"}`} />
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted/60">My Agents</span>
-          <div className="flex-1 h-px bg-border/50" />
-          {privateThreads.length > 0 && (
-            <span className="text-[10px] text-text-muted">{privateThreads.length}</span>
-          )}
+          <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
+            <House className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
+          </span>
+          <span className="font-medium">Home</span>
         </button>
-        {offlineAgentCount > 0 && onShowOfflineAgentsChange && (
-          <button
-            type="button"
-            aria-label={`${showOfflineAgents ? "Hide" : "Show"} offline agents`}
-            aria-pressed={showOfflineAgents}
-            onClick={() => onShowOfflineAgentsChange(!showOfflineAgents)}
-            className={`inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border px-2 text-[9px] font-medium transition-colors ${
-              showOfflineAgents
-                ? "border-foreground/25 bg-foreground/10 text-foreground"
-                : "border-border bg-background/35 text-text-muted hover:border-foreground/20 hover:text-text-secondary"
-            }`}
-          >
-            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-text-muted" />
-            <span>Offline</span>
-            <span className="tabular-nums">{offlineAgentCount}</span>
-          </button>
-        )}
+      ) : (
+        <Link
+          href="/dashboard"
+          aria-current={isDashboardLinkActive(pathname, "/dashboard") ? "page" : undefined}
+          className={`agents-roster-home flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
+          mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
+        } ${
+          isDashboardLinkActive(pathname, "/dashboard")
+            ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
+            : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
+        }`}
+        >
+          <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
+            <House className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
+          </span>
+          <span className="font-medium">Home</span>
+        </Link>
+      )}
+
+      <div className={`agents-roster-section-header flex items-center gap-1 pb-1.5 pt-0.5 transition-colors hover:bg-surface-low/40 ${sectionHeadingInsetClass}`}>
+          <h2 className="flex min-w-0 flex-1 items-center gap-0 text-left">
+            <span className={`${mobileMode ? "text-sm" : "text-[13px]"} font-medium text-text-secondary`}>My Agents({privateThreads.length})</span>
+          </h2>
+          {!mobileMode ? (
+            <RosterTooltip label={showSearch ? "Close search" : "Search agents"} side="right">
+              <button
+                type="button"
+                aria-label={showSearch ? "Close search" : "Search agents"}
+                aria-pressed={showSearch}
+                onClick={onToggleSearch}
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border transition-colors ${
+                  showSearch
+                    ? "border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
+                    : "border-transparent text-text-muted hover:border-border hover:bg-background/35 hover:text-foreground"
+                }`}
+              >
+                {showSearch ? <X className="h-3.5 w-3.5" /> : <Search className="h-3.5 w-3.5" />}
+              </button>
+            </RosterTooltip>
+          ) : null}
       </div>
+
+      <AnimatePresence initial={false}>
+        {showSearch && !mobileMode ? (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="agents-roster-search overflow-hidden"
+          >
+            <div className="px-4 pb-3 pt-2">
+              <input
+                autoFocus
+                type="text"
+                value={searchQuery}
+                onChange={(event) => onSearchChange(event.target.value)}
+                placeholder="Search Agents"
+                className="w-full rounded-md border border-border bg-surface-low px-2.5 py-1.5 text-xs text-foreground placeholder-text-muted focus:border-border-strong focus:outline-none"
+              />
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       <AnimatePresence initial={false}>
         {myAgentsOpen && (
@@ -1957,41 +2116,43 @@ function HandoffThreadView({
             transition={{ duration: 0.18 }}
             className="overflow-hidden"
           >
-            <motion.button
-              type="button"
-              aria-label="Launch agent"
-              title="Launch agent"
-              initial={{ opacity: 0, y: -6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.18 }}
-              whileHover={{ x: 2 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => {
-                if (onOpenAgentLauncher) {
-                  onOpenAgentLauncher();
-                  return;
-                }
-                setShowAgentCreator((v) => !v);
-                setShowChannelCreator(false);
-                setMyAgentsOpen(true);
-              }}
-              className={`group/agent flex w-full items-center text-left transition-colors hover:bg-surface-low/60 ${
-                mobileMode ? "gap-3 rounded-lg px-3 py-2.5" : "gap-2.5 rounded-md px-3 py-2"
-              }`}
-            >
-              <span className={`flex flex-shrink-0 items-center justify-center rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.25)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)] transition-colors group-hover/agent:border-[rgb(var(--selection-accent-rgb)_/_0.45)] group-hover/agent:bg-[rgb(var(--selection-accent-rgb)_/_0.15)] ${
+            <RosterTooltip label="Launch agent" side="right">
+              <motion.button
+                type="button"
+                aria-label="Launch agent"
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.18 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => {
+                  if (onOpenAgentLauncher) {
+                    onOpenAgentLauncher();
+                    return;
+                   }
+                   setShowAgentCreator((v) => !v);
+                   setShowChannelCreator(false);
+                 }}
+                className={`group/agent relative flex w-full items-start border-l-2 border-l-transparent text-left transition-colors hover:bg-surface-low/50 ${
+                  mobileMode ? "gap-3 px-3 py-3" : "gap-2.5 border-r border-border px-3 py-2.5"
+                }`}
+              >
+              {canReorderAgents ? (
+                <span
+                  aria-hidden="true"
+                  className={`shrink-0 ${mobileMode ? "-ml-2 h-10 w-10" : "-ml-2 h-7 w-6"}`}
+                />
+              ) : null}
+              <span className={`flex flex-shrink-0 items-center justify-center rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.25)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)] transition-[border-color,background-color,transform] group-hover/agent:scale-105 group-hover/agent:border-[rgb(var(--selection-accent-rgb)_/_0.45)] group-hover/agent:bg-[rgb(var(--selection-accent-rgb)_/_0.15)] ${
                 mobileMode ? "h-9 w-9" : "h-7 w-7"
               }`}>
                 <Plus className={mobileMode ? "h-5 w-5" : "h-3.5 w-3.5"} />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[11px] font-medium text-foreground">Launch agent</span>
-                <span className="block truncate text-[10px] text-text-muted">Create a new workspace</span>
+                <span className="block truncate text-sm font-medium text-foreground">Launch agent</span>
+                <span className="mt-0.5 block truncate text-xs text-text-muted">Create a new workspace</span>
               </span>
-              <ChevronRight className={`flex-shrink-0 transition-colors ${
-                mobileMode ? "h-5 w-5 text-text-muted" : "h-3 w-3 text-text-muted/0 group-hover/agent:text-text-muted"
-              }`} />
-            </motion.button>
+              </motion.button>
+            </RosterTooltip>
 
             {/* Inline agent creator */}
             <QuickAgentCreator
@@ -2049,6 +2210,48 @@ function HandoffThreadView({
           </motion.div>
         )}
       </AnimatePresence>
+
+      <section className="agents-roster-administration mt-1" aria-label="Administration">
+        <div className={`${sectionHeadingInsetClass} ${mobileMode ? "text-sm" : "text-[13px]"} py-1.5`}>
+          <span className="font-medium text-text-secondary">Administration</span>
+        </div>
+        {onOpenKnowledge ? (
+          <button
+            type="button"
+            aria-current={knowledgeActive ? "page" : undefined}
+            onClick={onOpenKnowledge}
+            className={`flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
+              mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
+            } ${
+              knowledgeActive
+                ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
+                : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
+            }`}
+          >
+            <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
+              <HardDrive className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
+            </span>
+            <span className="font-medium">Shared Knowledge</span>
+          </button>
+        ) : (
+          <Link
+            href={knowledgeHref}
+            aria-current={knowledgeActive ? "page" : undefined}
+            className={`flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
+              mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
+            } ${
+              knowledgeActive
+                ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
+                : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
+            }`}
+          >
+            <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
+              <HardDrive className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
+            </span>
+            <span className="font-medium">Shared Knowledge</span>
+          </Link>
+        )}
+      </section>
 
       {/* ── Channels section ── */}
       {showChannels && (<>
@@ -2150,6 +2353,10 @@ export function AgentsChannelsSidebar({
   agentCardDataById,
   onCreateAgent,
   onOpenAgentLauncher,
+  onOpenHome,
+  onOpenKnowledge,
+  knowledgeActive = false,
+  knowledgeHref,
   openAgentCreatorSignal,
   accountInitial,
   agentsHref,
@@ -2181,7 +2388,7 @@ export function AgentsChannelsSidebar({
   }, [agentsHref, selectedThreadId, threads]);
 
   return (
-    <div className={`${fillParent ? "w-full min-w-0" : "w-[280px] flex-shrink-0"} relative flex h-full min-h-0 flex-col bg-surface-low`}>
+    <div className={`${fillParent ? "w-full min-w-0" : "w-[280px] flex-shrink-0"} agents-roster-expanded relative flex h-full min-h-0 flex-col bg-surface-low`}>
       {showDivider && <div aria-hidden className="pointer-events-none absolute right-0 top-0 z-20 h-full w-px bg-border" />}
       <SidebarHeader
         showSearch={showSearch}
@@ -2224,6 +2431,10 @@ export function AgentsChannelsSidebar({
           onCreateChannel={onCreateChannel}
           onCreateAgent={onCreateAgent}
           onOpenAgentLauncher={onOpenAgentLauncher}
+          onOpenHome={onOpenHome}
+          onOpenKnowledge={onOpenKnowledge}
+          knowledgeActive={knowledgeActive}
+          knowledgeHref={knowledgeHref}
           showChannels={showChannels}
           availableAgents={availableAgents}
           offlineAgentCount={offlineAgentCount}
@@ -2232,6 +2443,14 @@ export function AgentsChannelsSidebar({
           onReorderAgents={onReorderAgents}
           agentCardDataById={agentCardDataById}
           openAgentCreatorSignal={openAgentCreatorSignal}
+          showSearch={showSearch}
+          searchQuery={searchQuery}
+          onToggleSearch={() => {
+            setShowSearch((value) => !value);
+            if (showSearch) setSearchQuery("");
+          }}
+          onSearchChange={setSearchQuery}
+          onCollapse={onCollapse}
           mobileMode={mobileMode}
         />
       )}
@@ -2246,6 +2465,10 @@ export function AgentsChannelsSidebar({
           onCreateChannel={onCreateChannel}
           onCreateAgent={onCreateAgent}
           onOpenAgentLauncher={onOpenAgentLauncher}
+          onOpenHome={onOpenHome}
+          onOpenKnowledge={onOpenKnowledge}
+          knowledgeActive={knowledgeActive}
+          knowledgeHref={knowledgeHref}
           showChannels={showChannels}
           availableAgents={availableAgents}
           offlineAgentCount={offlineAgentCount}
@@ -2254,6 +2477,14 @@ export function AgentsChannelsSidebar({
           onReorderAgents={onReorderAgents}
           agentCardDataById={agentCardDataById}
           openAgentCreatorSignal={openAgentCreatorSignal}
+          showSearch={showSearch}
+          searchQuery={searchQuery}
+          onToggleSearch={() => {
+            setShowSearch((value) => !value);
+            if (showSearch) setSearchQuery("");
+          }}
+          onSearchChange={setSearchQuery}
+          onCollapse={onCollapse}
           mobileMode={mobileMode}
         />
       )}
@@ -2263,6 +2494,9 @@ export function AgentsChannelsSidebar({
         agentsHref={resolvedAgentsHref}
         onOpenAgentSettings={onOpenAgentSettings}
         agentSettingsActive={agentSettingsActive}
+        knowledgeActive={knowledgeActive}
+        knowledgeHref={knowledgeHref}
+        onOpenKnowledge={onOpenKnowledge}
         onLogout={onLogout}
       />
     </div>

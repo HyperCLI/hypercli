@@ -349,6 +349,7 @@ export {
   type GatewayEvent,
   type ChatEvent,
   type GatewayEphemeralChatOptions,
+  type GatewayEphemeralChatSession,
   type GatewayAbortSignal,
   type ChatAttachment,
   type BrowserChatAttachment,

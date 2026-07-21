@@ -42,6 +42,7 @@ interface AgentMainPanelProps {
   stoppedTabLabel: string;
   panelContent: React.ReactNode;
   persistentPanelContent?: React.ReactNode;
+  headerAction?: React.ReactNode;
   onCreate: () => void;
   onCreateAgent?: (params: AgentCreationSetupCreateParams) => Promise<string | null>;
   budget?: {
@@ -85,6 +86,7 @@ export function AgentMainPanel({
   stoppedTabLabel,
   panelContent,
   persistentPanelContent,
+  headerAction,
   onCreate,
   onCreateAgent,
   budget,
@@ -440,6 +442,7 @@ export function AgentMainPanel({
               </div>
 
               <div className="relative z-10 flex min-w-0 items-center justify-end gap-2">
+                {headerAction}
                 <div className="flex items-center gap-2">
                   <div className="flex items-center gap-1">
                     {(currentPanel === "logs" || currentPanel === "shell") && (

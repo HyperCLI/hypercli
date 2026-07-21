@@ -26,6 +26,7 @@ import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 import { ThemeToggle } from "@hypercli/shared-ui";
 
 const dropdownNavItems = [
+  { label: "Shared knowledge", href: "/dashboard/agents?section=knowledge", icon: HardDrive },
   { label: "API Keys", href: "/keys", icon: Key },
   { label: "Plans", href: "/plans", icon: CreditCard },
   { label: "Billing", href: "/dashboard/settings", icon: CreditCard },

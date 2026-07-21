@@ -8,6 +8,7 @@ export {
   type GatewayOptions,
   type GatewayEvent,
   type ChatEvent,
+  type GatewayEphemeralChatSession,
   type ChatAttachment,
   type BrowserChatAttachment,
   type GatewayChatAttachmentPayload,

@@ -3,9 +3,9 @@ import type { ClawIntegrationConnectId } from "../claw-ui-actions";
 import { gatewayReconnect, openFullSetup, openIntegrationDetails } from "./types";
 import type { IntegrationSetupRenderContext } from "./types";
 
-type GatewayChannelId = "discord" | "slack" | "whatsapp";
+type GatewayChannelId = "discord" | "whatsapp";
 
-const GATEWAY_CHANNEL_IDS = new Set<ClawIntegrationConnectId>(["discord", "slack", "whatsapp"]);
+const GATEWAY_CHANNEL_IDS = new Set<ClawIntegrationConnectId>(["discord", "whatsapp"]);
 
 export function renderGatewayDefinedChannelSetup(context: IntegrationSetupRenderContext) {
   const { action, chat } = context;

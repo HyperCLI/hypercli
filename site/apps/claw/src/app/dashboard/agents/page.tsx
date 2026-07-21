@@ -27,7 +27,6 @@ import {
   createAgentClient,
   createHyperAgentClient,
   createOpenClawAgent,
-  createWorkspacesClient,
   isAgentCleanupConflictError,
   startOpenClawAgent,
 } from "@/lib/agent-client";
@@ -43,7 +42,6 @@ import { useAgentRosterOrder } from "@/hooks/useAgentRosterOrder";
 import { agentAvatar } from "@/lib/avatar";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { IntegrationsDirectoryPanel } from "@/components/dashboard/integrations";
-import { SharedKnowledgePanel } from "@/components/dashboard/integrations/SharedKnowledgePanel";
 import {
   SkillDraftTestBanner,
   SkillsPanel,
@@ -67,7 +65,6 @@ import type { AgentFileEntry, SdkAgent } from "@/types";
 import type { FileEntry } from "@hypercli/shared-ui/files";
 import { buildBrowserDesktopUrl } from "@hypercli.com/sdk/agents";
 import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
-import type { WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
 import type {
   HyperAgentCurrentPlan,
   HyperAgentEntitlement,
@@ -133,8 +130,10 @@ import { AgentScheduledPanel } from "@/components/dashboard/agents/AgentSchedule
 import { AgentTerminalPanel } from "@/components/dashboard/agents/AgentTerminalPanel";
 import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
 import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
+import { AgentPrivateChatControl } from "@/components/dashboard/agents/AgentPrivateChatControl";
 import { AgentWorkspaceSidebar } from "@/components/dashboard/agents/AgentWorkspaceSidebar";
 import { AgentGatewaySessionProvider, asAgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
+import { SharedKnowledgeSection } from "@/components/dashboard/knowledge/SharedKnowledgeSection";
 import { JourneyFloatingPanel } from "@/components/dashboard/journey/JourneyFloatingPanel";
 import type { JourneyCapabilityCard } from "@/components/dashboard/journey/journey-capabilities";
 import { buildJourneyBriefPrompt, buildJourneyCapabilityPrompt, buildJourneyPrompt } from "@/components/dashboard/journey/journey-prompt-builder";
@@ -184,6 +183,7 @@ const AGENTS_DESKTOP_MEDIA_QUERY = "(min-width: 640px)";
 const AGENT_LAUNCHER_OPEN_VALUES = new Set(["agent-launcher", "launcher", "launch-agent"]);
 const INTEGRATION_QUERY_IDS = new Set(["telegram", "discord", "slack", "whatsapp", "github"]);
 const TOKEN_USAGE_RECONCILE_DELAYS_MS = [2000, 5000] as const;
+const CHAT_UPLOAD_DRAIN_WAIT_MS = 1_500;
 const TOKEN_USAGE_RUNNING_REFRESH_INTERVAL_MS = 60_000;
 const AGENT_DASHBOARD_ENRICHMENT_TIMEOUT_MS = 10_000;
 const AGENT_DIRECTORY_MARKER_NAME = ".hypercli-folder";
@@ -847,6 +847,8 @@ function AgentsPageContent() {
   const requestedSessionKey = searchParams.get("session")?.trim() || null;
   const requestedIntegrationId = searchParams.get("integration")?.trim() || null;
   const requestedOpen = searchParams.get("open")?.trim() || null;
+  const requestedSection = searchParams.get("section")?.trim() || null;
+  const knowledgeSectionActive = requestedSection === "knowledge";
   const slackOAuthOk = searchParams.get("slack_oauth_ok")?.trim() || null;
   const slackOAuthError = searchParams.get("slack_oauth_error")?.trim() || null;
   const slackOAuthResult = slackOAuthOk === "true" ? "success" : slackOAuthOk === "false" ? "failure" : null;
@@ -854,6 +856,7 @@ function AgentsPageContent() {
   const shouldOpenAgentLauncherFromQuery = requestedOpen ? AGENT_LAUNCHER_OPEN_VALUES.has(requestedOpen) : false;
   const { setAgentMenu } = useDashboardMobileAgentMenu();
   const dashboardDisplayName = displayNameForDashboard(user);
+  const workspaceDisplayName = dashboardDisplayName === "there" ? "Personal workspace" : dashboardDisplayName;
   const suggestedJourneyUserName = dashboardDisplayName === "there" ? null : dashboardDisplayName;
   const accountInitial = user?.email?.trim()[0]?.toUpperCase() || "?";
   const journey = useJourney({ searchParams, searchKey: queryKey, storageScope: user?.email ?? null });
@@ -886,8 +889,8 @@ function AgentsPageContent() {
     [billingReflectionState],
   );
   const [deployments, setDeployments] = useState<Deployments | null>(null);
-  const [workspacesClient, setWorkspacesClient] = useState<WorkspacesAPI | null>(null);
   const [agentsLoading, setAgentsLoading] = useState(true);
+  const [agentsLoadError, setAgentsLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [startingId, setStartingId] = useState<string | null>(null);
@@ -903,6 +906,31 @@ function AgentsPageContent() {
   const appliedAgentSessionQueryRef = useRef<string | null>(null);
   const appliedIntegrationQueryRef = useRef<string | null>(null);
   const appliedOpenQueryRef = useRef<string | null>(null);
+  const selectedAgentIdRef = useRef<string | null>(null);
+  const endTemporaryChatBeforeSelectionRef = useRef<() => Promise<void>>(async () => undefined);
+  const agentSelectionOperationRef = useRef(0);
+  const chatAsyncOperationRef = useRef(0);
+  const discardChatAudioRef = useRef<() => void>(() => undefined);
+  const chatUploadsInFlightRef = useRef(0);
+  const chatUploadGenerationRef = useRef(0);
+  const chatUploadIdleWaitersRef = useRef<Set<() => void>>(new Set());
+  const retireChatUploadsRef = useRef<() => void>(() => undefined);
+  const waitForChatUploads = useCallback((): Promise<void> => {
+    if (chatUploadsInFlightRef.current === 0) return Promise.resolve();
+    return new Promise((resolve) => {
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+      const finish = () => {
+        if (timeout) clearTimeout(timeout);
+        chatUploadIdleWaitersRef.current.delete(finish);
+        resolve();
+      };
+      timeout = setTimeout(() => {
+        retireChatUploadsRef.current();
+        finish();
+      }, CHAT_UPLOAD_DRAIN_WAIT_MS);
+      chatUploadIdleWaitersRef.current.add(finish);
+    });
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -934,7 +962,36 @@ function AgentsPageContent() {
       : {}
   ));
   const { pinnedSessionKeys, setSessionPinned } = useOpenClawSessionPins(selectedAgentId);
-  const [mainTab, setMainTab] = useState<MainTab>("chat");
+  const mainTabBeforeKnowledgeRef = useRef<MainTab>("chat");
+  const [mainTab, setMainTab] = useState<MainTab>(() => knowledgeSectionActive ? "knowledge" : "chat");
+  const selectMainTab = useCallback((tab: MainTab) => {
+    if (tab === "knowledge") {
+      setMainTab((current) => {
+        if (current !== "knowledge") mainTabBeforeKnowledgeRef.current = current;
+        return "knowledge";
+      });
+      return;
+    }
+
+    setMainTab(tab);
+    if (!knowledgeSectionActive) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("section");
+    const query = params.toString();
+    router.replace(`/dashboard/agents${query ? `?${query}` : ""}`, { scroll: false });
+  }, [knowledgeSectionActive, router, searchParams]);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setMainTab((current) => {
+        if (knowledgeSectionActive) {
+          if (current !== "knowledge") mainTabBeforeKnowledgeRef.current = current;
+          return "knowledge";
+        }
+        return current === "knowledge" ? mainTabBeforeKnowledgeRef.current : current;
+      });
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [knowledgeSectionActive]);
   const [scheduledInitialCommand, setScheduledInitialCommand] = useState<{ id: number; command: string } | null>(null);
   const scheduledInitialCommandIdRef = useRef(0);
   const [mobileShowChat, setMobileShowChat] = useState(false);
@@ -945,7 +1002,15 @@ function AgentsPageContent() {
   const [sidebarCreatorSignal, setSidebarCreatorSignal] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
 
-  const replaceAgentChatRoute = useCallback((agentId: string | null, sessionKey?: string | null) => {
+  useLayoutEffect(() => {
+    selectedAgentIdRef.current = selectedAgentId;
+  }, [selectedAgentId]);
+
+  const replaceAgentChatRoute = useCallback((
+    agentId: string | null,
+    sessionKey?: string | null,
+    clearKnowledgeSection = false,
+  ) => {
     const params = new URLSearchParams(searchParams.toString());
     if (agentId) {
       params.set("agentId", agentId);
@@ -963,16 +1028,10 @@ function AgentsPageContent() {
     } else {
       params.delete("session");
     }
-
+    if (clearKnowledgeSection) params.delete("section");
     const query = params.toString();
     router.replace(`/dashboard/agents${query ? `?${query}` : ""}`, { scroll: false });
   }, [router, searchParams]);
-
-  const selectAgent = useCallback((agentId: string) => {
-    const sessionKey = selectedSessionKeysByAgent[agentId] ?? resolveOpenClawSessionKey(agentId);
-    setSelectedAgentId(agentId);
-    replaceAgentChatRoute(agentId, sessionKey);
-  }, [replaceAgentChatRoute, selectedSessionKeysByAgent]);
 
   // Logs
   const logBoxRef = useRef<HTMLDivElement | null>(null);
@@ -1084,9 +1143,9 @@ function AgentsPageContent() {
       if (!deployments) {
         setDeployments(agentClient);
       }
-      setWorkspacesClient((current) => current ?? createWorkspacesClient(token));
       const hyperAgent = createHyperAgentClient(token);
       const listedAgents = await agentClient.list();
+      setAgentsLoadError(null);
       const listedAgentIds = new Set(listedAgents.map((agent) => agent.id));
       setSdkAgents(listedAgents);
       setSelectedSessionKeysByAgent((current) => {
@@ -1105,12 +1164,16 @@ function AgentsPageContent() {
       const requestedAgent = requestedAgentId
         ? listedAgents.find((agent) => agent.id === requestedAgentId) ?? null
         : null;
-      setSelectedAgentId((currentId) => {
-        if (currentId && listedAgents.some((item) => item.id === currentId)) {
-          return currentId;
-        }
-        return requestedAgent?.id ?? listedAgents[0]?.id ?? null;
-      });
+      const currentAgentId = selectedAgentIdRef.current;
+      const nextAgentId = currentAgentId && listedAgents.some((item) => item.id === currentAgentId)
+        ? currentAgentId
+        : requestedAgent?.id ?? listedAgents[0]?.id ?? null;
+      if (nextAgentId !== currentAgentId) {
+        const selectionOperation = agentSelectionOperationRef.current + 1;
+        agentSelectionOperationRef.current = selectionOperation;
+        await endTemporaryChatBeforeSelectionRef.current();
+        if (agentSelectionOperationRef.current === selectionOperation) setSelectedAgentId(nextAgentId);
+      }
       setAgentsLoading(false);
 
       const [catalogData, currentPlan, summaryData, dailyUsage, typeCatalogData] = await Promise.all([
@@ -1136,13 +1199,13 @@ function AgentsPageContent() {
       return { subscriptionSummary: summary, budget: nextBudget };
     } catch (err) {
       const described = describeAgentsPageError(err);
+      setAgentsLoadError(described.message);
       setError(described.message);
       setAgentClusterUnavailable(described.clusterUnavailable);
       setSdkAgents([]);
       setBudget(null);
       setCatalogPlans([]);
       setDeployments(null);
-      setWorkspacesClient(null);
       return null;
     } finally {
       setAgentsLoading(false);
@@ -1292,15 +1355,25 @@ function AgentsPageContent() {
     const selectionQueryKey = JSON.stringify([requestedAgentId, requestedSessionKey]);
     if (appliedAgentSessionQueryRef.current === selectionQueryKey) return;
 
-    appliedAgentSessionQueryRef.current = selectionQueryKey;
-    const sessionKey = requestedSessionKey ?? resolveOpenClawSessionKey(requestedAgentId);
-    setSelectedAgentId(requestedAgentId);
-    setSelectedSessionKeysByAgent((current) => (
-      current[requestedAgentId] === sessionKey
-        ? current
-        : { ...current, [requestedAgentId]: sessionKey }
-    ));
-    setMobileShowChat(true);
+    let cancelled = false;
+    const selectionOperation = agentSelectionOperationRef.current + 1;
+    agentSelectionOperationRef.current = selectionOperation;
+    void (async () => {
+      await endTemporaryChatBeforeSelectionRef.current();
+      if (cancelled || agentSelectionOperationRef.current !== selectionOperation) return;
+      appliedAgentSessionQueryRef.current = selectionQueryKey;
+      const sessionKey = requestedSessionKey ?? resolveOpenClawSessionKey(requestedAgentId);
+      setSelectedAgentId(requestedAgentId);
+      setSelectedSessionKeysByAgent((current) => (
+        current[requestedAgentId] === sessionKey
+          ? current
+          : { ...current, [requestedAgentId]: sessionKey }
+      ));
+      setMobileShowChat(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [requestedAgentId, requestedSessionKey, sdkAgents]);
 
   useEffect(() => {
@@ -1519,9 +1592,9 @@ function AgentsPageContent() {
   const stoppedTabLabel: Record<CenterPanel, string> = {
     chat: "Chat",
     files: "Files",
+    knowledge: "Shared knowledge",
     integrations: "Integrations",
     skills: "Skills",
-    knowledge: "Shared knowledge",
     scheduled: "Scheduled",
     logs: "Logs",
     settings: "Settings",
@@ -1586,6 +1659,16 @@ function AgentsPageContent() {
   const selectedSessionKey = selectedAgentId
     ? selectedSessionKeysByAgent[selectedAgentId] ?? resolveOpenClawSessionKey(selectedAgentId)
     : resolveOpenClawSessionKey(null);
+  const knowledgeSectionHref = useMemo(() => {
+    const params = new URLSearchParams({ section: "knowledge" });
+    if (selectedAgentId) {
+      params.set("agentId", selectedAgentId);
+      if (!sameOpenClawSelectableSessionKey(selectedSessionKey, resolveOpenClawSessionKey(selectedAgentId))) {
+        params.set("session", selectedSessionKey);
+      }
+    }
+    return `/dashboard/agents?${params.toString()}`;
+  }, [selectedAgentId, selectedSessionKey]);
   const skillDraftScope = useMemo(() => ({ ownerId: user?.email ?? "local", agentId: selectedAgentId ?? "unknown-agent" }), [selectedAgentId, user?.email]);
   const activeSkillDraftTest = useSkillDraftTestSession(skillDraftScope, selectedSessionKey);
   const gatewayEnabled = isSelectedRunning;
@@ -1594,7 +1677,6 @@ function AgentsPageContent() {
     mainTab === "workspace" ||
     mainTab === "integrations" ||
     mainTab === "skills" ||
-    mainTab === "knowledge" ||
     mainTab === "scheduled" ||
     mainTab === "settings" ||
     mainTab === "openclaw" ||
@@ -1608,6 +1690,29 @@ function AgentsPageContent() {
     { hydrationMode: openClawHydrationMode },
   );
   const gatewayChat = asAgentGatewaySession(chat);
+  const activeChatTargetRef = useRef({ agentId: selectedAgentId, sessionKey: chat.activeSessionKey });
+  useLayoutEffect(() => {
+    activeChatTargetRef.current = { agentId: selectedAgentId, sessionKey: chat.activeSessionKey };
+  }, [chat.activeSessionKey, selectedAgentId]);
+  useLayoutEffect(() => {
+    endTemporaryChatBeforeSelectionRef.current = async () => {
+      discardChatAudioRef.current();
+      chatAsyncOperationRef.current += 1;
+      await waitForChatUploads();
+      await chat.endTemporaryChat();
+    };
+  }, [chat.endTemporaryChat, waitForChatUploads]);
+  const selectAgent = useCallback(async (agentId: string, clearKnowledgeSection = false) => {
+    const selectionOperation = agentSelectionOperationRef.current + 1;
+    agentSelectionOperationRef.current = selectionOperation;
+    if (agentId !== selectedAgentId) {
+      await endTemporaryChatBeforeSelectionRef.current();
+    }
+    if (agentSelectionOperationRef.current !== selectionOperation) return;
+    const sessionKey = selectedSessionKeysByAgent[agentId] ?? resolveOpenClawSessionKey(agentId);
+    setSelectedAgentId(agentId);
+    replaceAgentChatRoute(agentId, sessionKey, clearKnowledgeSection);
+  }, [replaceAgentChatRoute, selectedAgentId, selectedSessionKeysByAgent]);
   const activeConnectionStatus = useMemo(() => {
     if (mainTab === "files") {
       return selectedAgentId ? "connected" as const : null;
@@ -1615,7 +1720,7 @@ function AgentsPageContent() {
     if (!isSelectedRunning) return null;
     if (mainTab === "logs") return wsStatus;
     if (mainTab === "shell") return shellStatus;
-    if (mainTab === "chat" || mainTab === "workspace" || mainTab === "integrations" || mainTab === "skills" || mainTab === "knowledge" || mainTab === "scheduled" || mainTab === "settings") {
+    if (mainTab === "chat" || mainTab === "workspace" || mainTab === "integrations" || mainTab === "skills" || mainTab === "scheduled" || mainTab === "settings") {
       if (chat.connected) return "connected" as const;
       if (chat.connecting) return "connecting" as const;
       return "disconnected" as const;
@@ -1996,22 +2101,26 @@ function AgentsPageContent() {
   // One thread per agent, used by both the left ConversationsSidebar and the
   // right inspector (which needs `hasAgent` true to render content).
   const syntheticThreads = useMemo<ConversationThread[]>(() => {
-    return orderedRosterAgents.map((agent) => ({
-      id: agent.id,
-      sessionKey: resolveOpenClawSessionKey(agent.id),
-      participants: [
-        { id: "user", name: "You", type: "user" as const },
-        { id: agent.id, name: agent.name || agent.id, type: "agent" as const, meta: agent.meta ?? null },
-      ],
-      kind: "user-agent" as const,
-      title: agent.name || agent.pod_name || agent.id,
-      lastMessage: agent.state === "RUNNING" ? "Connected" : agent.state.toLowerCase(),
-      lastMessageBy: agent.id,
-      lastMessageAt: agent.updated_at ? new Date(agent.updated_at).getTime() : Date.now(),
-      messageCount: agent.id === selectedAgentId ? chat.messages.length : 0,
-      unreadCount: 0,
-      isActive: agent.state === "RUNNING",
-    }));
+    return orderedRosterAgents.map((agent) => {
+      const agentName = agent.name || agent.pod_name || agent.id;
+      const displayName = agent.displayName?.trim() || agentName;
+      return {
+        id: agent.id,
+        sessionKey: resolveOpenClawSessionKey(agent.id),
+        participants: [
+          { id: "user", name: "You", type: "user" as const },
+          { id: agent.id, name: agentName, type: "agent" as const, meta: agent.meta ?? null },
+        ],
+        kind: "user-agent" as const,
+        title: displayName,
+        lastMessage: agent.state === "RUNNING" ? "Connected" : agent.state.toLowerCase(),
+        lastMessageBy: agent.id,
+        lastMessageAt: agent.updated_at ? new Date(agent.updated_at).getTime() : Date.now(),
+        messageCount: agent.id === selectedAgentId ? chat.messages.length : 0,
+        unreadCount: 0,
+        isActive: agent.state === "RUNNING",
+      };
+    });
   }, [chat.messages.length, orderedRosterAgents, selectedAgentId]);
   const mobileOfflineAgentIds = useMemo(
     () => new Set(orderedRosterAgents.filter((agent) => isAgentOffline(agent.state)).map((agent) => agent.id)),
@@ -2309,7 +2418,7 @@ function AgentsPageContent() {
           }
         }
         await fetchAgents();
-        selectAgent(created.id);
+        await selectAgent(created.id, true);
         setOpenclawSettingsOpen(false);
         setMainTab("chat");
         setMobileShowChat(true);
@@ -2386,6 +2495,9 @@ function AgentsPageContent() {
     setStoppingId(agentId);
     setError(null);
     try {
+      if (agentId === selectedAgentId) {
+        await endTemporaryChatBeforeSelectionRef.current();
+      }
       const token = await getToken();
       const stoppedAgent = await createAgentClient(token).stop(agentId);
       setSdkAgents((prev) => upsertSdkAgent(prev, stoppedAgent));
@@ -2401,6 +2513,9 @@ function AgentsPageContent() {
     setDeletingId(agentId);
     setError(null);
     try {
+      if (agentId === selectedAgentId) {
+        await endTemporaryChatBeforeSelectionRef.current();
+      }
       const agentToDelete = agents.find((agent) => agent.id === agentId) ?? null;
       const releaseTier = agentToDelete ? inferAgentTier(agentToDelete, budget) : null;
       const releaseBaseline = releaseTier ? budget?.slots?.[releaseTier] : null;
@@ -2465,15 +2580,46 @@ function AgentsPageContent() {
   const [audioPreviewDuration, setAudioPreviewDuration] = useState(0);
   const [audioPreviewPlaying, setAudioPreviewPlaying] = useState(false);
   const [sendingAudio, setSendingAudio] = useState(false);
+  const [uploadingChatFiles, setUploadingChatFiles] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
+  const beginChatUpload = useCallback((): number => {
+    const generation = chatUploadGenerationRef.current;
+    chatUploadsInFlightRef.current += 1;
+    setUploadingChatFiles(chatUploadsInFlightRef.current);
+    return generation;
+  }, []);
+  const finishChatUpload = useCallback((generation: number) => {
+    if (generation !== chatUploadGenerationRef.current) return;
+    chatUploadsInFlightRef.current = Math.max(0, chatUploadsInFlightRef.current - 1);
+    setUploadingChatFiles(chatUploadsInFlightRef.current);
+    if (chatUploadsInFlightRef.current > 0) return;
+    chatUploadIdleWaitersRef.current.forEach((resolve) => resolve());
+    chatUploadIdleWaitersRef.current.clear();
+  }, []);
+  const retireChatUploads = useCallback(() => {
+    chatUploadGenerationRef.current += 1;
+    chatUploadsInFlightRef.current = 0;
+    setUploadingChatFiles(0);
+    setSendingAudio(false);
+    chatUploadIdleWaitersRef.current.forEach((resolve) => resolve());
+    chatUploadIdleWaitersRef.current.clear();
+  }, []);
+  useLayoutEffect(() => {
+    retireChatUploadsRef.current = retireChatUploads;
+  }, [retireChatUploads]);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const levelAnimRef = useRef<number>(0);
+  const discardRecordingRef = useRef(false);
+  const recordingRequestRef = useRef(0);
 
   const startRecording = useCallback(async () => {
+    const requestId = recordingRequestRef.current + 1;
+    recordingRequestRef.current = requestId;
+    const target = { ...activeChatTargetRef.current };
     let stream: MediaStream | null = null;
     let audioCtx: AudioContext | null = null;
 
@@ -2483,6 +2629,14 @@ function AgentsPageContent() {
       }
 
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (
+        recordingRequestRef.current !== requestId ||
+        activeChatTargetRef.current.agentId !== target.agentId ||
+        activeChatTargetRef.current.sessionKey !== target.sessionKey
+      ) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
 
       if (typeof AudioContext !== "undefined") {
         try {
@@ -2511,6 +2665,7 @@ function AgentsPageContent() {
       }
 
       const mediaRecorder = createAudioMediaRecorder(stream);
+      discardRecordingRef.current = false;
       audioChunksRef.current = [];
       setRecordingDuration(0);
       mediaRecorder.ondataavailable = (e) => {
@@ -2525,6 +2680,13 @@ function AgentsPageContent() {
         if (audioCtx) void audioCtx.close();
         if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
         setAudioLevel(0);
+        if (discardRecordingRef.current) {
+          discardRecordingRef.current = false;
+          audioChunksRef.current = [];
+          setAudioBlob(null);
+          setAudioUrl(null);
+          return;
+        }
         const blob = new Blob(audioChunksRef.current, { type: mediaRecorder.mimeType || audioChunksRef.current[0]?.type || "audio/webm" });
         setAudioBlob(blob);
         setAudioUrl(URL.createObjectURL(blob));
@@ -2535,6 +2697,7 @@ function AgentsPageContent() {
       recordingTimerRef.current = setInterval(() => setRecordingDuration((d) => d + 1), 1000);
     } catch {
       stream?.getTracks().forEach((t) => t.stop());
+      if (recordingRequestRef.current !== requestId) return;
       if (levelAnimRef.current) {
         cancelAnimationFrame(levelAnimRef.current);
         levelAnimRef.current = 0;
@@ -2549,6 +2712,7 @@ function AgentsPageContent() {
   }, []);
 
   const stopRecording = useCallback(() => {
+    discardRecordingRef.current = false;
     mediaRecorderRef.current?.stop();
     setRecording(false);
   }, []);
@@ -2564,6 +2728,47 @@ function AgentsPageContent() {
     setAudioPreviewPlaying(false);
     setRecordingDuration(0);
   }, [audioUrl]);
+
+  const discardChatAudio = useCallback(() => {
+    recordingRequestRef.current += 1;
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      discardRecordingRef.current = true;
+      recorder.stop();
+    }
+    setRecording(false);
+    discardAudio();
+  }, [discardAudio]);
+
+  useLayoutEffect(() => {
+    discardChatAudioRef.current = discardChatAudio;
+  }, [discardChatAudio]);
+
+  const audioTargetRef = useRef({ agentId: selectedAgentId, sessionKey: chat.activeSessionKey });
+  useEffect(() => {
+    if (
+      audioTargetRef.current.agentId === selectedAgentId &&
+      audioTargetRef.current.sessionKey === chat.activeSessionKey
+    ) return;
+    audioTargetRef.current = { agentId: selectedAgentId, sessionKey: chat.activeSessionKey };
+    discardChatAudio();
+  }, [chat.activeSessionKey, discardChatAudio, selectedAgentId]);
+
+  useEffect(() => {
+    const discardPageChatWork = () => {
+      chatAsyncOperationRef.current += 1;
+      discardChatAudio();
+    };
+    window.addEventListener("pagehide", discardPageChatWork);
+    return () => {
+      window.removeEventListener("pagehide", discardPageChatWork);
+    };
+  }, [discardChatAudio]);
+
+  useEffect(() => () => {
+    chatAsyncOperationRef.current += 1;
+    discardChatAudioRef.current();
+  }, []);
 
   useEffect(() => {
     if (!audioUrl) return;
@@ -2607,7 +2812,16 @@ function AgentsPageContent() {
 
   const sendAudio = useCallback(async () => {
     if (!audioBlob || !selectedAgent || sendingAudio || !chat.connected) return;
+    const target = { agentId: selectedAgent.id, sessionKey: chat.activeSessionKey };
+    const operation = chatAsyncOperationRef.current;
+    const targetIsCurrent = () => (
+      chatAsyncOperationRef.current === operation &&
+      activeChatTargetRef.current.agentId === target.agentId &&
+      activeChatTargetRef.current.sessionKey === target.sessionKey
+    );
     setSendingAudio(true);
+    const uploadGeneration = beginChatUpload();
+    let uploadInFlight = true;
     try {
       const token = await getToken();
       const timestamp = Date.now();
@@ -2616,31 +2830,63 @@ function AgentsPageContent() {
       const agentPath = `${OPENCLAW_WORKSPACE_DIR}/${filename}`;
       const voiceMessage = `I recorded a voice message. Run this command to transcribe it:\n\`hyper voice transcribe ${agentPath}\``;
       const voiceFile = { name: filename, path: agentPath, type: audioBlob.type || "audio/webm" };
-      await createAgentClient(token).fileWriteBytes(selectedAgent.id, uploadPath, await audioBlob.arrayBuffer());
+      const agentClient = createAgentClient(token);
+      const content = await audioBlob.arrayBuffer();
+      if (!targetIsCurrent()) {
+        return;
+      }
+      await agentClient.fileWriteBytes(selectedAgent.id, uploadPath, content);
+      if (!targetIsCurrent()) {
+        await agentClient.fileDelete(selectedAgent.id, uploadPath).catch(() => undefined);
+        return;
+      }
+      finishChatUpload(uploadGeneration);
+      uploadInFlight = false;
       await chat.sendMessage(voiceMessage, { displayContent: "", files: [voiceFile] });
-      discardAudio();
+      if (targetIsCurrent()) discardAudio();
     } catch (e) {
       console.error("Audio upload failed:", e);
-      setError(e instanceof Error ? e.message : "Audio upload failed");
+      if (targetIsCurrent()) setError(e instanceof Error ? e.message : "Audio upload failed");
     } finally {
-      setSendingAudio(false);
+      if (uploadGeneration === chatUploadGenerationRef.current) setSendingAudio(false);
+      if (uploadInFlight) finishChatUpload(uploadGeneration);
     }
-  }, [audioBlob, chat, discardAudio, selectedAgent, getToken, sendingAudio]);
+  }, [audioBlob, beginChatUpload, chat, discardAudio, finishChatUpload, selectedAgent, getToken, sendingAudio]);
 
   const handleChatFileDrop = useCallback(async (fileList: FileList | File[]) => {
     if (!selectedAgent || !chat.connected) return;
+    const target = { agentId: selectedAgent.id, sessionKey: chat.activeSessionKey };
+    const operation = chatAsyncOperationRef.current;
 
     const files = Array.from(fileList);
     const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+    const workspaceFiles = files.filter((file) => !file.type.startsWith("image/"));
+    const targetIsCurrent = () => (
+      chatAsyncOperationRef.current === operation &&
+      activeChatTargetRef.current.agentId === target.agentId &&
+      activeChatTargetRef.current.sessionKey === target.sessionKey
+    );
 
+    if (imageFiles.length > 0) {
+      const dt = new DataTransfer();
+      imageFiles.forEach((file) => dt.items.add(file));
+      chat.addAttachments(dt.files);
+    }
+    if (workspaceFiles.length === 0) return;
+
+    const uploadGeneration = beginChatUpload();
+    let uploadInFlight = true;
     try {
       const token = await getToken();
       const agentClient = createAgentClient(token);
       const uploaded: Array<{ name: string; path: string; type: string }> = [];
 
-      for (const file of files) {
+      for (const file of workspaceFiles) {
+        if (!targetIsCurrent()) return;
         const uploadPath = `${OPENCLAW_WORKSPACE_PREFIX}/${file.name}`;
-        await agentClient.fileWriteBytes(selectedAgent.id, uploadPath, await file.arrayBuffer());
+        const content = await file.arrayBuffer();
+        if (!targetIsCurrent()) return;
+        await agentClient.fileWriteBytes(selectedAgent.id, uploadPath, content);
         uploaded.push({
           name: file.name,
           path: `${OPENCLAW_SYNC_ROOT}/${uploadPath}`,
@@ -2648,18 +2894,18 @@ function AgentsPageContent() {
         });
       }
 
-      if (imageFiles.length > 0) {
-        const dt = new DataTransfer();
-        imageFiles.forEach((file) => dt.items.add(file));
-        chat.addAttachments(dt.files);
-      }
+      if (!targetIsCurrent()) return;
       chat.addPendingFiles(uploaded);
+      finishChatUpload(uploadGeneration);
+      uploadInFlight = false;
       await refreshChatFileReferences().catch(() => undefined);
     } catch (e) {
       console.error("Chat file upload failed:", e);
       setError(e instanceof Error ? e.message : "File upload failed");
+    } finally {
+      if (uploadInFlight) finishChatUpload(uploadGeneration);
     }
-  }, [chat, getToken, refreshChatFileReferences, selectedAgent]);
+  }, [beginChatUpload, chat, finishChatUpload, getToken, refreshChatFileReferences, selectedAgent]);
 
   const formatDuration = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
 
@@ -2758,14 +3004,14 @@ function AgentsPageContent() {
         if (tab === "files") {
           setFilesPreviewPath(null);
           setOpenclawSettingsOpen(false);
-          setMainTab("files");
+          selectMainTab("files");
           setMobileShowChat(true);
           return;
         }
         if (tab === "workspace") {
           setDirectoryDetailOrigin(null);
           setOpenclawSettingsOpen(false);
-          setMainTab("chat");
+          selectMainTab("chat");
           setMobileShowChat(true);
           return;
         }
@@ -2779,33 +3025,33 @@ function AgentsPageContent() {
           setDirectoryItemId(undefined);
           setDirectoryDetailOrigin(null);
           setOpenclawSettingsOpen(false);
-          setMainTab("integrations");
+          selectMainTab("integrations");
           setMobileShowChat(true);
           return;
         }
-        if (tab === "skills" || tab === "knowledge") {
+        if (tab === "skills") {
           setDirectoryCategory(undefined);
           setDirectoryItemId(undefined);
           setDirectoryDetailOrigin(null);
           setOpenclawSettingsOpen(false);
-          setMainTab(tab);
+          selectMainTab(tab);
           setMobileShowChat(true);
           return;
         }
         if (tab === "settings") {
           setOpenclawSettingsOpen(false);
-          setMainTab("settings");
+          selectMainTab("settings");
           setMobileShowChat(true);
           return;
         }
         if (tab === "scheduled" && !SCHEDULED_SECTION_ENABLED) {
           setOpenclawSettingsOpen(false);
-          setMainTab("chat");
+          selectMainTab("chat");
           setMobileShowChat(true);
           return;
         }
         setOpenclawSettingsOpen(false);
-        setMainTab(tab);
+        selectMainTab(tab);
         setMobileShowChat(true);
       },
       onDelete: () => {
@@ -2817,7 +3063,7 @@ function AgentsPageContent() {
       deleting: deletingId === selectedAgent.id,
     });
     return () => setAgentMenu(null);
-  }, [selectedAgent, mainTab, deletingId, setAgentMenu, router]);
+  }, [selectedAgent, mainTab, deletingId, selectMainTab, setAgentMenu, router]);
 
   // ── Render ──
   const mobileMainPanelVisible = !isDesktopViewport || mobileShowChat || agentsLoading || !selectedAgent;
@@ -2827,22 +3073,27 @@ function AgentsPageContent() {
   };
   const openAgentSettingsTab = () => {
     setOpenclawSettingsOpen(false);
-    setMainTab("settings");
+    selectMainTab("settings");
     setMobileShowChat(true);
     closeMobileSidebars();
   };
-  const openChatTab = () => {
-    setMainTab("chat");
+  const showChatTab = (sectionRouteUpdated = false) => {
+    if (sectionRouteUpdated) setMainTab("chat");
+    else selectMainTab("chat");
     setDirectoryDetailOrigin(null);
     setOpenclawSettingsOpen(false);
     setMobileShowChat(true);
     closeMobileSidebars();
   };
-  const selectSession = (sessionKey: string) => {
+  const openChatTab = () => showChatTab(false);
+  const selectSession = async (sessionKey: string) => {
     if (!selectedAgentId) return;
+    if (chat.temporaryChatState !== "inactive") {
+      await endTemporaryChatBeforeSelectionRef.current();
+    }
     setSelectedSessionKeysByAgent((prev) => ({ ...prev, [selectedAgentId]: sessionKey }));
-    replaceAgentChatRoute(selectedAgentId, sessionKey);
-    openChatTab();
+    replaceAgentChatRoute(selectedAgentId, sessionKey, true);
+    showChatTab(true);
   };
   const renameSession = async (sessionKey: string, title: string) => {
     await chat.renameSession(sessionKey, title);
@@ -2857,13 +3108,19 @@ function AgentsPageContent() {
   };
   const createSession = async () => {
     if (!selectedAgentId) return;
+    if (chat.temporaryChatState !== "inactive") {
+      await endTemporaryChatBeforeSelectionRef.current();
+    }
     const sessionKey = await chat.createSession();
     setSelectedSessionKeysByAgent((prev) => ({ ...prev, [selectedAgentId]: sessionKey }));
-    replaceAgentChatRoute(selectedAgentId, sessionKey);
-    openChatTab();
+    replaceAgentChatRoute(selectedAgentId, sessionKey, true);
+    showChatTab(true);
   };
   const testSkillInNewSession = async (skill: AgentSkill) => {
     if (!selectedAgentId) throw new Error("Select an agent before testing a skill.");
+    if (chat.temporaryChatState !== "inactive") {
+      await endTemporaryChatBeforeSelectionRef.current();
+    }
     let revision = null;
     if (skill.localPreview) {
       assertSkillDraftTestable(skill);
@@ -2889,14 +3146,14 @@ function AgentsPageContent() {
       });
     }
     setSelectedSessionKeysByAgent((prev) => ({ ...prev, [selectedAgentId]: sessionKey }));
-    replaceAgentChatRoute(selectedAgentId, sessionKey);
-    openChatTab();
+    replaceAgentChatRoute(selectedAgentId, sessionKey, true);
+    showChatTab(true);
   };
   const openFilesTab = (path?: string) => {
     const previewPath = typeof path === "string" ? path.trim() : "";
     setFilesPreviewPath(previewPath || null);
     setOpenclawSettingsOpen(false);
-    setMainTab("files");
+    selectMainTab("files");
     setMobileShowChat(true);
     setMobileWorkspaceSidebarOpen(false);
   };
@@ -2913,7 +3170,7 @@ function AgentsPageContent() {
     setDirectoryItemId(undefined);
     setDirectoryDetailOrigin(null);
     setOpenclawSettingsOpen(false);
-    setMainTab("integrations");
+    selectMainTab("integrations");
     setMobileShowChat(true);
     setMobileWorkspaceSidebarOpen(false);
     completeJourneyForEvent("integrations-opened");
@@ -2924,7 +3181,7 @@ function AgentsPageContent() {
     setDirectoryItemId(capability.pluginId);
     setDirectoryDetailOrigin("chat");
     setOpenclawSettingsOpen(false);
-    setMainTab("integrations");
+    selectMainTab("integrations");
     setMobileShowChat(true);
     setMobileWorkspaceSidebarOpen(false);
     if (day?.id === "connections") {
@@ -2939,7 +3196,7 @@ function AgentsPageContent() {
     setDirectoryItemId(undefined);
     setDirectoryDetailOrigin(null);
     setOpenclawSettingsOpen(false);
-    setMainTab("skills");
+    selectMainTab("skills");
     setMobileShowChat(true);
     setMobileWorkspaceSidebarOpen(false);
   };
@@ -2955,14 +3212,25 @@ function AgentsPageContent() {
       openSkill: openSkillsTab,
     });
   };
+  const leaveAgentsPage = (href: string) => {
+    void (async () => {
+      await endTemporaryChatBeforeSelectionRef.current();
+      router.push(href);
+    })();
+  };
   const openKnowledgeTab = () => {
-    setDirectoryCategory(undefined);
-    setDirectoryItemId(undefined);
-    setDirectoryDetailOrigin(null);
-    setOpenclawSettingsOpen(false);
-    setMainTab("knowledge");
-    setMobileShowChat(true);
+    setMobileAgentsSidebarOpen(false);
     setMobileWorkspaceSidebarOpen(false);
+    setOpenclawSettingsOpen(false);
+    setMobileShowChat(true);
+    selectMainTab("knowledge");
+    if (knowledgeSectionActive) return;
+    router.push(knowledgeSectionHref, { scroll: false });
+  };
+  const openDashboardHome = () => {
+    setMobileAgentsSidebarOpen(false);
+    setMobileWorkspaceSidebarOpen(false);
+    leaveAgentsPage("/dashboard");
   };
   const openScheduledTab = (draftCommand?: unknown) => {
     if (!SCHEDULED_SECTION_ENABLED) return;
@@ -2974,20 +3242,20 @@ function AgentsPageContent() {
       setScheduledInitialCommand(null);
     }
     setOpenclawSettingsOpen(false);
-    setMainTab("scheduled");
+    selectMainTab("scheduled");
     setMobileShowChat(true);
     setMobileWorkspaceSidebarOpen(false);
     if (chat.connected) void chat.refreshCron().catch(() => undefined);
   };
   const openLogsTab = () => {
     setOpenclawSettingsOpen(false);
-    setMainTab("logs");
+    selectMainTab("logs");
     setMobileShowChat(true);
     setMobileWorkspaceSidebarOpen(false);
   };
   const openShellTab = () => {
     setOpenclawSettingsOpen(false);
-    setMainTab("shell");
+    selectMainTab("shell");
     setMobileShowChat(true);
     setMobileWorkspaceSidebarOpen(false);
   };
@@ -3084,13 +3352,59 @@ function AgentsPageContent() {
     }
   };
   const selectedSessionLabel = useMemo(() => {
+    if (chat.temporaryChatActive) return "Private chat";
     const session = (chat.sessions ?? []).find((item) => sameOpenClawSelectableSessionKey(item.key, selectedSessionKey));
     if (!session) return fallbackOpenClawSessionDisplayName(selectedSessionKey);
     return displayOpenClawSessionName(session);
-  }, [chat.sessions, selectedSessionKey]);
+  }, [chat.sessions, chat.temporaryChatActive, selectedSessionKey]);
   const selectedSessionReturnTarget = selectedAgent && (mainTab !== "chat" || openclawSettingsOpen)
     ? { label: selectedSessionLabel, onSelect: openChatTab }
     : null;
+  const privateChatHasDraft = Boolean(
+    chat.input.trim() ||
+    chat.pendingAttachments.length > 0 ||
+    chat.pendingAttachmentReads > 0 ||
+    chat.pendingFiles.length > 0 ||
+    recording ||
+    audioUrl ||
+    sendingAudio ||
+    uploadingChatFiles > 0,
+  );
+  const privateChatControlVisible = Boolean(
+    selectedAgent &&
+    isSelectedRunning &&
+    mainTab === "chat" &&
+    (chat.temporaryChatActive || chat.messages.length === 0),
+  );
+  const privateChatDisabledReason = chat.temporaryChatActive
+    ? undefined
+    : !chat.temporaryChatAvailable || !chat.connected
+      ? "Private chat is available when the agent is connected"
+      : chat.sending
+        ? "Wait for the current reply to finish"
+        : privateChatHasDraft
+          ? "Clear the current draft before starting a private chat"
+          : undefined;
+  const startPrivateChat = async () => {
+    try {
+      await chat.startTemporaryChat();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Private chat could not be started.");
+    }
+  };
+  const endPrivateChat = async () => {
+    await endTemporaryChatBeforeSelectionRef.current();
+  };
+  const renderPrivateChatControl = (compact = false) => privateChatControlVisible ? (
+    <AgentPrivateChatControl
+      state={chat.temporaryChatState}
+      compact={compact}
+      disabled={Boolean(privateChatDisabledReason)}
+      disabledReason={privateChatDisabledReason}
+      onStart={startPrivateChat}
+      onEnd={endPrivateChat}
+    />
+  ) : null;
   const showMobileSectionReturn = !isDesktopViewport && Boolean(selectedSessionReturnTarget);
   const mobileReturnAriaLabel = selectedSessionReturnTarget ? `Open ${selectedSessionReturnTarget.label}` : "Open session";
   const handleMobileSectionReturn = () => {
@@ -3109,6 +3423,7 @@ function AgentsPageContent() {
             <span className="text-text-muted font-medium">Agents</span>
           </div>
           <div className="flex items-center gap-1 rounded-xl border border-border bg-surface-low/80 p-1">
+            {renderPrivateChatControl(true)}
             <AnimatePresence initial={false}>
               {showMobileSectionReturn && (
                 <motion.button
@@ -3206,7 +3521,7 @@ function AgentsPageContent() {
             loading={upgradeCatalogLoading}
             error={upgradeCatalogError}
             onClose={() => setUpgradeCatalogOpen(false)}
-            onOpenPlans={() => router.push("/plans")}
+            onOpenPlans={() => leaveAgentsPage("/plans")}
             onSelectPlan={(product) => {
               setUpgradeCatalogOpen(false);
               setUpgradeCheckoutPlan(toUpgradeCheckoutPlan(product));
@@ -3342,6 +3657,10 @@ function AgentsPageContent() {
                   setMobileAgentsSidebarOpen(false);
                 }}
                 onOpenAgentLauncher={openMobileAgentLauncher}
+                onOpenHome={openDashboardHome}
+                onOpenKnowledge={openKnowledgeTab}
+                knowledgeActive={knowledgeSectionActive}
+                knowledgeHref={knowledgeSectionHref}
                 onCreateAgent={createMobileAgentFromLauncher}
                 accountInitial={accountInitial}
                 onOpenAgentSettings={openAgentSettingsTab}
@@ -3385,9 +3704,10 @@ function AgentsPageContent() {
             >
               <AgentWorkspaceSidebar
                 selectedAgent={selectedAgent}
+                workspaceName={workspaceDisplayName}
+                workspaceInitial={accountInitial}
                 activeTab={openclawSettingsOpen && selectedAgent ? "openclaw" : mainTab}
                 skillsActive={mainTab === "skills"}
-                knowledgeActive={mainTab === "knowledge"}
                 tokenUsed={tokenUsage}
                 tokenLimit={budget?.pooled_tpd ?? null}
                 disabled={workspaceSidebarDisabled}
@@ -3413,7 +3733,6 @@ function AgentsPageContent() {
                 onOpenFiles={openFilesTab}
                 onOpenIntegrations={openIntegrationsTab}
                 onOpenSkills={openSkillsTab}
-                onOpenKnowledge={openKnowledgeTab}
                 onOpenScheduled={openScheduledTab}
                 onOpenDesktop={handleOpenDesktop}
                 openingDesktop={openingDesktopId === selectedAgent?.id}
@@ -3431,77 +3750,87 @@ function AgentsPageContent() {
 
       {/* Main layout: AgentList + AgentMainPanel + AgentInspector */}
       <div className="flex flex-1 min-h-0">
-        <AgentList
-          sidebarCollapsed={sidebarCollapsed}
-          isDesktopViewport={isDesktopViewport}
-          mobileShowChat={mobileMainPanelVisible}
-          agents={agents}
-          selectedAgentId={selectedAgentId}
-          setSelectedAgentId={selectAgent}
-          setMobileShowChat={setMobileShowChat}
-          setSidebarCollapsed={setSidebarCollapsed}
-          syntheticThreads={syntheticThreads}
-          agentCardDataById={agentCardDataById}
-          getToken={getToken}
-          createOpenClawAgent={createOpenClawAgent}
-          fetchAgents={refreshAgentsForChildren}
-          setError={setError}
-          sidebarCreatorSignal={sidebarCreatorSignal}
-          setPendingAgentDelete={setPendingAgentDelete}
-          accountInitial={accountInitial}
-          onOpenSettings={openAgentSettingsTab}
-          settingsActive={mainTab === "settings"}
-          onLogout={logout}
-          budget={budget}
-          subscriptionSummary={subscriptionSummary}
-          catalogPlans={catalogPlans}
-          pendingSlotReleases={pendingSlotReleases}
-          onOpenPlanCatalog={openUpgradeCatalog}
-          updateAgentName={async (agentId, name) => {
-            const token = await getToken();
-            const updatedAgent = await createAgentClient(token).update(agentId, { name });
-            setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
-          }}
-        />
+        <div
+          className="agent-desktop-navigation flex h-full min-h-0 shrink-0"
+          data-roster-collapsed={sidebarCollapsed}
+        >
+          <AgentList
+            sidebarCollapsed={sidebarCollapsed}
+            isDesktopViewport={isDesktopViewport}
+            mobileShowChat={mobileMainPanelVisible}
+            agents={agents}
+            selectedAgentId={selectedAgentId}
+            setSelectedAgentId={selectAgent}
+            setMobileShowChat={setMobileShowChat}
+            setSidebarCollapsed={setSidebarCollapsed}
+            syntheticThreads={syntheticThreads}
+            agentCardDataById={agentCardDataById}
+            getToken={getToken}
+            createOpenClawAgent={createOpenClawAgent}
+            fetchAgents={refreshAgentsForChildren}
+            setError={setError}
+            sidebarCreatorSignal={sidebarCreatorSignal}
+            setPendingAgentDelete={setPendingAgentDelete}
+            accountInitial={accountInitial}
+            onOpenSettings={openAgentSettingsTab}
+            settingsActive={mainTab === "settings"}
+            onLogout={logout}
+            budget={budget}
+            subscriptionSummary={subscriptionSummary}
+            catalogPlans={catalogPlans}
+            pendingSlotReleases={pendingSlotReleases}
+            onOpenPlanCatalog={openUpgradeCatalog}
+            onOpenHome={openDashboardHome}
+            onOpenKnowledge={openKnowledgeTab}
+            knowledgeActive={knowledgeSectionActive}
+            knowledgeHref={knowledgeSectionHref}
+            updateAgentName={async (agentId, name) => {
+              const token = await getToken();
+              const updatedAgent = await createAgentClient(token).update(agentId, { name });
+              setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
+            }}
+          />
 
-        <AgentWorkspaceSidebar
-          selectedAgent={selectedAgent}
-          activeTab={openclawSettingsOpen && selectedAgent ? "openclaw" : mainTab}
-          skillsActive={mainTab === "skills"}
-          knowledgeActive={mainTab === "knowledge"}
-          tokenUsed={tokenUsage}
-          tokenLimit={budget?.pooled_tpd ?? null}
-          disabled={workspaceSidebarDisabled}
-          disabledReason={workspaceSidebarDisabledReason}
-          scheduledDisabled={!SCHEDULED_SECTION_ENABLED}
-          scheduledDisabledReason={SCHEDULED_SECTION_DISABLED_REASON}
-          isDesktopViewport={isDesktopViewport}
-          sessions={chat.sessions}
-          sessionsFetched={chat.sessionsFetched}
-          creatingSessionKeys={chat.creatingSessionKeys}
-          thinkingSessionKeys={chat.thinkingSessionKeys}
-          selectedSessionKey={selectedSessionKey}
-          pinnedSessionKeys={pinnedSessionKeys}
-          onSelectSession={selectSession}
-          onSetSessionPinned={setSessionPinned}
-          onRenameSession={renameSession}
-          onDeleteSession={deleteSession}
-          onCreateSession={createSession}
-          onOpenFiles={openFilesTab}
-          onOpenIntegrations={openIntegrationsTab}
-          onOpenSkills={openSkillsTab}
-          onOpenKnowledge={openKnowledgeTab}
-          onOpenScheduled={openScheduledTab}
-          onOpenDesktop={handleOpenDesktop}
-          openingDesktop={openingDesktopId === selectedAgent?.id}
-          onOpenLogs={openLogsTab}
-          onOpenShell={openShellTab}
-          onOpenOpenClaw={openOpenClawSettings}
-          onOpenSettings={openAgentSettingsTab}
-          onUpgrade={() => { void openUpgradeCatalog(); }}
-        />
+          <AgentWorkspaceSidebar
+            selectedAgent={selectedAgent}
+            workspaceName={workspaceDisplayName}
+            workspaceInitial={accountInitial}
+            activeTab={openclawSettingsOpen && selectedAgent ? "openclaw" : mainTab}
+            skillsActive={mainTab === "skills"}
+            tokenUsed={tokenUsage}
+            tokenLimit={budget?.pooled_tpd ?? null}
+            disabled={workspaceSidebarDisabled}
+            disabledReason={workspaceSidebarDisabledReason}
+            scheduledDisabled={!SCHEDULED_SECTION_ENABLED}
+            scheduledDisabledReason={SCHEDULED_SECTION_DISABLED_REASON}
+            isDesktopViewport={isDesktopViewport}
+            forceExpanded
+            sessions={chat.sessions}
+            sessionsFetched={chat.sessionsFetched}
+            creatingSessionKeys={chat.creatingSessionKeys}
+            thinkingSessionKeys={chat.thinkingSessionKeys}
+            selectedSessionKey={selectedSessionKey}
+            pinnedSessionKeys={pinnedSessionKeys}
+            onSelectSession={selectSession}
+            onSetSessionPinned={setSessionPinned}
+            onRenameSession={renameSession}
+            onDeleteSession={deleteSession}
+            onCreateSession={createSession}
+            onOpenFiles={openFilesTab}
+            onOpenIntegrations={openIntegrationsTab}
+            onOpenSkills={openSkillsTab}
+            onOpenScheduled={openScheduledTab}
+            onOpenDesktop={handleOpenDesktop}
+            openingDesktop={openingDesktopId === selectedAgent?.id}
+            onOpenLogs={openLogsTab}
+            onOpenShell={openShellTab}
+            onOpenOpenClaw={openOpenClawSettings}
+            onOpenSettings={openAgentSettingsTab}
+            onUpgrade={() => { void openUpgradeCatalog(); }}
+          />
+        </div>
 
-        <AgentMainPanel
+          <AgentMainPanel
           isDesktopViewport={isDesktopViewport}
           mobileShowChat={mobileMainPanelVisible}
           selectedAgent={selectedAgent}
@@ -3524,6 +3853,7 @@ function AgentsPageContent() {
           currentPanel={selectedCenterPanel}
           skillsPanelActive={mainTab === "skills"}
           stoppedTabLabel={stoppedTabLabel[selectedCenterPanel]}
+          headerAction={renderPrivateChatControl()}
           persistentPanelContent={
             <AgentTerminalPanel
               status={shellStatus}
@@ -3599,7 +3929,7 @@ function AgentsPageContent() {
                 onOpenLogs: openLogsTab,
                 onOpenShell: openShellTab,
                 onOpenPlans: openUpgradeCatalog,
-                onOpenBilling: () => router.push("/dashboard/settings"),
+                onOpenBilling: () => leaveAgentsPage("/dashboard/settings"),
                 onNewConversation: createSession,
                 onStartAgent: async () => {
                   if (selectedAgent) await handleStart(selectedAgent.id);
@@ -3701,7 +4031,14 @@ function AgentsPageContent() {
               onTestSkill={testSkillInNewSession}
             />
           ) : mainTab === "knowledge" ? (
-            <SharedKnowledgePanel agents={agents} workspaces={workspacesClient} ready={Boolean(workspacesClient)} />
+            <div className="h-full overflow-y-auto bg-background px-4 py-6 sm:px-6 lg:px-8">
+              <SharedKnowledgeSection
+                agents={agents}
+                agentsLoading={agentsLoading}
+                agentsError={agentsLoadError}
+                preferredAgentId={selectedAgentId ?? requestedAgentId}
+              />
+            </div>
           ) : mainTab === "scheduled" ? (
             <AgentScheduledPanel
               key={`${selectedAgent?.id ?? "agent"}:${scheduledInitialCommand?.id ?? 0}`}

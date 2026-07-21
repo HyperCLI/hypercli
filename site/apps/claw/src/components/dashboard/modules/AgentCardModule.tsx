@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { Bot, ChevronDown, Wrench, FolderOpen, Link2, Activity, Cpu, MemoryStick, Play, Square, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
@@ -100,7 +100,15 @@ export function AgentCardTooltip({ agentName, agent }: AgentCardTooltipProps) {
       initial={false}
       animate={{ width: expanded ? 360 : 256 }}
       transition={{ duration: 0.15, ease: "easeInOut" }}
-      className="space-y-2 rounded-lg border border-border bg-surface-high p-3 shadow-xl"
+      style={{
+        "--foreground": "var(--selection-accent-foreground)",
+        "--text-secondary": "color-mix(in srgb, var(--selection-accent-foreground) 82%, transparent)",
+        "--text-muted": "color-mix(in srgb, var(--selection-accent-foreground) 68%, transparent)",
+        "--surface-low": "color-mix(in srgb, var(--selection-accent-foreground) 12%, transparent)",
+        "--border": "color-mix(in srgb, var(--selection-accent-foreground) 24%, transparent)",
+        "--primary": "var(--selection-accent-foreground)",
+      } as CSSProperties}
+      className="space-y-2 rounded-lg border border-border bg-[var(--selection-accent)] p-3 text-[var(--selection-accent-foreground)] shadow-xl"
     >
       <div className="flex items-center gap-2.5">
         <div

@@ -3,13 +3,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
-  ArrowRight,
   Blocks,
   CalendarClock,
+  Check,
   ChevronUp,
+  ChevronsUpDown,
   Codepen,
   FolderOpen,
-  HardDrive,
   Loader2,
   Monitor,
   MoreVertical,
@@ -31,7 +31,17 @@ import type { Agent, AgentState } from "@/app/dashboard/agents/types";
 import type { AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 import { PulsingDotIndicator } from "@/components/dashboard/PulsingDotIndicator";
 import { resolveSessionSourceChannel, type SessionSourceChannel } from "@/components/dashboard/session-source-channel";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@hypercli/shared-ui";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@hypercli/shared-ui";
 import { formatTokens } from "@/lib/format";
 import {
   displayOpenClawSessionName,
@@ -45,9 +55,10 @@ const WORKSPACE_COLLAPSED_KEY = "agents.workspaceCollapsed.v2";
 
 interface AgentWorkspaceSidebarProps {
   selectedAgent: Agent | null;
+  workspaceName?: string;
+  workspaceInitial?: string;
   activeTab: AgentMainTab;
   skillsActive?: boolean;
-  knowledgeActive?: boolean;
   tokenUsed?: number | null;
   tokenLimit?: number | null;
   disabled?: boolean;
@@ -59,7 +70,6 @@ interface AgentWorkspaceSidebarProps {
   onOpenFiles: () => void;
   onOpenIntegrations: () => void;
   onOpenSkills: () => void;
-  onOpenKnowledge?: () => void;
   onOpenScheduled: () => void;
   onOpenDesktop?: (agent: Agent) => Promise<void> | void;
   onOpenLogs: () => void;
@@ -110,7 +120,7 @@ function WorkspaceButton({
     ? "h-9 w-9 justify-center"
     : mobileMode
       ? "h-10 w-full gap-3.5 px-3.5 text-left"
-      : "h-9 w-full gap-3 px-3 text-left";
+      : "h-7 w-full gap-2 px-2 text-left";
   const iconClassName = `${mobileMode && !collapsed ? "h-5 w-5" : "h-4 w-4"} shrink-0 ${item.busy ? "animate-spin" : ""}`;
   const roundedClassName = "rounded-full";
   const buttonClassName = `flex ${buttonSizeClass} items-center ${roundedClassName} text-sm transition-colors ${
@@ -282,6 +292,7 @@ function RecentSessionRow({
   thinking?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [unpinAnimating, setUnpinAnimating] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const SourceChannelIcon = sourceChannel?.Icon;
   const reduceMotion = useReducedMotion();
@@ -346,32 +357,39 @@ function RecentSessionRow({
             </span>
           ) : null}
           <span className="min-w-0 flex-1 truncate">{title}</span>
-          <AnimatePresence initial={false} mode="popLayout">
-            {pinned ? (
-              <motion.span
-                key="pinned"
-                title="Pinned session"
-                aria-hidden="true"
-                className="inline-flex shrink-0 text-[var(--selection-accent)]"
-                initial={reduceMotion ? false : { opacity: 0, scale: 0.25, rotate: -42, y: 4 }}
-                animate={{ opacity: 1, scale: 1, rotate: 0, y: 0 }}
-                exit={reduceMotion
-                  ? { opacity: 0, transition: { duration: 0 } }
-                  : {
-                      opacity: [1, 1, 0],
-                      scale: [1, 1.16, 0.25],
-                      rotate: [0, -16, 42],
-                      y: [0, -2, -8],
-                      transition: { duration: 0.28, times: [0, 0.35, 1], ease: [0.4, 0, 1, 1] },
-                    }}
-                transition={reduceMotion
-                  ? { duration: 0 }
-                  : { type: "spring", stiffness: 650, damping: 20, mass: 0.55 }}
-              >
-                <Pin className="h-3 w-3" />
-              </motion.span>
-            ) : null}
-          </AnimatePresence>
+          {pinned || unpinAnimating ? (
+            <span className="relative inline-flex h-3 w-3 shrink-0">
+              {pinned ? (
+                <motion.span
+                  title="Pinned session"
+                  aria-hidden="true"
+                  className="absolute inset-0 inline-flex text-[var(--selection-accent)]"
+                  initial={reduceMotion ? false : { opacity: 0, scale: 0.25, rotate: -42, y: 4 }}
+                  animate={{ opacity: 1, scale: 1, rotate: 0, y: 0 }}
+                  transition={reduceMotion
+                    ? { duration: 0 }
+                    : { type: "spring", stiffness: 650, damping: 20, mass: 0.55 }}
+                >
+                  <Pin className="h-3 w-3" />
+                </motion.span>
+              ) : null}
+              {unpinAnimating ? (
+                <motion.span
+                  data-session-unpin-animation="true"
+                  aria-hidden="true"
+                  className="absolute inset-0 inline-flex text-[var(--selection-accent)]"
+                  initial={{ opacity: 1, scale: 1, rotate: 0, y: 0 }}
+                  animate={reduceMotion
+                    ? { opacity: 0 }
+                    : { opacity: 0, scale: 0.35, rotate: 28, y: -5 }}
+                  transition={reduceMotion ? { duration: 0 } : { duration: 0.14, ease: "easeOut" }}
+                  onAnimationComplete={() => setUnpinAnimating(false)}
+                >
+                  <Pin className="h-3 w-3" />
+                </motion.span>
+              ) : null}
+            </span>
+          ) : null}
           {creating ? (
             <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-text-muted" aria-label="Creating session">
               <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
@@ -409,17 +427,20 @@ function RecentSessionRow({
             initial={{ opacity: 0, scale: 0.95, y: -4 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             transition={{ duration: 0.1 }}
-            className="absolute right-0 top-full z-50 mt-1 w-52 overflow-hidden rounded-lg border border-border bg-popover py-1 shadow-2xl"
+            className="absolute right-0 top-full z-50 mt-1 w-[11.5rem] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border border-border bg-popover py-1 shadow-2xl"
           >
             {onSetPinned ? (
               <SessionMenuButton
                 icon={pinned ? PinOff : Pin}
                 label={pinned ? "Unpin" : "Pin"}
-                onClick={() => { setMenuOpen(false); onSetPinned(!pinned); }}
+                onClick={() => {
+                  setMenuOpen(false);
+                  setUnpinAnimating(pinned);
+                  onSetPinned(!pinned);
+                }}
               />
             ) : null}
             <SessionMenuButton icon={PenLine} label="Rename" onClick={() => { setMenuOpen(false); onRename(); }} />
-            <SessionMenuButton icon={ArrowRight} label="Move to channels" disabled onClick={() => undefined} />
             <SessionMenuButton
               icon={Trash2}
               label="Delete"
@@ -620,9 +641,10 @@ function DeleteSessionDialog({
 
 export function AgentWorkspaceSidebar({
   selectedAgent,
+  workspaceName = "Personal workspace",
+  workspaceInitial = "W",
   activeTab,
   skillsActive = false,
-  knowledgeActive = false,
   tokenUsed,
   tokenLimit,
   disabled = false,
@@ -634,7 +656,6 @@ export function AgentWorkspaceSidebar({
   onOpenFiles,
   onOpenIntegrations,
   onOpenSkills,
-  onOpenKnowledge = () => undefined,
   onOpenScheduled,
   onOpenDesktop,
   onOpenLogs,
@@ -681,7 +702,6 @@ export function AgentWorkspaceSidebar({
     ? `${tokensUsed == null ? "--" : formatTokens(tokensUsed)} / ${formatTokens(tokenTotal)}`
     : `${tokensUsed == null ? "0" : formatTokens(tokensUsed)} / --`;
   const hasSelectedAgent = Boolean(selectedAgent);
-  const selectedAgentName = selectedAgent?.name?.trim() || selectedAgent?.id || "";
   const sessionsInteractive = hasSelectedAgent && sessionsFetched && !disabled;
   const sessionsDisabledReason = disabled ? disabledReason : sessionsFetched ? undefined : "Sessions are loading.";
   const sortedSessions = useMemo(() => {
@@ -774,7 +794,7 @@ export function AgentWorkspaceSidebar({
       onClick: () => onOpenFiles(),
       ...disabledItemProps,
     },
-    { id: "integrations", label: "Integrations", icon: Blocks, active: activeTab === "integrations" && !skillsActive && !knowledgeActive, onClick: onOpenIntegrations, ...disabledItemProps },
+    { id: "integrations", label: "Integrations", icon: Blocks, active: activeTab === "integrations" && !skillsActive, onClick: onOpenIntegrations, ...disabledItemProps },
     { id: "skills", label: "Skills", icon: Codepen, active: activeTab === "skills" || skillsActive, onClick: onOpenSkills, ...disabledItemProps },
     {
       id: "scheduled",
@@ -795,7 +815,6 @@ export function AgentWorkspaceSidebar({
         if (selectedAgent && onOpenDesktop) void onOpenDesktop(selectedAgent);
       },
     } satisfies WorkspaceItem] : []),
-    { id: "knowledge", label: "Shared knowledge", icon: HardDrive, active: activeTab === "knowledge" || knowledgeActive, onClick: onOpenKnowledge, ...disabledItemProps },
   ];
 
   const advancedDropdownDisabled = disabled || noSelectedAgent;
@@ -836,27 +855,65 @@ export function AgentWorkspaceSidebar({
 
   return (
     <motion.aside
+      data-collapsed={isCollapsed}
       initial={{ opacity: 0, x: -12 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -8 }}
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-      className={`flex ${
+      className={`agent-workspace-shell flex ${
         fillParent ? "w-full" : isCollapsed ? "w-12" : "w-52"
       } relative h-full shrink-0 flex-col border-r border-border bg-surface-low transition-[width] duration-200 ease-out`}
     >
       <div
-        className={`flex h-14 shrink-0 items-center border-b border-border ${
+        className={`agent-workspace-header flex h-14 shrink-0 items-center border-b border-border ${
           isCollapsed ? "justify-center px-0" : "gap-2 px-4"
         }`}
       >
         {!isCollapsed && (
-          <div className="min-w-0 flex-1">
-            {selectedAgentName ? (
-              <p className="truncate text-[13px] font-medium leading-tight text-foreground" title={selectedAgentName}>
-                {selectedAgentName}
-              </p>
-            ) : null}
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label={`Current workspace: ${workspaceName}`}
+                className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left transition-colors hover:bg-surface-low focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)]"
+              >
+                <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">{workspaceName}</span>
+                <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" sideOffset={8} className="w-[280px] rounded-xl border-border bg-popover p-2 shadow-2xl">
+              <DropdownMenuLabel className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">
+                Workspaces
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                aria-current="page"
+                onSelect={(event) => event.preventDefault()}
+                className="mt-1 flex cursor-default items-center gap-3 rounded-lg px-2 py-2.5 focus:bg-surface-low"
+              >
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.25)] bg-[radial-gradient(circle_at_35%_30%,rgb(var(--selection-accent-rgb)_/_0.95),rgb(var(--selection-accent-rgb)_/_0.35))] text-[10px] font-semibold text-[var(--selection-accent-foreground)]">
+                  {workspaceInitial.slice(0, 1).toUpperCase()}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-foreground">{workspaceName}</span>
+                  <span className="block text-[11px] text-text-muted">Current account workspace</span>
+                </span>
+                <Check className="h-4 w-4 shrink-0 text-[var(--selection-accent)]" />
+              </DropdownMenuItem>
+              <DropdownMenuSeparator className="my-1.5 bg-border" />
+              <DropdownMenuItem
+                disabled
+                className="flex items-center gap-3 rounded-lg px-2 py-2.5 text-text-secondary focus:bg-surface-low focus:text-foreground"
+              >
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-low">
+                  <Plus className="h-4 w-4" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium">New Workspace</span>
+                  <span className="block text-[11px] text-text-muted">Coming soon</span>
+                </span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
         {onClose ? (
           <button
@@ -867,7 +924,7 @@ export function AgentWorkspaceSidebar({
           >
             <X className="h-5 w-5" />
           </button>
-        ) : isDesktopViewport ? (
+        ) : isDesktopViewport && !forceExpanded ? (
           <Tooltip delayDuration={300}>
             <TooltipTrigger asChild>
               <button
@@ -883,7 +940,7 @@ export function AgentWorkspaceSidebar({
               {isCollapsed ? "Expand workspace" : "Collapse workspace"}
             </TooltipContent>
           </Tooltip>
-        ) : (
+        ) : !isDesktopViewport ? (
           <div
             className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted"
             title="Workspace navigation"
@@ -891,33 +948,35 @@ export function AgentWorkspaceSidebar({
           >
             <PanelRight className={renderMobile ? "h-5 w-5" : "h-4 w-4"} />
           </div>
-        )}
+        ) : null}
       </div>
 
-      <div className={`flex-1 overflow-y-auto py-5 ${isCollapsed ? "px-1.5" : "px-3"}`}>
-        {!isCollapsed && (
+      <div className={`agent-workspace-scroll flex-1 overflow-y-auto ${
+        isCollapsed ? "px-1.5 py-5" : renderMobile ? "px-3 py-5" : "px-3 py-2"
+      }`}>
+        {!isCollapsed && renderMobile && (
           <div className="mb-2 flex items-center justify-between gap-2 px-3">
             <p className="text-xs text-text-muted">Agent</p>
           </div>
         )}
-        <nav className={`space-y-1 ${isCollapsed ? "flex flex-col items-center" : ""}`}>
+        <nav className={isCollapsed ? "flex flex-col items-center space-y-1" : renderMobile ? "space-y-1" : "space-y-0"}>
           {workspaceItems.map((item) => (
             <WorkspaceButton key={item.id} item={item} collapsed={isCollapsed} mobileMode={renderMobile} />
           ))}
         </nav>
 
         {!isCollapsed && hasSelectedAgent && sortedSessions.length > 0 && (
-          <section className="mt-7">
+          <section className={renderMobile ? "mt-7" : "mt-2"}>
             <button
               type="button"
               onClick={() => setRecentOpen((open) => !open)}
-              className="mb-2 flex w-full items-center justify-between gap-2 px-3 text-left"
+              className={`flex w-full items-center justify-between gap-2 text-left ${renderMobile ? "mb-2 px-3" : "mb-0.5 px-2"}`}
             >
               <span className="text-xs text-text-muted">Sessions</span>
               <ChevronUp className={`h-4 w-4 text-foreground transition-transform ${recentOpen ? "" : "rotate-180"}`} />
             </button>
             {recentOpen && (
-              <div className="space-y-0.5 border-l border-border pl-1.5">
+              <div className={renderMobile ? "space-y-0.5 border-l border-border pl-1.5" : "space-y-0.5"}>
                 {visibleSessions.map((session) => {
                   const title = sessionTitle(session);
                   const sourceChannel = resolveSessionSourceChannel(session.sourceChannelId);
@@ -947,7 +1006,7 @@ export function AgentWorkspaceSidebar({
                   <button
                     type="button"
                     onClick={() => setShowAllRecent(true)}
-                    className="px-3 py-1.5 text-left text-[13px] text-text-muted transition-colors hover:text-foreground"
+                    className={`${renderMobile ? "px-3" : "px-2.5"} py-1.5 text-left text-[13px] text-text-muted transition-colors hover:text-foreground`}
                   >
                     Show more
                   </button>
@@ -976,7 +1035,7 @@ export function AgentWorkspaceSidebar({
         }}
       />
 
-      <div ref={advancedMenuRef} className={`relative border-b border-border pb-4 ${isCollapsed ? "px-1.5" : "px-3"}`}>
+      <div ref={advancedMenuRef} className={`agent-workspace-advanced relative border-b border-border pb-4 ${isCollapsed ? "px-1.5" : "px-3"}`}>
         {isCollapsed ? (
           <div className="flex justify-center">
             <Tooltip delayDuration={300}>
@@ -1035,15 +1094,14 @@ export function AgentWorkspaceSidebar({
             animate={{ opacity: 1, scale: 1, x: 0, y: 0 }}
             transition={{ duration: 0.12 }}
             role="menu"
-            className={`absolute z-50 overflow-hidden rounded-xl border border-border bg-popover p-1.5 shadow-[0_18px_55px_color-mix(in_srgb,var(--foreground)_14%,transparent)] ring-1 ring-border ${
+            className={`absolute z-50 overflow-hidden rounded-xl border border-border bg-popover p-1.5 shadow-[0_14px_40px_color-mix(in_srgb,var(--foreground)_7%,transparent)] ring-1 ring-border/40 ${
               isCollapsed
-                ? "bottom-4 left-full ml-2 w-52"
-                : renderMobile
-                  ? "bottom-full left-3 right-3 mb-2"
-                  : "bottom-full left-3 mb-2 w-52"
-            }`}
+                 ? "bottom-4 left-full ml-2 w-52"
+                 : renderMobile
+                   ? "bottom-full left-3 right-3 mb-2"
+                  : "bottom-full left-3 right-3 mb-2"
+             }`}
           >
-            <p className="px-2.5 pb-1 pt-1.5 text-xs leading-5 text-text-muted">Advanced</p>
             <div className="space-y-0.5">
               {advancedItems.map((item) => (
                 <button
@@ -1073,7 +1131,7 @@ export function AgentWorkspaceSidebar({
         )}
       </div>
 
-      <div className={isCollapsed ? "p-1.5" : "p-3"}>
+      <div className={`agent-workspace-usage ${isCollapsed ? "p-1.5" : "p-3"}`}>
         {isCollapsed ? (
           <Tooltip delayDuration={300}>
             <TooltipTrigger asChild>

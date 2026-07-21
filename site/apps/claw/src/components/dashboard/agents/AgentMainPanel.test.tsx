@@ -157,6 +157,20 @@ describe("AgentMainPanel", () => {
     expect(screen.queryByRole("button", { name: /create new agent/i })).not.toBeInTheDocument();
   });
 
+  it("keeps the agent header while rendering shared knowledge for a stopped agent", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "STOPPED" }));
+    renderAgentMainPanel({
+      selectedAgent,
+      currentPanel: "knowledge",
+      stoppedTabLabel: "Shared knowledge",
+      panelContent: <div>Shared knowledge content</div>,
+    });
+
+    expect(screen.getByText("Shared knowledge content")).toBeInTheDocument();
+    expect(screen.getByText(selectedAgent.name)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^start agent$/i })).not.toBeInTheDocument();
+  });
+
   it("renders STOPPING as a non-launchable transition state", () => {
     const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "STOPPING" }));
     renderAgentMainPanel({
@@ -349,6 +363,19 @@ describe("AgentMainPanel", () => {
     });
 
     expect(screen.queryByRole("button", { name: /open main session/i })).not.toBeInTheDocument();
+  });
+
+  it("renders a chat action in the desktop header", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "RUNNING" }));
+    renderAgentMainPanel({
+      selectedAgent,
+      isSelectedRunning: true,
+      currentPanel: "chat",
+      panelContent: <div>Chat panel</div>,
+      headerAction: <button type="button">Private</button>,
+    });
+
+    expect(screen.getByRole("button", { name: "Private" })).toBeInTheDocument();
   });
 
   it("keeps settings content available for a stopped agent", () => {

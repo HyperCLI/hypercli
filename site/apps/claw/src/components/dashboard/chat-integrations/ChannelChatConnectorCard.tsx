@@ -32,6 +32,7 @@ import {
   type ConnectorWorkflowVerificationResult,
 } from "./ConnectorWorkflowGuide";
 import { IntegrationBrandPulse } from "./IntegrationBrandPulse";
+import { SLACK_CONNECTOR_HERO_ICON_CLASS, SLACK_CONNECTOR_HERO_TITLE_CLASS } from "./connector-card-hero";
 
 export type AdditionalChannelConnectorId = "discord" | "slack" | "whatsapp";
 
@@ -764,7 +765,10 @@ export function ChannelChatConnectorCard({
       <div className="relative z-10 p-4 sm:p-5">
         <div className="flex items-center gap-4 sm:gap-5">
           <IntegrationBrandPulse active={active} accentColor={brand.color}>
-            <Icon className="h-14 w-14 sm:h-[4.5rem] sm:w-[4.5rem]" style={{ color: brand.color }} />
+            <Icon
+              className={channelId === "slack" ? SLACK_CONNECTOR_HERO_ICON_CLASS : "h-14 w-14 sm:h-[4.5rem] sm:w-[4.5rem]"}
+              style={{ color: brand.color }}
+            />
           </IntegrationBrandPulse>
           <div className="min-w-0 flex-1">
             <motion.p
@@ -772,7 +776,9 @@ export function ChannelChatConnectorCard({
               initial={{ opacity: 0, y: 18, filter: "blur(7px)" }}
               animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
               transition={{ type: "spring", stiffness: 330, damping: 32, mass: 0.8 }}
-              className="truncate text-left text-[clamp(1.55rem,5.6vw,3.05rem)] font-black uppercase leading-[0.9] tracking-[0.01em]"
+              className={channelId === "slack"
+                ? SLACK_CONNECTOR_HERO_TITLE_CLASS
+                : "truncate text-left text-[clamp(1.55rem,5.6vw,3.05rem)] font-black uppercase leading-[0.9] tracking-[0.01em]"}
               style={{ color: brand.color }}
             >
               {heroLabel}

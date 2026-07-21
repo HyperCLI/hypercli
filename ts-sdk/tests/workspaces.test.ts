@@ -30,6 +30,41 @@ describe('Workspaces SDK', () => {
     vi.unstubAllGlobals();
   });
 
+  it('preserves plain-text and structured API error details', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('Workspace service unavailable', { status: 503, statusText: 'Service Unavailable' }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ detail: [{ loc: ['body', 'name'], msg: 'Required' }] }), {
+        status: 422,
+        headers: { 'Content-Type': 'application/json' },
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
+
+    await expect(api.list()).rejects.toMatchObject({
+      statusCode: 503,
+      detail: 'Workspace service unavailable',
+    });
+    await expect(api.create({ name: '' })).rejects.toMatchObject({
+      statusCode: 422,
+      detail: '[{"loc":["body","name"],"msg":"Required"}]',
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it('does not replay workspace mutations after transient transport failures', async () => {
+    const transportError = Object.assign(new Error('Request timed out'), { name: 'AbortError' });
+    const fetchMock = vi.fn().mockRejectedValue(transportError);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
+
+    await expect(api.create({ name: 'Demo Workspace' })).rejects.toBe(transportError);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    vi.unstubAllGlobals();
+  });
+
   it('searches workspaces through the backend search endpoint', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify([{ id: 'workspace-1', name: 'Team Knowledge', slug: 'team-knowledge' }]), {
@@ -97,7 +132,7 @@ describe('Workspaces SDK', () => {
           headers: { 'Content-Type': 'application/json' },
         }),
       )
-      .mockResolvedValueOnce(new Response(JSON.stringify({ deleted: true }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
     vi.stubGlobal('fetch', fetchMock);
 
     const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
@@ -132,7 +167,7 @@ describe('Workspaces SDK', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
       )
-      .mockResolvedValueOnce(new Response(JSON.stringify({ revoked: true }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
     vi.stubGlobal('fetch', fetchMock);
 
     const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
@@ -223,6 +258,7 @@ describe('Workspaces SDK', () => {
       ),
     );
     vi.stubGlobal('fetch', fetchMock);
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
 
     const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
     const file = await api.uploadFile(
@@ -240,6 +276,8 @@ describe('Workspaces SDK', () => {
     });
     expect(fetchMock.mock.calls[0][1].headers).not.toHaveProperty('Content-Type');
     expect(fetchMock.mock.calls[0][1].body).toBeInstanceOf(FormData);
+    expect(timeoutSpy.mock.calls.some(([, delay]) => delay === 120000)).toBe(true);
+    timeoutSpy.mockRestore();
     vi.unstubAllGlobals();
   });
 
@@ -301,7 +339,7 @@ describe('Workspaces SDK', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
       )
-      .mockResolvedValueOnce(new Response(JSON.stringify({ deleted: true }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
     vi.stubGlobal('fetch', fetchMock);
 
     const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
@@ -350,6 +388,26 @@ describe('Workspaces SDK', () => {
     });
     expect(file.keywords).toEqual(['pricing', 'retention']);
     expect(file.summary).toBe('Pricing retention guidance.');
+    vi.unstubAllGlobals();
+  });
+
+  it('encodes workspace, grant, and file path segments', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
+    await api.revokeGrant('team knowledge', 'grant/#1');
+    await api.deleteFile('team knowledge', 'docs/research #1?.md');
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'http://workspaces.test/workspaces/team%20knowledge/grants/grant%2F%231',
+    );
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      'http://workspaces.test/workspaces/team%20knowledge/files/docs/research%20%231%3F.md',
+    );
     vi.unstubAllGlobals();
   });
 

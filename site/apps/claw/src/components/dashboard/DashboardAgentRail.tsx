@@ -112,7 +112,7 @@ export function DashboardAgentRail({
   return (
     <aside
       className="dashboard-agent-rail flex h-full flex-shrink-0 flex-col overflow-visible border-r border-border bg-surface-low transition-[width] duration-200"
-      style={{ width: collapsed ? 64 : 280 }}
+      style={{ width: collapsed ? 56 : 280 }}
       aria-label="Agents"
     >
       {collapsed ? (

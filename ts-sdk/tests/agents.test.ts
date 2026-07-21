@@ -202,6 +202,7 @@ describe('Agents SDK', () => {
 
     const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
     const agent = await deployments.update('agent-123', {
+      name: 'Marketing',
       size: 'large',
       launchConfig: {
         image: 'ghcr.io/hypercli/hypercli-openclaw:custom',
@@ -214,6 +215,7 @@ describe('Agents SDK', () => {
     expect((http.patch as any).mock.calls[0]).toEqual([
       '/deployments/agent-123',
       {
+        name: 'Marketing',
         size: 'large',
         launch_config: {
           image: 'ghcr.io/hypercli/hypercli-openclaw:custom',

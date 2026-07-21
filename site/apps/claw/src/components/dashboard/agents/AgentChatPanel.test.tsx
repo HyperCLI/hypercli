@@ -46,6 +46,10 @@ vi.mock("@/components/dashboard/ConfirmDialog", () => ({
   ) : null,
 }));
 
+vi.mock("@/hooks/useAgentAuth", () => ({
+  useAgentAuth: () => ({ getToken: vi.fn(async () => "token"), isAuthenticated: true, isLoading: false }),
+}));
+
 type AgentChatPanelProps = ComponentProps<typeof AgentChatPanel>;
 type ChatSession = AgentChatPanelProps["chat"];
 
@@ -75,6 +79,12 @@ function buildChat(overrides: Partial<ChatSession> = {}): ChatSession {
     activeSessionKey: "main",
     activeSessionReadOnly: false,
     activeSessionReadOnlyReason: null,
+    temporaryChatAvailable: true,
+    temporaryChatActive: false,
+    temporaryChatState: "inactive",
+    temporaryChatError: null,
+    startTemporaryChat: vi.fn(async () => undefined),
+    endTemporaryChat: vi.fn(async () => undefined),
     sending: false,
     activeSessionSending: false,
     files: [],
@@ -212,6 +222,22 @@ describe("AgentChatPanel", () => {
   afterEach(() => {
     vi.useRealTimers();
     chatMessageBubbleMock.mockClear();
+  });
+
+  it("explains the transcript-only boundary while private chat is active", () => {
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        temporaryChatActive: true,
+        temporaryChatState: "active",
+      }),
+    });
+
+    expect(screen.getByText("Private chat.")).toBeInTheDocument();
+    expect(screen.getByText(/Agent actions can still affect shared files, memory, integrations, and settings/i)).toBeInTheDocument();
   });
 
   it("keeps the composer out of the provisioning stage", () => {
@@ -474,7 +500,7 @@ describe("AgentChatPanel", () => {
   it.each([
     ["connect Telegram", "start setup", "telegram"],
     ["set up Discord", "start setup", "discord"],
-    ["configure Slack", "start setup", "slack"],
+    ["configure Slack", "advanced mode", "slack"],
     ["connect my WhatsApp channel", "start setup", "whatsapp"],
     ["connect GitHub", "start connection", "github"],
   ] as const)("opens the matching connector card when the user sends %s", async (input, actionLabel, integrationId) => {
@@ -528,7 +554,7 @@ describe("AgentChatPanel", () => {
 
     expect(handleSendChat).not.toHaveBeenCalled();
     expect(setInput).toHaveBeenCalledWith("");
-    expect(await screen.findByRole("button", { name: /start setup/i })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /advanced mode/i })).toBeInTheDocument();
   });
 
   it.each([
