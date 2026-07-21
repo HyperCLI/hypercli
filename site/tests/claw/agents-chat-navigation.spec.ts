@@ -8,6 +8,7 @@ const TEST_BASE_URL = process.env.TEST_BASE_URL!;
 const TEST_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQxMDI0NDQ4MDB9.signature";
 const SECONDARY_SESSION_KEY = "session-secondary-focus";
 const ARCHIVED_SESSION_KEY = "session-archived-focus";
+const AGENT_ROSTER_COLLAPSED_STORAGE_KEY = "claw.agentRosterCollapsed.v1";
 
 interface AgentChatGatewayRequest {
   method: string;
@@ -38,9 +39,10 @@ async function mockAgentChat(page: Page): Promise<{ requests: AgentChatGatewayRe
     },
   ]);
 
-  await page.addInitScript(({ token, secondarySessionKey }) => {
+  await page.addInitScript(({ token, secondarySessionKey, rosterCollapsedStorageKey }) => {
     window.localStorage.setItem("claw_auth_token", token);
     window.localStorage.setItem("app_auth_token", token);
+    window.localStorage.setItem(rosterCollapsedStorageKey, "true");
     const gatewayCalls = {
       urls: [] as string[],
       methods: [] as string[],
@@ -195,7 +197,11 @@ async function mockAgentChat(page: Page): Promise<{ requests: AgentChatGatewayRe
         },
       }),
     });
-  }, { token: TEST_JWT, secondarySessionKey: SECONDARY_SESSION_KEY });
+  }, {
+    token: TEST_JWT,
+    secondarySessionKey: SECONDARY_SESSION_KEY,
+    rosterCollapsedStorageKey: AGENT_ROSTER_COLLAPSED_STORAGE_KEY,
+  });
 
   await page.route("**/agents/**", async (route) => {
     const url = new URL(route.request().url());

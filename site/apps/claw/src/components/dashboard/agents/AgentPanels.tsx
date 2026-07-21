@@ -23,6 +23,7 @@ import { ResourceImage } from "@/components/ResourceImage";
 import { createAgentClient } from "@/lib/agent-client";
 import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
 import { moveAgentInRosterOrder, useAgentRosterOrder } from "@/hooks/useAgentRosterOrder";
+import { useAgentRosterShowOffline } from "@/hooks/useAgentRosterShowOffline";
 import { CollapsedAgentReorderItem } from "@/components/dashboard/agents/CollapsedAgentReorderItem";
 import {
   buildOpenClawLaunchOptions,
@@ -2398,7 +2399,7 @@ export function AgentList({
   const [showAgentLauncher, setShowAgentLauncher] = React.useState(false);
   const openAgentLauncher = React.useCallback(() => setShowAgentLauncher(true), []);
   const handledSidebarCreatorSignalRef = React.useRef(0);
-  const [showOfflineAgents, setShowOfflineAgents] = React.useState(true);
+  const [showOfflineAgents, setShowOfflineAgents] = useAgentRosterShowOffline();
   const [reorderingAgentId, setReorderingAgentId] = React.useState<string | null>(null);
   const agentIds = React.useMemo(() => agents.map((agent) => agent.id), [agents]);
   const { orderedAgentIds, setVisibleAgentOrder } = useAgentRosterOrder(agentIds);
@@ -2522,8 +2523,8 @@ export function AgentList({
                 <HyperCLILogoMark className="h-[17px] w-[17px]" />
               </div>
             </div>
-            <div className="agents-roster-scroll flex flex-1 flex-col items-center overflow-y-auto bg-[var(--agent-roster-background)] py-3">
-              <div className="agents-roster-rail-primary flex flex-col items-center gap-2">
+            <div className="agents-roster-scroll flex min-h-0 flex-1 flex-col items-center overflow-hidden bg-[var(--agent-roster-background)] py-3">
+              <div className="agents-roster-rail-primary flex shrink-0 flex-col items-center gap-2">
               <Tooltip delayDuration={300}>
                 <TooltipTrigger asChild>
                   <button
@@ -2572,7 +2573,8 @@ export function AgentList({
               </Tooltip>
               </div>
               <div aria-hidden="true" className="agents-roster-rail-divider my-2 h-px w-8 shrink-0 bg-border/70" />
-              <div className="agents-roster-rail-agents flex flex-col items-center gap-2">
+              <div className="agents-roster-rail-agents min-h-0 shrink overflow-y-auto py-1">
+                <div className="flex flex-col items-center gap-2">
               <Tooltip delayDuration={300}>
                 <TooltipTrigger asChild>
                   <button
@@ -2644,6 +2646,7 @@ export function AgentList({
                   );
                 })}
               </Reorder.Group>
+                </div>
               </div>
               <div aria-hidden="true" className="agents-roster-rail-divider my-2 h-px w-8 shrink-0 bg-border/70" />
               <Tooltip delayDuration={300}>

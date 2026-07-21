@@ -1957,8 +1957,8 @@ function HandoffThreadView({
   const sectionHeadingInsetClass = mobileMode ? "pl-6 pr-4" : "pl-5 pr-3";
 
   return (
-    <motion.div layoutScroll className="agents-roster-scroll flex-1 overflow-y-auto bg-[var(--agent-roster-background)]">
-      <div className="agents-roster-actions flex w-full items-center px-3 py-1.5">
+    <motion.div layoutScroll className="agents-roster-scroll flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--agent-roster-background)]">
+      <div className="agents-roster-actions flex w-full shrink-0 items-center px-3 py-1.5">
         <div className="flex w-full items-center justify-between gap-2">
           {offlineAgentCount > 0 && onShowOfflineAgentsChange && (
             <RosterTooltip label={`${offlineAgentCount} offline ${offlineAgentCount === 1 ? "agent" : "agents"}`}>
@@ -1994,7 +1994,7 @@ function HandoffThreadView({
           type="button"
           aria-current={isDashboardLinkActive(pathname, "/dashboard") ? "page" : undefined}
           onClick={onOpenHome}
-          className={`agents-roster-home flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
+          className={`agents-roster-home flex w-full shrink-0 items-center gap-0 border-l-2 text-left transition-colors ${
             mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
           } ${
             isDashboardLinkActive(pathname, "/dashboard")
@@ -2011,7 +2011,7 @@ function HandoffThreadView({
         <Link
           href="/dashboard"
           aria-current={isDashboardLinkActive(pathname, "/dashboard") ? "page" : undefined}
-          className={`agents-roster-home flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
+          className={`agents-roster-home flex w-full shrink-0 items-center gap-0 border-l-2 text-left transition-colors ${
           mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
         } ${
           isDashboardLinkActive(pathname, "/dashboard")
@@ -2026,7 +2026,7 @@ function HandoffThreadView({
         </Link>
       )}
 
-      <div className={`agents-roster-section-header flex items-center gap-1 pb-1.5 pt-0.5 transition-colors hover:bg-surface-low/40 ${sectionHeadingInsetClass}`}>
+      <div className={`agents-roster-section-header flex shrink-0 items-center gap-1 pb-1.5 pt-0.5 transition-colors hover:bg-surface-low/40 ${sectionHeadingInsetClass}`}>
           <h2 className="flex min-w-0 flex-1 items-center gap-0 text-left">
             <span className={`${mobileMode ? "text-sm" : "text-[13px]"} font-medium text-text-secondary`}>My Agents({privateThreads.length})</span>
           </h2>
@@ -2056,7 +2056,7 @@ function HandoffThreadView({
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="agents-roster-search overflow-hidden"
+            className="agents-roster-search shrink-0 overflow-hidden"
           >
             <div className="px-4 pb-3 pt-2">
               <input
@@ -2072,15 +2072,16 @@ function HandoffThreadView({
         ) : null}
       </AnimatePresence>
 
-      <AnimatePresence initial={false}>
-        {myAgentsOpen && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.18 }}
-            className="overflow-hidden"
-          >
+      <div className="agents-roster-agent-list min-h-0 shrink overflow-y-auto">
+        <AnimatePresence initial={false}>
+          {myAgentsOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              className="overflow-hidden"
+            >
             <RosterTooltip label="Launch agent" side="right">
               <motion.button
                 type="button"
@@ -2172,11 +2173,12 @@ function HandoffThreadView({
                 agentCardDataById={agentCardDataById}
               />
             ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
 
-      <section className="agents-roster-administration mt-1" aria-label="Administration">
+      <section className="agents-roster-administration mt-1 shrink-0" aria-label="Administration">
         <div className={`${sectionHeadingInsetClass} ${mobileMode ? "text-sm" : "text-[13px]"} py-1.5`}>
           <span className="font-medium text-text-secondary">Administration</span>
         </div>

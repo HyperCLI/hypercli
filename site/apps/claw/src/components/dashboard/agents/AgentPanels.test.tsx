@@ -3,6 +3,7 @@ import { useState, type ComponentProps, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent } from "@/app/dashboard/agents/types";
+import { AGENT_ROSTER_ORDER_STORAGE_KEY } from "@/hooks/useAgentRosterOrder";
 import { renderWithClient } from "@/test/utils";
 
 vi.mock("./FirstAgentSetupWizard", () => ({
@@ -390,8 +391,9 @@ describe("AgentList", () => {
     expect(dividers[1]).toHaveAttribute("aria-hidden", "true");
     expect(dividers[0]).toHaveClass("my-2");
     expect(dividers[1]).toHaveClass("my-2");
-    expect(document.querySelector(".agents-roster-rail-primary")).toHaveClass("gap-2");
-    expect(document.querySelector(".agents-roster-rail-agents")).toHaveClass("gap-2");
+    expect(document.querySelector(".agents-roster-rail .agents-roster-scroll")).toHaveClass("flex-col", "overflow-hidden");
+    expect(document.querySelector(".agents-roster-rail-primary")).toHaveClass("shrink-0", "gap-2");
+    expect(document.querySelector(".agents-roster-rail-agents")).toHaveClass("shrink", "overflow-y-auto", "py-1");
     expect(home).toHaveAttribute("aria-current", "page");
     expect(home).toHaveClass("text-[var(--selection-accent)]");
     expect(sharedKnowledge).toHaveAttribute("aria-current", "page");
@@ -441,6 +443,38 @@ describe("AgentList", () => {
       "Select Starting Agent",
       "Select Failed Agent",
     ]));
+  });
+
+  it("persists reordered agents across remounts", async () => {
+    const agents = [agent, failedAgent, startingAgent];
+    const props = createAgentListProps({
+      agents,
+      syntheticThreads: agents.map(agentThread),
+    });
+    const first = renderWithClient(<AgentList {...props} />);
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "Move Starting Agent" }), { key: "ArrowUp" });
+
+    await waitFor(() => expect(
+      screen.getAllByRole("button", { name: /^Select / }).map((button) => button.getAttribute("aria-label")),
+    ).toEqual([
+      "Select Test Agent",
+      "Select Starting Agent",
+      "Select Failed Agent",
+    ]));
+    expect(JSON.parse(window.localStorage.getItem(AGENT_ROSTER_ORDER_STORAGE_KEY) ?? "null")).toEqual({
+      version: 1,
+      agentIds: [agent.id, startingAgent.id, failedAgent.id],
+    });
+
+    first.unmount();
+    renderWithClient(<AgentList {...props} />);
+
+    expect(screen.getAllByRole("button", { name: /^Select / }).map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Select Test Agent",
+      "Select Starting Agent",
+      "Select Failed Agent",
+    ]);
   });
 
   it("hides agent hover cards while a collapsed reorder handle is active", () => {
@@ -495,6 +529,13 @@ describe("AgentList", () => {
     expect(screen.queryByText("Stopped Agent")).not.toBeInTheDocument();
     fireEvent.click(showOffline);
     expect(screen.getAllByText("Stopped Agent").length).toBeGreaterThan(0);
+
+    renderWithClient(<AgentList {...baseProps} sidebarCollapsed={false} setSidebarCollapsed={vi.fn()} />);
+    expect(screen.getAllByRole("switch", { name: "Show offline agents" }).at(-1)).toHaveAttribute("aria-checked", "true");
+
+    fireEvent.click(screen.getAllByRole("switch", { name: "Show offline agents" }).at(-1)!);
+    renderWithClient(<AgentList {...baseProps} sidebarCollapsed={false} setSidebarCollapsed={vi.fn()} />);
+    expect(screen.getAllByRole("switch", { name: "Show offline agents" }).at(-1)).toHaveAttribute("aria-checked", "false");
   });
 
   it("shows a selected stopped agent by default", () => {

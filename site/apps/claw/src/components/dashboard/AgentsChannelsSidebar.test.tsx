@@ -83,9 +83,14 @@ describe("AgentsSidebarDashboardLinks", () => {
     const usage = screen.getByRole("link", { name: "Usage" });
     const settings = screen.getByRole("link", { name: "Settings" });
     const administration = screen.getByRole("region", { name: "Administration" });
+    const rosterScroll = document.querySelector(".agents-roster-scroll");
+    const agentList = document.querySelector(".agents-roster-agent-list");
 
     expect(home.compareDocumentPosition(myAgents) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(myAgents.compareDocumentPosition(administration) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(rosterScroll).toHaveClass("flex-col", "overflow-hidden");
+    expect(agentList).toHaveClass("shrink", "overflow-y-auto");
+    expect(administration).toHaveClass("shrink-0");
     expect(administration).toContainElement(sharedKnowledge);
     expect(administration).toContainElement(members);
     expect(administration).toContainElement(usage);
