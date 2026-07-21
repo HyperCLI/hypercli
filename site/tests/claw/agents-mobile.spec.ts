@@ -404,8 +404,8 @@ test.describe("Agents mobile layout", () => {
     await expect(page.getByRole("button", { name: "Move Mobile Regression Agent" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Offline Mobile Agent" })).toHaveCount(0);
     await expect(page.getByText(/^available agents$/i)).toHaveCount(0);
-    const showOfflineAgents = page.getByRole("button", { name: "Show offline agents" });
-    await expect(showOfflineAgents).toHaveAttribute("aria-pressed", "false");
+    const showOfflineAgents = page.getByRole("switch", { name: "Show offline agents" });
+    await expect(showOfflineAgents).toHaveAttribute("aria-checked", "false");
     await showOfflineAgents.click();
     await expect(page.getByRole("button", { name: "Offline Mobile Agent" })).toBeVisible();
     const closeAgentsSidebar = page.getByRole("button", { name: /close agents sidebar/i }).last();
