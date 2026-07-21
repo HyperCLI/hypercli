@@ -35,7 +35,7 @@ vi.mock("framer-motion", () => ({
 import { DashboardNav } from "./DashboardNav";
 
 describe("DashboardNav", () => {
-  it("links the account menu to global shared knowledge", () => {
+  it("links the account menu to administration sections", () => {
     render(<DashboardNav />);
 
     const accountButton = screen.getByText("J").closest("button");
@@ -45,6 +45,10 @@ describe("DashboardNav", () => {
     expect(screen.getByRole("link", { name: /shared knowledge/i })).toHaveAttribute(
       "href",
       "/dashboard/agents?section=knowledge",
+    );
+    expect(screen.getByRole("link", { name: /^members$/i })).toHaveAttribute(
+      "href",
+      "/dashboard/agents?section=members",
     );
   });
 });

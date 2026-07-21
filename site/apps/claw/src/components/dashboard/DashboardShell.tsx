@@ -101,9 +101,11 @@ export function DashboardShell({
     pathname.startsWith("/dashboard/agents") ||
     pathname.startsWith("/dev/agent-setup/agents");
   const isDashboardHome = pathname === "/dashboard";
+  const isUsageRoute = pathname === "/usage";
   const isSettingsRoute = pathname === "/dashboard/settings" || pathname.startsWith("/dashboard/settings/");
-  const isImmersiveRoute = isAgentsRoute || isDashboardHome || isSettingsRoute;
+  const isImmersiveRoute = isAgentsRoute || isDashboardHome || isUsageRoute || isSettingsRoute;
   const showDashboardNav = !isImmersiveRoute;
+  const showMobileDashboardNav = isDashboardHome || isSettingsRoute;
   const hasTopNavOffset = showDashboardNav;
 
   return (
@@ -115,11 +117,17 @@ export function DashboardShell({
         data-auth-flow-state={flowState}
         data-auth-error={error ? "true" : "false"}
       >
-        {showDashboardNav ? <DashboardNav /> : null}
+        {showDashboardNav ? (
+          <DashboardNav />
+        ) : showMobileDashboardNav ? (
+          <div data-testid="mobile-dashboard-nav" className="lg:hidden">
+            <DashboardNav />
+          </div>
+        ) : null}
         <main
           className={
-            isDashboardHome
-              ? "h-dvh overflow-hidden pb-0 pt-0"
+            showMobileDashboardNav
+              ? "h-dvh overflow-hidden pb-0 pt-14 lg:pt-0"
               : isImmersiveRoute
               ? "h-dvh overflow-hidden pb-0 pt-0"
               : `pb-0 ${hasTopNavOffset ? "h-dvh pt-14" : "h-dvh pt-0"}`
@@ -127,8 +135,8 @@ export function DashboardShell({
         >
           <div
             className={
-              isDashboardHome
-                ? "h-dvh w-full overflow-hidden"
+              showMobileDashboardNav
+                ? "h-full w-full overflow-hidden"
                 : isImmersiveRoute
                 ? "h-dvh w-full overflow-hidden py-0"
                 : `max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 ${hasTopNavOffset ? "h-[calc(100dvh-3.5rem)]" : "h-dvh"} overflow-y-auto py-8`

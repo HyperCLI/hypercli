@@ -249,6 +249,8 @@ export function AgentMainPanel({
   const renderSelectedPanelContent = () => {
     const activeAgent = selectedAgent;
     if (!activeAgent) return null;
+    if (currentPanel === "members") return panelContent;
+
     const chatPanelOwnsBootState =
       currentPanel === "chat" &&
       (
@@ -352,7 +354,9 @@ export function AgentMainPanel({
 
   return (
     <div className={`flex-1 flex-col min-w-0 ${!mobileShowChat && !isDesktopViewport ? "hidden" : "flex"}`}>
-      {loadingInitialAgents && !selectedAgent ? (
+      {!selectedAgent && currentPanel === "members" ? (
+        <div className="flex-1 min-h-0">{panelContent}</div>
+      ) : loadingInitialAgents && !selectedAgent ? (
         <div className="flex-1 min-h-0">
           <AgentLoadingState
             title="Loading agents"

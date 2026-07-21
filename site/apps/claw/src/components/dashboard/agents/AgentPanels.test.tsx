@@ -313,6 +313,14 @@ describe("AgentList", () => {
     expect(screen.getByText("First agent setup wizard")).toBeInTheDocument();
   });
 
+  it("keeps a query-triggered agent launcher closed after dismissal", async () => {
+    renderAgentList({ sidebarCollapsed: false, sidebarCreatorSignal: 1 });
+
+    expect(screen.getByText("First agent setup wizard")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close launch agent" }));
+    await waitFor(() => expect(screen.queryByText("First agent setup wizard")).not.toBeInTheDocument());
+  });
+
   it("aligns the expanded launch action with reorderable agent rows", () => {
     const agents = [agent, failedAgent];
     renderAgentList({
@@ -329,8 +337,8 @@ describe("AgentList", () => {
     expect(launch).toHaveTextContent("Create a new workspace");
     expect(document.querySelector(".agents-roster-section-header")).toHaveClass("pl-5", "pr-3");
     expect(document.querySelector(".agents-roster-administration > div")).toHaveClass("pl-5", "pr-3");
-    expect(document.querySelector(".agents-roster-expanded .agents-roster-header")).toBeInTheDocument();
-    expect(document.querySelector(".agents-roster-expanded .agents-roster-scroll")).toBeInTheDocument();
+    expect(document.querySelector(".agents-roster-expanded .agents-roster-header")).toHaveClass("bg-background");
+    expect(document.querySelector(".agents-roster-expanded .agents-roster-scroll")).toHaveClass("bg-[var(--agent-roster-background)]");
   });
 
   it("uses display names and omits a redundant sender from agent status", () => {
@@ -364,13 +372,17 @@ describe("AgentList", () => {
     expect(screen.getByText("First agent setup wizard")).toBeInTheDocument();
   });
 
-  it("shows Home and Shared Knowledge actions in the collapsed rail", () => {
+  it("shows Home and Administration actions in the collapsed rail", () => {
     const onOpenHome = vi.fn();
     const onOpenKnowledge = vi.fn();
-    renderAgentList({ onOpenHome, onOpenKnowledge, knowledgeActive: true });
+    const onOpenMembers = vi.fn();
+    renderAgentList({ onOpenHome, onOpenKnowledge, onOpenMembers, homeActive: true, knowledgeActive: true, usageActive: true });
 
     const home = screen.getByRole("button", { name: "Home" });
     const sharedKnowledge = screen.getByRole("button", { name: "Shared Knowledge" });
+    const members = screen.getByRole("button", { name: "Members" });
+    const usage = screen.getByRole("link", { name: "Usage" });
+    const settings = screen.getByRole("link", { name: "Settings" });
     const dividers = document.querySelectorAll(".agents-roster-rail-divider");
 
     expect(dividers).toHaveLength(2);
@@ -380,15 +392,22 @@ describe("AgentList", () => {
     expect(dividers[1]).toHaveClass("my-2");
     expect(document.querySelector(".agents-roster-rail-primary")).toHaveClass("gap-2");
     expect(document.querySelector(".agents-roster-rail-agents")).toHaveClass("gap-2");
+    expect(home).toHaveAttribute("aria-current", "page");
+    expect(home).toHaveClass("text-[var(--selection-accent)]");
     expect(sharedKnowledge).toHaveAttribute("aria-current", "page");
     expect(sharedKnowledge).toHaveClass("text-[var(--selection-accent)]");
+    expect(usage).toHaveAttribute("aria-current", "page");
+    expect(usage).toHaveClass("text-[var(--selection-accent)]");
+    expect(settings).toHaveAttribute("href", "/dashboard/settings");
     fireEvent.click(home);
     fireEvent.click(sharedKnowledge);
+    fireEvent.click(members);
     expect(onOpenHome).toHaveBeenCalledOnce();
     expect(onOpenKnowledge).toHaveBeenCalledOnce();
+    expect(onOpenMembers).toHaveBeenCalledOnce();
   });
 
-  it("hides only stopped agents from the collapsed rail by default", () => {
+  it("shows stopped agents in the collapsed rail by default", () => {
     renderAgentList({
       agents: [agent, stoppedAgent, failedAgent, startingAgent],
       selectedAgentId: stoppedAgent.id,
@@ -396,7 +415,7 @@ describe("AgentList", () => {
     });
 
     expect(screen.getByRole("button", { name: "Select Test Agent" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Select Stopped Agent" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Select Stopped Agent" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Select Failed Agent" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Select Starting Agent" })).toBeInTheDocument();
   });
@@ -441,7 +460,7 @@ describe("AgentList", () => {
     expect(screen.getAllByText("agent.example.com")).toHaveLength(2);
   });
 
-  it("reveals offline agents from the expanded roster and remembers the choice when collapsed", async () => {
+  it("shows offline agents by default and remembers when they are hidden", async () => {
     const agents = [agent, stoppedAgent, failedAgent, startingAgent];
     const baseProps = createAgentListProps({
       sidebarCollapsed: false,
@@ -456,28 +475,29 @@ describe("AgentList", () => {
     renderWithClient(<Harness />);
 
     expect(screen.queryByText("Available Agents")).not.toBeInTheDocument();
-    expect(screen.queryByText("Stopped Agent")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Stopped Agent").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Failed Agent").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Starting Agent").length).toBeGreaterThan(0);
 
-    const showOffline = screen.getByRole("switch", { name: "Show offline agents" });
-    expect(showOffline).toHaveAttribute("aria-checked", "false");
-    expect(showOffline.parentElement).toHaveTextContent("Show Offline(1)");
-    fireEvent.click(showOffline);
+    const hideOffline = screen.getByRole("switch", { name: "Show offline agents" });
+    expect(hideOffline).toHaveAttribute("aria-checked", "true");
+    expect(hideOffline.parentElement).toHaveTextContent("Show Offline(1)");
+    fireEvent.click(hideOffline);
 
-    expect(screen.getAllByText("Stopped Agent").length).toBeGreaterThan(0);
-    expect(screen.getByRole("switch", { name: "Show offline agents" })).toHaveAttribute("aria-checked", "true");
+    await waitFor(() => expect(screen.queryAllByText("Stopped Agent")).toHaveLength(0));
+    expect(screen.getByRole("switch", { name: "Show offline agents" })).toHaveAttribute("aria-checked", "false");
 
     fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Select Stopped Agent" })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Expand agents sidebar" }));
-    const hideOffline = await screen.findByRole("switch", { name: "Show offline agents" });
+    const expandSidebar = await screen.findByRole("button", { name: "Expand agents sidebar" });
+    expect(screen.queryByRole("button", { name: "Select Stopped Agent" })).not.toBeInTheDocument();
+    fireEvent.click(expandSidebar);
+    const showOffline = await screen.findByRole("switch", { name: "Show offline agents" });
+    expect(screen.queryByText("Stopped Agent")).not.toBeInTheDocument();
+    fireEvent.click(showOffline);
     expect(screen.getAllByText("Stopped Agent").length).toBeGreaterThan(0);
-    fireEvent.click(hideOffline);
-    await waitFor(() => expect(screen.queryAllByText("Stopped Agent")).toHaveLength(0));
   });
 
-  it("keeps the selected stopped agent hidden until offline agents are shown", () => {
+  it("shows a selected stopped agent by default", () => {
     renderAgentList({
       sidebarCollapsed: false,
       agents: [agent, stoppedAgent],
@@ -485,7 +505,7 @@ describe("AgentList", () => {
       syntheticThreads: [agent, stoppedAgent].map(agentThread),
     });
 
-    expect(screen.queryByText("Stopped Agent")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Stopped Agent").length).toBeGreaterThan(0);
     expect(screen.getByRole("switch", { name: "Show offline agents" })).toBeInTheDocument();
   });
 
@@ -534,14 +554,15 @@ describe("AgentList", () => {
     ]));
   });
 
-  it("opens workspace settings from the agents sidebar account menu when provided", () => {
+  it("links to user settings from Administration instead of the expanded account menu", () => {
     const onOpenSettings = vi.fn();
     renderAgentList({ sidebarCollapsed: false, onOpenSettings });
 
-    fireEvent.click(screen.getByRole("button", { name: /account/i }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /settings/i }));
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/dashboard/settings");
+    expect(onOpenSettings).not.toHaveBeenCalled();
 
-    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: /account/i }));
+    expect(screen.queryByRole("menuitem", { name: /^Settings$/i })).not.toBeInTheDocument();
   });
 
   it("shows sign out as the last account menu option", () => {

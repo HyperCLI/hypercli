@@ -19,6 +19,7 @@ import {
   Plug,
   Trash2,
   Loader2,
+  UsersRound,
 } from "lucide-react";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
@@ -27,6 +28,7 @@ import { ThemeToggle } from "@hypercli/shared-ui";
 
 const dropdownNavItems = [
   { label: "Shared knowledge", href: "/dashboard/agents?section=knowledge", icon: HardDrive },
+  { label: "Members", href: "/dashboard/agents?section=members", icon: UsersRound },
   { label: "API Keys", href: "/keys", icon: Key },
   { label: "Plans", href: "/plans", icon: CreditCard },
   { label: "Billing", href: "/dashboard/settings", icon: CreditCard },

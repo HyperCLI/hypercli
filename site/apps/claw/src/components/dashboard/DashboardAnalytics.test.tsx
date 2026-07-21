@@ -108,6 +108,22 @@ describe("DashboardAnalytics", () => {
     expect(screen.getByText("Active")).toBeInTheDocument();
   });
 
+  it("renders a compact linked workspace metric", () => {
+    render(
+      <DashboardMetricCard
+        title="Agents"
+        value="3"
+        periodLabel="Across this account"
+        icon={dashboardMetricIcons.agents}
+        href="/dashboard/agents"
+        compact
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: /Agents/i })).toHaveAttribute("href", "/dashboard/agents");
+    expect(screen.getByText("Across this account")).toBeInTheDocument();
+  });
+
   it("renders integration display names supplied by the normalizer", () => {
     render(
       <IntegrationUsagePanel

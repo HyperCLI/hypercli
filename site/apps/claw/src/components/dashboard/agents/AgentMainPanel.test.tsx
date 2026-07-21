@@ -171,6 +171,48 @@ describe("AgentMainPanel", () => {
     expect(screen.queryByRole("button", { name: /^start agent$/i })).not.toBeInTheDocument();
   });
 
+  it("keeps the agent header while rendering members for a stopped agent", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "STOPPED" }));
+    renderAgentMainPanel({
+      selectedAgent,
+      currentPanel: "members",
+      stoppedTabLabel: "Members",
+      panelContent: <div>Members content</div>,
+    });
+
+    expect(screen.getByText("Members content")).toBeInTheDocument();
+    expect(screen.getByText(selectedAgent.name)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^start agent$/i })).not.toBeInTheDocument();
+  });
+
+  it("renders members before any agent exists or finishes loading", () => {
+    renderAgentMainPanel({
+      selectedAgent: null,
+      hasAgents: false,
+      loadingInitialAgents: true,
+      currentPanel: "members",
+      stoppedTabLabel: "Members",
+      panelContent: <div>Members content</div>,
+    });
+
+    expect(screen.getByText("Members content")).toBeInTheDocument();
+    expect(screen.queryByText("Loading agents")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /first agent empty state/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps members visible while the selected agent is starting", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "STARTING" }));
+    renderAgentMainPanel({
+      selectedAgent,
+      currentPanel: "members",
+      stoppedTabLabel: "Members",
+      panelContent: <div>Members content</div>,
+    });
+
+    expect(screen.getByText("Members content")).toBeInTheDocument();
+    expect(screen.queryByText("Booting agent")).not.toBeInTheDocument();
+  });
+
   it("renders STOPPING as a non-launchable transition state", () => {
     const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "STOPPING" }));
     renderAgentMainPanel({

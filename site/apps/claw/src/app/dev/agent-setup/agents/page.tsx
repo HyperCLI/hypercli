@@ -329,7 +329,7 @@ export default function DevAgentSetupAgentsPage() {
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [mobileAgentMenuOpen, setMobileAgentMenuOpen] = useState(false);
   const [sidebarCreatorSignal, setSidebarCreatorSignal] = useState(0);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [teamSetupSummary, setTeamSetupSummary] = useState<TeamSetupSummary | null>(null);
   const [teamSetupSafeWriteWarning, setTeamSetupSafeWriteWarning] = useState<string | null>(null);
   const [teamSetupCompanionOpen, setTeamSetupCompanionOpen] = useState(true);
@@ -522,6 +522,7 @@ export default function DevAgentSetupAgentsPage() {
     integrations: "Integrations",
     skills: "Skills",
     knowledge: "Shared knowledge",
+    members: "Members",
     scheduled: "Scheduled",
     logs: "Logs",
     settings: "Settings",

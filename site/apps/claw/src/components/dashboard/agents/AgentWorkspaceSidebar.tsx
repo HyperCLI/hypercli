@@ -83,6 +83,7 @@ interface AgentWorkspaceSidebarProps {
   onClose?: () => void;
   sessions?: OpenClawSessionRecord[] | null;
   sessionsFetched?: boolean;
+  sessionsUnavailableReason?: string;
   creatingSessionKeys?: string[];
   thinkingSessionKeys?: string[];
   selectedSessionKey?: string | null;
@@ -92,6 +93,7 @@ interface AgentWorkspaceSidebarProps {
   onRenameSession?: (sessionKey: string, title: string) => Promise<void> | void;
   onDeleteSession?: (sessionKey: string) => Promise<void> | void;
   openingDesktop?: boolean;
+  showDesktop?: boolean;
 }
 
 type WorkspaceItem = {
@@ -669,6 +671,7 @@ export function AgentWorkspaceSidebar({
   onClose,
   sessions,
   sessionsFetched = sessions != null,
+  sessionsUnavailableReason = "Sessions are loading.",
   creatingSessionKeys = [],
   thinkingSessionKeys = [],
   selectedSessionKey,
@@ -678,6 +681,7 @@ export function AgentWorkspaceSidebar({
   onRenameSession,
   onDeleteSession,
   openingDesktop = false,
+  showDesktop = true,
 }: AgentWorkspaceSidebarProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [recentOpen, setRecentOpen] = useState(true);
@@ -700,10 +704,10 @@ export function AgentWorkspaceSidebar({
   const tokenProgress = tokenTotal && tokensUsed != null ? Math.min(100, Math.round((tokensUsed / tokenTotal) * 100)) : 0;
   const tokenUsageLabel = tokenTotal
     ? `${tokensUsed == null ? "--" : formatTokens(tokensUsed)} / ${formatTokens(tokenTotal)}`
-    : `${tokensUsed == null ? "0" : formatTokens(tokensUsed)} / --`;
+    : `${tokensUsed == null ? "--" : formatTokens(tokensUsed)} / --`;
   const hasSelectedAgent = Boolean(selectedAgent);
   const sessionsInteractive = hasSelectedAgent && sessionsFetched && !disabled;
-  const sessionsDisabledReason = disabled ? disabledReason : sessionsFetched ? undefined : "Sessions are loading.";
+  const sessionsDisabledReason = disabled ? disabledReason : sessionsFetched ? undefined : sessionsUnavailableReason;
   const sortedSessions = useMemo(() => {
     if (!hasSelectedAgent) return [];
     const sessionRecords = (sessions ?? []).filter((session) => session.ephemeral !== true);
@@ -749,13 +753,13 @@ export function AgentWorkspaceSidebar({
       : agentNotRunning
         ? stoppedReason
         : !sessionsFetched
-          ? "Sessions are loading."
+          ? sessionsUnavailableReason
           : creatingSession
             ? "Creating session..."
             : onCreateSession
               ? undefined
               : "New sessions are unavailable.";
-  const showDesktop = Boolean(selectedAgent?.hasDesktop);
+  const desktopVisible = showDesktop && Boolean(selectedAgent?.hasDesktop);
   const openDesktopDisabledReason = disabled
     ? disabledReason
     : noSelectedAgent
@@ -804,7 +808,7 @@ export function AgentWorkspaceSidebar({
       onClick: onOpenScheduled,
       ...(scheduledDisabled ? { disabled: true, disabledReason: scheduledDisabledReason } : disabledItemProps),
     },
-    ...(showDesktop ? [{
+    ...(desktopVisible ? [{
       id: "desktop",
       label: openingDesktop ? "Opening Desktop" : "Desktop",
       icon: openingDesktop ? Loader2 : Monitor,

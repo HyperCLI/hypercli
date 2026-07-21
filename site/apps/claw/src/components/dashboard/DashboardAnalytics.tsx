@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
   BarChart3,
   Blocks,
@@ -225,14 +226,34 @@ export function DashboardMetricCard({
   value,
   periodLabel,
   icon: Icon,
+  compact = false,
+  href,
+  accent = false,
 }: {
   title: string;
   value: string;
   periodLabel: string;
   icon: LucideIcon;
+  compact?: boolean;
+  href?: string;
+  accent?: boolean;
 }) {
-  return (
-    <section className="relative min-h-[116px] rounded-lg border border-border bg-surface-low p-4">
+  const className = compact
+    ? "group relative block min-h-[108px] rounded-xl border border-border bg-surface-low/35 p-4 transition-colors hover:border-border-strong hover:bg-surface-low/55"
+    : "relative block min-h-[116px] rounded-lg border border-border bg-surface-low p-4";
+  const content = compact ? (
+    <>
+      <div className="flex items-center gap-2">
+        <Icon className={`h-4 w-4 ${accent ? "text-[var(--selection-accent)]" : "text-text-muted"}`} />
+        <h2 className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">{title}</h2>
+      </div>
+      <p className={`mt-3 text-2xl font-semibold leading-none tracking-tight tabular-nums ${accent ? "text-[var(--selection-accent)]" : "text-foreground"}`}>
+        {value}
+      </p>
+      <p className="mt-2 text-[11px] text-text-muted">{periodLabel}</p>
+    </>
+  ) : (
+    <>
       <div className="flex items-start justify-between gap-4">
         <h2 className="text-base font-semibold text-foreground">{title}</h2>
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-high text-text-muted">
@@ -241,7 +262,13 @@ export function DashboardMetricCard({
       </div>
       <p className="mt-4 text-2xl font-bold leading-none text-foreground tabular-nums">{value}</p>
       <p className="mt-2 text-sm text-text-muted">{periodLabel}</p>
-    </section>
+    </>
+  );
+
+  return href ? (
+    <Link href={href} className={className}>{content}</Link>
+  ) : (
+    <section className={className}>{content}</section>
   );
 }
 

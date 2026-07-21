@@ -53,16 +53,17 @@ describe("DashboardShell", () => {
     mocks.push.mockClear();
   });
 
-  it("removes the top nav for the dashboard overview", () => {
+  it("keeps a mobile-only account nav for the dashboard overview", () => {
     render(
       <DashboardShell>
         <div>Dashboard overview</div>
       </DashboardShell>,
     );
 
-    expect(screen.queryByTestId("dashboard-nav")).not.toBeInTheDocument();
+    expect(screen.getByTestId("dashboard-nav")).toBeInTheDocument();
+    expect(screen.getByTestId("mobile-dashboard-nav")).toHaveClass("lg:hidden");
     expect(screen.queryByTestId("motion-route")).not.toBeInTheDocument();
-    expect(screen.getByRole("main")).toHaveClass("h-dvh", "pt-0");
+    expect(screen.getByRole("main")).toHaveClass("h-dvh", "pt-14", "lg:pt-0");
   });
 
   it("uses the dashboard overview layout for the trailing-slash dashboard path", () => {
@@ -74,9 +75,10 @@ describe("DashboardShell", () => {
       </DashboardShell>,
     );
 
-    expect(screen.queryByTestId("dashboard-nav")).not.toBeInTheDocument();
+    expect(screen.getByTestId("dashboard-nav")).toBeInTheDocument();
+    expect(screen.getByTestId("mobile-dashboard-nav")).toHaveClass("lg:hidden");
     expect(screen.queryByTestId("motion-route")).not.toBeInTheDocument();
-    expect(screen.getByRole("main")).toHaveClass("h-dvh", "pt-0");
+    expect(screen.getByRole("main")).toHaveClass("h-dvh", "pt-14", "lg:pt-0");
   });
 
   it("keeps dashboard agents in the same immersive shell", () => {
@@ -93,12 +95,27 @@ describe("DashboardShell", () => {
     expect(screen.getByRole("main")).toHaveClass("h-dvh", "pt-0");
   });
 
-  it("keeps dashboard settings in the same immersive shell", () => {
+  it("keeps settings immersive with a mobile-only account nav", () => {
     mocks.pathname = "/dashboard/settings";
 
     render(
       <DashboardShell>
         <div>Settings page</div>
+      </DashboardShell>,
+    );
+
+    expect(screen.getByTestId("dashboard-nav")).toBeInTheDocument();
+    expect(screen.getByTestId("mobile-dashboard-nav")).toHaveClass("lg:hidden");
+    expect(screen.queryByTestId("motion-route")).not.toBeInTheDocument();
+    expect(screen.getByRole("main")).toHaveClass("h-dvh", "pt-14", "lg:pt-0");
+  });
+
+  it("keeps usage in the same immersive shell", () => {
+    mocks.pathname = "/usage";
+
+    render(
+      <DashboardShell>
+        <div>Usage page</div>
       </DashboardShell>,
     );
 

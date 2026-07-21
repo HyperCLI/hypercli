@@ -25,6 +25,7 @@ import {
   GripVertical,
   HardDrive,
   House,
+  BarChart3,
 } from "lucide-react";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import { Switch, ThemeToggle, Tooltip, TooltipTrigger, TooltipContent } from "@hypercli/shared-ui";
@@ -156,25 +157,20 @@ export interface AgentsChannelsSidebarProps {
   onOpenKnowledge?: () => void;
   knowledgeActive?: boolean;
   knowledgeHref?: string;
+  /** Navigate to workspace members, optionally performing caller-owned cleanup first. */
+  onOpenMembers?: () => void;
+  membersActive?: boolean;
+  membersHref?: string;
   /** Increment to imperatively open the inline agent creator (e.g. from the main panel's empty state). */
   openAgentCreatorSignal?: number;
   accountInitial?: string;
-  /** Override the Agents item destination in the account menu. */
-  agentsHref?: string;
-  /** When provided, the Settings account item opens the current agent workspace settings panel instead of routing. */
-  onOpenAgentSettings?: () => void;
-  agentSettingsActive?: boolean;
   onLogout?: () => void | Promise<void>;
 }
 
-const DASHBOARD_LINKS = [
-  { label: "Dashboard", href: "/dashboard", icon: Bot },
-  { label: "Agents", href: "/dashboard/agents", icon: Users },
-  { label: "Shared knowledge", href: "/dashboard/agents?section=knowledge", icon: HardDrive },
+const ACCOUNT_LINKS = [
   { label: "API Keys", href: "/keys", icon: Key },
   { label: "Plans", href: "/plans", icon: CreditCard },
   { label: "Billing", href: "/dashboard/settings", icon: CreditCard },
-  { label: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
 
 function isDashboardLinkActive(pathname: string, href: string) {
@@ -673,7 +669,7 @@ function SidebarHeader({
 
   return (
     <div className={`flex flex-shrink-0 flex-col ${mobileMode ? "m-[-1px] border-b border-border" : ""}`}>
-      <div className={`agents-roster-header flex h-14 items-center justify-between px-3 ${mobileMode ? "" : "border-b border-border"}`}>
+      <div className={`agents-roster-header flex h-14 items-center justify-between px-3 ${mobileMode ? "" : "border-b border-border bg-background"}`}>
         <HyperCLILogoLink
           className={mobileMode ? "h-[32px] w-[164px]" : "h-[28px] w-[144px]"}
         />
@@ -736,23 +732,11 @@ export function AgentsSidebarDashboardLinks({
   compact = false,
   mobileMode = false,
   accountInitial = "?",
-  agentsHref,
-  onOpenAgentSettings,
-  agentSettingsActive = false,
-  knowledgeActive = false,
-  knowledgeHref = "/dashboard/agents?section=knowledge",
-  onOpenKnowledge,
   onLogout,
 }: {
   compact?: boolean;
   mobileMode?: boolean;
   accountInitial?: string;
-  agentsHref?: string;
-  onOpenAgentSettings?: () => void;
-  agentSettingsActive?: boolean;
-  knowledgeActive?: boolean;
-  knowledgeHref?: string;
-  onOpenKnowledge?: () => void;
   onLogout?: () => void | Promise<void>;
 }) {
   const pathname = usePathname() ?? "";
@@ -770,7 +754,7 @@ export function AgentsSidebarDashboardLinks({
   }, [open]);
 
   return (
-    <div ref={ref} className={`agents-dashboard-links ${compact ? "agents-dashboard-links-compact bg-[var(--agent-roster-background)]" : ""} relative flex-shrink-0 border-t border-border ${compact ? "flex justify-center py-2" : "px-3 py-2"}`}>
+    <div ref={ref} className={`agents-dashboard-links ${compact ? "agents-dashboard-links-compact" : ""} relative flex-shrink-0 border-t border-border bg-[var(--agent-roster-background)] ${compact ? "flex justify-center py-2" : "px-3 py-2"}`}>
       <AnimatePresence>
         {open && (
           <motion.div
@@ -783,50 +767,14 @@ export function AgentsSidebarDashboardLinks({
             }`}
             role="menu"
           >
-            {DASHBOARD_LINKS.map((item) => {
+            {ACCOUNT_LINKS.map((item) => {
               const Icon = item.icon;
-              const href = item.label === "Agents"
-                ? agentsHref ?? item.href
-                : item.label === "Shared knowledge"
-                  ? knowledgeHref
-                  : item.href;
-              const opensAgentSettings = item.label === "Settings" && Boolean(onOpenAgentSettings);
-              const opensKnowledge = item.label === "Shared knowledge" && Boolean(onOpenKnowledge);
-              const active = item.label === "Shared knowledge"
-                ? knowledgeActive
-                : item.label === "Agents"
-                  ? !knowledgeActive && isDashboardLinkActive(pathname, href)
-                  : opensAgentSettings
-                    ? agentSettingsActive
-                    : isDashboardLinkActive(pathname, href);
-
-              if (opensAgentSettings || opensKnowledge) {
-                return (
-                  <button
-                    key={`${item.label}:${item.href}`}
-                    type="button"
-                    onClick={() => {
-                      setOpen(false);
-                      if (opensKnowledge) onOpenKnowledge?.();
-                      else onOpenAgentSettings?.();
-                    }}
-                    role="menuitem"
-                    className={`flex w-full items-center gap-2 px-3 text-left transition-colors ${
-                      active
-                        ? "bg-surface-low text-foreground"
-                        : "text-text-secondary hover:bg-surface-low hover:text-foreground"
-                    } ${mobileMode ? "py-2" : "py-1.5"}`}
-                  >
-                    <Icon className={`${mobileMode ? "h-5 w-5" : "h-3.5 w-3.5"} flex-shrink-0`} />
-                    <span className="text-[11px] font-medium">{item.label}</span>
-                  </button>
-                );
-              }
+              const active = isDashboardLinkActive(pathname, item.href);
 
               return (
                 <Link
                   key={`${item.label}:${item.href}`}
-                  href={href}
+                  href={item.href}
                   onClick={() => setOpen(false)}
                   role="menuitem"
                   className={`flex items-center gap-2 px-3 text-left transition-colors ${
@@ -1898,10 +1846,13 @@ function HandoffThreadView({
   onOpenKnowledge,
   knowledgeActive = false,
   knowledgeHref = "/dashboard/agents?section=knowledge",
+  onOpenMembers,
+  membersActive = false,
+  membersHref = "/dashboard/agents?section=members",
   showChannels = true,
   availableAgents,
   offlineAgentCount = 0,
-  showOfflineAgents = false,
+  showOfflineAgents = true,
   onShowOfflineAgentsChange,
   onReorderAgents,
   agentCardDataById,
@@ -1926,6 +1877,9 @@ function HandoffThreadView({
   onOpenKnowledge?: () => void;
   knowledgeActive?: boolean;
   knowledgeHref?: string;
+  onOpenMembers?: () => void;
+  membersActive?: boolean;
+  membersHref?: string;
   showChannels?: boolean;
   availableAgents?: Participant[];
   offlineAgentCount?: number;
@@ -1992,7 +1946,7 @@ function HandoffThreadView({
   const sectionHeadingInsetClass = mobileMode ? "pl-6 pr-4" : "pl-5 pr-3";
 
   return (
-    <motion.div layoutScroll className="agents-roster-scroll flex-1 overflow-y-auto">
+    <motion.div layoutScroll className="agents-roster-scroll flex-1 overflow-y-auto bg-[var(--agent-roster-background)]">
       <div className="agents-roster-actions flex w-full items-center px-3 py-1.5">
         <div className="flex w-full items-center justify-between gap-2">
           {offlineAgentCount > 0 && onShowOfflineAgentsChange && (
@@ -2251,6 +2205,74 @@ function HandoffThreadView({
             <span className="font-medium">Shared Knowledge</span>
           </Link>
         )}
+        {onOpenMembers ? (
+          <button
+            type="button"
+            aria-current={membersActive ? "page" : undefined}
+            onClick={onOpenMembers}
+            className={`flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
+              mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
+            } ${
+              membersActive
+                ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
+                : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
+            }`}
+          >
+            <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
+              <Users className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
+            </span>
+            <span className="font-medium">Members</span>
+          </button>
+        ) : (
+          <Link
+            href={membersHref}
+            aria-current={membersActive ? "page" : undefined}
+            className={`flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
+              mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
+            } ${
+              membersActive
+                ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
+                : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
+            }`}
+          >
+            <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
+              <Users className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
+            </span>
+            <span className="font-medium">Members</span>
+          </Link>
+        )}
+        <Link
+          href="/usage"
+          aria-current={pathname === "/usage" ? "page" : undefined}
+          className={`flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
+            mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
+          } ${
+            pathname === "/usage"
+              ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
+              : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
+          }`}
+        >
+          <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
+            <BarChart3 className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
+          </span>
+          <span className="font-medium">Usage</span>
+        </Link>
+        <Link
+          href="/dashboard/settings"
+          aria-current={isDashboardLinkActive(pathname, "/dashboard/settings") ? "page" : undefined}
+          className={`flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
+            mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
+          } ${
+            isDashboardLinkActive(pathname, "/dashboard/settings")
+              ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
+              : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
+          }`}
+        >
+          <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
+            <Settings className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
+          </span>
+          <span className="font-medium">Settings</span>
+        </Link>
       </section>
 
       {/* ── Channels section ── */}
@@ -2347,7 +2369,7 @@ export function AgentsChannelsSidebar({
   mobileMode = false,
   availableAgents,
   offlineAgentCount = 0,
-  showOfflineAgents = false,
+  showOfflineAgents = true,
   onShowOfflineAgentsChange,
   onReorderAgents,
   agentCardDataById,
@@ -2357,11 +2379,11 @@ export function AgentsChannelsSidebar({
   onOpenKnowledge,
   knowledgeActive = false,
   knowledgeHref,
+  onOpenMembers,
+  membersActive = false,
+  membersHref,
   openAgentCreatorSignal,
   accountInitial,
-  agentsHref,
-  onOpenAgentSettings,
-  agentSettingsActive,
   onLogout,
 }: AgentsChannelsSidebarProps) {
   const [showSearch, setShowSearch] = useState(false);
@@ -2377,16 +2399,6 @@ export function AgentsChannelsSidebar({
         t.participants.some((p) => p.name.toLowerCase().includes(q))
     );
   }, [threads, searchQuery]);
-  const resolvedAgentsHref = useMemo(() => {
-    if (agentsHref) return agentsHref;
-    if (!selectedThreadId) return undefined;
-
-    const selectedThread = threads.find((thread) => thread.id === selectedThreadId);
-    const selectedAgentId = selectedThread?.participants.find((participant) => participant.type === "agent")?.id;
-
-    return selectedAgentId ? `/dashboard/agents?agentId=${encodeURIComponent(selectedAgentId)}` : undefined;
-  }, [agentsHref, selectedThreadId, threads]);
-
   return (
     <div className={`${fillParent ? "w-full min-w-0" : "w-[280px] flex-shrink-0"} agents-roster-expanded relative flex h-full min-h-0 flex-col bg-surface-low`}>
       {showDivider && <div aria-hidden className="pointer-events-none absolute right-0 top-0 z-20 h-full w-px bg-border" />}
@@ -2435,6 +2447,9 @@ export function AgentsChannelsSidebar({
           onOpenKnowledge={onOpenKnowledge}
           knowledgeActive={knowledgeActive}
           knowledgeHref={knowledgeHref}
+          onOpenMembers={onOpenMembers}
+          membersActive={membersActive}
+          membersHref={membersHref}
           showChannels={showChannels}
           availableAgents={availableAgents}
           offlineAgentCount={offlineAgentCount}
@@ -2469,6 +2484,9 @@ export function AgentsChannelsSidebar({
           onOpenKnowledge={onOpenKnowledge}
           knowledgeActive={knowledgeActive}
           knowledgeHref={knowledgeHref}
+          onOpenMembers={onOpenMembers}
+          membersActive={membersActive}
+          membersHref={membersHref}
           showChannels={showChannels}
           availableAgents={availableAgents}
           offlineAgentCount={offlineAgentCount}
@@ -2491,12 +2509,6 @@ export function AgentsChannelsSidebar({
       <AgentsSidebarDashboardLinks
         mobileMode={mobileMode}
         accountInitial={accountInitial}
-        agentsHref={resolvedAgentsHref}
-        onOpenAgentSettings={onOpenAgentSettings}
-        agentSettingsActive={agentSettingsActive}
-        knowledgeActive={knowledgeActive}
-        knowledgeHref={knowledgeHref}
-        onOpenKnowledge={onOpenKnowledge}
         onLogout={onLogout}
       />
     </div>

@@ -21,6 +21,7 @@ import {
 import "@xterm/xterm/css/xterm.css";
 
 import { useAgentAuth } from "@/hooks/useAgentAuth";
+import { useAgentRosterCollapsed } from "@/hooks/useAgentRosterCollapsed";
 import {
   AGENT_CLEANUP_START_MESSAGE,
   AGENT_STOP_CLEANUP_COOLDOWN_MS,
@@ -134,6 +135,7 @@ import { AgentPrivateChatControl } from "@/components/dashboard/agents/AgentPriv
 import { AgentWorkspaceSidebar } from "@/components/dashboard/agents/AgentWorkspaceSidebar";
 import { AgentGatewaySessionProvider, asAgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
 import { SharedKnowledgeSection } from "@/components/dashboard/knowledge/SharedKnowledgeSection";
+import { MembersSection } from "@/components/dashboard/members/MembersSection";
 import { JourneyFloatingPanel } from "@/components/dashboard/journey/JourneyFloatingPanel";
 import type { JourneyCapabilityCard } from "@/components/dashboard/journey/journey-capabilities";
 import { buildJourneyBriefPrompt, buildJourneyCapabilityPrompt, buildJourneyPrompt } from "@/components/dashboard/journey/journey-prompt-builder";
@@ -145,6 +147,7 @@ import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 import { bundleKey, CLAW_PRODUCTS, compactBundle, formatBundle, type SlotBundle } from "@/lib/subscriptions";
 import { createAudioMediaRecorder } from "@/lib/audio-recorder";
 import { downloadFileBytes } from "@/lib/download-file";
+import { resolveAgentRouteTab, type AgentRouteTab } from "@/lib/agent-workspace-route";
 import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
 import { normalizeCronJob } from "@/lib/cron-jobs";
 import {
@@ -848,7 +851,16 @@ function AgentsPageContent() {
   const requestedIntegrationId = searchParams.get("integration")?.trim() || null;
   const requestedOpen = searchParams.get("open")?.trim() || null;
   const requestedSection = searchParams.get("section")?.trim() || null;
+  const requestedTab = searchParams.get("tab")?.trim() || null;
+  const requestedAgentTab = resolveAgentRouteTab(requestedTab);
+  const requestedCenterTab: MainTab | null = requestedAgentTab === "openclaw" ? "chat" : requestedAgentTab;
   const knowledgeSectionActive = requestedSection === "knowledge";
+  const membersSectionActive = requestedSection === "members";
+  const administrationSectionTab: Extract<MainTab, "knowledge" | "members"> | null = knowledgeSectionActive
+    ? "knowledge"
+    : membersSectionActive
+      ? "members"
+      : null;
   const slackOAuthOk = searchParams.get("slack_oauth_ok")?.trim() || null;
   const slackOAuthError = searchParams.get("slack_oauth_error")?.trim() || null;
   const slackOAuthResult = slackOAuthOk === "true" ? "success" : slackOAuthOk === "false" ? "failure" : null;
@@ -962,45 +974,71 @@ function AgentsPageContent() {
       : {}
   ));
   const { pinnedSessionKeys, setSessionPinned } = useOpenClawSessionPins(selectedAgentId);
-  const mainTabBeforeKnowledgeRef = useRef<MainTab>("chat");
-  const [mainTab, setMainTab] = useState<MainTab>(() => knowledgeSectionActive ? "knowledge" : "chat");
+  const mainTabBeforeAdministrationRef = useRef<MainTab>("chat");
+  const appliedAgentRouteTabRef = useRef<AgentRouteTab | null>(null);
+  const preserveMainTabOnRouteCleanupRef = useRef(false);
+  const [mainTab, setMainTab] = useState<MainTab>(() => administrationSectionTab ?? requestedCenterTab ?? "chat");
   const selectMainTab = useCallback((tab: MainTab) => {
-    if (tab === "knowledge") {
+    if (tab === "knowledge" || tab === "members") {
       setMainTab((current) => {
-        if (current !== "knowledge") mainTabBeforeKnowledgeRef.current = current;
-        return "knowledge";
+        if (current !== "knowledge" && current !== "members") mainTabBeforeAdministrationRef.current = current;
+        return tab;
       });
       return;
     }
 
     setMainTab(tab);
-    if (!knowledgeSectionActive) return;
+    if (!administrationSectionTab && !requestedAgentTab) return;
     const params = new URLSearchParams(searchParams.toString());
     params.delete("section");
+    params.delete("tab");
     const query = params.toString();
+    preserveMainTabOnRouteCleanupRef.current = true;
     router.replace(`/dashboard/agents${query ? `?${query}` : ""}`, { scroll: false });
-  }, [knowledgeSectionActive, router, searchParams]);
+  }, [administrationSectionTab, requestedAgentTab, router, searchParams]);
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       setMainTab((current) => {
-        if (knowledgeSectionActive) {
-          if (current !== "knowledge") mainTabBeforeKnowledgeRef.current = current;
-          return "knowledge";
+        if (administrationSectionTab) {
+          appliedAgentRouteTabRef.current = null;
+          if (current !== "knowledge" && current !== "members") mainTabBeforeAdministrationRef.current = current;
+          return administrationSectionTab;
         }
-        return current === "knowledge" ? mainTabBeforeKnowledgeRef.current : current;
+        if (requestedAgentTab && requestedCenterTab) {
+          appliedAgentRouteTabRef.current = requestedAgentTab;
+          return requestedCenterTab;
+        }
+        if (preserveMainTabOnRouteCleanupRef.current) {
+          preserveMainTabOnRouteCleanupRef.current = false;
+          appliedAgentRouteTabRef.current = null;
+          return current;
+        }
+        if (current === "knowledge" || current === "members") return mainTabBeforeAdministrationRef.current;
+        if (appliedAgentRouteTabRef.current) {
+          appliedAgentRouteTabRef.current = null;
+          return "chat";
+        }
+        return current;
       });
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, [knowledgeSectionActive]);
+  }, [administrationSectionTab, requestedAgentTab, requestedCenterTab]);
+  useEffect(() => {
+    if (!requestedTab || requestedAgentTab) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("tab");
+    const query = params.toString();
+    router.replace(`/dashboard/agents${query ? `?${query}` : ""}`, { scroll: false });
+  }, [requestedAgentTab, requestedTab, router, searchParams]);
   const [scheduledInitialCommand, setScheduledInitialCommand] = useState<{ id: number; command: string } | null>(null);
   const scheduledInitialCommandIdRef = useRef(0);
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [mobileAgentsSidebarOpen, setMobileAgentsSidebarOpen] = useState(false);
-  const [showMobileOfflineAgents, setShowMobileOfflineAgents] = useState(false);
+  const [showMobileOfflineAgents, setShowMobileOfflineAgents] = useState(true);
   const [mobileWorkspaceSidebarOpen, setMobileWorkspaceSidebarOpen] = useState(false);
   const [mobileAgentLauncherOpen, setMobileAgentLauncherOpen] = useState(false);
   const [sidebarCreatorSignal, setSidebarCreatorSignal] = useState(0);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useAgentRosterCollapsed();
 
   useLayoutEffect(() => {
     selectedAgentIdRef.current = selectedAgentId;
@@ -1009,7 +1047,7 @@ function AgentsPageContent() {
   const replaceAgentChatRoute = useCallback((
     agentId: string | null,
     sessionKey?: string | null,
-    clearKnowledgeSection = false,
+    clearRoutedPanel = false,
   ) => {
     const params = new URLSearchParams(searchParams.toString());
     if (agentId) {
@@ -1028,7 +1066,10 @@ function AgentsPageContent() {
     } else {
       params.delete("session");
     }
-    if (clearKnowledgeSection) params.delete("section");
+    if (clearRoutedPanel) {
+      params.delete("section");
+      params.delete("tab");
+    }
     const query = params.toString();
     router.replace(`/dashboard/agents${query ? `?${query}` : ""}`, { scroll: false });
   }, [router, searchParams]);
@@ -1086,6 +1127,12 @@ function AgentsPageContent() {
   const [openclawSettingsOpen, setOpenclawSettingsOpen] = useState(false);
   const [chatDragActive, setChatDragActive] = useState(false);
   const chatDragDepthRef = useRef(0);
+
+  useEffect(() => {
+    if (requestedAgentTab !== "openclaw" || !selectedAgentId) return;
+    const timeout = window.setTimeout(() => setOpenclawSettingsOpen(true), 0);
+    return () => window.clearTimeout(timeout);
+  }, [requestedAgentTab, selectedAgentId]);
 
   const openConnectionSuggestion = useCallback((suggestion: ChatConnectionSuggestion) => {
     if (suggestion.directoryPluginId) {
@@ -1403,6 +1450,10 @@ function AgentsPageContent() {
     if (appliedOpenQueryRef.current === requestedOpen) return;
 
     appliedOpenQueryRef.current = requestedOpen;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("open");
+    const query = params.toString();
+    router.replace(`/dashboard/agents${query ? `?${query}` : ""}`, { scroll: false });
     setMobileShowChat(false);
 
     if (isDesktopViewport) {
@@ -1412,7 +1463,7 @@ function AgentsPageContent() {
 
     setMobileAgentsSidebarOpen(false);
     setMobileAgentLauncherOpen(true);
-  }, [isDesktopViewport, requestedOpen, shouldOpenAgentLauncherFromQuery]);
+  }, [isDesktopViewport, requestedOpen, router, searchParams, shouldOpenAgentLauncherFromQuery]);
 
   useEffect(() => {
     if (checkoutReturnHandledRef.current) return;
@@ -1593,6 +1644,7 @@ function AgentsPageContent() {
     chat: "Chat",
     files: "Files",
     knowledge: "Shared knowledge",
+    members: "Members",
     integrations: "Integrations",
     skills: "Skills",
     scheduled: "Scheduled",
@@ -1669,6 +1721,16 @@ function AgentsPageContent() {
     }
     return `/dashboard/agents?${params.toString()}`;
   }, [selectedAgentId, selectedSessionKey]);
+  const membersSectionHref = useMemo(() => {
+    const params = new URLSearchParams({ section: "members" });
+    if (selectedAgentId) {
+      params.set("agentId", selectedAgentId);
+      if (!sameOpenClawSelectableSessionKey(selectedSessionKey, resolveOpenClawSessionKey(selectedAgentId))) {
+        params.set("session", selectedSessionKey);
+      }
+    }
+    return `/dashboard/agents?${params.toString()}`;
+  }, [selectedAgentId, selectedSessionKey]);
   const skillDraftScope = useMemo(() => ({ ownerId: user?.email ?? "local", agentId: selectedAgentId ?? "unknown-agent" }), [selectedAgentId, user?.email]);
   const activeSkillDraftTest = useSkillDraftTestSession(skillDraftScope, selectedSessionKey);
   const gatewayEnabled = isSelectedRunning;
@@ -1702,7 +1764,7 @@ function AgentsPageContent() {
       await chat.endTemporaryChat();
     };
   }, [chat.endTemporaryChat, waitForChatUploads]);
-  const selectAgent = useCallback(async (agentId: string, clearKnowledgeSection = false) => {
+  const selectAgent = useCallback(async (agentId: string, clearRoutedPanel = false) => {
     const selectionOperation = agentSelectionOperationRef.current + 1;
     agentSelectionOperationRef.current = selectionOperation;
     if (agentId !== selectedAgentId) {
@@ -1711,7 +1773,7 @@ function AgentsPageContent() {
     if (agentSelectionOperationRef.current !== selectionOperation) return;
     const sessionKey = selectedSessionKeysByAgent[agentId] ?? resolveOpenClawSessionKey(agentId);
     setSelectedAgentId(agentId);
-    replaceAgentChatRoute(agentId, sessionKey, clearKnowledgeSection);
+    replaceAgentChatRoute(agentId, sessionKey, clearRoutedPanel);
   }, [replaceAgentChatRoute, selectedAgentId, selectedSessionKeysByAgent]);
   const activeConnectionStatus = useMemo(() => {
     if (mainTab === "files") {
@@ -2941,6 +3003,7 @@ function AgentsPageContent() {
     mainTab === "integrations" ||
     mainTab === "skills" ||
     mainTab === "knowledge" ||
+    mainTab === "members" ||
     mainTab === "scheduled" ||
     mainTab === "logs" ||
     mainTab === "shell" ||
@@ -3227,6 +3290,15 @@ function AgentsPageContent() {
     if (knowledgeSectionActive) return;
     router.push(knowledgeSectionHref, { scroll: false });
   };
+  const openMembersTab = () => {
+    setMobileAgentsSidebarOpen(false);
+    setMobileWorkspaceSidebarOpen(false);
+    setOpenclawSettingsOpen(false);
+    setMobileShowChat(true);
+    selectMainTab("members");
+    if (membersSectionActive) return;
+    router.push(membersSectionHref, { scroll: false });
+  };
   const openDashboardHome = () => {
     setMobileAgentsSidebarOpen(false);
     setMobileWorkspaceSidebarOpen(false);
@@ -3267,6 +3339,15 @@ function AgentsPageContent() {
     setOpenclawSettingsOpen(true);
     setMobileShowChat(true);
     setMobileWorkspaceSidebarOpen(false);
+  };
+  const closeOpenClawSettings = () => {
+    setOpenclawSettingsOpen(false);
+    if (requestedAgentTab !== "openclaw") return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("tab");
+    const query = params.toString();
+    preserveMainTabOnRouteCleanupRef.current = true;
+    router.replace(`/dashboard/agents${query ? `?${query}` : ""}`, { scroll: false });
   };
   const setJourneyPrompt = (
     prompt: string,
@@ -3661,10 +3742,11 @@ function AgentsPageContent() {
                 onOpenKnowledge={openKnowledgeTab}
                 knowledgeActive={knowledgeSectionActive}
                 knowledgeHref={knowledgeSectionHref}
+                onOpenMembers={openMembersTab}
+                membersActive={membersSectionActive}
+                membersHref={membersSectionHref}
                 onCreateAgent={createMobileAgentFromLauncher}
                 accountInitial={accountInitial}
-                onOpenAgentSettings={openAgentSettingsTab}
-                agentSettingsActive={mainTab === "settings"}
                 onLogout={logout}
                 onDeleteThread={(threadId) => {
                   const agent = agents.find((item) => item.id === threadId);
@@ -3784,6 +3866,9 @@ function AgentsPageContent() {
             onOpenKnowledge={openKnowledgeTab}
             knowledgeActive={knowledgeSectionActive}
             knowledgeHref={knowledgeSectionHref}
+            onOpenMembers={openMembersTab}
+            membersActive={membersSectionActive}
+            membersHref={membersSectionHref}
             updateAgentName={async (agentId, name) => {
               const token = await getToken();
               const updatedAgent = await createAgentClient(token).update(agentId, { name });
@@ -4039,6 +4124,10 @@ function AgentsPageContent() {
                 preferredAgentId={selectedAgentId ?? requestedAgentId}
               />
             </div>
+          ) : mainTab === "members" ? (
+            <div className="h-full overflow-y-auto bg-background px-4 py-6 sm:px-6 lg:px-8">
+              <MembersSection />
+            </div>
           ) : mainTab === "scheduled" ? (
             <AgentScheduledPanel
               key={`${selectedAgent?.id ?? "agent"}:${scheduledInitialCommand?.id ?? 0}`}
@@ -4213,7 +4302,7 @@ function AgentsPageContent() {
 
       <OpenClawSettingsDrawer
         open={openclawSettingsOpen && Boolean(selectedAgent)}
-        onClose={() => setOpenclawSettingsOpen(false)}
+        onClose={closeOpenClawSettings}
         agent={selectedAgent}
         config={chat.config}
         configSchema={chat.configSchema}

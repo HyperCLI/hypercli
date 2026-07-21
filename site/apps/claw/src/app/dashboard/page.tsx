@@ -1,23 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { createAgentClient, createHyperAgentClient } from "@/lib/agent-client";
-import { type AgentMeta } from "@/lib/avatar";
-import {
-  displayNameForDashboard,
-  greetingForDate,
-  resolveBrowserTimeZone,
-} from "@/lib/dashboard-greeting";
-import { integrationDisplayName } from "@/lib/integration-display-name";
-import { DashboardAgentRail, type DashboardRailAgent } from "@/components/dashboard/DashboardAgentRail";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Bot, HardDrive, Plus, UsersRound, Zap } from "lucide-react";
+import { Button } from "@hypercli/shared-ui";
+
+import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
+import type { ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
 import {
   AgentUsageTable,
   DashboardMetricCard,
   DashboardTimeRangeControl,
-  IntegrationUsagePanel,
   TokenUsagePanel,
-  dashboardMetricIcons,
   formatDashboardTokens,
   hasCollectedData,
   rangeDays,
@@ -27,50 +21,26 @@ import {
   type DashboardIntegrationUsage,
   type DashboardTimeRange,
 } from "@/components/dashboard/DashboardAnalytics";
-import type {
-  HyperAgentKeyUsage,
-  HyperAgentUsageHistory,
-  HyperAgentUsageSummary,
-} from "@hypercli.com/sdk/agent";
-import type { Agent as SdkAgent } from "@hypercli.com/sdk/agents";
+import { AgentList } from "@/components/dashboard/agents/AgentPanels";
+import { DashboardWorkspaceNavigation } from "@/components/dashboard/agents/DashboardWorkspaceNavigation";
+import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
+import { relativeTime } from "@/components/dashboard/agentViewUtils";
+import { MembersSection } from "@/components/dashboard/members/MembersSection";
+import { useAgentAuth } from "@/hooks/useAgentAuth";
+import { useAgentRosterCollapsed } from "@/hooks/useAgentRosterCollapsed";
+import { createAgentClient, createHyperAgentClient, createOpenClawAgent, createWorkspacesClient } from "@/lib/agent-client";
+import { displayNameForDashboard } from "@/lib/dashboard-greeting";
+import { integrationDisplayName } from "@/lib/integration-display-name";
+import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
+import type { SdkAgent } from "@/types";
+import type { HyperAgentKeyUsage, HyperAgentUsageHistory } from "@hypercli.com/sdk/agent";
 
-type AgentState =
-  | "PENDING"
-  | "RESTORING"
-  | "RESTORE_FAILED"
-  | "SYNCING"
-  | "SYNC_FAILED"
-  | "STARTING"
-  | "RUNNING"
-  | "STOPPING"
-  | "STOPPED"
-  | "FAILED";
+const AGENTS_DESKTOP_MEDIA_QUERY = "(min-width: 1024px)";
 
-interface UsageInfo {
-  totalTokens: number;
-  promptTokens: number;
-  completionTokens: number;
-  requestCount: number;
-  activeKeys: number;
-}
-
-interface Agent {
-  id: string;
-  name: string;
-  state: AgentState;
-  startedAt: string | null;
-  updatedAt: string | null;
-  meta?: AgentMeta | null;
-}
-
-function normalizeUsage(usage: HyperAgentUsageSummary): UsageInfo {
-  return {
-    totalTokens: usage.totalTokens,
-    promptTokens: usage.promptTokens,
-    completionTokens: usage.completionTokens,
-    requestCount: usage.requestCount,
-    activeKeys: usage.activeKeys,
-  };
+function timestampFromIso(value: string | null): number {
+  if (!value) return 0;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function normalizeHistory(history: HyperAgentUsageHistory): DashboardDayData[] {
@@ -92,189 +62,290 @@ function normalizeKeyUsage(keyUsage: HyperAgentKeyUsage): DashboardIntegrationUs
   }));
 }
 
-function normalizeAgent(agent: SdkAgent): Agent {
-  return {
-    id: agent.id,
-    name: agent.name ?? agent.id,
-    state: agent.state as AgentState,
-    startedAt: agent.startedAt?.toISOString() ?? null,
-    updatedAt: agent.updatedAt?.toISOString() ?? null,
-    meta: agent.meta ?? null,
-  };
-}
-
-function relativeTime(value: string | null) {
-  if (!value) return null;
-  const diffMs = Date.now() - new Date(value).getTime();
-  if (!Number.isFinite(diffMs) || diffMs < 0) return null;
-  const minutes = Math.max(1, Math.floor(diffMs / 60_000));
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} hr ago`;
-  const days = Math.floor(hours / 24);
-  return `${days} day${days === 1 ? "" : "s"} ago`;
-}
-
-function sumHistory(history: DashboardDayData[]) {
-  return history.reduce(
-    (totals, day) => ({
-      tokens: totals.tokens + day.totalTokens,
-      promptTokens: totals.promptTokens + day.promptTokens,
-      completionTokens: totals.completionTokens + day.completionTokens,
-      requests: totals.requests + day.requests,
-    }),
-    { tokens: 0, promptTokens: 0, completionTokens: 0, requests: 0 },
-  );
-}
-
-function buildAgentRows({
-  agents,
-  integrations,
-  totals,
-  hasData,
-}: {
-  agents: Agent[];
-  integrations: DashboardIntegrationUsage[];
-  totals: ReturnType<typeof sumHistory>;
-  hasData: boolean;
-}): DashboardAgentUsageRow[] {
-  if (!hasData || agents.length === 0) return [];
-
-  const activeIntegrationCount = integrations.filter((integration) => integration.totalTokens > 0 || integration.requests > 0).length;
-  const canAttributeUsage = agents.length === 1;
-
-  return agents.map((agent) => ({
-    id: agent.id,
-    name: agent.name,
-    status: agent.state,
-    integrations: canAttributeUsage ? activeIntegrationCount : null,
-    requests: canAttributeUsage ? totals.requests : null,
-    tokens: canAttributeUsage ? totals.tokens : null,
-    lastActivity: relativeTime(agent.updatedAt ?? agent.startedAt),
-  }));
+async function countSharedKnowledgeFiles(token: string): Promise<number> {
+  const workspaces = createWorkspacesClient(token);
+  const listed = await workspaces.list();
+  const files = await Promise.all(listed.map((workspace) => workspaces.listFiles(workspace.slug)));
+  return files.reduce((total, entries) => total + entries.length, 0);
 }
 
 export default function DashboardPage() {
-  const { getToken, user, logout } = useAgentAuth();
+  const { getToken, isLoading: authLoading, logout, user } = useAgentAuth();
+  const router = useRouter();
   const [range, setRange] = useState<DashboardTimeRange>("7d");
-  const [usage, setUsage] = useState<UsageInfo | null>(null);
   const [history, setHistory] = useState<DashboardDayData[]>([]);
   const [integrations, setIntegrations] = useState<DashboardIntegrationUsage[]>([]);
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
-  const [localizedGreeting, setLocalizedGreeting] = useState(() => greetingForDate(new Date()));
+  const [knowledgeFileCount, setKnowledgeFileCount] = useState<number | null>(null);
+  const [overviewLoading, setOverviewLoading] = useState(true);
+  const [sdkAgents, setSdkAgents] = useState<SdkAgent[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useAgentRosterCollapsed();
+  const [error, setError] = useState<string | null>(null);
+  const [pendingAgentDelete, setPendingAgentDelete] = useState<{ id: string; name: string } | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [isDesktopViewport, setIsDesktopViewport] = useState(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return true;
+    return window.matchMedia(AGENTS_DESKTOP_MEDIA_QUERY).matches;
+  });
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  useLayoutEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const mediaQuery = window.matchMedia(AGENTS_DESKTOP_MEDIA_QUERY);
+    const apply = () => setIsDesktopViewport(mediaQuery.matches);
+    apply();
+    mediaQuery.addEventListener("change", apply);
+    return () => mediaQuery.removeEventListener("change", apply);
+  }, []);
+
+  const fetchAgents = useCallback(async () => {
+    setAgentsLoading(true);
+    try {
+      const token = await getToken();
+      setSdkAgents(await createAgentClient(token).list());
+      setError(null);
+    } catch (cause) {
+      setSdkAgents([]);
+      setError(cause instanceof Error ? cause.message : "Could not load agents.");
+    } finally {
+      setAgentsLoading(false);
+    }
+  }, [getToken]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => { void fetchAgents(); }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [fetchAgents]);
+
+  const fetchOverview = useCallback(async () => {
+    setOverviewLoading(true);
     try {
       const token = await getToken();
       const hyperAgent = createHyperAgentClient(token);
-      const deployments = createAgentClient(token);
-      const days = rangeDays(range);
-      const [usageData, historyData, integrationData, agentData] = await Promise.allSettled([
-        hyperAgent.usageSummary(),
-        hyperAgent.usageHistory(days),
-        hyperAgent.keyUsage(days),
-        deployments.list(),
+      const [historyResult, integrationsResult, knowledgeResult] = await Promise.allSettled([
+        hyperAgent.usageHistory(rangeDays(range)),
+        hyperAgent.keyUsage(rangeDays(range)),
+        countSharedKnowledgeFiles(token),
       ]);
-
-      if (usageData.status === "fulfilled") setUsage(normalizeUsage(usageData.value));
-      if (historyData.status === "fulfilled") setHistory(normalizeHistory(historyData.value));
-      if (integrationData.status === "fulfilled") setIntegrations(normalizeKeyUsage(integrationData.value));
-      if (agentData.status === "fulfilled") setAgents(agentData.value.map(normalizeAgent));
+      setHistory(historyResult.status === "fulfilled" ? normalizeHistory(historyResult.value) : []);
+      setIntegrations(integrationsResult.status === "fulfilled" ? normalizeKeyUsage(integrationsResult.value) : []);
+      setKnowledgeFileCount(knowledgeResult.status === "fulfilled" ? knowledgeResult.value : null);
     } catch {
-      setUsage(null);
       setHistory([]);
       setIntegrations([]);
-      setAgents([]);
+      setKnowledgeFileCount(null);
     } finally {
-      setLoading(false);
+      setOverviewLoading(false);
     }
   }, [getToken, range]);
 
   useEffect(() => {
-    void fetchData();
-  }, [fetchData]);
+    const timeout = window.setTimeout(() => { void fetchOverview(); }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [fetchOverview]);
 
-  useEffect(() => {
-    const updateGreeting = () => {
-      setLocalizedGreeting(greetingForDate(new Date(), resolveBrowserTimeZone()));
-    };
+  const updateAgentName = useCallback(async (agentId: string, name: string) => {
+    const token = await getToken();
+    const updatedAgent = await createAgentClient(token).update(agentId, { name });
+    setSdkAgents((current) => current.map((agent) => agent.id === agentId ? updatedAgent : agent));
+  }, [getToken]);
 
-    updateGreeting();
-    const intervalId = window.setInterval(updateGreeting, 60_000);
-    return () => window.clearInterval(intervalId);
-  }, []);
+  const deletePendingAgent = useCallback(async () => {
+    if (!pendingAgentDelete) return;
+    setDeletingId(pendingAgentDelete.id);
+    try {
+      const token = await getToken();
+      await createAgentClient(token).delete(pendingAgentDelete.id);
+      setSdkAgents((current) => current.filter((agent) => agent.id !== pendingAgentDelete.id));
+      setPendingAgentDelete(null);
+      setError(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not delete agent.");
+    } finally {
+      setDeletingId(null);
+    }
+  }, [getToken, pendingAgentDelete]);
 
-  const periodLabel = rangePeriodLabel(range);
-  const totals = useMemo(() => sumHistory(history), [history]);
-  const hasData = hasCollectedData(history, integrations);
-  const activeIntegrationCount = integrations.filter((integration) => integration.totalTokens > 0 || integration.requests > 0).length;
-  const integrationMetric = activeIntegrationCount || usage?.activeKeys || 0;
-  const agentRows = useMemo(
-    () => buildAgentRows({ agents, integrations, totals, hasData }),
-    [agents, hasData, integrations, totals],
-  );
-  const railAgents: DashboardRailAgent[] = useMemo(
-    () => agents.map((agent) => ({ id: agent.id, name: agent.name, state: agent.state, meta: agent.meta, updatedAt: agent.updatedAt })),
-    [agents],
-  );
+  const agents = useMemo(() => sdkAgents.map(toAgentViewModel), [sdkAgents]);
+  const syntheticThreads = useMemo<ConversationThread[]>(() => agents.map((agent) => ({
+    id: agent.id,
+    sessionKey: resolveOpenClawSessionKey(agent.id),
+    participants: [
+      { id: "user", name: "You", type: "user" as const },
+      { id: agent.id, name: agent.name || agent.id, type: "agent" as const, meta: agent.meta ?? null },
+    ],
+    kind: "user-agent" as const,
+    title: agent.name || agent.pod_name || agent.id,
+    lastMessage: agent.state === "RUNNING" ? "Connected" : agent.state.toLowerCase(),
+    lastMessageBy: agent.id,
+    lastMessageAt: timestampFromIso(agent.updated_at),
+    messageCount: 0,
+    unreadCount: 0,
+    isActive: agent.state === "RUNNING",
+  })), [agents]);
   const displayName = displayNameForDashboard(user);
+  const workspaceName = displayName === "there" ? "Your workspace" : `${displayName}'s workspace`;
   const accountInitial = (displayName !== "there" ? displayName[0] : user?.email?.[0]) ?? "?";
+  const memberCount = authLoading ? null : user ? 1 : 0;
+  const periodLabel = rangePeriodLabel(range);
+  const totals = useMemo(() => history.reduce((current, day) => ({
+    tokens: current.tokens + day.totalTokens,
+    requests: current.requests + day.requests,
+  }), { tokens: 0, requests: 0 }), [history]);
+  const hasUsageData = hasCollectedData(history, integrations);
+  const activeIntegrationCount = integrations.filter((integration) => integration.totalTokens > 0 || integration.requests > 0).length;
+  const agentRows = useMemo<DashboardAgentUsageRow[]>(() => {
+    const canAttributeUsage = agents.length === 1 && hasUsageData;
+    return agents.map((agent) => {
+      const updatedAt = timestampFromIso(agent.updated_at ?? agent.started_at);
+      return {
+        id: agent.id,
+        name: agent.name || agent.id,
+        status: agent.state,
+        integrations: canAttributeUsage ? activeIntegrationCount : null,
+        requests: canAttributeUsage ? totals.requests : null,
+        tokens: canAttributeUsage ? totals.tokens : null,
+        lastActivity: updatedAt > 0 ? relativeTime(updatedAt) : null,
+      };
+    });
+  }, [activeIntegrationCount, agents, hasUsageData, totals.requests, totals.tokens]);
 
   return (
-    <div className="flex h-full bg-background text-foreground">
-      <DashboardAgentRail
-        agents={railAgents}
-        collapsed={sidebarCollapsed}
-        onCollapsedChange={setSidebarCollapsed}
-        accountInitial={accountInitial}
-        onLogout={logout}
-      />
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <main className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[1000px] px-4 py-8 sm:px-6 lg:px-0">
-            <div className="dashboard-overview-toolbar mb-6 border-b border-border pb-4">
-              <p className="text-base font-medium text-foreground">
-                {localizedGreeting}, {displayName} <span aria-hidden>👋</span>
-              </p>
-              <DashboardTimeRangeControl value={range} onChange={setRange} />
-            </div>
-
-            <div className="grid gap-6 md:grid-cols-3">
-              <DashboardMetricCard
-                title="Tokens"
-                value={loading || totals.tokens === 0 ? "---" : formatDashboardTokens(totals.tokens)}
-                periodLabel={periodLabel}
-                icon={dashboardMetricIcons.tokens}
-              />
-              <DashboardMetricCard
-                title="Requests"
-                value={loading || totals.requests === 0 ? "---" : totals.requests.toLocaleString()}
-                periodLabel={periodLabel}
-                icon={dashboardMetricIcons.requests}
-              />
-              <DashboardMetricCard
-                title="Integrations"
-                value={loading || integrationMetric === 0 ? "---" : integrationMetric.toLocaleString()}
-                periodLabel={periodLabel}
-                icon={dashboardMetricIcons.integrations}
-              />
-            </div>
-
-            <div className="mt-6 grid gap-6 lg:grid-cols-2">
-              <TokenUsagePanel history={loading ? [] : history} periodLabel={periodLabel} />
-              <IntegrationUsagePanel integrations={loading ? [] : integrations} periodLabel={periodLabel} />
-            </div>
-
-            <div className="mt-6">
-              <AgentUsageTable rows={loading ? [] : agentRows} />
-            </div>
-          </div>
-        </main>
+    <div className="flex h-full min-h-0 bg-background text-foreground">
+      <div
+        className="agent-desktop-navigation flex h-full min-h-0 shrink-0"
+        data-roster-collapsed={sidebarCollapsed}
+      >
+        <AgentList
+          sidebarCollapsed={sidebarCollapsed}
+          isDesktopViewport={isDesktopViewport}
+          mobileShowChat
+          agents={agents}
+          selectedAgentId={agents[0]?.id ?? null}
+          setSelectedAgentId={(agentId) => router.push(`/dashboard/agents?agentId=${encodeURIComponent(agentId)}`)}
+          setMobileShowChat={() => undefined}
+          setSidebarCollapsed={setSidebarCollapsed}
+          syntheticThreads={syntheticThreads}
+          getToken={getToken}
+          createOpenClawAgent={createOpenClawAgent}
+          fetchAgents={fetchAgents}
+          setError={setError}
+          sidebarCreatorSignal={0}
+          setPendingAgentDelete={setPendingAgentDelete}
+          updateAgentName={updateAgentName}
+          accountInitial={accountInitial}
+          homeActive
+          onLogout={logout}
+        />
+        <DashboardWorkspaceNavigation
+          selectedAgent={agents[0] ?? null}
+          isDesktopViewport={isDesktopViewport}
+          workspaceName={workspaceName}
+          workspaceInitial={accountInitial}
+        />
       </div>
+
+      <main className="min-w-0 flex-1 overflow-y-auto">
+        {error ? (
+          <div role="alert" className="m-4 flex items-center justify-between gap-3 rounded-xl border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <span>{error}</span>
+            <button type="button" className="font-medium text-foreground" onClick={() => setError(null)}>Dismiss</button>
+          </div>
+        ) : null}
+        <div className="mx-auto w-full max-w-[1200px] px-4 py-8 sm:px-6 lg:px-8">
+          <header className="mb-7 flex flex-col gap-5 border-b border-border pb-6 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex min-w-0 items-center gap-4">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[rgb(var(--selection-accent-rgb)_/_0.24)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-base font-semibold text-[var(--selection-accent)] shadow-[0_12px_32px_rgb(var(--selection-accent-rgb)_/_0.08)]">
+                {accountInitial.toUpperCase()}
+              </span>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">Workspace overview</p>
+                <h1 className="mt-1 truncate text-[22px] font-semibold leading-tight tracking-tight text-foreground">{workspaceName}</h1>
+                <p className="mt-1 text-[12px] text-text-muted">
+                  {memberCount ?? "-"} {memberCount === 1 ? "member" : "members"} · {agents.length} {agents.length === 1 ? "agent" : "agents"}
+                </p>
+              </div>
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => router.push("/dashboard/agents?section=members")}
+                className="min-h-9 hover:bg-surface-high hover:text-foreground dark:hover:bg-surface-high"
+              >
+                <UsersRound className="h-3.5 w-3.5" /> Members
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => router.push("/dashboard/agents?open=agent-launcher")}
+                className="min-h-9"
+              >
+                <Plus className="h-3.5 w-3.5" /> New agent
+              </Button>
+            </div>
+          </header>
+
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <DashboardMetricCard
+              title="Members"
+              value={memberCount == null ? "---" : memberCount.toLocaleString()}
+              periodLabel="Visible account access"
+              icon={UsersRound}
+              href="/dashboard/agents?section=members"
+              compact
+            />
+            <DashboardMetricCard
+              title="Agents"
+              value={agentsLoading ? "---" : agents.length.toLocaleString()}
+              periodLabel="Across this account"
+              icon={Bot}
+              href="/dashboard/agents"
+              compact
+            />
+            <DashboardMetricCard
+              title="Knowledge files"
+              value={overviewLoading || knowledgeFileCount == null ? "---" : knowledgeFileCount.toLocaleString()}
+              periodLabel="Across shared knowledge"
+              icon={HardDrive}
+              href="/dashboard/agents?section=knowledge"
+              compact
+            />
+            <DashboardMetricCard
+              title="Tokens"
+              value={overviewLoading || totals.tokens === 0 ? "---" : formatDashboardTokens(totals.tokens)}
+              periodLabel={periodLabel}
+              icon={Zap}
+              compact
+              accent
+            />
+          </div>
+
+          <div className="mt-5 flex justify-end">
+            <DashboardTimeRangeControl value={range} onChange={setRange} />
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <TokenUsagePanel history={overviewLoading ? [] : history} periodLabel={periodLabel} />
+            <MembersSection compact />
+          </div>
+
+          <div className="mt-4">
+            <AgentUsageTable rows={agents.length === 0 ? [] : agentRows} />
+          </div>
+        </div>
+      </main>
+
+      <ConfirmDialog
+        open={Boolean(pendingAgentDelete)}
+        title="Delete agent"
+        message={pendingAgentDelete ? `Delete agent "${pendingAgentDelete.name}"? This cannot be undone.` : ""}
+        confirmLabel="Delete"
+        danger
+        loading={Boolean(pendingAgentDelete && deletingId === pendingAgentDelete.id)}
+        onCancel={() => setPendingAgentDelete(null)}
+        onConfirm={() => { void deletePendingAgent(); }}
+      />
     </div>
   );
 }

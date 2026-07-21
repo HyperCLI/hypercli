@@ -3,7 +3,7 @@
 import Link from "next/link";
 import React from "react";
 import { AnimatePresence, motion, Reorder } from "framer-motion";
-import { ArrowLeft, ArrowRight, BarChart3, Blocks, Check, Codepen, FolderOpen, HardDrive, House, KeyRound, Loader2, LogOut, MessageSquare, PanelRight, Plus, Play, SlidersHorizontal, Sparkles, Square, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, BarChart3, Blocks, Check, Codepen, FolderOpen, HardDrive, House, KeyRound, Loader2, LogOut, MessageSquare, PanelRight, Plus, Play, Settings, SlidersHorizontal, Sparkles, Square, UsersRound, X } from "lucide-react";
 import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import type { AgentChannelSummary } from "@hypercli.com/sdk/channels";
@@ -2325,10 +2325,15 @@ interface AgentListProps {
   subscriptionSummary?: HyperAgentSubscriptionSummary | null;
   catalogPlans?: HyperAgentPlan[] | null;
   onOpenPlanCatalog?: () => void | Promise<void>;
+  homeActive?: boolean;
   onOpenHome?: () => void;
   onOpenKnowledge?: () => void;
   knowledgeActive?: boolean;
   knowledgeHref?: string;
+  onOpenMembers?: () => void;
+  membersActive?: boolean;
+  membersHref?: string;
+  usageActive?: boolean;
   pendingSlotReleases?: Record<string, number>;
   /**
    * When true, surfaces the Channels section and the inline user/agent picker that lets
@@ -2378,15 +2383,22 @@ export function AgentList({
   subscriptionSummary,
   catalogPlans,
   onOpenPlanCatalog,
+  homeActive = false,
   onOpenHome,
   onOpenKnowledge,
   knowledgeActive = false,
   knowledgeHref,
+  onOpenMembers,
+  membersActive = false,
+  membersHref,
+  usageActive = false,
   pendingSlotReleases,
   showChannels = false,
 }: AgentListProps) {
   const [showAgentLauncher, setShowAgentLauncher] = React.useState(false);
-  const [showOfflineAgents, setShowOfflineAgents] = React.useState(false);
+  const openAgentLauncher = React.useCallback(() => setShowAgentLauncher(true), []);
+  const handledSidebarCreatorSignalRef = React.useRef(0);
+  const [showOfflineAgents, setShowOfflineAgents] = React.useState(true);
   const [reorderingAgentId, setReorderingAgentId] = React.useState<string | null>(null);
   const agentIds = React.useMemo(() => agents.map((agent) => agent.id), [agents]);
   const { orderedAgentIds, setVisibleAgentOrder } = useAgentRosterOrder(agentIds);
@@ -2432,6 +2444,12 @@ export function AgentList({
     }
     return next;
   }, [agents, agentCardDataById]);
+
+  React.useEffect(() => {
+    if (sidebarCreatorSignal === 0 || handledSidebarCreatorSignalRef.current === sidebarCreatorSignal) return;
+    handledSidebarCreatorSignalRef.current = sidebarCreatorSignal;
+    setShowAgentLauncher(true);
+  }, [sidebarCreatorSignal]);
 
   const createAgentFromLauncher = React.useCallback(async ({ name, iconIndex, size, files, enableDesktop, enableMemoryIndex = false, customImage = null }: AgentCreationSetupCreateParams) => {
     try {
@@ -2499,7 +2517,7 @@ export function AgentList({
             transition={{ duration: 0.15 }}
             className="agents-roster-rail flex h-full w-14 flex-col overflow-visible bg-surface-low"
           >
-            <div className="agents-roster-header flex h-14 shrink-0 items-center justify-center border-b border-border">
+            <div className="agents-roster-header flex h-14 shrink-0 items-center justify-center border-b border-border bg-background">
               <div className="flex h-8 w-8 items-center justify-center text-text-muted" aria-hidden="true">
                 <HyperCLILogoMark className="h-[17px] w-[17px]" />
               </div>
@@ -2526,7 +2544,12 @@ export function AgentList({
                       type="button"
                       onClick={onOpenHome}
                       aria-label="Home"
-                      className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+                      aria-current={homeActive ? "page" : undefined}
+                      className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+                        homeActive
+                          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
+                          : "text-text-muted hover:bg-surface-low hover:text-foreground"
+                      }`}
                     >
                       <House className="h-4 w-4" />
                     </button>
@@ -2534,7 +2557,12 @@ export function AgentList({
                     <Link
                       href="/dashboard"
                       aria-label="Home"
-                      className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+                      aria-current={homeActive ? "page" : undefined}
+                      className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+                        homeActive
+                          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
+                          : "text-text-muted hover:bg-surface-low hover:text-foreground"
+                      }`}
                     >
                       <House className="h-4 w-4" />
                     </Link>
@@ -2651,18 +2679,72 @@ export function AgentList({
                 </TooltipTrigger>
                 <TooltipContent side="right">Shared Knowledge</TooltipContent>
               </Tooltip>
+              <Tooltip delayDuration={300}>
+                <TooltipTrigger asChild>
+                  {onOpenMembers ? (
+                    <button
+                      type="button"
+                      onClick={onOpenMembers}
+                      aria-label="Members"
+                      aria-current={membersActive ? "page" : undefined}
+                      className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+                        membersActive
+                          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
+                          : "text-text-muted hover:bg-surface-low hover:text-foreground"
+                      }`}
+                    >
+                      <UsersRound className="h-4 w-4" />
+                    </button>
+                  ) : (
+                    <Link
+                      href={membersHref ?? "/dashboard/agents?section=members"}
+                      aria-label="Members"
+                      aria-current={membersActive ? "page" : undefined}
+                      className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+                        membersActive
+                          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
+                          : "text-text-muted hover:bg-surface-low hover:text-foreground"
+                      }`}
+                    >
+                      <UsersRound className="h-4 w-4" />
+                    </Link>
+                  )}
+                </TooltipTrigger>
+                <TooltipContent side="right">Members</TooltipContent>
+              </Tooltip>
+              <Tooltip delayDuration={300}>
+                <TooltipTrigger asChild>
+                  <Link
+                    href="/usage"
+                    aria-label="Usage"
+                    aria-current={usageActive ? "page" : undefined}
+                    className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+                      usageActive
+                        ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
+                        : "text-text-muted hover:bg-surface-low hover:text-foreground"
+                    }`}
+                  >
+                    <BarChart3 className="h-4 w-4" />
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="right">Usage</TooltipContent>
+              </Tooltip>
+              <Tooltip delayDuration={300}>
+                <TooltipTrigger asChild>
+                  <Link
+                    href="/dashboard/settings"
+                    aria-label="Settings"
+                    className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+                  >
+                    <Settings className="h-4 w-4" />
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="right">Settings</TooltipContent>
+              </Tooltip>
             </div>
             <AgentsSidebarDashboardLinks
               compact
               accountInitial={accountInitial}
-              agentsHref={
-                selectedAgentId ? `/dashboard/agents?agentId=${encodeURIComponent(selectedAgentId)}` : undefined
-              }
-              onOpenAgentSettings={onOpenSettings}
-              agentSettingsActive={settingsActive}
-              knowledgeActive={knowledgeActive}
-              knowledgeHref={knowledgeHref}
-              onOpenKnowledge={onOpenKnowledge}
               onLogout={onLogout}
             />
           </motion.div>
@@ -2702,15 +2784,15 @@ export function AgentList({
                 setMobileShowChat(true);
               }}
               onCreateAgent={createAgentFromLauncher}
-              onOpenAgentLauncher={() => setShowAgentLauncher(true)}
+              onOpenAgentLauncher={openAgentLauncher}
               onOpenHome={onOpenHome}
               onOpenKnowledge={onOpenKnowledge}
               knowledgeActive={knowledgeActive}
               knowledgeHref={knowledgeHref}
-              openAgentCreatorSignal={sidebarCreatorSignal}
+              onOpenMembers={onOpenMembers}
+              membersActive={membersActive}
+              membersHref={membersHref}
               accountInitial={accountInitial}
-              onOpenAgentSettings={onOpenSettings}
-              agentSettingsActive={settingsActive}
               onLogout={onLogout}
               onDeleteThread={(threadId) => {
                 const a = agents.find((x) => x.id === threadId);

@@ -81,18 +81,29 @@ vi.mock("@hypercli.com/sdk/agents", async (importOriginal) => {
 vi.mock("@/components/dashboard/agents/AgentPanels", () => ({
   AgentList: ({
     agents,
+    selectedAgentId,
     setSelectedAgentId,
+    setPendingAgentDelete,
   }: {
     agents: Array<{ id: string; name: string }>;
+    selectedAgentId: string | null;
     setSelectedAgentId: (agentId: string) => void;
+    setPendingAgentDelete: (agent: { id: string; name: string }) => void;
   }) => (
-    <aside data-testid="agent-list">
+    <aside data-testid="agent-list" data-selected-agent-id={selectedAgentId ?? ""}>
       {agents.map((agent) => (
-        <button key={agent.id} type="button" onClick={() => setSelectedAgentId(agent.id)}>
-          {agent.name}
-        </button>
+        <div key={agent.id}>
+          <button type="button" onClick={() => setSelectedAgentId(agent.id)}>{agent.name}</button>
+          <button type="button" aria-label={`Delete ${agent.name}`} onClick={() => setPendingAgentDelete(agent)}>Delete</button>
+        </div>
       ))}
     </aside>
+  ),
+}));
+
+vi.mock("@/components/dashboard/agents/DashboardWorkspaceNavigation", () => ({
+  DashboardWorkspaceNavigation: ({ selectedAgent }: { selectedAgent: { id: string } | null }) => (
+    <aside data-testid="workspace-navigation" data-agent-id={selectedAgent?.id ?? ""} />
   ),
 }));
 
@@ -102,6 +113,9 @@ vi.mock("@/components/billing/stripe-billing-portal", () => ({
 }));
 
 vi.mock("@hypercli/shared-ui", () => ({
+  ThemeSelector: ({ "aria-label": ariaLabel }: { "aria-label"?: string }) => (
+    <button type="button" aria-label={ariaLabel}>Theme</button>
+  ),
   ConfirmDialog: ({ open, title, message, confirmLabel, onCancel, onConfirm }: {
     open: boolean;
     title: string;
@@ -314,6 +328,9 @@ describe("SettingsPage", () => {
     expect(screen.queryByRole("heading", { name: "Settings" })).not.toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "Sections" })).not.toBeInTheDocument();
     expect(await screen.findByTestId("agent-list")).toBeInTheDocument();
+    expect(await screen.findByTestId("workspace-navigation")).toHaveAttribute("data-agent-id", "agent-1");
+    expect(document.querySelector(".agent-desktop-navigation")).toContainElement(screen.getByTestId("agent-list"));
+    expect(document.querySelector(".agent-desktop-navigation")).toContainElement(screen.getByTestId("workspace-navigation"));
     expect(await screen.findByRole("heading", { name: "Slack" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Connect Slack" })).toHaveAttribute("href", "/slack/start");
     expect(screen.getByRole("link", { name: "Debug" })).toHaveAttribute("href", "/slack/status");
@@ -338,6 +355,27 @@ describe("SettingsPage", () => {
     expect(screen.getByText("Team T123")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Disconnect Slack" })).toBeDisabled();
     expect(screen.getByRole("link", { name: "Reconnect Slack" })).toHaveAttribute("href", "/slack/start");
+  });
+
+  it("selects the next agent after deleting the active workspace", async () => {
+    const user = userEvent.setup();
+    billingMocks.agentClient.list.mockResolvedValue([
+      { id: "agent-1", name: "Research Agent", userId: "user-123", state: "running" },
+      { id: "agent-2", name: "Writer Agent", userId: "user-123", state: "stopped" },
+    ]);
+
+    render(<SettingsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("agent-list")).toHaveAttribute("data-selected-agent-id", "agent-1");
+    });
+    await user.click(screen.getByRole("button", { name: "Delete Research Agent" }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("agent-list")).toHaveAttribute("data-selected-agent-id", "agent-2");
+      expect(screen.getByTestId("workspace-navigation")).toHaveAttribute("data-agent-id", "agent-2");
+    });
   });
 
   it("renders consolidated billing with card management, cancellation, and agent attribution", async () => {

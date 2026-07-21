@@ -35,36 +35,26 @@ vi.mock("@hypercli/shared-ui", () => ({
 import { AgentsChannelsSidebar, AgentsSidebarDashboardLinks } from "./AgentsChannelsSidebar";
 
 describe("AgentsSidebarDashboardLinks", () => {
-  it("links the roster account menu to global shared knowledge", () => {
-    render(
-      <AgentsSidebarDashboardLinks
-        accountInitial="J"
-        knowledgeActive
-        knowledgeHref="/dashboard/agents?section=knowledge&agentId=agent-1&session=session-2"
-      />,
-    );
+  it("omits navigation already available in the roster", () => {
+    render(<AgentsSidebarDashboardLinks accountInitial="J" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Account links" }));
 
-    expect(screen.getByRole("menuitem", { name: /shared knowledge/i })).toHaveAttribute(
-      "href",
-      "/dashboard/agents?section=knowledge&agentId=agent-1&session=session-2",
-    );
+    expect(screen.queryByRole("menuitem", { name: /dashboard/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /^agents$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /shared knowledge/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /^members$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /^settings$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /api keys/i })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /plans/i })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /billing/i })).toBeInTheDocument();
+    expect(document.querySelector(".agents-dashboard-links")).toHaveClass("bg-[var(--agent-roster-background)]");
   });
 
-  it("uses the shared knowledge callback when the roster owns section navigation", () => {
-    const onOpenKnowledge = vi.fn();
-    render(<AgentsSidebarDashboardLinks accountInitial="J" onOpenKnowledge={onOpenKnowledge} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Account links" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /shared knowledge/i }));
-
-    expect(onOpenKnowledge).toHaveBeenCalledOnce();
-  });
-
-  it("places Home above My Agents and Shared Knowledge under Administration", () => {
+  it("places Home above My Agents and workspace tools under Administration", () => {
     const onOpenHome = vi.fn();
     const onOpenKnowledge = vi.fn();
+    const onOpenMembers = vi.fn();
     render(
       <AgentsChannelsSidebar
         variant="v3"
@@ -74,6 +64,7 @@ describe("AgentsSidebarDashboardLinks", () => {
         showChannels={false}
         onOpenHome={onOpenHome}
         onOpenKnowledge={onOpenKnowledge}
+        onOpenMembers={onOpenMembers}
         knowledgeActive
       />,
     );
@@ -81,22 +72,40 @@ describe("AgentsSidebarDashboardLinks", () => {
     const home = screen.getByRole("button", { name: "Home" });
     const myAgents = screen.getByRole("heading", { name: /My Agents/ });
     const sharedKnowledge = screen.getByRole("button", { name: "Shared Knowledge" });
+    const members = screen.getByRole("button", { name: "Members" });
+    const usage = screen.getByRole("link", { name: "Usage" });
+    const settings = screen.getByRole("link", { name: "Settings" });
     const administration = screen.getByRole("region", { name: "Administration" });
 
     expect(home.compareDocumentPosition(myAgents) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(myAgents.compareDocumentPosition(administration) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(administration).toContainElement(sharedKnowledge);
+    expect(administration).toContainElement(members);
+    expect(administration).toContainElement(usage);
+    expect(administration).toContainElement(settings);
     expect(home.firstElementChild).toHaveClass("w-7");
     expect(myAgents.firstElementChild).toHaveTextContent(/My Agents/);
     expect(administration.firstElementChild).toHaveClass("pl-5", "pr-3");
     expect(screen.queryByRole("button", { name: /My Agents/ })).not.toBeInTheDocument();
     expect(sharedKnowledge.firstElementChild).toHaveClass("w-7");
     expect(sharedKnowledge).toHaveAttribute("aria-current", "page");
+    expect(usage).toHaveAttribute("href", "/usage");
+    expect(settings).toHaveAttribute("href", "/dashboard/settings");
     expect(home).not.toHaveAttribute("aria-current");
 
     fireEvent.click(home);
     fireEvent.click(sharedKnowledge);
+    fireEvent.click(members);
     expect(onOpenHome).toHaveBeenCalledOnce();
     expect(onOpenKnowledge).toHaveBeenCalledOnce();
+    expect(onOpenMembers).toHaveBeenCalledOnce();
+  });
+
+  it("also omits redundant navigation from the compact account menu", () => {
+    render(<AgentsSidebarDashboardLinks compact accountInitial="J" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Account links" }));
+    expect(screen.queryByRole("menuitem", { name: /^Settings$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /api keys/i })).toBeInTheDocument();
   });
 });
