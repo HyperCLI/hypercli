@@ -6,7 +6,7 @@ import { useTurnkey } from "@turnkey/react-wallet-kit";
 import { clearAuthLogoutMarker } from "../utils/cookies";
 import { getAuthBackendUrl } from "../utils/api";
 import { exchangePrivyToken } from "../auth/AuthProvider";
-import { HYPERCLI_LOGO_FULL_SRC } from "./HyperCLILogo";
+import { HYPERCLI_LOGO_ICON_SRC } from "./HyperCLILogo";
 
 export interface PrivyLoginPanelProps {
   title?: string;
@@ -53,8 +53,8 @@ function TurnkeyFallbackButton({
 
   const handleClick = async () => {
     await handleLogin({
-      logoLight: HYPERCLI_LOGO_FULL_SRC,
-      logoDark: HYPERCLI_LOGO_FULL_SRC,
+      logoLight: HYPERCLI_LOGO_ICON_SRC,
+      logoDark: HYPERCLI_LOGO_ICON_SRC,
       title,
     });
   };
@@ -153,8 +153,8 @@ export function PrivyLoginPanel({
       )}
 
       {error && (
-        <div className="w-full p-3 rounded-lg bg-red-500/10 border border-red-400/40">
-          <p className="text-sm text-red-200 whitespace-pre-wrap break-words">
+        <div className="w-full rounded-lg border border-destructive/40 bg-destructive/10 p-3">
+          <p className="text-sm text-destructive whitespace-pre-wrap break-words">
             {error}
           </p>
         </div>
@@ -163,7 +163,7 @@ export function PrivyLoginPanel({
       <button
         onClick={() => void handleClick()}
         disabled={!ready || isSubmitting}
-        className="w-full btn-primary text-white px-6 py-3 rounded-lg font-medium disabled:opacity-50"
+        className="w-full btn-primary px-6 py-3 rounded-lg font-medium disabled:opacity-50"
       >
         {isSubmitting ? "Signing in..." : "Login with Privy"}
       </button>

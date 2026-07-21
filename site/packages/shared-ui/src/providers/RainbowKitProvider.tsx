@@ -1,11 +1,12 @@
 "use client";
 
 import '@rainbow-me/rainbowkit/styles.css';
-import { RainbowKitProvider as RKProvider, getDefaultConfig } from '@rainbow-me/rainbowkit';
+import { RainbowKitProvider as RKProvider, darkTheme, getDefaultConfig, lightTheme } from '@rainbow-me/rainbowkit';
 import { WagmiProvider, createConfig, http } from 'wagmi';
 import { base, baseSepolia } from 'wagmi/chains';
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
 import { ReactNode } from 'react';
+import { useTheme } from '../components/ThemeProvider';
 
 const queryClient = new QueryClient();
 
@@ -32,12 +33,14 @@ const minimalConfig = createConfig({
 });
 
 const config = fullConfig || minimalConfig;
+const rainbowThemes = { dark: darkTheme(), light: lightTheme() } as const;
 
 export function RainbowKitProvider({ children }: { children: ReactNode }) {
+  const { theme } = useTheme();
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        <RKProvider>{children}</RKProvider>
+        <RKProvider theme={rainbowThemes[theme]}>{children}</RKProvider>
       </QueryClientProvider>
     </WagmiProvider>
   );

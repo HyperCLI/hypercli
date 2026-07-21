@@ -368,13 +368,13 @@ export function ApiKeysManager({
       </div>
 
       {error ? (
-        <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+        <div className="mb-4 rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {error}
         </div>
       ) : null}
 
       {createdKey ? (
-        <div className="mb-6 rounded-lg border border-amber-500/20 bg-amber-500/10 p-4">
+        <div className="mb-6 rounded-lg border border-warning/20 bg-warning/10 p-4">
           <p className="text-sm font-medium text-foreground mb-2">
             API key created. Copy it now, it will not be shown again.
           </p>
@@ -397,7 +397,7 @@ export function ApiKeysManager({
                 {createdKeySecret}
               </code>
             ) : (
-              <div className="flex-1 rounded-lg border border-amber-500/30 bg-background px-3 py-2 text-sm text-amber-200">
+              <div className="flex-1 rounded-lg border border-warning/30 bg-background px-3 py-2 text-sm text-warning">
                 The key was created, but the secret was not returned. Disable this key and create a new one.
               </div>
             )}
@@ -502,8 +502,8 @@ export function ApiKeysManager({
                         <span
                           className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${
                             key.isActive
-                              ? "bg-emerald-500/10 text-emerald-300"
-                              : "bg-zinc-500/10 text-zinc-400"
+                              ? "bg-success/10 text-success"
+                              : "bg-muted text-muted-foreground"
                           }`}
                         >
                           {statusLabel(key)}
@@ -531,7 +531,7 @@ export function ApiKeysManager({
                             <button
                               onClick={() => void handleDisable(key.keyId)}
                               disabled={revokingKeyId === key.keyId}
-                              className="text-red-300 hover:text-red-200 disabled:opacity-50"
+                              className="text-destructive hover:text-destructive/80 disabled:opacity-50"
                             >
                               Disable
                             </button>

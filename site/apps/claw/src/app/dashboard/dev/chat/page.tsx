@@ -1438,7 +1438,7 @@ export default function DevChatPage() {
               { value: "v2", label: "Alt 2 — list rows" },
               { value: "v3", label: "Alt 3 — numbered" },
             ]} />
-            <VariantGroup label="Workspace" value={sharedWorkspaceVariant} onChange={setSharedWorkspaceVariant} options={[
+            <VariantGroup label="Shared knowledge" value={sharedWorkspaceVariant} onChange={setSharedWorkspaceVariant} options={[
               { value: "off", label: "Off" },
               { value: "v1", label: "Alt 1 — cards" },
               { value: "v2", label: "Alt 2 — icon grid" },

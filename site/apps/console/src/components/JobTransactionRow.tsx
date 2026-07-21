@@ -185,7 +185,7 @@ export default function JobTransactionRow({ tx, isExpanded, onToggle }: JobTrans
                     e.stopPropagation();
                     router.push(`/job/${tx.job_id}`);
                   }}
-                  className="btn-primary text-white font-semibold py-2 px-4 rounded-lg"
+                  className="btn-primary text-primary-foreground font-semibold py-2 px-4 rounded-lg"
                 >
                   View Job
                 </button>

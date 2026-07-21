@@ -399,8 +399,14 @@ export {
   getRegionFlag,
 } from "./utils/gpu";
 export { NAV_URLS } from "./utils/navigation";
-export { ThemeProvider } from "./components/ThemeProvider";
-export { ThemeScript } from "./components/ThemeScript";
+export {
+  ThemeProvider,
+  useTheme,
+  type ThemeContextValue,
+} from "./components/ThemeProvider";
+export { ThemeScript, type ThemeScriptProps } from "./components/ThemeScript";
+export { ThemeToggle, type ThemeToggleProps } from "./components/ThemeToggle";
+export { ThemeSelector, type ThemeSelectorProps } from "./components/ThemeSelector";
 export { GlassCard, SurfaceCard, MetricCard } from "./components/patterns/surface-card";
 export { StatusNotice, EmptyState, LoadingState } from "./components/patterns/feedback";
 export { ConfirmDialog } from "./components/patterns/confirm-dialog";
@@ -477,6 +483,10 @@ export type {
 } from "./components/patterns/marketing";
 export type { PricingCardFeature } from "./components/patterns/pricing-card";
 export {
+  DEFAULT_THEME,
+  LEGACY_THEME_KEY,
+  THEME_COOKIE_NAME,
+  THEME_STORAGE_KEY,
   getTheme,
   setTheme,
   applyTheme,

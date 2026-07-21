@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Menu, X, LogOut, Key, CreditCard, Settings } from "lucide-react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import { PrivyLoginModal } from "@hypercli/shared-ui";
+import { PrivyLoginModal, ThemeToggle } from "@hypercli/shared-ui";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { AUTH_BASE_URL } from "@/lib/api";
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
@@ -167,6 +167,8 @@ export function ClawHeader() {
                             Settings
                           </Link>
 
+                          <ThemeToggle showLabel role="menuitem" className="w-full justify-start px-3" />
+
                           <button
                             onClick={() => {
                               setUserMenuOpen(false);
@@ -184,6 +186,7 @@ export function ClawHeader() {
                 </div>
               ) : (
                 <>
+                  <ThemeToggle />
                   <button
                     onClick={openLoginModal}
                     className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium"
@@ -232,6 +235,7 @@ export function ClawHeader() {
                 ))}
               </nav>
               <div className="mt-4 flex flex-col gap-2">
+                <ThemeToggle showLabel className="w-full justify-start px-4 py-2" />
                 {showAuthenticatedNav ? (
                   <>
                     <button

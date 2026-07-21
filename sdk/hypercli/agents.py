@@ -359,7 +359,7 @@ def build_openclaw_memory_index_env(memory_index: dict | None = None) -> dict[st
 def build_openclaw_workspaces_sync_env(workspaces_sync: dict | bool | None = None) -> dict[str, str]:
     """Build OpenClaw Workspaces boot-sync environment variables.
 
-    Workspaces sync defaults on for OpenClaw launch helpers, but callers can
+    Shared knowledge sync defaults on for OpenClaw launch helpers, but callers can
     pass False or {"enabled": False} to disable it, or override the output
     directory, ready-only behavior, and single-workspace target.
     """

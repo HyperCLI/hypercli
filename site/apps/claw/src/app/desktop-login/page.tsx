@@ -29,8 +29,8 @@ type RedirectParamStatus = "checking" | "valid" | "invalid";
 
 function CardShell({ children }: { children: React.ReactNode }) {
   return (
-    <main className="flex min-h-dvh items-center justify-center bg-[#080809] px-4 text-foreground">
-      <div className="w-full max-w-sm rounded-lg border border-border bg-[#141416] p-6">
+    <main className="flex min-h-dvh items-center justify-center bg-background px-4 text-foreground">
+      <div className="w-full max-w-sm rounded-lg border border-border bg-surface p-6">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={HYPERCLI_LOGO_FULL_SRC} alt="HyperCLI" className="mb-5 h-6 w-auto" />
         {children}
@@ -117,7 +117,7 @@ export default function DesktopLoginPage() {
   if (paramStatus === "invalid") {
     return (
       <CardShell>
-        <div className="flex items-center gap-2 text-red-400">
+        <div className="flex items-center gap-2 text-destructive">
           <ShieldAlert className="h-4 w-4 shrink-0" />
           <h1 className="text-base font-semibold">Invalid redirect address</h1>
         </div>
@@ -125,7 +125,7 @@ export default function DesktopLoginPage() {
           This sign-in page can only hand credentials to the Backseat Driver
           app callback. The requested redirect address is not allowed:
         </p>
-        <p className="mt-2 break-all rounded-md bg-[#19191a] px-3 py-2 font-mono text-xs text-[#a7aba8]">
+        <p className="mt-2 break-all rounded-md bg-surface-low px-3 py-2 font-mono text-xs text-text-secondary">
           {rejectedRedirectUri}
         </p>
         <p className="mt-3 text-sm text-text-muted">
@@ -162,7 +162,7 @@ export default function DesktopLoginPage() {
           desktop app.
         </p>
         {authError && flowState === "error" && (
-          <p className="mt-3 text-xs text-red-400">{authError}</p>
+          <p className="mt-3 text-xs text-destructive">{authError}</p>
         )}
         <button
           type="button"
@@ -179,7 +179,7 @@ export default function DesktopLoginPage() {
   if (tokenError) {
     return (
       <CardShell>
-        <div className="flex items-center gap-2 text-red-400">
+        <div className="flex items-center gap-2 text-destructive">
           <ShieldAlert className="h-4 w-4 shrink-0" />
           <h1 className="text-base font-semibold">Could not get a token</h1>
         </div>
@@ -229,14 +229,14 @@ export default function DesktopLoginPage() {
           Still not working? Copy the token and paste it into the app manually.
         </p>
         <div className="mt-2 flex items-center gap-2">
-          <p className="min-w-0 flex-1 truncate rounded-md bg-[#19191a] px-3 py-2 font-mono text-xs text-[#a7aba8]">
+          <p className="min-w-0 flex-1 truncate rounded-md bg-surface-low px-3 py-2 font-mono text-xs text-text-secondary">
             {tokenRevealed ? token : "•".repeat(48)}
           </p>
           <button
             type="button"
             onClick={() => setTokenRevealed((revealed) => !revealed)}
             aria-label={tokenRevealed ? "Hide token" : "Reveal token"}
-            className="rounded-md border border-border p-2 text-[#a7aba8] transition-colors hover:text-foreground"
+            className="rounded-md border border-border p-2 text-text-secondary transition-colors hover:text-foreground"
           >
             {tokenRevealed ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
@@ -244,7 +244,7 @@ export default function DesktopLoginPage() {
             type="button"
             onClick={() => void copyToken()}
             aria-label="Copy token"
-            className="rounded-md border border-border p-2 text-[#a7aba8] transition-colors hover:text-foreground"
+            className="rounded-md border border-border p-2 text-text-secondary transition-colors hover:text-foreground"
           >
             {copied ? <Check className="h-4 w-4 text-primary" /> : <Copy className="h-4 w-4" />}
           </button>

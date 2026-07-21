@@ -545,11 +545,10 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
   };
 
   const getPowerColor = (watts: number): string => {
-    if (watts < 40) return 'text-blue-600';
-    if (watts < 80) return 'text-green-600';
-    if (watts < 200) return 'text-yellow-600';
-    if (watts < 400) return 'text-orange-600';
-    return 'text-red-600';
+    if (watts < 40) return 'text-primary';
+    if (watts < 80) return 'text-success';
+    if (watts < 400) return 'text-warning';
+    return 'text-error';
   };
 
   const fetchMetrics = async () => {
@@ -984,7 +983,7 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
                         </div>
                         <div className="w-full bg-background rounded-full h-2">
                           <div
-                            className="bg-purple-500 h-2 rounded-full transition-all duration-300"
+                            className="bg-chart-2 h-2 rounded-full transition-all duration-300"
                             style={{ width: `${Math.min(metrics.system.cpu_percent / effectiveCpuCores, 100)}%` }}
                           ></div>
                         </div>
@@ -1002,7 +1001,7 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
                         </div>
                         <div className="w-full bg-background rounded-full h-2">
                           <div
-                            className="bg-indigo-500 h-2 rounded-full transition-all duration-300"
+                            className="bg-chart-3 h-2 rounded-full transition-all duration-300"
                             style={{ width: `${(metrics.system.memory_used_mb / metrics.system.memory_limit_mb * 100).toFixed(1)}%` }}
                           ></div>
                         </div>
@@ -1094,7 +1093,7 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
 
           {/* Logs Terminal */}
           {shouldShowTerminal && (
-            <div className="bg-surface-low border border-border rounded-lg overflow-hidden">
+            <div className="dark bg-surface-low border border-border rounded-lg overflow-hidden [color-scheme:dark]">
               <div className="bg-background px-4 py-2 flex items-center justify-between border-b border-border">
                 <div className="flex items-center gap-2">
                   <span className="text-gray-300 text-sm font-mono">Job Logs</span>

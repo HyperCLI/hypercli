@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import React from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, Reorder } from "framer-motion";
 import { ArrowLeft, ArrowRight, BarChart3, Blocks, Check, Codepen, FolderOpen, KeyRound, Loader2, LogOut, MessageSquare, Plus, Play, SlidersHorizontal, Sparkles, Square, X } from "lucide-react";
 import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
@@ -10,7 +10,7 @@ import type { AgentChannelSummary } from "@hypercli.com/sdk/channels";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 
 import type { Agent, JsonObject } from "@/app/dashboard/agents/types";
-import { isAgentFailureState, isAgentTransitionalState } from "@/app/dashboard/agents/types";
+import { isAgentFailureState, isAgentOffline, isAgentTransitionalState } from "@/app/dashboard/agents/types";
 import { AUTH_BASE_URL, SLACK_APP_HANDLE } from "@/lib/api";
 import { asObject, getOpenClawUiHint, humanizeKey } from "@/lib/openclaw-config";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@hypercli/shared-ui";
@@ -22,6 +22,8 @@ import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { ResourceImage } from "@/components/ResourceImage";
 import { createAgentClient } from "@/lib/agent-client";
 import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
+import { moveAgentInRosterOrder, useAgentRosterOrder } from "@/hooks/useAgentRosterOrder";
+import { CollapsedAgentReorderItem } from "@/components/dashboard/agents/CollapsedAgentReorderItem";
 import {
   buildOpenClawLaunchOptions,
   buildOpenClawMemoryIndexEnv,
@@ -1069,7 +1071,7 @@ function AgentSectionSettingsContent({
       : agent.state === "RESTORING"
         ? "Agent is restoring files"
       : agent.state === "SYNCING"
-        ? "Agent is syncing workspaces"
+        ? "Agent is syncing shared knowledge"
       : agent.state === "PENDING" || agent.state === "STARTING"
         ? "Agent is starting"
         : agent.state === "STOPPING"
@@ -1225,7 +1227,7 @@ function AgentSectionSettingsContent({
             </label>
           </AgentProfileSettingsRow>
 
-          <AgentProfileSettingsRow label="Workspaces" description="Sync shared Workspaces Markdown before OpenClaw starts.">
+          <AgentProfileSettingsRow label="Shared knowledge" description="Sync shared knowledge Markdown before OpenClaw starts.">
             <div className="grid gap-3 md:grid-cols-2">
               <label className="flex h-9 items-center gap-2 text-sm font-medium text-foreground">
                 <input
@@ -1251,15 +1253,15 @@ function AgentSectionSettingsContent({
                 onChange={(event) => onWorkspacesSyncChange({ ...workspacesSync, outputDir: event.target.value })}
                 disabled={!workspacesSync.enabled}
                 placeholder="/home/node/workspaces"
-                aria-label="Workspaces sync directory"
+                aria-label="Shared knowledge sync directory"
                 className={SETTINGS_FIELD_CLASS}
               />
               <input
                 value={workspacesSync.workspace}
                 onChange={(event) => onWorkspacesSyncChange({ ...workspacesSync, workspace: event.target.value })}
                 disabled={!workspacesSync.enabled}
-                placeholder="All accessible workspaces"
-                aria-label="Workspaces sync workspace"
+                placeholder="All accessible shared knowledge"
+                aria-label="Shared knowledge sync selection"
                 className={SETTINGS_FIELD_CLASS}
               />
             </div>
@@ -2375,6 +2377,40 @@ export function AgentList({
   showChannels = false,
 }: AgentListProps) {
   const [showAgentLauncher, setShowAgentLauncher] = React.useState(false);
+  const [showOfflineAgents, setShowOfflineAgents] = React.useState(false);
+  const agentIds = React.useMemo(() => agents.map((agent) => agent.id), [agents]);
+  const { orderedAgentIds, setVisibleAgentOrder } = useAgentRosterOrder(agentIds);
+  const orderedAgents = React.useMemo(() => {
+    const agentById = new Map(agents.map((agent) => [agent.id, agent]));
+    return orderedAgentIds.map((agentId) => agentById.get(agentId)).filter((agent): agent is Agent => Boolean(agent));
+  }, [agents, orderedAgentIds]);
+  const orderedSyntheticThreads = React.useMemo(() => {
+    const orderById = new Map(orderedAgentIds.map((agentId, index) => [agentId, index]));
+    return [...syntheticThreads].sort((left, right) => (
+      (orderById.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (orderById.get(right.id) ?? Number.MAX_SAFE_INTEGER)
+    ));
+  }, [orderedAgentIds, syntheticThreads]);
+  const offlineAgentIds = React.useMemo(
+    () => new Set(orderedAgents.filter((agent) => isAgentOffline(agent.state)).map((agent) => agent.id)),
+    [orderedAgents],
+  );
+  const visibleAgents = React.useMemo(
+    () => showOfflineAgents ? orderedAgents : orderedAgents.filter((agent) => !offlineAgentIds.has(agent.id)),
+    [offlineAgentIds, orderedAgents, showOfflineAgents],
+  );
+  const visibleAgentIds = React.useMemo(() => visibleAgents.map((agent) => agent.id), [visibleAgents]);
+  const moveVisibleAgent = React.useCallback(
+    (agentId: string, direction: -1 | 1) => {
+      setVisibleAgentOrder(moveAgentInRosterOrder(visibleAgentIds, agentId, direction));
+    },
+    [setVisibleAgentOrder, visibleAgentIds],
+  );
+  const visibleSyntheticThreads = React.useMemo(
+    () => showOfflineAgents
+      ? orderedSyntheticThreads
+      : orderedSyntheticThreads.filter((thread) => thread.kind !== "user-agent" || !offlineAgentIds.has(thread.id)),
+    [offlineAgentIds, orderedSyntheticThreads, showOfflineAgents],
+  );
   const mergedAgentCardDataById = React.useMemo(() => {
     const next: Record<string, AgentCardTooltipData> = {};
     for (const agent of agents) {
@@ -2440,7 +2476,7 @@ export function AgentList({
   return (
     <motion.div
       className={`relative h-full flex-shrink-0 overflow-visible bg-surface-low ${mobileShowChat && !isDesktopViewport ? "hidden" : "flex"} flex-col`}
-      animate={{ width: sidebarCollapsed && isDesktopViewport ? 48 : 280 }}
+      animate={{ width: sidebarCollapsed && isDesktopViewport ? 64 : 280 }}
       transition={{ type: "spring", stiffness: 360, damping: 32 }}
     >
       <div aria-hidden className="pointer-events-none absolute right-0 top-0 z-30 h-full w-px bg-border" />
@@ -2452,13 +2488,13 @@ export function AgentList({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="flex h-full w-12 flex-col overflow-visible bg-surface-low"
+            className="flex h-full w-16 flex-col overflow-visible bg-surface-low"
           >
             <div className="flex h-14 shrink-0 items-center justify-center border-b border-border">
               <button
                 onClick={() => setSidebarCollapsed(false)}
                 title="Expand sidebar"
-                className="w-8 h-8 rounded-md flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+                className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
               >
                 <HyperCLILogoMark className="h-[17px] w-[17px]" />
               </button>
@@ -2477,41 +2513,58 @@ export function AgentList({
                 </TooltipTrigger>
                 <TooltipContent side="right">Launch agent</TooltipContent>
               </Tooltip>
-              {agents.map((a) => {
-                const av = agentAvatar(a.name || a.id, a.meta);
-                const Icon = av.icon;
-                const selected = selectedAgentId === a.id;
-                return (
-                  <Tooltip key={a.id} delayDuration={300}>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={() => {
-                          setSelectedAgentId(a.id);
-                          setMobileShowChat(true);
-                        }}
-                        aria-label={`Select ${a.name || a.id}`}
-                        className={`relative flex h-8 w-8 items-center justify-center rounded-full transition-transform hover:scale-110 ${selected ? "ring-2 ring-[var(--selection-accent)] ring-offset-2 ring-offset-surface-low" : ""}`}
-                        style={{ backgroundColor: av.bgColor }}
-                      >
-                        {av.imageUrl ? (
-                          <ResourceImage
-                            src={av.imageUrl}
-                            alt={`${a.name || a.id} avatar`}
-                            fill
-                            sizes="32px"
-                            className="rounded-full object-cover"
-                          />
-                        ) : (
-                          <Icon className="w-4 h-4" style={{ color: av.fgColor }} />
-                        )}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="right" align="start" className="bg-transparent border-0 p-0 shadow-none">
-                      <AgentCardTooltip agentName={a.name || a.id} agent={mergedAgentCardDataById[a.id]} />
-                    </TooltipContent>
-                  </Tooltip>
-                );
-              })}
+              <Reorder.Group
+                as="div"
+                axis="y"
+                values={visibleAgentIds}
+                onReorder={setVisibleAgentOrder}
+                className="flex flex-col items-center gap-3"
+              >
+                {visibleAgents.map((a) => {
+                  const av = agentAvatar(a.name || a.id, a.meta);
+                  const Icon = av.icon;
+                  const selected = selectedAgentId === a.id;
+                  const agentName = a.name || a.id;
+                  return (
+                    <CollapsedAgentReorderItem
+                      key={a.id}
+                      agentId={a.id}
+                      agentName={agentName}
+                      canReorder={visibleAgents.length > 1}
+                      onMove={(direction) => moveVisibleAgent(a.id, direction)}
+                    >
+                      <Tooltip delayDuration={300}>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => {
+                              setSelectedAgentId(a.id);
+                              setMobileShowChat(true);
+                            }}
+                            aria-label={`Select ${agentName}`}
+                            className={`relative flex h-8 w-8 items-center justify-center rounded-full transition-transform hover:scale-110 ${selected ? "ring-2 ring-[var(--selection-accent)]" : ""}`}
+                            style={{ backgroundColor: av.bgColor }}
+                          >
+                            {av.imageUrl ? (
+                              <ResourceImage
+                                src={av.imageUrl}
+                                alt={`${agentName} avatar`}
+                                fill
+                                sizes="32px"
+                                className="rounded-full object-cover"
+                              />
+                            ) : (
+                              <Icon className="w-4 h-4" style={{ color: av.fgColor }} />
+                            )}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" align="start" className="bg-transparent border-0 p-0 shadow-none">
+                          <AgentCardTooltip agentName={agentName} agent={mergedAgentCardDataById[a.id]} />
+                        </TooltipContent>
+                      </Tooltip>
+                    </CollapsedAgentReorderItem>
+                  );
+                })}
+              </Reorder.Group>
             </div>
             <AgentsSidebarDashboardLinks
               compact
@@ -2537,15 +2590,19 @@ export function AgentList({
               variant="v3"
               showDivider={false}
               fillParent
-              threads={syntheticThreads}
+              threads={visibleSyntheticThreads}
               selectedThreadId={selectedAgentId}
               showChannels={showChannels}
-              availableAgents={agents.map((a) => ({
+              availableAgents={orderedAgents.map((a) => ({
                 id: a.id,
                 name: a.name || a.id,
                 type: "agent" as const,
                 meta: a.meta ?? null,
               }))}
+              offlineAgentCount={offlineAgentIds.size}
+              showOfflineAgents={showOfflineAgents}
+              onShowOfflineAgentsChange={setShowOfflineAgents}
+              onReorderAgents={setVisibleAgentOrder}
               agentCardDataById={mergedAgentCardDataById}
               onSelectThread={(threadId) => {
                 setSelectedAgentId(threadId);

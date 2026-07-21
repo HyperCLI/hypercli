@@ -44,8 +44,8 @@ export function AgentLifecycleSteps({ stage, className = "" }: AgentLifecycleSte
             }
           : active
             ? {
-                background: "linear-gradient(90deg, rgba(240, 197, 108, 0.95), rgba(78, 167, 255, 0.78))",
-                boxShadow: "0 0 16px rgba(240, 197, 108, 0.48)",
+                background: "linear-gradient(90deg, color-mix(in srgb, var(--warning) 95%, transparent), color-mix(in srgb, var(--info) 78%, transparent))",
+                boxShadow: "0 0 16px color-mix(in srgb, var(--warning) 48%, transparent)",
               }
             : undefined;
         return (
@@ -55,7 +55,7 @@ export function AgentLifecycleSteps({ stage, className = "" }: AgentLifecycleSte
               complete
                 ? "w-6 border-primary/40"
                 : active
-                  ? "w-8 border-[#f0c56c]/45"
+                  ? "w-8 border-warning/45"
                   : "w-2 border-border bg-surface-low"
             }`}
             style={barStyle}

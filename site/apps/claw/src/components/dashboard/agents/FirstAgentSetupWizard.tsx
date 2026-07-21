@@ -1273,7 +1273,7 @@ export function FirstAgentSetupWizard({
                         )}
                       </div>
                       {plan.price && plan.statusText && (
-                        <p className="mt-2 text-[12px] font-medium text-amber-100">{plan.statusText}</p>
+                        <p className="mt-2 text-[12px] font-medium text-warning">{plan.statusText}</p>
                       )}
 
                       <button

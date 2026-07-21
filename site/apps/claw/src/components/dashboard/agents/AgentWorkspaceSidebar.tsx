@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   ArrowRight,
   Blocks,
@@ -16,6 +16,8 @@ import {
   PanelLeft,
   PanelRight,
   PenLine,
+  Pin,
+  PinOff,
   Plus,
   Settings,
   Sparkles,
@@ -74,7 +76,9 @@ interface AgentWorkspaceSidebarProps {
   creatingSessionKeys?: string[];
   thinkingSessionKeys?: string[];
   selectedSessionKey?: string | null;
+  pinnedSessionKeys?: readonly string[];
   onSelectSession?: (sessionKey: string) => void;
+  onSetSessionPinned?: (sessionKey: string, pinned: boolean) => void;
   onRenameSession?: (sessionKey: string, title: string) => Promise<void> | void;
   onDeleteSession?: (sessionKey: string) => Promise<void> | void;
   openingDesktop?: boolean;
@@ -196,6 +200,10 @@ function hasSession(sessions: OpenClawSessionRecord[], sessionKey: string): bool
   return isMainEquivalentSessionKey(sessionKey) && sessions.some(isCanonicalMainSession);
 }
 
+function isSessionPinned(sessionKey: string, pinnedSessionKeys: readonly string[]): boolean {
+  return pinnedSessionKeys.some((pinnedSessionKey) => sameOpenClawSelectableSessionKey(pinnedSessionKey, sessionKey));
+}
+
 function isSessionActive(
   session: OpenClawSessionRecord,
   selectedSessionKey: string | null | undefined,
@@ -246,7 +254,9 @@ function RecentSessionRow({
   title,
   sourceChannel,
   active,
+  pinned,
   onSelect,
+  onSetPinned,
   onRename,
   onDelete,
   creating = false,
@@ -259,7 +269,9 @@ function RecentSessionRow({
   title: string;
   sourceChannel?: SessionSourceChannel | null;
   active: boolean;
+  pinned: boolean;
   onSelect?: () => void;
+  onSetPinned?: (pinned: boolean) => void;
   onRename: () => void;
   onDelete: () => void;
   creating?: boolean;
@@ -272,6 +284,7 @@ function RecentSessionRow({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const SourceChannelIcon = sourceChannel?.Icon;
+  const reduceMotion = useReducedMotion();
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -283,7 +296,29 @@ function RecentSessionRow({
   }, [menuOpen]);
 
   return (
-    <div className="group/session relative flex items-center gap-1">
+    <motion.div
+      layout={reduceMotion ? false : "position"}
+      transition={{
+        layout: reduceMotion
+          ? { duration: 0 }
+          : { type: "spring", stiffness: 520, damping: 36, mass: 0.65 },
+      }}
+      data-session-pinned={pinned ? "true" : "false"}
+      className={`group/session relative isolate flex items-center gap-1 ${menuOpen ? "z-40" : "z-0"}`}
+    >
+      <AnimatePresence initial={false}>
+        {pinned && !reduceMotion ? (
+          <motion.span
+            key="pin-sweep"
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 left-0 right-8 z-0 rounded-full bg-[linear-gradient(90deg,transparent,rgb(var(--selection-accent-rgb)_/_0.24),transparent)]"
+            initial={{ opacity: 0, scaleX: 0.35, x: "-28%" }}
+            animate={{ opacity: [0, 1, 0], scaleX: [0.35, 1, 0.85], x: ["-28%", "4%", "18%"] }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.58, ease: [0.2, 0.75, 0.25, 1] }}
+          />
+        ) : null}
+      </AnimatePresence>
       <button
         type="button"
         onClick={disabled ? undefined : onSelect}
@@ -291,7 +326,7 @@ function RecentSessionRow({
         aria-disabled={disabled}
         aria-current={active ? "page" : undefined}
         aria-busy={creating || thinking || undefined}
-        className={`min-w-0 flex-1 rounded-full px-3 py-1.5 text-left text-[13px] leading-4 transition-colors ${
+        className={`relative z-10 min-w-0 flex-1 rounded-full px-3 py-1.5 text-left text-[13px] leading-4 transition-colors ${
           disabled
             ? "cursor-not-allowed text-text-muted/45"
             : active
@@ -305,12 +340,38 @@ function RecentSessionRow({
             <span
               aria-hidden="true"
               title={`${sourceChannel.label} channel`}
-              className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-black/25 ring-1 ring-white/10"
+              className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-surface-high ring-1 ring-border"
             >
               <SourceChannelIcon className="h-3 w-3" style={sourceChannel.color ? { color: sourceChannel.color } : undefined} />
             </span>
           ) : null}
           <span className="min-w-0 flex-1 truncate">{title}</span>
+          <AnimatePresence initial={false} mode="popLayout">
+            {pinned ? (
+              <motion.span
+                key="pinned"
+                title="Pinned session"
+                aria-hidden="true"
+                className="inline-flex shrink-0 text-[var(--selection-accent)]"
+                initial={reduceMotion ? false : { opacity: 0, scale: 0.25, rotate: -42, y: 4 }}
+                animate={{ opacity: 1, scale: 1, rotate: 0, y: 0 }}
+                exit={reduceMotion
+                  ? { opacity: 0, transition: { duration: 0 } }
+                  : {
+                      opacity: [1, 1, 0],
+                      scale: [1, 1.16, 0.25],
+                      rotate: [0, -16, 42],
+                      y: [0, -2, -8],
+                      transition: { duration: 0.28, times: [0, 0.35, 1], ease: [0.4, 0, 1, 1] },
+                    }}
+                transition={reduceMotion
+                  ? { duration: 0 }
+                  : { type: "spring", stiffness: 650, damping: 20, mass: 0.55 }}
+              >
+                <Pin className="h-3 w-3" />
+              </motion.span>
+            ) : null}
+          </AnimatePresence>
           {creating ? (
             <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-text-muted" aria-label="Creating session">
               <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
@@ -322,7 +383,7 @@ function RecentSessionRow({
         </span>
       </button>
 
-      <div className="relative h-7 w-7 shrink-0" ref={menuRef}>
+      <div className="relative z-10 h-7 w-7 shrink-0" ref={menuRef}>
         <button
           type="button"
           onClick={(event) => {
@@ -348,8 +409,15 @@ function RecentSessionRow({
             initial={{ opacity: 0, scale: 0.95, y: -4 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             transition={{ duration: 0.1 }}
-            className="absolute right-0 top-full z-50 mt-1 w-52 overflow-hidden rounded-lg border border-border bg-[#242424] py-1 shadow-2xl"
+            className="absolute right-0 top-full z-50 mt-1 w-52 overflow-hidden rounded-lg border border-border bg-popover py-1 shadow-2xl"
           >
+            {onSetPinned ? (
+              <SessionMenuButton
+                icon={pinned ? PinOff : Pin}
+                label={pinned ? "Unpin" : "Pin"}
+                onClick={() => { setMenuOpen(false); onSetPinned(!pinned); }}
+              />
+            ) : null}
             <SessionMenuButton icon={PenLine} label="Rename" onClick={() => { setMenuOpen(false); onRename(); }} />
             <SessionMenuButton icon={ArrowRight} label="Move to channels" disabled onClick={() => undefined} />
             <SessionMenuButton
@@ -363,7 +431,7 @@ function RecentSessionRow({
           </motion.div>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -583,7 +651,9 @@ export function AgentWorkspaceSidebar({
   creatingSessionKeys = [],
   thinkingSessionKeys = [],
   selectedSessionKey,
+  pinnedSessionKeys = [],
   onSelectSession,
+  onSetSessionPinned,
   onRenameSession,
   onDeleteSession,
   openingDesktop = false,
@@ -624,9 +694,20 @@ export function AgentWorkspaceSidebar({
     if (activeKey && !hasSession(sessionRecords, activeKey)) {
       sessionRecords.unshift(selectedSessionRecord(activeKey));
     }
-    return sessionRecords.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
-  }, [hasSelectedAgent, sessions, selectedSessionKey]);
-  const visibleSessions = showAllRecent ? sortedSessions : sortedSessions.slice(0, 8);
+    return sessionRecords.sort((a, b) => {
+      const pinOrder = Number(isSessionPinned(b.key, pinnedSessionKeys)) - Number(isSessionPinned(a.key, pinnedSessionKeys));
+      return pinOrder || b.lastMessageAt - a.lastMessageAt;
+    });
+  }, [hasSelectedAgent, pinnedSessionKeys, sessions, selectedSessionKey]);
+  const visibleSessions = useMemo(() => {
+    if (showAllRecent) return sortedSessions;
+    const pinnedCount = sortedSessions.filter((session) => isSessionPinned(session.key, pinnedSessionKeys)).length;
+    const visibleCount = Math.max(8, pinnedCount);
+    const initialSessions = sortedSessions.slice(0, visibleCount);
+    const activeSession = sortedSessions.find((session) => isSessionActive(session, selectedSessionKey, sortedSessions));
+    if (!activeSession || hasSession(initialSessions, activeSession.key)) return initialSessions;
+    return sortedSessions.filter((session, index) => index < visibleCount || sameOpenClawSelectableSessionKey(session.key, activeSession.key));
+  }, [pinnedSessionKeys, selectedSessionKey, showAllRecent, sortedSessions]);
   const hiddenSessionCount = Math.max(0, sortedSessions.length - visibleSessions.length);
   const renameTargetTitle = renameTarget ? sessionTitle(renameTarget) : "";
 
@@ -714,7 +795,7 @@ export function AgentWorkspaceSidebar({
         if (selectedAgent && onOpenDesktop) void onOpenDesktop(selectedAgent);
       },
     } satisfies WorkspaceItem] : []),
-    { id: "knowledge", label: "Workspaces", icon: HardDrive, active: activeTab === "knowledge" || knowledgeActive, onClick: onOpenKnowledge, ...disabledItemProps },
+    { id: "knowledge", label: "Shared knowledge", icon: HardDrive, active: activeTab === "knowledge" || knowledgeActive, onClick: onOpenKnowledge, ...disabledItemProps },
   ];
 
   const advancedDropdownDisabled = disabled || noSelectedAgent;
@@ -841,12 +922,14 @@ export function AgentWorkspaceSidebar({
                   const title = sessionTitle(session);
                   const sourceChannel = resolveSessionSourceChannel(session.sourceChannelId);
                   const thinking = thinkingSessionKeys.some((sessionKey) => isSessionActive(session, sessionKey, sortedSessions));
+                  const pinned = isSessionPinned(session.key, pinnedSessionKeys);
                   return (
                     <RecentSessionRow
                       key={session.key}
                       title={title}
                       sourceChannel={sourceChannel}
                       active={isSessionActive(session, selectedSessionKey, sortedSessions)}
+                      pinned={pinned}
                       disabled={!sessionsInteractive}
                       disabledReason={sessionsDisabledReason}
                       deleteDisabled={session.readOnly === true}
@@ -854,6 +937,7 @@ export function AgentWorkspaceSidebar({
                       creating={creatingSessionKeys.some((sessionKey) => sameOpenClawSelectableSessionKey(sessionKey, session.key))}
                       thinking={thinking}
                       onSelect={onSelectSession ? () => onSelectSession(session.key) : undefined}
+                      onSetPinned={onSetSessionPinned ? (nextPinned) => onSetSessionPinned(session.key, nextPinned) : undefined}
                       onRename={() => setRenameTarget(session)}
                       onDelete={() => setDeleteTarget(session)}
                     />

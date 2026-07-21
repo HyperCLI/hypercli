@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { ComponentProps, ReactNode } from "react";
+import { useState, type ComponentProps, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent } from "@/app/dashboard/agents/types";
@@ -14,6 +14,7 @@ vi.mock("@hypercli/shared-ui", () => ({
   Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipContent: ({ children }: { children: ReactNode }) => <>{children}</>,
+  ThemeToggle: () => <button type="button">Theme</button>,
   ConfirmDialog: ({
     open,
     title,
@@ -66,6 +67,7 @@ vi.mock("@/lib/agent-client", () => ({
 import { AgentList, AgentSettingsPanel, ErrorBanner } from "./AgentPanels";
 
 beforeEach(() => {
+  window.localStorage.clear();
   vi.clearAllMocks();
   sdkMocks.userGet.mockResolvedValue({
     userId: "user-1234567890abcdef",
@@ -122,8 +124,44 @@ const agent: Agent = {
   meta: null,
 };
 
-function renderAgentList(overrides: Partial<ComponentProps<typeof AgentList>> = {}) {
-  const props: ComponentProps<typeof AgentList> = {
+const stoppedAgent: Agent = {
+  ...agent,
+  id: "agent-stopped",
+  name: "Stopped Agent",
+  state: "STOPPED",
+};
+
+const failedAgent: Agent = {
+  ...agent,
+  id: "agent-failed",
+  name: "Failed Agent",
+  state: "FAILED",
+};
+
+const startingAgent: Agent = {
+  ...agent,
+  id: "agent-starting",
+  name: "Starting Agent",
+  state: "STARTING",
+};
+
+function agentThread(item: Agent) {
+  return {
+    id: item.id,
+    sessionKey: item.id,
+    participants: [{ id: item.id, name: item.name, type: "agent" as const }],
+    kind: "user-agent" as const,
+    lastMessage: item.state === "RUNNING" ? "Connected" : item.state.toLowerCase(),
+    lastMessageBy: item.id,
+    lastMessageAt: Date.now(),
+    messageCount: 0,
+    unreadCount: 0,
+    isActive: item.state === "RUNNING",
+  };
+}
+
+function createAgentListProps(overrides: Partial<ComponentProps<typeof AgentList>> = {}): ComponentProps<typeof AgentList> {
+  return {
     sidebarCollapsed: true,
     isDesktopViewport: true,
     mobileShowChat: false,
@@ -132,20 +170,7 @@ function renderAgentList(overrides: Partial<ComponentProps<typeof AgentList>> = 
     setSelectedAgentId: vi.fn(),
     setMobileShowChat: vi.fn(),
     setSidebarCollapsed: vi.fn(),
-    syntheticThreads: [
-      {
-        id: agent.id,
-        sessionKey: agent.id,
-        participants: [{ id: agent.id, name: agent.name, type: "agent" }],
-        kind: "user-agent",
-        lastMessage: "",
-        lastMessageBy: agent.id,
-        lastMessageAt: Date.now(),
-        messageCount: 0,
-        unreadCount: 0,
-        isActive: true,
-      },
-    ],
+    syntheticThreads: [agentThread(agent)],
     getToken: vi.fn(async () => "token"),
     createOpenClawAgent: vi.fn(async () => ({ id: "created-agent" })),
     fetchAgents: vi.fn(),
@@ -155,7 +180,10 @@ function renderAgentList(overrides: Partial<ComponentProps<typeof AgentList>> = 
     updateAgentName: vi.fn(),
     ...overrides,
   };
+}
 
+function renderAgentList(overrides: Partial<ComponentProps<typeof AgentList>> = {}) {
+  const props = createAgentListProps(overrides);
   renderWithClient(<AgentList {...props} />);
   return props;
 }
@@ -250,6 +278,135 @@ describe("AgentList", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /launch agent/i }));
     expect(screen.getByText("First agent setup wizard")).toBeInTheDocument();
+  });
+
+  it("hides only stopped agents from the collapsed rail by default", () => {
+    renderAgentList({
+      agents: [agent, stoppedAgent, failedAgent, startingAgent],
+      selectedAgentId: stoppedAgent.id,
+      syntheticThreads: [agent, stoppedAgent, failedAgent, startingAgent].map(agentThread),
+    });
+
+    expect(screen.getByRole("button", { name: "Select Test Agent" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Select Stopped Agent" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Select Failed Agent" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Select Starting Agent" })).toBeInTheDocument();
+  });
+
+  it("reorders agents directly from the collapsed rail", async () => {
+    const agents = [agent, failedAgent, startingAgent];
+    const setSelectedAgentId = vi.fn();
+    renderAgentList({
+      agents,
+      setSelectedAgentId,
+      syntheticThreads: agents.map(agentThread),
+    });
+
+    const startingHandle = screen.getByRole("button", { name: "Move Starting Agent" });
+    fireEvent.click(startingHandle);
+    expect(setSelectedAgentId).not.toHaveBeenCalled();
+    fireEvent.keyDown(startingHandle, { key: "ArrowUp" });
+
+    await waitFor(() => expect(
+      screen.getAllByRole("button", { name: /^Select / }).map((button) => button.getAttribute("aria-label")),
+    ).toEqual([
+      "Select Test Agent",
+      "Select Starting Agent",
+      "Select Failed Agent",
+    ]));
+  });
+
+  it("reveals offline agents from the expanded roster and remembers the choice when collapsed", async () => {
+    const agents = [agent, stoppedAgent, failedAgent, startingAgent];
+    const baseProps = createAgentListProps({
+      sidebarCollapsed: false,
+      agents,
+      syntheticThreads: agents.map(agentThread),
+    });
+
+    function Harness() {
+      const [collapsed, setCollapsed] = useState(false);
+      return <AgentList {...baseProps} sidebarCollapsed={collapsed} setSidebarCollapsed={setCollapsed} />;
+    }
+    renderWithClient(<Harness />);
+
+    expect(screen.queryByText("Available Agents")).not.toBeInTheDocument();
+    expect(screen.queryByText("Stopped Agent")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Failed Agent").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Starting Agent").length).toBeGreaterThan(0);
+
+    const showOffline = screen.getByRole("button", { name: "Show offline agents" });
+    expect(showOffline).toHaveAttribute("aria-pressed", "false");
+    expect(showOffline).toHaveTextContent("Offline1");
+    fireEvent.click(showOffline);
+
+    expect(screen.getAllByText("Stopped Agent").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Hide offline agents" })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(screen.getByTitle("Collapse sidebar"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Select Stopped Agent" })).toBeInTheDocument());
+    fireEvent.click(screen.getByTitle("Expand sidebar"));
+    const hideOffline = await screen.findByRole("button", { name: "Hide offline agents" });
+    expect(screen.getAllByText("Stopped Agent").length).toBeGreaterThan(0);
+    fireEvent.click(hideOffline);
+    await waitFor(() => expect(screen.queryAllByText("Stopped Agent")).toHaveLength(0));
+  });
+
+  it("keeps the selected stopped agent hidden until offline agents are shown", () => {
+    renderAgentList({
+      sidebarCollapsed: false,
+      agents: [agent, stoppedAgent],
+      selectedAgentId: stoppedAgent.id,
+      syntheticThreads: [agent, stoppedAgent].map(agentThread),
+    });
+
+    expect(screen.queryByText("Stopped Agent")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show offline agents" })).toBeInTheDocument();
+  });
+
+  it("reorders agents from the drag handle without selecting them", async () => {
+    const agents = [agent, failedAgent, startingAgent];
+    const setSelectedAgentId = vi.fn();
+    const baseProps = createAgentListProps({
+      sidebarCollapsed: false,
+      agents,
+      setSelectedAgentId,
+      syntheticThreads: agents.map(agentThread),
+    });
+
+    function Harness() {
+      const [collapsed, setCollapsed] = useState(false);
+      return <AgentList {...baseProps} sidebarCollapsed={collapsed} setSidebarCollapsed={setCollapsed} />;
+    }
+    renderWithClient(<Harness />);
+
+    expect(screen.getAllByRole("button", { name: /^Move / }).map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Move Test Agent",
+      "Move Failed Agent",
+      "Move Starting Agent",
+    ]);
+
+    const startingHandle = screen.getByRole("button", { name: "Move Starting Agent" });
+    fireEvent.click(startingHandle);
+    expect(setSelectedAgentId).not.toHaveBeenCalled();
+    fireEvent.keyDown(startingHandle, { key: "ArrowUp" });
+
+    await waitFor(() => expect(
+      screen.getAllByRole("button", { name: /^Move / }).map((button) => button.getAttribute("aria-label")),
+    ).toEqual([
+      "Move Test Agent",
+      "Move Starting Agent",
+      "Move Failed Agent",
+    ]));
+
+    fireEvent.click(screen.getByTitle("Collapse sidebar"));
+    await waitFor(() => expect(
+      screen.getAllByRole("button", { name: /^Select / }).map((button) => button.getAttribute("aria-label")),
+    ).toEqual([
+      "Select Test Agent",
+      "Select Starting Agent",
+      "Select Failed Agent",
+    ]));
   });
 
   it("opens workspace settings from the agents sidebar account menu when provided", () => {
@@ -580,10 +737,10 @@ describe("AgentSettingsPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Enable desktop route" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Ready files only" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Workspaces sync directory" }), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Shared knowledge sync directory" }), {
       target: { value: "/home/node/TeamWorkspaces" },
     });
-    fireEvent.change(screen.getByRole("textbox", { name: "Workspaces sync workspace" }), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Shared knowledge sync selection" }), {
       target: { value: "team-docs" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));

@@ -22,7 +22,7 @@ export function SharedWorkspaceModule({ variant }: SharedWorkspaceModuleProps) {
         mock
       </span>
       <div className="text-xs font-semibold text-text-secondary uppercase tracking-wider flex items-center gap-1.5">
-        <Layers className="w-3.5 h-3.5" /> Workspace
+        <Layers className="w-3.5 h-3.5" /> Shared knowledge
       </div>
       {variant === "v1" ? (
         <div className="space-y-1.5">

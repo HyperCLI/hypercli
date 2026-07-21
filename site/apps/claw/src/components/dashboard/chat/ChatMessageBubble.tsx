@@ -62,7 +62,7 @@ export function ChatMessageBubble({
   if (isSystem) {
     return (
       <div className="flex min-w-0 max-w-full justify-center">
-        <div className="max-w-[85%] break-words rounded-lg border border-[#d05f5f]/20 bg-[#d05f5f]/10 px-4 py-2 text-sm text-[#d05f5f] [overflow-wrap:anywhere]">
+        <div className="max-w-[85%] break-words rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-2 text-sm text-destructive [overflow-wrap:anywhere]">
           {message.content}
         </div>
       </div>

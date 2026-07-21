@@ -1,169 +1,242 @@
-/**
- * Shared theme utilities for cross-app theme synchronization
- * Uses cookies to share theme preference across apps on different ports
- */
+export type Theme = "dark" | "light";
 
-export type Theme = "default" | "dark" | "light";
+export const DEFAULT_THEME: Theme = "dark";
+export const THEME_COOKIE_NAME = "hypercli_color_theme";
+export const THEME_STORAGE_KEY = THEME_COOKIE_NAME;
+export const LEGACY_THEME_KEY = "hypercli_theme";
 
-const DEFAULT_THEME: Theme = "default";
-const LEGACY_THEME_ALIASES: Record<string, Theme> = {
-  green: DEFAULT_THEME,
-};
+const THEME_CHANGE_EVENT = "hypercli-theme-changed";
+const COOKIE_MAX_AGE = 365 * 24 * 60 * 60;
+const CONFIGURED_COOKIE_DOMAIN = (process.env.NEXT_PUBLIC_COOKIE_DOMAIN || "").trim();
 
-const THEME_KEY = "hypercli_theme";
-const COOKIE_MAX_AGE = 365 * 24 * 60 * 60; // 1 year in seconds
-
-function normalizeTheme(value: string | null | undefined): Theme | null {
-  if (!value) return null;
-  if (value === "default" || value === "dark" || value === "light") return value;
-  return LEGACY_THEME_ALIASES[value] ?? null;
+function normalizeTheme(value: unknown): Theme | null {
+  return value === "dark" || value === "light" ? value : null;
 }
 
-/**
- * Get theme from cookie (works across ports/subdomains)
- */
-function getThemeFromCookie(): Theme | null {
+function normalizeLegacyTheme(value: unknown): Theme | null {
+  if (value === "default" || value === "green") return "dark";
+  return normalizeTheme(value);
+}
+
+function readCookie(name: string, normalize: (value: unknown) => Theme | null): Theme | null {
   if (typeof document === "undefined") return null;
 
-  const match = document.cookie.match(new RegExp(`(^| )${THEME_KEY}=([^;]+)`));
-  if (match) {
+  let cookies: string;
+  try {
+    cookies = document.cookie;
+  } catch {
+    return null;
+  }
+
+  for (const cookie of cookies.split(";")) {
+    const separatorIndex = cookie.indexOf("=");
+    if (separatorIndex === -1 || cookie.slice(0, separatorIndex).trim() !== name) continue;
+
     try {
-      return normalizeTheme(decodeURIComponent(match[2]));
+      const theme = normalize(decodeURIComponent(cookie.slice(separatorIndex + 1).trim()));
+      if (theme) return theme;
     } catch {
-      return normalizeTheme(match[2]);
+      // Ignore one malformed cookie and continue checking other cookie scopes.
     }
   }
+
   return null;
 }
 
-/**
- * Set theme in cookie (accessible across ports in dev, subdomains in prod)
- */
-function setThemeCookie(theme: Theme): void {
-  if (typeof document === "undefined") return;
+function readStorage(name: string, normalize: (value: unknown) => Theme | null): Theme | null {
+  if (typeof window === "undefined") return null;
 
-  // Set cookie with path=/ so it's accessible across all paths
-  // In production, you might want to add domain=.hypercli.com for subdomain sharing
-  document.cookie = `${THEME_KEY}=${encodeURIComponent(theme)}; path=/; max-age=${COOKIE_MAX_AGE}; SameSite=Lax`;
+  try {
+    return normalize(window.localStorage.getItem(name));
+  } catch {
+    return null;
+  }
 }
 
-/**
- * Get current theme preference
- * Priority: cookie > localStorage > default product theme
- */
-export function getTheme(): Theme {
-  // Try cookie first (for cross-app sync)
-  const cookieTheme = getThemeFromCookie();
-  if (cookieTheme) return cookieTheme;
+function writeStorage(theme: Theme): void {
+  if (typeof window === "undefined") return;
 
-  // Fall back to localStorage
-  if (typeof localStorage !== "undefined") {
-    const localTheme = normalizeTheme(localStorage.getItem(THEME_KEY));
-    if (localTheme) {
-      // Sync to cookie for cross-app consistency
-      setThemeCookie(localTheme);
-      return localTheme;
+  try {
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  } catch {
+    // Cookies remain authoritative when storage is unavailable.
+  }
+}
+
+function isLocalHostname(hostname: string): boolean {
+  const normalizedHostname = hostname.trim().toLowerCase();
+  return (
+    !normalizedHostname ||
+    normalizedHostname === "localhost" ||
+    normalizedHostname.endsWith(".localhost") ||
+    normalizedHostname === "127.0.0.1" ||
+    normalizedHostname === "0.0.0.0" ||
+    normalizedHostname === "[::1]" ||
+    /^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalizedHostname) ||
+    normalizedHostname.includes(":")
+  );
+}
+
+function getCookieDomain(): string {
+  if (typeof window === "undefined") return "";
+
+  try {
+    const hostname = window.location.hostname.trim().toLowerCase();
+    if (isLocalHostname(hostname)) return "";
+
+    const configuredDomain = CONFIGURED_COOKIE_DOMAIN.toLowerCase().replace(/^\.+/, "");
+    if (!configuredDomain || configuredDomain === "localhost") return "";
+    if (hostname !== configuredDomain && !hostname.endsWith(`.${configuredDomain}`)) return "";
+
+    return `.${configuredDomain}`;
+  } catch {
+    return "";
+  }
+}
+
+function writeCookie(theme: Theme): void {
+  if (typeof document === "undefined") return;
+
+  let domain = "";
+  let secure = "";
+  if (typeof window !== "undefined") {
+    const cookieDomain = getCookieDomain();
+    domain = cookieDomain ? `; Domain=${cookieDomain}` : "";
+    try {
+      secure = window.location.protocol === "https:" ? "; Secure" : "";
+    } catch {
+      secure = "";
     }
   }
 
-  return DEFAULT_THEME;
-}
-
-/**
- * Set theme preference (updates both cookie and localStorage)
- */
-export function setTheme(theme: Theme): void {
-  const normalizedTheme = normalizeTheme(theme) ?? DEFAULT_THEME;
-
-  // Update cookie for cross-app sync
-  setThemeCookie(normalizedTheme);
-
-  // Also update localStorage for same-origin storage events
-  if (typeof localStorage !== "undefined") {
-    localStorage.setItem(THEME_KEY, normalizedTheme);
+  try {
+    document.cookie = `${THEME_COOKIE_NAME}=${theme}; Path=/; Max-Age=${COOKIE_MAX_AGE}; SameSite=Lax${domain}${secure}`;
+  } catch {
+    // The DOM theme and same-tab event still update when cookies are blocked.
   }
 }
 
+function readAppliedTheme(): Theme | null {
+  if (typeof document === "undefined") return null;
+  return normalizeTheme(document.documentElement.getAttribute("data-theme"));
+}
+
+function persistTheme(theme: Theme): void {
+  writeCookie(theme);
+  writeStorage(theme);
+}
+
+function notifyThemeChange(theme: Theme): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(THEME_CHANGE_EVENT, { detail: { theme } }));
+}
+
 /**
- * Apply theme to document
+ * Read the current preference, with the shared domain cookie as the source of truth.
+ * Legacy cookie and storage values are migrated to the canonical key on first read.
  */
+export function getTheme(): Theme {
+  const cookieTheme = readCookie(THEME_COOKIE_NAME, normalizeTheme);
+  if (cookieTheme) {
+    writeStorage(cookieTheme);
+    return cookieTheme;
+  }
+
+  const legacyCookieTheme = readCookie(LEGACY_THEME_KEY, normalizeLegacyTheme);
+  if (legacyCookieTheme) {
+    persistTheme(legacyCookieTheme);
+    return legacyCookieTheme;
+  }
+
+  const storedTheme = readStorage(THEME_STORAGE_KEY, normalizeTheme);
+  if (storedTheme) {
+    persistTheme(storedTheme);
+    return storedTheme;
+  }
+
+  const legacyStoredTheme = readStorage(LEGACY_THEME_KEY, normalizeLegacyTheme);
+  if (legacyStoredTheme) {
+    persistTheme(legacyStoredTheme);
+    return legacyStoredTheme;
+  }
+
+  const theme = readAppliedTheme() ?? DEFAULT_THEME;
+  persistTheme(theme);
+  return theme;
+}
+
+/** Apply a theme immediately, independently of cookie or storage availability. */
 export function applyTheme(theme: Theme): void {
   if (typeof document === "undefined") return;
   const normalizedTheme = normalizeTheme(theme) ?? DEFAULT_THEME;
 
   document.documentElement.setAttribute("data-theme", normalizedTheme);
+  document.documentElement.style.colorScheme = normalizedTheme;
   document.body?.setAttribute("data-theme", normalizedTheme);
 }
 
-/**
- * Initialize theme on page load
- * Returns the current theme
- */
+/** Apply and persist a preference, then notify subscribers in the current tab. */
+export function setTheme(theme: Theme): void {
+  const normalizedTheme = normalizeTheme(theme) ?? DEFAULT_THEME;
+  applyTheme(normalizedTheme);
+  persistTheme(normalizedTheme);
+  notifyThemeChange(normalizedTheme);
+}
+
 export function initializeTheme(): Theme {
   const theme = getTheme();
   applyTheme(theme);
   return theme;
 }
 
-/**
- * Toggle theme and return new theme
- */
 export function toggleTheme(): Theme {
-  const currentTheme = getTheme();
-  const newTheme: Theme = currentTheme === "light" ? DEFAULT_THEME : "light";
-  setTheme(newTheme);
-  applyTheme(newTheme);
-  return newTheme;
+  const nextTheme: Theme = getTheme() === "light" ? "dark" : "light";
+  setTheme(nextTheme);
+  return nextTheme;
 }
 
 /**
- * Listen for theme changes from other tabs/windows (same origin)
- * Also periodically checks cookie for cross-origin changes
+ * Subscribe to same-tab changes and resynchronize when browser lifecycle events
+ * can reveal a cookie update made by another app or tab.
  */
 export function subscribeToThemeChanges(callback: (theme: Theme) => void): () => void {
-  // Listen for localStorage changes (same origin, different tab)
-  const handleStorageChange = (e: StorageEvent) => {
-    if (e.key === THEME_KEY && e.newValue) {
-      const newTheme = normalizeTheme(e.newValue);
-      if (newTheme) {
-        lastKnownTheme = newTheme;
-        applyTheme(newTheme);
-        callback(newTheme);
-      }
-    }
-  };
+  if (typeof window === "undefined") return () => {};
 
-  // Periodically check cookie for cross-origin changes (when tab gains focus)
   let lastKnownTheme = getTheme();
 
-  const handleFocus = () => {
-    const currentTheme = getTheme();
-    if (currentTheme !== lastKnownTheme) {
-      lastKnownTheme = currentTheme;
-      applyTheme(currentTheme);
-      callback(currentTheme);
-    }
+  const synchronize = (candidate?: Theme) => {
+    const theme = candidate ?? getTheme();
+    if (theme === lastKnownTheme) return;
+
+    lastKnownTheme = theme;
+    applyTheme(theme);
+    callback(theme);
   };
 
-  // Also check on visibility change (tab becomes visible)
+  const handleThemeChange = (event: Event) => {
+    const theme = normalizeTheme((event as CustomEvent<{ theme?: unknown }>).detail?.theme);
+    synchronize(theme ?? undefined);
+  };
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key === THEME_STORAGE_KEY || event.key === LEGACY_THEME_KEY) synchronize();
+  };
+  const handleFocus = () => synchronize();
   const handleVisibilityChange = () => {
-    if (document.visibilityState === "visible") {
-      handleFocus();
-    }
+    if (document.visibilityState === "visible") synchronize();
   };
+  const handlePageShow = () => synchronize();
 
-  if (typeof window !== "undefined") {
-    window.addEventListener("storage", handleStorageChange);
-    window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-  }
+  window.addEventListener(THEME_CHANGE_EVENT, handleThemeChange);
+  window.addEventListener("storage", handleStorage);
+  window.addEventListener("focus", handleFocus);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  window.addEventListener("pageshow", handlePageShow);
 
-  // Return cleanup function
   return () => {
-    if (typeof window !== "undefined") {
-      window.removeEventListener("storage", handleStorageChange);
-      window.removeEventListener("focus", handleFocus);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    }
+    window.removeEventListener(THEME_CHANGE_EVENT, handleThemeChange);
+    window.removeEventListener("storage", handleStorage);
+    window.removeEventListener("focus", handleFocus);
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+    window.removeEventListener("pageshow", handlePageShow);
   };
 }

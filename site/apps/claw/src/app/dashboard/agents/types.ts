@@ -25,6 +25,10 @@ export function isAgentFailureState(state: AgentState | string | null | undefine
   return AGENT_FAILURE_STATES.includes(state as AgentState);
 }
 
+export function isAgentOffline(state: AgentState | string | null | undefined): boolean {
+  return state?.toUpperCase() === "STOPPED";
+}
+
 export interface Agent {
   id: string;
   name: string;

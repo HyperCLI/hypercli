@@ -223,7 +223,7 @@ export default function SettingsPage() {
           <Settings className="h-6 w-6 text-primary" />
           <h1 className="text-2xl font-bold">Agent Settings</h1>
           {gwState.connected ? (
-            <Badge variant="default" className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">
+            <Badge variant="default" className="border-success/30 bg-success/10 text-success">
               <Wifi className="h-3 w-3 mr-1" /> Connected
             </Badge>
           ) : gwState.connecting ? (

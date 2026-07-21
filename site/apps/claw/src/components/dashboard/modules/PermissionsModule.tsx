@@ -59,7 +59,7 @@ export function PermissionsModule({ variant, permissions: permissionsProp }: Per
                 </span>
                 <span className="text-text-muted font-mono">{perm.access}</span>
                 <span
-                  className={`font-mono ${perm.level === "full" ? "text-primary" : perm.level === "filtered" ? "text-[#f0c56c]" : "text-text-secondary"}`}
+                  className={`font-mono ${perm.level === "full" ? "text-primary" : perm.level === "filtered" ? "text-warning" : "text-text-secondary"}`}
                 >
                   {perm.level}
                 </span>
@@ -76,7 +76,7 @@ export function PermissionsModule({ variant, permissions: permissionsProp }: Per
               perm.level === "full"
                 ? "border-primary/25 bg-primary/5"
                 : perm.level === "filtered"
-                  ? "border-[#f0c56c]/25 bg-[#f0c56c]/5"
+                  ? "border-warning/25 bg-warning/5"
                   : "border-border";
             return (
               <motion.div
@@ -91,7 +91,7 @@ export function PermissionsModule({ variant, permissions: permissionsProp }: Per
                 <PermIcon className="w-3 h-3 text-text-muted" />
                 <span className="text-[10px] text-foreground">{perm.scope}</span>
                 <motion.span
-                  className={`w-1.5 h-1.5 rounded-full ${perm.level === "full" ? "bg-primary" : perm.level === "filtered" ? "bg-[#f0c56c]" : "bg-text-muted"}`}
+                  className={`w-1.5 h-1.5 rounded-full ${perm.level === "full" ? "bg-primary" : perm.level === "filtered" ? "bg-warning" : "bg-text-muted"}`}
                   animate={{
                     scale: [0.8, 1.3, 0.8],
                     opacity: [0.5, 1, 0.5],
@@ -120,7 +120,7 @@ export function PermissionsModule({ variant, permissions: permissionsProp }: Per
                 className="flex items-center gap-2 px-1.5 py-0.5 text-[10px]"
               >
                 <span
-                  className={`w-1.5 h-1.5 rounded-full ${perm.level === "full" ? "bg-primary" : perm.level === "filtered" ? "bg-[#f0c56c]" : "bg-text-muted"}`}
+                  className={`w-1.5 h-1.5 rounded-full ${perm.level === "full" ? "bg-primary" : perm.level === "filtered" ? "bg-warning" : "bg-text-muted"}`}
                 />
                 <PermIcon className="w-3 h-3 text-text-muted" />
                 <span className="text-foreground">{perm.scope}</span>

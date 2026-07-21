@@ -121,7 +121,7 @@ export function AgentMainPanel({
     if (selectedAgent.state === "SYNC_FAILED") {
       return {
         label: "Sync failed",
-        detail: selectedAgent.last_error || "Workspace sync failed before the agent could boot.",
+        detail: selectedAgent.last_error?.replace(/\bworkspaces?\b/gi, "shared knowledge") || "Shared knowledge sync failed before the agent could boot.",
         tone: "failed",
       };
     }
@@ -150,8 +150,8 @@ export function AgentMainPanel({
     }
     if (selectedAgent.state === "SYNCING") {
       return {
-        label: "Syncing workspaces",
-        detail: "Syncing shared workspace Markdown before boot.",
+        label: "Syncing shared knowledge",
+        detail: "Syncing shared knowledge Markdown before boot.",
         tone: "starting",
         loading: true,
       };
@@ -285,8 +285,8 @@ export function AgentMainPanel({
               }
           : activeAgent.state === "SYNCING"
             ? {
-                title: "Syncing workspaces",
-                detail: "Syncing shared workspace Markdown before boot.",
+                title: "Syncing shared knowledge",
+                detail: "Syncing shared knowledge Markdown before boot.",
                 stage: "runtime" as const,
               }
           : activeAgent.state === "STARTING"

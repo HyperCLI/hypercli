@@ -37,13 +37,13 @@ export function ToolDiscoveryModule({ variant, discoveries: discoveriesProp }: T
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: idx * 0.1 }}
-              className="rounded-lg bg-[#f0c56c]/8 border border-[#f0c56c]/20 px-3 py-2 flex items-start gap-2"
+              className="rounded-lg bg-warning/8 border border-warning/20 px-3 py-2 flex items-start gap-2"
             >
               <motion.div
                 animate={{ rotate: [0, 15, -15, 0] }}
                 transition={{ repeat: Infinity, duration: 2 }}
               >
-                <Sparkles className="w-3.5 h-3.5 text-[#f0c56c] mt-0.5 shrink-0" />
+                <Sparkles className="w-3.5 h-3.5 text-warning mt-0.5 shrink-0" />
               </motion.div>
               <div className="flex-1 min-w-0">
                 <div className="text-xs text-foreground">{disc.message}</div>
@@ -70,9 +70,9 @@ export function ToolDiscoveryModule({ variant, discoveries: discoveriesProp }: T
               key={disc.id}
               initial={{ x: -20, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#f0c56c]/10 border border-[#f0c56c]/15"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-warning/10 border border-warning/15"
             >
-              <Wrench className="w-3 h-3 text-[#f0c56c]" />
+              <Wrench className="w-3 h-3 text-warning" />
               <span className="text-[10px] text-foreground flex-1 truncate">
                 {disc.message}
               </span>
@@ -95,13 +95,13 @@ export function ToolDiscoveryModule({ variant, discoveries: discoveriesProp }: T
             key={disc.id}
             initial={{ y: 20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            className="rounded-md bg-[#1a1a1c] border border-[#f0c56c]/20 shadow-lg px-3 py-2 flex items-center gap-2"
+            className="rounded-md bg-popover border border-warning/20 shadow-lg px-3 py-2 flex items-center gap-2"
           >
             <motion.div
               animate={{ scale: [1, 1.2, 1] }}
               transition={{ repeat: Infinity, duration: 1.5 }}
             >
-              <Zap className="w-3.5 h-3.5 text-[#f0c56c]" />
+              <Zap className="w-3.5 h-3.5 text-warning" />
             </motion.div>
             <span className="text-[10px] text-foreground flex-1">
               {disc.message}

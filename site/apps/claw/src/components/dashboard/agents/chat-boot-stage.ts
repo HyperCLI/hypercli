@@ -79,8 +79,8 @@ export function getAgentChatBootStatus({
     return {
       status: "loading",
       phase: "syncing",
-      title: "Syncing workspaces",
-      detail: "Syncing shared workspace Markdown before boot.",
+      title: "Syncing shared knowledge",
+      detail: "Syncing shared knowledge Markdown before boot.",
       tone: "starting",
       stage: "runtime",
     };
@@ -112,7 +112,7 @@ export function getAgentChatBootStatus({
       status: "error",
       phase: "error",
       title: "Sync failed",
-      detail: "Workspace sync failed before the agent could boot.",
+      detail: "Shared knowledge sync failed before the agent could boot.",
       stage: "runtime",
     };
   }

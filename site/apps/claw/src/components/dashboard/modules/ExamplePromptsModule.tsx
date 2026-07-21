@@ -22,7 +22,7 @@ export function ExamplePromptsModule({ variant, prompts: promptsProp, onPromptCl
       {isMock && <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">mock</span>}
       <div className="flex items-center gap-1.5">
         <motion.div animate={{ y: [0, -2, 0] }} transition={{ repeat: Infinity, duration: 2 }}>
-          <Lightbulb className="w-3.5 h-3.5 text-[#f0c56c]" />
+          <Lightbulb className="w-3.5 h-3.5 text-warning" />
         </motion.div>
         <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Try These</span>
       </div>
@@ -78,7 +78,7 @@ export function ExamplePromptsModule({ variant, prompts: promptsProp, onPromptCl
               whileHover={{ x: 2 }} whileTap={{ scale: 0.97 }}
               onClick={() => onPromptClick?.(group.prompts[0])}
               className="w-full flex items-center gap-2 px-1.5 py-1 rounded hover:bg-surface-low transition-colors text-left">
-              <motion.span className="inline-block w-1.5 h-1.5 rounded-full bg-[#f0c56c]"
+              <motion.span className="inline-block w-1.5 h-1.5 rounded-full bg-warning"
                 animate={{ scale: [0.75, 1.35, 0.75], opacity: [0.5, 1, 0.5] }} transition={{ repeat: Infinity, duration: 1, delay: idx * 0.2 }} />
               <span className="text-[10px] text-text-muted">&quot;{group.prompts[0]}&quot;</span>
             </motion.button>

@@ -258,7 +258,7 @@ export function JourneyFloatingPanel({ journey, onRunDayAction, onRunCapabilityP
           ],
         }}
         transition={{ duration: 1.15, ease: "easeOut" }}
-        className={`fixed ${positionedClassName} z-50 inline-flex touch-none items-center gap-2 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[#101011]/95 px-3.5 py-2 text-sm font-semibold text-[var(--selection-accent)] shadow-[0_18px_56px_rgba(0,0,0,0.38)] backdrop-blur transition-colors hover:bg-[#171719] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.55)] ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
+        className={`fixed ${positionedClassName} z-50 inline-flex touch-none items-center gap-2 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-popover/95 px-3.5 py-2 text-sm font-semibold text-[var(--selection-accent)] shadow-[0_18px_56px_rgba(0,0,0,0.38)] backdrop-blur transition-colors hover:bg-surface-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.55)] ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
         aria-label={`Open Journey mission ${day.day}`}
         title="Drag to move. Click to open Journey."
       >
@@ -278,9 +278,9 @@ export function JourneyFloatingPanel({ journey, onRunDayAction, onRunCapabilityP
         exit={reducedMotion ? undefined : { opacity: 0, y: 10, scale: 0.98 }}
         transition={{ type: "spring", stiffness: 380, damping: 32 }}
         style={floatingStyle}
-        className={`fixed ${positionedClassName} z-50 max-h-[calc(100dvh-1.5rem)] w-[min(25.5rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border border-white/12 bg-[#101011]/96 text-foreground shadow-[0_24px_90px_rgba(0,0,0,0.48)] backdrop-blur-xl`}
+        className={`fixed ${positionedClassName} z-50 max-h-[calc(100dvh-1.5rem)] w-[min(25.5rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border border-border bg-popover/95 text-foreground shadow-[0_24px_90px_rgba(0,0,0,0.48)] backdrop-blur-xl`}
       >
-        <div className="h-1 bg-white/10">
+        <div className="h-1 bg-border">
           <div
             className="h-full bg-[var(--selection-accent)] transition-[width] duration-300"
             style={{ width: `${journey.progressPercent}%` }}
@@ -305,7 +305,7 @@ export function JourneyFloatingPanel({ journey, onRunDayAction, onRunCapabilityP
                 onPointerUp={endDrag}
                 onPointerCancel={endDrag}
                 onKeyDown={moveByKeyboard}
-                className={`flex h-8 w-8 touch-none items-center justify-center rounded-full text-text-muted transition-colors hover:bg-white/8 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)] ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
+                className={`flex h-8 w-8 touch-none items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-high hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)] ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
                 title="Move Journey"
                 aria-label="Move Journey panel"
               >
@@ -315,7 +315,7 @@ export function JourneyFloatingPanel({ journey, onRunDayAction, onRunCapabilityP
                 <button
                   type="button"
                   onClick={journey.reset}
-                  className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-white/8 hover:text-foreground"
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-high hover:text-foreground"
                   title="Reset Journey progress"
                   aria-label="Reset Journey progress"
                 >
@@ -325,7 +325,7 @@ export function JourneyFloatingPanel({ journey, onRunDayAction, onRunCapabilityP
               <button
                 type="button"
                 onClick={() => journey.setPanelOpen(false)}
-                className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-white/8 hover:text-foreground"
+                className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-high hover:text-foreground"
                 title="Close Journey"
                 aria-label="Close Journey"
               >
@@ -349,8 +349,8 @@ export function JourneyFloatingPanel({ journey, onRunDayAction, onRunCapabilityP
                     complete
                       ? "bg-[var(--selection-accent)]"
                       : selected
-                        ? "bg-white/45"
-                        : "bg-white/12 hover:bg-white/22"
+                        ? "bg-text-secondary"
+                        : "bg-border hover:bg-border-strong"
                   }`}
                 />
               );
@@ -364,7 +364,7 @@ export function JourneyFloatingPanel({ journey, onRunDayAction, onRunCapabilityP
             animate={{ opacity: 1, y: 0 }}
             exit={reducedMotion ? undefined : { opacity: 0, y: -6 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
-            className="mt-4 rounded-2xl border border-white/10 bg-white/[0.035] p-4"
+            className="mt-4 rounded-2xl border border-border bg-background/60 p-4"
           >
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -384,7 +384,7 @@ export function JourneyFloatingPanel({ journey, onRunDayAction, onRunCapabilityP
             <p className="mt-3 text-sm font-medium leading-6 text-foreground">{day.mission}</p>
             <p className="mt-2 text-sm leading-6 text-text-secondary">{day.why}</p>
 
-            <div className="mt-4 rounded-xl border border-white/8 bg-black/20 p-3">
+            <div className="mt-4 rounded-xl border border-border bg-surface-high/40 p-3">
               <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">Agent Brief</p>
               <div className="mt-3 grid grid-cols-2 gap-1.5">
                 {briefPreviewItems.map((item) => {
@@ -406,10 +406,10 @@ export function JourneyFloatingPanel({ journey, onRunDayAction, onRunCapabilityP
                         ? "border-[rgb(var(--selection-accent-rgb)_/_0.24)] bg-[rgb(var(--selection-accent-rgb)_/_0.08)] text-[var(--selection-accent)]"
                         : latest
                           ? "border-[rgb(var(--selection-accent-rgb)_/_0.2)] bg-[rgb(var(--selection-accent-rgb)_/_0.045)] text-text-secondary"
-                        : "border-white/8 bg-white/[0.025] text-text-muted"
+                        : "border-border bg-surface-high/40 text-text-muted"
                     }`}
                   >
-                    {item.complete ? <CheckCircle2 className="h-3 w-3 shrink-0" /> : <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-white/18" />}
+                    {item.complete ? <CheckCircle2 className="h-3 w-3 shrink-0" /> : <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-text-muted" />}
                     <span className="truncate">{item.label}</span>
                   </motion.span>
                   );
@@ -418,7 +418,7 @@ export function JourneyFloatingPanel({ journey, onRunDayAction, onRunCapabilityP
               <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">Current focus</p>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {day.briefFocus.map((item) => (
-                  <span key={item} className="rounded-full border border-white/10 bg-white/[0.035] px-2 py-1 text-xs font-medium text-text-secondary">
+                  <span key={item} className="rounded-full border border-border bg-surface-high/40 px-2 py-1 text-xs font-medium text-text-secondary">
                     {item}
                   </span>
                 ))}
@@ -436,7 +436,7 @@ export function JourneyFloatingPanel({ journey, onRunDayAction, onRunCapabilityP
             ) : null}
 
             {capabilityCards.length ? (
-              <div className="mt-4 rounded-xl border border-white/8 bg-black/20 p-3">
+              <div className="mt-4 rounded-xl border border-border bg-surface-high/40 p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">Capabilities</p>
@@ -447,7 +447,7 @@ export function JourneyFloatingPanel({ journey, onRunDayAction, onRunCapabilityP
                   {capabilityCards.map((capability) => {
                     const CapabilityIcon = capability.icon;
                     return (
-                      <div key={capability.id} className="rounded-xl border border-white/10 bg-white/[0.035] p-3">
+                      <div key={capability.id} className="rounded-xl border border-border bg-background/60 p-3">
                         <div className="flex items-start gap-3">
                           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]">
                             <CapabilityIcon className="h-4 w-4" />
@@ -471,7 +471,7 @@ export function JourneyFloatingPanel({ journey, onRunDayAction, onRunCapabilityP
                           <button
                             type="button"
                             onClick={() => onOpenCapability(capability, day)}
-                            className="h-8 rounded-full px-2.5 text-xs font-medium text-text-muted transition-colors hover:bg-white/8 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)]"
+                            className="h-8 rounded-full px-2.5 text-xs font-medium text-text-muted transition-colors hover:bg-surface-high hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)]"
                             aria-label={`See ${capability.displayName} capability`}
                           >
                             See capability
@@ -509,7 +509,7 @@ export function JourneyFloatingPanel({ journey, onRunDayAction, onRunCapabilityP
               <button
                 type="button"
                 onClick={() => onRunDayAction(day)}
-                className="inline-flex h-9 items-center gap-2 rounded-full bg-[var(--selection-accent)] px-3.5 text-sm font-semibold text-black transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.55)]"
+                className="inline-flex h-9 items-center gap-2 rounded-full bg-[var(--selection-accent)] px-3.5 text-sm font-semibold text-[var(--selection-accent-foreground)] transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.55)]"
               >
                 {day.actionLabel}
                 <ArrowRight className="h-4 w-4" />
@@ -518,7 +518,7 @@ export function JourneyFloatingPanel({ journey, onRunDayAction, onRunCapabilityP
                 <button
                   type="button"
                   onClick={() => journey.skipDay(day.id)}
-                  className="h-9 rounded-full px-3 text-sm font-medium text-text-muted transition-colors hover:bg-white/8 hover:text-foreground"
+                  className="h-9 rounded-full px-3 text-sm font-medium text-text-muted transition-colors hover:bg-surface-high hover:text-foreground"
                 >
                   Not now
                 </button>

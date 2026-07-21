@@ -29,7 +29,7 @@ export function AchievementsModule({ variant, achievements: achievementsProp }: 
           animate={{ rotate: [0, 10, -10, 0] }}
           transition={{ repeat: Infinity, duration: 3 }}
         >
-          <Trophy className="w-3.5 h-3.5 text-[#f0c56c]" />
+          <Trophy className="w-3.5 h-3.5 text-warning" />
         </motion.div>
         <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
           This Week

@@ -3,7 +3,8 @@
 import { ReactNode } from "react";
 import { PrivyProvider } from "@privy-io/react-auth";
 import { AuthProvider, hasStoredSession } from "./AuthProvider";
-import { HYPERCLI_BRAND_ACCENT_HEX, HYPERCLI_LOGO_FULL_SRC } from "../components/HyperCLILogo";
+import { HYPERCLI_BRAND_ACCENT_HEX, HYPERCLI_LOGO_ICON_SRC } from "../components/HyperCLILogo";
+import { useTheme } from "../components/ThemeProvider";
 
 interface PrivyAuthBoundaryProps {
   appId: string;
@@ -35,10 +36,12 @@ export function PrivyAuthBoundary({
   children,
   tokenStorageKey = "app_auth_token",
   loginMethods = ["email", "wallet", "google"],
-  logo = HYPERCLI_LOGO_FULL_SRC,
+  logo = HYPERCLI_LOGO_ICON_SRC,
   accentColor = HYPERCLI_BRAND_ACCENT_HEX,
-  theme = "dark",
+  theme,
 }: PrivyAuthBoundaryProps) {
+  const { theme: productTheme } = useTheme();
+  const privyTheme = theme ?? productTheme;
   if (!isValidPrivyAppId(appId)) {
     throw new Error("PrivyAuthBoundary requires a valid appId");
   }
@@ -57,7 +60,7 @@ export function PrivyAuthBoundary({
       config={{
         loginMethods,
         appearance: {
-          theme,
+          theme: privyTheme,
           accentColor,
           logo,
         },

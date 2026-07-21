@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { ChevronDown, LogOut } from "lucide-react";
 import { useTurnkey } from "@turnkey/react-wallet-kit";
 import ContactModal from "./ContactModal";
 import { HyperCLILogo } from "./HyperCLILogo";
 import { PrivyLoginModal } from "./PrivyLogin";
+import { ThemeToggle } from "./ThemeToggle";
 import { useAuth } from "../providers/AuthProvider";
 import { clearLocalAuthTokens, cookieUtils, markAuthLogout } from "../utils/cookies";
 import { NAV_URLS } from "../utils/navigation";
@@ -27,8 +29,11 @@ export default function Header() {
   const [platformMenuFullyOpen, setPlatformMenuFullyOpen] = useState(false);
   const [solutionsMenuOpen, setSolutionsMenuOpen] = useState(false);
   const [solutionsMenuFullyOpen, setSolutionsMenuFullyOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
   const { logout } = useTurnkey();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, userInfo } = useAuth();
+  const accountInitial = userInfo?.email?.trim()[0]?.toUpperCase() || "U";
 
   const openContactModal = () => {
     setIsContactModalOpen(true);
@@ -63,6 +68,15 @@ export default function Header() {
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
+
+  useEffect(() => {
+    if (!accountMenuOpen) return;
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (!accountMenuRef.current?.contains(event.target as Node)) setAccountMenuOpen(false);
+    };
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    return () => document.removeEventListener("mousedown", closeOnOutsideClick);
+  }, [accountMenuOpen]);
 
   const platformMenuFullyOpenRef = useRef(false);
   const solutionsMenuFullyOpenRef = useRef(false);
@@ -266,19 +280,45 @@ export default function Header() {
             {/* Desktop CTAs - Only show on medium screens and up */}
             <div className="hidden md:!flex items-center space-x-3">
               {isAuthenticated ? (
-                <button
-                  onClick={handleLogoutClick}
-                  className="px-4 py-2 text-sm text-text-secondary hover:text-foreground transition-colors cursor-pointer"
-                >
-                  Logout
-                </button>
+                <div ref={accountMenuRef} className="relative">
+                  <button
+                    type="button"
+                    aria-label="Open account menu"
+                    aria-expanded={accountMenuOpen}
+                    onClick={() => setAccountMenuOpen((open) => !open)}
+                    className="inline-flex h-9 items-center gap-2 rounded-lg px-2 text-text-secondary transition-colors hover:bg-surface-high hover:text-foreground"
+                  >
+                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-surface-high text-xs font-bold text-foreground">{accountInitial}</span>
+                    <ChevronDown aria-hidden="true" className={`h-3.5 w-3.5 transition-transform ${accountMenuOpen ? "rotate-180" : ""}`} />
+                  </button>
+                  {accountMenuOpen ? (
+                    <div role="menu" className="absolute right-0 top-11 w-60 rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-xl">
+                      <div className="border-b border-border px-3 py-2">
+                        <p className="truncate text-sm font-medium">{userInfo?.email || "HyperCLI account"}</p>
+                      </div>
+                      <ThemeToggle showLabel role="menuitem" className="mt-1 w-full justify-start px-3" />
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => { setAccountMenuOpen(false); void handleLogoutClick(); }}
+                        className="flex h-9 w-full items-center gap-2 rounded-lg px-3 text-left text-sm font-medium text-text-secondary transition-colors hover:bg-surface-high hover:text-foreground"
+                      >
+                        <LogOut aria-hidden="true" className="h-4 w-4" />
+                        Logout
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               ) : (
-                <button
-                  onClick={openLoginModal}
-                  className="px-5 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary-hover transition-colors font-medium"
-                >
-                  Login
-                </button>
+                <>
+                  <ThemeToggle />
+                  <button
+                    onClick={openLoginModal}
+                    className="px-5 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary-hover transition-colors font-medium"
+                  >
+                    Login
+                  </button>
+                </>
               )}
             </div>
 
@@ -399,6 +439,7 @@ export default function Header() {
             >
               Contact
             </button>
+            <ThemeToggle showLabel className="w-full justify-start px-3 py-2 text-base" />
             <div className="border-t border-border-medium mt-4 pt-4">
               {isAuthenticated ? (
                 <button

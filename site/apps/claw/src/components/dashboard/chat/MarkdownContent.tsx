@@ -2,8 +2,7 @@
 
 import { createContext, useContext, useEffect, useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import Markdown from "react-markdown";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { Prism as SyntaxHighlighter, type SyntaxHighlighterProps } from "react-syntax-highlighter";
 import rehypeKatex from "rehype-katex";
 import rehypeSanitize, { defaultSchema, type Options as RehypeSanitizeOptions } from "rehype-sanitize";
 import remarkEmoji from "remark-emoji";
@@ -37,6 +36,54 @@ const MARKDOWN_DIAGRAM_WRAP_CLASS = `${MARKDOWN_WRAP_CLASS} my-3 overflow-hidden
 const MARKDOWN_TABLE_WRAP_CLASS = "my-2 w-full max-w-full overflow-hidden";
 const MARKDOWN_TABLE_CLASS = "w-full table-fixed border-collapse text-left text-xs";
 const MARKDOWN_TABLE_CELL_CLASS = "border-b border-border/60 px-2 py-1 align-top break-words [overflow-wrap:anywhere]";
+const SYNTAX_BASE_STYLE: CSSProperties = {
+  color: "var(--foreground)",
+  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+  textAlign: "left",
+  whiteSpace: "pre",
+  wordBreak: "normal",
+  lineHeight: 1.5,
+  tabSize: 2,
+};
+const SYNTAX_COMMENT_STYLE: CSSProperties = { color: "var(--text-tertiary)", fontStyle: "italic" };
+const SYNTAX_WARNING_STYLE: CSSProperties = { color: "var(--warning)" };
+const SYNTAX_DESTRUCTIVE_STYLE: CSSProperties = { color: "var(--destructive)" };
+const SYNTAX_ACCENT_STYLE: CSSProperties = { color: "var(--selection-accent)" };
+const SEMANTIC_SYNTAX_THEME: NonNullable<SyntaxHighlighterProps["style"]> = {
+  'code[class*="language-"]': SYNTAX_BASE_STYLE,
+  'pre[class*="language-"]': SYNTAX_BASE_STYLE,
+  comment: SYNTAX_COMMENT_STYLE,
+  prolog: SYNTAX_COMMENT_STYLE,
+  cdata: SYNTAX_COMMENT_STYLE,
+  punctuation: { color: "var(--text-secondary)" },
+  doctype: { color: "var(--text-secondary)" },
+  entity: { color: "var(--text-secondary)", cursor: "help" },
+  "attr-name": SYNTAX_WARNING_STYLE,
+  "class-name": SYNTAX_WARNING_STYLE,
+  boolean: SYNTAX_WARNING_STYLE,
+  constant: SYNTAX_WARNING_STYLE,
+  number: SYNTAX_WARNING_STYLE,
+  atrule: SYNTAX_WARNING_STYLE,
+  keyword: SYNTAX_ACCENT_STYLE,
+  property: SYNTAX_DESTRUCTIVE_STYLE,
+  tag: SYNTAX_DESTRUCTIVE_STYLE,
+  symbol: SYNTAX_DESTRUCTIVE_STYLE,
+  deleted: SYNTAX_DESTRUCTIVE_STYLE,
+  important: SYNTAX_DESTRUCTIVE_STYLE,
+  selector: { color: "var(--success)" },
+  string: { color: "var(--success)" },
+  char: { color: "var(--success)" },
+  builtin: { color: "var(--success)" },
+  inserted: { color: "var(--success)" },
+  regex: { color: "var(--success)" },
+  "attr-value": { color: "var(--success)" },
+  variable: SYNTAX_ACCENT_STYLE,
+  operator: { color: "var(--text-secondary)" },
+  function: SYNTAX_ACCENT_STYLE,
+  url: SYNTAX_ACCENT_STYLE,
+  bold: { fontWeight: 700 },
+  italic: { fontStyle: "italic" },
+};
 export const CHAT_MARKDOWN_IMAGE_CLASS = "h-auto max-h-[320px] max-w-full rounded-md object-contain sm:max-w-[320px]";
 export const CHAT_MEDIA_LINK_CLASS = "block max-w-full";
 const CODE_META_MARKER = "__OPENCLAW_CODE_META__:";
@@ -519,7 +566,7 @@ function MarkdownCodeBlock({ code, language, meta }: { code: string; language?: 
       )}
       <SyntaxHighlighter
         language={language || "text"}
-        style={oneDark}
+        style={SEMANTIC_SYNTAX_THEME}
         PreTag="pre"
         CodeTag="code"
         showLineNumbers={codeMeta.showLineNumbers}

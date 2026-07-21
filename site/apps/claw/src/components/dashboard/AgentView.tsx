@@ -530,14 +530,14 @@ export function AgentView({
                 initial={{ opacity: 0, scale: 0.95, y: -4 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 transition={{ duration: 0.12 }}
-                className="absolute right-0 top-full mt-1 z-50 w-52 rounded-lg border border-border bg-[#1a1a1c] shadow-xl overflow-hidden"
+                className="absolute right-0 top-full mt-1 z-50 w-52 rounded-lg border border-border bg-popover shadow-xl overflow-hidden"
               >
                 <div className="flex items-center justify-between px-3 py-2 border-b border-border">
                   <span className="text-[10px] font-semibold text-text-secondary uppercase tracking-wider">Modules</span>
                   <div className="flex gap-1">
                     <button onClick={showAllModules} className="text-[10px] text-primary hover:underline">All</button>
                     <span className="text-[10px] text-text-muted">|</span>
-                    <button onClick={hideAllModules} className="text-[10px] text-text-muted hover:text-[#d05f5f]">None</button>
+                    <button onClick={hideAllModules} className="text-[10px] text-text-muted hover:text-destructive">None</button>
                   </div>
                 </div>
                 <div className="max-h-64 overflow-y-auto py-1">
@@ -556,7 +556,7 @@ export function AgentView({
                           >
                             <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors ${isModuleVisible(mod.key) ? "bg-primary border-primary" : "border-text-muted"
                               }`}>
-                              {isModuleVisible(mod.key) && <Check className="w-2.5 h-2.5 text-white" />}
+                              {isModuleVisible(mod.key) && <Check className="w-2.5 h-2.5 text-primary-foreground" />}
                             </div>
                             <span className={`text-[11px] ${isModuleVisible(mod.key) ? "text-foreground" : "text-text-muted"}`}>{mod.label}</span>
                           </button>
@@ -572,7 +572,7 @@ export function AgentView({
                   >
                     <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors ${showAdvanced ? "bg-primary border-primary" : "border-text-muted"
                       }`}>
-                      {showAdvanced && <Check className="w-2.5 h-2.5 text-white" />}
+                      {showAdvanced && <Check className="w-2.5 h-2.5 text-primary-foreground" />}
                     </div>
                     <span className="text-[10px] text-text-secondary">Show advanced modules</span>
                   </button>
@@ -647,7 +647,7 @@ export function AgentView({
           {onboardingVariant === "v3" && (
             // v3: Floating tooltip style
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="absolute inset-x-3 top-2 z-10">
-              <div className="rounded-lg bg-[#1a1a1c] border border-primary/30 shadow-lg px-3 py-2">
+              <div className="rounded-lg bg-popover border border-primary/30 shadow-lg px-3 py-2">
                 <div className="flex items-center gap-2 mb-1">
                   <motion.div animate={{ rotate: [0, 10, -10, 0] }} transition={{ repeat: Infinity, duration: 2 }}>
                     <Sparkles className="w-3.5 h-3.5 text-primary" />
@@ -940,7 +940,7 @@ export function AgentView({
                           initial={{ opacity: 0, x: -12 }}
                           animate={{ opacity: 1, x: 0 }}
                           transition={{ duration: 0.25, delay: 0.4 + idx * 0.06 }}
-                          whileHover={{ x: 4, backgroundColor: "rgba(255,255,255,0.04)" }}
+                          whileHover={{ x: 4, backgroundColor: "var(--surface-low)" }}
                           whileTap={{ scale: 0.97 }}
                           onClick={() => {
                             if (targetThread) onTabChange?.("overview");
@@ -1095,9 +1095,9 @@ export function AgentView({
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-1.5">
                         <motion.div
-                          className={`w-6 h-6 rounded-md flex items-center justify-center ${entry.type === "error" ? "bg-[#d05f5f]/15" :
-                              entry.type === "tool" || entry.type === "cron" ? "bg-[#f0c56c]/15" :
-                                entry.type === "connection" ? "bg-[#4285f4]/15" :
+                          className={`w-6 h-6 rounded-md flex items-center justify-center ${entry.type === "error" ? "bg-destructive/15" :
+                              entry.type === "tool" || entry.type === "cron" ? "bg-warning/15" :
+                                entry.type === "connection" ? "bg-info/15" :
                                   "bg-primary/15"
                             }`}
                           animate={entry.type === "error" ? { scale: [1, 1.1, 1] } : {}}
@@ -1341,11 +1341,11 @@ export function AgentView({
                 <div className="flex items-center gap-1.5">
                   <button
                     onClick={() => toggleCron(cron.id)}
-                    className={`w-7 h-[16px] rounded-full flex items-center px-0.5 transition-colors cursor-pointer ${cron.enabled ? "bg-primary justify-end" : "bg-[#303030] justify-start"}`}
+                    className={`w-7 h-[16px] rounded-full flex items-center px-0.5 transition-colors cursor-pointer ${cron.enabled ? "bg-primary justify-end" : "bg-switch-background justify-start"}`}
                   >
-                    <div className="w-3 h-3 rounded-full bg-white shadow-sm" />
+                    <div className="w-3 h-3 rounded-full bg-foreground shadow-sm" />
                   </button>
-                  <button onClick={() => removeCron(cron.id)} className="text-text-muted hover:text-[#d05f5f] transition-colors">
+                  <button onClick={() => removeCron(cron.id)} className="text-text-muted hover:text-destructive transition-colors">
                     <Trash2 className="w-3 h-3" />
                   </button>
                 </div>
@@ -1401,7 +1401,7 @@ export function ConnectionDetail({ connection, onClose }: ConnectionDetailProps)
           <div className={`w-2 h-2 rounded-full ${connection.connected ? "bg-primary" : "bg-text-muted"}`} />
           <span className="text-xs text-text-secondary">{connection.connected ? "Connected" : "Not connected"}</span>
         </div>
-        <button className={`w-full py-2 rounded-lg text-sm font-medium transition-colors ${connection.connected ? "bg-[#d05f5f]/10 border border-[#d05f5f]/25 text-[#d05f5f] hover:bg-[#d05f5f]/20" : "bg-primary/10 border border-primary/25 text-primary hover:bg-primary/20"}`}>
+        <button className={`w-full py-2 rounded-lg text-sm font-medium transition-colors ${connection.connected ? "bg-destructive/10 border border-destructive/25 text-destructive hover:bg-destructive/20" : "bg-primary/10 border border-primary/25 text-primary hover:bg-primary/20"}`}>
           {connection.connected ? "Disconnect" : "Connect"}
         </button>
       </div>

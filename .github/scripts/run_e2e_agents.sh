@@ -237,11 +237,12 @@ npx playwright test \
   --project=chromium \
   --max-failures=1 \
   --workers=1 \
-  tests/claw/agents-subscription.spec.ts
-subscription_status=$?
+  tests/claw/agents-subscription.spec.ts \
+  tests/claw/agents-chat-navigation.spec.ts
+desktop_status=$?
 
 mobile_status=0
-if [[ ${subscription_status} -eq 0 ]]; then
+if [[ ${desktop_status} -eq 0 ]]; then
   npx playwright test \
     --config tests/claw/playwright.config.ts \
     --project=mobile-chromium \
@@ -253,7 +254,7 @@ fi
 set -e
 
 status=0
-if [[ ${subscription_status} -ne 0 || ${mobile_status} -ne 0 ]]; then
+if [[ ${desktop_status} -ne 0 || ${mobile_status} -ne 0 ]]; then
   status=1
 fi
 

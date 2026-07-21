@@ -70,11 +70,11 @@ export const SESSION_ICONS: Record<string, LucideIcon> = {
 
 export const ACTIVITY_TYPE_COLORS: Record<ActivityType, string> = {
   message: "text-primary",
-  tool: "text-[#f0c56c]",
-  connection: "text-[#4285f4]",
+  tool: "text-warning",
+  connection: "text-info",
   skill: "text-primary",
-  cron: "text-[#f0c56c]",
-  error: "text-[#d05f5f]",
+  cron: "text-warning",
+  error: "text-destructive",
   system: "text-text-muted",
 };
 
@@ -232,9 +232,9 @@ export const TOOL_USAGE_STATS = [
 
 export const INTERACTION_PATTERNS = [
   { label: "Code review", pct: 34, color: "var(--selection-accent)" },
-  { label: "Email triage", pct: 28, color: "#4285f4" },
-  { label: "Research", pct: 22, color: "#f0c56c" },
-  { label: "File ops", pct: 16, color: "#d05f5f" },
+  { label: "Email triage", pct: 28, color: "var(--info)" },
+  { label: "Research", pct: 22, color: "var(--warning)" },
+  { label: "File ops", pct: 16, color: "var(--destructive)" },
 ];
 
 export const EXAMPLE_PROMPTS_BY_CAPABILITY: { capability: string; icon: LucideIcon; prompts: string[] }[] = [

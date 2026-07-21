@@ -39,7 +39,7 @@ export function GroupPermissionsModule({
                 {p.name}
               </span>
               <span
-                className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${p.role === "admin" ? "bg-primary/10 text-primary" : p.role === "operator" ? "bg-[#4A9EFF]/10 text-[#4A9EFF]" : p.role === "contributor" ? "bg-[#f0c56c]/10 text-[#f0c56c]" : "bg-surface-high text-text-muted"}`}
+                className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${p.role === "admin" ? "bg-primary/10 text-primary" : p.role === "operator" ? "bg-info/10 text-info" : p.role === "contributor" ? "bg-warning/10 text-warning" : "bg-surface-high text-text-muted"}`}
               >
                 {p.role}
               </span>

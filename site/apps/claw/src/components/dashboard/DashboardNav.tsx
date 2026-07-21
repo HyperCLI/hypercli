@@ -23,6 +23,7 @@ import {
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
+import { ThemeToggle } from "@hypercli/shared-ui";
 
 const dropdownNavItems = [
   { label: "API Keys", href: "/keys", icon: Key },
@@ -138,6 +139,8 @@ export function DashboardNav() {
                       Settings
                     </Link>
 
+                    <ThemeToggle showLabel role="menuitem" className="w-full justify-start px-3" />
+
                     <button
                       onClick={() => {
                         setUserMenuOpen(false);
@@ -242,7 +245,7 @@ export function DashboardNav() {
                         setMobileMenuOpen(false);
                       }}
                       disabled={agentMenu.deleting}
-                      className="w-full flex items-center gap-2 px-2 py-2 rounded-md text-sm text-text-tertiary hover:text-[#d05f5f] hover:bg-surface-low transition-colors disabled:opacity-60"
+                      className="w-full flex items-center gap-2 px-2 py-2 rounded-md text-sm text-text-tertiary hover:text-destructive hover:bg-surface-low transition-colors disabled:opacity-60"
                     >
                       {agentMenu.deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                       <span>Delete</span>
@@ -250,6 +253,7 @@ export function DashboardNav() {
                   </div>
                 )}
 
+                <ThemeToggle showLabel className="mb-2 w-full justify-start px-2" />
                 <button
                   onClick={() => {
                     setMobileMenuOpen(false);

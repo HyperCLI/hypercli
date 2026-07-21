@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useRef } from "react";
 import Link from "next/link";
-import { Header, Footer, TopUpModal, AlertDialog, formatDateTime } from "@hypercli/shared-ui";
+import { Header, Footer, ThemeSelector, TopUpModal, AlertDialog, formatDateTime } from "@hypercli/shared-ui";
 import JobTransactionRow from "../../components/JobTransactionRow";
 import TopUpTransactionRow from "../../components/TopUpTransactionRow";
 import LLMTransactionRow from "../../components/LLMTransactionRow";
@@ -314,6 +314,10 @@ export default function DashboardPage() {
                 )}
               </>
             )}
+            <div className="mt-5 flex flex-col gap-3 border-t border-border pt-5 sm:flex-row sm:items-center">
+              <span className="w-24 text-sm font-semibold text-tertiary-foreground">Appearance:</span>
+              <ThemeSelector aria-label="Appearance theme" />
+            </div>
           </div>
 
           {/* Balance Section */}

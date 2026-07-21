@@ -311,13 +311,13 @@ function fallbackStatus(): NormalizedStatus {
 function statusTone(status: StatusLevel) {
   switch (status) {
     case "operational":
-      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-300";
+      return "border-success/30 bg-success/10 text-success";
     case "degraded":
     case "maintenance":
-      return "border-amber-500/30 bg-amber-500/10 text-amber-300";
+      return "border-warning/30 bg-warning/10 text-warning";
     case "partial_outage":
     case "major_outage":
-      return "border-red-500/30 bg-red-500/10 text-red-300";
+      return "border-error/30 bg-error/10 text-error";
     default:
       return "border-border-medium bg-surface-low text-text-secondary";
   }
@@ -500,7 +500,7 @@ export default function StatusDashboard({
       </section>
 
       {loadState.phase === "error" ? (
-        <section className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
+        <section className="rounded-lg border border-warning/30 bg-warning/10 p-4 text-sm text-warning">
           <div className="flex items-start gap-3">
             <AlertTriangle
               className="mt-0.5 h-5 w-5 shrink-0"
@@ -508,7 +508,7 @@ export default function StatusDashboard({
             />
             <div>
               <p className="font-medium">Live status could not be loaded.</p>
-              <p className="mt-1 text-amber-100/80">{loadState.error}</p>
+              <p className="mt-1 text-warning/80">{loadState.error}</p>
             </div>
           </div>
         </section>

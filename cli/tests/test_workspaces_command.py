@@ -12,7 +12,7 @@ runner = CliRunner()
 class _FakeWorkspace:
     def __init__(self):
         self.id = "workspace-1"
-        self.name = "Demo Workspace"
+        self.name = "Demo knowledge"
         self.slug = "demo"
         self.description = None
 
@@ -72,10 +72,11 @@ def test_workspaces_create_invokes_cli(monkeypatch):
 
     monkeypatch.setattr(workspaces_mod, "_get_workspaces", lambda: _FakeWorkspaces())
 
-    result = runner.invoke(app, ["workspaces", "create", "Demo Workspace", "--slug", "demo"])
+    result = runner.invoke(app, ["workspaces", "create", "Demo knowledge", "--slug", "demo"])
 
     assert result.exit_code == 0, result.stdout
-    assert captured == {"name": "Demo Workspace", "slug": "demo", "description": None, "user_id": None}
+    assert "Created shared knowledge" in result.stdout
+    assert captured == {"name": "Demo knowledge", "slug": "demo", "description": None, "user_id": None}
 
 
 def test_workspaces_search_invokes_cli(monkeypatch):
@@ -217,6 +218,8 @@ def test_workspaces_update_delete_and_grants_invokes_cli(monkeypatch):
     assert listed.exit_code == 0, listed.stdout
     assert revoked.exit_code == 0, revoked.stdout
     assert deleted.exit_code == 0, deleted.stdout
+    assert "Updated shared knowledge" in updated.stdout
+    assert "Deleted shared knowledge" in deleted.stdout
     assert calls == [
         ("update", "demo", "Renamed", "renamed", "Updated", "user-1"),
         ("list_grants", "renamed", "user-1"),

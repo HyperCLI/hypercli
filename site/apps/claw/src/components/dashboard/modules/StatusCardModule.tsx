@@ -35,13 +35,13 @@ export function StatusCardModule({ agentName = "Agent", status = MOCK_STATUS }: 
           animate={{ scale: 1 }}
           transition={{ type: "spring", stiffness: 500, damping: 20, delay: 0.15 }}
           className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${status.state === "RUNNING" ? "bg-primary/15 text-primary"
-              : status.state === "STOPPED" ? "bg-[#d05f5f]/15 text-[#d05f5f]"
-                : "bg-[#f0c56c]/15 text-[#f0c56c]"
+              : status.state === "STOPPED" ? "bg-destructive/15 text-destructive"
+                : "bg-warning/15 text-warning"
             }`}
         >
           <span className="flex items-center gap-1">
             <motion.span
-              className={`inline-block w-1.5 h-1.5 rounded-full ${status.state === "RUNNING" ? "bg-primary" : status.state === "STOPPED" ? "bg-[#d05f5f]" : "bg-[#f0c56c]"
+              className={`inline-block w-1.5 h-1.5 rounded-full ${status.state === "RUNNING" ? "bg-primary" : status.state === "STOPPED" ? "bg-destructive" : "bg-warning"
                 }`}
               animate={{ scale: [0.8, 1.4, 0.8], opacity: [0.6, 1, 0.6] }}
               transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}

@@ -156,7 +156,7 @@ export function JourneyIntroPanel({ agentName, suggestedUserName, onStartBrief }
         initial={reducedMotion ? false : { opacity: 0, y: 10, scale: 0.99 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.24, ease: "easeOut" }}
-        className="relative overflow-visible rounded-[1.2rem] border border-white/10 bg-[#141415]/92 p-4 shadow-[0_20px_70px_rgba(0,0,0,0.24)] outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)] sm:p-5"
+        className="relative overflow-visible rounded-[1.2rem] border border-border bg-surface/95 p-4 shadow-[0_20px_70px_rgba(0,0,0,0.24)] outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)] sm:p-5"
       >
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 rounded-[1.2rem] border border-[rgb(var(--selection-accent-rgb)_/_0.16)]" />
         {[0, 0.9, 1.8].map((delay) => (
@@ -177,7 +177,7 @@ export function JourneyIntroPanel({ agentName, suggestedUserName, onStartBrief }
           />
         ))}
         <div aria-hidden="true" className="pointer-events-none absolute -right-20 -top-20 h-44 w-44 rounded-full bg-[rgb(var(--selection-accent-rgb)_/_0.1)] blur-3xl" />
-        <div aria-hidden="true" className="pointer-events-none absolute -left-20 bottom-4 h-36 w-36 rounded-full bg-white/[0.03] blur-3xl" />
+        <div aria-hidden="true" className="pointer-events-none absolute -left-20 bottom-4 h-36 w-36 rounded-full bg-surface-high/30 blur-3xl" />
 
         <div className="relative">
           <div className="flex items-center justify-between gap-3">
@@ -202,7 +202,7 @@ export function JourneyIntroPanel({ agentName, suggestedUserName, onStartBrief }
                   className={`h-1.5 rounded-full transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)] ${
                     index === slideIndex
                       ? "w-6 bg-[var(--selection-accent)]"
-                      : "w-2 bg-white/18 hover:bg-white/32"
+                      : "w-2 bg-border hover:bg-border-strong"
                   }`}
                 />
               ))}
@@ -265,7 +265,7 @@ export function JourneyIntroPanel({ agentName, suggestedUserName, onStartBrief }
                 />
                 <div className="mt-4 grid gap-2 sm:grid-cols-2">
                   {["Duties", "Trusted sources", "Boundaries", "Good results"].map((item) => (
-                    <div key={item} className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2 text-xs font-semibold text-text-secondary">
+                    <div key={item} className="flex items-center gap-2 rounded-xl border border-border bg-surface-high/40 px-3 py-2 text-xs font-semibold text-text-secondary">
                       <Check className="h-3.5 w-3.5 text-[var(--selection-accent)]" />
                       {item}
                     </div>
@@ -292,7 +292,7 @@ export function JourneyIntroPanel({ agentName, suggestedUserName, onStartBrief }
                   className="mt-3 text-[1.45rem] font-semibold leading-tight tracking-[-0.035em] text-foreground sm:text-[1.75rem]"
                   lines={[{ text: `What should ${displayName} call you?` }]}
                 />
-                <div className="mt-4 rounded-[1rem] border border-white/10 bg-white/[0.035] p-3">
+                <div className="mt-4 rounded-[1rem] border border-border bg-surface-high/40 p-3">
                   <label htmlFor="journey-preferred-name" className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">
                     Preferred name
                   </label>
@@ -302,7 +302,7 @@ export function JourneyIntroPanel({ agentName, suggestedUserName, onStartBrief }
                     value={preferredName}
                     onChange={(event) => setPreferredNameOverride(event.target.value)}
                     placeholder="Your name"
-                    className="mt-2 h-9 w-full rounded-lg border border-white/10 bg-black/20 px-3 text-sm font-medium text-foreground placeholder:text-text-muted outline-none transition-colors focus:border-[rgb(var(--selection-accent-rgb)_/_0.45)] focus:ring-2 focus:ring-[rgb(var(--selection-accent-rgb)_/_0.18)]"
+                    className="mt-2 h-9 w-full rounded-lg border border-border bg-background/60 px-3 text-sm font-medium text-foreground placeholder:text-text-muted outline-none transition-colors focus:border-[rgb(var(--selection-accent-rgb)_/_0.45)] focus:ring-2 focus:ring-[rgb(var(--selection-accent-rgb)_/_0.18)]"
                   />
                   <p className="mt-2 text-xs leading-5 text-text-muted">
                     We&apos;ll include this in the first brief so your agent knows how to address you. You can change it before you start.
@@ -346,7 +346,7 @@ export function JourneyIntroPanel({ agentName, suggestedUserName, onStartBrief }
                       transition={{ duration: 0.18, ease: "easeOut", delay: reducedMotion ? 0 : 0.08 + index * 0.025 }}
                       whileHover={reducedMotion ? undefined : { y: -1 }}
                       whileTap={reducedMotion ? undefined : { scale: 0.99 }}
-                      className="rounded-xl border border-white/10 bg-white/[0.035] px-3 py-2 text-left text-xs font-semibold leading-5 text-text-secondary transition-colors hover:border-[rgb(var(--selection-accent-rgb)_/_0.3)] hover:bg-[rgb(var(--selection-accent-rgb)_/_0.08)] hover:text-[var(--selection-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.5)]"
+                      className="rounded-xl border border-border bg-surface-high/40 px-3 py-2 text-left text-xs font-semibold leading-5 text-text-secondary transition-colors hover:border-[rgb(var(--selection-accent-rgb)_/_0.3)] hover:bg-[rgb(var(--selection-accent-rgb)_/_0.08)] hover:text-[var(--selection-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.5)]"
                     >
                       {seed.label}
                     </motion.button>
@@ -356,12 +356,12 @@ export function JourneyIntroPanel({ agentName, suggestedUserName, onStartBrief }
             ) : null}
           </AnimatePresence>
 
-          <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/10 pt-3">
+          <div className="mt-4 flex items-center justify-between gap-3 border-t border-border pt-3">
             <button
               type="button"
               onClick={goBack}
               disabled={slideIndex === 0}
-              className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-sm font-medium text-text-muted transition-colors hover:bg-white/8 hover:text-foreground disabled:pointer-events-none disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)]"
+              className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-sm font-medium text-text-muted transition-colors hover:bg-surface-high hover:text-foreground disabled:pointer-events-none disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)]"
             >
               <ArrowLeft className="h-4 w-4" />
               Back
@@ -370,7 +370,7 @@ export function JourneyIntroPanel({ agentName, suggestedUserName, onStartBrief }
             <button
               type="button"
               onClick={goNext}
-              className="inline-flex h-9 items-center gap-2 rounded-full bg-[var(--selection-accent)] px-3.5 text-sm font-semibold text-black transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.55)]"
+              className="inline-flex h-9 items-center gap-2 rounded-full bg-[var(--selection-accent)] px-3.5 text-sm font-semibold text-[var(--selection-accent-foreground)] transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.55)]"
             >
               {lastSlide ? "Start the brief" : "Next"}
               <ArrowRight className="h-4 w-4" />

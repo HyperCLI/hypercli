@@ -33,6 +33,27 @@ const mobileAgent = {
   },
 };
 
+const offlineMobileAgent = {
+  ...mobileAgent,
+  id: "agent-mobile-offline",
+  pod_id: "pod-mobile-offline",
+  pod_name: "agent-mobile-offline",
+  name: "Offline Mobile Agent",
+  state: "STOPPED",
+  hostname: null,
+  started_at: null,
+  stopped_at: "2026-05-18T01:00:00Z",
+};
+
+const secondMobileAgent = {
+  ...mobileAgent,
+  id: "agent-mobile-support",
+  pod_id: "pod-mobile-support",
+  pod_name: "agent-mobile-support",
+  name: "Mobile Support Agent",
+  hostname: "mobile-support-agent.hypercli.test",
+};
+
 const activeSubscription = {
   id: "sub-mobile-pro",
   user_id: "user-mobile",
@@ -183,7 +204,7 @@ async function mockAuthenticatedMobileAgent(page: Page): Promise<void> {
     }
 
     if (pathName.endsWith("/agents/deployments") && method === "GET") {
-      await route.fulfill(json([mobileAgent]));
+      await route.fulfill(json([mobileAgent, secondMobileAgent, offlineMobileAgent]));
       return;
     }
 
@@ -380,6 +401,13 @@ test.describe("Agents mobile layout", () => {
 
     await page.getByRole("button", { name: /open agents sidebar/i }).click();
     await expect(page.getByRole("button", { name: "Mobile Regression Agent" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Move Mobile Regression Agent" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Offline Mobile Agent" })).toHaveCount(0);
+    await expect(page.getByText(/^available agents$/i)).toHaveCount(0);
+    const showOfflineAgents = page.getByRole("button", { name: "Show offline agents" });
+    await expect(showOfflineAgents).toHaveAttribute("aria-pressed", "false");
+    await showOfflineAgents.click();
+    await expect(page.getByRole("button", { name: "Offline Mobile Agent" })).toBeVisible();
     const closeAgentsSidebar = page.getByRole("button", { name: /close agents sidebar/i }).last();
     await expect(closeAgentsSidebar).toBeVisible();
     await page.waitForTimeout(250);

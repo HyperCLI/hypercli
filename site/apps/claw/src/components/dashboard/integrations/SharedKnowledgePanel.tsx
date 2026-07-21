@@ -231,7 +231,7 @@ function NewKnowledgeBaseModal({ agents, onClose, onCreate }: { agents: SharedKn
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
-      <button type="button" aria-label="Close new workspace" onClick={onClose} className="absolute inset-0 cursor-default bg-background/75 backdrop-blur-sm" />
+      <button type="button" aria-label="Close new shared knowledge" onClick={onClose} className="absolute inset-0 cursor-default bg-background/75 backdrop-blur-sm" />
       <section role="dialog" aria-modal="true" aria-labelledby="new-workspace-title" className="relative flex max-h-[92vh] w-full max-w-[520px] flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
         <header className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
           <div className="flex items-start gap-3">
@@ -239,8 +239,8 @@ function NewKnowledgeBaseModal({ agents, onClose, onCreate }: { agents: SharedKn
               <HardDrive className="h-4 w-4" />
             </div>
             <div>
-              <h2 id="new-workspace-title" className="text-[16px] font-semibold leading-tight text-foreground">New Workspace</h2>
-              <p className="mt-1 text-[12px] leading-snug text-text-muted">Create a shared workspace for agent-accessible files.</p>
+              <h2 id="new-workspace-title" className="text-[16px] font-semibold leading-tight text-foreground">New shared knowledge</h2>
+              <p className="mt-1 text-[12px] leading-snug text-text-muted">Create shared knowledge that agents can access during conversations.</p>
             </div>
           </div>
           <button type="button" aria-label="Close" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground">
@@ -255,7 +255,7 @@ function NewKnowledgeBaseModal({ agents, onClose, onCreate }: { agents: SharedKn
             </div>
             <label className="block">
               <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.22em] text-text-muted">Name</span>
-              <input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g., Team Workspace" className="h-10 w-full rounded-xl border border-border bg-surface-low/40 px-3 text-sm text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50" />
+              <input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g., Team knowledge" className="h-10 w-full rounded-xl border border-border bg-surface-low/40 px-3 text-sm text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50" />
             </label>
 
             <div />
@@ -296,7 +296,7 @@ function NewKnowledgeBaseModal({ agents, onClose, onCreate }: { agents: SharedKn
           </button>
           <button type="button" onClick={handleCreate} disabled={!canCreate} className="inline-flex h-9 items-center gap-2 rounded-xl bg-foreground px-4 text-sm font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-45">
             <Plus className="h-4 w-4" />
-            Create Workspace
+            Create shared knowledge
           </button>
         </footer>
       </section>
@@ -311,7 +311,7 @@ function EditKnowledgeBaseModal({ base, onClose, onSave }: { base: KnowledgeBase
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
-      <button type="button" aria-label="Close edit workspace" onClick={onClose} className="absolute inset-0 cursor-default bg-background/75 backdrop-blur-sm" />
+      <button type="button" aria-label="Close edit shared knowledge" onClick={onClose} className="absolute inset-0 cursor-default bg-background/75 backdrop-blur-sm" />
       <section role="dialog" aria-modal="true" aria-labelledby="edit-workspace-title" className="relative flex max-h-[92vh] w-full max-w-[520px] flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
         <header className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
           <div className="flex items-start gap-3">
@@ -319,8 +319,8 @@ function EditKnowledgeBaseModal({ base, onClose, onSave }: { base: KnowledgeBase
               <Pencil className="h-4 w-4" />
             </div>
             <div>
-              <h2 id="edit-workspace-title" className="text-[16px] font-semibold leading-tight text-foreground">Edit Workspace</h2>
-              <p className="mt-1 text-[12px] leading-snug text-text-muted">Update workspace name and description.</p>
+              <h2 id="edit-workspace-title" className="text-[16px] font-semibold leading-tight text-foreground">Edit shared knowledge</h2>
+              <p className="mt-1 text-[12px] leading-snug text-text-muted">Update the shared knowledge name and description.</p>
             </div>
           </div>
           <button type="button" aria-label="Close" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground">
@@ -526,7 +526,7 @@ function WorkspaceFilesView({
       {dragOver && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-background/70 backdrop-blur-[1px]">
           <div className="rounded-xl border border-primary/40 bg-background px-4 py-3 text-[13px] font-medium text-foreground shadow-xl">
-            Drop files to upload to {currentPath || "this workspace"}
+            {currentPath ? `Drop files to upload to ${currentPath}` : "Drop files here to upload"}
           </div>
         </div>
       )}
@@ -795,7 +795,7 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
       setKnowledgeBases(hydrated);
       setExpandedBaseId((current) => current && hydrated.some((base) => base.workspace.id === current) ? current : hydrated[0]?.workspace.id ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load workspaces.");
+      setError(err instanceof Error ? err.message : "Unable to load shared knowledge.");
       setKnowledgeBases([]);
     } finally {
       setLoading(false);
@@ -820,7 +820,7 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
       setAssignmentBaseId(null);
       setQuery("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to create workspace.");
+      setError(err instanceof Error ? err.message : "Unable to create shared knowledge.");
     } finally {
       setLoading(false);
     }
@@ -836,7 +836,7 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
       await loadWorkspaces();
       setExpandedBaseId(updated.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to update workspace.");
+      setError(err instanceof Error ? err.message : "Unable to update shared knowledge.");
     } finally {
       setBusyBaseId(null);
     }
@@ -852,7 +852,7 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
       setAssignmentBaseId((current) => current === base.workspace.id ? null : current);
       setExpandedBaseId((current) => current === base.workspace.id ? null : current);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to delete workspace.");
+      setError(err instanceof Error ? err.message : "Unable to delete shared knowledge.");
     } finally {
       setBusyBaseId(null);
     }
@@ -956,21 +956,21 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
         <div className="mb-7 space-y-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h2 className="text-[20px] font-semibold leading-tight text-foreground">Workspaces</h2>
-              <p className="mt-1 text-[13px] leading-snug text-text-muted">Shared workspace files that agents can access during conversations.</p>
+              <h2 className="text-[20px] font-semibold leading-tight text-foreground">Shared knowledge</h2>
+              <p className="mt-1 text-[13px] leading-snug text-text-muted">Files that agents can access during conversations.</p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <button type="button" onClick={() => void loadWorkspaces()} disabled={!workspaces || loading} aria-label="Refresh workspaces" className="flex h-9 w-9 items-center justify-center rounded-xl border border-border text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-50">
+              <button type="button" onClick={() => void loadWorkspaces()} disabled={!workspaces || loading} aria-label="Refresh shared knowledge" className="flex h-9 w-9 items-center justify-center rounded-xl border border-border text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-50">
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               </button>
               <button type="button" onClick={() => setCreateOpen(true)} disabled={!workspaces || loading} className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl bg-foreground px-4 text-sm font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-45">
-                <Plus className="h-4 w-4" /> New Workspace
+                <Plus className="h-4 w-4" /> New shared knowledge
               </button>
             </div>
           </div>
           <label className="relative block">
             <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search workspaces..." className="h-10 w-full rounded-xl border border-border bg-surface-low/35 pl-10 pr-4 text-sm text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search shared knowledge..." className="h-10 w-full rounded-xl border border-border bg-surface-low/35 pl-10 pr-4 text-sm text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50" />
           </label>
           {error && (
             <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-[12px] text-destructive">
@@ -984,14 +984,14 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
           {!workspaces && (
             <div className="rounded-2xl border border-dashed border-border bg-surface-low/25 px-5 py-10 text-center">
               <HardDrive className="mx-auto mb-2 h-5 w-5 text-text-muted" />
-              <p className="text-[13px] font-semibold text-foreground">Workspaces are not connected.</p>
-              <p className="mt-1 text-[11px] text-text-muted">Sign in again if the workspace client is unavailable.</p>
+              <p className="text-[13px] font-semibold text-foreground">Shared knowledge is not connected.</p>
+              <p className="mt-1 text-[11px] text-text-muted">Sign in again if shared knowledge is unavailable.</p>
             </div>
           )}
           {workspaces && loading && knowledgeBases.length === 0 && (
             <div className="rounded-2xl border border-border bg-surface-low/25 px-5 py-10 text-center">
               <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin text-text-muted" />
-              <p className="text-[13px] font-semibold text-foreground">Loading workspaces</p>
+              <p className="text-[13px] font-semibold text-foreground">Loading shared knowledge</p>
             </div>
           )}
           {workspaces && !loading && knowledgeBases.map((base) => (
@@ -1018,8 +1018,8 @@ export function SharedKnowledgePanel({ agents = [], workspaces = null, ready = B
           {workspaces && !loading && knowledgeBases.length === 0 && (
             <div className="rounded-2xl border border-dashed border-border bg-surface-low/25 px-5 py-10 text-center">
               <HardDrive className="mx-auto mb-2 h-5 w-5 text-text-muted" />
-              <p className="text-[13px] font-semibold text-foreground">No workspaces found.</p>
-              <p className="mt-1 text-[11px] text-text-muted">Create one to start sharing files with agents.</p>
+              <p className="text-[13px] font-semibold text-foreground">No shared knowledge found.</p>
+              <p className="mt-1 text-[11px] text-text-muted">Create shared knowledge to start sharing files with agents.</p>
             </div>
           )}
         </div>

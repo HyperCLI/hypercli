@@ -22,8 +22,8 @@ const STATUS_TEXT: Record<HatchState, { title: string; detail: string }> = {
     detail: "Restoring the agent home directory.",
   },
   SYNCING: {
-    title: "Syncing workspaces",
-    detail: "Syncing shared workspace Markdown.",
+    title: "Syncing shared knowledge",
+    detail: "Syncing shared knowledge Markdown.",
   },
   STARTING: {
     title: "Booting agent",

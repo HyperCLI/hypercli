@@ -1,19 +1,22 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Reorder } from "framer-motion";
 import { Plus } from "lucide-react";
 import {
   AgentsChannelsSidebar,
   AgentsSidebarDashboardLinks,
   type ConversationThread,
-  type Participant,
 } from "@/components/dashboard/AgentsChannelsSidebar";
+import { isAgentOffline } from "@/app/dashboard/agents/types";
+import { CollapsedAgentReorderItem } from "@/components/dashboard/agents/CollapsedAgentReorderItem";
 import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { ResourceImage } from "@/components/ResourceImage";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
+import { moveAgentInRosterOrder, useAgentRosterOrder } from "@/hooks/useAgentRosterOrder";
 
 const AGENT_LAUNCHER_HREF = "/dashboard/agents?open=agent-launcher";
 
@@ -40,11 +43,11 @@ function stateDotClass(state: string | null | undefined) {
     case "FAILED":
     case "RESTORE_FAILED":
     case "SYNC_FAILED":
-      return "bg-[#d05f5f]";
+      return "bg-destructive";
     case "STOPPED":
       return "bg-text-muted";
     default:
-      return "bg-[#f0c56c]";
+      return "bg-warning";
   }
 }
 
@@ -56,20 +59,34 @@ export function DashboardAgentRail({
   onLogout,
 }: DashboardAgentRailProps) {
   const router = useRouter();
+  const [showOfflineAgents, setShowOfflineAgents] = useState(false);
   const initial = accountInitial.trim()[0]?.toUpperCase() || "?";
-  const availableAgents = useMemo<Participant[]>(
-    () =>
-      agents.map((agent) => ({
-        id: agent.id,
-        name: agent.name || agent.id,
-        type: "agent" as const,
-        meta: agent.meta ?? null,
-      })),
-    [agents],
+  const agentIds = useMemo(() => agents.map((agent) => agent.id), [agents]);
+  const { orderedAgentIds, setVisibleAgentOrder } = useAgentRosterOrder(agentIds);
+  const orderedAgents = useMemo(() => {
+    const agentById = new Map(agents.map((agent) => [agent.id, agent]));
+    return orderedAgentIds
+      .map((agentId) => agentById.get(agentId))
+      .filter((agent): agent is DashboardRailAgent => Boolean(agent));
+  }, [agents, orderedAgentIds]);
+  const offlineAgentCount = useMemo(
+    () => orderedAgents.filter((agent) => isAgentOffline(agent.state)).length,
+    [orderedAgents],
+  );
+  const visibleAgents = useMemo(
+    () => showOfflineAgents ? orderedAgents : orderedAgents.filter((agent) => !isAgentOffline(agent.state)),
+    [orderedAgents, showOfflineAgents],
+  );
+  const visibleAgentIds = useMemo(() => visibleAgents.map((agent) => agent.id), [visibleAgents]);
+  const moveVisibleAgent = useCallback(
+    (agentId: string, direction: -1 | 1) => {
+      setVisibleAgentOrder(moveAgentInRosterOrder(visibleAgentIds, agentId, direction));
+    },
+    [setVisibleAgentOrder, visibleAgentIds],
   );
   const syntheticThreads = useMemo<ConversationThread[]>(
     () =>
-      agents.map((agent) => ({
+      visibleAgents.map((agent) => ({
         id: agent.id,
         sessionKey: resolveOpenClawSessionKey(agent.id),
         participants: [
@@ -85,7 +102,7 @@ export function DashboardAgentRail({
         unreadCount: 0,
         isActive: agent.state === "RUNNING",
       })),
-    [agents],
+    [visibleAgents],
   );
 
   const openAgent = (agentId: string) => {
@@ -94,8 +111,8 @@ export function DashboardAgentRail({
 
   return (
     <aside
-      className="dashboard-agent-rail flex h-full flex-shrink-0 flex-col overflow-visible border-r border-border bg-[#151516] transition-[width] duration-200"
-      style={{ width: collapsed ? 48 : 280 }}
+      className="dashboard-agent-rail flex h-full flex-shrink-0 flex-col overflow-visible border-r border-border bg-surface-low transition-[width] duration-200"
+      style={{ width: collapsed ? 64 : 280 }}
       aria-label="Agents"
     >
       {collapsed ? (
@@ -122,9 +139,25 @@ export function DashboardAgentRail({
               <Plus className="h-4 w-4" />
             </Link>
 
-            {agents.map((agent) => (
-              <AgentAvatarLink key={agent.id} agent={agent} compact />
-            ))}
+            <Reorder.Group
+              as="div"
+              axis="y"
+              values={visibleAgentIds}
+              onReorder={setVisibleAgentOrder}
+              className="flex flex-col items-center gap-3"
+            >
+              {visibleAgents.map((agent) => (
+                <CollapsedAgentReorderItem
+                  key={agent.id}
+                  agentId={agent.id}
+                  agentName={agent.name || agent.id}
+                  canReorder={visibleAgents.length > 1}
+                  onMove={(direction) => moveVisibleAgent(agent.id, direction)}
+                >
+                  <AgentAvatarLink agent={agent} compact />
+                </CollapsedAgentReorderItem>
+              ))}
+            </Reorder.Group>
           </div>
 
           <AgentsSidebarDashboardLinks compact accountInitial={initial} onLogout={onLogout} />
@@ -137,7 +170,10 @@ export function DashboardAgentRail({
           threads={syntheticThreads}
           selectedThreadId={null}
           showChannels={false}
-          availableAgents={availableAgents}
+          offlineAgentCount={offlineAgentCount}
+          showOfflineAgents={showOfflineAgents}
+          onShowOfflineAgentsChange={setShowOfflineAgents}
+          onReorderAgents={setVisibleAgentOrder}
           accountInitial={initial}
           onLogout={onLogout}
           onCollapse={() => onCollapsedChange(true)}
@@ -201,7 +237,7 @@ function AgentAvatarVisual({
       )}
       <span
         aria-hidden
-        className={`absolute -bottom-0.5 -right-0.5 rounded-full border-2 border-[#151516] ${compact ? "h-2.5 w-2.5" : "h-3 w-3"} ${stateDotClass(agent.state)}`}
+        className={`absolute -bottom-0.5 -right-0.5 rounded-full border-2 border-surface-low ${compact ? "h-2.5 w-2.5" : "h-3 w-3"} ${stateDotClass(agent.state)}`}
       />
     </span>
   );

@@ -40,7 +40,7 @@ export function MembersModule({ variant }: MembersModuleProps) {
                 <span className="text-xs text-foreground">{m.name}</span>
               </div>
               <span
-                className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${m.role === "owner" ? "bg-primary/10 text-primary" : m.role === "contributor" ? "bg-[#f0c56c]/10 text-[#f0c56c]" : "bg-surface-high text-text-muted"}`}
+                className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${m.role === "owner" ? "bg-primary/10 text-primary" : m.role === "contributor" ? "bg-warning/10 text-warning" : "bg-surface-high text-text-muted"}`}
               >
                 {m.role}
               </span>

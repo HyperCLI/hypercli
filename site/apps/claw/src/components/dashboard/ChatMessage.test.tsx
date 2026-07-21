@@ -110,6 +110,16 @@ describe("ChatMessageBubble", () => {
     expect(notice).not.toHaveClass("text-[#d05f5f]");
   });
 
+  it("uses semantic destructive colors for system errors", () => {
+    render(<ChatMessageBubble message={{ role: "system", content: "Connection failed" }} />);
+
+    expect(screen.getByText("Connection failed")).toHaveClass(
+      "border-destructive/20",
+      "bg-destructive/10",
+      "text-destructive",
+    );
+  });
+
   it("renders a generic hidden-reasoning badge without exposing raw thinking text", () => {
     const { container } = render(
       <ChatMessageBubble
@@ -122,7 +132,7 @@ describe("ChatMessageBubble", () => {
     );
 
     expect(screen.getByText("Visible answer.")).toBeInTheDocument();
-    expect(screen.getByText("Internal reasoning hidden")).toBeInTheDocument();
+    expect(screen.getByText("Internal reasoning hidden").parentElement).toHaveClass("text-text-muted");
     expectNoLeakSentinels(container.textContent ?? "");
     expectNoLeakSentinels(container.innerHTML);
   });

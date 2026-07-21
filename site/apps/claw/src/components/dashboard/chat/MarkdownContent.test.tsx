@@ -79,6 +79,7 @@ describe("MarkdownContent", () => {
     expect(screen.getByText("Line numbers")).toBeInTheDocument();
     expect(container.querySelector("pre code")).toHaveTextContent("return value;");
     expect(container.querySelector('[style*="border-left"]')).toBeInTheDocument();
+    expect(container.querySelector("pre code")).toHaveStyle({ color: "var(--foreground)" });
   });
 
   it("renders basic images and preserves image titles", () => {

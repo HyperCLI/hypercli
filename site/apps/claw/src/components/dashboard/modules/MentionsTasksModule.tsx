@@ -36,7 +36,7 @@ export function MentionsTasksModule({ variant }: MentionsTasksModuleProps) {
               {item.type === "task" ? (
                 <CheckSquare className={`w-3.5 h-3.5 shrink-0 ${item.done ? "text-primary" : "text-text-muted"}`} />
               ) : (
-                <AtSign className="w-3.5 h-3.5 text-[#4A9EFF] shrink-0" />
+                <AtSign className="w-3.5 h-3.5 text-info shrink-0" />
               )}
               <span className={`text-[10px] flex-1 ${item.done ? "line-through text-text-muted" : "text-foreground"}`}>
                 {item.text}
@@ -63,7 +63,7 @@ export function MentionsTasksModule({ variant }: MentionsTasksModuleProps) {
                   {item.type === "task" ? (
                     <CheckSquare className="w-3 h-3 text-text-muted shrink-0" />
                   ) : (
-                    <AtSign className="w-3 h-3 text-[#4A9EFF] shrink-0" />
+                    <AtSign className="w-3 h-3 text-info shrink-0" />
                   )}
                   <span className={item.done ? "line-through text-text-muted" : "text-foreground"}>
                     {item.text}

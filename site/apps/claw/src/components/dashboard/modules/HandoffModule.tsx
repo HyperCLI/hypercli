@@ -11,6 +11,7 @@ import { formatUptime } from "../agentViewUtils";
 
 function alphaColor(color: string, alpha: number) {
   if (color === "var(--selection-accent)") return `rgb(var(--selection-accent-rgb) / ${alpha})`;
+  if (color === "var(--warning)") return `color-mix(in srgb, var(--warning) ${alpha * 100}%, transparent)`;
   return `${color}${Math.round(alpha * 255).toString(16).padStart(2, "0")}`;
 }
 
@@ -78,7 +79,7 @@ function HandoffAddableSection({
             </div>
             <p className="text-[9px] text-text-muted">{item.subtitle}</p>
           </div>
-          <button onClick={() => onRemove(item.id)} className="flex-shrink-0 w-3.5 h-3.5 rounded flex items-center justify-center text-text-muted hover:text-[#d05f5f] opacity-0 group-hover/hi:opacity-100 transition-all mt-0.5">
+          <button onClick={() => onRemove(item.id)} className="flex-shrink-0 w-3.5 h-3.5 rounded flex items-center justify-center text-text-muted hover:text-destructive opacity-0 group-hover/hi:opacity-100 transition-all mt-0.5">
             <Trash2 className="w-2.5 h-2.5" />
           </button>
         </motion.div>
@@ -120,7 +121,7 @@ export function HandoffModule({ variant }: { variant: StyleVariant }) {
           <HandoffAddableSection icon={Play} label="In Progress" color="var(--selection-accent)" items={inProgress} presets={HANDOFF_IP_PRESETS}
             onAdd={(p) => setInProgress((prev) => [...prev, { ...p, id: `ip-${Date.now()}`, ts: Date.now() }])}
             onRemove={(id) => setInProgress((prev) => prev.filter((i) => i.id !== id))} />
-          <HandoffAddableSection icon={AlertTriangle} label="Needs Attention" color="#f0c56c" items={needsAttention} presets={HANDOFF_NA_PRESETS}
+          <HandoffAddableSection icon={AlertTriangle} label="Needs Attention" color="var(--warning)" items={needsAttention} presets={HANDOFF_NA_PRESETS}
             onAdd={(p) => setNeedsAttention((prev) => [...prev, { ...p, id: `na-${Date.now()}`, ts: Date.now() }])}
             onRemove={(id) => setNeedsAttention((prev) => prev.filter((i) => i.id !== id))} />
         </div>
@@ -129,7 +130,7 @@ export function HandoffModule({ variant }: { variant: StyleVariant }) {
           <HandoffAddableSection icon={Play} label="In Progress" color="var(--selection-accent)" items={inProgress} presets={HANDOFF_IP_PRESETS}
             onAdd={(p) => setInProgress((prev) => [...prev, { ...p, id: `ip-${Date.now()}`, ts: Date.now() }])}
             onRemove={(id) => setInProgress((prev) => prev.filter((i) => i.id !== id))} />
-          <HandoffAddableSection icon={AlertTriangle} label="Needs Attention" color="#f0c56c" items={needsAttention} presets={HANDOFF_NA_PRESETS}
+          <HandoffAddableSection icon={AlertTriangle} label="Needs Attention" color="var(--warning)" items={needsAttention} presets={HANDOFF_NA_PRESETS}
             onAdd={(p) => setNeedsAttention((prev) => [...prev, { ...p, id: `na-${Date.now()}`, ts: Date.now() }])}
             onRemove={(id) => setNeedsAttention((prev) => prev.filter((i) => i.id !== id))} />
         </div>

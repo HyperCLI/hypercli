@@ -1,4 +1,4 @@
-"""Workspaces API client."""
+"""Shared knowledge API client."""
 from __future__ import annotations
 
 import os
@@ -217,11 +217,11 @@ class DownloadUrl:
 
 
 class WorkspacesAPI:
-    """Client for the Workspaces service mounted at /workspaces."""
+    """Client for the shared knowledge service mounted at /workspaces."""
 
     def __init__(self, api_key: str, api_base: str | None = None, agents_api_base: str | None = None):
         if not api_key:
-            raise ValueError("API key required for Workspaces API")
+            raise ValueError("API key required for shared knowledge")
         self.api_key = api_key
         self.api_base = (api_base or _derive_workspaces_base(agents_api_base)).rstrip("/")
 
@@ -395,9 +395,9 @@ class WorkspacesAPI:
             if item.file_state == "processed" and item.processing_state == "processed":
                 return item
             if item.file_state in terminal_failures or item.processing_state in terminal_failures:
-                raise ValueError(f"Workspace file {file_ref} is {item.file_state} with processing {item.processing_state or 'unknown'}")
+                raise ValueError(f"Shared knowledge file {file_ref} is {item.file_state} with processing {item.processing_state or 'unknown'}")
             time.sleep(poll_interval)
-        raise TimeoutError(f"Workspace file {file_ref} did not process within {timeout}s")
+        raise TimeoutError(f"Shared knowledge file {file_ref} did not process within {timeout}s")
 
     def manifest(self, workspace_ref: str, *, user_id: str | None = None, agent_id: str | None = None) -> WorkspaceManifest:
         data = _request("GET", f"{self.api_base}/{workspace_ref}/manifest", api_key=self.api_key, user_id=user_id, agent_id=agent_id)
@@ -548,4 +548,4 @@ def _find_markdown_file(manifest: WorkspaceManifest, file_ref: str) -> dict:
             return markdown_file
         if normalized_ref == str(PurePosixPath(str(markdown_file.get("path", "")))):
             return markdown_file
-    raise ValueError(f"Workspace Markdown file not found for {file_ref}")
+    raise ValueError(f"Shared knowledge Markdown file not found for {file_ref}")

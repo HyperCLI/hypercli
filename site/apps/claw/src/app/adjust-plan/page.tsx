@@ -289,7 +289,7 @@ function Badge({ children, muted = false }: { children: ReactNode; muted?: boole
   return (
     <span
       className={`inline-flex h-4 items-center rounded-full px-2 text-[10px] font-semibold leading-none ${
-        muted ? "bg-[#5b5d62]/70 text-[#f5f5f5]" : "bg-primary/15 text-primary"
+        muted ? "bg-muted text-muted-foreground" : "bg-primary/15 text-primary"
       }`}
     >
       {children}
@@ -299,9 +299,9 @@ function Badge({ children, muted = false }: { children: ReactNode; muted?: boole
 
 function FeatureMark({ included = true }: { included?: boolean }) {
   return included ? (
-    <Check className="mt-0.5 h-3 w-3 shrink-0 text-[#a7aba8]" />
+    <Check className="mt-0.5 h-3 w-3 shrink-0 text-text-secondary" />
   ) : (
-    <X className="mt-0.5 h-3 w-3 shrink-0 text-[#6f7075]" />
+    <X className="mt-0.5 h-3 w-3 shrink-0 text-text-muted" />
   );
 }
 
@@ -310,14 +310,14 @@ function PlanCard({ plan }: { plan: DisplayPlan }) {
 
   const actionClass = `mt-3 inline-flex h-8 items-center justify-center rounded-md border px-3 text-xs font-semibold transition-colors ${
     plan.current
-      ? "cursor-default border-transparent bg-[#252529] text-[#77777d]"
-      : "border-border bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02))] text-foreground hover:border-border-strong hover:bg-surface-high"
+      ? "cursor-default border-transparent bg-surface-high text-text-muted"
+      : "border-border bg-surface-low text-foreground hover:border-border-strong hover:bg-surface-high"
   }`;
 
   return (
-    <article className={`relative flex min-h-[21.5rem] flex-col rounded-lg p-4 ${plan.current ? "bg-[#19191a]" : ""}`}>
+    <article className={`relative flex min-h-[21.5rem] flex-col rounded-lg p-4 ${plan.current ? "bg-surface-low" : ""}`}>
       <div className="mb-4 flex h-6 items-center justify-between gap-2">
-        <span className="flex h-6 w-6 items-center justify-center rounded-md border border-border bg-[#232427] text-[#d8d8dc]">
+        <span className="flex h-6 w-6 items-center justify-center rounded-md border border-border bg-surface-high text-foreground">
           <Icon className="h-3 w-3" />
         </span>
         {plan.badge ? <Badge muted={plan.badge !== "Most popular"}>{plan.badge}</Badge> : null}
@@ -388,7 +388,7 @@ function CompareValueCell({ value }: { value: CompareValue }) {
     return value ? (
       <Check className="h-3.5 w-3.5 text-foreground" aria-label="Included" />
     ) : (
-      <X className="h-3.5 w-3.5 text-[#4f5055]" aria-label="Not included" />
+      <X className="h-3.5 w-3.5 text-text-muted" aria-label="Not included" />
     );
   }
   return <span className="text-[13px] text-foreground">{value}</span>;
@@ -447,7 +447,7 @@ export default function AdjustPlanPage() {
   const compareRows = useMemo(() => buildCompareRows(plans), [plans]);
 
   return (
-    <main className="min-h-screen bg-[#080809] px-4 pb-10 pt-6 text-foreground sm:px-6 lg:px-8">
+    <main className="min-h-screen bg-background px-4 pb-10 pt-6 text-foreground sm:px-6 lg:px-8">
       <Link
         href="/dashboard/agents"
         aria-label="Back to agents"
@@ -464,7 +464,7 @@ export default function AdjustPlanPage() {
           <p className="mt-2 text-sm text-text-muted">Choose the plan that fits this agent best.</p>
         </div>
 
-        <div className="mt-6 rounded-lg border border-border bg-[#080809] p-3 sm:p-4 lg:p-5">
+        <div className="mt-6 rounded-lg border border-border bg-background p-3 sm:p-4 lg:p-5">
           {loading ? (
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               {Array.from({ length: 4 }).map((_, index) => (
@@ -505,7 +505,7 @@ export default function AdjustPlanPage() {
           <div className="mt-7 overflow-x-auto rounded-lg border border-border">
             <table className="w-full min-w-[900px] border-collapse text-left">
               <thead>
-                <tr className="border-b border-border bg-[#080809]">
+                <tr className="border-b border-border bg-background">
                   <th className="w-[18%] px-5 py-5 text-xs font-medium text-text-muted" />
                   {plans.map((plan) => (
                     <th key={plan.id} className="px-5 py-5 text-sm font-semibold text-foreground">
@@ -522,10 +522,10 @@ export default function AdjustPlanPage() {
                 {compareRows.map((row, index) => {
                   const Icon = row.icon;
                   return (
-                    <tr key={row.label} className={index % 2 === 0 ? "bg-[#09090a]" : "bg-[#151517]"}>
+                    <tr key={row.label} className={index % 2 === 0 ? "bg-background" : "bg-surface-low"}>
                       <th className="px-5 py-3 text-[13px] font-medium text-foreground">
                         <span className="flex items-center gap-2.5">
-                          <Icon className="h-3.5 w-3.5 text-[#d7d7dc]" />
+                          <Icon className="h-3.5 w-3.5 text-text-secondary" />
                           {row.label}
                         </span>
                       </th>

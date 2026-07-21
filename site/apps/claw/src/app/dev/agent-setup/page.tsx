@@ -179,7 +179,7 @@ const plans: DevPlan[] = [
     recommended: true,
     slots: { medium: 1, small: 1 },
     features: ["1 medium agent", "1 small helper agent", "Team context and approvals"],
-    promise: "A friendly starting point for a shared workspace agent and a little room to grow.",
+    promise: "A friendly starting point for a team agent and a little room to grow.",
   },
   {
     id: "scale",
@@ -1215,7 +1215,7 @@ export default function DevAgentSetupPage() {
                       </div>
                       <div>
                         <p className="font-medium text-foreground">Member</p>
-                        <p className="mt-0.5 text-xs leading-5 text-text-secondary">Chat with agents and read shared workspace context.</p>
+                        <p className="mt-0.5 text-xs leading-5 text-text-secondary">Chat with agents and read shared knowledge.</p>
                       </div>
                     </div>
                   </div>

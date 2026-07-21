@@ -53,7 +53,7 @@ export function SessionsModule({ sessions: sessionsProp }: SessionsModuleProps) 
                 animate={{ rotate: [0, 5, -5, 0] }}
                 transition={{ repeat: Infinity, duration: 4, ease: "easeInOut", delay: idx * 0.8 }}
                 title={sourceChannel ? `${sourceChannel.label} channel` : undefined}
-                className={sourceChannel ? "flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-black/25 ring-1 ring-white/10" : undefined}
+                className={sourceChannel ? "flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-surface-high ring-1 ring-border" : undefined}
               >
                 <SessionIcon
                   className={`w-3.5 h-3.5 shrink-0 ${sourceChannel ? "" : "text-text-muted"}`}

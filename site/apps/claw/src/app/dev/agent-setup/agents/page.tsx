@@ -521,7 +521,7 @@ export default function DevAgentSetupAgentsPage() {
     files: "Files",
     integrations: "Integrations",
     skills: "Skills",
-    knowledge: "Workspaces",
+    knowledge: "Shared knowledge",
     scheduled: "Scheduled",
     logs: "Logs",
     settings: "Settings",
@@ -1659,7 +1659,7 @@ export default function DevAgentSetupAgentsPage() {
                         setMobileAgentMenuOpen(false);
                       }}
                       disabled={deletingId === selectedAgent.id}
-                      className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-[#d05f5f] hover:bg-surface-low/70 disabled:opacity-60"
+                      className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-destructive hover:bg-surface-low/70 disabled:opacity-60"
                     >
                       {deletingId === selectedAgent.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                       <span>Delete Agent</span>
@@ -2177,7 +2177,7 @@ function TeamSetupCompanion({
         </div>
 
         {warning ? (
-          <div className="mt-3 rounded-lg border border-[#f0c56c]/25 bg-[#f0c56c]/10 p-3">
+          <div className="mt-3 rounded-lg border border-warning/25 bg-warning/10 p-3">
             <p className="text-xs font-semibold text-foreground">Starter context may need a retry</p>
             <p className="mt-1 text-xs leading-5 text-text-secondary">{warning}</p>
             <button

@@ -56,6 +56,10 @@ function tokenValue(block: string, token: string) {
   return match?.[1].trim();
 }
 
+function tokenNames(block: string): string[] {
+  return Array.from(block.matchAll(/(--[\w-]+):/g), (match) => match[1]).sort();
+}
+
 function sourceFilesIn(dir: string): string[] {
   const stats = statSync(dir);
   if (!stats.isDirectory()) return /\.(ts|tsx|css|md|mdx)$/.test(dir) ? [dir] : [];
@@ -94,10 +98,13 @@ describe("claw theme CSS", () => {
 
   it("defines a switchable light theme with the same token contract", () => {
     expect(lightBlock).toContain("--background: #f7f8f4;");
-    expect(lightBlock).toContain("--button-primary: #1f8f65;");
-    expect(lightBlock).toContain("--button-primary-rgb: 31 143 101;");
-    expect(lightBlock).toContain("--selection-accent: #1f8f65;");
+    expect(lightBlock).toContain("--button-primary: #177a55;");
+    expect(lightBlock).toContain("--button-primary-rgb: 23 122 85;");
+    expect(lightBlock).toContain("--selection-accent: #177a55;");
     expect(lightBlock).toContain("--glass-card-background: rgba(255, 255, 255, 0.78);");
+    expect(lightBlock).toContain("color-scheme: light;");
+    expect(fixedDefaultBlock).toContain("color-scheme: dark;");
+    expect(tokenNames(lightBlock)).toEqual(tokenNames(fixedDefaultBlock));
   });
 
   it("does not include removed theme variants", () => {
@@ -118,9 +125,9 @@ describe("claw theme CSS", () => {
     expect(clawGlobalsCss).toContain('@import "@hypercli/shared-ui/styles/theme";');
     expect(mainGlobalsCss).toContain('@import "@hypercli/shared-ui/styles/theme";');
     expect(consoleGlobalsCss).toContain('@import "@hypercli/shared-ui/styles/theme";');
-    expect(clawLayout).toContain('data-theme="default"');
-    expect(mainLayout).toContain('data-theme="default"');
-    expect(consoleLayout).toContain('data-theme="default"');
+    expect(clawLayout).toContain('data-theme="dark"');
+    expect(mainLayout).toContain('data-theme="dark"');
+    expect(consoleLayout).toContain('data-theme="dark"');
     expect(clawLayout).not.toContain('data-theme="green"');
     expect(mainLayout).not.toContain('data-theme="green"');
     expect(consoleLayout).not.toContain('data-theme="green"');

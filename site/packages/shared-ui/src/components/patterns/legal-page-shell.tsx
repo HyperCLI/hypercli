@@ -23,7 +23,7 @@ export function LegalPageShell({
         <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
           <h1 className="mb-4 text-4xl font-bold text-foreground">{title}</h1>
           <p className="mb-8 text-text-muted">Last Updated: {lastUpdated}</p>
-          <div className={cn("prose prose-invert max-w-none space-y-8", contentClassName)}>{children}</div>
+          <div className={cn("prose max-w-none space-y-8 dark:prose-invert", contentClassName)}>{children}</div>
         </div>
       </main>
       {footer}

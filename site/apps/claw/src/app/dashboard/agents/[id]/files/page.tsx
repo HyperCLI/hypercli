@@ -213,7 +213,7 @@ export default function AgentFilesPage() {
   if (agentError || !agent) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-text-muted">
-        <p className="text-sm text-[#d05f5f]">{agentError ?? "Agent not found"}</p>
+        <p className="text-sm text-destructive">{agentError ?? "Agent not found"}</p>
         <Link href="/dashboard/agents" className="rounded-lg border border-border px-3 py-1.5 text-xs hover:bg-surface-low">
           Back to agents
         </Link>

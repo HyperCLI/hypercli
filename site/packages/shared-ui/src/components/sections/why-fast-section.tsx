@@ -77,7 +77,7 @@ export function WhyFastSection() {
         <div className="absolute inset-0 opacity-[0.02] pointer-events-none bg-grid-pattern" />
         
         {/* Subtle centered radial vignette */}
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_0%,#0B0D0E_70%)] pointer-events-none" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_0%,var(--background)_70%)] pointer-events-none" />
         
         <div className="max-w-7xl mx-auto relative">
           {/* Section title */}
@@ -124,7 +124,7 @@ export function WhyFastSection() {
 
           {/* Bottom emphasis with reveal */}
           <motion.div 
-            className="pt-12 border-t border-[#1F2122]/50 text-center"
+            className="pt-12 border-t border-border text-center"
             initial={{ opacity: 0, y: 20 }}
             animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
             transition={{ duration: 0.8, delay: 1.0, ease: [0.22, 1, 0.36, 1] }}

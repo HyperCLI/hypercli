@@ -30,7 +30,7 @@ export function HeroSection() {
       <div className="absolute inset-0 opacity-[0.03] pointer-events-none bg-grid-pattern" />
       
       {/* Cinematic vignette */}
-      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_center,transparent_0%,rgb(10_10_11_/_0.4)_70%)]" />
+      <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_center,transparent_0%,color-mix(in_srgb,var(--background)_55%,transparent)_70%)]" />
       
       {/* Subtle animated green glow */}
       <motion.div 

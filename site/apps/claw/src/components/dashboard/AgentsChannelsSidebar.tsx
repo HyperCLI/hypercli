@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, Reorder, useDragControls } from "framer-motion";
 import {
   MessageSquare,
   Plus,
@@ -23,9 +23,10 @@ import {
   CreditCard,
   Settings,
   LogOut,
+  GripVertical,
 } from "lucide-react";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
-import { Tooltip, TooltipTrigger, TooltipContent } from "@hypercli/shared-ui";
+import { ThemeToggle, Tooltip, TooltipTrigger, TooltipContent } from "@hypercli/shared-ui";
 import { ResourceImage } from "@/components/ResourceImage";
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 import { AgentCardTooltip, type AgentCardTooltipData } from "./modules/AgentCardModule";
@@ -115,8 +116,16 @@ export interface AgentsChannelsSidebarProps {
   fillParent?: boolean;
   /** Use larger touch targets and always-visible affordances for the fullscreen mobile drawer. */
   mobileMode?: boolean;
-  /** Real agent roster shown under "Available Agents". Falls back to mock list when undefined. */
+  /** Real agent roster offered by the channel-member picker. Falls back to mock data when undefined. */
   availableAgents?: Participant[];
+  /** Number of stopped agents in the My Agents roster. */
+  offlineAgentCount?: number;
+  /** Whether stopped agents are included in the My Agents roster. */
+  showOfflineAgents?: boolean;
+  /** Toggles stopped-agent visibility. The control is rendered only for v3 sidebars. */
+  onShowOfflineAgentsChange?: (show: boolean) => void;
+  /** Persists the displayed My Agents order. */
+  onReorderAgents?: (agentIds: readonly string[]) => void;
   /** SDK-backed data used by the agent hover information cards. */
   agentCardDataById?: Record<string, AgentCardTooltipData>;
   /** Create a real agent via the inline "New Agent" form. Must return the created agent id on success. */
@@ -409,6 +418,7 @@ function ThreadRow({
   compact = false,
   mobileMode = false,
   agentCardDataById,
+  reorderHandle,
 }: {
   thread: ConversationThread;
   selected: boolean;
@@ -418,6 +428,7 @@ function ThreadRow({
   compact?: boolean;
   mobileMode?: boolean;
   agentCardDataById?: Record<string, AgentCardTooltipData>;
+  reorderHandle?: ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
@@ -448,6 +459,7 @@ function ThreadRow({
       transition={{ duration: 0.15 }}
       onClick={onSelect}
     >
+      {reorderHandle}
       {!compact && (
         <ParticipantAvatars
           participants={thread.kind === "user-agent" ? thread.participants.filter((p) => p.type === "agent") : thread.participants}
@@ -475,6 +487,7 @@ function ThreadRow({
                 <span className="text-sm font-medium text-foreground truncate">{threadTitle(thread)}</span>
                 {onRename && (
                   <button
+                    type="button"
                     onClick={startEdit}
                     className={`flex-shrink-0 items-center justify-center text-text-muted transition-colors hover:text-foreground ${
                       mobileMode ? "flex h-8 w-8 rounded-lg hover:bg-surface-low" : "hidden h-4 w-4 rounded group-hover/row:flex"
@@ -496,8 +509,9 @@ function ThreadRow({
           {/* Delete is hover-revealed on desktop and always visible in the mobile drawer. */}
           {!editing && onDelete && (
             <button
+              type="button"
               onClick={(e) => { e.stopPropagation(); onDelete(); }}
-              className={`flex-shrink-0 items-center justify-center text-text-muted transition-colors hover:bg-[#d05f5f]/10 hover:text-[#d05f5f] ${
+              className={`flex-shrink-0 items-center justify-center text-text-muted transition-colors hover:bg-destructive/10 hover:text-destructive ${
                 mobileMode ? "flex h-8 w-8 rounded-lg" : "hidden h-5 w-5 rounded group-hover/row:flex"
               }`}
               title="Delete project"
@@ -530,6 +544,74 @@ function ThreadRow({
         <Bot className={`${mobileMode ? "h-4 w-4" : "h-3 w-3"} text-text-muted flex-shrink-0 mt-1`} />
       )}
     </motion.div>
+  );
+}
+
+function SortableThreadRow({
+  thread,
+  selected,
+  onSelect,
+  onDelete,
+  onRename,
+  onMove,
+  mobileMode,
+  agentCardDataById,
+}: {
+  thread: ConversationThread;
+  selected: boolean;
+  onSelect: () => void;
+  onDelete?: () => void;
+  onRename?: (title: string) => void;
+  onMove: (direction: -1 | 1) => void;
+  mobileMode: boolean;
+  agentCardDataById?: Record<string, AgentCardTooltipData>;
+}) {
+  const dragControls = useDragControls();
+  const title = threadTitle(thread);
+  const reorderHandle = (
+    <button
+      type="button"
+      aria-label={`Move ${title}`}
+      title="Drag to reorder. Use the Up and Down arrow keys for keyboard reordering."
+      onPointerDown={(event) => {
+        event.stopPropagation();
+        dragControls.start(event);
+      }}
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+        event.preventDefault();
+        event.stopPropagation();
+        onMove(event.key === "ArrowUp" ? -1 : 1);
+      }}
+      className={`flex shrink-0 touch-none cursor-grab items-center justify-center rounded-md text-text-muted/55 transition-colors hover:bg-surface-high hover:text-text-secondary active:cursor-grabbing ${
+        mobileMode ? "-ml-2 h-10 w-10" : "-ml-2 h-7 w-6 opacity-60 group-hover/row:opacity-100"
+      }`}
+    >
+      <GripVertical className={mobileMode ? "h-4 w-4" : "h-3.5 w-3.5"} />
+    </button>
+  );
+
+  return (
+    <Reorder.Item
+      as="div"
+      value={thread.id}
+      dragListener={false}
+      dragControls={dragControls}
+      whileDrag={{ zIndex: 30, scale: 1.015, boxShadow: "0 12px 30px rgb(0 0 0 / 0.2)" }}
+      className="relative"
+    >
+      <ThreadRow
+        thread={thread}
+        selected={selected}
+        onSelect={onSelect}
+        onDelete={onDelete}
+        onRename={onRename}
+        mobileMode={mobileMode}
+        agentCardDataById={agentCardDataById}
+        reorderHandle={reorderHandle}
+      />
+    </Reorder.Item>
   );
 }
 
@@ -641,7 +723,7 @@ export function AgentsSidebarDashboardLinks({
   }, [open]);
 
   return (
-    <div ref={ref} className={`relative flex-shrink-0 border-t border-border ${compact ? "px-2 py-2" : "px-3 py-2"}`}>
+    <div ref={ref} className={`relative flex-shrink-0 border-t border-border ${compact ? "flex justify-center py-2" : "px-3 py-2"}`}>
       <AnimatePresence>
         {open && (
           <motion.div
@@ -649,7 +731,7 @@ export function AgentsSidebarDashboardLinks({
             animate={{ opacity: 1, y: 0, x: 0, scale: 1 }}
             exit={{ opacity: 0, y: compact ? 0 : 6, x: compact ? -4 : 0, scale: 0.96 }}
             transition={{ duration: 0.12 }}
-            className={`absolute z-50 overflow-hidden rounded-lg border border-border bg-[#1a1a1c] py-1 shadow-xl ${
+            className={`absolute z-50 overflow-hidden rounded-lg border border-border bg-popover py-1 shadow-xl ${
               compact ? "bottom-2 left-full ml-2 w-44 origin-bottom-left" : "bottom-full left-3 right-3 mb-2 origin-bottom"
             }`}
             role="menu"
@@ -699,6 +781,11 @@ export function AgentsSidebarDashboardLinks({
                 </Link>
               );
             })}
+            <ThemeToggle
+              showLabel
+              role="menuitem"
+              className={`w-full justify-start rounded-none px-3 text-[11px] ${mobileMode ? "h-10" : "h-8"}`}
+            />
             {onLogout && (
               <button
                 type="button"
@@ -707,7 +794,7 @@ export function AgentsSidebarDashboardLinks({
                   void onLogout();
                 }}
                 role="menuitem"
-                className={`flex w-full items-center gap-2 border-t border-border/70 px-3 text-left text-[#d05f5f] transition-colors hover:bg-[#d05f5f]/10 ${
+                className={`flex w-full items-center gap-2 border-t border-border/70 px-3 text-left text-destructive transition-colors hover:bg-destructive/10 ${
                   mobileMode ? "py-2" : "py-1.5"
                 }`}
               >
@@ -1388,7 +1475,7 @@ export function ConversationGraphModule({
                 key={`${edge.from}-${edge.to}-${edgeIdx}`}
                 x1={fromNode.x} y1={fromNode.y}
                 x2={toNode.x} y2={toNode.y}
-                stroke="rgba(255,255,255,0.08)"
+                stroke="var(--border)"
                 strokeWidth={1}
                 strokeLinecap="round"
                 animate={{ opacity: isDimmed ? 0.15 : 0.4 }}
@@ -1672,7 +1759,7 @@ function HandoffSection({
                   <p className="text-[11px] text-text-muted">{item.subtitle}</p>
                 </div>
                 <span role="button" onClick={(e) => { e.stopPropagation(); onRemove(item.id); }}
-                  className="flex-shrink-0 w-4 h-4 rounded flex items-center justify-center text-text-muted hover:text-[#d05f5f] opacity-0 group-hover/item:opacity-100 transition-all mt-0.5">
+                  className="flex-shrink-0 w-4 h-4 rounded flex items-center justify-center text-text-muted hover:text-destructive opacity-0 group-hover/item:opacity-100 transition-all mt-0.5">
                   <X className="w-2.5 h-2.5" />
                 </span>
               </motion.button>
@@ -1748,6 +1835,10 @@ function HandoffThreadView({
   onOpenAgentLauncher,
   showChannels = true,
   availableAgents,
+  offlineAgentCount = 0,
+  showOfflineAgents = false,
+  onShowOfflineAgentsChange,
+  onReorderAgents,
   agentCardDataById,
   openAgentCreatorSignal,
   mobileMode = false,
@@ -1763,14 +1854,17 @@ function HandoffThreadView({
   onOpenAgentLauncher?: () => void;
   showChannels?: boolean;
   availableAgents?: Participant[];
+  offlineAgentCount?: number;
+  showOfflineAgents?: boolean;
+  onShowOfflineAgentsChange?: (show: boolean) => void;
+  onReorderAgents?: (agentIds: readonly string[]) => void;
   agentCardDataById?: Record<string, AgentCardTooltipData>;
   openAgentCreatorSignal?: number;
   mobileMode?: boolean;
 }) {
-  const agentsList = availableAgents ?? AVAILABLE_AGENTS_LIST;
+  const channelAgents = availableAgents ?? AVAILABLE_AGENTS_LIST;
   const [showAgentCreator, setShowAgentCreator] = useState(false);
   const [showChannelCreator, setShowChannelCreator] = useState(false);
-  const [agentsExpanded, setAgentsExpanded] = useState(false);
   const [myAgentsOpen, setMyAgentsOpen] = useState(true);
   const [channelsOpen, setChannelsOpen] = useState(true);
 
@@ -1788,26 +1882,43 @@ function HandoffThreadView({
     setMyAgentsOpen(true);
   }, [onOpenAgentLauncher, openAgentCreatorSignal]);
 
-  const sortedThreads = useMemo(
-    () => [...threads].sort((a, b) => b.lastMessageAt - a.lastMessageAt),
-    [threads],
-  );
-
   const privateThreads = useMemo(
-    () => sortedThreads.filter((t) => t.kind === "user-agent"),
-    [sortedThreads],
+    () => {
+      const privateItems = threads.filter((thread) => thread.kind === "user-agent");
+      return onReorderAgents
+        ? privateItems
+        : privateItems.sort((left, right) => right.lastMessageAt - left.lastMessageAt);
+    },
+    [onReorderAgents, threads],
   );
   const groupThreads = useMemo(
-    () => sortedThreads.filter((t) => t.kind === "group" || t.kind === "agent-agent"),
-    [sortedThreads],
+    () => threads
+      .filter((thread) => thread.kind === "group" || thread.kind === "agent-agent")
+      .sort((left, right) => right.lastMessageAt - left.lastMessageAt),
+    [threads],
   );
+  const moveAgent = useCallback((agentId: string, direction: -1 | 1) => {
+    if (!onReorderAgents) return;
+    const agentIds = privateThreads.map((thread) => thread.id);
+    const currentIndex = agentIds.indexOf(agentId);
+    const targetIndex = currentIndex + direction;
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= agentIds.length) return;
+    const currentAgentId = agentIds[currentIndex];
+    const targetAgentId = agentIds[targetIndex];
+    if (!currentAgentId || !targetAgentId) return;
+    agentIds[currentIndex] = targetAgentId;
+    agentIds[targetIndex] = currentAgentId;
+    onReorderAgents(agentIds);
+  }, [onReorderAgents, privateThreads]);
+  const canReorderAgents = Boolean(onReorderAgents && privateThreads.length > 1);
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <motion.div layoutScroll className="flex-1 overflow-y-auto">
       {/* ── My Agents section header ── */}
       <div className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-surface-low/40 transition-colors">
         <button
           type="button"
+          aria-expanded={myAgentsOpen}
           onClick={() => setMyAgentsOpen((v) => !v)}
           className="flex min-w-0 flex-1 items-center gap-2 text-left"
         >
@@ -1818,6 +1929,23 @@ function HandoffThreadView({
             <span className="text-[10px] text-text-muted">{privateThreads.length}</span>
           )}
         </button>
+        {offlineAgentCount > 0 && onShowOfflineAgentsChange && (
+          <button
+            type="button"
+            aria-label={`${showOfflineAgents ? "Hide" : "Show"} offline agents`}
+            aria-pressed={showOfflineAgents}
+            onClick={() => onShowOfflineAgentsChange(!showOfflineAgents)}
+            className={`inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border px-2 text-[9px] font-medium transition-colors ${
+              showOfflineAgents
+                ? "border-foreground/25 bg-foreground/10 text-foreground"
+                : "border-border bg-background/35 text-text-muted hover:border-foreground/20 hover:text-text-secondary"
+            }`}
+          >
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-text-muted" />
+            <span>Offline</span>
+            <span className="tabular-nums">{offlineAgentCount}</span>
+          </button>
+        )}
       </div>
 
       <AnimatePresence initial={false}>
@@ -1884,8 +2012,29 @@ function HandoffThreadView({
               }}
             />
 
-            {/* Active agent threads */}
-            {privateThreads.map((thread) => (
+            {/* Agent threads */}
+            {canReorderAgents && onReorderAgents ? (
+              <Reorder.Group
+                as="div"
+                axis="y"
+                values={privateThreads.map((thread) => thread.id)}
+                onReorder={onReorderAgents}
+              >
+                {privateThreads.map((thread) => (
+                  <SortableThreadRow
+                    key={thread.id}
+                    thread={thread}
+                    selected={selectedThreadId === thread.id}
+                    onSelect={() => onSelectThread(thread.id)}
+                    onDelete={onDeleteThread ? () => onDeleteThread(thread.id) : undefined}
+                    onRename={onRenameThread ? (title) => onRenameThread(thread.id, title) : undefined}
+                    onMove={(direction) => moveAgent(thread.id, direction)}
+                    mobileMode={mobileMode}
+                    agentCardDataById={agentCardDataById}
+                  />
+                ))}
+              </Reorder.Group>
+            ) : privateThreads.map((thread) => (
               <ThreadRow
                 key={thread.id}
                 thread={thread}
@@ -1901,48 +2050,6 @@ function HandoffThreadView({
         )}
       </AnimatePresence>
 
-      {/* Available agents (always visible, collapsible) */}
-      <div className="px-3 py-2">
-        <button
-          onClick={() => setAgentsExpanded((v) => !v)}
-          className="flex items-center gap-1 px-1 mb-1.5 group/hdr"
-        >
-          <ChevronDown className={`${mobileMode ? "h-4 w-4" : "h-3 w-3"} text-text-muted transition-transform ${agentsExpanded ? "" : "-rotate-90"}`} />
-          <span className="text-[9px] font-semibold text-text-secondary uppercase tracking-wider">
-            Available Agents
-          </span>
-          {!agentsExpanded && agentsList.length > 3 && (
-            <span className="text-[9px] text-text-muted ml-1">+{agentsList.length - 3} more</span>
-          )}
-        </button>
-        <div className="space-y-0.5">
-          {(agentsExpanded ? agentsList : agentsList.slice(0, 3)).map((agent) => {
-            return (
-              <button
-                key={agent.id}
-                onClick={() => onStartAgentChat?.(agent)}
-                className={`flex w-full items-center text-left transition-colors hover:bg-surface-low/60 group/agent ${
-                  mobileMode ? "gap-3 rounded-lg px-2 py-2" : "gap-2.5 rounded-md px-2 py-1.5"
-                }`}
-              >
-                <AgentAvatarMark
-                  name={agent.name}
-                  meta={participantAgentMeta(agent, agentCardDataById)}
-                  className={`${mobileMode ? "h-9 w-9" : "h-7 w-7"} rounded-lg flex items-center justify-center flex-shrink-0`}
-                  iconClassName={mobileMode ? "h-5 w-5" : "h-3.5 w-3.5"}
-                />
-                <div className="flex-1 min-w-0">
-                  <span className="text-[11px] text-text-muted group-hover/agent:text-foreground truncate transition-colors block">{agent.name}</span>
-                </div>
-                <ChevronRight className={`transition-colors flex-shrink-0 ${
-                  mobileMode ? "h-5 w-5 text-text-muted" : "h-3 w-3 text-text-muted/0 group-hover/agent:text-text-muted"
-                }`} />
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
       {/* ── Channels section ── */}
       {showChannels && (<>
       <button
@@ -1956,13 +2063,13 @@ function HandoffThreadView({
           <span className="text-[10px] text-text-muted">{groupThreads.length}</span>
         )}
         <motion.div
-          whileHover={{ scale: 1.05, boxShadow: "0 0 12px rgba(107,158,255,0.12)" }}
+          whileHover={{ scale: 1.05, boxShadow: "0 0 12px color-mix(in srgb, var(--info) 12%, transparent)" }}
           whileTap={{ scale: 0.95 }}
           onClick={(e) => { e.stopPropagation(); setShowChannelCreator((v) => !v); setShowAgentCreator(false); setChannelsOpen(true); }}
           className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-colors cursor-pointer ${
             showChannelCreator
-              ? "text-[#6b9eff] bg-[#6b9eff]/15 border border-[#6b9eff]/30"
-              : "text-[#6b9eff]/80 bg-[#6b9eff]/8 border border-[#6b9eff]/15 hover:border-[#6b9eff]/30 hover:text-[#6b9eff]"
+              ? "border border-info/30 bg-info/15 text-info"
+              : "border border-info/15 bg-info/8 text-info/80 hover:border-info/30 hover:text-info"
           }`}
         >
           <Plus className="w-3 h-3" />
@@ -1987,7 +2094,7 @@ function HandoffThreadView({
                 setShowChannelCreator(false);
                 onCreateChannel?.(name, agents, users);
               }}
-              availableAgents={agentsList}
+              availableAgents={channelAgents}
               availableUsers={AVAILABLE_USERS_LIST}
             />
 
@@ -2015,118 +2122,6 @@ function HandoffThreadView({
         )}
       </AnimatePresence>
       </>)}
-    </div>
-  );
-}
-
-// ── Empty State Prompt ──
-
-const AVAILABLE_AGENTS = MOCK_PARTICIPANTS.filter((p) => p.type === "agent");
-
-function ConversationsEmptyPrompt({
-  hasThreads,
-  onStartAgentChat,
-}: {
-  hasThreads: boolean;
-  onStartAgentChat?: (agent: Participant) => void;
-}) {
-  const [showCreator, setShowCreator] = useState(false);
-
-  if (hasThreads) {
-    return (
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.3 }}
-        className="flex-1 flex flex-col items-center justify-center px-6 py-10"
-      >
-        <Search className="w-5 h-5 text-text-muted/40 mb-2" />
-        <p className="text-xs text-text-muted">No matching results</p>
-      </motion.div>
-    );
-  }
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.3 }}
-      className="flex-1 flex flex-col min-h-0"
-    >
-      {/* New Agent button / inline creator */}
-      {!showCreator && (
-        <motion.div
-          initial={{ opacity: 0, y: -8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.1 }}
-          className="flex-shrink-0 px-3 py-2.5 border-b border-border"
-        >
-          <motion.button
-            whileHover={{ scale: 1.02, boxShadow: "0 0 16px rgb(var(--selection-accent-rgb) / 0.1)" }}
-            whileTap={{ scale: 0.97 }}
-            onClick={() => setShowCreator(true)}
-            className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg bg-[rgb(var(--selection-accent-rgb)_/_0.1)] border border-[rgb(var(--selection-accent-rgb)_/_0.2)] hover:border-[rgb(var(--selection-accent-rgb)_/_0.35)] transition-colors text-xs font-medium text-[var(--selection-accent)]"
-          >
-            <Plus className="w-4 h-4" />
-            <span>New Agent</span>
-          </motion.button>
-        </motion.div>
-      )}
-      <QuickAgentCreator
-        open={showCreator}
-        onClose={() => setShowCreator(false)}
-        onCreated={(name, _iconIndex, _size) => {
-          setShowCreator(false);
-          // Create a mock agent participant and start chat
-          const newAgent: Participant = { id: `agent-${name.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`, name, type: "agent" };
-          onStartAgentChat?.(newAgent);
-        }}
-      />
-
-      {/* Available agents list */}
-      <div className="flex-1 overflow-y-auto">
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.3, delay: 0.2 }}
-          className="px-3 py-2"
-        >
-          <p className="text-[9px] font-semibold text-text-secondary uppercase tracking-wider px-1 mb-2">Available Agents</p>
-          <div className="space-y-0.5">
-            {AVAILABLE_AGENTS.map((agent, idx) => {
-              return (
-                <motion.button
-                  key={agent.id}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.2, delay: 0.25 + idx * 0.04 }}
-                  whileHover={{ x: 3, backgroundColor: "rgba(255,255,255,0.04)" }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => onStartAgentChat?.(agent)}
-                  className="flex items-center gap-2.5 w-full px-2 py-2 rounded-lg transition-colors text-left group/agent"
-                >
-                  <motion.div
-                    whileHover={{ scale: 1.1 }}
-                    className="flex-shrink-0"
-                  >
-                    <AgentAvatarMark
-                      name={agent.name}
-                      meta={agent.meta ?? null}
-                      className="w-8 h-8 rounded-lg flex items-center justify-center"
-                      iconClassName="w-4 h-4"
-                    />
-                  </motion.div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[12px] font-medium text-foreground truncate">{agent.name}</p>
-                    <p className="text-[10px] text-text-muted">Start chat</p>
-                  </div>
-                  <ChevronRight className="w-3 h-3 text-text-muted/0 group-hover/agent:text-text-muted transition-colors flex-shrink-0" />
-                </motion.button>
-              );
-            })}
-          </div>
-        </motion.div>
-      </div>
     </motion.div>
   );
 }
@@ -2148,6 +2143,10 @@ export function AgentsChannelsSidebar({
   fillParent = false,
   mobileMode = false,
   availableAgents,
+  offlineAgentCount = 0,
+  showOfflineAgents = false,
+  onShowOfflineAgentsChange,
+  onReorderAgents,
   agentCardDataById,
   onCreateAgent,
   onOpenAgentLauncher,
@@ -2182,7 +2181,7 @@ export function AgentsChannelsSidebar({
   }, [agentsHref, selectedThreadId, threads]);
 
   return (
-    <div className={`${fillParent ? "w-full min-w-0" : "w-[280px] flex-shrink-0"} relative flex h-full min-h-0 flex-col bg-[#232323]`}>
+    <div className={`${fillParent ? "w-full min-w-0" : "w-[280px] flex-shrink-0"} relative flex h-full min-h-0 flex-col bg-surface-low`}>
       {showDivider && <div aria-hidden className="pointer-events-none absolute right-0 top-0 z-20 h-full w-px bg-border" />}
       <SidebarHeader
         showSearch={showSearch}
@@ -2227,6 +2226,10 @@ export function AgentsChannelsSidebar({
           onOpenAgentLauncher={onOpenAgentLauncher}
           showChannels={showChannels}
           availableAgents={availableAgents}
+          offlineAgentCount={offlineAgentCount}
+          showOfflineAgents={showOfflineAgents}
+          onShowOfflineAgentsChange={onShowOfflineAgentsChange}
+          onReorderAgents={onReorderAgents}
           agentCardDataById={agentCardDataById}
           openAgentCreatorSignal={openAgentCreatorSignal}
           mobileMode={mobileMode}
@@ -2245,6 +2248,10 @@ export function AgentsChannelsSidebar({
           onOpenAgentLauncher={onOpenAgentLauncher}
           showChannels={showChannels}
           availableAgents={availableAgents}
+          offlineAgentCount={offlineAgentCount}
+          showOfflineAgents={showOfflineAgents}
+          onShowOfflineAgentsChange={onShowOfflineAgentsChange}
+          onReorderAgents={onReorderAgents}
           agentCardDataById={agentCardDataById}
           openAgentCreatorSignal={openAgentCreatorSignal}
           mobileMode={mobileMode}

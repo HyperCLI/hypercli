@@ -6,7 +6,7 @@ export function PrintActions() {
       <button
         type="button"
         onClick={() => window.print()}
-        className="inline-flex items-center justify-center rounded-full border border-[#cbc1af] bg-[#161819] px-4 py-2 text-sm font-semibold text-[#f7f3eb] transition hover:bg-[#0b0d0e]"
+        className="inline-flex items-center justify-center rounded-full border border-border-strong bg-surface-high px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-background"
       >
         Print / Save PDF
       </button>

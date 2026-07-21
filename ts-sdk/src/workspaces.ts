@@ -1,5 +1,5 @@
 /**
- * Workspaces API - shared Markdown-backed workspace surfaces.
+ * Shared knowledge API - shared Markdown-backed file collections.
  */
 import { requestWithRetry } from './http.js';
 import { APIError } from './errors.js';
@@ -198,7 +198,7 @@ export class WorkspacesAPI {
 
   constructor(apiKey: string, options: { apiBase?: string; agentsApiBase?: string; timeout?: number } = {}) {
     if (!apiKey) {
-      throw new Error('API key required for Workspaces API');
+      throw new Error('API key required for shared knowledge');
     }
     this.apiKey = apiKey;
     this.apiBase = (options.apiBase || deriveWorkspacesApiBase(options.agentsApiBase)).replace(/\/$/, '');
@@ -383,11 +383,11 @@ export class WorkspacesAPI {
         return file;
       }
       if (file.fileState === 'failed' || file.fileState === 'deleted' || file.processingState === 'failed' || file.processingState === 'deleted') {
-        throw new Error(`Workspace file ${fileRef} is ${file.fileState} with processing ${file.processingState || 'unknown'}`);
+        throw new Error(`Shared knowledge file ${fileRef} is ${file.fileState} with processing ${file.processingState || 'unknown'}`);
       }
       await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
     }
-    throw new Error(`Workspace file ${fileRef} did not process within ${timeoutMs}ms`);
+    throw new Error(`Shared knowledge file ${fileRef} did not process within ${timeoutMs}ms`);
   }
 
   async listFiles(workspaceRef: string, subject: WorkspaceSubjectOptions = {}): Promise<WorkspaceFile[]> {
@@ -475,7 +475,7 @@ function findMarkdownFile(manifest: WorkspaceManifest, fileRef: string): Record<
       return markdownFile;
     }
   }
-  throw new Error(`Workspace Markdown file not found for ${fileRef}`);
+  throw new Error(`Shared knowledge Markdown file not found for ${fileRef}`);
 }
 
 function normalizePosixPath(path: string): string {

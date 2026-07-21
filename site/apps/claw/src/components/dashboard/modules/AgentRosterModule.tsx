@@ -34,7 +34,7 @@ export function AgentRosterModule({ variant }: AgentRosterModuleProps) {
               className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-surface-low transition-colors"
             >
               <Bot
-                className={`w-4 h-4 shrink-0 ${a.status === "working" ? "text-primary" : a.status === "waiting" ? "text-[#f0c56c]" : "text-text-muted"}`}
+                className={`w-4 h-4 shrink-0 ${a.status === "working" ? "text-primary" : a.status === "waiting" ? "text-warning" : "text-text-muted"}`}
               />
               <div className="flex-1 min-w-0">
                 <div className="text-xs text-foreground font-mono">
@@ -46,7 +46,7 @@ export function AgentRosterModule({ variant }: AgentRosterModuleProps) {
                 </div>
               </div>
               <span
-                className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${a.status === "working" ? "bg-primary/10 text-primary" : a.status === "waiting" ? "bg-[#f0c56c]/10 text-[#f0c56c]" : "bg-surface-high text-text-muted"}`}
+                className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${a.status === "working" ? "bg-primary/10 text-primary" : a.status === "waiting" ? "bg-warning/10 text-warning" : "bg-surface-high text-text-muted"}`}
               >
                 {a.status}
               </span>
@@ -68,11 +68,11 @@ export function AgentRosterModule({ variant }: AgentRosterModuleProps) {
               initial={{ scale: 0.85, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               transition={{ delay: idx * 0.06, type: "spring" }}
-              className={`flex flex-col items-center gap-1 py-2 rounded-lg border ${a.status === "working" ? "border-primary/30 border-t-primary" : a.status === "waiting" ? "border-[#f0c56c]/30 border-t-[#f0c56c]" : "border-border border-t-text-muted"}`}
+              className={`flex flex-col items-center gap-1 py-2 rounded-lg border ${a.status === "working" ? "border-primary/30 border-t-primary" : a.status === "waiting" ? "border-warning/30 border-t-warning" : "border-border border-t-text-muted"}`}
               style={{ borderTopWidth: "2px" }}
             >
               <Bot
-                className={`w-4 h-4 ${a.status === "working" ? "text-primary" : a.status === "waiting" ? "text-[#f0c56c]" : "text-text-muted"}`}
+                className={`w-4 h-4 ${a.status === "working" ? "text-primary" : a.status === "waiting" ? "text-warning" : "text-text-muted"}`}
               />
               <span className="text-[9px] text-foreground font-mono">
                 {a.name}
@@ -92,7 +92,7 @@ export function AgentRosterModule({ variant }: AgentRosterModuleProps) {
               className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-surface-high"
             >
               <span
-                className={`w-1.5 h-1.5 rounded-full ${a.status === "working" ? "bg-primary" : a.status === "waiting" ? "bg-[#f0c56c]" : "bg-text-muted"}`}
+                className={`w-1.5 h-1.5 rounded-full ${a.status === "working" ? "bg-primary" : a.status === "waiting" ? "bg-warning" : "bg-text-muted"}`}
               />
               <span className="text-foreground">{a.name}</span>
             </motion.span>

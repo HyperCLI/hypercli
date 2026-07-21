@@ -20,7 +20,7 @@ const recs = [
 export function ConnectionRecsModule({ variant }: ConnectionRecsModuleProps) {
   if (variant === "v1") {
     return (
-      <div className="relative rounded-lg border border-[#4285f4]/20 bg-[#4285f4]/5 p-3 space-y-2">
+      <div className="relative rounded-lg border border-info/20 bg-info/5 p-3 space-y-2">
         <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
           mock
         </span>
@@ -29,7 +29,7 @@ export function ConnectionRecsModule({ variant }: ConnectionRecsModuleProps) {
             animate={{ scale: [1, 1.1, 1] }}
             transition={{ repeat: Infinity, duration: 2 }}
           >
-            <Sparkles className="w-3.5 h-3.5 text-[#4285f4]" />
+            <Sparkles className="w-3.5 h-3.5 text-info" />
           </motion.div>
           <span className="text-xs font-medium text-foreground">
             Suggested Connections
@@ -45,7 +45,7 @@ export function ConnectionRecsModule({ variant }: ConnectionRecsModuleProps) {
               transition={{ delay: idx * 0.1 }}
               className="flex items-center gap-2.5 py-1"
             >
-              <RecIcon className="w-3.5 h-3.5 text-[#4285f4]" />
+              <RecIcon className="w-3.5 h-3.5 text-info" />
               <div className="flex-1 min-w-0">
                 <span className="text-xs text-foreground">{r.name}</span>
                 <span className="text-[10px] text-text-muted ml-1">
@@ -54,7 +54,7 @@ export function ConnectionRecsModule({ variant }: ConnectionRecsModuleProps) {
               </div>
               <motion.button
                 whileTap={{ scale: 0.9 }}
-                className="text-[10px] px-2 py-0.5 rounded-full bg-[#4285f4]/15 text-[#4285f4] hover:bg-[#4285f4]/25"
+                className="text-[10px] px-2 py-0.5 rounded-full bg-info/15 text-info hover:bg-info/25"
               >
                 Connect
               </motion.button>
@@ -79,16 +79,16 @@ export function ConnectionRecsModule({ variant }: ConnectionRecsModuleProps) {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: idx * 0.08 }}
-              className="rounded-lg border border-border px-3 py-2 flex items-center gap-2 hover:border-[#4285f4]/25 transition-colors"
+              className="rounded-lg border border-border px-3 py-2 flex items-center gap-2 hover:border-info/25 transition-colors"
             >
-              <div className="w-7 h-7 rounded-lg bg-[#4285f4]/10 flex items-center justify-center">
-                <RecIcon className="w-3.5 h-3.5 text-[#4285f4]" />
+              <div className="w-7 h-7 rounded-lg bg-info/10 flex items-center justify-center">
+                <RecIcon className="w-3.5 h-3.5 text-info" />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-xs text-foreground">{r.name}</div>
                 <div className="text-[10px] text-text-muted">{r.reason}</div>
               </div>
-              <Plus className="w-3.5 h-3.5 text-[#4285f4]" />
+              <Plus className="w-3.5 h-3.5 text-info" />
             </motion.div>
           );
         })}
@@ -101,22 +101,22 @@ export function ConnectionRecsModule({ variant }: ConnectionRecsModuleProps) {
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="relative flex items-center gap-2 px-3 py-2 rounded-lg bg-[#4285f4]/5 border border-[#4285f4]/15"
+      className="relative flex items-center gap-2 px-3 py-2 rounded-lg bg-info/5 border border-info/15"
     >
       <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
         mock
       </span>
-      <Link2 className="w-3.5 h-3.5 text-[#4285f4] shrink-0" />
+      <Link2 className="w-3.5 h-3.5 text-info shrink-0" />
       <span className="text-[10px] text-text-muted flex-1">
         Connect{" "}
-        <span className="text-[#4285f4] font-medium">
+        <span className="text-info font-medium">
           {recs.map((r) => r.name).join(", ")}
         </span>{" "}
         based on your agent&apos;s activity
       </span>
       <motion.button
         whileTap={{ scale: 0.9 }}
-        className="text-[10px] text-[#4285f4] font-medium hover:underline shrink-0"
+        className="text-[10px] text-info font-medium hover:underline shrink-0"
       >
         Add
       </motion.button>

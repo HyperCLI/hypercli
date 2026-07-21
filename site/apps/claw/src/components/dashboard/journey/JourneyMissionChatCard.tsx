@@ -387,7 +387,7 @@ export function JourneyMissionChatCard({
       initial={reducedMotion ? false : { opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.22, ease: "easeOut" }}
-      className="w-full max-w-[39rem] rounded-[1.2rem] border border-white/10 bg-[#141415]/95 p-4 text-foreground shadow-[0_18px_70px_rgba(0,0,0,0.28)] sm:p-5"
+      className="w-full max-w-[39rem] rounded-[1.2rem] border border-border bg-surface/95 p-4 text-foreground shadow-[0_18px_70px_rgba(0,0,0,0.28)] sm:p-5"
       aria-label={`Journey mission ${day.day}: ${day.title}`}
     >
       <div className="flex items-start gap-3">
@@ -406,7 +406,7 @@ export function JourneyMissionChatCard({
 
       <div className="mt-4 grid gap-2.5">
         {config.fields.map((field) => (
-          <label key={field.id} className="block rounded-xl border border-white/10 bg-white/[0.035] p-3">
+          <label key={field.id} className="block rounded-xl border border-border bg-surface-high/40 p-3">
             <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">{field.label}</span>
             {field.textarea ? (
               <textarea
@@ -414,14 +414,14 @@ export function JourneyMissionChatCard({
                 onChange={(event) => updateField(field.id, event.target.value)}
                 placeholder={field.placeholder}
                 rows={3}
-                className="mt-2 w-full resize-none rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm leading-5 text-foreground outline-none placeholder:text-text-muted focus:border-[rgb(var(--selection-accent-rgb)_/_0.45)] focus:ring-2 focus:ring-[rgb(var(--selection-accent-rgb)_/_0.18)]"
+                className="mt-2 w-full resize-none rounded-lg border border-border bg-background/60 px-3 py-2 text-sm leading-5 text-foreground outline-none placeholder:text-text-muted focus:border-[rgb(var(--selection-accent-rgb)_/_0.45)] focus:ring-2 focus:ring-[rgb(var(--selection-accent-rgb)_/_0.18)]"
               />
             ) : (
               <input
                 value={values[field.id] ?? ""}
                 onChange={(event) => updateField(field.id, event.target.value)}
                 placeholder={field.placeholder}
-                className="mt-2 h-9 w-full rounded-lg border border-white/10 bg-black/20 px-3 text-sm text-foreground outline-none placeholder:text-text-muted focus:border-[rgb(var(--selection-accent-rgb)_/_0.45)] focus:ring-2 focus:ring-[rgb(var(--selection-accent-rgb)_/_0.18)]"
+                className="mt-2 h-9 w-full rounded-lg border border-border bg-background/60 px-3 text-sm text-foreground outline-none placeholder:text-text-muted focus:border-[rgb(var(--selection-accent-rgb)_/_0.45)] focus:ring-2 focus:ring-[rgb(var(--selection-accent-rgb)_/_0.18)]"
               />
             )}
           </label>
@@ -435,7 +435,7 @@ export function JourneyMissionChatCard({
               key={example.label}
               type="button"
               onClick={() => applyExample(example)}
-              className="rounded-full border border-white/10 bg-white/[0.035] px-2.5 py-1 text-[11px] font-semibold text-text-secondary transition-colors hover:border-[rgb(var(--selection-accent-rgb)_/_0.3)] hover:bg-[rgb(var(--selection-accent-rgb)_/_0.08)] hover:text-[var(--selection-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.5)]"
+              className="rounded-full border border-border bg-surface-high/40 px-2.5 py-1 text-[11px] font-semibold text-text-secondary transition-colors hover:border-[rgb(var(--selection-accent-rgb)_/_0.3)] hover:bg-[rgb(var(--selection-accent-rgb)_/_0.08)] hover:text-[var(--selection-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.5)]"
             >
               {example.label}
             </button>
@@ -444,13 +444,13 @@ export function JourneyMissionChatCard({
       ) : null}
 
       {capabilityCards.length > 0 ? (
-        <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-3">
+        <div className="mt-4 rounded-xl border border-border bg-background/60 p-3">
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">Useful capabilities</p>
           <div className="mt-2 grid gap-2">
             {capabilityCards.map((capability) => {
               const CapabilityIcon = capability.icon;
               return (
-                <div key={capability.id} className="rounded-lg border border-white/10 bg-white/[0.035] p-2.5">
+                <div key={capability.id} className="rounded-lg border border-border bg-surface-high/40 p-2.5">
                   <div className="flex items-start gap-2.5">
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]">
                       <CapabilityIcon className="h-3.5 w-3.5" />
@@ -471,7 +471,7 @@ export function JourneyMissionChatCard({
                     <button
                       type="button"
                       onClick={() => onOpenCapability(capability, day)}
-                      className="h-7 rounded-full px-2.5 text-xs font-medium text-text-muted transition-colors hover:bg-white/8 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)]"
+                      className="h-7 rounded-full px-2.5 text-xs font-medium text-text-muted transition-colors hover:bg-surface-high hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)]"
                     >
                       See capability
                     </button>
@@ -488,7 +488,7 @@ export function JourneyMissionChatCard({
           type="button"
           onClick={runPrimaryAction}
           disabled={!canDraftPrompt}
-          className="inline-flex h-9 items-center gap-2 rounded-full bg-[var(--selection-accent)] px-3.5 text-sm font-semibold text-black transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.55)]"
+          className="inline-flex h-9 items-center gap-2 rounded-full bg-[var(--selection-accent)] px-3.5 text-sm font-semibold text-[var(--selection-accent-foreground)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.55)]"
         >
           {config.primaryLabel}
           <ArrowRight className="h-4 w-4" />
@@ -497,7 +497,7 @@ export function JourneyMissionChatCard({
           <button
             type="button"
             onClick={runSecondaryPrompt}
-            className="h-9 rounded-full px-3 text-sm font-medium text-text-muted transition-colors hover:bg-white/8 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)]"
+            className="h-9 rounded-full px-3 text-sm font-medium text-text-muted transition-colors hover:bg-surface-high hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)]"
           >
             {config.secondaryLabel}
           </button>
@@ -505,7 +505,7 @@ export function JourneyMissionChatCard({
         <button
           type="button"
           onClick={() => setPreviewOpen((open) => !open)}
-          className="inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-medium text-text-muted transition-colors hover:bg-white/8 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)]"
+          className="inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-medium text-text-muted transition-colors hover:bg-surface-high hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)]"
           aria-expanded={previewOpen}
         >
           Preview prompt
@@ -513,7 +513,7 @@ export function JourneyMissionChatCard({
         </button>
       </div>
       {previewOpen ? (
-        <div className="mt-3 rounded-xl border border-white/10 bg-black/25 p-3">
+        <div className="mt-3 rounded-xl border border-border bg-background/70 p-3">
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">
             {previewCapabilityId ? "Preview with capability" : "Preview"}
           </p>

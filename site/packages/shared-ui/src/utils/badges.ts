@@ -24,7 +24,7 @@ export const getBadgeClass = (status: string): string => {
     // Info/in-progress states - muted blue
     case 'assigned':
     case 'running':
-      return 'bg-[#5B9BD5]/10 text-[#5B9BD5] border-[#5B9BD5]/30';
+      return 'bg-info/10 text-info border-info/30';
 
     // Error/failure states - muted red
     case 'failed':
@@ -60,7 +60,7 @@ export const getTypeBadgeClass = (type: string): string => {
     case 'rewards':
       return 'bg-warning/10 text-warning border-warning/30';
     case 'invoice':
-      return 'bg-[#5B9BD5]/10 text-[#5B9BD5] border-[#5B9BD5]/30';
+      return 'bg-info/10 text-info border-info/30';
     default:
       return 'bg-muted text-muted-foreground border-border';
   }

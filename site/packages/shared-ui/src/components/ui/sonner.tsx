@@ -1,29 +1,11 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
 import { toast, Toaster as Sonner, ToasterProps } from "sonner";
-import { subscribeToThemeChanges } from "../../utils/theme";
-
-function subscribeToProductTheme(onStoreChange: () => void) {
-  const unsubscribe = subscribeToThemeChanges(() => onStoreChange());
-  const observer = typeof MutationObserver === "undefined"
-    ? null
-    : new MutationObserver(onStoreChange);
-  observer?.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-  return () => {
-    observer?.disconnect();
-    unsubscribe();
-  };
-}
-
-function getProductThemeSnapshot() {
-  if (typeof document === "undefined") return "default";
-  return document.documentElement.getAttribute("data-theme") ?? "default";
-}
+import { useTheme } from "../ThemeProvider";
 
 const Toaster = ({ theme: themeOverride, ...props }: ToasterProps) => {
-  const productTheme = useSyncExternalStore(subscribeToProductTheme, getProductThemeSnapshot, () => "default");
-  const theme = themeOverride ?? (productTheme === "light" ? "light" : "dark");
+  const { theme: productTheme } = useTheme();
+  const theme = themeOverride ?? productTheme;
 
   return (
     <Sonner

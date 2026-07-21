@@ -38,6 +38,8 @@ import { useAgentLogs } from "@/hooks/useAgentLogs";
 import { useAgentShell } from "@/hooks/useAgentShell";
 import { useAgentShellActivation } from "@/hooks/useAgentShellActivation";
 import { useAgentShellTerminal } from "@/hooks/useAgentShellTerminal";
+import { clearOpenClawSessionPins, useOpenClawSessionPins } from "@/hooks/useOpenClawSessionPins";
+import { useAgentRosterOrder } from "@/hooks/useAgentRosterOrder";
 import { agentAvatar } from "@/lib/avatar";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { IntegrationsDirectoryPanel } from "@/components/dashboard/integrations";
@@ -75,7 +77,7 @@ import type {
   HyperAgentTypeCatalog,
 } from "@hypercli.com/sdk/agent";
 import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentState } from "./types";
-import { isAgentFailureState, isAgentTransitionalState } from "./types";
+import { isAgentFailureState, isAgentOffline, isAgentTransitionalState } from "./types";
 import {
   describeAgentTierStartGuidance,
   describeAgentsPageError,
@@ -576,33 +578,33 @@ function UpgradePlanCatalogModal({
       onClick={onClose}
     >
       <motion.div
-        className="max-h-[min(720px,calc(100vh-2rem))] w-full max-w-[1040px] overflow-hidden rounded-[16px] border border-[#343434] bg-[#171717] shadow-2xl"
+        className="max-h-[min(720px,calc(100vh-2rem))] w-full max-w-[1040px] overflow-hidden rounded-[16px] border border-border bg-popover shadow-2xl"
         initial={{ opacity: 0, y: 10, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 10, scale: 0.98 }}
         transition={{ type: "spring", stiffness: 420, damping: 34 }}
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-4 border-b border-[#303033] px-5 py-4">
+        <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
           <div>
             <div className="flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-[var(--selection-accent)]" />
-              <h2 className="text-[18px] font-semibold leading-tight text-[#f5f5f5]">Upgrade plan</h2>
+              <h2 className="text-[18px] font-semibold leading-tight text-foreground">Upgrade plan</h2>
             </div>
-            <p className="mt-2 text-[13px] leading-snug text-[#858585]">Choose a plan for checkout.</p>
+            <p className="mt-2 text-[13px] leading-snug text-text-muted">Choose a plan for checkout.</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
               onClick={() => setComparisonOpen(true)}
-              className="inline-flex h-8 items-center justify-center rounded-[10px] border border-[#4a4a4d] bg-[#232323] px-3 text-[13px] font-medium text-[#f5f5f5] transition-colors hover:border-[#66666a] hover:bg-[#2b2b2b]"
+              className="inline-flex h-8 items-center justify-center rounded-[10px] border border-border bg-surface-high px-3 text-[13px] font-medium text-foreground transition-colors hover:border-border-strong hover:bg-surface-medium"
             >
               Compare plans
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#3c3c40] bg-[#202020] text-[#a2a2a8] transition-colors hover:bg-[#2b2b2b] hover:text-[#f5f5f5]"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-surface-high text-text-secondary transition-colors hover:bg-surface-medium hover:text-foreground"
               aria-label="Close upgrade modal"
             >
               <X className="h-4 w-4" />
@@ -616,7 +618,7 @@ function UpgradePlanCatalogModal({
               <Loader2 className="h-5 w-5 animate-spin text-text-muted" />
             </div>
           ) : error ? (
-            <div className="rounded-lg border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-4 py-3 text-sm text-[#d05f5f]">
+            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
               {error}
               <button
                 type="button"
@@ -646,7 +648,7 @@ function UpgradePlanCatalogModal({
                 return (
                   <div
                     key={product.id}
-                    className="relative flex min-h-[302px] flex-col rounded-[8px] border border-[#353538] bg-[#181818] p-4 text-left transition-colors hover:border-[#505055]"
+                    className="relative flex min-h-[302px] flex-col rounded-[8px] border border-border bg-surface-low p-4 text-left transition-colors hover:border-border-strong"
                   >
                     {product.highlighted && (
                       <span className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--selection-accent)] px-2.5 py-1 text-[12px] font-medium leading-none text-[var(--selection-accent-foreground)] shadow-[0_8px_22px_rgb(var(--selection-accent-rgb)_/_0.22)]">
@@ -655,10 +657,10 @@ function UpgradePlanCatalogModal({
                     )}
 
                     <div className="flex items-center gap-2.5">
-                      <span className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-[#303035] bg-[#242427] text-[#f5f5f5]">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-border bg-surface-high text-foreground">
                         <ProductIcon className="h-4 w-4" />
                       </span>
-                      <h3 className="truncate text-[18px] font-semibold leading-none text-[#f5f5f5]">{product.name}</h3>
+                      <h3 className="truncate text-[18px] font-semibold leading-none text-foreground">{product.name}</h3>
                       {ownedCount > 0 && (
                         <span className="ml-auto shrink-0 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-2 py-0.5 text-[11px] font-medium text-[var(--selection-accent)]">
                           You own {ownedCount}
@@ -666,13 +668,13 @@ function UpgradePlanCatalogModal({
                       )}
                     </div>
 
-                    <p className="mt-5 min-h-[34px] text-[13px] leading-[1.35] text-[#7d7d82]">
+                    <p className="mt-5 min-h-[34px] text-[13px] leading-[1.35] text-text-muted">
                       {describeUpgradeProduct(product)}
                     </p>
 
                     <div className="mt-3 flex min-h-[42px] items-center gap-2.5">
-                      <span className="text-[28px] font-bold leading-none text-[#f7f7f7]">${product.price}</span>
-                      <span className="max-w-[78px] text-[10px] font-semibold leading-[1.1] text-[#f6f6f6]">
+                      <span className="text-[28px] font-bold leading-none text-foreground">${product.price}</span>
+                      <span className="max-w-[78px] text-[10px] font-semibold leading-[1.1] text-text-secondary">
                         USD/month per agent
                       </span>
                     </div>
@@ -683,7 +685,7 @@ function UpgradePlanCatalogModal({
                       className={`mt-3 flex h-8 w-full items-center justify-center rounded-[8px] px-3 text-[13px] font-medium leading-tight transition-colors ${
                         product.highlighted
                           ? "bg-[var(--button-primary)] text-[var(--button-primary-foreground)] hover:bg-[var(--button-primary-hover)]"
-                          : "border border-[#444448] bg-[#202020] text-[#f5f5f5] hover:bg-[#262626]"
+                          : "border border-border bg-surface-high text-foreground hover:bg-surface-medium"
                       }`}
                     >
                       {ownedCount > 0 ? "Add another" : product.highlighted ? `Upgrade to ${product.name}` : "Select plan"}
@@ -691,8 +693,8 @@ function UpgradePlanCatalogModal({
 
                     <div className="mt-5 space-y-2.5">
                       {featureRows.map((feature, featureIndex) => (
-                        <div key={`${product.id}-${featureIndex}-${feature}`} className="flex items-start gap-2.5 text-[13px] leading-tight text-[#f2f2f2]">
-                          <Check className="mt-px h-4 w-4 shrink-0 text-[#77777b]" />
+                        <div key={`${product.id}-${featureIndex}-${feature}`} className="flex items-start gap-2.5 text-[13px] leading-tight text-text-secondary">
+                          <Check className="mt-px h-4 w-4 shrink-0 text-text-muted" />
                           <span>{feature}</span>
                         </div>
                       ))}
@@ -842,6 +844,7 @@ function AgentsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedAgentId = searchParams.get("agentId")?.trim() || null;
+  const requestedSessionKey = searchParams.get("session")?.trim() || null;
   const requestedIntegrationId = searchParams.get("integration")?.trim() || null;
   const requestedOpen = searchParams.get("open")?.trim() || null;
   const slackOAuthOk = searchParams.get("slack_oauth_ok")?.trim() || null;
@@ -897,7 +900,7 @@ function AgentsPageContent() {
   const tokenUsageRefreshTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const tokenUsageRefreshInFlightRef = useRef(false);
   const checkoutReturnHandledRef = useRef(false);
-  const appliedAgentQueryRef = useRef<string | null>(null);
+  const appliedAgentSessionQueryRef = useRef<string | null>(null);
   const appliedIntegrationQueryRef = useRef<string | null>(null);
   const appliedOpenQueryRef = useRef<string | null>(null);
 
@@ -925,16 +928,51 @@ function AgentsPageContent() {
 
   // Selection and tabs
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
-  const [selectedSessionKeysByAgent, setSelectedSessionKeysByAgent] = useState<Record<string, string>>({});
+  const [selectedSessionKeysByAgent, setSelectedSessionKeysByAgent] = useState<Record<string, string>>(() => (
+    requestedAgentId
+      ? { [requestedAgentId]: requestedSessionKey ?? resolveOpenClawSessionKey(requestedAgentId) }
+      : {}
+  ));
+  const { pinnedSessionKeys, setSessionPinned } = useOpenClawSessionPins(selectedAgentId);
   const [mainTab, setMainTab] = useState<MainTab>("chat");
   const [scheduledInitialCommand, setScheduledInitialCommand] = useState<{ id: number; command: string } | null>(null);
   const scheduledInitialCommandIdRef = useRef(0);
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [mobileAgentsSidebarOpen, setMobileAgentsSidebarOpen] = useState(false);
+  const [showMobileOfflineAgents, setShowMobileOfflineAgents] = useState(false);
   const [mobileWorkspaceSidebarOpen, setMobileWorkspaceSidebarOpen] = useState(false);
   const [mobileAgentLauncherOpen, setMobileAgentLauncherOpen] = useState(false);
   const [sidebarCreatorSignal, setSidebarCreatorSignal] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+
+  const replaceAgentChatRoute = useCallback((agentId: string | null, sessionKey?: string | null) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (agentId) {
+      params.set("agentId", agentId);
+    } else {
+      params.delete("agentId");
+    }
+
+    const normalizedSessionKey = sessionKey?.trim() || null;
+    if (
+      agentId &&
+      normalizedSessionKey &&
+      !sameOpenClawSelectableSessionKey(normalizedSessionKey, resolveOpenClawSessionKey(agentId))
+    ) {
+      params.set("session", normalizedSessionKey);
+    } else {
+      params.delete("session");
+    }
+
+    const query = params.toString();
+    router.replace(`/dashboard/agents${query ? `?${query}` : ""}`, { scroll: false });
+  }, [router, searchParams]);
+
+  const selectAgent = useCallback((agentId: string) => {
+    const sessionKey = selectedSessionKeysByAgent[agentId] ?? resolveOpenClawSessionKey(agentId);
+    setSelectedAgentId(agentId);
+    replaceAgentChatRoute(agentId, sessionKey);
+  }, [replaceAgentChatRoute, selectedSessionKeysByAgent]);
 
   // Logs
   const logBoxRef = useRef<HTMLDivElement | null>(null);
@@ -1245,33 +1283,53 @@ function AgentsPageContent() {
   useEffect(() => { fetchAgents(); }, [fetchAgents]);
 
   useEffect(() => {
-    if (!requestedAgentId || appliedAgentQueryRef.current === requestedAgentId) return;
+    if (!requestedAgentId) {
+      appliedAgentSessionQueryRef.current = null;
+      return;
+    }
     if (!sdkAgents.some((agent) => agent.id === requestedAgentId)) return;
 
-    appliedAgentQueryRef.current = requestedAgentId;
+    const selectionQueryKey = JSON.stringify([requestedAgentId, requestedSessionKey]);
+    if (appliedAgentSessionQueryRef.current === selectionQueryKey) return;
+
+    appliedAgentSessionQueryRef.current = selectionQueryKey;
+    const sessionKey = requestedSessionKey ?? resolveOpenClawSessionKey(requestedAgentId);
     setSelectedAgentId(requestedAgentId);
+    setSelectedSessionKeysByAgent((current) => (
+      current[requestedAgentId] === sessionKey
+        ? current
+        : { ...current, [requestedAgentId]: sessionKey }
+    ));
     setMobileShowChat(true);
-  }, [requestedAgentId, sdkAgents]);
+  }, [requestedAgentId, requestedSessionKey, sdkAgents]);
 
   useEffect(() => {
-    if (!requestedIntegrationId || !INTEGRATION_QUERY_IDS.has(requestedIntegrationId)) return;
+    if (!requestedIntegrationId || !INTEGRATION_QUERY_IDS.has(requestedIntegrationId)) {
+      appliedIntegrationQueryRef.current = null;
+      return;
+    }
     if (!requestedAgentId) return;
-    if (appliedIntegrationQueryRef.current === queryKey) return;
+    const integrationQueryKey = JSON.stringify([requestedAgentId, requestedIntegrationId]);
+    if (appliedIntegrationQueryRef.current === integrationQueryKey) return;
     if (selectedAgentId !== requestedAgentId) return;
 
-    appliedIntegrationQueryRef.current = queryKey;
+    appliedIntegrationQueryRef.current = integrationQueryKey;
     setDirectoryCategory("channels");
     setDirectoryItemId(requestedIntegrationId);
     setDirectoryDetailOrigin(null);
     setOpenclawSettingsOpen(false);
     setMainTab("integrations");
     setMobileShowChat(true);
-  }, [queryKey, requestedAgentId, requestedIntegrationId, selectedAgentId]);
+  }, [requestedAgentId, requestedIntegrationId, selectedAgentId]);
 
   useEffect(() => {
-    if (!shouldOpenAgentLauncherFromQuery || appliedOpenQueryRef.current === queryKey) return;
+    if (!shouldOpenAgentLauncherFromQuery) {
+      appliedOpenQueryRef.current = null;
+      return;
+    }
+    if (appliedOpenQueryRef.current === requestedOpen) return;
 
-    appliedOpenQueryRef.current = queryKey;
+    appliedOpenQueryRef.current = requestedOpen;
     setMobileShowChat(false);
 
     if (isDesktopViewport) {
@@ -1281,7 +1339,7 @@ function AgentsPageContent() {
 
     setMobileAgentsSidebarOpen(false);
     setMobileAgentLauncherOpen(true);
-  }, [isDesktopViewport, queryKey, shouldOpenAgentLauncherFromQuery]);
+  }, [isDesktopViewport, requestedOpen, shouldOpenAgentLauncherFromQuery]);
 
   useEffect(() => {
     if (checkoutReturnHandledRef.current) return;
@@ -1352,6 +1410,12 @@ function AgentsPageContent() {
   }, [checkoutSync]);
 
   const agents = useMemo(() => sdkAgents.map(toAgentViewModel), [sdkAgents]);
+  const agentRosterIds = useMemo(() => agents.map((agent) => agent.id), [agents]);
+  const { orderedAgentIds, setVisibleAgentOrder } = useAgentRosterOrder(agentRosterIds);
+  const orderedRosterAgents = useMemo(() => {
+    const agentById = new Map(agents.map((agent) => [agent.id, agent]));
+    return orderedAgentIds.map((agentId) => agentById.get(agentId)).filter((agent): agent is Agent => Boolean(agent));
+  }, [agents, orderedAgentIds]);
   const upgradeProducts = useMemo(
     () => buildUpgradeProducts(catalogPlans).filter((product) => product.id !== "free" && product.price > 0),
     [catalogPlans],
@@ -1457,7 +1521,7 @@ function AgentsPageContent() {
     files: "Files",
     integrations: "Integrations",
     skills: "Skills",
-    knowledge: "Workspaces",
+    knowledge: "Shared knowledge",
     scheduled: "Scheduled",
     logs: "Logs",
     settings: "Settings",
@@ -1786,7 +1850,7 @@ function AgentsPageContent() {
     if (selectedAgent.state === "SYNC_FAILED") {
       return {
         label: "Sync failed",
-        detail: selectedAgent.last_error || "Workspace sync failed before the agent could boot.",
+        detail: selectedAgent.last_error?.replace(/\bworkspaces?\b/gi, "shared knowledge") || "Shared knowledge sync failed before the agent could boot.",
         tone: "failed",
       };
     }
@@ -1819,8 +1883,8 @@ function AgentsPageContent() {
 
     if (selectedAgent.state === "SYNCING") {
       return {
-        label: "Syncing workspaces",
-        detail: "Syncing shared workspace Markdown before boot.",
+        label: "Syncing shared knowledge",
+        detail: "Syncing shared knowledge Markdown before boot.",
         tone: "starting",
         loading: true,
       };
@@ -1932,7 +1996,7 @@ function AgentsPageContent() {
   // One thread per agent, used by both the left ConversationsSidebar and the
   // right inspector (which needs `hasAgent` true to render content).
   const syntheticThreads = useMemo<ConversationThread[]>(() => {
-    return agents.map((agent) => ({
+    return orderedRosterAgents.map((agent) => ({
       id: agent.id,
       sessionKey: resolveOpenClawSessionKey(agent.id),
       participants: [
@@ -1948,7 +2012,17 @@ function AgentsPageContent() {
       unreadCount: 0,
       isActive: agent.state === "RUNNING",
     }));
-  }, [agents, selectedAgentId, chat.messages.length]);
+  }, [chat.messages.length, orderedRosterAgents, selectedAgentId]);
+  const mobileOfflineAgentIds = useMemo(
+    () => new Set(orderedRosterAgents.filter((agent) => isAgentOffline(agent.state)).map((agent) => agent.id)),
+    [orderedRosterAgents],
+  );
+  const mobileSyntheticThreads = useMemo(
+    () => showMobileOfflineAgents
+      ? syntheticThreads
+      : syntheticThreads.filter((thread) => thread.kind !== "user-agent" || !mobileOfflineAgentIds.has(thread.id)),
+    [mobileOfflineAgentIds, showMobileOfflineAgents, syntheticThreads],
+  );
 
   // Derive RecentToolCall[] by flattening toolCalls across assistant messages.
   // Newest last (matches the Activity tab order).
@@ -2235,7 +2309,7 @@ function AgentsPageContent() {
           }
         }
         await fetchAgents();
-        setSelectedAgentId(created.id);
+        selectAgent(created.id);
         setOpenclawSettingsOpen(false);
         setMainTab("chat");
         setMobileShowChat(true);
@@ -2252,7 +2326,7 @@ function AgentsPageContent() {
       }
       throw err;
     }
-  }, [completeJourneyForEvent, fetchAgents, getToken]);
+  }, [completeJourneyForEvent, fetchAgents, getToken, selectAgent]);
 
   const handleResizeAndStart = useCallback(async (agentId: string, tier: string) => {
     setStartingId(agentId);
@@ -2332,6 +2406,7 @@ function AgentsPageContent() {
       const releaseBaseline = releaseTier ? budget?.slots?.[releaseTier] : null;
       const token = await getToken();
       await createAgentClient(token).delete(agentId);
+      clearOpenClawSessionPins(agentId);
       const nextAgents = removeSdkAgent(sdkAgents, agentId);
       const deletedIndex = sdkAgents.findIndex((agent) => agent.id === agentId);
       const replacementIndex = deletedIndex === -1 ? 0 : Math.min(deletedIndex, nextAgents.length - 1);
@@ -2343,11 +2418,16 @@ function AgentsPageContent() {
         delete next[agentId];
         return next;
       });
-      setSelectedAgentId((currentId) => {
-        if (currentId === agentId) return replacementAgentId;
-        if (currentId && nextAgents.some((agent) => agent.id === currentId)) return currentId;
-        return replacementAgentId;
-      });
+      const nextSelectedAgentId = selectedAgentId === agentId || !selectedAgentId || !nextAgents.some((agent) => agent.id === selectedAgentId)
+        ? replacementAgentId
+        : selectedAgentId;
+      setSelectedAgentId(nextSelectedAgentId);
+      replaceAgentChatRoute(
+        nextSelectedAgentId,
+        nextSelectedAgentId
+          ? selectedSessionKeysByAgent[nextSelectedAgentId] ?? resolveOpenClawSessionKey(nextSelectedAgentId)
+          : null,
+      );
       const refreshed = await fetchAgents();
       if (releaseTier && releaseBaseline && !slotReleaseLanded(releaseBaseline, refreshed?.budget?.slots?.[releaseTier])) {
         trackPendingSlotRelease(`${agentId}:${releaseTier}:${Date.now()}`, releaseTier, releaseBaseline);
@@ -2761,6 +2841,7 @@ function AgentsPageContent() {
   const selectSession = (sessionKey: string) => {
     if (!selectedAgentId) return;
     setSelectedSessionKeysByAgent((prev) => ({ ...prev, [selectedAgentId]: sessionKey }));
+    replaceAgentChatRoute(selectedAgentId, sessionKey);
     openChatTab();
   };
   const renameSession = async (sessionKey: string, title: string) => {
@@ -2768,14 +2849,17 @@ function AgentsPageContent() {
   };
   const deleteSession = async (sessionKey: string) => {
     await chat.deleteSession(sessionKey);
+    setSessionPinned(sessionKey, false);
     if (!selectedAgentId || !sameOpenClawSelectableSessionKey(sessionKey, selectedSessionKey)) return;
     const fallbackSessionKey = chat.sessions.find((session) => !sameOpenClawSelectableSessionKey(session.key, sessionKey))?.key ?? resolveOpenClawSessionKey(selectedAgentId);
     setSelectedSessionKeysByAgent((prev) => ({ ...prev, [selectedAgentId]: fallbackSessionKey }));
+    replaceAgentChatRoute(selectedAgentId, fallbackSessionKey);
   };
   const createSession = async () => {
     if (!selectedAgentId) return;
     const sessionKey = await chat.createSession();
     setSelectedSessionKeysByAgent((prev) => ({ ...prev, [selectedAgentId]: sessionKey }));
+    replaceAgentChatRoute(selectedAgentId, sessionKey);
     openChatTab();
   };
   const testSkillInNewSession = async (skill: AgentSkill) => {
@@ -2805,6 +2889,7 @@ function AgentsPageContent() {
       });
     }
     setSelectedSessionKeysByAgent((prev) => ({ ...prev, [selectedAgentId]: sessionKey }));
+    replaceAgentChatRoute(selectedAgentId, sessionKey);
     openChatTab();
   };
   const openFilesTab = (path?: string) => {
@@ -3084,7 +3169,7 @@ function AgentsPageContent() {
         <div
           className={`mx-4 mt-3 flex items-start justify-between gap-3 rounded-lg border px-3 py-2 text-sm sm:mx-6 lg:mx-8 ${
             checkoutSync.status === "pending" || checkoutSync.status === "cancelled"
-              ? "border-amber-400/25 bg-amber-400/10 text-amber-100"
+              ? "border-warning/25 bg-warning/10 text-warning"
               : "border-[rgb(var(--selection-accent-rgb)_/_0.25)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
           }`}
         >
@@ -3231,30 +3316,28 @@ function AgentsPageContent() {
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
               transition={{ type: "spring", stiffness: 360, damping: 34 }}
-              className="relative z-10 h-full w-full bg-[#232323] shadow-2xl"
+              className="relative z-10 h-full w-full bg-sidebar shadow-2xl"
             >
               <AgentsChannelsSidebar
                 variant="v3"
                 showDivider={false}
                 fillParent
                 mobileMode
-                threads={syntheticThreads}
+                threads={mobileSyntheticThreads}
                 selectedThreadId={selectedAgentId}
                 showChannels={false}
-                availableAgents={agents.map((a) => ({
-                  id: a.id,
-                  name: a.name || a.id,
-                  type: "agent" as const,
-                  meta: a.meta ?? null,
-                }))}
+                offlineAgentCount={mobileOfflineAgentIds.size}
+                showOfflineAgents={showMobileOfflineAgents}
+                onShowOfflineAgentsChange={setShowMobileOfflineAgents}
+                onReorderAgents={setVisibleAgentOrder}
                 agentCardDataById={agentCardDataById}
                 onSelectThread={(threadId) => {
-                  setSelectedAgentId(threadId);
+                  selectAgent(threadId);
                   setMobileShowChat(true);
                   setMobileAgentsSidebarOpen(false);
                 }}
                 onStartAgentChat={(agent) => {
-                  setSelectedAgentId(agent.id);
+                  selectAgent(agent.id);
                   setMobileShowChat(true);
                   setMobileAgentsSidebarOpen(false);
                 }}
@@ -3298,7 +3381,7 @@ function AgentsPageContent() {
               animate={{ x: 0 }}
               exit={{ x: "100%" }}
               transition={{ type: "spring", stiffness: 360, damping: 34 }}
-              className="relative z-10 h-full w-full bg-[#232323] shadow-2xl"
+              className="relative z-10 h-full w-full bg-sidebar shadow-2xl"
             >
               <AgentWorkspaceSidebar
                 selectedAgent={selectedAgent}
@@ -3321,7 +3404,9 @@ function AgentsPageContent() {
                 creatingSessionKeys={chat.creatingSessionKeys}
                 thinkingSessionKeys={chat.thinkingSessionKeys}
                 selectedSessionKey={selectedSessionKey}
+                pinnedSessionKeys={pinnedSessionKeys}
                 onSelectSession={selectSession}
+                onSetSessionPinned={setSessionPinned}
                 onRenameSession={renameSession}
                 onDeleteSession={deleteSession}
                 onCreateSession={createSession}
@@ -3352,7 +3437,7 @@ function AgentsPageContent() {
           mobileShowChat={mobileMainPanelVisible}
           agents={agents}
           selectedAgentId={selectedAgentId}
-          setSelectedAgentId={setSelectedAgentId}
+          setSelectedAgentId={selectAgent}
           setMobileShowChat={setMobileShowChat}
           setSidebarCollapsed={setSidebarCollapsed}
           syntheticThreads={syntheticThreads}
@@ -3396,7 +3481,9 @@ function AgentsPageContent() {
           creatingSessionKeys={chat.creatingSessionKeys}
           thinkingSessionKeys={chat.thinkingSessionKeys}
           selectedSessionKey={selectedSessionKey}
+          pinnedSessionKeys={pinnedSessionKeys}
           onSelectSession={selectSession}
+          onSetSessionPinned={setSessionPinned}
           onRenameSession={renameSession}
           onDeleteSession={deleteSession}
           onCreateSession={createSession}

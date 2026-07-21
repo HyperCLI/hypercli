@@ -1223,7 +1223,7 @@ export const AgentSlashCommandMenu = forwardRef<AgentSlashCommandMenuHandle, Age
                         void executeConnectSuggestion(suggestion);
                       }}
                       className={`flex w-full min-w-0 items-start gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
-                        selected ? "bg-[rgb(var(--selection-accent-rgb)_/_0.12)] text-foreground" : "text-text-secondary hover:bg-white/[0.04]"
+                        selected ? "bg-[rgb(var(--selection-accent-rgb)_/_0.12)] text-foreground" : "text-text-secondary hover:bg-surface-high"
                       }`}
                     >
                       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-[var(--selection-accent)]" style={suggestion.iconColor ? { color: suggestion.iconColor } : undefined} />
@@ -1271,10 +1271,10 @@ export const AgentSlashCommandMenu = forwardRef<AgentSlashCommandMenuHandle, Age
                       void execute(command, args);
                     }}
                     className={`flex w-full min-w-0 items-start gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
-                      selected ? "bg-[rgb(var(--selection-accent-rgb)_/_0.12)] text-foreground" : "text-text-secondary hover:bg-white/[0.04]"
+                      selected ? "bg-[rgb(var(--selection-accent-rgb)_/_0.12)] text-foreground" : "text-text-secondary hover:bg-surface-high"
                     } ${reason ? "opacity-50" : ""}`}
                   >
-                    <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${command.danger ? "text-[#d05f5f]" : "text-[var(--selection-accent)]"}`} />
+                    <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${command.danger ? "text-destructive" : "text-[var(--selection-accent)]"}`} />
                     <span className="min-w-0 flex-1 space-y-1">
                       <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                         <span className="font-mono text-[12px] font-semibold leading-4">/{command.aliases[0]}</span>

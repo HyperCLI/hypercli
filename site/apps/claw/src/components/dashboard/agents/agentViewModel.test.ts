@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { isAgentOffline } from "@/app/dashboard/agents/types";
 import { buildSdkAgent } from "@/test/factories";
 import { normalizeAgentState, toAgentViewModel } from "./agentViewModel";
 
@@ -15,6 +16,15 @@ describe("agentViewModel", () => {
 
   it("keeps missing state as STOPPED", () => {
     expect(normalizeAgentState(null)).toBe("STOPPED");
+  });
+
+  it("classifies only stopped agents as offline", () => {
+    expect(isAgentOffline("STOPPED")).toBe(true);
+    expect(isAgentOffline("stopped")).toBe(true);
+    expect(isAgentOffline("RUNNING")).toBe(false);
+    expect(isAgentOffline("STARTING")).toBe(false);
+    expect(isAgentOffline("FAILED")).toBe(false);
+    expect(isAgentOffline(null)).toBe(false);
   });
 
   it("preserves launch config for runtime settings", () => {

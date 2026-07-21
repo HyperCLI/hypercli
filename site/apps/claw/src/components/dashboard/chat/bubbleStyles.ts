@@ -30,14 +30,14 @@ export function getEntranceProps(variant: AnimationVariant, isUser: boolean): HT
 export function getToolCallClass(theme: ThemeVariant, status: ToolCallViewStatus): string {
   const baseClass = "mb-1.5 w-full min-w-0 max-w-full overflow-hidden text-xs";
   const activeClass = "border-border bg-surface-low/40";
-  const failedClass = "border-[#d05f5f]/35 bg-[#d05f5f]/8";
+  const failedClass = "border-destructive/35 bg-destructive/8";
   const runningClass = "border-[rgb(var(--selection-accent-rgb)_/_0.32)] bg-surface-low/45";
   const neutralClass = "border-border bg-surface-low/35";
   const stateClass = status === "failed" ? failedClass : status === "done" ? activeClass : status === "running" ? runningClass : neutralClass;
 
   if (theme === "v2") {
     const leftBorder = status === "failed"
-      ? "border-l-[#d05f5f]/70"
+      ? "border-l-destructive/70"
       : status === "running"
       ? "border-l-[rgb(var(--selection-accent-rgb)_/_0.72)]"
       : status === "done"
@@ -55,7 +55,7 @@ export function getToolCallStatusClass(status: ToolCallViewStatus): string {
   }
 
   if (status === "failed") {
-    return "border-[#d05f5f]/35 bg-[#d05f5f]/8 text-[#d05f5f]";
+    return "border-destructive/35 bg-destructive/8 text-destructive";
   }
 
   if (status === "done") {
@@ -81,19 +81,19 @@ export function getBubbleClasses(bubblesVariant: BubblesVariant, themeVariant: T
   let colorClass: string;
   if (themeVariant === "v1") {
     colorClass = isUser
-      ? "bg-[#1e1c1a] border border-[#f0c56c]/25"
+      ? "bg-surface-high border border-warning/25"
       : "border-l-2 border-primary/40";
   } else if (themeVariant === "v2") {
     colorClass = isUser
       ? "bg-primary/10 border border-primary/25"
-      : "bg-[#0d0d0f] border border-[#2a2a2c]";
+      : "bg-surface-low border border-border";
   } else if (themeVariant === "v3") {
     colorClass = isUser
-      ? "bg-[#f0c56c]/10 border border-[#f0c56c]/20"
-      : "bg-[#141416] border-l-2 border-[#4285f4]/60";
+      ? "bg-warning/10 border border-warning/20"
+      : "bg-surface-low border-l-2 border-[#4285f4]/60";
   } else {
-    if (bubblesVariant === "v1") colorClass = isUser ? "bg-[#303030]" : "";
-    else if (bubblesVariant === "v2") colorClass = isUser ? "bg-[#2f2f2f]" : "";
+    if (bubblesVariant === "v1") colorClass = isUser ? "bg-surface-high" : "";
+    else if (bubblesVariant === "v2") colorClass = isUser ? "bg-surface-high" : "";
     else if (bubblesVariant === "v3") colorClass = isUser ? "bg-surface-high border border-border" : "";
     else colorClass = isUser ? "bg-surface-high" : "bg-surface-low";
   }

@@ -393,7 +393,7 @@ describe("ChannelChatConnectorCard", () => {
     expect(onWhatsAppPairingStart).not.toHaveBeenCalled();
   });
 
-  it("shows live WhatsApp setup command execution for debugging", async () => {
+  it("keeps WhatsApp setup diagnostics out of the user-facing UI", async () => {
     let reportCommand: ((event: OpenClawWhatsAppProgressEvent) => void) | undefined;
     let finishPreparation: (() => void) | undefined;
     const onEnsureWhatsAppSupport = vi.fn((report?: (event: OpenClawWhatsAppProgressEvent) => void) => {
@@ -424,19 +424,8 @@ describe("ChannelChatConnectorCard", () => {
       status: "running",
     }));
 
-    const diagnostics = screen.getByLabelText("WhatsApp setup activity");
-    expect(diagnostics).toHaveTextContent("$ openclaw plugins list --json");
-    expect(diagnostics).toHaveTextContent("Running");
-
-    act(() => reportCommand?.({
-      id: "command:openclaw plugins list --json",
-      kind: "command",
-      label: "Running workspace command",
-      command: "openclaw plugins list --json",
-      status: "succeeded",
-      detail: "Exit code 0",
-    }));
-    expect(diagnostics).toHaveTextContent("Exit code 0");
+    expect(screen.queryByLabelText("WhatsApp setup activity")).not.toBeInTheDocument();
+    expect(screen.queryByText("$ openclaw plugins list --json")).not.toBeInTheDocument();
 
     await act(async () => finishPreparation?.());
   });

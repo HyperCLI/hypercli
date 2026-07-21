@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, Loader2, MessageSquare, RefreshCw } from "lucide-react";
 import { getSlackInstallStatus, type SlackInstallStatus } from "@hypercli.com/sdk/agents";
+import { ThemeSelector } from "@hypercli/shared-ui";
 
 import { ProfileBillingSection } from "@/components/billing/ProfileBillingSection";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
@@ -233,13 +234,22 @@ export default function SettingsPage() {
       <main className="min-w-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-[1000px] px-4 py-8 sm:px-6 lg:px-0">
           {error ? (
-            <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-[#d05f5f]/25 bg-[#d05f5f]/10 px-4 py-3 text-sm text-[#ff6b6b]">
+            <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive">
               <span>{error}</span>
               <button type="button" className="font-medium text-foreground" onClick={() => setError(null)}>
                 Dismiss
               </button>
             </div>
           ) : null}
+          <section className="mb-5 rounded-xl border border-border bg-surface-low p-5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-base font-semibold text-foreground">Appearance</h2>
+                <p className="mt-1 text-sm text-text-muted">Choose how HyperCLI looks across all apps.</p>
+              </div>
+              <ThemeSelector aria-label="Appearance theme" />
+            </div>
+          </section>
           <SlackAccountSection getToken={getToken} />
           <ProfileBillingSection getToken={getToken} />
         </div>

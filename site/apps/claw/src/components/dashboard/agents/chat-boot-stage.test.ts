@@ -33,7 +33,7 @@ describe("getAgentChatBootStatus", () => {
     });
   });
 
-  it("shows restore and workspace sync phases before gateway readiness", () => {
+  it("shows restore and shared knowledge sync phases before gateway readiness", () => {
     expect(getAgentChatBootStatus({
       ...baseInput,
       agentState: "RESTORING",
@@ -56,7 +56,7 @@ describe("getAgentChatBootStatus", () => {
     })).toMatchObject({
       status: "loading",
       phase: "syncing",
-      title: "Syncing workspaces",
+      title: "Syncing shared knowledge",
       stage: "runtime",
     });
   });

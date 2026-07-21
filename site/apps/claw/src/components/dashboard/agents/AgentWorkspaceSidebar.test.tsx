@@ -6,6 +6,8 @@ import type { Agent } from "@/app/dashboard/agents/types";
 import { renderWithClient } from "@/test/utils";
 import { AgentWorkspaceSidebar } from "./AgentWorkspaceSidebar";
 
+type SidebarSession = NonNullable<ComponentProps<typeof AgentWorkspaceSidebar>["sessions"]>[number];
+
 vi.mock("@hypercli/shared-ui", () => ({
   Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -35,8 +37,8 @@ const agent: Agent = {
   meta: null,
 };
 
-function renderAgentWorkspaceSidebar(overrides: Partial<ComponentProps<typeof AgentWorkspaceSidebar>> = {}) {
-  const props: ComponentProps<typeof AgentWorkspaceSidebar> = {
+function agentWorkspaceSidebarProps(overrides: Partial<ComponentProps<typeof AgentWorkspaceSidebar>> = {}) {
+  return {
     selectedAgent: agent,
     activeTab: "chat",
     isDesktopViewport: true,
@@ -53,10 +55,20 @@ function renderAgentWorkspaceSidebar(overrides: Partial<ComponentProps<typeof Ag
     onOpenSettings: vi.fn(),
     onUpgrade: vi.fn(),
     ...overrides,
-  };
+  } satisfies ComponentProps<typeof AgentWorkspaceSidebar>;
+}
+
+function renderAgentWorkspaceSidebar(overrides: Partial<ComponentProps<typeof AgentWorkspaceSidebar>> = {}) {
+  const props = agentWorkspaceSidebarProps(overrides);
 
   renderWithClient(<AgentWorkspaceSidebar {...props} />);
   return props;
+}
+
+function expectSessionBefore(firstName: string, secondName: string): void {
+  const first = screen.getByRole("button", { name: firstName, exact: true });
+  const second = screen.getByRole("button", { name: secondName, exact: true });
+  expect(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
 }
 
 describe("AgentWorkspaceSidebar", () => {
@@ -70,13 +82,13 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.getByText("Test Agent")).toBeInTheDocument();
   });
 
-  it("renders workspaces after scheduled in the workspace list", () => {
+  it("renders shared knowledge after scheduled in the workspace list", () => {
     renderAgentWorkspaceSidebar();
 
     expect(screen.getByText("Agent")).toBeInTheDocument();
     expect(screen.queryByText("Workspace")).not.toBeInTheDocument();
     const labels = screen.getAllByRole("button").map((button) => button.textContent ?? "");
-    expect(labels.findIndex((label) => label.includes("Workspaces"))).toBeGreaterThan(labels.findIndex((label) => label.includes("Scheduled")));
+    expect(labels.findIndex((label) => label.includes("Shared knowledge"))).toBeGreaterThan(labels.findIndex((label) => label.includes("Scheduled")));
   });
 
   it("shows and opens desktop only when the selected agent has desktop", () => {
@@ -188,6 +200,112 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.getByText("Sessions")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "New chat" }));
     expect(onSelectSession).toHaveBeenCalledWith("session-new");
+  });
+
+  it("pins an older session ahead of newer unpinned sessions", async () => {
+    const onSetSessionPinned = vi.fn();
+    const sessions: SidebarSession[] = [
+      {
+        key: "session-old",
+        clientMode: "browser",
+        clientDisplayName: "Old chat",
+        createdAt: 1,
+        lastMessageAt: 10,
+        title: "Old chat",
+        messageCount: 1,
+        raw: {},
+      },
+      {
+        key: "session-recent",
+        clientMode: "browser",
+        clientDisplayName: "Recent chat",
+        createdAt: 1,
+        lastMessageAt: 20,
+        title: "Recent chat",
+        messageCount: 1,
+        raw: {},
+      },
+    ];
+    const props = agentWorkspaceSidebarProps({
+      sessions,
+      selectedSessionKey: "session-recent",
+      pinnedSessionKeys: [],
+      onSetSessionPinned,
+    });
+    const view = renderWithClient(<AgentWorkspaceSidebar {...props} />);
+
+    expectSessionBefore("Recent chat", "Old chat");
+    fireEvent.click(screen.getByRole("button", { name: "Session options for Old chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pin", exact: true }));
+    expect(onSetSessionPinned).toHaveBeenCalledWith("session-old", true);
+
+    view.rerender(<AgentWorkspaceSidebar {...props} pinnedSessionKeys={["session-old"]} />);
+    expectSessionBefore("Old chat", "Recent chat");
+    expect(screen.getByTitle("Pinned session")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Old chat", exact: true }).closest("[data-session-pinned]"))
+      .toHaveAttribute("data-session-pinned", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Session options for Old chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Unpin", exact: true }));
+    expect(onSetSessionPinned).toHaveBeenLastCalledWith("session-old", false);
+    view.rerender(<AgentWorkspaceSidebar {...props} pinnedSessionKeys={[]} />);
+    await waitFor(() => expect(screen.queryByTitle("Pinned session")).not.toBeInTheDocument());
+  });
+
+  it("matches an unscoped pin to a scoped session key", () => {
+    renderAgentWorkspaceSidebar({
+      sessions: [
+        {
+          key: "agent:default:session-alpha",
+          clientMode: "openclaw",
+          clientDisplayName: "Alpha",
+          createdAt: 1,
+          lastMessageAt: 10,
+          title: "Alpha",
+          messageCount: 1,
+          raw: {},
+        },
+        {
+          key: "session-recent",
+          clientMode: "openclaw",
+          clientDisplayName: "Recent",
+          createdAt: 1,
+          lastMessageAt: 20,
+          title: "Recent",
+          messageCount: 1,
+          raw: {},
+        },
+      ],
+      pinnedSessionKeys: ["session-alpha"],
+      onSetSessionPinned: vi.fn(),
+    });
+
+    expectSessionBefore("Alpha", "Recent");
+    fireEvent.click(screen.getByRole("button", { name: "Session options for Alpha" }));
+    expect(screen.getByRole("button", { name: "Unpin", exact: true })).toBeEnabled();
+  });
+
+  it("keeps pinned sessions visible before the recent-session limit", () => {
+    const sessions: SidebarSession[] = Array.from({ length: 10 }, (_, index) => ({
+      key: `session-${index}`,
+      clientMode: "openclaw",
+      clientDisplayName: index === 9 ? "Old pinned chat" : `Chat ${index}`,
+      createdAt: index,
+      lastMessageAt: 100 - index,
+      title: index === 9 ? "Old pinned chat" : `Chat ${index}`,
+      messageCount: 1,
+      raw: {},
+    }));
+    renderAgentWorkspaceSidebar({
+      sessions,
+      selectedSessionKey: "session-0",
+      pinnedSessionKeys: ["session-9"],
+      onSetSessionPinned: vi.fn(),
+    });
+
+    expectSessionBefore("Old pinned chat", "Chat 0");
+    expect(screen.getByRole("button", { name: "Old pinned chat", exact: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show more" })).toBeInTheDocument();
   });
 
   it("marks sessions started from connected chat channels", () => {
@@ -317,6 +435,7 @@ describe("AgentWorkspaceSidebar", () => {
   });
 
   it("disables destructive actions for read-only channel sessions", () => {
+    const onSetSessionPinned = vi.fn();
     renderAgentWorkspaceSidebar({
       sessions: [
         {
@@ -334,10 +453,16 @@ describe("AgentWorkspaceSidebar", () => {
         },
       ],
       selectedSessionKey: "telegram:489595440",
+      onSetSessionPinned,
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Session options for Telegram DM" }));
 
+    const pinButton = screen.getByRole("button", { name: "Pin", exact: true });
+    expect(pinButton).toBeEnabled();
+    fireEvent.click(pinButton);
+    expect(onSetSessionPinned).toHaveBeenCalledWith("telegram:489595440", true);
+    fireEvent.click(screen.getByRole("button", { name: "Session options for Telegram DM" }));
     expect(screen.getByRole("button", { name: "Rename" })).toBeEnabled();
     const deleteButton = screen.getByRole("button", { name: "Delete" });
     expect(deleteButton).toBeDisabled();
@@ -701,7 +826,7 @@ describe("AgentWorkspaceSidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: /files/i }));
     fireEvent.click(screen.getByRole("button", { name: /integrations/i }));
     fireEvent.click(screen.getByRole("button", { name: /skills/i }));
-    fireEvent.click(screen.getByRole("button", { name: /workspaces/i }));
+    fireEvent.click(screen.getByRole("button", { name: /shared knowledge/i }));
     fireEvent.click(screen.getByRole("button", { name: /scheduled/i }));
     fireEvent.click(advanced);
     expect(props.onCreateSession).not.toHaveBeenCalled();
@@ -730,7 +855,7 @@ describe("AgentWorkspaceSidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: /files/i }));
     fireEvent.click(screen.getByRole("button", { name: /integrations/i }));
     fireEvent.click(screen.getByRole("button", { name: /skills/i }));
-    fireEvent.click(screen.getByRole("button", { name: /workspaces/i }));
+    fireEvent.click(screen.getByRole("button", { name: /shared knowledge/i }));
     fireEvent.click(screen.getByRole("button", { name: /scheduled/i }));
 
     expect(props.onCreateSession).not.toHaveBeenCalled();

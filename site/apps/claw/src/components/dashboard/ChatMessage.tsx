@@ -667,7 +667,7 @@ function getEntranceProps(variant: AnimationVariant, isUser: boolean): HTMLMotio
 
 function getThinkingBlockClass(theme: ThemeVariant): string {
   if (theme === "v1") return "mb-2 bg-primary/8 border-l-2 border-primary/50 pl-3 pr-2 py-1.5 rounded-r-md";
-  if (theme === "v2") return "mb-2 bg-[#0d0d0f] border border-primary/30 pl-3 pr-2 py-1.5 rounded-lg";
+  if (theme === "v2") return "mb-2 bg-surface-low border border-primary/30 pl-3 pr-2 py-1.5 rounded-lg";
   if (theme === "v3") return "mb-2 bg-primary/8 border-l-2 border-primary pl-3 pr-2 py-1";
   return "mb-2 border-l-2 border-primary/40 pl-3";
 }
@@ -911,7 +911,7 @@ export function ChatMessageBubble({
     const isStoppedNotice = /^reply stopped$/i.test(message.content.trim());
     return (
       <div className="flex min-w-0 max-w-full justify-center">
-        <div className={`max-w-[85%] break-words rounded-lg border px-4 py-2 text-sm [overflow-wrap:anywhere] ${isStoppedNotice ? "border-border bg-surface-low/70 text-text-muted" : "border-[#d05f5f]/20 bg-[#d05f5f]/10 text-[#d05f5f]"}`}>
+        <div className={`max-w-[85%] break-words rounded-lg border px-4 py-2 text-sm [overflow-wrap:anywhere] ${isStoppedNotice ? "border-border bg-surface-low/70 text-text-muted" : "border-destructive/20 bg-destructive/10 text-destructive"}`}>
           {message.content}
         </div>
       </div>
