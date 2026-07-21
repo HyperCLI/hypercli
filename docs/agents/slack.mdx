@@ -16,14 +16,14 @@ Install the hosted app from the HyperCLI product UI. The install flow starts
 Slack OAuth from:
 
 ```text
-GET https://api.agents.hypercli.com/slack/oauth/start
+GET https://api.hypercli.com/slack/oauth/start
 ```
 
 After OAuth completes, HyperCLI stores the Slack workspace install and encrypted
 bot token. You can check the current user's install state with:
 
 ```text
-GET https://api.agents.hypercli.com/slack/install
+GET https://api.hypercli.com/slack/install
 Authorization: Bearer <HyperCLI user JWT>
 ```
 
@@ -36,7 +36,7 @@ After Slack is connected, enable the app on each agent that should receive Slack
 messages. The product UI calls:
 
 ```text
-POST https://api.agents.hypercli.com/slack/agents/{agent_id}/relay
+POST https://api.hypercli.com/slack/agents/{agent_id}/relay
 Authorization: Bearer <HyperCLI user JWT>
 ```
 
@@ -65,8 +65,8 @@ env such as:
 
 ```text
 HYPER_SLACK_APP_ENABLED=1
-HYPER_SLACK_RELAY_URL=wss://api.agents.hypercli.com/slack/ws
-HYPER_SLACK_API_URL=https://api.agents.hypercli.com/slack/api/
+HYPER_SLACK_RELAY_URL=wss://api.hypercli.com/slack/ws
+HYPER_SLACK_API_URL=https://api.hypercli.com/slack/api/
 HYPER_SLACK_GATEWAY_ID=agent:<agent_uuid>
 ```
 
@@ -111,13 +111,13 @@ stop
 The hosted production manifest is published at:
 
 ```text
-https://api.agents.hypercli.com/slack/manifest.yaml
+https://api.hypercli.com/slack/manifest.yaml
 ```
 
 The dev app uses the dev API host:
 
 ```text
-https://api.agents.dev.hypercli.com/slack/manifest.yaml
+https://api.dev.hypercli.com/slack/manifest.yaml
 ```
 
 The manifest uses Slack OAuth V2, HTTP Events API, `agent_view`, app messages,

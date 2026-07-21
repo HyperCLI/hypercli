@@ -200,7 +200,7 @@ function withHostedSlackRelayConfig<T extends FrontendOpenClawCreateOptions | Fr
     ? relay.url
     : buildSlackRelayWebSocketUrl(SLACK_RELAY_BASE_URL);
   relay.url = relayUrl;
-  relay.authToken = isRecord(relay.authToken) ? relay.authToken : openClawSecretEnvRef("HYPER_API_KEY");
+  relay.authToken = isRecord(relay.authToken) ? relay.authToken : openClawSecretEnvRef("HYPER_AGENTS_API_KEY");
 
   channels.slack = {
     ...existingSlack,

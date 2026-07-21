@@ -35,7 +35,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
   return {
     ...actual,
     SLACK_APP_HANDLE: "hyperdev",
-    SLACK_RELAY_BASE_URL: "https://api.agents.dev.hypercli.com",
+    SLACK_RELAY_BASE_URL: "https://api.dev.hypercli.com",
   };
 });
 
@@ -596,7 +596,7 @@ describe("IntegrationsDirectoryPanel", () => {
       mode: "relay",
       botToken: { source: "env", provider: "default", id: "SLACK_BOT_TOKEN" },
       relay: {
-        url: "wss://api.agents.dev.hypercli.com/slack/ws",
+        url: "wss://api.dev.hypercli.com/slack/ws",
         authToken: { source: "env", provider: "default", id: "HYPER_AGENTS_API_KEY" },
         gatewayId: "agent:agent-1",
       },

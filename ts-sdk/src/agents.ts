@@ -30,6 +30,7 @@ import type {
   OpenClawTelegramConfigPatch,
   OpenClawWhatsAppConfigPatch,
 } from './openclaw/channels.js';
+import { normalizeSlackRelayBaseUrl } from './channels.js';
 import type {
   OpenClawSlackHttpConfiguration,
   OpenClawSlackRelayConfiguration,
@@ -1117,7 +1118,7 @@ function productApiBaseFromAgentsApiBase(apiBase: string): string {
 }
 
 export async function startSlackOAuth(options: SlackOAuthStartOptions): Promise<SlackOAuthStartResult> {
-  const relayBaseUrl = options.relayBaseUrl.replace(/\/+$/, '');
+  const relayBaseUrl = normalizeSlackRelayBaseUrl(options.relayBaseUrl);
   if (!relayBaseUrl) throw new Error('Slack relay base URL is required');
   if (!options.token) throw new Error('Slack OAuth requires an app token');
   const response = await fetch(`${relayBaseUrl}/slack/oauth/start`, {
@@ -1144,7 +1145,7 @@ export async function startSlackOAuth(options: SlackOAuthStartOptions): Promise<
 }
 
 export async function getSlackInstallStatus(options: SlackInstallStatusOptions): Promise<SlackInstallStatus> {
-  const relayBaseUrl = options.relayBaseUrl.replace(/\/+$/, '');
+  const relayBaseUrl = normalizeSlackRelayBaseUrl(options.relayBaseUrl);
   if (!relayBaseUrl) throw new Error('Slack relay base URL is required');
   if (!options.token) throw new Error('Slack install status requires an app token');
   const response = await fetch(`${relayBaseUrl}/slack/install`, {
@@ -1171,7 +1172,7 @@ export async function getSlackInstallStatus(options: SlackInstallStatusOptions):
 }
 
 export async function attachSlackRelayAgent(options: AttachSlackRelayAgentOptions): Promise<AttachSlackRelayAgentResult> {
-  const relayBaseUrl = options.relayBaseUrl.replace(/\/+$/, '');
+  const relayBaseUrl = normalizeSlackRelayBaseUrl(options.relayBaseUrl);
   const agentId = options.agentId.trim();
   if (!relayBaseUrl) throw new Error('Slack relay base URL is required');
   if (!options.token) throw new Error('Slack relay attach requires an app token');

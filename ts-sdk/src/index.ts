@@ -259,6 +259,7 @@ export {
   type HostedSlackRelayChannelConfig,
   type ConfigureHostedSlackRelayChannelOptions,
   type ConfigureHostedSlackRelayChannelResult,
+  normalizeSlackRelayBaseUrl,
   buildSlackRelayApiUrl,
   buildSlackRelayWebSocketUrl,
   buildHostedSlackRelayChannelConfig,

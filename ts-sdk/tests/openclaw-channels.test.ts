@@ -11,6 +11,7 @@ import {
   buildSlackRelayApiUrl,
   buildSlackRelayWebSocketUrl,
   configureHostedSlackRelayChannel,
+  normalizeSlackRelayBaseUrl,
   type AgentChannelsProvider,
 } from '../src/channels.js';
 
@@ -33,9 +34,11 @@ function client(overrides: Partial<OpenClawChannelsClient> = {}): OpenClawChanne
 
 describe('hosted Slack relay channel helpers', () => {
   it('builds hosted Slack relay config from relay base URL and agent id', () => {
-    expect(buildSlackRelayWebSocketUrl('https://api.agents.dev.hypercli.com/')).toBe('wss://api.agents.dev.hypercli.com/slack/ws');
+    expect(normalizeSlackRelayBaseUrl('https://api.agents.hypercli.com/')).toBe('https://api.hypercli.com');
+    expect(normalizeSlackRelayBaseUrl('https://api.agents.dev.hypercli.com/')).toBe('https://api.dev.hypercli.com');
+    expect(buildSlackRelayWebSocketUrl('https://api.agents.dev.hypercli.com/')).toBe('wss://api.dev.hypercli.com/slack/ws');
     expect(buildSlackRelayWebSocketUrl('http://localhost:8000/base')).toBe('ws://localhost:8000/slack/ws');
-    expect(buildSlackRelayApiUrl('https://api.agents.dev.hypercli.com/')).toBe('https://api.agents.dev.hypercli.com/slack/api/');
+    expect(buildSlackRelayApiUrl('https://api.agents.dev.hypercli.com/')).toBe('https://api.dev.hypercli.com/slack/api/');
     expect(buildSlackRelayApiUrl('http://localhost:8000/base')).toBe('http://localhost:8000/slack/api/');
     expect(buildHostedSlackRelayChannelConfig({
       relayBaseUrl: 'https://api.agents.dev.hypercli.com/',
@@ -45,7 +48,7 @@ describe('hosted Slack relay channel helpers', () => {
       mode: 'relay',
       botToken: { source: 'env', provider: 'default', id: 'SLACK_BOT_TOKEN' },
       relay: {
-        url: 'wss://api.agents.dev.hypercli.com/slack/ws',
+        url: 'wss://api.dev.hypercli.com/slack/ws',
         authToken: { source: 'env', provider: 'default', id: 'HYPER_AGENTS_API_KEY' },
         gatewayId: 'agent:agent-123',
       },
@@ -74,7 +77,7 @@ describe('hosted Slack relay channel helpers', () => {
 
     expect(result.status.connected).toBe(true);
     expect(checkInstallStatus).toHaveBeenCalledWith({
-      relayBaseUrl: 'https://api.agents.dev.hypercli.com/',
+      relayBaseUrl: 'https://api.dev.hypercli.com',
       token: 'app-jwt',
     });
     expect(provider.configure).toHaveBeenCalledWith('slack', {
@@ -82,7 +85,7 @@ describe('hosted Slack relay channel helpers', () => {
       mode: 'relay',
       botToken: { source: 'env', provider: 'default', id: 'SLACK_BOT_TOKEN' },
       relay: {
-        url: 'wss://api.agents.dev.hypercli.com/slack/ws',
+        url: 'wss://api.dev.hypercli.com/slack/ws',
         authToken: { source: 'env', provider: 'default', id: 'HYPER_AGENTS_API_KEY' },
         gatewayId: 'agent:agent-123',
       },

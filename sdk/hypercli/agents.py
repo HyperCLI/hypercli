@@ -430,6 +430,22 @@ def _normalize_agents_ws_url(url: str) -> str:
     return base if base.endswith("/ws") else f"{base}/ws"
 
 
+def _normalize_slack_relay_base_url(url: str) -> str:
+    raw = (url or "").strip()
+    if not raw:
+        raise ValueError("relay_base_url is required")
+    parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("relay_base_url must use http or https")
+    host = parsed.netloc.lower()
+    netloc = parsed.netloc
+    if host == "api.agents.hypercli.com":
+        netloc = "api.hypercli.com"
+    elif host == "api.agents.dev.hypercli.com":
+        netloc = "api.dev.hypercli.com"
+    return urlunsplit((parsed.scheme or "https", netloc, "", "", "")).rstrip("/")
+
+
 def _normalize_agents_api_base(url: str) -> str:
     raw = (url or "").strip()
     if not raw:
@@ -2083,9 +2099,7 @@ class Deployments:
         restart before OpenClaw reads the updated channel config.
         """
         resolved_agent_id = self.resolve_agent_id(agent_id_or_name)
-        relay_base = str(relay_base_url or "").strip().rstrip("/")
-        if not relay_base:
-            raise ValueError("relay_base_url is required")
+        relay_base = _normalize_slack_relay_base_url(relay_base_url)
         auth_token = token or self._api_key
         headers = {"Authorization": f"Bearer {auth_token}", "Content-Type": "application/json"}
         with httpx.Client(timeout=30) as client:

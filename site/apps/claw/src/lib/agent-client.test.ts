@@ -5,7 +5,7 @@ import { AGENT_CLEANUP_START_MESSAGE, createHyperAgentClient, createOpenClawAgen
 const { deploymentsConstructor, deploymentsInstance, getSlackInstallStatus, hyperAgentConstructor, httpClientConstructor, httpClientInstance } = vi.hoisted(() => {
   process.env.NEXT_PUBLIC_API_BASE_URL = "https://api.hypercli.com";
   process.env.NEXT_PUBLIC_AGENTS_URL = "https://agents.hypercli.com";
-  process.env.NEXT_PUBLIC_SLACK_RELAY_BASE_URL = "https://api.agents.hypercli.com";
+  process.env.NEXT_PUBLIC_SLACK_RELAY_BASE_URL = "https://api.hypercli.com";
   return {
     deploymentsConstructor: vi.fn(),
     deploymentsInstance: {
@@ -225,15 +225,15 @@ describe("agent-client", () => {
     });
 
     expect(getSlackInstallStatus).toHaveBeenCalledWith({
-      relayBaseUrl: "https://api.agents.hypercli.com",
+      relayBaseUrl: "https://api.hypercli.com",
       token: "hyper_api_test",
     });
     expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledWith(expect.objectContaining({
       env: {
         FOO: "bar",
         HYPER_SLACK_APP_ENABLED: "1",
-        HYPER_SLACK_RELAY_URL: "wss://api.agents.hypercli.com/slack/ws",
-        HYPER_SLACK_API_URL: "https://api.agents.hypercli.com/slack/api/",
+        HYPER_SLACK_RELAY_URL: "wss://api.hypercli.com/slack/ws",
+        HYPER_SLACK_API_URL: "https://api.hypercli.com/slack/api/",
       },
       config: {
         channels: {
@@ -242,8 +242,8 @@ describe("agent-client", () => {
             mode: "relay",
             botToken: { source: "env", provider: "default", id: "SLACK_BOT_TOKEN" },
             relay: {
-              url: "wss://api.agents.hypercli.com/slack/ws",
-              authToken: { source: "env", provider: "default", id: "HYPER_API_KEY" },
+              url: "wss://api.hypercli.com/slack/ws",
+              authToken: { source: "env", provider: "default", id: "HYPER_AGENTS_API_KEY" },
             },
           },
         },

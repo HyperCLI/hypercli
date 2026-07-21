@@ -164,7 +164,7 @@ export interface ConfigureHostedSlackRelayChannelResult {
   config: HostedSlackRelayChannelConfig;
 }
 
-export function buildSlackRelayWebSocketUrl(relayBaseUrl: string): string {
+export function normalizeSlackRelayBaseUrl(relayBaseUrl: string): string {
   const normalized = relayBaseUrl.trim();
   if (!normalized) throw new Error('Slack relay base URL is required');
   let url: URL;
@@ -176,6 +176,20 @@ export function buildSlackRelayWebSocketUrl(relayBaseUrl: string): string {
   if (url.protocol !== 'https:' && url.protocol !== 'http:') {
     throw new Error('Slack relay base URL must use http or https');
   }
+  const host = url.hostname.toLowerCase();
+  if (host === 'api.agents.hypercli.com') {
+    url.hostname = 'api.hypercli.com';
+  } else if (host === 'api.agents.dev.hypercli.com') {
+    url.hostname = 'api.dev.hypercli.com';
+  }
+  url.pathname = '';
+  url.search = '';
+  url.hash = '';
+  return url.toString().replace(/\/+$/, '');
+}
+
+export function buildSlackRelayWebSocketUrl(relayBaseUrl: string): string {
+  const url = new URL(normalizeSlackRelayBaseUrl(relayBaseUrl));
   url.protocol = url.protocol === 'http:' ? 'ws:' : 'wss:';
   url.pathname = '/slack/ws';
   url.search = '';
@@ -184,17 +198,7 @@ export function buildSlackRelayWebSocketUrl(relayBaseUrl: string): string {
 }
 
 export function buildSlackRelayApiUrl(relayBaseUrl: string): string {
-  const normalized = relayBaseUrl.trim();
-  if (!normalized) throw new Error('Slack relay base URL is required');
-  let url: URL;
-  try {
-    url = new URL(normalized);
-  } catch {
-    throw new Error('Slack relay base URL is invalid');
-  }
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-    throw new Error('Slack relay base URL must use http or https');
-  }
+  const url = new URL(normalizeSlackRelayBaseUrl(relayBaseUrl));
   url.pathname = '/slack/api/';
   url.search = '';
   url.hash = '';
@@ -227,13 +231,14 @@ export function buildHostedSlackRelayChannelConfig(options: HostedSlackRelayChan
 export async function configureHostedSlackRelayChannel(
   options: ConfigureHostedSlackRelayChannelOptions,
 ): Promise<ConfigureHostedSlackRelayChannelResult> {
+  const relayBaseUrl = normalizeSlackRelayBaseUrl(options.relayBaseUrl);
   const status = await options.checkInstallStatus({
-    relayBaseUrl: options.relayBaseUrl,
+    relayBaseUrl,
     token: options.token,
   });
   if (!status.connected) throw new Error('Connect Slack before using the hosted app.');
 
-  const config = buildHostedSlackRelayChannelConfig(options);
+  const config = buildHostedSlackRelayChannelConfig({ ...options, relayBaseUrl });
   const installerUserId = status.installerUserId?.trim();
   if (installerUserId) config.allowFrom = [installerUserId];
   if (options.apply) {

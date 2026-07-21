@@ -22,7 +22,7 @@ export const PRODUCT_API_BASE_URL = normalizedApiBase;
 export const AUTH_BASE_URL = normalizedApiBase ? `${normalizedApiBase}/api` : "/api";
 export const X402_BASE_URL = API_BASE_URL;
 export const VOICE_API_URL = normalizedApiBase ? `${normalizedApiBase}/voice` : "/voice";
-export const SLACK_RELAY_BASE_URL = (process.env.NEXT_PUBLIC_SLACK_RELAY_BASE_URL || "").replace(/\/+$/, "");
+export const SLACK_RELAY_BASE_URL = (process.env.NEXT_PUBLIC_SLACK_RELAY_BASE_URL || PRODUCT_API_BASE_URL || "").replace(/\/+$/, "");
 export const SLACK_APP_HANDLE = (process.env.NEXT_PUBLIC_SLACK_APP_HANDLE || "hyper").replace(/^@+/, "");
 
 const TOKEN_KEY = "claw_auth_token";

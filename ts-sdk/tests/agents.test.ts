@@ -330,7 +330,7 @@ describe('Agents SDK', () => {
       expiresAt: '2026-07-19T13:30:00+00:00',
     });
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://api.agents.dev.hypercli.com/slack/oauth/start',
+      'https://api.dev.hypercli.com/slack/oauth/start',
       expect.objectContaining({
         method: 'GET',
         headers: {
@@ -368,7 +368,7 @@ describe('Agents SDK', () => {
       updatedAt: '2026-07-19T13:30:00+00:00',
     });
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://api.agents.dev.hypercli.com/slack/install',
+      'https://api.dev.hypercli.com/slack/install',
       expect.objectContaining({
         method: 'GET',
         headers: { Authorization: 'Bearer app-jwt' },
@@ -409,7 +409,7 @@ describe('Agents SDK', () => {
       botUserId: 'U123',
     });
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://api.agents.dev.hypercli.com/slack/agents/agent-123/relay',
+      'https://api.dev.hypercli.com/slack/agents/agent-123/relay',
       expect.objectContaining({
         method: 'POST',
         headers: { Authorization: 'Bearer app-jwt' },
@@ -464,7 +464,7 @@ describe('Agents SDK', () => {
 
     expect(result.agentId).toBe('11111111-1111-4111-8111-111111111111');
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://api.agents.hypercli.com/slack/agents/11111111-1111-4111-8111-111111111111/relay',
+      'https://api.hypercli.com/slack/agents/11111111-1111-4111-8111-111111111111/relay',
       expect.objectContaining({
         method: 'POST',
         headers: { Authorization: 'Bearer hyper_api_test' },

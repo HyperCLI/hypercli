@@ -83,7 +83,7 @@ def test_attach_slack_relay_agent_resolves_name_and_posts_to_relay(monkeypatch):
     assert result["connected"] is True
     assert calls == [
         (
-            "https://api.agents.hypercli.com/slack/agents/11111111-1111-4111-8111-111111111111/relay",
+            "https://api.hypercli.com/slack/agents/11111111-1111-4111-8111-111111111111/relay",
             {"Authorization": "Bearer hyper_api_test", "Content-Type": "application/json"},
         )
     ]
