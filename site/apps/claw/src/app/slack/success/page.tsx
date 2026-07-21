@@ -7,6 +7,14 @@ import { CheckCircle2, XCircle } from "lucide-react";
 
 const DEFAULT_SLACK_RETURN_PATH = "/dashboard/settings/";
 
+export function slackOAuthResultMessage(ok: boolean, error: string | null): string {
+  if (ok) return "Returning to settings in 10 seconds.";
+  if (error === "workspace_already_connected") {
+    return "This Slack workspace is already connected to another HyperCLI account. Ask the current owner to disconnect it or contact an admin to transfer ownership.";
+  }
+  return "Returning to settings in 10 seconds so you can retry or inspect status.";
+}
+
 function integrationReturnUrl(searchParams: Pick<URLSearchParams, "get">): string {
   const base = new URL(DEFAULT_SLACK_RETURN_PATH, typeof window === "undefined" ? "https://agents.hypercli.com" : window.location.origin);
   base.searchParams.set("integration", "slack");
@@ -47,9 +55,7 @@ function SlackSuccessContent() {
           {ok ? "Slack connected" : "Slack connection failed"}
         </h1>
         <p className="mt-3 text-sm leading-6 text-text-muted">
-          {ok
-            ? "Returning to settings in 10 seconds."
-            : "Returning to settings in 10 seconds so you can retry or inspect status."}
+          {slackOAuthResultMessage(ok, error)}
         </p>
         {teamId ? <p className="mt-4 text-xs font-medium uppercase tracking-[0.16em] text-text-muted">Team {teamId}</p> : null}
         {error ? <p className="mt-4 text-xs font-medium uppercase tracking-[0.16em] text-destructive">Error: {error}</p> : null}
