@@ -3087,7 +3087,6 @@ export function AgentIntegrationsEmptyState({
         "Build cross-platform automations that work across your existing stack",
       ]}
       launchLabel={launchLabel}
-abel={launchLabel}
       launching={launching}
       launchBlocked={launchBlocked}
       launchBlockedReason={launchBlockedReason}
