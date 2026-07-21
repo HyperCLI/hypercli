@@ -127,7 +127,6 @@ export interface AgentProfileImageUploadResult {
 export interface SlackOAuthStartOptions {
   relayBaseUrl: string;
   token: string;
-  redirectUri?: string | null;
 }
 
 export interface SlackOAuthStartResult {
@@ -1112,14 +1111,10 @@ export async function startSlackOAuth(options: SlackOAuthStartOptions): Promise<
   if (!relayBaseUrl) throw new Error('Slack relay base URL is required');
   if (!options.token) throw new Error('Slack OAuth requires an app token');
   const response = await fetch(`${relayBaseUrl}/slack/oauth/start`, {
-    method: 'POST',
+    method: 'GET',
     headers: {
       'Authorization': `Bearer ${options.token}`,
-      'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      redirect_uri: options.redirectUri ?? null,
-    }),
   });
   if (!response.ok) {
     let detail = response.statusText || 'Slack OAuth start failed';

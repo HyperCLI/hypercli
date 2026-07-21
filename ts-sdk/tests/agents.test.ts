@@ -282,14 +282,10 @@ describe('Agents SDK', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       'https://api.agents.dev.hypercli.com/slack/oauth/start',
       expect.objectContaining({
-        method: 'POST',
+        method: 'GET',
         headers: {
           Authorization: 'Bearer app-jwt',
-          'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          redirect_uri: null,
-        }),
       }),
     );
   });
