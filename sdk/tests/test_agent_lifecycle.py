@@ -69,8 +69,8 @@ def test_attach_slack_relay_agent_resolves_name_and_posts_to_relay(monkeypatch):
         def __exit__(self, *exc):
             return None
 
-        def post(self, url, headers=None):
-            calls.append((url, headers))
+        def post(self, url, headers=None, json=None):
+            calls.append((url, headers, json))
             return FakeResponse()
 
     monkeypatch.setattr("hypercli.agents.httpx.Client", FakeClient)
@@ -78,6 +78,8 @@ def test_attach_slack_relay_agent_resolves_name_and_posts_to_relay(monkeypatch):
     result = deployments.attach_slack_relay_agent(
         "clear-window-works",
         relay_base_url="https://api.agents.hypercli.com/",
+        allowed_channel_id="C123",
+        allowed_user_id="U123",
     )
 
     assert result["connected"] is True
@@ -85,6 +87,7 @@ def test_attach_slack_relay_agent_resolves_name_and_posts_to_relay(monkeypatch):
         (
             "https://api.hypercli.com/slack/agents/11111111-1111-4111-8111-111111111111/relay",
             {"Authorization": "Bearer hyper_api_test", "Content-Type": "application/json"},
+            {"allowed_channel_id": "C123", "allowed_user_id": "U123"},
         )
     ]
 

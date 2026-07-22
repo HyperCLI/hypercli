@@ -2091,6 +2091,8 @@ class Deployments:
         *,
         relay_base_url: str,
         token: str | None = None,
+        allowed_channel_id: str | None = None,
+        allowed_user_id: str | None = None,
     ) -> dict:
         """Attach an agent to the hosted HyperCLI Slack relay.
 
@@ -2102,8 +2104,13 @@ class Deployments:
         relay_base = _normalize_slack_relay_base_url(relay_base_url)
         auth_token = token or self._api_key
         headers = {"Authorization": f"Bearer {auth_token}", "Content-Type": "application/json"}
+        body: dict[str, str] = {}
+        if allowed_channel_id:
+            body["allowed_channel_id"] = allowed_channel_id
+        if allowed_user_id:
+            body["allowed_user_id"] = allowed_user_id
         with httpx.Client(timeout=30) as client:
-            resp = client.post(f"{relay_base}/slack/agents/{resolved_agent_id}/relay", headers=headers)
+            resp = client.post(f"{relay_base}/slack/agents/{resolved_agent_id}/relay", headers=headers, json=body)
         if resp.status_code >= 400:
             try:
                 detail = resp.json().get("detail", resp.text)
