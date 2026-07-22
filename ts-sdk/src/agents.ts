@@ -149,6 +149,47 @@ export interface SlackInstallStatus {
   updatedAt?: string | null;
 }
 
+export interface SlackDirectoryOptions {
+  relayBaseUrl: string;
+  token: string;
+  cursor?: string | null;
+  limit?: number | null;
+}
+
+export interface SlackDirectoryConversationsOptions extends SlackDirectoryOptions {
+  types?: string | null;
+}
+
+export interface SlackDirectoryConversation {
+  id: string;
+  name?: string | null;
+  isChannel?: boolean | null;
+  isGroup?: boolean | null;
+  isIm?: boolean | null;
+  isMpim?: boolean | null;
+  isMember?: boolean | null;
+  isPrivate?: boolean | null;
+}
+
+export interface SlackDirectoryUser {
+  id: string;
+  name?: string | null;
+  realName?: string | null;
+  teamId?: string | null;
+  isBot?: boolean | null;
+  deleted?: boolean | null;
+}
+
+export interface SlackDirectoryConversationsResult {
+  conversations: SlackDirectoryConversation[];
+  nextCursor?: string | null;
+}
+
+export interface SlackDirectoryUsersResult {
+  users: SlackDirectoryUser[];
+  nextCursor?: string | null;
+}
+
 export interface AttachSlackRelayAgentOptions {
   relayBaseUrl: string;
   token: string;
@@ -1168,6 +1209,85 @@ export async function getSlackInstallStatus(options: SlackInstallStatusOptions):
     botUserId: typeof payload.bot_user_id === 'string' ? payload.bot_user_id : null,
     installerUserId: typeof payload.installer_user_id === 'string' ? payload.installer_user_id : null,
     updatedAt: typeof payload.updated_at === 'string' ? payload.updated_at : null,
+  };
+}
+
+function slackRelayAuthorizedUrl(path: string, options: SlackDirectoryOptions): URL {
+  const relayBaseUrl = normalizeSlackRelayBaseUrl(options.relayBaseUrl);
+  if (!relayBaseUrl) throw new Error('Slack relay base URL is required');
+  if (!options.token) throw new Error('Slack directory lookup requires an app token');
+  const url = new URL(path, `${relayBaseUrl}/`);
+  if (options.cursor) url.searchParams.set('cursor', options.cursor);
+  if (typeof options.limit === 'number' && Number.isFinite(options.limit)) {
+    url.searchParams.set('limit', String(Math.trunc(options.limit)));
+  }
+  return url;
+}
+
+export async function listSlackDirectoryConversations(
+  options: SlackDirectoryConversationsOptions,
+): Promise<SlackDirectoryConversationsResult> {
+  const url = slackRelayAuthorizedUrl('/slack/directory/conversations', options);
+  if (options.types) url.searchParams.set('types', options.types);
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: { 'Authorization': `Bearer ${options.token}` },
+  });
+  if (!response.ok) {
+    let detail = response.statusText || 'Slack conversation lookup failed';
+    try {
+      const payload = await response.json() as { detail?: unknown };
+      if (typeof payload.detail === 'string' && payload.detail) detail = payload.detail;
+    } catch {}
+    throw new APIError(response.status, detail);
+  }
+  const payload = await response.json() as Record<string, unknown>;
+  const conversations = Array.isArray(payload.conversations) ? payload.conversations : [];
+  return {
+    conversations: conversations
+      .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && !Array.isArray(item) && typeof (item as Record<string, unknown>).id === 'string'))
+      .map((item) => ({
+        id: item.id as string,
+        name: typeof item.name === 'string' ? item.name : null,
+        isChannel: typeof item.is_channel === 'boolean' ? item.is_channel : null,
+        isGroup: typeof item.is_group === 'boolean' ? item.is_group : null,
+        isIm: typeof item.is_im === 'boolean' ? item.is_im : null,
+        isMpim: typeof item.is_mpim === 'boolean' ? item.is_mpim : null,
+        isMember: typeof item.is_member === 'boolean' ? item.is_member : null,
+        isPrivate: typeof item.is_private === 'boolean' ? item.is_private : null,
+      })),
+    nextCursor: typeof payload.next_cursor === 'string' ? payload.next_cursor : null,
+  };
+}
+
+export async function listSlackDirectoryUsers(options: SlackDirectoryOptions): Promise<SlackDirectoryUsersResult> {
+  const url = slackRelayAuthorizedUrl('/slack/directory/users', options);
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: { 'Authorization': `Bearer ${options.token}` },
+  });
+  if (!response.ok) {
+    let detail = response.statusText || 'Slack user lookup failed';
+    try {
+      const payload = await response.json() as { detail?: unknown };
+      if (typeof payload.detail === 'string' && payload.detail) detail = payload.detail;
+    } catch {}
+    throw new APIError(response.status, detail);
+  }
+  const payload = await response.json() as Record<string, unknown>;
+  const users = Array.isArray(payload.users) ? payload.users : [];
+  return {
+    users: users
+      .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && !Array.isArray(item) && typeof (item as Record<string, unknown>).id === 'string'))
+      .map((item) => ({
+        id: item.id as string,
+        name: typeof item.name === 'string' ? item.name : null,
+        realName: typeof item.real_name === 'string' ? item.real_name : null,
+        teamId: typeof item.team_id === 'string' ? item.team_id : null,
+        isBot: typeof item.is_bot === 'boolean' ? item.is_bot : null,
+        deleted: typeof item.deleted === 'boolean' ? item.deleted : null,
+      })),
+    nextCursor: typeof payload.next_cursor === 'string' ? payload.next_cursor : null,
   };
 }
 

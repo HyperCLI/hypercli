@@ -240,6 +240,9 @@ describe("agent-client", () => {
           slack: {
             enabled: true,
             mode: "relay",
+            groupPolicy: "open",
+            replyToMode: "all",
+            replyToModeByChatType: { direct: "off" },
             botToken: { source: "env", provider: "default", id: "SLACK_BOT_TOKEN" },
             relay: {
               url: "wss://api.hypercli.com/slack/ws",

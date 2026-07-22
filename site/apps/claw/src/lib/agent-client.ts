@@ -206,6 +206,9 @@ function withHostedSlackRelayConfig<T extends FrontendOpenClawCreateOptions | Fr
     ...existingSlack,
     enabled: true,
     mode: "relay",
+    groupPolicy: existingSlack.groupPolicy ?? "open",
+    replyToMode: existingSlack.replyToMode ?? "all",
+    replyToModeByChatType: isRecord(existingSlack.replyToModeByChatType) ? existingSlack.replyToModeByChatType : { direct: "off" },
     botToken: isRecord(existingSlack.botToken) ? existingSlack.botToken : openClawSecretEnvRef("SLACK_BOT_TOKEN"),
     relay,
   };

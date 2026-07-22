@@ -10,6 +10,8 @@ import {
   OpenClawAgent,
   attachSlackRelayAgent,
   getSlackInstallStatus,
+  listSlackDirectoryConversations,
+  listSlackDirectoryUsers,
   startSlackOAuth,
 } from '../src/agents.js';
 import { HTTPClient } from '../src/http.js';
@@ -414,6 +416,89 @@ describe('Agents SDK', () => {
         method: 'POST',
         headers: { Authorization: 'Bearer app-jwt' },
       }),
+    );
+  });
+
+  it('lists Slack directory conversations and users through the relay REST endpoints', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.startsWith('https://api.dev.hypercli.com/slack/directory/conversations')) {
+        return new Response(
+          JSON.stringify({
+            conversations: [{
+              id: 'C0123456789',
+              name: 'product-pps',
+              is_channel: true,
+              is_member: true,
+              is_private: false,
+              topic: { value: 'not surfaced' },
+            }],
+            next_cursor: 'next-conv',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (url.startsWith('https://api.dev.hypercli.com/slack/directory/users')) {
+        return new Response(
+          JSON.stringify({
+            users: [{
+              id: 'U0123456789',
+              name: 'dmitry',
+              real_name: 'Dmitry Nedospasov',
+              team_id: 'T123',
+              is_bot: false,
+              deleted: false,
+              profile: { email: 'not-surfaced@example.test' },
+            }],
+            next_cursor: 'next-user',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(listSlackDirectoryConversations({
+      relayBaseUrl: 'https://api.agents.dev.hypercli.com/',
+      token: 'app-jwt',
+      cursor: 'cursor-a',
+      limit: 25,
+      types: 'public_channel,private_channel',
+    })).resolves.toEqual({
+      conversations: [{
+        id: 'C0123456789',
+        name: 'product-pps',
+        isChannel: true,
+        isGroup: null,
+        isIm: null,
+        isMpim: null,
+        isMember: true,
+        isPrivate: false,
+      }],
+      nextCursor: 'next-conv',
+    });
+    await expect(listSlackDirectoryUsers({
+      relayBaseUrl: 'https://api.agents.dev.hypercli.com/',
+      token: 'app-jwt',
+      limit: 10,
+    })).resolves.toEqual({
+      users: [{
+        id: 'U0123456789',
+        name: 'dmitry',
+        realName: 'Dmitry Nedospasov',
+        teamId: 'T123',
+        isBot: false,
+        deleted: false,
+      }],
+      nextCursor: 'next-user',
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(1,
+      'https://api.dev.hypercli.com/slack/directory/conversations?cursor=cursor-a&limit=25&types=public_channel%2Cprivate_channel',
+      expect.objectContaining({ method: 'GET', headers: { Authorization: 'Bearer app-jwt' } }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(2,
+      'https://api.dev.hypercli.com/slack/directory/users?limit=10',
+      expect.objectContaining({ method: 'GET', headers: { Authorization: 'Bearer app-jwt' } }),
     );
   });
 

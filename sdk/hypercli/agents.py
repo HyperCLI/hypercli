@@ -2112,6 +2112,63 @@ class Deployments:
             raise APIError(resp.status_code, detail)
         return resp.json()
 
+    def list_slack_directory_conversations(
+        self,
+        *,
+        relay_base_url: str,
+        token: str | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
+        types: str | None = None,
+    ) -> dict:
+        """List sanitized Slack conversations visible to the hosted relay install."""
+        relay_base = _normalize_slack_relay_base_url(relay_base_url)
+        auth_token = token or self._api_key
+        headers = {"Authorization": f"Bearer {auth_token}"}
+        params: dict[str, Any] = {}
+        if cursor:
+            params["cursor"] = cursor
+        if limit is not None:
+            params["limit"] = int(limit)
+        if types:
+            params["types"] = types
+        with httpx.Client(timeout=30) as client:
+            resp = client.get(f"{relay_base}/slack/directory/conversations", headers=headers, params=params)
+        if resp.status_code >= 400:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            raise APIError(resp.status_code, detail)
+        return resp.json()
+
+    def list_slack_directory_users(
+        self,
+        *,
+        relay_base_url: str,
+        token: str | None = None,
+        cursor: str | None = None,
+        limit: int | None = None,
+    ) -> dict:
+        """List sanitized Slack users visible to the hosted relay install."""
+        relay_base = _normalize_slack_relay_base_url(relay_base_url)
+        auth_token = token or self._api_key
+        headers = {"Authorization": f"Bearer {auth_token}"}
+        params: dict[str, Any] = {}
+        if cursor:
+            params["cursor"] = cursor
+        if limit is not None:
+            params["limit"] = int(limit)
+        with httpx.Client(timeout=30) as client:
+            resp = client.get(f"{relay_base}/slack/directory/users", headers=headers, params=params)
+        if resp.status_code >= 400:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            raise APIError(resp.status_code, detail)
+        return resp.json()
+
     def wait_running(self, agent_id_or_name: str, timeout: float = 300.0, poll_interval: float = 5.0) -> Agent:
         """Poll until an agent reaches RUNNING and return a refreshed agent."""
         agent_id = self.resolve_agent_id(agent_id_or_name)
