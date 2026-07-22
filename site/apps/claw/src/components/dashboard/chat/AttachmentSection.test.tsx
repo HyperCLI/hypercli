@@ -26,4 +26,16 @@ describe("AttachmentSection", () => {
     expect(screen.getByText("865621.jpg")).toBeInTheDocument();
     expect(screen.queryByText(/\/home\/node\/\.openclaw\/workspace/i)).not.toBeInTheDocument();
   });
+
+  it("renders ICS media handles as file chips instead of unavailable previews", () => {
+    render(
+      <AttachmentSection
+        mediaUrls={["media://inbound/placeholder-calendar---741bc582-9e41-492d-9a13-d8ecd3a2e0b8.ics"]}
+      />,
+    );
+
+    expect(screen.getByText("placeholder-calendar.ics")).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: /media preview unavailable/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/media:\/\/inbound/i)).not.toBeInTheDocument();
+  });
 });

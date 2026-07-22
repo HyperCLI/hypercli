@@ -672,7 +672,7 @@ describe("openclaw chat normalization", () => {
       content: [
         {
           type: "text",
-          text: "file: /home/node/.openclaw/workspace/51d7fd18-4324-49b2-9b4d-2fcc605acffe_Rosedale Report_QueryTool_02-12-2026_01-35.xlsx\n\nUse this file and summarize it.",
+          text: "file: /home/node/.openclaw/workspace/51d7fd18-4324-49b2-9b4d-2fcc605acffe_Sample Report_QueryTool_02-12-2026_01-35.xlsx\n\nUse this file and summarize it.",
         },
       ],
     });
@@ -697,8 +697,8 @@ describe("openclaw chat normalization", () => {
       content: "Use this file and summarize it.",
       files: [
         {
-          name: "51d7fd18-4324-49b2-9b4d-2fcc605acffe_Rosedale Report_QueryTool_02-12-2026_01-35.xlsx",
-          path: "/home/node/.openclaw/workspace/51d7fd18-4324-49b2-9b4d-2fcc605acffe_Rosedale Report_QueryTool_02-12-2026_01-35.xlsx",
+          name: "51d7fd18-4324-49b2-9b4d-2fcc605acffe_Sample Report_QueryTool_02-12-2026_01-35.xlsx",
+          path: "/home/node/.openclaw/workspace/51d7fd18-4324-49b2-9b4d-2fcc605acffe_Sample Report_QueryTool_02-12-2026_01-35.xlsx",
           type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         },
       ],
@@ -1176,6 +1176,56 @@ describe("openclaw chat normalization", () => {
       result: "",
     });
     expect(normalizeLiveToolResult({ name: "exec", meta: "completed" })?.result).toBe("completed");
+  });
+
+  it("keeps live tool calls visible when final assistant text arrives", () => {
+    const withToolCall = upsertAssistantMessage([
+      { role: "user", content: "Find current events", timestamp: 1 },
+    ], {
+      role: "assistant",
+      content: "",
+      toolCalls: [
+        {
+          id: "memory_search_0",
+          name: "memory_search",
+          args: JSON.stringify({ query: "live events" }),
+        },
+      ],
+      timestamp: 2,
+    });
+    const withToolResult = upsertAssistantMessage(withToolCall, {
+      role: "assistant",
+      content: "",
+      toolCalls: [
+        {
+          id: "memory_search_0",
+          name: "memory_search",
+          args: "",
+          result: 'Error: {"error":"index provider settings changed"}',
+        },
+      ],
+      timestamp: 3,
+    });
+    const final = upsertAssistantMessage(withToolResult, {
+      role: "assistant",
+      content: "I checked the files directly and found the event list.",
+      timestamp: 4,
+    });
+
+    expect(final).toEqual([
+      expect.objectContaining({ role: "user", content: "Find current events" }),
+      expect.objectContaining({
+        role: "assistant",
+        content: "I checked the files directly and found the event list.",
+        toolCalls: [
+          expect.objectContaining({
+            id: "memory_search_0",
+            name: "memory_search",
+            result: expect.stringContaining("index provider settings changed"),
+          }),
+        ],
+      }),
+    ]);
   });
 
   it("keeps binary placeholders compact when additional chunks arrive", () => {

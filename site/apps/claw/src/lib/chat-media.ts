@@ -6,6 +6,7 @@ import {
   isImageFileReference as isSharedImageFileReference,
   isKnownNonImageFileReference,
   isVideoFileReference as isSharedVideoFileReference,
+  resolveFileType,
 } from "@hypercli/shared-ui/files";
 
 const LOCAL_MEDIA_REFERENCE = /^media:/i;
@@ -27,6 +28,7 @@ export type DirectChatMediaReference =
   | { kind: "audio"; url: string; fileName: string; raw: string }
   | { kind: "video"; url: string; fileName: string; raw: string }
   | { kind: "link"; url: string; fileName: string; raw: string }
+  | { kind: "file"; fileName: string; raw: string }
   | { kind: "local"; raw: string; label: string }
   | { kind: "unsupported"; raw: string; label: string };
 
@@ -104,6 +106,11 @@ export function inferChatMediaFileType(path: string): string {
   return inferFileMimeType(path);
 }
 
+function isKnownLocalFileHandle(value: string): boolean {
+  const fileType = resolveFileType(value);
+  return fileType.known && fileType.kind !== "image" && fileType.kind !== "audio" && fileType.kind !== "video";
+}
+
 export function generatedMediaFileFromPath(path: string, matchingFile?: ChatPendingFile | null): ContentMediaReference {
   const displayPath = normalizeOpenClawMediaDisplayPath(path);
   const filePath = normalizeOpenClawMediaFilePath(matchingFile?.path || path);
@@ -133,6 +140,9 @@ export function classifyChatMediaReference(raw: string, matchingFile?: ChatPendi
     return { kind: "workspace", media: generatedMediaFileFromPath(value, matchingFile), raw };
   }
   if (LOCAL_MEDIA_REFERENCE.test(value)) {
+    if (isKnownLocalFileHandle(value)) {
+      return { kind: "file", fileName: mediaFileNameFromReference(value), raw };
+    }
     return { kind: "local", raw, label: "Preview unavailable" };
   }
   if (/^(?:data:audio\/|blob:)/i.test(value) || isAudioFileReference({ path: value })) {

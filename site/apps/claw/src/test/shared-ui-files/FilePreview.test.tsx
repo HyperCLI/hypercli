@@ -191,6 +191,36 @@ describe("FilePreview", () => {
     expect(screen.getByRole("textbox")).toHaveValue("# Notes");
   });
 
+  it("renders ICS calendar files as editable text previews", () => {
+    const content = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Example Test Fixture//Calendar Preview//EN",
+      "BEGIN:VEVENT",
+      "UID:test-fixture-001@example.test",
+      "SUMMARY:Placeholder review block",
+      "DTSTART:20260101T090000Z",
+      "DTEND:20260101T093000Z",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\n");
+
+    render(
+      <FilePreview
+        entry={{ name: "placeholder-calendar.ics", path: ".openclaw/workspace/placeholder-calendar.ics", type: "file", size: content.length }}
+        content={content}
+        loading={false}
+        error={null}
+        renderMarkdown={renderMarkdown}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText(/preview is not available yet/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Preview" })).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "placeholder-calendar.ics contents" })).toHaveValue(content);
+  });
+
   it("does not render raw HTML in markdown preview", () => {
     render(
       <FilePreview

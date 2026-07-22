@@ -113,6 +113,18 @@ export function AttachmentSection({ attachments, files, mediaUrls }: AttachmentS
               return <MediaUnavailable key={`${reference.raw}-${i}`} label={reference.label} />;
             }
 
+            if (reference.kind === "file") {
+              return (
+                <div
+                  key={`${reference.raw}-${i}`}
+                  className="inline-flex max-w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary"
+                >
+                  <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">{reference.fileName}</span>
+                </div>
+              );
+            }
+
             return (
               <a
                 key={`${reference.raw}-${i}`}

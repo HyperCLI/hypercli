@@ -2478,6 +2478,62 @@ describe("GatewayClient", () => {
     });
   });
 
+  it("normalizes Responses-style function call records into tool calls", () => {
+    const normalized = normalizeGatewayChatMessage({
+      role: "assistant",
+      timestamp: 123,
+      content: [
+        { type: "function_call", call_id: "call-1", name: "memory_search", arguments: { query: "demo memory" } },
+        {
+          type: "function_call_output",
+          call_id: "call-1",
+          output: {
+            results: [],
+            disabled: true,
+            error: "index provider settings changed",
+          },
+        },
+      ],
+    });
+
+    expect(normalized?.toolCalls).toEqual([
+      {
+        id: "call-1",
+        name: "memory_search",
+        args: { query: "demo memory" },
+        result: JSON.stringify({
+          results: [],
+          disabled: true,
+          error: "index provider settings changed",
+        }, null, 2),
+      },
+    ]);
+  });
+
+  it("preserves result fields embedded in top-level tool_calls", () => {
+    const normalized = normalizeGatewayChatMessage({
+      role: "assistant",
+      timestamp: 123,
+      tool_calls: [
+        {
+          id: "call-search",
+          name: "web_search",
+          arguments: { query: "demo docs" },
+          result: { status: 429, error: "rate limit" },
+        },
+      ],
+    });
+
+    expect(normalized?.toolCalls).toEqual([
+      {
+        id: "call-search",
+        name: "web_search",
+        args: { query: "demo docs" },
+        result: JSON.stringify({ status: 429, error: "rate limit" }, null, 2),
+      },
+    ]);
+  });
+
   it("normalizes base64 audio content blocks as media urls", () => {
     const normalized = normalizeGatewayChatMessage({
       role: "assistant",

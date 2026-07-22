@@ -96,6 +96,23 @@ describe("chat media references", () => {
     ]);
   });
 
+  it("classifies ICS local MEDIA handles as recognized file references", () => {
+    const result = extractContentMediaReferences(
+      "Calendar ready\nMEDIA:media://inbound/placeholder-calendar---741bc582-9e41-492d-9a13-d8ecd3a2e0b8.ics",
+    );
+
+    expect(result.content).toBe("Calendar ready");
+    expect(result.mediaFiles).toHaveLength(0);
+    expect(result.directMedia).toEqual([
+      {
+        kind: "file",
+        fileName: "placeholder-calendar.ics",
+        raw: "media://inbound/placeholder-calendar---741bc582-9e41-492d-9a13-d8ecd3a2e0b8.ics",
+      },
+    ]);
+    expect(result.pendingMedia).toBe(false);
+  });
+
   it("consumes markdown MEDIA local handles without leaking media URLs", () => {
     const result = extractContentMediaReferences(
       "![MEDIA](media://inbound/generated---741bc582-9e41-492d-9a13-d8ecd3a2e0b8.png)",

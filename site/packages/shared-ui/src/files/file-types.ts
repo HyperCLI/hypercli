@@ -8,6 +8,7 @@ export type FileTypeKind =
   | "config"
   | "json"
   | "text"
+  | "calendar"
   | "document"
   | "spreadsheet"
   | "presentation"
@@ -25,6 +26,7 @@ export type FileIconKind =
   | "json"
   | "settings"
   | "text"
+  | "calendar"
   | "document"
   | "spreadsheet"
   | "presentation";
@@ -215,6 +217,17 @@ export const FILE_TYPE_DEFINITIONS = [
     mimeType: "text/plain",
   },
   {
+    id: "calendar",
+    label: "Calendar",
+    kind: "calendar",
+    extensions: ["ics"],
+    previewKind: "text",
+    readMode: "text",
+    editable: true,
+    iconKind: "calendar",
+    mimeType: "text/calendar",
+  },
+  {
     id: "document",
     label: "Document",
     kind: "document",
@@ -326,6 +339,7 @@ function fileKindFromMimeType(mimeType: string): FileTypeKind | null {
   if (mimeType.startsWith("video/")) return "video";
   if (mimeType === "application/json") return "json";
   if (mimeType === "text/markdown") return "markdown";
+  if (mimeType === "text/calendar") return "calendar";
   if (mimeType.startsWith("text/")) return "text";
   if (mimeType === "application/pdf") return "document";
   if (mimeType === "application/zip" || mimeType === "application/epub+zip") return "archive";

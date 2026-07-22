@@ -86,7 +86,13 @@ function mergeCurrentToolCallsIntoHistory(
       historyAssistantIndex = index;
     }
   }
-  if (historyAssistantIndex === -1) return historyMessages;
+  if (historyAssistantIndex === -1) {
+    const historyUserCount = historyMessages.filter((message) => message.role === "user").length;
+    if (historyUserCount === currentUserCount) {
+      return dedupeChatMessages([...historyMessages, currentAssistant]);
+    }
+    return historyMessages;
+  }
 
   const historyAssistant = historyMessages[historyAssistantIndex];
   if (!historyAssistant) return historyMessages;

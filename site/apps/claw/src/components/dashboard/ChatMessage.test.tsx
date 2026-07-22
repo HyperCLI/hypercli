@@ -378,6 +378,50 @@ describe("ChatMessageBubble", () => {
     expect(screen.queryByText(/media:\/\/inbound/i)).not.toBeInTheDocument();
   });
 
+  it("renders local ICS media handles as calendar file chips instead of unavailable previews", () => {
+    const onOpenFileFromChat = vi.fn();
+    const calendarFile = {
+      name: "placeholder-calendar.ics",
+      path: "/home/node/.openclaw/workspace/placeholder-calendar.ics",
+      type: "text/calendar",
+    };
+
+    render(
+      <ChatMessageBubble
+        message={{
+          role: "assistant",
+          content: "",
+          files: [calendarFile],
+          mediaUrls: ["media://inbound/placeholder-calendar---741bc582-9e41-492d-9a13-d8ecd3a2e0b8.ics"],
+        }}
+        onOpenFileFromChat={onOpenFileFromChat}
+      />,
+    );
+
+    expect(screen.getByText("placeholder-calendar.ics")).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: /media preview unavailable/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/media:\/\/inbound/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /open placeholder-calendar\.ics in files/i }));
+    expect(onOpenFileFromChat).toHaveBeenCalledWith(calendarFile.path);
+  });
+
+  it("renders workspace ICS MEDIA paths as file chips without unavailable preview labels", () => {
+    render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        message={{
+          role: "assistant",
+          content: "Created fake VCALENDAR content.\nMEDIA:/home/node/.openclaw/workspace/placeholder-calendar.ics",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("placeholder-calendar.ics")).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: /media preview unavailable/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/MEDIA:\/home\/node\/\.openclaw\/workspace\/placeholder-calendar\.ics/i)).not.toBeInTheDocument();
+  });
+
   it("renders assistant MEDIA workspace paths as downloadable generated media without leaking the runtime path", async () => {
     Object.defineProperty(URL, "createObjectURL", {
       configurable: true,
@@ -520,16 +564,16 @@ describe("ChatMessageBubble", () => {
         agentId="agent-123"
         message={{
           role: "assistant",
-          content: "Generated clip:\nMEDIA:/home/node/.openclaw/workspace/rv-parks-15k-month.mp4",
+          content: "Generated clip:\nMEDIA:/home/node/.openclaw/workspace/generated-demo-clip.mp4",
         }}
         onReadFileBytesFromChat={readFileBytes}
       />,
     );
 
-    expect(await screen.findByLabelText(/video preview rv-parks-15k-month\.mp4/i)).toHaveAttribute("src", "blob:generated-video");
-    expect(screen.queryByText(/MEDIA:\/home\/node\/\.openclaw\/workspace\/rv-parks-15k-month\.mp4/i)).not.toBeInTheDocument();
+    expect(await screen.findByLabelText(/video preview generated-demo-clip\.mp4/i)).toHaveAttribute("src", "blob:generated-video");
+    expect(screen.queryByText(/MEDIA:\/home\/node\/\.openclaw\/workspace\/generated-demo-clip\.mp4/i)).not.toBeInTheDocument();
     await waitFor(() => {
-      expect(readFileBytes).toHaveBeenCalledWith(".openclaw/workspace/rv-parks-15k-month.mp4");
+      expect(readFileBytes).toHaveBeenCalledWith(".openclaw/workspace/generated-demo-clip.mp4");
     });
   });
 

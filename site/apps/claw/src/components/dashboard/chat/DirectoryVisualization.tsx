@@ -12,6 +12,7 @@ import {
   FileText,
   Folder,
   FolderTree,
+  CalendarDays,
   Settings,
   type LucideIcon,
 } from "lucide-react";
@@ -310,6 +311,7 @@ function iconForEntry(entry: DirectoryVisualizationEntry): { icon: LucideIcon; c
     case "code": return { icon: FileCode2, className: "text-chart-2" };
     case "image": return { icon: FileImage, className: "text-primary" };
     case "json": return { icon: FileJson, className: "text-chart-2" };
+    case "calendar": return { icon: CalendarDays, className: "text-chart-2" };
     case "settings": return { icon: Settings, className: "text-warning" };
     case "text": return { icon: FileText, className: "text-text-secondary" };
     case "video": return { icon: FileVideo, className: "text-chart-4" };

@@ -63,6 +63,95 @@ describe("openclaw chat history state", () => {
     ]);
   });
 
+  it("keeps failed memory-search tool details when refreshed history only has the final answer", () => {
+    const current: ChatMessage[] = [
+      { role: "user", content: "Find live events and remember that preference", timestamp: 1 },
+      {
+        role: "assistant",
+        content: "I checked the local memory first.",
+        toolCalls: [
+          {
+            id: "memory_search_0",
+            name: "memory_search",
+            args: JSON.stringify({ query: "live events", corpus: "memory" }),
+            result: JSON.stringify({
+              results: [],
+              disabled: true,
+              unavailable: true,
+              error: "index provider settings changed",
+              warning: "memory search paused",
+              action: "run memory index --force",
+            }),
+          },
+        ],
+        timestamp: 2,
+      },
+    ];
+
+    const messages = reduceChatHistoryMessages(current, {
+      type: "merge-history-refresh",
+      messages: [
+        { role: "user", content: "Find live events and remember that preference", timestamp: 3 },
+        { role: "assistant", content: "I found the event list by checking files directly.", timestamp: 4 },
+      ],
+    });
+
+    expect(messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Find live events and remember that preference" }),
+      expect.objectContaining({
+        role: "assistant",
+        content: "I found the event list by checking files directly.",
+        toolCalls: [
+          expect.objectContaining({
+            id: "memory_search_0",
+            name: "memory_search",
+            result: expect.stringContaining("index provider settings changed"),
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it("keeps live tool-call assistant rows while history is still missing the assistant response", () => {
+    const current: ChatMessage[] = [
+      { role: "user", content: "Check the demo calendar", timestamp: 1 },
+      {
+        role: "assistant",
+        content: "Checking the memory index.",
+        toolCalls: [
+          {
+            id: "memory_search_0",
+            name: "memory_search",
+            args: JSON.stringify({ query: "demo calendar" }),
+            result: 'Error: {"error":"index provider settings changed"}',
+          },
+        ],
+        timestamp: 2,
+      },
+    ];
+
+    const messages = reduceChatHistoryMessages(current, {
+      type: "merge-history-refresh",
+      messages: [
+        { role: "user", content: "Check the demo calendar", timestamp: 3 },
+      ],
+    });
+
+    expect(messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Check the demo calendar" }),
+      expect.objectContaining({
+        role: "assistant",
+        content: "Checking the memory index.",
+        toolCalls: [
+          expect.objectContaining({
+            id: "memory_search_0",
+            result: expect.stringContaining("index provider settings changed"),
+          }),
+        ],
+      }),
+    ]);
+  });
+
   it("marks the latest visible assistant reply as interrupted", () => {
     const messages = reduceChatHistoryMessages([
       { role: "user", content: "Stop after starting", timestamp: 1 },

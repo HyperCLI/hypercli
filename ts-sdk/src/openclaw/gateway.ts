@@ -1255,6 +1255,8 @@ function stringifyToolResult(value: unknown): string | undefined {
 function gatewayToolCallId(record: Record<string, any>): string | undefined {
   const direct =
     (typeof record.id === "string" && record.id.trim()) ||
+    (typeof record.call_id === "string" && record.call_id.trim()) ||
+    (typeof record.callId === "string" && record.callId.trim()) ||
     (typeof record.toolCallId === "string" && record.toolCallId.trim()) ||
     (typeof record.tool_call_id === "string" && record.tool_call_id.trim());
   return direct || undefined;
@@ -1381,6 +1383,8 @@ export function extractGatewayChatToolCalls(message: unknown): GatewayChatToolCa
       kind === "tool_call" ||
       kind === "tooluse" ||
       kind === "tool_use" ||
+      kind === "function_call" ||
+      kind === "functioncall" ||
       (name && (item.arguments !== undefined || item.args !== undefined))
     ) {
       toolCalls.push({
@@ -1391,11 +1395,11 @@ export function extractGatewayChatToolCalls(message: unknown): GatewayChatToolCa
       continue;
     }
 
-    if (kind === "toolresult" || kind === "tool_result") {
+    if (kind === "toolresult" || kind === "tool_result" || kind === "function_call_output" || kind === "functioncalloutput") {
       toolCalls = mergeGatewayToolResult(toolCalls, {
         ...(id ? { id } : {}),
         name: name ?? "tool",
-        result: stringifyToolResult(item.text ?? item.content ?? item.result),
+        result: stringifyToolResult(item.text ?? item.content ?? item.result ?? item.output),
       });
     }
   }
@@ -1410,6 +1414,9 @@ export function extractGatewayChatToolCalls(message: unknown): GatewayChatToolCa
         ...(gatewayToolCallId(tool) ? { id: gatewayToolCallId(tool) } : {}),
         name,
         args: normalizeToolArgs(tool.arguments ?? tool.args),
+        ...(stringifyToolResult(tool.result ?? tool.output ?? tool.content ?? tool.text) !== undefined
+          ? { result: stringifyToolResult(tool.result ?? tool.output ?? tool.content ?? tool.text) }
+          : {}),
       });
     }
   }
@@ -1422,7 +1429,7 @@ export function extractGatewayChatToolCalls(message: unknown): GatewayChatToolCa
   if (
     topLevelToolName &&
     topLevelResult &&
-    (role === "toolresult" || role === "tool_result" || record.toolCallId || record.tool_call_id)
+    (role === "toolresult" || role === "tool_result" || role === "function_call_output" || record.toolCallId || record.tool_call_id || record.call_id || record.callId)
   ) {
     toolCalls = mergeGatewayToolResult(toolCalls, {
       ...(gatewayToolCallId(record) ? { id: gatewayToolCallId(record) } : {}),

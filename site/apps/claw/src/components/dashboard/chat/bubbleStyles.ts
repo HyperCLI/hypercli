@@ -29,19 +29,19 @@ export function getEntranceProps(variant: AnimationVariant, isUser: boolean): HT
 
 export function getToolCallClass(theme: ThemeVariant, status: ToolCallViewStatus): string {
   const baseClass = "mb-1.5 w-full min-w-0 max-w-full overflow-hidden text-xs";
-  const activeClass = "border-border bg-surface-low/40";
+  const doneClass = "border-border bg-surface-low/35";
   const failedClass = "border-destructive/35 bg-destructive/8";
-  const runningClass = "border-[rgb(var(--selection-accent-rgb)_/_0.32)] bg-surface-low/45";
+  const runningClass = "border-success/35 bg-success/8";
   const neutralClass = "border-border bg-surface-low/35";
-  const stateClass = status === "failed" ? failedClass : status === "done" ? activeClass : status === "running" ? runningClass : neutralClass;
+  const stateClass = status === "failed" ? failedClass : status === "done" ? doneClass : status === "running" ? runningClass : neutralClass;
 
   if (theme === "v2") {
     const leftBorder = status === "failed"
       ? "border-l-destructive/70"
       : status === "running"
-      ? "border-l-[rgb(var(--selection-accent-rgb)_/_0.72)]"
+      ? "border-l-success/70"
       : status === "done"
-        ? "border-l-[rgb(var(--selection-accent-rgb)_/_0.45)]"
+        ? "border-l-border"
         : "border-l-border";
     return `${baseClass} rounded-lg border border-l-2 ${leftBorder} ${stateClass}`;
   }
@@ -51,7 +51,7 @@ export function getToolCallClass(theme: ThemeVariant, status: ToolCallViewStatus
 
 export function getToolCallStatusClass(status: ToolCallViewStatus): string {
   if (status === "running") {
-    return "border-[rgb(var(--selection-accent-rgb)_/_0.28)] bg-[rgb(var(--selection-accent-rgb)_/_0.06)] text-[var(--selection-accent)]";
+    return "border-success/35 bg-success/10 text-success";
   }
 
   if (status === "failed") {

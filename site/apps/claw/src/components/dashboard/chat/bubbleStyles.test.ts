@@ -13,4 +13,11 @@ describe("semantic chat styles", () => {
     expect(getToolCallClass("v2", "failed")).toContain("border-l-destructive/70");
     expect(getToolCallStatusClass("failed")).toContain("text-destructive");
   });
+
+  it("uses green for running tool calls and neutral gray for completed tool calls", () => {
+    expect(getToolCallClass("v2", "running")).toContain("border-l-success/70");
+    expect(getToolCallStatusClass("running")).toContain("text-success");
+    expect(getToolCallClass("v2", "done")).toContain("border-l-border");
+    expect(getToolCallStatusClass("done")).toContain("text-text-secondary");
+  });
 });

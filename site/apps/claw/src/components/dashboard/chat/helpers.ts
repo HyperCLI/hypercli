@@ -161,6 +161,16 @@ export interface ToolCallStackView {
   progressPercent: number;
 }
 
+interface ToolCallStatusInput {
+  result?: string;
+}
+
+interface ToolCallStackStatusPolicy {
+  status: ToolCallViewStatus;
+  isRunning: boolean;
+  isFailed: boolean;
+}
+
 function parseJsonRecord(raw: string): Record<string, unknown> | null {
   const trimmed = raw.trim();
   if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
@@ -444,6 +454,38 @@ export function isToolCallFailed(tc: { result?: string }): boolean {
   return record?.ok === false || status === "error" || status === "failed";
 }
 
+function toolCallStatusForStack(
+  tc: ToolCallStatusInput | undefined,
+  options: { isStreaming?: boolean; pendingTimedOut?: boolean } = {},
+): ToolCallViewStatus {
+  if (!tc) return "called";
+  const hasResult = tc.result !== undefined;
+  if (!hasResult) {
+    return options.isStreaming === true && options.pendingTimedOut !== true ? "running" : "called";
+  }
+  return isToolCallFailed(tc) ? "failed" : "done";
+}
+
+export function deriveToolCallStackStatus(
+  toolCalls: ToolCallStatusInput[],
+  options: { isStreaming?: boolean; pendingTimedOut?: boolean } = {},
+): ToolCallStackStatusPolicy {
+  if (toolCalls.some((toolCall) => toolCall.result === undefined) && options.isStreaming === true && options.pendingTimedOut !== true) {
+    return {
+      status: "running",
+      isRunning: true,
+      isFailed: false,
+    };
+  }
+
+  const status = toolCallStatusForStack(toolCalls.at(-1), options);
+  return {
+    status,
+    isRunning: status === "running",
+    isFailed: status === "failed",
+  };
+}
+
 function toolCallStatusLabel(status: ToolCallViewStatus): string {
   if (status === "running") return "Running";
   if (status === "done") return "Done";
@@ -500,19 +542,17 @@ export function buildToolCallStackView(
   const pendingCount = toolCalls.filter((tc) => tc.result === undefined).length;
   const returnedCount = toolCalls.length - pendingCount;
   const failedCount = toolCalls.filter(isToolCallFailed).length;
-  const isRunning = pendingCount > 0 && options.isStreaming === true && options.pendingTimedOut !== true;
-  const isFailed = failedCount > 0;
+  const stackStatus = deriveToolCallStackStatus(toolCalls, options);
   const allReturned = returnedCount === toolCalls.length;
-  const status: ToolCallViewStatus = isRunning ? "running" : isFailed ? "failed" : allReturned ? "done" : "called";
   const progressText = allReturned
     ? (failedCount > 0 ? `${failedCount} failed` : "")
     : `${returnedCount}/${toolCalls.length} returned`;
 
   return {
-    status,
-    statusLabel: toolCallStatusLabel(status),
-    isRunning,
-    isFailed,
+    status: stackStatus.status,
+    statusLabel: toolCallStatusLabel(stackStatus.status),
+    isRunning: stackStatus.isRunning,
+    isFailed: stackStatus.isFailed,
     allReturned,
     pendingCount,
     returnedCount,

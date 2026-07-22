@@ -48,9 +48,9 @@ describe("ToolCallStack", () => {
     expect(screen.queryByText(/0\/4 returned/)).not.toBeInTheDocument();
   });
 
-  it("marks the stack failed when any returned tool call failed", () => {
+  it("marks the stack failed when the latest returned tool call failed", () => {
     const failedToolCalls = toolCalls.map((toolCall, index) => (
-      index === 1 ? { ...toolCall, result: 'Error: {"error":"Search failed"}' } : toolCall
+      index === toolCalls.length - 1 ? { ...toolCall, result: 'Error: {"error":"Search failed"}' } : toolCall
     ));
 
     render(<ToolCallStack toolCalls={failedToolCalls} themeVariant="off" />);
@@ -58,6 +58,42 @@ describe("ToolCallStack", () => {
     const stackButton = screen.getByRole("button", { name: /4 tool calls/i });
     expect(stackButton).toHaveTextContent("Failed");
     expect(stackButton).toHaveTextContent("1 failed");
+  });
+
+  it("settles back to done when a successful tool call follows a failure", () => {
+    const recoveredToolCalls = toolCalls.map((toolCall, index) => (
+      index === 1 ? { ...toolCall, result: 'Error: {"error":"Search failed"}' } : toolCall
+    ));
+
+    render(<ToolCallStack toolCalls={recoveredToolCalls} themeVariant="off" />);
+
+    const stackButton = screen.getByRole("button", { name: /4 tool calls/i });
+    expect(stackButton).toHaveTextContent("Done");
+    expect(stackButton).toHaveTextContent("1 failed");
+  });
+
+  it("shows running when the latest tool call is still pending", () => {
+    const runningToolCalls = toolCalls.map((toolCall, index) => (
+      index === toolCalls.length - 1 ? { ...toolCall, result: undefined } : toolCall
+    ));
+
+    render(<ToolCallStack toolCalls={runningToolCalls} themeVariant="off" isStreaming />);
+
+    const stackButton = screen.getByRole("button", { name: /4 tool calls/i });
+    expect(stackButton).toHaveTextContent("Running");
+    expect(stackButton).toHaveTextContent("3/4 returned");
+  });
+
+  it("keeps the stack running when an earlier tool call is still pending", () => {
+    const runningToolCalls = toolCalls.map((toolCall, index) => (
+      index === 1 ? { ...toolCall, result: undefined } : toolCall
+    ));
+
+    render(<ToolCallStack toolCalls={runningToolCalls} themeVariant="off" isStreaming />);
+
+    const stackButton = screen.getByRole("button", { name: /4 tool calls/i });
+    expect(stackButton).toHaveTextContent("Running");
+    expect(stackButton).toHaveTextContent("3/4 returned");
   });
 
   it("renders duplicate gateway ids without key warnings", () => {

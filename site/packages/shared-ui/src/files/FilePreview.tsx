@@ -17,6 +17,7 @@ import {
   FileAudio,
   FileVideo,
   FileJson,
+  CalendarDays,
   Folder,
   AlertCircle,
   Lock,
@@ -99,6 +100,7 @@ function renderPreviewIcon(fileType: ResolvedFileType) {
     case "code":
     case "settings": return <FileCode className={PREVIEW_HEADER_ICON_CLASS} />;
     case "json": return <FileJson className={PREVIEW_HEADER_ICON_CLASS} />;
+    case "calendar": return <CalendarDays className={PREVIEW_HEADER_ICON_CLASS} />;
     default: return <FileText className={PREVIEW_HEADER_ICON_CLASS} />;
   }
 }
