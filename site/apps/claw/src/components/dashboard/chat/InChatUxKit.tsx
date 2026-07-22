@@ -257,8 +257,6 @@ export function StopGenerationButton({
       type="button"
       onClick={onStop}
       className="inline-flex items-center gap-2 rounded-full border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/20"
-      animate={{ boxShadow: ["0 0 0 transparent", "0 0 18px color-mix(in srgb, var(--destructive) 20%, transparent)", "0 0 0 transparent"] }}
-      transition={{ repeat: Infinity, duration: 1.6, ease: "easeInOut" }}
     >
       <Square className="h-3 w-3" />
       Stop

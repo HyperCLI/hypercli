@@ -136,6 +136,11 @@ import { AgentWorkspaceSidebar } from "@/components/dashboard/agents/AgentWorksp
 import { AgentGatewaySessionProvider, asAgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
 import { SharedKnowledgeSection } from "@/components/dashboard/knowledge/SharedKnowledgeSection";
 import { MembersSection } from "@/components/dashboard/members/MembersSection";
+import {
+  useWorkspace,
+  workspaceAgentCreationDisabledReason,
+  workspaceDisplayName,
+} from "@/components/dashboard/WorkspaceContext";
 import { JourneyFloatingPanel } from "@/components/dashboard/journey/JourneyFloatingPanel";
 import type { JourneyCapabilityCard } from "@/components/dashboard/journey/journey-capabilities";
 import { buildJourneyBriefPrompt, buildJourneyCapabilityPrompt, buildJourneyPrompt } from "@/components/dashboard/journey/journey-prompt-builder";
@@ -160,6 +165,7 @@ import {
 } from "@/lib/file-source-tabs-preference";
 import type { ChatPendingFile } from "@/lib/openclaw-chat";
 import type { JourneyCompletionEvent, JourneyDay } from "@/components/dashboard/journey/types";
+import { resolveWorkspaceAgentSelection } from "@/lib/workspace-agent-roster";
 
 type MainTab = AgentMainTab;
 type AgentFileSource = "auto" | "pod" | "s3";
@@ -654,7 +660,7 @@ function UpgradePlanCatalogModal({
                     className="relative flex min-h-[302px] flex-col rounded-[8px] border border-border bg-surface-low p-4 text-left transition-colors hover:border-border-strong"
                   >
                     {product.highlighted && (
-                      <span className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--selection-accent)] px-2.5 py-1 text-[12px] font-medium leading-none text-[var(--selection-accent-foreground)] shadow-[0_8px_22px_rgb(var(--selection-accent-rgb)_/_0.22)]">
+                      <span className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--selection-accent)] px-2.5 py-1 text-[12px] font-medium leading-none text-[var(--selection-accent-foreground)]">
                         Most Popular
                       </span>
                     )}
@@ -844,6 +850,15 @@ export default function AgentsPage() {
 
 function AgentsPageContent() {
   const { getToken, user, logout } = useAgentAuth();
+  const {
+    selectedWorkspace,
+    selectedWorkspaceId,
+    selectedWorkspaceAgentIds,
+    isAgentRosterLoading,
+    agentRosterError,
+    isLoading: workspacesLoading,
+    associateAgentWithSelectedWorkspace,
+  } = useWorkspace();
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedAgentId = searchParams.get("agentId")?.trim() || null;
@@ -868,9 +883,14 @@ function AgentsPageContent() {
   const shouldOpenAgentLauncherFromQuery = requestedOpen ? AGENT_LAUNCHER_OPEN_VALUES.has(requestedOpen) : false;
   const { setAgentMenu } = useDashboardMobileAgentMenu();
   const dashboardDisplayName = displayNameForDashboard(user);
-  const workspaceDisplayName = dashboardDisplayName === "there" ? "Personal workspace" : dashboardDisplayName;
   const suggestedJourneyUserName = dashboardDisplayName === "there" ? null : dashboardDisplayName;
   const accountInitial = user?.email?.trim()[0]?.toUpperCase() || "?";
+  const agentCreationDisabledReason = workspacesLoading
+    ? "Workspaces are still loading."
+    : workspaceAgentCreationDisabledReason(selectedWorkspace, agentRosterError);
+  const agentCreationBlockedReason = isAgentRosterLoading
+    ? "Agent roster is still loading."
+    : agentCreationDisabledReason;
   const journey = useJourney({ searchParams, searchKey: queryKey, storageScope: user?.email ?? null });
   const journeyChatCompletionRef = useRef<PendingJourneyChatCompletion | null>(null);
   const completeJourneyForEvent = journey.completeForEvent;
@@ -1039,6 +1059,20 @@ function AgentsPageContent() {
   const [mobileAgentLauncherOpen, setMobileAgentLauncherOpen] = useState(false);
   const [sidebarCreatorSignal, setSidebarCreatorSignal] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useAgentRosterCollapsed();
+  const openAgentCreationFlow = useCallback(() => {
+    if (agentCreationBlockedReason) {
+      setError(agentCreationBlockedReason);
+      return false;
+    }
+    setMobileShowChat(false);
+    setMobileAgentsSidebarOpen(false);
+    if (isDesktopViewport) {
+      setSidebarCreatorSignal((value) => value + 1);
+    } else {
+      setMobileAgentLauncherOpen(true);
+    }
+    return true;
+  }, [agentCreationBlockedReason, isDesktopViewport]);
 
   useLayoutEffect(() => {
     selectedAgentIdRef.current = selectedAgentId;
@@ -1208,19 +1242,6 @@ function AgentsPageContent() {
         return changed ? next : current;
       });
       setAgentClusterUnavailable(false);
-      const requestedAgent = requestedAgentId
-        ? listedAgents.find((agent) => agent.id === requestedAgentId) ?? null
-        : null;
-      const currentAgentId = selectedAgentIdRef.current;
-      const nextAgentId = currentAgentId && listedAgents.some((item) => item.id === currentAgentId)
-        ? currentAgentId
-        : requestedAgent?.id ?? listedAgents[0]?.id ?? null;
-      if (nextAgentId !== currentAgentId) {
-        const selectionOperation = agentSelectionOperationRef.current + 1;
-        agentSelectionOperationRef.current = selectionOperation;
-        await endTemporaryChatBeforeSelectionRef.current();
-        if (agentSelectionOperationRef.current === selectionOperation) setSelectedAgentId(nextAgentId);
-      }
       setAgentsLoading(false);
 
       const [catalogData, currentPlan, summaryData, dailyUsage, typeCatalogData] = await Promise.all([
@@ -1257,7 +1278,7 @@ function AgentsPageContent() {
     } finally {
       setAgentsLoading(false);
     }
-  }, [deployments, getToken, requestedAgentId]);
+  }, [deployments, getToken]);
 
   const getAgentClient = useCallback(async () => {
     if (deployments) return deployments;
@@ -1295,7 +1316,7 @@ function AgentsPageContent() {
   }, [getAgentClient]);
 
   const refreshAgentsForChildren = useCallback(async () => {
-    await fetchAgents();
+    return Boolean(await fetchAgents());
   }, [fetchAgents]);
 
   const clearPendingSlotRelease = useCallback((releaseId: string, tier: string) => {
@@ -1393,37 +1414,6 @@ function AgentsPageContent() {
   useEffect(() => { fetchAgents(); }, [fetchAgents]);
 
   useEffect(() => {
-    if (!requestedAgentId) {
-      appliedAgentSessionQueryRef.current = null;
-      return;
-    }
-    if (!sdkAgents.some((agent) => agent.id === requestedAgentId)) return;
-
-    const selectionQueryKey = JSON.stringify([requestedAgentId, requestedSessionKey]);
-    if (appliedAgentSessionQueryRef.current === selectionQueryKey) return;
-
-    let cancelled = false;
-    const selectionOperation = agentSelectionOperationRef.current + 1;
-    agentSelectionOperationRef.current = selectionOperation;
-    void (async () => {
-      await endTemporaryChatBeforeSelectionRef.current();
-      if (cancelled || agentSelectionOperationRef.current !== selectionOperation) return;
-      appliedAgentSessionQueryRef.current = selectionQueryKey;
-      const sessionKey = requestedSessionKey ?? resolveOpenClawSessionKey(requestedAgentId);
-      setSelectedAgentId(requestedAgentId);
-      setSelectedSessionKeysByAgent((current) => (
-        current[requestedAgentId] === sessionKey
-          ? current
-          : { ...current, [requestedAgentId]: sessionKey }
-      ));
-      setMobileShowChat(true);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [requestedAgentId, requestedSessionKey, sdkAgents]);
-
-  useEffect(() => {
     if (!requestedIntegrationId || !INTEGRATION_QUERY_IDS.has(requestedIntegrationId)) {
       appliedIntegrationQueryRef.current = null;
       return;
@@ -1447,6 +1437,7 @@ function AgentsPageContent() {
       appliedOpenQueryRef.current = null;
       return;
     }
+    if (workspacesLoading || agentsLoading || isAgentRosterLoading) return;
     if (appliedOpenQueryRef.current === requestedOpen) return;
 
     appliedOpenQueryRef.current = requestedOpen;
@@ -1454,16 +1445,17 @@ function AgentsPageContent() {
     params.delete("open");
     const query = params.toString();
     router.replace(`/dashboard/agents${query ? `?${query}` : ""}`, { scroll: false });
-    setMobileShowChat(false);
-
-    if (isDesktopViewport) {
-      setSidebarCreatorSignal((value) => value + 1);
-      return;
-    }
-
-    setMobileAgentsSidebarOpen(false);
-    setMobileAgentLauncherOpen(true);
-  }, [isDesktopViewport, requestedOpen, router, searchParams, shouldOpenAgentLauncherFromQuery]);
+    openAgentCreationFlow();
+  }, [
+    agentsLoading,
+    isAgentRosterLoading,
+    openAgentCreationFlow,
+    requestedOpen,
+    router,
+    searchParams,
+    shouldOpenAgentLauncherFromQuery,
+    workspacesLoading,
+  ]);
 
   useEffect(() => {
     if (checkoutReturnHandledRef.current) return;
@@ -1533,9 +1525,19 @@ function AgentsPageContent() {
     return () => clearTimeout(timer);
   }, [checkoutSync]);
 
-  const agents = useMemo(() => sdkAgents.map(toAgentViewModel), [sdkAgents]);
+  const accountAgents = useMemo(() => sdkAgents.map(toAgentViewModel), [sdkAgents]);
+  const selectedWorkspaceAgentIdSet = useMemo(
+    () => new Set(selectedWorkspaceAgentIds),
+    [selectedWorkspaceAgentIds],
+  );
+  const agents = useMemo(
+    () => isAgentRosterLoading || agentRosterError
+      ? []
+      : accountAgents.filter((agent) => selectedWorkspaceAgentIdSet.has(agent.id)),
+    [accountAgents, agentRosterError, isAgentRosterLoading, selectedWorkspaceAgentIdSet],
+  );
   const agentRosterIds = useMemo(() => agents.map((agent) => agent.id), [agents]);
-  const { orderedAgentIds, setVisibleAgentOrder } = useAgentRosterOrder(agentRosterIds);
+  const { orderedAgentIds, setVisibleAgentOrder } = useAgentRosterOrder(agentRosterIds, selectedWorkspaceId);
   const orderedRosterAgents = useMemo(() => {
     const agentById = new Map(agents.map((agent) => [agent.id, agent]));
     return orderedAgentIds.map((agentId) => agentById.get(agentId)).filter((agent): agent is Agent => Boolean(agent));
@@ -1568,13 +1570,88 @@ function AgentsPageContent() {
   }, [agents]);
 
   const selectedSdkAgent = useMemo(
-    () => (selectedAgentId ? sdkAgents.find((agent) => agent.id === selectedAgentId) ?? null : null),
-    [sdkAgents, selectedAgentId],
+    () => (selectedAgentId && !isAgentRosterLoading && !agentRosterError && selectedWorkspaceAgentIdSet.has(selectedAgentId)
+      ? sdkAgents.find((agent) => agent.id === selectedAgentId) ?? null
+      : null),
+    [agentRosterError, isAgentRosterLoading, sdkAgents, selectedAgentId, selectedWorkspaceAgentIdSet],
   );
   const selectedAgent = useMemo(
     () => (selectedSdkAgent ? toAgentViewModel(selectedSdkAgent) : null),
     [selectedSdkAgent],
   );
+  useEffect(() => {
+    if (workspacesLoading || agentsLoading || isAgentRosterLoading || agentRosterError) return;
+
+    const availableAgentIds = agents.map((agent) => agent.id);
+    const availableAgentIdSet = new Set(availableAgentIds);
+    const currentAgentId = selectedAgentIdRef.current;
+    const nextAgentId = resolveWorkspaceAgentSelection(
+      availableAgentIds,
+      requestedAgentId,
+      currentAgentId,
+    );
+
+    if (requestedAgentId && !availableAgentIdSet.has(requestedAgentId)) {
+      appliedAgentSessionQueryRef.current = null;
+      const params = new URLSearchParams(searchParams.toString());
+      if (nextAgentId) params.set("agentId", nextAgentId);
+      else params.delete("agentId");
+      params.delete("session");
+      params.delete("integration");
+      const query = params.toString();
+      router.replace(`/dashboard/agents${query ? `?${query}` : ""}`, { scroll: false });
+      return;
+    }
+
+    const selectionQueryKey = requestedAgentId
+      ? JSON.stringify([requestedAgentId, requestedSessionKey])
+      : null;
+    const requestedAgentSessionKey = requestedAgentId
+      ? requestedSessionKey ?? resolveOpenClawSessionKey(requestedAgentId)
+      : null;
+    const applyRequestedSession = () => {
+      if (!requestedAgentId || !requestedAgentSessionKey) {
+        appliedAgentSessionQueryRef.current = null;
+        return;
+      }
+      appliedAgentSessionQueryRef.current = selectionQueryKey;
+      setSelectedSessionKeysByAgent((current) => (
+        current[requestedAgentId] === requestedAgentSessionKey
+          ? current
+          : { ...current, [requestedAgentId]: requestedAgentSessionKey }
+      ));
+      setMobileShowChat(true);
+    };
+
+    if (nextAgentId === currentAgentId) {
+      if (appliedAgentSessionQueryRef.current !== selectionQueryKey) applyRequestedSession();
+      return;
+    }
+
+    let cancelled = false;
+    const selectionOperation = agentSelectionOperationRef.current + 1;
+    agentSelectionOperationRef.current = selectionOperation;
+    void (async () => {
+      await endTemporaryChatBeforeSelectionRef.current();
+      if (cancelled || agentSelectionOperationRef.current !== selectionOperation) return;
+      setSelectedAgentId(nextAgentId);
+      applyRequestedSession();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    agentRosterError,
+    agents,
+    agentsLoading,
+    isAgentRosterLoading,
+    requestedAgentId,
+    requestedSessionKey,
+    router,
+    searchParams,
+    selectedAgentId,
+    workspacesLoading,
+  ]);
   const selectedOpenClawAgent = useMemo(
     () => (selectedSdkAgent && typeof (selectedSdkAgent as { connect?: unknown }).connect === "function"
       ? (selectedSdkAgent as SdkOpenClawAgent)
@@ -2447,6 +2524,7 @@ function AgentsPageContent() {
 
   const handleCreateFirstAgent = useCallback(async ({ name, iconIndex, size, files, enableDesktop, enableMemoryIndex = false, customImage = null }: AgentCreationSetupCreateParams) => {
     try {
+      if (agentCreationBlockedReason) throw new Error(agentCreationBlockedReason);
       setError(null);
       const token = await getToken();
       const created = await createOpenClawAgent(token, {
@@ -2479,7 +2557,18 @@ function AgentsPageContent() {
               : "Agent created, but starter files could not be uploaded.");
           }
         }
-        await fetchAgents();
+        try {
+          await associateAgentWithSelectedWorkspace(created.id);
+        } catch (associationError) {
+          const detail = associationError instanceof Error
+            ? associationError.message
+            : "Workspace access is unavailable right now.";
+          throw new Error(`Agent was created, but Workspace association did not complete: ${detail}`);
+        }
+        const agentsRefreshed = await fetchAgents();
+        if (!agentsRefreshed) {
+          throw new Error("Agent was created and added to the selected Workspace, but agents could not be refreshed.");
+        }
         await selectAgent(created.id, true);
         setOpenclawSettingsOpen(false);
         setMainTab("chat");
@@ -2497,7 +2586,14 @@ function AgentsPageContent() {
       }
       throw err;
     }
-  }, [completeJourneyForEvent, fetchAgents, getToken, selectAgent]);
+  }, [
+    agentCreationBlockedReason,
+    associateAgentWithSelectedWorkspace,
+    completeJourneyForEvent,
+    fetchAgents,
+    getToken,
+    selectAgent,
+  ]);
 
   const handleResizeAndStart = useCallback(async (agentId: string, tier: string) => {
     setStartingId(agentId);
@@ -3374,8 +3470,7 @@ function AgentsPageContent() {
     }));
   };
   const openMobileAgentLauncher = () => {
-    setMobileAgentsSidebarOpen(false);
-    setMobileAgentLauncherOpen(true);
+    openAgentCreationFlow();
   };
   const createMobileAgentFromLauncher = async (params: AgentCreationSetupCreateParams) => {
     try {
@@ -3399,12 +3494,7 @@ function AgentsPageContent() {
         return;
       }
 
-      setMobileShowChat(false);
-      if (isDesktopViewport) {
-        setSidebarCreatorSignal((value) => value + 1);
-      } else {
-        openMobileAgentLauncher();
-      }
+      openAgentCreationFlow();
       return;
     }
 
@@ -3719,6 +3809,8 @@ function AgentsPageContent() {
                 showDivider={false}
                 fillParent
                 mobileMode
+                rosterLoading={agentsLoading || isAgentRosterLoading}
+                agentCreationDisabledReason={agentCreationDisabledReason}
                 threads={mobileSyntheticThreads}
                 selectedThreadId={selectedAgentId}
                 showChannels={false}
@@ -3786,8 +3878,6 @@ function AgentsPageContent() {
             >
               <AgentWorkspaceSidebar
                 selectedAgent={selectedAgent}
-                workspaceName={workspaceDisplayName}
-                workspaceInitial={accountInitial}
                 activeTab={openclawSettingsOpen && selectedAgent ? "openclaw" : mainTab}
                 skillsActive={mainTab === "skills"}
                 tokenUsed={tokenUsage}
@@ -3833,14 +3923,18 @@ function AgentsPageContent() {
       {/* Main layout: AgentList + AgentMainPanel + AgentInspector */}
       <div className="flex flex-1 min-h-0">
         <div
-          className="agent-desktop-navigation flex h-full min-h-0 shrink-0"
+          className={`agent-desktop-navigation relative flex h-full min-h-0 shrink-0 flex-col pt-14 ${isDesktopViewport ? "w-64" : "w-0"}`}
           data-roster-collapsed={sidebarCollapsed}
+          data-expanded-section={sidebarCollapsed ? "workspace" : "agents"}
         >
+          <div className="agent-desktop-navigation-sections relative isolate mt-2 flex min-h-0 w-full flex-1">
           <AgentList
             sidebarCollapsed={sidebarCollapsed}
             isDesktopViewport={isDesktopViewport}
             mobileShowChat={mobileMainPanelVisible}
             agents={agents}
+            rosterLoading={agentsLoading || isAgentRosterLoading}
+            rosterOrderScope={selectedWorkspaceId}
             selectedAgentId={selectedAgentId}
             setSelectedAgentId={selectAgent}
             setMobileShowChat={setMobileShowChat}
@@ -3849,6 +3943,8 @@ function AgentsPageContent() {
             agentCardDataById={agentCardDataById}
             getToken={getToken}
             createOpenClawAgent={createOpenClawAgent}
+            associateCreatedAgent={associateAgentWithSelectedWorkspace}
+            agentCreationDisabledReason={agentCreationDisabledReason}
             fetchAgents={refreshAgentsForChildren}
             setError={setError}
             sidebarCreatorSignal={sidebarCreatorSignal}
@@ -3869,6 +3965,7 @@ function AgentsPageContent() {
             onOpenMembers={openMembersTab}
             membersActive={membersSectionActive}
             membersHref={membersSectionHref}
+            embeddedInNavigation
             updateAgentName={async (agentId, name) => {
               const token = await getToken();
               const updatedAgent = await createAgentClient(token).update(agentId, { name });
@@ -3878,8 +3975,6 @@ function AgentsPageContent() {
 
           <AgentWorkspaceSidebar
             selectedAgent={selectedAgent}
-            workspaceName={workspaceDisplayName}
-            workspaceInitial={accountInitial}
             activeTab={openclawSettingsOpen && selectedAgent ? "openclaw" : mainTab}
             skillsActive={mainTab === "skills"}
             tokenUsed={tokenUsage}
@@ -3889,7 +3984,9 @@ function AgentsPageContent() {
             scheduledDisabled={!SCHEDULED_SECTION_ENABLED}
             scheduledDisabledReason={SCHEDULED_SECTION_DISABLED_REASON}
             isDesktopViewport={isDesktopViewport}
-            forceExpanded
+            collapsed={!sidebarCollapsed}
+            onCollapsedChange={(collapsed) => setSidebarCollapsed(!collapsed)}
+            embeddedInNavigation
             sessions={chat.sessions}
             sessionsFetched={chat.sessionsFetched}
             creatingSessionKeys={chat.creatingSessionKeys}
@@ -3913,6 +4010,8 @@ function AgentsPageContent() {
             onOpenSettings={openAgentSettingsTab}
             onUpgrade={() => { void openUpgradeCatalog(); }}
           />
+          <div aria-hidden="true" className="pointer-events-none absolute -top-2 bottom-0 right-0 z-[60] w-px bg-border" />
+          </div>
         </div>
 
           <AgentMainPanel
@@ -3920,7 +4019,7 @@ function AgentsPageContent() {
           mobileShowChat={mobileMainPanelVisible}
           selectedAgent={selectedAgent}
           hasAgents={agents.length > 0}
-          loadingInitialAgents={agentsLoading}
+          loadingInitialAgents={agentsLoading || isAgentRosterLoading}
           isSelectedRunning={Boolean(isSelectedRunning)}
           burstAgentId={burstAgentId}
           onBurstComplete={() => setBurstAgentId(null)}
@@ -4023,8 +4122,7 @@ function AgentsPageContent() {
                   if (selectedAgent) await handleStop(selectedAgent.id);
                 },
                 onNewAgent: () => {
-                  setMobileShowChat(false);
-                  setSidebarCreatorSignal((v) => v + 1);
+                  openAgentCreationFlow();
                 },
                 onRenameAgent: async (name) => {
                   if (!selectedAgent) return;
@@ -4118,7 +4216,7 @@ function AgentsPageContent() {
           ) : mainTab === "knowledge" ? (
             <div className="h-full overflow-y-auto bg-background px-4 py-6 sm:px-6 lg:px-8">
               <SharedKnowledgeSection
-                agents={agents}
+                agents={accountAgents}
                 agentsLoading={agentsLoading}
                 agentsError={agentsLoadError}
                 preferredAgentId={selectedAgentId ?? requestedAgentId}
@@ -4126,7 +4224,7 @@ function AgentsPageContent() {
             </div>
           ) : mainTab === "members" ? (
             <div className="h-full overflow-y-auto bg-background px-4 py-6 sm:px-6 lg:px-8">
-              <MembersSection />
+              <MembersSection agents={accountAgents} agentsLoading={agentsLoading} />
             </div>
           ) : mainTab === "scheduled" ? (
             <AgentScheduledPanel
@@ -4237,8 +4335,7 @@ function AgentsPageContent() {
             null
           ) : null}
           onCreate={() => {
-            setMobileShowChat(false);
-            setSidebarCreatorSignal((v) => v + 1);
+            openAgentCreationFlow();
           }}
           onCreateAgent={handleCreateFirstAgent}
           budget={budget}
@@ -4246,6 +4343,10 @@ function AgentsPageContent() {
           catalogPlans={catalogPlans}
           pendingSlotReleases={pendingSlotReleases}
           onOpenPlanCatalog={openUpgradeCatalog}
+          workspaceName={selectedWorkspace ? workspaceDisplayName(selectedWorkspace) : null}
+          hasAccountAgents={accountAgents.length > 0}
+          creationDisabledReason={agentCreationBlockedReason}
+          onOpenMembers={openMembersTab}
           onShowList={() => setMobileShowChat(false)}
           showMobileListButton={false}
           onShowInspector={() => setInspectorSheetOpen(true)}

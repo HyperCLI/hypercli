@@ -7,7 +7,31 @@ import { AGENT_ROSTER_ORDER_STORAGE_KEY } from "@/hooks/useAgentRosterOrder";
 import { renderWithClient } from "@/test/utils";
 
 vi.mock("./FirstAgentSetupWizard", () => ({
-  FirstAgentSetupWizard: () => <div>First agent setup wizard</div>,
+  FirstAgentSetupWizard: ({ onCreateAgent }: {
+    onCreateAgent: (params: {
+      name: string;
+      iconIndex: number;
+      size: "small";
+      files: [];
+      enableDesktop: boolean;
+    }) => Promise<string | null>;
+  }) => (
+    <div>
+      <div>First agent setup wizard</div>
+      <button
+        type="button"
+        onClick={() => { void onCreateAgent({
+          name: "Created Agent",
+          iconIndex: 0,
+          size: "small",
+          files: [],
+          enableDesktop: false,
+        }); }}
+      >
+        Finish setup
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock("@hypercli/shared-ui", () => ({
@@ -182,6 +206,7 @@ function createAgentListProps(overrides: Partial<ComponentProps<typeof AgentList
     syntheticThreads: [agentThread(agent)],
     getToken: vi.fn(async () => "token"),
     createOpenClawAgent: vi.fn(async () => ({ id: "created-agent" })),
+    associateCreatedAgent: vi.fn(async () => undefined),
     fetchAgents: vi.fn(),
     setError: vi.fn(),
     sidebarCreatorSignal: 0,
@@ -260,6 +285,10 @@ describe("AgentList", () => {
 
   it("keeps the agents/channels sidebar collapsed until the explicit expand control is used", () => {
     const props = renderAgentList();
+    const shell = document.querySelector(".agents-roster-shell");
+
+    expect(shell).toHaveClass("w-12");
+    expect(shell).not.toHaveClass("w-52");
 
     fireEvent.click(screen.getByRole("button", { name: /select test agent/i }));
     expect(props.setSidebarCollapsed).not.toHaveBeenCalled();
@@ -270,9 +299,38 @@ describe("AgentList", () => {
 
   it("only collapses the expanded agents/channels sidebar from its explicit collapse control", () => {
     const props = renderAgentList({ sidebarCollapsed: false });
+    const shell = document.querySelector(".agents-roster-shell");
+
+    expect(shell).toHaveClass("w-52");
+    expect(shell).not.toHaveClass("w-12");
 
     fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
     expect(props.setSidebarCollapsed).toHaveBeenCalledWith(true);
+  });
+
+  it("uses the agent control as the only switch inside the shared navigation body", () => {
+    const props = renderAgentList({ sidebarCollapsed: false, embeddedInNavigation: true });
+
+    expect(document.querySelector(".agents-roster-header")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Agents" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Home" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    expect(props.setSidebarCollapsed).toHaveBeenCalledWith(true);
+  });
+
+  it("keeps every compact action available in the embedded collapsed rail", () => {
+    renderAgentList({ embeddedInNavigation: true });
+
+    expect(document.querySelector(".agents-roster-header")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Expand agents sidebar" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Select Test Agent" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Home" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Launch agent" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Shared Knowledge" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Members" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Usage" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Account links" })).toBeInTheDocument();
   });
 
   it("places My Agents or search below the desktop roster actions", () => {
@@ -312,6 +370,109 @@ describe("AgentList", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /launch agent/i }));
     expect(screen.getByText("First agent setup wizard")).toBeInTheDocument();
+  });
+
+  it("associates a created agent before selecting it", async () => {
+    const operations: string[] = [];
+    const createOpenClawAgent = vi.fn(async () => {
+      operations.push("create");
+      return { id: "created-agent" };
+    });
+    const associateCreatedAgent = vi.fn(async () => {
+      operations.push("associate");
+    });
+    const fetchAgents = vi.fn(async () => {
+      operations.push("refresh");
+    });
+    const setSelectedAgentId = vi.fn();
+    renderAgentList({
+      sidebarCollapsed: false,
+      createOpenClawAgent,
+      associateCreatedAgent,
+      fetchAgents,
+      setSelectedAgentId,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Launch agent" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish setup" }));
+
+    await waitFor(() => expect(setSelectedAgentId).toHaveBeenCalledWith("created-agent"));
+    expect(associateCreatedAgent).toHaveBeenCalledWith("created-agent");
+    expect(operations).toEqual(["create", "associate", "refresh"]);
+  });
+
+  it("does not select an agent when Workspace association fails", async () => {
+    const setSelectedAgentId = vi.fn();
+    const setError = vi.fn();
+    renderAgentList({
+      sidebarCollapsed: false,
+      associateCreatedAgent: vi.fn(async () => { throw new Error("Roster refresh failed"); }),
+      setSelectedAgentId,
+      setError,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Launch agent" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish setup" }));
+
+    await waitFor(() => expect(setError).toHaveBeenCalledWith(
+      "Agent was created, but Workspace association did not complete: Roster refresh failed",
+    ));
+    expect(setSelectedAgentId).not.toHaveBeenCalled();
+  });
+
+  it("does not select an associated agent when the account roster cannot refresh", async () => {
+    const setSelectedAgentId = vi.fn();
+    const setError = vi.fn();
+    const associateCreatedAgent = vi.fn(async () => undefined);
+    renderAgentList({
+      sidebarCollapsed: false,
+      associateCreatedAgent,
+      fetchAgents: vi.fn(async () => false),
+      setSelectedAgentId,
+      setError,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Launch agent" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish setup" }));
+
+    await waitFor(() => expect(setError).toHaveBeenCalledWith(
+      "Agent was created and added to the selected Workspace, but agents could not be refreshed.",
+    ));
+    expect(associateCreatedAgent).toHaveBeenCalledWith("created-agent");
+    expect(setSelectedAgentId).not.toHaveBeenCalled();
+  });
+
+  it("blocks launch entry points without Workspace admin access", async () => {
+    const props = renderAgentList({
+      sidebarCollapsed: false,
+      sidebarCreatorSignal: 1,
+      agentCreationDisabledReason: "Workspace admin access is required to add agents.",
+    });
+
+    const launch = screen.getByRole("button", { name: "Launch agent" });
+    expect(launch).toBeDisabled();
+    expect(screen.getByText("Workspace admin access is required to add agents.")).toBeInTheDocument();
+    await waitFor(() => expect(props.setError).toHaveBeenCalledWith("Workspace admin access is required to add agents."));
+    expect(screen.queryByText("First agent setup wizard")).not.toBeInTheDocument();
+  });
+
+  it("shows a loading status instead of stale Workspace agents", () => {
+    renderAgentList({ rosterLoading: true });
+
+    expect(document.querySelector(".agents-roster-shell")).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByRole("status")).toHaveTextContent("Loading Workspace agents");
+    expect(screen.queryByRole("button", { name: "Select Test Agent" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Launch agent" })).toBeDisabled();
+  });
+
+  it("opens a signaled launcher after temporary roster loading finishes", async () => {
+    const props = createAgentListProps({ sidebarCollapsed: false, rosterLoading: true, sidebarCreatorSignal: 1 });
+    const view = renderWithClient(<AgentList {...props} />);
+
+    expect(screen.queryByText("First agent setup wizard")).not.toBeInTheDocument();
+    view.rerender(<AgentList {...props} rosterLoading={false} />);
+
+    expect(await screen.findByText("First agent setup wizard")).toBeInTheDocument();
   });
 
   it("keeps a query-triggered agent launcher closed after dismissal", async () => {
@@ -371,6 +532,9 @@ describe("AgentList", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /launch agent/i }));
     expect(screen.getByText("First agent setup wizard")).toBeInTheDocument();
+    const overlay = screen.getByTestId("agent-launcher-overlay");
+    expect(document.body).toContainElement(overlay);
+    expect(document.querySelector(".agents-roster-shell")).not.toContainElement(overlay);
   });
 
   it("shows Home and Administration actions in the collapsed rail", () => {
@@ -393,7 +557,7 @@ describe("AgentList", () => {
     expect(dividers[1]).toHaveClass("my-2");
     expect(document.querySelector(".agents-roster-rail .agents-roster-scroll")).toHaveClass("flex-col", "overflow-hidden");
     expect(document.querySelector(".agents-roster-rail-primary")).toHaveClass("shrink-0", "gap-2");
-    expect(document.querySelector(".agents-roster-rail-agents")).toHaveClass("shrink", "overflow-y-auto", "py-1");
+    expect(document.querySelector(".agents-roster-rail-agents")).toHaveClass("w-full", "shrink", "overflow-y-auto", "py-1");
     expect(home).toHaveAttribute("aria-current", "page");
     expect(home).toHaveClass("text-[var(--selection-accent)]");
     expect(sharedKnowledge).toHaveAttribute("aria-current", "page");
@@ -432,6 +596,8 @@ describe("AgentList", () => {
     });
 
     const startingHandle = screen.getByRole("button", { name: "Move Starting Agent" });
+    expect(startingHandle.parentElement).toHaveClass("w-8");
+    expect(startingHandle).toHaveClass("-left-2");
     fireEvent.click(startingHandle);
     expect(setSelectedAgentId).not.toHaveBeenCalled();
     fireEvent.keyDown(startingHandle, { key: "ArrowUp" });

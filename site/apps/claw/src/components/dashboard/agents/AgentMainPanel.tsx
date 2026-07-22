@@ -53,6 +53,10 @@ interface AgentMainPanelProps {
   catalogPlans?: HyperAgentPlan[] | null;
   onOpenPlanCatalog?: () => void | Promise<void>;
   pendingSlotReleases?: Record<string, number>;
+  workspaceName?: string | null;
+  hasAccountAgents?: boolean;
+  creationDisabledReason?: string | null;
+  onOpenMembers?: () => void;
   onShowList: () => void;
   showMobileListButton?: boolean;
   onShowInspector: () => void;
@@ -94,6 +98,10 @@ export function AgentMainPanel({
   catalogPlans,
   onOpenPlanCatalog,
   pendingSlotReleases,
+  workspaceName,
+  hasAccountAgents = false,
+  creationDisabledReason,
+  onOpenMembers,
   onShowList,
   showMobileListButton = true,
   onShowInspector,
@@ -354,7 +362,7 @@ export function AgentMainPanel({
 
   return (
     <div className={`flex-1 flex-col min-w-0 ${!mobileShowChat && !isDesktopViewport ? "hidden" : "flex"}`}>
-      {!selectedAgent && currentPanel === "members" ? (
+      {!selectedAgent && (currentPanel === "knowledge" || currentPanel === "members") ? (
         <div className="flex-1 min-h-0">{panelContent}</div>
       ) : loadingInitialAgents && !selectedAgent ? (
         <div className="flex-1 min-h-0">
@@ -383,6 +391,10 @@ export function AgentMainPanel({
           catalogPlans={catalogPlans}
           pendingSlotReleases={pendingSlotReleases}
           onOpenPlanCatalog={onOpenPlanCatalog}
+          workspaceName={workspaceName}
+          hasAccountAgents={hasAccountAgents}
+          creationDisabledReason={creationDisabledReason}
+          onOpenMembers={onOpenMembers}
         />
       ) : (
         <>

@@ -1,6 +1,16 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const workspaceContext = vi.hoisted(() => ({
+  selectedWorkspaceId: "workspace-1" as string | null,
+  selectedWorkspaceAgentIds: ["agent-docs"] as readonly string[],
+  refreshSelectedWorkspaceAgents: vi.fn(),
+}));
+
+vi.mock("@/components/dashboard/WorkspaceContext", () => ({
+  useWorkspace: () => workspaceContext,
+}));
 
 import { renderWithClient } from "@/test/utils";
 import { SharedKnowledgePanel, type SharedKnowledgeAgent } from "./SharedKnowledgePanel";
@@ -16,6 +26,11 @@ function workspace(overrides: Record<string, unknown> = {}) {
     name: "Team knowledge",
     slug: "team-knowledge",
     description: "Shared team notes",
+    displayName: null,
+    displaySlug: null,
+    role: "admin",
+    createdAt: "2026-07-20T10:00:00Z",
+    updatedAt: "2026-07-20T10:00:00Z",
     ...overrides,
   };
 }
@@ -43,6 +58,9 @@ function workspaceGrant(overrides: Record<string, unknown> = {}) {
     subjectType: "agent",
     subjectId: "agent-docs",
     role: "viewer",
+    displayName: null,
+    displaySlug: null,
+    isOwner: false,
     expiresAt: null,
     revokedAt: null,
     ...overrides,
@@ -67,6 +85,12 @@ function mockWorkspaces(overrides: Record<string, unknown> = {}) {
     create: vi.fn(async (_body: { name: string; description?: string }) => workspace({ id: "workspace-2", name: "Support Docs", slug: "support-docs", description: "Customer support procedures." })),
     listFiles: vi.fn(async (_workspaceRef: string) => [workspaceFile()]),
     listGrants: vi.fn(async (_workspaceRef: string) => [workspaceGrant()]),
+    listAgents: vi.fn(async (_workspaceRef: string) => [{
+      workspaceId: "workspace-1",
+      agentId: "agent-docs",
+      role: "viewer",
+      expiresAt: null,
+    }]),
     manifest: vi.fn(async (_workspaceRef: string) => workspaceManifest()),
     markdownFile: vi.fn(async (_workspaceRef: string, _path: string) => ({
       markdownFile: workspaceManifest().markdownFiles[0],
@@ -106,6 +130,13 @@ async function expandTeamKnowledge() {
   fireEvent.click(screen.getByRole("button", { name: /expand team knowledge/i }));
 }
 
+beforeEach(() => {
+  workspaceContext.selectedWorkspaceId = "workspace-1";
+  workspaceContext.selectedWorkspaceAgentIds = ["agent-docs"];
+  workspaceContext.refreshSelectedWorkspaceAgents.mockReset();
+  workspaceContext.refreshSelectedWorkspaceAgents.mockResolvedValue(true);
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -124,6 +155,16 @@ describe("SharedKnowledgePanel", () => {
     expect(screen.queryByText("docs")).not.toBeInTheDocument();
   });
 
+  it("refreshes the shared Workspace catalog from the visible action", async () => {
+    const onWorkspacesChanged = vi.fn(async () => undefined);
+    renderSharedKnowledgePanel(mockWorkspaces(), { onWorkspacesChanged });
+    await waitForTeamKnowledge();
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh shared knowledge" }));
+    expect(onWorkspacesChanged).toHaveBeenCalledOnce();
+    expect(workspaceContext.refreshSelectedWorkspaceAgents).toHaveBeenCalledOnce();
+  });
+
   it("expands a collection to show files and assigned agents", async () => {
     renderSharedKnowledgePanel();
     await expandTeamKnowledge();
@@ -131,6 +172,69 @@ describe("SharedKnowledgePanel", () => {
     fireEvent.click(await screen.findByText("docs"));
     expect(await screen.findByText("brief.md")).toBeInTheDocument();
     expect(screen.getByText("Docs Agent")).toBeInTheDocument();
+  });
+
+  it("uses and updates the shared Workspace selection", async () => {
+    const productWorkspace = workspace({ id: "workspace-2", name: "Product knowledge", slug: "product-knowledge" });
+    const onSelectWorkspace = vi.fn();
+    const workspaces = mockWorkspaces();
+    renderSharedKnowledgePanel(workspaces, {
+      availableWorkspaces: [workspace(), productWorkspace],
+      selectedWorkspaceId: "workspace-2",
+      onSelectWorkspace,
+    });
+
+    expect(await screen.findByRole("button", { name: /collapse product knowledge/i })).toBeInTheDocument();
+    expect(workspaces.list).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /expand team knowledge/i }));
+    expect(onSelectWorkspace).toHaveBeenCalledWith("workspace-1", expect.objectContaining({ id: "workspace-1" }));
+  });
+
+  it("does not restore an old expansion when its file operation finishes", async () => {
+    let resolveUpload: ((file: ReturnType<typeof workspaceFile>) => void) | undefined;
+    const pendingUpload = new Promise<ReturnType<typeof workspaceFile>>((resolve) => { resolveUpload = resolve; });
+    const teamWorkspace = workspace();
+    const productWorkspace = workspace({ id: "workspace-2", name: "Product knowledge", slug: "product-knowledge" });
+    const availableWorkspaces = [teamWorkspace, productWorkspace];
+    const workspaces = mockWorkspaces({
+      search: vi.fn(async (query: string) => query === "product" ? [productWorkspace] : availableWorkspaces),
+      uploadFile: vi.fn(() => pendingUpload),
+    });
+    const view = renderWithClient(
+      <SharedKnowledgePanel
+        agents={agents}
+        workspaces={workspaces as any}
+        availableWorkspaces={availableWorkspaces as any}
+        selectedWorkspaceId="workspace-1"
+        ready
+      />,
+    );
+    expect(await screen.findByRole("button", { name: /collapse team knowledge/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle("Upload files"));
+    const input = document.querySelector("input[type='file']") as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(["# Draft"], "draft.md", { type: "text/markdown" })] } });
+    await waitFor(() => expect(workspaces.uploadFile).toHaveBeenCalledOnce());
+
+    view.rerender(
+      <SharedKnowledgePanel
+        agents={agents}
+        workspaces={workspaces as any}
+        availableWorkspaces={availableWorkspaces as any}
+        selectedWorkspaceId="workspace-2"
+        ready
+      />,
+    );
+    expect(await screen.findByRole("button", { name: /collapse product knowledge/i })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: /search shared knowledge/i }), { target: { value: "product" } });
+    await waitFor(() => expect(workspaces.search).toHaveBeenCalledWith("product"));
+
+    await act(async () => {
+      resolveUpload?.(workspaceFile({ id: "file-upload", path: "draft.md", displayName: "draft.md" }));
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: /collapse product knowledge/i })).toBeInTheDocument());
+    await waitFor(() => expect(workspaces.search).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText("Team knowledge")).not.toBeInTheDocument();
   });
 
   it("debounces backend searches and ignores stale results", async () => {
@@ -159,7 +263,13 @@ describe("SharedKnowledgePanel", () => {
   });
 
   it("creates shared knowledge and defaults assignment to the focused agent", async () => {
-    const workspaces = renderSharedKnowledgePanel(mockWorkspaces(), { preferredAgentId: "agent-brand" });
+    const onSelectWorkspace = vi.fn();
+    const onWorkspacesChanged = vi.fn(async () => undefined);
+    const workspaces = renderSharedKnowledgePanel(mockWorkspaces(), {
+      preferredAgentId: "agent-brand",
+      onSelectWorkspace,
+      onWorkspacesChanged,
+    });
     await waitForTeamKnowledge();
 
     fireEvent.click(screen.getByRole("button", { name: /new shared knowledge/i }));
@@ -175,6 +285,8 @@ describe("SharedKnowledgePanel", () => {
     }));
     expect(workspaces.grant).toHaveBeenCalledTimes(1);
     expect(workspaces.grant).toHaveBeenCalledWith("support-docs", { subjectType: "agent", subjectId: "agent-brand", role: "viewer" });
+    expect(onWorkspacesChanged).toHaveBeenCalledWith("workspace-2");
+    expect(onSelectWorkspace).toHaveBeenCalledWith("workspace-2", expect.objectContaining({ id: "workspace-2" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: /new shared knowledge/i })).not.toBeInTheDocument());
   });
 
@@ -361,7 +473,26 @@ describe("SharedKnowledgePanel", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Refresh failed");
   });
 
-  it("grants and revokes agent access", async () => {
+  it("keeps the account agent catalog and refreshes the selected roster after assignment changes", async () => {
+    const workspaces = renderSharedKnowledgePanel();
+    await expandTeamKnowledge();
+    const card = screen.getAllByText("Team knowledge")[0]?.closest("article") as HTMLElement;
+    const knowledge = within(card);
+
+    fireEvent.click(knowledge.getByRole("button", { name: /assign agent/i }));
+    expect(knowledge.getByRole("button", { name: /docs agent/i })).toBeInTheDocument();
+    expect(knowledge.getByRole("button", { name: /brand agent/i })).toBeInTheDocument();
+    fireEvent.click(knowledge.getByRole("button", { name: /brand agent/i }));
+    await waitFor(() => expect(workspaces.grant).toHaveBeenCalledWith("team-knowledge", { subjectType: "agent", subjectId: "agent-brand", role: "viewer" }));
+    await waitFor(() => expect(workspaceContext.refreshSelectedWorkspaceAgents).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(knowledge.getByRole("button", { name: /docs agent/i }));
+    await waitFor(() => expect(workspaces.revokeGrant).toHaveBeenCalledWith("team-knowledge", "grant-1"));
+    await waitFor(() => expect(workspaceContext.refreshSelectedWorkspaceAgents).toHaveBeenCalledTimes(2));
+  });
+
+  it("does not refresh the selected roster for assignments to another Workspace", async () => {
+    workspaceContext.selectedWorkspaceId = "workspace-2";
     const workspaces = renderSharedKnowledgePanel();
     await expandTeamKnowledge();
     const card = screen.getAllByText("Team knowledge")[0]?.closest("article") as HTMLElement;
@@ -369,10 +500,10 @@ describe("SharedKnowledgePanel", () => {
 
     fireEvent.click(knowledge.getByRole("button", { name: /assign agent/i }));
     fireEvent.click(knowledge.getByRole("button", { name: /brand agent/i }));
-    await waitFor(() => expect(workspaces.grant).toHaveBeenCalledWith("team-knowledge", { subjectType: "agent", subjectId: "agent-brand", role: "viewer" }));
 
-    fireEvent.click(knowledge.getByRole("button", { name: /docs agent/i }));
-    await waitFor(() => expect(workspaces.revokeGrant).toHaveBeenCalledWith("team-knowledge", "grant-1"));
+    await waitFor(() => expect(workspaces.grant).toHaveBeenCalledWith("team-knowledge", { subjectType: "agent", subjectId: "agent-brand", role: "viewer" }));
+    await waitFor(() => expect(workspaces.listGrants).toHaveBeenCalledTimes(2));
+    expect(workspaceContext.refreshSelectedWorkspaceAgents).not.toHaveBeenCalled();
   });
 
   it("waits for every duplicate grant revocation and refreshes after partial failure", async () => {
@@ -394,6 +525,7 @@ describe("SharedKnowledgePanel", () => {
     fireEvent.click(knowledge.getByRole("button", { name: /docs agent/i }));
 
     await waitFor(() => expect(workspaces.revokeGrant).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(workspaceContext.refreshSelectedWorkspaceAgents).toHaveBeenCalledOnce());
     await waitFor(() => expect(listGrants).toHaveBeenCalledTimes(2));
     expect(await screen.findByRole("alert")).toHaveTextContent("1 agent access grant could not be removed.");
   });
@@ -412,6 +544,44 @@ describe("SharedKnowledgePanel", () => {
     await expandTeamKnowledge();
     expect(screen.getByText(/don't have permission to view files/i)).toBeInTheDocument();
     expect(screen.getByText(/Agent access couldn't be loaded/i)).toBeInTheDocument();
+  });
+
+  it("keeps viewer Workspaces read-only without requesting admin-only grants", async () => {
+    const listGrants = vi.fn();
+    const listAgents = vi.fn(async () => [{
+      workspaceId: "workspace-1",
+      agentId: "agent-docs",
+      role: "viewer",
+      expiresAt: null,
+    }]);
+    renderSharedKnowledgePanel(mockWorkspaces({
+      list: vi.fn(async () => [workspace({ role: "viewer" })]),
+      listGrants,
+      listAgents,
+    }));
+    await expandTeamKnowledge();
+
+    expect(listGrants).not.toHaveBeenCalled();
+    expect(listAgents).toHaveBeenCalledWith("team-knowledge");
+    expect(screen.getByText("1 agent")).toBeInTheDocument();
+    expect(screen.getByText("viewer")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /edit team knowledge/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /delete team knowledge/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /assign agent/i })).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Upload files")).not.toBeInTheDocument();
+  });
+
+  it("does not present missing viewer assignment data as an empty roster", async () => {
+    const missingRoute = Object.assign(new Error("Not found"), { statusCode: 404 });
+    renderSharedKnowledgePanel(mockWorkspaces({
+      list: vi.fn(async () => [workspace({ role: "viewer" })]),
+      listAgents: vi.fn(async () => { throw missingRoute; }),
+    }));
+    await expandTeamKnowledge();
+
+    expect(screen.getByText("Access unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Agent assignments require a workspace service update.")).toBeInTheDocument();
+    expect(screen.queryByText("No agents assigned.")).not.toBeInTheDocument();
   });
 
   it("shows an unavailable state when shared knowledge is not connected", () => {

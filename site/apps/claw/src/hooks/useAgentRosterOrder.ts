@@ -12,9 +12,9 @@ interface StoredAgentRosterOrder {
   agentIds: readonly string[];
 }
 
-let fallbackOrder: readonly string[] = EMPTY_AGENT_IDS;
-let cachedSnapshot: { raw: string | null; agentIds: readonly string[] } | null = null;
-let volatileStorage = false;
+const fallbackOrders = new Map<string, readonly string[]>();
+const cachedSnapshots = new Map<string, { raw: string | null; agentIds: readonly string[] }>();
+const volatileStorageKeys = new Set<string>();
 
 function normalizeAgentIds(value: unknown): readonly string[] {
   if (!Array.isArray(value)) return EMPTY_AGENT_IDS;
@@ -39,58 +39,74 @@ function parseAgentRosterOrder(raw: string | null): readonly string[] {
   }
 }
 
-function getAgentRosterOrderSnapshot(): readonly string[] {
+export function agentRosterOrderStorageKey(scope?: string | null): string {
+  const normalizedScope = scope?.trim();
+  return normalizedScope
+    ? `${AGENT_ROSTER_ORDER_STORAGE_KEY}:${encodeURIComponent(normalizedScope)}`
+    : AGENT_ROSTER_ORDER_STORAGE_KEY;
+}
+
+function getAgentRosterOrderSnapshot(storageKey: string): readonly string[] {
   if (typeof window === "undefined") return EMPTY_AGENT_IDS;
-  if (volatileStorage) return fallbackOrder;
+  const fallbackOrder = fallbackOrders.get(storageKey) ?? EMPTY_AGENT_IDS;
+  if (volatileStorageKeys.has(storageKey)) return fallbackOrder;
   try {
-    const raw = window.localStorage.getItem(AGENT_ROSTER_ORDER_STORAGE_KEY);
+    const raw = window.localStorage.getItem(storageKey);
+    const cachedSnapshot = cachedSnapshots.get(storageKey);
     if (cachedSnapshot?.raw === raw) return cachedSnapshot.agentIds;
     const agentIds = parseAgentRosterOrder(raw);
-    cachedSnapshot = { raw, agentIds };
-    fallbackOrder = agentIds;
+    cachedSnapshots.set(storageKey, { raw, agentIds });
+    fallbackOrders.set(storageKey, agentIds);
     return agentIds;
   } catch {
     return fallbackOrder;
   }
 }
 
-function emitAgentRosterOrderChange(): void {
-  window.dispatchEvent(new CustomEvent(AGENT_ROSTER_ORDER_CHANGE_EVENT));
+function emitAgentRosterOrderChange(storageKey: string): void {
+  window.dispatchEvent(new CustomEvent(AGENT_ROSTER_ORDER_CHANGE_EVENT, {
+    detail: { storageKey },
+  }));
 }
 
-function writeAgentRosterOrder(agentIds: readonly string[]): void {
+function writeAgentRosterOrder(storageKey: string, agentIds: readonly string[]): void {
   const normalized = normalizeAgentIds(agentIds);
-  fallbackOrder = normalized;
+  fallbackOrders.set(storageKey, normalized);
   let raw: string | null = null;
   try {
     if (normalized.length === 0) {
-      window.localStorage.removeItem(AGENT_ROSTER_ORDER_STORAGE_KEY);
+      window.localStorage.removeItem(storageKey);
     } else {
       raw = JSON.stringify({ version: 1, agentIds: normalized } satisfies StoredAgentRosterOrder);
-      window.localStorage.setItem(AGENT_ROSTER_ORDER_STORAGE_KEY, raw);
+      window.localStorage.setItem(storageKey, raw);
     }
-    volatileStorage = false;
+    volatileStorageKeys.delete(storageKey);
   } catch {
     // Preserve ordering for the current page when local storage is unavailable.
-    volatileStorage = true;
+    volatileStorageKeys.add(storageKey);
   }
-  cachedSnapshot = { raw, agentIds: normalized };
-  emitAgentRosterOrderChange();
+  cachedSnapshots.set(storageKey, { raw, agentIds: normalized });
+  emitAgentRosterOrderChange(storageKey);
 }
 
-function subscribeToAgentRosterOrder(onStoreChange: () => void): () => void {
+function subscribeToAgentRosterOrder(storageKey: string, onStoreChange: () => void): () => void {
   if (typeof window === "undefined") return () => undefined;
   const handleStorage = (event: StorageEvent) => {
-    if (event.key !== null && event.key !== AGENT_ROSTER_ORDER_STORAGE_KEY) return;
-    volatileStorage = false;
-    cachedSnapshot = null;
+    if (event.key !== null && event.key !== storageKey) return;
+    volatileStorageKeys.delete(storageKey);
+    cachedSnapshots.delete(storageKey);
+    onStoreChange();
+  };
+  const handleOrderChange = (event: Event) => {
+    const changedStorageKey = (event as CustomEvent<{ storageKey?: string }>).detail?.storageKey;
+    if (changedStorageKey && changedStorageKey !== storageKey) return;
     onStoreChange();
   };
   window.addEventListener("storage", handleStorage);
-  window.addEventListener(AGENT_ROSTER_ORDER_CHANGE_EVENT, onStoreChange);
+  window.addEventListener(AGENT_ROSTER_ORDER_CHANGE_EVENT, handleOrderChange);
   return () => {
     window.removeEventListener("storage", handleStorage);
-    window.removeEventListener(AGENT_ROSTER_ORDER_CHANGE_EVENT, onStoreChange);
+    window.removeEventListener(AGENT_ROSTER_ORDER_CHANGE_EVENT, handleOrderChange);
   };
 }
 
@@ -144,17 +160,25 @@ export function moveAgentInRosterOrder(
   return Object.freeze(ordered);
 }
 
-export function clearAgentRosterOrder(): void {
+export function clearAgentRosterOrder(scope?: string | null): void {
   if (typeof window === "undefined") return;
-  volatileStorage = false;
-  cachedSnapshot = null;
-  writeAgentRosterOrder(EMPTY_AGENT_IDS);
+  const storageKey = agentRosterOrderStorageKey(scope);
+  volatileStorageKeys.delete(storageKey);
+  cachedSnapshots.delete(storageKey);
+  fallbackOrders.delete(storageKey);
+  writeAgentRosterOrder(storageKey, EMPTY_AGENT_IDS);
 }
 
-export function useAgentRosterOrder(agentIds: readonly string[]) {
+export function useAgentRosterOrder(agentIds: readonly string[], scope?: string | null) {
+  const storageKey = useMemo(() => agentRosterOrderStorageKey(scope), [scope]);
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => subscribeToAgentRosterOrder(storageKey, onStoreChange),
+    [storageKey],
+  );
+  const getSnapshot = useCallback(() => getAgentRosterOrderSnapshot(storageKey), [storageKey]);
   const storedAgentIds = useSyncExternalStore(
-    subscribeToAgentRosterOrder,
-    getAgentRosterOrderSnapshot,
+    subscribe,
+    getSnapshot,
     () => EMPTY_AGENT_IDS,
   );
   const orderedAgentIds = useMemo(
@@ -162,8 +186,8 @@ export function useAgentRosterOrder(agentIds: readonly string[]) {
     [agentIds, storedAgentIds],
   );
   const setVisibleAgentOrder = useCallback((visibleAgentIds: readonly string[]) => {
-    writeAgentRosterOrder(mergeVisibleAgentRosterOrder(orderedAgentIds, visibleAgentIds));
-  }, [orderedAgentIds]);
+    writeAgentRosterOrder(storageKey, mergeVisibleAgentRosterOrder(orderedAgentIds, visibleAgentIds));
+  }, [orderedAgentIds, storageKey]);
 
   return { orderedAgentIds, setVisibleAgentOrder };
 }

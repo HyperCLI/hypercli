@@ -26,6 +26,11 @@ import { DashboardWorkspaceNavigation } from "@/components/dashboard/agents/Dash
 import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 import { relativeTime } from "@/components/dashboard/agentViewUtils";
 import { MembersSection } from "@/components/dashboard/members/MembersSection";
+import {
+  useWorkspace,
+  workspaceAgentCreationDisabledReason,
+  workspaceDisplayName,
+} from "@/components/dashboard/WorkspaceContext";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useAgentRosterCollapsed } from "@/hooks/useAgentRosterCollapsed";
 import { createAgentClient, createHyperAgentClient, createOpenClawAgent, createWorkspacesClient } from "@/lib/agent-client";
@@ -71,6 +76,13 @@ async function countSharedKnowledgeFiles(token: string): Promise<number> {
 
 export default function DashboardPage() {
   const { getToken, isLoading: authLoading, logout, user } = useAgentAuth();
+  const {
+    selectedWorkspace,
+    selectedWorkspaceAgentIds,
+    isAgentRosterLoading,
+    agentRosterError,
+    associateAgentWithSelectedWorkspace,
+  } = useWorkspace();
   const router = useRouter();
   const [range, setRange] = useState<DashboardTimeRange>("7d");
   const [history, setHistory] = useState<DashboardDayData[]>([]);
@@ -103,9 +115,11 @@ export default function DashboardPage() {
       const token = await getToken();
       setSdkAgents(await createAgentClient(token).list());
       setError(null);
+      return true;
     } catch (cause) {
       setSdkAgents([]);
       setError(cause instanceof Error ? cause.message : "Could not load agents.");
+      return false;
     } finally {
       setAgentsLoading(false);
     }
@@ -165,8 +179,18 @@ export default function DashboardPage() {
     }
   }, [getToken, pendingAgentDelete]);
 
-  const agents = useMemo(() => sdkAgents.map(toAgentViewModel), [sdkAgents]);
-  const syntheticThreads = useMemo<ConversationThread[]>(() => agents.map((agent) => ({
+  const accountAgents = useMemo(() => sdkAgents.map(toAgentViewModel), [sdkAgents]);
+  const selectedWorkspaceAgentIdSet = useMemo(
+    () => new Set(selectedWorkspaceAgentIds),
+    [selectedWorkspaceAgentIds],
+  );
+  const workspaceAgents = useMemo(
+    () => isAgentRosterLoading || agentRosterError
+      ? []
+      : accountAgents.filter((agent) => selectedWorkspaceAgentIdSet.has(agent.id)),
+    [accountAgents, agentRosterError, isAgentRosterLoading, selectedWorkspaceAgentIdSet],
+  );
+  const syntheticThreads = useMemo<ConversationThread[]>(() => workspaceAgents.map((agent) => ({
     id: agent.id,
     sessionKey: resolveOpenClawSessionKey(agent.id),
     participants: [
@@ -181,11 +205,18 @@ export default function DashboardPage() {
     messageCount: 0,
     unreadCount: 0,
     isActive: agent.state === "RUNNING",
-  })), [agents]);
+  })), [workspaceAgents]);
   const displayName = displayNameForDashboard(user);
-  const workspaceName = displayName === "there" ? "Your workspace" : `${displayName}'s workspace`;
+  const workspaceName = selectedWorkspace ? workspaceDisplayName(selectedWorkspace) : "Workspace";
+  const workspaceInitial = workspaceName.trim()[0] ?? "?";
   const accountInitial = (displayName !== "there" ? displayName[0] : user?.email?.[0]) ?? "?";
   const memberCount = authLoading ? null : user ? 1 : 0;
+  const workspaceAgentsLoading = agentsLoading || isAgentRosterLoading;
+  const pageError = agentRosterError || error;
+  const agentCreationDisabledReason = workspaceAgentCreationDisabledReason(selectedWorkspace, agentRosterError);
+  const newAgentDisabledReason = workspaceAgentsLoading
+    ? "Agent roster is still loading."
+    : agentCreationDisabledReason;
   const periodLabel = rangePeriodLabel(range);
   const totals = useMemo(() => history.reduce((current, day) => ({
     tokens: current.tokens + day.totalTokens,
@@ -194,8 +225,8 @@ export default function DashboardPage() {
   const hasUsageData = hasCollectedData(history, integrations);
   const activeIntegrationCount = integrations.filter((integration) => integration.totalTokens > 0 || integration.requests > 0).length;
   const agentRows = useMemo<DashboardAgentUsageRow[]>(() => {
-    const canAttributeUsage = agents.length === 1 && hasUsageData;
-    return agents.map((agent) => {
+    const canAttributeUsage = accountAgents.length === 1 && hasUsageData;
+    return workspaceAgents.map((agent) => {
       const updatedAt = timestampFromIso(agent.updated_at ?? agent.started_at);
       return {
         id: agent.id,
@@ -207,26 +238,32 @@ export default function DashboardPage() {
         lastActivity: updatedAt > 0 ? relativeTime(updatedAt) : null,
       };
     });
-  }, [activeIntegrationCount, agents, hasUsageData, totals.requests, totals.tokens]);
+  }, [accountAgents.length, activeIntegrationCount, hasUsageData, totals.requests, totals.tokens, workspaceAgents]);
 
   return (
     <div className="flex h-full min-h-0 bg-background text-foreground">
       <div
-        className="agent-desktop-navigation flex h-full min-h-0 shrink-0"
+        className={`agent-desktop-navigation relative flex h-full min-h-0 shrink-0 flex-col pt-14 ${isDesktopViewport ? "w-64" : "w-0"}`}
         data-roster-collapsed={sidebarCollapsed}
+        data-expanded-section={sidebarCollapsed ? "workspace" : "agents"}
       >
+        <div className="agent-desktop-navigation-sections relative isolate mt-2 flex min-h-0 w-full flex-1">
         <AgentList
           sidebarCollapsed={sidebarCollapsed}
           isDesktopViewport={isDesktopViewport}
           mobileShowChat
-          agents={agents}
-          selectedAgentId={agents[0]?.id ?? null}
+          agents={workspaceAgents}
+          rosterLoading={workspaceAgentsLoading}
+          rosterOrderScope={selectedWorkspace?.id}
+          selectedAgentId={workspaceAgents[0]?.id ?? null}
           setSelectedAgentId={(agentId) => router.push(`/dashboard/agents?agentId=${encodeURIComponent(agentId)}`)}
           setMobileShowChat={() => undefined}
           setSidebarCollapsed={setSidebarCollapsed}
           syntheticThreads={syntheticThreads}
           getToken={getToken}
           createOpenClawAgent={createOpenClawAgent}
+          associateCreatedAgent={associateAgentWithSelectedWorkspace}
+          agentCreationDisabledReason={agentCreationDisabledReason}
           fetchAgents={fetchAgents}
           setError={setError}
           sidebarCreatorSignal={0}
@@ -234,34 +271,37 @@ export default function DashboardPage() {
           updateAgentName={updateAgentName}
           accountInitial={accountInitial}
           homeActive
+          embeddedInNavigation
           onLogout={logout}
         />
         <DashboardWorkspaceNavigation
-          selectedAgent={agents[0] ?? null}
+          selectedAgent={workspaceAgents[0] ?? null}
           isDesktopViewport={isDesktopViewport}
-          workspaceName={workspaceName}
-          workspaceInitial={accountInitial}
+          agentRosterCollapsed={sidebarCollapsed}
+          onAgentRosterCollapsedChange={setSidebarCollapsed}
         />
+        <div aria-hidden="true" className="pointer-events-none absolute -top-2 bottom-0 right-0 z-[60] w-px bg-border" />
+        </div>
       </div>
 
       <main className="min-w-0 flex-1 overflow-y-auto">
-        {error ? (
+        {pageError ? (
           <div role="alert" className="m-4 flex items-center justify-between gap-3 rounded-xl border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-            <span>{error}</span>
-            <button type="button" className="font-medium text-foreground" onClick={() => setError(null)}>Dismiss</button>
+            <span>{pageError}</span>
+            {!agentRosterError ? <button type="button" className="font-medium text-foreground" onClick={() => setError(null)}>Dismiss</button> : null}
           </div>
         ) : null}
         <div className="mx-auto w-full max-w-[1200px] px-4 py-8 sm:px-6 lg:px-8">
           <header className="mb-7 flex flex-col gap-5 border-b border-border pb-6 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex min-w-0 items-center gap-4">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[rgb(var(--selection-accent-rgb)_/_0.24)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-base font-semibold text-[var(--selection-accent)] shadow-[0_12px_32px_rgb(var(--selection-accent-rgb)_/_0.08)]">
-                {accountInitial.toUpperCase()}
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[rgb(var(--selection-accent-rgb)_/_0.24)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-base font-semibold text-[var(--selection-accent)]">
+                {workspaceInitial.toUpperCase()}
               </span>
               <div className="min-w-0">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">Workspace overview</p>
                 <h1 className="mt-1 truncate text-[22px] font-semibold leading-tight tracking-tight text-foreground">{workspaceName}</h1>
                 <p className="mt-1 text-[12px] text-text-muted">
-                  {memberCount ?? "-"} {memberCount === 1 ? "member" : "members"} · {agents.length} {agents.length === 1 ? "agent" : "agents"}
+                  {memberCount ?? "-"} {memberCount === 1 ? "member" : "members"} · {workspaceAgentsLoading ? "-" : workspaceAgents.length} {workspaceAgents.length === 1 ? "agent" : "agents"}
                 </p>
               </div>
             </div>
@@ -279,6 +319,8 @@ export default function DashboardPage() {
                 type="button"
                 size="sm"
                 onClick={() => router.push("/dashboard/agents?open=agent-launcher")}
+                disabled={Boolean(newAgentDisabledReason)}
+                title={newAgentDisabledReason ?? undefined}
                 className="min-h-9"
               >
                 <Plus className="h-3.5 w-3.5" /> New agent
@@ -297,8 +339,8 @@ export default function DashboardPage() {
             />
             <DashboardMetricCard
               title="Agents"
-              value={agentsLoading ? "---" : agents.length.toLocaleString()}
-              periodLabel="Across this account"
+              value={workspaceAgentsLoading ? "---" : workspaceAgents.length.toLocaleString()}
+              periodLabel="In this Workspace"
               icon={Bot}
               href="/dashboard/agents"
               compact
@@ -327,11 +369,11 @@ export default function DashboardPage() {
 
           <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
             <TokenUsagePanel history={overviewLoading ? [] : history} periodLabel={periodLabel} />
-            <MembersSection compact />
+            <MembersSection compact agents={accountAgents} agentsLoading={agentsLoading} />
           </div>
 
           <div className="mt-4">
-            <AgentUsageTable rows={agents.length === 0 ? [] : agentRows} />
+            <AgentUsageTable rows={workspaceAgents.length === 0 ? [] : agentRows} />
           </div>
         </div>
       </main>

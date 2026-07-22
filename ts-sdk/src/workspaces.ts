@@ -29,6 +29,18 @@ export interface Workspace {
   name: string;
   slug: string;
   description: string | null;
+  displayName: string | null;
+  displaySlug: string | null;
+  role: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface WorkspaceAgentAssociation {
+  workspaceId: string;
+  agentId: string;
+  role: string;
+  expiresAt: string | null;
 }
 
 export interface WorkspaceGrant {
@@ -37,6 +49,9 @@ export interface WorkspaceGrant {
   subjectType: string;
   subjectId: string;
   role: string;
+  displayName: string | null;
+  displaySlug: string | null;
+  isOwner: boolean;
   expiresAt: string | null;
   revokedAt: string | null;
 }
@@ -97,6 +112,20 @@ function workspaceFromDict(data: any): Workspace {
     name: data?.name || '',
     slug: data?.slug || '',
     description: data?.description ?? null,
+    displayName: data?.display_name ?? data?.displayName ?? null,
+    displaySlug: data?.display_slug ?? data?.displaySlug ?? null,
+    role: data?.role ?? null,
+    createdAt: data?.created_at ?? data?.createdAt ?? null,
+    updatedAt: data?.updated_at ?? data?.updatedAt ?? null,
+  };
+}
+
+function workspaceAgentAssociationFromDict(data: any): WorkspaceAgentAssociation {
+  return {
+    workspaceId: String(data?.workspace_id || data?.workspaceId || ''),
+    agentId: String(data?.agent_id || data?.agentId || ''),
+    role: data?.role || '',
+    expiresAt: data?.expires_at ?? data?.expiresAt ?? null,
   };
 }
 
@@ -107,8 +136,11 @@ function grantFromDict(data: any): WorkspaceGrant {
     subjectType: data?.subject_type || data?.subjectType || '',
     subjectId: data?.subject_id || data?.subjectId || '',
     role: data?.role || '',
-    expiresAt: data?.expires_at || data?.expiresAt || null,
-    revokedAt: data?.revoked_at || data?.revokedAt || null,
+    displayName: data?.display_name ?? data?.displayName ?? null,
+    displaySlug: data?.display_slug ?? data?.displaySlug ?? null,
+    isOwner: Boolean(data?.is_owner ?? data?.isOwner ?? false),
+    expiresAt: data?.expires_at ?? data?.expiresAt ?? null,
+    revokedAt: data?.revoked_at ?? data?.revokedAt ?? null,
   };
 }
 
@@ -260,6 +292,19 @@ export class WorkspacesAPI {
     return (data || []).map(workspaceFromDict);
   }
 
+  async get(workspaceRef: string, subject: WorkspaceSubjectOptions = {}): Promise<Workspace> {
+    const data = await this.request('GET', `/${encodeRef(workspaceRef)}`, subject);
+    return workspaceFromDict(data);
+  }
+
+  async listAgents(
+    workspaceRef: string,
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<WorkspaceAgentAssociation[]> {
+    const data = await this.request<any[]>('GET', `/${encodeRef(workspaceRef)}/agents`, subject);
+    return (data || []).map(workspaceAgentAssociationFromDict);
+  }
+
   async search(
     query: string,
     subject: WorkspaceSubjectOptions = {},
@@ -293,13 +338,23 @@ export class WorkspacesAPI {
 
   async grant(
     workspaceRef: string,
-    body: { subjectType: 'user' | 'agent'; subjectId: string; role?: 'viewer' | 'contributor' | 'admin' },
+    body: {
+      subjectType: 'user' | 'agent';
+      subjectId: string;
+      role?: 'viewer' | 'contributor' | 'admin';
+      displayName?: string;
+      displaySlug?: string;
+      expiresAt?: string | null;
+    },
     subject: WorkspaceSubjectOptions = {},
   ): Promise<WorkspaceGrant> {
     const data = await this.request('POST', `/${encodeRef(workspaceRef)}/grants`, subject, {
       subject_type: body.subjectType,
       subject_id: body.subjectId,
-      role: body.role || 'viewer',
+      role: body.role ?? 'viewer',
+      ...(body.displayName !== undefined ? { display_name: body.displayName } : {}),
+      ...(body.displaySlug !== undefined ? { display_slug: body.displaySlug } : {}),
+      ...(body.expiresAt !== undefined ? { expires_at: body.expiresAt } : {}),
     });
     return grantFromDict(data);
   }
@@ -307,6 +362,24 @@ export class WorkspacesAPI {
   async listGrants(workspaceRef: string, subject: WorkspaceSubjectOptions = {}): Promise<WorkspaceGrant[]> {
     const data = await this.request<any[]>('GET', `/${encodeRef(workspaceRef)}/grants`, subject);
     return (data || []).map(grantFromDict);
+  }
+
+  async updateGrant(
+    workspaceRef: string,
+    grantId: string,
+    body: { role?: 'viewer' | 'contributor' | 'admin'; expiresAt?: string | null },
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<WorkspaceGrant> {
+    const data = await this.request(
+      'PATCH',
+      `/${encodeRef(workspaceRef)}/grants/${encodeRef(grantId)}`,
+      subject,
+      {
+        ...(body.role !== undefined ? { role: body.role } : {}),
+        ...(body.expiresAt !== undefined ? { expires_at: body.expiresAt } : {}),
+      },
+    );
+    return grantFromDict(data);
   }
 
   async revokeGrant(workspaceRef: string, grantId: string, subject: WorkspaceSubjectOptions = {}): Promise<void> {

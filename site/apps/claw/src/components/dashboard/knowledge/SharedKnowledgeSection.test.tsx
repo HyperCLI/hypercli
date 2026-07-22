@@ -1,20 +1,30 @@
-import { render, waitFor } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  createWorkspacesClient: vi.fn(),
-  getToken: vi.fn(),
   panel: vi.fn(),
   userId: "user-1",
-  workspaces: { kind: "workspaces" },
+  workspacesClient: { kind: "workspaces" },
+  workspace: { id: "workspace-1", name: "Team Knowledge" },
+  workspaceContext: {
+    workspacesClient: null as { kind: string } | null,
+    workspaces: [] as Array<{ id: string; name: string }>,
+    selectedWorkspaceId: null as string | null,
+    selectedWorkspace: null as { id: string; name: string } | null,
+    isLoading: false,
+    error: null as string | null,
+    selectWorkspace: vi.fn(),
+    createWorkspace: vi.fn(),
+    refreshWorkspaces: vi.fn(),
+  },
 }));
 
 vi.mock("@/hooks/useAgentAuth", () => ({
-  useAgentAuth: () => ({ getToken: mocks.getToken, user: { id: mocks.userId } }),
+  useAgentAuth: () => ({ user: { id: mocks.userId } }),
 }));
 
-vi.mock("@/lib/agent-client", () => ({
-  createWorkspacesClient: mocks.createWorkspacesClient,
+vi.mock("@/components/dashboard/WorkspaceContext", () => ({
+  useWorkspace: () => mocks.workspaceContext,
 }));
 
 vi.mock("./SharedKnowledgePanel", () => ({
@@ -34,6 +44,10 @@ type PanelProps = {
   preferredAgentId: string | null;
   ready: boolean;
   workspaces: unknown;
+  availableWorkspaces: unknown[];
+  selectedWorkspaceId: string | null;
+  onSelectWorkspace: (workspaceId: string) => void;
+  onWorkspacesChanged: (preferredWorkspaceId?: string | null) => Promise<void>;
 };
 
 function latestPanelProps(): PanelProps {
@@ -46,11 +60,16 @@ describe("SharedKnowledgeSection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.userId = "user-1";
-    mocks.getToken.mockResolvedValue("session-token");
-    mocks.createWorkspacesClient.mockReturnValue(mocks.workspaces);
+    mocks.workspaceContext.workspacesClient = mocks.workspacesClient;
+    mocks.workspaceContext.workspaces = [mocks.workspace];
+    mocks.workspaceContext.selectedWorkspaceId = mocks.workspace.id;
+    mocks.workspaceContext.selectedWorkspace = mocks.workspace;
+    mocks.workspaceContext.isLoading = false;
+    mocks.workspaceContext.error = null;
+    mocks.workspaceContext.refreshWorkspaces.mockResolvedValue(undefined);
   });
 
-  it("connects shared knowledge and forwards dashboard agent state", async () => {
+  it("forwards the shared Workspace catalog, selection, and dashboard agent state", () => {
     const agents = [{ id: "agent-docs", name: "Docs Agent", state: "RUNNING", meta: null }];
 
     render(
@@ -62,42 +81,46 @@ describe("SharedKnowledgeSection", () => {
       />,
     );
 
-    await waitFor(() => expect(latestPanelProps()).toMatchObject({
+    expect(latestPanelProps()).toMatchObject({
       agents,
       agentsError: "Agents refreshing",
       agentsLoading: true,
       connectionError: null,
       preferredAgentId: "agent-docs",
       ready: true,
-      workspaces: mocks.workspaces,
-    }));
-    expect(mocks.createWorkspacesClient).toHaveBeenCalledWith("session-token");
+      workspaces: mocks.workspacesClient,
+      availableWorkspaces: [mocks.workspace],
+      selectedWorkspaceId: "workspace-1",
+    });
+
+    latestPanelProps().onSelectWorkspace("workspace-2");
+    void latestPanelProps().onWorkspacesChanged("workspace-2");
+    expect(mocks.workspaceContext.selectWorkspace).toHaveBeenCalledWith("workspace-2");
+    expect(mocks.workspaceContext.refreshWorkspaces).toHaveBeenCalledWith("workspace-2");
   });
 
-  it("reports token failures without constructing a workspace client", async () => {
-    mocks.getToken.mockRejectedValue(new Error("Session expired"));
+  it("forwards shared Workspace connection failures", () => {
+    mocks.workspaceContext.workspacesClient = null;
+    mocks.workspaceContext.workspaces = [];
+    mocks.workspaceContext.selectedWorkspaceId = null;
+    mocks.workspaceContext.selectedWorkspace = null;
+    mocks.workspaceContext.error = "Session expired";
 
     render(<SharedKnowledgeSection agents={[]} />);
 
-    await waitFor(() => expect(latestPanelProps()).toMatchObject({
+    expect(latestPanelProps()).toMatchObject({
       connectionError: "Session expired",
       ready: false,
       workspaces: null,
-    }));
-    expect(mocks.createWorkspacesClient).not.toHaveBeenCalled();
+      availableWorkspaces: [],
+      selectedWorkspaceId: null,
+    });
   });
 
-  it("hides the previous principal's client while a new session is loading", async () => {
-    const { rerender } = render(<SharedKnowledgeSection agents={[]} />);
-    await waitFor(() => expect(latestPanelProps()).toMatchObject({
-      ready: true,
-      workspaces: mocks.workspaces,
-    }));
+  it("keeps the panel pending until the shared catalog is loaded", () => {
+    mocks.workspaceContext.isLoading = true;
+    render(<SharedKnowledgeSection agents={[]} />);
 
-    mocks.userId = "user-2";
-    mocks.getToken.mockReturnValueOnce(new Promise<string>(() => undefined));
-    rerender(<SharedKnowledgeSection agents={[]} />);
-
-    expect(latestPanelProps()).toMatchObject({ ready: false, workspaces: null });
+    expect(latestPanelProps()).toMatchObject({ ready: false, workspaces: mocks.workspacesClient });
   });
 });

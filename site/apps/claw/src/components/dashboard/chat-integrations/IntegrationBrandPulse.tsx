@@ -31,20 +31,12 @@ export function IntegrationBrandPulse({ active, accentColor, children, className
           initial={shouldAnimate ? { opacity: 0, scale: 0.82 } : { opacity: 0.14, scale: 1 }}
           animate={shouldAnimate ? { opacity: [0, 0.24, 0], scale: [0.82, 1.04, 1.32] } : { opacity: 0.14, scale: 1 }}
           transition={shouldAnimate ? { duration: 2.7, repeat: Infinity, ease: "easeOut", delay } : undefined}
-          style={{ borderColor: "currentColor", boxShadow: "0 0 18px color-mix(in srgb, currentColor 18%, transparent)" }}
+          style={{ borderColor: "currentColor" }}
         />
       )) : null}
-      {active ? <span aria-hidden="true" className="pointer-events-none absolute inset-4 rounded-full opacity-10 blur-2xl sm:inset-3" style={{ backgroundColor: "currentColor" }} /> : null}
       <motion.span
         className="relative z-10 flex items-center justify-center"
-        animate={shouldAnimate ? {
-          scale: [1, 1.055, 1],
-          filter: [
-            "drop-shadow(0 0 12px color-mix(in srgb, currentColor 34%, transparent))",
-            "drop-shadow(0 0 24px color-mix(in srgb, currentColor 56%, transparent))",
-            "drop-shadow(0 0 12px color-mix(in srgb, currentColor 34%, transparent))",
-          ],
-        } : undefined}
+        animate={shouldAnimate ? { scale: [1, 1.055, 1] } : undefined}
         transition={shouldAnimate ? { duration: 1.9, repeat: Infinity, ease: "easeInOut" } : undefined}
       >
         {children}

@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -8,7 +8,55 @@ import { AgentWorkspaceSidebar } from "./AgentWorkspaceSidebar";
 
 type SidebarSession = NonNullable<ComponentProps<typeof AgentWorkspaceSidebar>["sessions"]>[number];
 
+const mocks = vi.hoisted(() => {
+  const marketingWorkspace = {
+    id: "workspace-marketing",
+    name: "Marketing",
+    slug: "marketing",
+    description: null,
+    displayName: null,
+    displaySlug: null,
+    role: "admin",
+    createdAt: null,
+    updatedAt: null,
+  };
+  const productWorkspace = {
+    ...marketingWorkspace,
+    id: "workspace-product",
+    name: "Product",
+    slug: "product",
+    role: "contributor",
+  };
+  return {
+    marketingWorkspace,
+    productWorkspace,
+    workspaceContext: {
+      principalId: "user-1" as string | null,
+      workspacesClient: {} as Record<string, unknown> | null,
+      workspaces: [marketingWorkspace, productWorkspace],
+      selectedWorkspace: marketingWorkspace as typeof marketingWorkspace | null,
+      selectedWorkspaceId: marketingWorkspace.id as string | null,
+      isLoading: false,
+      error: null as string | null,
+      selectWorkspace: vi.fn(),
+      createWorkspace: vi.fn(),
+      refreshWorkspaces: vi.fn(),
+    },
+  };
+});
+
+vi.mock("@/components/dashboard/WorkspaceContext", () => ({
+  useWorkspace: () => mocks.workspaceContext,
+  workspaceDisplayName: (workspace: { displayName?: string | null; name: string }) => workspace.displayName?.trim() || workspace.name,
+}));
+
 vi.mock("@hypercli/shared-ui", () => ({
+  Dialog: ({ children, open }: { children: ReactNode; open?: boolean }) => open ? <>{children}</> : null,
+  DialogContent: ({ children }: { children: ReactNode }) => <div role="dialog" aria-label="New Workspace">{children}</div>,
+  DialogDescription: ({ children }: { children: ReactNode }) => <p>{children}</p>,
+  DialogFooter: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  DialogHeader: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  DialogTitle: ({ children }: { children: ReactNode }) => <h2>{children}</h2>,
   DropdownMenu: ({ children }: { children: ReactNode }) => <>{children}</>,
   DropdownMenuTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
   DropdownMenuContent: ({ children }: { children: ReactNode }) => <div role="menu">{children}</div>,
@@ -30,6 +78,7 @@ vi.mock("@hypercli/shared-ui", () => ({
 
 vi.mock("@/components/HyperCLILogoLink", () => ({
   HyperCLILogoLink: () => <div>HyperCLI</div>,
+  HyperCLILogoMark: () => <div data-testid="hypercli-logo-mark" />,
 }));
 
 const agent: Agent = {
@@ -87,18 +136,52 @@ function expectSessionBefore(firstName: string, secondName: string): void {
 describe("AgentWorkspaceSidebar", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    mocks.workspaceContext.workspacesClient = {};
+    mocks.workspaceContext.principalId = "user-1";
+    mocks.workspaceContext.workspaces = [mocks.marketingWorkspace, mocks.productWorkspace];
+    mocks.workspaceContext.selectedWorkspace = mocks.marketingWorkspace;
+    mocks.workspaceContext.selectedWorkspaceId = mocks.marketingWorkspace.id;
+    mocks.workspaceContext.isLoading = false;
+    mocks.workspaceContext.error = null;
+    mocks.workspaceContext.selectWorkspace.mockReset();
+    mocks.workspaceContext.createWorkspace.mockReset().mockResolvedValue(mocks.productWorkspace);
   });
 
-  it("shows the current workspace selector without routing workspace creation to the agent launcher", () => {
-    renderAgentWorkspaceSidebar({
-      workspaceName: "Marketing",
-      workspaceInitial: "M",
-    });
+  it("selects an available Workspace from the sidebar menu", () => {
+    renderAgentWorkspaceSidebar();
 
     expect(screen.getByRole("button", { name: "Current workspace: Marketing" })).toHaveTextContent("Marketing");
     expect(screen.getByText("Workspaces")).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /New Workspace/ })).toBeDisabled();
-    expect(screen.getByText("Coming soon")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: /Product/ }));
+    expect(mocks.workspaceContext.selectWorkspace).toHaveBeenCalledWith("workspace-product");
+    expect(screen.getByRole("menuitem", { name: /New Workspace/ })).toBeEnabled();
+    expect(screen.queryByText("Coming soon")).not.toBeInTheDocument();
+  });
+
+  it("creates a Workspace from the sidebar menu", async () => {
+    renderAgentWorkspaceSidebar();
+
+    fireEvent.click(screen.getByRole("menuitem", { name: /New Workspace/ }));
+    const dialog = screen.getByRole("dialog", { name: "New Workspace" });
+    fireEvent.change(within(dialog).getByLabelText("Workspace name"), { target: { value: "Support" } });
+    fireEvent.change(within(dialog).getByLabelText(/Description/), { target: { value: "Support playbooks" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create Workspace" }));
+
+    await waitFor(() => expect(mocks.workspaceContext.createWorkspace).toHaveBeenCalledWith({
+      name: "Support",
+      description: "Support playbooks",
+    }));
+  });
+
+  it("does not present the account fallback as an existing Workspace", () => {
+    mocks.workspaceContext.workspaces = [];
+    mocks.workspaceContext.selectedWorkspace = null;
+    mocks.workspaceContext.selectedWorkspaceId = null;
+
+    renderAgentWorkspaceSidebar();
+
+    expect(screen.getByRole("button", { name: "Current workspace: No Workspace" })).toHaveTextContent("No Workspace");
+    expect(screen.getByText("No Workspaces available.")).toBeInTheDocument();
   });
 
   it("forces the desktop workspace sidebar expanded without a collapse control", () => {
@@ -106,6 +189,40 @@ describe("AgentWorkspaceSidebar", () => {
     renderAgentWorkspaceSidebar({ forceExpanded: true });
 
     expect(document.querySelector(".agent-workspace-shell")).toHaveAttribute("data-collapsed", "false");
+    expect(screen.queryByRole("button", { name: /workspace sidebar/i })).not.toBeInTheDocument();
+  });
+
+  it("reports controlled collapse changes without using its independent stored state", () => {
+    window.localStorage.setItem("agents.workspaceCollapsed.v2", "0");
+    const onCollapsedChange = vi.fn();
+    renderAgentWorkspaceSidebar({ collapsed: true, onCollapsedChange });
+
+    const shell = document.querySelector(".agent-workspace-shell");
+    expect(shell).toHaveAttribute("data-collapsed", "true");
+    expect(shell).toHaveClass("w-12");
+    expect(screen.queryByRole("button", { name: "Current workspace: Marketing" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand workspace sidebar" }));
+    expect(onCollapsedChange).toHaveBeenCalledWith(false);
+  });
+
+  it("keeps the shared header visible while only the navigation body is collapsed", () => {
+    renderAgentWorkspaceSidebar({ collapsed: true, embeddedInNavigation: true });
+
+    expect(screen.getByTestId("hypercli-logo-mark")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Current workspace: Marketing" })).toBeInTheDocument();
+    expect(document.querySelector(".agent-desktop-navigation-header")).toHaveClass("w-64", "-top-16", "-left-52");
+    expect(document.querySelector(".agent-workspace-shell")).not.toHaveClass("border-r");
+    expect(screen.queryByRole("button", { name: /workspace sidebar/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("Setup")).not.toBeInTheDocument();
+  });
+
+  it("keeps the expanded embedded workspace body title-free", () => {
+    renderAgentWorkspaceSidebar({ collapsed: false, embeddedInNavigation: true });
+
+    expect(screen.queryByText("Setup")).not.toBeInTheDocument();
+    expect(document.querySelector(".agent-desktop-navigation-header")).toHaveClass("w-64", "-top-16", "-left-12");
+    expect(screen.getByRole("button", { name: "Files" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /workspace sidebar/i })).not.toBeInTheDocument();
   });
 

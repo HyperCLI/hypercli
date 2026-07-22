@@ -112,6 +112,7 @@ export {
   WorkspacesAPI,
   deriveWorkspacesApiBase,
   type Workspace,
+  type WorkspaceAgentAssociation,
   type WorkspaceFileBytes,
   type WorkspaceDownloadUrl,
   type WorkspaceFile,

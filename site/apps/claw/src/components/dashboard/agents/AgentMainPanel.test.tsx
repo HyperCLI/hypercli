@@ -15,19 +15,38 @@ vi.mock("@/components/dashboard/agents/AgentPanels", () => {
     launchBlocked?: boolean;
     launchBlockedReason?: string | null;
     onLaunchAction?: () => void;
+    workspaceName?: string | null;
+    hasAccountAgents?: boolean;
+    creationDisabledReason?: string | null;
+    onOpenMembers?: () => void;
   };
   const emptyStateButton = (regionLabel: string, defaultButtonLabel: string) => {
-    function EmptyStateButton({ onCreate, launchLabel, launching, launchBlocked, launchBlockedReason, onLaunchAction }: EmptyStateMockProps) {
+    function EmptyStateButton({
+      onCreate,
+      launchLabel,
+      launching,
+      launchBlocked,
+      launchBlockedReason,
+      onLaunchAction,
+      workspaceName,
+      hasAccountAgents,
+      creationDisabledReason,
+      onOpenMembers,
+    }: EmptyStateMockProps) {
       return (
         <section aria-label={regionLabel}>
+          {workspaceName ? <p>No agents in {workspaceName}</p> : null}
           <button
             type="button"
             onClick={onLaunchAction ?? onCreate}
-            disabled={Boolean(launching || launchBlocked)}
-            title={launchBlockedReason ?? undefined}
+            disabled={Boolean(launching || launchBlocked || creationDisabledReason)}
+            title={creationDisabledReason ?? launchBlockedReason ?? undefined}
           >
             {launching ? "Starting agent" : launchLabel ?? defaultButtonLabel}
           </button>
+          {workspaceName && hasAccountAgents && onOpenMembers ? (
+            <button type="button" onClick={onOpenMembers}>Add an existing agent in Members</button>
+          ) : null}
         </section>
       );
     }
@@ -96,6 +115,32 @@ describe("AgentMainPanel", () => {
     const emptyState = screen.getByRole("region", { name: /first agent empty state/i });
     fireEvent.click(within(emptyState).getByRole("button", { name: /create an agent/i }));
     expect(onCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("describes an empty Workspace and links to existing agent assignments", () => {
+    const onOpenMembers = vi.fn();
+    renderAgentMainPanel({
+      selectedAgent: null,
+      workspaceName: "Product Operations",
+      hasAccountAgents: true,
+      onOpenMembers,
+    });
+
+    expect(screen.getByText("No agents in Product Operations")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add an existing agent in Members" }));
+    expect(onOpenMembers).toHaveBeenCalledOnce();
+  });
+
+  it("disables agent creation for a non-admin Workspace member", () => {
+    renderAgentMainPanel({
+      selectedAgent: null,
+      workspaceName: "Product Operations",
+      creationDisabledReason: "Workspace admin access is required to add agents.",
+    });
+
+    const createAgent = screen.getByRole("button", { name: "Create an agent" });
+    expect(createAgent).toBeDisabled();
+    expect(createAgent).toHaveAttribute("title", "Workspace admin access is required to add agents.");
   });
 
   it("does not show the first-agent empty state while another agent is available", () => {
@@ -196,6 +241,21 @@ describe("AgentMainPanel", () => {
     });
 
     expect(screen.getByText("Members content")).toBeInTheDocument();
+    expect(screen.queryByText("Loading agents")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /first agent empty state/i })).not.toBeInTheDocument();
+  });
+
+  it("renders shared knowledge before any Workspace agent exists", () => {
+    renderAgentMainPanel({
+      selectedAgent: null,
+      hasAgents: false,
+      loadingInitialAgents: true,
+      currentPanel: "knowledge",
+      stoppedTabLabel: "Shared knowledge",
+      panelContent: <div>Shared knowledge content</div>,
+    });
+
+    expect(screen.getByText("Shared knowledge content")).toBeInTheDocument();
     expect(screen.queryByText("Loading agents")).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: /first agent empty state/i })).not.toBeInTheDocument();
   });

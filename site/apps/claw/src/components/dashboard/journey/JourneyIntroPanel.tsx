@@ -159,25 +159,6 @@ export function JourneyIntroPanel({ agentName, suggestedUserName, onStartBrief }
         className="relative overflow-visible rounded-[1.2rem] border border-border bg-surface/95 p-4 shadow-[0_20px_70px_rgba(0,0,0,0.24)] outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)] sm:p-5"
       >
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 rounded-[1.2rem] border border-[rgb(var(--selection-accent-rgb)_/_0.16)]" />
-        {[0, 0.9, 1.8].map((delay) => (
-          <motion.div
-            key={delay}
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 rounded-[1.2rem] border border-[rgb(var(--selection-accent-rgb)_/_0.42)]"
-            initial={false}
-            animate={reducedMotion ? undefined : {
-              opacity: [0, 0.58, 0],
-              boxShadow: [
-                "0 0 0 0 rgb(var(--selection-accent-rgb) / 0)",
-                "0 0 0 8px rgb(var(--selection-accent-rgb) / 0.12), 0 0 28px 4px rgb(var(--selection-accent-rgb) / 0.2)",
-                "0 0 0 18px rgb(var(--selection-accent-rgb) / 0), 0 0 42px 8px rgb(var(--selection-accent-rgb) / 0)",
-              ],
-            }}
-            transition={{ duration: 3.2, ease: "easeOut", repeat: Infinity, delay }}
-          />
-        ))}
-        <div aria-hidden="true" className="pointer-events-none absolute -right-20 -top-20 h-44 w-44 rounded-full bg-[rgb(var(--selection-accent-rgb)_/_0.1)] blur-3xl" />
-        <div aria-hidden="true" className="pointer-events-none absolute -left-20 bottom-4 h-36 w-36 rounded-full bg-surface-high/30 blur-3xl" />
 
         <div className="relative">
           <div className="flex items-center justify-between gap-3">

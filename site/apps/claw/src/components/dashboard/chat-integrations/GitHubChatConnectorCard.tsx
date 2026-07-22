@@ -107,7 +107,7 @@ function authFailed(result: GatewayIntegrationAuthStatusResult): boolean {
 
 function buttonClass(tone: "primary" | "secondary" | "danger" = "secondary") {
   if (tone === "primary") {
-    return "inline-flex h-8 items-center gap-1.5 rounded-full bg-button-primary px-3 text-xs font-black uppercase tracking-[0.12em] text-button-primary-foreground shadow-[0_0_24px_rgb(var(--selection-accent-rgb)_/_0.22)] transition-all hover:-translate-y-0.5 hover:bg-button-primary-hover disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50";
+    return "inline-flex h-8 items-center gap-1.5 rounded-full bg-button-primary px-3 text-xs font-black uppercase tracking-[0.12em] text-button-primary-foreground transition-all hover:-translate-y-0.5 hover:bg-button-primary-hover disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50";
   }
   if (tone === "danger") {
     return "inline-flex h-8 items-center gap-1.5 rounded-full border border-destructive/35 bg-destructive/10 px-3 text-xs font-black uppercase tracking-[0.12em] text-destructive transition-all hover:-translate-y-0.5 hover:bg-destructive/15 disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50";
@@ -116,19 +116,19 @@ function buttonClass(tone: "primary" | "secondary" | "danger" = "secondary") {
 }
 
 const CARD_TONE_CLASS: Record<GitHubCardTone, string> = {
-  neutral: "border-border shadow-background/30",
-  primary: "border-selection-accent/40 shadow-[rgb(var(--selection-accent-rgb)_/_0.1)]",
-  warning: "border-warning/40 shadow-warning/10",
-  danger: "border-destructive/40 shadow-destructive/10",
-  info: "border-primary/40 shadow-primary/10",
+  neutral: "border-border",
+  primary: "border-selection-accent/40",
+  warning: "border-warning/40",
+  danger: "border-destructive/40",
+  info: "border-primary/40",
 };
 
 const HERO_TONE_CLASS: Record<GitHubCardTone, string> = {
-  neutral: "text-foreground/82 [text-shadow:0_0_40px_color-mix(in_srgb,var(--foreground)_8%,transparent)]",
-  primary: "text-selection-accent [text-shadow:0_0_44px_rgb(var(--selection-accent-rgb)_/_0.34)]",
-  warning: "text-warning [text-shadow:0_0_44px_color-mix(in_srgb,var(--warning)_34%,transparent)]",
-  danger: "text-destructive [text-shadow:0_0_44px_color-mix(in_srgb,var(--destructive)_34%,transparent)]",
-  info: "text-primary [text-shadow:0_0_44px_color-mix(in_srgb,var(--primary)_28%,transparent)]",
+  neutral: "text-foreground/82",
+  primary: "text-selection-accent",
+  warning: "text-warning",
+  danger: "text-destructive",
+  info: "text-primary",
 };
 
 const ICON_TONE_CLASS: Record<GitHubCardTone, string> = {
@@ -253,7 +253,7 @@ function GitHubCongratulations({ accountDisplayName }: { accountDisplayName?: st
     <div className="relative overflow-hidden rounded-2xl border border-selection-accent/30 bg-selection-accent/10 px-4 py-4 text-foreground">
       <Github className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rotate-12 text-selection-accent/10" strokeWidth={1.1} />
       <div className="relative flex items-center gap-3">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-selection-accent/35 bg-background/65 text-selection-accent shadow-[0_0_28px_rgb(var(--selection-accent-rgb)_/_0.18)]">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-selection-accent/35 bg-background/65 text-selection-accent">
           <CheckCircle2 className="h-6 w-6" />
         </div>
         <div className="min-w-0">
@@ -777,7 +777,7 @@ export function GitHubChatConnectorCard({
                       key="device-code-ripple"
                       aria-hidden="true"
                       data-testid="github-device-code-ripple"
-                      className="pointer-events-none absolute inset-[-0.45rem] -z-10 rounded-2xl border border-selection-accent/50 bg-selection-accent/12 shadow-[0_0_42px_rgb(var(--selection-accent-rgb)_/_0.22)]"
+                      className="pointer-events-none absolute inset-[-0.45rem] -z-10 rounded-2xl border border-selection-accent/50 bg-selection-accent/12"
                       initial={{ opacity: 0.82, scale: 0.72 }}
                       animate={{ opacity: 0, scale: 1.42 }}
                       transition={{ duration: 3, ease: [0.16, 1, 0.3, 1] }}

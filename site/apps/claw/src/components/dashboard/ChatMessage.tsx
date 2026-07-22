@@ -627,7 +627,6 @@ function StreamingStatusDot() {
     <motion.span
       aria-label="streaming"
       className="block h-[7px] w-[7px] rounded-full bg-primary"
-      style={{ boxShadow: "0 0 6px rgb(var(--selection-accent-rgb) / 0.6)" }}
       animate={{ scale: [0.85, 1.15, 0.85], opacity: [0.6, 1, 0.6] }}
       transition={{ repeat: Infinity, duration: 1.1, ease: "easeInOut" }}
     />

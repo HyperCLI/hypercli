@@ -188,7 +188,7 @@ export function PlanComparisonModal({ open, onClose, catalogPlans }: PlanCompari
         role="dialog"
         aria-modal="true"
         aria-label="Plan comparison"
-        className="relative flex max-h-[calc(100vh-32px)] w-full max-w-[1420px] flex-col overflow-hidden rounded-[16px] border border-[rgb(var(--selection-accent-rgb)_/_0.22)] bg-background-secondary text-foreground shadow-[0_24px_70px_rgb(0_0_0_/_0.35),0_0_80px_rgb(var(--selection-accent-rgb)_/_0.08)]"
+        className="relative flex max-h-[calc(100vh-32px)] w-full max-w-[1420px] flex-col overflow-hidden rounded-[16px] border border-[rgb(var(--selection-accent-rgb)_/_0.22)] bg-background-secondary text-foreground shadow-[0_24px_70px_rgb(0_0_0_/_0.35)]"
       >
         <button
           type="button"
@@ -214,7 +214,7 @@ export function PlanComparisonModal({ open, onClose, catalogPlans }: PlanCompari
                       {plan.name}
                     </span>
                     {plan.plan.highlighted && (
-                      <span className="rounded-full bg-[var(--selection-accent)] px-2 py-1 text-[12px] font-semibold leading-none text-[var(--selection-accent-foreground)] shadow-[0_8px_22px_rgb(var(--selection-accent-rgb)_/_0.22)]">
+                      <span className="rounded-full bg-[var(--selection-accent)] px-2 py-1 text-[12px] font-semibold leading-none text-[var(--selection-accent-foreground)]">
                         Popular
                       </span>
                     )}

@@ -1,7 +1,10 @@
 from pathlib import Path
 
+import httpx
+
+from hypercli import WorkspaceAgentAssociation
 from hypercli.http import APIError
-from hypercli.workspaces import WorkspacesAPI, _derive_workspaces_base
+from hypercli.workspaces import WorkspacesAPI, _derive_workspaces_base, _headers
 
 
 def test_workspaces_base_derives_from_agents_base(monkeypatch):
@@ -19,6 +22,114 @@ def test_workspaces_base_uses_explicit_env(monkeypatch):
     assert _derive_workspaces_base("https://ignored.example/agents") == "http://127.0.0.1:18080/workspaces"
 
 
+def test_get_workspace_normalizes_metadata_and_encodes_reference(monkeypatch):
+    calls = []
+
+    def fake_request(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
+        calls.append((method, url, api_key, user_id, agent_id, kwargs.get("json")))
+        return {
+            "id": "workspace-1",
+            "name": "Team Knowledge",
+            "slug": "team-knowledge",
+            "display_name": "Team Docs",
+            "display_slug": "team-docs",
+            "description": "Shared runbooks",
+            "role": "admin",
+            "created_at": "2026-07-20T10:00:00Z",
+            "updated_at": "2026-07-21T11:00:00Z",
+        }
+
+    monkeypatch.setattr("hypercli.workspaces._request", fake_request)
+    api = WorkspacesAPI("key", api_base="http://workspaces.test/workspaces")
+
+    workspace = api.get("team knowledge", agent_id="agent-1")
+
+    assert workspace.display_name == "Team Docs"
+    assert workspace.display_slug == "team-docs"
+    assert workspace.role == "admin"
+    assert workspace.created_at == "2026-07-20T10:00:00Z"
+    assert workspace.updated_at == "2026-07-21T11:00:00Z"
+    assert calls == [
+        (
+            "GET",
+            "http://workspaces.test/workspaces/team%20knowledge",
+            "key",
+            None,
+            "agent-1",
+            None,
+        )
+    ]
+
+
+def test_list_agents_uses_get_bearer_auth_and_maps_associations(monkeypatch):
+    calls = []
+
+    class FakeClient:
+        def __init__(self, *, timeout):
+            assert timeout == 30
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def request(self, method, url, *, headers, **kwargs):
+            calls.append((method, url, headers, kwargs))
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "workspace_id": "workspace-1",
+                        "agent_id": "agent-1",
+                        "role": "admin",
+                        "expires_at": "2026-08-01T00:00:00Z",
+                    },
+                    {
+                        "workspace_id": "workspace-1",
+                        "agent_id": "agent-2",
+                        "role": "viewer",
+                        "expires_at": None,
+                    },
+                ],
+                request=httpx.Request(method, url),
+            )
+
+    monkeypatch.setattr("hypercli.workspaces.httpx.Client", FakeClient)
+    api = WorkspacesAPI("key", api_base="http://workspaces.test/workspaces")
+
+    associations = api.list_agents("team knowledge", user_id="user-1")
+
+    assert associations == [
+        WorkspaceAgentAssociation(
+            workspace_id="workspace-1",
+            agent_id="agent-1",
+            role="admin",
+            expires_at="2026-08-01T00:00:00Z",
+        ),
+        WorkspaceAgentAssociation(
+            workspace_id="workspace-1",
+            agent_id="agent-2",
+            role="viewer",
+            expires_at=None,
+        ),
+    ]
+    assert calls == [
+        (
+            "GET",
+            "http://workspaces.test/workspaces/team%20knowledge/agents",
+            {"Authorization": "Bearer key", "Content-Type": "application/json"},
+            {},
+        )
+    ]
+
+
+def test_workspace_headers_keep_identity_bearer_resolved():
+    headers = _headers("key", user_id="user-1", agent_id="agent-1")
+
+    assert headers == {"Authorization": "Bearer key", "Content-Type": "application/json"}
+
+
 def test_create_and_grant_payloads(monkeypatch):
     calls = []
 
@@ -31,6 +142,10 @@ def test_create_and_grant_payloads(monkeypatch):
                 "subject_type": kwargs["json"]["subject_type"],
                 "subject_id": kwargs["json"]["subject_id"],
                 "role": kwargs["json"]["role"],
+                "display_name": kwargs["json"].get("display_name"),
+                "display_slug": kwargs["json"].get("display_slug"),
+                "is_owner": True,
+                "expires_at": kwargs["json"].get("expires_at"),
             }
         return {"id": "workspace-1", "name": kwargs["json"]["name"], "slug": kwargs["json"]["slug"]}
 
@@ -38,10 +153,23 @@ def test_create_and_grant_payloads(monkeypatch):
     api = WorkspacesAPI("key", api_base="http://workspaces.test/workspaces")
 
     workspace = api.create(name="Demo Workspace", slug="demo", user_id="user-1")
-    grant = api.grant("demo", subject_type="agent", subject_id="agent-1", role="viewer", user_id="user-1")
+    grant = api.grant(
+        "demo",
+        subject_type="agent",
+        subject_id="agent-1",
+        role="viewer",
+        display_name="Research Agent",
+        display_slug="research-agent",
+        expires_at="2026-08-01T00:00:00Z",
+        user_id="user-1",
+    )
 
     assert workspace.slug == "demo"
     assert grant.subject_id == "agent-1"
+    assert grant.display_name == "Research Agent"
+    assert grant.display_slug == "research-agent"
+    assert grant.is_owner is True
+    assert grant.expires_at == "2026-08-01T00:00:00Z"
     assert calls == [
         (
             "POST",
@@ -57,7 +185,14 @@ def test_create_and_grant_payloads(monkeypatch):
             "key",
             "user-1",
             None,
-            {"subject_type": "agent", "subject_id": "agent-1", "role": "viewer"},
+            {
+                "subject_type": "agent",
+                "subject_id": "agent-1",
+                "role": "viewer",
+                "display_name": "Research Agent",
+                "display_slug": "research-agent",
+                "expires_at": "2026-08-01T00:00:00Z",
+            },
         ),
     ]
 
@@ -177,6 +312,51 @@ def test_update_delete_and_grant_lifecycle_payloads(monkeypatch):
     ]
 
 
+def test_update_grant_sends_patch_and_explicit_null_expiry(monkeypatch):
+    calls = []
+
+    def fake_request(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
+        calls.append((method, url, api_key, user_id, agent_id, kwargs.get("json")))
+        return {
+            "id": "grant-1",
+            "workspace_id": "workspace-1",
+            "subject_type": "agent",
+            "subject_id": "agent-1",
+            "role": kwargs["json"].get("role", "viewer"),
+            "display_name": "Research Agent",
+            "display_slug": "research-agent",
+            "is_owner": False,
+            "expires_at": kwargs["json"].get("expires_at"),
+        }
+
+    monkeypatch.setattr("hypercli.workspaces._request", fake_request)
+    api = WorkspacesAPI("key", api_base="http://workspaces.test/workspaces")
+
+    grant = api.update_grant(
+        "team knowledge",
+        "grant/#1",
+        role="admin",
+        expires_at=None,
+        user_id="user-1",
+    )
+
+    assert grant.role == "admin"
+    assert grant.expires_at is None
+    assert grant.display_name == "Research Agent"
+    assert grant.display_slug == "research-agent"
+    assert grant.is_owner is False
+    assert calls == [
+        (
+            "PATCH",
+            "http://workspaces.test/workspaces/team%20knowledge/grants/grant%2F%231",
+            "key",
+            "user-1",
+            None,
+            {"role": "admin", "expires_at": None},
+        )
+    ]
+
+
 def test_register_file_sends_keywords(monkeypatch):
     calls = []
 
@@ -223,6 +403,69 @@ def test_register_file_sends_keywords(monkeypatch):
                 "source_etag": "etag-1",
                 "keywords": ["handoff", "launch"],
             },
+        ),
+    ]
+
+
+def test_list_and_update_files_match_typescript_payloads(monkeypatch):
+    calls = []
+    file_data = {
+        "id": "file-1",
+        "workspace_id": "workspace-1",
+        "path": "docs/research #1?.md",
+        "display_name": "research.md",
+        "current_version_id": "version-1",
+        "file_state": "processed",
+        "upload_status": "uploaded",
+        "processing_state": "processed",
+        "keywords": ["research"],
+        "summary": "Research notes.",
+    }
+
+    def fake_request(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
+        calls.append((method, url, api_key, user_id, agent_id, kwargs.get("json")))
+        if method == "GET":
+            return [file_data]
+        return {
+            **file_data,
+            "display_name": kwargs["json"]["display_name"],
+            "keywords": kwargs["json"]["keywords"],
+            "summary": kwargs["json"]["summary"],
+        }
+
+    monkeypatch.setattr("hypercli.workspaces._request", fake_request)
+    api = WorkspacesAPI("key", api_base="http://workspaces.test/workspaces")
+
+    files = api.list_files("team knowledge", agent_id="agent-1")
+    updated = api.update_file(
+        "team knowledge",
+        "docs/research #1?.md",
+        display_name="",
+        keywords=[],
+        summary=None,
+        user_id="user-1",
+    )
+
+    assert files[0].summary == "Research notes."
+    assert updated.display_name == ""
+    assert updated.keywords == []
+    assert updated.summary is None
+    assert calls == [
+        (
+            "GET",
+            "http://workspaces.test/workspaces/team%20knowledge/files",
+            "key",
+            None,
+            "agent-1",
+            None,
+        ),
+        (
+            "PATCH",
+            "http://workspaces.test/workspaces/team%20knowledge/files/docs/research%20%231%3F.md",
+            "key",
+            "user-1",
+            None,
+            {"display_name": "", "keywords": [], "summary": None},
         ),
     ]
 

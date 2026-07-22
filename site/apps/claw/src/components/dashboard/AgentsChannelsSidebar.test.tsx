@@ -123,6 +123,27 @@ describe("AgentsSidebarDashboardLinks", () => {
 });
 
 describe("AgentsChannelsSidebar", () => {
+  it("disables launch controls when the selected Workspace is read-only", () => {
+    const onOpenAgentLauncher = vi.fn();
+    render(
+      <AgentsChannelsSidebar
+        variant="v3"
+        threads={[]}
+        selectedThreadId={null}
+        onSelectThread={vi.fn()}
+        showChannels={false}
+        onOpenAgentLauncher={onOpenAgentLauncher}
+        agentCreationDisabledReason="Workspace admin access is required to add agents."
+      />,
+    );
+
+    const launch = screen.getByRole("button", { name: "Launch agent" });
+    expect(launch).toBeDisabled();
+    expect(screen.getByText("Workspace admin access is required to add agents.")).toBeInTheDocument();
+    fireEvent.click(launch);
+    expect(onOpenAgentLauncher).not.toHaveBeenCalled();
+  });
+
   it("exposes agent rows as selectable buttons", () => {
     const onSelectThread = vi.fn();
     render(

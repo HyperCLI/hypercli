@@ -56,28 +56,41 @@ describe("DashboardWorkspaceNavigation", () => {
   });
 
   it("reuses the workspace sidebar without pretending sessions were loaded", () => {
-    render(
+    const onAgentRosterCollapsedChange = vi.fn();
+    const view = render(
       <DashboardWorkspaceNavigation
         selectedAgent={agent}
         isDesktopViewport
-        workspaceName="Jane"
-        workspaceInitial="J"
+        agentRosterCollapsed={false}
+        onAgentRosterCollapsedChange={onAgentRosterCollapsedChange}
       />,
     );
 
     expect(screen.getByRole("complementary", { name: "Workspace navigation" })).toBeInTheDocument();
     expect(mocks.sidebarProps).toMatchObject({
       selectedAgent: agent,
-      workspaceName: "Jane",
-      workspaceInitial: "J",
       activeTab: "workspace",
-      forceExpanded: true,
+      collapsed: true,
+      embeddedInNavigation: true,
       sessions: null,
       sessionsFetched: false,
       sessionsUnavailableReason: "Open the agent workspace to load sessions.",
       selectedSessionKey: "main",
       showDesktop: false,
     });
+
+    (mocks.sidebarProps?.onCollapsedChange as (collapsed: boolean) => void)(false);
+    expect(onAgentRosterCollapsedChange).toHaveBeenCalledWith(true);
+
+    view.rerender(
+      <DashboardWorkspaceNavigation
+        selectedAgent={agent}
+        isDesktopViewport
+        agentRosterCollapsed
+        onAgentRosterCollapsedChange={onAgentRosterCollapsedChange}
+      />,
+    );
+    expect(mocks.sidebarProps).toMatchObject({ collapsed: false });
   });
 
   it("deep-links workspace actions to the authoritative agent route", () => {
@@ -85,8 +98,8 @@ describe("DashboardWorkspaceNavigation", () => {
       <DashboardWorkspaceNavigation
         selectedAgent={agent}
         isDesktopViewport
-        workspaceName="Jane"
-        workspaceInitial="J"
+        agentRosterCollapsed={false}
+        onAgentRosterCollapsedChange={vi.fn()}
       />,
     );
 
@@ -112,8 +125,8 @@ describe("DashboardWorkspaceNavigation", () => {
       <DashboardWorkspaceNavigation
         selectedAgent={null}
         isDesktopViewport
-        workspaceName="Personal workspace"
-        workspaceInitial="P"
+        agentRosterCollapsed={false}
+        onAgentRosterCollapsedChange={vi.fn()}
       />,
     );
 

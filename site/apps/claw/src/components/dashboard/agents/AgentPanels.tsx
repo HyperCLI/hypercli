@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import React from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion, Reorder } from "framer-motion";
 import { ArrowLeft, ArrowRight, BarChart3, Blocks, Check, Codepen, FolderOpen, HardDrive, House, KeyRound, Loader2, LogOut, MessageSquare, PanelRight, Plus, Play, Settings, SlidersHorizontal, Sparkles, Square, UsersRound, X } from "lucide-react";
 import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
@@ -2302,6 +2303,8 @@ interface AgentListProps {
   isDesktopViewport: boolean;
   mobileShowChat: boolean;
   agents: Agent[];
+  rosterLoading?: boolean;
+  rosterOrderScope?: string | null;
   selectedAgentId: string | null;
   setSelectedAgentId: (id: string) => void;
   setMobileShowChat: (value: boolean) => void;
@@ -2310,7 +2313,9 @@ interface AgentListProps {
   agentCardDataById?: Record<string, AgentCardTooltipData>;
   getToken: () => Promise<string>;
   createOpenClawAgent: (apiKey: string, options?: Record<string, unknown>) => Promise<{ id?: string | null }>;
-  fetchAgents: () => Promise<void>;
+  associateCreatedAgent?: (agentId: string) => Promise<void>;
+  agentCreationDisabledReason?: string | null;
+  fetchAgents: () => Promise<boolean | void>;
   setError: (value: string | null) => void;
   sidebarCreatorSignal: number;
   setPendingAgentDelete: (value: { id: string; name: string } | null) => void;
@@ -2336,6 +2341,7 @@ interface AgentListProps {
   membersHref?: string;
   usageActive?: boolean;
   pendingSlotReleases?: Record<string, number>;
+  embeddedInNavigation?: boolean;
   /**
    * When true, surfaces the Channels section and the inline user/agent picker that lets
    * teammates be added to a channel. Gated on the Team plan in agent-setup. Default: false.
@@ -2363,6 +2369,8 @@ export function AgentList({
   isDesktopViewport,
   mobileShowChat,
   agents,
+  rosterLoading = false,
+  rosterOrderScope,
   selectedAgentId,
   setSelectedAgentId,
   setMobileShowChat,
@@ -2371,6 +2379,8 @@ export function AgentList({
   agentCardDataById,
   getToken,
   createOpenClawAgent,
+  associateCreatedAgent,
+  agentCreationDisabledReason,
   fetchAgents,
   setError,
   sidebarCreatorSignal,
@@ -2394,15 +2404,25 @@ export function AgentList({
   membersHref,
   usageActive = false,
   pendingSlotReleases,
+  embeddedInNavigation = false,
   showChannels = false,
 }: AgentListProps) {
   const [showAgentLauncher, setShowAgentLauncher] = React.useState(false);
-  const openAgentLauncher = React.useCallback(() => setShowAgentLauncher(true), []);
+  const effectiveCreationDisabledReason = rosterLoading
+    ? "Agent roster is still loading."
+    : agentCreationDisabledReason;
+  const openAgentLauncher = React.useCallback(() => {
+    if (effectiveCreationDisabledReason) {
+      setError(effectiveCreationDisabledReason);
+      return;
+    }
+    setShowAgentLauncher(true);
+  }, [effectiveCreationDisabledReason, setError]);
   const handledSidebarCreatorSignalRef = React.useRef(0);
   const [showOfflineAgents, setShowOfflineAgents] = useAgentRosterShowOffline();
   const [reorderingAgentId, setReorderingAgentId] = React.useState<string | null>(null);
   const agentIds = React.useMemo(() => agents.map((agent) => agent.id), [agents]);
-  const { orderedAgentIds, setVisibleAgentOrder } = useAgentRosterOrder(agentIds);
+  const { orderedAgentIds, setVisibleAgentOrder } = useAgentRosterOrder(agentIds, rosterOrderScope);
   const orderedAgents = React.useMemo(() => {
     const agentById = new Map(agents.map((agent) => [agent.id, agent]));
     return orderedAgentIds.map((agentId) => agentById.get(agentId)).filter((agent): agent is Agent => Boolean(agent));
@@ -2448,12 +2468,14 @@ export function AgentList({
 
   React.useEffect(() => {
     if (sidebarCreatorSignal === 0 || handledSidebarCreatorSignalRef.current === sidebarCreatorSignal) return;
+    if (rosterLoading) return;
     handledSidebarCreatorSignalRef.current = sidebarCreatorSignal;
-    setShowAgentLauncher(true);
-  }, [sidebarCreatorSignal]);
+    openAgentLauncher();
+  }, [openAgentLauncher, rosterLoading, sidebarCreatorSignal]);
 
   const createAgentFromLauncher = React.useCallback(async ({ name, iconIndex, size, files, enableDesktop, enableMemoryIndex = false, customImage = null }: AgentCreationSetupCreateParams) => {
     try {
+      if (effectiveCreationDisabledReason) throw new Error(effectiveCreationDisabledReason);
       const token = await getToken();
       const created = await createOpenClawAgent(token, {
         name: name || undefined,
@@ -2486,7 +2508,20 @@ export function AgentList({
               : "Agent created, but starter files could not be uploaded.");
           }
         }
-        await fetchAgents();
+        if (associateCreatedAgent) {
+          try {
+            await associateCreatedAgent(createdId);
+          } catch (associationError) {
+            const detail = associationError instanceof Error
+              ? associationError.message
+              : "Workspace access is unavailable right now.";
+            throw new Error(`Agent was created, but Workspace association did not complete: ${detail}`);
+          }
+        }
+        const agentsRefreshed = await fetchAgents();
+        if (agentsRefreshed === false) {
+          throw new Error("Agent was created and added to the selected Workspace, but agents could not be refreshed.");
+        }
         setSelectedAgentId(createdId);
         setMobileShowChat(true);
         setShowAgentLauncher(false);
@@ -2498,31 +2533,30 @@ export function AgentList({
       setError(err instanceof Error ? err.message : "Failed to create agent");
       return null;
     }
-  }, [createOpenClawAgent, fetchAgents, getToken, setError, setMobileShowChat, setSelectedAgentId]);
+  }, [associateCreatedAgent, createOpenClawAgent, effectiveCreationDisabledReason, fetchAgents, getToken, setError, setMobileShowChat, setSelectedAgentId]);
 
   if (!isDesktopViewport) return null;
 
   return (
     <motion.div
-      className={`agents-roster-shell relative h-full flex-shrink-0 overflow-visible bg-surface-low ${mobileShowChat && !isDesktopViewport ? "hidden" : "flex"} flex-col`}
-      animate={{ width: sidebarCollapsed && isDesktopViewport ? 56 : 280 }}
-      transition={{ type: "spring", stiffness: 360, damping: 32 }}
+      className={`agents-roster-shell relative h-full flex-shrink-0 overflow-visible bg-surface-low transition-[width] duration-200 ease-out ${sidebarCollapsed ? "w-12" : "w-52"} ${mobileShowChat && !isDesktopViewport ? "hidden" : "flex"} flex-col`}
+      aria-busy={rosterLoading}
     >
-      <AnimatePresence initial={false} mode="wait">
-        {sidebarCollapsed && isDesktopViewport ? (
+      {sidebarCollapsed && isDesktopViewport ? (
           <motion.div
             key="rail"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="agents-roster-rail flex h-full w-14 flex-col overflow-visible bg-surface-low"
+            className="agents-roster-rail flex h-full w-12 flex-col overflow-visible bg-surface-low"
           >
-            <div className="agents-roster-header flex h-14 shrink-0 items-center justify-center border-b border-border bg-background">
-              <div className="flex h-8 w-8 items-center justify-center text-text-muted" aria-hidden="true">
-                <HyperCLILogoMark className="h-[17px] w-[17px]" />
+            {!embeddedInNavigation ? (
+              <div className="agents-roster-header flex h-14 shrink-0 items-center justify-center border-b border-border bg-background">
+                <div className="flex h-8 w-8 items-center justify-center text-text-muted" aria-hidden="true">
+                  <HyperCLILogoMark className="h-[17px] w-[17px]" />
+                </div>
               </div>
-            </div>
+            ) : null}
             <div className="agents-roster-scroll flex min-h-0 flex-1 flex-col items-center overflow-hidden bg-[var(--agent-roster-background)] py-3">
               <div className="agents-roster-rail-primary flex shrink-0 flex-col items-center gap-2">
               <Tooltip delayDuration={300}>
@@ -2573,29 +2607,36 @@ export function AgentList({
               </Tooltip>
               </div>
               <div aria-hidden="true" className="agents-roster-rail-divider my-2 h-px w-8 shrink-0 bg-border/70" />
-              <div className="agents-roster-rail-agents min-h-0 shrink overflow-y-auto py-1">
-                <div className="flex flex-col items-center gap-2">
+              <div className="agents-roster-rail-agents min-h-0 w-full shrink overflow-y-auto py-1">
+                <div className="flex w-full flex-col items-center gap-2">
               <Tooltip delayDuration={300}>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={() => setShowAgentLauncher(true)}
+                    onClick={openAgentLauncher}
                     aria-label="Launch agent"
-                    className="flex h-8 w-8 items-center justify-center rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.25)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)] transition-transform hover:scale-110 hover:border-[rgb(var(--selection-accent-rgb)_/_0.45)] hover:bg-[rgb(var(--selection-accent-rgb)_/_0.15)]"
+                    disabled={Boolean(effectiveCreationDisabledReason)}
+                    className="flex h-8 w-8 items-center justify-center rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.25)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)] transition-transform hover:scale-110 hover:border-[rgb(var(--selection-accent-rgb)_/_0.45)] hover:bg-[rgb(var(--selection-accent-rgb)_/_0.15)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100"
                   >
                     <Plus className="h-4 w-4" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="right">Launch agent</TooltipContent>
               </Tooltip>
-              <Reorder.Group
-                as="div"
-                axis="y"
-                values={visibleAgentIds}
-                onReorder={setVisibleAgentOrder}
-                className="flex flex-col items-center gap-2"
-              >
-                {visibleAgents.map((a) => {
+              {rosterLoading ? (
+                <div role="status" aria-live="polite" className="flex h-8 w-8 items-center justify-center text-text-muted">
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  <span className="sr-only">Loading Workspace agents</span>
+                </div>
+              ) : (
+                <Reorder.Group
+                  as="div"
+                  axis="y"
+                  values={visibleAgentIds}
+                  onReorder={setVisibleAgentOrder}
+                  className="flex w-full flex-col items-center gap-2"
+                >
+                  {visibleAgents.map((a) => {
                   const av = agentAvatar(a.name || a.id, a.meta);
                   const Icon = av.icon;
                   const selected = selectedAgentId === a.id;
@@ -2644,8 +2685,9 @@ export function AgentList({
                       ) : agentButton}
                     </CollapsedAgentReorderItem>
                   );
-                })}
-              </Reorder.Group>
+                  })}
+                </Reorder.Group>
+              )}
                 </div>
               </div>
               <div aria-hidden="true" className="agents-roster-rail-divider my-2 h-px w-8 shrink-0 bg-border/70" />
@@ -2756,7 +2798,6 @@ export function AgentList({
             key="full"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
             className="h-full"
           >
@@ -2764,6 +2805,7 @@ export function AgentList({
               variant="v3"
               showDivider={false}
               fillParent
+              embeddedInNavigation={embeddedInNavigation}
               threads={visibleSyntheticThreads}
               selectedThreadId={selectedAgentId}
               showChannels={showChannels}
@@ -2788,6 +2830,8 @@ export function AgentList({
               }}
               onCreateAgent={createAgentFromLauncher}
               onOpenAgentLauncher={openAgentLauncher}
+              agentCreationDisabledReason={agentCreationDisabledReason}
+              rosterLoading={rosterLoading}
               onOpenHome={onOpenHome}
               onOpenKnowledge={onOpenKnowledge}
               knowledgeActive={knowledgeActive}
@@ -2815,43 +2859,46 @@ export function AgentList({
             />
           </motion.div>
         )}
-      </AnimatePresence>
-      <AnimatePresence>
-        {showAgentLauncher && (
-          <motion.div
-            className="fixed inset-0 z-[80] flex items-center justify-center bg-background/70 p-3 backdrop-blur-sm sm:p-5"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.16 }}
-          >
+      {typeof document !== "undefined" ? createPortal(
+        <AnimatePresence>
+          {showAgentLauncher && !agentCreationDisabledReason && (
             <motion.div
-              initial={{ opacity: 0, scale: 0.98, y: 8 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.98, y: 8 }}
-              transition={{ type: "spring", stiffness: 420, damping: 34 }}
-              className="relative h-[min(720px,calc(100vh-1.5rem))] w-[min(1020px,calc(100vw-1.5rem))]"
+              data-testid="agent-launcher-overlay"
+              className="fixed inset-0 z-[80] flex items-center justify-center bg-background/70 p-3 backdrop-blur-sm sm:p-5"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.16 }}
             >
-              <button
-                type="button"
-                aria-label="Close launch agent"
-                onClick={() => setShowAgentLauncher(false)}
-                className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-background/70 text-text-muted backdrop-blur transition-colors hover:bg-surface-low hover:text-foreground"
+              <motion.div
+                initial={{ opacity: 0, scale: 0.98, y: 8 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.98, y: 8 }}
+                transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                className="relative h-[min(720px,calc(100vh-1.5rem))] w-[min(1020px,calc(100vw-1.5rem))]"
               >
-                <X className="h-4 w-4" />
-              </button>
-              <AgentCreationSetupWizard
-                budget={budget}
-                subscriptionSummary={subscriptionSummary}
-                catalogPlans={catalogPlans}
-                pendingSlotReleases={pendingSlotReleases}
-                onOpenPlanCatalog={onOpenPlanCatalog}
-                onCreateAgent={createAgentFromLauncher}
-              />
+                <button
+                  type="button"
+                  aria-label="Close launch agent"
+                  onClick={() => setShowAgentLauncher(false)}
+                  className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-background/70 text-text-muted backdrop-blur transition-colors hover:bg-surface-low hover:text-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+                <AgentCreationSetupWizard
+                  budget={budget}
+                  subscriptionSummary={subscriptionSummary}
+                  catalogPlans={catalogPlans}
+                  pendingSlotReleases={pendingSlotReleases}
+                  onOpenPlanCatalog={onOpenPlanCatalog}
+                  onCreateAgent={createAgentFromLauncher}
+                />
+              </motion.div>
             </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          )}
+        </AnimatePresence>,
+        document.body,
+      ) : null}
     </motion.div>
   );
 }
@@ -2869,6 +2916,10 @@ type AgentEmptyStateProps = {
   catalogPlans?: HyperAgentPlan[] | null;
   onOpenPlanCatalog?: () => void | Promise<void>;
   pendingSlotReleases?: Record<string, number>;
+  workspaceName?: string | null;
+  hasAccountAgents?: boolean;
+  creationDisabledReason?: string | null;
+  onOpenMembers?: () => void;
 };
 
 type AgentLaunchActionProps = {
@@ -2887,10 +2938,15 @@ export function LaunchFirstAgentEmptyState({
   catalogPlans,
   onOpenPlanCatalog,
   pendingSlotReleases,
+  workspaceName,
+  hasAccountAgents = false,
+  creationDisabledReason,
+  onOpenMembers,
 }: AgentEmptyStateProps) {
   const [showWizard, setShowWizard] = React.useState(false);
+  const workspaceScoped = Boolean(workspaceName);
 
-  if (showWizard) {
+  if (showWizard && !creationDisabledReason) {
     return (
       <AgentCreationSetupWizard
         budget={budget}
@@ -2912,28 +2968,34 @@ export function LaunchFirstAgentEmptyState({
       <div className="flex w-full max-w-[600px] flex-col items-center text-center">
         <div className="mb-6 inline-flex h-5 items-center gap-1.5 rounded-full border border-foreground px-2.5 text-[11px] font-semibold leading-none text-foreground">
           <Sparkles className="h-3 w-3" />
-          <span>Let&apos;s get started</span>
+          <span>{workspaceScoped ? "Workspace roster" : "Let's get started"}</span>
         </div>
 
         <h1 className="text-[44px] font-semibold leading-none tracking-normal text-foreground sm:text-[58px]">
-          Launch your first agent
+          {workspaceScoped ? `No agents in ${workspaceName}` : "Launch your first agent"}
         </h1>
         <p className="mt-6 text-[16px] font-medium leading-6 text-text-muted">
-          Agents handle projects, tasks, and workflows on your behalf.
+          {workspaceScoped && hasAccountAgents
+            ? "Launch a new agent for this Workspace or add an existing agent from Members."
+            : "Agents handle projects, tasks, and workflows on your behalf."}
         </p>
 
         <motion.button
           type="button"
           onClick={() => setShowWizard(true)}
+          disabled={Boolean(creationDisabledReason)}
+          title={creationDisabledReason ?? undefined}
           whileHover={{ y: -1 }}
           whileTap={{ scale: 0.99 }}
-          className="mt-9 flex min-h-[86px] w-full items-center gap-4 rounded-[8px] border border-foreground bg-surface-low px-6 py-4 text-left transition-colors hover:bg-surface-mid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--button-primary-rgb)_/_0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          className="mt-9 flex min-h-[86px] w-full items-center gap-4 rounded-[8px] border border-foreground bg-surface-low px-6 py-4 text-left transition-colors hover:bg-surface-mid disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-surface-low focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--button-primary-rgb)_/_0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[7px] border border-border bg-surface-mid text-foreground">
             <Codepen className="h-4 w-4" />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block text-[14px] font-semibold leading-5 text-foreground">Create an agent</span>
+            <span className="block text-[14px] font-semibold leading-5 text-foreground">
+              {workspaceScoped ? "Launch an agent" : "Create an agent"}
+            </span>
             <span className="mt-0.5 block text-[12px] font-medium leading-4 text-text-muted">
               Name it, pick a plan, and connect it to where your team already works.
             </span>
@@ -2942,6 +3004,18 @@ export function LaunchFirstAgentEmptyState({
             <ArrowRight className="h-4 w-4" />
           </span>
         </motion.button>
+        {creationDisabledReason ? (
+          <p className="mt-3 text-sm text-text-muted">{creationDisabledReason}</p>
+        ) : null}
+        {workspaceScoped && hasAccountAgents && onOpenMembers ? (
+          <button
+            type="button"
+            onClick={onOpenMembers}
+            className="mt-4 text-sm font-semibold text-[var(--selection-accent)] transition-colors hover:text-foreground"
+          >
+            Add an existing agent in Members
+          </button>
+        ) : null}
       </div>
     </div>
   );

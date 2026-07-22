@@ -52,32 +52,8 @@
 }
 
 @media (min-width: 40rem) {
-  .agent-desktop-navigation .agents-roster-header {
-    height: 2.5rem;
-    margin: 0.5rem 0 0.5rem 0.5rem;
-    border: 1px solid var(--border);
-    border-right: 0;
-    border-radius: 0.875rem 0 0 0.875rem;
-    background: var(--background);
-  }
-
-  .agent-desktop-navigation[data-roster-collapsed="true"] .agents-roster-header {
-    justify-content: flex-start;
-    padding-left: 0.25rem;
-  }
-
-  .agent-desktop-navigation[data-roster-collapsed="false"] .agents-roster-header {
-    justify-content: space-between;
-    padding-inline: 0.75rem;
-  }
-
-  .agent-desktop-navigation .agent-workspace-header {
-    height: 2.5rem;
-    margin: 0.5rem 0.5rem 0.5rem 0;
-    border: 1px solid var(--border);
-    border-left: 0;
-    border-radius: 0 0.875rem 0.875rem 0;
-    background: var(--background);
+  .agent-desktop-navigation {
+    background: var(--agent-panel-background);
   }
 
   .agent-desktop-navigation .agents-roster-scroll {

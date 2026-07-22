@@ -7,6 +7,7 @@ import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { DashboardNav } from "@/components/dashboard/DashboardNav";
 import { DashboardMobileAgentMenuProvider } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 import { Skeleton } from "@/components/dashboard/Skeleton";
+import { WorkspaceProvider } from "@/components/dashboard/WorkspaceContext";
 
 function FullPageSkeleton() {
   return (
@@ -109,60 +110,62 @@ export function DashboardShell({
   const hasTopNavOffset = showDashboardNav;
 
   return (
-    <DashboardMobileAgentMenuProvider>
-      <div
-        className="h-dvh overflow-hidden bg-background"
-        data-auth-loading={isLoading ? "true" : "false"}
-        data-authenticated={isAuthenticated ? "true" : "false"}
-        data-auth-flow-state={flowState}
-        data-auth-error={error ? "true" : "false"}
-      >
-        {showDashboardNav ? (
-          <DashboardNav />
-        ) : showMobileDashboardNav ? (
-          <div data-testid="mobile-dashboard-nav" className="lg:hidden">
-            <DashboardNav />
-          </div>
-        ) : null}
-        <main
-          className={
-            showMobileDashboardNav
-              ? "h-dvh overflow-hidden pb-0 pt-14 lg:pt-0"
-              : isImmersiveRoute
-              ? "h-dvh overflow-hidden pb-0 pt-0"
-              : `pb-0 ${hasTopNavOffset ? "h-dvh pt-14" : "h-dvh pt-0"}`
-          }
+    <WorkspaceProvider>
+      <DashboardMobileAgentMenuProvider>
+        <div
+          className="h-dvh overflow-hidden bg-background"
+          data-auth-loading={isLoading ? "true" : "false"}
+          data-authenticated={isAuthenticated ? "true" : "false"}
+          data-auth-flow-state={flowState}
+          data-auth-error={error ? "true" : "false"}
         >
-          <div
+          {showDashboardNav ? (
+            <DashboardNav />
+          ) : showMobileDashboardNav ? (
+            <div data-testid="mobile-dashboard-nav" className="lg:hidden">
+              <DashboardNav />
+            </div>
+          ) : null}
+          <main
             className={
               showMobileDashboardNav
-                ? "h-full w-full overflow-hidden"
+                ? "h-dvh overflow-hidden pb-0 pt-14 lg:pt-0"
                 : isImmersiveRoute
-                ? "h-dvh w-full overflow-hidden py-0"
-                : `max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 ${hasTopNavOffset ? "h-[calc(100dvh-3.5rem)]" : "h-dvh"} overflow-y-auto py-8`
+                ? "h-dvh overflow-hidden pb-0 pt-0"
+                : `pb-0 ${hasTopNavOffset ? "h-dvh pt-14" : "h-dvh pt-0"}`
             }
           >
-            {isLoading ? (
-              <FullPageSkeleton />
-            ) : !isAuthenticated ? null : isImmersiveRoute ? (
-              <div className="h-full overflow-hidden">{children}</div>
-            ) : (
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={pathname}
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
-                  transition={{ duration: 0.2, ease: "easeOut" }}
-                >
-                  {children}
-                </motion.div>
-              </AnimatePresence>
-            )}
-          </div>
-        </main>
-      </div>
-    </DashboardMobileAgentMenuProvider>
+            <div
+              className={
+                showMobileDashboardNav
+                  ? "h-full w-full overflow-hidden"
+                  : isImmersiveRoute
+                  ? "h-dvh w-full overflow-hidden py-0"
+                  : `max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 ${hasTopNavOffset ? "h-[calc(100dvh-3.5rem)]" : "h-dvh"} overflow-y-auto py-8`
+              }
+            >
+              {isLoading ? (
+                <FullPageSkeleton />
+              ) : !isAuthenticated ? null : isImmersiveRoute ? (
+                <div className="h-full overflow-hidden">{children}</div>
+              ) : (
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={pathname}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -6 }}
+                    transition={{ duration: 0.2, ease: "easeOut" }}
+                  >
+                    {children}
+                  </motion.div>
+                </AnimatePresence>
+              )}
+            </div>
+          </main>
+        </div>
+      </DashboardMobileAgentMenuProvider>
+    </WorkspaceProvider>
   );
 }
 

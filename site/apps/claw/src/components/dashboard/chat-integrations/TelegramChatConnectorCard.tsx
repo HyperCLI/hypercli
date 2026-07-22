@@ -79,10 +79,10 @@ const VERIFY_INTERVAL_MS = 2500;
 const CONNECTOR_AUTHORIZATION_FLOWS: readonly ConnectorAuthorizationFlow[] = [TELEGRAM_PAIRING_AUTHORIZATION_FLOW];
 
 const CARD_TONE_CLASS: Record<TelegramTone, string> = {
-  neutral: "border-border shadow-background/30",
-  primary: "border-[var(--channel-accent-border)] shadow-[0_0_32px_var(--channel-accent-shadow)]",
-  warning: "border-warning/40 shadow-warning/10",
-  danger: "border-destructive/40 shadow-destructive/10",
+  neutral: "border-border",
+  primary: "border-[var(--channel-accent-border)]",
+  warning: "border-warning/40",
+  danger: "border-destructive/40",
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -172,7 +172,7 @@ function sleep(ms: number): Promise<void> {
 
 function buttonClass(tone: "primary" | "secondary" | "danger" = "secondary") {
   if (tone === "primary") {
-    return "inline-flex h-8 items-center gap-1.5 rounded-full bg-button-primary px-3 text-xs font-black uppercase tracking-[0.12em] text-button-primary-foreground shadow-[0_0_24px_rgb(var(--button-primary-rgb)_/_0.22)] transition-all hover:-translate-y-0.5 hover:bg-button-primary-hover disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50";
+    return "inline-flex h-8 items-center gap-1.5 rounded-full bg-button-primary px-3 text-xs font-black uppercase tracking-[0.12em] text-button-primary-foreground transition-all hover:-translate-y-0.5 hover:bg-button-primary-hover disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50";
   }
   if (tone === "danger") {
     return "inline-flex h-8 items-center gap-1.5 rounded-full border border-destructive/35 bg-destructive/10 px-3 text-xs font-black uppercase tracking-[0.12em] text-destructive transition-all hover:-translate-y-0.5 hover:bg-destructive/15 disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50";

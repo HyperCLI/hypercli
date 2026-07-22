@@ -1245,7 +1245,7 @@ export function FirstAgentSetupWizard({
                       )}
 	                    >
 	                      {plan.accent && (
-	                        <span className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 rounded-full bg-selection-accent px-2.5 py-1 text-[12px] font-medium leading-none text-selection-accent-foreground shadow-[0_8px_22px_color-mix(in_srgb,var(--selection-accent)_22%,transparent)]">
+	                        <span className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 rounded-full bg-selection-accent px-2.5 py-1 text-[12px] font-medium leading-none text-selection-accent-foreground">
 	                          Most Popular
 	                        </span>
 	                      )}

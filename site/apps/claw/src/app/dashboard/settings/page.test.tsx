@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,6 +15,14 @@ const authMocks = vi.hoisted(() => ({
 
 const navigationMocks = vi.hoisted(() => ({
   push: vi.fn(),
+}));
+
+const workspaceMocks = vi.hoisted(() => ({
+  context: {
+    selectedWorkspaceAgentIds: ["agent-1"] as string[],
+    isAgentRosterLoading: false,
+    agentRosterError: null as string | null,
+  },
 }));
 
 const billingMocks = vi.hoisted(() => {
@@ -53,6 +61,11 @@ vi.mock("@/hooks/useAgentAuth", () => ({
   }),
 }));
 
+vi.mock("@/components/dashboard/WorkspaceContext", () => ({
+  useWorkspace: () => workspaceMocks.context,
+  workspaceAgentCreationDisabledReason: () => null,
+}));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: navigationMocks.push }),
 }));
@@ -81,16 +94,22 @@ vi.mock("@hypercli.com/sdk/agents", async (importOriginal) => {
 vi.mock("@/components/dashboard/agents/AgentPanels", () => ({
   AgentList: ({
     agents,
+    rosterLoading,
     selectedAgentId,
     setSelectedAgentId,
     setPendingAgentDelete,
   }: {
     agents: Array<{ id: string; name: string }>;
+    rosterLoading?: boolean;
     selectedAgentId: string | null;
     setSelectedAgentId: (agentId: string) => void;
     setPendingAgentDelete: (agent: { id: string; name: string }) => void;
   }) => (
-    <aside data-testid="agent-list" data-selected-agent-id={selectedAgentId ?? ""}>
+    <aside
+      data-testid="agent-list"
+      data-roster-loading={String(Boolean(rosterLoading))}
+      data-selected-agent-id={selectedAgentId ?? ""}
+    >
       {agents.map((agent) => (
         <div key={agent.id}>
           <button type="button" onClick={() => setSelectedAgentId(agent.id)}>{agent.name}</button>
@@ -165,7 +184,7 @@ vi.mock("@hypercli/shared-ui", () => ({
 import SettingsPage from "./page";
 
 function buildSubscriptionSummary() {
-  const billingResetAt = new Date("2026-05-21T00:00:00Z");
+  const billingResetAt = new Date("2026-05-21T12:00:00Z");
   return {
     effectivePlanId: "pro",
     currentSubscriptionId: "sub_123",
@@ -270,7 +289,7 @@ function setupBillingMocks() {
           planId: "pro",
           provider: "stripe",
           status: "active",
-          currentPeriodEnd: new Date("2026-05-21T00:00:00Z"),
+          currentPeriodEnd: new Date("2026-05-21T12:00:00Z"),
           stripeSubscriptionId: "stripe_sub_123",
         },
         entitlement: {
@@ -278,7 +297,7 @@ function setupBillingMocks() {
           planId: "pro",
           provider: "stripe",
           status: "active",
-          expiresAt: new Date("2026-05-21T00:00:00Z"),
+          expiresAt: new Date("2026-05-21T12:00:00Z"),
           agentTier: "medium",
           features: {},
           tags: [],
@@ -310,6 +329,9 @@ function setupBillingMocks() {
 describe("SettingsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    workspaceMocks.context.selectedWorkspaceAgentIds = ["agent-1"];
+    workspaceMocks.context.isAgentRosterLoading = false;
+    workspaceMocks.context.agentRosterError = null;
     setupBillingMocks();
     slackMocks.getSlackInstallStatus.mockResolvedValue({
       connected: false,
@@ -329,8 +351,13 @@ describe("SettingsPage", () => {
     expect(screen.queryByRole("navigation", { name: "Sections" })).not.toBeInTheDocument();
     expect(await screen.findByTestId("agent-list")).toBeInTheDocument();
     expect(await screen.findByTestId("workspace-navigation")).toHaveAttribute("data-agent-id", "agent-1");
-    expect(document.querySelector(".agent-desktop-navigation")).toContainElement(screen.getByTestId("agent-list"));
-    expect(document.querySelector(".agent-desktop-navigation")).toContainElement(screen.getByTestId("workspace-navigation"));
+    const desktopNavigation = document.querySelector(".agent-desktop-navigation");
+    expect(desktopNavigation).toHaveClass("w-64", "pt-14");
+    const navigationSections = document.querySelector(".agent-desktop-navigation-sections");
+    expect(navigationSections).toHaveClass("relative", "isolate", "mt-2", "flex-1");
+    expect(navigationSections?.querySelector("[aria-hidden='true'].absolute.right-0")).toHaveClass("-top-2", "bottom-0", "bg-border");
+    expect(navigationSections).toContainElement(screen.getByTestId("agent-list"));
+    expect(navigationSections).toContainElement(screen.getByTestId("workspace-navigation"));
     expect(await screen.findByRole("heading", { name: "Slack" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Connect Slack" })).toHaveAttribute("href", "/slack/start");
     expect(screen.getByRole("link", { name: "Debug" })).toHaveAttribute("href", "/slack/status");
@@ -359,8 +386,10 @@ describe("SettingsPage", () => {
 
   it("selects the next agent after deleting the active workspace", async () => {
     const user = userEvent.setup();
+    workspaceMocks.context.selectedWorkspaceAgentIds = ["agent-1", "agent-2"];
     billingMocks.agentClient.list.mockResolvedValue([
       { id: "agent-1", name: "Research Agent", userId: "user-123", state: "running" },
+      { id: "agent-account", name: "Account Catalog Agent", userId: "user-123", state: "running" },
       { id: "agent-2", name: "Writer Agent", userId: "user-123", state: "stopped" },
     ]);
 
@@ -369,6 +398,7 @@ describe("SettingsPage", () => {
     await waitFor(() => {
       expect(screen.getByTestId("agent-list")).toHaveAttribute("data-selected-agent-id", "agent-1");
     });
+    expect(within(screen.getByTestId("agent-list")).queryByRole("button", { name: "Account Catalog Agent" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Delete Research Agent" }));
     await user.click(screen.getByRole("button", { name: "Delete" }));
 
@@ -376,6 +406,41 @@ describe("SettingsPage", () => {
       expect(screen.getByTestId("agent-list")).toHaveAttribute("data-selected-agent-id", "agent-2");
       expect(screen.getByTestId("workspace-navigation")).toHaveAttribute("data-agent-id", "agent-2");
     });
+  });
+
+  it("reconciles selection after Workspace membership resolves", async () => {
+    workspaceMocks.context.isAgentRosterLoading = true;
+    billingMocks.agentClient.list.mockResolvedValue([
+      { id: "agent-1", name: "Research Agent", userId: "user-123", state: "running" },
+      { id: "agent-2", name: "Writer Agent", userId: "user-123", state: "stopped" },
+    ]);
+
+    const { rerender } = render(<SettingsPage />);
+
+    await waitFor(() => expect(billingMocks.agentClient.list).toHaveBeenCalled());
+    expect(screen.getByTestId("agent-list")).toBeEmptyDOMElement();
+    expect(screen.getByTestId("agent-list")).toHaveAttribute("data-roster-loading", "true");
+
+    workspaceMocks.context.selectedWorkspaceAgentIds = ["agent-2"];
+    workspaceMocks.context.isAgentRosterLoading = false;
+    rerender(<SettingsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("agent-list")).toHaveAttribute("data-selected-agent-id", "agent-2");
+      expect(screen.getByTestId("workspace-navigation")).toHaveAttribute("data-agent-id", "agent-2");
+    });
+    expect(within(screen.getByTestId("agent-list")).getByRole("button", { name: "Writer Agent" })).toBeInTheDocument();
+    expect(within(screen.getByTestId("agent-list")).queryByRole("button", { name: "Research Agent" })).not.toBeInTheDocument();
+  });
+
+  it("surfaces Workspace membership errors without exposing account agents", async () => {
+    workspaceMocks.context.agentRosterError = "Could not load Workspace agents.";
+
+    render(<SettingsPage />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not load Workspace agents.");
+    await waitFor(() => expect(billingMocks.agentClient.list).toHaveBeenCalled());
+    expect(screen.getByTestId("agent-list")).toBeEmptyDOMElement();
   });
 
   it("renders consolidated billing with card management, cancellation, and agent attribution", async () => {

@@ -26,6 +26,7 @@ import {
   HardDrive,
   House,
   BarChart3,
+  Loader2,
 } from "lucide-react";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import { Switch, ThemeToggle, Tooltip, TooltipTrigger, TooltipContent } from "@hypercli/shared-ui";
@@ -133,6 +134,8 @@ export interface AgentsChannelsSidebarProps {
   showDivider?: boolean;
   /** Fill the parent width instead of reserving a fixed sidebar width. */
   fillParent?: boolean;
+  /** Render as the body section beneath the shared desktop navigation header. */
+  embeddedInNavigation?: boolean;
   /** Use larger touch targets and always-visible affordances for the fullscreen mobile drawer. */
   mobileMode?: boolean;
   /** Real agent roster offered by the channel-member picker. Falls back to mock data when undefined. */
@@ -151,6 +154,10 @@ export interface AgentsChannelsSidebarProps {
   onCreateAgent?: (params: AgentCreationSetupCreateParams) => Promise<string | null>;
   /** Open the full launch-agent flow used by the empty agent state. */
   onOpenAgentLauncher?: () => void;
+  /** Why agent creation is unavailable in the selected Workspace. */
+  agentCreationDisabledReason?: string | null;
+  /** Whether the selected Workspace roster is still loading. */
+  rosterLoading?: boolean;
   /** Navigate to dashboard home, optionally performing caller-owned cleanup first. */
   onOpenHome?: () => void;
   /** Navigate to shared knowledge, optionally performing caller-owned cleanup first. */
@@ -1414,15 +1421,6 @@ export function ConversationGraphModule({
           </div>
         )}
 
-        {/* Ambient background glow behind active cluster */}
-        {!isEmptyGraph && !isSoloUser && (
-        <motion.div
-          className="absolute rounded-full pointer-events-none"
-          style={{ width: 120, height: 120, left: 70, top: isCompact ? -10 : 10, background: "radial-gradient(circle, rgb(var(--selection-accent-rgb) / 0.06) 0%, transparent 70%)" }}
-          animate={{ scale: [1, 1.15, 1], opacity: [0.4, 0.7, 0.4] }}
-          transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-        />)}
-
         {/* SVG edges */}
         {!isEmptyGraph && !isSoloUser && <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 0 }}>
           <defs>
@@ -1447,20 +1445,9 @@ export function ConversationGraphModule({
             const isDimmed = selectedNode !== null && !isHighlighted;
 
             if (isHighlighted) {
-              // Active/highlighted edges: animated dash flow + glow
+              // Active/highlighted edges use animated dash flow.
               return (
                 <g key={`${edge.from}-${edge.to}-${edgeIdx}`}>
-                  {/* Glow layer */}
-                  <motion.line
-                    x1={fromNode.x} y1={fromNode.y}
-                    x2={toNode.x} y2={toNode.y}
-                    stroke="var(--selection-accent)"
-                    strokeWidth={4}
-                    strokeLinecap="round"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: [0.1, 0.25, 0.1] }}
-                    transition={{ duration: 2, repeat: Infinity, ease: "easeInOut", delay: edgeIdx * 0.3 }}
-                  />
                   {/* Main line */}
                   <motion.line
                     x1={fromNode.x} y1={fromNode.y}
@@ -1537,10 +1524,8 @@ export function ConversationGraphModule({
                     scale: isDimmed ? 0.8 : 1,
                     opacity: isDimmed ? 0.4 : 1,
                     boxShadow: isSelected
-                      ? "0 0 0 2px var(--selection-accent), 0 0 12px rgb(var(--selection-accent-rgb) / 0.3)"
-                      : isActive
-                        ? "0 0 8px rgb(var(--selection-accent-rgb) / 0.15)"
-                        : "none",
+                      ? "0 0 0 2px var(--selection-accent)"
+                      : "none",
                   }}
                   transition={{ type: "spring", stiffness: 400, damping: 25, delay: nodeIdx * 0.06 }}
                   whileHover={{ scale: 1.2 }}
@@ -1584,10 +1569,8 @@ export function ConversationGraphModule({
                   scale: isDimmed ? 0.8 : 1,
                   opacity: isDimmed ? 0.4 : 1,
                   boxShadow: isSelected
-                    ? `0 0 0 2px var(--selection-accent), 0 0 12px rgb(var(--selection-accent-rgb) / 0.3)`
-                    : isActive
-                      ? `0 0 8px ${avatar.fgColor}33`
-                      : "none",
+                    ? "0 0 0 2px var(--selection-accent)"
+                    : "none",
                 }}
                 transition={{ type: "spring", stiffness: 400, damping: 25, delay: nodeIdx * 0.06 }}
                 whileHover={{ scale: 1.2 }}
@@ -1853,6 +1836,8 @@ function HandoffThreadView({
   onCreateChannel,
   onCreateAgent,
   onOpenAgentLauncher,
+  agentCreationDisabledReason,
+  rosterLoading = false,
   onOpenHome,
   onOpenKnowledge,
   knowledgeActive = false,
@@ -1874,6 +1859,7 @@ function HandoffThreadView({
   onSearchChange,
   onCollapse,
   mobileMode = false,
+  embeddedInNavigation = false,
 }: {
   threads: ConversationThread[];
   selectedThreadId: string | null;
@@ -1884,6 +1870,8 @@ function HandoffThreadView({
   onCreateChannel?: (name: string, agents: Participant[], users: Participant[]) => void;
   onCreateAgent?: (params: AgentCreationSetupCreateParams) => Promise<string | null>;
   onOpenAgentLauncher?: () => void;
+  agentCreationDisabledReason?: string | null;
+  rosterLoading?: boolean;
   onOpenHome?: () => void;
   onOpenKnowledge?: () => void;
   knowledgeActive?: boolean;
@@ -1905,6 +1893,7 @@ function HandoffThreadView({
   onSearchChange: (query: string) => void;
   onCollapse?: () => void;
   mobileMode?: boolean;
+  embeddedInNavigation?: boolean;
 }) {
   const pathname = usePathname() || "";
   const channelAgents = availableAgents ?? AVAILABLE_AGENTS_LIST;
@@ -1912,9 +1901,13 @@ function HandoffThreadView({
   const [showChannelCreator, setShowChannelCreator] = useState(false);
   const myAgentsOpen = true;
   const [channelsOpen, setChannelsOpen] = useState(true);
+  const effectiveCreationDisabledReason = rosterLoading
+    ? "Agent roster is still loading."
+    : agentCreationDisabledReason;
 
   useEffect(() => {
     if (openAgentCreatorSignal === undefined || openAgentCreatorSignal === 0) return;
+    if (effectiveCreationDisabledReason) return;
     if (onOpenAgentLauncher) {
       onOpenAgentLauncher();
       setShowAgentCreator(false);
@@ -1923,7 +1916,7 @@ function HandoffThreadView({
     }
     setShowAgentCreator(true);
     setShowChannelCreator(false);
-  }, [onOpenAgentLauncher, openAgentCreatorSignal]);
+  }, [effectiveCreationDisabledReason, onOpenAgentLauncher, openAgentCreatorSignal]);
 
   const privateThreads = useMemo(
     () => {
@@ -1960,7 +1953,9 @@ function HandoffThreadView({
     <motion.div layoutScroll className="agents-roster-scroll flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--agent-roster-background)]">
       <div className="agents-roster-actions flex w-full shrink-0 items-center px-3 py-1.5">
         <div className="flex w-full items-center justify-between gap-2">
-          {offlineAgentCount > 0 && onShowOfflineAgentsChange && (
+          {embeddedInNavigation ? (
+            <h2 className="text-[13px] font-medium text-text-secondary">Agents</h2>
+          ) : offlineAgentCount > 0 && onShowOfflineAgentsChange ? (
             <RosterTooltip label={`${offlineAgentCount} offline ${offlineAgentCount === 1 ? "agent" : "agents"}`}>
               <div className="inline-flex h-6 shrink-0 items-center gap-2 text-[11px] font-medium text-text-secondary">
                 <span>Show Offline({offlineAgentCount})</span>
@@ -1971,7 +1966,7 @@ function HandoffThreadView({
                 />
               </div>
             </RosterTooltip>
-          )}
+          ) : null}
           {!mobileMode ? (
             onCollapse ? (
               <RosterTooltip label="Collapse sidebar" side="right">
@@ -1979,9 +1974,9 @@ function HandoffThreadView({
                   type="button"
                   aria-label="Collapse sidebar"
                   onClick={onCollapse}
-                  className="ml-auto flex h-6 w-6 items-center justify-center rounded-md border border-transparent text-text-muted transition-colors hover:border-border hover:bg-background/35 hover:text-foreground"
+                  className={`ml-auto flex items-center justify-center rounded-md border border-transparent text-text-muted transition-colors hover:border-border hover:bg-background/35 hover:text-foreground ${embeddedInNavigation ? "h-8 w-8" : "h-6 w-6"}`}
                 >
-                  <PanelLeftClose className="h-3.5 w-3.5" />
+                  <PanelLeftClose className={embeddedInNavigation ? "h-4 w-4" : "h-3.5 w-3.5"} />
                 </button>
               </RosterTooltip>
             ) : null
@@ -2026,7 +2021,7 @@ function HandoffThreadView({
         </Link>
       )}
 
-      <div className={`agents-roster-section-header flex shrink-0 items-center gap-1 pb-1.5 pt-0.5 transition-colors hover:bg-surface-low/40 ${sectionHeadingInsetClass}`}>
+      {!embeddedInNavigation ? <div className={`agents-roster-section-header flex shrink-0 items-center gap-1 pb-1.5 pt-0.5 transition-colors hover:bg-surface-low/40 ${sectionHeadingInsetClass}`}>
           <h2 className="flex min-w-0 flex-1 items-center gap-0 text-left">
             <span className={`${mobileMode ? "text-sm" : "text-[13px]"} font-medium text-text-secondary`}>My Agents({privateThreads.length})</span>
           </h2>
@@ -2047,10 +2042,10 @@ function HandoffThreadView({
               </button>
             </RosterTooltip>
           ) : null}
-      </div>
+      </div> : null}
 
       <AnimatePresence initial={false}>
-        {showSearch && !mobileMode ? (
+        {showSearch && !mobileMode && !embeddedInNavigation ? (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
@@ -2072,6 +2067,13 @@ function HandoffThreadView({
         ) : null}
       </AnimatePresence>
 
+      {rosterLoading ? (
+        <div role="status" aria-live="polite" className="flex shrink-0 items-center gap-2 px-5 py-2 text-xs text-text-muted">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+          Loading Workspace agents
+        </div>
+      ) : null}
+
       <div className="agents-roster-agent-list min-h-0 shrink overflow-y-auto">
         <AnimatePresence initial={false}>
           {myAgentsOpen && (
@@ -2082,15 +2084,17 @@ function HandoffThreadView({
               transition={{ duration: 0.18 }}
               className="overflow-hidden"
             >
-            <RosterTooltip label="Launch agent" side="right">
+            <RosterTooltip label={effectiveCreationDisabledReason ?? "Launch agent"} side="right">
               <motion.button
                 type="button"
                 aria-label="Launch agent"
+                disabled={Boolean(effectiveCreationDisabledReason)}
                 initial={{ opacity: 0, y: -6 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.18 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={() => {
+                  if (effectiveCreationDisabledReason) return;
                   if (onOpenAgentLauncher) {
                     onOpenAgentLauncher();
                     return;
@@ -2098,7 +2102,7 @@ function HandoffThreadView({
                    setShowAgentCreator((v) => !v);
                    setShowChannelCreator(false);
                  }}
-                className={`group/agent relative flex w-full items-start border-l-2 border-l-transparent text-left transition-colors hover:bg-surface-low/50 ${
+                className={`group/agent relative flex w-full items-start border-l-2 border-l-transparent text-left transition-colors hover:bg-surface-low/50 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent ${
                   mobileMode ? "gap-3 px-3 py-3" : "gap-2.5 border-r border-border px-3 py-2.5"
                 }`}
               >
@@ -2122,7 +2126,7 @@ function HandoffThreadView({
 
             {/* Inline agent creator */}
             <QuickAgentCreator
-              open={showAgentCreator}
+              open={showAgentCreator && !effectiveCreationDisabledReason}
               onClose={() => setShowAgentCreator(false)}
               onCreated={async (name, iconIndex, size) => {
                 if (onCreateAgent) {
@@ -2301,7 +2305,7 @@ function HandoffThreadView({
           <span className="text-[10px] text-text-muted">{groupThreads.length}</span>
         )}
         <motion.div
-          whileHover={{ scale: 1.05, boxShadow: "0 0 12px color-mix(in srgb, var(--info) 12%, transparent)" }}
+          whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           onClick={(e) => { e.stopPropagation(); setShowChannelCreator((v) => !v); setShowAgentCreator(false); setChannelsOpen(true); }}
           className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-colors cursor-pointer ${
@@ -2379,6 +2383,7 @@ export function AgentsChannelsSidebar({
   onCollapse,
   showDivider = true,
   fillParent = false,
+  embeddedInNavigation = false,
   mobileMode = false,
   availableAgents,
   offlineAgentCount = 0,
@@ -2388,6 +2393,8 @@ export function AgentsChannelsSidebar({
   agentCardDataById,
   onCreateAgent,
   onOpenAgentLauncher,
+  agentCreationDisabledReason,
+  rosterLoading = false,
   onOpenHome,
   onOpenKnowledge,
   knowledgeActive = false,
@@ -2415,7 +2422,7 @@ export function AgentsChannelsSidebar({
   return (
     <div className={`${fillParent ? "w-full min-w-0" : "w-[280px] flex-shrink-0"} agents-roster-expanded relative flex h-full min-h-0 flex-col bg-surface-low`}>
       {showDivider && <div aria-hidden className="pointer-events-none absolute right-0 top-0 z-20 h-full w-px bg-border" />}
-      <SidebarHeader
+      {!embeddedInNavigation ? <SidebarHeader
         showSearch={showSearch}
         searchQuery={searchQuery}
         onToggleSearch={() => {
@@ -2425,7 +2432,7 @@ export function AgentsChannelsSidebar({
         onSearchChange={setSearchQuery}
         onCollapse={onCollapse}
         mobileMode={mobileMode}
-      />
+      /> : null}
       <HandoffWidget />
 
       {variant === "v1" && (
@@ -2456,6 +2463,8 @@ export function AgentsChannelsSidebar({
           onCreateChannel={onCreateChannel}
           onCreateAgent={onCreateAgent}
           onOpenAgentLauncher={onOpenAgentLauncher}
+          agentCreationDisabledReason={agentCreationDisabledReason}
+          rosterLoading={rosterLoading}
           onOpenHome={onOpenHome}
           onOpenKnowledge={onOpenKnowledge}
           knowledgeActive={knowledgeActive}
@@ -2480,6 +2489,7 @@ export function AgentsChannelsSidebar({
           onSearchChange={setSearchQuery}
           onCollapse={onCollapse}
           mobileMode={mobileMode}
+          embeddedInNavigation={embeddedInNavigation}
         />
       )}
       {variant === "v3.1" && (
@@ -2493,6 +2503,8 @@ export function AgentsChannelsSidebar({
           onCreateChannel={onCreateChannel}
           onCreateAgent={onCreateAgent}
           onOpenAgentLauncher={onOpenAgentLauncher}
+          agentCreationDisabledReason={agentCreationDisabledReason}
+          rosterLoading={rosterLoading}
           onOpenHome={onOpenHome}
           onOpenKnowledge={onOpenKnowledge}
           knowledgeActive={knowledgeActive}
@@ -2517,6 +2529,7 @@ export function AgentsChannelsSidebar({
           onSearchChange={setSearchQuery}
           onCollapse={onCollapse}
           mobileMode={mobileMode}
+          embeddedInNavigation={embeddedInNavigation}
         />
       )}
       <AgentsSidebarDashboardLinks

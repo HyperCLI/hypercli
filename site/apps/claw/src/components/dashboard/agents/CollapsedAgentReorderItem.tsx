@@ -37,7 +37,7 @@ export function CollapsedAgentReorderItem({
       value={agentId}
       dragListener={false}
       dragControls={dragControls}
-      className="group/compact-agent relative flex w-14 shrink-0 list-none justify-center"
+      className="group/compact-agent relative flex w-8 shrink-0 list-none justify-center"
       whileDrag={{ scale: 1.04, zIndex: 20 }}
       onDragStart={() => onReorderingChange?.(true)}
       onDragEnd={() => onReorderingChange?.(false)}
@@ -48,7 +48,7 @@ export function CollapsedAgentReorderItem({
             <button
               type="button"
               aria-label={`Move ${agentName}`}
-              className="absolute left-0 top-1/2 z-10 flex h-7 w-2 -translate-y-1/2 touch-none cursor-grab items-center justify-center rounded text-muted-foreground/45 opacity-70 transition-colors hover:bg-accent hover:text-foreground active:cursor-grabbing group-hover/compact-agent:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="absolute -left-2 top-1/2 z-10 flex h-7 w-2 -translate-y-1/2 touch-none cursor-grab items-center justify-center rounded text-muted-foreground/45 opacity-70 transition-colors hover:bg-accent hover:text-foreground active:cursor-grabbing group-hover/compact-agent:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onFocus={() => onReorderingChange?.(true)}
               onBlur={() => onReorderingChange?.(false)}
               onPointerDown={(event: PointerEvent<HTMLButtonElement>) => {

@@ -13,10 +13,10 @@ import { type ConversationThread } from "@/components/dashboard/AgentsChannelsSi
 import { AgentList } from "@/components/dashboard/agents/AgentPanels";
 import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 import { DashboardWorkspaceNavigation } from "@/components/dashboard/agents/DashboardWorkspaceNavigation";
+import { useWorkspace, workspaceAgentCreationDisabledReason } from "@/components/dashboard/WorkspaceContext";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useAgentRosterCollapsed } from "@/hooks/useAgentRosterCollapsed";
 import { createAgentClient, createOpenClawAgent } from "@/lib/agent-client";
-import { displayNameForDashboard } from "@/lib/dashboard-greeting";
 import { SLACK_APP_HANDLE, SLACK_RELAY_BASE_URL } from "@/lib/api";
 import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
 import type { SdkAgent } from "@/types";
@@ -58,7 +58,8 @@ function SlackAccountSection({ getToken }: { getToken: () => Promise<string> }) 
   }, [getToken]);
 
   useEffect(() => {
-    void refresh();
+    const timeout = window.setTimeout(() => { void refresh(); }, 0);
+    return () => window.clearTimeout(timeout);
   }, [refresh]);
 
   const connected = status?.connected === true;
@@ -120,8 +121,16 @@ function SlackAccountSection({ getToken }: { getToken: () => Promise<string> }) 
 
 export default function SettingsPage() {
   const { getToken, logout, user } = useAgentAuth();
+  const {
+    selectedWorkspace,
+    selectedWorkspaceAgentIds,
+    isAgentRosterLoading,
+    agentRosterError,
+    associateAgentWithSelectedWorkspace,
+  } = useWorkspace();
   const router = useRouter();
   const [sdkAgents, setSdkAgents] = useState<SdkAgent[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(true);
   const [selectedAgentId, setSelectedAgentIdState] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useAgentRosterCollapsed();
   const [mobileShowChat, setMobileShowChat] = useState(true);
@@ -142,8 +151,18 @@ export default function SettingsPage() {
     return () => mediaQuery.removeEventListener("change", apply);
   }, []);
 
-  const agents = useMemo(() => sdkAgents.map(toAgentViewModel), [sdkAgents]);
-  const syntheticThreads = useMemo<ConversationThread[]>(() => agents.map((agent) => ({
+  const accountAgents = useMemo(() => sdkAgents.map(toAgentViewModel), [sdkAgents]);
+  const selectedWorkspaceAgentIdSet = useMemo(
+    () => new Set(selectedWorkspaceAgentIds),
+    [selectedWorkspaceAgentIds],
+  );
+  const workspaceAgents = useMemo(
+    () => isAgentRosterLoading || agentRosterError
+      ? []
+      : accountAgents.filter((agent) => selectedWorkspaceAgentIdSet.has(agent.id)),
+    [accountAgents, agentRosterError, isAgentRosterLoading, selectedWorkspaceAgentIdSet],
+  );
+  const syntheticThreads = useMemo<ConversationThread[]>(() => workspaceAgents.map((agent) => ({
     id: agent.id,
     sessionKey: resolveOpenClawSessionKey(agent.id),
     participants: [
@@ -158,22 +177,23 @@ export default function SettingsPage() {
     messageCount: 0,
     unreadCount: 0,
     isActive: agent.state === "RUNNING",
-  })), [agents]);
+  })), [workspaceAgents]);
 
   const fetchAgents = useCallback(async () => {
+    setAgentsLoading(true);
     try {
       const token = await getToken();
       const listedAgents = await createAgentClient(token).list();
       setSdkAgents(listedAgents);
-      setSelectedAgentIdState((currentId) => {
-        if (currentId && listedAgents.some((agent) => agent.id === currentId)) return currentId;
-        return listedAgents[0]?.id ?? null;
-      });
       setError(null);
+      return true;
     } catch (err) {
       setSdkAgents([]);
       setSelectedAgentIdState(null);
       setError(describeAgentListError(err));
+      return false;
+    } finally {
+      setAgentsLoading(false);
     }
   }, [getToken]);
 
@@ -199,64 +219,78 @@ export default function SettingsPage() {
     try {
       const token = await getToken();
       await createAgentClient(token).delete(pendingAgentDelete.id);
-      const nextSelectedAgentId = sdkAgents.find((agent) => agent.id !== pendingAgentDelete.id)?.id ?? null;
+      const nextSelectedAgentId = workspaceAgents.find((agent) => agent.id !== pendingAgentDelete.id)?.id ?? null;
       setSdkAgents((current) => current.filter((agent) => agent.id !== pendingAgentDelete.id));
-      setSelectedAgentIdState((currentId) => currentId === pendingAgentDelete.id ? nextSelectedAgentId : currentId);
+      setSelectedAgentIdState((currentId) => {
+        const currentWorkspaceAgentId = currentId && workspaceAgents.some((agent) => agent.id === currentId)
+          ? currentId
+          : workspaceAgents[0]?.id ?? null;
+        return currentWorkspaceAgentId === pendingAgentDelete.id ? nextSelectedAgentId : currentWorkspaceAgentId;
+      });
       setPendingAgentDelete(null);
     } catch (err) {
       setError(describeAgentListError(err));
     } finally {
       setDeletingId(null);
     }
-  }, [getToken, pendingAgentDelete, sdkAgents]);
+  }, [getToken, pendingAgentDelete, workspaceAgents]);
 
   const accountInitial = user?.email?.trim()[0]?.toUpperCase() || "?";
-  const displayName = displayNameForDashboard(user);
-  const workspaceName = displayName === "there" ? "Personal workspace" : displayName;
-  const selectedWorkspaceAgent = agents.find((agent) => agent.id === selectedAgentId) ?? agents[0] ?? null;
+  const selectedWorkspaceAgent = workspaceAgents.find((agent) => agent.id === selectedAgentId) ?? workspaceAgents[0] ?? null;
+  const pageError = agentRosterError || error;
+  const agentCreationDisabledReason = workspaceAgentCreationDisabledReason(selectedWorkspace, agentRosterError);
 
   return (
     <div className="flex h-full min-h-0 bg-background">
       <div
-        className="agent-desktop-navigation flex h-full min-h-0 shrink-0"
+        className={`agent-desktop-navigation relative flex h-full min-h-0 shrink-0 flex-col pt-14 ${isDesktopViewport ? "w-64" : "w-0"}`}
         data-roster-collapsed={sidebarCollapsed}
+        data-expanded-section={sidebarCollapsed ? "workspace" : "agents"}
       >
+        <div className="agent-desktop-navigation-sections relative isolate mt-2 flex min-h-0 w-full flex-1">
         <AgentList
           sidebarCollapsed={sidebarCollapsed}
           isDesktopViewport={isDesktopViewport}
           mobileShowChat={mobileShowChat}
-          agents={agents}
-          selectedAgentId={selectedAgentId}
+          agents={workspaceAgents}
+          rosterLoading={agentsLoading || isAgentRosterLoading}
+          rosterOrderScope={selectedWorkspace?.id}
+          selectedAgentId={selectedWorkspaceAgent?.id ?? null}
           setSelectedAgentId={openAgentWorkspace}
           setMobileShowChat={setMobileShowChat}
           setSidebarCollapsed={setSidebarCollapsed}
           syntheticThreads={syntheticThreads}
           getToken={getToken}
           createOpenClawAgent={createOpenClawAgent}
+          associateCreatedAgent={associateAgentWithSelectedWorkspace}
+          agentCreationDisabledReason={agentCreationDisabledReason}
           fetchAgents={fetchAgents}
           setError={setError}
           sidebarCreatorSignal={0}
           setPendingAgentDelete={setPendingAgentDelete}
           updateAgentName={updateAgentName}
           accountInitial={accountInitial}
+          embeddedInNavigation
           onLogout={logout}
         />
         <DashboardWorkspaceNavigation
           selectedAgent={selectedWorkspaceAgent}
           isDesktopViewport={isDesktopViewport}
-          workspaceName={workspaceName}
-          workspaceInitial={accountInitial}
+          agentRosterCollapsed={sidebarCollapsed}
+          onAgentRosterCollapsedChange={setSidebarCollapsed}
         />
+        <div aria-hidden="true" className="pointer-events-none absolute -top-2 bottom-0 right-0 z-[60] w-px bg-border" />
+        </div>
       </div>
 
       <main className="min-w-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-[1000px] px-4 py-8 sm:px-6 lg:px-0">
-          {error ? (
-            <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              <span>{error}</span>
-              <button type="button" className="font-medium text-foreground" onClick={() => setError(null)}>
+          {pageError ? (
+            <div role="alert" className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              <span>{pageError}</span>
+              {!agentRosterError ? <button type="button" className="font-medium text-foreground" onClick={() => setError(null)}>
                 Dismiss
-              </button>
+              </button> : null}
             </div>
           ) : null}
           <section className="mb-5 rounded-xl border border-border bg-surface-low p-5">

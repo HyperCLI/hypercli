@@ -1,17 +1,20 @@
 """Shared knowledge API client."""
 from __future__ import annotations
 
-import os
 import mimetypes
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import httpx
 
 from .config import get_agents_api_base_url, get_config_value
 from .http import APIError, _handle_bytes_response, _handle_response
+
+
+_UNSET = object()
 
 
 def _derive_workspaces_base(agents_api_base: str | None = None) -> str:
@@ -27,6 +30,18 @@ def _derive_workspaces_base(agents_api_base: str | None = None) -> str:
     if path.endswith("/agents"):
         path = path[: -len("/agents")]
     return f"{parsed.scheme}://{parsed.netloc}{path}/workspaces"
+
+
+def _encode_ref(value: str) -> str:
+    return quote(value, safe="")
+
+
+def _encode_file_ref(value: str) -> str:
+    normalized = value.strip().replace("\\", "/")
+    if normalized.startswith("./"):
+        normalized = normalized[2:]
+    normalized = normalized.strip("/")
+    return "/".join(quote(part, safe="") for part in normalized.split("/"))
 
 
 def _headers(
@@ -94,6 +109,11 @@ class Workspace:
     name: str
     slug: str
     description: str | None = None
+    display_name: str | None = None
+    display_slug: str | None = None
+    role: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "Workspace":
@@ -102,6 +122,28 @@ class Workspace:
             name=data.get("name", ""),
             slug=data.get("slug", ""),
             description=data.get("description"),
+            display_name=data.get("display_name"),
+            display_slug=data.get("display_slug"),
+            role=data.get("role"),
+            created_at=data.get("created_at"),
+            updated_at=data.get("updated_at"),
+        )
+
+
+@dataclass
+class WorkspaceAgentAssociation:
+    workspace_id: str
+    agent_id: str
+    role: str
+    expires_at: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "WorkspaceAgentAssociation":
+        return cls(
+            workspace_id=str(data.get("workspace_id", "")),
+            agent_id=str(data.get("agent_id", "")),
+            role=data.get("role", ""),
+            expires_at=data.get("expires_at"),
         )
 
 
@@ -162,6 +204,9 @@ class WorkspaceGrant:
     role: str
     expires_at: str | None = None
     revoked_at: str | None = None
+    display_name: str | None = None
+    display_slug: str | None = None
+    is_owner: bool = False
 
     @classmethod
     def from_dict(cls, data: dict) -> "WorkspaceGrant":
@@ -171,6 +216,9 @@ class WorkspaceGrant:
             subject_type=data.get("subject_type", ""),
             subject_id=data.get("subject_id", ""),
             role=data.get("role", ""),
+            display_name=data.get("display_name"),
+            display_slug=data.get("display_slug"),
+            is_owner=bool(data.get("is_owner", False)),
             expires_at=data.get("expires_at"),
             revoked_at=data.get("revoked_at"),
         )
@@ -229,6 +277,38 @@ class WorkspacesAPI:
         data = _request("GET", self.api_base, api_key=self.api_key, user_id=user_id, agent_id=agent_id)
         return [Workspace.from_dict(item) for item in data]
 
+    def get(
+        self,
+        workspace_ref: str,
+        *,
+        user_id: str | None = None,
+        agent_id: str | None = None,
+    ) -> Workspace:
+        data = _request(
+            "GET",
+            f"{self.api_base}/{_encode_ref(workspace_ref)}",
+            api_key=self.api_key,
+            user_id=user_id,
+            agent_id=agent_id,
+        )
+        return Workspace.from_dict(data)
+
+    def list_agents(
+        self,
+        workspace_ref: str,
+        *,
+        user_id: str | None = None,
+        agent_id: str | None = None,
+    ) -> list[WorkspaceAgentAssociation]:
+        data = _request(
+            "GET",
+            f"{self.api_base}/{_encode_ref(workspace_ref)}/agents",
+            api_key=self.api_key,
+            user_id=user_id,
+            agent_id=agent_id,
+        )
+        return [WorkspaceAgentAssociation.from_dict(item) for item in data]
+
     def search(
         self,
         query: str,
@@ -272,11 +352,22 @@ class WorkspacesAPI:
             payload["slug"] = slug
         if description is not None:
             payload["description"] = description
-        data = _request("PATCH", f"{self.api_base}/{workspace_ref}", api_key=self.api_key, user_id=user_id, json=payload)
+        data = _request(
+            "PATCH",
+            f"{self.api_base}/{_encode_ref(workspace_ref)}",
+            api_key=self.api_key,
+            user_id=user_id,
+            json=payload,
+        )
         return Workspace.from_dict(data)
 
     def delete_workspace(self, workspace_ref: str, *, user_id: str | None = None) -> dict:
-        return _request("DELETE", f"{self.api_base}/{workspace_ref}", api_key=self.api_key, user_id=user_id)
+        return _request(
+            "DELETE",
+            f"{self.api_base}/{_encode_ref(workspace_ref)}",
+            api_key=self.api_key,
+            user_id=user_id,
+        )
 
     def grant(
         self,
@@ -285,18 +376,66 @@ class WorkspacesAPI:
         subject_type: str,
         subject_id: str,
         role: str = "viewer",
+        display_name: str | None = None,
+        display_slug: str | None = None,
+        expires_at: str | None = None,
         user_id: str | None = None,
     ) -> WorkspaceGrant:
         payload = {"subject_type": subject_type, "subject_id": subject_id, "role": role}
-        data = _request("POST", f"{self.api_base}/{workspace_ref}/grants", api_key=self.api_key, user_id=user_id, json=payload)
+        if display_name is not None:
+            payload["display_name"] = display_name
+        if display_slug is not None:
+            payload["display_slug"] = display_slug
+        if expires_at is not None:
+            payload["expires_at"] = expires_at
+        data = _request(
+            "POST",
+            f"{self.api_base}/{_encode_ref(workspace_ref)}/grants",
+            api_key=self.api_key,
+            user_id=user_id,
+            json=payload,
+        )
         return WorkspaceGrant.from_dict(data)
 
     def list_grants(self, workspace_ref: str, *, user_id: str | None = None) -> list[WorkspaceGrant]:
-        data = _request("GET", f"{self.api_base}/{workspace_ref}/grants", api_key=self.api_key, user_id=user_id)
+        data = _request(
+            "GET",
+            f"{self.api_base}/{_encode_ref(workspace_ref)}/grants",
+            api_key=self.api_key,
+            user_id=user_id,
+        )
         return [WorkspaceGrant.from_dict(item) for item in data]
 
+    def update_grant(
+        self,
+        workspace_ref: str,
+        grant_id: str,
+        *,
+        role: str | None = None,
+        expires_at: str | None | object = _UNSET,
+        user_id: str | None = None,
+    ) -> WorkspaceGrant:
+        payload = {}
+        if role is not None:
+            payload["role"] = role
+        if expires_at is not _UNSET:
+            payload["expires_at"] = expires_at
+        data = _request(
+            "PATCH",
+            f"{self.api_base}/{_encode_ref(workspace_ref)}/grants/{_encode_ref(grant_id)}",
+            api_key=self.api_key,
+            user_id=user_id,
+            json=payload,
+        )
+        return WorkspaceGrant.from_dict(data)
+
     def revoke_grant(self, workspace_ref: str, grant_id: str, *, user_id: str | None = None) -> dict:
-        return _request("DELETE", f"{self.api_base}/{workspace_ref}/grants/{grant_id}", api_key=self.api_key, user_id=user_id)
+        return _request(
+            "DELETE",
+            f"{self.api_base}/{_encode_ref(workspace_ref)}/grants/{_encode_ref(grant_id)}",
+            api_key=self.api_key,
+            user_id=user_id,
+        )
 
     def register_file(
         self,
@@ -324,7 +463,13 @@ class WorkspacesAPI:
             payload["source_etag"] = source_etag
         if keywords:
             payload["keywords"] = keywords
-        data = _request("POST", f"{self.api_base}/{workspace_ref}/files", api_key=self.api_key, user_id=user_id, json=payload)
+        data = _request(
+            "POST",
+            f"{self.api_base}/{_encode_ref(workspace_ref)}/files",
+            api_key=self.api_key,
+            user_id=user_id,
+            json=payload,
+        )
         return WorkspaceFile.from_dict(data)
 
     def upload(
@@ -362,17 +507,45 @@ class WorkspacesAPI:
     ) -> WorkspaceFile:
         data = _request(
             "GET",
-            f"{self.api_base}/{workspace_ref}/files/{file_ref}",
+            f"{self.api_base}/{_encode_ref(workspace_ref)}/files/{_encode_file_ref(file_ref)}",
             api_key=self.api_key,
             user_id=user_id,
             agent_id=agent_id,
         )
         return WorkspaceFile.from_dict(data)
 
+    def update_file(
+        self,
+        workspace_ref: str,
+        file_ref: str,
+        *,
+        display_name: str | None = None,
+        keywords: list[str] | None = None,
+        summary: str | None | object = _UNSET,
+        user_id: str | None = None,
+        agent_id: str | None = None,
+    ) -> WorkspaceFile:
+        payload = {}
+        if display_name is not None:
+            payload["display_name"] = display_name
+        if keywords is not None:
+            payload["keywords"] = keywords
+        if summary is not _UNSET:
+            payload["summary"] = summary
+        data = _request(
+            "PATCH",
+            f"{self.api_base}/{_encode_ref(workspace_ref)}/files/{_encode_file_ref(file_ref)}",
+            api_key=self.api_key,
+            user_id=user_id,
+            agent_id=agent_id,
+            json=payload,
+        )
+        return WorkspaceFile.from_dict(data)
+
     def regenerate_file(self, workspace_ref: str, file_ref: str, *, user_id: str | None = None) -> WorkspaceFile:
         data = _request(
             "POST",
-            f"{self.api_base}/{workspace_ref}/files/{file_ref}/regenerate",
+            f"{self.api_base}/{_encode_ref(workspace_ref)}/files/{_encode_file_ref(file_ref)}/regenerate",
             api_key=self.api_key,
             user_id=user_id,
         )
@@ -399,8 +572,30 @@ class WorkspacesAPI:
             time.sleep(poll_interval)
         raise TimeoutError(f"Shared knowledge file {file_ref} did not process within {timeout}s")
 
+    def list_files(
+        self,
+        workspace_ref: str,
+        *,
+        user_id: str | None = None,
+        agent_id: str | None = None,
+    ) -> list[WorkspaceFile]:
+        data = _request(
+            "GET",
+            f"{self.api_base}/{_encode_ref(workspace_ref)}/files",
+            api_key=self.api_key,
+            user_id=user_id,
+            agent_id=agent_id,
+        )
+        return [WorkspaceFile.from_dict(item) for item in data]
+
     def manifest(self, workspace_ref: str, *, user_id: str | None = None, agent_id: str | None = None) -> WorkspaceManifest:
-        data = _request("GET", f"{self.api_base}/{workspace_ref}/manifest", api_key=self.api_key, user_id=user_id, agent_id=agent_id)
+        data = _request(
+            "GET",
+            f"{self.api_base}/{_encode_ref(workspace_ref)}/manifest",
+            api_key=self.api_key,
+            user_id=user_id,
+            agent_id=agent_id,
+        )
         return WorkspaceManifest.from_dict(data)
 
     def download_url(self, workspace_ref: str, file_ref: str, *, user_id: str | None = None, agent_id: str | None = None) -> DownloadUrl:
@@ -457,7 +652,12 @@ class WorkspacesAPI:
         )
 
     def delete_file(self, workspace_ref: str, file_ref: str, *, user_id: str | None = None) -> dict:
-        return _request("DELETE", f"{self.api_base}/{workspace_ref}/files/{file_ref}", api_key=self.api_key, user_id=user_id)
+        return _request(
+            "DELETE",
+            f"{self.api_base}/{_encode_ref(workspace_ref)}/files/{_encode_file_ref(file_ref)}",
+            api_key=self.api_key,
+            user_id=user_id,
+        )
 
     def search_files(
         self,
@@ -470,7 +670,7 @@ class WorkspacesAPI:
     ) -> list[WorkspaceFileSearchResult]:
         data = _request(
             "GET",
-            f"{self.api_base}/{workspace_ref}/files/search",
+            f"{self.api_base}/{_encode_ref(workspace_ref)}/files/search",
             api_key=self.api_key,
             user_id=user_id,
             agent_id=agent_id,

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   AGENT_ROSTER_ORDER_STORAGE_KEY,
+  agentRosterOrderStorageKey,
   clearAgentRosterOrder,
   mergeVisibleAgentRosterOrder,
   moveAgentInRosterOrder,
@@ -34,6 +35,21 @@ describe("useAgentRosterOrder", () => {
     first.unmount();
     const restored = renderHook(() => useAgentRosterOrder(["agent-a", "agent-b", "agent-c"]));
     expect(restored.result.current.orderedAgentIds).toEqual(["agent-c", "agent-a", "agent-b"]);
+  });
+
+  it("keeps persisted order independent for each Workspace", () => {
+    const workspaceA = renderHook(() => useAgentRosterOrder(["agent-a", "agent-b"], "workspace-a"));
+    const workspaceB = renderHook(() => useAgentRosterOrder(["agent-a", "agent-b"], "workspace-b"));
+
+    act(() => workspaceA.result.current.setVisibleAgentOrder(["agent-b", "agent-a"]));
+
+    expect(workspaceA.result.current.orderedAgentIds).toEqual(["agent-b", "agent-a"]);
+    expect(workspaceB.result.current.orderedAgentIds).toEqual(["agent-a", "agent-b"]);
+    expect(JSON.parse(window.localStorage.getItem(agentRosterOrderStorageKey("workspace-a")) ?? "null")).toEqual({
+      version: 1,
+      agentIds: ["agent-b", "agent-a"],
+    });
+    expect(window.localStorage.getItem(agentRosterOrderStorageKey("workspace-b"))).toBeNull();
   });
 
   it("drops deleted agents and appends new agents in API order", () => {

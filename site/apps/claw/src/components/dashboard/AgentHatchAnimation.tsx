@@ -40,7 +40,7 @@ const STATUS_TEXT: Record<HatchState, { title: string; detail: string }> = {
  *
  * 3 concentric SVG ring segments using stroke-dasharray + rotation.
  * PENDING  -> outer ring spins slowly, inner rings dim, tiny pulsing core
- * STARTING -> all rings spin faster, core grows, glow intensifies
+ * STARTING -> all rings spin faster and the core grows
  * RUNNING  -> rings collapse inward, core bursts, green flash
  */
 export function AgentHatchAnimation({ state, onBurstComplete }: AgentHatchAnimationProps) {
@@ -53,9 +53,6 @@ export function AgentHatchAnimation({ state, onBurstComplete }: AgentHatchAnimat
   const lifecycleStage = state === "PENDING" || state === "RESTORING" || state === "SYNCING" ? "runtime" : state === "STARTING" ? "agent" : "complete";
   const ringGradientId = `agent-hatch-ring-${id}`;
   const coreGradientId = `agent-hatch-core-${id}`;
-  const glowColor = (opacity: number) => isRunning
-    ? `rgb(var(--selection-accent-rgb) / ${opacity})`
-    : `rgba(240, 197, 108, ${opacity})`;
 
   // Ring config per state
   const outerDuration = isPending ? 6 : isStarting ? 2.6 : 1.2;
@@ -68,8 +65,6 @@ export function AgentHatchAnimation({ state, onBurstComplete }: AgentHatchAnimat
 
   const coreSize = isPending ? 7 : isStarting ? 11 : 16;
   const coreOpacity = isPending ? 0.58 : isStarting ? 0.86 : 1;
-  const glowSpread = isPending ? 24 : isStarting ? 36 : 52;
-  const glowOpacity = isPending ? 0.26 : isStarting ? 0.5 : 0.68;
 
   // For collapse on RUNNING
   const outerR = isRunning ? 30 : 50;
@@ -79,20 +74,6 @@ export function AgentHatchAnimation({ state, onBurstComplete }: AgentHatchAnimat
   return (
     <div className="flex flex-col items-center justify-center gap-5 py-8">
       <div className="relative h-[132px] w-[132px]">
-        {/* Glow background */}
-        <motion.div
-          className="absolute inset-0 rounded-full"
-          animate={{
-            boxShadow: [
-              `0 0 ${glowSpread * 0.65}px ${glowColor(glowOpacity * 0.75)}`,
-              `0 0 ${glowSpread}px ${glowColor(glowOpacity)}`,
-              `0 0 ${glowSpread * 0.65}px ${glowColor(glowOpacity * 0.75)}`,
-            ],
-            scale: [0.98, 1.04, 0.98],
-          }}
-          transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
-        />
-
         <svg viewBox="0 0 120 120" className="w-full h-full">
           <defs>
             <linearGradient id={ringGradientId} x1="18" y1="18" x2="102" y2="102" gradientUnits="userSpaceOnUse">
@@ -193,7 +174,7 @@ export function AgentHatchAnimation({ state, onBurstComplete }: AgentHatchAnimat
               rotate: { duration: isPending ? 3.4 : 1.35, repeat: Infinity, ease: "linear" },
               opacity: { duration: 1.4, repeat: Infinity, ease: "easeInOut" },
             }}
-            style={{ transformOrigin: "60px 60px", filter: `drop-shadow(0 0 5px ${secondaryAccent})` }}
+            style={{ transformOrigin: "60px 60px" }}
           />
 
           {/* Core dot */}

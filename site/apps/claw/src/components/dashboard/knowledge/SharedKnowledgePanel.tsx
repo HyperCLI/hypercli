@@ -25,6 +25,7 @@ import {
 import type { AgentMeta } from "@/lib/avatar";
 import { agentAvatar } from "@/lib/avatar";
 import { MarkdownContent } from "@/components/dashboard/chat/MarkdownContent";
+import { useWorkspace } from "@/components/dashboard/WorkspaceContext";
 import { downloadFileBytes } from "@/lib/download-file";
 
 export type SharedKnowledgeAgent = {
@@ -53,6 +54,10 @@ type SharedKnowledgePanelProps = {
   connectionError?: string | null;
   preferredAgentId?: string | null;
   workspaces?: WorkspacesAPI | null;
+  availableWorkspaces?: Workspace[];
+  selectedWorkspaceId?: string | null;
+  onSelectWorkspace?: (workspaceId: string, workspace?: Workspace) => void;
+  onWorkspacesChanged?: (preferredWorkspaceId?: string | null) => Promise<unknown> | void;
   ready?: boolean;
 };
 
@@ -115,6 +120,14 @@ function grantIsActive(grant: WorkspaceGrant): boolean {
   if (!grant.expiresAt) return true;
   const expiresAt = Date.parse(grant.expiresAt);
   return !Number.isFinite(expiresAt) || expiresAt > Date.now();
+}
+
+function workspaceCanWrite(workspace: Workspace): boolean {
+  return workspace.role === "contributor" || workspace.role === "admin";
+}
+
+function workspaceCanAdminister(workspace: Workspace): boolean {
+  return workspace.role === "admin";
 }
 
 function activeAgentGrants(grants: WorkspaceGrant[], agentId: string): WorkspaceGrant[] {
@@ -416,10 +429,12 @@ function EditKnowledgeBaseModal({ base, onClose, onSave }: { base: KnowledgeBase
 function FileMetadataForm({
   file,
   busy,
+  readOnly = false,
   onSave,
 }: {
   file: WorkspaceFile;
   busy?: boolean;
+  readOnly?: boolean;
   onSave: (path: string, patch: WorkspaceFilePatch) => Promise<void>;
 }) {
   const [displayName, setDisplayName] = React.useState(file.displayName || "");
@@ -428,7 +443,7 @@ function FileMetadataForm({
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  const canSave = Boolean(displayName.trim()) && !busy && !saving;
+  const canSave = Boolean(displayName.trim()) && !busy && !saving && !readOnly;
   const handleSave = async () => {
     if (!canSave) return;
     setSaving(true);
@@ -452,15 +467,15 @@ function FileMetadataForm({
         <div className="min-w-0 space-y-3">
           <label className="block">
             <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">Display Name</span>
-            <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} className="h-9 w-full rounded-lg border border-border bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-primary/50" />
+            <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} disabled={readOnly} className="h-9 w-full rounded-lg border border-border bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-primary/50 disabled:cursor-default disabled:opacity-70" />
           </label>
           <label className="block">
             <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">Keywords</span>
-            <input value={keywords} onChange={(event) => setKeywords(event.target.value)} placeholder="pricing, retention, onboarding" className="h-9 w-full rounded-lg border border-border bg-background px-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50" />
+            <input value={keywords} onChange={(event) => setKeywords(event.target.value)} disabled={readOnly} placeholder="pricing, retention, onboarding" className="h-9 w-full rounded-lg border border-border bg-background px-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50 disabled:cursor-default disabled:opacity-70" />
           </label>
           <label className="block">
             <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">Summary</span>
-            <textarea value={summary} onChange={(event) => setSummary(event.target.value)} rows={3} className="min-h-[76px] w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-[13px] text-foreground outline-none transition-colors focus:border-primary/50" />
+            <textarea value={summary} onChange={(event) => setSummary(event.target.value)} disabled={readOnly} rows={3} className="min-h-[76px] w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-[13px] text-foreground outline-none transition-colors focus:border-primary/50 disabled:cursor-default disabled:opacity-70" />
           </label>
           {error && <p className="text-[12px] text-destructive">{error}</p>}
         </div>
@@ -470,10 +485,14 @@ function FileMetadataForm({
             <div className="flex justify-between gap-3"><dt>Status</dt><dd className="text-text-secondary">{file.processingState || file.fileState}</dd></div>
             <div className="flex justify-between gap-3"><dt>Version</dt><dd className="max-w-[120px] truncate text-text-secondary">{file.currentVersionId || "None"}</dd></div>
           </dl>
-          <button type="button" onClick={() => void handleSave()} disabled={!canSave} className="mt-4 inline-flex h-8 w-full items-center justify-center gap-2 rounded-lg bg-foreground px-3 text-[12px] font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-45">
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-            Save Metadata
-          </button>
+          {readOnly ? (
+            <p className="mt-4 text-[11px] leading-relaxed text-text-muted">Contributor access is required to edit metadata.</p>
+          ) : (
+            <button type="button" onClick={() => void handleSave()} disabled={!canSave} className="mt-4 inline-flex h-8 w-full items-center justify-center gap-2 rounded-lg bg-foreground px-3 text-[12px] font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-45">
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+              Save Metadata
+            </button>
+          )}
         </div>
       </div>
     </section>
@@ -493,6 +512,7 @@ function WorkspaceFilesView({
   base,
   workspaces,
   busy,
+  canWrite,
   onUploadFiles,
   onRequestDeletePath,
   onUpdateFile,
@@ -501,6 +521,7 @@ function WorkspaceFilesView({
   base: KnowledgeBase;
   workspaces: WorkspacesAPI | null;
   busy?: boolean;
+  canWrite: boolean;
   onUploadFiles: (files: Array<{ path: string; file: File }>) => Promise<void>;
   onRequestDeletePath: (path: string, options?: { recursive?: boolean }) => void;
   onUpdateFile: (path: string, patch: WorkspaceFilePatch) => Promise<void>;
@@ -577,7 +598,7 @@ function WorkspaceFilesView({
     event.preventDefault();
     event.stopPropagation();
     setDragOver(false);
-    if (!event.dataTransfer.files.length || busy) return;
+    if (!event.dataTransfer.files.length || busy || !canWrite) return;
     void uploadFiles(event.dataTransfer.files);
   };
 
@@ -595,7 +616,7 @@ function WorkspaceFilesView({
       onDragOver={(event) => {
         event.preventDefault();
         event.stopPropagation();
-        if (!busy) setDragOver(true);
+        if (!busy && canWrite) setDragOver(true);
       }}
       onDragLeave={(event) => {
         event.preventDefault();
@@ -617,20 +638,24 @@ function WorkspaceFilesView({
             Up
           </button>
           <p className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground">{currentPath || base.workspace.slug}</p>
-          <button type="button" title="Upload files" onClick={() => inputRef.current?.click()} disabled={busy} className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border px-2 text-[11px] text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-45">
-            <Plus className="h-3 w-3" />
-            Upload
-          </button>
-          <input
-            ref={inputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={(event) => {
-              if (event.target.files) void uploadFiles(event.target.files);
-              event.currentTarget.value = "";
-            }}
-          />
+          {canWrite ? (
+            <>
+              <button type="button" title="Upload files" onClick={() => inputRef.current?.click()} disabled={busy} className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border px-2 text-[11px] text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-45">
+                <Plus className="h-3 w-3" />
+                Upload
+              </button>
+              <input
+                ref={inputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(event) => {
+                  if (event.target.files) void uploadFiles(event.target.files);
+                  event.currentTarget.value = "";
+                }}
+              />
+            </>
+          ) : null}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {entries.length === 0 ? (
@@ -655,7 +680,7 @@ function WorkspaceFilesView({
                   setSelectedPath(null);
                   setViewError(null);
                 }}
-                onDelete={(item) => onRequestDeletePath(item.path, item.type === "directory" ? { recursive: true } : undefined)}
+                onDelete={canWrite ? (item) => onRequestDeletePath(item.path, item.type === "directory" ? { recursive: true } : undefined) : undefined}
                 onDownload={(item) => { void downloadFile(item.path); }}
                 onCopyPath={(item) => void navigator.clipboard?.writeText(item.path)}
               />
@@ -692,14 +717,16 @@ function WorkspaceFilesView({
               <button type="button" title="Download source" onClick={() => void downloadFile(selectedFile.path)} disabled={busy} className="flex h-8 w-8 items-center justify-center rounded-lg border border-border text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-45">
                 <Download className="h-3.5 w-3.5" />
               </button>
-              <button type="button" onClick={() => { setViewError(null); void onRegenerateFile(selectedFile.path).catch((err) => setViewError(describeError(err, "Unable to regenerate file."))); }} disabled={busy} className="inline-flex h-8 items-center gap-2 rounded-lg border border-border px-3 text-[12px] font-semibold text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-45">
-                <RefreshCw className="h-3.5 w-3.5" />
-                Regenerate
-              </button>
+              {canWrite ? (
+                <button type="button" onClick={() => { setViewError(null); void onRegenerateFile(selectedFile.path).catch((err) => setViewError(describeError(err, "Unable to regenerate file."))); }} disabled={busy} className="inline-flex h-8 items-center gap-2 rounded-lg border border-border px-3 text-[12px] font-semibold text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-45">
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Regenerate
+                </button>
+              ) : null}
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-3">
               {tab === "metadata" ? (
-                <FileMetadataForm key={`${selectedFile.id}:${selectedFile.displayName}:${selectedFile.summary || ""}:${selectedFile.keywords.join("|")}`} file={selectedFile} busy={busy} onSave={onUpdateFile} />
+                <FileMetadataForm key={`${selectedFile.id}:${selectedFile.displayName}:${selectedFile.summary || ""}:${selectedFile.keywords.join("|")}`} file={selectedFile} busy={busy} readOnly={!canWrite} onSave={onUpdateFile} />
               ) : loadingView ? (
                 <div className="flex h-full items-center justify-center text-text-muted">
                   <Loader2 className="h-5 w-5 animate-spin" />
@@ -774,6 +801,8 @@ function KnowledgeBaseCard({
   const unknownAgentCount = Math.max(0, base.agentIds.length - assignedAgents.length);
   const processing = processingCount(base);
   const failed = failedFileCount(base);
+  const canWrite = workspaceCanWrite(base.workspace);
+  const canAdminister = workspaceCanAdminister(base.workspace);
 
   return (
     <article className="overflow-hidden rounded-2xl border border-border bg-background/70 transition-colors hover:border-border-strong">
@@ -791,12 +820,17 @@ function KnowledgeBaseCard({
           <span className="inline-flex items-center gap-1.5 text-[11px] text-text-muted"><HardDrive className="h-3 w-3" />{contentCountLabel(base)}</span>
           {!base.filesError && processing > 0 && <span className={`text-[11px] ${failed > 0 ? "text-destructive" : "text-warning"}`}>{failed > 0 ? `${failed} failed` : `${processing} processing`}</span>}
           <span className="inline-flex items-center gap-1.5 text-[11px] text-text-muted"><Bot className="h-3 w-3" />{base.grantsError ? "Access unavailable" : agentCountLabel(base.agentIds.length)}</span>
-          <button type="button" aria-label={`Edit ${base.workspace.name}`} onClick={onEdit} disabled={busy} className="flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-50">
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
-          <button type="button" aria-label={`Delete ${base.workspace.name}`} onClick={onDeleteWorkspace} disabled={busy} className="flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-destructive disabled:opacity-50">
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          {base.workspace.role ? <span className="rounded-full border border-border px-2 py-0.5 text-[10px] capitalize text-text-muted">{base.workspace.role}</span> : null}
+          {canAdminister ? (
+            <>
+              <button type="button" aria-label={`Edit ${base.workspace.name}`} onClick={onEdit} disabled={busy} className="flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-50">
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              <button type="button" aria-label={`Delete ${base.workspace.name}`} onClick={onDeleteWorkspace} disabled={busy} className="flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-destructive disabled:opacity-50">
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </>
+          ) : null}
           <button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} ${base.workspace.name}`} onClick={onToggle} className="flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground">
             {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
           </button>
@@ -819,6 +853,7 @@ function KnowledgeBaseCard({
               base={base}
               workspaces={workspaces}
               busy={busy}
+              canWrite={canWrite}
               onUploadFiles={onUploadFiles}
               onRequestDeletePath={onRequestDeletePath}
               onUpdateFile={onUpdateFile}
@@ -832,9 +867,11 @@ function KnowledgeBaseCard({
               {assignedAgents.map((agent) => <AgentChip key={agent.id} agent={agent} />)}
               {unknownAgentCount > 0 && <span className="inline-flex h-7 items-center rounded-full border border-border bg-surface-low px-2.5 text-[11px] text-text-muted">{agentCountLabel(unknownAgentCount)} not visible</span>}
               {!base.grantsError && base.agentIds.length === 0 && <span className="text-[12px] text-text-muted">No agents assigned.</span>}
-              <button type="button" onClick={onToggleAssignment} disabled={Boolean(base.grantsError) || agents.length === 0 || busy} className="inline-flex h-7 items-center gap-1.5 rounded-full border border-dashed border-border px-2.5 text-[11px] text-text-muted transition-colors hover:border-border-strong hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45">
-                <Plus className="h-3 w-3" /> Assign Agent
-              </button>
+               {canAdminister ? (
+                 <button type="button" onClick={onToggleAssignment} disabled={Boolean(base.grantsError) || agents.length === 0 || busy} className="inline-flex h-7 items-center gap-1.5 rounded-full border border-dashed border-border px-2.5 text-[11px] text-text-muted transition-colors hover:border-border-strong hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45">
+                   <Plus className="h-3 w-3" /> Assign Agent
+                 </button>
+               ) : null}
             </div>
             {base.grantsError && (
               <div className="mt-2 flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-[12px] text-warning">
@@ -842,7 +879,7 @@ function KnowledgeBaseCard({
                 <span>{base.grantsError}</span>
               </div>
             )}
-            {assignmentOpen && (
+             {canAdminister && assignmentOpen && (
               <div className="mt-3 rounded-xl border border-border bg-surface-low/25 p-3">
                 <div className="flex flex-wrap gap-2">
                   {agents.map((agent) => (
@@ -871,8 +908,16 @@ export function SharedKnowledgePanel({
   connectionError = null,
   preferredAgentId = null,
   workspaces = null,
+  availableWorkspaces,
+  selectedWorkspaceId = null,
+  onSelectWorkspace,
+  onWorkspacesChanged,
   ready = Boolean(workspaces),
 }: SharedKnowledgePanelProps) {
+  const {
+    selectedWorkspaceId: globallySelectedWorkspaceId,
+    refreshSelectedWorkspaceAgents,
+  } = useWorkspace();
   const [knowledgeBases, setKnowledgeBases] = React.useState<KnowledgeBase[]>([]);
   const [query, setQuery] = React.useState("");
   const [debouncedQuery, setDebouncedQuery] = React.useState("");
@@ -887,6 +932,9 @@ export function SharedKnowledgePanel({
   const [error, setError] = React.useState<string | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const loadRequestRef = React.useRef(0);
+  const selectedWorkspaceIdRef = React.useRef(selectedWorkspaceId);
+  const globallySelectedWorkspaceIdRef = React.useRef(globallySelectedWorkspaceId);
+  const debouncedQueryRef = React.useRef(debouncedQuery);
 
   const agentById = React.useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
   const setBaseBusy = React.useCallback((baseId: string, busy: boolean) => {
@@ -899,6 +947,18 @@ export function SharedKnowledgePanel({
       return next;
     });
   }, []);
+
+  React.useLayoutEffect(() => {
+    selectedWorkspaceIdRef.current = selectedWorkspaceId;
+  }, [selectedWorkspaceId]);
+
+  React.useLayoutEffect(() => {
+    globallySelectedWorkspaceIdRef.current = globallySelectedWorkspaceId;
+  }, [globallySelectedWorkspaceId]);
+
+  React.useLayoutEffect(() => {
+    debouncedQueryRef.current = debouncedQuery;
+  }, [debouncedQuery]);
 
   React.useEffect(() => {
     const timeout = window.setTimeout(() => setDebouncedQuery(query.trim()), 250);
@@ -917,34 +977,54 @@ export function SharedKnowledgePanel({
     setLoading(true);
     setLoadError(null);
     try {
-      const listed = searchTerm ? await workspaces.search(searchTerm) : await workspaces.list();
+      const listed = searchTerm
+        ? await workspaces.search(searchTerm)
+        : availableWorkspaces ?? await workspaces.list();
       const hydrated = await Promise.all(listed.map(async (workspace): Promise<KnowledgeBase> => {
-        const [filesResult, grantsResult] = await Promise.allSettled([
+        const canAdminister = workspaceCanAdminister(workspace);
+        const agentAccess = canAdminister
+          ? workspaces.listGrants(workspace.slug).then((grants) => ({
+              grants,
+              agentIds: Array.from(new Set(grants
+                .filter((grant) => grant.subjectType === "agent" && grantIsActive(grant))
+                .map((grant) => grant.subjectId))),
+            }))
+          : workspaces.listAgents(workspace.slug).then((associations) => ({
+              grants: [] as WorkspaceGrant[],
+              agentIds: Array.from(new Set(associations.map((association) => association.agentId))),
+            }));
+        const [filesResult, agentAccessResult] = await Promise.allSettled([
           workspaces.listFiles(workspace.slug),
-          workspaces.listGrants(workspace.slug),
+          agentAccess,
         ]);
         const files = filesResult.status === "fulfilled" ? filesResult.value : [];
-        const grants = grantsResult.status === "fulfilled" ? grantsResult.value : [];
+        const grants = agentAccessResult.status === "fulfilled" ? agentAccessResult.value.grants : [];
         const filesError = filesResult.status === "rejected"
           ? errorStatusCode(filesResult.reason) === 403
             ? "You don't have permission to view files in this collection."
             : "Files couldn't be loaded. Refresh to retry."
           : null;
-        const grantsError = grantsResult.status === "rejected"
-          ? errorStatusCode(grantsResult.reason) === 403
-            ? "You don't have permission to view or change agent access."
-            : "Agent access couldn't be loaded. Refresh to retry."
-          : null;
-        const agentIds = Array.from(new Set(grants
-          .filter((grant) => grant.subjectType === "agent" && grantIsActive(grant))
-          .map((grant) => grant.subjectId)));
+        const grantsError = agentAccessResult.status === "rejected"
+            ? errorStatusCode(agentAccessResult.reason) === 403
+              ? "You don't have permission to view or change agent access."
+              : errorStatusCode(agentAccessResult.reason) === 404
+                ? "Agent assignments require a workspace service update."
+                : "Agent access couldn't be loaded. Refresh to retry."
+            : null;
+        const agentIds = agentAccessResult.status === "fulfilled" ? agentAccessResult.value.agentIds : [];
         return { workspace, files, grants, agentIds, filesError, grantsError };
       }));
 
       if (requestId !== loadRequestRef.current) return;
       React.startTransition(() => {
         setKnowledgeBases(hydrated);
-        setExpandedBaseId((current) => current && hydrated.some((base) => base.workspace.id === current) ? current : null);
+        setExpandedBaseId((current) => {
+          const activeWorkspaceId = selectedWorkspaceIdRef.current;
+          if (activeWorkspaceId && hydrated.some((base) => base.workspace.id === activeWorkspaceId)) {
+            return activeWorkspaceId;
+          }
+          return current && hydrated.some((base) => base.workspace.id === current) ? current : null;
+        });
         setAssignmentBaseId((current) => current && hydrated.some((base) => base.workspace.id === current) ? current : null);
       });
     } catch (err) {
@@ -953,12 +1033,23 @@ export function SharedKnowledgePanel({
     } finally {
       if (requestId === loadRequestRef.current) setLoading(false);
     }
-  }, [ready, workspaces]);
+  }, [availableWorkspaces, ready, workspaces]);
+
+  const loadWorkspacesRef = React.useRef(loadWorkspaces);
+  React.useLayoutEffect(() => {
+    loadWorkspacesRef.current = loadWorkspaces;
+  }, [loadWorkspaces]);
 
   React.useEffect(() => {
     const timeout = window.setTimeout(() => void loadWorkspaces(debouncedQuery), 0);
     return () => window.clearTimeout(timeout);
   }, [debouncedQuery, loadWorkspaces]);
+
+  React.useEffect(() => {
+    if (!selectedWorkspaceId) return;
+    const timeout = window.setTimeout(() => setExpandedBaseId(selectedWorkspaceId), 0);
+    return () => window.clearTimeout(timeout);
+  }, [selectedWorkspaceId]);
 
   const createBase = async (name: string, description: string, agentIds: string[]) => {
     if (!workspaces) throw new Error("Shared knowledge is not connected.");
@@ -983,7 +1074,9 @@ export function SharedKnowledgePanel({
       ]);
       setQuery("");
       setDebouncedQuery("");
-      await loadWorkspaces("");
+      if (onWorkspacesChanged) await onWorkspacesChanged(workspace.id);
+      else await loadWorkspacesRef.current("");
+      onSelectWorkspace?.(workspace.id, workspace);
       setExpandedBaseId(workspace.id);
       setAssignmentBaseId(null);
       if (failedGrants > 0) {
@@ -997,6 +1090,7 @@ export function SharedKnowledgePanel({
 
   const updateBase = async (base: KnowledgeBase, name: string, description: string) => {
     if (!workspaces) throw new Error("Shared knowledge is not connected.");
+    if (!workspaceCanAdminister(base.workspace)) throw new Error("Admin access is required to update this Workspace.");
     setBaseBusy(base.workspace.id, true);
     setError(null);
     try {
@@ -1004,8 +1098,9 @@ export function SharedKnowledgePanel({
       setKnowledgeBases((current) => current.map((item) => (
         item.workspace.id === base.workspace.id ? { ...item, workspace: updated } : item
       )));
-      await loadWorkspaces(debouncedQuery);
-      setExpandedBaseId(updated.id);
+      if (onWorkspacesChanged) await onWorkspacesChanged();
+      else await loadWorkspacesRef.current(debouncedQueryRef.current);
+      if (selectedWorkspaceIdRef.current === updated.id) setExpandedBaseId(updated.id);
     } catch (err) {
       setError(describeError(err, "Unable to update shared knowledge."));
       throw err;
@@ -1016,6 +1111,7 @@ export function SharedKnowledgePanel({
 
   const deleteBase = async (base: KnowledgeBase) => {
     if (!workspaces) throw new Error("Shared knowledge is not connected.");
+    if (!workspaceCanAdminister(base.workspace)) throw new Error("Admin access is required to delete this Workspace.");
     setBaseBusy(base.workspace.id, true);
     setError(null);
     try {
@@ -1023,7 +1119,8 @@ export function SharedKnowledgePanel({
       setKnowledgeBases((current) => current.filter((item) => item.workspace.id !== base.workspace.id));
       setAssignmentBaseId((current) => current === base.workspace.id ? null : current);
       setExpandedBaseId((current) => current === base.workspace.id ? null : current);
-      await loadWorkspaces(debouncedQuery);
+      if (onWorkspacesChanged) await onWorkspacesChanged();
+      else await loadWorkspacesRef.current(debouncedQueryRef.current);
     } catch (err) {
       setError(describeError(err, "Unable to delete shared knowledge."));
       throw err;
@@ -1034,6 +1131,7 @@ export function SharedKnowledgePanel({
 
   const toggleAssignedAgent = async (base: KnowledgeBase, agentId: string) => {
     if (!workspaces) return;
+    if (!workspaceCanAdminister(base.workspace)) return;
     setBaseBusy(base.workspace.id, true);
     setError(null);
     try {
@@ -1050,8 +1148,11 @@ export function SharedKnowledgePanel({
             ? withWorkspaceGrants(item, item.grants.filter((grant) => !revokedGrantIds.has(grant.id)))
             : item
         )));
-        await loadWorkspaces(debouncedQuery);
-        setExpandedBaseId(base.workspace.id);
+        if (revokedGrantIds.size > 0 && globallySelectedWorkspaceIdRef.current === base.workspace.id) {
+          await refreshSelectedWorkspaceAgents();
+        }
+        await loadWorkspacesRef.current(debouncedQueryRef.current);
+        if (selectedWorkspaceIdRef.current === base.workspace.id) setExpandedBaseId(base.workspace.id);
         const failures = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
         if (failures.length > 0) {
           const permissionFailure = failures.find((result) => errorStatusCode(result.reason) === 403);
@@ -1065,8 +1166,11 @@ export function SharedKnowledgePanel({
             ? withWorkspaceGrants(item, [...item.grants.filter((existing) => existing.id !== grant.id), grant])
             : item
         )));
-        await loadWorkspaces(debouncedQuery);
-        setExpandedBaseId(base.workspace.id);
+        if (globallySelectedWorkspaceIdRef.current === base.workspace.id) {
+          await refreshSelectedWorkspaceAgents();
+        }
+        await loadWorkspacesRef.current(debouncedQueryRef.current);
+        if (selectedWorkspaceIdRef.current === base.workspace.id) setExpandedBaseId(base.workspace.id);
       }
     } catch (err) {
       setError(describeError(err, "Unable to update agent assignment."));
@@ -1077,6 +1181,7 @@ export function SharedKnowledgePanel({
 
   const uploadFiles = async (base: KnowledgeBase, uploads: Array<{ path: string; file: File }>) => {
     if (!workspaces) throw new Error("Shared knowledge is not connected.");
+    if (!workspaceCanWrite(base.workspace)) throw new Error("Contributor access is required to upload files.");
     setBaseBusy(base.workspace.id, true);
     setError(null);
     try {
@@ -1102,8 +1207,8 @@ export function SharedKnowledgePanel({
         }
         return { ...item, files };
       }));
-      await loadWorkspaces(debouncedQuery);
-      setExpandedBaseId(base.workspace.id);
+      await loadWorkspacesRef.current(debouncedQueryRef.current);
+      if (selectedWorkspaceIdRef.current === base.workspace.id) setExpandedBaseId(base.workspace.id);
       const failed = results.filter((result) => result.status === "rejected").length;
       if (failed > 0) throw new Error(`${failed} file${failed === 1 ? "" : "s"} could not be uploaded.`);
     } catch (err) {
@@ -1116,6 +1221,7 @@ export function SharedKnowledgePanel({
 
   const deleteFilePath = async (base: KnowledgeBase, path: string, options?: { recursive?: boolean }) => {
     if (!workspaces) throw new Error("Shared knowledge is not connected.");
+    if (!workspaceCanWrite(base.workspace)) throw new Error("Contributor access is required to delete files.");
     setBaseBusy(base.workspace.id, true);
     setError(null);
     try {
@@ -1133,8 +1239,8 @@ export function SharedKnowledgePanel({
           ? { ...item, files: item.files.filter((file) => !deletedPaths.has(file.path)) }
           : item
       )));
-      await loadWorkspaces(debouncedQuery);
-      setExpandedBaseId(base.workspace.id);
+      await loadWorkspacesRef.current(debouncedQueryRef.current);
+      if (selectedWorkspaceIdRef.current === base.workspace.id) setExpandedBaseId(base.workspace.id);
       const failed = results.filter((result) => result.status === "rejected").length;
       if (failed > 0) throw new Error(`${failed} file${failed === 1 ? "" : "s"} could not be deleted.`);
     } catch (err) {
@@ -1156,6 +1262,7 @@ export function SharedKnowledgePanel({
 
   const updateFileFields = async (base: KnowledgeBase, path: string, patch: WorkspaceFilePatch) => {
     if (!workspaces) throw new Error("Shared knowledge is not connected.");
+    if (!workspaceCanWrite(base.workspace)) throw new Error("Contributor access is required to update file metadata.");
     setBaseBusy(base.workspace.id, true);
     setError(null);
     try {
@@ -1165,8 +1272,8 @@ export function SharedKnowledgePanel({
           ? { ...item, files: item.files.map((file) => file.id === updated.id || file.path === updated.path ? updated : file) }
           : item
       )));
-      await loadWorkspaces(debouncedQuery);
-      setExpandedBaseId(base.workspace.id);
+      await loadWorkspacesRef.current(debouncedQueryRef.current);
+      if (selectedWorkspaceIdRef.current === base.workspace.id) setExpandedBaseId(base.workspace.id);
     } catch (err) {
       setError(describeError(err, "Unable to update file metadata."));
       throw err;
@@ -1177,6 +1284,7 @@ export function SharedKnowledgePanel({
 
   const regenerateFile = async (base: KnowledgeBase, path: string) => {
     if (!workspaces) throw new Error("Shared knowledge is not connected.");
+    if (!workspaceCanWrite(base.workspace)) throw new Error("Contributor access is required to regenerate files.");
     setBaseBusy(base.workspace.id, true);
     setError(null);
     try {
@@ -1186,8 +1294,8 @@ export function SharedKnowledgePanel({
           ? { ...item, files: item.files.map((file) => file.id === updated.id || file.path === updated.path ? updated : file) }
           : item
       )));
-      await loadWorkspaces(debouncedQuery);
-      setExpandedBaseId(base.workspace.id);
+      await loadWorkspacesRef.current(debouncedQueryRef.current);
+      if (selectedWorkspaceIdRef.current === base.workspace.id) setExpandedBaseId(base.workspace.id);
     } catch (err) {
       setError(describeError(err, "Unable to queue file regeneration."));
       throw err;
@@ -1214,10 +1322,14 @@ export function SharedKnowledgePanel({
               <p className="mt-1 text-[13px] leading-snug text-text-muted">Durable files and generated Markdown that agents can reference across conversations.</p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <button type="button" onClick={() => void loadWorkspaces(debouncedQuery)} disabled={!workspaces || loading} aria-label="Refresh shared knowledge" className="flex h-9 w-9 items-center justify-center rounded-xl border border-border text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-50">
+              <button type="button" onClick={() => {
+                if (onWorkspacesChanged) void onWorkspacesChanged();
+                else void loadWorkspacesRef.current(debouncedQueryRef.current);
+                void refreshSelectedWorkspaceAgents();
+              }} disabled={!workspaces || !ready || loading} aria-label="Refresh shared knowledge" className="flex h-9 w-9 items-center justify-center rounded-xl border border-border text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-50">
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               </button>
-              <button type="button" onClick={() => setCreateOpen(true)} disabled={!workspaces || agentsLoading} className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl bg-foreground px-4 text-sm font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-45">
+              <button type="button" onClick={() => setCreateOpen(true)} disabled={!workspaces || !ready || agentsLoading} className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl bg-foreground px-4 text-sm font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-45">
                 <Plus className="h-4 w-4" /> New shared knowledge
               </button>
             </div>
@@ -1227,10 +1339,10 @@ export function SharedKnowledgePanel({
             <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search names, files, and metadata..." className="h-10 w-full rounded-xl border border-border bg-surface-low/35 pl-10 pr-4 text-sm text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50" />
           </label>
-          {(error || loadError) && (
+          {(error || loadError || (workspaces ? connectionError : null)) && (
             <div role="alert" className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-[12px] text-destructive">
               <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <span>{error || loadError}</span>
+              <span>{error || loadError || connectionError}</span>
             </div>
           )}
           {agentsError && (
@@ -1249,13 +1361,13 @@ export function SharedKnowledgePanel({
               <p className="mt-1 text-[11px] text-text-muted">{connectionError || "Sign in again if shared knowledge is unavailable."}</p>
             </div>
           )}
-          {workspaces && loading && knowledgeBases.length === 0 && (
+          {workspaces && (!ready || loading) && knowledgeBases.length === 0 && (
             <div className="rounded-2xl border border-border bg-surface-low/25 px-5 py-10 text-center" role="status">
               <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin text-text-muted" />
               <p className="text-[13px] font-semibold text-foreground">Loading shared knowledge</p>
             </div>
           )}
-          {workspaces && knowledgeBases.map((base) => (
+          {workspaces && ready && knowledgeBases.map((base) => (
             <KnowledgeBaseCard
               key={base.workspace.id}
               base={base}
@@ -1265,7 +1377,11 @@ export function SharedKnowledgePanel({
               expanded={expandedBaseId === base.workspace.id}
               assignmentOpen={assignmentBaseId === base.workspace.id}
               busy={busyBaseCounts.has(base.workspace.id)}
-              onToggle={() => setExpandedBaseId((current) => current === base.workspace.id ? null : base.workspace.id)}
+              onToggle={() => {
+                const expanding = expandedBaseId !== base.workspace.id;
+                setExpandedBaseId(expanding ? base.workspace.id : null);
+                if (expanding) onSelectWorkspace?.(base.workspace.id, base.workspace);
+              }}
               onToggleAssignment={() => setAssignmentBaseId((current) => current === base.workspace.id ? null : base.workspace.id)}
               onToggleAgent={(agentId) => void toggleAssignedAgent(base, agentId)}
               onEdit={() => setEditingBaseId(base.workspace.id)}
@@ -1276,7 +1392,7 @@ export function SharedKnowledgePanel({
               onRegenerateFile={(path) => regenerateFile(base, path)}
             />
           ))}
-          {workspaces && !loading && knowledgeBases.length === 0 && (
+          {workspaces && ready && !loading && !connectionError && knowledgeBases.length === 0 && (
             <div className="rounded-2xl border border-dashed border-border bg-surface-low/25 px-5 py-10 text-center">
               <HardDrive className="mx-auto mb-2 h-5 w-5 text-text-muted" />
               <p className="text-[13px] font-semibold text-foreground">No shared knowledge found.</p>

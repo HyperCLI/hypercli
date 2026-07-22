@@ -23,6 +23,10 @@ vi.mock("@/hooks/useAgentAuth", () => ({
   }),
 }));
 
+vi.mock("@/components/dashboard/WorkspaceContext", () => ({
+  WorkspaceProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+}));
+
 vi.mock("@/components/dashboard/DashboardNav", () => ({
   DashboardNav: () => <div data-testid="dashboard-nav" />,
 }));

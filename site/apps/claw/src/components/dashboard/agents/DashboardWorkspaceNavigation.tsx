@@ -10,13 +10,13 @@ import { AgentWorkspaceSidebar } from "./AgentWorkspaceSidebar";
 export function DashboardWorkspaceNavigation({
   selectedAgent,
   isDesktopViewport,
-  workspaceName,
-  workspaceInitial,
+  agentRosterCollapsed,
+  onAgentRosterCollapsedChange,
 }: {
   selectedAgent: Agent | null;
   isDesktopViewport: boolean;
-  workspaceName: string;
-  workspaceInitial: string;
+  agentRosterCollapsed: boolean;
+  onAgentRosterCollapsedChange: (collapsed: boolean) => void;
 }) {
   const router = useRouter();
   const openAgentTab = (tab: AgentRouteTab) => {
@@ -27,11 +27,11 @@ export function DashboardWorkspaceNavigation({
   return (
     <AgentWorkspaceSidebar
       selectedAgent={selectedAgent}
-      workspaceName={workspaceName}
-      workspaceInitial={workspaceInitial}
       activeTab="workspace"
       isDesktopViewport={isDesktopViewport}
-      forceExpanded
+      collapsed={!agentRosterCollapsed}
+      onCollapsedChange={(collapsed) => onAgentRosterCollapsedChange(!collapsed)}
+      embeddedInNavigation
       sessions={null}
       sessionsFetched={false}
       sessionsUnavailableReason="Open the agent workspace to load sessions."

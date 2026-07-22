@@ -40,12 +40,10 @@ export function AgentLifecycleSteps({ stage, className = "" }: AgentLifecycleSte
         const barStyle = complete
           ? {
               background: "linear-gradient(90deg, rgb(var(--selection-accent-rgb) / 0.78), var(--primary-hover))",
-              boxShadow: "0 0 14px rgb(var(--selection-accent-rgb) / 0.38)",
             }
           : active
             ? {
                 background: "linear-gradient(90deg, color-mix(in srgb, var(--warning) 95%, transparent), color-mix(in srgb, var(--info) 78%, transparent))",
-                boxShadow: "0 0 16px color-mix(in srgb, var(--warning) 48%, transparent)",
               }
             : undefined;
         return (

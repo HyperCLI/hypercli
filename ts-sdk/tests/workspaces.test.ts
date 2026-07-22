@@ -30,6 +30,92 @@ describe('Workspaces SDK', () => {
     vi.unstubAllGlobals();
   });
 
+  it('gets workspaces by reference and normalizes workspace metadata', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: 'workspace-1',
+          name: 'Team Knowledge',
+          slug: 'team-knowledge',
+          display_name: 'Team Docs',
+          display_slug: 'team-docs',
+          description: 'Shared runbooks',
+          role: 'admin',
+          created_at: '2026-07-20T10:00:00Z',
+          updated_at: '2026-07-21T11:00:00Z',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
+    const workspace = await api.get('team knowledge', { agentId: 'agent-1' });
+
+    expect(workspace).toMatchObject({
+      displayName: 'Team Docs',
+      displaySlug: 'team-docs',
+      role: 'admin',
+      createdAt: '2026-07-20T10:00:00Z',
+      updatedAt: '2026-07-21T11:00:00Z',
+    });
+    expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/team%20knowledge');
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'GET',
+      headers: expect.objectContaining({ Authorization: 'Bearer key' }),
+    });
+    expect(fetchMock.mock.calls[0][1].headers).not.toHaveProperty('X-Agent-Id');
+    vi.unstubAllGlobals();
+  });
+
+  it('lists active workspace agents with bearer auth and normalizes snake and camel fields', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          {
+            workspace_id: 'workspace-1',
+            agent_id: 'agent-1',
+            role: 'admin',
+            expires_at: '2026-08-01T00:00:00Z',
+          },
+          {
+            workspaceId: 'workspace-1',
+            agentId: 'agent-2',
+            role: 'viewer',
+            expiresAt: null,
+          },
+        ]),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
+    const associations = await api.listAgents('team knowledge', { userId: 'user-1' });
+
+    expect(associations).toEqual([
+      {
+        workspaceId: 'workspace-1',
+        agentId: 'agent-1',
+        role: 'admin',
+        expiresAt: '2026-08-01T00:00:00Z',
+      },
+      {
+        workspaceId: 'workspace-1',
+        agentId: 'agent-2',
+        role: 'viewer',
+        expiresAt: null,
+      },
+    ]);
+    expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/team%20knowledge/agents');
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'GET',
+      headers: expect.objectContaining({ Authorization: 'Bearer key' }),
+    });
+    expect(fetchMock.mock.calls[0][1].headers).not.toHaveProperty('X-User-Id');
+    vi.unstubAllGlobals();
+  });
+
   it('preserves plain-text and structured API error details', async () => {
     const fetchMock = vi
       .fn()
@@ -147,6 +233,92 @@ describe('Workspaces SDK', () => {
     });
     expect(fetchMock.mock.calls[1][0]).toBe('http://workspaces.test/workspaces/renamed');
     expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: 'DELETE' });
+    vi.unstubAllGlobals();
+  });
+
+  it('creates and updates grants with display and expiry fields', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: 'grant-1',
+            workspace_id: 'workspace-1',
+            subject_type: 'agent',
+            subject_id: 'agent-1',
+            role: 'viewer',
+            display_name: 'Research Agent',
+            display_slug: 'research-agent',
+            is_owner: true,
+            expires_at: '2026-08-01T00:00:00Z',
+            revoked_at: null,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: 'grant-1',
+            workspace_id: 'workspace-1',
+            subject_type: 'agent',
+            subject_id: 'agent-1',
+            role: 'admin',
+            display_name: 'Research Agent',
+            display_slug: 'research-agent',
+            is_owner: false,
+            expires_at: null,
+            revoked_at: null,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
+    const created = await api.grant(
+      'team knowledge',
+      {
+        subjectType: 'agent',
+        subjectId: 'agent-1',
+        role: 'viewer',
+        displayName: 'Research Agent',
+        displaySlug: 'research-agent',
+        expiresAt: '2026-08-01T00:00:00Z',
+      },
+      { userId: 'user-1' },
+    );
+    const updated = await api.updateGrant(
+      'team knowledge',
+      'grant/#1',
+      { role: 'admin', expiresAt: null },
+      { userId: 'user-1' },
+    );
+
+    expect(created).toMatchObject({
+      displayName: 'Research Agent',
+      displaySlug: 'research-agent',
+      isOwner: true,
+      expiresAt: '2026-08-01T00:00:00Z',
+    });
+    expect(updated).toMatchObject({ role: 'admin', isOwner: false, expiresAt: null });
+    expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/team%20knowledge/grants');
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      subject_type: 'agent',
+      subject_id: 'agent-1',
+      role: 'viewer',
+      display_name: 'Research Agent',
+      display_slug: 'research-agent',
+      expires_at: '2026-08-01T00:00:00Z',
+    });
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      'http://workspaces.test/workspaces/team%20knowledge/grants/grant%2F%231',
+    );
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({
+      method: 'PATCH',
+      body: JSON.stringify({ role: 'admin', expires_at: null }),
+    });
+    expect(fetchMock.mock.calls[1][1].headers).not.toHaveProperty('X-User-Id');
     vi.unstubAllGlobals();
   });
 

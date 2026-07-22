@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
@@ -9,6 +10,7 @@ import {
   ChevronUp,
   ChevronsUpDown,
   Codepen,
+  Command,
   FolderOpen,
   Loader2,
   Monitor,
@@ -28,10 +30,17 @@ import {
 } from "lucide-react";
 
 import type { Agent, AgentState } from "@/app/dashboard/agents/types";
+import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import type { AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 import { PulsingDotIndicator } from "@/components/dashboard/PulsingDotIndicator";
 import { resolveSessionSourceChannel, type SessionSourceChannel } from "@/components/dashboard/session-source-channel";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -42,6 +51,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@hypercli/shared-ui";
+import { useWorkspace, workspaceDisplayName } from "@/components/dashboard/WorkspaceContext";
 import { formatTokens } from "@/lib/format";
 import {
   displayOpenClawSessionName,
@@ -55,8 +65,6 @@ const WORKSPACE_COLLAPSED_KEY = "agents.workspaceCollapsed.v2";
 
 interface AgentWorkspaceSidebarProps {
   selectedAgent: Agent | null;
-  workspaceName?: string;
-  workspaceInitial?: string;
   activeTab: AgentMainTab;
   skillsActive?: boolean;
   tokenUsed?: number | null;
@@ -79,7 +87,10 @@ interface AgentWorkspaceSidebarProps {
   onUpgrade: () => void;
   renderMobile?: boolean;
   forceExpanded?: boolean;
+  collapsed?: boolean;
+  onCollapsedChange?: (collapsed: boolean) => void;
   fillParent?: boolean;
+  embeddedInNavigation?: boolean;
   onClose?: () => void;
   sessions?: OpenClawSessionRecord[] | null;
   sessionsFetched?: boolean;
@@ -111,10 +122,12 @@ function WorkspaceButton({
   item,
   collapsed,
   mobileMode = false,
+  navigationMode = false,
 }: {
   item: WorkspaceItem;
   collapsed?: boolean;
   mobileMode?: boolean;
+  navigationMode?: boolean;
 }) {
   const Icon = item.icon;
   const disabled = Boolean(item.disabled);
@@ -122,7 +135,9 @@ function WorkspaceButton({
     ? "h-9 w-9 justify-center"
     : mobileMode
       ? "h-10 w-full gap-3.5 px-3.5 text-left"
-      : "h-7 w-full gap-2 px-2 text-left";
+      : navigationMode
+        ? "h-9 w-full gap-3 px-3 text-left"
+        : "h-7 w-full gap-2 px-2 text-left";
   const iconClassName = `${mobileMode && !collapsed ? "h-5 w-5" : "h-4 w-4"} shrink-0 ${item.busy ? "animate-spin" : ""}`;
   const roundedClassName = "rounded-full";
   const buttonClassName = `flex ${buttonSizeClass} items-center ${roundedClassName} text-sm transition-colors ${
@@ -641,10 +656,209 @@ function DeleteSessionDialog({
   );
 }
 
+function CreateWorkspaceDialog({
+  open,
+  onOpenChange,
+  onCreate,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCreate: (input: { name: string; description?: string }) => Promise<unknown>;
+}) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const reset = () => {
+    setName("");
+    setDescription("");
+    setError(null);
+  };
+  const close = () => {
+    if (submitting) return;
+    reset();
+    onOpenChange(false);
+  };
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const workspaceName = name.trim();
+    if (!workspaceName || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await onCreate({
+        name: workspaceName,
+        description: description.trim() || undefined,
+      });
+      setSubmitting(false);
+      reset();
+      onOpenChange(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to create Workspace.");
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(nextOpen) => { if (nextOpen) onOpenChange(true); else close(); }}>
+      <DialogContent closeLabel="Close new Workspace" overlayClassName="z-[89] bg-black/60 backdrop-blur-sm" className="z-[90] gap-0 overflow-hidden rounded-2xl border-border bg-background p-0 shadow-2xl sm:max-w-[460px]">
+        <DialogHeader className="border-b border-border px-5 py-4 pr-12">
+          <DialogTitle className="text-base">New Workspace</DialogTitle>
+          <DialogDescription className="text-[12px] leading-relaxed text-text-muted">
+            Create a shared space for knowledge, members, and agents.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={(event) => { void submit(event); }}>
+          <div className="space-y-4 px-5 py-5">
+            <label className="block">
+              <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Workspace name</span>
+              <input
+                autoFocus
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                disabled={submitting}
+                className="h-10 w-full rounded-xl border border-border bg-surface-low/35 px-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-foreground/50 disabled:opacity-55"
+                placeholder="Product operations"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Description <span className="normal-case tracking-normal">(optional)</span></span>
+              <textarea
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                disabled={submitting}
+                rows={3}
+                className="w-full resize-none rounded-xl border border-border bg-surface-low/35 px-3 py-2.5 text-[13px] leading-relaxed text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-foreground/50 disabled:opacity-55"
+                placeholder="What belongs in this Workspace?"
+              />
+            </label>
+            {error ? <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-[12px] text-destructive">{error}</div> : null}
+          </div>
+          <DialogFooter className="border-t border-border px-5 py-4">
+            <button type="button" onClick={close} disabled={submitting} className="h-9 rounded-xl border border-border px-4 text-[12px] font-medium text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-55">Cancel</button>
+            <button type="submit" disabled={!name.trim() || submitting} className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-foreground px-4 text-[12px] font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-45">
+              {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              Create Workspace
+            </button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function WorkspacePicker({ sharedHeader = false }: { sharedHeader?: boolean }) {
+  const {
+    principalId,
+    workspacesClient,
+    workspaces,
+    selectedWorkspace,
+    isLoading: workspacesLoading,
+    error: workspacesError,
+    selectWorkspace,
+    createWorkspace,
+  } = useWorkspace();
+  const workspaceScope = principalId ?? "current";
+  const [createWorkspaceScope, setCreateWorkspaceScope] = useState<string | null>(null);
+  const currentWorkspaceName = selectedWorkspace
+    ? workspaceDisplayName(selectedWorkspace)
+    : workspacesLoading
+      ? "Loading Workspaces"
+      : "No Workspace";
+
+  useEffect(() => {
+    if (!createWorkspaceScope || createWorkspaceScope === workspaceScope) return;
+    const timeout = window.setTimeout(() => setCreateWorkspaceScope(null), 0);
+    return () => window.clearTimeout(timeout);
+  }, [createWorkspaceScope, workspaceScope]);
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label={`Current workspace: ${currentWorkspaceName}`}
+            className={`flex min-w-0 flex-1 items-center text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)] ${
+              sharedHeader
+                ? "h-10 gap-2 rounded-xl border border-border bg-background/50 px-2 hover:bg-surface-low"
+                : "h-8 gap-2 rounded-lg px-2 hover:bg-surface-low"
+            }`}
+          >
+            {sharedHeader ? (
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-low text-text-muted">
+                <Command className="h-4 w-4" />
+              </span>
+            ) : null}
+            <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">{currentWorkspaceName}</span>
+            <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" sideOffset={8} className="w-[280px] rounded-xl border-border bg-popover p-2 shadow-2xl">
+          <DropdownMenuLabel className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">
+            Workspaces
+          </DropdownMenuLabel>
+          {workspacesLoading && workspaces.length === 0 ? (
+            <div role="status" className="mt-1 flex items-center gap-2 px-2 py-3 text-[12px] text-text-muted">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading Workspaces
+            </div>
+          ) : workspacesError && workspaces.length === 0 ? (
+            <div role="alert" className="mx-1 mt-1 rounded-lg border border-destructive/25 bg-destructive/10 px-2.5 py-2 text-[11px] leading-relaxed text-destructive">
+              {workspacesError}
+            </div>
+          ) : workspaces.length === 0 ? (
+            <p className="mt-1 px-2 py-3 text-[12px] text-text-muted">No Workspaces available.</p>
+          ) : workspaces.map((workspace) => {
+            const active = workspace.id === selectedWorkspace?.id;
+            const displayName = workspaceDisplayName(workspace);
+            return (
+              <DropdownMenuItem
+                key={workspace.id}
+                aria-current={active ? "page" : undefined}
+                onSelect={() => selectWorkspace(workspace.id)}
+                className="mt-1 flex items-center gap-3 rounded-lg px-2 py-2.5 focus:bg-surface-low"
+              >
+                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[10px] font-semibold ${active ? "border-[rgb(var(--selection-accent-rgb)_/_0.25)] bg-[radial-gradient(circle_at_35%_30%,rgb(var(--selection-accent-rgb)_/_0.95),rgb(var(--selection-accent-rgb)_/_0.35))] text-[var(--selection-accent-foreground)]" : "border-border bg-surface-low text-text-secondary"}`}>
+                  {displayName.slice(0, 1).toUpperCase()}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-foreground">{displayName}</span>
+                  <span className="block text-[11px] capitalize text-text-muted">{workspace.role ? `${workspace.role} access` : "Available Workspace"}</span>
+                </span>
+                {active ? <Check className="h-4 w-4 shrink-0 text-[var(--selection-accent)]" /> : null}
+              </DropdownMenuItem>
+            );
+          })}
+          <DropdownMenuSeparator className="my-1.5 bg-border" />
+          <DropdownMenuItem
+            disabled={!workspacesClient}
+            onSelect={() => setCreateWorkspaceScope(workspaceScope)}
+            className="flex items-center gap-3 rounded-lg px-2 py-2.5 text-text-secondary focus:bg-surface-low focus:text-foreground"
+          >
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-low">
+              <Plus className="h-4 w-4" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-medium">New Workspace</span>
+              <span className="block text-[11px] text-text-muted">Create a shared workspace</span>
+            </span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <CreateWorkspaceDialog
+        key={workspaceScope}
+        open={createWorkspaceScope === workspaceScope}
+        onOpenChange={(open) => setCreateWorkspaceScope(open ? workspaceScope : null)}
+        onCreate={createWorkspace}
+      />
+    </>
+  );
+}
+
 export function AgentWorkspaceSidebar({
   selectedAgent,
-  workspaceName = "Personal workspace",
-  workspaceInitial = "W",
   activeTab,
   skillsActive = false,
   tokenUsed,
@@ -667,7 +881,10 @@ export function AgentWorkspaceSidebar({
   onUpgrade,
   renderMobile = false,
   forceExpanded = false,
+  collapsed: controlledCollapsed,
+  onCollapsedChange,
   fillParent = false,
+  embeddedInNavigation = false,
   onClose,
   sessions,
   sessionsFetched = sessions != null,
@@ -690,15 +907,21 @@ export function AgentWorkspaceSidebar({
   const [renameTarget, setRenameTarget] = useState<OpenClawSessionRecord | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<OpenClawSessionRecord | null>(null);
   const advancedMenuRef = useRef<HTMLDivElement | null>(null);
-  const [collapsed, setCollapsed] = useState<boolean>(() => {
+  const [uncontrolledCollapsed, setUncontrolledCollapsed] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem(WORKSPACE_COLLAPSED_KEY) === "1";
   });
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(WORKSPACE_COLLAPSED_KEY, collapsed ? "1" : "0");
-  }, [collapsed]);
+    if (controlledCollapsed !== undefined || typeof window === "undefined") return;
+    window.localStorage.setItem(WORKSPACE_COLLAPSED_KEY, uncontrolledCollapsed ? "1" : "0");
+  }, [controlledCollapsed, uncontrolledCollapsed]);
+  const collapsed = controlledCollapsed ?? uncontrolledCollapsed;
   const isCollapsed = forceExpanded ? false : !isDesktopViewport || collapsed;
+  const toggleCollapsed = () => {
+    const nextCollapsed = !collapsed;
+    if (controlledCollapsed === undefined) setUncontrolledCollapsed(nextCollapsed);
+    onCollapsedChange?.(nextCollapsed);
+  };
   const tokensUsed = typeof tokenUsed === "number" && Number.isFinite(tokenUsed) ? Math.max(0, tokenUsed) : null;
   const tokenTotal = tokenLimit && tokenLimit > 0 ? tokenLimit : null;
   const tokenProgress = tokenTotal && tokensUsed != null ? Math.min(100, Math.round((tokensUsed / tokenTotal) * 100)) : 0;
@@ -734,7 +957,6 @@ export function AgentWorkspaceSidebar({
   }, [pinnedSessionKeys, selectedSessionKey, showAllRecent, sortedSessions]);
   const hiddenSessionCount = Math.max(0, sortedSessions.length - visibleSessions.length);
   const renameTargetTitle = renameTarget ? sessionTitle(renameTarget) : "";
-
   const agentState: AgentState | undefined = selectedAgent?.state;
   const noSelectedAgent = !selectedAgent;
   const agentNotRunning = agentState !== "RUNNING";
@@ -860,103 +1082,75 @@ export function AgentWorkspaceSidebar({
   return (
     <motion.aside
       data-collapsed={isCollapsed}
-      initial={{ opacity: 0, x: -12 }}
+      initial={embeddedInNavigation ? false : { opacity: 0, x: -12 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -8 }}
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       className={`agent-workspace-shell flex ${
         fillParent ? "w-full" : isCollapsed ? "w-12" : "w-52"
-      } relative h-full shrink-0 flex-col border-r border-border bg-surface-low transition-[width] duration-200 ease-out`}
+      } relative h-full shrink-0 flex-col bg-surface-low transition-[width] duration-200 ease-out ${embeddedInNavigation ? "" : "border-r border-border"}`}
     >
-      <div
-        className={`agent-workspace-header flex h-14 shrink-0 items-center border-b border-border ${
-          isCollapsed ? "justify-center px-0" : "gap-2 px-4"
-        }`}
-      >
-        {!isCollapsed && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label={`Current workspace: ${workspaceName}`}
-                className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left transition-colors hover:bg-surface-low focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)]"
-              >
-                <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">{workspaceName}</span>
-                <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-text-muted" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" sideOffset={8} className="w-[280px] rounded-xl border-border bg-popover p-2 shadow-2xl">
-              <DropdownMenuLabel className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">
-                Workspaces
-              </DropdownMenuLabel>
-              <DropdownMenuItem
-                aria-current="page"
-                onSelect={(event) => event.preventDefault()}
-                className="mt-1 flex cursor-default items-center gap-3 rounded-lg px-2 py-2.5 focus:bg-surface-low"
-              >
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.25)] bg-[radial-gradient(circle_at_35%_30%,rgb(var(--selection-accent-rgb)_/_0.95),rgb(var(--selection-accent-rgb)_/_0.35))] text-[10px] font-semibold text-[var(--selection-accent-foreground)]">
-                  {workspaceInitial.slice(0, 1).toUpperCase()}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-foreground">{workspaceName}</span>
-                  <span className="block text-[11px] text-text-muted">Current account workspace</span>
-                </span>
-                <Check className="h-4 w-4 shrink-0 text-[var(--selection-accent)]" />
-              </DropdownMenuItem>
-              <DropdownMenuSeparator className="my-1.5 bg-border" />
-              <DropdownMenuItem
-                disabled
-                className="flex items-center gap-3 rounded-lg px-2 py-2.5 text-text-secondary focus:bg-surface-low focus:text-foreground"
-              >
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-low">
-                  <Plus className="h-4 w-4" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium">New Workspace</span>
-                  <span className="block text-[11px] text-text-muted">Coming soon</span>
-                </span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-        {onClose ? (
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close workspace sidebar"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+      {embeddedInNavigation ? (
+        <div
+          className={`agent-desktop-navigation-header absolute -top-16 z-30 flex h-14 w-64 items-center gap-2 border-b border-r border-border bg-[var(--agent-panel-background)] px-3 transition-[left] duration-200 ease-out ${
+            isCollapsed ? "-left-52" : "-left-12"
+          }`}
+        >
+          <Link
+            href="/"
+            aria-label="HyperCLI home"
+            className="flex h-10 w-8 shrink-0 items-center justify-center text-foreground"
           >
-            <X className="h-5 w-5" />
-          </button>
-        ) : isDesktopViewport && !forceExpanded ? (
-          <Tooltip delayDuration={300}>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => setCollapsed((c) => !c)}
-                aria-label={isCollapsed ? "Expand workspace sidebar" : "Collapse workspace sidebar"}
-                className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
-              >
-                {isCollapsed ? <PanelRight className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {isCollapsed ? "Expand workspace" : "Collapse workspace"}
-            </TooltipContent>
-          </Tooltip>
-        ) : !isDesktopViewport ? (
-          <div
-            className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted"
-            title="Workspace navigation"
-            aria-hidden="true"
-          >
-            <PanelRight className={renderMobile ? "h-5 w-5" : "h-4 w-4"} />
-          </div>
-        ) : null}
-      </div>
+            <HyperCLILogoMark className="h-6 w-6" />
+          </Link>
+          <WorkspacePicker sharedHeader />
+        </div>
+      ) : (
+        <div
+          className={`agent-workspace-header flex h-14 shrink-0 items-center border-b border-border ${
+            isCollapsed ? "justify-center px-0" : "gap-2 px-4"
+          }`}
+        >
+          {!isCollapsed ? <WorkspacePicker /> : null}
+          {onClose ? (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close workspace sidebar"
+              className="flex h-10 w-10 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          ) : isDesktopViewport && !forceExpanded ? (
+            <Tooltip delayDuration={300}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={toggleCollapsed}
+                  aria-label={isCollapsed ? "Expand workspace sidebar" : "Collapse workspace sidebar"}
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+                >
+                  {isCollapsed ? <PanelRight className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                {isCollapsed ? "Expand workspace" : "Collapse workspace"}
+              </TooltipContent>
+            </Tooltip>
+          ) : !isDesktopViewport ? (
+            <div
+              className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted"
+              title="Workspace navigation"
+              aria-hidden="true"
+            >
+              <PanelRight className={renderMobile ? "h-5 w-5" : "h-4 w-4"} />
+            </div>
+          ) : null}
+        </div>
+      )}
 
       <div className={`agent-workspace-scroll flex-1 overflow-y-auto ${
-        isCollapsed ? "px-1.5 py-5" : renderMobile ? "px-3 py-5" : "px-3 py-2"
+        isCollapsed ? `px-1.5 ${embeddedInNavigation ? "py-3" : "py-5"}` : renderMobile ? "px-3 py-5" : "px-3 py-2"
       }`}>
         {!isCollapsed && renderMobile && (
           <div className="mb-2 flex items-center justify-between gap-2 px-3">
@@ -965,7 +1159,7 @@ export function AgentWorkspaceSidebar({
         )}
         <nav className={isCollapsed ? "flex flex-col items-center space-y-1" : renderMobile ? "space-y-1" : "space-y-0"}>
           {workspaceItems.map((item) => (
-            <WorkspaceButton key={item.id} item={item} collapsed={isCollapsed} mobileMode={renderMobile} />
+            <WorkspaceButton key={item.id} item={item} collapsed={isCollapsed} mobileMode={renderMobile} navigationMode={embeddedInNavigation} />
           ))}
         </nav>
 
@@ -1052,7 +1246,6 @@ export function AgentWorkspaceSidebar({
                   aria-expanded={advancedItemsOpen}
                   aria-haspopup="menu"
                   aria-disabled={advancedDropdownDisabled}
-                  title={advancedDropdownDisabled ? advancedDropdownDisabledReason : undefined}
                   className={`flex h-9 w-9 items-center justify-center rounded-full text-sm transition-colors ${
                     advancedDropdownDisabled
                       ? "cursor-not-allowed text-text-muted/45"
@@ -1064,7 +1257,7 @@ export function AgentWorkspaceSidebar({
                   <Settings className="h-4 w-4" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="right">Advanced</TooltipContent>
+              <TooltipContent side="right">{advancedDropdownDisabled ? advancedDropdownDisabledReason : "Advanced"}</TooltipContent>
             </Tooltip>
           </div>
         ) : (

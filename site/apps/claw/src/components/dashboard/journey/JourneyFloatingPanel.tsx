@@ -250,14 +250,6 @@ export function JourneyFloatingPanel({ journey, onRunDayAction, onRunCapabilityP
         }}
         style={floatingStyle}
         initial={false}
-        animate={reducedMotion || !journey.lastReceipt ? undefined : {
-          boxShadow: [
-            "0 18px 56px rgba(0,0,0,0.38), 0 0 0 0 rgb(var(--selection-accent-rgb) / 0)",
-            "0 18px 56px rgba(0,0,0,0.38), 0 0 0 5px rgb(var(--selection-accent-rgb) / 0.18)",
-            "0 18px 56px rgba(0,0,0,0.38), 0 0 0 0 rgb(var(--selection-accent-rgb) / 0)",
-          ],
-        }}
-        transition={{ duration: 1.15, ease: "easeOut" }}
         className={`fixed ${positionedClassName} z-50 inline-flex touch-none items-center gap-2 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-popover/95 px-3.5 py-2 text-sm font-semibold text-[var(--selection-accent)] shadow-[0_18px_56px_rgba(0,0,0,0.38)] backdrop-blur transition-colors hover:bg-surface-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.55)] ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
         aria-label={`Open Journey mission ${day.day}`}
         title="Drag to move. Click to open Journey."

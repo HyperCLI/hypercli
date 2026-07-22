@@ -16,6 +16,7 @@ import { type ConversationThread } from "@/components/dashboard/AgentsChannelsSi
 import { AgentList } from "@/components/dashboard/agents/AgentPanels";
 import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 import { DashboardWorkspaceNavigation } from "@/components/dashboard/agents/DashboardWorkspaceNavigation";
+import { useWorkspace, workspaceAgentCreationDisabledReason } from "@/components/dashboard/WorkspaceContext";
 import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
 import {
   AgentUsageTable,
@@ -144,16 +145,18 @@ function buildAgentRows({
   integrations,
   totals,
   hasData,
+  accountAgentCount,
 }: {
   agents: Agent[];
   integrations: DashboardIntegrationUsage[];
   totals: ReturnType<typeof sumHistory>;
   hasData: boolean;
+  accountAgentCount: number;
 }): DashboardAgentUsageRow[] {
   if (!hasData || agents.length === 0) return [];
 
   const activeIntegrationCount = integrations.filter((integration) => integration.totalTokens > 0 || integration.requests > 0).length;
-  const canAttributeUsage = agents.length === 1;
+  const canAttributeUsage = accountAgentCount === 1;
 
   return agents.map((agent) => ({
     id: agent.id,
@@ -168,6 +171,13 @@ function buildAgentRows({
 
 export default function UsagePage() {
   const { getToken, user, logout } = useAgentAuth();
+  const {
+    selectedWorkspace,
+    selectedWorkspaceAgentIds,
+    isAgentRosterLoading,
+    agentRosterError,
+    associateAgentWithSelectedWorkspace,
+  } = useWorkspace();
   const router = useRouter();
   const [range, setRange] = useState<DashboardTimeRange>("7d");
   const [usage, setUsage] = useState<UsageInfo | null>(null);
@@ -223,9 +233,15 @@ export default function UsagePage() {
   }, [getToken, range]);
 
   const fetchAgents = useCallback(async () => {
-    const token = await getToken();
-    setSdkAgents(await createAgentClient(token).list());
-    setAgentError(null);
+    try {
+      const token = await getToken();
+      setSdkAgents(await createAgentClient(token).list());
+      setAgentError(null);
+      return true;
+    } catch (error) {
+      setAgentError(error instanceof Error ? error.message : "Could not load agents.");
+      return false;
+    }
   }, [getToken]);
 
   const updateAgentName = useCallback(async (agentId: string, name: string) => {
@@ -251,7 +267,8 @@ export default function UsagePage() {
   }, [getToken, pendingAgentDelete]);
 
   useEffect(() => {
-    void fetchData();
+    const timeout = window.setTimeout(() => { void fetchData(); }, 0);
+    return () => window.clearTimeout(timeout);
   }, [fetchData]);
 
   useEffect(() => {
@@ -265,8 +282,18 @@ export default function UsagePage() {
   }, []);
 
   const periodLabel = rangePeriodLabel(range);
-  const agents = useMemo(() => sdkAgents.map(normalizeAgent), [sdkAgents]);
-  const rosterAgents = useMemo(() => sdkAgents.map(toAgentViewModel), [sdkAgents]);
+  const selectedWorkspaceAgentIdSet = useMemo(
+    () => new Set(selectedWorkspaceAgentIds),
+    [selectedWorkspaceAgentIds],
+  );
+  const workspaceSdkAgents = useMemo(
+    () => isAgentRosterLoading || agentRosterError
+      ? []
+      : sdkAgents.filter((agent) => selectedWorkspaceAgentIdSet.has(agent.id)),
+    [agentRosterError, isAgentRosterLoading, sdkAgents, selectedWorkspaceAgentIdSet],
+  );
+  const agents = useMemo(() => workspaceSdkAgents.map(normalizeAgent), [workspaceSdkAgents]);
+  const rosterAgents = useMemo(() => workspaceSdkAgents.map(toAgentViewModel), [workspaceSdkAgents]);
   const syntheticThreads = useMemo<ConversationThread[]>(() => rosterAgents.map((agent) => ({
     id: agent.id,
     sessionKey: resolveOpenClawSessionKey(agent.id),
@@ -288,25 +315,30 @@ export default function UsagePage() {
   const activeIntegrationCount = integrations.filter((integration) => integration.totalTokens > 0 || integration.requests > 0).length;
   const integrationMetric = activeIntegrationCount || usage?.activeKeys || 0;
   const agentRows = useMemo(
-    () => buildAgentRows({ agents, integrations, totals, hasData }),
-    [agents, hasData, integrations, totals],
+    () => buildAgentRows({ agents, integrations, totals, hasData, accountAgentCount: sdkAgents.length }),
+    [agents, hasData, integrations, sdkAgents.length, totals],
   );
   const displayName = displayNameForDashboard(user);
   const accountInitial = (displayName !== "there" ? displayName[0] : user?.email?.[0]) ?? "?";
   const selectedWorkspaceAgent = rosterAgents[0] ?? null;
-  const workspaceName = displayName === "there" ? "Personal workspace" : displayName;
+  const pageError = agentRosterError || agentError;
+  const agentCreationDisabledReason = workspaceAgentCreationDisabledReason(selectedWorkspace, agentRosterError);
 
   return (
     <div className="flex h-full bg-background text-foreground">
       <div
-        className="agent-desktop-navigation flex h-full min-h-0 shrink-0"
+        className={`agent-desktop-navigation relative flex h-full min-h-0 shrink-0 flex-col pt-14 ${isDesktopViewport ? "w-64" : "w-0"}`}
         data-roster-collapsed={sidebarCollapsed}
+        data-expanded-section={sidebarCollapsed ? "workspace" : "agents"}
       >
+        <div className="agent-desktop-navigation-sections relative isolate mt-2 flex min-h-0 w-full flex-1">
         <AgentList
           sidebarCollapsed={sidebarCollapsed}
           isDesktopViewport={isDesktopViewport}
           mobileShowChat
           agents={rosterAgents}
+          rosterLoading={loading || isAgentRosterLoading}
+          rosterOrderScope={selectedWorkspace?.id}
           selectedAgentId={null}
           setSelectedAgentId={(agentId) => router.push(`/dashboard/agents?agentId=${encodeURIComponent(agentId)}`)}
           setMobileShowChat={() => undefined}
@@ -314,30 +346,35 @@ export default function UsagePage() {
           syntheticThreads={syntheticThreads}
           getToken={getToken}
           createOpenClawAgent={createOpenClawAgent}
+          associateCreatedAgent={associateAgentWithSelectedWorkspace}
+          agentCreationDisabledReason={agentCreationDisabledReason}
           fetchAgents={fetchAgents}
           setError={setAgentError}
           sidebarCreatorSignal={0}
           setPendingAgentDelete={setPendingAgentDelete}
-        updateAgentName={updateAgentName}
-        accountInitial={accountInitial}
-        usageActive
-        onLogout={logout}
+          updateAgentName={updateAgentName}
+          accountInitial={accountInitial}
+          usageActive
+          embeddedInNavigation
+          onLogout={logout}
         />
         <DashboardWorkspaceNavigation
           selectedAgent={selectedWorkspaceAgent}
           isDesktopViewport={isDesktopViewport}
-          workspaceName={workspaceName}
-          workspaceInitial={accountInitial}
+          agentRosterCollapsed={sidebarCollapsed}
+          onAgentRosterCollapsedChange={setSidebarCollapsed}
         />
+        <div aria-hidden="true" className="pointer-events-none absolute -top-2 bottom-0 right-0 z-[60] w-px bg-border" />
+        </div>
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col">
         <main className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-[1000px] px-4 py-8 sm:px-6 lg:px-0">
-            {agentError ? (
+            {pageError ? (
               <div role="alert" className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                <span>{agentError}</span>
-                <button type="button" className="font-medium text-foreground" onClick={() => setAgentError(null)}>Dismiss</button>
+                <span>{pageError}</span>
+                {!agentRosterError ? <button type="button" className="font-medium text-foreground" onClick={() => setAgentError(null)}>Dismiss</button> : null}
               </div>
             ) : null}
             <div className="dashboard-overview-toolbar mb-6 border-b border-border pb-4">
