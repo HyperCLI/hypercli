@@ -97,7 +97,6 @@ import {
   unscopedOpenClawSessionKey,
 } from "@/lib/openclaw-session-sdk-surface";
 import { cronScheduleLabel } from "@/lib/cron-jobs";
-import { CONNECTOR_IDS } from "@/lib/connector-workflow";
 import { useConnectorWorkflow } from "@/hooks/useConnectorWorkflow";
 
 const E2E_OPENCLAW_CONNECTED_KEY = "claw_e2e_openclaw_connected";
@@ -137,6 +136,11 @@ function whatsAppActivationPatch(config: Record<string, unknown> | null): Record
     },
     channels: { whatsapp: { enabled: true } },
   };
+}
+
+function isUnsupportedGatewayMethodError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /unknown method|method not found|not implemented|unsupported/i.test(message);
 }
 
 interface SendMessageOptions {
@@ -2401,12 +2405,16 @@ export function useOpenClawSession(
 
   const integrationsStatus = useCallback(async (params: GatewayIntegrationStatusParams = {}): Promise<GatewayIntegrationStatusResult> => {
     if (!gateway) throw new Error("Not connected");
-    if (params.probe === true) return gateway.integrationsStatus(params);
+    const readStatus = () => gateway.integrationsStatus(params).catch((error: unknown) => {
+      if (isUnsupportedGatewayMethodError(error)) return {};
+      throw error;
+    });
+    if (params.probe === true) return readStatus();
     const cacheKey = integrationStatusCacheKey(params);
     const now = Date.now();
     const cached = integrationsStatusCacheRef.current.get(cacheKey);
     if (cached && cached.expiresAt > now) return cached.promise;
-    const promise = gateway.integrationsStatus(params);
+    const promise = readStatus();
     integrationsStatusCacheRef.current.set(cacheKey, { expiresAt: now + GATEWAY_STATUS_CACHE_TTL_MS, promise });
     void promise.catch(() => {
       if (integrationsStatusCacheRef.current.get(cacheKey)?.promise === promise) {
@@ -2499,7 +2507,6 @@ export function useOpenClawSession(
     runEphemeralPrompt,
     runShellProposal: runConnectorShellProposal,
   });
-  const { preloadConnectorWorkflows } = connectorWorkflow;
 
   const connected = seededE2EConnection || (status === "connected" && !hydrating && (fullHydrationEnabled ? ready : true));
   const connecting = seededE2EConnection || Boolean(error)
@@ -2516,18 +2523,6 @@ export function useOpenClawSession(
   const pendingInput = pendingMessages
     .filter((item) => sameChatHistoryTarget(item.target, activeSessionTarget))
     .map((item) => item.message);
-
-  const connectorPreloadProviderRef = useRef<OpenClawConnectorsProvider | null>(null);
-  useEffect(() => {
-    if (!connectorsProvider) {
-      connectorPreloadProviderRef.current = null;
-      return;
-    }
-    if (status !== "connected" || sendingTargets.length > 0) return;
-    if (connectorPreloadProviderRef.current === connectorsProvider) return;
-    connectorPreloadProviderRef.current = connectorsProvider;
-    void preloadConnectorWorkflows(CONNECTOR_IDS.filter((connectorId) => connectorId !== "whatsapp"));
-  }, [connectorsProvider, preloadConnectorWorkflows, sendingTargets.length, status]);
 
   return {
     gateway,

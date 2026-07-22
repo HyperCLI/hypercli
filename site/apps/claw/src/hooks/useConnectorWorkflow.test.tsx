@@ -337,7 +337,7 @@ describe("useConnectorWorkflow", () => {
     expect(result.current.connectorWorkflows.slack?.summary).toBe("Updated weekly Slack guidance.");
   });
 
-  it("automatically refreshes persisted guidance when its weekly check is due", async () => {
+  it("does not automatically refresh persisted guidance when its weekly check is due", async () => {
     let now = 1_800_000_000_000;
     vi.spyOn(Date, "now").mockImplementation(() => now);
     const runEphemeralPrompt = vi.fn(async (prompt: string) => workflowResponse(prompt));
@@ -363,7 +363,8 @@ describe("useConnectorWorkflow", () => {
     expect(second.result.current.connectorWorkflows.discord).toEqual(
       expect.objectContaining({ connectorId: "discord" }),
     );
-    await waitFor(() => expect(runEphemeralPrompt).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(runEphemeralPrompt).toHaveBeenCalledTimes(1);
     second.unmount();
   });
 

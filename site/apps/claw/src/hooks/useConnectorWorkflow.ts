@@ -17,7 +17,6 @@ import {
   type ConnectorWorkflow,
 } from "@/lib/connector-workflow";
 import {
-  CONNECTOR_WORKFLOW_REFRESH_INTERVAL_MS,
   connectorWorkflowEntryIsFresh,
   readStoredConnectorWorkflows,
   writeStoredConnectorWorkflows,
@@ -386,25 +385,6 @@ export function useConnectorWorkflow({
     }
     activePreloadsRef.current.clear();
   }, [provider, scopeKey]);
-
-  useEffect(() => {
-    if (workflowState.scopeKey !== scopeKey || !provider) return;
-    const connectorIds = (Object.keys(workflowState.entries) as ConnectorId[]).filter((connectorId) => (
-      workflowState.entries[connectorId]!.lastCheckedAt > 0
-    ));
-    if (connectorIds.length === 0) return;
-    const now = Date.now();
-    const nextRefreshAt = Math.min(...connectorIds.map((connectorId) => (
-      workflowState.entries[connectorId]!.lastCheckedAt + CONNECTOR_WORKFLOW_REFRESH_INTERVAL_MS
-    )));
-    const refresh = () => void preloadConnectorWorkflows(connectorIds);
-    if (nextRefreshAt <= now) {
-      if (!backgroundBlocked) refresh();
-      return;
-    }
-    const timer = window.setTimeout(refresh, nextRefreshAt - now);
-    return () => window.clearTimeout(timer);
-  }, [backgroundBlocked, preloadConnectorWorkflows, provider, scopeKey, workflowState]);
 
   useEffect(() => {
     mountedRef.current = true;

@@ -785,7 +785,7 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
-  it("preloads starting guidance and checks all prompt-driven integrations", async () => {
+  it("exposes starting connector guidance without generating background private sessions", async () => {
     const gateway = buildGateway();
     const pendingConfig = deferred<Record<string, unknown>>();
     gateway.configGet.mockImplementation(() => pendingConfig.promise);
@@ -830,21 +830,13 @@ describe("useOpenClawSession", () => {
       "slack",
       "whatsapp",
     ]);
-    await waitFor(() => expect(gateway.runEphemeralChat).toHaveBeenCalledTimes(4));
+    expect(gateway.runEphemeralChat).not.toHaveBeenCalled();
     expect(result.current.ready).toBe(false);
-
-    const prompts = gateway.runEphemeralChat.mock.calls.map(([prompt]) => prompt as string);
-    expect(prompts.map((prompt) => prompt.match(/Plan a (\w+) connector/)?.[1])).toEqual([
-      "github",
-      "telegram",
-      "discord",
-      "slack",
-    ]);
-    expect(gateway.runEphemeralChat.mock.calls.every(([, options]) => options?.fastMode === true)).toBe(true);
 
     pendingConfig.resolve({ llm: { model: "old-model" } });
     await waitFor(() => expect(result.current.ready).toBe(true));
     expect(result.current.connectorsProvider).toBe(onlineProvider);
+    expect(gateway.runEphemeralChat).not.toHaveBeenCalled();
     unmount();
   });
 
@@ -1044,7 +1036,7 @@ describe("useOpenClawSession", () => {
     const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
 
     await waitFor(() => expect(result.current.connected).toBe(true));
-    await waitFor(() => expect(gateway.runEphemeralChat).toHaveBeenCalledTimes(4));
+    expect(gateway.runEphemeralChat).not.toHaveBeenCalled();
     const backgroundChannelCalls = gateway.channelsStatus.mock.calls.length;
     const backgroundIntegrationCalls = gateway.integrationsStatus.mock.calls.length;
 
@@ -1083,6 +1075,24 @@ describe("useOpenClawSession", () => {
     });
 
     expect(gateway.integrationsStatus).toHaveBeenCalledTimes(backgroundIntegrationCalls + 5);
+    unmount();
+  });
+
+  it("treats unsupported direct integration status as an empty inventory", async () => {
+    const gateway = buildGateway();
+    gateway.integrationsStatus.mockRejectedValue(new Error("unknown method: integrations.status"));
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+    await waitFor(() => expect(result.current.connected).toBe(true));
+
+    await expect(result.current.integrationsStatus({ integrationId: "github" })).resolves.toEqual({});
+    await expect(result.current.integrationsStatus({ probe: true, integrationId: "github" })).resolves.toEqual({});
     unmount();
   });
 

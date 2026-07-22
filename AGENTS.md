@@ -188,6 +188,12 @@ If you add templates, update `scripts/templates.txt` and re-run the generator.
   other transport state machines when that behavior already exists in the SDK.
   The frontend should compose SDK primitives and render SDK state, not recreate
   connection/session authority locally.
+- Keep the platform/runtime boundary explicit. HyperCLI is a generic agent
+  platform and must support multiple agent runtimes with different behavior.
+  OpenClaw-specific behavior should live behind OpenClaw-named SDK classes,
+  runtime descriptors, adapters, hooks, or components. Do not leak OpenClaw
+  assumptions into generic agent models, shared platform APIs, or UI flows
+  without wrapping them in a runtime-specific shape first.
 - For Claw agent chat, use
   `site/apps/claw/src/lib/openclaw-session-key.ts:resolveOpenClawSessionKey()`.
   HyperCLI deployments already connect to separate OpenClaw gateways, so the
