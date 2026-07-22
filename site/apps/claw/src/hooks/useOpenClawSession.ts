@@ -85,6 +85,7 @@ import {
   listOpenClawSessions,
   normalizeOpenClawSessionDisplayName,
   normalizeOpenClawSessions,
+  normalizeOpenClawThinkingLevels,
   openClawEventMatchesSession,
   openClawGatewaySessionKey,
   openClawSessionTitleMapKeys,
@@ -294,6 +295,11 @@ function sameOpenClawSessionRecordForDisplay(left: OpenClawSessionRecord, right:
   return left.key === right.key &&
     left.gatewaySessionKey === right.gatewaySessionKey &&
     left.sourceSessionKey === right.sourceSessionKey &&
+    left.model === right.model &&
+    left.modelProvider === right.modelProvider &&
+    left.thinkingLevel === right.thinkingLevel &&
+    left.thinkingDefault === right.thinkingDefault &&
+    JSON.stringify(left.thinkingLevels ?? []) === JSON.stringify(right.thinkingLevels ?? []) &&
     left.clientMode === right.clientMode &&
     left.clientDisplayName === right.clientDisplayName &&
     left.createdAt === right.createdAt &&
@@ -456,6 +462,25 @@ function shouldWaitForSessionListBeforeHistory(activeSessionKey: string): boolea
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function sessionPatchThinkingMetadata(value: unknown): {
+  thinkingLevel: string | null;
+  thinkingLevels: ReturnType<typeof normalizeOpenClawThinkingLevels>;
+  thinkingDefault: string | null;
+} {
+  const result = isRecord(value) ? value : null;
+  const resolved = isRecord(result?.resolved) ? result.resolved : null;
+  const entry = isRecord(result?.entry) ? result.entry : null;
+  return {
+    thinkingLevel: nonEmptyString(entry?.thinkingLevel) ?? nonEmptyString(resolved?.thinkingLevel),
+    thinkingLevels: normalizeOpenClawThinkingLevels(resolved?.thinkingLevels, resolved?.thinkingOptions),
+    thinkingDefault: nonEmptyString(resolved?.thinkingDefault),
+  };
 }
 
 function stableStatusCacheKey(value: unknown): string {
@@ -1107,6 +1132,10 @@ export function useOpenClawSession(
       ? findOpenClawSelectableSession(activeSessionRecords, OPENCLAW_DEFAULT_SESSION_KEY)
       : null);
   const activeGatewaySessionKey = openClawGatewaySessionKey(activeSessionRecord) ?? activeSessionKey;
+  const activeSessionModel = activeSessionRecord?.model ?? null;
+  const activeSessionThinkingLevel = activeSessionRecord?.thinkingLevel ?? null;
+  const activeSessionThinkingLevels = activeSessionRecord?.thinkingLevels ?? [];
+  const activeSessionThinkingDefault = activeSessionRecord?.thinkingDefault ?? null;
   const activeSessionReadOnly = Boolean(activeSessionRecord?.readOnly);
   const activeSessionReadOnlyReason = activeSessionRecord?.readOnlyReason ?? null;
   const activeSessionIsEphemeral = isEphemeralOpenClawSessionName(activeSessionKey);
@@ -1728,6 +1757,105 @@ export function useOpenClawSession(
     const keys = Object.keys(patch);
     appendActivity({ type: "system", action: "Config updated", detail: keys.length > 0 ? keys.slice(0, 3).join(", ") + (keys.length > 3 ? `, +${keys.length - 3}` : "") : "" });
   }, [gateway, appendActivity, clearGatewayStatusCaches, updateConnectionHydration]);
+
+  const setActiveSessionModel = useCallback(async (model: string) => {
+    const nextModel = model.trim();
+    if (!gateway) throw new Error("Connect the gateway before changing models.");
+    if (!nextModel) throw new Error("Choose a model before continuing.");
+    if (activeSessionReadOnly) throw new Error(activeSessionReadOnlyReason ?? "This conversation is read-only.");
+
+    const patchResult = await gateway.sessionsPatch({ key: activeGatewaySessionKey, model: nextModel });
+    const thinkingMetadata = sessionPatchThinkingMetadata(patchResult);
+    setSessions((current) => {
+      if (sessionsAgentId !== agentId) return current;
+      let matched = false;
+      const next = current.map((session) => {
+        const sessionGatewayKey = openClawGatewaySessionKey(session) ?? session.key;
+        if (
+          !sameOpenClawSessionKey(sessionGatewayKey, activeGatewaySessionKey) &&
+          !sameOpenClawSelectableSessionKey(session.key, activeSessionKey)
+        ) {
+          return session;
+        }
+        matched = true;
+        const {
+          thinkingLevel: _thinkingLevel,
+          thinkingLevels: _thinkingLevels,
+          thinkingDefault: _thinkingDefault,
+          ...sessionWithoutThinking
+        } = session;
+        return {
+          ...sessionWithoutThinking,
+          model: nextModel,
+          ...(thinkingMetadata.thinkingLevel ? { thinkingLevel: thinkingMetadata.thinkingLevel } : {}),
+          ...(thinkingMetadata.thinkingLevels.length > 0 ? { thinkingLevels: thinkingMetadata.thinkingLevels } : {}),
+          ...(thinkingMetadata.thinkingDefault ? { thinkingDefault: thinkingMetadata.thinkingDefault } : {}),
+          raw: { ...session.raw, model: nextModel },
+        };
+      });
+      if (matched) return next;
+
+      const localSession = localOpenClawSessionRecord(activeSessionKey);
+      return [...next, {
+        ...localSession,
+        ...(activeGatewaySessionKey !== activeSessionKey ? { gatewaySessionKey: activeGatewaySessionKey } : {}),
+        model: nextModel,
+        ...(thinkingMetadata.thinkingLevel ? { thinkingLevel: thinkingMetadata.thinkingLevel } : {}),
+        ...(thinkingMetadata.thinkingLevels.length > 0 ? { thinkingLevels: thinkingMetadata.thinkingLevels } : {}),
+        ...(thinkingMetadata.thinkingDefault ? { thinkingDefault: thinkingMetadata.thinkingDefault } : {}),
+        raw: { ...localSession.raw, key: activeGatewaySessionKey, model: nextModel },
+      }];
+    });
+    appendActivity({ type: "system", action: "Conversation model changed", detail: nextModel });
+  }, [activeGatewaySessionKey, activeSessionKey, activeSessionReadOnly, activeSessionReadOnlyReason, agentId, appendActivity, gateway, sessionsAgentId]);
+
+  const setActiveSessionThinkingLevel = useCallback(async (thinkingLevel: string) => {
+    const nextThinkingLevel = thinkingLevel.trim();
+    if (!gateway) throw new Error("Connect the gateway before changing variants.");
+    if (!nextThinkingLevel) throw new Error("Choose a variant before continuing.");
+    if (activeSessionReadOnly) throw new Error(activeSessionReadOnlyReason ?? "This conversation is read-only.");
+
+    const patchResult = await gateway.sessionsPatch({
+      key: activeGatewaySessionKey,
+      thinkingLevel: nextThinkingLevel,
+    });
+    const thinkingMetadata = sessionPatchThinkingMetadata(patchResult);
+    const resolvedThinkingLevel = thinkingMetadata.thinkingLevel ?? nextThinkingLevel;
+    setSessions((current) => {
+      if (sessionsAgentId !== agentId) return current;
+      let matched = false;
+      const next = current.map((session) => {
+        const sessionGatewayKey = openClawGatewaySessionKey(session) ?? session.key;
+        if (
+          !sameOpenClawSessionKey(sessionGatewayKey, activeGatewaySessionKey) &&
+          !sameOpenClawSelectableSessionKey(session.key, activeSessionKey)
+        ) {
+          return session;
+        }
+        matched = true;
+        return {
+          ...session,
+          thinkingLevel: resolvedThinkingLevel,
+          ...(thinkingMetadata.thinkingLevels.length > 0 ? { thinkingLevels: thinkingMetadata.thinkingLevels } : {}),
+          ...(thinkingMetadata.thinkingDefault ? { thinkingDefault: thinkingMetadata.thinkingDefault } : {}),
+          raw: { ...session.raw, thinkingLevel: resolvedThinkingLevel },
+        };
+      });
+      if (matched) return next;
+
+      const localSession = localOpenClawSessionRecord(activeSessionKey);
+      return [...next, {
+        ...localSession,
+        ...(activeGatewaySessionKey !== activeSessionKey ? { gatewaySessionKey: activeGatewaySessionKey } : {}),
+        ...(activeSessionModel ? { model: activeSessionModel } : {}),
+        thinkingLevel: resolvedThinkingLevel,
+        ...(thinkingMetadata.thinkingLevels.length > 0 ? { thinkingLevels: thinkingMetadata.thinkingLevels } : {}),
+        ...(thinkingMetadata.thinkingDefault ? { thinkingDefault: thinkingMetadata.thinkingDefault } : {}),
+        raw: { ...localSession.raw, key: activeGatewaySessionKey, thinkingLevel: resolvedThinkingLevel },
+      }];
+    });
+    appendActivity({ type: "system", action: "Conversation variant changed", detail: resolvedThinkingLevel });
+  }, [activeGatewaySessionKey, activeSessionKey, activeSessionModel, activeSessionReadOnly, activeSessionReadOnlyReason, agentId, appendActivity, gateway, sessionsAgentId]);
 
   const saveFullConfig = useCallback(async (nextConfig: Record<string, unknown>) => {
     if (!gateway) throw new Error("Not connected");
@@ -2543,6 +2671,10 @@ export function useOpenClawSession(
     pendingInput,
     addPendingMessage,
     activeSessionKey,
+    activeSessionModel,
+    activeSessionThinkingLevel,
+    activeSessionThinkingLevels,
+    activeSessionThinkingDefault,
     activeSessionReadOnly,
     activeSessionReadOnlyReason,
     temporaryChatAvailable,
@@ -2560,6 +2692,8 @@ export function useOpenClawSession(
     openFile,
     saveFile,
     saveConfig,
+    setActiveSessionModel,
+    setActiveSessionThinkingLevel,
     saveFullConfig,
     channelsStatus,
     ensureWhatsAppSupport,

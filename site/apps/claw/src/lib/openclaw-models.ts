@@ -9,6 +9,12 @@ export interface OpenClawModelOption {
   modelId?: string;
 }
 
+export interface OpenClawConfiguredProviderOption {
+  value: string;
+  label: string;
+  modelCount: number;
+}
+
 function firstString(...values: unknown[]): string | null {
   for (const value of values) {
     if (typeof value !== "string") continue;
@@ -108,12 +114,12 @@ function modelOptionsFromList(models: Array<Record<string, unknown>> | null | un
 
         const value = modelId.includes("/") ? modelId : `${providerId}/${modelId}`;
         const displayName = firstString(nested?.name, nested?.displayName, nested?.label, nested?.title, modelId) ?? modelId;
-        return [{
-          value,
-          label: modelLabel(displayName, providerLabel),
-          detail: providerLabel ?? undefined,
-          providerId,
-          modelId,
+          return [{
+            value,
+            label: modelLabel(displayName, providerLabel),
+            detail: providerLabel ?? undefined,
+            providerId,
+            modelId,
         }];
       });
     }
@@ -170,6 +176,59 @@ export function normalizeOpenClawModelOptions(
   }
 
   return options;
+}
+
+export function normalizeOpenClawConfiguredProviders(
+  config: Record<string, unknown> | null | undefined,
+): OpenClawConfiguredProviderOption[] {
+  const cfg = asObject(config);
+  const providers = asObject(asObject(cfg?.models)?.providers);
+  if (!providers) return [];
+
+  return Object.entries(providers)
+    .flatMap(([providerId, providerRaw]) => {
+      const provider = asObject(providerRaw);
+      if (!provider) return [];
+      return [{
+        value: providerId,
+        label: firstString(provider.name, provider.displayName, provider.label, providerId) ?? providerId,
+        modelCount: Array.isArray(provider.models) ? provider.models.length : 0,
+      }];
+    })
+    .sort((left, right) => left.label.localeCompare(right.label));
+}
+
+export function buildOpenClawModelUpsertPatch(
+  config: Record<string, unknown> | null | undefined,
+  providerValue: string,
+  modelValue: string,
+): JsonObject {
+  const providerId = providerValue.trim();
+  const modelId = modelValue.trim();
+  if (!providerId) throw new Error("Choose a provider before adding a model.");
+  if (!modelId) throw new Error("Enter a model ID before continuing.");
+
+  const cfg = asObject(config);
+  const providers = asObject(asObject(cfg?.models)?.providers);
+  const provider = asObject(providers?.[providerId]);
+  if (!provider) throw new Error("Choose a configured provider before adding a model.");
+
+  const existingModels = Array.isArray(provider.models) ? provider.models : [];
+  const duplicate = existingModels.some((modelRaw) => {
+    const model = asObject(modelRaw);
+    return firstString(model?.id, model?.modelId, model?.model_id, model?.model) === modelId;
+  });
+  if (duplicate) throw new Error(`Model "${modelId}" is already configured for ${providerId}.`);
+
+  return {
+    models: {
+      providers: {
+        [providerId]: {
+          models: [...existingModels, { id: modelId, name: modelId }],
+        },
+      },
+    },
+  };
 }
 
 export function buildOpenClawDefaultModelPatch(modelValue: string): JsonObject {

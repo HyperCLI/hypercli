@@ -4,17 +4,18 @@ import Link from "next/link";
 import React from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, Reorder } from "framer-motion";
-import { ArrowLeft, ArrowRight, BarChart3, Blocks, Check, Codepen, FolderOpen, HardDrive, House, KeyRound, Loader2, LogOut, MessageSquare, PanelRight, Plus, Play, Settings, SlidersHorizontal, Sparkles, Square, UsersRound, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, BarChart3, Blocks, Check, Codepen, Copy, FolderOpen, HardDrive, House, KeyRound, Loader2, LogOut, MessageSquare, PanelRight, Plus, Play, Settings, SlidersHorizontal, Sparkles, Square, UsersRound, X } from "lucide-react";
 import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import type { AgentChannelSummary } from "@hypercli.com/sdk/channels";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
+import { Button, Input, writeClipboardText } from "@hypercli/shared-ui";
 
 import type { Agent, JsonObject } from "@/app/dashboard/agents/types";
 import { isAgentFailureState, isAgentOffline, isAgentTransitionalState } from "@/app/dashboard/agents/types";
 import { AUTH_BASE_URL, SLACK_APP_HANDLE } from "@/lib/api";
 import { asObject, getOpenClawUiHint, humanizeKey } from "@/lib/openclaw-config";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@hypercli/shared-ui";
+import { Tooltip, TooltipContent, TooltipHint, TooltipTrigger } from "@/components/ClawTooltip";
 import { AgentCardTooltip, type AgentCardTooltipData } from "@/components/dashboard/modules/AgentCardModule";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { AgentsChannelsSidebar, AgentsSidebarDashboardLinks, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
@@ -172,14 +173,11 @@ export function OpenClawConfigPanel({
         <div className="flex-1" />
         {saving && <p className="text-[10px] text-text-muted">Saving openclaw.json</p>}
         {onClose && (
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
-            title="Close OpenClaw config"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
+          <TooltipHint label="Close OpenClaw config">
+            <button type="button" aria-label="Close OpenClaw config" onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </TooltipHint>
         )}
       </div>
       {(effectiveError || effectiveSuccess) && (
@@ -283,22 +281,22 @@ export function OpenClawSettingsPanel({
         const sectionDescription = openclawSectionDescription(openclawSchemaBundle, sectionKey, sectionSchema, sectionKey);
         const selected = effectiveOpenclawSection === sectionKey;
         return (
-          <button
-            key={`openclaw-section-${sectionKey}`}
-            type="button"
-            onClick={() => {
-              setActiveOpenclawSection(sectionKey);
-              setMobileSectionsOpen(false);
-            }}
-            className={`block w-full rounded-md px-2.5 py-2 text-left text-xs transition-colors ${
-              selected
-                ? "border-l-2 border-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.15)] font-medium text-foreground"
-                : "text-text-muted hover:bg-surface-low/50 hover:text-foreground"
-            }`}
-            title={sectionDescription}
-          >
-            <span className="block truncate">{sectionLabel}</span>
-          </button>
+          <TooltipHint key={`openclaw-section-${sectionKey}`} label={sectionDescription} side="right">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveOpenclawSection(sectionKey);
+                setMobileSectionsOpen(false);
+              }}
+              className={`block w-full rounded-md px-2.5 py-2 text-left text-xs transition-colors ${
+                selected
+                  ? "border-l-2 border-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.15)] font-medium text-foreground"
+                  : "text-text-muted hover:bg-surface-low/50 hover:text-foreground"
+              }`}
+            >
+              <span className="block truncate">{sectionLabel}</span>
+            </button>
+          </TooltipHint>
         );
       })}
     </div>
@@ -375,14 +373,11 @@ export function OpenClawSettingsPanel({
             {saveLabel}
           </button>
           {onClose && (
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
-              title="Close OpenClaw settings"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <TooltipHint label="Close OpenClaw settings">
+              <button type="button" aria-label="Close OpenClaw settings" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </TooltipHint>
           )}
         </div>
 
@@ -548,6 +543,11 @@ function profileNameFromUser(user: AgentSettingsPanelProps["user"]): string {
 
 function profileAvatarFromUser(user: AgentSettingsPanelProps["user"]): string | null {
   return user?.avatarUrl || user?.imageUrl || null;
+}
+
+function profileUserIdFromUser(user: AgentSettingsPanelProps["user"]): string {
+  const id = user?.id?.trim() || "";
+  return id === "stored-session" || id.startsWith("did:") ? "" : id;
 }
 
 function profileInitials(name: string, email?: string): string {
@@ -849,6 +849,7 @@ function AgentProfileSettingsRow({
 
 function AgentGeneralSettingsContent({
   user,
+  profileUserId,
   profileName,
   profileAvatar,
   profileError,
@@ -861,6 +862,7 @@ function AgentGeneralSettingsContent({
   showSessionActions = true,
 }: {
   user: AgentSettingsPanelProps["user"];
+  profileUserId: string;
   profileName: string;
   profileAvatar: string | null;
   profileError: string | null;
@@ -873,7 +875,22 @@ function AgentGeneralSettingsContent({
   showSessionActions?: boolean;
 }) {
   const avatarInputRef = React.useRef<HTMLInputElement | null>(null);
+  const [uuidCopyResult, setUuidCopyResult] = React.useState<{ userId: string; copied: boolean } | null>(null);
   const email = user?.email || "";
+  const uuidCopyStatus = uuidCopyResult?.userId === profileUserId
+    ? uuidCopyResult.copied ? "copied" : "failed"
+    : "idle";
+
+  React.useEffect(() => {
+    if (uuidCopyStatus !== "copied") return;
+    const timeout = window.setTimeout(() => setUuidCopyResult(null), 2000);
+    return () => window.clearTimeout(timeout);
+  }, [uuidCopyStatus]);
+
+  const copyUserUuid = async () => {
+    if (!profileUserId) return;
+    setUuidCopyResult({ userId: profileUserId, copied: await writeClipboardText(profileUserId) });
+  };
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-5 py-7 md:px-8">
@@ -912,28 +929,52 @@ function AgentGeneralSettingsContent({
             />
           </AgentProfileSettingsRow>
 
+          <AgentProfileSettingsRow label="User UUID" description="Share this ID when someone adds you directly to a Workspace.">
+            <div className="flex min-w-0 gap-2">
+              <Input
+                aria-label="User UUID"
+                readOnly
+                value={profileUserId}
+                placeholder="Loading user UUID"
+                className={`${SETTINGS_FIELD_CLASS} min-w-0 font-mono text-xs`}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => { void copyUserUuid(); }}
+                disabled={!profileUserId}
+                aria-label={uuidCopyStatus === "copied" ? "User UUID copied" : "Copy user UUID"}
+                className="h-9 min-w-[92px] rounded-lg px-3 text-xs"
+              >
+                {uuidCopyStatus === "copied" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                {uuidCopyStatus === "copied" ? "Copied" : uuidCopyStatus === "failed" ? "Try again" : "Copy"}
+              </Button>
+            </div>
+          </AgentProfileSettingsRow>
+
           <AgentProfileSettingsRow
             label="Avatar"
             description="Personalize your profile image."
             minHeight="min-h-[144px]"
           >
             <div className="flex items-start gap-5">
-              <button
-                type="button"
-                onClick={() => {
-                  if (avatarUpdatesEnabled) avatarInputRef.current?.click();
-                }}
-                disabled={!avatarUpdatesEnabled}
-                title={!avatarUpdatesEnabled ? "Avatar uploads are coming soon." : undefined}
-                className="relative flex h-[64px] w-[64px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-high text-[13px] font-semibold text-text-muted"
-                aria-label="Upload profile avatar"
-              >
-                {profileAvatar ? (
-                  <ResourceImage src={profileAvatar} alt="Profile avatar" fill sizes="64px" className="object-cover" />
-                ) : (
-                  <span>{profileInitials(profileName, email)}</span>
-                )}
-              </button>
+              <TooltipHint label={avatarUpdatesEnabled ? "Upload profile avatar" : "Avatar uploads are coming soon."} disabled={!avatarUpdatesEnabled}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (avatarUpdatesEnabled) avatarInputRef.current?.click();
+                  }}
+                  disabled={!avatarUpdatesEnabled}
+                  className="relative flex h-[64px] w-[64px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-high text-[13px] font-semibold text-text-muted"
+                  aria-label="Upload profile avatar"
+                >
+                  {profileAvatar ? (
+                    <ResourceImage src={profileAvatar} alt="Profile avatar" fill sizes="64px" className="object-cover" />
+                  ) : (
+                    <span>{profileInitials(profileName, email)}</span>
+                  )}
+                </button>
+              </TooltipHint>
               <div className="min-w-0">
                 <p className="text-[16px] font-semibold leading-5 text-foreground">Upload Image</p>
                 <p className="mt-1 text-[13px] font-semibold leading-5 text-text-muted">PNG, JPEG, WebP, or GIF up to 2MB</p>
@@ -946,25 +987,17 @@ function AgentGeneralSettingsContent({
                   className="hidden"
                 />
                 {profileAvatar ? (
-                  <button
-                    type="button"
-                    onClick={onAvatarRemove}
-                    disabled={!avatarUpdatesEnabled}
-                    title={!avatarUpdatesEnabled ? "Avatar uploads are coming soon." : undefined}
-                    className={`mt-3 ${SETTINGS_DANGER_BUTTON_CLASS}`}
-                  >
-                    Remove
-                  </button>
+                  <TooltipHint label={avatarUpdatesEnabled ? "Remove profile avatar" : "Avatar uploads are coming soon."} disabled={!avatarUpdatesEnabled}>
+                    <button type="button" onClick={onAvatarRemove} disabled={!avatarUpdatesEnabled} className={`mt-3 ${SETTINGS_DANGER_BUTTON_CLASS}`}>
+                      Remove
+                    </button>
+                  </TooltipHint>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => avatarInputRef.current?.click()}
-                    disabled={!avatarUpdatesEnabled}
-                    title={!avatarUpdatesEnabled ? "Avatar uploads are coming soon." : undefined}
-                    className={`mt-3 ${SETTINGS_SMALL_BUTTON_CLASS}`}
-                  >
-                    Upload
-                  </button>
+                  <TooltipHint label={avatarUpdatesEnabled ? "Upload profile avatar" : "Avatar uploads are coming soon."} disabled={!avatarUpdatesEnabled}>
+                    <button type="button" onClick={() => avatarInputRef.current?.click()} disabled={!avatarUpdatesEnabled} className={`mt-3 ${SETTINGS_SMALL_BUTTON_CLASS}`}>
+                      Upload
+                    </button>
+                  </TooltipHint>
                 )}
               </div>
             </div>
@@ -1100,17 +1133,18 @@ function AgentSectionSettingsContent({
               <Square className="h-3 w-3 fill-current" />
             </button>
           ) : (
-            <button
-              type="button"
-              aria-label="Start agent"
-              onClick={onStartAgent}
-              disabled={!canStartAgent || !onStartAgent || lifecycleBusy || agentStartBlocked}
-              title={agentStartBlockedReason ?? undefined}
-              className="inline-flex h-8 shrink-0 items-center gap-2 rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.4)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-3 text-xs font-medium text-[var(--selection-accent)] transition-colors hover:bg-[rgb(var(--selection-accent-rgb)_/_0.15)] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {agentStarting || isAgentTransitionalState(agent.state) ? "Starting..." : "Start agent"}
-              <Play className="h-3.5 w-3.5 fill-current" />
-            </button>
+            <TooltipHint label={agentStartBlockedReason ?? "Start agent"} disabled={!canStartAgent || !onStartAgent || lifecycleBusy || agentStartBlocked}>
+              <button
+                type="button"
+                aria-label="Start agent"
+                onClick={onStartAgent}
+                disabled={!canStartAgent || !onStartAgent || lifecycleBusy || agentStartBlocked}
+                className="inline-flex h-8 shrink-0 items-center gap-2 rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.4)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-3 text-xs font-medium text-[var(--selection-accent)] transition-colors hover:bg-[rgb(var(--selection-accent-rgb)_/_0.15)] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {agentStarting || isAgentTransitionalState(agent.state) ? "Starting..." : "Start agent"}
+                <Play className="h-3.5 w-3.5 fill-current" />
+              </button>
+            </TooltipHint>
           )}
         </div>
 
@@ -1156,22 +1190,23 @@ function AgentSectionSettingsContent({
             minHeight="min-h-[144px]"
           >
             <div className="flex items-start gap-5">
-              <button
-                type="button"
-                onClick={() => {
-                  if (agentAvatarUpdatesEnabled) avatarInputRef.current?.click();
-                }}
-                disabled={!agentAvatarUpdatesEnabled}
-                title={!agentAvatarUpdatesEnabled ? "Avatar uploads are coming soon." : undefined}
-                className="relative flex h-[64px] w-[64px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-high text-[13px] font-semibold text-text-muted"
-                aria-label="Upload agent avatar"
-              >
-                {agentAvatarPreview ? (
-                  <ResourceImage src={agentAvatarPreview} alt="Agent avatar" fill sizes="64px" className="object-cover" />
-                ) : (
-                  <span>{initialsFromName(agentName)}</span>
-                )}
-              </button>
+              <TooltipHint label={agentAvatarUpdatesEnabled ? "Upload agent avatar" : "Avatar uploads are coming soon."} disabled={!agentAvatarUpdatesEnabled}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (agentAvatarUpdatesEnabled) avatarInputRef.current?.click();
+                  }}
+                  disabled={!agentAvatarUpdatesEnabled}
+                  className="relative flex h-[64px] w-[64px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-high text-[13px] font-semibold text-text-muted"
+                  aria-label="Upload agent avatar"
+                >
+                  {agentAvatarPreview ? (
+                    <ResourceImage src={agentAvatarPreview} alt="Agent avatar" fill sizes="64px" className="object-cover" />
+                  ) : (
+                    <span>{initialsFromName(agentName)}</span>
+                  )}
+                </button>
+              </TooltipHint>
               <div className="min-w-0">
                 <p className="text-[16px] font-semibold leading-5 text-foreground">Upload Image</p>
                 <p className="mt-1 text-[13px] font-semibold leading-5 text-text-muted">Min 300x430px, PNG or JPEG</p>
@@ -1184,25 +1219,17 @@ function AgentSectionSettingsContent({
                   className="hidden"
                 />
                 {agentAvatarPreview ? (
-                  <button
-                    type="button"
-                    onClick={onAgentAvatarRemove}
-                    disabled={!agentAvatarUpdatesEnabled || !agentAvatarUploadPending}
-                    title={agentAvatarUploadPending ? undefined : "Select a new avatar to replace the current image."}
-                    className={`mt-3 ${SETTINGS_DANGER_BUTTON_CLASS}`}
-                  >
-                    Cancel
-                  </button>
+                  <TooltipHint label={agentAvatarUploadPending ? "Cancel avatar replacement" : "Select a new avatar to replace the current image."} disabled={!agentAvatarUpdatesEnabled || !agentAvatarUploadPending}>
+                    <button type="button" onClick={onAgentAvatarRemove} disabled={!agentAvatarUpdatesEnabled || !agentAvatarUploadPending} className={`mt-3 ${SETTINGS_DANGER_BUTTON_CLASS}`}>
+                      Cancel
+                    </button>
+                  </TooltipHint>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => avatarInputRef.current?.click()}
-                    disabled={!agentAvatarUpdatesEnabled}
-                    title={!agentAvatarUpdatesEnabled ? "Avatar uploads are coming soon." : undefined}
-                    className={`mt-3 ${SETTINGS_SMALL_BUTTON_CLASS}`}
-                  >
-                    {agentAvatarUploadPending ? "Selected" : "Upload"}
-                  </button>
+                  <TooltipHint label={agentAvatarUpdatesEnabled ? "Upload agent avatar" : "Avatar uploads are coming soon."} disabled={!agentAvatarUpdatesEnabled}>
+                    <button type="button" onClick={() => avatarInputRef.current?.click()} disabled={!agentAvatarUpdatesEnabled} className={`mt-3 ${SETTINGS_SMALL_BUTTON_CLASS}`}>
+                      {agentAvatarUploadPending ? "Selected" : "Upload"}
+                    </button>
+                  </TooltipHint>
                 )}
               </div>
             </div>
@@ -1603,6 +1630,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const [activeSettingsSection, setActiveSettingsSection] = React.useState<AgentSettingsSection>("general");
   const [savedProfileName, setSavedProfileName] = React.useState(() => profileNameFromUser(user));
   const [profileName, setProfileName] = React.useState(() => profileNameFromUser(user));
+  const [loadedProfileUser, setLoadedProfileUser] = React.useState<{ authUserId: string | null; userId: string } | null>(null);
   const [savedProfileAvatar, setSavedProfileAvatar] = React.useState<string | null>(() => profileAvatarFromUser(user));
   const [profileAvatar, setProfileAvatar] = React.useState<string | null>(() => profileAvatarFromUser(user));
   const [profileSaving, setProfileSaving] = React.useState(false);
@@ -1633,6 +1661,10 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const [agentSettingsSuccess, setAgentSettingsSuccess] = React.useState<string | null>(null);
   const [confirmImageChange, setConfirmImageChange] = React.useState(false);
   const objectUrlsRef = React.useRef<string[]>([]);
+  const authUserId = user?.id ?? null;
+  const profileUserId = loadedProfileUser?.authUserId === authUserId
+    ? loadedProfileUser.userId
+    : profileUserIdFromUser(user);
 
   React.useEffect(() => {
     const nextName = profileNameFromUser(user);
@@ -1657,6 +1689,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         const profile = await client.user.get();
         if (!active) return;
         const nextName = profile.name ?? profileNameFromUser(user);
+        setLoadedProfileUser({ authUserId: user.id ?? null, userId: profile.userId });
         setSavedProfileName(nextName);
         setProfileName(nextName);
       } catch (error) {
@@ -2051,6 +2084,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         {activeSettingsSection === "general" ? (
           <AgentGeneralSettingsContent
             user={user}
+            profileUserId={profileUserId}
             profileName={profileName}
             profileAvatar={profileAvatar}
             profileError={profileError}
@@ -2559,7 +2593,7 @@ export function AgentList({
             ) : null}
             <div className="agents-roster-scroll flex min-h-0 flex-1 flex-col items-center overflow-hidden bg-[var(--agent-roster-background)] py-3">
               <div className="agents-roster-rail-primary flex shrink-0 flex-col items-center gap-2">
-              <Tooltip delayDuration={300}>
+              <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
@@ -2572,7 +2606,7 @@ export function AgentList({
                 </TooltipTrigger>
                 <TooltipContent side="right">Expand agents sidebar</TooltipContent>
               </Tooltip>
-              <Tooltip delayDuration={300}>
+              <Tooltip>
                 <TooltipTrigger asChild>
                   {onOpenHome ? (
                     <button
@@ -2609,7 +2643,7 @@ export function AgentList({
               <div aria-hidden="true" className="agents-roster-rail-divider my-2 h-px w-8 shrink-0 bg-border/70" />
               <div className="agents-roster-rail-agents min-h-0 w-full shrink overflow-y-auto py-1">
                 <div className="flex w-full flex-col items-center gap-2">
-              <Tooltip delayDuration={300}>
+              <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
@@ -2676,7 +2710,7 @@ export function AgentList({
                       }}
                     >
                       {reorderingAgentId === null ? (
-                        <Tooltip delayDuration={300}>
+                        <Tooltip>
                           <TooltipTrigger asChild>{agentButton}</TooltipTrigger>
                           <TooltipContent side="right" align="start" className="bg-transparent border-0 p-0 shadow-none">
                             <AgentCardTooltip agentName={agentName} agent={mergedAgentCardDataById[a.id]} />
@@ -2691,7 +2725,7 @@ export function AgentList({
                 </div>
               </div>
               <div aria-hidden="true" className="agents-roster-rail-divider my-2 h-px w-8 shrink-0 bg-border/70" />
-              <Tooltip delayDuration={300}>
+              <Tooltip>
                 <TooltipTrigger asChild>
                   {onOpenKnowledge ? (
                     <button
@@ -2724,7 +2758,7 @@ export function AgentList({
                 </TooltipTrigger>
                 <TooltipContent side="right">Shared Knowledge</TooltipContent>
               </Tooltip>
-              <Tooltip delayDuration={300}>
+              <Tooltip>
                 <TooltipTrigger asChild>
                   {onOpenMembers ? (
                     <button
@@ -2757,7 +2791,7 @@ export function AgentList({
                 </TooltipTrigger>
                 <TooltipContent side="right">Members</TooltipContent>
               </Tooltip>
-              <Tooltip delayDuration={300}>
+              <Tooltip>
                 <TooltipTrigger asChild>
                   <Link
                     href="/usage"
@@ -2774,7 +2808,7 @@ export function AgentList({
                 </TooltipTrigger>
                 <TooltipContent side="right">Usage</TooltipContent>
               </Tooltip>
-              <Tooltip delayDuration={300}>
+              <Tooltip>
                 <TooltipTrigger asChild>
                   <Link
                     href="/dashboard/settings"
@@ -2980,30 +3014,31 @@ export function LaunchFirstAgentEmptyState({
             : "Agents handle projects, tasks, and workflows on your behalf."}
         </p>
 
-        <motion.button
-          type="button"
-          onClick={() => setShowWizard(true)}
-          disabled={Boolean(creationDisabledReason)}
-          title={creationDisabledReason ?? undefined}
-          whileHover={{ y: -1 }}
-          whileTap={{ scale: 0.99 }}
-          className="mt-9 flex min-h-[86px] w-full items-center gap-4 rounded-[8px] border border-foreground bg-surface-low px-6 py-4 text-left transition-colors hover:bg-surface-mid disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-surface-low focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--button-primary-rgb)_/_0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-        >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[7px] border border-border bg-surface-mid text-foreground">
-            <Codepen className="h-4 w-4" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-[14px] font-semibold leading-5 text-foreground">
-              {workspaceScoped ? "Launch an agent" : "Create an agent"}
+        <TooltipHint label={creationDisabledReason ?? (workspaceScoped ? "Launch an agent" : "Create an agent")} disabled={Boolean(creationDisabledReason)} triggerClassName="w-full">
+          <motion.button
+            type="button"
+            onClick={() => setShowWizard(true)}
+            disabled={Boolean(creationDisabledReason)}
+            whileHover={{ y: -1 }}
+            whileTap={{ scale: 0.99 }}
+            className="mt-9 flex min-h-[86px] w-full items-center gap-4 rounded-[8px] border border-foreground bg-surface-low px-6 py-4 text-left transition-colors hover:bg-surface-mid disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-surface-low focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--button-primary-rgb)_/_0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          >
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[7px] border border-border bg-surface-mid text-foreground">
+              <Codepen className="h-4 w-4" />
             </span>
-            <span className="mt-0.5 block text-[12px] font-medium leading-4 text-text-muted">
-              Name it, pick a plan, and connect it to where your team already works.
+            <span className="min-w-0 flex-1">
+              <span className="block text-[14px] font-semibold leading-5 text-foreground">
+                {workspaceScoped ? "Launch an agent" : "Create an agent"}
+              </span>
+              <span className="mt-0.5 block text-[12px] font-medium leading-4 text-text-muted">
+                Name it, pick a plan, and connect it to where your team already works.
+              </span>
             </span>
-          </span>
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] bg-[var(--button-primary)] text-[var(--button-primary-foreground)]">
-            <ArrowRight className="h-4 w-4" />
-          </span>
-        </motion.button>
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] bg-[var(--button-primary)] text-[var(--button-primary-foreground)]">
+              <ArrowRight className="h-4 w-4" />
+            </span>
+          </motion.button>
+        </TooltipHint>
         {creationDisabledReason ? (
           <p className="mt-3 text-sm text-text-muted">{creationDisabledReason}</p>
         ) : null}
@@ -3183,20 +3218,23 @@ function LaunchAgentCenteredEmptyStateContent({
           ))}
         </div>
 
-        <motion.button
-          whileHover={{ y: -1 }}
-          whileTap={{ scale: 0.98 }}
-          type="button"
-          onClick={onLaunch}
-          disabled={launchDisabled}
-          title={launchBlocked ? launchBlockedReason ?? "Start unavailable" : undefined}
-          className={`mt-8 inline-flex h-9 items-center gap-2 rounded-[8px] bg-[var(--button-primary)] px-3.5 text-[13px] font-semibold text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)] disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--button-primary-rgb)_/_0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
-            launching ? "disabled:cursor-wait" : "disabled:cursor-not-allowed"
-          }`}
-        >
-          {launchButtonLabel}
-          {launching ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-        </motion.button>
+        <div className="mt-8">
+          <TooltipHint label={launchBlocked ? launchBlockedReason ?? "Start unavailable" : launchButtonLabel} disabled={launchDisabled}>
+            <motion.button
+              whileHover={{ y: -1 }}
+              whileTap={{ scale: 0.98 }}
+              type="button"
+              onClick={onLaunch}
+              disabled={launchDisabled}
+              className={`inline-flex h-9 items-center gap-2 rounded-[8px] bg-[var(--button-primary)] px-3.5 text-[13px] font-semibold text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)] disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--button-primary-rgb)_/_0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
+                launching ? "disabled:cursor-wait" : "disabled:cursor-not-allowed"
+              }`}
+            >
+              {launchButtonLabel}
+              {launching ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+            </motion.button>
+          </TooltipHint>
+        </div>
       </div>
     </div>
   );

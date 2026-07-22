@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import {
   BarChart3,
@@ -13,6 +12,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { BRAND_ICONS } from "@/components/dashboard/BrandIcons";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ClawTooltip";
 
 export type DashboardTimeRange = "24h" | "7d" | "30d";
 
@@ -165,10 +165,10 @@ function formatHourlyTickLabel(index: number, total: number) {
   return hour < 12 ? `${hour} AM` : `${hour - 12} PM`;
 }
 
-function tooltipPositionClass(index: number, total: number) {
-  if (index <= 1) return "left-0";
-  if (index >= total - 2) return "right-0";
-  return "left-1/2 -translate-x-1/2";
+function tooltipAlign(index: number, total: number): "start" | "center" | "end" {
+  if (index <= 1) return "start";
+  if (index >= total - 2) return "end";
+  return "center";
 }
 
 function statusClassName(status: string) {
@@ -290,7 +290,6 @@ export function TokenUsagePanel({
   history: DashboardDayData[];
   periodLabel: string;
 }) {
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const hourlyRange = periodLabel === "Last 24h";
   const chartHistory = hourlyRange ? normalizeHourlyHistory(history) : history;
   const hasData = chartHistory.some((day) => day.totalTokens > 0);
@@ -331,33 +330,31 @@ export function TokenUsagePanel({
                 const promptShare = day.totalTokens > 0 ? day.promptTokens / day.totalTokens : 0;
                 const promptPct = Math.max(totalPct * promptShare, day.promptTokens > 0 ? 2 : 0);
                 const completionPct = Math.max(totalPct - promptPct, day.completionTokens > 0 ? 2 : 0);
-                const tooltipId = `token-usage-tooltip-${index}`;
-
                 return (
-                  <div key={`${day.date}-${index}`} className="relative flex min-w-0 items-end justify-center">
-                    <button
-                      type="button"
-                      aria-label={`${formatTooltipDate(day.date)} token usage`}
-                      aria-describedby={activeIndex === index ? tooltipId : undefined}
-                      onFocus={() => setActiveIndex(index)}
-                      onBlur={() => setActiveIndex((current) => (current === index ? null : current))}
-                      onMouseEnter={() => setActiveIndex(index)}
-                      onMouseLeave={() => setActiveIndex((current) => (current === index ? null : current))}
-                      className={`flex h-[160px] w-full flex-col justify-end overflow-hidden outline-none transition-[filter] focus-visible:ring-2 focus-visible:ring-primary/70 ${barShapeClass} ${activeIndex === index ? "brightness-110" : ""}`}
+                  <Tooltip key={`${day.date}-${index}`}>
+                    <div className="relative flex min-w-0 items-end justify-center">
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label={`${formatTooltipDate(day.date)} token usage`}
+                          className={`flex h-[160px] w-full flex-col justify-end overflow-hidden outline-none transition-[filter] data-[state=delayed-open]:brightness-110 focus-visible:ring-2 focus-visible:ring-primary/70 ${barShapeClass}`}
+                        >
+                          {day.promptTokens > 0 && (
+                            <span className="w-full bg-primary" style={{ height: `${promptPct}%` }} />
+                          )}
+                          {day.completionTokens > 0 && (
+                            <span className="w-full bg-chart-2" style={{ height: `${completionPct}%` }} />
+                          )}
+                        </button>
+                      </TooltipTrigger>
+                    </div>
+                    <TooltipContent
+                      side="top"
+                      sideOffset={8}
+                      align={tooltipAlign(index, chartHistory.length)}
+                      className="w-[150px] border border-border px-3 py-2 text-left shadow-2xl"
                     >
-                      {day.promptTokens > 0 && (
-                        <span className="w-full bg-primary" style={{ height: `${promptPct}%` }} />
-                      )}
-                      {day.completionTokens > 0 && (
-                        <span className="w-full bg-chart-2" style={{ height: `${completionPct}%` }} />
-                      )}
-                    </button>
-                    {activeIndex === index && (
-                      <div
-                        id={tooltipId}
-                        role="tooltip"
-                        className={`pointer-events-none absolute bottom-full z-30 mb-2 w-[150px] rounded-lg border border-border bg-popover px-3 py-2 text-left text-xs text-foreground shadow-2xl ${tooltipPositionClass(index, chartHistory.length)}`}
-                      >
+                      <div className="text-xs">
                         <p className="font-medium text-foreground">{formatTooltipDate(day.date)}</p>
                         <div className="mt-2 space-y-1">
                           <div className="flex items-center justify-between gap-3">
@@ -386,8 +383,8 @@ export function TokenUsagePanel({
                           </div>
                         </div>
                       </div>
-                    )}
-                  </div>
+                    </TooltipContent>
+                  </Tooltip>
                 );
               })}
             </div>

@@ -8,7 +8,7 @@ import {
   X, Cpu, MemoryStick,
   type LucideIcon,
 } from "lucide-react";
-import { Tooltip, TooltipTrigger, TooltipContent } from "@hypercli/shared-ui";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ClawTooltip";
 
 // ── Types ──
 
@@ -127,7 +127,7 @@ export function QuickAgentCreator({ open, onClose, onCreated }: QuickAgentCreato
                   const h = HUES[idx];
                   const active = idx === selectedIcon;
                   return (
-                    <Tooltip key={item.name} delayDuration={400}>
+                    <Tooltip key={item.name}>
                       <TooltipTrigger asChild>
                         <motion.button
                           whileHover={{ scale: 1.15 }}

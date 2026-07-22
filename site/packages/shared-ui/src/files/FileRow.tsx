@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
+import { TooltipHint } from "../components/ui/tooltip";
 import {
   File as FileIcon,
   Folder,
@@ -256,12 +257,14 @@ export function FileRow({
           </span>
         )}
         {backupStatus && (
-          <span
-            role="img"
-            aria-label={backupStatus.label}
-            className={`hidden h-2.5 w-2.5 shrink-0 rounded-full border sm:inline-flex ${backupStatus.className}`}
-            title={backupStatus.title}
-          />
+          <TooltipHint label={backupStatus.title}>
+            <span
+              role="img"
+              aria-label={backupStatus.label}
+              tabIndex={0}
+              className={`hidden h-2.5 w-2.5 shrink-0 rounded-full border sm:inline-flex ${backupStatus.className}`}
+            />
+          </TooltipHint>
         )}
       </button>
 

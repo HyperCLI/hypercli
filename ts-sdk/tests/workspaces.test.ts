@@ -1,5 +1,15 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { deriveWorkspacesApiBase, WorkspacesAPI } from '../src/workspaces.js';
+import type {
+  WorkspaceAccessEntry,
+  WorkspaceAccessSnapshot,
+  WorkspaceAccessVisibility,
+} from '../src/index.js';
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 describe('Workspaces SDK', () => {
   it('derives workspace API base from agents API base', () => {
@@ -68,52 +78,307 @@ describe('Workspaces SDK', () => {
     vi.unstubAllGlobals();
   });
 
-  it('lists active workspace agents with bearer auth and normalizes snake and camel fields', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify([
-          {
-            workspace_id: 'workspace-1',
-            agent_id: 'agent-1',
-            role: 'admin',
-            expires_at: '2026-08-01T00:00:00Z',
-          },
-          {
-            workspaceId: 'workspace-1',
-            agentId: 'agent-2',
-            role: 'viewer',
-            expiresAt: null,
-          },
-        ]),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
-    );
+  it('builds the admin access directory from only the workspace and grants routes', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-22T12:00:00.000Z'));
+    const grantPayload = [
+      {
+        id: 'agent-admin',
+        workspace_id: 'workspace-1',
+        subject_type: 'agent',
+        subject_id: 'shared-id',
+        role: 'admin',
+        display_name: 'Research Agent',
+        display_slug: 'research-a',
+        expires_at: '2026-09-01T00:00:00Z',
+        revoked_at: null,
+      },
+      {
+        id: 'agent-viewer',
+        workspace_id: 'workspace-1',
+        subject_type: 'agent',
+        subject_id: 'shared-id',
+        role: 'viewer',
+        display_name: '',
+        display_slug: 'research-b',
+        expires_at: '2026-08-01T00:00:00Z',
+        revoked_at: null,
+      },
+      {
+        id: 'user-contributor',
+        workspace_id: 'workspace-1',
+        subject_type: 'user',
+        subject_id: 'shared-id',
+        role: 'contributor',
+        display_name: 'Alice',
+        display_slug: 'alice',
+        expires_at: null,
+        revoked_at: null,
+      },
+      {
+        id: 'user-viewer',
+        workspace_id: 'workspace-1',
+        subject_type: 'user',
+        subject_id: 'shared-id',
+        role: 'viewer',
+        display_name: 'Alicia',
+        display_slug: 'alice',
+        expires_at: '2026-10-01T00:00:00Z',
+        revoked_at: null,
+      },
+      {
+        id: 'revoked',
+        workspace_id: 'workspace-1',
+        subject_type: 'agent',
+        subject_id: 'revoked-agent',
+        role: 'admin',
+        expires_at: null,
+        revoked_at: '2026-07-20T00:00:00Z',
+      },
+      {
+        id: 'expired',
+        workspace_id: 'workspace-1',
+        subject_type: 'user',
+        subject_id: 'expired-user',
+        role: 'admin',
+        expires_at: '2026-07-21T00:00:00Z',
+        revoked_at: null,
+      },
+      {
+        id: 'boundary',
+        workspace_id: 'workspace-1',
+        subject_type: 'user',
+        subject_id: 'boundary-user',
+        role: 'admin',
+        expires_at: '2026-07-22T12:00:00.000Z',
+        revoked_at: null,
+      },
+    ];
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: 'workspace-1', name: 'Team', slug: 'team', role: 'admin' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(grantPayload), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
     vi.stubGlobal('fetch', fetchMock);
 
     const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
-    const associations = await api.listAgents('team knowledge', { userId: 'user-1' });
+    const snapshot: WorkspaceAccessSnapshot = await api.accessSnapshot('team knowledge/#1');
+    const visibility: WorkspaceAccessVisibility = snapshot.visibility;
+    const entries: WorkspaceAccessEntry[] | null = snapshot.entries;
 
-    expect(associations).toEqual([
+    expect(visibility).toBe('all-direct-access');
+    expect(snapshot.currentRole).toBe('admin');
+    expect(snapshot.capturedAt).toBe('2026-07-22T12:00:00.000Z');
+    expect(snapshot.grants?.map((grant) => grant.id)).toEqual(grantPayload.map((grant) => grant.id));
+    expect(entries?.map((entry) => [entry.subjectType, entry.subjectId])).toEqual([
+      ['agent', 'shared-id'],
+      ['user', 'shared-id'],
+    ]);
+    expect(entries?.[0]).toMatchObject({
+      workspaceId: 'workspace-1',
+      role: 'admin',
+      displayName: 'Research Agent',
+      displaySlug: null,
+    });
+    expect(entries?.[0]?.grants.map((grant) => grant.id)).toEqual(['agent-admin', 'agent-viewer']);
+    expect(entries?.[0]?.grants[0]).toBe(snapshot.grants?.[0]);
+    expect(entries?.[1]).toMatchObject({
+      workspaceId: 'workspace-1',
+      role: 'contributor',
+      displayName: null,
+      displaySlug: 'alice',
+    });
+    expect(fetchMock.mock.calls.map(([url, options]) => [url, options.method])).toEqual([
+      ['http://workspaces.test/workspaces/team%20knowledge%2F%231', 'GET'],
+      ['http://workspaces.test/workspaces/team%20knowledge%2F%231/grants', 'GET'],
+    ]);
+  });
+
+  it.each(['viewer', 'contributor'] as const)(
+    'does not request grants for a %s workspace role',
+    async (role) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-07-22T12:00:00.000Z'));
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ id: 'workspace-1', name: 'Team', slug: 'team', role }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
+      const snapshot = await api.accessSnapshot('team');
+
+      expect(snapshot).toMatchObject({
+        currentRole: role,
+        visibility: 'current-access-only',
+        capturedAt: '2026-07-22T12:00:00.000Z',
+        entries: null,
+        grants: null,
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/team');
+    },
+  );
+
+  it('rejects invalid grant expiration timestamps', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: 'workspace-1', name: 'Team', slug: 'team', role: 'admin' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: 'invalid-expiration',
+              workspace_id: 'workspace-1',
+              subject_type: 'agent',
+              subject_id: 'agent-1',
+              role: 'viewer',
+              expires_at: 'not-a-timestamp',
+              revoked_at: null,
+            },
+          ]),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
+
+    await expect(api.accessSnapshot('team')).rejects.toThrow(
+      'Invalid expiration timestamp for workspace grant invalid-expiration: not-a-timestamp',
+    );
+  });
+
+  it('rejects a malformed grants payload instead of returning an empty directory', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: 'workspace-1', name: 'Team', slug: 'team', role: 'admin' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ grants: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
+
+    await expect(api.accessSnapshot('team')).rejects.toThrow('Workspace grants response must be an array.');
+  });
+
+  it('projects admin agent associations and rejects the projection for non-admins', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-22T12:00:00.000Z'));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: 'workspace-1', name: 'Team', slug: 'team', role: 'admin' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: 'agent-1-admin',
+              workspace_id: 'workspace-1',
+              subject_type: 'agent',
+              subject_id: 'agent-1',
+              role: 'admin',
+              expires_at: '2026-09-01T00:00:00Z',
+              revoked_at: null,
+            },
+            {
+              id: 'agent-1-viewer',
+              workspace_id: 'workspace-1',
+              subject_type: 'agent',
+              subject_id: 'agent-1',
+              role: 'viewer',
+              expires_at: '2026-08-01T00:00:00Z',
+              revoked_at: null,
+            },
+            {
+              id: 'agent-2-viewer',
+              workspace_id: 'workspace-1',
+              subject_type: 'agent',
+              subject_id: 'agent-2',
+              role: 'viewer',
+              expires_at: null,
+              revoked_at: null,
+            },
+            {
+              id: 'agent-2-contributor',
+              workspace_id: 'workspace-1',
+              subject_type: 'agent',
+              subject_id: 'agent-2',
+              role: 'contributor',
+              expires_at: '2026-10-01T00:00:00Z',
+              revoked_at: null,
+            },
+            {
+              id: 'user-admin',
+              workspace_id: 'workspace-1',
+              subject_type: 'user',
+              subject_id: 'user-1',
+              role: 'admin',
+              expires_at: null,
+              revoked_at: null,
+            },
+          ]),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: 'workspace-2', name: 'Viewer', slug: 'viewer', role: 'viewer' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
+
+    await expect(api.listAgents('team')).resolves.toEqual([
       {
         workspaceId: 'workspace-1',
         agentId: 'agent-1',
         role: 'admin',
-        expiresAt: '2026-08-01T00:00:00Z',
+        expiresAt: '2026-09-01T00:00:00Z',
       },
       {
         workspaceId: 'workspace-1',
         agentId: 'agent-2',
-        role: 'viewer',
+        role: 'contributor',
         expiresAt: null,
       },
     ]);
-    expect(fetchMock.mock.calls[0][0]).toBe('http://workspaces.test/workspaces/team%20knowledge/agents');
-    expect(fetchMock.mock.calls[0][1]).toMatchObject({
-      method: 'GET',
-      headers: expect.objectContaining({ Authorization: 'Bearer key' }),
-    });
-    expect(fetchMock.mock.calls[0][1].headers).not.toHaveProperty('X-User-Id');
-    vi.unstubAllGlobals();
+    await expect(api.listAgents('viewer')).rejects.toThrow(
+      'Workspace agent associations are available only to Workspace admins.',
+    );
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'http://workspaces.test/workspaces/team',
+      'http://workspaces.test/workspaces/team/grants',
+      'http://workspaces.test/workspaces/viewer',
+    ]);
   });
 
   it('preserves plain-text and structured API error details', async () => {

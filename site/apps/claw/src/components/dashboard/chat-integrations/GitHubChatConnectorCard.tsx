@@ -21,6 +21,7 @@ import type {
 } from "@hypercli.com/sdk/openclaw/gateway";
 
 import { schemaPathExists } from "@/components/dashboard/directory/directory-utils";
+import { TooltipHint } from "@/components/ClawTooltip";
 import {
   GITHUB_CLI_DEVICE_URL,
   isManagedGitHubAuthUnsupportedError,
@@ -765,26 +766,27 @@ export function GitHubChatConnectorCard({
           {showAgentDeviceCode && agentDeviceCode && (
             <div className="grid gap-4 px-2 py-3 text-center sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:text-left">
               <div className="min-w-0">
-                <button
-                  type="button"
-                  onClick={() => void copyAgentDeviceCode(agentDeviceCode)}
-                  className="relative isolate font-mono text-4xl font-black tracking-[0.16em] text-foreground transition-colors hover:text-selection-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.55)] focus-visible:ring-offset-4 focus-visible:ring-offset-background sm:text-5xl"
-                  aria-label={`Copy GitHub device code ${agentDeviceCode}`}
-                  title="Copy code"
-                >
-                  {codeRippleActive ? (
-                    <motion.span
-                      key="device-code-ripple"
-                      aria-hidden="true"
-                      data-testid="github-device-code-ripple"
-                      className="pointer-events-none absolute inset-[-0.45rem] -z-10 rounded-2xl border border-selection-accent/50 bg-selection-accent/12"
-                      initial={{ opacity: 0.82, scale: 0.72 }}
-                      animate={{ opacity: 0, scale: 1.42 }}
-                      transition={{ duration: 3, ease: [0.16, 1, 0.3, 1] }}
-                    />
-                  ) : null}
-                  {agentDeviceCode}
-                </button>
+                <TooltipHint label="Copy code">
+                  <button
+                    type="button"
+                    onClick={() => void copyAgentDeviceCode(agentDeviceCode)}
+                    className="relative isolate font-mono text-4xl font-black tracking-[0.16em] text-foreground transition-colors hover:text-selection-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.55)] focus-visible:ring-offset-4 focus-visible:ring-offset-background sm:text-5xl"
+                    aria-label={`Copy GitHub device code ${agentDeviceCode}`}
+                  >
+                    {codeRippleActive ? (
+                      <motion.span
+                        key="device-code-ripple"
+                        aria-hidden="true"
+                        data-testid="github-device-code-ripple"
+                        className="pointer-events-none absolute inset-[-0.45rem] -z-10 rounded-2xl border border-selection-accent/50 bg-selection-accent/12"
+                        initial={{ opacity: 0.82, scale: 0.72 }}
+                        animate={{ opacity: 0, scale: 1.42 }}
+                        transition={{ duration: 3, ease: [0.16, 1, 0.3, 1] }}
+                      />
+                    ) : null}
+                    {agentDeviceCode}
+                  </button>
+                </TooltipHint>
                 <p className="mt-3 text-sm font-medium text-text-secondary sm:text-base">
                   {copiedCode ? "Copied. Enter it on GitHub, then return here." : "Click the code to copy it, then enter it on GitHub."}
                 </p>

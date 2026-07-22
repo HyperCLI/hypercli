@@ -22,6 +22,7 @@ import {
   openBillingPortalUrl,
 } from "./stripe-billing-portal";
 import { Skeleton } from "@/components/dashboard/Skeleton";
+import { TooltipHint } from "@/components/ClawTooltip";
 
 interface ProfileBillingSectionProps {
   getToken: () => Promise<string>;
@@ -338,9 +339,11 @@ function CompactReceiptTable({ receipts }: { receipts: ReceiptRecord[] }) {
                     >
                       {receipt.id.slice(0, 8)}
                     </Link>
-                    <p className="mt-1 max-w-[280px] truncate text-xs text-text-muted" title={getReceiptContext(receipt)}>
-                      {getReceiptContext(receipt)}
-                    </p>
+                    <TooltipHint label={getReceiptContext(receipt)}>
+                      <p className="mt-1 max-w-[280px] truncate text-xs text-text-muted" tabIndex={0}>
+                        {getReceiptContext(receipt)}
+                      </p>
+                    </TooltipHint>
                   </td>
                   <td className="px-4 py-2.5 font-semibold text-foreground">{formatAgentsAmount(receipt)}</td>
                   <td className="px-4 py-2.5"><BillingStatusPill status={receipt.status} /></td>

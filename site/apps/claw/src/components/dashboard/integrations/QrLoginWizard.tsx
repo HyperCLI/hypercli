@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Loader2, Smartphone, ArrowRight, Copy, Check, Terminal } from "lucide-react";
 import { writeClipboardText } from "@/lib/browser-clipboard";
+import { TooltipHint } from "@/components/ClawTooltip";
 
 interface QrLoginWizardProps {
   pluginId: string;
@@ -81,16 +82,14 @@ export function QrLoginWizard({
               <Terminal className="w-3.5 h-3.5 text-text-tertiary flex-shrink-0" />
               <code className="text-xs text-foreground font-mono truncate">{loginCommand}</code>
             </div>
-            <button
-              onClick={handleCopy}
-              className="flex-shrink-0 p-1.5 rounded-md hover:bg-[var(--border)]/50 transition-colors"
-              title="Copy command"
-            >
-              {showCopyCheck
-                ? <Check className="w-3.5 h-3.5 text-selection-accent" />
-                : <Copy className="w-3.5 h-3.5 text-text-tertiary" />
-              }
-            </button>
+            <TooltipHint label="Copy command">
+              <button aria-label="Copy command" onClick={handleCopy} className="flex-shrink-0 p-1.5 rounded-md hover:bg-[var(--border)]/50 transition-colors">
+                {showCopyCheck
+                  ? <Check className="w-3.5 h-3.5 text-selection-accent" />
+                  : <Copy className="w-3.5 h-3.5 text-text-tertiary" />
+                }
+              </button>
+            </TooltipHint>
           </div>
         </div>
 

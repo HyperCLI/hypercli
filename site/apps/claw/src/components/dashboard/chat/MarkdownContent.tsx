@@ -18,6 +18,7 @@ import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import { ChatImageViewer } from "./ChatImageViewer";
 import { useTypewriter } from "./useTypewriter";
 import { ResourceImage } from "@/components/ResourceImage";
+import { TooltipHint } from "@/components/ClawTooltip";
 
 interface MarkdownContentProps {
   content: string;
@@ -614,21 +615,23 @@ function MarkdownLink({ href, children, className }: { href?: string; children?:
   const onOpenWorkspaceFile = useContext(MarkdownWorkspaceFileContext);
   const workspacePath = workspacePathFromHref(href);
   const isExternal = typeof href === "string" && /^(?:https?:|mailto:|irc:|ircs:|xmpp:)/i.test(href);
+  const link = (
+    <a
+      href={href}
+      onClick={workspacePath && onOpenWorkspaceFile ? (event) => {
+        event.preventDefault();
+        onOpenWorkspaceFile(workspacePath);
+      } : undefined}
+      target={isExternal ? "_blank" : undefined}
+      rel={isExternal ? "noopener noreferrer" : undefined}
+      className={`${className ?? ""} break-words text-accent hover:underline [overflow-wrap:anywhere]`}
+    >
+      {children}
+    </a>
+  );
   return (
     <MarkdownLinkContext.Provider value={Boolean(href)}>
-      <a
-        href={href}
-        onClick={workspacePath && onOpenWorkspaceFile ? (event) => {
-          event.preventDefault();
-          onOpenWorkspaceFile(workspacePath);
-        } : undefined}
-        target={isExternal ? "_blank" : undefined}
-        rel={isExternal ? "noopener noreferrer" : undefined}
-        className={`${className ?? ""} break-words text-accent hover:underline [overflow-wrap:anywhere]`}
-        title={workspacePath ? "Open in files" : undefined}
-      >
-        {children}
-      </a>
+      {workspacePath ? <TooltipHint label="Open in files">{link}</TooltipHint> : link}
     </MarkdownLinkContext.Provider>
   );
 }
@@ -639,11 +642,10 @@ function MarkdownImage({ src, alt, title }: { src?: string; alt?: string; title?
   const imageTitle = typeof title === "string" ? title : undefined;
   if (!(typeof src === "string" && src && isRenderableMarkdownImageSrc(src))) return <MarkdownMediaUnavailable />;
   if (insideLink) {
-    return (
+    const image = (
       <ResourceImage
         src={src}
         alt={imageAlt}
-        title={imageTitle}
         width={320}
         height={320}
         sizes="(max-width: 640px) 100vw, 320px"
@@ -651,6 +653,11 @@ function MarkdownImage({ src, alt, title }: { src?: string; alt?: string; title?
         loading="lazy"
       />
     );
+    return imageTitle ? (
+      <TooltipHint label={imageTitle}>
+        <span className="inline-flex" tabIndex={0}>{image}</span>
+      </TooltipHint>
+    ) : image;
   }
   return (
     <ChatImageViewer
@@ -688,6 +695,11 @@ const CHAT_MARKDOWN_COMPONENTS: Parameters<typeof Markdown>[0]["components"] = {
   ol: ({ children }) => <ol className={`${MARKDOWN_WRAP_CLASS} mb-2 list-decimal space-y-1 pl-4`}>{children}</ol>,
   li: ({ children }) => <li className={MARKDOWN_WRAP_CLASS}>{children}</li>,
   a: ({ href, children, className }) => <MarkdownLink href={href} className={className}>{children}</MarkdownLink>,
+  abbr: ({ children, title }) => {
+    const label = typeof title === "string" ? title : undefined;
+    const abbreviation = <abbr tabIndex={label ? 0 : undefined}>{children}</abbr>;
+    return label ? <TooltipHint label={label}>{abbreviation}</TooltipHint> : abbreviation;
+  },
   h1: ({ children, className }) => <h1 className={`${className ?? ""} ${MARKDOWN_WRAP_CLASS} mb-2 text-lg font-bold`}>{children}</h1>,
   h2: ({ children, className }) => <h2 className={`${className ?? ""} ${MARKDOWN_WRAP_CLASS} mb-2 text-base font-bold`}>{children}</h2>,
   h3: ({ children, className }) => <h3 className={`${className ?? ""} ${MARKDOWN_WRAP_CLASS} mb-1 text-sm font-bold`}>{children}</h3>,

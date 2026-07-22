@@ -23,6 +23,14 @@ const meta: Meta<typeof AgentLayoutAnimation> = {
 export default meta;
 type Story = StoryObj<typeof AgentLayoutAnimation>;
 
+const emptyHistoryActions = {
+  onOpenFiles: () => {},
+  onOpenIntegrations: () => {},
+  onOpenIntegrationChatCard: () => {},
+  onOpenSkills: () => {},
+  onOpenScheduled: () => {},
+};
+
 function MobileChatFrame({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-[812px] w-[375px] flex-col overflow-hidden bg-[#030303] text-white">
@@ -122,7 +130,7 @@ export const ReadyEmptyChat: Story = {
   render: () => (
     <MobileChatFrame>
       <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-3">
-        <AgentEmptyHistory onPromptSelect={() => {}} />
+        <AgentEmptyHistory onPromptSelect={() => {}} actions={emptyHistoryActions} />
       </div>
       <div className="flex-shrink-0 px-3 pb-3 pt-2">
         <textarea
@@ -133,6 +141,29 @@ export const ReadyEmptyChat: Story = {
         />
       </div>
     </MobileChatFrame>
+  ),
+};
+
+export const ReadyEmptyChatDesktop: Story = {
+  render: () => (
+    <div className="flex h-[720px] w-[960px] flex-col overflow-hidden bg-[#030303] text-white">
+      <div className="flex h-14 flex-shrink-0 items-center justify-center border-b border-white/10 px-5">
+        <span className="text-sm font-semibold">Agent</span>
+      </div>
+      <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-4">
+        <div className="flex max-h-full min-h-0 w-full items-center justify-center overflow-y-auto">
+          <AgentEmptyHistory onPromptSelect={() => {}} actions={emptyHistoryActions} />
+        </div>
+      </div>
+      <div className="flex-shrink-0 px-4 pb-4 pt-2">
+        <textarea
+          aria-label="Message agent"
+          rows={1}
+          placeholder="Message agent..."
+          className="mx-auto block w-full max-w-5xl resize-none rounded-3xl border border-white/10 bg-[#232323] px-5 py-3 text-sm text-white outline-none placeholder:text-white/35"
+        />
+      </div>
+    </div>
   ),
 };
 

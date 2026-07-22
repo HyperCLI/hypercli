@@ -77,6 +77,10 @@ function buildChat(overrides: Partial<ChatSession> = {}): ChatSession {
     pendingInput: [],
     addPendingMessage: vi.fn(),
     activeSessionKey: "main",
+    activeSessionModel: null,
+    activeSessionThinkingLevel: null,
+    activeSessionThinkingLevels: [],
+    activeSessionThinkingDefault: null,
     activeSessionReadOnly: false,
     activeSessionReadOnlyReason: null,
     temporaryChatAvailable: true,
@@ -93,6 +97,8 @@ function buildChat(overrides: Partial<ChatSession> = {}): ChatSession {
     openFile: vi.fn(async () => ""),
     saveFile: vi.fn(async () => undefined),
     saveConfig: vi.fn(async () => undefined),
+    setActiveSessionModel: vi.fn(async () => undefined),
+    setActiveSessionThinkingLevel: vi.fn(async () => undefined),
     saveFullConfig: vi.fn(async () => undefined),
     channelsStatus: vi.fn(async () => ({ channels: {} })),
     channelsProvider: null,
@@ -240,6 +246,34 @@ describe("AgentChatPanel", () => {
     expect(screen.getByText(/Agent actions can still affect shared files, memory, integrations, and settings/i)).toBeInTheDocument();
   });
 
+  it("wires available workspace tools into the ready empty chat", () => {
+    const onOpenFiles = vi.fn();
+    const onOpenIntegrations = vi.fn();
+    const onOpenSkills = vi.fn();
+    const onOpenScheduled = vi.fn();
+
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+      }),
+      slashCommandActions: { onOpenFiles, onOpenIntegrations, onOpenSkills, onOpenScheduled },
+    });
+
+    expect(screen.getByRole("button", { name: /connect slack/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /open workspace files/i }));
+    fireEvent.click(screen.getByRole("button", { name: /open integrations/i }));
+    fireEvent.click(screen.getByRole("button", { name: /open skills/i }));
+    fireEvent.click(screen.getByRole("button", { name: /open scheduled work/i }));
+
+    expect(onOpenFiles).toHaveBeenCalledTimes(1);
+    expect(onOpenIntegrations).toHaveBeenCalledTimes(1);
+    expect(onOpenSkills).toHaveBeenCalledTimes(1);
+    expect(onOpenScheduled).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps the composer out of the provisioning stage", () => {
     const selectedAgent = buildAgent("PENDING");
     renderAgentChatPanel({
@@ -385,6 +419,27 @@ describe("AgentChatPanel", () => {
     expect(screen.queryByText("Connecting gateway")).not.toBeInTheDocument();
   });
 
+  it("renders the current model control for OpenClaw conversations", () => {
+    renderAgentChatPanel({
+      chat: buildChat({
+        backend: "openclaw",
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        config: {
+          agents: { defaults: { model: { primary: "openai/gpt-5-mini" } } },
+          models: { providers: { openai: { name: "OpenAI", models: [{ id: "gpt-5-mini", name: "GPT-5 Mini" }] } } },
+        },
+        activeSessionThinkingLevels: [{ id: "medium", label: "Medium" }],
+        activeSessionThinkingDefault: "medium",
+      }),
+      isSelectedRunning: true,
+    });
+
+    expect(screen.getByRole("button", { name: "Model: GPT-5 Mini, Medium" })).toBeInTheDocument();
+  });
+
   it("disables the composer for read-only connected conversations", () => {
     renderAgentChatPanel({
       chat: buildChat({
@@ -401,8 +456,8 @@ describe("AgentChatPanel", () => {
     const composer = screen.getByRole("textbox", { name: /message agent/i });
     expect(composer).toBeDisabled();
     expect(composer).toHaveAttribute("placeholder", "Telegram conversations are read-only here. Reply from Telegram.");
-    expect(screen.getAllByTitle("Telegram conversations are read-only here. Reply from Telegram.")[0]).toHaveAttribute("aria-disabled", "true");
-    expect(screen.getByTitle("Send message")).toBeDisabled();
+    expect(screen.getAllByLabelText("Telegram conversations are read-only here. Reply from Telegram.")[0]).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
   });
 
   it("ignores dropped files for read-only connected conversations", () => {
@@ -550,7 +605,7 @@ describe("AgentChatPanel", () => {
       handleSendChat,
     });
 
-    fireEvent.click(screen.getByTitle("Send message"));
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
     expect(handleSendChat).not.toHaveBeenCalled();
     expect(setInput).toHaveBeenCalledWith("");
@@ -644,7 +699,7 @@ describe("AgentChatPanel", () => {
       onConnectionCta,
     });
 
-    expect(screen.queryByTitle("Open GitHub connection setup")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open GitHub connection setup" })).not.toBeInTheDocument();
     expect(onConnectionCta).not.toHaveBeenCalled();
   });
 
@@ -663,7 +718,7 @@ describe("AgentChatPanel", () => {
       onConnectionCta,
     });
 
-    fireEvent.click(screen.getByTitle("Open Telegram connection setup"));
+    fireEvent.click(screen.getByRole("button", { name: "Open Telegram connection setup" }));
 
     expect(await screen.findByText("Start setup")).toBeInTheDocument();
     expect(onConnectionCta).not.toHaveBeenCalled();
@@ -1915,7 +1970,7 @@ describe("AgentChatPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /stop reply/i }));
     expect(abortMessage).toHaveBeenCalledTimes(1);
 
-    const sendButton = screen.getByTitle("Send message");
+    const sendButton = screen.getByRole("button", { name: "Send message" });
     expect(sendButton).not.toBeDisabled();
     fireEvent.click(sendButton);
     expect(handleSendChat).toHaveBeenCalledTimes(1);
@@ -1939,7 +1994,7 @@ describe("AgentChatPanel", () => {
 
     expect(screen.getByRole("status", { name: /stopping reply/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /stopping reply/i })).toBeDisabled();
-    expect(screen.getByTitle("Send message")).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send message" })).not.toBeDisabled();
   });
 
   it("shows image attachment preparation before the preview is available", () => {
@@ -1955,7 +2010,7 @@ describe("AgentChatPanel", () => {
     });
 
     expect(screen.getByRole("status", { name: /preparing image attachment/i })).toBeInTheDocument();
-    expect(screen.getByTitle("Send message")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
   });
 
   it("keeps an existing draft visible but disabled during reconnect", () => {

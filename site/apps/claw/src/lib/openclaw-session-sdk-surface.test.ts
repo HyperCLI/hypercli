@@ -78,6 +78,32 @@ describe("openclaw-session-sdk-surface", () => {
     ]);
   });
 
+  it("normalizes the selected model and gateway-provided thinking levels", () => {
+    const sessions = normalizeOpenClawSessions([{
+      key: "session-alpha",
+      modelProvider: "openai",
+      model: "gpt-5.2",
+      thinkingLevel: "minimal",
+      thinkingLevels: [
+        "off",
+        { id: "minimal", label: "Fast" },
+      ],
+      thinkingDefault: "off",
+    }]);
+
+    expect(sessions[0]).toEqual(expect.objectContaining({
+      key: "session-alpha",
+      model: "openai/gpt-5.2",
+      modelProvider: "openai",
+      thinkingLevel: "minimal",
+      thinkingLevels: [
+        { id: "off", label: "off" },
+        { id: "minimal", label: "Fast" },
+      ],
+      thinkingDefault: "off",
+    }));
+  });
+
   it("does not treat default main and selectable channel/default rows as the same session", () => {
     expect(sameOpenClawSelectableSessionKey("main", "agent:default:main")).toBe(false);
     expect(sameOpenClawSelectableSessionKey("session-alpha", "agent:default:session-alpha")).toBe(true);

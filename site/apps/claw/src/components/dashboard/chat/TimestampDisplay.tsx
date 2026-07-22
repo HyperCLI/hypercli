@@ -26,11 +26,7 @@ export function TimestampDisplay({ timestamp, variant, placement, isUser }: Time
   if (placement !== "outside") return null;
 
   if (variant === "off") {
-    return (
-      <div className={`text-[10px] text-text-muted mt-1 opacity-0 group-hover:opacity-100 transition-opacity ${isUser ? "text-right" : "text-left"}`}>
-        {formatTime(timestamp)}
-      </div>
-    );
+    return null;
   }
 
   if (variant === "v1") {

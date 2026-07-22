@@ -5,23 +5,24 @@ import { Moon, Sun } from "lucide-react";
 
 import { cn } from "../utils/cn";
 import { useTheme } from "./ThemeProvider";
+import { TooltipHint } from "./ui/tooltip";
 
 export interface ThemeToggleProps extends Omit<ComponentPropsWithoutRef<"button">, "children"> {
   showLabel?: boolean;
 }
 
-export function ThemeToggle({ showLabel = false, className, onClick, type = "button", ...props }: ThemeToggleProps) {
+export function ThemeToggle({ showLabel = false, className, onClick, type = "button", title, ...props }: ThemeToggleProps) {
   const { theme, toggleTheme } = useTheme();
   const target = theme === "light" ? "dark" : "light";
   const label = `Switch to ${target} mode`;
   const Icon = target === "light" ? Sun : Moon;
+  const tooltipLabel = title === "" || (showLabel && title === undefined) ? null : title ?? label;
 
-  return (
+  const button = (
     <button
       {...props}
       type={type}
       aria-label={props["aria-label"] ?? label}
-      title={props.title ?? label}
       onClick={(event) => {
         onClick?.(event);
         if (!event.defaultPrevented) toggleTheme();
@@ -36,4 +37,6 @@ export function ThemeToggle({ showLabel = false, className, onClick, type = "but
       {showLabel ? <span className="truncate">{label}</span> : null}
     </button>
   );
+
+  return tooltipLabel ? <TooltipHint label={tooltipLabel}>{button}</TooltipHint> : button;
 }

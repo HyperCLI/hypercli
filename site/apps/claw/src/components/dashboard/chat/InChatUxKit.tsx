@@ -40,6 +40,7 @@ import {
 import { ApprovalCard } from "./ApprovalCard";
 import { ChatCard, type ChatCardTone } from "./ChatCard";
 import { ToolCallStack } from "./ToolCallStack";
+import { TooltipHint } from "@/components/ClawTooltip";
 
 type ActionKind = "command" | "file" | "browser" | "api" | "database";
 type ActionStatus = "queued" | "running" | "done" | "failed";
@@ -228,17 +229,18 @@ export function MessageToolbar({
       {actions.map((action) => {
         const Icon = action.icon;
         return (
-          <button
-            key={action.label}
-            type="button"
-            onClick={action.onClick}
-            className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
-              action.danger ? "text-text-muted hover:bg-destructive/10 hover:text-destructive" : "text-text-muted hover:bg-surface-low hover:text-foreground"
-            }`}
-            title={action.label}
-          >
-            <Icon className="h-3.5 w-3.5" />
-          </button>
+          <TooltipHint key={action.label} label={action.label}>
+            <button
+              type="button"
+              aria-label={action.label}
+              onClick={action.onClick}
+              className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
+                action.danger ? "text-text-muted hover:bg-destructive/10 hover:text-destructive" : "text-text-muted hover:bg-surface-low hover:text-foreground"
+              }`}
+            >
+              <Icon className="h-3.5 w-3.5" />
+            </button>
+          </TooltipHint>
         );
       })}
     </div>
@@ -431,14 +433,16 @@ export function AudioMessageBubble({
   return (
     <div className="max-w-md rounded-2xl border border-border bg-surface-low px-3 py-2.5">
       <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => setPlaying((value) => !value)}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary hover:bg-primary/25"
-          title={playing ? "Pause" : "Play"}
-        >
-          {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-        </button>
+        <TooltipHint label={playing ? "Pause" : "Play"}>
+          <button
+            type="button"
+            aria-label={playing ? "Pause" : "Play"}
+            onClick={() => setPlaying((value) => !value)}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary hover:bg-primary/25"
+          >
+            {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+          </button>
+        </TooltipHint>
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-3">
             <p className="truncate text-xs font-medium text-foreground">{title}</p>
@@ -475,12 +479,16 @@ export function ChatSearchJump({
       <Search className="h-3.5 w-3.5 shrink-0 text-text-muted" />
       <span className="truncate text-xs text-text-secondary">{query}</span>
       <span className="rounded-full bg-surface-low px-2 py-0.5 font-mono text-[10px] text-text-muted">{current}/{total}</span>
-      <button type="button" className="flex h-6 w-6 items-center justify-center rounded-full text-text-muted hover:bg-surface-low hover:text-foreground" title="Previous result">
-        <ArrowDown className="h-3 w-3 rotate-180" />
-      </button>
-      <button type="button" className="flex h-6 w-6 items-center justify-center rounded-full text-text-muted hover:bg-surface-low hover:text-foreground" title="Next result">
-        <ArrowDown className="h-3 w-3" />
-      </button>
+      <TooltipHint label="Previous result">
+        <button type="button" aria-label="Previous result" className="flex h-6 w-6 items-center justify-center rounded-full text-text-muted hover:bg-surface-low hover:text-foreground">
+          <ArrowDown className="h-3 w-3 rotate-180" />
+        </button>
+      </TooltipHint>
+      <TooltipHint label="Next result">
+        <button type="button" aria-label="Next result" className="flex h-6 w-6 items-center justify-center rounded-full text-text-muted hover:bg-surface-low hover:text-foreground">
+          <ArrowDown className="h-3 w-3" />
+        </button>
+      </TooltipHint>
     </div>
   );
 }

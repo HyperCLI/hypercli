@@ -27,6 +27,7 @@ import {
   SkillMarkdownEditor,
   type SkillConfirmationAction,
 } from "@hypercli/shared-ui/skills";
+import { TooltipHint } from "@/components/ClawTooltip";
 
 import {
   draftToGeneratedSkill,
@@ -192,14 +193,13 @@ function SkillFormStepper({ activeStep }: { activeStep: SkillFormStep }) {
         const complete = index < activeIndex;
         return (
           <React.Fragment key={step.id}>
-            <div
-              title={step.label}
-              className={`flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold transition-colors ${
+            <TooltipHint label={step.label}>
+              <div tabIndex={0} className={`flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold transition-colors ${
                 complete ? "bg-primary text-primary-foreground" : active ? "bg-foreground text-background" : "bg-surface-high text-text-muted"
-              }`}
-            >
-              {complete ? <Check className="h-3.5 w-3.5" /> : index + 1}
-            </div>
+              }`}>
+                {complete ? <Check className="h-3.5 w-3.5" /> : index + 1}
+              </div>
+            </TooltipHint>
             {index < STRUCTURED_FORM_STEPS.length - 1 && <div className={`h-px min-w-0 ${complete ? "bg-primary" : "bg-border"}`} aria-hidden="true" />}
           </React.Fragment>
         );

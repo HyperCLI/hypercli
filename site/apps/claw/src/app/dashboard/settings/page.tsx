@@ -13,6 +13,7 @@ import { type ConversationThread } from "@/components/dashboard/AgentsChannelsSi
 import { AgentList } from "@/components/dashboard/agents/AgentPanels";
 import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 import { DashboardWorkspaceNavigation } from "@/components/dashboard/agents/DashboardWorkspaceNavigation";
+import { TooltipHint } from "@/components/ClawTooltip";
 import { useWorkspace, workspaceAgentCreationDisabledReason } from "@/components/dashboard/WorkspaceContext";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useAgentRosterCollapsed } from "@/hooks/useAgentRosterCollapsed";
@@ -101,14 +102,11 @@ function SlackAccountSection({ getToken }: { getToken: () => Promise<string> }) 
             Debug
           </Link>
           {connected ? (
-            <button
-              type="button"
-              disabled
-              title="Disconnect from Slack workspace app settings."
-              className="inline-flex h-9 items-center rounded-lg border border-border bg-background px-3 text-xs font-semibold text-text-secondary opacity-60"
-            >
-              Disconnect Slack
-            </button>
+            <TooltipHint label="Disconnect from Slack workspace app settings." disabled>
+              <button type="button" disabled className="inline-flex h-9 items-center rounded-lg border border-border bg-background px-3 text-xs font-semibold text-text-secondary opacity-60">
+                Disconnect Slack
+              </button>
+            </TooltipHint>
           ) : null}
           <Link href="/slack/start" className="inline-flex h-9 items-center rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.45)] bg-[rgb(var(--selection-accent-rgb)_/_0.12)] px-3 text-xs font-semibold text-[var(--selection-accent)] transition-colors hover:bg-[rgb(var(--selection-accent-rgb)_/_0.18)]">
             {connected ? "Reconnect Slack" : "Connect Slack"}

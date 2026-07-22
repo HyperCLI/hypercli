@@ -307,7 +307,6 @@ export function AgentLayoutAnimation({
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <title>{title}</title>
       <defs>
         <clipPath id={clipId}>
           <rect x="32" y="32" width="200" height="200" rx="14" />

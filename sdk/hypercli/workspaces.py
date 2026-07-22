@@ -5,7 +5,9 @@ import mimetypes
 import os
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import PurePosixPath
+from typing import Literal
 from urllib.parse import quote, urlsplit
 
 import httpx
@@ -124,7 +126,11 @@ class Workspace:
             description=data.get("description"),
             display_name=data.get("display_name"),
             display_slug=data.get("display_slug"),
-            role=data.get("role"),
+            role=(
+                data.get("role")
+                if data.get("role") is not None
+                else data.get("current_role")
+            ),
             created_at=data.get("created_at"),
             updated_at=data.get("updated_at"),
         )
@@ -224,6 +230,112 @@ class WorkspaceGrant:
         )
 
 
+WorkspaceAccessVisibility = Literal["all-direct-access", "current-access-only"]
+
+
+@dataclass
+class WorkspaceAccessEntry:
+    workspace_id: str
+    subject_type: str
+    subject_id: str
+    role: str
+    display_name: str | None
+    display_slug: str | None
+    grants: list[WorkspaceGrant]
+
+
+@dataclass
+class WorkspaceAccessSnapshot:
+    workspace: Workspace
+    current_role: str | None
+    visibility: WorkspaceAccessVisibility
+    captured_at: str
+    entries: list[WorkspaceAccessEntry] | None
+    grants: list[WorkspaceGrant] | None
+
+
+_WORKSPACE_ROLE_STRENGTH = {
+    "viewer": 1,
+    "contributor": 2,
+    "admin": 3,
+}
+
+
+def _grant_expiration_timestamp(grant: WorkspaceGrant) -> datetime | None:
+    if grant.expires_at is None:
+        return None
+    if not isinstance(grant.expires_at, str):
+        raise ValueError(
+            f"Invalid expiration timestamp for workspace grant {grant.id or '<unknown>'}: "
+            f"{grant.expires_at}"
+        )
+    try:
+        timestamp = datetime.fromisoformat(grant.expires_at.replace("Z", "+00:00"))
+    except ValueError:
+        raise ValueError(
+            f"Invalid expiration timestamp for workspace grant {grant.id or '<unknown>'}: "
+            f"{grant.expires_at}"
+        ) from None
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    return timestamp.astimezone(timezone.utc)
+
+
+def _strongest_workspace_role(grants: list[WorkspaceGrant]) -> str:
+    return min(
+        (grant.role for grant in grants),
+        key=lambda role: (-_WORKSPACE_ROLE_STRENGTH.get(role, 0), role),
+    )
+
+
+def _agreed_non_empty_value(values: list[str | None]) -> str | None:
+    non_empty = {value for value in values if isinstance(value, str) and value}
+    return next(iter(non_empty)) if len(non_empty) == 1 else None
+
+
+def _workspace_access_entries(
+    grants: list[WorkspaceGrant],
+    captured_at: datetime,
+) -> list[WorkspaceAccessEntry]:
+    grouped: dict[tuple[str, str, str], list[WorkspaceGrant]] = {}
+    for grant in grants:
+        expires_at = _grant_expiration_timestamp(grant)
+        if grant.revoked_at is not None or (expires_at is not None and expires_at <= captured_at):
+            continue
+        key = (grant.workspace_id, grant.subject_type, grant.subject_id)
+        grouped.setdefault(key, []).append(grant)
+
+    entries = [
+        WorkspaceAccessEntry(
+            workspace_id=workspace_id,
+            subject_type=subject_type,
+            subject_id=subject_id,
+            role=_strongest_workspace_role(group_grants),
+            display_name=_agreed_non_empty_value(
+                [grant.display_name for grant in group_grants]
+            ),
+            display_slug=_agreed_non_empty_value(
+                [grant.display_slug for grant in group_grants]
+            ),
+            grants=group_grants,
+        )
+        for (workspace_id, subject_type, subject_id), group_grants in grouped.items()
+    ]
+    return sorted(
+        entries,
+        key=lambda entry: (entry.subject_type, entry.subject_id, entry.workspace_id),
+    )
+
+
+def _latest_grant_expiration(grants: list[WorkspaceGrant]) -> str | None:
+    if any(grant.expires_at is None for grant in grants):
+        return None
+    return max(
+        grants,
+        key=lambda grant: (_grant_expiration_timestamp(grant), grant.expires_at),
+    ).expires_at
+
+
 @dataclass
 class WorkspaceManifest:
     workspace_id: str
@@ -293,6 +405,42 @@ class WorkspacesAPI:
         )
         return Workspace.from_dict(data)
 
+    def access_snapshot(
+        self,
+        workspace_ref: str,
+        *,
+        user_id: str | None = None,
+        agent_id: str | None = None,
+    ) -> WorkspaceAccessSnapshot:
+        workspace = self.get(workspace_ref, user_id=user_id, agent_id=agent_id)
+        captured_time = datetime.now(timezone.utc)
+        captured_at = captured_time.isoformat().replace("+00:00", "Z")
+        current_role = workspace.role
+
+        if current_role != "admin":
+            return WorkspaceAccessSnapshot(
+                workspace=workspace,
+                current_role=current_role,
+                visibility="current-access-only",
+                captured_at=captured_at,
+                entries=None,
+                grants=None,
+            )
+
+        grants = self.list_grants(
+            workspace_ref,
+            user_id=user_id,
+            agent_id=agent_id,
+        )
+        return WorkspaceAccessSnapshot(
+            workspace=workspace,
+            current_role=current_role,
+            visibility="all-direct-access",
+            captured_at=captured_at,
+            entries=_workspace_access_entries(grants, captured_time),
+            grants=grants,
+        )
+
     def list_agents(
         self,
         workspace_ref: str,
@@ -300,14 +448,26 @@ class WorkspacesAPI:
         user_id: str | None = None,
         agent_id: str | None = None,
     ) -> list[WorkspaceAgentAssociation]:
-        data = _request(
-            "GET",
-            f"{self.api_base}/{_encode_ref(workspace_ref)}/agents",
-            api_key=self.api_key,
+        """Deprecated compatibility projection; use access_snapshot for grant details."""
+        snapshot = self.access_snapshot(
+            workspace_ref,
             user_id=user_id,
             agent_id=agent_id,
         )
-        return [WorkspaceAgentAssociation.from_dict(item) for item in data]
+        if snapshot.visibility != "all-direct-access" or snapshot.entries is None:
+            raise ValueError(
+                "Workspace agent associations are available only to Workspace admins."
+            )
+        return [
+            WorkspaceAgentAssociation(
+                workspace_id=entry.workspace_id,
+                agent_id=entry.subject_id,
+                role=entry.role,
+                expires_at=_latest_grant_expiration(entry.grants),
+            )
+            for entry in snapshot.entries
+            if entry.subject_type == "agent"
+        ]
 
     def search(
         self,
@@ -397,13 +557,22 @@ class WorkspacesAPI:
         )
         return WorkspaceGrant.from_dict(data)
 
-    def list_grants(self, workspace_ref: str, *, user_id: str | None = None) -> list[WorkspaceGrant]:
+    def list_grants(
+        self,
+        workspace_ref: str,
+        *,
+        user_id: str | None = None,
+        agent_id: str | None = None,
+    ) -> list[WorkspaceGrant]:
         data = _request(
             "GET",
             f"{self.api_base}/{_encode_ref(workspace_ref)}/grants",
             api_key=self.api_key,
             user_id=user_id,
+            agent_id=agent_id,
         )
+        if not isinstance(data, list):
+            raise ValueError("Workspace grants response must be a list.")
         return [WorkspaceGrant.from_dict(item) for item in data]
 
     def update_grant(

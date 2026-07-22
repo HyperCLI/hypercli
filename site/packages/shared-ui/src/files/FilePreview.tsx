@@ -27,6 +27,7 @@ import { formatFileSize, getFileBackupBadge } from "./FileRow";
 import { parseZipPreview } from "./zip-preview";
 import { inferFileMimeType, resolveFileType, type ResolvedFileType } from "./file-types";
 import { writeClipboardText } from "../utils/browser-clipboard";
+import { TooltipHint } from "../components/ui/tooltip";
 
 // ── Types ──
 
@@ -192,12 +193,14 @@ export function FilePreview({
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
           {backupStatus && (
-            <span
-              role="img"
-              aria-label={backupStatus.label}
-              title={backupStatus.title}
-              className={`inline-flex h-2.5 w-2.5 items-center rounded-full border ${backupStatus.className}`}
-            />
+            <TooltipHint label={backupStatus.title}>
+              <span
+                role="img"
+                aria-label={backupStatus.label}
+                tabIndex={0}
+                className={`inline-flex h-2.5 w-2.5 items-center rounded-full border ${backupStatus.className}`}
+              />
+            </TooltipHint>
           )}
           {isMarkdown && (
             <div className="mr-1 flex items-center rounded-lg border border-border bg-background/40 p-0.5" aria-label="Markdown view mode">
@@ -220,47 +223,39 @@ export function FilePreview({
             </div>
           )}
           {readOnly && (
-            <span
-              title="This file is read-only. Download, edit locally, then re-upload."
-              className="inline-flex items-center gap-1 rounded bg-warning/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-warning"
-            >
-              <Lock className="w-2.5 h-2.5" />
-              {readOnlyLabel}
-            </span>
+            <TooltipHint label="This file is read-only. Download, edit locally, then re-upload.">
+              <span tabIndex={0} className="inline-flex items-center gap-1 rounded bg-warning/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-warning">
+                <Lock className="w-2.5 h-2.5" />
+                {readOnlyLabel}
+              </span>
+            </TooltipHint>
           )}
           {isEditable && onSave && !readOnly && (
-            <button
-              onClick={handleSave}
-              disabled={!isDirty || saving}
-              className={PREVIEW_ACTION_BUTTON_CLASS}
-              title="Save"
-            >
-              {saving ? (
-                <Loader2 className={`${PREVIEW_ACTION_ICON_CLASS} animate-spin`} />
+            <TooltipHint label="Save" disabled={!isDirty || saving}>
+              <button aria-label="Save" onClick={handleSave} disabled={!isDirty || saving} className={PREVIEW_ACTION_BUTTON_CLASS}>
+                {saving ? (
+                  <Loader2 className={`${PREVIEW_ACTION_ICON_CLASS} animate-spin`} />
+                ) : (
+                  <Save className={PREVIEW_ACTION_ICON_CLASS} />
+                )}
+              </button>
+            </TooltipHint>
+          )}
+          <TooltipHint label="Copy content">
+            <button aria-label="Copy content" onClick={handleCopy} className={PREVIEW_ACTION_BUTTON_CLASS}>
+              {copied ? (
+                <Check className={`${PREVIEW_ACTION_ICON_CLASS} text-[var(--selection-accent)]`} />
               ) : (
-                <Save className={PREVIEW_ACTION_ICON_CLASS} />
+                <Copy className={PREVIEW_ACTION_ICON_CLASS} />
               )}
             </button>
-          )}
-          <button
-            onClick={handleCopy}
-            className={PREVIEW_ACTION_BUTTON_CLASS}
-            title="Copy content"
-          >
-            {copied ? (
-              <Check className={`${PREVIEW_ACTION_ICON_CLASS} text-[var(--selection-accent)]`} />
-            ) : (
-              <Copy className={PREVIEW_ACTION_ICON_CLASS} />
-            )}
-          </button>
+          </TooltipHint>
           {onDownload && (
-            <button
-              onClick={() => onDownload(entry)}
-              className={PREVIEW_ACTION_BUTTON_CLASS}
-              title="Download"
-            >
-              <Download className={PREVIEW_ACTION_ICON_CLASS} />
-            </button>
+            <TooltipHint label="Download">
+              <button aria-label="Download" onClick={() => onDownload(entry)} className={PREVIEW_ACTION_BUTTON_CLASS}>
+                <Download className={PREVIEW_ACTION_ICON_CLASS} />
+              </button>
+            </TooltipHint>
           )}
           {showClose && (
             <button
@@ -348,7 +343,9 @@ export function FilePreview({
                             <div key={`${archiveEntry.name}-${index}`} className="flex min-w-0 items-center gap-2 px-3 py-2 text-xs">
                               <ArchiveEntryIcon className="h-3.5 w-3.5 shrink-0 text-text-muted" />
                               <div className="min-w-0 flex-1">
-                                <p className="truncate font-mono text-foreground" title={archiveEntry.name}>{archiveEntry.name}</p>
+                                <TooltipHint label={archiveEntry.name}>
+                                  <p className="truncate font-mono text-foreground" tabIndex={0}>{archiveEntry.name}</p>
+                                </TooltipHint>
                                 {archiveEntry.unsafePath && (
                                   <p className="mt-0.5 text-[10px] text-warning">Potentially unsafe path</p>
                                 )}

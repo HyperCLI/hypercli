@@ -1018,6 +1018,97 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
+  it("patches the active gateway session model and updates local session state", async () => {
+    const gateway = buildGateway();
+    gateway.sessionsList.mockResolvedValue([{
+      key: "agent:default:session-alpha",
+      title: "Alpha",
+      modelProvider: "openai",
+      model: "gpt-5-mini",
+      thinkingLevel: "low",
+      thinkingLevels: ["off", "low"],
+      thinkingDefault: "low",
+    }]);
+    gateway.sessionsPatch.mockResolvedValue({
+      ok: true,
+      entry: { thinkingLevel: "medium" },
+      resolved: {
+        thinkingLevels: ["off", { id: "medium", label: "Balanced" }],
+        thinkingDefault: "medium",
+      },
+    });
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "session-alpha"));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.activeSessionModel).toBe("openai/gpt-5-mini"));
+
+    await act(async () => {
+      await result.current.setActiveSessionModel("openai/gpt-5.2");
+    });
+
+    expect(gateway.sessionsPatch).toHaveBeenCalledWith({
+      key: "agent:default:session-alpha",
+      model: "openai/gpt-5.2",
+    });
+    expect(result.current.activeSessionModel).toBe("openai/gpt-5.2");
+    expect(result.current.activeSessionThinkingLevel).toBe("medium");
+    expect(result.current.activeSessionThinkingLevels).toEqual([
+      { id: "off", label: "off" },
+      { id: "medium", label: "Balanced" },
+    ]);
+    expect(result.current.activeSessionThinkingDefault).toBe("medium");
+    unmount();
+  });
+
+  it("patches the active session thinking level without changing its model", async () => {
+    const gateway = buildGateway();
+    gateway.sessionsList.mockResolvedValue([{
+      key: "agent:default:session-alpha",
+      modelProvider: "anthropic",
+      model: "claude-sonnet-4-5",
+      thinkingLevel: "low",
+      thinkingLevels: ["off", "low", "high"],
+      thinkingDefault: "low",
+    }]);
+    gateway.sessionsPatch.mockResolvedValue({ ok: true, entry: { thinkingLevel: "high" } });
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "session-alpha"));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.activeSessionThinkingLevel).toBe("low"));
+
+    await act(async () => {
+      await result.current.setActiveSessionThinkingLevel("high");
+    });
+
+    expect(gateway.sessionsPatch).toHaveBeenCalledWith({
+      key: "agent:default:session-alpha",
+      thinkingLevel: "high",
+    });
+    expect(result.current.activeSessionModel).toBe("anthropic/claude-sonnet-4-5");
+    expect(result.current.activeSessionThinkingLevel).toBe("high");
+    expect(result.current.activeSessionThinkingLevels).toEqual([
+      { id: "off", label: "off" },
+      { id: "low", label: "low" },
+      { id: "high", label: "high" },
+    ]);
+    expect(result.current.activeSessionThinkingDefault).toBe("low");
+    unmount();
+  });
+
   it("caches non-probe gateway status calls and invalidates them after changes", async () => {
     const gateway = buildGateway();
     gateway.channelsStatus.mockImplementation(async (probe?: boolean) => ({

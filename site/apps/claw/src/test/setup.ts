@@ -3,6 +3,24 @@ import { cleanup } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, vi } from "vitest";
 
+if (!globalThis.ResizeObserver) {
+  vi.stubGlobal("ResizeObserver", class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  });
+}
+
+if (!HTMLElement.prototype.hasPointerCapture) {
+  HTMLElement.prototype.hasPointerCapture = () => false;
+  HTMLElement.prototype.setPointerCapture = () => undefined;
+  HTMLElement.prototype.releasePointerCapture = () => undefined;
+}
+
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => undefined;
+}
+
 vi.mock("@turnkey/react-wallet-kit", () => ({
   TurnkeyProvider: ({ children }: { children: ReactNode }) => children,
   useTurnkey: () => ({

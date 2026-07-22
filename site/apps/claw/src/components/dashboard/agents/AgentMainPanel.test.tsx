@@ -26,7 +26,6 @@ vi.mock("@/components/dashboard/agents/AgentPanels", () => {
       launchLabel,
       launching,
       launchBlocked,
-      launchBlockedReason,
       onLaunchAction,
       workspaceName,
       hasAccountAgents,
@@ -40,7 +39,6 @@ vi.mock("@/components/dashboard/agents/AgentPanels", () => {
             type="button"
             onClick={onLaunchAction ?? onCreate}
             disabled={Boolean(launching || launchBlocked || creationDisabledReason)}
-            title={creationDisabledReason ?? launchBlockedReason ?? undefined}
           >
             {launching ? "Starting agent" : launchLabel ?? defaultButtonLabel}
           </button>
@@ -140,7 +138,7 @@ describe("AgentMainPanel", () => {
 
     const createAgent = screen.getByRole("button", { name: "Create an agent" });
     expect(createAgent).toBeDisabled();
-    expect(createAgent).toHaveAttribute("title", "Workspace admin access is required to add agents.");
+    expect(createAgent).not.toHaveAttribute("title");
   });
 
   it("does not show the first-agent empty state while another agent is available", () => {
@@ -504,7 +502,7 @@ describe("AgentMainPanel", () => {
 
     const startButton = screen.getByRole("button", { name: /^start agent$/i });
     expect(startButton).toBeDisabled();
-    expect(startButton).toHaveAttribute("title", "Agent is finishing shutdown. Try again shortly.");
+    expect(startButton).not.toHaveAttribute("title");
     expect(screen.queryByRole("button", { name: /starting agent/i })).not.toBeInTheDocument();
   });
 
@@ -517,8 +515,8 @@ describe("AgentMainPanel", () => {
       panelContent: <div>Files panel</div>,
     });
 
-    expect(screen.queryByTitle("Open workspace files")).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Settings")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open workspace files" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Settings" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^start agent$/i })).not.toBeInTheDocument();
     expect(screen.getByText("Files panel")).toBeInTheDocument();
   });

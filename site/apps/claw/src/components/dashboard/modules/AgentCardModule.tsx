@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import { formatCpu, formatMemory } from "@/lib/format";
 import { ResourceImage } from "@/components/ResourceImage";
+import { TooltipHint } from "@/components/ClawTooltip";
 import type { StyleVariant, AgentStatus } from "../agentViewTypes";
 import {
   MOCK_CONFIG,
@@ -352,15 +353,16 @@ export function AgentCardModule({
   const renderActionButton = () => {
     if (isStopped && onStart) {
       return (
-        <button
-          onClick={onStart}
-          disabled={starting || startBlocked}
-          title={startBlocked ? startBlockedReason : "Start agent"}
-          className="flex items-center gap-1.5 rounded-md bg-primary/15 px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/25 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {starting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
-          <span>Start</span>
-        </button>
+        <TooltipHint label={startBlocked ? startBlockedReason : "Start agent"} disabled={starting || startBlocked}>
+          <button
+            onClick={onStart}
+            disabled={starting || startBlocked}
+            className="flex items-center gap-1.5 rounded-md bg-primary/15 px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/25 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {starting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+            <span>Start</span>
+          </button>
+        </TooltipHint>
       );
     }
     if (isRunning && onStop) {
@@ -368,7 +370,6 @@ export function AgentCardModule({
         <button
           onClick={onStop}
           disabled={stopping}
-          title="Stop agent"
           className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-border text-text-secondary hover:bg-surface-low hover:text-foreground transition-colors disabled:opacity-50"
         >
           {stopping ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3" />}

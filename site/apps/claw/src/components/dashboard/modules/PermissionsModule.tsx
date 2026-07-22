@@ -4,6 +4,7 @@ import { Shield } from "lucide-react";
 import { motion } from "framer-motion";
 import type { StyleVariant } from "../agentViewTypes";
 import { PERMISSION_MAP } from "../agentViewMockData";
+import { TooltipHint } from "@/components/ClawTooltip";
 
 interface PermissionsModuleProps {
   variant: StyleVariant;
@@ -79,30 +80,30 @@ export function PermissionsModule({ variant, permissions: permissionsProp }: Per
                   ? "border-warning/25 bg-warning/5"
                   : "border-border";
             return (
-              <motion.div
-                key={idx}
-                initial={{ scale: 0.85, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ delay: idx * 0.05, type: "spring" }}
-                whileHover={{ scale: 1.05 }}
-                className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border ${levelColor}`}
-                title={`${perm.scope}: ${perm.access} (${perm.level})`}
-              >
-                <PermIcon className="w-3 h-3 text-text-muted" />
-                <span className="text-[10px] text-foreground">{perm.scope}</span>
-                <motion.span
-                  className={`w-1.5 h-1.5 rounded-full ${perm.level === "full" ? "bg-primary" : perm.level === "filtered" ? "bg-warning" : "bg-text-muted"}`}
-                  animate={{
-                    scale: [0.8, 1.3, 0.8],
-                    opacity: [0.5, 1, 0.5],
-                  }}
-                  transition={{
-                    repeat: Infinity,
-                    duration: 1.2,
-                    delay: idx * 0.2,
-                  }}
-                />
-              </motion.div>
+              <TooltipHint key={idx} label={`${perm.scope}: ${perm.access} (${perm.level})`}>
+                <motion.div
+                  initial={{ scale: 0.85, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ delay: idx * 0.05, type: "spring" }}
+                  whileHover={{ scale: 1.05 }}
+                  className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border ${levelColor}`}
+                >
+                  <PermIcon className="w-3 h-3 text-text-muted" />
+                  <span className="text-[10px] text-foreground">{perm.scope}</span>
+                  <motion.span
+                    className={`w-1.5 h-1.5 rounded-full ${perm.level === "full" ? "bg-primary" : perm.level === "filtered" ? "bg-warning" : "bg-text-muted"}`}
+                    animate={{
+                      scale: [0.8, 1.3, 0.8],
+                      opacity: [0.5, 1, 0.5],
+                    }}
+                    transition={{
+                      repeat: Infinity,
+                      duration: 1.2,
+                      delay: idx * 0.2,
+                    }}
+                  />
+                </motion.div>
+              </TooltipHint>
             );
           })}
         </div>

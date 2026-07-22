@@ -21,6 +21,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { agentAvatar } from "@/lib/avatar";
+import { TooltipHint } from "@/components/ClawTooltip";
 import { ConversationGraphModule } from "./AgentsChannelsSidebar";
 import { AgentFocusModule } from "./modules/AgentFocusModule";
 import { GroupPermissionsModule } from "./modules/GroupPermissionsModule";
@@ -1203,9 +1204,9 @@ export function AgentView({
                         key={f.id}
                         onClick={() => onMarketplaceClick?.()}
                         disabled={!onMarketplaceClick}
+                        aria-label={f.connected ? `${f.name}, connected` : `Connect ${f.name}`}
                         className="group flex items-center gap-3 w-full px-3 py-2.5 rounded-lg border border-border hover:border-text-muted/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-left"
                         style={{ backgroundColor: `${f.brand}10` }}
-                        title={f.connected ? `${f.name} · connected` : `Connect ${f.name}`}
                       >
                         <div
                           className="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0"
@@ -1357,14 +1358,15 @@ export function AgentView({
               </div>
             </div>
           ))}
-          <button
-            onClick={onCronAdd}
-            disabled={!onCronAdd}
-            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-primary hover:bg-primary/8 rounded-lg transition-colors mt-2 disabled:opacity-40 disabled:cursor-not-allowed"
-            title={onCronAdd ? "Add a cron job" : "Coming soon — cron creation UI"}
-          >
-            <Plus className="w-4 h-4" /> Add Cron Job
-          </button>
+          <TooltipHint label={onCronAdd ? "Add a cron job" : "Coming soon - cron creation UI"} disabled={!onCronAdd} triggerClassName="w-full">
+            <button
+              onClick={onCronAdd}
+              disabled={!onCronAdd}
+              className="flex items-center gap-2 w-full px-3 py-2 text-sm text-primary hover:bg-primary/8 rounded-lg transition-colors mt-2 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Plus className="w-4 h-4" /> Add Cron Job
+            </button>
+          </TooltipHint>
         </div>
       )}
     </div>

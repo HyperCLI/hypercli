@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Brain, ChevronRight, Download, FileImage, FolderOpen, Loader2, Paperclip, Square } from "lucide-react";
 import { AnimatePresence, motion, type HTMLMotionProps } from "framer-motion";
 import type { ChatMessage as ChatMessageType, ChatPendingFile } from "@/lib/openclaw-chat";
@@ -29,6 +29,8 @@ import { DirectoryVisualization, parseDirectoryVisualization } from "@/component
 import { buildToolCallStackView, buildToolCallView } from "@/components/dashboard/chat/helpers";
 import { CHAT_MARKDOWN_IMAGE_CLASS, MarkdownContent } from "@/components/dashboard/chat/MarkdownContent";
 import { ToolCallDisclosureButton, ToolCallSectionList, ToolCallStatusFrame } from "@/components/dashboard/chat/ToolCallPresentation";
+import { TimestampDisplay } from "@/components/dashboard/chat/TimestampDisplay";
+import { TooltipHint } from "@/components/ClawTooltip";
 
 // ── Helpers ──
 
@@ -132,28 +134,28 @@ function ChatFileActions({ file, onOpenFile, onDownloadFile, className }: ChatFi
   return (
     <span className={`inline-flex shrink-0 items-center gap-1 ${className ?? "ml-1"}`}>
       {onOpenFile && (
-        <button
-          type="button"
-          onClick={() => onOpenFile(file.path)}
-          className={buttonClass}
-          aria-label={`Open ${label} in files`}
-          title="Open in files"
-        >
-          <FolderOpen className="h-3.5 w-3.5" />
-        </button>
+        <TooltipHint label="Open in files">
+          <button type="button" onClick={() => onOpenFile(file.path)} className={buttonClass} aria-label={`Open ${label} in files`}>
+            <FolderOpen className="h-3.5 w-3.5" />
+          </button>
+        </TooltipHint>
       )}
       {onDownloadFile && (
-        <button
-          type="button"
-          onClick={() => { void onDownloadFile(file); }}
-          className={buttonClass}
-          aria-label={`Download ${label}`}
-          title="Download"
-        >
-          <Download className="h-3.5 w-3.5" />
-        </button>
+        <TooltipHint label="Download">
+          <button type="button" onClick={() => { void onDownloadFile(file); }} className={buttonClass} aria-label={`Download ${label}`}>
+            <Download className="h-3.5 w-3.5" />
+          </button>
+        </TooltipHint>
       )}
     </span>
+  );
+}
+
+function ChatTooltipText({ label, className, children }: { label: string; className: string; children: ReactNode }) {
+  return (
+    <TooltipHint label={label}>
+      <span className={className} tabIndex={0}>{children}</span>
+    </TooltipHint>
   );
 }
 
@@ -231,7 +233,7 @@ function ChatVideoFilePreview({
         </div>
       )}
       <div className="flex max-w-full items-center gap-2">
-        <span className="truncate text-[11px] text-text-muted" title={file.path}>{file.name}</span>
+        <ChatTooltipText className="truncate text-[11px] text-text-muted" label={file.path}>{file.name}</ChatTooltipText>
         <ChatFileActions
           file={file}
           onOpenFile={onOpenFile}
@@ -281,7 +283,7 @@ function GeneratedMediaFilePreview({
           onDownload={onDownloadFile ? () => onDownloadFile(file) : undefined}
         />
         <div className="flex max-w-full items-center gap-2">
-          <span className="truncate text-[11px] text-text-muted" title={`MEDIA:${displayPath}`}>{file.name}</span>
+          <ChatTooltipText className="truncate text-[11px] text-text-muted" label={`MEDIA:${displayPath}`}>{file.name}</ChatTooltipText>
           <ChatFileActions
             file={file}
             onOpenFile={onOpenFile}
@@ -317,7 +319,7 @@ function GeneratedMediaFilePreview({
           onDownload={onDownloadFile ? () => onDownloadFile(file) : undefined}
         />
         <div className="flex max-w-full items-center gap-2">
-          <span className="truncate text-[11px] text-text-muted" title={`MEDIA:${displayPath}`}>{file.name}</span>
+          <ChatTooltipText className="truncate text-[11px] text-text-muted" label={`MEDIA:${displayPath}`}>{file.name}</ChatTooltipText>
           <ChatFileActions
             file={file}
             onOpenFile={onOpenFile}
@@ -332,7 +334,7 @@ function GeneratedMediaFilePreview({
   return (
     <div className="inline-flex max-w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary">
       <Paperclip className="h-3.5 w-3.5 shrink-0" />
-      <span className="truncate" title={`MEDIA:${displayPath}`}>{file.name}</span>
+      <ChatTooltipText className="truncate" label={`MEDIA:${displayPath}`}>{file.name}</ChatTooltipText>
       <ChatFileActions
         file={file}
         onOpenFile={onOpenFile}
@@ -443,14 +445,6 @@ interface AgentFileReference {
 }
 
 type ToolCall = NonNullable<ChatMessageType["toolCalls"]>[number];
-
-function formatTime(ts?: number): string {
-  if (!ts) return "";
-  return new Date(ts).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(
@@ -1197,7 +1191,7 @@ export function ChatMessageBubble({
                     className="inline-flex max-w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary"
                   >
                     <Paperclip className="h-3.5 w-3.5 shrink-0" />
-                    <span className="truncate" title={file.name}>{file.name}</span>
+                    <ChatTooltipText className="truncate" label={file.name}>{file.name}</ChatTooltipText>
                     <ChatFileActions
                       file={file}
                       onOpenFile={onOpenFileFromChat}
@@ -1271,7 +1265,7 @@ export function ChatMessageBubble({
                       className="inline-flex max-w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary"
                     >
                       <Paperclip className="h-3.5 w-3.5 shrink-0" />
-                      <span className="truncate" title={matchingFile.name}>{matchingFile.name}</span>
+                      <ChatTooltipText className="truncate" label={matchingFile.name}>{matchingFile.name}</ChatTooltipText>
                       <ChatFileActions
                         file={matchingFile}
                         onOpenFile={onOpenFileFromChat}
@@ -1338,7 +1332,7 @@ export function ChatMessageBubble({
                     className="inline-flex max-w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary"
                   >
                     <Paperclip className="h-3.5 w-3.5 shrink-0" />
-                    <span className="truncate" title={reference.fileName}>{reference.fileName}</span>
+                    <ChatTooltipText className="truncate" label={reference.fileName}>{reference.fileName}</ChatTooltipText>
                   </div>
                 );
               }
@@ -1405,12 +1399,8 @@ export function ChatMessageBubble({
           />
         )}
 
-        {/* Timestamp on hover */}
-        {message.timestamp && (
-          <div className="text-[10px] text-text-muted mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            {formatTime(message.timestamp)}
-          </div>
-        )}
+        <TimestampDisplay timestamp={message.timestamp} variant={timestampVariant} placement="inside" isUser={isUser} />
+        <TimestampDisplay timestamp={message.timestamp} variant={timestampVariant} placement="outside" isUser={isUser} />
       </div>
     </motion.div>
   );

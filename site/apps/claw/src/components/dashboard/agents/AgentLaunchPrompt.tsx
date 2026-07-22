@@ -3,6 +3,7 @@
 import { Play, Plus } from "lucide-react";
 
 import { AgentGatewayLoadingVisual } from "@/components/dashboard/AgentGatewayLoadingVisual";
+import { TooltipHint } from "@/components/ClawTooltip";
 
 interface AgentLaunchPromptProps {
   label: string;
@@ -39,24 +40,29 @@ export function AgentLaunchPrompt({
   return (
     <div className="h-full flex items-center justify-center p-6">
       <div className="max-w-md text-center">
-        <button
-          onClick={onLaunch}
-          disabled={blocked}
-          className="mx-auto mb-4 flex h-14 w-14 items-center justify-center text-text-muted transition-colors hover:text-foreground disabled:opacity-60"
-          aria-label={`Start agent to use ${label}`}
-          title={blockedTitle || "Start agent"}
-        >
-          <Play className="h-6 w-6" />
-        </button>
+        <div className="mb-4 flex justify-center">
+          <TooltipHint label={blockedTitle || "Start agent"} disabled={blocked}>
+            <button
+              onClick={onLaunch}
+              disabled={blocked}
+              className="flex h-14 w-14 items-center justify-center text-text-muted transition-colors hover:text-foreground disabled:opacity-60"
+              aria-label={`Start agent to use ${label}`}
+            >
+              <Play className="h-6 w-6" />
+            </button>
+          </TooltipHint>
+        </div>
         <p className="text-base text-foreground">{`Start Agent to Use ${label}`}</p>
-        <button
-          onClick={onLaunch}
-          disabled={blocked}
-          className="mt-3 inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-text-muted transition-colors hover:text-foreground hover:bg-surface-low disabled:opacity-60"
-        >
-          <Play className="h-4 w-4" />
-          <span>Start Agent</span>
-        </button>
+        <TooltipHint label={blockedTitle || "Start agent"} disabled={blocked}>
+          <button
+            onClick={onLaunch}
+            disabled={blocked}
+            className="mt-3 inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-text-muted transition-colors hover:text-foreground hover:bg-surface-low disabled:opacity-60"
+          >
+            <Play className="h-4 w-4" />
+            <span>Start Agent</span>
+          </button>
+        </TooltipHint>
         {blockedMessage && (
           <div className="mt-4 rounded-xl border border-warning/25 bg-warning/10 px-4 py-3 text-left">
             <p className="text-sm font-medium text-warning">{blockedTitle || "Launch blocked"}</p>

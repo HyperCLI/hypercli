@@ -18,6 +18,7 @@ import { Button } from "../components/ui/button";
 import { Checkbox } from "../components/ui/checkbox";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "../components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
+import { TooltipHint } from "../components/ui/tooltip";
 import { cn } from "../utils/cn";
 import { writeClipboardText } from "../utils/browser-clipboard";
 
@@ -103,16 +104,18 @@ export function SkillCard({ skill, control, actions, showMetadata = true, status
       </div>
 
       <div data-slot="skill-card-footer" className="mt-auto flex min-w-0 items-center gap-2 pt-2.5">
-        {showMetadata && <div data-slot="skill-card-metadata" className="min-w-0 flex-1 overflow-hidden" title={chipSummary}>
-          <div className="flex min-w-0 flex-nowrap gap-1 overflow-hidden whitespace-nowrap">
-            {originLabel && <span className="shrink-0 rounded-md border border-border bg-background/50 px-1.5 py-0.5 text-[9px] leading-none text-text-muted">{originLabel}</span>}
-            <span className="shrink-0 rounded-md border border-border bg-background/50 px-1.5 py-0.5 text-[9px] leading-none text-text-muted">{skill.category}</span>
-            {skill.badges?.slice(0, 3).map((badge) => {
-              const Icon = badge.icon;
-              return <span key={badge.label} className={`inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[9px] leading-none ${toneClasses(badge.tone ?? "neutral")}`}>{Icon && <Icon className="h-3 w-3" />}{badge.label}</span>;
-            })}
+        {showMetadata && <TooltipHint label={chipSummary}>
+          <div data-slot="skill-card-metadata" className="min-w-0 flex-1 overflow-hidden" tabIndex={0}>
+            <div className="flex min-w-0 flex-nowrap gap-1 overflow-hidden whitespace-nowrap">
+              {originLabel && <span className="shrink-0 rounded-md border border-border bg-background/50 px-1.5 py-0.5 text-[9px] leading-none text-text-muted">{originLabel}</span>}
+              <span className="shrink-0 rounded-md border border-border bg-background/50 px-1.5 py-0.5 text-[9px] leading-none text-text-muted">{skill.category}</span>
+              {skill.badges?.slice(0, 3).map((badge) => {
+                const Icon = badge.icon;
+                return <span key={badge.label} className={`inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[9px] leading-none ${toneClasses(badge.tone ?? "neutral")}`}>{Icon && <Icon className="h-3 w-3" />}{badge.label}</span>;
+              })}
+            </div>
           </div>
-        </div>}
+        </TooltipHint>}
         {statusLabel && statusPosition === "footer" && <div data-slot="skill-card-status" className="min-w-0 flex-1"><SkillStatusPill label={statusLabel} tone={statusTone} /></div>}
         {(actions || actionLabel) && <div data-slot="skill-card-actions" className="ml-auto min-w-0 shrink-0">
           {actions ?? (actionLabel ? (

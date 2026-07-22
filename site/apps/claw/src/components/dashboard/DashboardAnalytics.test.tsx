@@ -1,5 +1,6 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { CLAW_TOOLTIP_DELAY_MS } from "@/components/ClawTooltip";
 
 import {
   AgentUsageTable,
@@ -23,6 +24,10 @@ const integrations: DashboardIntegrationUsage[] = [
   { id: "slack", name: "Slack", totalTokens: 75_000, requests: 40 },
   { id: "cli", name: "CLI", totalTokens: 120_000, requests: 146 },
 ];
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function buildThirtyDayHistory(): DashboardDayData[] {
   const start = Date.UTC(2026, 3, 22);
@@ -139,9 +144,12 @@ describe("DashboardAnalytics", () => {
   });
 
   it("shows a token breakdown tooltip when hovering a bar", () => {
+    vi.useFakeTimers();
     render(<TokenUsagePanel history={history} periodLabel="Last 7 days" />);
 
-    fireEvent.mouseEnter(screen.getByRole("button", { name: "May 13 token usage" }));
+    fireEvent.pointerMove(screen.getByRole("button", { name: "May 13 token usage" }), { pointerType: "mouse" });
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(CLAW_TOOLTIP_DELAY_MS));
 
     const tooltip = screen.getByRole("tooltip");
     expect(within(tooltip).getByText("May 13")).toBeInTheDocument();
@@ -181,7 +189,7 @@ describe("DashboardAnalytics", () => {
 
     const nowBucket = screen.getAllByRole("button", { name: "May 22 token usage" }).at(-1);
     if (!nowBucket) throw new Error("Expected now bucket");
-    fireEvent.mouseEnter(nowBucket);
+    fireEvent.focus(nowBucket);
     expect(within(screen.getByRole("tooltip")).getByText("107k")).toBeInTheDocument();
   });
 

@@ -142,7 +142,7 @@ export function DashboardNav() {
                       Settings
                     </Link>
 
-                    <ThemeToggle showLabel role="menuitem" className="w-full justify-start px-3" />
+                    <ThemeToggle showLabel title="" role="menuitem" className="w-full justify-start px-3" />
 
                     <button
                       onClick={() => {
@@ -256,7 +256,7 @@ export function DashboardNav() {
                   </div>
                 )}
 
-                <ThemeToggle showLabel className="mb-2 w-full justify-start px-2" />
+                <ThemeToggle showLabel title="" className="mb-2 w-full justify-start px-2" />
                 <button
                   onClick={() => {
                     setMobileMenuOpen(false);

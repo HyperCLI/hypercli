@@ -84,6 +84,7 @@ describe("claw theme CSS", () => {
     expect(fixedDefaultBlock).toContain("--accent-hover: #75ef64;");
     expect(fixedDefaultBlock).toContain("--accent-pressed: #52c943;");
     expect(fixedDefaultBlock).toContain("--button-primary: #63e452;");
+    expect(fixedDefaultBlock).toContain("--button-hover-foreground: #ffffff;");
     expect(fixedDefaultBlock).toContain("--button-primary-rgb: 99 228 82;");
     expect(fixedDefaultBlock).toContain("--selection-accent: #63e452;");
     expect(fixedDefaultBlock).toContain("--selection-accent-rgb: 99 228 82;");
@@ -117,6 +118,9 @@ describe("claw theme CSS", () => {
     expect(clawThemeCss).toContain("@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)))");
     expect(clawThemeCss).toContain(".glass-card");
     expect(clawThemeCss).toContain(".btn-primary");
+    expect(clawThemeCss).toContain(':where(button, a, [role="button"]):hover');
+    expect(clawThemeCss).toContain("--button-primary-foreground: var(--button-hover-foreground);");
+    expect(clawThemeCss).toContain('.bg-foreground.text-background:hover');
   });
 
   it("propagates the canonical switchable theme to main and console", () => {

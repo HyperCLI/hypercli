@@ -11,6 +11,7 @@ import {
 } from "./journey-capabilities";
 import type { JourneyController } from "./useJourney";
 import type { JourneyBriefPreviewItem, JourneyDay } from "./types";
+import { TooltipHint } from "@/components/ClawTooltip";
 
 interface JourneyFloatingPanelProps {
   journey: JourneyController;
@@ -232,31 +233,32 @@ export function JourneyFloatingPanel({ journey, onRunDayAction, onRunCapabilityP
 
   if (!journey.panelOpen) {
     return (
-      <motion.button
-        key={journey.lastReceipt?.timestamp ?? "collapsed-journey"}
-        ref={setFloatingRef}
-        type="button"
-        onPointerDown={startDrag}
-        onPointerMove={moveDrag}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-        onClick={(event) => {
-          if (suppressNextClickRef.current) {
-            suppressNextClickRef.current = false;
-            event.preventDefault();
-            return;
-          }
-          journey.setPanelOpen(true);
-        }}
-        style={floatingStyle}
-        initial={false}
-        className={`fixed ${positionedClassName} z-50 inline-flex touch-none items-center gap-2 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-popover/95 px-3.5 py-2 text-sm font-semibold text-[var(--selection-accent)] shadow-[0_18px_56px_rgba(0,0,0,0.38)] backdrop-blur transition-colors hover:bg-surface-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.55)] ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
-        aria-label={`Open Journey mission ${day.day}`}
-        title="Drag to move. Click to open Journey."
-      >
-        <Sparkles className="h-4 w-4" />
-        <span>{collapsedLabel}</span>
-      </motion.button>
+      <TooltipHint label="Drag to move. Click to open Journey.">
+        <motion.button
+          key={journey.lastReceipt?.timestamp ?? "collapsed-journey"}
+          ref={setFloatingRef}
+          type="button"
+          onPointerDown={startDrag}
+          onPointerMove={moveDrag}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          onClick={(event) => {
+            if (suppressNextClickRef.current) {
+              suppressNextClickRef.current = false;
+              event.preventDefault();
+              return;
+            }
+            journey.setPanelOpen(true);
+          }}
+          style={floatingStyle}
+          initial={false}
+          className={`fixed ${positionedClassName} z-50 inline-flex touch-none items-center gap-2 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-popover/95 px-3.5 py-2 text-sm font-semibold text-[var(--selection-accent)] shadow-[0_18px_56px_rgba(0,0,0,0.38)] backdrop-blur transition-colors hover:bg-surface-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.55)] ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
+          aria-label={`Open Journey mission ${day.day}`}
+        >
+          <Sparkles className="h-4 w-4" />
+          <span>{collapsedLabel}</span>
+        </motion.button>
+      </TooltipHint>
     );
   }
 
@@ -290,39 +292,32 @@ export function JourneyFloatingPanel({ journey, onRunDayAction, onRunCapabilityP
             </div>
 
             <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onPointerDown={startDrag}
-                onPointerMove={moveDrag}
-                onPointerUp={endDrag}
-                onPointerCancel={endDrag}
-                onKeyDown={moveByKeyboard}
-                className={`flex h-8 w-8 touch-none items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-high hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)] ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
-                title="Move Journey"
-                aria-label="Move Journey panel"
-              >
-                <GripHorizontal className="h-4 w-4" />
-              </button>
-              {journey.preview && (
+              <TooltipHint label="Move Journey">
                 <button
                   type="button"
-                  onClick={journey.reset}
-                  className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-high hover:text-foreground"
-                  title="Reset Journey progress"
-                  aria-label="Reset Journey progress"
+                  onPointerDown={startDrag}
+                  onPointerMove={moveDrag}
+                  onPointerUp={endDrag}
+                  onPointerCancel={endDrag}
+                  onKeyDown={moveByKeyboard}
+                  className={`flex h-8 w-8 touch-none items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-high hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)] ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
+                  aria-label="Move Journey panel"
                 >
-                  <RotateCcw className="h-4 w-4" />
+                  <GripHorizontal className="h-4 w-4" />
                 </button>
+              </TooltipHint>
+              {journey.preview && (
+                <TooltipHint label="Reset Journey progress">
+                  <button type="button" onClick={journey.reset} className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-high hover:text-foreground" aria-label="Reset Journey progress">
+                    <RotateCcw className="h-4 w-4" />
+                  </button>
+                </TooltipHint>
               )}
-              <button
-                type="button"
-                onClick={() => journey.setPanelOpen(false)}
-                className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-high hover:text-foreground"
-                title="Close Journey"
-                aria-label="Close Journey"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <TooltipHint label="Close Journey">
+                <button type="button" onClick={() => journey.setPanelOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-high hover:text-foreground" aria-label="Close Journey">
+                  <X className="h-4 w-4" />
+                </button>
+              </TooltipHint>
             </div>
           </div>
 

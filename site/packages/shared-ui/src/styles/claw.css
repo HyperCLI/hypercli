@@ -42,6 +42,7 @@
   --button-primary: #63e452;
   --button-primary-foreground: #0a0a0b;
   --button-primary-hover: #75ef64;
+  --button-hover-foreground: #ffffff;
   --button-primary-pressed: #52c943;
   --button-primary-rgb: 99 228 82;
   --selection-accent: #63e452;
@@ -144,6 +145,7 @@
   --button-primary: #177a55;
   --button-primary-foreground: #ffffff;
   --button-primary-hover: #116543;
+  --button-hover-foreground: #ffffff;
   --button-primary-pressed: #0d5237;
   --button-primary-rgb: 23 122 85;
   --selection-accent: #177a55;
@@ -327,6 +329,26 @@ h6 {
 
 .btn-primary:hover {
   background-color: var(--button-primary-hover);
+}
+
+:where(button, a, [role="button"]):hover {
+  --primary-foreground: var(--button-hover-foreground);
+  --accent-foreground: var(--button-hover-foreground);
+  --button-primary-foreground: var(--button-hover-foreground);
+  --selection-accent-foreground: var(--button-hover-foreground);
+  --sidebar-primary-foreground: var(--button-hover-foreground);
+}
+
+:where(button, a, [role="button"]).text-background:hover {
+  color: var(--button-hover-foreground);
+}
+
+:where(button, a, [role="button"]).bg-foreground.text-background:hover {
+  background-color: var(--surface-high);
+}
+
+:where(button, a, [role="button"]).bg-warning.text-background:hover {
+  background-color: color-mix(in srgb, var(--warning) 45%, var(--background));
 }
 
 :where(button, a, [role="button"]).bg-primary,

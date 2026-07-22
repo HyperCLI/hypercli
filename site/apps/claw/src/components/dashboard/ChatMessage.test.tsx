@@ -480,7 +480,9 @@ describe("ChatMessageBubble", () => {
     expect(await screen.findByAltText("865621.jpg")).toBeInTheDocument();
     expect(readFileBytes).toHaveBeenCalledWith(".openclaw/workspace/865621.jpg");
     expect(screen.queryByText(/MEDIA:\/home\/node\/\.openclaw\/workspace\/865621\.jpg/i)).not.toBeInTheDocument();
-    expect(screen.getByTitle("MEDIA:/home/865621.jpg")).toBeInTheDocument();
+    const mediaLabel = screen.getByText("865621.jpg");
+    fireEvent.focus(mediaLabel);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("MEDIA:/home/865621.jpg");
 
     fireEvent.click(screen.getByRole("button", { name: /open 865621\.jpg in files/i }));
     expect(onOpenFileFromChat).toHaveBeenCalledWith(".openclaw/workspace/865621.jpg");
@@ -947,7 +949,7 @@ describe("ChatMessageBubble", () => {
     expect(screen.queryByText(/MEDIA/i)).not.toBeInTheDocument();
   });
 
-  it("renders home MEDIA paths as generated media instead of hiding them", () => {
+  it("renders home MEDIA paths as generated media instead of hiding them", async () => {
     const readFileBytes = vi.fn(() => new Promise<Uint8Array>(() => {}));
 
     render(
@@ -963,7 +965,9 @@ describe("ChatMessageBubble", () => {
 
     expect(screen.getByRole("status", { name: /loading image/i })).toBeInTheDocument();
     expect(readFileBytes).toHaveBeenCalledWith(".openclaw/workspace/865621.jpg");
-    expect(screen.getByTitle("MEDIA:/home/865621.jpg")).toBeInTheDocument();
+    const mediaLabel = screen.getByText("865621.jpg");
+    fireEvent.focus(mediaLabel);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("MEDIA:/home/865621.jpg");
     expect(screen.queryByText(/^media:?$/i)).not.toBeInTheDocument();
   });
 

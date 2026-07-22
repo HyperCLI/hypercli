@@ -28,9 +28,8 @@ describe("SessionsModule", () => {
       />,
     );
 
-    expect(screen.getByTitle("Telegram channel")).toBeInTheDocument();
-    expect(screen.queryByTitle("OpenAI channel")).not.toBeInTheDocument();
     expect(screen.getByText("Telegram")).toBeInTheDocument();
+    expect(screen.queryByText("OpenAI")).not.toBeInTheDocument();
     expect(screen.getByText("Model-side session")).toBeInTheDocument();
   });
 });

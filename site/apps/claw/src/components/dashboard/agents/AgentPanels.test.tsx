@@ -6,6 +6,10 @@ import type { Agent } from "@/app/dashboard/agents/types";
 import { AGENT_ROSTER_ORDER_STORAGE_KEY } from "@/hooks/useAgentRosterOrder";
 import { renderWithClient } from "@/test/utils";
 
+const clipboardMocks = vi.hoisted(() => ({
+  writeClipboardText: vi.fn(async () => true),
+}));
+
 vi.mock("./FirstAgentSetupWizard", () => ({
   FirstAgentSetupWizard: ({ onCreateAgent }: {
     onCreateAgent: (params: {
@@ -35,7 +39,9 @@ vi.mock("./FirstAgentSetupWizard", () => ({
 }));
 
 vi.mock("@hypercli/shared-ui", () => ({
+  Button: ({ children, ...props }: ComponentProps<"button">) => <button {...props}>{children}</button>,
   HyperCLILogo: ({ className }: { className?: string }) => <div aria-hidden="true" className={className} />,
+  Input: (props: ComponentProps<"input">) => <input {...props} />,
   Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipContent: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -70,6 +76,7 @@ vi.mock("@hypercli/shared-ui", () => ({
       <button type="button" disabled={loading} onClick={onConfirm}>{confirmLabel}</button>
     </div>
   ) : null,
+  writeClipboardText: clipboardMocks.writeClipboardText,
 }));
 
 const sdkMocks = vi.hoisted(() => ({
@@ -801,6 +808,8 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByDisplayValue("John Smith")).toBeInTheDocument();
     expect(screen.getByText("Email")).toBeInTheDocument();
     expect(screen.getByDisplayValue("test@example.com")).toBeDisabled();
+    expect(screen.getByText("User UUID")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "User UUID" })).toHaveValue("user-1234567890abcdef");
     expect(screen.getByText("Avatar")).toBeInTheDocument();
     expect(screen.getByText("Upload Image")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /sign out/i })).toBeInTheDocument();
@@ -891,6 +900,23 @@ describe("AgentSettingsPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
 
     expect(onLogout).toHaveBeenCalledTimes(1);
+  });
+
+  it("copies the resolved account UUID from general settings", async () => {
+    renderAgentSettingsPanel({
+      getToken: vi.fn(async () => "token"),
+      user: {
+        id: "did:privy:account-login-id",
+        email: "test@example.com",
+        name: "John Smith",
+      },
+    });
+
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "User UUID" })).toHaveValue("user-1234567890abcdef"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy user UUID" }));
+
+    await waitFor(() => expect(clipboardMocks.writeClipboardText).toHaveBeenCalledWith("user-1234567890abcdef"));
+    expect(screen.getByRole("button", { name: "User UUID copied" })).toHaveTextContent("Copied");
   });
 
   it("loads and saves the profile name through the SDK", async () => {

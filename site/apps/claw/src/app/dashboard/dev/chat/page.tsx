@@ -37,6 +37,7 @@ import { AddParticipantPanel } from "@/components/dashboard/AddParticipantPanel"
 import { FilesDrawer } from "@hypercli/shared-ui/files";
 import { InChatUxKitDemo } from "@/components/dashboard/chat/InChatUxKit";
 import { MarkdownContent } from "@/components/dashboard/chat/MarkdownContent";
+import { TooltipHint } from "@/components/ClawTooltip";
 import type { ChatMessage } from "@/lib/openclaw-chat";
 import { agentAvatar } from "@/lib/avatar";
 
@@ -761,17 +762,19 @@ export default function DevChatPage() {
   return (
     <div className="flex h-[calc(100dvh-7.5rem)] overflow-hidden relative">
       {/* ── Floating Control Panel Toggle ── */}
-      <button
-        onClick={() => setControlPanelOpen((v) => !v)}
-        className={`fixed top-20 left-4 z-50 w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-lg ${
-          controlPanelOpen
-            ? "bg-primary text-[#0a0a0b]"
-            : "bg-[#1a1a1c] border border-border text-text-muted hover:text-foreground hover:border-border-strong"
-        }`}
-        title="Toggle variant controls"
-      >
-        <Settings className="w-4 h-4" />
-      </button>
+      <TooltipHint label="Toggle variant controls">
+        <button
+          aria-label="Toggle variant controls"
+          onClick={() => setControlPanelOpen((v) => !v)}
+          className={`fixed top-20 left-4 z-50 w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-lg ${
+            controlPanelOpen
+              ? "bg-primary text-primary-foreground"
+              : "bg-[#1a1a1c] border border-border text-text-muted hover:text-foreground hover:border-border-strong"
+          }`}
+        >
+          <Settings className="w-4 h-4" />
+        </button>
+      </TooltipHint>
 
       {/* ── Floating Control Panel ── */}
       {controlPanelOpen && (
@@ -1779,7 +1782,6 @@ export default function DevChatPage() {
                 ? "bg-primary/15 border-primary/30 text-primary"
                 : "border-border text-text-muted hover:text-foreground hover:border-text-muted/30 hover:bg-surface-low"
             }`}
-            title="Files"
           >
             <FolderOpen className="w-4 h-4" />
             <span>Files</span>
@@ -1796,26 +1798,30 @@ export default function DevChatPage() {
 
           {/* Right actions */}
           <div className="flex items-center gap-1 flex-shrink-0">
-            <button
-              className="w-7 h-7 rounded-full flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
-              title="Settings"
-            >
-              <Settings className="w-3.5 h-3.5" />
-            </button>
+            <TooltipHint label="Settings">
+              <button
+                aria-label="Settings"
+                className="w-7 h-7 rounded-full flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+              >
+                <Settings className="w-3.5 h-3.5" />
+              </button>
+            </TooltipHint>
             {/* Add participant button */}
             {selectedThread && (
               <div className="relative">
-                <button
-                  onClick={(e) => { e.stopPropagation(); setAddParticipantOpen((v) => !v); }}
-                  className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${
-                    addParticipantOpen
-                      ? "bg-primary text-[#0a0a0b]"
-                      : "text-text-muted hover:text-foreground hover:bg-surface-low"
-                  }`}
-                  title="Add participant"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                </button>
+                <TooltipHint label="Add participant">
+                  <button
+                    aria-label="Add participant"
+                    onClick={(e) => { e.stopPropagation(); setAddParticipantOpen((v) => !v); }}
+                    className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${
+                      addParticipantOpen
+                        ? "bg-primary text-primary-foreground"
+                        : "text-text-muted hover:text-foreground hover:bg-surface-low"
+                    }`}
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                </TooltipHint>
                 {addParticipantOpen && (
                   <AddParticipantPanel
                     currentParticipants={selectedThread.participants}

@@ -44,7 +44,7 @@ describe("InChatUxKit", () => {
     fireEvent.click(screen.getByText("Run tests"));
     expect(onSelect).toHaveBeenCalledWith("Run tests");
 
-    fireEvent.click(screen.getByTitle("Play"));
-    expect(screen.getByTitle("Pause")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Play" }));
+    expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
   });
 });

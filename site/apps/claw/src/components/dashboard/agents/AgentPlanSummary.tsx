@@ -2,7 +2,7 @@
 
 import React from "react";
 import type { HyperAgentPlan, HyperAgentSubscription, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@hypercli/shared-ui";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ClawTooltip";
 import {
   hasPlanWord,
   isLegacyAgentPlan,
@@ -246,7 +246,7 @@ export function AgentPlanSummary({
   const displayPlan = formatPlanLabel(plans[0]?.name || planName?.trim() || inferPlanLabel(tokenLimit && tokenLimit > 0 ? tokenLimit : null));
 
   return (
-    <Tooltip delayDuration={250}>
+    <Tooltip>
       <TooltipTrigger asChild>
         {trigger ?? (
           <button
@@ -259,7 +259,7 @@ export function AgentPlanSummary({
       </TooltipTrigger>
       <TooltipContent
         side={tooltipSide}
-        className="border border-border bg-background px-3 py-2 text-foreground shadow-xl [&>svg]:bg-background [&>svg]:fill-background"
+        className="border border-border px-3 py-2 shadow-xl"
       >
         <PlanSummaryTooltip plans={plans} tokenUsageLabel={tokenUsageLabel} />
       </TooltipContent>

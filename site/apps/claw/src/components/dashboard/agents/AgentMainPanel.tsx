@@ -13,6 +13,7 @@ import { AgentLaunchPrompt, AgentLoadingState, AgentStatusChip, ConnectionStatus
 import type { ShellStatus } from "@/hooks/useAgentShell";
 import type { SlotInventory } from "@/lib/format";
 import type { AgentCreationSetupCreateParams } from "@/components/dashboard/agents/AgentCreationSetupWizard";
+import { TooltipHint } from "@/components/ClawTooltip";
 
 interface AgentMainPanelProps {
   isDesktopViewport: boolean;
@@ -428,7 +429,6 @@ export function AgentMainPanel({
                     type="button"
                     onClick={sessionReturnTarget.onSelect}
                     aria-label={`Open ${sessionReturnTarget.label}`}
-                    title={`Open ${sessionReturnTarget.label}`}
                     className="inline-flex h-8 min-w-0 max-w-[10rem] flex-shrink items-center gap-1.5 rounded-full border border-border bg-surface-low/45 px-2.5 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)]"
                   >
                     <ArrowLeft className="h-3.5 w-3.5 shrink-0" />
@@ -462,25 +462,21 @@ export function AgentMainPanel({
                 <div className="flex items-center gap-2">
                   <div className="flex items-center gap-1">
                     {(currentPanel === "logs" || currentPanel === "shell") && (
-                      <button
-                        onClick={onReconnect}
-                        className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
-                        title="Reconnect"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                      </button>
+                      <TooltipHint label="Reconnect">
+                        <button aria-label="Reconnect" onClick={onReconnect} className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-low hover:text-foreground">
+                          <RefreshCw className="w-3.5 h-3.5" />
+                        </button>
+                      </TooltipHint>
                     )}
                   </div>
                 </div>
 
                 {showInspectorButton && (
-                  <button
-                    onClick={onShowInspector}
-                    className="hidden w-8 h-8 rounded-full items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
-                    title="Agent details"
-                  >
-                    <Gauge className="w-3.5 h-3.5" />
-                  </button>
+                  <TooltipHint label="Agent details">
+                    <button aria-label="Agent details" onClick={onShowInspector} className="hidden w-8 h-8 rounded-full items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors">
+                      <Gauge className="w-3.5 h-3.5" />
+                    </button>
+                  </TooltipHint>
                 )}
               </div>
             </div>

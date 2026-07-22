@@ -309,6 +309,7 @@ export {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
+  TooltipHint,
   TooltipProvider,
 } from "./components/ui/tooltip";
 export { useIsMobile } from "./components/ui/use-mobile";
@@ -399,6 +400,7 @@ export {
   getRegionFlag,
 } from "./utils/gpu";
 export { NAV_URLS } from "./utils/navigation";
+export { writeClipboardText } from "./utils/browser-clipboard";
 export {
   ThemeProvider,
   useTheme,

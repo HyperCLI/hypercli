@@ -3,6 +3,7 @@
 import * as React from "react";
 
 import { cn } from "../utils/cn";
+import { TooltipHint } from "./ui/tooltip";
 
 export interface EmojiIconOption {
   value: string;
@@ -70,23 +71,23 @@ export function EmojiIconPicker({
       {options.map((option) => {
         const active = selectedIcon === option.value;
         return (
-          <button
-            key={`${option.label}-${option.value}`}
-            type="button"
-            aria-label={`Use icon ${option.label}`}
-            aria-pressed={active}
-            title={option.label}
-            onClick={() => onSelectIcon(option.value)}
-            className={cn(
-              "flex h-7 w-7 items-center justify-center rounded-lg border text-[15px] leading-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-selection-accent/35 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-              active
-                ? "border-selection-accent/60 bg-selection-accent/15 text-foreground shadow-[0_0_0_1px_color-mix(in_srgb,var(--selection-accent)_20%,transparent)]"
-                : "border-transparent text-foreground hover:border-border hover:bg-surface-low",
-              buttonClassName,
-            )}
-          >
-            <span aria-hidden="true">{option.value}</span>
-          </button>
+          <TooltipHint key={`${option.label}-${option.value}`} label={option.label}>
+            <button
+              type="button"
+              aria-label={`Use icon ${option.label}`}
+              aria-pressed={active}
+              onClick={() => onSelectIcon(option.value)}
+              className={cn(
+                "flex h-7 w-7 items-center justify-center rounded-lg border text-[15px] leading-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-selection-accent/35 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                active
+                  ? "border-selection-accent/60 bg-selection-accent/15 text-foreground shadow-[0_0_0_1px_color-mix(in_srgb,var(--selection-accent)_20%,transparent)]"
+                  : "border-transparent text-foreground hover:border-border hover:bg-surface-low",
+                buttonClassName,
+              )}
+            >
+              <span aria-hidden="true">{option.value}</span>
+            </button>
+          </TooltipHint>
         );
       })}
     </div>

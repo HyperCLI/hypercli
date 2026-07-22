@@ -11,6 +11,7 @@ import {
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import { formatCpu, formatMemory, formatTokens } from "@/lib/format";
 import { ResourceImage } from "@/components/ResourceImage";
+import { TooltipHint } from "@/components/ClawTooltip";
 
 type AgentState = "PENDING" | "RESTORING" | "RESTORE_FAILED" | "SYNCING" | "SYNC_FAILED" | "STARTING" | "RUNNING" | "STOPPING" | "STOPPED" | "FAILED";
 
@@ -163,25 +164,26 @@ export function LegacyAgentSidebar({
 
               if (sidebarCollapsed) {
                 return (
-                  <button
-                    key={agent.id}
-                    onClick={() => onSelectAgent(agent.id)}
-                    className={`w-full p-3 flex flex-col items-center gap-1 transition-colors ${
-                      isSelected ? "bg-surface-low" : "hover:bg-surface-low/50"
-                    }`}
-                    title={agent.name}
-                  >
-                    <div className="relative">
-                      <div className="relative w-9 h-9 rounded-full flex items-center justify-center overflow-hidden" style={{ backgroundColor: avatar.bgColor }}>
-                        {avatar.imageUrl ? (
-                          <ResourceImage src={avatar.imageUrl} alt={`${agent.name} avatar`} fill sizes="36px" className="object-cover" />
-                        ) : (
-                          <AvatarIcon className="w-4 h-4" style={{ color: avatar.fgColor }} />
-                        )}
+                  <TooltipHint key={agent.id} label={agent.name} side="right">
+                    <button
+                      aria-label={agent.name}
+                      onClick={() => onSelectAgent(agent.id)}
+                      className={`w-full p-3 flex flex-col items-center gap-1 transition-colors ${
+                        isSelected ? "bg-surface-low" : "hover:bg-surface-low/50"
+                      }`}
+                    >
+                      <div className="relative">
+                        <div className="relative w-9 h-9 rounded-full flex items-center justify-center overflow-hidden" style={{ backgroundColor: avatar.bgColor }}>
+                          {avatar.imageUrl ? (
+                            <ResourceImage src={avatar.imageUrl} alt={`${agent.name} avatar`} fill sizes="36px" className="object-cover" />
+                          ) : (
+                            <AvatarIcon className="w-4 h-4" style={{ color: avatar.fgColor }} />
+                          )}
+                        </div>
+                        <AgentStateBadge state={agent.state} pulsing={isTransitioning} />
                       </div>
-                      <AgentStateBadge state={agent.state} pulsing={isTransitioning} />
-                    </div>
-                  </button>
+                    </button>
+                  </TooltipHint>
                 );
               }
 
@@ -227,16 +229,18 @@ export function LegacyAgentSidebar({
             })}
 
             {sidebarCollapsed ? (
-              <button
-                onClick={onCreateAgent}
-                disabled={agentClusterUnavailable}
-                className="w-full p-3 flex flex-col items-center gap-1 transition-colors hover:bg-surface-low/50 disabled:opacity-40 disabled:cursor-not-allowed"
-                title={agentClusterUnavailable ? "Agent cluster assignment pending" : "New Agent"}
-              >
-                <div className="w-9 h-9 rounded-full border border-dashed border-text-muted flex items-center justify-center">
-                  <Plus className="w-4 h-4 text-text-muted" />
-                </div>
-              </button>
+              <TooltipHint label={agentClusterUnavailable ? "Agent cluster assignment pending" : "New Agent"} disabled={agentClusterUnavailable} side="right" triggerClassName="w-full">
+                <button
+                  aria-label="New Agent"
+                  onClick={onCreateAgent}
+                  disabled={agentClusterUnavailable}
+                  className="w-full p-3 flex flex-col items-center gap-1 transition-colors hover:bg-surface-low/50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <div className="w-9 h-9 rounded-full border border-dashed border-text-muted flex items-center justify-center">
+                    <Plus className="w-4 h-4 text-text-muted" />
+                  </div>
+                </button>
+              </TooltipHint>
             ) : (
               <button
                 onClick={onCreateAgent}

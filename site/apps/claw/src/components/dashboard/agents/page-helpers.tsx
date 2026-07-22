@@ -18,6 +18,7 @@ import {
 } from "@/components/dashboard/AgentGatewayLoadingVisual";
 import type { AgentLifecycleStage } from "@/components/dashboard/AgentLifecycleSteps";
 import type { AgentBootDisplayStatus } from "@/components/dashboard/agents/chat-boot-stage";
+import { TooltipHint } from "@/components/ClawTooltip";
 export { AgentLaunchPrompt } from "./AgentLaunchPrompt";
 
 // ── Error Boundary ──
@@ -109,18 +110,20 @@ export function AgentStatusChip({ status }: { status: AgentStatusChipModel | nul
   if (!status) return null;
   const styles = AGENT_STATUS_CHIP_STYLES[status.tone];
   return (
-    <span
-      className={`inline-flex min-w-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium ${styles.shell} ${styles.text}`}
-      title={status.detail}
-      aria-label={`${status.label}: ${status.detail}`}
-    >
-      {status.loading ? (
-        <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
-      ) : (
-        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${styles.dot}`} />
-      )}
-      <span className="truncate">{status.label}</span>
-    </span>
+    <TooltipHint label={status.detail}>
+      <span
+        className={`inline-flex min-w-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium ${styles.shell} ${styles.text}`}
+        aria-label={`${status.label}: ${status.detail}`}
+        tabIndex={0}
+      >
+        {status.loading ? (
+          <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+        ) : (
+          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${styles.dot}`} />
+        )}
+        <span className="truncate">{status.label}</span>
+      </span>
+    </TooltipHint>
   );
 }
 
@@ -140,7 +143,6 @@ export function ConnectionStatusIndicator({
             ? "text-warning"
             : "text-text-muted"
       }`}
-      title={connected ? "Connected" : status === "reconnecting" ? "Reconnecting" : connecting ? "Connecting" : "Disconnected"}
     >
       {connecting ? (
         <Loader2 className="w-2 h-2 animate-spin" />
@@ -280,17 +282,19 @@ export function GearDropdown({
 
   return (
     <div ref={ref} className="relative">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
-          open
-            ? "bg-surface-low text-foreground"
-            : "text-text-muted hover:text-foreground hover:bg-surface-low"
-        }`}
-        title="Settings"
-      >
-        <Settings className="w-3.5 h-3.5" />
-      </button>
+      <TooltipHint label="Settings">
+        <button
+          aria-label="Settings"
+          onClick={() => setOpen((v) => !v)}
+          className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+            open
+              ? "bg-surface-low text-foreground"
+              : "text-text-muted hover:text-foreground hover:bg-surface-low"
+          }`}
+        >
+          <Settings className="w-3.5 h-3.5" />
+        </button>
+      </TooltipHint>
       {open && (
         <div className="absolute right-0 top-full z-50 mt-1 w-48 rounded-2xl border border-border bg-popover p-1.5 shadow-2xl">
           {items.map((item) =>

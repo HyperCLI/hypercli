@@ -1,5 +1,7 @@
 "use client";
 
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ClawTooltip";
+
 interface DayData {
   date: string;
   total_tokens: number;
@@ -62,13 +64,40 @@ export default function UsageChart({ history, loading }: UsageChartProps) {
           const completionPct = pct - promptPct;
 
           return (
-            <div
-              key={day.date}
-              className="flex-1 flex flex-col items-center gap-1 group relative"
-            >
-              {/* Tooltip */}
-              <div className="absolute bottom-full mb-2 hidden group-hover:block z-10">
-                <div className="bg-surface-high border border-border rounded-lg px-3 py-2 text-xs shadow-lg whitespace-nowrap">
+            <Tooltip key={day.date}>
+              <TooltipTrigger asChild>
+                <div
+                  tabIndex={0}
+                  aria-label={`${formatDate(day.date)} usage details`}
+                  className="group relative flex flex-1 flex-col items-center gap-1 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <div className="flex h-40 w-full flex-col justify-end">
+                    {day.total_tokens > 0 ? (
+                      <>
+                        <div
+                          className="w-full rounded-t bg-chart-2/80 transition-all duration-300"
+                          style={{ height: `${Math.max(completionPct, 0.5)}%` }}
+                        />
+                        <div
+                          className="w-full bg-primary/80 transition-all duration-300"
+                          style={{
+                            height: `${Math.max(promptPct, 0.5)}%`,
+                            borderRadius: completionPct > 0 ? "0" : "0.25rem 0.25rem 0 0",
+                          }}
+                        />
+                      </>
+                    ) : (
+                      <div className="h-[2px] w-full rounded bg-surface-low" />
+                    )}
+                  </div>
+
+                  <span className="text-[10px] text-text-muted">
+                    {formatDate(day.date)}
+                  </span>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="top" sideOffset={8} className="whitespace-nowrap border border-border px-3 py-2 shadow-lg">
+                <div className="text-xs">
                   <p className="font-medium text-foreground">
                     {formatDate(day.date)}
                   </p>
@@ -85,37 +114,8 @@ export default function UsageChart({ history, loading }: UsageChartProps) {
                     ↓ {formatTokens(day.completion_tokens)} completion
                   </p>
                 </div>
-              </div>
-
-              {/* Bars */}
-              <div className="w-full flex flex-col justify-end h-40">
-                {day.total_tokens > 0 ? (
-                  <>
-                    <div
-                      className="w-full rounded-t bg-chart-2/80 transition-all duration-300"
-                      style={{ height: `${Math.max(completionPct, 0.5)}%` }}
-                    />
-                    <div
-                      className="w-full bg-primary/80 transition-all duration-300"
-                      style={{
-                        height: `${Math.max(promptPct, 0.5)}%`,
-                        borderRadius:
-                          completionPct > 0
-                            ? "0"
-                            : "0.25rem 0.25rem 0 0",
-                      }}
-                    />
-                  </>
-                ) : (
-                  <div className="w-full rounded bg-surface-low h-[2px]" />
-                )}
-              </div>
-
-              {/* Label */}
-              <span className="text-[10px] text-text-muted">
-                {formatDate(day.date)}
-              </span>
-            </div>
+              </TooltipContent>
+            </Tooltip>
           );
         })}
       </div>

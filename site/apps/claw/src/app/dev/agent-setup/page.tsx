@@ -35,6 +35,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { BRAND_ICONS } from "@/components/dashboard/BrandIcons";
+import { TooltipHint } from "@/components/ClawTooltip";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { createAgentClient, createHyperAgentClient, createOpenClawAgent } from "@/lib/agent-client";
 import { buildOpenClawLaunchOptions } from "@/lib/openclaw-launch";
@@ -1173,15 +1174,17 @@ export default function DevAgentSetupPage() {
                           </button>
                         ))}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => removeInviteRow(index)}
-                        disabled={teamInviteRows.length === 1}
-                        className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-white/[0.04] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-text-muted"
-                        title="Remove row"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      <TooltipHint label="Remove row" disabled={teamInviteRows.length === 1}>
+                        <button
+                          type="button"
+                          aria-label="Remove row"
+                          onClick={() => removeInviteRow(index)}
+                          disabled={teamInviteRows.length === 1}
+                          className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-white/[0.04] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-text-muted"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </TooltipHint>
                     </div>
                   ))}
                 </div>

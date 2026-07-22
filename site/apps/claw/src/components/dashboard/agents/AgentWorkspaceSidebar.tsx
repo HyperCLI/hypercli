@@ -35,6 +35,10 @@ import type { AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMe
 import { PulsingDotIndicator } from "@/components/dashboard/PulsingDotIndicator";
 import { resolveSessionSourceChannel, type SessionSourceChannel } from "@/components/dashboard/session-source-channel";
 import {
+  Alert,
+  AlertDescription,
+  Badge,
+  Button,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -47,10 +51,20 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
+  Input,
+  Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  Textarea,
 } from "@hypercli/shared-ui";
+import { Tooltip, TooltipContent, TooltipHint, TooltipTrigger } from "@/components/ClawTooltip";
 import { useWorkspace, workspaceDisplayName } from "@/components/dashboard/WorkspaceContext";
 import { formatTokens } from "@/lib/format";
 import {
@@ -152,7 +166,7 @@ function WorkspaceButton({
 
   if (collapsed) {
     return (
-      <Tooltip delayDuration={300}>
+      <Tooltip>
         <TooltipTrigger asChild>
           <button
             type="button"
@@ -170,20 +184,24 @@ function WorkspaceButton({
       </Tooltip>
     );
   }
-  return (
+  const button = (
     <button
       type="button"
       onClick={disabled ? undefined : () => item.onClick()}
       disabled={disabled}
       aria-disabled={disabled}
       aria-busy={item.busy || undefined}
-      title={item.disabledReason}
       className={buttonClassName}
     >
       <Icon className={iconClassName} />
       <span className="truncate">{item.label}</span>
     </button>
   );
+  return item.disabledReason ? (
+    <TooltipHint label={item.disabledReason} disabled={disabled} side="right" triggerClassName="w-full">
+      {button}
+    </TooltipHint>
+  ) : button;
 }
 
 function SessionThinkingIndicator() {
@@ -256,13 +274,12 @@ function SessionMenuButton({
   disabledReason?: string;
   onClick: () => void;
 }) {
-  return (
+  const button = (
     <button
       type="button"
       onClick={disabled ? undefined : onClick}
       disabled={disabled}
       aria-disabled={disabled}
-      title={disabledReason}
       className={`flex w-full items-center gap-3 px-3 py-2 text-left text-[13px] transition-colors ${
         disabled
           ? "cursor-not-allowed text-text-muted/45"
@@ -275,6 +292,11 @@ function SessionMenuButton({
       <span>{label}</span>
     </button>
   );
+  return disabledReason ? (
+    <TooltipHint label={disabledReason} disabled={disabled} side="right" triggerClassName="w-full">
+      {button}
+    </TooltipHint>
+  ) : button;
 }
 
 function RecentSessionRow({
@@ -323,6 +345,13 @@ function RecentSessionRow({
     return () => document.removeEventListener("mousedown", handlePointerDown);
   }, [menuOpen]);
 
+  const tooltipLabel = disabledReason ?? [
+    title,
+    sourceChannel ? `${sourceChannel.label} channel` : null,
+    pinned ? "Pinned session" : null,
+    creating ? "Creating..." : thinking ? "Thinking..." : null,
+  ].filter(Boolean).join(" - ");
+
   return (
     <motion.div
       layout={reduceMotion ? false : "position"}
@@ -347,29 +376,30 @@ function RecentSessionRow({
           />
         ) : null}
       </AnimatePresence>
-      <button
-        type="button"
-        onClick={disabled ? undefined : onSelect}
+      <TooltipHint
+        label={tooltipLabel}
         disabled={disabled}
-        aria-disabled={disabled}
-        aria-current={active ? "page" : undefined}
-        aria-busy={creating || thinking || undefined}
-        className={`relative z-10 min-w-0 flex-1 rounded-full px-3 py-1.5 text-left text-[13px] leading-4 transition-colors ${
-          disabled
-            ? "cursor-not-allowed text-text-muted/45"
-            : active
-              ? "bg-surface-low text-foreground"
-              : "text-text-secondary hover:bg-surface-low/60 hover:text-foreground"
-        }`}
-        title={disabledReason ?? (creating ? `${title} - Creating...` : thinking ? `${title} - Thinking...` : title)}
+        side="right"
+        triggerClassName="min-w-0 flex-1"
       >
+        <button
+          type="button"
+          onClick={disabled ? undefined : onSelect}
+          disabled={disabled}
+          aria-disabled={disabled}
+          aria-current={active ? "page" : undefined}
+          aria-busy={creating || thinking || undefined}
+          className={`relative z-10 min-w-0 flex-1 rounded-full px-3 py-1.5 text-left text-[13px] leading-4 transition-colors ${
+            disabled
+              ? "cursor-not-allowed text-text-muted/45"
+              : active
+                ? "bg-surface-low text-foreground"
+                : "text-text-secondary hover:bg-surface-low/60 hover:text-foreground"
+          }`}
+        >
         <span className="flex min-w-0 items-center gap-2">
           {sourceChannel && SourceChannelIcon ? (
-            <span
-              aria-hidden="true"
-              title={`${sourceChannel.label} channel`}
-              className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-surface-high ring-1 ring-border"
-            >
+            <span aria-hidden="true" className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-surface-high ring-1 ring-border">
               <SourceChannelIcon className="h-3 w-3" style={sourceChannel.color ? { color: sourceChannel.color } : undefined} />
             </span>
           ) : null}
@@ -378,7 +408,6 @@ function RecentSessionRow({
             <span className="relative inline-flex h-3 w-3 shrink-0">
               {pinned ? (
                 <motion.span
-                  title="Pinned session"
                   aria-hidden="true"
                   className="absolute inset-0 inline-flex text-[var(--selection-accent)]"
                   initial={reduceMotion ? false : { opacity: 0, scale: 0.25, rotate: -42, y: 4 }}
@@ -416,28 +445,30 @@ function RecentSessionRow({
             <SessionThinkingIndicator />
           ) : null}
         </span>
-      </button>
+        </button>
+      </TooltipHint>
 
       <div className="relative z-10 h-7 w-7 shrink-0" ref={menuRef}>
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            if (disabled) return;
-            setMenuOpen((open) => !open);
-          }}
-          disabled={disabled}
-          aria-disabled={disabled}
-          aria-label={`Session options for ${title}`}
-          title={disabledReason}
-          className={`flex h-7 w-7 items-center justify-center rounded-full transition-all ${
-            disabled
-              ? "cursor-not-allowed text-text-muted/30 opacity-0 group-hover/session:opacity-100 focus:opacity-100"
-              : `text-text-muted hover:bg-surface-low hover:text-foreground ${menuOpen ? "opacity-100" : "opacity-0 group-hover/session:opacity-100 focus:opacity-100"}`
-          }`}
-        >
-          <MoreVertical className="h-4 w-4" />
-        </button>
+        <TooltipHint label={disabledReason ?? `Session options for ${title}`} disabled={disabled} side="right">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              if (disabled) return;
+              setMenuOpen((open) => !open);
+            }}
+            disabled={disabled}
+            aria-disabled={disabled}
+            aria-label={`Session options for ${title}`}
+            className={`flex h-7 w-7 items-center justify-center rounded-full transition-all ${
+              disabled
+                ? "cursor-not-allowed text-text-muted/30 opacity-0 group-hover/session:opacity-100 focus:opacity-100"
+                : `text-text-muted hover:bg-surface-low hover:text-foreground ${menuOpen ? "opacity-100" : "opacity-0 group-hover/session:opacity-100 focus:opacity-100"}`
+            }`}
+          >
+            <MoreVertical className="h-4 w-4" />
+          </button>
+        </TooltipHint>
 
         {menuOpen && !disabled && (
           <motion.div
@@ -656,23 +687,66 @@ function DeleteSessionDialog({
   );
 }
 
+type WorkspaceInviteRole = "viewer" | "contributor" | "admin";
+type WorkspaceDialogStep = "details" | "members";
+type WorkspaceInviteMode = "email" | "uuid";
+
+const WORKSPACE_ROLE_OPTIONS: Array<{ value: WorkspaceInviteRole; label: string }> = [
+  { value: "viewer", label: "Viewer" },
+  { value: "contributor", label: "Member" },
+  { value: "admin", label: "Admin" },
+];
+const EMAIL_ADDRESS_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function uniqueValues(values: string[]): string[] {
+  return Array.from(new Set(values));
+}
+
+// Email delivery will replace this callback when the Workspace service exposes invitations.
+function mockWorkspaceEmailInvites(
+  _workspaceId: string,
+  _emails: string[],
+  _role: WorkspaceInviteRole,
+): Promise<void> {
+  return Promise.resolve();
+}
+
 function CreateWorkspaceDialog({
   open,
   onOpenChange,
   onCreate,
+  onGrantByUuid,
+  onInviteByEmail,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreate: (input: { name: string; description?: string }) => Promise<unknown>;
+  onCreate: (input: { name: string; description?: string }) => Promise<{ id: string }>;
+  onGrantByUuid: (workspaceId: string, userId: string, role: WorkspaceInviteRole) => Promise<unknown>;
+  onInviteByEmail: (workspaceId: string, emails: string[], role: WorkspaceInviteRole) => Promise<unknown>;
 }) {
+  const [step, setStep] = useState<WorkspaceDialogStep>("details");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [inviteMode, setInviteMode] = useState<WorkspaceInviteMode>("email");
+  const [emails, setEmails] = useState<string[]>([]);
+  const [emailDraft, setEmailDraft] = useState("");
+  const [userUuid, setUserUuid] = useState("");
+  const [role, setRole] = useState<WorkspaceInviteRole>("contributor");
+  const [createdWorkspaceId, setCreatedWorkspaceId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const reset = () => {
+    setStep("details");
     setName("");
     setDescription("");
+    setInviteMode("email");
+    setEmails([]);
+    setEmailDraft("");
+    setUserUuid("");
+    setRole("contributor");
+    setCreatedWorkspaceId(null);
+    setSubmitting(false);
     setError(null);
   };
   const close = () => {
@@ -681,69 +755,188 @@ function CreateWorkspaceDialog({
     onOpenChange(false);
   };
 
+  const addEmailAddresses = (value: string): boolean => {
+    const additions = value
+      .split(/[,;\n]/)
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean);
+    const invalidEmail = additions.find((email) => !EMAIL_ADDRESS_PATTERN.test(email));
+    if (invalidEmail) {
+      setError(`Enter a valid email address for ${invalidEmail}.`);
+      return false;
+    }
+    if (additions.length > 0) setEmails((current) => uniqueValues([...current, ...additions]));
+    setError(null);
+    return true;
+  };
+
+  const updateEmailDraft = (value: string) => {
+    if (!/[,;\n]/.test(value)) {
+      setEmailDraft(value);
+      return;
+    }
+    const parts = value.split(/[,;\n]/);
+    const trailing = parts.pop() ?? "";
+    if (addEmailAddresses(parts.join(","))) setEmailDraft(trailing.trimStart());
+  };
+
+  const commitEmailDraft = (): boolean => {
+    if (!emailDraft.trim()) return true;
+    if (!addEmailAddresses(emailDraft)) return false;
+    setEmailDraft("");
+    return true;
+  };
+
+  const continueToMembers = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!name.trim() || submitting) return;
+    setError(null);
+    setStep("members");
+  };
+
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const workspaceName = name.trim();
-    if (!workspaceName || submitting) return;
+    if (!workspaceName || submitting || !commitEmailDraft()) return;
+    const resolvedEmails = uniqueValues([
+      ...emails,
+      ...emailDraft.split(/[,;\n]/).map((email) => email.trim().toLowerCase()).filter(Boolean),
+    ]);
+    const resolvedUserUuid = userUuid.trim();
     setSubmitting(true);
     setError(null);
     try {
-      await onCreate({
-        name: workspaceName,
-        description: description.trim() || undefined,
-      });
-      setSubmitting(false);
+      let workspaceId = createdWorkspaceId;
+      if (!workspaceId) {
+        const created = await onCreate({
+          name: workspaceName,
+          description: description.trim() || undefined,
+        });
+        workspaceId = created.id;
+        setCreatedWorkspaceId(workspaceId);
+      }
+      if (resolvedEmails.length > 0) await onInviteByEmail(workspaceId, resolvedEmails, role);
+      if (resolvedUserUuid) await onGrantByUuid(workspaceId, resolvedUserUuid, role);
       reset();
       onOpenChange(false);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to create Workspace.");
+      setError(cause instanceof Error ? cause.message : "Unable to finish setting up the Workspace.");
       setSubmitting(false);
     }
   };
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (nextOpen) onOpenChange(true); else close(); }}>
-      <DialogContent closeLabel="Close new Workspace" overlayClassName="z-[89] bg-black/60 backdrop-blur-sm" className="z-[90] gap-0 overflow-hidden rounded-2xl border-border bg-background p-0 shadow-2xl sm:max-w-[460px]">
+      <DialogContent closeLabel="Close new Workspace" overlayClassName="z-[89] bg-black/60 backdrop-blur-sm" className="z-[90] gap-0 overflow-hidden rounded-2xl border-border bg-background p-0 shadow-2xl sm:max-w-[540px]">
         <DialogHeader className="border-b border-border px-5 py-4 pr-12">
-          <DialogTitle className="text-base">New Workspace</DialogTitle>
+          <div className="mb-1 flex items-center gap-2" aria-label={`Step ${step === "details" ? 1 : 2} of 2`}>
+            <Badge variant={step === "details" ? "default" : "outline"} className="rounded-full px-2 text-[10px]">1 Workspace</Badge>
+            <span aria-hidden="true" className="h-px w-5 bg-border" />
+            <Badge variant={step === "members" ? "default" : "outline"} className="rounded-full px-2 text-[10px]">2 Members</Badge>
+          </div>
+          <DialogTitle className="text-base">{step === "details" ? "New Workspace" : "Invite team members"}</DialogTitle>
           <DialogDescription className="text-[12px] leading-relaxed text-text-muted">
-            Create a shared space for knowledge, members, and agents.
+            {step === "details"
+              ? "Create a shared space for knowledge, members, and agents."
+              : "Add people who should collaborate in this Workspace, or skip this step for now."}
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={(event) => { void submit(event); }}>
-          <div className="space-y-4 px-5 py-5">
-            <label className="block">
-              <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Workspace name</span>
-              <input
-                autoFocus
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                disabled={submitting}
-                className="h-10 w-full rounded-xl border border-border bg-surface-low/35 px-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-foreground/50 disabled:opacity-55"
-                placeholder="Product operations"
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Description <span className="normal-case tracking-normal">(optional)</span></span>
-              <textarea
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                disabled={submitting}
-                rows={3}
-                className="w-full resize-none rounded-xl border border-border bg-surface-low/35 px-3 py-2.5 text-[13px] leading-relaxed text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-foreground/50 disabled:opacity-55"
-                placeholder="What belongs in this Workspace?"
-              />
-            </label>
-            {error ? <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-[12px] text-destructive">{error}</div> : null}
-          </div>
-          <DialogFooter className="border-t border-border px-5 py-4">
-            <button type="button" onClick={close} disabled={submitting} className="h-9 rounded-xl border border-border px-4 text-[12px] font-medium text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-55">Cancel</button>
-            <button type="submit" disabled={!name.trim() || submitting} className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-foreground px-4 text-[12px] font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-45">
-              {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-              Create Workspace
-            </button>
-          </DialogFooter>
-        </form>
+        {step === "details" ? (
+          <form onSubmit={continueToMembers}>
+            <div className="space-y-4 px-5 py-5">
+              <div className="space-y-1.5">
+                <Label htmlFor="workspace-name" className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Workspace name</Label>
+                <Input id="workspace-name" autoFocus value={name} onChange={(event) => setName(event.target.value)} disabled={submitting} className="h-10 rounded-xl bg-surface-low/35 text-[13px]" placeholder="Product operations" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="workspace-description" className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Description <span className="normal-case tracking-normal">(optional)</span></Label>
+                <Textarea id="workspace-description" value={description} onChange={(event) => setDescription(event.target.value)} disabled={submitting} rows={3} className="min-h-[84px] rounded-xl bg-surface-low/35 text-[13px] leading-relaxed" placeholder="What belongs in this Workspace?" />
+              </div>
+              {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
+            </div>
+            <DialogFooter className="border-t border-border px-5 py-4">
+              <Button type="button" variant="outline" onClick={close} disabled={submitting} className="rounded-xl text-xs">Cancel</Button>
+              <Button type="submit" disabled={!name.trim() || submitting} className="rounded-xl text-xs">Continue</Button>
+            </DialogFooter>
+          </form>
+        ) : (
+          <form onSubmit={(event) => { void submit(event); }}>
+            <div className="space-y-5 px-5 py-5">
+              <Tabs value={inviteMode} onValueChange={(value) => { setInviteMode(value as WorkspaceInviteMode); setError(null); }}>
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="email">Email invite</TabsTrigger>
+                  <TabsTrigger value="uuid">User UUID</TabsTrigger>
+                </TabsList>
+                <TabsContent value="email" className="space-y-2 pt-2">
+                  <Label htmlFor="workspace-member-emails">Email addresses</Label>
+                  {emails.length > 0 ? (
+                    <div className="flex flex-wrap gap-2 rounded-xl border border-border bg-surface-low/25 p-2.5">
+                      {emails.map((email) => (
+                        <Badge key={email} variant="outline" className="gap-1 rounded-lg py-1 pl-2.5 pr-1 font-normal">
+                          {email}
+                          <Button type="button" variant="ghost" size="icon" aria-label={`Remove ${email}`} onClick={() => setEmails((current) => current.filter((item) => item !== email))} disabled={submitting} className="size-5 rounded-md p-0">
+                            <X className="size-3" />
+                          </Button>
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : null}
+                  <Input
+                    id="workspace-member-emails"
+                    autoFocus
+                    type="email"
+                    inputMode="email"
+                    multiple
+                    value={emailDraft}
+                    onChange={(event) => updateEmailDraft(event.target.value)}
+                    onBlur={() => { commitEmailDraft(); }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        commitEmailDraft();
+                      }
+                    }}
+                    disabled={submitting}
+                    className="h-11 rounded-xl"
+                    placeholder="Separate emails with commas"
+                  />
+                  <p className="text-[11px] leading-relaxed text-text-muted">Add several addresses with commas. Email delivery is being connected separately.</p>
+                </TabsContent>
+                <TabsContent value="uuid" className="space-y-2 pt-2">
+                  <Label htmlFor="workspace-member-uuid">User UUID</Label>
+                  <Input id="workspace-member-uuid" autoFocus value={userUuid} onChange={(event) => setUserUuid(event.target.value)} disabled={submitting} className="h-11 rounded-xl font-mono text-xs" placeholder="00000000-0000-0000-0000-000000000000" />
+                  <p className="text-[11px] leading-relaxed text-text-muted">Adds an existing user immediately. They can copy this value from their Profile settings.</p>
+                </TabsContent>
+              </Tabs>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="workspace-member-role">Workspace role</Label>
+                <Select value={role} onValueChange={(value) => setRole(value as WorkspaceInviteRole)} disabled={submitting}>
+                  <SelectTrigger id="workspace-member-role" aria-label="Workspace role" className="h-11 rounded-xl">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="z-[100]">
+                    {WORKSPACE_ROLE_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
+            </div>
+            <DialogFooter className="border-t border-border px-5 py-4">
+              <div className="flex w-full flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <Button type="button" variant="ghost" onClick={() => { setError(null); setStep("details"); }} disabled={submitting} className="rounded-xl text-xs">Back</Button>
+                <div className="flex flex-col-reverse gap-2 sm:flex-row">
+                  <Button type="button" variant="outline" onClick={close} disabled={submitting} className="rounded-xl text-xs">Cancel</Button>
+                  <Button type="submit" disabled={submitting} className="rounded-xl text-xs">
+                    {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                    Create Workspace
+                  </Button>
+                </div>
+              </div>
+            </DialogFooter>
+          </form>
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -852,6 +1045,15 @@ function WorkspacePicker({ sharedHeader = false }: { sharedHeader?: boolean }) {
         open={createWorkspaceScope === workspaceScope}
         onOpenChange={(open) => setCreateWorkspaceScope(open ? workspaceScope : null)}
         onCreate={createWorkspace}
+        onInviteByEmail={mockWorkspaceEmailInvites}
+        onGrantByUuid={async (workspaceId, userId, role) => {
+          if (!workspacesClient) throw new Error("Workspace access is unavailable right now.");
+          await workspacesClient.grant(workspaceId, {
+            subjectType: "user",
+            subjectId: userId,
+            role,
+          });
+        }}
       />
     </>
   );
@@ -1122,7 +1324,7 @@ export function AgentWorkspaceSidebar({
               <X className="h-5 w-5" />
             </button>
           ) : isDesktopViewport && !forceExpanded ? (
-            <Tooltip delayDuration={300}>
+            <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   type="button"
@@ -1140,7 +1342,6 @@ export function AgentWorkspaceSidebar({
           ) : !isDesktopViewport ? (
             <div
               className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted"
-              title="Workspace navigation"
               aria-hidden="true"
             >
               <PanelRight className={renderMobile ? "h-5 w-5" : "h-4 w-4"} />
@@ -1236,7 +1437,7 @@ export function AgentWorkspaceSidebar({
       <div ref={advancedMenuRef} className={`agent-workspace-advanced relative border-b border-border pb-4 ${isCollapsed ? "px-1.5" : "px-3"}`}>
         {isCollapsed ? (
           <div className="flex justify-center">
-            <Tooltip delayDuration={300}>
+            <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   type="button"
@@ -1268,7 +1469,6 @@ export function AgentWorkspaceSidebar({
             aria-expanded={advancedItemsOpen}
             aria-haspopup="menu"
             aria-disabled={advancedDropdownDisabled}
-            title={advancedDropdownDisabled ? advancedDropdownDisabledReason : undefined}
             className={`flex ${renderMobile ? "h-10 rounded-full px-3.5" : "h-9 rounded-full px-3"} w-full items-center justify-between text-sm transition-colors ${
               advancedDropdownDisabled
                 ? "cursor-not-allowed text-text-muted/45"
@@ -1311,7 +1511,6 @@ export function AgentWorkspaceSidebar({
                   }}
                   disabled={item.disabled}
                   aria-disabled={item.disabled}
-                  title={item.disabledReason}
                   className={`block w-full whitespace-nowrap rounded-full px-2.5 py-1.5 text-left text-sm leading-5 transition-colors ${
                     item.disabled
                       ? "cursor-not-allowed text-text-muted/45"
@@ -1330,7 +1529,7 @@ export function AgentWorkspaceSidebar({
 
       <div className={`agent-workspace-usage ${isCollapsed ? "p-1.5" : "p-3"}`}>
         {isCollapsed ? (
-          <Tooltip delayDuration={300}>
+          <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"

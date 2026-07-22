@@ -7,6 +7,11 @@ export interface OpenClawSessionRecord {
   key: string;
   gatewaySessionKey?: string;
   sourceSessionKey?: string;
+  model?: string;
+  modelProvider?: string;
+  thinkingLevel?: string;
+  thinkingLevels?: OpenClawThinkingLevelOption[];
+  thinkingDefault?: string;
   clientMode: string;
   clientDisplayName: string;
   createdAt: number;
@@ -18,6 +23,11 @@ export interface OpenClawSessionRecord {
   readOnlyReason?: string;
   ephemeral?: boolean;
   raw: Record<string, unknown>;
+}
+
+export interface OpenClawThinkingLevelOption {
+  id: string;
+  label: string;
 }
 
 export const OPENCLAW_DEFAULT_SESSION_KEY = "main";
@@ -50,6 +60,38 @@ function firstNonEmptyString(...values: unknown[]): string | null {
     if (normalized) return normalized;
   }
   return null;
+}
+
+function normalizeThinkingLevelId(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  const collapsed = normalized.replace(/[\s_-]+/g, "");
+  if (collapsed === "extrahigh") return "xhigh";
+  if (collapsed === "auto") return "adaptive";
+  if (collapsed === "none") return "off";
+  return normalized;
+}
+
+export function normalizeOpenClawThinkingLevels(
+  value: unknown,
+  legacyOptions?: unknown,
+): OpenClawThinkingLevelOption[] {
+  const levels = Array.isArray(value) ? value : [];
+  const normalized = levels.flatMap((levelRaw) => {
+    if (typeof levelRaw === "string") {
+      const label = levelRaw.trim();
+      return label ? [{ id: normalizeThinkingLevelId(label), label }] : [];
+    }
+    if (!isRecord(levelRaw)) return [];
+    const id = firstNonEmptyString(levelRaw.id, levelRaw.value);
+    const label = firstNonEmptyString(levelRaw.label, levelRaw.name, id);
+    return id && label ? [{ id: normalizeThinkingLevelId(id), label }] : [];
+  });
+  if (normalized.length > 0) return normalized;
+
+  return (Array.isArray(legacyOptions) ? legacyOptions : []).flatMap((option) => {
+    const label = nonEmptyString(option);
+    return label ? [{ id: normalizeThinkingLevelId(label), label }] : [];
+  });
 }
 
 function primitiveSessionKeyPart(value: unknown): string | null {
@@ -476,11 +518,27 @@ export function normalizeOpenClawSession(session: unknown): OpenClawSessionRecor
   ), key);
   const clientDisplayName = rawClientDisplayName ?? (title || fallbackOpenClawSessionDisplayName(key));
   const messageCount = Number(session.messageCount ?? session.message_count ?? 0);
+  const modelProvider = firstNonEmptyString(session.modelProvider, session.model_provider, session.provider);
+  const modelId = firstNonEmptyString(session.model, session.modelId, session.model_id);
+  const model = modelProvider && modelId && !modelId.toLowerCase().startsWith(`${modelProvider.toLowerCase()}/`)
+    ? `${modelProvider}/${modelId}`
+    : modelId;
+  const thinkingLevel = firstNonEmptyString(session.thinkingLevel, session.thinking_level);
+  const thinkingDefault = firstNonEmptyString(session.thinkingDefault, session.thinking_default);
+  const thinkingLevels = normalizeOpenClawThinkingLevels(
+    session.thinkingLevels ?? session.thinking_levels,
+    session.thinkingOptions ?? session.thinking_options,
+  );
 
   return {
     key,
     ...(gatewaySessionKey ? { gatewaySessionKey } : {}),
     ...(derivedChannelSessionKey ? { sourceSessionKey: derivedChannelSessionKey } : {}),
+    ...(model ? { model } : {}),
+    ...(modelProvider ? { modelProvider } : {}),
+    ...(thinkingLevel ? { thinkingLevel } : {}),
+    ...(thinkingLevels.length > 0 ? { thinkingLevels } : {}),
+    ...(thinkingDefault ? { thinkingDefault } : {}),
     clientMode,
     clientDisplayName,
     createdAt,

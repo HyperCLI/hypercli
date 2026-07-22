@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
+import { TooltipHint } from "@/components/ClawTooltip";
 
 export type AgentLifecycleStage = "runtime" | "agent" | "gateway" | "complete";
 
@@ -47,34 +48,34 @@ export function AgentLifecycleSteps({ stage, className = "" }: AgentLifecycleSte
               }
             : undefined;
         return (
-          <motion.span
-            key={step.id}
-            className={`relative h-2 overflow-hidden rounded-full border transition-colors duration-300 ${
-              complete
-                ? "w-6 border-primary/40"
-                : active
-                  ? "w-8 border-warning/45"
-                  : "w-2 border-border bg-surface-low"
-            }`}
-            style={barStyle}
-            animate={active ? { scale: [1, 1.08, 1], opacity: [0.88, 1, 0.88] } : { scale: 1, opacity: complete ? 1 : 0.65 }}
-            transition={active ? { duration: 1.2, repeat: Infinity, ease: "easeInOut" } : { duration: 0.25 }}
-            title={`${step.label} ${complete ? "complete" : active ? "active" : "pending"}`}
-          >
-            {(complete || active) && (
-              <motion.span
-                className="absolute inset-y-0 w-3 rounded-full bg-white/70 blur-[2px]"
-                initial={{ x: "-150%" }}
-                animate={{ x: active ? ["-150%", "260%"] : ["-120%", "220%"] }}
-                transition={{
-                  duration: active ? 1.35 : 2.4,
-                  repeat: Infinity,
-                  ease: "easeInOut",
-                  delay: index * 0.12,
-                }}
-              />
-            )}
-          </motion.span>
+          <TooltipHint key={step.id} label={`${step.label} ${complete ? "complete" : active ? "active" : "pending"}`}>
+            <motion.span
+              className={`relative h-2 overflow-hidden rounded-full border transition-colors duration-300 ${
+                complete
+                  ? "w-6 border-primary/40"
+                  : active
+                    ? "w-8 border-warning/45"
+                    : "w-2 border-border bg-surface-low"
+              }`}
+              style={barStyle}
+              animate={active ? { scale: [1, 1.08, 1], opacity: [0.88, 1, 0.88] } : { scale: 1, opacity: complete ? 1 : 0.65 }}
+              transition={active ? { duration: 1.2, repeat: Infinity, ease: "easeInOut" } : { duration: 0.25 }}
+            >
+              {(complete || active) && (
+                <motion.span
+                  className="absolute inset-y-0 w-3 rounded-full bg-white/70 blur-[2px]"
+                  initial={{ x: "-150%" }}
+                  animate={{ x: active ? ["-150%", "260%"] : ["-120%", "220%"] }}
+                  transition={{
+                    duration: active ? 1.35 : 2.4,
+                    repeat: Infinity,
+                    ease: "easeInOut",
+                    delay: index * 0.12,
+                  }}
+                />
+              )}
+            </motion.span>
+          </TooltipHint>
         );
       })}
     </div>

@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { getToolCallStatusClass } from "./bubbleStyles";
 import type { ToolCallView, ToolCallViewSection, ToolCallViewStatus } from "./helpers";
+import { TooltipHint } from "@/components/ClawTooltip";
 
 export function ToolCallStatusFrame({ status }: { status: ToolCallViewStatus }) {
   const label = status === "running" ? "Running" : status === "failed" ? "Failed" : status === "done" ? "Done" : "Called";
@@ -27,26 +28,28 @@ export function ToolCallDisclosureButton({
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      aria-controls={detailId}
-      aria-expanded={isOpen}
-      onClick={onClick}
-      className="flex w-full min-w-0 items-center gap-1.5 px-2.5 py-1 text-left transition-colors hover:bg-surface-low/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.35)] focus-visible:ring-inset"
-    >
-      <span className="min-w-0 max-w-[45%] truncate font-medium text-foreground" title={view.title}>
-        {view.displayName}
-      </span>
-      <ToolCallStatusFrame status={view.status} />
-      {!isOpen && view.summary && (
-        <span className="ml-1 min-w-0 flex-1 truncate text-text-muted">{view.summary}</span>
-      )}
-      {isOpen ? (
-        <ChevronDown className="ml-auto h-3 w-3 shrink-0 text-text-muted" />
-      ) : (
-        <ChevronRight className="ml-auto h-3 w-3 shrink-0 text-text-muted" />
-      )}
-    </button>
+    <TooltipHint label={view.title}>
+      <button
+        type="button"
+        aria-controls={detailId}
+        aria-expanded={isOpen}
+        onClick={onClick}
+        className="flex w-full min-w-0 items-center gap-1.5 px-2.5 py-1 text-left transition-colors hover:bg-surface-low/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.35)] focus-visible:ring-inset"
+      >
+        <span className="min-w-0 max-w-[45%] truncate font-medium text-foreground">
+          {view.displayName}
+        </span>
+        <ToolCallStatusFrame status={view.status} />
+        {!isOpen && view.summary && (
+          <span className="ml-1 min-w-0 flex-1 truncate text-text-muted">{view.summary}</span>
+        )}
+        {isOpen ? (
+          <ChevronDown className="ml-auto h-3 w-3 shrink-0 text-text-muted" />
+        ) : (
+          <ChevronRight className="ml-auto h-3 w-3 shrink-0 text-text-muted" />
+        )}
+      </button>
+    </TooltipHint>
   );
 }
 

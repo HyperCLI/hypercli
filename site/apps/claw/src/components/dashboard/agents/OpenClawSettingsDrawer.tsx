@@ -23,6 +23,7 @@ import {
 } from "@/lib/openclaw-config";
 import { getAgentGatewayPanelBootStatus } from "./chat-boot-stage";
 import { INITIAL_DYNAMIC_ENTRY_LIMIT, OpenClawFieldRenderer } from "./OpenClawSettingsFieldRenderer";
+import { TooltipHint } from "@/components/ClawTooltip";
 
 interface OpenClawSettingsDrawerProps {
   open: boolean;
@@ -91,19 +92,19 @@ function SectionNav({
         const sectionDescription = openclawSectionDescription(schemaBundle, sectionKey, sectionSchema, sectionKey);
         const selected = activeSection === sectionKey;
         return (
-          <button
-            key={`openclaw-section-${sectionKey}`}
-            type="button"
-            onClick={() => onSelect(sectionKey)}
-            className={`block w-full rounded-md px-2.5 py-2 text-left text-xs transition-colors ${
-              selected
-                ? "border-l-2 border-selection-accent bg-selection-accent/15 font-medium text-foreground"
-                : "text-text-muted hover:bg-surface-low/50 hover:text-foreground"
-            }`}
-            title={sectionDescription}
-          >
-            <span className="block truncate">{sectionLabel}</span>
-          </button>
+          <TooltipHint key={`openclaw-section-${sectionKey}`} label={sectionDescription} side="right">
+            <button
+              type="button"
+              onClick={() => onSelect(sectionKey)}
+              className={`block w-full rounded-md px-2.5 py-2 text-left text-xs transition-colors ${
+                selected
+                  ? "border-l-2 border-selection-accent bg-selection-accent/15 font-medium text-foreground"
+                  : "text-text-muted hover:bg-surface-low/50 hover:text-foreground"
+              }`}
+            >
+              <span className="block truncate">{sectionLabel}</span>
+            </button>
+          </TooltipHint>
         );
       })}
     </div>
@@ -214,14 +215,11 @@ function OpenClawSectionEditor({
             Save Section
           </button>
           {onClose && (
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
-              title="Close OpenClaw settings"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <TooltipHint label="Close OpenClaw settings">
+              <button type="button" aria-label="Close OpenClaw settings" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </TooltipHint>
           )}
         </div>
 

@@ -27,6 +27,7 @@ import { agentAvatar } from "@/lib/avatar";
 import { MarkdownContent } from "@/components/dashboard/chat/MarkdownContent";
 import { useWorkspace } from "@/components/dashboard/WorkspaceContext";
 import { downloadFileBytes } from "@/lib/download-file";
+import { TooltipHint } from "@/components/ClawTooltip";
 
 export type SharedKnowledgeAgent = {
   id: string;
@@ -640,7 +641,7 @@ function WorkspaceFilesView({
           <p className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground">{currentPath || base.workspace.slug}</p>
           {canWrite ? (
             <>
-              <button type="button" title="Upload files" onClick={() => inputRef.current?.click()} disabled={busy} className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border px-2 text-[11px] text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-45">
+              <button type="button" onClick={() => inputRef.current?.click()} disabled={busy} className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border px-2 text-[11px] text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-45">
                 <Plus className="h-3 w-3" />
                 Upload
               </button>
@@ -714,9 +715,11 @@ function WorkspaceFilesView({
                   </button>
                 ))}
               </div>
-              <button type="button" title="Download source" onClick={() => void downloadFile(selectedFile.path)} disabled={busy} className="flex h-8 w-8 items-center justify-center rounded-lg border border-border text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-45">
-                <Download className="h-3.5 w-3.5" />
-              </button>
+              <TooltipHint label="Download source" disabled={busy}>
+                <button type="button" aria-label="Download source" onClick={() => void downloadFile(selectedFile.path)} disabled={busy} className="flex h-8 w-8 items-center justify-center rounded-lg border border-border text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-45">
+                  <Download className="h-3.5 w-3.5" />
+                </button>
+              </TooltipHint>
               {canWrite ? (
                 <button type="button" onClick={() => { setViewError(null); void onRegenerateFile(selectedFile.path).catch((err) => setViewError(describeError(err, "Unable to regenerate file."))); }} disabled={busy} className="inline-flex h-8 items-center gap-2 rounded-lg border border-border px-3 text-[12px] font-semibold text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-45">
                   <RefreshCw className="h-3.5 w-3.5" />

@@ -5,6 +5,7 @@ import { Check, Loader2, Volume2, Square } from "lucide-react";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
 import { PRODUCT_API_BASE_URL } from "@/lib/api";
+import { TooltipHint } from "@/components/ClawTooltip";
 
 const SPEAKERS = [
   "aiden", "dylan", "eric", "ono_anna", "ryan", "serena", "sohee", "uncle_fu", "vivian",
@@ -162,27 +163,33 @@ export function TtsPanel({ currentSpeaker, currentFormat, onSave, onClose }: Tts
               <div className="flex items-center gap-2 flex-1">
                 <span className="text-sm text-foreground">{speakerLabel(s)}</span>
               </div>
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  handlePreviewClick(s);
-                }}
+              <TooltipHint
+                label={previewingVoice === s ? `Stop ${speakerLabel(s)}` : `Preview ${speakerLabel(s)}`}
                 disabled={previewState === "loading" && previewingVoice !== s}
-                className={`p-1 transition-colors ${
-                  previewingVoice === s && previewState === "playing"
-                    ? "text-[var(--primary)]"
-                    : "text-text-tertiary hover:text-foreground"
-                } disabled:opacity-30 disabled:cursor-not-allowed`}
-                title={previewingVoice === s ? `Stop ${speakerLabel(s)}` : `Preview ${speakerLabel(s)}`}
               >
-                {previewingVoice === s && previewState === "loading" ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : previewingVoice === s && previewState === "playing" ? (
-                  <Square className="w-3 h-3 fill-current" />
-                ) : (
-                  <Volume2 className="w-3.5 h-3.5" />
-                )}
-              </button>
+                <button
+                  type="button"
+                  aria-label={previewingVoice === s ? `Stop ${speakerLabel(s)}` : `Preview ${speakerLabel(s)}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    handlePreviewClick(s);
+                  }}
+                  disabled={previewState === "loading" && previewingVoice !== s}
+                  className={`p-1 transition-colors ${
+                    previewingVoice === s && previewState === "playing"
+                      ? "text-[var(--primary)]"
+                      : "text-text-tertiary hover:text-foreground"
+                  } disabled:opacity-30 disabled:cursor-not-allowed`}
+                >
+                  {previewingVoice === s && previewState === "loading" ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : previewingVoice === s && previewState === "playing" ? (
+                    <Square className="w-3 h-3 fill-current" />
+                  ) : (
+                    <Volume2 className="w-3.5 h-3.5" />
+                  )}
+                </button>
+              </TooltipHint>
             </label>
           ))}
         </div>

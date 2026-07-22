@@ -1217,7 +1217,6 @@ export const AgentSlashCommandMenu = forwardRef<AgentSlashCommandMenuHandle, Age
                       role="option"
                       aria-selected={selected}
                       disabled={Boolean(busyCommandId)}
-                      title={suggestion.description}
                       onMouseEnter={() => setSelectedIndex(index)}
                       onClick={() => {
                         void executeConnectSuggestion(suggestion);
@@ -1265,7 +1264,6 @@ export const AgentSlashCommandMenu = forwardRef<AgentSlashCommandMenuHandle, Age
                     aria-selected={selected}
                     aria-disabled={Boolean(reason) || undefined}
                     disabled={Boolean(busyCommandId)}
-                    title={reason || command.description}
                     onMouseEnter={() => setSelectedIndex(index)}
                     onClick={() => {
                       void execute(command, args);

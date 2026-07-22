@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { Check, type LucideIcon } from "lucide-react";
 import type { StyleVariant } from "../agentViewTypes";
 import { CAPABILITY_SEGMENTS } from "../agentViewMockData";
+import { TooltipHint } from "@/components/ClawTooltip";
 
 export interface CapabilitySegment {
   label: string;
@@ -46,10 +47,12 @@ export function CompletenessRingModule({ variant, segments: segmentsProp }: Comp
               {segments.map((seg, idx) => {
                 const SegIcon = seg.icon;
                 return (
-                  <motion.div key={idx} whileHover={{ scale: 1.15 }} title={seg.label}
-                    className={`w-5 h-5 rounded flex items-center justify-center ${seg.complete ? "bg-primary/15 text-primary" : "bg-surface-high text-text-muted"}`}>
-                    <SegIcon className="w-3 h-3" />
-                  </motion.div>
+                  <TooltipHint key={idx} label={seg.label}>
+                    <motion.div whileHover={{ scale: 1.15 }}
+                      className={`w-5 h-5 rounded flex items-center justify-center ${seg.complete ? "bg-primary/15 text-primary" : "bg-surface-high text-text-muted"}`}>
+                      <SegIcon className="w-3 h-3" />
+                    </motion.div>
+                  </TooltipHint>
                 );
               })}
             </div>

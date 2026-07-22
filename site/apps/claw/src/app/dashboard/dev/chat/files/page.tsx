@@ -20,6 +20,7 @@ import {
   type FilesCallbacks,
 } from "@hypercli/shared-ui/files";
 import { MarkdownContent } from "@/components/dashboard/chat/MarkdownContent";
+import { TooltipHint } from "@/components/ClawTooltip";
 import { writeClipboardText } from "@/lib/browser-clipboard";
 
 function renderMarkdown(content: string, className?: string) {
@@ -160,13 +161,15 @@ export default function DevFilesPage() {
     <div className="flex flex-col h-[calc(100dvh-3.5rem)]">
       {/* ── Top bar ── */}
       <div className="flex items-center gap-3 px-4 h-12 border-b border-border flex-shrink-0">
-        <Link
-          href="/dashboard/dev/chat"
-          className="w-7 h-7 rounded-lg flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
-          title="Back to chat"
-        >
-          <ArrowLeft className="w-4 h-4" />
-        </Link>
+        <TooltipHint label="Back to chat">
+          <Link
+            href="/dashboard/dev/chat"
+            aria-label="Back to chat"
+            className="w-7 h-7 rounded-lg flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </Link>
+        </TooltipHint>
 
         <FolderOpen className="w-4 h-4 text-primary" />
         <span className="text-sm font-semibold text-foreground">Workspace Files</span>
@@ -183,34 +186,40 @@ export default function DevFilesPage() {
           </div>
         )}
 
-        <button
-          onClick={() => setShowUpload((v) => !v)}
-          className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
-            showUpload ? "text-primary bg-primary/10" : "text-text-muted hover:text-foreground hover:bg-surface-low"
-          }`}
-          title="Upload"
-        >
-          <Upload className="w-3.5 h-3.5" />
-        </button>
+        <TooltipHint label="Upload">
+          <button
+            onClick={() => setShowUpload((v) => !v)}
+            aria-label="Upload"
+            className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
+              showUpload ? "text-primary bg-primary/10" : "text-text-muted hover:text-foreground hover:bg-surface-low"
+            }`}
+          >
+            <Upload className="w-3.5 h-3.5" />
+          </button>
+        </TooltipHint>
 
-        <button
-          onClick={() => setShowHidden((v) => !v)}
-          className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
-            showHidden ? "text-primary bg-primary/10" : "text-text-muted hover:text-foreground hover:bg-surface-low"
-          }`}
-          title={showHidden ? "Hide dotfiles" : "Show dotfiles"}
-        >
-          {showHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-        </button>
+        <TooltipHint label={showHidden ? "Hide dotfiles" : "Show dotfiles"}>
+          <button
+            onClick={() => setShowHidden((v) => !v)}
+            aria-label={showHidden ? "Hide dotfiles" : "Show dotfiles"}
+            className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
+              showHidden ? "text-primary bg-primary/10" : "text-text-muted hover:text-foreground hover:bg-surface-low"
+            }`}
+          >
+            {showHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+          </button>
+        </TooltipHint>
 
         <div className="relative">
-          <button
-            onClick={() => setSortMenuOpen((v) => !v)}
-            className="w-7 h-7 rounded-lg flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
-            title="Sort"
-          >
-            <ArrowUpDown className="w-3.5 h-3.5" />
-          </button>
+          <TooltipHint label="Sort">
+            <button
+              onClick={() => setSortMenuOpen((v) => !v)}
+              aria-label="Sort"
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+            >
+              <ArrowUpDown className="w-3.5 h-3.5" />
+            </button>
+          </TooltipHint>
           <AnimatePresence>
             {sortMenuOpen && (
               <motion.div

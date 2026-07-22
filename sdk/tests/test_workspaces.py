@@ -1,10 +1,23 @@
+from datetime import datetime, timezone
 from pathlib import Path
 
-import httpx
+import pytest
 
-from hypercli import WorkspaceAgentAssociation
+from hypercli import (
+    WorkspaceAccessEntry,
+    WorkspaceAccessSnapshot,
+    WorkspaceAccessVisibility,
+    WorkspaceAgentAssociation,
+)
 from hypercli.http import APIError
 from hypercli.workspaces import WorkspacesAPI, _derive_workspaces_base, _headers
+
+
+class FixedDateTime(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        value = cls(2026, 7, 22, 12, 0, 0, tzinfo=timezone.utc)
+        return value if tz is None else value.astimezone(tz)
 
 
 def test_workspaces_base_derives_from_agents_base(monkeypatch):
@@ -61,66 +74,304 @@ def test_get_workspace_normalizes_metadata_and_encodes_reference(monkeypatch):
     ]
 
 
-def test_list_agents_uses_get_bearer_auth_and_maps_associations(monkeypatch):
+def test_admin_access_snapshot_uses_only_workspace_and_grants_routes(monkeypatch):
     calls = []
+    responses = [
+        {"id": "workspace-1", "name": "Team", "slug": "team", "role": "admin"},
+        [
+            {
+                "id": "agent-admin",
+                "workspace_id": "workspace-1",
+                "subject_type": "agent",
+                "subject_id": "shared-id",
+                "role": "admin",
+                "display_name": "Research Agent",
+                "display_slug": "research-a",
+                "expires_at": "2026-09-01T00:00:00Z",
+                "revoked_at": None,
+            },
+            {
+                "id": "agent-viewer",
+                "workspace_id": "workspace-1",
+                "subject_type": "agent",
+                "subject_id": "shared-id",
+                "role": "viewer",
+                "display_name": "",
+                "display_slug": "research-b",
+                "expires_at": "2026-08-01T00:00:00Z",
+                "revoked_at": None,
+            },
+            {
+                "id": "user-contributor",
+                "workspace_id": "workspace-1",
+                "subject_type": "user",
+                "subject_id": "shared-id",
+                "role": "contributor",
+                "display_name": "Alice",
+                "display_slug": "alice",
+                "expires_at": None,
+                "revoked_at": None,
+            },
+            {
+                "id": "user-viewer",
+                "workspace_id": "workspace-1",
+                "subject_type": "user",
+                "subject_id": "shared-id",
+                "role": "viewer",
+                "display_name": "Alicia",
+                "display_slug": "alice",
+                "expires_at": "2026-10-01T00:00:00Z",
+                "revoked_at": None,
+            },
+            {
+                "id": "revoked",
+                "workspace_id": "workspace-1",
+                "subject_type": "agent",
+                "subject_id": "revoked-agent",
+                "role": "admin",
+                "expires_at": None,
+                "revoked_at": "2026-07-20T00:00:00Z",
+            },
+            {
+                "id": "expired",
+                "workspace_id": "workspace-1",
+                "subject_type": "user",
+                "subject_id": "expired-user",
+                "role": "admin",
+                "expires_at": "2026-07-21T00:00:00Z",
+                "revoked_at": None,
+            },
+            {
+                "id": "boundary",
+                "workspace_id": "workspace-1",
+                "subject_type": "user",
+                "subject_id": "boundary-user",
+                "role": "admin",
+                "expires_at": "2026-07-22T12:00:00Z",
+                "revoked_at": None,
+            },
+        ],
+    ]
 
-    class FakeClient:
-        def __init__(self, *, timeout):
-            assert timeout == 30
+    def fake_request(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
+        calls.append((method, url, api_key, user_id, agent_id, kwargs))
+        return responses.pop(0)
 
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return None
-
-        def request(self, method, url, *, headers, **kwargs):
-            calls.append((method, url, headers, kwargs))
-            return httpx.Response(
-                200,
-                json=[
-                    {
-                        "workspace_id": "workspace-1",
-                        "agent_id": "agent-1",
-                        "role": "admin",
-                        "expires_at": "2026-08-01T00:00:00Z",
-                    },
-                    {
-                        "workspace_id": "workspace-1",
-                        "agent_id": "agent-2",
-                        "role": "viewer",
-                        "expires_at": None,
-                    },
-                ],
-                request=httpx.Request(method, url),
-            )
-
-    monkeypatch.setattr("hypercli.workspaces.httpx.Client", FakeClient)
+    monkeypatch.setattr("hypercli.workspaces._request", fake_request)
+    monkeypatch.setattr("hypercli.workspaces.datetime", FixedDateTime)
     api = WorkspacesAPI("key", api_base="http://workspaces.test/workspaces")
 
-    associations = api.list_agents("team knowledge", user_id="user-1")
+    snapshot = api.access_snapshot("team knowledge/#1", user_id="user-1")
+    visibility: WorkspaceAccessVisibility = snapshot.visibility
 
-    assert associations == [
+    assert isinstance(snapshot, WorkspaceAccessSnapshot)
+    assert visibility == "all-direct-access"
+    assert snapshot.current_role == "admin"
+    assert snapshot.captured_at == "2026-07-22T12:00:00Z"
+    assert snapshot.grants is not None
+    assert [grant.id for grant in snapshot.grants] == [
+        "agent-admin",
+        "agent-viewer",
+        "user-contributor",
+        "user-viewer",
+        "revoked",
+        "expired",
+        "boundary",
+    ]
+    assert snapshot.entries is not None
+    assert all(isinstance(entry, WorkspaceAccessEntry) for entry in snapshot.entries)
+    assert [(entry.subject_type, entry.subject_id) for entry in snapshot.entries] == [
+        ("agent", "shared-id"),
+        ("user", "shared-id"),
+    ]
+    agent_entry, user_entry = snapshot.entries
+    assert agent_entry.role == "admin"
+    assert agent_entry.display_name == "Research Agent"
+    assert agent_entry.display_slug is None
+    assert [grant.id for grant in agent_entry.grants] == ["agent-admin", "agent-viewer"]
+    assert agent_entry.grants[0] is snapshot.grants[0]
+    assert user_entry.role == "contributor"
+    assert user_entry.display_name is None
+    assert user_entry.display_slug == "alice"
+    assert calls == [
+        (
+            "GET",
+            "http://workspaces.test/workspaces/team%20knowledge%2F%231",
+            "key",
+            "user-1",
+            None,
+            {},
+        ),
+        (
+            "GET",
+            "http://workspaces.test/workspaces/team%20knowledge%2F%231/grants",
+            "key",
+            "user-1",
+            None,
+            {},
+        ),
+    ]
+
+
+@pytest.mark.parametrize("role", ["viewer", "contributor"])
+def test_non_admin_access_snapshot_does_not_request_grants(monkeypatch, role):
+    calls = []
+
+    def fake_request(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
+        calls.append((method, url, api_key, user_id, agent_id, kwargs))
+        return {"id": "workspace-1", "name": "Team", "slug": "team", "role": role}
+
+    monkeypatch.setattr("hypercli.workspaces._request", fake_request)
+    monkeypatch.setattr("hypercli.workspaces.datetime", FixedDateTime)
+    api = WorkspacesAPI("key", api_base="http://workspaces.test/workspaces")
+
+    snapshot = api.access_snapshot("team", agent_id="agent-1")
+
+    assert snapshot.current_role == role
+    assert snapshot.visibility == "current-access-only"
+    assert snapshot.captured_at == "2026-07-22T12:00:00Z"
+    assert snapshot.entries is None
+    assert snapshot.grants is None
+    assert calls == [
+        (
+            "GET",
+            "http://workspaces.test/workspaces/team",
+            "key",
+            None,
+            "agent-1",
+            {},
+        )
+    ]
+
+
+def test_access_snapshot_rejects_invalid_expiration(monkeypatch):
+    responses = [
+        {"id": "workspace-1", "name": "Team", "slug": "team", "role": "admin"},
+        [
+            {
+                "id": "invalid-expiration",
+                "workspace_id": "workspace-1",
+                "subject_type": "agent",
+                "subject_id": "agent-1",
+                "role": "viewer",
+                "expires_at": "not-a-timestamp",
+                "revoked_at": None,
+            }
+        ],
+    ]
+    monkeypatch.setattr(
+        "hypercli.workspaces._request",
+        lambda *_args, **_kwargs: responses.pop(0),
+    )
+    api = WorkspacesAPI("key", api_base="http://workspaces.test/workspaces")
+
+    with pytest.raises(
+        ValueError,
+        match="Invalid expiration timestamp for workspace grant invalid-expiration: not-a-timestamp",
+    ):
+        api.access_snapshot("team")
+
+
+def test_access_snapshot_rejects_malformed_grants_payload(monkeypatch):
+    responses = [
+        {"id": "workspace-1", "name": "Team", "slug": "team", "role": "admin"},
+        {"grants": []},
+    ]
+    monkeypatch.setattr(
+        "hypercli.workspaces._request",
+        lambda *_args, **_kwargs: responses.pop(0),
+    )
+    api = WorkspacesAPI("key", api_base="http://workspaces.test/workspaces")
+
+    with pytest.raises(ValueError, match="Workspace grants response must be a list"):
+        api.access_snapshot("team")
+
+
+def test_list_agents_projects_admin_snapshot_and_rejects_non_admin(monkeypatch):
+    calls = []
+    responses = [
+        {"id": "workspace-1", "name": "Team", "slug": "team", "role": "admin"},
+        [
+            {
+                "id": "agent-1-admin",
+                "workspace_id": "workspace-1",
+                "subject_type": "agent",
+                "subject_id": "agent-1",
+                "role": "admin",
+                "expires_at": "2026-09-01T00:00:00Z",
+                "revoked_at": None,
+            },
+            {
+                "id": "agent-1-viewer",
+                "workspace_id": "workspace-1",
+                "subject_type": "agent",
+                "subject_id": "agent-1",
+                "role": "viewer",
+                "expires_at": "2026-08-01T00:00:00Z",
+                "revoked_at": None,
+            },
+            {
+                "id": "agent-2-viewer",
+                "workspace_id": "workspace-1",
+                "subject_type": "agent",
+                "subject_id": "agent-2",
+                "role": "viewer",
+                "expires_at": None,
+                "revoked_at": None,
+            },
+            {
+                "id": "agent-2-contributor",
+                "workspace_id": "workspace-1",
+                "subject_type": "agent",
+                "subject_id": "agent-2",
+                "role": "contributor",
+                "expires_at": "2026-10-01T00:00:00Z",
+                "revoked_at": None,
+            },
+            {
+                "id": "user-admin",
+                "workspace_id": "workspace-1",
+                "subject_type": "user",
+                "subject_id": "user-1",
+                "role": "admin",
+                "expires_at": None,
+                "revoked_at": None,
+            },
+        ],
+        {"id": "workspace-2", "name": "Viewer", "slug": "viewer", "role": "viewer"},
+    ]
+
+    def fake_request(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
+        calls.append((method, url))
+        return responses.pop(0)
+
+    monkeypatch.setattr("hypercli.workspaces._request", fake_request)
+    monkeypatch.setattr("hypercli.workspaces.datetime", FixedDateTime)
+    api = WorkspacesAPI("key", api_base="http://workspaces.test/workspaces")
+
+    assert api.list_agents("team") == [
         WorkspaceAgentAssociation(
             workspace_id="workspace-1",
             agent_id="agent-1",
             role="admin",
-            expires_at="2026-08-01T00:00:00Z",
+            expires_at="2026-09-01T00:00:00Z",
         ),
         WorkspaceAgentAssociation(
             workspace_id="workspace-1",
             agent_id="agent-2",
-            role="viewer",
+            role="contributor",
             expires_at=None,
         ),
     ]
+    with pytest.raises(
+        ValueError,
+        match="Workspace agent associations are available only to Workspace admins",
+    ):
+        api.list_agents("viewer")
     assert calls == [
-        (
-            "GET",
-            "http://workspaces.test/workspaces/team%20knowledge/agents",
-            {"Authorization": "Bearer key", "Content-Type": "application/json"},
-            {},
-        )
+        ("GET", "http://workspaces.test/workspaces/team"),
+        ("GET", "http://workspaces.test/workspaces/team/grants"),
+        ("GET", "http://workspaces.test/workspaces/viewer"),
     ]
 
 

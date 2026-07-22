@@ -3,7 +3,7 @@
 import { Reorder, useDragControls } from "framer-motion";
 import { GripVertical } from "lucide-react";
 import type { KeyboardEvent, PointerEvent, ReactNode } from "react";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@hypercli/shared-ui";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ClawTooltip";
 
 interface CollapsedAgentReorderItemProps {
   agentId: string;
@@ -43,7 +43,7 @@ export function CollapsedAgentReorderItem({
       onDragEnd={() => onReorderingChange?.(false)}
     >
       {canReorder ? (
-        <Tooltip delayDuration={300}>
+        <Tooltip>
           <TooltipTrigger asChild>
             <button
               type="button"

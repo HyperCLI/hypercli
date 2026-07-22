@@ -12,6 +12,7 @@ import type { Agent } from "@/app/dashboard/agents/types";
 import type { AgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
 import { AgentLoadingState } from "@/components/dashboard/agents/page-helpers";
 import { AgentEmptyHistory } from "@/components/dashboard/agents/AgentEmptyHistory";
+import { OpenClawModelMenu } from "@/components/dashboard/agents/OpenClawModelMenu";
 import { JourneyIntroPanel, type JourneyIntroPanelProps } from "@/components/dashboard/journey/JourneyIntroPanel";
 import { JourneyMissionChatCard, type JourneyMissionChatCardProps } from "@/components/dashboard/journey/JourneyMissionChatCard";
 import { detectChatIntegrationIntent, getChatConnectorSuggestion, getConnectionSuggestions, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
@@ -23,6 +24,7 @@ import {
   type AgentSlashCommandMenuHandle,
 } from "@/components/dashboard/agents/AgentSlashCommandMenu";
 import { ResourceImage } from "@/components/ResourceImage";
+import { TooltipHint } from "@/components/ClawTooltip";
 import {
   getAgentChatBootStatus,
   stabilizeAgentChatBootStatus,
@@ -620,6 +622,16 @@ export function AgentChatPanel({
     chat.pendingFiles.length > 0;
   const showComposer = displayBootStatus.status === "ready" || composerHasDraft;
   const composerDisabled = displayBootStatus.status !== "ready" || !chat.connected || chat.activeSessionReadOnly || temporaryChatTransitioning;
+  const modelMenuAvailable = chat.backend === "openclaw";
+  const composerRightPadding = modelMenuAvailable
+    ? activeSessionSending ? "pr-60 min-[421px]:pr-72" : "pr-52 min-[421px]:pr-64"
+    : activeSessionSending ? "pr-40" : "pr-24 sm:pr-28";
+  const attachFileTooltip = chat.activeSessionReadOnly ? readOnlyComposerReason : "Attach file";
+  const recordVoiceTooltip = chat.activeSessionReadOnly
+    ? readOnlyComposerReason
+    : chat.input.trim().length > 0
+      ? "Clear text to record voice"
+      : "Record voice message";
   const composerPlaceholder = chat.activeSessionReadOnly
     ? readOnlyComposerReason
     : chat.connected
@@ -659,7 +671,7 @@ export function AgentChatPanel({
     if (displayBootStatus.status === "ready") {
       if (journeyIntro?.enabled) return <JourneyIntroPanel {...journeyIntro} />;
       if (journeyMissionCard?.enabled) return <JourneyMissionChatCard key={journeyMissionCard.day.id} {...journeyMissionCard} />;
-      return <AgentEmptyHistory onPromptSelect={setChatInput} />;
+      return <AgentEmptyHistory onPromptSelect={setChatInput} actions={commandActions} />;
     }
 
     return <StoppedChatEmptyState />;
@@ -853,16 +865,21 @@ export function AgentChatPanel({
                         <p className="truncate text-sm font-medium text-foreground">Connect {suggestion.displayName}</p>
                         <p className="truncate text-xs text-text-muted">{suggestion.description}</p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleConnectionSuggestionClick(suggestion)}
-                        className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-3 py-1.5 text-xs font-medium text-[var(--selection-accent)] transition-colors hover:bg-[rgb(var(--selection-accent-rgb)_/_0.2)] disabled:opacity-50"
+                      <TooltipHint
+                        label={`Open ${suggestion.displayName} connection setup`}
                         disabled={!onConnectionCta && !suggestion.connectorId}
-                        title={`Open ${suggestion.displayName} connection setup`}
                       >
-                        Connect
-                        <ArrowRight className="h-3.5 w-3.5" />
-                      </button>
+                        <button
+                          type="button"
+                          aria-label={`Open ${suggestion.displayName} connection setup`}
+                          onClick={() => handleConnectionSuggestionClick(suggestion)}
+                          className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-3 py-1.5 text-xs font-medium text-[var(--selection-accent)] transition-colors hover:bg-[rgb(var(--selection-accent-rgb)_/_0.2)] disabled:opacity-50"
+                          disabled={!onConnectionCta && !suggestion.connectorId}
+                        >
+                          Connect
+                          <ArrowRight className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipHint>
                     </div>
                   );
                 })}
@@ -889,9 +906,11 @@ export function AgentChatPanel({
                       sizes="64px"
                       className="rounded-md border border-border object-cover"
                     />
-                    <button onClick={() => chat.removeAttachment(i)} className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-destructive rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <X className="w-3 h-3 text-destructive-foreground" />
-                    </button>
+                    <TooltipHint label="Remove attachment">
+                      <button aria-label="Remove attachment" onClick={() => chat.removeAttachment(i)} className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-destructive rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <X className="w-3 h-3 text-destructive-foreground" />
+                      </button>
+                    </TooltipHint>
                   </div>
                 ))}
                 {Array.from({ length: chat.pendingAttachmentReads }).map((_, i) => (
@@ -912,9 +931,11 @@ export function AgentChatPanel({
                   <div key={`${file.name}-${i}`} className="inline-flex max-w-full items-center gap-2 rounded-full border border-border bg-surface-low px-3 py-1.5 text-xs text-text-secondary">
                     <Paperclip className="h-3.5 w-3.5 shrink-0" />
                     <span className="truncate">{file.name}</span>
-                    <button type="button" onClick={() => chat.removePendingFile(i)} className="text-text-muted transition-colors hover:text-destructive" title="Remove attachment">
-                      <X className="h-3.5 w-3.5" />
-                    </button>
+                    <TooltipHint label="Remove attachment">
+                      <button type="button" aria-label="Remove attachment" onClick={() => chat.removePendingFile(i)} className="text-text-muted transition-colors hover:text-destructive">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </TooltipHint>
                   </div>
                 ))}
               </div>
@@ -938,24 +959,32 @@ export function AgentChatPanel({
                       ))}
                     </div>
                   </div>
-                  <button onClick={stopRecording} className="px-3 py-2 rounded-lg border border-destructive text-destructive hover:bg-destructive/10 flex items-center justify-center transition-colors">
-                    <Square className="w-4 h-4" />
-                  </button>
+                  <TooltipHint label="Stop recording">
+                    <button aria-label="Stop recording" onClick={stopRecording} className="px-3 py-2 rounded-lg border border-destructive text-destructive hover:bg-destructive/10 flex items-center justify-center transition-colors">
+                      <Square className="w-4 h-4" />
+                    </button>
+                  </TooltipHint>
                 </>
               ) : audioUrl ? (
                 <>
                   <div className="min-w-0 flex-1 flex items-center gap-1 rounded-full border border-border bg-surface-low px-2 py-1.5">
-                    <button onClick={toggleAudioPreviewPlayback} type="button" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border text-text-muted hover:text-foreground hover:bg-background/50" title={audioPreviewPlaying ? "Pause" : "Play"}>
-                      {audioPreviewPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-                    </button>
+                    <TooltipHint label={audioPreviewPlaying ? "Pause" : "Play"}>
+                      <button aria-label={audioPreviewPlaying ? "Pause" : "Play"} onClick={toggleAudioPreviewPlayback} type="button" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border text-text-muted hover:text-foreground hover:bg-background/50">
+                        {audioPreviewPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                      </button>
+                    </TooltipHint>
                     <span className="min-w-0 truncate text-xs font-mono text-text-secondary">{formatDuration(audioPreviewDuration || recordingDuration)}</span>
                   </div>
-                  <button onClick={discardAudio} className="px-2 py-2 rounded-full border border-border text-text-muted hover:text-destructive hover:bg-surface-low flex items-center justify-center transition-colors" title="Discard" type="button">
-                    <X className="w-4 h-4" />
-                  </button>
-                  <button onClick={sendAudio} disabled={composerDisabled || activeSessionSending || sendingAudio} className="btn-primary px-3 py-2 rounded-full disabled:opacity-50 flex items-center justify-center" type="button">
-                    {sendingAudio ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                  </button>
+                  <TooltipHint label="Discard">
+                    <button aria-label="Discard" onClick={discardAudio} className="px-2 py-2 rounded-full border border-border text-text-muted hover:text-destructive hover:bg-surface-low flex items-center justify-center transition-colors" type="button">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </TooltipHint>
+                  <TooltipHint label="Send voice message" disabled={composerDisabled || activeSessionSending || sendingAudio}>
+                    <button aria-label="Send voice message" onClick={sendAudio} disabled={composerDisabled || activeSessionSending || sendingAudio} className="btn-primary px-3 py-2 rounded-full disabled:opacity-50 flex items-center justify-center" type="button">
+                      {sendingAudio ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                    </button>
+                  </TooltipHint>
                 </>
               ) : (
                 <div className="relative flex-1 min-w-0">
@@ -1115,7 +1144,7 @@ export function AgentChatPanel({
                     rows={1}
                     placeholder={composerPlaceholder}
                     disabled={composerDisabled}
-                    className={`w-full resize-none bg-surface-low border border-border rounded-3xl pl-5 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden ${activeSessionSending ? "pr-40" : "pr-24 sm:pr-28"}`}
+                    className={`w-full resize-none bg-surface-low border border-border rounded-3xl pl-5 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden ${composerRightPadding}`}
                   />
                   {slashMenuOpen ? (
                     <AgentSlashCommandMenu
@@ -1175,45 +1204,59 @@ export function AgentChatPanel({
                     </div>
                   ) : null}
                   <div className="absolute right-2 top-[calc(50%-3px)] -translate-y-1/2 flex items-center gap-1">
-                    <label
-                      aria-disabled={composerDisabled}
-                      className={`w-8 h-8 rounded-full text-text-muted flex items-center justify-center transition-colors ${composerDisabled ? "cursor-not-allowed opacity-40" : "hover:text-foreground hover:bg-surface-low cursor-pointer"}`}
-                      title={chat.activeSessionReadOnly ? readOnlyComposerReason : "Attach file"}
-                    >
-                      <Paperclip className="w-4 h-4" />
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        multiple
-                        className="hidden"
-                        disabled={composerDisabled}
-                        onChange={(e) => {
-                          if (composerDisabled) return;
-                          if (e.target.files?.length) {
-                            void handleChatFileDrop(e.target.files);
-                            e.target.value = "";
-                          }
-                        }}
+                    {modelMenuAvailable ? (
+                      <OpenClawModelMenu
+                        chat={chat}
+                        disabled={composerDisabled || activeSessionSending}
+                        onOpenSettings={slashCommandActions?.onOpenConfig}
                       />
-                    </label>
-                    <button onClick={startRecording} disabled={composerDisabled || chat.input.trim().length > 0} className="w-8 h-8 rounded-full bg-[rgb(var(--selection-accent-rgb)_/_0.15)] text-[var(--selection-accent)] hover:bg-[rgb(var(--selection-accent-rgb)_/_0.25)] hover:text-[var(--selection-accent)] flex items-center justify-center transition-colors disabled:opacity-40 disabled:hover:bg-[rgb(var(--selection-accent-rgb)_/_0.15)]" title={chat.activeSessionReadOnly ? readOnlyComposerReason : chat.input.trim().length > 0 ? "Clear text to record voice" : "Record voice message"}>
-                      <Mic className="w-4 h-4" />
-                    </button>
-                    {activeSessionSending ? (
-                      <button
-                        onClick={() => { void chat.abortMessage(); }}
-                        disabled={!chat.connected || activeSessionAborting}
-                        className="w-8 h-8 rounded-full border border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/20 disabled:opacity-40 flex items-center justify-center transition-colors"
-                        title={activeSessionAborting ? "Stopping reply" : "Stop reply"}
-                        aria-label={activeSessionAborting ? "Stopping reply" : "Stop reply"}
-                        type="button"
-                      >
-                        {activeSessionAborting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />}
-                      </button>
                     ) : null}
-                    <button onClick={handleSendChatWithIntegrationIntent} disabled={!canSendChatDraft} className="w-8 h-8 btn-primary rounded-full disabled:opacity-40 flex items-center justify-center" title="Send message">
-                      <Send className="w-3.5 h-3.5" />
-                    </button>
+                    <TooltipHint label={attachFileTooltip} disabled={composerDisabled}>
+                      <label
+                        aria-label={attachFileTooltip}
+                        aria-disabled={composerDisabled}
+                        className={`w-8 h-8 rounded-full text-text-muted flex items-center justify-center transition-colors ${composerDisabled ? "cursor-not-allowed opacity-40" : "hover:text-foreground hover:bg-surface-low cursor-pointer"}`}
+                      >
+                        <Paperclip className="w-4 h-4" />
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          multiple
+                          className="hidden"
+                          disabled={composerDisabled}
+                          onChange={(e) => {
+                            if (composerDisabled) return;
+                            if (e.target.files?.length) {
+                              void handleChatFileDrop(e.target.files);
+                              e.target.value = "";
+                            }
+                          }}
+                        />
+                      </label>
+                    </TooltipHint>
+                    <TooltipHint label={recordVoiceTooltip} disabled={composerDisabled || chat.input.trim().length > 0}>
+                      <button aria-label={recordVoiceTooltip} onClick={startRecording} disabled={composerDisabled || chat.input.trim().length > 0} className="w-8 h-8 rounded-full bg-[rgb(var(--selection-accent-rgb)_/_0.15)] text-[var(--selection-accent)] hover:bg-[rgb(var(--selection-accent-rgb)_/_0.25)] hover:text-[var(--selection-accent)] flex items-center justify-center transition-colors disabled:opacity-40 disabled:hover:bg-[rgb(var(--selection-accent-rgb)_/_0.15)]">
+                        <Mic className="w-4 h-4" />
+                      </button>
+                    </TooltipHint>
+                    {activeSessionSending ? (
+                      <TooltipHint label={activeSessionAborting ? "Stopping reply" : "Stop reply"} disabled={!chat.connected || activeSessionAborting}>
+                        <button
+                          onClick={() => { void chat.abortMessage(); }}
+                          disabled={!chat.connected || activeSessionAborting}
+                          className="w-8 h-8 rounded-full border border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/20 disabled:opacity-40 flex items-center justify-center transition-colors"
+                          aria-label={activeSessionAborting ? "Stopping reply" : "Stop reply"}
+                          type="button"
+                        >
+                          {activeSessionAborting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />}
+                        </button>
+                      </TooltipHint>
+                    ) : null}
+                    <TooltipHint label="Send message" disabled={!canSendChatDraft}>
+                      <button aria-label="Send message" onClick={handleSendChatWithIntegrationIntent} disabled={!canSendChatDraft} className="w-8 h-8 btn-primary rounded-full disabled:opacity-40 flex items-center justify-center">
+                        <Send className="w-3.5 h-3.5" />
+                      </button>
+                    </TooltipHint>
                   </div>
                 </div>
               )}

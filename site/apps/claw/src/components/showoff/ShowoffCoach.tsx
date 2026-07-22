@@ -10,6 +10,7 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
+import { TooltipHint } from "@/components/ClawTooltip";
 
 import type { ShowoffStep } from "./types";
 
@@ -93,22 +94,26 @@ export function ShowoffCoach({
               </p>
             </div>
             <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={onRestart}
-                className="rounded-md p-1.5 text-text-muted hover:bg-surface-low hover:text-foreground"
-                title="Restart showoff"
-              >
-                <RotateCcw className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-md p-1.5 text-text-muted hover:bg-surface-low hover:text-foreground"
-                title="Close showoff"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <TooltipHint label="Restart showoff">
+                <button
+                  type="button"
+                  aria-label="Restart showoff"
+                  onClick={onRestart}
+                  className="rounded-md p-1.5 text-text-muted hover:bg-surface-low hover:text-foreground"
+                >
+                  <RotateCcw className="h-4 w-4" />
+                </button>
+              </TooltipHint>
+              <TooltipHint label="Close showoff">
+                <button
+                  type="button"
+                  aria-label="Close showoff"
+                  onClick={onClose}
+                  className="rounded-md p-1.5 text-text-muted hover:bg-surface-low hover:text-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </TooltipHint>
             </div>
           </div>
 

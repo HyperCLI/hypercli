@@ -56,6 +56,27 @@ export interface WorkspaceGrant {
   revokedAt: string | null;
 }
 
+export type WorkspaceAccessVisibility = 'all-direct-access' | 'current-access-only';
+
+export interface WorkspaceAccessEntry {
+  workspaceId: string;
+  subjectType: string;
+  subjectId: string;
+  role: string;
+  displayName: string | null;
+  displaySlug: string | null;
+  grants: WorkspaceGrant[];
+}
+
+export interface WorkspaceAccessSnapshot {
+  workspace: Workspace;
+  currentRole: string | null;
+  visibility: WorkspaceAccessVisibility;
+  capturedAt: string;
+  entries: WorkspaceAccessEntry[] | null;
+  grants: WorkspaceGrant[] | null;
+}
+
 export interface WorkspaceFile {
   id: string;
   workspaceId: string;
@@ -114,18 +135,9 @@ function workspaceFromDict(data: any): Workspace {
     description: data?.description ?? null,
     displayName: data?.display_name ?? data?.displayName ?? null,
     displaySlug: data?.display_slug ?? data?.displaySlug ?? null,
-    role: data?.role ?? null,
+    role: data?.role ?? data?.current_role ?? data?.currentRole ?? null,
     createdAt: data?.created_at ?? data?.createdAt ?? null,
     updatedAt: data?.updated_at ?? data?.updatedAt ?? null,
-  };
-}
-
-function workspaceAgentAssociationFromDict(data: any): WorkspaceAgentAssociation {
-  return {
-    workspaceId: String(data?.workspace_id || data?.workspaceId || ''),
-    agentId: String(data?.agent_id || data?.agentId || ''),
-    role: data?.role || '',
-    expiresAt: data?.expires_at ?? data?.expiresAt ?? null,
   };
 }
 
@@ -142,6 +154,104 @@ function grantFromDict(data: any): WorkspaceGrant {
     expiresAt: data?.expires_at ?? data?.expiresAt ?? null,
     revokedAt: data?.revoked_at ?? data?.revokedAt ?? null,
   };
+}
+
+const WORKSPACE_ROLE_STRENGTH: Record<string, number> = {
+  viewer: 1,
+  contributor: 2,
+  admin: 3,
+};
+
+function grantExpirationTimestamp(grant: WorkspaceGrant): number | null {
+  if (grant.expiresAt === null) return null;
+  if (typeof grant.expiresAt !== 'string') {
+    throw new Error(
+      `Invalid expiration timestamp for workspace grant ${grant.id || '<unknown>'}: ${String(grant.expiresAt)}`,
+    );
+  }
+  const timestamp = Date.parse(grant.expiresAt);
+  if (!Number.isFinite(timestamp)) {
+    throw new Error(
+      `Invalid expiration timestamp for workspace grant ${grant.id || '<unknown>'}: ${grant.expiresAt}`,
+    );
+  }
+  return timestamp;
+}
+
+function strongestWorkspaceRole(grants: WorkspaceGrant[]): string {
+  let strongest = '';
+  let strongestValue = -1;
+  for (const grant of grants) {
+    const value = WORKSPACE_ROLE_STRENGTH[grant.role] ?? 0;
+    if (value > strongestValue || (value === strongestValue && grant.role < strongest)) {
+      strongest = grant.role;
+      strongestValue = value;
+    }
+  }
+  return strongest;
+}
+
+function agreedNonEmptyValue(values: Array<string | null>): string | null {
+  const nonEmpty = new Set(values.filter((value): value is string => typeof value === 'string' && value.length > 0));
+  return nonEmpty.size === 1 ? nonEmpty.values().next().value ?? null : null;
+}
+
+function workspaceAccessEntries(grants: WorkspaceGrant[], capturedAt: number): WorkspaceAccessEntry[] {
+  const grouped = new Map<string, {
+    workspaceId: string;
+    subjectType: string;
+    subjectId: string;
+    grants: WorkspaceGrant[];
+  }>();
+
+  for (const grant of grants) {
+    const expiresAt = grantExpirationTimestamp(grant);
+    if (grant.revokedAt !== null || (expiresAt !== null && expiresAt <= capturedAt)) continue;
+
+    const key = JSON.stringify([grant.workspaceId, grant.subjectType, grant.subjectId]);
+    let group = grouped.get(key);
+    if (!group) {
+      group = {
+        workspaceId: grant.workspaceId,
+        subjectType: grant.subjectType,
+        subjectId: grant.subjectId,
+        grants: [],
+      };
+      grouped.set(key, group);
+    }
+    group.grants.push(grant);
+  }
+
+  return Array.from(grouped.values(), (group) => ({
+    workspaceId: group.workspaceId,
+    subjectType: group.subjectType,
+    subjectId: group.subjectId,
+    role: strongestWorkspaceRole(group.grants),
+    displayName: agreedNonEmptyValue(group.grants.map((grant) => grant.displayName)),
+    displaySlug: agreedNonEmptyValue(group.grants.map((grant) => grant.displaySlug)),
+    grants: group.grants,
+  })).sort((left, right) => {
+    if (left.subjectType !== right.subjectType) return left.subjectType < right.subjectType ? -1 : 1;
+    if (left.subjectId !== right.subjectId) return left.subjectId < right.subjectId ? -1 : 1;
+    if (left.workspaceId !== right.workspaceId) return left.workspaceId < right.workspaceId ? -1 : 1;
+    return 0;
+  });
+}
+
+function latestGrantExpiration(grants: WorkspaceGrant[]): string | null {
+  if (grants.some((grant) => grant.expiresAt === null)) return null;
+
+  let latestValue: string | null = null;
+  let latestTimestamp = -Infinity;
+  for (const grant of grants) {
+    const value = grant.expiresAt as string;
+    const timestamp = grantExpirationTimestamp(grant) as number;
+    if (timestamp > latestTimestamp || (timestamp === latestTimestamp && (latestValue === null || value > latestValue))) {
+      latestValue = value;
+      latestTimestamp = timestamp;
+    }
+  }
+  return latestValue;
 }
 
 function fileFromDict(data: any): WorkspaceFile {
@@ -297,12 +407,54 @@ export class WorkspacesAPI {
     return workspaceFromDict(data);
   }
 
+  async accessSnapshot(
+    workspaceRef: string,
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<WorkspaceAccessSnapshot> {
+    const workspace = await this.get(workspaceRef, subject);
+    const capturedTime = new Date();
+    const capturedAt = capturedTime.toISOString();
+    const currentRole = workspace.role;
+
+    if (currentRole !== 'admin') {
+      return {
+        workspace,
+        currentRole,
+        visibility: 'current-access-only',
+        capturedAt,
+        entries: null,
+        grants: null,
+      };
+    }
+
+    const grants = await this.listGrants(workspaceRef, subject);
+    return {
+      workspace,
+      currentRole,
+      visibility: 'all-direct-access',
+      capturedAt,
+      entries: workspaceAccessEntries(grants, capturedTime.getTime()),
+      grants,
+    };
+  }
+
+  /** @deprecated Compatibility projection. Use accessSnapshot() for grant-level access details. */
   async listAgents(
     workspaceRef: string,
     subject: WorkspaceSubjectOptions = {},
   ): Promise<WorkspaceAgentAssociation[]> {
-    const data = await this.request<any[]>('GET', `/${encodeRef(workspaceRef)}/agents`, subject);
-    return (data || []).map(workspaceAgentAssociationFromDict);
+    const snapshot = await this.accessSnapshot(workspaceRef, subject);
+    if (snapshot.visibility !== 'all-direct-access' || snapshot.entries === null) {
+      throw new Error('Workspace agent associations are available only to Workspace admins.');
+    }
+    return snapshot.entries
+      .filter((entry) => entry.subjectType === 'agent')
+      .map((entry) => ({
+        workspaceId: entry.workspaceId,
+        agentId: entry.subjectId,
+        role: entry.role,
+        expiresAt: latestGrantExpiration(entry.grants),
+      }));
   }
 
   async search(
@@ -360,8 +512,11 @@ export class WorkspacesAPI {
   }
 
   async listGrants(workspaceRef: string, subject: WorkspaceSubjectOptions = {}): Promise<WorkspaceGrant[]> {
-    const data = await this.request<any[]>('GET', `/${encodeRef(workspaceRef)}/grants`, subject);
-    return (data || []).map(grantFromDict);
+    const data = await this.request<unknown>('GET', `/${encodeRef(workspaceRef)}/grants`, subject);
+    if (!Array.isArray(data)) {
+      throw new Error('Workspace grants response must be an array.');
+    }
+    return data.map(grantFromDict);
   }
 
   async updateGrant(

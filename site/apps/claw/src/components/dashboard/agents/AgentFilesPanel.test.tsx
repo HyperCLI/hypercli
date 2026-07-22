@@ -48,6 +48,13 @@ function renderFilesPanel(overrides: Partial<ComponentProps<typeof AgentFilesPan
   return props;
 }
 
+async function expectTooltip(trigger: HTMLElement, content: RegExp) {
+  fireEvent.focus(trigger);
+  expect(await screen.findByRole("tooltip")).toHaveTextContent(content);
+  fireEvent.blur(trigger);
+  await waitFor(() => expect(screen.queryByRole("tooltip")).not.toBeInTheDocument());
+}
+
 describe("AgentFilesPanel", () => {
   it("opens absolute OpenClaw workspace preview paths from the workspace root", async () => {
     const onOpenFile = vi.fn(async () => "content");
@@ -157,7 +164,7 @@ describe("AgentFilesPanel", () => {
       expect(onListFiles).toHaveBeenCalledWith(".openclaw", "agent");
     });
     expect(await screen.findByText(".config")).toBeInTheDocument();
-    expect(screen.getByTitle("Hide dotfiles")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hide dotfiles" })).toBeInTheDocument();
   });
 
   it("switches to the Backup source from panel tabs at the OpenClaw directory", async () => {
@@ -194,7 +201,7 @@ describe("AgentFilesPanel", () => {
       expect(onListFiles).toHaveBeenCalledWith(undefined, "gateway");
     });
     expect(screen.getByRole("button", { name: /new folder/i })).toBeDisabled();
-    expect(screen.getByTitle("Uploads are not available for gateway files")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Upload files" })).toBeDisabled();
   });
 
   it("defaults to Backup and disables Agent when the live source is unavailable", async () => {
@@ -245,11 +252,12 @@ describe("AgentFilesPanel", () => {
       expect(onListFiles).toHaveBeenCalledWith(".openclaw", "backup");
     });
     expect(screen.queryByText("Backup needs attention")).not.toBeInTheDocument();
-    expect(screen.getByTitle(/Backed up[\s\S]*Backup copy modified: 2026-07-07T10:00:00Z[\s\S]*Hashes match/)).toBeInTheDocument();
-    expect(screen.getByTitle(/Changed since backup[\s\S]*Backup copy modified: 2026-07-07T09:00:00Z[\s\S]*Hashes differ/)).toBeInTheDocument();
-    expect(screen.getByTitle(/Backed up[\s\S]*Backup copy modified: 2026-07-07T13:00:00Z[\s\S]*Hash verification unavailable/)).toBeInTheDocument();
-    expect(screen.getByTitle(/Backup may be stale[\s\S]*Backup copy modified: 2026-07-07T09:00:00Z[\s\S]*Live file modified: 2026-07-07T14:00:00Z[\s\S]*Hash verification unavailable/)).toBeInTheDocument();
-    expect(screen.getByTitle(/Not backed up[\s\S]*Live file modified: 2026-07-07T12:00:00Z/)).toBeInTheDocument();
+    const backedUp = screen.getAllByRole("img", { name: "Backed up" });
+    await expectTooltip(backedUp[0], /Backup copy modified: 2026-07-07T10:00:00Z[\s\S]*Hashes match/);
+    await expectTooltip(screen.getByRole("img", { name: "Changed since backup" }), /Backup copy modified: 2026-07-07T09:00:00Z[\s\S]*Hashes differ/);
+    await expectTooltip(backedUp[1], /Backup copy modified: 2026-07-07T13:00:00Z[\s\S]*Hash verification unavailable/);
+    await expectTooltip(screen.getByRole("img", { name: "Backup may be stale" }), /Backup copy modified: 2026-07-07T09:00:00Z[\s\S]*Live file modified: 2026-07-07T14:00:00Z[\s\S]*Hash verification unavailable/);
+    await expectTooltip(screen.getByRole("img", { name: "Not backed up" }), /Live file modified: 2026-07-07T12:00:00Z/);
   });
 
   it("shows backup-copy tooltips when live files are unavailable", async () => {
@@ -266,7 +274,7 @@ describe("AgentFilesPanel", () => {
 
     expect(await screen.findByText("archived.md")).toBeInTheDocument();
     expect(screen.queryByText("Backup comparison paused")).not.toBeInTheDocument();
-    expect(screen.getByTitle(/Backed up[\s\S]*Backup copy modified: 2026-07-07T08:00:00Z[\s\S]*Start the agent to compare/)).toBeInTheDocument();
+    await expectTooltip(screen.getByRole("img", { name: "Backed up" }), /Backup copy modified: 2026-07-07T08:00:00Z[\s\S]*Start the agent to compare/);
     expect(onListFiles).toHaveBeenCalledWith(".openclaw", "backup");
     expect(onListFiles).not.toHaveBeenCalledWith(".openclaw", "agent");
   });

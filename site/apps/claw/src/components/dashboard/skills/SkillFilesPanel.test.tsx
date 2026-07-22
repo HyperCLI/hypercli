@@ -69,9 +69,9 @@ describe("SkillFilesPanel", () => {
     await waitFor(() => expect(resourceOperations.listResources).toHaveBeenCalledWith("weather", ""));
     fireEvent.click(await screen.findByRole("button", { name: "SKILL.md" }));
     await waitFor(() => expect(resourceOperations.readResource).toHaveBeenCalledWith("weather", "SKILL.md"));
-    expect(screen.queryByTitle("Upload files")).not.toBeInTheDocument();
-    expect(screen.queryByTitle("New folder")).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Save")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Upload files" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New folder" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
   });
 
   it("enables managed custom skill mutations", async () => {
@@ -88,8 +88,8 @@ describe("SkillFilesPanel", () => {
       />,
     );
 
-    expect(await screen.findByTitle("Upload files")).toBeInTheDocument();
-    fireEvent.click(screen.getByTitle("New folder"));
+    expect(await screen.findByRole("button", { name: "Upload files" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "New folder" }));
     fireEvent.change(screen.getByPlaceholderText("Folder name"), { target: { value: "references" } });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() => expect(resourceOperations.createResourceDirectory).toHaveBeenCalledWith("weather", "references"));
@@ -111,15 +111,15 @@ describe("SkillFilesPanel", () => {
       />,
     );
 
-    fireEvent.click(await screen.findByTitle("New folder"));
+    fireEvent.click(await screen.findByRole("button", { name: "New folder" }));
     fireEvent.change(screen.getByPlaceholderText("Folder name"), { target: { value: "scripts" } });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() => expect(onLocalDirectoryCreated).toHaveBeenCalledWith("scripts"));
     fireEvent.click(await screen.findByRole("button", { name: "SKILL.md" }));
     fireEvent.click(await screen.findByRole("button", { name: /^raw$/i }));
     expect(screen.getByRole("textbox", { name: /skill\.md contents/i })).toHaveAttribute("readonly");
-    expect(screen.queryByTitle("Save")).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Upload files")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Upload files" })).not.toBeInTheDocument();
     expect(resourceOperations.readResource).not.toHaveBeenCalled();
     expect(resourceOperations.writeResource).not.toHaveBeenCalled();
   });

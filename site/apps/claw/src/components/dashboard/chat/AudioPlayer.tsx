@@ -2,6 +2,7 @@
 
 import { useCallback, useId, useRef, useState } from "react";
 import { Download, Loader2, Pause, Play, Volume2 } from "lucide-react";
+import { TooltipHint } from "@/components/ClawTooltip";
 
 interface AudioPlayerProps {
   src?: string | null;
@@ -118,22 +119,23 @@ export function AudioPlayer({
         />
       )}
 
-      <button
-        type="button"
-        onClick={togglePlayback}
-        disabled={loading || unavailable}
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-surface-low text-text-muted transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-text-muted"
-        aria-label={currentPlayback.playing ? `Pause ${title}` : `Play ${title}`}
-        title={currentPlayback.playing ? "Pause" : "Play"}
-      >
-        {loading ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : currentPlayback.playing ? (
-          <Pause className="h-4 w-4" />
-        ) : (
-          <Play className="h-4 w-4" />
-        )}
-      </button>
+      <TooltipHint label={currentPlayback.playing ? "Pause" : "Play"} disabled={loading || unavailable}>
+        <button
+          type="button"
+          onClick={togglePlayback}
+          disabled={loading || unavailable}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-surface-low text-text-muted transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-text-muted"
+          aria-label={currentPlayback.playing ? `Pause ${title}` : `Play ${title}`}
+        >
+          {loading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : currentPlayback.playing ? (
+            <Pause className="h-4 w-4" />
+          ) : (
+            <Play className="h-4 w-4" />
+          )}
+        </button>
+      </TooltipHint>
 
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex min-w-0 items-center justify-between gap-2">
@@ -159,25 +161,17 @@ export function AudioPlayer({
       </div>
 
       {onDownload ? (
-        <button
-          type="button"
-          onClick={handleDownload}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-surface-low text-text-muted transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          aria-label={downloadLabel ?? `Download ${title}`}
-          title="Download"
-        >
-          <Download className="h-4 w-4" />
-        </button>
+        <TooltipHint label="Download">
+          <button type="button" onClick={handleDownload} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-surface-low text-text-muted transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary" aria-label={downloadLabel ?? `Download ${title}`}>
+            <Download className="h-4 w-4" />
+          </button>
+        </TooltipHint>
       ) : downloadHref ? (
-        <a
-          href={downloadHref}
-          download={downloadFileName}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-surface-low text-text-muted transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          aria-label={downloadLabel ?? `Download ${title}`}
-          title="Download"
-        >
-          <Download className="h-4 w-4" />
-        </a>
+        <TooltipHint label="Download">
+          <a href={downloadHref} download={downloadFileName} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-surface-low text-text-muted transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary" aria-label={downloadLabel ?? `Download ${title}`}>
+            <Download className="h-4 w-4" />
+          </a>
+        </TooltipHint>
       ) : null}
     </div>
   );

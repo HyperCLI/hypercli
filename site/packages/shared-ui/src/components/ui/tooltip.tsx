@@ -5,25 +5,35 @@ import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 
 import { cn } from "./utils";
 
+const TooltipProviderContext = React.createContext(false);
+
 function TooltipProvider({
   delayDuration = 0,
+  children,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Provider>) {
   return (
-    <TooltipPrimitive.Provider
-      data-slot="tooltip-provider"
-      delayDuration={delayDuration}
-      {...props}
-    />
+    <TooltipProviderContext.Provider value>
+      <TooltipPrimitive.Provider
+        data-slot="tooltip-provider"
+        delayDuration={delayDuration}
+        {...props}
+      >
+        {children}
+      </TooltipPrimitive.Provider>
+    </TooltipProviderContext.Provider>
   );
 }
 
 function Tooltip({
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Root>) {
-  return (
+  const hasProvider = React.useContext(TooltipProviderContext);
+  const root = <TooltipPrimitive.Root data-slot="tooltip" {...props} />;
+
+  return hasProvider ? root : (
     <TooltipProvider>
-      <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+      {root}
     </TooltipProvider>
   );
 }
@@ -58,4 +68,35 @@ function TooltipContent({
   );
 }
 
-export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };
+function TooltipHint({
+  label,
+  children,
+  disabled = false,
+  side = "top",
+  align = "center",
+  sideOffset = 6,
+  className,
+  triggerClassName,
+}: {
+  label: React.ReactNode;
+  children: React.ReactElement;
+  disabled?: boolean;
+  side?: React.ComponentProps<typeof TooltipPrimitive.Content>["side"];
+  align?: React.ComponentProps<typeof TooltipPrimitive.Content>["align"];
+  sideOffset?: number;
+  className?: string;
+  triggerClassName?: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        {disabled ? <span className={`inline-flex ${triggerClassName ?? ""}`} tabIndex={0}>{children}</span> : children}
+      </TooltipTrigger>
+      <TooltipContent side={side} align={align} sideOffset={sideOffset} className={className}>
+        {label}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+export { Tooltip, TooltipTrigger, TooltipContent, TooltipHint, TooltipProvider };

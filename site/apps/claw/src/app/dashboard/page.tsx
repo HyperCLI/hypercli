@@ -23,6 +23,7 @@ import {
 } from "@/components/dashboard/DashboardAnalytics";
 import { AgentList } from "@/components/dashboard/agents/AgentPanels";
 import { DashboardWorkspaceNavigation } from "@/components/dashboard/agents/DashboardWorkspaceNavigation";
+import { TooltipHint } from "@/components/ClawTooltip";
 import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 import { relativeTime } from "@/components/dashboard/agentViewUtils";
 import { MembersSection } from "@/components/dashboard/members/MembersSection";
@@ -315,16 +316,17 @@ export default function DashboardPage() {
               >
                 <UsersRound className="h-3.5 w-3.5" /> Members
               </Button>
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => router.push("/dashboard/agents?open=agent-launcher")}
-                disabled={Boolean(newAgentDisabledReason)}
-                title={newAgentDisabledReason ?? undefined}
-                className="min-h-9"
-              >
-                <Plus className="h-3.5 w-3.5" /> New agent
-              </Button>
+              <TooltipHint label={newAgentDisabledReason ?? "New agent"} disabled={Boolean(newAgentDisabledReason)}>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => router.push("/dashboard/agents?open=agent-launcher")}
+                  disabled={Boolean(newAgentDisabledReason)}
+                  className="min-h-9"
+                >
+                  <Plus className="h-3.5 w-3.5" /> New agent
+                </Button>
+              </TooltipHint>
             </div>
           </header>
 

@@ -2,7 +2,7 @@
 
 import type { CSSProperties } from "react";
 import { useEffect, useRef, useState } from "react";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@hypercli/shared-ui";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ClawTooltip";
 import type { AgentChannel, AgentChannelsProvider } from "@hypercli.com/sdk/channels";
 import type { AgentConnectorsProvider, AgentRuntimeDescriptor } from "@hypercli.com/sdk/connectors";
 import {
@@ -879,13 +879,13 @@ export function OpenClawChannelSettingsPanel({
                   <div className="flex justify-between gap-3">
                     <dt className="flex items-center gap-1 text-text-muted">
                       Privacy mode
-                      <Tooltip delayDuration={200}>
+                      <Tooltip>
                         <TooltipTrigger asChild>
                           <button type="button" aria-label="How to change Telegram privacy mode" className="rounded-sm text-text-muted transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--channel-accent)]">
                             <CircleHelp className="h-3.5 w-3.5" aria-hidden="true" />
                           </button>
                         </TooltipTrigger>
-                        <TooltipContent side="left" className="max-w-72 border border-border bg-background px-3 py-2 text-text-secondary shadow-xl [&>svg]:bg-background [&>svg]:fill-background">
+                        <TooltipContent side="left" className="max-w-72 border border-border px-3 py-2 shadow-xl">
                           Open BotFather, send /setprivacy, select this bot, then choose Enable to limit group messages or Disable to receive all group messages. Run Test connection afterward.
                         </TooltipContent>
                       </Tooltip>

@@ -29,7 +29,8 @@ import {
   Loader2,
 } from "lucide-react";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
-import { Switch, ThemeToggle, Tooltip, TooltipTrigger, TooltipContent } from "@hypercli/shared-ui";
+import { Switch, ThemeToggle } from "@hypercli/shared-ui";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ClawTooltip";
 import { ResourceImage } from "@/components/ResourceImage";
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 import { AgentCardTooltip, type AgentCardTooltipData } from "./modules/AgentCardModule";
@@ -47,7 +48,7 @@ function RosterTooltip({
   side?: "top" | "right" | "bottom" | "left";
 }) {
   return (
-    <Tooltip delayDuration={300}>
+    <Tooltip>
       <TooltipTrigger asChild>{children}</TooltipTrigger>
       <TooltipContent side={side}>{label}</TooltipContent>
     </Tooltip>
@@ -394,7 +395,7 @@ function ParticipantAvatars({
         const avatar = agentAvatar(p.name, participantAgentMeta(p, agentCardDataById));
         const Icon = avatar.icon;
         return (
-          <Tooltip key={p.id} delayDuration={300}>
+          <Tooltip key={p.id}>
             <TooltipTrigger asChild>
               <div
                 className="relative rounded-full flex items-center justify-center overflow-hidden border-2 border-background"
@@ -808,6 +809,7 @@ export function AgentsSidebarDashboardLinks({
             })}
             <ThemeToggle
               showLabel
+              title=""
               role="menuitem"
               className={`w-full justify-start rounded-none px-3 text-[11px] ${mobileMode ? "h-10" : "h-8"}`}
             />

@@ -11,6 +11,7 @@ import {
   FileIcon,
 } from "lucide-react";
 import type { UploadItem } from "./types";
+import { TooltipHint } from "../components/ui/tooltip";
 
 // ── Constants ──
 
@@ -221,21 +222,17 @@ export function FilesUploadZone({ currentPath, onUpload, compact = false }: File
 
                 {/* Actions */}
                 {item.status === "error" && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); retryUpload(item.id); }}
-                    className="w-4 h-4 rounded flex items-center justify-center text-text-muted hover:text-foreground transition-colors"
-                    title="Retry"
-                  >
-                    <RefreshCw className="w-2.5 h-2.5" />
-                  </button>
+                  <TooltipHint label="Retry">
+                    <button aria-label="Retry" onClick={(e) => { e.stopPropagation(); retryUpload(item.id); }} className="w-4 h-4 rounded flex items-center justify-center text-text-muted hover:text-foreground transition-colors">
+                      <RefreshCw className="w-2.5 h-2.5" />
+                    </button>
+                  </TooltipHint>
                 )}
-                <button
-                  onClick={(e) => { e.stopPropagation(); removeUpload(item.id); }}
-                  className="w-4 h-4 rounded flex items-center justify-center text-text-muted hover:text-foreground transition-colors"
-                  title="Dismiss"
-                >
-                  <X className="w-2.5 h-2.5" />
-                </button>
+                <TooltipHint label="Dismiss">
+                  <button aria-label="Dismiss" onClick={(e) => { e.stopPropagation(); removeUpload(item.id); }} className="w-4 h-4 rounded flex items-center justify-center text-text-muted hover:text-foreground transition-colors">
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                </TooltipHint>
               </motion.div>
             ))}
           </motion.div>

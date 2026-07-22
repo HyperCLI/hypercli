@@ -18,6 +18,7 @@ import {
   type SkillListRow,
 } from "./skill-model";
 import type { AgentSkill } from "./provider-skills";
+import { TooltipHint } from "@/components/ClawTooltip";
 
 interface SkillFrontmatterRow {
   key: string;
@@ -358,7 +359,9 @@ export function SkillDetail({
                         ))}
                       </div>
                       {saveError && <p className="mt-3 text-[11px] text-error">{saveError}</p>}
-                      <Button type="button" size="sm" onClick={handleSaveSetup} disabled={!canSaveSetup} title={requiredEnvMissing ? "Enter the required environment values first." : "Save skill configuration."} className="mt-3 w-full sm:w-auto">{saving ? <Loader2 className="animate-spin" /> : null}{saving ? "Saving..." : "Save configuration"}</Button>
+                      <TooltipHint label={requiredEnvMissing ? "Enter the required environment values first." : "Save skill configuration."} disabled={!canSaveSetup}>
+                        <Button type="button" size="sm" onClick={handleSaveSetup} disabled={!canSaveSetup} className="mt-3 w-full sm:w-auto">{saving ? <Loader2 className="animate-spin" /> : null}{saving ? "Saving..." : "Save configuration"}</Button>
+                      </TooltipHint>
                     </section>
                   )}
 

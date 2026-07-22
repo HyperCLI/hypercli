@@ -29,6 +29,7 @@ import type { FileEntry, FileSortDir, FileSortKey } from "./types";
 import { shouldReadFileAsBytes } from "./file-types";
 import { downloadFileBytes } from "../utils/download-file";
 import { writeClipboardText } from "../utils/browser-clipboard";
+import { TooltipHint } from "../components/ui/tooltip";
 
 const SORT_OPTIONS: Array<{ key: FileSortKey; label: string }> = [
   { key: "name", label: "Name" },
@@ -604,24 +605,27 @@ export function AgentFilesPanel({
             role="tablist"
             aria-label="File source"
           >
-            {SOURCE_MODE_OPTIONS.map((option) => (
-              <button
-                key={option.key}
-                type="button"
-                role="tab"
-                aria-selected={sourceMode === option.key}
-                disabled={Boolean(sourceDisabledReasons[option.key])}
-                onClick={() => handleSourceModeChange(option.key)}
-                className={`h-6 rounded-md px-2 text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                  sourceMode === option.key
-                    ? "bg-selection-accent/10 text-selection-accent"
-                    : "text-text-muted hover:text-foreground"
-                }`}
-                title={sourceDisabledReasons[option.key] ?? option.title}
-              >
-                {option.label}
-              </button>
-            ))}
+            {SOURCE_MODE_OPTIONS.map((option) => {
+              const disabledReason = sourceDisabledReasons[option.key];
+              return (
+                <TooltipHint key={option.key} label={disabledReason ?? option.title} disabled={Boolean(disabledReason)}>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={sourceMode === option.key}
+                    disabled={Boolean(disabledReason)}
+                    onClick={() => handleSourceModeChange(option.key)}
+                    className={`h-6 rounded-md px-2 text-[10px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                      sourceMode === option.key
+                        ? "bg-selection-accent/10 text-selection-accent"
+                        : "text-text-muted hover:text-foreground"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                </TooltipHint>
+              );
+            })}
           </div>
         )}
 
@@ -635,59 +639,68 @@ export function AgentFilesPanel({
         )}
 
         {onCreateDirectory && (
-          <button
-            type="button"
-            onClick={() => {
-              setShowCreateFolder((open) => !open);
-              setShowUpload(false);
-              setNewFolderError(null);
-            }}
-            disabled={!currentSourceAvailable || isGatewaySource}
-            className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-              showCreateFolder ? "bg-selection-accent/10 text-selection-accent" : "text-text-muted hover:bg-surface-low hover:text-foreground"
-            }`}
-            title={isGatewaySource ? "Folders are not available for gateway files" : "New folder"}
-            aria-label="New folder"
-          >
-            <FolderPlus className="h-3.5 w-3.5" />
-          </button>
+          <TooltipHint label={isGatewaySource ? "Folders are not available for gateway files" : "New folder"} disabled={!currentSourceAvailable || isGatewaySource}>
+            <button
+              type="button"
+              onClick={() => {
+                setShowCreateFolder((open) => !open);
+                setShowUpload(false);
+                setNewFolderError(null);
+              }}
+              disabled={!currentSourceAvailable || isGatewaySource}
+              className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                showCreateFolder ? "bg-selection-accent/10 text-selection-accent" : "text-text-muted hover:bg-surface-low hover:text-foreground"
+              }`}
+              aria-label="New folder"
+            >
+              <FolderPlus className="h-3.5 w-3.5" />
+            </button>
+          </TooltipHint>
         )}
 
-        {onUploadFile && <button
-          type="button"
-          onClick={() => {
-            setShowUpload((open) => !open);
-            setShowCreateFolder(false);
-          }}
-          disabled={!currentSourceAvailable || isGatewaySource}
-          className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-            showUpload ? "bg-selection-accent/10 text-selection-accent" : "text-text-muted hover:bg-surface-low hover:text-foreground"
-          }`}
-          title={isGatewaySource ? "Uploads are not available for gateway files" : "Upload files"}
-        >
-          <Upload className="h-3.5 w-3.5" />
-        </button>}
+        {onUploadFile && (
+          <TooltipHint label={isGatewaySource ? "Uploads are not available for gateway files" : "Upload files"} disabled={!currentSourceAvailable || isGatewaySource}>
+            <button
+              type="button"
+              aria-label="Upload files"
+              onClick={() => {
+                setShowUpload((open) => !open);
+                setShowCreateFolder(false);
+              }}
+              disabled={!currentSourceAvailable || isGatewaySource}
+              className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                showUpload ? "bg-selection-accent/10 text-selection-accent" : "text-text-muted hover:bg-surface-low hover:text-foreground"
+              }`}
+            >
+              <Upload className="h-3.5 w-3.5" />
+            </button>
+          </TooltipHint>
+        )}
 
-        <button
-          type="button"
-          onClick={() => setShowHidden((value) => !value)}
-          className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors ${
-            showHidden ? "bg-selection-accent/10 text-selection-accent" : "text-text-muted hover:bg-surface-low hover:text-foreground"
-          }`}
-          title={showHidden ? "Hide dotfiles" : "Show dotfiles"}
-        >
-          {showHidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-        </button>
-
-        <div className="relative">
+        <TooltipHint label={showHidden ? "Hide dotfiles" : "Show dotfiles"}>
           <button
             type="button"
-            onClick={() => setSortMenuOpen((open) => !open)}
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
-            title="Sort"
+            aria-label={showHidden ? "Hide dotfiles" : "Show dotfiles"}
+            onClick={() => setShowHidden((value) => !value)}
+            className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors ${
+              showHidden ? "bg-selection-accent/10 text-selection-accent" : "text-text-muted hover:bg-surface-low hover:text-foreground"
+            }`}
           >
-            <ArrowUpDown className="h-3.5 w-3.5" />
+            {showHidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
           </button>
+        </TooltipHint>
+
+        <div className="relative">
+          <TooltipHint label="Sort">
+            <button
+              type="button"
+              aria-label="Sort"
+              onClick={() => setSortMenuOpen((open) => !open)}
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+            >
+              <ArrowUpDown className="h-3.5 w-3.5" />
+            </button>
+          </TooltipHint>
           <AnimatePresence>
             {sortMenuOpen && (
               <motion.div

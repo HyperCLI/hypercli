@@ -132,6 +132,9 @@ vi.mock("@/components/billing/stripe-billing-portal", () => ({
 }));
 
 vi.mock("@hypercli/shared-ui", () => ({
+  Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
+  TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
+  TooltipContent: () => null,
   ThemeSelector: ({ "aria-label": ariaLabel }: { "aria-label"?: string }) => (
     <button type="button" aria-label={ariaLabel}>Theme</button>
   ),

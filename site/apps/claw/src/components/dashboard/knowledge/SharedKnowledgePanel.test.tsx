@@ -211,7 +211,7 @@ describe("SharedKnowledgePanel", () => {
     );
     expect(await screen.findByRole("button", { name: /collapse team knowledge/i })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTitle("Upload files"));
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
     const input = document.querySelector("input[type='file']") as HTMLInputElement;
     fireEvent.change(input, { target: { files: [new File(["# Draft"], "draft.md", { type: "text/markdown" })] } });
     await waitFor(() => expect(workspaces.uploadFile).toHaveBeenCalledOnce());
@@ -341,7 +341,7 @@ describe("SharedKnowledgePanel", () => {
     await expandTeamKnowledge();
 
     const file = new File(["# Upload"], "upload.md", { type: "text/markdown" });
-    fireEvent.click(screen.getByTitle("Upload files"));
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
     const input = document.querySelector("input[type='file']") as HTMLInputElement;
     fireEvent.change(input, { target: { files: [file] } });
 
@@ -568,7 +568,7 @@ describe("SharedKnowledgePanel", () => {
     expect(screen.queryByRole("button", { name: /edit team knowledge/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /delete team knowledge/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /assign agent/i })).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Upload files")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Upload" })).not.toBeInTheDocument();
   });
 
   it("does not present missing viewer assignment data as an empty roster", async () => {

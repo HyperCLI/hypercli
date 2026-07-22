@@ -79,7 +79,7 @@ describe("OpenClawConfigPanel", () => {
     fireEvent.change(screen.getByRole("textbox"), {
       target: { value: JSON.stringify({ model: "new-model" }, null, 2) },
     });
-    fireEvent.click(screen.getByTitle("Save"));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(chat.saveFullConfig).toHaveBeenCalledWith({ model: "new-model" }));
     expect(chat.saveConfig).not.toHaveBeenCalled();
@@ -91,7 +91,7 @@ describe("OpenClawConfigPanel", () => {
     fireEvent.change(screen.getByRole("textbox"), {
       target: { value: "{ invalid json" },
     });
-    fireEvent.click(screen.getByTitle("Save"));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByText(/Invalid JSON:/)).toBeInTheDocument();
     expect(chat.saveFullConfig).not.toHaveBeenCalled();
@@ -114,7 +114,7 @@ describe("OpenClawConfigPanel", () => {
     });
 
     expect(screen.getByText("Reconnect the gateway before editing openclaw.json.")).toBeInTheDocument();
-    expect(screen.queryByTitle("Save")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
   });
 });
 

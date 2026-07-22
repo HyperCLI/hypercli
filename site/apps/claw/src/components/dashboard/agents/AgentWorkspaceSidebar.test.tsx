@@ -27,12 +27,16 @@ const mocks = vi.hoisted(() => {
     slug: "product",
     role: "contributor",
   };
+  const workspacesClient = {
+    grant: vi.fn(),
+  };
   return {
     marketingWorkspace,
     productWorkspace,
+    workspacesClient,
     workspaceContext: {
       principalId: "user-1" as string | null,
-      workspacesClient: {} as Record<string, unknown> | null,
+      workspacesClient: workspacesClient as typeof workspacesClient | null,
       workspaces: [marketingWorkspace, productWorkspace],
       selectedWorkspace: marketingWorkspace as typeof marketingWorkspace | null,
       selectedWorkspaceId: marketingWorkspace.id as string | null,
@@ -51,6 +55,10 @@ vi.mock("@/components/dashboard/WorkspaceContext", () => ({
 }));
 
 vi.mock("@hypercli/shared-ui", () => ({
+  Alert: ({ children }: { children: ReactNode }) => <div role="alert">{children}</div>,
+  AlertDescription: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  Badge: ({ children }: { children: ReactNode }) => <span>{children}</span>,
+  Button: ({ children, ...props }: ComponentProps<"button">) => <button {...props}>{children}</button>,
   Dialog: ({ children, open }: { children: ReactNode; open?: boolean }) => open ? <>{children}</> : null,
   DialogContent: ({ children }: { children: ReactNode }) => <div role="dialog" aria-label="New Workspace">{children}</div>,
   DialogDescription: ({ children }: { children: ReactNode }) => <p>{children}</p>,
@@ -71,6 +79,18 @@ vi.mock("@hypercli/shared-ui", () => ({
       {children}
     </button>
   ),
+  Input: (props: ComponentProps<"input">) => <input {...props} />,
+  Label: ({ children, ...props }: ComponentProps<"label">) => <label {...props}>{children}</label>,
+  Select: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  SelectContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  SelectItem: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  SelectTrigger: ({ children, ...props }: ComponentProps<"button">) => <button type="button" {...props}>{children}</button>,
+  SelectValue: () => <span>Member</span>,
+  Tabs: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  TabsContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  TabsList: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  TabsTrigger: ({ children }: { children: ReactNode }) => <button type="button">{children}</button>,
+  Textarea: (props: ComponentProps<"textarea">) => <textarea {...props} />,
   Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipContent: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -136,7 +156,7 @@ function expectSessionBefore(firstName: string, secondName: string): void {
 describe("AgentWorkspaceSidebar", () => {
   beforeEach(() => {
     window.localStorage.clear();
-    mocks.workspaceContext.workspacesClient = {};
+    mocks.workspaceContext.workspacesClient = mocks.workspacesClient;
     mocks.workspaceContext.principalId = "user-1";
     mocks.workspaceContext.workspaces = [mocks.marketingWorkspace, mocks.productWorkspace];
     mocks.workspaceContext.selectedWorkspace = mocks.marketingWorkspace;
@@ -145,6 +165,7 @@ describe("AgentWorkspaceSidebar", () => {
     mocks.workspaceContext.error = null;
     mocks.workspaceContext.selectWorkspace.mockReset();
     mocks.workspaceContext.createWorkspace.mockReset().mockResolvedValue(mocks.productWorkspace);
+    mocks.workspacesClient.grant.mockReset().mockResolvedValue({ id: "grant-1" });
   });
 
   it("selects an available Workspace from the sidebar menu", () => {
@@ -165,12 +186,61 @@ describe("AgentWorkspaceSidebar", () => {
     const dialog = screen.getByRole("dialog", { name: "New Workspace" });
     fireEvent.change(within(dialog).getByLabelText("Workspace name"), { target: { value: "Support" } });
     fireEvent.change(within(dialog).getByLabelText(/Description/), { target: { value: "Support playbooks" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "Create Workspace" }));
 
     await waitFor(() => expect(mocks.workspaceContext.createWorkspace).toHaveBeenCalledWith({
       name: "Support",
       description: "Support playbooks",
     }));
+  });
+
+  it("collects email invites and grants direct access by user UUID", async () => {
+    renderAgentWorkspaceSidebar();
+
+    fireEvent.click(screen.getByRole("menuitem", { name: /New Workspace/ }));
+    const dialog = screen.getByRole("dialog", { name: "New Workspace" });
+    fireEvent.change(within(dialog).getByLabelText("Workspace name"), { target: { value: "Support" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
+    fireEvent.change(within(dialog).getByLabelText("Email addresses"), {
+      target: { value: "lucy@example.com, andrew@example.com," },
+    });
+    fireEvent.change(within(dialog).getByLabelText("User UUID"), {
+      target: { value: "9dbb6364-9a44-46d7-8de3-c71fd1e01234" },
+    });
+
+    expect(within(dialog).getByText("lucy@example.com")).toBeInTheDocument();
+    expect(within(dialog).getByText("andrew@example.com")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create Workspace" }));
+
+    await waitFor(() => expect(mocks.workspacesClient.grant).toHaveBeenCalledWith(
+      "workspace-product",
+      {
+        subjectType: "user",
+        subjectId: "9dbb6364-9a44-46d7-8de3-c71fd1e01234",
+        role: "contributor",
+      },
+    ));
+  });
+
+  it("retries a failed UUID grant without creating a second Workspace", async () => {
+    mocks.workspacesClient.grant
+      .mockRejectedValueOnce(new Error("User UUID was not found."))
+      .mockResolvedValueOnce({ id: "grant-1" });
+    renderAgentWorkspaceSidebar();
+
+    fireEvent.click(screen.getByRole("menuitem", { name: /New Workspace/ }));
+    const dialog = screen.getByRole("dialog", { name: "New Workspace" });
+    fireEvent.change(within(dialog).getByLabelText("Workspace name"), { target: { value: "Support" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
+    fireEvent.change(within(dialog).getByLabelText("User UUID"), { target: { value: "user-2" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create Workspace" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("User UUID was not found.");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create Workspace" }));
+
+    await waitFor(() => expect(mocks.workspacesClient.grant).toHaveBeenCalledTimes(2));
+    expect(mocks.workspaceContext.createWorkspace).toHaveBeenCalledTimes(1);
   });
 
   it("does not present the account fallback as an existing Workspace", () => {
@@ -381,7 +451,7 @@ describe("AgentWorkspaceSidebar", () => {
 
     view.rerender(<AgentWorkspaceSidebar {...props} pinnedSessionKeys={["session-old"]} />);
     expectSessionBefore("Old chat", "Recent chat");
-    expect(screen.getByTitle("Pinned session")).toBeInTheDocument();
+    expect(screen.getByText("Old chat - Pinned session")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Old chat", exact: true }).closest("[data-session-pinned]"))
       .toHaveAttribute("data-session-pinned", "true");
 
@@ -389,7 +459,7 @@ describe("AgentWorkspaceSidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Unpin", exact: true }));
     expect(onSetSessionPinned).toHaveBeenLastCalledWith("session-old", false);
     view.rerender(<AgentWorkspaceSidebar {...props} pinnedSessionKeys={[]} />);
-    expect(screen.queryByTitle("Pinned session")).not.toBeInTheDocument();
+    expect(screen.queryByText("Old chat - Pinned session")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Old chat", exact: true }).closest("[data-session-pinned]"))
       .toHaveAttribute("data-session-pinned", "false");
     expectSessionBefore("Recent chat", "Old chat");
@@ -491,8 +561,8 @@ describe("AgentWorkspaceSidebar", () => {
       selectedSessionKey: "telegram:489595440",
     });
 
-    expect(screen.getByTitle("Telegram channel")).toBeInTheDocument();
-    expect(screen.queryByTitle("OpenAI channel")).not.toBeInTheDocument();
+    expect(screen.getByText("Telegram DM - Telegram channel")).toBeInTheDocument();
+    expect(screen.queryByText(/OpenAI channel/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Telegram DM" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("button", { name: "Browser session" })).toBeInTheDocument();
   });
@@ -610,7 +680,7 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.getByRole("button", { name: "Rename" })).toBeEnabled();
     const deleteButton = screen.getByRole("button", { name: "Delete" });
     expect(deleteButton).toBeDisabled();
-    expect(deleteButton).toHaveAttribute("title", "Telegram conversations are read-only here. Reply from Telegram.");
+    expect(screen.getByText("Telegram conversations are read-only here. Reply from Telegram.")).toBeInTheDocument();
   });
 
   it("shows and highlights the current session when it is the only session", () => {
@@ -636,7 +706,7 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.getByText("Sessions")).toBeInTheDocument();
     const project = screen.getByRole("button", { name: "Main Session" });
     expect(project).toBeDisabled();
-    expect(project).toHaveAttribute("title", "Sessions are loading.");
+    expect(screen.getAllByText("Sessions are loading.").length).toBeGreaterThan(0);
     fireEvent.click(project);
     expect(onSelectSession).not.toHaveBeenCalled();
   });
@@ -661,7 +731,7 @@ describe("AgentWorkspaceSidebar", () => {
 
     const project = screen.getByRole("button", { name: "Cached session" });
     expect(project).toBeDisabled();
-    expect(project).toHaveAttribute("title", "Sessions are loading.");
+    expect(screen.getAllByText("Sessions are loading.").length).toBeGreaterThan(0);
     fireEvent.click(project);
     expect(onSelectSession).not.toHaveBeenCalled();
   });
@@ -689,7 +759,7 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.getByText("Sessions")).toBeInTheDocument();
     const project = screen.getByRole("button", { name: "Main Session" });
     expect(project).toBeDisabled();
-    expect(project).toHaveAttribute("title", "Fetching messages, files, and config.");
+    expect(screen.getAllByText("Fetching messages, files, and config.").length).toBeGreaterThan(0);
     fireEvent.click(project);
     expect(onSelectSession).not.toHaveBeenCalled();
   });
@@ -743,7 +813,7 @@ describe("AgentWorkspaceSidebar", () => {
 
     const activeProject = screen.getAllByRole("button", { name: "New Session" })
       .find((button) => button.getAttribute("aria-current") === "page");
-    expect(activeProject).toHaveAttribute("title", "New Session");
+    expect(activeProject).toBeInTheDocument();
     expect(screen.queryByText(/agent:default:session-d2679a25/i)).not.toBeInTheDocument();
   });
 
@@ -816,7 +886,8 @@ describe("AgentWorkspaceSidebar", () => {
       selectedSessionKey: "session-new",
     });
 
-    const project = screen.getByTitle("New Session - Creating...");
+    const project = screen.getAllByRole("button", { name: /New Session/i })
+      .find((button) => button.getAttribute("aria-busy") === "true");
     expect(project).toHaveAttribute("aria-busy", "true");
     expect(screen.getByText("Creating...")).toBeInTheDocument();
   });
@@ -849,8 +920,9 @@ describe("AgentWorkspaceSidebar", () => {
       selectedSessionKey: "session-alpha",
     });
 
-    expect(screen.getByTitle("Alpha")).not.toHaveAttribute("aria-busy");
-    const thinkingSession = screen.getByTitle("Beta - Thinking...");
+    expect(screen.getByRole("button", { name: "Alpha" })).not.toHaveAttribute("aria-busy");
+    const thinkingSession = screen.getAllByRole("button", { name: /Beta/i })
+      .find((button) => button.getAttribute("aria-busy") === "true");
     expect(thinkingSession).toHaveAttribute("aria-busy", "true");
     expect(screen.getByLabelText("Session is thinking")).toBeInTheDocument();
     expect(screen.queryByText("Thinking...")).not.toBeInTheDocument();
@@ -992,7 +1064,7 @@ describe("AgentWorkspaceSidebar", () => {
 
     const newProject = screen.getByRole("button", { name: /new session/i });
     expect(newProject).toBeDisabled();
-    expect(newProject).toHaveAttribute("title", "Agent must be running");
+    expect(screen.getAllByText("Agent must be running").length).toBeGreaterThan(0);
     fireEvent.click(newProject);
     fireEvent.click(screen.getByRole("button", { name: /files/i }));
     fireEvent.click(screen.getByRole("button", { name: /integrations/i }));

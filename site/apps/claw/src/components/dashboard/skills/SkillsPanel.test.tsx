@@ -142,7 +142,7 @@ describe("SkillsPanel", () => {
     expect(await screen.findByRole("button", { name: "SKILL.md" })).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Search files...").closest("aside")).toHaveClass("border-r");
     expect(document.querySelector('[data-slot="skill-files-panel"]')).toHaveClass("h-full", "min-h-0");
-    expect(screen.queryByTitle("Upload files")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Upload files" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /edit instructions/i })).not.toBeInTheDocument();
   });
 
@@ -426,7 +426,7 @@ describe("SkillsPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Configure" }));
     fireEvent.click(screen.getByRole("tab", { name: /files/i }));
-    fireEvent.click(await screen.findByTitle("New folder"));
+    fireEvent.click(await screen.findByRole("button", { name: "New folder" }));
     fireEvent.change(screen.getByPlaceholderText("Folder name"), { target: { value: "scripts" } });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "scripts" })).toBeInTheDocument());

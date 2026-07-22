@@ -82,13 +82,15 @@ describe("MarkdownContent", () => {
     expect(container.querySelector("pre code")).toHaveStyle({ color: "var(--foreground)" });
   });
 
-  it("renders basic images and preserves image titles", () => {
+  it("renders basic images and presents image titles as tooltips", async () => {
     render(
       <MarkdownContent content={'![Preview image](https://example.com/preview.png "Preview title")'} />,
     );
 
-    expect(screen.getByRole("button", { name: /view preview image/i })).toBeInTheDocument();
-    expect(screen.getByAltText("Preview image")).toHaveAttribute("title", "Preview title");
+    const imageTrigger = screen.getByRole("button", { name: /view preview image/i });
+    expect(screen.getByAltText("Preview image")).not.toHaveAttribute("title");
+    fireEvent.focus(imageTrigger);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Preview title");
   });
 
   it("ignores raw HTML while rendering markdown syntax", () => {
@@ -101,7 +103,7 @@ describe("MarkdownContent", () => {
     expect(screen.queryByText(/alert\("x"\)/i)).not.toBeInTheDocument();
   });
 
-  it("renders linked images as images inside links", () => {
+  it("renders linked images with custom title tooltips", async () => {
     render(
       <MarkdownContent content={'[![Logo](https://example.com/logo.png "Logo title")](https://example.com)'} />,
     );
@@ -109,11 +111,13 @@ describe("MarkdownContent", () => {
     const link = screen.getByRole("link", { name: /logo/i });
     expect(link).toHaveAttribute("href", "https://example.com");
     expect(link).toHaveAttribute("target", "_blank");
-    expect(within(link).getByAltText("Logo")).toHaveAttribute("title", "Logo title");
+    expect(within(link).getByAltText("Logo")).not.toHaveAttribute("title");
     expect(within(link).queryByRole("button")).not.toBeInTheDocument();
+    fireEvent.focus(within(link).getByAltText("Logo").parentElement!);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Logo title");
   });
 
-  it("renders footnotes, abbreviations, and emoji shortcodes", () => {
+  it("renders footnotes, abbreviations, and emoji shortcodes", async () => {
     const { container } = render(
       <MarkdownContent
         content={[
@@ -126,7 +130,11 @@ describe("MarkdownContent", () => {
       />,
     );
 
-    expect(container.querySelector('abbr[title="HyperText Markup Language"]')).toHaveTextContent("HTML");
+    const abbreviation = container.querySelector("abbr");
+    expect(abbreviation).toHaveTextContent("HTML");
+    expect(abbreviation).not.toHaveAttribute("title");
+    fireEvent.focus(abbreviation!);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("HyperText Markup Language");
     expect(screen.getByText(/🚀/)).toBeInTheDocument();
     expect(screen.getByText("Footnote detail.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "1" })).toHaveAttribute("href", "#user-content-fn-1");

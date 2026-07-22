@@ -15,6 +15,7 @@ import { deriveLaunchEligibilityState } from "@/lib/agent-launch-state";
 import { formatTokens, type SlotInventory } from "@/lib/format";
 import { buildOpenClawLaunchOptions } from "@/lib/openclaw-launch";
 import { ResourceImage } from "@/components/ResourceImage";
+import { TooltipHint } from "@/components/ClawTooltip";
 
 // ── Types ──
 
@@ -444,27 +445,28 @@ export function AgentCreationWizard({
             const Icon = item.icon;
             const isSelected = selectedIcon === i && !customAvatar;
             return (
-              <button
-                key={item.name}
-                onClick={() => {
-                  setSelectedIcon(i);
-                  setCustomAvatar(null);
-                }}
-                className={`w-full aspect-square rounded-full flex items-center justify-center transition-all ${
-                  isSelected
-                    ? "ring-2 ring-foreground ring-offset-2 ring-offset-background"
-                    : "hover:ring-1 hover:ring-text-muted hover:ring-offset-1 hover:ring-offset-background"
-                }`}
-                style={{
-                  backgroundColor: `hsl(${hue} 60% 20%)`,
-                }}
-                title={item.name}
-              >
-                <Icon
-                  size={14}
-                  style={{ color: `hsl(${hue} 70% 70%)` }}
-                />
-              </button>
+              <TooltipHint key={item.name} label={item.name}>
+                <button
+                  aria-label={item.name}
+                  onClick={() => {
+                    setSelectedIcon(i);
+                    setCustomAvatar(null);
+                  }}
+                  className={`w-full aspect-square rounded-full flex items-center justify-center transition-all ${
+                    isSelected
+                      ? "ring-2 ring-foreground ring-offset-2 ring-offset-background"
+                      : "hover:ring-1 hover:ring-text-muted hover:ring-offset-1 hover:ring-offset-background"
+                  }`}
+                  style={{
+                    backgroundColor: `hsl(${hue} 60% 20%)`,
+                  }}
+                >
+                  <Icon
+                    size={14}
+                    style={{ color: `hsl(${hue} 70% 70%)` }}
+                  />
+                </button>
+              </TooltipHint>
             );
           })}
         </div>

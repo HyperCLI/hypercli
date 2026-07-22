@@ -19,6 +19,7 @@ import { FilePreview, type FilePreviewMarkdownRenderer } from "./FilePreview";
 import { FilesEmptyState } from "./FilesEmptyState";
 import { writeClipboardText } from "../utils/browser-clipboard";
 import { shouldReadFileAsBytes } from "./file-types";
+import { TooltipHint } from "../components/ui/tooltip";
 
 // ── Types ──
 
@@ -254,25 +255,25 @@ export function FilesDrawer({
               )}
 
               {/* Show/hide hidden files */}
-              <button
-                onClick={() => setShowHidden((v) => !v)}
-                className={`w-6 h-6 rounded flex items-center justify-center transition-colors ${
-                  showHidden ? "bg-selection-accent/10 text-selection-accent" : "text-text-muted hover:text-foreground hover:bg-surface-low"
-                }`}
-                title={showHidden ? "Hide dotfiles" : "Show dotfiles"}
-              >
-                {showHidden ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-              </button>
+              <TooltipHint label={showHidden ? "Hide dotfiles" : "Show dotfiles"}>
+                <button
+                  aria-label={showHidden ? "Hide dotfiles" : "Show dotfiles"}
+                  onClick={() => setShowHidden((v) => !v)}
+                  className={`w-6 h-6 rounded flex items-center justify-center transition-colors ${
+                    showHidden ? "bg-selection-accent/10 text-selection-accent" : "text-text-muted hover:text-foreground hover:bg-surface-low"
+                  }`}
+                >
+                  {showHidden ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                </button>
+              </TooltipHint>
 
               {/* Sort menu */}
               <div className="relative">
-                <button
-                  onClick={() => setSortMenuOpen((v) => !v)}
-                  className="w-6 h-6 rounded flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
-                  title="Sort"
-                >
-                  <ArrowUpDown className="w-3 h-3" />
-                </button>
+                <TooltipHint label="Sort">
+                  <button aria-label="Sort" onClick={() => setSortMenuOpen((v) => !v)} className="w-6 h-6 rounded flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors">
+                    <ArrowUpDown className="w-3 h-3" />
+                  </button>
+                </TooltipHint>
                 <AnimatePresence>
                   {sortMenuOpen && (
                     <motion.div
