@@ -406,6 +406,35 @@ describe("ChatMessageBubble", () => {
     expect(onOpenFileFromChat).toHaveBeenCalledWith(calendarFile.path);
   });
 
+  it("renders completed write-tool calendar outputs as file chips before file refresh catches up", () => {
+    const onOpenFileFromChat = vi.fn();
+
+    render(
+      <ChatMessageBubble
+        message={{
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            {
+              name: "write_file",
+              args: JSON.stringify({ path: "/home/node/.openclaw/workspace/demo-event.ics" }),
+              result: "path provided",
+            },
+          ],
+          mediaUrls: ["media://inbound/demo-event---741bc582-9e41-492d-9a13-d8ecd3a2e0b8.ics"],
+        }}
+        onOpenFileFromChat={onOpenFileFromChat}
+      />,
+    );
+
+    expect(screen.getByText("demo-event.ics")).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: /media preview unavailable/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/media:\/\/inbound/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /open demo-event\.ics in files/i }));
+    expect(onOpenFileFromChat).toHaveBeenCalledWith("/home/node/.openclaw/workspace/demo-event.ics");
+  });
+
   it("renders workspace ICS MEDIA paths as file chips without unavailable preview labels", () => {
     render(
       <ChatMessageBubble

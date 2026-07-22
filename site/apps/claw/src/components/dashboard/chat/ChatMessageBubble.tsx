@@ -142,6 +142,7 @@ export function ChatMessageBubble({
             attachments={message.attachments}
             files={message.files}
             mediaUrls={message.mediaUrls}
+            toolCalls={message.role === "assistant" ? message.toolCalls : undefined}
           />
 
           {/* Content */}

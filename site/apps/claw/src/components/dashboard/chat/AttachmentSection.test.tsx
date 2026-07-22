@@ -38,4 +38,41 @@ describe("AttachmentSection", () => {
     expect(screen.queryByRole("status", { name: /media preview unavailable/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/media:\/\/inbound/i)).not.toBeInTheDocument();
   });
+
+  it("renders write-tool calendar output as a durable file chip", () => {
+    render(
+      <AttachmentSection
+        mediaUrls={["media://inbound/demo-event---741bc582-9e41-492d-9a13-d8ecd3a2e0b8.ics"]}
+        toolCalls={[
+          {
+            name: "write_file",
+            args: JSON.stringify({ path: "/home/node/.openclaw/workspace/demo-event.ics" }),
+            result: "path provided",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("demo-event.ics")).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: /media preview unavailable/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/media:\/\/inbound/i)).not.toBeInTheDocument();
+  });
+
+  it("does not duplicate a file when a matching media handle arrives later", () => {
+    render(
+      <AttachmentSection
+        files={[
+          {
+            name: "demo-event.ics",
+            path: "/home/node/.openclaw/workspace/demo-event.ics",
+            type: "text/calendar",
+          },
+        ]}
+        mediaUrls={["media://inbound/demo-event---741bc582-9e41-492d-9a13-d8ecd3a2e0b8.ics"]}
+      />,
+    );
+
+    expect(screen.getAllByText("demo-event.ics")).toHaveLength(1);
+    expect(screen.queryByRole("status", { name: /media preview unavailable/i })).not.toBeInTheDocument();
+  });
 });

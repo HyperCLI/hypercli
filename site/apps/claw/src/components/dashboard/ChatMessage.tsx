@@ -7,6 +7,7 @@ import type { ChatMessage as ChatMessageType, ChatPendingFile } from "@/lib/open
 import { getStoredToken } from "@/lib/api";
 import { createAgentClient } from "@/lib/agent-client";
 import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
+import { deriveToolWrittenFiles } from "@/lib/chat-attachment-state";
 import {
   classifyChatMediaReference,
   extractContentMediaReferences,
@@ -47,6 +48,16 @@ function normalizeChatFileReference(file: ChatPendingFile): ChatPendingFile | nu
   const type = typeof candidate.type === "string" ? candidate.type : "";
   if (!path || !name) return null;
   return { name, path, type };
+}
+
+function uniqueChatFiles(files: ChatPendingFile[]): ChatPendingFile[] {
+  const next = new Map<string, ChatPendingFile>();
+  for (const file of files) {
+    const key = normalizeOpenClawWorkspaceFilePath(file.path || file.name);
+    if (!key || next.has(key)) continue;
+    next.set(key, file);
+  }
+  return Array.from(next.values());
 }
 
 function findFileForAttachment(files: ChatPendingFile[], fileName: string | undefined): ChatPendingFile | null {
@@ -895,9 +906,12 @@ export function ChatMessageBubble({
   onDownloadFileFromChat,
 }: ChatMessageProps) {
   const [toolsOpen, setToolsOpen] = useState<Record<number, boolean>>({});
-  const messageFiles = (message.files ?? [])
+  const messageFiles = uniqueChatFiles([
+    ...(message.files ?? []),
+    ...(message.role === "assistant" ? deriveToolWrittenFiles(message.toolCalls) : []),
+  ]
     .map(normalizeChatFileReference)
-    .filter((file): file is ChatPendingFile => Boolean(file));
+    .filter((file): file is ChatPendingFile => Boolean(file)));
   const inlineAudioAlreadyAttached = Boolean(inlineAudioFile && messageFiles.some((file) => (
     isAudioFileReference(file) && isSameWorkspaceFilePath(file.path, inlineAudioFile.path)
   )));
