@@ -37,6 +37,7 @@ import { AgentCardTooltip, type AgentCardTooltipData } from "./modules/AgentCard
 import { QuickAgentCreator } from "./QuickAgentCreator";
 import { QuickChannelCreator } from "./QuickChannelCreator";
 import type { AgentCreationSetupCreateParams } from "./agents/AgentCreationSetupWizard";
+import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
 
 function RosterTooltip({
   label,
@@ -161,6 +162,7 @@ export interface AgentsChannelsSidebarProps {
   rosterLoading?: boolean;
   /** Navigate to dashboard home, optionally performing caller-owned cleanup first. */
   onOpenHome?: () => void;
+  homeActive?: boolean;
   /** Navigate to shared knowledge, optionally performing caller-owned cleanup first. */
   onOpenKnowledge?: () => void;
   knowledgeActive?: boolean;
@@ -169,6 +171,10 @@ export interface AgentsChannelsSidebarProps {
   onOpenMembers?: () => void;
   membersActive?: boolean;
   membersHref?: string;
+  onOpenUsage?: () => void;
+  usageActive?: boolean;
+  onOpenAccountSettings?: () => void;
+  accountSettingsActive?: boolean;
   /** Increment to imperatively open the inline agent creator (e.g. from the main panel's empty state). */
   openAgentCreatorSignal?: number;
   accountInitial?: string;
@@ -178,7 +184,7 @@ export interface AgentsChannelsSidebarProps {
 const ACCOUNT_LINKS = [
   { label: "API Keys", href: "/keys", icon: Key },
   { label: "Plans", href: "/plans", icon: CreditCard },
-  { label: "Billing", href: "/dashboard/settings", icon: CreditCard },
+  { label: "Billing", href: DASHBOARD_VIEW_HREFS.settings, icon: CreditCard },
 ];
 
 function isDashboardLinkActive(pathname: string, href: string) {
@@ -1841,12 +1847,17 @@ function HandoffThreadView({
   agentCreationDisabledReason,
   rosterLoading = false,
   onOpenHome,
+  homeActive,
   onOpenKnowledge,
   knowledgeActive = false,
   knowledgeHref = "/dashboard/agents?section=knowledge",
   onOpenMembers,
   membersActive = false,
   membersHref = "/dashboard/agents?section=members",
+  onOpenUsage,
+  usageActive,
+  onOpenAccountSettings,
+  accountSettingsActive,
   showChannels = true,
   availableAgents,
   offlineAgentCount = 0,
@@ -1875,12 +1886,17 @@ function HandoffThreadView({
   agentCreationDisabledReason?: string | null;
   rosterLoading?: boolean;
   onOpenHome?: () => void;
+  homeActive?: boolean;
   onOpenKnowledge?: () => void;
   knowledgeActive?: boolean;
   knowledgeHref?: string;
   onOpenMembers?: () => void;
   membersActive?: boolean;
   membersHref?: string;
+  onOpenUsage?: () => void;
+  usageActive?: boolean;
+  onOpenAccountSettings?: () => void;
+  accountSettingsActive?: boolean;
   showChannels?: boolean;
   availableAgents?: Participant[];
   offlineAgentCount?: number;
@@ -1898,6 +1914,9 @@ function HandoffThreadView({
   embeddedInNavigation?: boolean;
 }) {
   const pathname = usePathname() || "";
+  const homeIsActive = homeActive ?? isDashboardLinkActive(pathname, "/dashboard");
+  const usageIsActive = usageActive ?? pathname === "/usage";
+  const accountSettingsIsActive = accountSettingsActive ?? isDashboardLinkActive(pathname, "/dashboard/settings");
   const channelAgents = availableAgents ?? AVAILABLE_AGENTS_LIST;
   const [showAgentCreator, setShowAgentCreator] = useState(false);
   const [showChannelCreator, setShowChannelCreator] = useState(false);
@@ -1989,12 +2008,12 @@ function HandoffThreadView({
       {onOpenHome ? (
         <button
           type="button"
-          aria-current={isDashboardLinkActive(pathname, "/dashboard") ? "page" : undefined}
+          aria-current={homeIsActive ? "page" : undefined}
           onClick={onOpenHome}
           className={`agents-roster-home flex w-full shrink-0 items-center gap-0 border-l-2 text-left transition-colors ${
             mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
           } ${
-            isDashboardLinkActive(pathname, "/dashboard")
+            homeIsActive
               ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
               : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
           }`}
@@ -2006,12 +2025,12 @@ function HandoffThreadView({
         </button>
       ) : (
         <Link
-          href="/dashboard"
-          aria-current={isDashboardLinkActive(pathname, "/dashboard") ? "page" : undefined}
+          href={DASHBOARD_VIEW_HREFS.overview}
+          aria-current={homeIsActive ? "page" : undefined}
           className={`agents-roster-home flex w-full shrink-0 items-center gap-0 border-l-2 text-left transition-colors ${
           mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
         } ${
-          isDashboardLinkActive(pathname, "/dashboard")
+          homeIsActive
             ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
             : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
         }`}
@@ -2260,38 +2279,78 @@ function HandoffThreadView({
             <span className="font-medium">Members</span>
           </Link>
         )}
-        <Link
-          href="/usage"
-          aria-current={pathname === "/usage" ? "page" : undefined}
-          className={`flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
-            mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
-          } ${
-            pathname === "/usage"
-              ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
-              : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
-          }`}
-        >
-          <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
-            <BarChart3 className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
-          </span>
-          <span className="font-medium">Usage</span>
-        </Link>
-        <Link
-          href="/dashboard/settings"
-          aria-current={isDashboardLinkActive(pathname, "/dashboard/settings") ? "page" : undefined}
-          className={`flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
-            mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
-          } ${
-            isDashboardLinkActive(pathname, "/dashboard/settings")
-              ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
-              : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
-          }`}
-        >
-          <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
-            <Settings className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
-          </span>
-          <span className="font-medium">Settings</span>
-        </Link>
+        {onOpenUsage ? (
+          <button
+            type="button"
+            onClick={onOpenUsage}
+            aria-current={usageIsActive ? "page" : undefined}
+            className={`flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
+              mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
+            } ${
+              usageIsActive
+                ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
+                : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
+            }`}
+          >
+            <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
+              <BarChart3 className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
+            </span>
+            <span className="font-medium">Usage</span>
+          </button>
+        ) : (
+          <Link
+            href={DASHBOARD_VIEW_HREFS.usage}
+            aria-current={usageIsActive ? "page" : undefined}
+            className={`flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
+              mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
+            } ${
+              usageIsActive
+                ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
+                : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
+            }`}
+          >
+            <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
+              <BarChart3 className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
+            </span>
+            <span className="font-medium">Usage</span>
+          </Link>
+        )}
+        {onOpenAccountSettings ? (
+          <button
+            type="button"
+            onClick={onOpenAccountSettings}
+            aria-current={accountSettingsIsActive ? "page" : undefined}
+            className={`flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
+              mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
+            } ${
+              accountSettingsIsActive
+                ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
+                : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
+            }`}
+          >
+            <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
+              <Settings className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
+            </span>
+            <span className="font-medium">Settings</span>
+          </button>
+        ) : (
+          <Link
+            href={DASHBOARD_VIEW_HREFS.settings}
+            aria-current={accountSettingsIsActive ? "page" : undefined}
+            className={`flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
+              mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
+            } ${
+              accountSettingsIsActive
+                ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
+                : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
+            }`}
+          >
+            <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
+              <Settings className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
+            </span>
+            <span className="font-medium">Settings</span>
+          </Link>
+        )}
       </section>
 
       {/* ── Channels section ── */}
@@ -2398,12 +2457,17 @@ export function AgentsChannelsSidebar({
   agentCreationDisabledReason,
   rosterLoading = false,
   onOpenHome,
+  homeActive,
   onOpenKnowledge,
   knowledgeActive = false,
   knowledgeHref,
   onOpenMembers,
   membersActive = false,
   membersHref,
+  onOpenUsage,
+  usageActive,
+  onOpenAccountSettings,
+  accountSettingsActive,
   openAgentCreatorSignal,
   accountInitial,
   onLogout,
@@ -2468,12 +2532,17 @@ export function AgentsChannelsSidebar({
           agentCreationDisabledReason={agentCreationDisabledReason}
           rosterLoading={rosterLoading}
           onOpenHome={onOpenHome}
+          homeActive={homeActive}
           onOpenKnowledge={onOpenKnowledge}
           knowledgeActive={knowledgeActive}
           knowledgeHref={knowledgeHref}
           onOpenMembers={onOpenMembers}
           membersActive={membersActive}
           membersHref={membersHref}
+          onOpenUsage={onOpenUsage}
+          usageActive={usageActive}
+          onOpenAccountSettings={onOpenAccountSettings}
+          accountSettingsActive={accountSettingsActive}
           showChannels={showChannels}
           availableAgents={availableAgents}
           offlineAgentCount={offlineAgentCount}
@@ -2508,12 +2577,17 @@ export function AgentsChannelsSidebar({
           agentCreationDisabledReason={agentCreationDisabledReason}
           rosterLoading={rosterLoading}
           onOpenHome={onOpenHome}
+          homeActive={homeActive}
           onOpenKnowledge={onOpenKnowledge}
           knowledgeActive={knowledgeActive}
           knowledgeHref={knowledgeHref}
           onOpenMembers={onOpenMembers}
           membersActive={membersActive}
           membersHref={membersHref}
+          onOpenUsage={onOpenUsage}
+          usageActive={usageActive}
+          onOpenAccountSettings={onOpenAccountSettings}
+          accountSettingsActive={accountSettingsActive}
           showChannels={showChannels}
           availableAgents={availableAgents}
           offlineAgentCount={offlineAgentCount}

@@ -48,6 +48,7 @@ import { AgentCreationSetupWizard, type AgentCreationSetupCreateParams } from ".
 import { AgentSettingsMobileChrome } from "./AgentSettingsMobileChrome";
 import { AgentTeamSettingsContent } from "./AgentTeamSettingsContent";
 import { getAgentGatewayPanelBootStatus } from "./chat-boot-stage";
+import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
 
 interface SessionLike {
   connected: boolean;
@@ -1553,7 +1554,7 @@ function AgentUsageSettingsContent() {
         <section className="mt-7 border-b border-foreground">
           <div className="grid gap-4 border-b border-foreground py-7 md:grid-cols-2">
             <Link
-              href="/dashboard"
+              href={DASHBOARD_VIEW_HREFS.usage}
               className="flex min-h-[92px] items-center gap-3 rounded-[12px] border border-foreground px-3 transition-colors hover:bg-surface-low"
             >
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-surface-high">
@@ -1583,7 +1584,7 @@ function AgentUsageSettingsContent() {
                 <p className="text-[14px] font-semibold leading-5 text-foreground">Current plan limits</p>
                 <p className="mt-1 text-[13px] font-medium leading-5 text-text-muted">Open the usage dashboard for live plan limits.</p>
               </div>
-              <AgentSettingsLinkButton href="/dashboard">Open usage</AgentSettingsLinkButton>
+              <AgentSettingsLinkButton href={DASHBOARD_VIEW_HREFS.usage}>Open usage</AgentSettingsLinkButton>
             </div>
           </div>
         </section>
@@ -2367,6 +2368,8 @@ interface AgentListProps {
   onOpenPlanCatalog?: () => void | Promise<void>;
   homeActive?: boolean;
   onOpenHome?: () => void;
+  onOpenUsage?: () => void;
+  onOpenAccountSettings?: () => void;
   onOpenKnowledge?: () => void;
   knowledgeActive?: boolean;
   knowledgeHref?: string;
@@ -2374,6 +2377,7 @@ interface AgentListProps {
   membersActive?: boolean;
   membersHref?: string;
   usageActive?: boolean;
+  accountSettingsActive?: boolean;
   pendingSlotReleases?: Record<string, number>;
   embeddedInNavigation?: boolean;
   /**
@@ -2430,6 +2434,8 @@ export function AgentList({
   onOpenPlanCatalog,
   homeActive = false,
   onOpenHome,
+  onOpenUsage,
+  onOpenAccountSettings,
   onOpenKnowledge,
   knowledgeActive = false,
   knowledgeHref,
@@ -2437,6 +2443,7 @@ export function AgentList({
   membersActive = false,
   membersHref,
   usageActive = false,
+  accountSettingsActive = false,
   pendingSlotReleases,
   embeddedInNavigation = false,
   showChannels = false,
@@ -2624,7 +2631,7 @@ export function AgentList({
                     </button>
                   ) : (
                     <Link
-                      href="/dashboard"
+                      href={DASHBOARD_VIEW_HREFS.overview}
                       aria-label="Home"
                       aria-current={homeActive ? "page" : undefined}
                       className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
@@ -2793,30 +2800,67 @@ export function AgentList({
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Link
-                    href="/usage"
-                    aria-label="Usage"
-                    aria-current={usageActive ? "page" : undefined}
-                    className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
-                      usageActive
-                        ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
-                        : "text-text-muted hover:bg-surface-low hover:text-foreground"
-                    }`}
-                  >
-                    <BarChart3 className="h-4 w-4" />
-                  </Link>
+                  {onOpenUsage ? (
+                    <button
+                      type="button"
+                      onClick={onOpenUsage}
+                      aria-label="Usage"
+                      aria-current={usageActive ? "page" : undefined}
+                      className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+                        usageActive
+                          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
+                          : "text-text-muted hover:bg-surface-low hover:text-foreground"
+                      }`}
+                    >
+                      <BarChart3 className="h-4 w-4" />
+                    </button>
+                  ) : (
+                    <Link
+                      href={DASHBOARD_VIEW_HREFS.usage}
+                      aria-label="Usage"
+                      aria-current={usageActive ? "page" : undefined}
+                      className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+                        usageActive
+                          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
+                          : "text-text-muted hover:bg-surface-low hover:text-foreground"
+                      }`}
+                    >
+                      <BarChart3 className="h-4 w-4" />
+                    </Link>
+                  )}
                 </TooltipTrigger>
                 <TooltipContent side="right">Usage</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Link
-                    href="/dashboard/settings"
-                    aria-label="Settings"
-                    className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
-                  >
-                    <Settings className="h-4 w-4" />
-                  </Link>
+                  {onOpenAccountSettings ? (
+                    <button
+                      type="button"
+                      onClick={onOpenAccountSettings}
+                      aria-label="Settings"
+                      aria-current={accountSettingsActive ? "page" : undefined}
+                      className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+                        accountSettingsActive
+                          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
+                          : "text-text-muted hover:bg-surface-low hover:text-foreground"
+                      }`}
+                    >
+                      <Settings className="h-4 w-4" />
+                    </button>
+                  ) : (
+                    <Link
+                      href={DASHBOARD_VIEW_HREFS.settings}
+                      aria-label="Settings"
+                      aria-current={accountSettingsActive ? "page" : undefined}
+                      className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+                        accountSettingsActive
+                          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
+                          : "text-text-muted hover:bg-surface-low hover:text-foreground"
+                      }`}
+                    >
+                      <Settings className="h-4 w-4" />
+                    </Link>
+                  )}
                 </TooltipTrigger>
                 <TooltipContent side="right">Settings</TooltipContent>
               </Tooltip>
@@ -2867,12 +2911,17 @@ export function AgentList({
               agentCreationDisabledReason={agentCreationDisabledReason}
               rosterLoading={rosterLoading}
               onOpenHome={onOpenHome}
+              homeActive={homeActive}
               onOpenKnowledge={onOpenKnowledge}
               knowledgeActive={knowledgeActive}
               knowledgeHref={knowledgeHref}
               onOpenMembers={onOpenMembers}
               membersActive={membersActive}
               membersHref={membersHref}
+              onOpenUsage={onOpenUsage}
+              usageActive={usageActive}
+              onOpenAccountSettings={onOpenAccountSettings}
+              accountSettingsActive={accountSettingsActive}
               accountInitial={accountInitial}
               onLogout={onLogout}
               onDeleteThread={(threadId) => {
@@ -2953,6 +3002,7 @@ type AgentEmptyStateProps = {
   workspaceName?: string | null;
   hasAccountAgents?: boolean;
   creationDisabledReason?: string | null;
+  onCreateWorkspace?: () => void;
   onOpenMembers?: () => void;
 };
 
@@ -2975,10 +3025,12 @@ export function LaunchFirstAgentEmptyState({
   workspaceName,
   hasAccountAgents = false,
   creationDisabledReason,
+  onCreateWorkspace,
   onOpenMembers,
 }: AgentEmptyStateProps) {
   const [showWizard, setShowWizard] = React.useState(false);
   const workspaceScoped = Boolean(workspaceName);
+  const workspaceSetupRequired = !workspaceScoped && Boolean(onCreateWorkspace);
 
   if (showWizard && !creationDisabledReason) {
     return (
@@ -3014,24 +3066,36 @@ export function LaunchFirstAgentEmptyState({
             : "Agents handle projects, tasks, and workflows on your behalf."}
         </p>
 
-        <TooltipHint label={creationDisabledReason ?? (workspaceScoped ? "Launch an agent" : "Create an agent")} disabled={Boolean(creationDisabledReason)} triggerClassName="w-full">
+        <TooltipHint
+          label={workspaceSetupRequired ? "Create your first Workspace" : creationDisabledReason ?? (workspaceScoped ? "Launch an agent" : "Create an agent")}
+          disabled={!workspaceSetupRequired && Boolean(creationDisabledReason)}
+          triggerClassName="w-full"
+        >
           <motion.button
             type="button"
-            onClick={() => setShowWizard(true)}
-            disabled={Boolean(creationDisabledReason)}
+            onClick={() => {
+              if (workspaceSetupRequired && onCreateWorkspace) {
+                onCreateWorkspace();
+                return;
+              }
+              setShowWizard(true);
+            }}
+            disabled={!workspaceSetupRequired && Boolean(creationDisabledReason)}
             whileHover={{ y: -1 }}
             whileTap={{ scale: 0.99 }}
             className="mt-9 flex min-h-[86px] w-full items-center gap-4 rounded-[8px] border border-foreground bg-surface-low px-6 py-4 text-left transition-colors hover:bg-surface-mid disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-surface-low focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--button-primary-rgb)_/_0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[7px] border border-border bg-surface-mid text-foreground">
-              <Codepen className="h-4 w-4" />
+              {workspaceSetupRequired ? <Blocks className="h-4 w-4" /> : <Codepen className="h-4 w-4" />}
             </span>
             <span className="min-w-0 flex-1">
               <span className="block text-[14px] font-semibold leading-5 text-foreground">
-                {workspaceScoped ? "Launch an agent" : "Create an agent"}
+                {workspaceSetupRequired ? "Create your first Workspace" : workspaceScoped ? "Launch an agent" : "Create an agent"}
               </span>
               <span className="mt-0.5 block text-[12px] font-medium leading-4 text-text-muted">
-                Name it, pick a plan, and connect it to where your team already works.
+                {workspaceSetupRequired
+                  ? "Set up a home for your agents, shared knowledge, and team."
+                  : "Name it, pick a plan, and connect it to where your team already works."}
               </span>
             </span>
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] bg-[var(--button-primary)] text-[var(--button-primary-foreground)]">
@@ -3039,7 +3103,9 @@ export function LaunchFirstAgentEmptyState({
             </span>
           </motion.button>
         </TooltipHint>
-        {creationDisabledReason ? (
+        {workspaceSetupRequired ? (
+          <p className="mt-3 text-sm text-text-muted">One quick step, then you can launch your first agent.</p>
+        ) : creationDisabledReason ? (
           <p className="mt-3 text-sm text-text-muted">{creationDisabledReason}</p>
         ) : null}
         {workspaceScoped && hasAccountAgents && onOpenMembers ? (

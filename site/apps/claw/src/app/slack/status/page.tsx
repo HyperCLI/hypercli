@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
 import { useEffect, useState } from "react";
 import { Loader2, MessageSquare } from "lucide-react";
 import { getSlackInstallStatus, type SlackInstallStatus } from "@hypercli.com/sdk/agents";
@@ -120,7 +121,7 @@ export default function SlackStatusPage() {
           <Link href="/slack/start" className="rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.45)] bg-[rgb(var(--selection-accent-rgb)_/_0.12)] px-4 py-2 text-sm font-medium text-[var(--selection-accent)]">
             Connect Slack
           </Link>
-          <Link href="/dashboard/settings/" className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground">
+          <Link href={DASHBOARD_VIEW_HREFS.settings} className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground">
             Settings
           </Link>
         </div>

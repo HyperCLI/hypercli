@@ -18,6 +18,7 @@ import {
   type GatewayIntegrationStatusParams,
   type GatewayIntegrationStatusResult,
   type GatewayOptions,
+  type GatewaySessionsListResult,
   type GatewayWebLoginStartOptions,
   type GatewayWebLoginStartResult,
   type GatewayWebLoginWaitOptions,
@@ -1969,6 +1970,15 @@ export class OpenClawAgent extends Agent {
     const client = await this.connect(options);
     try {
       return await client.sessionsList();
+    } finally {
+      client.close();
+    }
+  }
+
+  async sessionsListResult(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<GatewaySessionsListResult> {
+    const client = await this.connect(options);
+    try {
+      return await client.sessionsListResult();
     } finally {
       client.close();
     }

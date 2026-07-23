@@ -25,13 +25,14 @@ import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 import { ThemeToggle } from "@hypercli/shared-ui";
+import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
 
 const dropdownNavItems = [
   { label: "Shared knowledge", href: "/dashboard/agents?section=knowledge", icon: HardDrive },
   { label: "Members", href: "/dashboard/agents?section=members", icon: UsersRound },
   { label: "API Keys", href: "/keys", icon: Key },
   { label: "Plans", href: "/plans", icon: CreditCard },
-  { label: "Billing", href: "/dashboard/settings", icon: CreditCard },
+  { label: "Billing", href: DASHBOARD_VIEW_HREFS.settings, icon: CreditCard },
 ];
 
 export function DashboardNav() {
@@ -134,7 +135,7 @@ export function DashboardNav() {
                     })}
 
                     <Link
-                      href="/dashboard/settings"
+                      href={DASHBOARD_VIEW_HREFS.settings}
                       onClick={() => setUserMenuOpen(false)}
                       className="flex items-center gap-2 px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-low rounded-md transition-colors"
                     >

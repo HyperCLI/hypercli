@@ -65,7 +65,7 @@ function buildGateway(initialState: TestGatewayConnectionState = "connected") {
     sessionsPreview: vi.fn(async (_sessionKey: string, _limit?: number): Promise<unknown[]> => []),
     agentsList: vi.fn(async (): Promise<Array<Record<string, unknown>>> => [{ id: "agent-1" }]),
     sessionsList: vi.fn(async (): Promise<unknown[]> => []),
-    sessionsPatch: vi.fn(async () => ({ ok: true })),
+    sessionsPatch: vi.fn(async (): Promise<Record<string, unknown>> => ({ ok: true })),
     sessionsReset: vi.fn(async (sessionKey: string, _reason?: "new" | "reset"): Promise<string> => sessionKey),
     cronList: vi.fn(async (): Promise<unknown[]> => []),
     cronAdd: vi.fn(async () => ({ id: "new-cron-job" })),
@@ -1033,8 +1033,10 @@ describe("useOpenClawSession", () => {
       ok: true,
       entry: { thinkingLevel: "medium" },
       resolved: {
+        modelProvider: "openai",
+        model: "gpt-5.2",
+        thinkingLevel: "medium",
         thinkingLevels: ["off", { id: "medium", label: "Balanced" }],
-        thinkingDefault: "medium",
       },
     });
     const agent = {
@@ -1063,7 +1065,59 @@ describe("useOpenClawSession", () => {
       { id: "off", label: "off" },
       { id: "medium", label: "Balanced" },
     ]);
-    expect(result.current.activeSessionThinkingDefault).toBe("medium");
+    expect(result.current.activeSessionThinkingDefault).toBe("low");
+    await waitFor(() => expect(JSON.parse(window.localStorage.getItem("openclaw.sessions.v1:agent-1") ?? "{}").sessions).toEqual([
+      expect.objectContaining({
+        key: "agent:default:session-alpha",
+        model: "openai/gpt-5.2",
+        thinkingLevel: "medium",
+      }),
+    ]));
+    unmount();
+  });
+
+  it("updates only the selected row when main and a channel share a gateway key", async () => {
+    const gateway = buildGateway();
+    gateway.sessionsList.mockResolvedValue([
+      {
+        key: "main",
+        modelProvider: "openai",
+        model: "gpt-5-mini",
+      },
+      {
+        key: "agent:default:main",
+        origin: { provider: "telegram", from: "telegram:489595440" },
+        modelProvider: "openai",
+        model: "gpt-5-mini",
+      },
+    ]);
+    gateway.sessionsPatch.mockResolvedValue({
+      ok: true,
+      resolved: {
+        modelProvider: "openai",
+        model: "gpt-5.2",
+        thinkingLevel: "medium",
+        thinkingLevels: [{ id: "medium", label: "Medium" }],
+      },
+    });
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.sessions).toHaveLength(2));
+
+    await act(async () => {
+      await result.current.setActiveSessionModel("openai/gpt-5.2");
+    });
+
+    expect(result.current.sessions.find((session) => session.key === "main")?.model).toBe("openai/gpt-5.2");
+    expect(result.current.sessions.find((session) => session.key === "telegram:489595440")?.model).toBe("openai/gpt-5-mini");
     unmount();
   });
 
@@ -1106,6 +1160,66 @@ describe("useOpenClawSession", () => {
       { id: "high", label: "high" },
     ]);
     expect(result.current.activeSessionThinkingDefault).toBe("low");
+    unmount();
+  });
+
+  it("does not let a session list started before a patch revert the selected model", async () => {
+    const gateway = buildGateway();
+    const oldSession = {
+      key: "agent:default:session-alpha",
+      modelProvider: "openai",
+      model: "gpt-5-mini",
+      thinkingLevel: "low",
+      thinkingLevels: ["off", "low"],
+      thinkingDefault: "low",
+    };
+    const newSession = {
+      ...oldSession,
+      model: "gpt-5.2",
+      thinkingLevel: "medium",
+      thinkingLevels: ["off", "medium"],
+    };
+    gateway.sessionsList.mockResolvedValue([oldSession]);
+    gateway.sessionsPatch.mockResolvedValue({
+      ok: true,
+      resolved: {
+        modelProvider: "openai",
+        model: "gpt-5.2",
+        thinkingLevel: "medium",
+        thinkingLevels: ["off", "medium"],
+      },
+    });
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "session-alpha"));
+
+    await waitFor(() => expect(result.current.activeSessionModel).toBe("openai/gpt-5-mini"));
+    const staleSessions = deferred<unknown[]>();
+    gateway.sessionsList.mockReset();
+    gateway.sessionsList.mockReturnValueOnce(staleSessions.promise).mockResolvedValue([newSession]);
+    let staleRefresh: Promise<unknown> = Promise.resolve();
+    act(() => {
+      staleRefresh = result.current.refreshSessions();
+    });
+    await waitFor(() => expect(gateway.sessionsList).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      await result.current.setActiveSessionModel("openai/gpt-5.2");
+    });
+    expect(result.current.activeSessionModel).toBe("openai/gpt-5.2");
+
+    await act(async () => {
+      staleSessions.resolve([oldSession]);
+      await staleRefresh;
+    });
+
+    await waitFor(() => expect(gateway.sessionsList).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.activeSessionModel).toBe("openai/gpt-5.2"));
     unmount();
   });
 
@@ -1349,7 +1463,16 @@ describe("useOpenClawSession", () => {
 
   it("shows cached sessions while the fresh session list is loading", async () => {
     const firstGateway = buildGateway();
-    firstGateway.sessionsList.mockResolvedValue([{ key: "session-cached", title: "Cached session", lastMessageAt: 10 }]);
+    firstGateway.sessionsList.mockResolvedValue([{
+      key: "session-cached",
+      title: "Cached session",
+      lastMessageAt: 10,
+      modelProvider: "openai",
+      model: "gpt-5-mini",
+      thinkingLevel: "low",
+      thinkingLevels: [{ id: "low", label: "Fast" }],
+      thinkingDefault: "low",
+    }]);
     const firstAgent = {
       id: "deploy-123",
       connect: vi.fn(),
@@ -1361,7 +1484,14 @@ describe("useOpenClawSession", () => {
 
     await waitFor(() => expect(firstRender.result.current.sessionsFetched).toBe(true));
     await waitFor(() => expect(firstRender.result.current.sessions).toEqual([
-      expect.objectContaining({ key: "session-cached", title: "Cached session" }),
+      expect.objectContaining({
+        key: "session-cached",
+        title: "Cached session",
+        model: "openai/gpt-5-mini",
+        thinkingLevel: "low",
+        thinkingLevels: [{ id: "low", label: "Fast" }],
+        thinkingDefault: "low",
+      }),
     ]));
     firstRender.unmount();
 
@@ -1378,7 +1508,14 @@ describe("useOpenClawSession", () => {
     const { result, unmount } = renderHookWithClient(() => useOpenClawSession(secondAgent as any));
 
     await waitFor(() => expect(result.current.sessions).toEqual([
-      expect.objectContaining({ key: "session-cached", title: "Cached session" }),
+      expect.objectContaining({
+        key: "session-cached",
+        title: "Cached session",
+        model: "openai/gpt-5-mini",
+        thinkingLevel: "low",
+        thinkingLevels: [{ id: "low", label: "Fast" }],
+        thinkingDefault: "low",
+      }),
     ]));
     expect(result.current.sessionsFetched).toBe(false);
 

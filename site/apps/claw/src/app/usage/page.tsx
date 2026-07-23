@@ -1,14 +1,14 @@
-import { PrivyAuthRouteBoundary } from "@hypercli/shared-ui";
+import { redirect } from "next/navigation";
 
-import DashboardShell from "@/components/dashboard/DashboardShell";
-import UsagePage from "@/components/dashboard/UsagePage";
+import {
+  buildDashboardViewRedirectHref,
+  type DashboardSearchParams,
+} from "@/lib/dashboard-route";
 
-export default function UsageRootPage() {
-  return (
-    <PrivyAuthRouteBoundary unauthenticatedRedirectTo="/">
-      <DashboardShell>
-        <UsagePage />
-      </DashboardShell>
-    </PrivyAuthRouteBoundary>
-  );
+export default async function UsageRedirectPage({
+  searchParams,
+}: {
+  searchParams: Promise<DashboardSearchParams>;
+}) {
+  return redirect(buildDashboardViewRedirectHref("usage", await searchParams));
 }

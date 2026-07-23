@@ -79,7 +79,7 @@ const WORKSPACE_COLLAPSED_KEY = "agents.workspaceCollapsed.v2";
 
 interface AgentWorkspaceSidebarProps {
   selectedAgent: Agent | null;
-  activeTab: AgentMainTab;
+  activeTab: AgentMainTab | null;
   skillsActive?: boolean;
   tokenUsed?: number | null;
   tokenLimit?: number | null;
@@ -942,6 +942,39 @@ function CreateWorkspaceDialog({
   );
 }
 
+export function WorkspaceCreationDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const {
+    principalId,
+    workspacesClient,
+    createWorkspace,
+  } = useWorkspace();
+  const workspaceScope = principalId ?? "current";
+
+  return (
+    <CreateWorkspaceDialog
+      key={workspaceScope}
+      open={open}
+      onOpenChange={onOpenChange}
+      onCreate={createWorkspace}
+      onInviteByEmail={mockWorkspaceEmailInvites}
+      onGrantByUuid={async (workspaceId, userId, role) => {
+        if (!workspacesClient) throw new Error("Workspace access is unavailable right now.");
+        await workspacesClient.grant(workspaceId, {
+          subjectType: "user",
+          subjectId: userId,
+          role,
+        });
+      }}
+    />
+  );
+}
+
 function WorkspacePicker({ sharedHeader = false }: { sharedHeader?: boolean }) {
   const {
     principalId,
@@ -951,7 +984,6 @@ function WorkspacePicker({ sharedHeader = false }: { sharedHeader?: boolean }) {
     isLoading: workspacesLoading,
     error: workspacesError,
     selectWorkspace,
-    createWorkspace,
   } = useWorkspace();
   const workspaceScope = principalId ?? "current";
   const [createWorkspaceScope, setCreateWorkspaceScope] = useState<string | null>(null);
@@ -1040,20 +1072,9 @@ function WorkspacePicker({ sharedHeader = false }: { sharedHeader?: boolean }) {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <CreateWorkspaceDialog
-        key={workspaceScope}
+      <WorkspaceCreationDialog
         open={createWorkspaceScope === workspaceScope}
         onOpenChange={(open) => setCreateWorkspaceScope(open ? workspaceScope : null)}
-        onCreate={createWorkspace}
-        onInviteByEmail={mockWorkspaceEmailInvites}
-        onGrantByUuid={async (workspaceId, userId, role) => {
-          if (!workspacesClient) throw new Error("Workspace access is unavailable right now.");
-          await workspacesClient.grant(workspaceId, {
-            subjectType: "user",
-            subjectId: userId,
-            role,
-          });
-        }}
       />
     </>
   );

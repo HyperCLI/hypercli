@@ -139,6 +139,11 @@ export interface GatewaySessionPatch {
   [key: string]: unknown;
 }
 
+export interface GatewaySessionsListResult extends Record<string, any> {
+  sessions: any[];
+  defaults?: Record<string, any>;
+}
+
 export interface GatewayChatAttachmentPayload {
   type: string;
   mimeType?: string;
@@ -3608,9 +3613,18 @@ export class GatewayClient {
   // Sessions
   // ---------------------------------------------------------------------------
 
-  async sessionsList(): Promise<any[]> {
+  async sessionsListResult(): Promise<GatewaySessionsListResult> {
     const res = await this.rpc("sessions.list");
-    return res?.sessions ?? res ?? [];
+    if (Array.isArray(res)) return { sessions: res };
+    if (!res || typeof res !== "object") return { sessions: [] };
+    return {
+      ...res,
+      sessions: Array.isArray(res.sessions) ? res.sessions : [],
+    };
+  }
+
+  async sessionsList(): Promise<any[]> {
+    return (await this.sessionsListResult()).sessions;
   }
 
   async sessionsPreview(sessionKey: string, limit = 20): Promise<any[]> {

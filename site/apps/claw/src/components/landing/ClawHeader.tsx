@@ -10,6 +10,7 @@ import { TooltipHint } from "@/components/ClawTooltip";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { AUTH_BASE_URL } from "@/lib/api";
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
+import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
 
 const navLinks = [
   { label: "Features", href: "#features" },
@@ -24,7 +25,7 @@ const navLinks = [
 const dropdownNavItems = [
   { label: "API Keys", href: "/keys", icon: Key },
   { label: "Plans", href: "/plans", icon: CreditCard },
-  { label: "Billing", href: "/dashboard/settings", icon: CreditCard },
+  { label: "Billing", href: DASHBOARD_VIEW_HREFS.settings, icon: CreditCard },
 ];
 const POST_LOGIN_PATH = "/dashboard/agents";
 
@@ -160,7 +161,7 @@ export function ClawHeader() {
                           })}
 
                           <Link
-                            href="/dashboard/settings"
+                            href={DASHBOARD_VIEW_HREFS.settings}
                             onClick={() => setUserMenuOpen(false)}
                             className="flex items-center gap-2 px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-low rounded-md transition-colors"
                           >
@@ -265,7 +266,7 @@ export function ClawHeader() {
                       );
                     })}
                     <Link
-                      href="/dashboard/settings"
+                      href={DASHBOARD_VIEW_HREFS.settings}
                       onClick={() => setMobileOpen(false)}
                       className="flex items-center gap-2 px-4 py-2 text-sm text-text-secondary hover:text-foreground transition-colors"
                     >

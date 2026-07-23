@@ -62,15 +62,6 @@ function firstNonEmptyString(...values: unknown[]): string | null {
   return null;
 }
 
-function normalizeThinkingLevelId(value: string): string {
-  const normalized = value.trim().toLowerCase();
-  const collapsed = normalized.replace(/[\s_-]+/g, "");
-  if (collapsed === "extrahigh") return "xhigh";
-  if (collapsed === "auto") return "adaptive";
-  if (collapsed === "none") return "off";
-  return normalized;
-}
-
 export function normalizeOpenClawThinkingLevels(
   value: unknown,
   legacyOptions?: unknown,
@@ -79,18 +70,18 @@ export function normalizeOpenClawThinkingLevels(
   const normalized = levels.flatMap((levelRaw) => {
     if (typeof levelRaw === "string") {
       const label = levelRaw.trim();
-      return label ? [{ id: normalizeThinkingLevelId(label), label }] : [];
+      return label ? [{ id: label, label }] : [];
     }
     if (!isRecord(levelRaw)) return [];
     const id = firstNonEmptyString(levelRaw.id, levelRaw.value);
     const label = firstNonEmptyString(levelRaw.label, levelRaw.name, id);
-    return id && label ? [{ id: normalizeThinkingLevelId(id), label }] : [];
+    return id && label ? [{ id, label }] : [];
   });
   if (normalized.length > 0) return normalized;
 
   return (Array.isArray(legacyOptions) ? legacyOptions : []).flatMap((option) => {
     const label = nonEmptyString(option);
-    return label ? [{ id: normalizeThinkingLevelId(label), label }] : [];
+    return label ? [{ id: label, label }] : [];
   });
 }
 
@@ -576,8 +567,24 @@ export function applyOpenClawSessionTitleMap(
   });
 }
 
-export async function listOpenClawSessions(gateway: Pick<GatewayClient, "sessionsList">): Promise<OpenClawSessionRecord[]> {
-  return normalizeOpenClawSessions(await gateway.sessionsList());
+export async function listOpenClawSessions(
+  gateway: Pick<GatewayClient, "sessionsList"> & Partial<Pick<GatewayClient, "sessionsListResult">>,
+): Promise<OpenClawSessionRecord[]> {
+  const result = typeof gateway.sessionsListResult === "function"
+    ? await gateway.sessionsListResult()
+    : { sessions: await gateway.sessionsList() };
+  const sessions = normalizeOpenClawSessions(result.sessions);
+  if (findOpenClawSelectableSession(sessions, OPENCLAW_DEFAULT_SESSION_KEY)) return sessions;
+
+  const defaults = isRecord(result.defaults) ? result.defaults : null;
+  if (!defaults) return sessions;
+  const defaultSession = normalizeOpenClawSession({ ...defaults, key: OPENCLAW_DEFAULT_SESSION_KEY });
+  const hasSelectableDefaults = Boolean(
+    defaultSession?.model ||
+    defaultSession?.thinkingDefault ||
+    defaultSession?.thinkingLevels?.length,
+  );
+  return defaultSession && hasSelectableDefaults ? [defaultSession, ...sessions] : sessions;
 }
 
 export async function loadOpenClawChatHistory(

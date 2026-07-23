@@ -2,12 +2,48 @@ import { describe, expect, it } from "vitest";
 
 import {
   isEphemeralOpenClawSessionName,
+  listOpenClawSessions,
   normalizeOpenClawSessions,
+  normalizeOpenClawThinkingLevels,
   openClawEventMatchesSession,
   sameOpenClawSelectableSessionKey,
 } from "./openclaw-session-sdk-surface";
 
 describe("openclaw-session-sdk-surface", () => {
+  it("preserves gateway thinking-level IDs verbatim", () => {
+    expect(normalizeOpenClawThinkingLevels([
+      { id: "extra-high", label: "Extra high" },
+      "AUTO",
+    ])).toEqual([
+      { id: "extra-high", label: "Extra high" },
+      { id: "AUTO", label: "AUTO" },
+    ]);
+  });
+
+  it("retains session defaults when the gateway has not created a main row", async () => {
+    const sessions = await listOpenClawSessions({
+      sessionsList: async () => [],
+      sessionsListResult: async () => ({
+        sessions: [],
+        defaults: {
+          modelProvider: "openai",
+          model: "gpt-5-mini",
+          thinkingLevels: [{ id: "low", label: "Fast" }],
+          thinkingDefault: "low",
+        },
+      }),
+    });
+
+    expect(sessions).toEqual([
+      expect.objectContaining({
+        key: "main",
+        model: "openai/gpt-5-mini",
+        thinkingLevels: [{ id: "low", label: "Fast" }],
+        thinkingDefault: "low",
+      }),
+    ]);
+  });
+
   it("normalizes channel-backed default sessions to a distinct channel session key", () => {
     const sessions = normalizeOpenClawSessions({
       "agent:default:main": {

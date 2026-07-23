@@ -103,7 +103,7 @@ vi.mock("@/lib/agent-client", () => ({
   createAgentClient: agentClientMocks.createAgentClient,
 }));
 
-import { AgentList, AgentSettingsPanel, ErrorBanner } from "./AgentPanels";
+import { AgentList, AgentSettingsPanel, ErrorBanner, LaunchFirstAgentEmptyState } from "./AgentPanels";
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -281,6 +281,42 @@ function renderAgentSettingsPanel(overrides: Partial<ComponentProps<typeof Agent
   const renderResult = renderWithClient(<AgentSettingsPanel {...props} />);
   return { props, ...renderResult };
 }
+
+describe("LaunchFirstAgentEmptyState", () => {
+  it("replaces the blocked agent action with a friendly Workspace setup CTA", () => {
+    const onCreate = vi.fn();
+    const onCreateWorkspace = vi.fn();
+
+    render(
+      <LaunchFirstAgentEmptyState
+        onCreate={onCreate}
+        creationDisabledReason="Select a Workspace before launching an agent."
+        onCreateWorkspace={onCreateWorkspace}
+      />,
+    );
+
+    const createWorkspace = screen.getByRole("button", { name: /create your first workspace/i });
+    expect(createWorkspace).toBeEnabled();
+    expect(screen.getByText("One quick step, then you can launch your first agent.")).toBeInTheDocument();
+    expect(screen.queryByText("Select a Workspace before launching an agent.")).not.toBeInTheDocument();
+
+    fireEvent.click(createWorkspace);
+    expect(onCreateWorkspace).toHaveBeenCalledOnce();
+    expect(onCreate).not.toHaveBeenCalled();
+  });
+
+  it("keeps the selection guard when Workspaces exist but none is selected", () => {
+    render(
+      <LaunchFirstAgentEmptyState
+        onCreate={vi.fn()}
+        creationDisabledReason="Select a Workspace before launching an agent."
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /^Create an agent/ })).toBeDisabled();
+    expect(screen.getAllByText("Select a Workspace before launching an agent.").length).toBeGreaterThan(0);
+  });
+});
 
 describe("AgentList", () => {
   it("does not render the desktop agents/channels sidebar below the desktop breakpoint", () => {
@@ -548,13 +584,25 @@ describe("AgentList", () => {
     const onOpenHome = vi.fn();
     const onOpenKnowledge = vi.fn();
     const onOpenMembers = vi.fn();
-    renderAgentList({ onOpenHome, onOpenKnowledge, onOpenMembers, homeActive: true, knowledgeActive: true, usageActive: true });
+    const onOpenUsage = vi.fn();
+    const onOpenAccountSettings = vi.fn();
+    renderAgentList({
+      onOpenHome,
+      onOpenKnowledge,
+      onOpenMembers,
+      onOpenUsage,
+      onOpenAccountSettings,
+      homeActive: true,
+      knowledgeActive: true,
+      usageActive: true,
+      accountSettingsActive: true,
+    });
 
     const home = screen.getByRole("button", { name: "Home" });
     const sharedKnowledge = screen.getByRole("button", { name: "Shared Knowledge" });
     const members = screen.getByRole("button", { name: "Members" });
-    const usage = screen.getByRole("link", { name: "Usage" });
-    const settings = screen.getByRole("link", { name: "Settings" });
+    const usage = screen.getByRole("button", { name: "Usage" });
+    const settings = screen.getByRole("button", { name: "Settings" });
     const dividers = document.querySelectorAll(".agents-roster-rail-divider");
 
     expect(dividers).toHaveLength(2);
@@ -571,13 +619,17 @@ describe("AgentList", () => {
     expect(sharedKnowledge).toHaveClass("text-[var(--selection-accent)]");
     expect(usage).toHaveAttribute("aria-current", "page");
     expect(usage).toHaveClass("text-[var(--selection-accent)]");
-    expect(settings).toHaveAttribute("href", "/dashboard/settings");
+    expect(settings).toHaveAttribute("aria-current", "page");
     fireEvent.click(home);
     fireEvent.click(sharedKnowledge);
     fireEvent.click(members);
+    fireEvent.click(usage);
+    fireEvent.click(settings);
     expect(onOpenHome).toHaveBeenCalledOnce();
     expect(onOpenKnowledge).toHaveBeenCalledOnce();
     expect(onOpenMembers).toHaveBeenCalledOnce();
+    expect(onOpenUsage).toHaveBeenCalledOnce();
+    expect(onOpenAccountSettings).toHaveBeenCalledOnce();
   });
 
   it("shows stopped agents in the collapsed rail by default", () => {
@@ -772,7 +824,7 @@ describe("AgentList", () => {
     const onOpenSettings = vi.fn();
     renderAgentList({ sidebarCollapsed: false, onOpenSettings });
 
-    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/dashboard/settings");
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/dashboard/agents?view=settings");
     expect(onOpenSettings).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: /account/i }));

@@ -57,6 +57,7 @@ interface AgentMainPanelProps {
   workspaceName?: string | null;
   hasAccountAgents?: boolean;
   creationDisabledReason?: string | null;
+  onCreateWorkspace?: () => void;
   onOpenMembers?: () => void;
   onShowList: () => void;
   showMobileListButton?: boolean;
@@ -102,6 +103,7 @@ export function AgentMainPanel({
   workspaceName,
   hasAccountAgents = false,
   creationDisabledReason,
+  onCreateWorkspace,
   onOpenMembers,
   onShowList,
   showMobileListButton = true,
@@ -395,6 +397,7 @@ export function AgentMainPanel({
           workspaceName={workspaceName}
           hasAccountAgents={hasAccountAgents}
           creationDisabledReason={creationDisabledReason}
+          onCreateWorkspace={onCreateWorkspace}
           onOpenMembers={onOpenMembers}
         />
       ) : (

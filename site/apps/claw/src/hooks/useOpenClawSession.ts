@@ -375,6 +375,11 @@ function writeStoredSessions(agentId: string | null, sessions: OpenClawSessionRe
         key: session.key,
         gatewaySessionKey: session.gatewaySessionKey,
         sourceSessionKey: session.sourceSessionKey,
+        model: session.model,
+        modelProvider: session.modelProvider,
+        thinkingLevel: session.thinkingLevel,
+        thinkingLevels: session.thinkingLevels,
+        thinkingDefault: session.thinkingDefault,
         clientMode: session.clientMode,
         clientDisplayName: session.clientDisplayName,
         createdAt: session.createdAt,
@@ -469,18 +474,30 @@ function nonEmptyString(value: unknown): string | null {
 }
 
 function sessionPatchThinkingMetadata(value: unknown): {
+  modelProvider: string | null;
+  model: string | null;
   thinkingLevel: string | null;
-  thinkingLevels: ReturnType<typeof normalizeOpenClawThinkingLevels>;
-  thinkingDefault: string | null;
+  thinkingLevels: ReturnType<typeof normalizeOpenClawThinkingLevels> | null;
 } {
   const result = isRecord(value) ? value : null;
   const resolved = isRecord(result?.resolved) ? result.resolved : null;
   const entry = isRecord(result?.entry) ? result.entry : null;
+  const hasThinkingLevels = Array.isArray(resolved?.thinkingLevels) || Array.isArray(resolved?.thinkingOptions);
   return {
-    thinkingLevel: nonEmptyString(entry?.thinkingLevel) ?? nonEmptyString(resolved?.thinkingLevel),
-    thinkingLevels: normalizeOpenClawThinkingLevels(resolved?.thinkingLevels, resolved?.thinkingOptions),
-    thinkingDefault: nonEmptyString(resolved?.thinkingDefault),
+    modelProvider: nonEmptyString(resolved?.modelProvider),
+    model: nonEmptyString(resolved?.model),
+    thinkingLevel: nonEmptyString(resolved?.thinkingLevel) ?? nonEmptyString(entry?.thinkingLevel),
+    thinkingLevels: hasThinkingLevels
+      ? normalizeOpenClawThinkingLevels(resolved?.thinkingLevels, resolved?.thinkingOptions)
+      : null,
   };
+}
+
+function qualifiedOpenClawModel(provider: string | null, model: string | null): string | null {
+  if (!model) return null;
+  return provider && !model.toLowerCase().startsWith(`${provider.toLowerCase()}/`)
+    ? `${provider}/${model}`
+    : model;
 }
 
 function stableStatusCacheKey(value: unknown): string {
@@ -652,6 +669,8 @@ export function useOpenClawSession(
   const reconnectSessionRefreshRef = useRef<ReconnectSessionRefreshRequest | null>(null);
   const connectionHydrationRef = useRef<ConnectionHydrationEntry | null>(null);
   const sessionListRefreshRef = useRef<SessionListRefreshEntry | null>(null);
+  const sessionSelectionRevisionRef = useRef(0);
+  const fetchedSessionSelectionRevisionRef = useRef(new WeakMap<OpenClawSessionRecord[], number>());
   const chatHistoryRefreshRef = useRef<ChatHistoryRefreshEntry | null>(null);
   const sessionSnapshotRef = useRef<SessionSnapshotEntry>({ agentId: null, fetchedAgentId: null, sessions: [] });
   const channelsStatusCacheRef = useRef<GatewayStatusCacheEntry<Record<string, unknown>> | null>(null);
@@ -1090,6 +1109,11 @@ export function useOpenClawSession(
   }, [updateSessionTitleMap]);
 
   const applyFetchedSessions = useCallback((nextSessions: OpenClawSessionRecord[]) => {
+    const fetchedSelectionRevision = fetchedSessionSelectionRevisionRef.current.get(nextSessions);
+    if (fetchedSelectionRevision !== undefined && fetchedSelectionRevision < sessionSelectionRevisionRef.current) {
+      setSessionsFetchedAgentId(agentId);
+      return sessionSnapshotRef.current.agentId === agentId ? sessionSnapshotRef.current.sessions : [];
+    }
     pruneDeletedSessionTombstones();
     setTitledSessions(nextSessions);
     setSessionsFetchedAgentId(agentId);
@@ -1100,7 +1124,11 @@ export function useOpenClawSession(
     const current = sessionListRefreshRef.current;
     if (current && current.gateway === targetGateway && current.agentId === agentId) return current.promise;
 
-    const promise = listOpenClawSessions(targetGateway);
+    const selectionRevision = sessionSelectionRevisionRef.current;
+    const promise = listOpenClawSessions(targetGateway).then((nextSessions) => {
+      fetchedSessionSelectionRevisionRef.current.set(nextSessions, selectionRevision);
+      return nextSessions;
+    });
     const entry: SessionListRefreshEntry = { gateway: targetGateway, agentId, promise };
     sessionListRefreshRef.current = entry;
     void promise.then(
@@ -1123,6 +1151,15 @@ export function useOpenClawSession(
     }
   }, [gateway, applyFetchedSessions, fetchSessionList]);
 
+  const refreshSessionListAfterSelectionPatch = useCallback((targetGateway: GatewayClient) => {
+    const pendingRefresh = sessionListRefreshRef.current;
+    if (!pendingRefresh || pendingRefresh.gateway !== targetGateway || pendingRefresh.agentId !== agentId) return;
+    void pendingRefresh.promise.catch(() => undefined).then(() => {
+      if (sessionSnapshotRef.current.agentId !== agentId) return;
+      void refreshSessionList(targetGateway);
+    });
+  }, [agentId, refreshSessionList]);
+
   const activeSessionRecords = useMemo(
     () => sessionsAgentId === agentId ? sessions : [],
     [agentId, sessions, sessionsAgentId],
@@ -1132,6 +1169,7 @@ export function useOpenClawSession(
       ? findOpenClawSelectableSession(activeSessionRecords, OPENCLAW_DEFAULT_SESSION_KEY)
       : null);
   const activeGatewaySessionKey = openClawGatewaySessionKey(activeSessionRecord) ?? activeSessionKey;
+  const activeSessionSelectionKey = activeSessionRecord?.key ?? activeSessionKey;
   const activeSessionModel = activeSessionRecord?.model ?? null;
   const activeSessionThinkingLevel = activeSessionRecord?.thinkingLevel ?? null;
   const activeSessionThinkingLevels = activeSessionRecord?.thinkingLevels ?? [];
@@ -1765,32 +1803,28 @@ export function useOpenClawSession(
     if (activeSessionReadOnly) throw new Error(activeSessionReadOnlyReason ?? "This conversation is read-only.");
 
     const patchResult = await gateway.sessionsPatch({ key: activeGatewaySessionKey, model: nextModel });
+    if (sessionSnapshotRef.current.agentId !== agentId) return;
     const thinkingMetadata = sessionPatchThinkingMetadata(patchResult);
-    setSessions((current) => {
-      if (sessionsAgentId !== agentId) return current;
+    const resolvedModel = qualifiedOpenClawModel(thinkingMetadata.modelProvider, thinkingMetadata.model) ?? nextModel;
+    const resolvedModelProvider = thinkingMetadata.modelProvider ?? (resolvedModel.includes("/") ? resolvedModel.split("/", 1)[0] ?? null : null);
+    sessionSelectionRevisionRef.current += 1;
+    setTitledSessions((current) => {
+      if (sessionSnapshotRef.current.agentId !== agentId) return current;
       let matched = false;
       const next = current.map((session) => {
-        const sessionGatewayKey = openClawGatewaySessionKey(session) ?? session.key;
-        if (
-          !sameOpenClawSessionKey(sessionGatewayKey, activeGatewaySessionKey) &&
-          !sameOpenClawSelectableSessionKey(session.key, activeSessionKey)
-        ) {
-          return session;
-        }
+        if (!sameOpenClawSelectableSessionKey(session.key, activeSessionSelectionKey)) return session;
         matched = true;
-        const {
-          thinkingLevel: _thinkingLevel,
-          thinkingLevels: _thinkingLevels,
-          thinkingDefault: _thinkingDefault,
-          ...sessionWithoutThinking
-        } = session;
         return {
-          ...sessionWithoutThinking,
-          model: nextModel,
+          ...session,
+          model: resolvedModel,
+          ...(resolvedModelProvider ? { modelProvider: resolvedModelProvider } : {}),
           ...(thinkingMetadata.thinkingLevel ? { thinkingLevel: thinkingMetadata.thinkingLevel } : {}),
-          ...(thinkingMetadata.thinkingLevels.length > 0 ? { thinkingLevels: thinkingMetadata.thinkingLevels } : {}),
-          ...(thinkingMetadata.thinkingDefault ? { thinkingDefault: thinkingMetadata.thinkingDefault } : {}),
-          raw: { ...session.raw, model: nextModel },
+          ...(thinkingMetadata.thinkingLevels !== null ? { thinkingLevels: thinkingMetadata.thinkingLevels } : {}),
+          raw: {
+            ...session.raw,
+            model: thinkingMetadata.model ?? resolvedModel,
+            ...(resolvedModelProvider ? { modelProvider: resolvedModelProvider } : {}),
+          },
         };
       });
       if (matched) return next;
@@ -1799,15 +1833,21 @@ export function useOpenClawSession(
       return [...next, {
         ...localSession,
         ...(activeGatewaySessionKey !== activeSessionKey ? { gatewaySessionKey: activeGatewaySessionKey } : {}),
-        model: nextModel,
+        model: resolvedModel,
+        ...(resolvedModelProvider ? { modelProvider: resolvedModelProvider } : {}),
         ...(thinkingMetadata.thinkingLevel ? { thinkingLevel: thinkingMetadata.thinkingLevel } : {}),
-        ...(thinkingMetadata.thinkingLevels.length > 0 ? { thinkingLevels: thinkingMetadata.thinkingLevels } : {}),
-        ...(thinkingMetadata.thinkingDefault ? { thinkingDefault: thinkingMetadata.thinkingDefault } : {}),
-        raw: { ...localSession.raw, key: activeGatewaySessionKey, model: nextModel },
+        ...(thinkingMetadata.thinkingLevels !== null ? { thinkingLevels: thinkingMetadata.thinkingLevels } : {}),
+        raw: {
+          ...localSession.raw,
+          key: activeGatewaySessionKey,
+          model: thinkingMetadata.model ?? resolvedModel,
+          ...(resolvedModelProvider ? { modelProvider: resolvedModelProvider } : {}),
+        },
       }];
     });
-    appendActivity({ type: "system", action: "Conversation model changed", detail: nextModel });
-  }, [activeGatewaySessionKey, activeSessionKey, activeSessionReadOnly, activeSessionReadOnlyReason, agentId, appendActivity, gateway, sessionsAgentId]);
+    refreshSessionListAfterSelectionPatch(gateway);
+    appendActivity({ type: "system", action: "Conversation model changed", detail: resolvedModel });
+  }, [activeGatewaySessionKey, activeSessionKey, activeSessionReadOnly, activeSessionReadOnlyReason, activeSessionSelectionKey, agentId, appendActivity, gateway, refreshSessionListAfterSelectionPatch, setTitledSessions]);
 
   const setActiveSessionThinkingLevel = useCallback(async (thinkingLevel: string) => {
     const nextThinkingLevel = thinkingLevel.trim();
@@ -1819,25 +1859,20 @@ export function useOpenClawSession(
       key: activeGatewaySessionKey,
       thinkingLevel: nextThinkingLevel,
     });
+    if (sessionSnapshotRef.current.agentId !== agentId) return;
     const thinkingMetadata = sessionPatchThinkingMetadata(patchResult);
     const resolvedThinkingLevel = thinkingMetadata.thinkingLevel ?? nextThinkingLevel;
-    setSessions((current) => {
-      if (sessionsAgentId !== agentId) return current;
+    sessionSelectionRevisionRef.current += 1;
+    setTitledSessions((current) => {
+      if (sessionSnapshotRef.current.agentId !== agentId) return current;
       let matched = false;
       const next = current.map((session) => {
-        const sessionGatewayKey = openClawGatewaySessionKey(session) ?? session.key;
-        if (
-          !sameOpenClawSessionKey(sessionGatewayKey, activeGatewaySessionKey) &&
-          !sameOpenClawSelectableSessionKey(session.key, activeSessionKey)
-        ) {
-          return session;
-        }
+        if (!sameOpenClawSelectableSessionKey(session.key, activeSessionSelectionKey)) return session;
         matched = true;
         return {
           ...session,
           thinkingLevel: resolvedThinkingLevel,
-          ...(thinkingMetadata.thinkingLevels.length > 0 ? { thinkingLevels: thinkingMetadata.thinkingLevels } : {}),
-          ...(thinkingMetadata.thinkingDefault ? { thinkingDefault: thinkingMetadata.thinkingDefault } : {}),
+          ...(thinkingMetadata.thinkingLevels !== null ? { thinkingLevels: thinkingMetadata.thinkingLevels } : {}),
           raw: { ...session.raw, thinkingLevel: resolvedThinkingLevel },
         };
       });
@@ -1849,13 +1884,13 @@ export function useOpenClawSession(
         ...(activeGatewaySessionKey !== activeSessionKey ? { gatewaySessionKey: activeGatewaySessionKey } : {}),
         ...(activeSessionModel ? { model: activeSessionModel } : {}),
         thinkingLevel: resolvedThinkingLevel,
-        ...(thinkingMetadata.thinkingLevels.length > 0 ? { thinkingLevels: thinkingMetadata.thinkingLevels } : {}),
-        ...(thinkingMetadata.thinkingDefault ? { thinkingDefault: thinkingMetadata.thinkingDefault } : {}),
+        ...(thinkingMetadata.thinkingLevels !== null ? { thinkingLevels: thinkingMetadata.thinkingLevels } : {}),
         raw: { ...localSession.raw, key: activeGatewaySessionKey, thinkingLevel: resolvedThinkingLevel },
       }];
     });
+    refreshSessionListAfterSelectionPatch(gateway);
     appendActivity({ type: "system", action: "Conversation variant changed", detail: resolvedThinkingLevel });
-  }, [activeGatewaySessionKey, activeSessionKey, activeSessionModel, activeSessionReadOnly, activeSessionReadOnlyReason, agentId, appendActivity, gateway, sessionsAgentId]);
+  }, [activeGatewaySessionKey, activeSessionKey, activeSessionModel, activeSessionReadOnly, activeSessionReadOnlyReason, activeSessionSelectionKey, agentId, appendActivity, gateway, refreshSessionListAfterSelectionPatch, setTitledSessions]);
 
   const saveFullConfig = useCallback(async (nextConfig: Record<string, unknown>) => {
     if (!gateway) throw new Error("Not connected");

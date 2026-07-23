@@ -363,6 +363,7 @@ export {
   type ChatEvent,
   type GatewayEphemeralChatOptions,
   type GatewayEphemeralChatSession,
+  type GatewaySessionsListResult,
   type GatewayAbortSignal,
   type ChatAttachment,
   type BrowserChatAttachment,

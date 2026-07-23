@@ -9,6 +9,7 @@ const TEST_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQxMDI0NDQ4MDB9.signature";
 const SECONDARY_SESSION_KEY = "session-secondary-focus";
 const ARCHIVED_SESSION_KEY = "session-archived-focus";
 const AGENT_ROSTER_COLLAPSED_STORAGE_KEY = "claw.agentRosterCollapsed.v1";
+const TEST_WORKSPACE_ID = "workspace-agent-chat-navigation";
 
 interface AgentChatGatewayRequest {
   method: string;
@@ -45,6 +46,7 @@ async function mockAgentChat(page: Page): Promise<{ requests: AgentChatGatewayRe
     window.localStorage.setItem(rosterCollapsedStorageKey, "true");
     const gatewayCalls = {
       urls: [] as string[],
+      closes: [] as Array<{ code?: number; reason?: string }>,
       methods: [] as string[],
       requests: [] as AgentChatGatewayRequest[],
     };
@@ -171,6 +173,7 @@ async function mockAgentChat(page: Page): Promise<{ requests: AgentChatGatewayRe
       }
 
       close(code?: number, reason?: string) {
+        gatewayCalls.closes.push({ code, reason });
         this.readyState = MockWebSocket.CLOSED;
         window.setTimeout(() => this.onclose?.({ code, reason }), 0);
       }
@@ -201,6 +204,42 @@ async function mockAgentChat(page: Page): Promise<{ requests: AgentChatGatewayRe
     token: TEST_JWT,
     secondarySessionKey: SECONDARY_SESSION_KEY,
     rosterCollapsedStorageKey: AGENT_ROSTER_COLLAPSED_STORAGE_KEY,
+  });
+
+  await page.route(/\/workspaces(?:\/.*)?$/, async (route) => {
+    const pathName = new URL(route.request().url()).pathname;
+
+    if (pathName.endsWith(`/workspaces/${TEST_WORKSPACE_ID}/agents`)) {
+      await route.fulfill(json(["agent-1", "agent-2"].map((agentId) => ({
+        workspace_id: TEST_WORKSPACE_ID,
+        agent_id: agentId,
+        role: "viewer",
+        expires_at: null,
+      }))));
+      return;
+    }
+
+    if (pathName.endsWith(`/workspaces/${TEST_WORKSPACE_ID}/grants`)) {
+      await route.fulfill(json(["agent-1", "agent-2"].map((agentId) => ({
+        id: `grant-${agentId}`,
+        workspace_id: TEST_WORKSPACE_ID,
+        subject_type: "agent",
+        subject_id: agentId,
+        role: "viewer",
+        expires_at: null,
+        revoked_at: null,
+      }))));
+      return;
+    }
+
+    const workspace = {
+      id: TEST_WORKSPACE_ID,
+      name: "Agent Chat Navigation",
+      slug: TEST_WORKSPACE_ID,
+      display_name: "Agent Chat Navigation",
+      role: "admin",
+    };
+    await route.fulfill(json(pathName.endsWith(`/workspaces/${TEST_WORKSPACE_ID}`) ? workspace : [workspace]));
   });
 
   await page.route("**/agents/**", async (route) => {
@@ -317,6 +356,72 @@ test("refresh restores the selected agent and non-main chat session", async ({ p
   await expect(page.getByText("Secondary focus history restored")).toBeVisible();
 });
 
+test("dashboard views preserve the agent controller across navigation history", async ({ page }) => {
+  await mockAgentChat(page);
+  await page.goto("/dashboard/agents?agentId=agent-1", { waitUntil: "domcontentloaded" });
+
+  await expect.poll(() => page.evaluate(() => (
+    (window as Window & { __agentChatNavigationGatewayCalls?: { urls: string[] } })
+      .__agentChatNavigationGatewayCalls?.urls.length ?? 0
+  ))).toBe(1);
+  const composer = page.locator("textarea").first();
+  await expect(composer).toBeVisible();
+  await composer.fill("draft survives dashboard navigation");
+
+  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBe("overview");
+  await expect(page.getByRole("heading", { name: "Agent Chat Navigation" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Usage", exact: true }).click();
+  await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBe("usage");
+  await expect(page.getByText(/token usage/i).first()).toBeVisible();
+
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBe("settings");
+  await expect(page.getByRole("heading", { name: "Appearance" })).toBeVisible();
+
+  await page.goBack();
+  await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBe("usage");
+  await page.goBack();
+  await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBe("overview");
+  await page.goBack();
+  await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBeNull();
+  await expect(composer).toBeVisible();
+  await expect(composer).toHaveValue("draft survives dashboard navigation");
+
+  await page.goForward();
+  await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBe("overview");
+  await page.goForward();
+  await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBe("usage");
+  await page.goForward();
+  await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBe("settings");
+
+  await expect.poll(() => page.evaluate(() => {
+    const calls = (window as Window & {
+      __agentChatNavigationGatewayCalls?: { urls: string[]; closes: unknown[] };
+    }).__agentChatNavigationGatewayCalls;
+    return { connections: calls?.urls.length ?? 0, closes: calls?.closes.length ?? 0 };
+  })).toEqual({ connections: 1, closes: 0 });
+});
+
+test("direct dashboard views defer the gateway until an agent is opened", async ({ page }) => {
+  await mockAgentChat(page);
+  await page.goto("/dashboard/agents?view=overview&agentId=agent-1", { waitUntil: "domcontentloaded" });
+
+  await expect(page.getByRole("heading", { name: "Agent Chat Navigation" })).toBeVisible();
+  expect(await page.evaluate(() => (
+    (window as Window & { __agentChatNavigationGatewayCalls?: { urls: string[] } })
+      .__agentChatNavigationGatewayCalls?.urls.length ?? 0
+  ))).toBe(0);
+
+  await page.getByRole("button", { name: "Select Primary Agent" }).click();
+  await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBeNull();
+  await expect.poll(() => page.evaluate(() => (
+    (window as Window & { __agentChatNavigationGatewayCalls?: { urls: string[] } })
+      .__agentChatNavigationGatewayCalls?.urls.length ?? 0
+  ))).toBe(1);
+});
+
 test("pinned sessions stay first across reload and return to recency order after unpinning", async ({ page }) => {
   await mockAgentChat(page);
   await page.goto("/dashboard/agents?agentId=agent-1", { waitUntil: "domcontentloaded" });
@@ -335,7 +440,7 @@ test("pinned sessions stay first across reload and return to recency order after
   await page.getByRole("button", { name: "Pin", exact: true }).click();
 
   await expectSessionBefore(page, "Archived Focus", "Secondary Focus");
-  await expect(page.getByTitle("Pinned session")).toBeVisible();
+  await expect(archivedSession.locator(".lucide-pin")).toBeVisible();
   await expect.poll(() => page.evaluate((storageKey) => {
     const raw = window.localStorage.getItem(storageKey);
     return raw ? JSON.parse(raw).sessionKeys : [];
@@ -354,7 +459,7 @@ test("pinned sessions stay first across reload and return to recency order after
   await page.getByRole("button", { name: "Unpin", exact: true }).click();
 
   await expectSessionBefore(page, "Secondary Focus", "Archived Focus");
-  await expect(page.getByTitle("Pinned session")).toHaveCount(0);
+  await expect(archivedSession.locator(".lucide-pin")).toHaveCount(0);
   await expect.poll(() => page.evaluate((storageKey) => window.localStorage.getItem(storageKey), "openclaw.sessionPins.v1:agent-2")).toBeNull();
 });
 
@@ -383,7 +488,7 @@ test("private chat stays out of navigation state and resets before switching age
     request.params.key?.startsWith("session-hypercli-ephemeral-")
   ))!.params!.key!;
   await page.locator("textarea").fill("private browser secret");
-  await page.getByTitle("Send message").click();
+  await page.getByRole("button", { name: "Send message" }).click();
   await expect(page.getByText("Private reply", { exact: true })).toBeVisible();
   await page.waitForTimeout(350);
   const storedBrowserState = await page.evaluate(() => JSON.stringify(Object.fromEntries(
@@ -394,6 +499,17 @@ test("private chat stays out of navigation state and resets before switching age
   )));
   expect(storedBrowserState).not.toContain("session-hypercli-ephemeral-");
   expect(storedBrowserState).not.toContain("private browser secret");
+
+  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBe("overview");
+  await expect.poll(() => (
+    gatewayTracker.requests.filter((request) => (
+      request.method === "sessions.reset" &&
+      request.params?.key === privateSessionKey &&
+      request.params.reason === "reset"
+    )).length
+  )).toBe(1);
+  await expect(page.getByRole("button", { name: "End private chat" })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Select Secondary Agent" }).click();
 

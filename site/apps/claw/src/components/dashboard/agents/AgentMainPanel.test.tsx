@@ -18,6 +18,7 @@ vi.mock("@/components/dashboard/agents/AgentPanels", () => {
     workspaceName?: string | null;
     hasAccountAgents?: boolean;
     creationDisabledReason?: string | null;
+    onCreateWorkspace?: () => void;
     onOpenMembers?: () => void;
   };
   const emptyStateButton = (regionLabel: string, defaultButtonLabel: string) => {
@@ -30,17 +31,19 @@ vi.mock("@/components/dashboard/agents/AgentPanels", () => {
       workspaceName,
       hasAccountAgents,
       creationDisabledReason,
+      onCreateWorkspace,
       onOpenMembers,
     }: EmptyStateMockProps) {
+      const workspaceSetupRequired = Boolean(onCreateWorkspace);
       return (
         <section aria-label={regionLabel}>
           {workspaceName ? <p>No agents in {workspaceName}</p> : null}
           <button
             type="button"
-            onClick={onLaunchAction ?? onCreate}
-            disabled={Boolean(launching || launchBlocked || creationDisabledReason)}
+            onClick={onCreateWorkspace ?? onLaunchAction ?? onCreate}
+            disabled={Boolean(launching || launchBlocked || (!workspaceSetupRequired && creationDisabledReason))}
           >
-            {launching ? "Starting agent" : launchLabel ?? defaultButtonLabel}
+            {workspaceSetupRequired ? "Create your first Workspace" : launching ? "Starting agent" : launchLabel ?? defaultButtonLabel}
           </button>
           {workspaceName && hasAccountAgents && onOpenMembers ? (
             <button type="button" onClick={onOpenMembers}>Add an existing agent in Members</button>
@@ -113,6 +116,23 @@ describe("AgentMainPanel", () => {
     const emptyState = screen.getByRole("region", { name: /first agent empty state/i });
     fireEvent.click(within(emptyState).getByRole("button", { name: /create an agent/i }));
     expect(onCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers Workspace creation before agent creation when no Workspace is available", () => {
+    const onCreate = vi.fn();
+    const onCreateWorkspace = vi.fn();
+    renderAgentMainPanel({
+      selectedAgent: null,
+      onCreate,
+      onCreateWorkspace,
+      creationDisabledReason: "Select a Workspace before launching an agent.",
+    });
+
+    const createWorkspace = screen.getByRole("button", { name: "Create your first Workspace" });
+    expect(createWorkspace).toBeEnabled();
+    fireEvent.click(createWorkspace);
+    expect(onCreateWorkspace).toHaveBeenCalledOnce();
+    expect(onCreate).not.toHaveBeenCalled();
   });
 
   it("describes an empty Workspace and links to existing agent assignments", () => {

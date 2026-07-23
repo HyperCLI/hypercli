@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+
+import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
 import { MessageSquare, Users } from "lucide-react";
 
 const TEAM_SETTINGS_LINK_CLASS =
@@ -24,7 +26,7 @@ export function AgentTeamSettingsContent() {
                 </p>
               </div>
             </div>
-            <Link href="/dashboard" className={TEAM_SETTINGS_LINK_CLASS}>Manage</Link>
+            <Link href={DASHBOARD_VIEW_HREFS.overview} className={TEAM_SETTINGS_LINK_CLASS}>Manage</Link>
           </div>
 
           <div className="flex min-h-[100px] items-center justify-between gap-4 py-7">

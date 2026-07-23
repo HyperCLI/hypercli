@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo } from "react";
 import { CheckCircle2, XCircle } from "lucide-react";
+import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
 
-const DEFAULT_SLACK_RETURN_PATH = "/dashboard/settings/";
+const DEFAULT_SLACK_RETURN_PATH = DASHBOARD_VIEW_HREFS.settings;
 
 export function slackOAuthResultMessage(ok: boolean, error: string | null): string {
   if (ok) return "Returning to settings in 10 seconds.";

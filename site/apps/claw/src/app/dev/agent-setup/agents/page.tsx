@@ -76,6 +76,7 @@ import type { WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
 import type { HyperAgentCurrentPlan, HyperAgentPlan, HyperAgentSubscriptionSummary, HyperAgentTypeCatalog } from "@hypercli.com/sdk/agent";
 import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentState } from "@/app/dashboard/agents/types";
 import { isAgentFailureState, isAgentTransitionalState } from "@/app/dashboard/agents/types";
+import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
 import {
   describeAgentTierStartGuidance,
   describeAgentsPageError,
@@ -535,12 +536,12 @@ export default function DevAgentSetupAgentsPage() {
     { key: "shell", label: "Shell", icon: TerminalSquare },
   ];
   const dashboardNavItems: Array<{ label: string; href: string; icon: typeof Bot }> = [
-    { label: "Overview", href: "/dashboard", icon: Bot },
+    { label: "Overview", href: DASHBOARD_VIEW_HREFS.overview, icon: Bot },
     { label: "Agents", href: "/agents", icon: Bot },
     { label: "API Keys", href: "/keys", icon: Key },
     { label: "Plans", href: "/plans", icon: CreditCard },
-    { label: "Billing", href: "/dashboard/settings", icon: CreditCard },
-    { label: "Settings", href: "/dashboard/settings", icon: Settings },
+    { label: "Billing", href: DASHBOARD_VIEW_HREFS.settings, icon: CreditCard },
+    { label: "Settings", href: DASHBOARD_VIEW_HREFS.settings, icon: Settings },
   ];
 
   // Sync settings fields when selected agent changes
@@ -1858,7 +1859,7 @@ export default function DevAgentSetupAgentsPage() {
                     setMobileShowChat(true);
                   },
                   onOpenPlans: () => router.push("/plans"),
-                  onOpenBilling: () => router.push("/dashboard/settings"),
+                  onOpenBilling: () => router.push(DASHBOARD_VIEW_HREFS.settings),
                   onStartAgent: async () => {
                     if (selectedAgent) await handleStart(selectedAgent.id);
                   },

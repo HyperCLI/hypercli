@@ -82,16 +82,16 @@ describe("OpenClawModelMenu", () => {
     const { rerender } = renderWithClient(<OpenClawModelMenu chat={chat} />);
 
     const trigger = screen.getByRole("button", { name: "Model: Kimi K2.6, Fast" });
-    expect(within(trigger).getByText("Kimi K2.6")).toHaveClass("text-[var(--selection-accent)]");
+    expect(within(trigger).getByText("Kimi K2.6")).toHaveClass("text-foreground");
     expect(within(trigger).getByText("Fast")).toHaveClass("text-text-muted");
 
     fireEvent.click(trigger);
     const menuOptions = screen.getAllByRole("option");
-    expect(menuOptions[0]).toHaveAccessibleName("Variant: Fast");
+    expect(menuOptions[0]).toHaveAccessibleName("Variant: Fast, current");
     expect(menuOptions[1]).toHaveAccessibleName("Variant: Medium");
-    const selectedOption = screen.getByRole("option", { name: "Kimi K2.6" });
+    const selectedOption = screen.getByRole("option", { name: "Kimi K2.6 (hypercli), current" });
     expect(selectedOption).toHaveClass("data-[selected=true]:!bg-surface-high");
-    expect(within(selectedOption).getByText("Kimi K2.6")).toHaveClass("text-[var(--selection-accent)]");
+    expect(within(selectedOption).getByText("Kimi K2.6")).toHaveClass("text-foreground");
 
     const mediumOption = screen.getByRole("option", { name: "Variant: Medium" });
     expect(within(mediumOption).getByText("Medium")).toHaveClass("text-text-muted");
@@ -101,7 +101,7 @@ describe("OpenClawModelMenu", () => {
     expect(chat.setActiveSessionModel).not.toHaveBeenCalled();
     rerender(<OpenClawModelMenu chat={{ ...chat, activeSessionThinkingLevel: "medium" }} />);
     const updatedTrigger = screen.getByRole("button", { name: "Model: Kimi K2.6, Medium" });
-    expect(within(updatedTrigger).getByText("Kimi K2.6")).toHaveClass("text-[var(--selection-accent)]");
+    expect(within(updatedTrigger).getByText("Kimi K2.6")).toHaveClass("text-foreground");
     expect(within(updatedTrigger).getByText("Medium")).toHaveClass("text-text-muted");
   });
 
@@ -111,7 +111,7 @@ describe("OpenClawModelMenu", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /model: gpt-5 mini/i }));
     expect(screen.queryByRole("combobox", { name: "Search models" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("option", { name: "Claude Sonnet 4.5" }));
+    fireEvent.click(screen.getByRole("option", { name: "Claude Sonnet 4.5 (Anthropic)" }));
 
     await waitFor(() => expect(chat.setActiveSessionModel).toHaveBeenCalledWith("anthropic/claude-sonnet-4-5"));
   });

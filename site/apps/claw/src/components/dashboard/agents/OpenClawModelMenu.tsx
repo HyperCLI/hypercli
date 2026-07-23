@@ -198,7 +198,7 @@ export function OpenClawModelMenu({ chat, disabled = false, onOpenSettings }: Op
             aria-label={triggerVariant ? `Model: ${triggerLabel}, ${triggerVariant}` : `Model: ${triggerLabel}`}
             className="flex h-8 max-w-40 items-center justify-start gap-1.5 rounded-lg px-2 text-left transition-colors hover:bg-surface-low disabled:cursor-not-allowed disabled:opacity-40"
           >
-            <span className="min-w-0 truncate text-[12px] font-semibold text-[var(--selection-accent)]">{triggerLabel}</span>
+            <span className="min-w-0 truncate text-[12px] font-semibold text-foreground">{triggerLabel}</span>
             {triggerVariant ? <span className="shrink-0 text-[12px] font-medium text-text-muted">{triggerVariant}</span> : null}
             <ChevronDown className="h-3 w-3 shrink-0 text-text-muted" />
           </button>
@@ -222,7 +222,7 @@ export function OpenClawModelMenu({ chat, disabled = false, onOpenSettings }: Op
                       return (
                         <CommandItem
                           key={option.id}
-                          aria-label={`Variant: ${label}`}
+                          aria-label={`Variant: ${label}${selected ? ", current" : ""}`}
                           value={`variant ${label} ${option.id}`}
                           disabled={Boolean(selectingModel || selectingVariant || addingModel)}
                           onSelect={() => { void selectVariant(option.id); }}
@@ -230,7 +230,7 @@ export function OpenClawModelMenu({ chat, disabled = false, onOpenSettings }: Op
                         >
                           <span className="min-w-0 flex-1 truncate text-xs font-medium text-text-muted">{label}</span>
                           {pending ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-text-muted" /> : null}
-                          {selected ? <Check className="h-3.5 w-3.5 shrink-0 text-[var(--selection-accent)]" /> : null}
+                          {selected ? <Check className="h-3.5 w-3.5 shrink-0 text-foreground" /> : null}
                         </CommandItem>
                       );
                     })}
@@ -246,18 +246,18 @@ export function OpenClawModelMenu({ chat, disabled = false, onOpenSettings }: Op
                   return (
                     <CommandItem
                       key={option.value}
-                      aria-label={optionLabel}
+                      aria-label={`${option.label}${selected ? ", current" : ""}`}
                       value={`${optionLabel} ${option.label} ${option.value} ${option.detail ?? ""}`}
                       disabled={Boolean(selectingModel || selectingVariant || addingModel)}
                       onSelect={() => { void selectModel(option.value); }}
                       className={`items-start rounded-lg px-2.5 py-2.5 data-[selected=true]:!bg-surface-high data-[selected=true]:!text-foreground ${selected ? "bg-surface-low ring-1 ring-inset ring-border" : ""}`}
                     >
                       <span className="min-w-0 flex-1">
-                        <span className={`block truncate text-xs font-semibold ${selected ? "text-[var(--selection-accent)]" : "text-foreground"}`}>{optionLabel}</span>
+                        <span className={`block truncate text-xs font-semibold ${selected ? "text-foreground" : "text-text-secondary"}`}>{optionLabel}</span>
                         <span className="block truncate font-mono text-[10px] leading-4 text-text-muted">{option.value}</span>
                       </span>
                       {pending ? <Loader2 className="mt-1 h-3.5 w-3.5 shrink-0 animate-spin text-text-muted" /> : null}
-                      {selected ? <Check className="mt-1 h-3.5 w-3.5 shrink-0 text-[var(--selection-accent)]" /> : null}
+                      {selected ? <Check className="mt-1 h-3.5 w-3.5 shrink-0 text-foreground" /> : null}
                     </CommandItem>
                   );
                 })}
@@ -270,7 +270,7 @@ export function OpenClawModelMenu({ chat, disabled = false, onOpenSettings }: Op
                   onSelect={openAddDialog}
                   className="rounded-lg px-2.5 py-2 text-xs font-medium text-foreground"
                 >
-                  <Plus className="h-3.5 w-3.5 text-[var(--selection-accent)]" />
+                  <Plus className="h-3.5 w-3.5 text-text-muted" />
                   Add new model
                 </CommandItem>
               </CommandGroup>
@@ -334,7 +334,7 @@ export function OpenClawModelMenu({ chat, disabled = false, onOpenSettings }: Op
                   <p className="text-sm font-medium text-foreground">No model provider configured</p>
                   <p className="mt-1 text-xs leading-5 text-text-muted">Configure a provider before adding custom models.</p>
                   {onOpenSettings ? (
-                    <button type="button" onClick={openProviderSettings} className="mt-3 text-xs font-semibold text-[var(--selection-accent)] hover:underline">
+                    <button type="button" onClick={openProviderSettings} className="mt-3 text-xs font-semibold text-foreground hover:underline">
                       Open model provider settings
                     </button>
                   ) : null}

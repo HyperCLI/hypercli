@@ -856,6 +856,29 @@ describe("GatewayClient", () => {
     expect(rpc).toHaveBeenNthCalledWith(3, "channels.logout", { channel: "slack", accountId: "" });
   });
 
+  it("preserves sessions.list defaults while retaining the rows-only helper", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const response = {
+      count: 1,
+      defaults: {
+        modelProvider: "openai",
+        model: "gpt-5-mini",
+        thinkingLevels: [{ id: "low", label: "Fast" }],
+        thinkingDefault: "low",
+      },
+      sessions: [{ key: "main" }],
+    };
+    const rpc = vi.spyOn(client as any, "rpc").mockResolvedValue(response);
+
+    await expect(client.sessionsListResult()).resolves.toEqual(response);
+    await expect(client.sessionsList()).resolves.toEqual([{ key: "main" }]);
+    expect(rpc).toHaveBeenNthCalledWith(1, "sessions.list");
+    expect(rpc).toHaveBeenNthCalledWith(2, "sessions.list");
+  });
+
   it("sends plugin catalog and lifecycle RPC payloads", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",

@@ -132,10 +132,13 @@ import { AgentTerminalPanel } from "@/components/dashboard/agents/AgentTerminalP
 import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
 import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
 import { AgentPrivateChatControl } from "@/components/dashboard/agents/AgentPrivateChatControl";
-import { AgentWorkspaceSidebar } from "@/components/dashboard/agents/AgentWorkspaceSidebar";
+import { AgentWorkspaceSidebar, WorkspaceCreationDialog } from "@/components/dashboard/agents/AgentWorkspaceSidebar";
 import { AgentGatewaySessionProvider, asAgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
 import { SharedKnowledgeSection } from "@/components/dashboard/knowledge/SharedKnowledgeSection";
 import { MembersSection } from "@/components/dashboard/members/MembersSection";
+import AccountSettingsPanel from "@/components/dashboard/AccountSettingsPanel";
+import { WorkspaceOverviewPanel } from "@/components/dashboard/WorkspaceOverviewPanel";
+import WorkspaceUsagePanel from "@/components/dashboard/WorkspaceUsagePanel";
 import {
   useWorkspace,
   workspaceAgentCreationDisabledReason,
@@ -153,6 +156,11 @@ import { bundleKey, CLAW_PRODUCTS, compactBundle, formatBundle, type SlotBundle 
 import { createAudioMediaRecorder } from "@/lib/audio-recorder";
 import { downloadFileBytes } from "@/lib/download-file";
 import { resolveAgentRouteTab, type AgentRouteTab } from "@/lib/agent-workspace-route";
+import {
+  buildDashboardViewHref,
+  resolveDashboardView,
+  type DashboardView,
+} from "@/lib/dashboard-route";
 import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
 import { normalizeCronJob } from "@/lib/cron-jobs";
 import {
@@ -851,6 +859,8 @@ export default function AgentsPage() {
 function AgentsPageContent() {
   const { getToken, user, logout } = useAgentAuth();
   const {
+    workspacesClient,
+    workspaces,
     selectedWorkspace,
     selectedWorkspaceId,
     selectedWorkspaceAgentIds,
@@ -867,6 +877,8 @@ function AgentsPageContent() {
   const requestedOpen = searchParams.get("open")?.trim() || null;
   const requestedSection = searchParams.get("section")?.trim() || null;
   const requestedTab = searchParams.get("tab")?.trim() || null;
+  const requestedView = searchParams.get("view")?.trim() || null;
+  const dashboardView = resolveDashboardView(requestedView);
   const requestedAgentTab = resolveAgentRouteTab(requestedTab);
   const requestedCenterTab: MainTab | null = requestedAgentTab === "openclaw" ? "chat" : requestedAgentTab;
   const knowledgeSectionActive = requestedSection === "knowledge";
@@ -891,6 +903,7 @@ function AgentsPageContent() {
   const agentCreationBlockedReason = isAgentRosterLoading
     ? "Agent roster is still loading."
     : agentCreationDisabledReason;
+  const shouldOfferWorkspaceCreation = !workspacesLoading && workspaces.length === 0 && Boolean(workspacesClient);
   const journey = useJourney({ searchParams, searchKey: queryKey, storageScope: user?.email ?? null });
   const journeyChatCompletionRef = useRef<PendingJourneyChatCompletion | null>(null);
   const completeJourneyForEvent = journey.completeForEvent;
@@ -900,6 +913,21 @@ function AgentsPageContent() {
     if (typeof window === "undefined") return true;
     return window.matchMedia(AGENTS_DESKTOP_MEDIA_QUERY).matches;
   });
+  const [agentWorkspaceActivated, setAgentWorkspaceActivated] = useState(() => !dashboardView);
+
+  useEffect(() => {
+    if (dashboardView) return;
+    const timeout = window.setTimeout(() => setAgentWorkspaceActivated(true), 0);
+    return () => window.clearTimeout(timeout);
+  }, [dashboardView]);
+
+  useEffect(() => {
+    if (!requestedView || dashboardView) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("view");
+    const query = params.toString();
+    router.replace(`/dashboard/agents${query ? `?${query}` : ""}`, { scroll: false });
+  }, [dashboardView, requestedView, router, searchParams]);
 
   // Agent data
   const [sdkAgents, setSdkAgents] = useState<SdkAgent[]>([]);
@@ -1056,6 +1084,7 @@ function AgentsPageContent() {
   const [mobileAgentsSidebarOpen, setMobileAgentsSidebarOpen] = useState(false);
   const [showMobileOfflineAgents, setShowMobileOfflineAgents] = useState(false);
   const [mobileWorkspaceSidebarOpen, setMobileWorkspaceSidebarOpen] = useState(false);
+  const [workspaceCreationOpen, setWorkspaceCreationOpen] = useState(false);
   const [mobileAgentLauncherOpen, setMobileAgentLauncherOpen] = useState(false);
   const [sidebarCreatorSignal, setSidebarCreatorSignal] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useAgentRosterCollapsed();
@@ -1082,6 +1111,7 @@ function AgentsPageContent() {
     agentId: string | null,
     sessionKey?: string | null,
     clearRoutedPanel = false,
+    pushRoute = false,
   ) => {
     const params = new URLSearchParams(searchParams.toString());
     if (agentId) {
@@ -1103,9 +1133,12 @@ function AgentsPageContent() {
     if (clearRoutedPanel) {
       params.delete("section");
       params.delete("tab");
+      params.delete("view");
     }
     const query = params.toString();
-    router.replace(`/dashboard/agents${query ? `?${query}` : ""}`, { scroll: false });
+    const href = `/dashboard/agents${query ? `?${query}` : ""}`;
+    if (pushRoute) router.push(href, { scroll: false });
+    else router.replace(href, { scroll: false });
   }, [router, searchParams]);
 
   // Logs
@@ -1745,7 +1778,11 @@ function AgentsPageContent() {
     logs,
     status: wsStatus,
     reconnect: reconnectLogs,
-  } = useAgentLogs(deployments, selectedAgentId, mainTab === "logs" && selectedAgentState === "RUNNING");
+  } = useAgentLogs(
+    deployments,
+    selectedAgentId,
+    !dashboardView && mainTab === "logs" && selectedAgentState === "RUNNING",
+  );
 
   const shellEnabled = useAgentShellActivation({
     agentId: selectedAgentId,
@@ -1771,7 +1808,7 @@ function AgentsPageContent() {
   } = useAgentShellTerminal({
     agentId: selectedAgentId,
     status: shellStatus,
-    visible: mainTab === "shell" && Boolean(isSelectedRunning),
+    visible: !dashboardView && mainTab === "shell" && Boolean(isSelectedRunning),
     onInput: sendShell,
     onResize: resizeShell,
   });
@@ -1808,9 +1845,33 @@ function AgentsPageContent() {
     }
     return `/dashboard/agents?${params.toString()}`;
   }, [selectedAgentId, selectedSessionKey]);
+  const selectedSessionRouteValue = selectedAgentId
+    && !sameOpenClawSelectableSessionKey(selectedSessionKey, resolveOpenClawSessionKey(selectedAgentId))
+    ? selectedSessionKey
+    : null;
+  const selectedAgentHref = useMemo(() => {
+    if (!selectedAgentId) return "/dashboard/agents";
+    const params = new URLSearchParams({ agentId: selectedAgentId });
+    if (selectedSessionRouteValue) params.set("session", selectedSessionRouteValue);
+    return `/dashboard/agents?${params.toString()}`;
+  }, [selectedAgentId, selectedSessionRouteValue]);
+  const dashboardViewHrefs = useMemo<Record<DashboardView, string>>(() => ({
+    overview: buildDashboardViewHref("overview", {
+      agentId: selectedAgentId,
+      session: selectedSessionRouteValue,
+    }),
+    usage: buildDashboardViewHref("usage", {
+      agentId: selectedAgentId,
+      session: selectedSessionRouteValue,
+    }),
+    settings: buildDashboardViewHref("settings", {
+      agentId: selectedAgentId,
+      session: selectedSessionRouteValue,
+    }),
+  }), [selectedAgentId, selectedSessionRouteValue]);
   const skillDraftScope = useMemo(() => ({ ownerId: user?.email ?? "local", agentId: selectedAgentId ?? "unknown-agent" }), [selectedAgentId, user?.email]);
   const activeSkillDraftTest = useSkillDraftTestSession(skillDraftScope, selectedSessionKey);
-  const gatewayEnabled = isSelectedRunning;
+  const gatewayEnabled = isSelectedRunning && agentWorkspaceActivated;
   const openClawHydrationMode: OpenClawHydrationMode = (
     mainTab === "chat" ||
     mainTab === "workspace" ||
@@ -1841,7 +1902,21 @@ function AgentsPageContent() {
       await chat.endTemporaryChat();
     };
   }, [chat.endTemporaryChat, waitForChatUploads]);
-  const selectAgent = useCallback(async (agentId: string, clearRoutedPanel = false) => {
+  useEffect(() => {
+    if (!dashboardView) return;
+    const timeout = window.setTimeout(() => {
+      setMobileAgentsSidebarOpen(false);
+      setMobileWorkspaceSidebarOpen(false);
+      setOpenclawSettingsOpen(false);
+      void endTemporaryChatBeforeSelectionRef.current();
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [dashboardView]);
+  const selectAgent = useCallback(async (
+    agentId: string,
+    clearRoutedPanel = false,
+    pushRoute = false,
+  ) => {
     const selectionOperation = agentSelectionOperationRef.current + 1;
     agentSelectionOperationRef.current = selectionOperation;
     if (agentId !== selectedAgentId) {
@@ -1850,8 +1925,11 @@ function AgentsPageContent() {
     if (agentSelectionOperationRef.current !== selectionOperation) return;
     const sessionKey = selectedSessionKeysByAgent[agentId] ?? resolveOpenClawSessionKey(agentId);
     setSelectedAgentId(agentId);
-    replaceAgentChatRoute(agentId, sessionKey, clearRoutedPanel);
+    replaceAgentChatRoute(agentId, sessionKey, clearRoutedPanel, pushRoute);
   }, [replaceAgentChatRoute, selectedAgentId, selectedSessionKeysByAgent]);
+  const selectAgentFromRoster = useCallback((agentId: string) => {
+    void selectAgent(agentId, Boolean(dashboardView), Boolean(dashboardView));
+  }, [dashboardView, selectAgent]);
   const activeConnectionStatus = useMemo(() => {
     if (mainTab === "files") {
       return selectedAgentId ? "connected" as const : null;
@@ -3230,7 +3308,25 @@ function AgentsPageContent() {
     setMobileAgentsSidebarOpen(false);
     setMobileWorkspaceSidebarOpen(false);
   };
+  const openDashboardView = (view: DashboardView) => {
+    closeMobileSidebars();
+    setOpenclawSettingsOpen(false);
+    if (dashboardView === view) return;
+    router.push(dashboardViewHrefs[view], { scroll: false });
+  };
+  const openAgentSurfaceRoute = (tab: AgentRouteTab = "chat") => {
+    if (!dashboardView) return;
+    if (!selectedAgentId) {
+      router.push("/dashboard/agents", { scroll: false });
+      return;
+    }
+    const params = new URLSearchParams({ agentId: selectedAgentId });
+    if (selectedSessionRouteValue) params.set("session", selectedSessionRouteValue);
+    if (tab !== "chat") params.set("tab", tab);
+    router.push(`/dashboard/agents?${params.toString()}`, { scroll: false });
+  };
   const openAgentSettingsTab = () => {
+    openAgentSurfaceRoute("settings");
     setOpenclawSettingsOpen(false);
     selectMainTab("settings");
     setMobileShowChat(true);
@@ -3238,7 +3334,10 @@ function AgentsPageContent() {
   };
   const showChatTab = (sectionRouteUpdated = false) => {
     if (sectionRouteUpdated) setMainTab("chat");
-    else selectMainTab("chat");
+    else {
+      openAgentSurfaceRoute("chat");
+      selectMainTab("chat");
+    }
     setDirectoryDetailOrigin(null);
     setOpenclawSettingsOpen(false);
     setMobileShowChat(true);
@@ -3251,7 +3350,7 @@ function AgentsPageContent() {
       await endTemporaryChatBeforeSelectionRef.current();
     }
     setSelectedSessionKeysByAgent((prev) => ({ ...prev, [selectedAgentId]: sessionKey }));
-    replaceAgentChatRoute(selectedAgentId, sessionKey, true);
+    replaceAgentChatRoute(selectedAgentId, sessionKey, true, Boolean(dashboardView));
     showChatTab(true);
   };
   const renameSession = async (sessionKey: string, title: string) => {
@@ -3272,7 +3371,7 @@ function AgentsPageContent() {
     }
     const sessionKey = await chat.createSession();
     setSelectedSessionKeysByAgent((prev) => ({ ...prev, [selectedAgentId]: sessionKey }));
-    replaceAgentChatRoute(selectedAgentId, sessionKey, true);
+    replaceAgentChatRoute(selectedAgentId, sessionKey, true, Boolean(dashboardView));
     showChatTab(true);
   };
   const testSkillInNewSession = async (skill: AgentSkill) => {
@@ -3309,6 +3408,7 @@ function AgentsPageContent() {
     showChatTab(true);
   };
   const openFilesTab = (path?: string) => {
+    openAgentSurfaceRoute("files");
     const previewPath = typeof path === "string" ? path.trim() : "";
     setFilesPreviewPath(previewPath || null);
     setOpenclawSettingsOpen(false);
@@ -3324,6 +3424,7 @@ function AgentsPageContent() {
     downloadFileBytes(name, result.content, file.type || "application/octet-stream");
   }, [readAgentFileBytesResult]);
   const openIntegrationsTab = () => {
+    openAgentSurfaceRoute("integrations");
     setRequestedSkillId(null);
     setDirectoryCategory(undefined);
     setDirectoryItemId(undefined);
@@ -3350,6 +3451,7 @@ function AgentsPageContent() {
     }
   };
   const openSkillsTab = (skillId?: string) => {
+    openAgentSurfaceRoute("skills");
     setRequestedSkillId(skillId?.trim() || null);
     setDirectoryCategory(undefined);
     setDirectoryItemId(undefined);
@@ -3396,12 +3498,13 @@ function AgentsPageContent() {
     router.push(membersSectionHref, { scroll: false });
   };
   const openDashboardHome = () => {
-    setMobileAgentsSidebarOpen(false);
-    setMobileWorkspaceSidebarOpen(false);
-    leaveAgentsPage("/dashboard");
+    openDashboardView("overview");
   };
+  const openDashboardUsage = () => openDashboardView("usage");
+  const openAccountSettings = () => openDashboardView("settings");
   const openScheduledTab = (draftCommand?: unknown) => {
     if (!SCHEDULED_SECTION_ENABLED) return;
+    openAgentSurfaceRoute("scheduled");
     const command = typeof draftCommand === "string" ? draftCommand.trim() : "";
     if (command) {
       scheduledInitialCommandIdRef.current += 1;
@@ -3416,12 +3519,14 @@ function AgentsPageContent() {
     if (chat.connected) void chat.refreshCron().catch(() => undefined);
   };
   const openLogsTab = () => {
+    openAgentSurfaceRoute("logs");
     setOpenclawSettingsOpen(false);
     selectMainTab("logs");
     setMobileShowChat(true);
     setMobileWorkspaceSidebarOpen(false);
   };
   const openShellTab = () => {
+    openAgentSurfaceRoute("shell");
     setOpenclawSettingsOpen(false);
     selectMainTab("shell");
     setMobileShowChat(true);
@@ -3432,6 +3537,7 @@ function AgentsPageContent() {
       openAgentSettingsTab();
       return;
     }
+    openAgentSurfaceRoute("openclaw");
     setOpenclawSettingsOpen(true);
     setMobileShowChat(true);
     setMobileWorkspaceSidebarOpen(false);
@@ -3581,7 +3687,14 @@ function AgentsPageContent() {
   const handleMobileSectionReturn = () => {
     openChatTab();
   };
-  const useSettingsMobileChrome = !isDesktopViewport && mainTab === "settings" && Boolean(selectedAgent) && !openclawSettingsOpen;
+  const useSettingsMobileChrome = !dashboardView && !isDesktopViewport && mainTab === "settings" && Boolean(selectedAgent) && !openclawSettingsOpen;
+  const mobilePageLabel = dashboardView === "overview"
+    ? "Overview"
+    : dashboardView === "usage"
+      ? "Usage"
+      : dashboardView === "settings"
+        ? "Settings"
+        : "Agents";
 
   return (
     <AgentGatewaySessionProvider session={gatewayChat}>
@@ -3591,7 +3704,7 @@ function AgentsPageContent() {
         <div className="relative flex items-center justify-between px-4 py-4 border-b border-border">
           <div className="flex items-center gap-2">
             <HyperCLILogoLink className="h-[31px] w-[102px]" priority />
-            <span className="text-text-muted font-medium">Agents</span>
+            <span className="text-text-muted font-medium">{mobilePageLabel}</span>
           </div>
           <div className="flex items-center gap-1 rounded-xl border border-border bg-surface-low/80 p-1">
             {renderPrivateChatControl(true)}
@@ -3721,6 +3834,10 @@ function AgentsPageContent() {
           console.log("Create channel:", channel);
         }}
       />
+      <WorkspaceCreationDialog
+        open={workspaceCreationOpen}
+        onOpenChange={setWorkspaceCreationOpen}
+      />
       <ConfirmDialog
         open={Boolean(pendingAgentDelete)}
         title="Delete Agent"
@@ -3819,23 +3936,28 @@ function AgentsPageContent() {
                 onReorderAgents={setVisibleAgentOrder}
                 agentCardDataById={agentCardDataById}
                 onSelectThread={(threadId) => {
-                  selectAgent(threadId);
+                  selectAgentFromRoster(threadId);
                   setMobileShowChat(true);
                   setMobileAgentsSidebarOpen(false);
                 }}
                 onStartAgentChat={(agent) => {
-                  selectAgent(agent.id);
+                  selectAgentFromRoster(agent.id);
                   setMobileShowChat(true);
                   setMobileAgentsSidebarOpen(false);
                 }}
                 onOpenAgentLauncher={openMobileAgentLauncher}
                 onOpenHome={openDashboardHome}
+                homeActive={dashboardView === "overview"}
                 onOpenKnowledge={openKnowledgeTab}
                 knowledgeActive={knowledgeSectionActive}
                 knowledgeHref={knowledgeSectionHref}
                 onOpenMembers={openMembersTab}
                 membersActive={membersSectionActive}
                 membersHref={membersSectionHref}
+                onOpenUsage={openDashboardUsage}
+                usageActive={dashboardView === "usage"}
+                onOpenAccountSettings={openAccountSettings}
+                accountSettingsActive={dashboardView === "settings"}
                 onCreateAgent={createMobileAgentFromLauncher}
                 accountInitial={accountInitial}
                 onLogout={logout}
@@ -3877,7 +3999,7 @@ function AgentsPageContent() {
             >
               <AgentWorkspaceSidebar
                 selectedAgent={selectedAgent}
-                activeTab={openclawSettingsOpen && selectedAgent ? "openclaw" : mainTab}
+                activeTab={dashboardView ? null : openclawSettingsOpen && selectedAgent ? "openclaw" : mainTab}
                 skillsActive={mainTab === "skills"}
                 tokenUsed={tokenUsage}
                 tokenLimit={budget?.pooled_tpd ?? null}
@@ -3935,7 +4057,7 @@ function AgentsPageContent() {
             rosterLoading={agentsLoading || isAgentRosterLoading}
             rosterOrderScope={selectedWorkspaceId}
             selectedAgentId={selectedAgentId}
-            setSelectedAgentId={selectAgent}
+            setSelectedAgentId={selectAgentFromRoster}
             setMobileShowChat={setMobileShowChat}
             setSidebarCollapsed={setSidebarCollapsed}
             syntheticThreads={syntheticThreads}
@@ -3958,12 +4080,17 @@ function AgentsPageContent() {
             pendingSlotReleases={pendingSlotReleases}
             onOpenPlanCatalog={openUpgradeCatalog}
             onOpenHome={openDashboardHome}
+            homeActive={dashboardView === "overview"}
             onOpenKnowledge={openKnowledgeTab}
             knowledgeActive={knowledgeSectionActive}
             knowledgeHref={knowledgeSectionHref}
             onOpenMembers={openMembersTab}
             membersActive={membersSectionActive}
             membersHref={membersSectionHref}
+            onOpenUsage={openDashboardUsage}
+            usageActive={dashboardView === "usage"}
+            onOpenAccountSettings={openAccountSettings}
+            accountSettingsActive={dashboardView === "settings"}
             embeddedInNavigation
             updateAgentName={async (agentId, name) => {
               const token = await getToken();
@@ -3974,7 +4101,7 @@ function AgentsPageContent() {
 
           <AgentWorkspaceSidebar
             selectedAgent={selectedAgent}
-            activeTab={openclawSettingsOpen && selectedAgent ? "openclaw" : mainTab}
+            activeTab={dashboardView ? null : openclawSettingsOpen && selectedAgent ? "openclaw" : mainTab}
             skillsActive={mainTab === "skills"}
             tokenUsed={tokenUsage}
             tokenLimit={budget?.pooled_tpd ?? null}
@@ -4013,6 +4140,7 @@ function AgentsPageContent() {
           </div>
         </div>
 
+          <div className={dashboardView ? "hidden" : "contents"}>
           <AgentMainPanel
           isDesktopViewport={isDesktopViewport}
           mobileShowChat={mobileMainPanelVisible}
@@ -4041,7 +4169,7 @@ function AgentsPageContent() {
             <AgentTerminalPanel
               status={shellStatus}
               shellBoxRef={shellBoxRef}
-              visible={mainTab === "shell" && Boolean(isSelectedRunning)}
+              visible={!dashboardView && mainTab === "shell" && Boolean(isSelectedRunning)}
             />
           }
           panelContent={mainTab === "chat" ? (
@@ -4112,7 +4240,7 @@ function AgentsPageContent() {
                 onOpenLogs: openLogsTab,
                 onOpenShell: openShellTab,
                 onOpenPlans: openUpgradeCatalog,
-                onOpenBilling: () => leaveAgentsPage("/dashboard/settings"),
+                onOpenBilling: openAccountSettings,
                 onNewConversation: createSession,
                 onStartAgent: async () => {
                   if (selectedAgent) await handleStart(selectedAgent.id);
@@ -4345,6 +4473,7 @@ function AgentsPageContent() {
           workspaceName={selectedWorkspace ? workspaceDisplayName(selectedWorkspace) : null}
           hasAccountAgents={accountAgents.length > 0}
           creationDisabledReason={agentCreationBlockedReason}
+          onCreateWorkspace={shouldOfferWorkspaceCreation ? () => setWorkspaceCreationOpen(true) : undefined}
           onOpenMembers={openMembersTab}
           onShowList={() => setMobileShowChat(false)}
           showMobileListButton={false}
@@ -4398,10 +4527,40 @@ function AgentsPageContent() {
             }}
           />
         )}
+          </div>
+
+        {dashboardView ? (
+          <div className="min-w-0 flex-1 overflow-hidden">
+            {dashboardView === "overview" ? (
+              <WorkspaceOverviewPanel
+                accountAgents={accountAgents}
+                workspaceAgents={agents}
+                agentsLoading={agentsLoading}
+                workspaceAgentsLoading={agentsLoading || isAgentRosterLoading}
+                agentCreationDisabledReason={agentCreationBlockedReason}
+                agentsHref={selectedAgentHref}
+                knowledgeHref={knowledgeSectionHref}
+                membersHref={membersSectionHref}
+                onOpenMembers={openMembersTab}
+                onOpenAgentLauncher={() => {
+                  if (openAgentCreationFlow()) openAgentSurfaceRoute("chat");
+                }}
+              />
+            ) : dashboardView === "usage" ? (
+              <WorkspaceUsagePanel
+                accountAgentCount={accountAgents.length}
+                workspaceAgents={agents}
+                rosterError={agentRosterError}
+              />
+            ) : (
+              <AccountSettingsPanel />
+            )}
+          </div>
+        ) : null}
       </div>
 
       <OpenClawSettingsDrawer
-        open={openclawSettingsOpen && Boolean(selectedAgent)}
+        open={!dashboardView && openclawSettingsOpen && Boolean(selectedAgent)}
         onClose={closeOpenClawSettings}
         agent={selectedAgent}
         config={chat.config}
@@ -4415,7 +4574,7 @@ function AgentsPageContent() {
         isDesktopViewport={isDesktopViewport}
       />
 
-      {!journeyChatSurfaceVisible ? (
+      {!dashboardView && !journeyChatSurfaceVisible ? (
         <JourneyFloatingPanel
           journey={journey}
           onRunDayAction={runJourneyDayAction}

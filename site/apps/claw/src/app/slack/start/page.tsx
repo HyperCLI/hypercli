@@ -7,10 +7,11 @@ import { startSlackOAuth } from "@hypercli.com/sdk/agents";
 
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { SLACK_APP_HANDLE, SLACK_RELAY_BASE_URL } from "@/lib/api";
+import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
 
 type StartState = "checking" | "login" | "starting" | "error";
 
-const DEFAULT_SLACK_RETURN_PATH = "/dashboard/settings/";
+const DEFAULT_SLACK_RETURN_PATH = DASHBOARD_VIEW_HREFS.settings;
 
 export default function SlackStartPage() {
   const { getToken, isAuthenticated, isLoading, login } = useAgentAuth();

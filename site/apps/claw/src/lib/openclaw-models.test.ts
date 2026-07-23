@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildOpenClawModelUpsertPatch,
   normalizeOpenClawConfiguredProviders,
+  normalizeOpenClawModelOptions,
 } from "./openclaw-models";
 
 describe("openclaw-models", () => {
@@ -51,5 +52,14 @@ describe("openclaw-models", () => {
       .toThrow('Model "gpt-5-mini" is already configured for openai.');
     expect(() => buildOpenClawModelUpsertPatch(config, "google", "gemini-2.5-pro"))
       .toThrow("Choose a configured provider before adding a model.");
+  });
+
+  it("does not offer models that the gateway marks unavailable", () => {
+    expect(normalizeOpenClawModelOptions(config, [
+      { id: "gpt-5-mini", name: "GPT-5 Mini", provider: "openai", available: false },
+      { id: "gpt-5.2", name: "GPT-5.2", provider: "openai", available: true },
+    ])).toEqual([
+      expect.objectContaining({ value: "openai/gpt-5.2", label: "GPT-5.2 (openai)" }),
+    ]);
   });
 });

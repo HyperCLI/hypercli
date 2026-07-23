@@ -50,5 +50,9 @@ describe("DashboardNav", () => {
       "href",
       "/dashboard/agents?section=members",
     );
+    expect(screen.getByRole("link", { name: /^billing$/i })).toHaveAttribute(
+      "href",
+      "/dashboard/agents?view=settings",
+    );
   });
 });

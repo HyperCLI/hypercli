@@ -7,6 +7,7 @@ export interface OpenClawModelOption {
   detail?: string;
   providerId?: string;
   modelId?: string;
+  available?: boolean;
 }
 
 export interface OpenClawConfiguredProviderOption {
@@ -120,6 +121,7 @@ function modelOptionsFromList(models: Array<Record<string, unknown>> | null | un
             detail: providerLabel ?? undefined,
             providerId,
             modelId,
+            available: model.available !== false && nested?.available !== false,
         }];
       });
     }
@@ -150,6 +152,7 @@ function modelOptionsFromList(models: Array<Record<string, unknown>> | null | un
       detail: providerLabel ?? undefined,
       providerId: providerId ?? undefined,
       modelId,
+      available: model.available !== false,
     }];
   });
 }
@@ -167,11 +170,18 @@ export function normalizeOpenClawModelOptions(
     options.push(option);
   };
 
-  modelOptionsFromConfig(config).forEach(addOption);
-  modelOptionsFromList(models).forEach(addOption);
+  const listedOptions = modelOptionsFromList(models);
+  const unavailableModels = new Set(
+    listedOptions.filter((option) => option.available === false).map((option) => option.value),
+  );
+
+  listedOptions.filter((option) => option.available !== false).forEach(addOption);
+  modelOptionsFromConfig(config)
+    .filter((option) => !unavailableModels.has(option.value))
+    .forEach(addOption);
 
   const configured = firstString(currentModel);
-  if (configured && !seen.has(configured)) {
+  if (configured && !seen.has(configured) && !unavailableModels.has(configured)) {
     addOption({ value: configured, label: configured, detail: "Configured" });
   }
 

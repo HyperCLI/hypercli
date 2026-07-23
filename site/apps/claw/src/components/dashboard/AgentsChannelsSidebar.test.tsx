@@ -62,6 +62,8 @@ describe("AgentsSidebarDashboardLinks", () => {
     const onOpenHome = vi.fn();
     const onOpenKnowledge = vi.fn();
     const onOpenMembers = vi.fn();
+    const onOpenUsage = vi.fn();
+    const onOpenAccountSettings = vi.fn();
     render(
       <AgentsChannelsSidebar
         variant="v3"
@@ -72,7 +74,11 @@ describe("AgentsSidebarDashboardLinks", () => {
         onOpenHome={onOpenHome}
         onOpenKnowledge={onOpenKnowledge}
         onOpenMembers={onOpenMembers}
+        onOpenUsage={onOpenUsage}
+        onOpenAccountSettings={onOpenAccountSettings}
         knowledgeActive
+        usageActive
+        accountSettingsActive
       />,
     );
 
@@ -80,8 +86,8 @@ describe("AgentsSidebarDashboardLinks", () => {
     const myAgents = screen.getByRole("heading", { name: /My Agents/ });
     const sharedKnowledge = screen.getByRole("button", { name: "Shared Knowledge" });
     const members = screen.getByRole("button", { name: "Members" });
-    const usage = screen.getByRole("link", { name: "Usage" });
-    const settings = screen.getByRole("link", { name: "Settings" });
+    const usage = screen.getByRole("button", { name: "Usage" });
+    const settings = screen.getByRole("button", { name: "Settings" });
     const administration = screen.getByRole("region", { name: "Administration" });
     const rosterScroll = document.querySelector(".agents-roster-scroll");
     const agentList = document.querySelector(".agents-roster-agent-list");
@@ -101,16 +107,20 @@ describe("AgentsSidebarDashboardLinks", () => {
     expect(screen.queryByRole("button", { name: /My Agents/ })).not.toBeInTheDocument();
     expect(sharedKnowledge.firstElementChild).toHaveClass("w-7");
     expect(sharedKnowledge).toHaveAttribute("aria-current", "page");
-    expect(usage).toHaveAttribute("href", "/usage");
-    expect(settings).toHaveAttribute("href", "/dashboard/settings");
+    expect(usage).toHaveAttribute("aria-current", "page");
+    expect(settings).toHaveAttribute("aria-current", "page");
     expect(home).not.toHaveAttribute("aria-current");
 
     fireEvent.click(home);
     fireEvent.click(sharedKnowledge);
     fireEvent.click(members);
+    fireEvent.click(usage);
+    fireEvent.click(settings);
     expect(onOpenHome).toHaveBeenCalledOnce();
     expect(onOpenKnowledge).toHaveBeenCalledOnce();
     expect(onOpenMembers).toHaveBeenCalledOnce();
+    expect(onOpenUsage).toHaveBeenCalledOnce();
+    expect(onOpenAccountSettings).toHaveBeenCalledOnce();
   });
 
   it("also omits redundant navigation from the compact account menu", () => {
