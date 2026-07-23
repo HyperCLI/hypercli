@@ -410,6 +410,10 @@ export class OpenClawChannelsProvider implements AgentChannelsProvider {
     await this.client.configPatch({ channels: { [request.channelId]: channelConfig } });
   }
 
+  async patchConfig(patch: Record<string, unknown>): Promise<void> {
+    await this.client.configPatch(patch);
+  }
+
   async configure(channelId: string, config: Record<string, unknown>, accountId?: string): Promise<void> {
     await this.update({ channelId, accountId, patch: config });
   }

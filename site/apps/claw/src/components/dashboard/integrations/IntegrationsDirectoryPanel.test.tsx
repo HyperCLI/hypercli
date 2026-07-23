@@ -81,6 +81,7 @@ const channelsProvider: AgentChannelsProvider = {
   list: vi.fn(async () => runtimeChannelSummaries),
   read: vi.fn(async () => runtimeSnapshot()),
   readConfig: vi.fn(async ({ channelId, accountId }) => ({ channelId, accountId, config: { enabled: true } })),
+  patchConfig: vi.fn(async () => undefined),
   update: vi.fn(async () => undefined),
   configure: vi.fn(async () => undefined),
   removeConfig: vi.fn(async () => undefined),
@@ -574,11 +575,12 @@ describe("IntegrationsDirectoryPanel", () => {
     });
     const ensureSlackSupport = vi.fn();
     const configure = vi.fn(async () => undefined);
-    const provider = { ...channelsProvider, configure };
+    const patchConfig = vi.fn(async () => undefined);
+    const provider = { ...channelsProvider, configure, patchConfig };
     const onRefreshChannels = vi.fn(async () => ({ observedAt: 2, channels: [] }));
     renderPanel({
       initialPluginId: "slack",
-      gatewaySession: gatewaySession({ ensureSlackSupport }),
+      gatewaySession: gatewaySession({ ensureSlackSupport, channelsProvider: provider }),
       channelsProvider: provider,
       config: null,
       reportedChannels: [],
@@ -591,17 +593,24 @@ describe("IntegrationsDirectoryPanel", () => {
     expect(await screen.findByText(/^Connected to Test Workspace\./)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Attach agent" }));
 
-    await waitFor(() => expect(configure).toHaveBeenCalledWith("slack", {
-      enabled: true,
-      mode: "relay",
-      botToken: { source: "env", provider: "default", id: "SLACK_BOT_TOKEN" },
-      relay: {
-        url: "wss://api.dev.hypercli.com/slack/ws",
-        authToken: { source: "env", provider: "default", id: "HYPER_AGENTS_API_KEY" },
-        gatewayId: "agent:agent-1",
+    await waitFor(() => expect(patchConfig).toHaveBeenCalledWith({
+      messages: { statusReactions: { enabled: true } },
+      channels: {
+        slack: {
+          enabled: true,
+          mode: "relay",
+          botToken: { source: "env", provider: "default", id: "SLACK_BOT_TOKEN" },
+          relay: {
+            url: "wss://api.dev.hypercli.com/slack/ws",
+            authToken: { source: "env", provider: "default", id: "HYPER_AGENTS_API_KEY" },
+            gatewayId: "agent:agent-1",
+          },
+          dmPolicy: "allowlist",
+          allowFrom: ["UINSTALLER"],
+        },
       },
-      allowFrom: ["UINSTALLER"],
     }));
+    expect(configure).not.toHaveBeenCalled();
     expect(ensureSlackSupport).not.toHaveBeenCalled();
     expect(onRefreshChannels).toHaveBeenCalledWith(true);
   });
