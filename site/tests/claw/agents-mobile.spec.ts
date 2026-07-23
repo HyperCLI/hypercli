@@ -8,6 +8,7 @@ const TEST_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQxMDI0NDQ4MDB9.signature";
 const TEST_BASE_URL = process.env.TEST_BASE_URL?.trim() || "http://127.0.0.1:4003";
 const MOBILE_VIEWPORT = { width: 390, height: 844 };
 const AGENT_ID = "agent-mobile-layout";
+const TEST_WORKSPACE_ID = "workspace-mobile-layout";
 const README_PATH = ".openclaw/workspace/README.md";
 const README_CONTENT = "# Mobile workspace\n\nThis file verifies that the mobile editor drawer fits the available width.";
 
@@ -135,6 +136,43 @@ async function seedAuth(page: Page): Promise<void> {
 
 async function mockAuthenticatedMobileAgent(page: Page): Promise<void> {
   await seedAuth(page);
+
+  await page.route(/\/workspaces(?:\/.*)?$/, async (route) => {
+    const pathName = new URL(route.request().url()).pathname;
+    const agentIds = [mobileAgent.id, secondMobileAgent.id, offlineMobileAgent.id];
+
+    if (pathName.endsWith(`/workspaces/${TEST_WORKSPACE_ID}/agents`)) {
+      await route.fulfill(json(agentIds.map((agentId) => ({
+        workspace_id: TEST_WORKSPACE_ID,
+        agent_id: agentId,
+        role: "viewer",
+        expires_at: null,
+      }))));
+      return;
+    }
+
+    if (pathName.endsWith(`/workspaces/${TEST_WORKSPACE_ID}/grants`)) {
+      await route.fulfill(json(agentIds.map((agentId) => ({
+        id: `grant-${agentId}`,
+        workspace_id: TEST_WORKSPACE_ID,
+        subject_type: "agent",
+        subject_id: agentId,
+        role: "viewer",
+        expires_at: null,
+        revoked_at: null,
+      }))));
+      return;
+    }
+
+    const workspace = {
+      id: TEST_WORKSPACE_ID,
+      name: "Mobile Layout",
+      slug: TEST_WORKSPACE_ID,
+      display_name: "Mobile Layout",
+      role: "admin",
+    };
+    await route.fulfill(json(pathName.endsWith(`/workspaces/${TEST_WORKSPACE_ID}`) ? workspace : [workspace]));
+  });
 
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
@@ -427,7 +465,7 @@ test.describe("Agents mobile layout", () => {
     await expect(page.getByRole("button", { name: /stop agent/i })).toBeVisible();
     await expectNoHorizontalOverflow(page);
 
-    await page.goto("/dashboard/settings", { waitUntil: "domcontentloaded" });
+    await page.goto("/dashboard/billing", { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("heading", { name: "Invoices" })).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText(/Pro Plan/i).first()).toBeVisible();
     await expect(page.getByText(/Stripe card on file/i).first()).toBeVisible();
@@ -460,7 +498,7 @@ test.describe("Agents mobile layout", () => {
     expect(drawerBox.width).toBeGreaterThanOrEqual(viewport!.width - 2);
     expect(drawerBox.height).toBeGreaterThanOrEqual(viewport!.height * 0.75);
 
-    const copyButton = drawer.locator('button[title="Copy content"]');
+    const copyButton = drawer.getByRole("button", { name: "Copy content" });
     const closeButton = drawer.locator("button").last();
     const copyBox = await expectVisibleBox(copyButton);
     const closeBox = await expectVisibleBox(closeButton);
