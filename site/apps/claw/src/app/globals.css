@@ -7,6 +7,46 @@
 
 @source "../../../../packages/shared-ui/src/**/*.{ts,tsx}";
 
+@layer base {
+  :where(
+    a[href]:not([aria-disabled="true"]),
+    button:not(:disabled):not([aria-disabled="true"]):not([role="option"]):not([role^="menuitem"]),
+    summary:not([aria-disabled="true"]),
+    select:not(:disabled),
+    input:is([type="button"], [type="submit"], [type="reset"], [type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"]):not(:disabled),
+    [role="button"]:not([aria-disabled="true"]),
+    [role="link"]:not([aria-disabled="true"]),
+    [role="tab"]:not([aria-disabled="true"]),
+    [role="switch"]:not([aria-disabled="true"]),
+    [role="checkbox"]:not([aria-disabled="true"]),
+    [role="radio"]:not([aria-disabled="true"])
+  ) {
+    cursor: pointer;
+  }
+
+  label:has(input:is([type="checkbox"], [type="radio"]):not(:disabled)) {
+    cursor: pointer;
+  }
+
+  [role="slider"]:not([aria-disabled="true"]) {
+    cursor: grab;
+  }
+
+  [role="slider"]:not([aria-disabled="true"]):active {
+    cursor: grabbing;
+  }
+
+  :where(button, input, select, textarea):disabled,
+  [aria-disabled="true"],
+  label:has(input:is([type="checkbox"], [type="radio"]):disabled) {
+    cursor: not-allowed;
+  }
+
+  label:has(input:is([type="checkbox"], [type="radio"]):disabled) input:is([type="checkbox"], [type="radio"]):disabled {
+    cursor: inherit;
+  }
+}
+
 :root {
   --agent-roster-background: #232323;
   --agent-panel-background: var(--surface-low);

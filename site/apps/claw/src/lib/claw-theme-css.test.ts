@@ -36,6 +36,25 @@ const consoleGlobalsCss = readFileSync(
 const clawLayout = readFileSync(path.resolve(process.cwd(), "src/app/layout.tsx"), "utf8");
 const mainLayout = readFileSync(path.resolve(process.cwd(), "../main/src/app/layout.tsx"), "utf8");
 const consoleLayout = readFileSync(path.resolve(process.cwd(), "../console/src/app/layout.tsx"), "utf8");
+const cursorPrimitiveSources = [
+  "accordion.tsx",
+  "button.tsx",
+  "input.tsx",
+  "navigation-menu.tsx",
+  "tabs.tsx",
+  "toggle.tsx",
+].map((fileName) => readFileSync(
+  path.resolve(process.cwd(), `../../packages/shared-ui/src/components/ui/${fileName}`),
+  "utf8",
+));
+const resizableSource = readFileSync(
+  path.resolve(process.cwd(), "../../packages/shared-ui/src/components/ui/resizable.tsx"),
+  "utf8",
+);
+const sliderSource = readFileSync(
+  path.resolve(process.cwd(), "../../packages/shared-ui/src/components/ui/slider.tsx"),
+  "utf8",
+);
 
 function themeBlockFor(selector: string) {
   const selectorIndex = clawThemeCss.indexOf(selector);
@@ -121,6 +140,25 @@ describe("claw theme CSS", () => {
     expect(clawThemeCss).toContain(':where(button, a, [role="button"]):hover');
     expect(clawThemeCss).toContain("--button-primary-foreground: var(--button-hover-foreground);");
     expect(clawThemeCss).toContain('.bg-foreground.text-background:hover');
+  });
+
+  it("uses semantic cursors for activation, disabled, drag, and resize controls", () => {
+    expect(clawGlobalsCss).toContain('button:not(:disabled):not([aria-disabled="true"]):not([role="option"]):not([role^="menuitem"])');
+    expect(clawGlobalsCss).toContain('label:has(input:is([type="checkbox"], [type="radio"]):not(:disabled))');
+    expect(clawGlobalsCss).toContain('[role="slider"]:not([aria-disabled="true"])');
+    expect(clawGlobalsCss).toContain("cursor: pointer;");
+    expect(clawGlobalsCss).toContain("cursor: not-allowed;");
+    expect(clawGlobalsCss).toContain("cursor: grab;");
+    expect(clawGlobalsCss).toContain("cursor: grabbing;");
+    expect(clawGlobalsCss).toContain("cursor: inherit;");
+    for (const source of cursorPrimitiveSources) {
+      expect(source).not.toContain("disabled:pointer-events-none");
+    }
+    expect(resizableSource).toContain("cursor-col-resize");
+    expect(resizableSource).toContain("data-[panel-group-direction=vertical]:cursor-row-resize");
+    expect(sliderSource).toContain("cursor-grab");
+    expect(sliderSource).toContain("active:cursor-grabbing");
+    expect(sliderSource).toContain("data-[disabled]:cursor-not-allowed");
   });
 
   it("propagates the canonical switchable theme to main and console", () => {

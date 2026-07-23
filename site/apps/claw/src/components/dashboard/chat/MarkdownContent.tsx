@@ -58,7 +58,7 @@ const SEMANTIC_SYNTAX_THEME: NonNullable<SyntaxHighlighterProps["style"]> = {
   cdata: SYNTAX_COMMENT_STYLE,
   punctuation: { color: "var(--text-secondary)" },
   doctype: { color: "var(--text-secondary)" },
-  entity: { color: "var(--text-secondary)", cursor: "help" },
+  entity: { color: "var(--text-secondary)" },
   "attr-name": SYNTAX_WARNING_STYLE,
   "class-name": SYNTAX_WARNING_STYLE,
   boolean: SYNTAX_WARNING_STYLE,

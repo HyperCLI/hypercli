@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -52,9 +52,9 @@ describe("AgentsSidebarDashboardLinks", () => {
     expect(screen.queryByRole("menuitem", { name: /shared knowledge/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: /^members$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: /^settings$/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /api keys/i })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /plans/i })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /billing/i })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /api keys/i })).toHaveAttribute("href", "/keys");
+    expect(screen.getByRole("menuitem", { name: /plans/i })).toHaveAttribute("href", "/plans");
+    expect(screen.getByRole("menuitem", { name: /billing/i })).toHaveAttribute("href", "/dashboard/billing");
     expect(document.querySelector(".agents-dashboard-links")).toHaveClass("bg-[var(--agent-roster-background)]");
   });
 
@@ -156,6 +156,7 @@ describe("AgentsChannelsSidebar", () => {
 
   it("exposes agent rows as selectable buttons", () => {
     const onSelectThread = vi.fn();
+    const onDeleteThread = vi.fn();
     render(
       <AgentsChannelsSidebar
         variant="v3"
@@ -187,6 +188,7 @@ describe("AgentsChannelsSidebar", () => {
         ]}
         selectedThreadId="agent-1"
         onSelectThread={onSelectThread}
+        onDeleteThread={onDeleteThread}
         showChannels={false}
       />,
     );
@@ -195,6 +197,9 @@ describe("AgentsChannelsSidebar", () => {
     fireEvent.click(secondary);
     expect(onSelectThread).toHaveBeenCalledWith("agent-2");
     fireEvent.keyDown(secondary, { key: "Enter" });
+    expect(onSelectThread).toHaveBeenCalledTimes(2);
+    fireEvent.keyDown(within(secondary).getByRole("button", { name: "Delete agent" }), { key: "Enter" });
+    expect(onDeleteThread).not.toHaveBeenCalled();
     expect(onSelectThread).toHaveBeenCalledTimes(2);
     expect(screen.getByRole("button", { name: "Select Primary Agent" })).toHaveAttribute("aria-current", "page");
   });

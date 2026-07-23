@@ -76,7 +76,7 @@ import type { WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
 import type { HyperAgentCurrentPlan, HyperAgentPlan, HyperAgentSubscriptionSummary, HyperAgentTypeCatalog } from "@hypercli.com/sdk/agent";
 import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentState } from "@/app/dashboard/agents/types";
 import { isAgentFailureState, isAgentTransitionalState } from "@/app/dashboard/agents/types";
-import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
+import { ACCOUNT_PAGE_HREFS, DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
 import {
   describeAgentTierStartGuidance,
   describeAgentsPageError,
@@ -540,7 +540,7 @@ export default function DevAgentSetupAgentsPage() {
     { label: "Agents", href: "/agents", icon: Bot },
     { label: "API Keys", href: "/keys", icon: Key },
     { label: "Plans", href: "/plans", icon: CreditCard },
-    { label: "Billing", href: DASHBOARD_VIEW_HREFS.settings, icon: CreditCard },
+    { label: "Billing", href: ACCOUNT_PAGE_HREFS.billing, icon: CreditCard },
     { label: "Settings", href: DASHBOARD_VIEW_HREFS.settings, icon: Settings },
   ];
 
@@ -1859,7 +1859,7 @@ export default function DevAgentSetupAgentsPage() {
                     setMobileShowChat(true);
                   },
                   onOpenPlans: () => router.push("/plans"),
-                  onOpenBilling: () => router.push(DASHBOARD_VIEW_HREFS.settings),
+                  onOpenBilling: () => router.push(ACCOUNT_PAGE_HREFS.billing),
                   onStartAgent: async () => {
                     if (selectedAgent) await handleStart(selectedAgent.id);
                   },

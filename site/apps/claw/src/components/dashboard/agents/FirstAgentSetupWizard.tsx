@@ -646,11 +646,13 @@ function generateAgentName(): string {
 function WizardButton({
   children,
   disabled = false,
+  busy = false,
   onClick,
   variant = "primary",
 }: {
   children: React.ReactNode;
   disabled?: boolean;
+  busy?: boolean;
   onClick: () => void;
   variant?: "primary" | "secondary";
 }) {
@@ -660,7 +662,8 @@ function WizardButton({
       onClick={onClick}
       disabled={disabled}
       className={cx(
-        "inline-flex h-9 items-center justify-center rounded-[10px] px-3.5 text-[14px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 sm:h-10 sm:px-4 sm:text-[15px]",
+        "inline-flex h-9 items-center justify-center rounded-[10px] px-3.5 text-[14px] font-medium transition-colors disabled:opacity-60 sm:h-10 sm:px-4 sm:text-[15px]",
+        busy ? "disabled:cursor-wait" : "disabled:cursor-not-allowed",
         variant === "primary"
           ? "bg-[var(--button-primary)] text-[var(--button-primary-foreground)] hover:bg-[var(--button-primary-hover)]"
           : "border border-border bg-surface-low text-foreground hover:bg-surface-high",
@@ -1230,6 +1233,7 @@ export function FirstAgentSetupWizard({
                         dispatchWizard({ type: "SELECT_PLAN", planId: plan.id });
                       }}
                       onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget) return;
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
                           if (plan.disabled) return;
@@ -1242,6 +1246,7 @@ export function FirstAgentSetupWizard({
                         "relative flex min-h-[302px] flex-col rounded-[8px] border border-border bg-surface-low p-4 text-left transition-colors hover:border-border-strong",
                         selectedPlanId === plan.id && "border-selection-accent/60",
                         plan.disabled && "opacity-60",
+                        isReleasing ? "cursor-wait" : plan.disabled ? "cursor-not-allowed" : "cursor-pointer",
                       )}
 	                    >
 	                      {plan.accent && (
@@ -1284,7 +1289,8 @@ export function FirstAgentSetupWizard({
                         }}
 	                        disabled={creating || plan.disabled}
 	                        className={cx(
-	                          "mt-3 h-8 rounded-[8px] text-[13px] font-medium leading-tight transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-wait disabled:opacity-70",
+	                          "mt-3 h-8 rounded-[8px] text-[13px] font-medium leading-tight transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-70",
+	                          creating || isReleasing ? "disabled:cursor-wait" : "disabled:cursor-not-allowed",
 	                          plan.accent
 	                            ? "bg-[var(--button-primary)] text-[var(--button-primary-foreground)] hover:bg-[var(--button-primary-hover)]"
 	                            : "border border-primary/40 bg-primary/10 text-primary hover:border-primary/55 hover:bg-primary/15",
@@ -1320,6 +1326,7 @@ export function FirstAgentSetupWizard({
             </WizardButton>
             <WizardButton
               disabled={!selectedPlan || creating || Boolean(selectedPlan.disabled)}
+              busy={creating}
               onClick={() => handlePlanAction()}
             >
               {creating ? "Creating..." : selectedPlan?.cta ?? "Continue"}

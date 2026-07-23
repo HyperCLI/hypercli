@@ -1307,9 +1307,9 @@ export function AgentView({
                   </motion.div>
                   <p className="text-sm text-foreground">Schedule your first task</p>
                   <p className="text-[10px] text-text-muted">Try: &quot;Summarize my emails every morning&quot;</p>
-                  <motion.button whileTap={{ scale: 0.95 }} className="text-[10px] px-3 py-1 rounded-full bg-primary/10 text-primary hover:bg-primary/20">
+                  <motion.span className="inline-block rounded-full bg-primary/10 px-3 py-1 text-[10px] text-primary">
                     Create a cron job
-                  </motion.button>
+                  </motion.span>
                 </motion.div>
               ) : emptyStatesVariant === "v2" ? (
                 <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
@@ -1322,7 +1322,7 @@ export function AgentView({
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center justify-center gap-2 py-4">
                   <motion.span className="inline-block w-1.5 h-1.5 rounded-full bg-primary"
                     animate={{ scale: [0.75, 1.35, 0.75], opacity: [0.5, 1, 0.5] }} transition={{ repeat: Infinity, duration: 1 }} />
-                  <span className="text-[10px] text-text-muted">No cron jobs — <span className="text-primary cursor-pointer hover:underline">add one</span></span>
+                  <span className="text-[10px] text-text-muted">No cron jobs - <span className="text-primary">add one</span></span>
                 </motion.div>
               ) : (
                 <>

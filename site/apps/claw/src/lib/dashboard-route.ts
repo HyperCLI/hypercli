@@ -12,6 +12,12 @@ export const DASHBOARD_VIEW_HREFS: Record<DashboardView, string> = {
   settings: `${DASHBOARD_AGENTS_PATH}?view=settings`,
 };
 
+export const ACCOUNT_PAGE_HREFS = {
+  apiKeys: "/keys",
+  plans: "/plans",
+  billing: "/dashboard/billing",
+} as const;
+
 export function resolveDashboardView(value: string | null | undefined): DashboardView | null {
   const normalized = value?.trim() as DashboardView | undefined;
   return normalized && DASHBOARD_VIEWS.has(normalized) ? normalized : null;

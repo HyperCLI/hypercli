@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ACCOUNT_PAGE_HREFS,
   DASHBOARD_VIEW_HREFS,
   buildDashboardAgentsRedirectHref,
   buildDashboardViewHref,
@@ -25,6 +26,14 @@ describe("dashboard routes", () => {
     })).toBe(
       "/dashboard/agents?view=usage&agentId=agent%2Fone&session=session+focus",
     );
+  });
+
+  it("keeps account management pages outside the persistent dashboard views", () => {
+    expect(ACCOUNT_PAGE_HREFS).toEqual({
+      apiKeys: "/keys",
+      plans: "/plans",
+      billing: "/dashboard/billing",
+    });
   });
 
   it("preserves compatible parameters in legacy redirects", () => {

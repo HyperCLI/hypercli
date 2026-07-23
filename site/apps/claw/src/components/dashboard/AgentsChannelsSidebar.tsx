@@ -37,7 +37,7 @@ import { AgentCardTooltip, type AgentCardTooltipData } from "./modules/AgentCard
 import { QuickAgentCreator } from "./QuickAgentCreator";
 import { QuickChannelCreator } from "./QuickChannelCreator";
 import type { AgentCreationSetupCreateParams } from "./agents/AgentCreationSetupWizard";
-import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
+import { ACCOUNT_PAGE_HREFS, DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
 
 function RosterTooltip({
   label,
@@ -182,9 +182,9 @@ export interface AgentsChannelsSidebarProps {
 }
 
 const ACCOUNT_LINKS = [
-  { label: "API Keys", href: "/keys", icon: Key },
-  { label: "Plans", href: "/plans", icon: CreditCard },
-  { label: "Billing", href: DASHBOARD_VIEW_HREFS.settings, icon: CreditCard },
+  { label: "API Keys", href: ACCOUNT_PAGE_HREFS.apiKeys, icon: Key },
+  { label: "Plans", href: ACCOUNT_PAGE_HREFS.plans, icon: CreditCard },
+  { label: "Billing", href: ACCOUNT_PAGE_HREFS.billing, icon: CreditCard },
 ];
 
 function isDashboardLinkActive(pathname: string, href: string) {
@@ -485,6 +485,7 @@ function ThreadRow({
   }, [editValue, onRename]);
 
   const handleRowKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     onSelect();
@@ -1755,10 +1756,10 @@ function HandoffSection({
         <div className="px-3">
           <AnimatePresence mode="popLayout">
             {items.map((item) => (
-              <motion.button key={item.id} layout initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}
+              <motion.div key={item.id} layout initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 8, height: 0, paddingTop: 0, paddingBottom: 0, marginTop: 0, marginBottom: 0 }}
                 transition={{ duration: 0.15 }}
-                className="group/item w-full text-left p-1.5 my-1 rounded-md flex items-start justify-between cursor-pointer transition-colors"
+                className="group/item my-1 flex w-full items-start justify-between rounded-md p-1.5 text-left transition-colors"
                 style={{ border: `1px solid ${color}30`, backgroundColor: `${color}08` }}
                 whileHover={{ backgroundColor: `${color}18` }}
               >
@@ -1769,11 +1770,11 @@ function HandoffSection({
                   </div>
                   <p className="text-[11px] text-text-muted">{item.subtitle}</p>
                 </div>
-                <span role="button" onClick={(e) => { e.stopPropagation(); onRemove(item.id); }}
+                <button type="button" aria-label={`Remove ${item.task}`} onClick={() => onRemove(item.id)}
                   className="flex-shrink-0 w-4 h-4 rounded flex items-center justify-center text-text-muted hover:text-destructive opacity-0 group-hover/item:opacity-100 transition-all mt-0.5">
                   <X className="w-2.5 h-2.5" />
-                </span>
-              </motion.button>
+                </button>
+              </motion.div>
             ))}
           </AnimatePresence>
         </div>

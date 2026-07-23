@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
+import { ACCOUNT_PAGE_HREFS } from "@/lib/dashboard-route";
 import { useParams } from "next/navigation";
 import {
   ReceiptDetailCard,
@@ -137,7 +137,7 @@ export default function BillingDetailPage() {
 
   return (
     <div className="space-y-6">
-      <Link href={DASHBOARD_VIEW_HREFS.settings} className="text-sm font-medium text-primary hover:underline">
+      <Link href={ACCOUNT_PAGE_HREFS.billing} className="text-sm font-medium text-primary hover:underline">
         Back to billing
       </Link>
 

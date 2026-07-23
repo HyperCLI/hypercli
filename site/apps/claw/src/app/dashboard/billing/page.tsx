@@ -1,7 +1,14 @@
-import { redirect } from "next/navigation";
+"use client";
 
-import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
+import { ProfileBillingSection } from "@/components/billing/ProfileBillingSection";
+import { useAgentAuth } from "@/hooks/useAgentAuth";
 
 export default function BillingPage() {
-  redirect(DASHBOARD_VIEW_HREFS.settings);
+  const { getToken } = useAgentAuth();
+
+  return (
+    <div className="mx-auto w-full max-w-[1000px]">
+      <ProfileBillingSection getToken={getToken} />
+    </div>
+  );
 }

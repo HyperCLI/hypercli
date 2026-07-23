@@ -848,7 +848,7 @@ export function OpenClawChannelSettingsPanel({
                 <h3 className="text-sm font-bold">Access policy</h3>
                 <p className="mt-1 text-xs leading-5 text-text-muted">Choose how this account can receive messages.</p>
               </div>
-              <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-background px-2.5 py-2 text-xs font-semibold text-text-secondary">
+              <label className={`inline-flex items-center gap-2 rounded-lg border border-border bg-background px-2.5 py-2 text-xs font-semibold text-text-secondary ${loading || busy ? "cursor-wait" : "cursor-pointer"}`}>
                 <input type="checkbox" aria-label={`Enable ${name} integration`} checked={form.enabled} onChange={(event) => setField("enabled", event.target.checked)} className="h-4 w-4 accent-[var(--channel-accent)]" disabled={loading || busy} /> Enable {name} integration
               </label>
             </div>

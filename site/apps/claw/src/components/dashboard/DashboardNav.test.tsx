@@ -52,7 +52,9 @@ describe("DashboardNav", () => {
     );
     expect(screen.getByRole("link", { name: /^billing$/i })).toHaveAttribute(
       "href",
-      "/dashboard/agents?view=settings",
+      "/dashboard/billing",
     );
+    expect(screen.getByRole("link", { name: /api keys/i })).toHaveAttribute("href", "/keys");
+    expect(screen.getByRole("link", { name: /^plans$/i })).toHaveAttribute("href", "/plans");
   });
 });

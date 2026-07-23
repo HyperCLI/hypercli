@@ -78,7 +78,7 @@ export function ChatImageViewer({
     <button
       type="button"
       onClick={() => setOpen(true)}
-      className={`group relative block max-w-full rounded-md text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${containerClassName ?? ""}`}
+      className={`group relative block max-w-full cursor-zoom-in rounded-md text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${containerClassName ?? ""}`}
       aria-haspopup="dialog"
       aria-expanded={open}
       aria-label={`View ${alt}`}
@@ -89,7 +89,7 @@ export function ChatImageViewer({
         width={width}
         height={height}
         sizes={sizes}
-        className={`${className ?? ""} cursor-zoom-in`}
+        className={className}
         loading={loading}
       />
       <span className="pointer-events-none absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background/75 text-foreground opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">

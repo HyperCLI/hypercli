@@ -10,7 +10,7 @@ import { TooltipHint } from "@/components/ClawTooltip";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { AUTH_BASE_URL } from "@/lib/api";
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
-import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
+import { ACCOUNT_PAGE_HREFS, DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
 
 const navLinks = [
   { label: "Features", href: "#features" },
@@ -23,9 +23,9 @@ const navLinks = [
 ];
 
 const dropdownNavItems = [
-  { label: "API Keys", href: "/keys", icon: Key },
-  { label: "Plans", href: "/plans", icon: CreditCard },
-  { label: "Billing", href: DASHBOARD_VIEW_HREFS.settings, icon: CreditCard },
+  { label: "API Keys", href: ACCOUNT_PAGE_HREFS.apiKeys, icon: Key },
+  { label: "Plans", href: ACCOUNT_PAGE_HREFS.plans, icon: CreditCard },
+  { label: "Billing", href: ACCOUNT_PAGE_HREFS.billing, icon: CreditCard },
 ];
 const POST_LOGIN_PATH = "/dashboard/agents";
 

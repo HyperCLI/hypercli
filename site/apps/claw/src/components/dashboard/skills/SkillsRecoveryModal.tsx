@@ -86,7 +86,7 @@ export function SkillsRecoveryModal({ candidate, onClose, onRecover }: SkillsRec
                 {candidate.entries.map((entry) => {
                   const checked = selectedPaths.includes(entry.path);
                   return (
-                    <label key={entry.path} className={`flex items-start gap-2.5 border-b border-border px-3 py-2.5 last:border-b-0 ${entry.selectable ? "cursor-pointer hover:bg-surface-high/45" : "cursor-not-allowed opacity-55"}`}>
+                    <label key={entry.path} className={`flex items-start gap-2.5 border-b border-border px-3 py-2.5 last:border-b-0 ${recovering ? "cursor-wait" : entry.selectable ? "cursor-pointer hover:bg-surface-high/45" : "cursor-not-allowed opacity-55"}`}>
                       <input
                         type="checkbox"
                         checked={checked}

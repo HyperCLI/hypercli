@@ -69,7 +69,7 @@ function HandoffAddableSection({
       {items.length === 0 && !picking ? (
         <p className="text-[10px] text-text-muted/40 text-center py-1">No items</p>
       ) : items.map((item) => (
-        <motion.div key={item.id} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} className="group/hi flex items-start justify-between p-1.5 rounded-md cursor-pointer transition-colors"
+        <motion.div key={item.id} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} className="group/hi flex items-start justify-between p-1.5 rounded-md transition-colors"
           style={{ border: `1px solid ${alphaColor(color, 0.15)}`, backgroundColor: alphaColor(color, 0.02) }}
           whileHover={{ backgroundColor: alphaColor(color, 0.07) }}>
           <div className="min-w-0 flex-1">

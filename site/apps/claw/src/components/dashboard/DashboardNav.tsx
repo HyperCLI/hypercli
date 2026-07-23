@@ -25,14 +25,14 @@ import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 import { ThemeToggle } from "@hypercli/shared-ui";
-import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
+import { ACCOUNT_PAGE_HREFS, DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
 
 const dropdownNavItems = [
   { label: "Shared knowledge", href: "/dashboard/agents?section=knowledge", icon: HardDrive },
   { label: "Members", href: "/dashboard/agents?section=members", icon: UsersRound },
-  { label: "API Keys", href: "/keys", icon: Key },
-  { label: "Plans", href: "/plans", icon: CreditCard },
-  { label: "Billing", href: DASHBOARD_VIEW_HREFS.settings, icon: CreditCard },
+  { label: "API Keys", href: ACCOUNT_PAGE_HREFS.apiKeys, icon: Key },
+  { label: "Plans", href: ACCOUNT_PAGE_HREFS.plans, icon: CreditCard },
+  { label: "Billing", href: ACCOUNT_PAGE_HREFS.billing, icon: CreditCard },
 ];
 
 export function DashboardNav() {

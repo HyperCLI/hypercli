@@ -342,7 +342,7 @@ export function JourneyIntroPanel({ agentName, suggestedUserName, onStartBrief }
               type="button"
               onClick={goBack}
               disabled={slideIndex === 0}
-              className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-sm font-medium text-text-muted transition-colors hover:bg-surface-high hover:text-foreground disabled:pointer-events-none disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)]"
+              className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-sm font-medium text-text-muted transition-colors hover:bg-surface-high hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)]"
             >
               <ArrowLeft className="h-4 w-4" />
               Back

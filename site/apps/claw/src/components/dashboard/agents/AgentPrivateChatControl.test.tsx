@@ -37,6 +37,7 @@ describe("AgentPrivateChatControl", () => {
     expect(button).toBeDisabled();
     expect(button).toHaveAttribute("aria-busy", "true");
     expect(button).toHaveAccessibleDescription("Preparing private chat");
+    expect(button).toHaveClass("disabled:cursor-wait");
     expect(button).not.toHaveAttribute("title");
     expect(screen.queryByText("Private")).not.toBeInTheDocument();
   });

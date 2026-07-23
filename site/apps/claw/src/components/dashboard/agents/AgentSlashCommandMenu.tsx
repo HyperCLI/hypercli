@@ -1223,7 +1223,7 @@ export const AgentSlashCommandMenu = forwardRef<AgentSlashCommandMenuHandle, Age
                       }}
                       className={`flex w-full min-w-0 items-start gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
                         selected ? "bg-[rgb(var(--selection-accent-rgb)_/_0.12)] text-foreground" : "text-text-secondary hover:bg-surface-high"
-                      }`}
+                      } ${busyCommandId ? "cursor-wait" : ""}`}
                     >
                       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-[var(--selection-accent)]" style={suggestion.iconColor ? { color: suggestion.iconColor } : undefined} />
                       <span className="min-w-0 flex-1 space-y-1">
@@ -1270,7 +1270,7 @@ export const AgentSlashCommandMenu = forwardRef<AgentSlashCommandMenuHandle, Age
                     }}
                     className={`flex w-full min-w-0 items-start gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
                       selected ? "bg-[rgb(var(--selection-accent-rgb)_/_0.12)] text-foreground" : "text-text-secondary hover:bg-surface-high"
-                    } ${reason ? "opacity-50" : ""}`}
+                    } ${busyCommandId ? "cursor-wait" : reason ? "cursor-not-allowed opacity-50" : ""}`}
                   >
                     <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${command.danger ? "text-destructive" : "text-[var(--selection-accent)]"}`} />
                     <span className="min-w-0 flex-1 space-y-1">

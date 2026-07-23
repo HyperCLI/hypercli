@@ -185,6 +185,7 @@ vi.mock("@hypercli/shared-ui", () => ({
 }));
 
 import AccountSettingsPanel from "./AccountSettingsPanel";
+import { ProfileBillingSection } from "@/components/billing/ProfileBillingSection";
 
 function buildSubscriptionSummary() {
   const billingResetAt = new Date("2026-05-21T12:00:00Z");
@@ -345,7 +346,7 @@ describe("AccountSettingsPanel", () => {
     });
   });
 
-  it("renders account, Slack, and billing settings without duplicating dashboard navigation", async () => {
+  it("renders account and Slack settings without duplicating billing or dashboard navigation", async () => {
     render(<AccountSettingsPanel />);
 
     expect(screen.queryByRole("heading", { name: "Settings" })).not.toBeInTheDocument();
@@ -354,7 +355,7 @@ describe("AccountSettingsPanel", () => {
     expect(await screen.findByRole("heading", { name: "Slack" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Connect Slack" })).toHaveAttribute("href", "/slack/start");
     expect(screen.getByRole("link", { name: "Debug" })).toHaveAttribute("href", "/slack/status");
-    expect((await screen.findAllByText(/Pro Plan/)).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Pro Plan/)).not.toBeInTheDocument();
   });
 
   it("shows connected Slack workspace status in settings", async () => {
@@ -378,7 +379,7 @@ describe("AccountSettingsPanel", () => {
     const user = userEvent.setup();
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
 
-    render(<AccountSettingsPanel />);
+    render(<ProfileBillingSection getToken={authMocks.getToken} />);
 
     expect((await screen.findAllByText(/Pro Plan/)).length).toBeGreaterThan(0);
     expect(screen.getByText(/auto renew on May 21, 2026/i)).toBeInTheDocument();
@@ -409,7 +410,7 @@ describe("AccountSettingsPanel", () => {
     billingMocks.hyperAgent.subscriptionSummary.mockResolvedValue(summary);
     billingMocks.hyperAgent.payments.mockResolvedValue({ items: [] });
 
-    render(<AccountSettingsPanel />);
+    render(<ProfileBillingSection getToken={authMocks.getToken} />);
 
     expect((await screen.findAllByText("USDC wallet payments")).length).toBeGreaterThan(0);
     expect(screen.getByText("No card settings")).toBeInTheDocument();

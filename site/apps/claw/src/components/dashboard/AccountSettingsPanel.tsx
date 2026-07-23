@@ -7,7 +7,6 @@ import { getSlackInstallStatus, type SlackInstallStatus } from "@hypercli.com/sd
 import { ThemeSelector } from "@hypercli/shared-ui";
 
 import { TooltipHint } from "@/components/ClawTooltip";
-import { ProfileBillingSection } from "@/components/billing/ProfileBillingSection";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { SLACK_APP_HANDLE, SLACK_RELAY_BASE_URL } from "@/lib/api";
 
@@ -110,7 +109,6 @@ export default function AccountSettingsPanel() {
           </div>
         </section>
         <SlackAccountSection getToken={getToken} />
-        <ProfileBillingSection getToken={getToken} />
       </div>
     </div>
   );

@@ -1666,6 +1666,32 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
     page.locator("main").getByText(/Checking your workspace before selecting an agent/i).first()
   ).not.toBeVisible({ timeout: 90_000 });
 
+  const currentWorkspaceButton = page.getByRole("button", { name: /^Current workspace:/i }).first();
+  await expect(currentWorkspaceButton).toBeVisible({ timeout: 90_000 });
+  await expect
+    .poll(() => currentWorkspaceButton.getAttribute("aria-label"), { timeout: 90_000 })
+    .not.toBe("Current workspace: Loading Workspaces");
+
+  if ((await currentWorkspaceButton.getAttribute("aria-label")) === "Current workspace: No Workspace") {
+    const workspaceName = `Agents E2E ${Date.now()}`;
+    const createWorkspaceButton = page
+      .locator("main")
+      .getByRole("button", { name: /^Create your first Workspace/i });
+    await expect(createWorkspaceButton).toBeVisible({ timeout: 30_000 });
+    await createWorkspaceButton.click();
+
+    const workspaceDialog = page.getByRole("dialog").last();
+    await expect(workspaceDialog.getByRole("heading", { name: "New Workspace", exact: true })).toBeVisible({ timeout: 30_000 });
+    await workspaceDialog.getByLabel("Workspace name").fill(workspaceName);
+    await workspaceDialog.getByRole("button", { name: "Continue", exact: true }).click();
+    await expect(workspaceDialog.getByRole("heading", { name: "Invite team members", exact: true })).toBeVisible();
+    await workspaceDialog.getByRole("button", { name: "Create Workspace", exact: true }).click();
+
+    await expect(workspaceDialog).not.toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole("button", { name: `Current workspace: ${workspaceName}` })).toBeVisible({ timeout: 30_000 });
+    await captureStep(page, "agents-10-workspace-created");
+  }
+
   const createButton = page.locator("main").locator("button").filter({ hasText: /Create an agent/i }).last();
   const launchAgentButton = page.locator("main").getByRole("button", { name: /^launch agent$/i });
   const launchFirstAgentButton = page
@@ -1679,6 +1705,7 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
     await findLastVisible(launchFirstAgentButton, 30_000);
   expect(launcherEntryButton, "expected a visible launch/create agent entry button").not.toBeNull();
   await captureStep(page, "agents-10-dashboard");
+  await expect(launcherEntryButton!, "expected the launch/create agent entry button to be enabled").toBeEnabled({ timeout: 30_000 });
   await launcherEntryButton!.click();
 
   const desktopCheckbox = page

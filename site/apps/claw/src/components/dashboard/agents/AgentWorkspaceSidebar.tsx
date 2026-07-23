@@ -156,7 +156,7 @@ function WorkspaceButton({
   const roundedClassName = "rounded-full";
   const buttonClassName = `flex ${buttonSizeClass} items-center ${roundedClassName} text-sm transition-colors ${
     disabled
-      ? "cursor-not-allowed text-text-muted/45"
+      ? `${item.busy ? "cursor-wait" : "cursor-not-allowed"} text-text-muted/45`
       : item.active
         ? mobileMode
           ? "border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
@@ -829,11 +829,6 @@ function CreateWorkspaceDialog({
     <Dialog open={open} onOpenChange={(nextOpen) => { if (nextOpen) onOpenChange(true); else close(); }}>
       <DialogContent closeLabel="Close new Workspace" overlayClassName="z-[89] bg-black/60 backdrop-blur-sm" className="z-[90] gap-0 overflow-hidden rounded-2xl border-border bg-background p-0 shadow-2xl sm:max-w-[540px]">
         <DialogHeader className="border-b border-border px-5 py-4 pr-12">
-          <div className="mb-1 flex items-center gap-2" aria-label={`Step ${step === "details" ? 1 : 2} of 2`}>
-            <Badge variant={step === "details" ? "default" : "outline"} className="rounded-full px-2 text-[10px]">1 Workspace</Badge>
-            <span aria-hidden="true" className="h-px w-5 bg-border" />
-            <Badge variant={step === "members" ? "default" : "outline"} className="rounded-full px-2 text-[10px]">2 Members</Badge>
-          </div>
           <DialogTitle className="text-base">{step === "details" ? "New Workspace" : "Invite team members"}</DialogTitle>
           <DialogDescription className="text-[12px] leading-relaxed text-text-muted">
             {step === "details"

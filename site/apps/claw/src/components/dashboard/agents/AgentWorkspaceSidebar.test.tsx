@@ -378,6 +378,23 @@ describe("AgentWorkspaceSidebar", () => {
     expect(activeProject).toBeInTheDocument();
   });
 
+  it("uses a wait cursor while a new session is being created", async () => {
+    let finishCreating!: () => void;
+    const onCreateSession = vi.fn(() => new Promise<void>((resolve) => {
+      finishCreating = resolve;
+    }));
+    renderAgentWorkspaceSidebar({ onCreateSession, sessionsFetched: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "New Session" }));
+
+    const creatingButton = await screen.findByRole("button", { name: "Creating Session" });
+    expect(creatingButton).toBeDisabled();
+    expect(creatingButton).toHaveClass("cursor-wait");
+
+    finishCreating();
+    await waitFor(() => expect(screen.getByRole("button", { name: "New Session" })).toBeEnabled());
+  });
+
   it("renders sessions and opens the selected session by display name", () => {
     const onSelectSession = vi.fn();
     renderAgentWorkspaceSidebar({

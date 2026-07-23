@@ -50,7 +50,7 @@ export function AgentPrivateChatControl({
           const action = active ? onEnd : onStart;
           void Promise.resolve(action()).catch(() => undefined);
         }}
-        className={`${compact ? "h-10 w-10 rounded-lg" : "h-8 rounded-full px-3"} inline-flex shrink-0 items-center justify-center gap-1.5 border text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)] disabled:cursor-not-allowed disabled:opacity-45 ${
+        className={`${compact ? "h-10 w-10 rounded-lg" : "h-8 rounded-full px-3"} inline-flex shrink-0 items-center justify-center gap-1.5 border text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)] disabled:opacity-45 ${busy ? "disabled:cursor-wait" : "disabled:cursor-not-allowed"} ${
           active
             ? "border-[rgb(var(--selection-accent-rgb)_/_0.4)] bg-[rgb(var(--selection-accent-rgb)_/_0.12)] text-[var(--selection-accent)]"
             : "border-border bg-surface-low/45 text-text-secondary hover:bg-surface-low hover:text-foreground"

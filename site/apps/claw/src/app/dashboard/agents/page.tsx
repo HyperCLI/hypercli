@@ -157,6 +157,7 @@ import { createAudioMediaRecorder } from "@/lib/audio-recorder";
 import { downloadFileBytes } from "@/lib/download-file";
 import { resolveAgentRouteTab, type AgentRouteTab } from "@/lib/agent-workspace-route";
 import {
+  ACCOUNT_PAGE_HREFS,
   buildDashboardViewHref,
   resolveDashboardView,
   type DashboardView,
@@ -3911,7 +3912,7 @@ function AgentsPageContent() {
               type="button"
               aria-label="Close agents sidebar"
               onClick={() => setMobileAgentsSidebarOpen(false)}
-              className="absolute inset-0 bg-black/55 backdrop-blur-sm"
+              className="absolute inset-0 cursor-default bg-black/55 backdrop-blur-sm"
             />
             <motion.aside
               initial={{ x: "-100%" }}
@@ -3988,7 +3989,7 @@ function AgentsPageContent() {
               type="button"
               aria-label="Close workspace sidebar"
               onClick={() => setMobileWorkspaceSidebarOpen(false)}
-              className="absolute inset-0 bg-black/55 backdrop-blur-sm"
+              className="absolute inset-0 cursor-default bg-black/55 backdrop-blur-sm"
             />
             <motion.aside
               initial={{ x: "100%" }}
@@ -4240,7 +4241,7 @@ function AgentsPageContent() {
                 onOpenLogs: openLogsTab,
                 onOpenShell: openShellTab,
                 onOpenPlans: openUpgradeCatalog,
-                onOpenBilling: openAccountSettings,
+                onOpenBilling: () => leaveAgentsPage(ACCOUNT_PAGE_HREFS.billing),
                 onNewConversation: createSession,
                 onStartAgent: async () => {
                   if (selectedAgent) await handleStart(selectedAgent.id);

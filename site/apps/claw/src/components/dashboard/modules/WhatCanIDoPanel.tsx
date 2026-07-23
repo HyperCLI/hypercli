@@ -55,14 +55,14 @@ export function WhatCanIDoPanel({ open, onToggle, onPromptClick }: WhatCanIDoPan
                         initial={{ opacity: 0, y: 8 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: 0.1 + idx * 0.06 }}
-                        className="rounded-lg bg-primary/5 border border-primary/15 px-3 py-2 flex items-start gap-2.5 group cursor-pointer hover:bg-primary/10 transition-colors"
+                        className="group flex items-start gap-2.5 rounded-lg border border-primary/15 bg-primary/5 px-3 py-2"
                       >
                         <motion.div animate={{ y: [0, -2, 0] }} transition={{ repeat: Infinity, duration: 2, delay: idx * 0.3 }}>
                           <NudgeIcon className="w-3.5 h-3.5 text-primary mt-0.5 shrink-0" />
                         </motion.div>
                         <div className="flex-1 min-w-0">
                           <div className="text-[11px] text-foreground">{nudge.text}</div>
-                          <button className="text-[10px] text-primary mt-0.5 hover:underline">{nudge.action} →</button>
+                          <span className="mt-0.5 block text-[10px] text-primary">{nudge.action} →</span>
                         </div>
                         <button
                           onClick={(e) => { e.stopPropagation(); setDismissedNudges((prev) => new Set(prev).add(nudge.id)); }}
@@ -85,7 +85,7 @@ export function WhatCanIDoPanel({ open, onToggle, onPromptClick }: WhatCanIDoPan
                       initial={{ opacity: 0, x: -8 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: 0.15 + idx * 0.05 }}
-                      className="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-border hover:bg-surface-low/50 transition-colors cursor-pointer"
+                      className="flex items-center gap-2.5 rounded-lg border border-border px-3 py-2"
                     >
                       <div className="w-7 h-7 rounded-lg bg-surface-low flex items-center justify-center shrink-0">
                         <ConnIcon className="w-3.5 h-3.5 text-text-muted" />

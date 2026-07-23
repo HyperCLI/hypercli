@@ -379,6 +379,7 @@ describe("FirstAgentSetupWizard", () => {
     expect(screen.getByText("1 Medium slot being released")).toBeInTheDocument();
     expect(screen.getByText("Refreshing slot availability")).toBeInTheDocument();
     expect(getPlanCardAction("Refreshing slots")).toBeDisabled();
+    expect(getPlanCardAction("Refreshing slots")).toHaveClass("disabled:cursor-wait");
     expect(onOpenPlanCatalog).not.toHaveBeenCalled();
     expect(onCreateAgent).not.toHaveBeenCalled();
   });
