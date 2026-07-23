@@ -67,6 +67,8 @@ function buildChat(overrides: Partial<ChatSession> = {}): ChatSession {
     connected: false,
     connecting: false,
     hydrating: false,
+    historyPhase: "ready",
+    historyPending: false,
     messages: [],
     sendMessage: vi.fn(async () => undefined),
     abortMessage: vi.fn(async () => undefined),
@@ -274,6 +276,23 @@ describe("AgentChatPanel", () => {
     expect(onOpenScheduled).toHaveBeenCalledTimes(1);
   });
 
+  it("shows a stable history loader instead of empty-chat actions while history is pending", () => {
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        historyPhase: "loading",
+        historyPending: true,
+      }),
+      isSelectedRunning: true,
+    });
+
+    expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /connect slack/i })).not.toBeInTheDocument();
+  });
+
   it("keeps the composer out of the provisioning stage", () => {
     const selectedAgent = buildAgent("PENDING");
     renderAgentChatPanel({
@@ -321,6 +340,7 @@ describe("AgentChatPanel", () => {
     const bubbleProps = chatMessageBubbleMock.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
     expect(bubbleProps).toEqual(expect.objectContaining({
       agentId: selectedAgent.id,
+      animationVariant: "off",
       onReadFileBytesFromChat,
       onOpenFileFromChat,
       onDownloadFileFromChat,
@@ -401,7 +421,7 @@ describe("AgentChatPanel", () => {
 
     expect(screen.getByText("Loading workspace")).toBeInTheDocument();
     expect(screen.getByText("Fetching messages, files, and config.")).toBeInTheDocument();
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox")).toBeDisabled();
   });
 
   it("renders the composer after chat is ready", () => {
@@ -2079,13 +2099,13 @@ describe("AgentChatPanel", () => {
     );
 
     expect(screen.getByText("Connecting gateway")).toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: /message agent/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: /message agent/i })).toBeDisabled();
 
     await act(async () => {
       vi.advanceTimersByTime(180);
     });
 
-    expect(screen.getByRole("textbox", { name: /message agent/i })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: /message agent/i })).toBeEnabled();
   });
 
   it("shows the retry action when the gateway reports an error", () => {

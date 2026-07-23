@@ -2495,56 +2495,78 @@ function AgentsPageContent() {
     selectedAgent,
   ]);
 
-  // Auto-scroll chat — only when user is near bottom (not scrolled up reading)
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
   const lastMsgCountRef = useRef(0);
+  const chatScrollFrameRef = useRef<number | null>(null);
+  const chatScrollTarget = `${selectedAgentId ?? ""}\0${chat.activeSessionKey}`;
+  const previousChatScrollTargetRef = useRef(chatScrollTarget);
+
+  const scheduleChatScroll = useCallback((behavior: ScrollBehavior) => {
+    if (chatScrollFrameRef.current !== null) window.cancelAnimationFrame(chatScrollFrameRef.current);
+    chatScrollFrameRef.current = window.requestAnimationFrame(() => {
+      chatScrollFrameRef.current = null;
+      chatEndRef.current?.scrollIntoView({ behavior, block: "end" });
+    });
+  }, []);
 
   const handleChatScroll = useCallback(() => {
     const el = chatScrollRef.current;
     if (!el) return;
-    // Consider "near bottom" if within 100px of the end
     isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
   }, []);
 
   useEffect(() => {
     const count = chat.messages.length;
-    if (count !== lastMsgCountRef.current) {
-      lastMsgCountRef.current = count;
-      // Always scroll on new message (user sent or agent started replying)
-      requestAnimationFrame(() => {
-        chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-      });
-    } else if (isNearBottomRef.current) {
-      // Streaming update — only scroll if already near bottom
-      requestAnimationFrame(() => {
-        chatEndRef.current?.scrollIntoView({ behavior: "auto" });
-      });
-    }
-  }, [chat.messages]);
+    const previousCount = lastMsgCountRef.current;
+    lastMsgCountRef.current = count;
+    if (mainTab !== "chat" || count <= previousCount) return;
 
-  // When a reply finishes streaming, snap to the last line regardless of
-  // scroll position so the end of the message is always visible.
-  const prevSendingRef = useRef(chat.sending);
-  useEffect(() => {
-    if (prevSendingRef.current && !chat.sending) {
+    const appendedUserMessage = count === previousCount + 1 && chat.messages[count - 1]?.role === "user";
+    if (appendedUserMessage) {
       isNearBottomRef.current = true;
-      refreshTokenUsageAfterChat();
-      requestAnimationFrame(() => {
-        chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-      });
+      scheduleChatScroll("smooth");
+    } else if (isNearBottomRef.current) {
+      scheduleChatScroll("auto");
     }
-    prevSendingRef.current = chat.sending;
-  }, [chat.sending, refreshTokenUsageAfterChat]);
+  }, [chat.messages, mainTab, scheduleChatScroll]);
 
-  // Scroll to bottom when user switches back to chat tab.
-  // useLayoutEffect runs synchronously after DOM commit (refs are set)
-  // but before browser paint, so the user never sees the un-scrolled state.
-  useLayoutEffect(() => {
-    if (mainTab === "chat" && chatEndRef.current) {
-      chatEndRef.current.scrollIntoView({ behavior: "auto" });
+  const prevSendingRef = useRef(chat.activeSessionSending);
+  useEffect(() => {
+    if (prevSendingRef.current && !chat.activeSessionSending) {
+      refreshTokenUsageAfterChat();
+      if (isNearBottomRef.current) scheduleChatScroll("auto");
     }
-  }, [mainTab]);
+    prevSendingRef.current = chat.activeSessionSending;
+  }, [chat.activeSessionSending, refreshTokenUsageAfterChat, scheduleChatScroll]);
+
+  useLayoutEffect(() => {
+    if (mainTab !== "chat") return;
+    const targetChanged = previousChatScrollTargetRef.current !== chatScrollTarget;
+    previousChatScrollTargetRef.current = chatScrollTarget;
+    if (targetChanged) {
+      isNearBottomRef.current = true;
+      lastMsgCountRef.current = 0;
+    }
+    scheduleChatScroll("auto");
+  }, [chatScrollTarget, mainTab, scheduleChatScroll]);
+
+  useEffect(() => {
+    if (mainTab !== "chat" || typeof ResizeObserver === "undefined") return;
+    const scrollElement = chatScrollRef.current;
+    const contentElement = scrollElement?.firstElementChild;
+    if (!scrollElement || !contentElement) return;
+    const observer = new ResizeObserver(() => {
+      if (isNearBottomRef.current) scheduleChatScroll("auto");
+    });
+    observer.observe(scrollElement);
+    observer.observe(contentElement);
+    return () => observer.disconnect();
+  }, [chatScrollTarget, mainTab, scheduleChatScroll]);
+
+  useEffect(() => () => {
+    if (chatScrollFrameRef.current !== null) window.cancelAnimationFrame(chatScrollFrameRef.current);
+  }, []);
 
   useEffect(() => { if (logBoxRef.current) logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight; }, [logs]);
 

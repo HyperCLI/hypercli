@@ -106,6 +106,39 @@ function mergeCurrentToolCallsIntoHistory(
   ));
 }
 
+function preservePendingAssistantTail(
+  historyMessages: ChatMessage[],
+  currentMessages: ChatMessage[],
+): ChatMessage[] {
+  const currentUserCount = currentMessages.filter((message) => message.role === "user").length;
+  const historyUserCount = historyMessages.filter((message) => message.role === "user").length;
+  if (currentUserCount === 0 || currentUserCount !== historyUserCount) return historyMessages;
+
+  let currentLastUserIndex = -1;
+  for (let index = currentMessages.length - 1; index >= 0; index -= 1) {
+    if (currentMessages[index]?.role === "user") {
+      currentLastUserIndex = index;
+      break;
+    }
+  }
+  let historyLastUserIndex = -1;
+  for (let index = historyMessages.length - 1; index >= 0; index -= 1) {
+    if (historyMessages[index]?.role === "user") {
+      historyLastUserIndex = index;
+      break;
+    }
+  }
+  if (currentLastUserIndex < 0 || historyLastUserIndex < 0) return historyMessages;
+  if (historyMessages.slice(historyLastUserIndex + 1).some(assistantMessageHasVisibleReply)) return historyMessages;
+
+  const pendingAssistantMessages = currentMessages
+    .slice(currentLastUserIndex + 1)
+    .filter(assistantMessageHasVisibleReply);
+  return pendingAssistantMessages.length > 0
+    ? dedupeChatMessages([...historyMessages, ...pendingAssistantMessages])
+    : historyMessages;
+}
+
 function assistantMessageHasVisibleReply(message: ChatMessage): boolean {
   return (
     message.role === "assistant" &&
@@ -168,7 +201,10 @@ export function reduceChatHistoryMessages(current: ChatMessage[], action: ChatHi
     if (current.length > 0 && historyMessages.length < current.length && historyUserCount < currentUserCount) {
       return current;
     }
-    return mergeCurrentToolCallsIntoHistory(historyMessages, current);
+    return mergeCurrentToolCallsIntoHistory(
+      preservePendingAssistantTail(historyMessages, current),
+      current,
+    );
   }
 
   if (action.type === "replace" || action.type === "restore-cache") {

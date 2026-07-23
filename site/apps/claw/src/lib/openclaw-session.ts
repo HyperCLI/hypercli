@@ -273,6 +273,7 @@ export interface HydratedOpenClawSession {
   gwAgentId: string;
   gatewaySessionKey: string;
   activeSessionRecord: OpenClawSessionRecord | null;
+  historyStatus: "fulfilled" | "rejected";
   useLocalCacheFallback: boolean;
   sessions: OpenClawSessionRecord[];
   sessionsFetched: boolean;
@@ -442,11 +443,13 @@ export async function refreshOpenClawChatMessages(
   activeSessionKey?: string | null,
   activeGatewaySessionKey?: string | null,
   activeSessionRecord?: OpenClawSessionRecord | null,
+  options: { throwOnError?: boolean } = {},
 ): Promise<ChatMessage[]> {
   const sessionKey = activeGatewaySessionKey?.trim() || resolveOpenClawActiveSessionKey((preferredAgentId ?? "").trim(), activeSessionKey);
   try {
     return await loadSessionHistory(gateway, sessionKey, activeSessionRecord, 200);
-  } catch {
+  } catch (error) {
+    if (options.throwOnError) throw error;
     return [];
   }
 }
@@ -652,6 +655,9 @@ export async function hydrateOpenClawSession(
     : activeSessionRecord?.readOnly !== true && sameOpenClawSessionKey(sessionKey, CANONICAL_GATEWAY_AGENT_ID)
       ? await loadLegacyHistory(gateway, normalizedPreferredAgentId, sessions)
       : [];
+  const historyStatus = historyResult.status === "fulfilled" || messages.length > 0
+    ? "fulfilled"
+    : "rejected";
   return {
     config: connection.config,
     configSchema: connection.configSchema,
@@ -660,6 +666,7 @@ export async function hydrateOpenClawSession(
     gwAgentId: connection.gwAgentId,
     gatewaySessionKey: sessionKey,
     activeSessionRecord,
+    historyStatus,
     useLocalCacheFallback: !skipAmbiguousSyntheticMainHistory && activeSessionRecord?.readOnly !== true,
     sessions,
     sessionsFetched: sessionsRes.status === "fulfilled",

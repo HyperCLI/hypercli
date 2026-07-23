@@ -1761,6 +1761,7 @@ export class OpenClawAgent extends Agent {
       onHello: options.onHello,
       onClose: options.onClose,
       onGap: options.onGap,
+      onProtocolError: options.onProtocolError,
       onPairing: options.onPairing,
     });
   }

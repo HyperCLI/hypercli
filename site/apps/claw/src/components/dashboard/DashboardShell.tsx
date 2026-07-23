@@ -113,7 +113,7 @@ export function DashboardShell({
     <WorkspaceProvider>
       <DashboardMobileAgentMenuProvider>
         <div
-          className="h-dvh overflow-hidden bg-background"
+          className="fixed inset-x-0 top-0 h-dvh w-full overflow-hidden bg-background"
           data-auth-loading={isLoading ? "true" : "false"}
           data-authenticated={isAuthenticated ? "true" : "false"}
           data-auth-flow-state={flowState}

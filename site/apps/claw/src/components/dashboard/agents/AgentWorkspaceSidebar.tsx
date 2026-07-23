@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   Blocks,
@@ -214,6 +215,12 @@ function sessionTitle(session: OpenClawSessionRecord): string {
   return displayOpenClawSessionName(session);
 }
 
+function isUnresolvedPlaceholderSession(session: OpenClawSessionRecord): boolean {
+  const fallbackTitle = fallbackOpenClawSessionDisplayName(session.key);
+  return (fallbackTitle === "Main Session" || fallbackTitle === "New Session") &&
+    sessionTitle(session) === fallbackTitle;
+}
+
 function selectedSessionRecord(sessionKey: string, lastMessageAt = Number.MAX_SAFE_INTEGER): OpenClawSessionRecord {
   const title = fallbackOpenClawSessionDisplayName(sessionKey);
   return {
@@ -361,7 +368,7 @@ function RecentSessionRow({
           : { type: "spring", stiffness: 520, damping: 36, mass: 0.65 },
       }}
       data-session-pinned={pinned ? "true" : "false"}
-      className={`group/session relative isolate flex items-center gap-1 ${menuOpen ? "z-40" : "z-0"}`}
+      className={`group/session relative isolate flex w-full min-w-0 items-center ${menuOpen ? "z-40" : "z-0"}`}
     >
       <AnimatePresence initial={false}>
         {pinned && !reduceMotion ? (
@@ -386,10 +393,11 @@ function RecentSessionRow({
           type="button"
           onClick={disabled ? undefined : onSelect}
           disabled={disabled}
+          aria-label={title}
           aria-disabled={disabled}
           aria-current={active ? "page" : undefined}
           aria-busy={creating || thinking || undefined}
-          className={`relative z-10 min-w-0 flex-1 rounded-full px-3 py-1.5 text-left text-[13px] leading-4 transition-colors ${
+          className={`relative z-10 min-w-0 flex-1 rounded-full px-2 py-1.5 text-left text-[13px] leading-4 transition-colors ${
             disabled
               ? "cursor-not-allowed text-text-muted/45"
               : active
@@ -397,13 +405,28 @@ function RecentSessionRow({
                 : "text-text-secondary hover:bg-surface-low/60 hover:text-foreground"
           }`}
         >
-        <span className="flex min-w-0 items-center gap-2">
+        <span className="flex min-w-0 items-center gap-1.5">
           {sourceChannel && SourceChannelIcon ? (
             <span aria-hidden="true" className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-surface-high ring-1 ring-border">
               <SourceChannelIcon className="h-3 w-3" style={sourceChannel.color ? { color: sourceChannel.color } : undefined} />
             </span>
           ) : null}
-          <span className="min-w-0 flex-1 truncate">{title}</span>
+          <span className="relative h-4 min-w-0 flex-1 overflow-hidden">
+            <AnimatePresence initial={false}>
+              <motion.span
+                key={title}
+                aria-hidden="true"
+                data-session-title={title}
+                className="absolute inset-0 block truncate"
+                initial={reduceMotion ? false : { opacity: 0, y: 3 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -3 }}
+                transition={reduceMotion ? { duration: 0 } : { duration: 0.18, ease: [0.2, 0.75, 0.25, 1] }}
+              >
+                {title}
+              </motion.span>
+            </AnimatePresence>
+          </span>
           {pinned || unpinAnimating ? (
             <span className="relative inline-flex h-3 w-3 shrink-0">
               {pinned ? (
@@ -448,7 +471,11 @@ function RecentSessionRow({
         </button>
       </TooltipHint>
 
-      <div className="relative z-10 h-7 w-7 shrink-0" ref={menuRef}>
+      <div
+        ref={menuRef}
+        data-session-options
+        className="pointer-events-none absolute right-0 top-1/2 z-20 h-7 w-7 -translate-y-1/2 group-hover/session:pointer-events-auto focus-within:pointer-events-auto"
+      >
         <TooltipHint label={disabledReason ?? `Session options for ${title}`} disabled={disabled} side="right">
           <button
             type="button"
@@ -460,7 +487,7 @@ function RecentSessionRow({
             disabled={disabled}
             aria-disabled={disabled}
             aria-label={`Session options for ${title}`}
-            className={`flex h-7 w-7 items-center justify-center rounded-full transition-all ${
+            className={`flex h-7 w-7 items-center justify-center rounded-full bg-surface-low/95 transition-all ${
               disabled
                 ? "cursor-not-allowed text-text-muted/30 opacity-0 group-hover/session:opacity-100 focus:opacity-100"
                 : `text-text-muted hover:bg-surface-low hover:text-foreground ${menuOpen ? "opacity-100" : "opacity-0 group-hover/session:opacity-100 focus:opacity-100"}`
@@ -616,13 +643,14 @@ function DeleteSessionDialog({
 }) {
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const titleId = React.useId();
 
   useEffect(() => {
     setDeleting(false);
     setError(null);
   }, [session?.key]);
 
-  if (!session) return null;
+  if (!session || typeof document === "undefined") return null;
 
   const confirmDelete = async () => {
     setDeleting(true);
@@ -636,19 +664,22 @@ function DeleteSessionDialog({
     }
   };
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm" onClick={deleting ? undefined : onClose}>
       <motion.div
         initial={{ opacity: 0, scale: 0.96, y: 8 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ type: "spring", stiffness: 420, damping: 34 }}
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-md overflow-hidden rounded-xl border border-border bg-surface shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="isolate w-full max-w-md overflow-hidden rounded-xl border border-border bg-background shadow-2xl"
       >
         <div className="border-b border-border p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold leading-6 text-foreground">Delete session?</h2>
+              <h2 id={titleId} className="text-lg font-semibold leading-6 text-foreground">Delete session?</h2>
               <p className="mt-2 text-sm text-text-muted">This session will be removed from your history.</p>
             </div>
             <button
@@ -683,7 +714,8 @@ function DeleteSessionDialog({
           </button>
         </div>
       </motion.div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1164,16 +1196,20 @@ export function AgentWorkspaceSidebar({
       return pinOrder || b.lastMessageAt - a.lastMessageAt;
     });
   }, [hasSelectedAgent, pinnedSessionKeys, sessions, selectedSessionKey]);
+  const titledSessions = useMemo(
+    () => sessionsFetched ? sortedSessions : sortedSessions.filter((session) => !isUnresolvedPlaceholderSession(session)),
+    [sessionsFetched, sortedSessions],
+  );
   const visibleSessions = useMemo(() => {
-    if (showAllRecent) return sortedSessions;
-    const pinnedCount = sortedSessions.filter((session) => isSessionPinned(session.key, pinnedSessionKeys)).length;
+    if (showAllRecent) return titledSessions;
+    const pinnedCount = titledSessions.filter((session) => isSessionPinned(session.key, pinnedSessionKeys)).length;
     const visibleCount = Math.max(8, pinnedCount);
-    const initialSessions = sortedSessions.slice(0, visibleCount);
-    const activeSession = sortedSessions.find((session) => isSessionActive(session, selectedSessionKey, sortedSessions));
+    const initialSessions = titledSessions.slice(0, visibleCount);
+    const activeSession = titledSessions.find((session) => isSessionActive(session, selectedSessionKey, sortedSessions));
     if (!activeSession || hasSession(initialSessions, activeSession.key)) return initialSessions;
-    return sortedSessions.filter((session, index) => index < visibleCount || sameOpenClawSelectableSessionKey(session.key, activeSession.key));
-  }, [pinnedSessionKeys, selectedSessionKey, showAllRecent, sortedSessions]);
-  const hiddenSessionCount = Math.max(0, sortedSessions.length - visibleSessions.length);
+    return titledSessions.filter((session, index) => index < visibleCount || sameOpenClawSelectableSessionKey(session.key, activeSession.key));
+  }, [pinnedSessionKeys, selectedSessionKey, showAllRecent, sortedSessions, titledSessions]);
+  const hiddenSessionCount = Math.max(0, titledSessions.length - visibleSessions.length);
   const renameTargetTitle = renameTarget ? sessionTitle(renameTarget) : "";
   const agentState: AgentState | undefined = selectedAgent?.state;
   const noSelectedAgent = !selectedAgent;
@@ -1380,7 +1416,7 @@ export function AgentWorkspaceSidebar({
           ))}
         </nav>
 
-        {!isCollapsed && hasSelectedAgent && sortedSessions.length > 0 && (
+        {!isCollapsed && hasSelectedAgent && titledSessions.length > 0 && (
           <section className={renderMobile ? "mt-7" : "mt-2"}>
             <button
               type="button"
@@ -1406,8 +1442,10 @@ export function AgentWorkspaceSidebar({
                       pinned={pinned}
                       disabled={!sessionsInteractive}
                       disabledReason={sessionsDisabledReason}
-                      deleteDisabled={session.readOnly === true}
-                      deleteDisabledReason={session.readOnlyReason ?? "Connected conversations cannot be deleted here."}
+                      deleteDisabled={session.readOnly === true || isCanonicalMainSession(session)}
+                      deleteDisabledReason={isCanonicalMainSession(session)
+                        ? "The main session cannot be deleted."
+                        : session.readOnlyReason ?? "Connected conversations cannot be deleted here."}
                       creating={creatingSessionKeys.some((sessionKey) => sameOpenClawSelectableSessionKey(sessionKey, session.key))}
                       thinking={thinking}
                       onSelect={onSelectSession ? () => onSelectSession(session.key) : undefined}

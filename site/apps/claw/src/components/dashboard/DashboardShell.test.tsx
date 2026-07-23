@@ -67,6 +67,7 @@ describe("DashboardShell", () => {
     expect(screen.getByTestId("dashboard-nav")).toBeInTheDocument();
     expect(screen.getByTestId("mobile-dashboard-nav")).toHaveClass("lg:hidden");
     expect(screen.queryByTestId("motion-route")).not.toBeInTheDocument();
+    expect(screen.getByRole("main").parentElement).toHaveClass("fixed", "inset-x-0", "top-0", "overflow-hidden");
     expect(screen.getByRole("main")).toHaveClass("h-dvh", "pt-14", "lg:pt-0");
   });
 

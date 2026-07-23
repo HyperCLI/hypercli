@@ -34,6 +34,23 @@ describe("openclaw chat history state", () => {
     expect(messages).toBe(current);
   });
 
+  it("keeps a live assistant reply while history only contains its user turn", () => {
+    const current: ChatMessage[] = [
+      { role: "user", content: "Summarize the workspace", timestamp: 1 },
+      { role: "assistant", content: "The workspace contains three projects.", timestamp: 2 },
+    ];
+
+    const messages = reduceChatHistoryMessages(current, {
+      type: "merge-history-refresh",
+      messages: [{ role: "user", content: "Summarize the workspace", timestamp: 3 }],
+    });
+
+    expect(messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Summarize the workspace" }),
+      expect.objectContaining({ role: "assistant", content: "The workspace contains three projects." }),
+    ]);
+  });
+
   it("merges streamed tool calls into refreshed assistant history", () => {
     const current: ChatMessage[] = [
       { role: "user", content: "Inspect archive", timestamp: 1 },

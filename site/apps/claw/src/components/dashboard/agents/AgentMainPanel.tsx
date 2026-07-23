@@ -364,7 +364,7 @@ export function AgentMainPanel({
   };
 
   return (
-    <div className={`flex-1 flex-col min-w-0 ${!mobileShowChat && !isDesktopViewport ? "hidden" : "flex"}`}>
+    <div className={`min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${!mobileShowChat && !isDesktopViewport ? "hidden" : "flex"}`}>
       {!selectedAgent && (currentPanel === "knowledge" || currentPanel === "members") ? (
         <div className="flex-1 min-h-0">{panelContent}</div>
       ) : loadingInitialAgents && !selectedAgent ? (

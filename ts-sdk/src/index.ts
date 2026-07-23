@@ -362,6 +362,8 @@ export {
   GatewayClient,
   type GatewayOptions,
   type GatewayEvent,
+  type GatewayProtocolErrorCode,
+  type GatewayProtocolErrorInfo,
   type ChatEvent,
   type GatewayEphemeralChatOptions,
   type GatewayEphemeralChatSession,

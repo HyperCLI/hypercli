@@ -425,7 +425,11 @@ describe("AgentWorkspaceSidebar", () => {
     });
 
     expect(screen.getByText("Sessions")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+    const selectedSession = screen.getByRole("button", { name: "New chat" });
+    const selectedSessionRow = selectedSession.closest("[data-session-pinned]");
+    expect(selectedSession).toHaveClass("px-2");
+    expect(selectedSessionRow?.querySelector("[data-session-options]")).toHaveClass("absolute", "right-0");
+    fireEvent.click(selectedSession);
     expect(onSelectSession).toHaveBeenCalledWith("session-new");
   });
 
@@ -700,6 +704,27 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.getByText("Telegram conversations are read-only here. Reply from Telegram.")).toBeInTheDocument();
   });
 
+  it("does not allow the main session to be deleted", () => {
+    renderAgentWorkspaceSidebar({
+      sessions: [{
+        key: "main",
+        clientMode: "openclaw",
+        clientDisplayName: "Main Session",
+        createdAt: 1,
+        lastMessageAt: 20,
+        title: "Main Session",
+        messageCount: 1,
+        raw: {},
+      }],
+      selectedSessionKey: "main",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Session options for Main Session" }));
+
+    expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
+    expect(screen.getByText("The main session cannot be deleted.")).toBeInTheDocument();
+  });
+
   it("shows and highlights the current session when it is the only session", () => {
     renderAgentWorkspaceSidebar({
       sessions: [],
@@ -711,7 +736,7 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.queryByText(/^main$/)).not.toBeInTheDocument();
   });
 
-  it("shows disabled sessions before the session list is fetched", () => {
+  it("hides unresolved placeholder sessions before the session list is fetched", () => {
     const onSelectSession = vi.fn();
     renderAgentWorkspaceSidebar({
       sessions: [],
@@ -720,12 +745,96 @@ describe("AgentWorkspaceSidebar", () => {
       onSelectSession,
     });
 
-    expect(screen.getByText("Sessions")).toBeInTheDocument();
-    const project = screen.getByRole("button", { name: "Main Session" });
-    expect(project).toBeDisabled();
-    expect(screen.getAllByText("Sessions are loading.").length).toBeGreaterThan(0);
-    fireEvent.click(project);
+    expect(screen.queryByText("Sessions")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Main Session" })).not.toBeInTheDocument();
     expect(onSelectSession).not.toHaveBeenCalled();
+  });
+
+  it("does not render a selected generated-session placeholder before titles are fetched", () => {
+    renderAgentWorkspaceSidebar({
+      sessions: [],
+      sessionsFetched: false,
+      selectedSessionKey: "session-d2679a25-8a10-4c47-9d3b-97ebe94135e7",
+    });
+
+    const newSessionButtons = screen.getAllByRole("button", { name: "New Session" });
+    expect(newSessionButtons).toHaveLength(1);
+    expect(newSessionButtons[0]).not.toHaveAttribute("aria-current", "page");
+    expect(screen.queryByText("Sessions")).not.toBeInTheDocument();
+  });
+
+  it("reveals a stored session title without flashing its placeholder", () => {
+    const initialProps = agentWorkspaceSidebarProps({
+      sessions: [],
+      sessionsFetched: false,
+      selectedSessionKey: "session-d2679a25-8a10-4c47-9d3b-97ebe94135e7",
+    });
+    const { rerender } = renderWithClient(<AgentWorkspaceSidebar {...initialProps} />);
+
+    expect(screen.queryByRole("button", { name: "New Session", current: "page" })).not.toBeInTheDocument();
+
+    rerender(<AgentWorkspaceSidebar
+      {...initialProps}
+      sessions={[{
+        key: "session-d2679a25-8a10-4c47-9d3b-97ebe94135e7",
+        clientMode: "openclaw",
+        clientDisplayName: "Release planning",
+        createdAt: 1,
+        lastMessageAt: 20,
+        title: "Release planning",
+        messageCount: 2,
+        raw: { label: "Release planning" },
+      }]}
+      sessionsFetched
+    />);
+
+    expect(screen.getByRole("button", { name: "Release planning" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("button", { name: "New Session", current: "page" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the session row mounted while its title advances", () => {
+    const sessionKey = "session-d2679a25-8a10-4c47-9d3b-97ebe94135e7";
+    const initialProps = agentWorkspaceSidebarProps({
+      sessions: [{
+        key: sessionKey,
+        clientMode: "openclaw",
+        clientDisplayName: "New Session",
+        createdAt: 1,
+        lastMessageAt: 20,
+        title: "New Session",
+        messageCount: 0,
+        raw: {},
+      }],
+      sessionsFetched: true,
+      selectedSessionKey: sessionKey,
+    });
+    const { rerender } = renderWithClient(<AgentWorkspaceSidebar {...initialProps} />);
+    const row = screen.getByRole("button", { name: "New Session", current: "page" });
+
+    rerender(<AgentWorkspaceSidebar
+      {...initialProps}
+      sessions={[{
+        ...initialProps.sessions![0],
+        clientDisplayName: "Plan the release rollout",
+        title: "Plan the release rollout",
+      }]}
+    />);
+
+    expect(screen.getByRole("button", { name: "Plan the release rollout" })).toBe(row);
+    expect(row.querySelector('[data-session-title="Plan the release rollout"]')).toBeInTheDocument();
+
+    rerender(<AgentWorkspaceSidebar
+      {...initialProps}
+      sessions={[{
+        ...initialProps.sessions![0],
+        clientDisplayName: "Release Rollout",
+        title: "Release Rollout",
+        raw: { label: "Release Rollout" },
+      }]}
+    />);
+
+    expect(screen.getByRole("button", { name: "Release Rollout" })).toBe(row);
+    expect(row.querySelector('[data-session-title="Release Rollout"]')).toBeInTheDocument();
   });
 
   it("shows cached session rows disabled before fresh sessions are fetched", () => {
@@ -1016,7 +1125,9 @@ describe("AgentWorkspaceSidebar", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Session options for What is an agent" }));
     fireEvent.click(screen.getByRole("button", { name: /^delete$/i }));
-    expect(screen.getByText("Delete session?")).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: "Delete session?" });
+    expect(dialog).toHaveClass("isolate", "bg-background");
+    expect(dialog.parentElement?.parentElement).toBe(document.body);
     fireEvent.click(screen.getByRole("button", { name: "Delete session" }));
 
     await waitFor(() => expect(onDeleteSession).toHaveBeenCalledWith("session-1"));

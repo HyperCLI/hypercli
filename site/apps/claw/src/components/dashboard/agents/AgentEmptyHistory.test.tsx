@@ -16,7 +16,9 @@ describe("AgentEmptyHistory", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "Your agent is ready for real work" })).toBeInTheDocument();
+    const heading = screen.getByRole("heading", { name: "Your agent is ready for real work" });
+    expect(heading).toBeInTheDocument();
+    expect(heading.closest("section")).toHaveClass("agent-empty-history", "max-h-full", "overflow-hidden");
     expect(screen.getByRole("heading", { name: "Start with something concrete" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /map this workspace/i }));

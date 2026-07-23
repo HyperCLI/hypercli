@@ -1936,9 +1936,24 @@ wss.on('connection', (ws, req) => {
         gwResponse(ws, id, { previews: {} });
         break;
 
-      case 'sessions.patch':
+      case 'sessions.patch': {
+        const requestedKey = typeof params?.key === 'string' ? params.key.trim() : '';
+        const sessionKey = requestedKey.replace(/^agent:[^:]+:/, '');
+        const sessionIndex = mockSessions.findIndex((session) => session.key === requestedKey || session.key === sessionKey);
+        const session = sessionIndex >= 0 ? mockSessions[sessionIndex] : null;
+        if (session && params?.archived === true) {
+          mockSessions.splice(sessionIndex, 1);
+        } else if (session && Object.prototype.hasOwnProperty.call(params ?? {}, 'label')) {
+          if (typeof params.label === 'string' && params.label.trim()) session.label = params.label.trim();
+          else delete session.label;
+        }
+        gwResponse(ws, id, { ok: true, key: requestedKey || sessionKey, entry: session ?? undefined });
+        broadcastSessionsUpdate(ws);
+        break;
+      }
+
       case 'sessions.reset':
-        gwResponse(ws, id, { ok: true });
+        gwResponse(ws, id, { ok: true, key: params?.key });
         break;
 
       // ---- Runtime support catalog ----

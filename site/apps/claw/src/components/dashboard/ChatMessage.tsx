@@ -1365,9 +1365,8 @@ export function ChatMessageBubble({
             ) : displayContent && (
               <MarkdownContent
                 content={displayContent}
-                typewriter={isStreaming && !isUser}
+                typewriter={false}
                 className="relative"
-                style={isStreaming ? { willChange: "contents", transform: "translateZ(0)" } : undefined}
                 onOpenWorkspaceFile={!isUser ? onOpenFileFromChat : undefined}
               />
             )}

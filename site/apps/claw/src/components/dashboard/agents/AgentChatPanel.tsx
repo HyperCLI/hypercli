@@ -205,7 +205,7 @@ function shouldHideIntegrationSetupMessage(message: ChatSession["messages"][numb
 function ChatEmptyStateFrame({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden text-text-muted">
-      <div className="flex max-h-full min-h-0 w-full items-center justify-center overflow-y-auto">
+      <div className="agent-empty-history-frame flex h-full max-h-full min-h-0 w-full flex-1 items-center justify-center overflow-hidden">
         {children}
       </div>
     </div>
@@ -217,6 +217,34 @@ function StoppedChatEmptyState() {
     <div className="flex flex-col items-center justify-center px-4 py-6 text-center text-text-muted">
       <Sparkles className="mb-2 h-8 w-8" />
       <p className="text-sm">Start the agent to begin chatting.</p>
+    </div>
+  );
+}
+
+function ChatHistoryState({ failed, onRetry }: { failed?: boolean; onRetry: () => void }) {
+  return (
+    <div
+      role={failed ? "alert" : "status"}
+      className="flex min-h-28 flex-col items-center justify-center px-4 py-6 text-center text-text-muted"
+    >
+      {failed ? (
+        <>
+          <p className="text-sm font-medium text-foreground">Could not load this conversation</p>
+          <p className="mt-1 max-w-sm text-xs">Your current messages are unchanged. Try loading the history again.</p>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-3 rounded-full border border-border bg-surface-low px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-surface-high"
+          >
+            Retry
+          </button>
+        </>
+      ) : (
+        <>
+          <Loader2 className="mb-2 h-4 w-4 animate-spin" />
+          <p className="text-sm">Loading conversation...</p>
+        </>
+      )}
     </div>
   );
 }
@@ -620,7 +648,9 @@ export function AgentChatPanel({
     chat.input.trim().length > 0 ||
     hasPendingAttachmentWork ||
     chat.pendingFiles.length > 0;
-  const showComposer = displayBootStatus.status === "ready" || composerHasDraft;
+  const showComposer = displayBootStatus.status === "ready" || (
+    isSelectedRunning && displayBootStatus.status !== "stopped"
+  ) || composerHasDraft;
   const composerDisabled = displayBootStatus.status !== "ready" || !chat.connected || chat.activeSessionReadOnly || temporaryChatTransitioning;
   const modelMenuAvailable = chat.backend === "openclaw";
   const composerRightPadding = modelMenuAvailable
@@ -669,6 +699,12 @@ export function AgentChatPanel({
     }
 
     if (displayBootStatus.status === "ready") {
+      if (chat.historyPhase === "loading" || chat.historyPhase === "idle") {
+        return <ChatHistoryState onRetry={chat.retry} />;
+      }
+      if (chat.historyPhase === "error") {
+        return <ChatHistoryState failed onRetry={chat.retry} />;
+      }
       if (journeyIntro?.enabled) return <JourneyIntroPanel {...journeyIntro} />;
       if (journeyMissionCard?.enabled) return <JourneyMissionChatCard key={journeyMissionCard.day.id} {...journeyMissionCard} />;
       return <AgentEmptyHistory onPromptSelect={setChatInput} actions={commandActions} />;
@@ -736,7 +772,12 @@ export function AgentChatPanel({
           </p>
         </div>
       ) : null}
-      <div ref={chatScrollRef} onScroll={handleChatScroll} className="flex min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+      <div
+        ref={chatScrollRef}
+        onScroll={handleChatScroll}
+        aria-busy={chat.historyPhase === "loading"}
+        className="flex min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto"
+      >
         <div className="mx-auto flex min-h-full w-full max-w-5xl min-w-0 flex-1 flex-col gap-4 overflow-x-hidden px-3 py-3 sm:px-4 sm:py-4">
           {visibleChatMessages.length === 0 && !activeIntegrationAction && (
             <ChatEmptyStateFrame>{emptyChatContent}</ChatEmptyStateFrame>
@@ -755,7 +796,7 @@ export function AgentChatPanel({
               ? { agentId: selectedAgent.id, path: voicePath }
               : null;
             return (
-              <React.Fragment key={i}>
+              <React.Fragment key={`${chat.activeSessionKey}:${i}`}>
                 {integrationConnectActions.length === 0 && hasRenderableMessagePayload(displayMessage) && (
                   <ChatMessageBubble
                     message={displayMessage}
@@ -764,7 +805,7 @@ export function AgentChatPanel({
                     timestampVariant="v2"
                     bubblesVariant="v2"
                     nameVariant="v2"
-                    animationVariant="v2"
+                    animationVariant="off"
                     themeVariant="v2"
                     streamingVariant="v2"
                     isStreaming={activeSessionSending && i === chat.messages.length - 1 && msg.role === "assistant"}
@@ -845,7 +886,7 @@ export function AgentChatPanel({
             return hasContent ? null : <ChatThinkingIndicator variant="v2" />;
           })()}
 
-          {(visibleChatMessages.length > 0 || activeIntegrationAction) && <div ref={chatEndRef} />}
+          <div ref={chatEndRef} aria-hidden="true" />
         </div>
       </div>
 

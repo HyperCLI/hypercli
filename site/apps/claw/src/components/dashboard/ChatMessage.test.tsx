@@ -101,6 +101,19 @@ describe("ChatMessageBubble", () => {
     expect(screen.getByRole("status", { name: /reply stopped/i })).toHaveTextContent("Stopped");
   });
 
+  it("renders the full gateway stream update without a second typewriter delay", () => {
+    const content = "The gateway already streams this response progressively, so every received word should render immediately.";
+    render(
+      <ChatMessageBubble
+        message={{ role: "assistant", content }}
+        isStreaming
+        streamingVariant="v2"
+      />,
+    );
+
+    expect(screen.getByText(content)).toBeInTheDocument();
+  });
+
   it("renders reply stopped system notices without error styling", () => {
     render(<ChatMessageBubble message={{ role: "system", content: "Reply stopped" }} />);
 

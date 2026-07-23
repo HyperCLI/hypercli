@@ -96,6 +96,12 @@ function renderAgentMainPanel(overrides: Partial<ComponentProps<typeof AgentMain
 }
 
 describe("AgentMainPanel", () => {
+  it("constrains panel content to the available dashboard height", () => {
+    const { container } = renderAgentMainPanel();
+
+    expect(container.firstElementChild).toHaveClass("min-h-0", "overflow-hidden");
+  });
+
   it("waits for the first agent load before showing the empty state", () => {
     renderAgentMainPanel({
       selectedAgent: null,

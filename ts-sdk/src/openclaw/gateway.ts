@@ -19,6 +19,22 @@ import type {
   OpenClawWhatsAppConfigPatch,
 } from "./channels.js";
 
+export type GatewayProtocolErrorCode =
+  | "INVALID_JSON"
+  | "INVALID_FRAME"
+  | "INVALID_EVENT"
+  | "INVALID_RESPONSE"
+  | "DUPLICATE_SEQUENCE"
+  | "OUT_OF_ORDER_SEQUENCE";
+
+export interface GatewayProtocolErrorInfo {
+  code: GatewayProtocolErrorCode;
+  message: string;
+  frameType?: string;
+  event?: string;
+  requestId?: string;
+}
+
 export interface GatewayOptions {
   /** WebSocket URL for the agent gateway (typically wss://{agent-host}) */
   url: string;
@@ -84,6 +100,8 @@ export interface GatewayOptions {
   onClose?: (info: GatewayCloseInfo) => void;
   /** Called when an event sequence gap is detected */
   onGap?: (info: { expected: number; received: number }) => void;
+  /** Called when an inbound frame fails validation. Raw payloads are never included. */
+  onProtocolError?: (info: GatewayProtocolErrorInfo) => void;
   /** Called when a browser device pairing request is pending or updated. */
   onPairing?: (pairing: GatewayPairingState | null) => void;
 }
@@ -1184,6 +1202,98 @@ function asRecord(value: unknown): Record<string, any> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, any>)
     : null;
+}
+
+type GatewayResponseFrame =
+  | { type: "res"; id: string; ok: true; payload?: unknown }
+  | { type: "res"; id: string; ok: false; error: GatewayErrorShape };
+
+type GatewayEventFrame = GatewayEvent & { type: "event" };
+type GatewayFrame = GatewayEventFrame | GatewayResponseFrame;
+
+type GatewayFrameDecodeResult =
+  | { ok: true; frame: GatewayFrame }
+  | { ok: false; error: GatewayProtocolErrorInfo };
+
+function protocolError(
+  code: GatewayProtocolErrorCode,
+  message: string,
+  record?: Record<string, any> | null,
+): GatewayProtocolErrorInfo {
+  const frameType = typeof record?.type === "string" ? record.type : undefined;
+  const event = typeof record?.event === "string" ? record.event : undefined;
+  const requestId = typeof record?.id === "string" ? record.id : undefined;
+  return {
+    code,
+    message,
+    ...(frameType ? { frameType } : {}),
+    ...(event ? { event } : {}),
+    ...(requestId ? { requestId } : {}),
+  };
+}
+
+function normalizeGatewayResponseError(value: unknown): GatewayErrorShape {
+  if (typeof value === "string" && value.trim()) {
+    return { code: "UNAVAILABLE", message: value.trim() };
+  }
+  const error = asRecord(value);
+  return {
+    code: typeof error?.code === "string" && error.code.trim() ? error.code : "UNAVAILABLE",
+    message: typeof error?.message === "string" && error.message.trim()
+      ? error.message
+      : "gateway request failed",
+    ...(error?.details !== undefined ? { details: error.details } : {}),
+  };
+}
+
+function decodeGatewayFrame(raw: string): GatewayFrameDecodeResult {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return { ok: false, error: protocolError("INVALID_JSON", "gateway frame is not valid JSON") };
+  }
+
+  const record = asRecord(value);
+  if (!record) {
+    return { ok: false, error: protocolError("INVALID_FRAME", "gateway frame must be an object") };
+  }
+
+  if (record.type === "event") {
+    if (typeof record.event !== "string" || !record.event.trim()) {
+      return { ok: false, error: protocolError("INVALID_EVENT", "gateway event requires a non-empty string event", record) };
+    }
+    if (record.seq !== undefined && (!Number.isSafeInteger(record.seq) || record.seq < 0)) {
+      return { ok: false, error: protocolError("INVALID_EVENT", "gateway event seq must be a non-negative safe integer", record) };
+    }
+    return { ok: true, frame: record as GatewayEventFrame };
+  }
+
+  if (record.type === "res") {
+    if (typeof record.id !== "string" || !record.id.trim()) {
+      return { ok: false, error: protocolError("INVALID_RESPONSE", "gateway response requires a non-empty string id", record) };
+    }
+    if (typeof record.ok !== "boolean") {
+      return { ok: false, error: protocolError("INVALID_RESPONSE", "gateway response ok must be a boolean", record) };
+    }
+    if (record.ok) {
+      return { ok: true, frame: { type: "res", id: record.id, ok: true, payload: record.payload } };
+    }
+    return {
+      ok: true,
+      frame: {
+        type: "res",
+        id: record.id,
+        ok: false,
+        error: normalizeGatewayResponseError(record.error),
+      },
+    };
+  }
+
+  return {
+    ok: false,
+    error: protocolError("INVALID_FRAME", "gateway frame type must be event or res", record),
+  };
 }
 
 function asContentItems(value: unknown): Record<string, any>[] {
@@ -2517,6 +2627,7 @@ export class GatewayClient {
     this.onHello = options.onHello;
     this.onClose = options.onClose;
     this.onGap = options.onGap;
+    this.onProtocolError = options.onProtocolError;
     this.onPairing = options.onPairing;
     this.pairingState = loadPendingPairing(this.storageScope(), this.role);
   }
@@ -2524,6 +2635,7 @@ export class GatewayClient {
   private readonly onHello?: (hello: Record<string, any>) => void;
   private readonly onClose?: (info: GatewayCloseInfo) => void;
   private readonly onGap?: (info: { expected: number; received: number }) => void;
+  private readonly onProtocolError?: (info: GatewayProtocolErrorInfo) => void;
   private readonly onPairing?: (pairing: GatewayPairingState | null) => void;
 
   get version() {
@@ -2675,6 +2787,26 @@ export class GatewayClient {
     }
   }
 
+  private reportProtocolError(info: GatewayProtocolErrorInfo): void {
+    try {
+      this.onProtocolError?.(info);
+    } catch {
+      // Protocol diagnostics are observational and must not affect the socket.
+    }
+  }
+
+  private rejectMalformedPendingResponse(info: GatewayProtocolErrorInfo): void {
+    if (info.frameType !== "res" || !info.requestId) return;
+    const pending = this.pending.get(info.requestId);
+    if (!pending) return;
+    this.pending.delete(info.requestId);
+    pending.cleanup();
+    pending.reject(new GatewayRequestError({
+      code: "PROTOCOL_ERROR",
+      message: info.message,
+    }));
+  }
+
   /** Connect and keep reconnecting until stopped */
   connect(): Promise<void> {
     return this.start();
@@ -2804,6 +2936,7 @@ export class GatewayClient {
           this.origin ? { headers: { Origin: this.origin } } : undefined,
         );
     this.ws = ws;
+    this.lastSeq = null;
 
     if (useBrowserSocket) {
       ws.onopen = () => {
@@ -3125,20 +3258,19 @@ export class GatewayClient {
   }
 
   private handleMessage(raw: string): void {
-    let message: Record<string, any>;
-    try {
-      message = JSON.parse(raw) as Record<string, any>;
-    } catch {
+    const decoded = decodeGatewayFrame(raw);
+    if (!decoded.ok) {
+      this.reportProtocolError(decoded.error);
+      this.rejectMalformedPendingResponse(decoded.error);
       return;
     }
+    const message = decoded.frame;
 
     if (message.type === "event") {
-      const gatewayEvent = message as GatewayEvent;
+      const gatewayEvent = message;
       if (gatewayEvent.event === "connect.challenge") {
-        const nonce =
-          gatewayEvent.payload && typeof gatewayEvent.payload.nonce === "string"
-            ? gatewayEvent.payload.nonce.trim()
-            : "";
+        const challenge = asRecord(gatewayEvent.payload);
+        const nonce = typeof challenge?.nonce === "string" ? challenge.nonce.trim() : "";
         if (!nonce) {
           this.pendingConnectError = {
             code: "DEVICE_AUTH_NONCE_REQUIRED",
@@ -3153,8 +3285,32 @@ export class GatewayClient {
       }
 
       if (typeof gatewayEvent.seq === "number") {
-        if (this.lastSeq !== null && gatewayEvent.seq > this.lastSeq + 1) {
-          this.onGap?.({ expected: this.lastSeq + 1, received: gatewayEvent.seq });
+        if (this.lastSeq !== null) {
+          if (gatewayEvent.seq === this.lastSeq) {
+            this.reportProtocolError({
+              code: "DUPLICATE_SEQUENCE",
+              message: "duplicate gateway event sequence was discarded",
+              frameType: "event",
+              event: gatewayEvent.event,
+            });
+            return;
+          }
+          if (gatewayEvent.seq < this.lastSeq) {
+            this.reportProtocolError({
+              code: "OUT_OF_ORDER_SEQUENCE",
+              message: "out-of-order gateway event sequence was discarded",
+              frameType: "event",
+              event: gatewayEvent.event,
+            });
+            return;
+          }
+          if (gatewayEvent.seq > this.lastSeq + 1) {
+            try {
+              this.onGap?.({ expected: this.lastSeq + 1, received: gatewayEvent.seq });
+            } catch {
+              // Gap callbacks are observational and must not affect the socket.
+            }
+          }
         }
         this.lastSeq = gatewayEvent.seq;
       }
@@ -3171,20 +3327,16 @@ export class GatewayClient {
       return;
     }
 
-    if (message.type !== "res") {
-      return;
-    }
-
     const pending = this.pending.get(message.id);
     if (!pending) {
       return;
     }
-    const payload = message.payload as { status?: unknown } | undefined;
+    const payload = message.ok ? asRecord(message.payload) : null;
     if (pending.expectFinal && payload?.status === "accepted") {
       if (!pending.acceptedNotified) {
         pending.acceptedNotified = true;
         try {
-          pending.onAccepted?.(message.payload);
+          pending.onAccepted?.(payload);
         } catch {
           // Accepted callbacks are observational and must not break the request.
         }
@@ -3199,13 +3351,7 @@ export class GatewayClient {
       return;
     }
 
-    pending.reject(
-      new GatewayRequestError({
-        code: message.error?.code ?? "UNAVAILABLE",
-        message: message.error?.message ?? "gateway request failed",
-        details: message.error?.details,
-      }),
-    );
+    pending.reject(new GatewayRequestError(message.error));
   }
 
   private sendRawRequest<T>(

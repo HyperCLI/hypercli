@@ -190,6 +190,194 @@ describe("GatewayClient", () => {
     expect(["connecting", "disconnected"]).toContain(client.state);
     unsubscribe();
   });
+
+  it("validates gateway envelopes before publishing events", () => {
+    const protocolErrors: Array<{ code: string; event?: string }> = [];
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+      onProtocolError: (info) => protocolErrors.push(info),
+    });
+    const events: Array<Record<string, unknown>> = [];
+    client.onEvent((event) => events.push(event as unknown as Record<string, unknown>));
+
+    for (const raw of [
+      "not-json",
+      "null",
+      JSON.stringify({ type: "event", event: 42, payload: {} }),
+      JSON.stringify({ type: "event", event: "status.updated", payload: {}, seq: 1.5 }),
+    ]) {
+      (client as any).handleMessage(raw);
+    }
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "provider.status",
+      payload: "provider-defined",
+      stateVersion: 7,
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.content",
+      payload: { role: "assistant", content: [{ type: "future", value: 42 }] },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "future.event",
+    }));
+
+    expect(events).toEqual([
+      {
+        type: "event",
+        event: "provider.status",
+        payload: "provider-defined",
+        stateVersion: 7,
+      },
+      {
+        type: "event",
+        event: "chat.content",
+        payload: { role: "assistant", content: [{ type: "future", value: 42 }] },
+      },
+      {
+        type: "event",
+        event: "future.event",
+      },
+    ]);
+    expect(protocolErrors.map((error) => error.code)).toEqual([
+      "INVALID_JSON",
+      "INVALID_FRAME",
+      "INVALID_EVENT",
+      "INVALID_EVENT",
+    ]);
+    expect(protocolErrors[3]).toMatchObject({ event: "status.updated" });
+  });
+
+  it("rejects a pending RPC immediately when its response envelope is malformed", async () => {
+    const protocolErrors: Array<{ code: string; requestId?: string }> = [];
+    const sent: string[] = [];
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+      onProtocolError: (info) => protocolErrors.push(info),
+    });
+    (client as any).connected = true;
+    (client as any).ws = {
+      readyState: MockWebSocket.OPEN,
+      send: (raw: string) => sent.push(raw),
+    };
+
+    const requestPromise = client.request("status", {}, 5_000);
+    await flushMicrotasks();
+    const request = JSON.parse(sent[0] ?? "{}");
+    const rejection = expect(requestPromise).rejects.toMatchObject({
+      name: "GatewayRequestError",
+      gatewayCode: "PROTOCOL_ERROR",
+    });
+
+    (client as any).handleMessage(JSON.stringify({
+      type: "res",
+      id: request.id,
+      ok: "false",
+      error: { code: "FAILED", message: "failed" },
+    }));
+
+    await rejection;
+    expect(protocolErrors).toEqual([
+      expect.objectContaining({
+        code: "INVALID_RESPONSE",
+        requestId: request.id,
+      }),
+    ]);
+    expect((client as any).pending.size).toBe(0);
+  });
+
+  it("preserves legacy string errors from failed RPC responses", async () => {
+    const sent: string[] = [];
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = {
+      readyState: MockWebSocket.OPEN,
+      send: (raw: string) => sent.push(raw),
+    };
+
+    const requestPromise = client.request("cron.add", {}, 5_000);
+    await flushMicrotasks();
+    const request = JSON.parse(sent[0] ?? "{}");
+    const rejection = expect(requestPromise).rejects.toMatchObject({
+      name: "GatewayRequestError",
+      gatewayCode: "UNAVAILABLE",
+      message: "invalid cron request",
+    });
+
+    (client as any).handleMessage(JSON.stringify({
+      type: "res",
+      id: request.id,
+      ok: false,
+      error: "invalid cron request",
+    }));
+
+    await rejection;
+  });
+
+  it("drops duplicate and out-of-order sequences and reports forward gaps", () => {
+    const gaps: Array<{ expected: number; received: number }> = [];
+    const protocolErrors: string[] = [];
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+      onGap: (info) => gaps.push(info),
+      onProtocolError: (info) => protocolErrors.push(info.code),
+    });
+    const events: string[] = [];
+    client.onEvent((event) => events.push(String(event.payload.text ?? "")));
+
+    const emit = (seq: number, text: string) => {
+      (client as any).handleMessage(JSON.stringify({
+        type: "event",
+        event: "status.updated",
+        payload: { text },
+        seq,
+      }));
+    };
+    emit(1, "one");
+    emit(1, "duplicate");
+    emit(0, "old");
+    emit(3, "three");
+
+    expect(events).toEqual(["one", "three"]);
+    expect(gaps).toEqual([{ expected: 2, received: 3 }]);
+    expect(protocolErrors).toEqual(["DUPLICATE_SEQUENCE", "OUT_OF_ORDER_SEQUENCE"]);
+  });
+
+  it("accepts a new sequence baseline after opening a replacement socket", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const sequences: number[] = [];
+    client.onEvent((event) => sequences.push(event.seq ?? -1));
+
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "status.updated",
+      payload: {},
+      seq: 100,
+    }));
+    (client as any).openSocket();
+    await flushMicrotasks();
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "status.updated",
+      payload: {},
+      seq: 1,
+    }));
+
+    expect(sequences).toEqual([100, 1]);
+    client.stop();
+  });
+
   it("sends the CLI gateway handshake and stores the issued device token", async () => {
     const { client, request } = await connectClient();
 

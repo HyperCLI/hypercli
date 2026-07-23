@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyOpenClawSessionTitleMap,
   isEphemeralOpenClawSessionName,
   listOpenClawSessions,
   normalizeOpenClawSessions,
@@ -10,6 +11,27 @@ import {
 } from "./openclaw-session-sdk-surface";
 
 describe("openclaw-session-sdk-surface", () => {
+  it("keeps a durable backend label ahead of legacy and local session titles", () => {
+    const sessions = normalizeOpenClawSessions([{
+      key: "agent:default:session-alpha",
+      label: "Durable title",
+      title: "Legacy title",
+      name: "Legacy name",
+    }]);
+
+    expect(sessions[0]).toEqual(expect.objectContaining({
+      title: "Durable title",
+      clientDisplayName: "Durable title",
+    }));
+    expect(applyOpenClawSessionTitleMap(sessions, {
+      "agent:default:session-alpha": "Stale local title",
+      "session-alpha": "Stale local title",
+    })[0]).toEqual(expect.objectContaining({
+      title: "Durable title",
+      clientDisplayName: "Durable title",
+    }));
+  });
+
   it("preserves gateway thinking-level IDs verbatim", () => {
     expect(normalizeOpenClawThinkingLevels([
       { id: "extra-high", label: "Extra high" },

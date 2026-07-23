@@ -161,6 +161,14 @@ describe("claw theme CSS", () => {
     expect(sliderSource).toContain("data-[disabled]:cursor-not-allowed");
   });
 
+  it("compacts the agent empty state within the available chat height", () => {
+    expect(clawGlobalsCss).toContain("container-name: agent-empty-history;");
+    expect(clawGlobalsCss).toContain("@container agent-empty-history (max-height: 52rem)");
+    expect(clawGlobalsCss).toContain("@container agent-empty-history (max-height: 40rem)");
+    expect(clawGlobalsCss).toContain("@container agent-empty-history (max-height: 30rem)");
+    expect(clawGlobalsCss).toContain(".agent-empty-history-card-description");
+  });
+
   it("propagates the canonical switchable theme to main and console", () => {
     expect(sharedThemeCss).toContain('@import "./claw.css";');
     expect(baseThemeCss.trim()).toBe('@import "./claw.css";');

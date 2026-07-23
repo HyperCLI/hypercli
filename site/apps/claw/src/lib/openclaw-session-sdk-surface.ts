@@ -496,7 +496,7 @@ export function normalizeOpenClawSession(session: unknown): OpenClawSessionRecor
     session.lastMessageAt ?? session.last_message_at ?? session.updatedAt ?? session.updated_at,
   ) ?? createdAt;
   const title = normalizeOpenClawSessionDisplayName(
-    firstNonEmptyString(session.title, session.name, session.label),
+    firstNonEmptyString(session.label, session.title, session.name),
     key,
   ) ?? "";
   const clientMode = firstNonEmptyString(session.clientMode, session.client_mode, session.mode, session.client) ?? "unknown";
@@ -560,6 +560,7 @@ export function applyOpenClawSessionTitleMap(
   titleMap: Record<string, string>,
 ): OpenClawSessionRecord[] {
   return sessions.map((session) => {
+    if (normalizeOpenClawSessionDisplayName(session.raw.label, session.key)) return session;
     const title = openClawSessionTitleMapKeys(session.key)
       .map((key) => normalizeOpenClawSessionDisplayName(titleMap[key], session.key))
       .find((value) => value !== null);
@@ -614,15 +615,15 @@ export async function sendOpenClawChatFallback(
 }
 
 export async function deleteOpenClawSession(
-  gateway: Pick<GatewayClient, "sessionsReset">,
+  gateway: Pick<GatewayClient, "sessionsPatch">,
   sessionKey: string,
 ): Promise<void> {
-  await gateway.sessionsReset(sessionKey, "reset");
+  await gateway.sessionsPatch({ key: sessionKey, archived: true });
 }
 
 export async function createOpenClawSession(
   gateway: Pick<GatewayClient, "sessionsReset">,
   sessionKey: string,
-): Promise<void> {
-  await gateway.sessionsReset(sessionKey, "new");
+): Promise<string> {
+  return await gateway.sessionsReset(sessionKey, "new");
 }
