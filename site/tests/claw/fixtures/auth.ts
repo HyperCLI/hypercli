@@ -1663,28 +1663,26 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
     const normalDashboard = page.getByRole("button", { name: /^Current workspace:/i }).first();
 
     do {
-      const tourDialog = page
-        .getByRole("dialog")
-        .filter({ hasText: /A quick tour of your agent workspace|Agent Briefing|Build a teammate, not another chat window/i })
+      const tourHeading = page
+        .getByRole("heading", { name: /A quick tour of your agent workspace|Build a teammate, not another chat window/i })
         .first();
+      const dismissControls = [
+        page.getByRole("button", { name: /^Skip tour$/i }).first(),
+        page.getByRole("button", { name: /^Close agent tour$/i }).first(),
+        page.getByRole("button", { name: /^Close$/i }).first(),
+        page.locator("button").filter({ hasText: /^Skip tour$/i }).first(),
+        page.getByText(/^Skip tour$/i).first(),
+      ];
 
-      if (await tourDialog.isVisible().catch(() => false)) {
-        const dismissControls = [
-          tourDialog.getByRole("button", { name: /^Skip tour$/i }).first(),
-          tourDialog.getByRole("button", { name: /^Close agent tour$/i }).first(),
-          tourDialog.getByRole("button", { name: /^Close$/i }).first(),
-          tourDialog.locator("button").filter({ hasText: /^Skip tour$/i }).first(),
-          page.getByText(/^Skip tour$/i).first(),
-        ];
-
-        for (const control of dismissControls) {
-          if (await control.isVisible().catch(() => false)) {
-            await control.click();
-            await expect(tourDialog).not.toBeVisible({ timeout: 10_000 });
-            return;
-          }
+      for (const control of dismissControls) {
+        if (await control.isVisible().catch(() => false)) {
+          await control.click();
+          await expect(tourHeading).not.toBeVisible({ timeout: 10_000 });
+          return;
         }
+      }
 
+      if (await tourHeading.isVisible().catch(() => false)) {
         throw new Error("Agent dashboard tour is visible but no dismiss control was found");
       }
 
