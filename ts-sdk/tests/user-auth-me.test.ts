@@ -9,6 +9,9 @@ describe('User auth me API', () => {
         return {
           user_id: 'user-123',
           orchestra_user_id: 'orch-123',
+          privy_user_id: 'did:privy:privy-123',
+          wallet_address: '0x1111111111111111111111111111111111111111',
+          user_type: 'paid',
           team_id: 'team-123',
           plan_id: 'pro',
           email: 'user@example.com',
@@ -26,6 +29,10 @@ describe('User auth me API', () => {
     const authMe = await new UserAPI(http as any).authMe();
 
     expect(authMe.userId).toBe('user-123');
+    expect(authMe.externalId).toBe('did:privy:privy-123');
+    expect(authMe.privyUserId).toBe('did:privy:privy-123');
+    expect(authMe.walletAddress).toBe('0x1111111111111111111111111111111111111111');
+    expect(authMe.userType).toBe('paid');
     expect(authMe.capabilities).toEqual(['models:*', 'voice:*']);
     expect(authMe.tags).toEqual(['runtime=agent', 'runtime_agent=agent-123']);
     expect(isRuntimeAgent(authMe)).toBe(true);

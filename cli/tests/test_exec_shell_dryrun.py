@@ -393,7 +393,7 @@ def test_agents_cp_rejects_oversized_local_file(monkeypatch, tmp_path):
     result = runner.invoke(app, ["agents", "cp", str(source), "agent-xyz:workspace/big.bin"])
 
     assert result.exit_code == 1
-    assert "Agent file writes are limited to 50 MiB" in result.stdout
+    assert "Agent file writes are limited to 250 MiB" in result.stdout
 
 
 def test_agents_web_search_command(monkeypatch):

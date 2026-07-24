@@ -18,6 +18,10 @@ export interface User {
 export interface AuthMe {
   userId: string;
   orchestraUserId: string | null;
+  externalId: string | null;
+  privyUserId: string | null;
+  walletAddress: string | null;
+  userType: string | null;
   teamId: string;
   planId: string;
   email: string | null;
@@ -38,6 +42,15 @@ export interface RuntimeIdentity {
 export interface UpdateUserOptions {
   name?: string;
   email?: string;
+}
+
+function deriveExternalId(data: any): string | null {
+  if (data.external_id) return data.external_id;
+  if (data.privy_user_id) return data.privy_user_id;
+  if (data.wallet_address) return `wallet:${String(data.wallet_address).toLowerCase()}`;
+  if (data.turnkey_org_id) return `turnkey:${data.turnkey_org_id}`;
+  if (data.user_id) return `orchestra:${data.user_id}`;
+  return null;
 }
 
 function userFromDict(data: any): User {
@@ -64,6 +77,10 @@ function authMeFromDict(data: any): AuthMe {
   return {
     userId: data.user_id || '',
     orchestraUserId: data.orchestra_user_id || null,
+    externalId: deriveExternalId(data),
+    privyUserId: data.privy_user_id || null,
+    walletAddress: data.wallet_address || null,
+    userType: data.user_type || null,
     teamId: data.team_id || '',
     planId: data.plan_id || '',
     email: data.email || null,

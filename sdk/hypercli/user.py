@@ -44,6 +44,10 @@ class RuntimeIdentity:
 class AuthMe:
     user_id: str
     orchestra_user_id: str | None
+    external_id: str | None
+    privy_user_id: str | None
+    wallet_address: str | None
+    user_type: str | None
     team_id: str
     plan_id: str
     email: str | None
@@ -57,9 +61,21 @@ class AuthMe:
 
     @classmethod
     def from_dict(cls, data: dict) -> "AuthMe":
+        privy_user_id = data.get("privy_user_id")
+        wallet_address = data.get("wallet_address")
         return cls(
             user_id=data.get("user_id", ""),
             orchestra_user_id=data.get("orchestra_user_id"),
+            external_id=data.get("external_id")
+            or _derive_external_id(
+                user_id=data.get("user_id"),
+                privy_user_id=privy_user_id,
+                wallet_address=wallet_address,
+                turnkey_org_id=data.get("turnkey_org_id"),
+            ),
+            privy_user_id=privy_user_id,
+            wallet_address=wallet_address,
+            user_type=data.get("user_type"),
             team_id=data.get("team_id", ""),
             plan_id=data.get("plan_id", ""),
             email=data.get("email"),
@@ -81,6 +97,24 @@ class AuthMe:
         if not self.is_runtime_agent or self.runtime is None:
             return None
         return self.runtime.agent_id
+
+
+def _derive_external_id(
+    *,
+    user_id: str | None,
+    privy_user_id: str | None,
+    wallet_address: str | None,
+    turnkey_org_id: str | None,
+) -> str | None:
+    if privy_user_id:
+        return privy_user_id
+    if wallet_address:
+        return f"wallet:{wallet_address.lower()}"
+    if turnkey_org_id:
+        return f"turnkey:{turnkey_org_id}"
+    if user_id:
+        return f"orchestra:{user_id}"
+    return None
 
 
 class UserAPI:

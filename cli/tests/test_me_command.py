@@ -16,9 +16,13 @@ def test_me_command_outputs_capabilities(monkeypatch):
             return SimpleNamespace(
                 user_id="user-123",
                 orchestra_user_id="orch-123",
+                external_id="did:privy:privy-123",
+                privy_user_id="did:privy:privy-123",
+                wallet_address="0x1111111111111111111111111111111111111111",
                 team_id="team-123",
                 plan_id="pro",
                 email="user@example.com",
+                user_type="paid",
                 auth_type="orchestra_key",
                 capabilities=["models:*", "voice:*"],
                 key_id="key-123",
@@ -35,6 +39,9 @@ def test_me_command_outputs_capabilities(monkeypatch):
     assert result.exit_code == 0
     assert "models:*" in result.stdout
     assert "voice:*" in result.stdout
+    assert "external_id" in result.stdout
+    assert "did:privy:privy-123" in result.stdout
+    assert "wallet_address" in result.stdout
     assert "runtime-key" in result.stdout
 
 
@@ -44,9 +51,13 @@ def test_me_command_outputs_agents_entitlement_summary(monkeypatch):
             return SimpleNamespace(
                 user_id="user-123",
                 orchestra_user_id=None,
+                external_id="did:privy:privy-123",
+                privy_user_id="did:privy:privy-123",
+                wallet_address="0x1111111111111111111111111111111111111111",
                 team_id="",
                 plan_id="",
                 email=None,
+                user_type="paid",
                 auth_type="api_key",
                 capabilities=["*:*"],
                 has_active_subscription=False,
@@ -101,9 +112,13 @@ def test_me_command_json_serializes_agents_entitlement_datetimes(monkeypatch):
             return SimpleNamespace(
                 user_id="user-123",
                 orchestra_user_id=None,
+                external_id="did:privy:privy-123",
+                privy_user_id="did:privy:privy-123",
+                wallet_address="0x1111111111111111111111111111111111111111",
                 team_id="",
                 plan_id="",
                 email=None,
+                user_type="paid",
                 auth_type="api_key",
                 capabilities=["*:*"],
                 has_active_subscription=False,
@@ -142,6 +157,9 @@ def test_me_command_json_serializes_agents_entitlement_datetimes(monkeypatch):
 
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
+    assert payload["external_id"] == "did:privy:privy-123"
+    assert payload["privy_user_id"] == "did:privy:privy-123"
+    assert payload["wallet_address"] == "0x1111111111111111111111111111111111111111"
     entitlements = payload["agents_entitlements"]
     assert entitlements["billing_reset_at"] == billing_reset_at.isoformat()
     assert entitlements["entitlement_items"][0]["expires_at"] == expires_at.isoformat()

@@ -137,6 +137,9 @@ def test_user_auth_me_returns_capabilities():
             return {
                 "user_id": "user-123",
                 "orchestra_user_id": "orch-123",
+                "privy_user_id": "did:privy:privy-123",
+                "wallet_address": "0x1111111111111111111111111111111111111111",
+                "user_type": "paid",
                 "team_id": "team-123",
                 "plan_id": "pro",
                 "email": "user@example.com",
@@ -152,6 +155,10 @@ def test_user_auth_me_returns_capabilities():
     auth_me = UserAPI(DummyUserHTTP()).auth_me()
 
     assert auth_me.user_id == "user-123"
+    assert auth_me.external_id == "did:privy:privy-123"
+    assert auth_me.privy_user_id == "did:privy:privy-123"
+    assert auth_me.wallet_address == "0x1111111111111111111111111111111111111111"
+    assert auth_me.user_type == "paid"
     assert auth_me.capabilities == ["models:*", "voice:*"]
     assert auth_me.tags == ["runtime=agent", "runtime_agent=agent-123"]
     assert auth_me.is_runtime_agent is True
