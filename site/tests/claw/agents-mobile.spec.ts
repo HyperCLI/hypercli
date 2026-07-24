@@ -460,7 +460,7 @@ test.describe("Agents mobile layout", () => {
     await expect(page.getByText(/^available agents$/i)).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Expand agents sidebar" })).toBeVisible();
     await page.getByRole("button", { name: "Expand agents sidebar" }).click();
-    await expect(page.getByRole("heading", { name: "Agents" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Collapse sidebar" })).toBeVisible();
     await page.getByRole("button", { name: "Collapse sidebar" }).click();
     await expect(page.getByRole("button", { name: /^files$/i })).toBeVisible();
     await page.waitForTimeout(250);
