@@ -45,6 +45,11 @@ interface JobTransaction {
   status: string;
 }
 
+const JOB_FILTERS = [
+  { value: 'running', label: 'Running' },
+  { value: 'all', label: 'All jobs' },
+] as const;
+
 export default function JobsPage() {
   const router = useRouter();
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -53,12 +58,11 @@ export default function JobsPage() {
   const [pageSize] = useState(20);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [stateFilter, setStateFilter] = useState<string>("all");
+  const [stateFilter, setStateFilter] = useState<(typeof JOB_FILTERS)[number]['value']>("running");
   const [sortColumn, setSortColumn] = useState<SortColumn>('created_at');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const [expandedJobTx, setExpandedJobTx] = useState<JobTransaction | null>(null);
-  const [jobTransactions, setJobTransactions] = useState<Record<string, JobTransaction>>({});
   const [alertDialog, setAlertDialog] = useState<{
     isOpen: boolean;
     title: string;
@@ -120,35 +124,6 @@ export default function JobsPage() {
         // Handle both array (legacy) and paginated response
         setJobs(Array.isArray(jobsData) ? jobsData : jobsData.jobs || []);
         setTotalJobsCount(Array.isArray(jobsData) ? jobsData.length : jobsData.total_count || 0);
-
-        // Fetch transactions for all jobs
-        const txResponse = await fetch(
-          getAuthBackendUrl("/tx?page_size=100"),
-          {
-            headers: {
-              'Authorization': `Bearer ${authToken}`,
-              'Content-Type': 'application/json'
-            }
-          }
-        );
-
-        if (txResponse.ok) {
-          const txData = await txResponse.json();
-          // Create a map of job_id to transaction
-          const txMap: Record<string, JobTransaction> = {};
-          for (const tx of txData.transactions || []) {
-            // Check both tx.job_id (new) and tx.meta?.job_id (legacy)
-            const jobId = tx.job_id || tx.meta?.job_id;
-            if (jobId && tx.transaction_type === 'job') {
-              txMap[jobId] = {
-                id: tx.id,
-                amount_usd: tx.amount_usd,
-                status: tx.status
-              };
-            }
-          }
-          setJobTransactions(txMap);
-        }
       } else if (response.status === 404) {
         setJobs([]);
       } else if (!silent) {
@@ -419,22 +394,22 @@ export default function JobsPage() {
             </button>
           </div>
 
-          {/* State Filter */}
-          <div className="flex gap-2 mb-8">
-            {['all', 'queued', 'running', 'succeeded', 'terminated', 'failed'].map((state) => (
+          <div className="mb-8 inline-flex rounded-lg border border-border bg-surface-low p-1">
+            {JOB_FILTERS.map((filter) => (
               <button
-                key={state}
+                key={filter.value}
+                type="button"
                 onClick={() => {
-                  setStateFilter(state);
+                  setStateFilter(filter.value);
                   setCurrentPage(1);
                 }}
-                className={`px-4 py-2 rounded-lg font-semibold text-sm transition-colors cursor-pointer ${
-                  stateFilter === state
+                className={`px-4 py-2 rounded-md font-semibold text-sm transition-colors cursor-pointer ${
+                  stateFilter === filter.value
                     ? 'bg-primary text-primary-foreground'
-                    : 'border border-border text-foreground hover:bg-surface-low hover:border-primary'
+                    : 'text-foreground hover:bg-surface-medium'
                 }`}
               >
-                {state.charAt(0).toUpperCase() + state.slice(1)}
+                {filter.label}
               </button>
             ))}
           </div>
@@ -444,7 +419,9 @@ export default function JobsPage() {
 
           {!loading && !error && jobs.length === 0 && (
             <div className="bg-surface-low border border-border p-8 rounded-lg text-center">
-              <p className="text-muted-foreground mb-4">You don&apos;t have any jobs yet.</p>
+              <p className="text-muted-foreground mb-4">
+                {stateFilter === "running" ? "You don't have any running jobs." : "You don't have any jobs yet."}
+              </p>
             </div>
           )}
 
@@ -588,31 +565,18 @@ export default function JobsPage() {
                         ${job.price_per_hour.toFixed(6)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm w-20">
-                        {jobTransactions[job.job_id] ? (
-                          <span className={
-                            jobTransactions[job.job_id].status.toLowerCase() === 'pending'
-                              ? 'text-foreground italic'
-                              : job.state === 'failed' || job.state === 'canceled'
-                              ? 'line-through text-muted-foreground'
-                              : 'text-foreground'
-                          }>
-                            <AmountDisplay amountUsd={jobTransactions[job.job_id].amount_usd} />
-                          </span>
-                        ) : (
-                          (() => {
-                            // Calculate cost from job data when transaction not available
-                            const { amount, isEstimate, isPending } = getJobCost(job);
-                            return (
-                              <span className={
-                                isPending ? 'text-foreground italic' :
-                                job.state === 'failed' || job.state === 'canceled' ? 'line-through text-muted-foreground' :
-                                'text-foreground'
-                              }>
-                                ${amount.toFixed(2)}{isEstimate && job.state === 'running' ? '+' : ''}
-                              </span>
-                            );
-                          })()
-                        )}
+                        {(() => {
+                          const { amount, isEstimate, isPending } = getJobCost(job);
+                          return (
+                            <span className={
+                              isPending ? 'text-foreground italic' :
+                              job.state === 'failed' || job.state === 'canceled' ? 'line-through text-muted-foreground' :
+                              'text-foreground'
+                            }>
+                              ${amount.toFixed(2)}{isEstimate && job.state === 'running' ? '+' : ''}
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground w-20">
                         {formatDateTime(job.created_at)}
