@@ -1659,30 +1659,41 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
   };
 
   const dismissAgentDashboardTour = async (): Promise<void> => {
-    const tourDialog = page
-      .getByRole("dialog")
-      .filter({ hasText: /A quick tour of your agent workspace|Agent Briefing|Build a teammate, not another chat window/i })
-      .first();
-    if (!(await tourDialog.isVisible().catch(() => false))) {
-      return;
-    }
+    const deadline = Date.now() + 15_000;
+    const normalDashboard = page.getByRole("button", { name: /^Current workspace:/i }).first();
 
-    const dismissControls = [
-      tourDialog.getByRole("button", { name: /^Skip tour$/i }).first(),
-      tourDialog.getByRole("button", { name: /^Close agent tour$/i }).first(),
-      tourDialog.getByRole("button", { name: /^Close$/i }).first(),
-      tourDialog.locator("button").filter({ hasText: /^Skip tour$/i }).first(),
-    ];
+    do {
+      const tourDialog = page
+        .getByRole("dialog")
+        .filter({ hasText: /A quick tour of your agent workspace|Agent Briefing|Build a teammate, not another chat window/i })
+        .first();
 
-    for (const control of dismissControls) {
-      if (await control.isVisible().catch(() => false)) {
-        await control.click();
-        await expect(tourDialog).not.toBeVisible({ timeout: 10_000 });
+      if (await tourDialog.isVisible().catch(() => false)) {
+        const dismissControls = [
+          tourDialog.getByRole("button", { name: /^Skip tour$/i }).first(),
+          tourDialog.getByRole("button", { name: /^Close agent tour$/i }).first(),
+          tourDialog.getByRole("button", { name: /^Close$/i }).first(),
+          tourDialog.locator("button").filter({ hasText: /^Skip tour$/i }).first(),
+          page.getByText(/^Skip tour$/i).first(),
+        ];
+
+        for (const control of dismissControls) {
+          if (await control.isVisible().catch(() => false)) {
+            await control.click();
+            await expect(tourDialog).not.toBeVisible({ timeout: 10_000 });
+            return;
+          }
+        }
+
+        throw new Error("Agent dashboard tour is visible but no dismiss control was found");
+      }
+
+      if (await normalDashboard.isVisible().catch(() => false)) {
         return;
       }
-    }
 
-    throw new Error("Agent dashboard tour is visible but no dismiss control was found");
+      await page.waitForTimeout(250);
+    } while (Date.now() < deadline);
   };
 
   const dashboardFetches = waitForAgentDashboardFetches();
