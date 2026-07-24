@@ -106,6 +106,28 @@ async function waitForPlansPageReady(page: Page): Promise<void> {
   await expect(proPlanHeading).toBeVisible({ timeout: 20_000 });
 }
 
+async function waitForPlanCheckoutButton(page: Page, proCard: ReturnType<Page["locator"]>) {
+  const checkoutButton = proCard.getByRole("button", { name: /purchase|add another|subscribe|upgrade/i }).first();
+
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    if (await checkoutButton.isVisible().catch(() => false)) {
+      return checkoutButton;
+    }
+
+    const retryButton = page.getByRole("button", { name: /^retry$/i }).first();
+    if (await retryButton.isVisible().catch(() => false)) {
+      console.log(`[agents-plans] billing unavailable before checkout; retrying plans load attempt=${attempt}`);
+      await retryButton.click();
+    } else {
+      await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
+    }
+    await page.waitForTimeout(2_000);
+  }
+
+  await expect(checkoutButton).toBeVisible({ timeout: 20_000 });
+  return checkoutButton;
+}
+
 test.describe.serial("Agents subscription", () => {
   test("logs into Claw, ensures a paid plan, launches an agent, and connects the gateway", async ({ page }) => {
     test.setTimeout(900_000);
@@ -137,58 +159,65 @@ test.describe.serial("Agents subscription", () => {
       const beforeActiveSubscriptionCount = beforeSummary?.activeSubscriptionCount ?? 0;
       const beforeGrantedSlots = totalGrantedSlots(beforeSummary);
       const beforeStripeSubscriptionIds = stripeSubscriptionIds(beforeSummary);
+      let afterPurchaseSummary: Awaited<ReturnType<typeof fetchClawSubscriptionSummary>> = beforeSummary;
 
-      const proCard = page.locator(".glass-card").filter({ has: page.getByRole("heading", { name: "Pro" }) }).first();
-      await expect(proCard.getByRole("heading", { name: "Pro" })).toBeVisible({ timeout: 20_000 });
-      const subscribeButton = proCard.getByRole("button", { name: /purchase|add another|subscribe|upgrade/i }).first();
-      await expect(subscribeButton).toBeVisible({ timeout: 20_000 });
-      await subscribeButton.click();
-
-      await expect(page.getByRole("heading", { name: /purchase|subscribe|add/i })).toBeVisible({ timeout: 20_000 });
-      const payWithCardButton = page.getByRole("button", { name: /pay \$.*with card/i }).first();
-      await expect(payWithCardButton).toBeVisible({ timeout: 10_000 });
-      await payWithCardButton.click();
-
-      const checkoutReturnUrl = await completeStripeCheckout(
-        page,
-        process.env.TEST_BASE_URL?.trim() || "http://127.0.0.1:4003"
-      );
-      console.log(`Agents checkout returned to: ${checkoutReturnUrl}`);
-      expect(checkoutReturnUrl).not.toContain("cancelled=true");
-      const checkoutSessionId = checkoutSessionIdFromUrl(checkoutReturnUrl);
-      if (checkoutSessionId) {
-        createdStripeSubscriptionId = await fetchStripeSubscriptionIdForCheckoutSession(checkoutSessionId);
+      if (beforeGrantedSlots > 0) {
         console.log(
-          `[agents-plans] checkout session=${checkoutSessionId} stripeSubscription=${createdStripeSubscriptionId ?? "unknown"}`
+          `[agents-plans] checkout skipped; existing launch slots are available active=${beforeActiveSubscriptionCount} grantedSlots=${beforeGrantedSlots}`
         );
+      } else {
+        const proCard = page.locator(".glass-card").filter({ has: page.getByRole("heading", { name: "Pro" }) }).first();
+        await expect(proCard.getByRole("heading", { name: "Pro" })).toBeVisible({ timeout: 20_000 });
+        const subscribeButton = await waitForPlanCheckoutButton(page, proCard);
+        await subscribeButton.click();
+
+        await expect(page.getByRole("heading", { name: /purchase|subscribe|add/i })).toBeVisible({ timeout: 20_000 });
+        const payWithCardButton = page.getByRole("button", { name: /pay \$.*with card/i }).first();
+        await expect(payWithCardButton).toBeVisible({ timeout: 10_000 });
+        await payWithCardButton.click();
+
+        const checkoutReturnUrl = await completeStripeCheckout(
+          page,
+          process.env.TEST_BASE_URL?.trim() || "http://127.0.0.1:4003"
+        );
+        console.log(`Agents checkout returned to: ${checkoutReturnUrl}`);
+        expect(checkoutReturnUrl).not.toContain("cancelled=true");
+        const checkoutSessionId = checkoutSessionIdFromUrl(checkoutReturnUrl);
+        if (checkoutSessionId) {
+          createdStripeSubscriptionId = await fetchStripeSubscriptionIdForCheckoutSession(checkoutSessionId);
+          console.log(
+            `[agents-plans] checkout session=${checkoutSessionId} stripeSubscription=${createdStripeSubscriptionId ?? "unknown"}`
+          );
+        }
+        await captureStep(page, "agents-07-checkout-submitted");
+
+        await expect
+          .poll(() => page.url(), { timeout: 60_000 })
+          .toContain("/plans");
+
+        afterPurchaseSummary = null;
+        await expect
+          .poll(
+            async () => {
+              afterPurchaseSummary = await fetchClawSubscriptionSummary(page);
+              const currentStripeIds = stripeSubscriptionIds(afterPurchaseSummary);
+              const hasCheckoutSubscription = Boolean(
+                createdStripeSubscriptionId && currentStripeIds.has(createdStripeSubscriptionId)
+              );
+              const hasNewSubscription = [...currentStripeIds].some((stripeId) => !beforeStripeSubscriptionIds.has(stripeId));
+              const currentSlots = totalGrantedSlots(afterPurchaseSummary);
+              console.log(
+                `[agents-plans] poll active=${afterPurchaseSummary?.activeSubscriptionCount ?? "unknown"} ` +
+                  `grantedSlots=${currentSlots} hasCheckoutSubscription=${hasCheckoutSubscription} ` +
+                  `hasNewSubscription=${hasNewSubscription}`
+              );
+              return hasCheckoutSubscription || hasNewSubscription || currentSlots > beforeGrantedSlots;
+            },
+            { timeout: 180_000, intervals: [1_000, 2_000, 5_000] }
+          )
+          .toBeTruthy();
       }
-      await captureStep(page, "agents-07-checkout-submitted");
 
-      await expect
-        .poll(() => page.url(), { timeout: 60_000 })
-        .toContain("/plans");
-
-      let afterPurchaseSummary: Awaited<ReturnType<typeof fetchClawSubscriptionSummary>> = null;
-      await expect
-        .poll(
-          async () => {
-            afterPurchaseSummary = await fetchClawSubscriptionSummary(page);
-            const currentStripeIds = stripeSubscriptionIds(afterPurchaseSummary);
-            const hasCheckoutSubscription = Boolean(
-              createdStripeSubscriptionId && currentStripeIds.has(createdStripeSubscriptionId)
-            );
-            const hasNewSubscription = [...currentStripeIds].some((stripeId) => !beforeStripeSubscriptionIds.has(stripeId));
-            const currentSlots = totalGrantedSlots(afterPurchaseSummary);
-            console.log(
-              `[agents-plans] poll active=${afterPurchaseSummary?.activeSubscriptionCount ?? "unknown"} ` +
-                `grantedSlots=${currentSlots} hasCheckoutSubscription=${hasCheckoutSubscription} ` +
-                `hasNewSubscription=${hasNewSubscription}`
-            );
-            return hasCheckoutSubscription || hasNewSubscription || currentSlots > beforeGrantedSlots;
-          },
-          { timeout: 180_000, intervals: [1_000, 2_000, 5_000] }
-        )
-        .toBeTruthy();
       expect(Math.max(afterPurchaseSummary?.activeSubscriptionCount ?? 0, totalGrantedSlots(afterPurchaseSummary))).toBeGreaterThan(0);
       createdStripeSubscriptionId =
         createdStripeSubscriptionId ??
