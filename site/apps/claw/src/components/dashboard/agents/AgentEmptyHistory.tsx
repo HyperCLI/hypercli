@@ -38,21 +38,21 @@ const STARTER_PROMPTS: StarterPrompt[] = [
   {
     id: "explain",
     label: "Map this workspace",
-    description: "Get a plain-English tour of the files, structure, and moving parts.",
+    description: "Get a plain-English tour of the files and structure.",
     prompt: "Explain the current workspace or selected file in plain language.",
     icon: FileText,
   },
   {
     id: "test",
     label: "Run the checks",
-    description: "Use the project's own toolchain and report what passes or breaks.",
+    description: "Use the project toolchain and report what breaks.",
     prompt: "Run the relevant checks for this workspace and summarize the results.",
     icon: Check,
   },
   {
     id: "diff",
     label: "Read the diff",
-    description: "Turn workspace changes into a clear review of risks and next steps.",
+    description: "Review workspace changes, risks, and next steps.",
     prompt: "Review workspace changes and summarize the diff.",
     icon: Wrench,
   },
@@ -71,15 +71,15 @@ const WORKSPACE_ACTIONS: WorkspaceAction[] = [
   {
     id: "files",
     label: "Bring in context",
-    description: "Open workspace files, notes, and generated output.",
+    description: "Open files, notes, and generated output.",
     ariaLabel: "Open Workspace files",
     action: "onOpenFiles",
     icon: FolderOpen,
   },
   {
     id: "integrations",
-    label: "Connect your tools",
-    description: "GitHub, Telegram, Discord, WhatsApp, and more.",
+    label: "Browse integrations",
+    description: "Add GitHub, Telegram, Discord, WhatsApp, and more.",
     ariaLabel: "Open Integrations",
     action: "onOpenIntegrations",
     icon: Blocks,
@@ -87,7 +87,7 @@ const WORKSPACE_ACTIONS: WorkspaceAction[] = [
   {
     id: "skills",
     label: "Teach it a skill",
-    description: "Browse reusable skills or create one for this agent.",
+    description: "Browse reusable skills or create one.",
     ariaLabel: "Open Skills",
     action: "onOpenSkills",
     icon: Codepen,
@@ -95,7 +95,7 @@ const WORKSPACE_ACTIONS: WorkspaceAction[] = [
   {
     id: "scheduled",
     label: "Put work on repeat",
-    description: "Run a prompt automatically on a recurring schedule.",
+    description: "Run prompts automatically on a schedule.",
     ariaLabel: "Open Scheduled work",
     action: "onOpenScheduled",
     icon: CalendarClock,
@@ -111,7 +111,7 @@ export function AgentEmptyHistory({
   return (
     <section
       aria-labelledby="agent-empty-history-title"
-      className="agent-empty-history max-h-full w-full max-w-[50rem] overflow-hidden px-3 py-5 text-foreground sm:px-6 sm:py-8"
+      className="agent-empty-history w-full max-w-[50rem] px-3 py-5 text-foreground sm:px-6 sm:py-8"
     >
       <header className="text-center">
         <div
@@ -127,7 +127,7 @@ export function AgentEmptyHistory({
           Your agent is ready for real work
         </h2>
         <p className="agent-empty-history-intro mx-auto mt-2 max-w-xl text-sm leading-6 text-text-muted">
-          Inspect the workspace, run its checks, then connect Slack, GitHub, and the routines that keep work moving.
+          Connect the tools your agent needs, add workspace context, then give it a concrete first task.
         </p>
       </header>
 
@@ -138,7 +138,7 @@ export function AgentEmptyHistory({
               Build out the workspace
             </h3>
             <p className="agent-empty-history-section-copy mt-1 text-xs leading-5 text-text-muted">
-              Bring in context, connect your stack, and automate repeat work.
+              Connect Slack, add context, and automate repeat work.
             </p>
           </div>
           <div className="agent-empty-history-workspace-grid grid grid-cols-2 gap-2 md:grid-cols-6">
@@ -148,14 +148,14 @@ export function AgentEmptyHistory({
                 variant="ghost"
                 aria-label="Connect Slack"
                 onClick={() => actions.onOpenIntegrationChatCard?.("slack")}
-                className="agent-empty-history-workspace-card group col-span-2 h-auto min-h-[8.75rem] w-full flex-col justify-start gap-2.5 whitespace-normal rounded-xl px-4 py-3 text-center text-text-secondary hover:-translate-y-0.5 hover:bg-surface-low/55 hover:text-foreground dark:hover:bg-surface-low/55"
+                className="agent-empty-history-workspace-card group col-span-2 h-auto min-h-24 w-full flex-col justify-start gap-1.5 whitespace-normal rounded-xl px-4 py-2 text-center text-text-secondary hover:-translate-y-0.5 hover:bg-surface-low/55 hover:text-foreground focus-visible:bg-surface-low/55 motion-reduce:transform-none md:min-h-[8.75rem] md:gap-2.5 md:py-3 dark:hover:bg-surface-low/55"
               >
-                <span className="agent-empty-history-workspace-icon flex size-12 shrink-0 items-center justify-center rounded-xl bg-[rgb(var(--selection-accent-rgb)_/_0.1)] shadow-[0_6px_18px_rgb(var(--selection-accent-rgb)_/_0.06)] transition-all group-hover:scale-105 group-hover:bg-[rgb(var(--selection-accent-rgb)_/_0.14)]">
+                <span className="agent-empty-history-workspace-icon flex size-10 shrink-0 items-center justify-center rounded-xl bg-[rgb(var(--selection-accent-rgb)_/_0.1)] shadow-[0_6px_18px_rgb(var(--selection-accent-rgb)_/_0.06)] transition-all group-hover:scale-105 group-hover:bg-[rgb(var(--selection-accent-rgb)_/_0.14)] motion-reduce:transform-none md:size-12">
                   <SlackIcon aria-hidden="true" className="size-5" />
                 </span>
                 <span className="flex max-w-[15rem] flex-col items-center gap-1">
                   <span className="text-[13px] font-semibold leading-4 text-foreground">Connect Slack</span>
-                  <span className="agent-empty-history-card-description text-[10px] font-normal leading-4 text-text-muted">Guided setup for channels, conversations, and direct messages.</span>
+                  <span className="agent-empty-history-card-description text-[11px] font-normal leading-[1.1rem] text-text-muted">Set up channels, conversations, and direct messages.</span>
                 </span>
               </Button>
             ) : null}
@@ -169,16 +169,16 @@ export function AgentEmptyHistory({
                   variant="ghost"
                   aria-label={workspaceAction.ariaLabel}
                   onClick={() => onSelect?.()}
-                  className="agent-empty-history-workspace-card group h-auto min-h-[8.75rem] w-full flex-col justify-start gap-2.5 whitespace-normal rounded-xl px-3 py-3 text-center text-text-secondary hover:-translate-y-0.5 hover:bg-surface-low/55 hover:text-foreground dark:hover:bg-surface-low/55"
+                  className="agent-empty-history-workspace-card group h-auto min-h-24 w-full flex-col justify-start gap-1.5 whitespace-normal rounded-xl px-3 py-2 text-center text-text-secondary hover:-translate-y-0.5 hover:bg-surface-low/55 hover:text-foreground focus-visible:bg-surface-low/55 motion-reduce:transform-none md:min-h-[8.75rem] md:gap-2.5 md:py-3 dark:hover:bg-surface-low/55"
                 >
-                  <span className="agent-empty-history-workspace-icon flex size-12 shrink-0 items-center justify-center">
-                    <span className="flex size-9 items-center justify-center rounded-lg bg-surface-low text-text-muted transition-colors group-hover:text-[var(--selection-accent)]">
+                  <span className="agent-empty-history-workspace-icon flex size-10 shrink-0 items-center justify-center md:size-12">
+                    <span className="flex size-8 items-center justify-center rounded-lg bg-surface-low text-text-muted transition-colors group-hover:text-[var(--selection-accent)] md:size-9">
                       <Icon aria-hidden="true" className="size-4" />
                     </span>
                   </span>
                   <span className="flex max-w-[12rem] flex-col items-center gap-1">
-                    <span className="text-xs font-semibold leading-4 text-foreground">{workspaceAction.label}</span>
-                    <span className="agent-empty-history-card-description text-[10px] font-normal leading-4 text-text-muted">{workspaceAction.description}</span>
+                    <span className="text-[13px] font-semibold leading-4 text-foreground">{workspaceAction.label}</span>
+                    <span className="agent-empty-history-card-description text-[11px] font-normal leading-[1.1rem] text-text-muted">{workspaceAction.description}</span>
                   </span>
                 </Button>
               );
@@ -187,7 +187,7 @@ export function AgentEmptyHistory({
         </div>
       ) : null}
 
-      <div className="agent-empty-history-group mt-7">
+      <div className="agent-empty-history-group mt-6 sm:mt-7">
         <div className="agent-empty-history-group-header mb-3 text-center">
           <h3 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
             Start with something concrete
@@ -196,7 +196,7 @@ export function AgentEmptyHistory({
             Pick a prompt, add any missing context, then send it when you are ready.
           </p>
         </div>
-        <div className="agent-empty-history-starter-grid grid gap-2.5 sm:grid-cols-3">
+        <div className="agent-empty-history-starter-grid grid gap-1.5 sm:grid-cols-3 sm:gap-2.5">
           {STARTER_PROMPTS.map((prompt) => {
             const Icon = prompt.icon;
             return (
@@ -205,14 +205,14 @@ export function AgentEmptyHistory({
                 type="button"
                 variant="ghost"
                 onClick={() => onPromptSelect(prompt.prompt)}
-                className="agent-empty-history-starter-card group h-auto min-h-[9rem] w-full flex-col gap-3 whitespace-normal rounded-xl px-4 py-4 text-center text-foreground hover:-translate-y-0.5 hover:bg-surface-low/55 hover:text-foreground dark:hover:bg-surface-low/55"
+                className="agent-empty-history-starter-card group h-auto min-h-[4.5rem] w-full flex-row justify-start gap-3 whitespace-normal rounded-xl px-3 py-2 text-left text-foreground hover:-translate-y-0.5 hover:bg-surface-low/55 hover:text-foreground focus-visible:bg-surface-low/55 motion-reduce:transform-none sm:min-h-[9rem] sm:flex-col sm:justify-center sm:px-4 sm:py-4 sm:text-center dark:hover:bg-surface-low/55"
               >
-                <span className="agent-empty-history-starter-icon flex size-10 shrink-0 items-center justify-center rounded-xl bg-[rgb(var(--selection-accent-rgb)_/_0.08)] text-[var(--selection-accent)] transition-colors group-hover:bg-[rgb(var(--selection-accent-rgb)_/_0.14)]">
+                <span className="agent-empty-history-starter-icon flex size-9 shrink-0 items-center justify-center rounded-lg bg-surface-low text-text-muted transition-colors group-hover:text-[var(--selection-accent)] sm:size-10 sm:rounded-xl">
                   <Icon aria-hidden="true" className="size-5" />
                 </span>
-                <span className="flex max-w-[12rem] flex-col items-center gap-1">
-                  <span className="text-sm font-semibold leading-5">{prompt.label}</span>
-                  <span className="agent-empty-history-card-description text-[11px] font-normal leading-[1.1rem] text-text-muted">{prompt.description}</span>
+                <span className="flex max-w-[18rem] flex-col items-start gap-0.5 sm:max-w-[12rem] sm:items-center sm:gap-1">
+                  <span className="text-[13px] font-semibold leading-4 sm:text-sm sm:leading-5">{prompt.label}</span>
+                  <span className="agent-empty-history-card-description text-[11px] font-normal leading-[1.1rem] text-text-muted sm:text-center">{prompt.description}</span>
                 </span>
               </Button>
             );

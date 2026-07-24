@@ -14,6 +14,7 @@ import type { ShellStatus } from "@/hooks/useAgentShell";
 import type { SlotInventory } from "@/lib/format";
 import type { AgentCreationSetupCreateParams } from "@/components/dashboard/agents/AgentCreationSetupWizard";
 import { TooltipHint } from "@/components/ClawTooltip";
+import { agentDisplayLabel } from "@/components/dashboard/agents/agentViewModel";
 
 interface AgentMainPanelProps {
   isDesktopViewport: boolean;
@@ -52,7 +53,8 @@ interface AgentMainPanelProps {
   } | null;
   subscriptionSummary?: HyperAgentSubscriptionSummary | null;
   catalogPlans?: HyperAgentPlan[] | null;
-  onOpenPlanCatalog?: () => void | Promise<void>;
+  onOpenPlanCatalog?: (planId?: string) => void | Promise<void>;
+  preferredPlanId?: string | null;
   pendingSlotReleases?: Record<string, number>;
   workspaceName?: string | null;
   hasAccountAgents?: boolean;
@@ -99,6 +101,7 @@ export function AgentMainPanel({
   subscriptionSummary,
   catalogPlans,
   onOpenPlanCatalog,
+  preferredPlanId,
   pendingSlotReleases,
   workspaceName,
   hasAccountAgents = false,
@@ -113,6 +116,7 @@ export function AgentMainPanel({
   onReconnect,
 }: AgentMainPanelProps) {
   const selectedAgentState = selectedAgent?.state ?? null;
+  const selectedAgentDisplayName = selectedAgent ? agentDisplayLabel(selectedAgent) : "Agent";
   const isLifecycleBusy = isAgentTransitionalState(selectedAgentState);
   const isStartable = selectedAgentState === "STOPPED" || isAgentFailureState(selectedAgentState);
   const lifecycleAgentStatus: AgentStatusChipModel | null = (() => {
@@ -233,6 +237,7 @@ export function AgentMainPanel({
     subscriptionSummary,
     catalogPlans,
     onOpenPlanCatalog,
+    preferredPlanId,
     pendingSlotReleases,
     launchLabel: "Start agent",
     launching: stoppedLaunchBusy,
@@ -394,6 +399,7 @@ export function AgentMainPanel({
           catalogPlans={catalogPlans}
           pendingSlotReleases={pendingSlotReleases}
           onOpenPlanCatalog={onOpenPlanCatalog}
+          preferredPlanId={preferredPlanId}
           workspaceName={workspaceName}
           hasAccountAgents={hasAccountAgents}
           creationDisabledReason={creationDisabledReason}
@@ -415,12 +421,12 @@ export function AgentMainPanel({
                   </button>
                 )}
                 {(() => {
-                  const avatar = agentAvatar(selectedAgent.name || selectedAgent.id, selectedAgent.meta);
+                  const avatar = agentAvatar(selectedAgentDisplayName, selectedAgent.meta);
                   const AvatarIcon = avatar.icon;
                   return (
                     <div className="relative w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ backgroundColor: avatar.bgColor }}>
                       {avatar.imageUrl ? (
-                        <ResourceImage src={avatar.imageUrl} alt={`${selectedAgent.name} avatar`} fill sizes="28px" className="object-cover" />
+                        <ResourceImage src={avatar.imageUrl} alt={`${selectedAgentDisplayName} avatar`} fill sizes="28px" className="object-cover" />
                       ) : (
                         <AvatarIcon className="w-3.5 h-3.5" style={{ color: avatar.fgColor }} />
                       )}
@@ -451,7 +457,7 @@ export function AgentMainPanel({
 
               <div className="pointer-events-none z-0 flex w-[min(42vw,420px)] min-w-0 flex-col items-center justify-center px-2 text-center">
                 <p className="max-w-full truncate text-sm font-medium text-foreground">
-                  {selectedAgent.name || selectedAgent.pod_name || "Agent"}
+                  {selectedAgentDisplayName}
                 </p>
                 {!chatConnected && (
                   <p className="max-w-full truncate text-xs text-text-muted">

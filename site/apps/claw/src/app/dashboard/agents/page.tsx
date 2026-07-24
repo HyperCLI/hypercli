@@ -1,13 +1,14 @@
 "use client";
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ArrowLeft,
   Bot,
   Check,
   Loader2,
+  Menu,
   MessageSquare,
   Settings,
   SlidersHorizontal,
@@ -28,9 +29,11 @@ import {
   createAgentClient,
   createHyperAgentClient,
   createOpenClawAgent,
+  createPublicHyperAgentClient,
   isAgentCleanupConflictError,
   startOpenClawAgent,
 } from "@/lib/agent-client";
+import { persistAgentCanonicalName, persistAgentDisplayName } from "@/lib/agent-profile-updates";
 import { isVisibleCurrentAgentPlan } from "@/lib/agent-plan-catalog";
 import { formatCpu, formatMemory, formatTokens, type SlotInventoryEntry } from "@/lib/format";
 import { useOpenClawSession, type OpenClawHydrationMode } from "@/hooks/useOpenClawSession";
@@ -40,6 +43,7 @@ import { useAgentShellActivation } from "@/hooks/useAgentShellActivation";
 import { useAgentShellTerminal } from "@/hooks/useAgentShellTerminal";
 import { clearOpenClawSessionPins, useOpenClawSessionPins } from "@/hooks/useOpenClawSessionPins";
 import { useAgentRosterOrder } from "@/hooks/useAgentRosterOrder";
+import { managedAgentDisplayNameScope, useManagedAgentDisplayNames } from "@/hooks/useManagedAgentDisplayNames";
 import { agentAvatar } from "@/lib/avatar";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { IntegrationsDirectoryPanel } from "@/components/dashboard/integrations";
@@ -57,12 +61,25 @@ import {
 } from "@/components/dashboard/skills";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 import type { TabId as AgentViewTabId } from "@/components/dashboard/agentViewTypes";
-import { AgentsChannelsSidebar, MOCK_PARTICIPANTS, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
+import { MOCK_PARTICIPANTS, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
 import { ChannelCreationWizard } from "@/components/dashboard/ChannelCreationWizard";
 import { getCategoryForPlugin, type DirectoryCategory } from "@/components/dashboard/directory/directory-utils";
 import { PlanComparisonModal } from "@/components/dashboard/agents/PlanComparisonModal";
 import { AgentCreationSetupWizard, type AgentCreationSetupCreateParams } from "@/components/dashboard/agents/AgentCreationSetupWizard";
+import { AgentDashboardTour } from "@/components/dashboard/agents/AgentDashboardTour";
+import { updateFirstAgentSetupDraftPlan } from "@/components/dashboard/agents/FirstAgentSetupWizard";
 import type { AgentFileEntry, SdkAgent } from "@/types";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  Sheet,
+  SheetContent,
+  SheetTitle,
+  SheetTrigger,
+} from "@hypercli/shared-ui";
 import type { FileEntry } from "@hypercli/shared-ui/files";
 import { buildBrowserDesktopUrl } from "@hypercli.com/sdk/agents";
 import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
@@ -75,7 +92,7 @@ import type {
   HyperAgentTypeCatalog,
 } from "@hypercli.com/sdk/agent";
 import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentState } from "./types";
-import { isAgentFailureState, isAgentOffline, isAgentTransitionalState } from "./types";
+import { isAgentFailureState, isAgentTransitionalState } from "./types";
 import {
   describeAgentTierStartGuidance,
   describeAgentsPageError,
@@ -100,8 +117,10 @@ import {
   clearStripeCheckoutReturnState,
   clearPendingPlanCheckout,
   getCheckoutReflectionStatus,
+  getCheckoutOwnedCountFromSummary,
   getEffectivePlanName,
-  getPlanOwnedCountFromSummary,
+  getGrantedLaunchSlotsByTier,
+  markPendingPlanCheckoutReturned,
   mergeLaunchSlotInventories,
   readPendingPlanCheckout,
   readStripeCheckoutReturnState,
@@ -124,7 +143,11 @@ import {
 } from "@/components/dashboard/agents/page-helpers";
 import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner } from "@/components/dashboard/agents/AgentPanels";
 import { OpenClawSettingsDrawer } from "@/components/dashboard/agents/OpenClawSettingsDrawer";
-import { AgentChatPanel, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatPanel";
+import {
+  AgentChatPanel,
+  scrollTranscriptToBottom,
+  type ChatConnectionSuggestion,
+} from "@/components/dashboard/agents/AgentChatPanel";
 import { AgentFilesPanel, type AgentFilesPanelSource } from "@/components/dashboard/agents/AgentFilesPanel";
 import { AgentLogsPanel } from "@/components/dashboard/agents/AgentLogsPanel";
 import { AgentScheduledPanel } from "@/components/dashboard/agents/AgentScheduledPanel";
@@ -149,10 +172,10 @@ import type { JourneyCapabilityCard } from "@/components/dashboard/journey/journ
 import { buildJourneyBriefPrompt, buildJourneyCapabilityPrompt, buildJourneyPrompt } from "@/components/dashboard/journey/journey-prompt-builder";
 import { useJourney } from "@/components/dashboard/journey/useJourney";
 import { getAgentGatewayPanelBootStatus } from "@/components/dashboard/agents/chat-boot-stage";
-import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
+import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { PlanCheckoutModal } from "@/components/PlanCheckoutModal";
-import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
-import { bundleKey, CLAW_PRODUCTS, compactBundle, formatBundle, type SlotBundle } from "@/lib/subscriptions";
+import { agentDisplayLabel, toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
+import { CLAW_PRODUCTS, compactBundle, formatBundle, subscriptionSlotBundle, type SlotBundle } from "@/lib/subscriptions";
 import { createAudioMediaRecorder } from "@/lib/audio-recorder";
 import { downloadFileBytes } from "@/lib/download-file";
 import { resolveAgentRouteTab, type AgentRouteTab } from "@/lib/agent-workspace-route";
@@ -272,6 +295,11 @@ interface UpgradeCheckoutPlan {
   };
 }
 
+type AgentAuthIntent =
+  | { kind: "checkout"; plan: UpgradeCheckoutPlan }
+  | { kind: "launch" }
+  | { kind: "navigate"; href: string; title: string };
+
 type CatalogPlan = HyperAgentPlan & {
   bundle?: Record<string, number> | null;
   checkoutBundle?: Record<string, number> | null;
@@ -371,23 +399,6 @@ function toUpgradeCheckoutPlan(product: UpgradeDisplayProduct): UpgradeCheckoutP
   };
 }
 
-function bundleFromSubscription(subscription: HyperAgentSubscription): SlotBundle {
-  const metaBundle = compactBundle(
-    (subscription.meta?.bundle as Record<string, number> | undefined) ??
-      (subscription.meta?.checkout_bundle as Record<string, number> | undefined),
-  );
-  if (Object.keys(metaBundle).length > 0) return metaBundle;
-
-  const derived: Record<string, number> = {};
-  for (const [tier, granted] of Object.entries(subscription.slotGrants ?? {})) {
-    const total = Math.max(Number(granted || 0), 0) * Math.max(subscription.quantity || 1, 1);
-    if (total > 0) derived[tier] = total;
-  }
-  if (Object.keys(derived).length > 0) return compactBundle(derived);
-  if (subscription.planId === "free") return { free: Math.max(subscription.quantity || 1, 1) };
-  return {};
-}
-
 function primaryLaunchTier(bundle: SlotBundle): string | null {
   const tiers: Array<keyof Pick<SlotBundle, "large" | "medium" | "small">> = ["large", "medium", "small"];
   return tiers.find((tier) => Number(bundle[tier] || 0) > 0) ?? null;
@@ -427,8 +438,8 @@ function applyActiveNoSlotBillingMock(
 ): HyperAgentSubscriptionSummary {
   const entitlementItems = (summary as SubscriptionSummaryWithEntitlementItems | null)?.entitlementItems ?? [];
   const catalogProduct = buildUpgradeProducts(catalogPlans).find((product) => product.id !== "free" && primaryLaunchTier(product.bundle));
-  const existingSubscription = summary?.activeSubscriptions?.find((subscription) => primaryLaunchTier(bundleFromSubscription(subscription)));
-  const tier = primaryLaunchTier(existingSubscription ? bundleFromSubscription(existingSubscription) : (catalogProduct?.bundle ?? {})) ?? "medium";
+  const existingSubscription = summary?.activeSubscriptions?.find((subscription) => primaryLaunchTier(subscriptionSlotBundle(subscription)));
+  const tier = primaryLaunchTier(existingSubscription ? subscriptionSlotBundle(existingSubscription) : (catalogProduct?.bundle ?? {})) ?? "medium";
   const planId =
     existingSubscription?.planId ||
     (summary?.effectivePlanId && summary.effectivePlanId !== "free" ? summary.effectivePlanId : "") ||
@@ -498,20 +509,11 @@ function countOwnedCheckoutPlan(
   summary: HyperAgentSubscriptionSummary | null,
   checkoutPlan: UpgradeCheckoutPlan | null,
 ): number {
-  if (!summary || !checkoutPlan) return 0;
-  const checkoutBundleKey = checkoutPlan.bundle ? bundleKey(checkoutPlan.bundle) : "{}";
-  let ownedCount = getPlanOwnedCountFromSummary(summary, checkoutPlan.id);
-
-  for (const subscription of summary.activeSubscriptions ?? []) {
-    if (subscription.planId === checkoutPlan.id) {
-      continue;
-    }
-    if (checkoutBundleKey !== "{}" && bundleKey(bundleFromSubscription(subscription)) === checkoutBundleKey) {
-      ownedCount += Math.max(subscription.quantity || 1, 1);
-    }
-  }
-
-  return ownedCount;
+  if (!checkoutPlan) return 0;
+  return getCheckoutOwnedCountFromSummary(summary, {
+    planId: checkoutPlan.id,
+    bundle: checkoutPlan.bundle,
+  });
 }
 
 function countOwnedProduct(
@@ -550,6 +552,7 @@ function buildBillingBudget(
 type FetchAgentsResult = {
   subscriptionSummary: HyperAgentSubscriptionSummary | null;
   budget: AgentBudget | null;
+  billingReady: boolean;
 };
 
 function slotReleaseLanded(
@@ -858,7 +861,20 @@ export default function AgentsPage() {
 }
 
 function AgentsPageContent() {
-  const { getToken, user, logout } = useAgentAuth();
+  const {
+    getToken,
+    isAuthenticated,
+    isLoading: authLoading,
+    user,
+    login,
+    logout,
+  } = useAgentAuth();
+  const displayNameStorageScope = managedAgentDisplayNameScope(user);
+  const {
+    displayNamesByAgentId,
+    setDisplayName: setManagedAgentDisplayName,
+    clearDisplayName: clearManagedAgentDisplayName,
+  } = useManagedAgentDisplayNames(displayNameStorageScope);
   const {
     workspacesClient,
     workspaces,
@@ -876,14 +892,15 @@ function AgentsPageContent() {
   const requestedSessionKey = searchParams.get("session")?.trim() || null;
   const requestedIntegrationId = searchParams.get("integration")?.trim() || null;
   const requestedOpen = searchParams.get("open")?.trim() || null;
+  const requestedPlanId = searchParams.get("plan")?.trim() || null;
   const requestedSection = searchParams.get("section")?.trim() || null;
   const requestedTab = searchParams.get("tab")?.trim() || null;
   const requestedView = searchParams.get("view")?.trim() || null;
-  const dashboardView = resolveDashboardView(requestedView);
+  const dashboardView = isAuthenticated ? resolveDashboardView(requestedView) : null;
   const requestedAgentTab = resolveAgentRouteTab(requestedTab);
   const requestedCenterTab: MainTab | null = requestedAgentTab === "openclaw" ? "chat" : requestedAgentTab;
-  const knowledgeSectionActive = requestedSection === "knowledge";
-  const membersSectionActive = requestedSection === "members";
+  const knowledgeSectionActive = isAuthenticated && requestedSection === "knowledge";
+  const membersSectionActive = isAuthenticated && requestedSection === "members";
   const administrationSectionTab: Extract<MainTab, "knowledge" | "members"> | null = knowledgeSectionActive
     ? "knowledge"
     : membersSectionActive
@@ -894,17 +911,22 @@ function AgentsPageContent() {
   const slackOAuthResult = slackOAuthOk === "true" ? "success" : slackOAuthOk === "false" ? "failure" : null;
   const queryKey = searchParams.toString();
   const shouldOpenAgentLauncherFromQuery = requestedOpen ? AGENT_LAUNCHER_OPEN_VALUES.has(requestedOpen) : false;
+  const shouldOpenAgentTourFromPageEntry = !requestedOpen && !requestedAgentId && !requestedSessionKey &&
+    !requestedIntegrationId && !requestedSection && !requestedTab && !requestedView &&
+    !slackOAuthOk && !slackOAuthError;
   const { setAgentMenu } = useDashboardMobileAgentMenu();
   const dashboardDisplayName = displayNameForDashboard(user);
   const suggestedJourneyUserName = dashboardDisplayName === "there" ? null : dashboardDisplayName;
   const accountInitial = user?.email?.trim()[0]?.toUpperCase() || "?";
-  const agentCreationDisabledReason = workspacesLoading
-    ? "Workspaces are still loading."
-    : workspaceAgentCreationDisabledReason(selectedWorkspace, agentRosterError);
-  const agentCreationBlockedReason = isAgentRosterLoading
+  const agentCreationDisabledReason = !isAuthenticated
+    ? null
+    : workspacesLoading
+      ? "Workspaces are still loading."
+      : workspaceAgentCreationDisabledReason(selectedWorkspace, agentRosterError);
+  const agentCreationBlockedReason = isAuthenticated && isAgentRosterLoading
     ? "Agent roster is still loading."
     : agentCreationDisabledReason;
-  const shouldOfferWorkspaceCreation = !workspacesLoading && workspaces.length === 0 && Boolean(workspacesClient);
+  const shouldOfferWorkspaceCreation = isAuthenticated && !workspacesLoading && workspaces.length === 0 && Boolean(workspacesClient);
   const journey = useJourney({ searchParams, searchKey: queryKey, storageScope: user?.email ?? null });
   const journeyChatCompletionRef = useRef<PendingJourneyChatCompletion | null>(null);
   const completeJourneyForEvent = journey.completeForEvent;
@@ -930,17 +952,45 @@ function AgentsPageContent() {
     router.replace(`/dashboard/agents${query ? `?${query}` : ""}`, { scroll: false });
   }, [dashboardView, requestedView, router, searchParams]);
 
+  useEffect(() => {
+    if (authLoading || isAuthenticated) return;
+    const params = new URLSearchParams(searchParams.toString());
+    const privateParams = [
+      "agentId",
+      "session",
+      "integration",
+      "section",
+      "tab",
+      "view",
+      "slack_oauth_ok",
+      "slack_oauth_error",
+    ];
+    const changed = privateParams.some((key) => {
+      if (!params.has(key)) return false;
+      params.delete(key);
+      return true;
+    });
+    if (!changed) return;
+    const query = params.toString();
+    router.replace(`/dashboard/agents${query ? `?${query}` : ""}`, { scroll: false });
+  }, [authLoading, isAuthenticated, router, searchParams]);
+
   // Agent data
   const [sdkAgents, setSdkAgents] = useState<SdkAgent[]>([]);
+  const [agentDataPrincipalId, setAgentDataPrincipalId] = useState<string | null>(null);
   const [budget, setBudget] = useState<AgentBudget | null>(null);
   const [catalogPlans, setCatalogPlans] = useState<HyperAgentPlan[]>([]);
   const [planName, setPlanName] = useState<string | null>(null);
   const [subscriptionSummary, setSubscriptionSummary] = useState<HyperAgentSubscriptionSummary | null>(null);
+  const [billingDataPrincipalId, setBillingDataPrincipalId] = useState<string | null>(null);
+  const [billingDataError, setBillingDataError] = useState<string | null>(null);
   const [tokenUsage, setTokenUsage] = useState<number | null>(null);
   const [upgradeCatalogOpen, setUpgradeCatalogOpen] = useState(false);
   const [upgradeCatalogError, setUpgradeCatalogError] = useState<string | null>(null);
   const [upgradeCheckoutPlan, setUpgradeCheckoutPlan] = useState<UpgradeCheckoutPlan | null>(null);
   const [upgradeCatalogLoading, setUpgradeCatalogLoading] = useState(false);
+  const [authGateOpen, setAuthGateOpen] = useState(false);
+  const [pendingAuthIntent, setPendingAuthIntent] = useState<AgentAuthIntent | null>(null);
   const [billingReflectionState, dispatchBillingReflection] = useReducer(
     billingReflectionReducer,
     initialBillingReflectionState,
@@ -949,7 +999,9 @@ function AgentsPageContent() {
     () => checkoutSyncBannerFromBillingState(billingReflectionState),
     [billingReflectionState],
   );
+  const agentLauncherSuspended = upgradeCatalogOpen || Boolean(upgradeCheckoutPlan) || authGateOpen;
   const [deployments, setDeployments] = useState<Deployments | null>(null);
+  const deploymentsRef = useRef<Deployments | null>(null);
   const [agentsLoading, setAgentsLoading] = useState(true);
   const [agentsLoadError, setAgentsLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -964,9 +1016,18 @@ function AgentsPageContent() {
   const tokenUsageRefreshTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const tokenUsageRefreshInFlightRef = useRef(false);
   const checkoutReturnHandledRef = useRef(false);
+  const agentDataGenerationRef = useRef(0);
+  const fetchAgentsRequestRef = useRef(0);
+  const fetchAgentsInFlightRef = useRef<{
+    generation: number;
+    principalId: string;
+    promise: Promise<FetchAgentsResult | null>;
+  } | null>(null);
+  const privatePrincipalRef = useRef<string | null>(isAuthenticated ? user?.id ?? null : null);
   const appliedAgentSessionQueryRef = useRef<string | null>(null);
   const appliedIntegrationQueryRef = useRef<string | null>(null);
   const appliedOpenQueryRef = useRef<string | null>(null);
+  const appliedAgentTourEntryRef = useRef(false);
   const selectedAgentIdRef = useRef<string | null>(null);
   const endTemporaryChatBeforeSelectionRef = useRef<() => Promise<void>>(async () => undefined);
   const agentSelectionOperationRef = useRef(0);
@@ -1082,27 +1143,100 @@ function AgentsPageContent() {
   const [scheduledInitialCommand, setScheduledInitialCommand] = useState<{ id: number; command: string } | null>(null);
   const scheduledInitialCommandIdRef = useRef(0);
   const [mobileShowChat, setMobileShowChat] = useState(false);
-  const [mobileAgentsSidebarOpen, setMobileAgentsSidebarOpen] = useState(false);
-  const [showMobileOfflineAgents, setShowMobileOfflineAgents] = useState(false);
-  const [mobileWorkspaceSidebarOpen, setMobileWorkspaceSidebarOpen] = useState(false);
+  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
+  const [mobileRosterCollapsed, setMobileRosterCollapsed] = useState(true);
+  const [agentTourOpen, setAgentTourOpen] = useState(false);
+  const [agentLauncherOpen, setAgentLauncherOpen] = useState(false);
+  const [launcherPreferredPlanId, setLauncherPreferredPlanId] = useState<string | null>(requestedPlanId);
+  const [launcherSelectedCatalogPlanId, setLauncherSelectedCatalogPlanId] = useState<string | null>(null);
+  const mobileNavigationTriggerRef = useRef<HTMLButtonElement>(null);
+  const mobileNavigationCloseRef = useRef<HTMLButtonElement>(null);
+  const preserveAgentLauncherRef = useRef(false);
   const [workspaceCreationOpen, setWorkspaceCreationOpen] = useState(false);
-  const [mobileAgentLauncherOpen, setMobileAgentLauncherOpen] = useState(false);
-  const [sidebarCreatorSignal, setSidebarCreatorSignal] = useState(0);
+  const [resumeAgentLauncher, setResumeAgentLauncher] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useAgentRosterCollapsed();
+  const showAgentCreationFlow = useCallback(() => {
+    setMobileShowChat(false);
+    setMobileNavigationOpen(false);
+    setAgentLauncherOpen(true);
+    return true;
+  }, []);
   const openAgentCreationFlow = useCallback(() => {
     if (agentCreationBlockedReason) {
       setError(agentCreationBlockedReason);
       return false;
     }
+    return showAgentCreationFlow();
+  }, [agentCreationBlockedReason, showAgentCreationFlow]);
+  const openAgentTourFlow = useCallback(() => {
     setMobileShowChat(false);
-    setMobileAgentsSidebarOpen(false);
-    if (isDesktopViewport) {
-      setSidebarCreatorSignal((value) => value + 1);
-    } else {
-      setMobileAgentLauncherOpen(true);
-    }
+    setMobileNavigationOpen(false);
+    setAgentTourOpen(true);
     return true;
-  }, [agentCreationBlockedReason, isDesktopViewport]);
+  }, []);
+  const startAgentCreationFromTour = useCallback(() => {
+    if (openAgentCreationFlow()) setAgentTourOpen(false);
+  }, [openAgentCreationFlow]);
+
+  const requestAuthentication = useCallback((intent: AgentAuthIntent) => {
+    setPendingAuthIntent(intent);
+    setAuthGateOpen(true);
+  }, []);
+
+  useLayoutEffect(() => {
+    agentDataGenerationRef.current += 1;
+    fetchAgentsRequestRef.current += 1;
+    fetchAgentsInFlightRef.current = null;
+    deploymentsRef.current = null;
+    const nextPrincipal = isAuthenticated ? user?.id ?? null : null;
+    if (privatePrincipalRef.current === nextPrincipal) return;
+    privatePrincipalRef.current = nextPrincipal;
+    setSdkAgents([]);
+    setAgentDataPrincipalId(null);
+    setBudget(null);
+    setPlanName(null);
+    setSubscriptionSummary(null);
+    setBillingDataPrincipalId(null);
+    setBillingDataError(null);
+    setTokenUsage(null);
+    setDeployments(null);
+    setAgentsLoadError(null);
+    setSelectedAgentId(null);
+    setSelectedSessionKeysByAgent({});
+    setPendingSlotReleases({});
+    setDeletingId(null);
+    setStartingId(null);
+    setStoppingId(null);
+    setOpeningDesktopId(null);
+    setRecentlyStoppedIds(new Set());
+    setTierSelection(null);
+    setPendingAgentDelete(null);
+    setUpgradeCheckoutPlan(null);
+    setUpgradeCatalogOpen(false);
+    setUpgradeCatalogLoading(false);
+    setAgentsLoading(true);
+    checkoutReturnHandledRef.current = false;
+    dispatchBillingReflection({ type: "DISMISS" });
+  }, [isAuthenticated, user?.id]);
+
+  useEffect(() => {
+    if (!pendingAuthIntent || authLoading || !isAuthenticated) return;
+    if (
+      pendingAuthIntent.kind === "checkout" &&
+      (!user?.id || billingDataPrincipalId !== user.id)
+    ) return;
+    const timeout = window.setTimeout(() => {
+      setAuthGateOpen(false);
+      setPendingAuthIntent(null);
+      preserveAgentLauncherRef.current = false;
+      if (pendingAuthIntent.kind === "checkout") {
+        setUpgradeCheckoutPlan(pendingAuthIntent.plan);
+      } else if (pendingAuthIntent.kind === "navigate") {
+        router.push(pendingAuthIntent.href);
+      }
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [authLoading, billingDataPrincipalId, isAuthenticated, pendingAuthIntent, router, user?.id]);
 
   useLayoutEffect(() => {
     selectedAgentIdRef.current = selectedAgentId;
@@ -1176,17 +1310,14 @@ function AgentsPageContent() {
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
     const mediaQuery = window.matchMedia(AGENTS_DESKTOP_MEDIA_QUERY);
-    const apply = () => setIsDesktopViewport(mediaQuery.matches);
+    const apply = () => {
+      setIsDesktopViewport(mediaQuery.matches);
+      if (mediaQuery.matches) setMobileNavigationOpen(false);
+    };
     apply();
     mediaQuery.addEventListener("change", apply);
     return () => mediaQuery.removeEventListener("change", apply);
   }, []);
-
-  useEffect(() => {
-    if (!isDesktopViewport) return;
-    setMobileAgentsSidebarOpen(false);
-    setMobileWorkspaceSidebarOpen(false);
-  }, [isDesktopViewport]);
 
   // Settings panel state
   const [settingsName, setSettingsName] = useState("");
@@ -1220,26 +1351,28 @@ function AgentsPageContent() {
     setInspectorSheetOpen(true);
   }, [completeJourneyForEvent]);
 
-  const chatEndRef = useRef<HTMLDivElement>(null);
-
   const clearScheduledTokenUsageRefreshes = useCallback(() => {
     tokenUsageRefreshTimersRef.current.forEach((timer) => clearTimeout(timer));
     tokenUsageRefreshTimersRef.current = [];
   }, []);
 
   const refreshTokenUsage = useCallback(async () => {
+    if (!isAuthenticated) return;
     if (tokenUsageRefreshInFlightRef.current) return;
+    const generation = agentDataGenerationRef.current;
     tokenUsageRefreshInFlightRef.current = true;
     try {
       const hyperAgent = createHyperAgentClient(await getToken());
       const dailyUsage = await hyperAgent.usageHistory(1);
-      setTokenUsage(dailyTokenUsageTotal(dailyUsage));
+      if (generation === agentDataGenerationRef.current) {
+        setTokenUsage(dailyTokenUsageTotal(dailyUsage));
+      }
     } catch {
       // Keep the last displayed value on transient usage refresh failures.
     } finally {
       tokenUsageRefreshInFlightRef.current = false;
     }
-  }, [getToken]);
+  }, [getToken, isAuthenticated]);
 
   const refreshTokenUsageAfterChat = useCallback(() => {
     clearScheduledTokenUsageRefreshes();
@@ -1251,68 +1384,105 @@ function AgentsPageContent() {
     ));
   }, [clearScheduledTokenUsageRefreshes, refreshTokenUsage]);
 
-  const fetchAgents = useCallback(async (): Promise<FetchAgentsResult | null> => {
-    try {
-      const token = await getToken();
-      const agentClient = deployments ?? createAgentClient(token);
-      if (!deployments) {
-        setDeployments(agentClient);
-      }
-      const hyperAgent = createHyperAgentClient(token);
-      const listedAgents = await agentClient.list();
-      setAgentsLoadError(null);
-      const listedAgentIds = new Set(listedAgents.map((agent) => agent.id));
-      setSdkAgents(listedAgents);
-      setSelectedSessionKeysByAgent((current) => {
-        let changed = false;
-        const next: Record<string, string> = {};
-        for (const [agentId, sessionKey] of Object.entries(current)) {
-          if (listedAgentIds.has(agentId)) {
-            next[agentId] = sessionKey;
-          } else {
-            changed = true;
-          }
-        }
-        return changed ? next : current;
-      });
-      setAgentClusterUnavailable(false);
-      setAgentsLoading(false);
-
-      const [catalogData, currentPlan, summaryData, dailyUsage, typeCatalogData] = await Promise.all([
-        optionalDashboardData(hyperAgent.plans(), [] as HyperAgentPlan[]),
-        optionalDashboardData(hyperAgent.currentPlan(), null),
-        optionalDashboardData(hyperAgent.subscriptionSummary(), null),
-        optionalDashboardData(hyperAgent.usageHistory(1), null),
-        optionalDashboardData(hyperAgent.agentTypes(), null),
-      ]);
-      const plans = Array.isArray(catalogData) ? catalogData : [];
-      const normalizedCurrentPlan = currentPlan as HyperAgentCurrentPlan | null;
-      const rawSummary = (summaryData as HyperAgentSubscriptionSummary | null) || null;
-      const summary = isActiveNoSlotBillingMockEnabled()
-        ? applyActiveNoSlotBillingMock(rawSummary, normalizedCurrentPlan, plans)
-        : rawSummary;
-      const typeCatalog = (typeCatalogData as HyperAgentTypeCatalog | null) || null;
-      const nextBudget = buildBillingBudget(summary, normalizedCurrentPlan, typeCatalog);
-      setBudget(nextBudget);
-      setCatalogPlans(plans);
-      setPlanName(getEffectivePlanName(summary, normalizedCurrentPlan, plans));
-      setSubscriptionSummary(summary);
-      setTokenUsage(dailyTokenUsageTotal(dailyUsage));
-      return { subscriptionSummary: summary, budget: nextBudget };
-    } catch (err) {
-      const described = describeAgentsPageError(err);
-      setAgentsLoadError(described.message);
-      setError(described.message);
-      setAgentClusterUnavailable(described.clusterUnavailable);
-      setSdkAgents([]);
-      setBudget(null);
-      setCatalogPlans([]);
-      setDeployments(null);
-      return null;
-    } finally {
-      setAgentsLoading(false);
+  const fetchAgents = useCallback((options?: { force?: boolean }): Promise<FetchAgentsResult | null> => {
+    const principalId = user?.id ?? null;
+    if (!isAuthenticated || !principalId) return Promise.resolve(null);
+    const generation = agentDataGenerationRef.current;
+    const inFlight = fetchAgentsInFlightRef.current;
+    if (!options?.force && inFlight?.generation === generation && inFlight.principalId === principalId) {
+      return inFlight.promise;
     }
-  }, [deployments, getToken]);
+    const requestId = ++fetchAgentsRequestRef.current;
+    const isCurrentRequest = () => (
+      generation === agentDataGenerationRef.current && requestId === fetchAgentsRequestRef.current
+    );
+    const promise = (async () => {
+      try {
+        const token = await getToken();
+        if (!isCurrentRequest()) return null;
+        const agentClient = deploymentsRef.current ?? createAgentClient(token);
+        if (!deploymentsRef.current) {
+          deploymentsRef.current = agentClient;
+          setDeployments(agentClient);
+        }
+        const hyperAgent = createHyperAgentClient(token);
+        const listedAgents = await agentClient.list();
+        if (!isCurrentRequest()) return null;
+        setAgentsLoadError(null);
+        const listedAgentIds = new Set(listedAgents.map((agent) => agent.id));
+        setSdkAgents(listedAgents);
+        setAgentDataPrincipalId(principalId);
+        setSelectedSessionKeysByAgent((current) => {
+          let changed = false;
+          const next: Record<string, string> = {};
+          for (const [agentId, sessionKey] of Object.entries(current)) {
+            if (listedAgentIds.has(agentId)) {
+              next[agentId] = sessionKey;
+            } else {
+              changed = true;
+            }
+          }
+          return changed ? next : current;
+        });
+        setAgentClusterUnavailable(false);
+
+        const [catalogData, currentPlan, summaryResult, dailyUsage, typeCatalogData] = await Promise.all([
+          optionalDashboardData(hyperAgent.plans(), [] as HyperAgentPlan[]),
+          optionalDashboardData(hyperAgent.currentPlan(), null),
+          hyperAgent.subscriptionSummary().then(
+            (value) => ({ status: "fulfilled" as const, value }),
+            () => ({ status: "rejected" as const }),
+          ),
+          optionalDashboardData(hyperAgent.usageHistory(1), null),
+          optionalDashboardData(hyperAgent.agentTypes(), null),
+        ]);
+        if (!isCurrentRequest()) return null;
+        const plans = Array.isArray(catalogData) ? catalogData : [];
+        const normalizedCurrentPlan = currentPlan as HyperAgentCurrentPlan | null;
+        const billingReady = summaryResult.status === "fulfilled";
+        const rawSummary = billingReady ? summaryResult.value : null;
+        const summary = isActiveNoSlotBillingMockEnabled()
+          ? applyActiveNoSlotBillingMock(rawSummary, normalizedCurrentPlan, plans)
+          : rawSummary;
+        const typeCatalog = (typeCatalogData as HyperAgentTypeCatalog | null) || null;
+        const nextBudget = buildBillingBudget(summary, normalizedCurrentPlan, typeCatalog);
+        setBudget(nextBudget);
+        setCatalogPlans(plans);
+        setPlanName(getEffectivePlanName(summary, normalizedCurrentPlan, plans));
+        setSubscriptionSummary(summary);
+        setBillingDataPrincipalId(billingReady ? principalId : null);
+        setBillingDataError(billingReady ? null : "Billing data could not be loaded. Retry before checkout.");
+        setTokenUsage(dailyTokenUsageTotal(dailyUsage));
+        return { subscriptionSummary: summary, budget: nextBudget, billingReady };
+      } catch (err) {
+        if (!isCurrentRequest()) return null;
+        const described = describeAgentsPageError(err);
+        setAgentsLoadError(described.message);
+        setError(described.message);
+        setAgentClusterUnavailable(described.clusterUnavailable);
+        setSdkAgents([]);
+        setAgentDataPrincipalId(null);
+        clearScheduledTokenUsageRefreshes();
+        tokenUsageRefreshInFlightRef.current = false;
+        setBudget(null);
+        setBillingDataPrincipalId(null);
+        setBillingDataError("Billing data could not be loaded. Retry before checkout.");
+        setCatalogPlans([]);
+        deploymentsRef.current = null;
+        setDeployments(null);
+        return null;
+      } finally {
+        if (isCurrentRequest()) setAgentsLoading(false);
+      }
+    })();
+    fetchAgentsInFlightRef.current = { generation, principalId, promise };
+    void promise.finally(() => {
+      if (fetchAgentsInFlightRef.current?.promise === promise) {
+        fetchAgentsInFlightRef.current = null;
+      }
+    });
+    return promise;
+  }, [clearScheduledTokenUsageRefreshes, getToken, isAuthenticated, user?.id]);
 
   const getAgentClient = useCallback(async () => {
     if (deployments) return deployments;
@@ -1350,7 +1520,7 @@ function AgentsPageContent() {
   }, [getAgentClient]);
 
   const refreshAgentsForChildren = useCallback(async () => {
-    return Boolean(await fetchAgents());
+    return Boolean(await fetchAgents({ force: true }));
   }, [fetchAgents]);
 
   const clearPendingSlotRelease = useCallback((releaseId: string, tier: string) => {
@@ -1379,7 +1549,7 @@ function AgentsPageContent() {
 
     const timer = setTimeout(() => {
       void (async () => {
-        const refreshed = await fetchAgents();
+        const refreshed = await fetchAgents({ force: true });
         const refreshedEntry = refreshed?.budget?.slots?.[tier];
         if (slotReleaseLanded(baseline, refreshedEntry) || attempt >= 8) {
           clearPendingSlotRelease(releaseId, tier);
@@ -1402,26 +1572,39 @@ function AgentsPageContent() {
   }, [scheduleSlotReleaseRefresh]);
 
   const refreshCheckoutEntitlements = useCallback(async () => {
-    const pending = readPendingPlanCheckout();
+    const principalId = user?.id ?? null;
+    if (!principalId) return;
+    const pending = readPendingPlanCheckout(principalId);
     dispatchBillingReflection({
       type: "SYNC_STARTED",
       pending,
       message: `Refreshing ${pending?.planName ?? "your plan"} entitlements from billing...`,
     });
-    const refreshed = await fetchAgents();
+    const refreshed = await fetchAgents({ force: true });
     const reflectionStatus = getCheckoutReflectionStatus(refreshed?.subscriptionSummary ?? null, pending);
 
     if (reflectionStatus === "ready") {
-      clearPendingPlanCheckout();
+      clearPendingPlanCheckout(principalId);
+      clearStripeCheckoutReturnState();
+      setResumeAgentLauncher(true);
     }
     dispatchBillingReflection({
       type: "REFLECTION_RECEIVED",
       pending,
       reflectionStatus,
     });
-  }, [fetchAgents]);
+  }, [fetchAgents, user?.id]);
 
-  const openUpgradeCatalog = useCallback(async () => {
+  const openUpgradeCatalog = useCallback(async (preferredPlanId?: string) => {
+    if (preferredPlanId === "free") {
+      if (!isAuthenticated) {
+        requestAuthentication({ kind: "launch" });
+      } else {
+        await fetchAgents({ force: true });
+        preserveAgentLauncherRef.current = false;
+      }
+      return;
+    }
     if (upgradeCatalogLoading) return;
 
     setUpgradeCatalogOpen(true);
@@ -1432,10 +1615,13 @@ function AgentsPageContent() {
 
     setUpgradeCatalogLoading(true);
     try {
-      const hyperAgent = createHyperAgentClient(await getToken());
+      const hyperAgent = isAuthenticated
+        ? createHyperAgentClient(await getToken())
+        : createPublicHyperAgentClient();
       const plans = await hyperAgent.plans();
-      setCatalogPlans(plans);
-      if (buildUpgradeProducts(plans).filter((product) => product.id !== "free" && product.price > 0).length === 0) {
+      const visiblePlans = plans.filter(isVisibleCurrentAgentPlan);
+      setCatalogPlans(visiblePlans);
+      if (buildUpgradeProducts(visiblePlans).filter((product) => product.id !== "free" && product.price > 0).length === 0) {
         setUpgradeCatalogError("No paid plans are available right now.");
       }
     } catch (error) {
@@ -1443,9 +1629,50 @@ function AgentsPageContent() {
     } finally {
       setUpgradeCatalogLoading(false);
     }
-  }, [catalogPlans, getToken, upgradeCatalogLoading]);
+  }, [catalogPlans, fetchAgents, getToken, isAuthenticated, requestAuthentication, upgradeCatalogLoading]);
 
-  useEffect(() => { fetchAgents(); }, [fetchAgents]);
+  useEffect(() => {
+    if (authLoading) return;
+    const generation = agentDataGenerationRef.current;
+    const timeout = window.setTimeout(() => {
+      if (isAuthenticated) {
+        setAgentsLoading(true);
+        void fetchAgents();
+        return;
+      }
+
+      setSdkAgents([]);
+      setAgentDataPrincipalId(null);
+      clearScheduledTokenUsageRefreshes();
+      tokenUsageRefreshInFlightRef.current = false;
+      setBudget(null);
+      setPlanName(null);
+      setSubscriptionSummary(null);
+      setBillingDataPrincipalId(null);
+      setBillingDataError(null);
+      setTokenUsage(null);
+      deploymentsRef.current = null;
+      setDeployments(null);
+      setAgentsLoadError(null);
+      setSelectedAgentId(null);
+      setAgentsLoading(true);
+      setUpgradeCatalogError(null);
+      void createPublicHyperAgentClient().plans()
+        .then((plans) => {
+          if (generation !== agentDataGenerationRef.current) return;
+          setCatalogPlans(plans.filter(isVisibleCurrentAgentPlan));
+        })
+        .catch((catalogError) => {
+          if (generation !== agentDataGenerationRef.current) return;
+          setCatalogPlans([]);
+          setUpgradeCatalogError(catalogError instanceof Error ? catalogError.message : "Plan catalog is unavailable right now.");
+        })
+        .finally(() => {
+          if (generation === agentDataGenerationRef.current) setAgentsLoading(false);
+        });
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [authLoading, clearScheduledTokenUsageRefreshes, fetchAgents, isAuthenticated, user?.id]);
 
   useEffect(() => {
     if (!requestedIntegrationId || !INTEGRATION_QUERY_IDS.has(requestedIntegrationId)) {
@@ -1471,41 +1698,82 @@ function AgentsPageContent() {
       appliedOpenQueryRef.current = null;
       return;
     }
-    if (workspacesLoading || agentsLoading || isAgentRosterLoading) return;
     if (appliedOpenQueryRef.current === requestedOpen) return;
 
     appliedOpenQueryRef.current = requestedOpen;
+    appliedAgentTourEntryRef.current = true;
     const params = new URLSearchParams(searchParams.toString());
     params.delete("open");
     const query = params.toString();
     router.replace(`/dashboard/agents${query ? `?${query}` : ""}`, { scroll: false });
-    openAgentCreationFlow();
+    openAgentTourFlow();
   }, [
-    agentsLoading,
-    isAgentRosterLoading,
-    openAgentCreationFlow,
+    openAgentTourFlow,
     requestedOpen,
     router,
     searchParams,
     shouldOpenAgentLauncherFromQuery,
-    workspacesLoading,
   ]);
 
   useEffect(() => {
+    if (!shouldOpenAgentTourFromPageEntry || appliedAgentTourEntryRef.current) return;
+    if (authLoading) return;
+    if (isAuthenticated && (agentsLoading || agentsLoadError || sdkAgents.length > 0)) return;
+    appliedAgentTourEntryRef.current = true;
+    openAgentTourFlow();
+  }, [
+    agentsLoadError,
+    agentsLoading,
+    authLoading,
+    isAuthenticated,
+    openAgentTourFlow,
+    sdkAgents.length,
+    shouldOpenAgentTourFromPageEntry,
+  ]);
+
+  useEffect(() => {
+    if (authLoading || !isAuthenticated) return;
     if (checkoutReturnHandledRef.current) return;
     const checkoutReturn = readStripeCheckoutReturnState();
     if (!checkoutReturn) return;
-
-    if (checkoutReturn.status === "cancelled") {
+    const principalId = user?.id ?? null;
+    if (!principalId) return;
+    let pending = readPendingPlanCheckout(principalId);
+    if (!pending) {
       checkoutReturnHandledRef.current = true;
-      clearPendingPlanCheckout();
-      dispatchBillingReflection({ type: "CHECKOUT_CANCELLED" });
       clearStripeCheckoutReturnState();
       return;
     }
 
+    if (checkoutReturn.status === "cancelled") {
+      checkoutReturnHandledRef.current = true;
+      clearPendingPlanCheckout(principalId);
+      dispatchBillingReflection({ type: "CHECKOUT_CANCELLED" });
+      clearStripeCheckoutReturnState();
+      const timeout = window.setTimeout(() => setResumeAgentLauncher(true), 0);
+      return () => window.clearTimeout(timeout);
+    }
+
+    if (billingDataPrincipalId !== principalId) {
+      if (billingDataError) {
+        dispatchBillingReflection({ type: "REFLECTION_RECEIVED", pending, reflectionStatus: "waiting-payment" });
+      } else {
+        dispatchBillingReflection({
+          type: "SYNC_STARTED",
+          pending,
+          message: `Loading billing data for ${pending.planName}...`,
+        });
+      }
+      return;
+    }
+
+    pending = markPendingPlanCheckoutReturned(principalId, checkoutReturn.sessionId ?? "");
+    if (!pending) {
+      checkoutReturnHandledRef.current = true;
+      clearStripeCheckoutReturnState();
+      return;
+    }
     let active = true;
-    const pending = readPendingPlanCheckout();
     const planLabel = pending?.planName ? `${pending.planName} plan` : "your plan";
     dispatchBillingReflection({
       type: "SYNC_STARTED",
@@ -1519,7 +1787,7 @@ function AgentsPageContent() {
       let reflectionStatus = getCheckoutReflectionStatus(null, pending);
 
       for (let attempt = 0; attempt < 6; attempt += 1) {
-        const refreshed = await fetchAgents();
+        const refreshed = await fetchAgents({ force: true });
         if (!active) return;
 
         reflectionStatus = getCheckoutReflectionStatus(refreshed?.subscriptionSummary ?? null, pending);
@@ -1536,7 +1804,8 @@ function AgentsPageContent() {
       if (!active) return;
 
       if (reflectionStatus === "ready") {
-        clearPendingPlanCheckout();
+        clearPendingPlanCheckout(principalId);
+        setResumeAgentLauncher(true);
       }
       dispatchBillingReflection({
         type: "REFLECTION_RECEIVED",
@@ -1551,7 +1820,35 @@ function AgentsPageContent() {
     return () => {
       active = false;
     };
-  }, [fetchAgents]);
+  }, [authLoading, billingDataError, billingDataPrincipalId, fetchAgents, isAuthenticated, user?.id]);
+
+  useEffect(() => {
+    const principalId = user?.id ?? null;
+    if (
+      authLoading ||
+      !isAuthenticated ||
+      !principalId ||
+      billingDataPrincipalId !== principalId ||
+      readStripeCheckoutReturnState()
+    ) return;
+    const pending = readPendingPlanCheckout(principalId);
+    if (!pending?.returnSessionId) return;
+    const reflectionStatus = getCheckoutReflectionStatus(subscriptionSummary, pending);
+    if (reflectionStatus === "ready") {
+      clearPendingPlanCheckout(principalId);
+      setResumeAgentLauncher(true);
+    }
+    dispatchBillingReflection({ type: "REFLECTION_RECEIVED", pending, reflectionStatus });
+  }, [authLoading, billingDataPrincipalId, isAuthenticated, subscriptionSummary, user?.id]);
+
+  useEffect(() => {
+    if (!resumeAgentLauncher || authLoading || !isAuthenticated || agentsLoading) return;
+    const timeout = window.setTimeout(() => {
+      showAgentCreationFlow();
+      setResumeAgentLauncher(false);
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [agentsLoading, authLoading, isAuthenticated, resumeAgentLauncher, showAgentCreationFlow]);
 
   useEffect(() => {
     if (!checkoutSync || (checkoutSync.status !== "success" && checkoutSync.status !== "cancelled")) return;
@@ -1559,7 +1856,14 @@ function AgentsPageContent() {
     return () => clearTimeout(timer);
   }, [checkoutSync]);
 
-  const accountAgents = useMemo(() => sdkAgents.map(toAgentViewModel), [sdkAgents]);
+  const accountAgents = useMemo(
+    () => agentDataPrincipalId === user?.id
+      ? sdkAgents.map((agent) => toAgentViewModel(agent, {
+          managedDisplayName: displayNamesByAgentId[agent.id],
+        }))
+      : [],
+    [agentDataPrincipalId, displayNamesByAgentId, sdkAgents, user?.id],
+  );
   const selectedWorkspaceAgentIdSet = useMemo(
     () => new Set(selectedWorkspaceAgentIds),
     [selectedWorkspaceAgentIds],
@@ -1570,8 +1874,34 @@ function AgentsPageContent() {
       : accountAgents.filter((agent) => selectedWorkspaceAgentIdSet.has(agent.id)),
     [accountAgents, agentRosterError, isAgentRosterLoading, selectedWorkspaceAgentIdSet],
   );
+  const updateAgentCanonicalName = useCallback(async (agentId: string, name: string) => {
+    const generation = agentDataGenerationRef.current;
+    const agent = sdkAgents.find((entry) => entry.id === agentId);
+    if (!agent) throw new Error("Agent is unavailable.");
+    const token = await getToken();
+    if (generation !== agentDataGenerationRef.current) return;
+    const client = createAgentClient(token);
+    const updatedAgent = await persistAgentCanonicalName(client, agent, name);
+    if (generation !== agentDataGenerationRef.current) return;
+    setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
+  }, [getToken, sdkAgents]);
+  const updateAgentDisplayName = useCallback(async (agentId: string, displayName: string) => {
+    const generation = agentDataGenerationRef.current;
+    const agent = sdkAgents.find((entry) => entry.id === agentId);
+    if (!agent) throw new Error("Agent is unavailable.");
+    const updatedAgent = await persistAgentDisplayName(
+      async () => createAgentClient(await getToken()),
+      agent,
+      displayName,
+      displayNameStorageScope ? setManagedAgentDisplayName : undefined,
+    );
+    if (generation !== agentDataGenerationRef.current) return;
+    if (updatedAgent) {
+      setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
+    }
+  }, [displayNameStorageScope, getToken, sdkAgents, setManagedAgentDisplayName]);
   const agentRosterIds = useMemo(() => agents.map((agent) => agent.id), [agents]);
-  const { orderedAgentIds, setVisibleAgentOrder } = useAgentRosterOrder(agentRosterIds, selectedWorkspaceId);
+  const { orderedAgentIds } = useAgentRosterOrder(agentRosterIds, selectedWorkspaceId);
   const orderedRosterAgents = useMemo(() => {
     const agentById = new Map(agents.map((agent) => [agent.id, agent]));
     return orderedAgentIds.map((agentId) => agentById.get(agentId)).filter((agent): agent is Agent => Boolean(agent));
@@ -1588,6 +1918,32 @@ function AgentsPageContent() {
     () => countOwnedCheckoutPlan(subscriptionSummary, upgradeCheckoutPlan),
     [subscriptionSummary, upgradeCheckoutPlan],
   );
+  const upgradeCheckoutBaselineGrantedSlots = useMemo(
+    () => getGrantedLaunchSlotsByTier(subscriptionSummary),
+    [subscriptionSummary],
+  );
+  const selectUpgradeProduct = useCallback(async (product: UpgradeDisplayProduct) => {
+    const generation = agentDataGenerationRef.current;
+    const checkoutPlan = toUpgradeCheckoutPlan(product);
+    setLauncherPreferredPlanId(product.id);
+    setLauncherSelectedCatalogPlanId(product.id);
+    updateFirstAgentSetupDraftPlan(product.id);
+    setUpgradeCatalogOpen(false);
+    if (!isAuthenticated) {
+      requestAuthentication({ kind: "checkout", plan: checkoutPlan });
+      return;
+    }
+    setUpgradeCatalogLoading(true);
+    const refreshed = await fetchAgents({ force: true });
+    if (generation !== agentDataGenerationRef.current) return;
+    setUpgradeCatalogLoading(false);
+    if (!refreshed?.billingReady) {
+      setUpgradeCatalogError("Billing data could not be refreshed. Try again before checkout.");
+      setUpgradeCatalogOpen(true);
+      return;
+    }
+    setUpgradeCheckoutPlan(checkoutPlan);
+  }, [fetchAgents, isAuthenticated, requestAuthentication]);
 
   // Detect STARTING→RUNNING for burst
   useEffect(() => {
@@ -1610,8 +1966,8 @@ function AgentsPageContent() {
     [agentRosterError, isAgentRosterLoading, sdkAgents, selectedAgentId, selectedWorkspaceAgentIdSet],
   );
   const selectedAgent = useMemo(
-    () => (selectedSdkAgent ? toAgentViewModel(selectedSdkAgent) : null),
-    [selectedSdkAgent],
+    () => (selectedAgentId ? agents.find((agent) => agent.id === selectedAgentId) ?? null : null),
+    [agents, selectedAgentId],
   );
   useEffect(() => {
     if (workspacesLoading || agentsLoading || isAgentRosterLoading || agentRosterError) return;
@@ -1906,8 +2262,7 @@ function AgentsPageContent() {
   useEffect(() => {
     if (!dashboardView) return;
     const timeout = window.setTimeout(() => {
-      setMobileAgentsSidebarOpen(false);
-      setMobileWorkspaceSidebarOpen(false);
+      setMobileNavigationOpen(false);
       setOpenclawSettingsOpen(false);
       void endTemporaryChatBeforeSelectionRef.current();
     }, 0);
@@ -2320,14 +2675,13 @@ function AgentsPageContent() {
   // right inspector (which needs `hasAgent` true to render content).
   const syntheticThreads = useMemo<ConversationThread[]>(() => {
     return orderedRosterAgents.map((agent) => {
-      const agentName = agent.name || agent.pod_name || agent.id;
-      const displayName = agent.displayName?.trim() || agentName;
+      const displayName = agentDisplayLabel(agent);
       return {
         id: agent.id,
         sessionKey: resolveOpenClawSessionKey(agent.id),
         participants: [
           { id: "user", name: "You", type: "user" as const },
-          { id: agent.id, name: agentName, type: "agent" as const, meta: agent.meta ?? null },
+          { id: agent.id, name: displayName, type: "agent" as const, meta: agent.meta ?? null },
         ],
         kind: "user-agent" as const,
         title: displayName,
@@ -2340,17 +2694,6 @@ function AgentsPageContent() {
       };
     });
   }, [chat.messages.length, orderedRosterAgents, selectedAgentId]);
-  const mobileOfflineAgentIds = useMemo(
-    () => new Set(orderedRosterAgents.filter((agent) => isAgentOffline(agent.state)).map((agent) => agent.id)),
-    [orderedRosterAgents],
-  );
-  const mobileSyntheticThreads = useMemo(
-    () => showMobileOfflineAgents
-      ? syntheticThreads
-      : syntheticThreads.filter((thread) => thread.kind !== "user-agent" || !mobileOfflineAgentIds.has(thread.id)),
-    [mobileOfflineAgentIds, showMobileOfflineAgents, syntheticThreads],
-  );
-
   // Derive RecentToolCall[] by flattening toolCalls across assistant messages.
   // Newest last (matches the Activity tab order).
   const recentToolCallsForView = useMemo(() => {
@@ -2458,7 +2801,7 @@ function AgentsPageContent() {
     return {
       [selectedAgent.id]: {
         id: selectedAgent.id,
-        name: selectedAgent.name || selectedAgent.id,
+        name: agentDisplayLabel(selectedAgent),
         state: selectedAgent.state,
         cpuMillicores: selectedAgent.cpu_millicores,
         memoryMib: selectedAgent.memory_mib,
@@ -2499,22 +2842,47 @@ function AgentsPageContent() {
   const isNearBottomRef = useRef(true);
   const lastMsgCountRef = useRef(0);
   const chatScrollFrameRef = useRef<number | null>(null);
+  const pendingChatScrollRef = useRef<{
+    behavior: ScrollBehavior;
+    onlyIfNearBottom: boolean;
+  } | null>(null);
   const chatScrollTarget = `${selectedAgentId ?? ""}\0${chat.activeSessionKey}`;
   const previousChatScrollTargetRef = useRef(chatScrollTarget);
 
-  const scheduleChatScroll = useCallback((behavior: ScrollBehavior) => {
-    if (chatScrollFrameRef.current !== null) window.cancelAnimationFrame(chatScrollFrameRef.current);
+  const cancelScheduledChatScroll = useCallback(() => {
+    if (chatScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(chatScrollFrameRef.current);
+      chatScrollFrameRef.current = null;
+    }
+    pendingChatScrollRef.current = null;
+  }, []);
+
+  const scheduleChatScroll = useCallback((behavior: ScrollBehavior, onlyIfNearBottom = false) => {
+    const pending = pendingChatScrollRef.current;
+    pendingChatScrollRef.current = {
+      behavior: pending?.behavior === "smooth" || behavior === "smooth" ? "smooth" : behavior,
+      onlyIfNearBottom: (pending?.onlyIfNearBottom ?? true) && onlyIfNearBottom,
+    };
+    if (chatScrollFrameRef.current !== null) return;
     chatScrollFrameRef.current = window.requestAnimationFrame(() => {
       chatScrollFrameRef.current = null;
-      chatEndRef.current?.scrollIntoView({ behavior, block: "end" });
+      const request = pendingChatScrollRef.current;
+      pendingChatScrollRef.current = null;
+      if (!request || (request.onlyIfNearBottom && !isNearBottomRef.current)) return;
+      const scrollElement = chatScrollRef.current;
+      if (!scrollElement) return;
+      scrollTranscriptToBottom(scrollElement, request.behavior);
     });
   }, []);
 
-  const handleChatScroll = useCallback(() => {
-    const el = chatScrollRef.current;
-    if (!el) return;
+  const handleChatScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    const el = event.currentTarget;
     isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
   }, []);
+
+  const handleTranscriptResize = useCallback((behavior: ScrollBehavior) => {
+    scheduleChatScroll(behavior, true);
+  }, [scheduleChatScroll]);
 
   useEffect(() => {
     const count = chat.messages.length;
@@ -2522,51 +2890,45 @@ function AgentsPageContent() {
     lastMsgCountRef.current = count;
     if (mainTab !== "chat" || count <= previousCount) return;
 
-    const appendedUserMessage = count === previousCount + 1 && chat.messages[count - 1]?.role === "user";
-    if (appendedUserMessage) {
+    const appendedUserMessage = chat.messages[count - 1];
+    const appendedLocalUserMessage = count === previousCount + 1 &&
+      appendedUserMessage?.role === "user" &&
+      Boolean(appendedUserMessage.clientTurnId);
+    if (appendedLocalUserMessage) {
       isNearBottomRef.current = true;
       scheduleChatScroll("smooth");
-    } else if (isNearBottomRef.current) {
-      scheduleChatScroll("auto");
+    } else {
+      scheduleChatScroll("auto", true);
     }
   }, [chat.messages, mainTab, scheduleChatScroll]);
 
-  const prevSendingRef = useRef(chat.activeSessionSending);
+  const prevSendingRef = useRef(chat.sending);
   useEffect(() => {
-    if (prevSendingRef.current && !chat.activeSessionSending) {
-      refreshTokenUsageAfterChat();
-      if (isNearBottomRef.current) scheduleChatScroll("auto");
+    if (prevSendingRef.current && !chat.sending) refreshTokenUsageAfterChat();
+    prevSendingRef.current = chat.sending;
+  }, [chat.sending, refreshTokenUsageAfterChat]);
+
+  const prevActiveSessionSendingRef = useRef(chat.activeSessionSending);
+  useEffect(() => {
+    if (prevActiveSessionSendingRef.current && !chat.activeSessionSending) {
+      scheduleChatScroll("auto", true);
     }
-    prevSendingRef.current = chat.activeSessionSending;
-  }, [chat.activeSessionSending, refreshTokenUsageAfterChat, scheduleChatScroll]);
+    prevActiveSessionSendingRef.current = chat.activeSessionSending;
+  }, [chat.activeSessionSending, scheduleChatScroll]);
 
   useLayoutEffect(() => {
     if (mainTab !== "chat") return;
     const targetChanged = previousChatScrollTargetRef.current !== chatScrollTarget;
     previousChatScrollTargetRef.current = chatScrollTarget;
     if (targetChanged) {
+      cancelScheduledChatScroll();
       isNearBottomRef.current = true;
       lastMsgCountRef.current = 0;
     }
     scheduleChatScroll("auto");
-  }, [chatScrollTarget, mainTab, scheduleChatScroll]);
+  }, [cancelScheduledChatScroll, chatScrollTarget, mainTab, scheduleChatScroll]);
 
-  useEffect(() => {
-    if (mainTab !== "chat" || typeof ResizeObserver === "undefined") return;
-    const scrollElement = chatScrollRef.current;
-    const contentElement = scrollElement?.firstElementChild;
-    if (!scrollElement || !contentElement) return;
-    const observer = new ResizeObserver(() => {
-      if (isNearBottomRef.current) scheduleChatScroll("auto");
-    });
-    observer.observe(scrollElement);
-    observer.observe(contentElement);
-    return () => observer.disconnect();
-  }, [chatScrollTarget, mainTab, scheduleChatScroll]);
-
-  useEffect(() => () => {
-    if (chatScrollFrameRef.current !== null) window.cancelAnimationFrame(chatScrollFrameRef.current);
-  }, []);
+  useEffect(() => cancelScheduledChatScroll, [cancelScheduledChatScroll]);
 
   useEffect(() => { if (logBoxRef.current) logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight; }, [logs]);
 
@@ -2586,11 +2948,15 @@ function AgentsPageContent() {
     }
     setStartingId(agentId);
     setError(null);
+    const generation = agentDataGenerationRef.current;
     try {
       const token = await getToken();
+      if (generation !== agentDataGenerationRef.current) return;
       const startedAgent = await startOpenClawAgent(token, agentId);
+      if (generation !== agentDataGenerationRef.current) return;
       setSdkAgents((prev) => upsertSdkAgent(prev, startedAgent));
     } catch (err) {
+      if (generation !== agentDataGenerationRef.current) return;
       if (isAgentCleanupConflictError(err)) {
         markAgentCleanupCooldown(agentId);
         setError(AGENT_CLEANUP_START_MESSAGE);
@@ -2619,15 +2985,26 @@ function AgentsPageContent() {
         setError(err instanceof Error ? err.message : "Failed to start agent");
       }
     } finally {
-      setStartingId(null);
+      if (generation === agentDataGenerationRef.current) setStartingId(null);
     }
   };
 
   const handleCreateFirstAgent = useCallback(async ({ name, iconIndex, size, files, enableDesktop, enableMemoryIndex = false, customImage = null }: AgentCreationSetupCreateParams) => {
+    if (!isAuthenticated) {
+      if (agentLauncherOpen) preserveAgentLauncherRef.current = true;
+      requestAuthentication({ kind: "launch" });
+      return null;
+    }
+    if (shouldOfferWorkspaceCreation) {
+      setWorkspaceCreationOpen(true);
+      return null;
+    }
+    const generation = agentDataGenerationRef.current;
     try {
       if (agentCreationBlockedReason) throw new Error(agentCreationBlockedReason);
       setError(null);
       const token = await getToken();
+      if (generation !== agentDataGenerationRef.current) return null;
       const created = await createOpenClawAgent(token, {
         name: name || undefined,
         start: true,
@@ -2641,6 +3018,7 @@ function AgentsPageContent() {
             : null,
         }),
       });
+      if (generation !== agentDataGenerationRef.current) return null;
       if (created.id) {
         if (files.length > 0) {
           try {
@@ -2652,7 +3030,9 @@ function AgentsPageContent() {
                 agentClient.fileWriteBytes(agentId, path, content, destination)
               ),
             });
+            if (generation !== agentDataGenerationRef.current) return null;
           } catch (uploadError) {
+            if (generation !== agentDataGenerationRef.current) return null;
             setError(uploadError instanceof Error
               ? `Agent created, but starter files could not be uploaded: ${uploadError.message}`
               : "Agent created, but starter files could not be uploaded.");
@@ -2660,27 +3040,32 @@ function AgentsPageContent() {
         }
         try {
           await associateAgentWithSelectedWorkspace(created.id);
+          if (generation !== agentDataGenerationRef.current) return null;
         } catch (associationError) {
           const detail = associationError instanceof Error
             ? associationError.message
             : "Workspace access is unavailable right now.";
           throw new Error(`Agent was created, but Workspace association did not complete: ${detail}`);
         }
-        const agentsRefreshed = await fetchAgents();
+        const agentsRefreshed = await fetchAgents({ force: true });
+        if (generation !== agentDataGenerationRef.current) return null;
         if (!agentsRefreshed) {
           throw new Error("Agent was created and added to the selected Workspace, but agents could not be refreshed.");
         }
         await selectAgent(created.id, true);
+        if (generation !== agentDataGenerationRef.current) return null;
         setOpenclawSettingsOpen(false);
         setMainTab("chat");
         setMobileShowChat(true);
         completeJourneyForEvent("agent-created");
         return created.id;
       }
-      await fetchAgents();
+      await fetchAgents({ force: true });
+      if (generation !== agentDataGenerationRef.current) return null;
       setError("Agent was created, but no agent id was returned.");
       return null;
     } catch (err) {
+      if (generation !== agentDataGenerationRef.current) return null;
       const message = err instanceof Error ? err.message : "Failed to create agent";
       if (!parseAgentCapacityError(err)) {
         setError(message);
@@ -2693,21 +3078,30 @@ function AgentsPageContent() {
     completeJourneyForEvent,
     fetchAgents,
     getToken,
+    isAuthenticated,
+    agentLauncherOpen,
+    requestAuthentication,
     selectAgent,
+    shouldOfferWorkspaceCreation,
   ]);
 
   const handleResizeAndStart = useCallback(async (agentId: string, tier: string) => {
+    const generation = agentDataGenerationRef.current;
     setStartingId(agentId);
     setError(null);
     setTierSelection(null);
     try {
       const token = await getToken();
+      if (generation !== agentDataGenerationRef.current) return;
       const agentClient = createAgentClient(token);
       const resizedAgent = await agentClient.resize(agentId, { size: tier });
+      if (generation !== agentDataGenerationRef.current) return;
       setSdkAgents((prev) => upsertSdkAgent(prev, resizedAgent));
       const startedAgent = await startOpenClawAgent(token, agentId);
+      if (generation !== agentDataGenerationRef.current) return;
       setSdkAgents((prev) => upsertSdkAgent(prev, startedAgent));
     } catch (err) {
+      if (generation !== agentDataGenerationRef.current) return;
       if (isAgentCleanupConflictError(err)) {
         markAgentCleanupCooldown(agentId);
         setError(AGENT_CLEANUP_START_MESSAGE);
@@ -2715,7 +3109,7 @@ function AgentsPageContent() {
         setError(err instanceof Error ? err.message : "Failed to resize and start agent");
       }
     } finally {
-      setStartingId(null);
+      if (generation === agentDataGenerationRef.current) setStartingId(null);
     }
   }, [getToken, markAgentCleanupCooldown]);
 
@@ -2751,36 +3145,46 @@ function AgentsPageContent() {
   );
 
   const handleStop = async (agentId: string) => {
+    const generation = agentDataGenerationRef.current;
     setStoppingId(agentId);
     setError(null);
     try {
       if (agentId === selectedAgentId) {
         await endTemporaryChatBeforeSelectionRef.current();
+        if (generation !== agentDataGenerationRef.current) return;
       }
       const token = await getToken();
+      if (generation !== agentDataGenerationRef.current) return;
       const stoppedAgent = await createAgentClient(token).stop(agentId);
+      if (generation !== agentDataGenerationRef.current) return;
       setSdkAgents((prev) => upsertSdkAgent(prev, stoppedAgent));
       markAgentCleanupCooldown(agentId);
     } catch (err) {
+      if (generation !== agentDataGenerationRef.current) return;
       setError(err instanceof Error ? err.message : "Failed to stop agent");
     } finally {
-      setStoppingId(null);
+      if (generation === agentDataGenerationRef.current) setStoppingId(null);
     }
   };
 
   const handleDelete = async (agentId: string) => {
+    const generation = agentDataGenerationRef.current;
     setDeletingId(agentId);
     setError(null);
     try {
       if (agentId === selectedAgentId) {
         await endTemporaryChatBeforeSelectionRef.current();
+        if (generation !== agentDataGenerationRef.current) return;
       }
       const agentToDelete = agents.find((agent) => agent.id === agentId) ?? null;
       const releaseTier = agentToDelete ? inferAgentTier(agentToDelete, budget) : null;
       const releaseBaseline = releaseTier ? budget?.slots?.[releaseTier] : null;
       const token = await getToken();
+      if (generation !== agentDataGenerationRef.current) return;
       await createAgentClient(token).delete(agentId);
+      if (generation !== agentDataGenerationRef.current) return;
       clearOpenClawSessionPins(agentId);
+      clearManagedAgentDisplayName(agentId);
       const nextAgents = removeSdkAgent(sdkAgents, agentId);
       const deletedIndex = sdkAgents.findIndex((agent) => agent.id === agentId);
       const replacementIndex = deletedIndex === -1 ? 0 : Math.min(deletedIndex, nextAgents.length - 1);
@@ -2802,15 +3206,19 @@ function AgentsPageContent() {
           ? selectedSessionKeysByAgent[nextSelectedAgentId] ?? resolveOpenClawSessionKey(nextSelectedAgentId)
           : null,
       );
-      const refreshed = await fetchAgents();
+      const refreshed = await fetchAgents({ force: true });
+      if (generation !== agentDataGenerationRef.current) return;
       if (releaseTier && releaseBaseline && !slotReleaseLanded(releaseBaseline, refreshed?.budget?.slots?.[releaseTier])) {
         trackPendingSlotRelease(`${agentId}:${releaseTier}:${Date.now()}`, releaseTier, releaseBaseline);
       }
     } catch (err) {
+      if (generation !== agentDataGenerationRef.current) return;
       setError(err instanceof Error ? err.message : "Failed to delete agent");
     } finally {
-      setDeletingId(null);
-      setPendingAgentDelete(null);
+      if (generation === agentDataGenerationRef.current) {
+        setDeletingId(null);
+        setPendingAgentDelete(null);
+      }
     }
   };
 
@@ -2820,9 +3228,7 @@ function AgentsPageContent() {
     if (!trimmed || trimmed === (selectedAgent.name || "")) return;
     setSavingName(true);
     try {
-      const token = await getToken();
-      const updatedAgent = await createAgentClient(token).update(selectedAgent.id, { name: trimmed });
-      setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
+      await updateAgentCanonicalName(selectedAgent.id, trimmed);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to rename agent");
     } finally {
@@ -2838,6 +3244,7 @@ function AgentsPageContent() {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [audioPreviewDuration, setAudioPreviewDuration] = useState(0);
   const [audioPreviewPlaying, setAudioPreviewPlaying] = useState(false);
+  const [preparingAudioPreview, setPreparingAudioPreview] = useState(false);
   const [sendingAudio, setSendingAudio] = useState(false);
   const [uploadingChatFiles, setUploadingChatFiles] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -2908,10 +3315,14 @@ function AgentsPageContent() {
           analyserRef.current = analyser;
 
           const dataArray = new Uint8Array(analyser.frequencyBinCount);
-          const updateLevel = () => {
-            analyser.getByteFrequencyData(dataArray);
-            const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-            setAudioLevel(Math.min(avg / 128, 1));
+          let lastLevelUpdate = 0;
+          const updateLevel = (timestamp = performance.now()) => {
+            if (timestamp - lastLevelUpdate >= 80) {
+              analyser.getByteFrequencyData(dataArray);
+              const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+              setAudioLevel(Math.min(avg / 128, 1));
+              lastLevelUpdate = timestamp;
+            }
             levelAnimRef.current = requestAnimationFrame(updateLevel);
           };
           updateLevel();
@@ -2925,6 +3336,7 @@ function AgentsPageContent() {
 
       const mediaRecorder = createAudioMediaRecorder(stream);
       discardRecordingRef.current = false;
+      setPreparingAudioPreview(false);
       audioChunksRef.current = [];
       setRecordingDuration(0);
       mediaRecorder.ondataavailable = (e) => {
@@ -2944,11 +3356,13 @@ function AgentsPageContent() {
           audioChunksRef.current = [];
           setAudioBlob(null);
           setAudioUrl(null);
+          setPreparingAudioPreview(false);
           return;
         }
         const blob = new Blob(audioChunksRef.current, { type: mediaRecorder.mimeType || audioChunksRef.current[0]?.type || "audio/webm" });
         setAudioBlob(blob);
         setAudioUrl(URL.createObjectURL(blob));
+        setPreparingAudioPreview(false);
       };
       mediaRecorderRef.current = mediaRecorder;
       mediaRecorder.start();
@@ -2967,11 +3381,13 @@ function AgentsPageContent() {
       analyserRef.current = null;
       setAudioLevel(0);
       setRecording(false);
+      setPreparingAudioPreview(false);
     }
   }, []);
 
   const stopRecording = useCallback(() => {
     discardRecordingRef.current = false;
+    setPreparingAudioPreview(true);
     mediaRecorderRef.current?.stop();
     setRecording(false);
   }, []);
@@ -2986,6 +3402,7 @@ function AgentsPageContent() {
     setAudioPreviewDuration(0);
     setAudioPreviewPlaying(false);
     setRecordingDuration(0);
+    setPreparingAudioPreview(false);
   }, [audioUrl]);
 
   const discardChatAudio = useCallback(() => {
@@ -3169,7 +3586,7 @@ function AgentsPageContent() {
   const formatDuration = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
 
   const handleSendChat = () => {
-    if (chat.activeSessionReadOnly) return;
+    if (chat.activeSessionReadOnly || uploadingChatFiles > 0) return;
     const draftInput = chat.input;
     const hasChatWork = draftInput.trim().length > 0 || chat.pendingFiles.length > 0 || chat.pendingAttachments.length > 0;
     const pendingJourneyCompletion = journeyChatCompletionRef.current;
@@ -3224,7 +3641,7 @@ function AgentsPageContent() {
     };
   }, [audioUrl, chat.input, chat.pendingAttachments, chat.pendingFiles]);
   const journeyMissionDay = journey.currentDay;
-  const selectedJourneyAgentName = selectedAgent?.name || selectedAgent?.pod_name || "your agent";
+  const selectedJourneyAgentName = selectedAgent ? agentDisplayLabel(selectedAgent) : "your agent";
   const journeyIntroVisibleInChat = Boolean(
     journey.enabled &&
     mainTab === "chat" &&
@@ -3317,7 +3734,7 @@ function AgentsPageContent() {
       onDelete: () => {
         setPendingAgentDelete({
           id: selectedAgent.id,
-          name: selectedAgent.name || selectedAgent.id,
+          name: agentDisplayLabel(selectedAgent),
         });
       },
       deleting: deletingId === selectedAgent.id,
@@ -3327,13 +3744,18 @@ function AgentsPageContent() {
 
   // ── Render ──
   const mobileMainPanelVisible = !isDesktopViewport || mobileShowChat || agentsLoading || !selectedAgent;
-  const closeMobileSidebars = () => {
-    setMobileAgentsSidebarOpen(false);
-    setMobileWorkspaceSidebarOpen(false);
-  };
+  const closeMobileNavigation = () => setMobileNavigationOpen(false);
   const openDashboardView = (view: DashboardView) => {
-    closeMobileSidebars();
+    closeMobileNavigation();
     setOpenclawSettingsOpen(false);
+    if (!isAuthenticated) {
+      requestAuthentication({
+        kind: "navigate",
+        href: dashboardViewHrefs[view],
+        title: `Sign in to open ${view}`,
+      });
+      return;
+    }
     if (dashboardView === view) return;
     router.push(dashboardViewHrefs[view], { scroll: false });
   };
@@ -3353,7 +3775,7 @@ function AgentsPageContent() {
     setOpenclawSettingsOpen(false);
     selectMainTab("settings");
     setMobileShowChat(true);
-    closeMobileSidebars();
+    closeMobileNavigation();
   };
   const showChatTab = (sectionRouteUpdated = false) => {
     if (sectionRouteUpdated) setMainTab("chat");
@@ -3364,7 +3786,7 @@ function AgentsPageContent() {
     setDirectoryDetailOrigin(null);
     setOpenclawSettingsOpen(false);
     setMobileShowChat(true);
-    closeMobileSidebars();
+    closeMobileNavigation();
   };
   const openChatTab = () => showChatTab(false);
   const selectSession = async (sessionKey: string) => {
@@ -3437,7 +3859,7 @@ function AgentsPageContent() {
     setOpenclawSettingsOpen(false);
     selectMainTab("files");
     setMobileShowChat(true);
-    setMobileWorkspaceSidebarOpen(false);
+    closeMobileNavigation();
   };
   const downloadAgentFileFromChat = useCallback(async (file: ChatPendingFile) => {
     const result = await readAgentFileBytesResult(file.path);
@@ -3455,7 +3877,7 @@ function AgentsPageContent() {
     setOpenclawSettingsOpen(false);
     selectMainTab("integrations");
     setMobileShowChat(true);
-    setMobileWorkspaceSidebarOpen(false);
+    closeMobileNavigation();
     completeJourneyForEvent("integrations-opened");
   };
   const openJourneyCapability = (capability: JourneyCapabilityCard, day?: JourneyDay | null) => {
@@ -3466,7 +3888,7 @@ function AgentsPageContent() {
     setOpenclawSettingsOpen(false);
     selectMainTab("integrations");
     setMobileShowChat(true);
-    setMobileWorkspaceSidebarOpen(false);
+    closeMobileNavigation();
     if (day?.id === "connections") {
       completeJourneyDay(day.id, capability.receipt);
     } else if (day?.id) {
@@ -3482,7 +3904,7 @@ function AgentsPageContent() {
     setOpenclawSettingsOpen(false);
     selectMainTab("skills");
     setMobileShowChat(true);
-    setMobileWorkspaceSidebarOpen(false);
+    closeMobileNavigation();
   };
   const saveActiveSkillDraft = async () => {
     const testSession = activeSkillDraftTest.testSession;
@@ -3503,8 +3925,11 @@ function AgentsPageContent() {
     })();
   };
   const openKnowledgeTab = () => {
-    setMobileAgentsSidebarOpen(false);
-    setMobileWorkspaceSidebarOpen(false);
+    if (!isAuthenticated) {
+      requestAuthentication({ kind: "navigate", href: knowledgeSectionHref, title: "Sign in to open shared knowledge" });
+      return;
+    }
+    closeMobileNavigation();
     setOpenclawSettingsOpen(false);
     setMobileShowChat(true);
     selectMainTab("knowledge");
@@ -3512,8 +3937,11 @@ function AgentsPageContent() {
     router.push(knowledgeSectionHref, { scroll: false });
   };
   const openMembersTab = () => {
-    setMobileAgentsSidebarOpen(false);
-    setMobileWorkspaceSidebarOpen(false);
+    if (!isAuthenticated) {
+      requestAuthentication({ kind: "navigate", href: membersSectionHref, title: "Sign in to open Workspace members" });
+      return;
+    }
+    closeMobileNavigation();
     setOpenclawSettingsOpen(false);
     setMobileShowChat(true);
     selectMainTab("members");
@@ -3538,7 +3966,7 @@ function AgentsPageContent() {
     setOpenclawSettingsOpen(false);
     selectMainTab("scheduled");
     setMobileShowChat(true);
-    setMobileWorkspaceSidebarOpen(false);
+    closeMobileNavigation();
     if (chat.connected) void chat.refreshCron().catch(() => undefined);
   };
   const openLogsTab = () => {
@@ -3546,14 +3974,14 @@ function AgentsPageContent() {
     setOpenclawSettingsOpen(false);
     selectMainTab("logs");
     setMobileShowChat(true);
-    setMobileWorkspaceSidebarOpen(false);
+    closeMobileNavigation();
   };
   const openShellTab = () => {
     openAgentSurfaceRoute("shell");
     setOpenclawSettingsOpen(false);
     selectMainTab("shell");
     setMobileShowChat(true);
-    setMobileWorkspaceSidebarOpen(false);
+    closeMobileNavigation();
   };
   const openOpenClawSettings = () => {
     if (!selectedAgent) {
@@ -3563,7 +3991,7 @@ function AgentsPageContent() {
     openAgentSurfaceRoute("openclaw");
     setOpenclawSettingsOpen(true);
     setMobileShowChat(true);
-    setMobileWorkspaceSidebarOpen(false);
+    closeMobileNavigation();
   };
   const closeOpenClawSettings = () => {
     setOpenclawSettingsOpen(false);
@@ -3598,15 +4026,12 @@ function AgentsPageContent() {
       capabilityContext: journeyCapabilityContext,
     }));
   };
-  const openMobileAgentLauncher = () => {
-    openAgentCreationFlow();
-  };
-  const createMobileAgentFromLauncher = async (params: AgentCreationSetupCreateParams) => {
+  const createAgentFromLauncher = async (params: AgentCreationSetupCreateParams) => {
     try {
       const createdId = await handleCreateFirstAgent(params);
       if (createdId) {
-        setMobileAgentLauncherOpen(false);
-        setMobileAgentsSidebarOpen(false);
+        preserveAgentLauncherRef.current = false;
+        setAgentLauncherOpen(false);
       }
       return createdId;
     } catch {
@@ -3705,83 +4130,165 @@ function AgentsPageContent() {
       onEnd={endPrivateChat}
     />
   ) : null;
-  const showMobileSectionReturn = !isDesktopViewport && Boolean(selectedSessionReturnTarget);
-  const mobileReturnAriaLabel = selectedSessionReturnTarget ? `Open ${selectedSessionReturnTarget.label}` : "Open session";
-  const handleMobileSectionReturn = () => {
-    openChatTab();
-  };
-  const useSettingsMobileChrome = !dashboardView && !isDesktopViewport && mainTab === "settings" && Boolean(selectedAgent) && !openclawSettingsOpen;
-  const mobilePageLabel = dashboardView === "overview"
-    ? "Overview"
-    : dashboardView === "usage"
-      ? "Usage"
-      : dashboardView === "settings"
-        ? "Settings"
-        : "Agents";
+  const mobileNavigation = (
+    <div
+      className="agent-desktop-navigation relative flex h-full min-h-0 w-64 shrink-0 flex-col pt-14"
+      data-roster-collapsed={mobileRosterCollapsed}
+      data-expanded-section={mobileRosterCollapsed ? "workspace" : "agents"}
+    >
+      <div className="agent-desktop-navigation-sections relative isolate mt-2 flex min-h-0 w-full flex-1">
+        <AgentList
+          sidebarCollapsed={mobileRosterCollapsed}
+          isDesktopViewport={false}
+          renderMobileNavigation
+          mobileShowChat={false}
+          agents={agents}
+          rosterLoading={agentsLoading || isAgentRosterLoading}
+          rosterOrderScope={selectedWorkspaceId}
+          selectedAgentId={selectedAgentId}
+          setSelectedAgentId={(agentId) => {
+            selectAgentFromRoster(agentId);
+            setMobileRosterCollapsed(true);
+          }}
+          setMobileShowChat={setMobileShowChat}
+          setSidebarCollapsed={setMobileRosterCollapsed}
+          syntheticThreads={syntheticThreads}
+          agentCardDataById={agentCardDataById}
+          getToken={getToken}
+          createOpenClawAgent={createOpenClawAgent}
+          onCreateAgent={handleCreateFirstAgent}
+          associateCreatedAgent={associateAgentWithSelectedWorkspace}
+          agentCreationDisabledReason={agentCreationDisabledReason}
+          fetchAgents={refreshAgentsForChildren}
+          setError={setError}
+          sidebarCreatorSignal={0}
+          onOpenAgentLauncher={() => {
+            closeMobileNavigation();
+            setAgentLauncherOpen(true);
+          }}
+          agentLauncherSuspended={agentLauncherSuspended}
+          setPendingAgentDelete={(value) => {
+            setPendingAgentDelete(value);
+            if (value) closeMobileNavigation();
+          }}
+          accountInitial={accountInitial}
+          onLogin={!isAuthenticated ? () => requestAuthentication({ kind: "navigate", href: "/dashboard/agents", title: "Sign in to your account" }) : undefined}
+          onOpenSettings={openAgentSettingsTab}
+          settingsActive={mainTab === "settings"}
+          onLogout={isAuthenticated ? logout : undefined}
+          budget={budget}
+          subscriptionSummary={subscriptionSummary}
+          catalogPlans={catalogPlans}
+          preferredPlanId={launcherPreferredPlanId}
+          pendingSlotReleases={pendingSlotReleases}
+          onOpenPlanCatalog={(planId) => {
+            closeMobileNavigation();
+            return openUpgradeCatalog(planId);
+          }}
+          onOpenHome={openDashboardHome}
+          homeActive={dashboardView === "overview"}
+          onOpenKnowledge={openKnowledgeTab}
+          knowledgeActive={knowledgeSectionActive}
+          knowledgeHref={knowledgeSectionHref}
+          onOpenMembers={openMembersTab}
+          membersActive={membersSectionActive}
+          membersHref={membersSectionHref}
+          onOpenUsage={openDashboardUsage}
+          usageActive={dashboardView === "usage"}
+          onOpenAccountSettings={openAccountSettings}
+          accountSettingsActive={dashboardView === "settings"}
+          embeddedInNavigation
+          updateAgentDisplayName={updateAgentDisplayName}
+        />
+
+        <AgentWorkspaceSidebar
+          selectedAgent={selectedAgent}
+          activeTab={dashboardView ? null : openclawSettingsOpen && selectedAgent ? "openclaw" : mainTab}
+          skillsActive={mainTab === "skills"}
+          tokenUsed={tokenUsage}
+          tokenLimit={budget?.pooled_tpd ?? null}
+          disabled={workspaceSidebarDisabled}
+          disabledReason={workspaceSidebarDisabledReason}
+          scheduledDisabled={!SCHEDULED_SECTION_ENABLED}
+          scheduledDisabledReason={SCHEDULED_SECTION_DISABLED_REASON}
+          isDesktopViewport={false}
+          renderMobile
+          collapsed={!mobileRosterCollapsed}
+          onCollapsedChange={(collapsed) => setMobileRosterCollapsed(!collapsed)}
+          embeddedInNavigation
+          footerAction={renderPrivateChatControl()}
+          closeButtonRef={mobileNavigationCloseRef}
+          onClose={closeMobileNavigation}
+          sessions={chat.sessions}
+          sessionsFetched={chat.sessionsFetched}
+          creatingSessionKeys={chat.creatingSessionKeys}
+          thinkingSessionKeys={chat.thinkingSessionKeys}
+          selectedSessionKey={selectedSessionKey}
+          pinnedSessionKeys={pinnedSessionKeys}
+          onSelectSession={selectSession}
+          onSetSessionPinned={setSessionPinned}
+          onRenameSession={renameSession}
+          onDeleteSession={deleteSession}
+          onCreateSession={createSession}
+          onOpenFiles={openFilesTab}
+          onOpenIntegrations={openIntegrationsTab}
+          onOpenSkills={openSkillsTab}
+          onOpenScheduled={openScheduledTab}
+          onOpenDesktop={handleOpenDesktop}
+          openingDesktop={openingDesktopId === selectedAgent?.id}
+          onOpenLogs={openLogsTab}
+          onOpenShell={openShellTab}
+          onOpenOpenClaw={openOpenClawSettings}
+          onOpenSettings={openAgentSettingsTab}
+          onUpgrade={() => {
+            closeMobileNavigation();
+            void openUpgradeCatalog();
+          }}
+        />
+        <div aria-hidden="true" className="pointer-events-none absolute -top-2 bottom-0 right-0 z-[60] w-px bg-border" />
+      </div>
+    </div>
+  );
 
   return (
     <AgentGatewaySessionProvider session={gatewayChat}>
       <div className="h-full min-h-0 w-full flex flex-col overflow-hidden">
-      {/* Mobile header + menu (hidden on desktop) */}
-      {!isDesktopViewport && !useSettingsMobileChrome && (
-        <div className="relative flex items-center justify-between px-4 py-4 border-b border-border">
-          <div className="flex items-center gap-2">
-            <HyperCLILogoLink className="h-[31px] w-[102px]" priority />
-            <span className="text-text-muted font-medium">{mobilePageLabel}</span>
-          </div>
-          <div className="flex items-center gap-1 rounded-xl border border-border bg-surface-low/80 p-1">
-            {renderPrivateChatControl(true)}
-            <AnimatePresence initial={false}>
-              {showMobileSectionReturn && (
-                <motion.button
-                  key="mobile-chat-return"
-                  type="button"
-                  aria-label={mobileReturnAriaLabel}
-                  onClick={handleMobileSectionReturn}
-                  initial={{ opacity: 0, scale: 0.85, width: 0 }}
-                  animate={{ opacity: 1, scale: 1, width: 40 }}
-                  exit={{ opacity: 0, scale: 0.85, width: 0 }}
-                  transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-                  className="flex h-10 shrink-0 items-center justify-center overflow-hidden rounded-lg text-text-secondary transition-colors hover:bg-background hover:text-foreground"
-                >
-                  <ArrowLeft className="h-5 w-5 shrink-0" />
-                </motion.button>
-              )}
-            </AnimatePresence>
-            <button
-              type="button"
-              aria-label="Open agents sidebar"
-              aria-expanded={mobileAgentsSidebarOpen}
-              onClick={() => {
-                setMobileWorkspaceSidebarOpen(false);
-                setMobileAgentsSidebarOpen((open) => !open);
-              }}
-              className={`flex h-10 w-10 items-center justify-center rounded-lg border transition-colors ${
-                mobileAgentsSidebarOpen
-                  ? "border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
-                  : "border-transparent text-text-secondary hover:bg-background hover:text-foreground"
-              }`}
+      {/* Mobile header and shared desktop-style navigation. */}
+      {!isDesktopViewport && (
+        <Sheet open={mobileNavigationOpen} onOpenChange={setMobileNavigationOpen}>
+          <header className="flex h-[calc(3.5rem+env(safe-area-inset-top))] shrink-0 items-center justify-between border-b border-border px-3 pt-[env(safe-area-inset-top)]">
+            <Link
+              href="/"
+              aria-label="HyperCLI home"
+              className="flex h-10 w-8 items-center justify-center rounded-xl text-foreground transition-colors hover:bg-surface-low focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)]"
             >
-              <Bot className="h-5 w-5" />
-            </button>
-            <button
-              type="button"
-              aria-label="Open workspace sidebar"
-              aria-expanded={mobileWorkspaceSidebarOpen}
-              onClick={() => {
-                setMobileAgentsSidebarOpen(false);
-                setMobileWorkspaceSidebarOpen((open) => !open);
-              }}
-              className={`flex h-10 w-10 items-center justify-center rounded-lg border transition-colors ${
-                mobileWorkspaceSidebarOpen
-                  ? "border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
-                  : "border-transparent text-text-secondary hover:bg-background hover:text-foreground"
-              }`}
-            >
-              <SlidersHorizontal className="h-5 w-5" />
-            </button>
-          </div>
-        </div>
+              <HyperCLILogoMark className="h-6 w-6" />
+            </Link>
+            <SheetTrigger asChild>
+              <button
+                ref={mobileNavigationTriggerRef}
+                type="button"
+                aria-label="Open navigation"
+                className="flex h-11 w-11 items-center justify-center rounded-xl text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)]"
+              >
+                <Menu className="h-6 w-6" />
+              </button>
+            </SheetTrigger>
+          </header>
+          <SheetContent
+            side="left"
+            showCloseButton={false}
+            overlayClassName="z-[69] bg-black/65 backdrop-blur-[1px]"
+            onOpenAutoFocus={(event) => {
+              event.preventDefault();
+              mobileNavigationCloseRef.current?.focus();
+            }}
+            className="agent-mobile-navigation z-[70] h-dvh w-64 max-w-[calc(100vw-3.5rem)] gap-0 overflow-hidden border-r border-border bg-[var(--agent-panel-background)] p-0 pt-[env(safe-area-inset-top)] shadow-2xl sm:max-w-none motion-reduce:duration-0"
+          >
+            <SheetTitle className="sr-only">Agent navigation</SheetTitle>
+            {mobileNavigation}
+          </SheetContent>
+        </Sheet>
       )}
 
       <ErrorBanner error={error} onDismiss={() => setError(null)} onOpenPlanCatalog={openUpgradeCatalog} />
@@ -3807,7 +4314,12 @@ function AgentsPageContent() {
             )}
             <button
               type="button"
-              onClick={() => dispatchBillingReflection({ type: "DISMISS" })}
+              onClick={() => {
+                if (user?.id) clearPendingPlanCheckout(user.id);
+                clearStripeCheckoutReturnState();
+                checkoutReturnHandledRef.current = true;
+                dispatchBillingReflection({ type: "DISMISS" });
+              }}
               className="rounded p-0.5 text-current opacity-70 transition hover:opacity-100"
               aria-label="Dismiss checkout status"
             >
@@ -3826,12 +4338,15 @@ function AgentsPageContent() {
             ownedCounts={upgradeOwnedCounts}
             loading={upgradeCatalogLoading}
             error={upgradeCatalogError}
-            onClose={() => setUpgradeCatalogOpen(false)}
-            onOpenPlans={() => leaveAgentsPage("/plans")}
-            onSelectPlan={(product) => {
+            onClose={() => {
               setUpgradeCatalogOpen(false);
-              setUpgradeCheckoutPlan(toUpgradeCheckoutPlan(product));
+              preserveAgentLauncherRef.current = false;
             }}
+            onOpenPlans={() => {
+              if (isAuthenticated) leaveAgentsPage("/plans");
+              else requestAuthentication({ kind: "navigate", href: "/plans", title: "Sign in to open plans" });
+            }}
+            onSelectPlan={selectUpgradeProduct}
           />
         )}
       </AnimatePresence>
@@ -3840,12 +4355,90 @@ function AgentsPageContent() {
         <PlanCheckoutModal
           plan={upgradeCheckoutPlan}
           ownedCount={upgradeCheckoutOwnedCount}
+          baselineGrantedSlots={upgradeCheckoutBaselineGrantedSlots}
+          principalId={user?.id ?? ""}
+          isPrincipalCurrent={() => privatePrincipalRef.current === user?.id}
           isOpen={Boolean(upgradeCheckoutPlan)}
-          onClose={() => setUpgradeCheckoutPlan(null)}
+          onClose={() => {
+            setUpgradeCheckoutPlan(null);
+            preserveAgentLauncherRef.current = false;
+          }}
           onSuccess={() => { void refreshCheckoutEntitlements(); }}
           getToken={getToken}
         />
       )}
+
+      <Dialog
+        open={authGateOpen}
+        onOpenChange={(open) => {
+          setAuthGateOpen(open);
+          if (!open) {
+            setPendingAuthIntent(null);
+            preserveAgentLauncherRef.current = false;
+          }
+        }}
+      >
+        <DialogContent
+          closeLabel="Close sign in"
+          overlayClassName="z-[10000] bg-background/80 backdrop-blur-sm"
+          className="z-[10001] border-border bg-surface-low sm:max-w-md"
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {isAuthenticated && pendingAuthIntent?.kind === "checkout"
+                ? "Preparing checkout"
+                : pendingAuthIntent?.kind === "checkout"
+                ? "Sign in to continue to checkout"
+                : pendingAuthIntent?.kind === "navigate"
+                  ? pendingAuthIntent.title
+                  : "Sign in to launch your agent"}
+            </DialogTitle>
+            <DialogDescription>
+              {isAuthenticated && pendingAuthIntent?.kind === "checkout"
+                ? "Checking your current plan before checkout."
+                : "Your agent setup stays open while your account is connected."}
+            </DialogDescription>
+          </DialogHeader>
+          {authLoading ? (
+            <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-text-secondary">
+              <Loader2 className="h-4 w-4 animate-spin" /> Confirming your account
+            </div>
+          ) : isAuthenticated && pendingAuthIntent?.kind === "checkout" && billingDataPrincipalId !== user?.id ? (
+            billingDataError ? (
+              <div className="space-y-3 rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+                <p>{billingDataError}</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBillingDataError(null);
+                    setAgentsLoading(true);
+                    void fetchAgents({ force: true });
+                  }}
+                  className="rounded-md border border-current/30 px-3 py-1.5 font-medium transition-colors hover:bg-destructive/10"
+                >
+                  Retry billing data
+                </button>
+              </div>
+            ) : (
+              <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-text-secondary">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading billing data
+              </div>
+            )
+          ) : isAuthenticated ? (
+            <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-text-secondary">
+              <Loader2 className="h-4 w-4 animate-spin" /> Continuing
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={login}
+              className="w-full rounded-lg bg-[var(--button-primary)] px-6 py-3 font-medium text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)]"
+            >
+              Login with Privy
+            </button>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <ChannelCreationWizard
         open={showChannelWizard}
@@ -3883,186 +4476,46 @@ function AgentsPageContent() {
         handleResizeAndStart={handleResizeAndStart}
         titleizeTier={titleizeTier}
       />
-
-      <AnimatePresence>
-        {mobileAgentLauncherOpen && (
-          <motion.div
-            className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm sm:p-5"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.16 }}
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.98, y: 8 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.98, y: 8 }}
-              transition={{ type: "spring", stiffness: 420, damping: 34 }}
-              className="relative h-[min(720px,calc(100vh-1.5rem))] w-[min(1020px,calc(100vw-1.5rem))]"
-            >
-              <button
-                type="button"
-                aria-label="Close launch agent"
-                onClick={() => setMobileAgentLauncherOpen(false)}
-                className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-black/35 text-text-muted backdrop-blur transition-colors hover:bg-black/55 hover:text-foreground"
-              >
-                <X className="h-4 w-4" />
-              </button>
-              <AgentCreationSetupWizard
-                budget={budget}
-                subscriptionSummary={subscriptionSummary}
-                catalogPlans={catalogPlans}
-                pendingSlotReleases={pendingSlotReleases}
-                onOpenPlanCatalog={openUpgradeCatalog}
-                onCreateAgent={createMobileAgentFromLauncher}
-              />
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {!isDesktopViewport && mobileAgentsSidebarOpen && (
-          <motion.div
-            className="fixed inset-0 z-[70] flex"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.16 }}
-          >
-            <button
-              type="button"
-              aria-label="Close agents sidebar"
-              onClick={() => setMobileAgentsSidebarOpen(false)}
-              className="absolute inset-0 cursor-default bg-black/55 backdrop-blur-sm"
-            />
-            <motion.aside
-              initial={{ x: "-100%" }}
-              animate={{ x: 0 }}
-              exit={{ x: "-100%" }}
-              transition={{ type: "spring", stiffness: 360, damping: 34 }}
-              className="relative z-10 h-full w-full bg-sidebar shadow-2xl"
-            >
-              <AgentsChannelsSidebar
-                variant="v3"
-                showDivider={false}
-                fillParent
-                mobileMode
-                rosterLoading={agentsLoading || isAgentRosterLoading}
-                agentCreationDisabledReason={agentCreationDisabledReason}
-                threads={mobileSyntheticThreads}
-                selectedThreadId={selectedAgentId}
-                showChannels={false}
-                offlineAgentCount={mobileOfflineAgentIds.size}
-                showOfflineAgents={showMobileOfflineAgents}
-                onShowOfflineAgentsChange={setShowMobileOfflineAgents}
-                onReorderAgents={setVisibleAgentOrder}
-                agentCardDataById={agentCardDataById}
-                onSelectThread={(threadId) => {
-                  selectAgentFromRoster(threadId);
-                  setMobileShowChat(true);
-                  setMobileAgentsSidebarOpen(false);
-                }}
-                onStartAgentChat={(agent) => {
-                  selectAgentFromRoster(agent.id);
-                  setMobileShowChat(true);
-                  setMobileAgentsSidebarOpen(false);
-                }}
-                onOpenAgentLauncher={openMobileAgentLauncher}
-                onOpenHome={openDashboardHome}
-                homeActive={dashboardView === "overview"}
-                onOpenKnowledge={openKnowledgeTab}
-                knowledgeActive={knowledgeSectionActive}
-                knowledgeHref={knowledgeSectionHref}
-                onOpenMembers={openMembersTab}
-                membersActive={membersSectionActive}
-                membersHref={membersSectionHref}
-                onOpenUsage={openDashboardUsage}
-                usageActive={dashboardView === "usage"}
-                onOpenAccountSettings={openAccountSettings}
-                accountSettingsActive={dashboardView === "settings"}
-                onCreateAgent={createMobileAgentFromLauncher}
-                accountInitial={accountInitial}
-                onLogout={logout}
-                onDeleteThread={(threadId) => {
-                  const agent = agents.find((item) => item.id === threadId);
-                  if (agent) {
-                    setPendingAgentDelete({ id: agent.id, name: agent.name || agent.id });
-                    setMobileAgentsSidebarOpen(false);
-                  }
-                }}
-                onCollapse={() => setMobileAgentsSidebarOpen(false)}
-              />
-            </motion.aside>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {!isDesktopViewport && mobileWorkspaceSidebarOpen && (
-          <motion.div
-            className="fixed inset-0 z-[70] flex"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.16 }}
-          >
-            <button
-              type="button"
-              aria-label="Close workspace sidebar"
-              onClick={() => setMobileWorkspaceSidebarOpen(false)}
-              className="absolute inset-0 cursor-default bg-black/55 backdrop-blur-sm"
-            />
-            <motion.aside
-              initial={{ x: "100%" }}
-              animate={{ x: 0 }}
-              exit={{ x: "100%" }}
-              transition={{ type: "spring", stiffness: 360, damping: 34 }}
-              className="relative z-10 h-full w-full bg-sidebar shadow-2xl"
-            >
-              <AgentWorkspaceSidebar
-                selectedAgent={selectedAgent}
-                activeTab={dashboardView ? null : openclawSettingsOpen && selectedAgent ? "openclaw" : mainTab}
-                skillsActive={mainTab === "skills"}
-                tokenUsed={tokenUsage}
-                tokenLimit={budget?.pooled_tpd ?? null}
-                disabled={workspaceSidebarDisabled}
-                disabledReason={workspaceSidebarDisabledReason}
-                scheduledDisabled={!SCHEDULED_SECTION_ENABLED}
-                scheduledDisabledReason={SCHEDULED_SECTION_DISABLED_REASON}
-                isDesktopViewport={false}
-                renderMobile
-                forceExpanded
-                fillParent
-                onClose={() => setMobileWorkspaceSidebarOpen(false)}
-                sessions={chat.sessions}
-                sessionsFetched={chat.sessionsFetched}
-                creatingSessionKeys={chat.creatingSessionKeys}
-                thinkingSessionKeys={chat.thinkingSessionKeys}
-                selectedSessionKey={selectedSessionKey}
-                pinnedSessionKeys={pinnedSessionKeys}
-                onSelectSession={selectSession}
-                onSetSessionPinned={setSessionPinned}
-                onRenameSession={renameSession}
-                onDeleteSession={deleteSession}
-                onCreateSession={createSession}
-                onOpenFiles={openFilesTab}
-                onOpenIntegrations={openIntegrationsTab}
-                onOpenSkills={openSkillsTab}
-                onOpenScheduled={openScheduledTab}
-                onOpenDesktop={handleOpenDesktop}
-                openingDesktop={openingDesktopId === selectedAgent?.id}
-                onOpenLogs={openLogsTab}
-                onOpenShell={openShellTab}
-                onOpenOpenClaw={openOpenClawSettings}
-                onOpenSettings={openAgentSettingsTab}
-                onUpgrade={() => { void openUpgradeCatalog(); }}
-              />
-            </motion.aside>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
+      <AgentDashboardTour
+        open={agentTourOpen}
+        onOpenChange={setAgentTourOpen}
+        onStartCreating={startAgentCreationFromTour}
+      />
+      <Dialog
+        modal={!agentLauncherSuspended}
+        open={agentLauncherOpen}
+        onOpenChange={(open) => {
+          if (!open && preserveAgentLauncherRef.current) return;
+          setAgentLauncherOpen(open);
+        }}
+      >
+        <DialogContent
+          aria-describedby={undefined}
+          closeLabel="Close launch agent"
+          overlayClassName={`z-[79] bg-black/70 backdrop-blur-sm ${agentLauncherSuspended ? "invisible pointer-events-none" : ""}`}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            mobileNavigationTriggerRef.current?.focus();
+          }}
+          className={`z-[80] h-[min(840px,calc(100dvh-1.5rem))] w-[min(1280px,calc(100vw-1.5rem))] max-w-none gap-0 overflow-hidden border-0 bg-transparent p-0 shadow-none sm:h-[min(840px,calc(100dvh-2.5rem))] sm:w-[min(1280px,calc(100vw-2.5rem))] sm:max-w-none ${agentLauncherSuspended ? "invisible pointer-events-none" : ""}`}
+        >
+          <DialogTitle className="sr-only">Launch agent</DialogTitle>
+          <AgentCreationSetupWizard
+            size="large"
+            initialPlanId={launcherPreferredPlanId}
+            selectedCatalogPlanId={launcherSelectedCatalogPlanId}
+            budget={budget}
+            subscriptionSummary={subscriptionSummary}
+            catalogPlans={catalogPlans}
+            pendingSlotReleases={pendingSlotReleases}
+            onOpenPlanCatalog={(planId) => {
+              preserveAgentLauncherRef.current = true;
+              return openUpgradeCatalog(planId);
+            }}
+            onCreateAgent={createAgentFromLauncher}
+          />
+        </DialogContent>
+      </Dialog>
 
       {/* Main layout: AgentList + AgentMainPanel + AgentInspector */}
       <div className="flex flex-1 min-h-0">
@@ -4087,19 +4540,24 @@ function AgentsPageContent() {
             agentCardDataById={agentCardDataById}
             getToken={getToken}
             createOpenClawAgent={createOpenClawAgent}
+            onCreateAgent={handleCreateFirstAgent}
             associateCreatedAgent={associateAgentWithSelectedWorkspace}
+            agentLauncherSuspended={agentLauncherSuspended}
             agentCreationDisabledReason={agentCreationDisabledReason}
             fetchAgents={refreshAgentsForChildren}
             setError={setError}
-            sidebarCreatorSignal={sidebarCreatorSignal}
+            sidebarCreatorSignal={0}
+            onOpenAgentLauncher={() => setAgentLauncherOpen(true)}
             setPendingAgentDelete={setPendingAgentDelete}
             accountInitial={accountInitial}
+            onLogin={!isAuthenticated ? () => requestAuthentication({ kind: "navigate", href: "/dashboard/agents", title: "Sign in to your account" }) : undefined}
             onOpenSettings={openAgentSettingsTab}
             settingsActive={mainTab === "settings"}
-            onLogout={logout}
+            onLogout={isAuthenticated ? logout : undefined}
             budget={budget}
             subscriptionSummary={subscriptionSummary}
             catalogPlans={catalogPlans}
+            preferredPlanId={launcherPreferredPlanId}
             pendingSlotReleases={pendingSlotReleases}
             onOpenPlanCatalog={openUpgradeCatalog}
             onOpenHome={openDashboardHome}
@@ -4115,11 +4573,7 @@ function AgentsPageContent() {
             onOpenAccountSettings={openAccountSettings}
             accountSettingsActive={dashboardView === "settings"}
             embeddedInNavigation
-            updateAgentName={async (agentId, name) => {
-              const token = await getToken();
-              const updatedAgent = await createAgentClient(token).update(agentId, { name });
-              setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
-            }}
+            updateAgentDisplayName={updateAgentDisplayName}
           />
 
           <AgentWorkspaceSidebar
@@ -4204,15 +4658,18 @@ function AgentsPageContent() {
               setChatDragActive={setChatDragActive}
               chatDragDepthRef={chatDragDepthRef}
               handleChatFileDrop={handleChatFileDrop}
+              chatFilesUploading={uploadingChatFiles > 0}
               chatScrollRef={chatScrollRef}
               handleChatScroll={handleChatScroll}
-              chatEndRef={chatEndRef}
+              onTranscriptResize={handleTranscriptResize}
+              onRequestTranscriptScroll={scheduleChatScroll}
               recording={recording}
               audioLevel={audioLevel}
               recordingDuration={recordingDuration}
               stopRecording={stopRecording}
               audioUrl={audioUrl}
               audioPreviewPlaying={audioPreviewPlaying}
+              preparingAudioPreview={preparingAudioPreview}
               audioPreviewDuration={audioPreviewDuration}
               toggleAudioPreviewPlayback={toggleAudioPreviewPlayback}
               discardAudio={discardAudio}
@@ -4276,9 +4733,7 @@ function AgentsPageContent() {
                 },
                 onRenameAgent: async (name) => {
                   if (!selectedAgent) return;
-                  const token = await getToken();
-                  const updatedAgent = await createAgentClient(token).update(selectedAgent.id, { name });
-                  setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
+                  await updateAgentCanonicalName(selectedAgent.id, name);
                 },
                 onOpenAgentSettings: openAgentSettingsTab,
                 onCreateDirectory: async (name) => {
@@ -4290,7 +4745,7 @@ function AgentsPageContent() {
             <AgentFilesPanel
               key={selectedAgent?.id ?? "no-agent"}
               agentId={selectedAgentId}
-              agentName={selectedAgent?.name || selectedAgent?.pod_name || "Agent"}
+              agentName={selectedAgent ? agentDisplayLabel(selectedAgent) : "Agent"}
               rootPath={OPENCLAW_WORKSPACE_PREFIX}
               defaultSource={filesDefaultSource}
               sourceDisabledReasons={filesSourceDisabledReasons}
@@ -4326,7 +4781,7 @@ function AgentsPageContent() {
               detailBackLabel={directoryDetailOrigin === "chat" ? "Back to chat" : undefined}
               onDetailBack={directoryDetailOrigin === "chat" ? openChatTab : undefined}
               agentId={selectedAgent?.id ?? selectedAgentId}
-              agentName={selectedAgent?.name || selectedAgent?.pod_name || "Agent"}
+              agentName={selectedAgent ? agentDisplayLabel(selectedAgent) : "Agent"}
               agentPublicUrl={selectedOpenClawAgent?.publicUrl ?? (selectedAgent?.hostname ? `https://${selectedAgent.hostname}` : null)}
               gatewaySession={gatewayChat}
               channelsProvider={chat.channelsProvider}
@@ -4344,7 +4799,7 @@ function AgentsPageContent() {
           ) : mainTab === "skills" ? (
             <SkillsPanel
               key={selectedAgent?.id ?? "no-agent"}
-              agentName={selectedAgent?.name || selectedAgent?.pod_name || "Agent"}
+              agentName={selectedAgent ? agentDisplayLabel(selectedAgent) : "Agent"}
               draftScope={skillDraftScope}
               connected={chat.connected}
               isDesktopViewport={isDesktopViewport}
@@ -4379,7 +4834,7 @@ function AgentsPageContent() {
           ) : mainTab === "scheduled" ? (
             <AgentScheduledPanel
               key={`${selectedAgent?.id ?? "agent"}:${scheduledInitialCommand?.id ?? 0}`}
-              agentName={selectedAgent?.name || selectedAgent?.pod_name || "Agent"}
+              agentName={selectedAgent ? agentDisplayLabel(selectedAgent) : "Agent"}
               sessionKey={selectedSessionKey}
               sessionOptions={scheduledSessionOptions}
               jobs={agentCronJobsForView ?? []}
@@ -4422,7 +4877,7 @@ function AgentsPageContent() {
               }}
               onDeleteAgent={() => {
                 if (selectedAgent) {
-                  setPendingAgentDelete({ id: selectedAgent.id, name: selectedAgent.name || selectedAgent.id });
+                  setPendingAgentDelete({ id: selectedAgent.id, name: agentDisplayLabel(selectedAgent) });
                 }
               }}
               onLogout={logout}
@@ -4435,27 +4890,43 @@ function AgentsPageContent() {
               openclawModels={chat.models}
               reportedChannels={chat.reportedChannels}
               reportedChannelsReady={chat.reportedChannelsReady}
-              onUpdateAgentName={async (agentId, name) => {
-                const token = await getToken();
-                const updatedAgent = await createAgentClient(token).update(agentId, { name });
-                setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
-              }}
               onUpdateAgentProfile={async (agentId, profile) => {
+                const generation = agentDataGenerationRef.current;
                 const token = await getToken();
+                if (generation !== agentDataGenerationRef.current) return;
                 const updatedAgent = await createAgentClient(token).update(agentId, profile);
+                if (generation !== agentDataGenerationRef.current) return;
                 setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
               }}
-              onUploadAgentAvatar={async (agentId, file) => {
+              onUpdateExternalAgentProfile={async (agentId, profile) => {
+                const generation = agentDataGenerationRef.current;
                 const token = await getToken();
+                if (generation !== agentDataGenerationRef.current) return;
+                const updatedAgent = await createAgentClient(token).updateExternalAgent(agentId, profile);
+                if (generation !== agentDataGenerationRef.current) return;
+                setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
+              }}
+              onSetManagedAgentDisplayName={displayNameStorageScope ? (agentId, displayName) => {
+                setManagedAgentDisplayName(agentId, displayName);
+              } : undefined}
+              onUploadAgentAvatar={async (agentId, file) => {
+                const generation = agentDataGenerationRef.current;
+                const token = await getToken();
+                if (generation !== agentDataGenerationRef.current) throw new Error("Account changed during upload.");
                 const client = createAgentClient(token);
                 const upload = await client.uploadProfileImage(agentId, file, file.type || "image/png");
+                if (generation !== agentDataGenerationRef.current) return upload.avatar_url;
                 const updatedAgent = await client.get(agentId);
+                if (generation !== agentDataGenerationRef.current) return upload.avatar_url;
                 setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
                 return upload.avatar_url;
               }}
               onUpdateAgentLaunchConfig={async (agentId, launchConfig) => {
+                const generation = agentDataGenerationRef.current;
                 const token = await getToken();
+                if (generation !== agentDataGenerationRef.current) return;
                 const updatedAgent = await createAgentClient(token).update(agentId, { launchConfig });
+                if (generation !== agentDataGenerationRef.current) return;
                 setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
               }}
               onSaveOpenClawConfig={async (patch) => {
@@ -4465,19 +4936,6 @@ function AgentsPageContent() {
               showFileSourceTabs={showFileSourceTabs}
               onShowFileSourceTabsChange={handleShowFileSourceTabsChange}
               isDesktopViewport={isDesktopViewport}
-              showSessionReturn={showMobileSectionReturn}
-              onSessionReturn={handleMobileSectionReturn}
-              mobileReturnLabel={selectedSessionReturnTarget?.label ?? "Session"}
-              agentsMenuOpen={mobileAgentsSidebarOpen}
-              workspaceMenuOpen={mobileWorkspaceSidebarOpen}
-              onOpenAgentsMenu={() => {
-                setMobileWorkspaceSidebarOpen(false);
-                setMobileAgentsSidebarOpen((open) => !open);
-              }}
-              onOpenWorkspaceMenu={() => {
-                setMobileAgentsSidebarOpen(false);
-                setMobileWorkspaceSidebarOpen((open) => !open);
-              }}
             />
           ) : mainTab === "logs" ? (
             <AgentLogsPanel status={wsStatus} logs={logs} logBoxRef={logBoxRef} />
@@ -4491,6 +4949,7 @@ function AgentsPageContent() {
           budget={budget}
           subscriptionSummary={subscriptionSummary}
           catalogPlans={catalogPlans}
+          preferredPlanId={launcherPreferredPlanId}
           pendingSlotReleases={pendingSlotReleases}
           onOpenPlanCatalog={openUpgradeCatalog}
           workspaceName={selectedWorkspace ? workspaceDisplayName(selectedWorkspace) : null}

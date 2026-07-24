@@ -129,8 +129,10 @@ export const BootStages: Story = {
 export const ReadyEmptyChat: Story = {
   render: () => (
     <MobileChatFrame>
-      <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-3">
-        <AgentEmptyHistory onPromptSelect={() => {}} actions={emptyHistoryActions} />
+      <div className="flex min-h-0 flex-1 overflow-y-auto px-3">
+        <div className="agent-empty-history-frame flex min-h-full w-full shrink-0 items-center justify-center">
+          <AgentEmptyHistory onPromptSelect={() => {}} actions={emptyHistoryActions} />
+        </div>
       </div>
       <div className="flex-shrink-0 px-3 pb-3 pt-2">
         <textarea
@@ -150,8 +152,8 @@ export const ReadyEmptyChatDesktop: Story = {
       <div className="flex h-14 flex-shrink-0 items-center justify-center border-b border-white/10 px-5">
         <span className="text-sm font-semibold">Agent</span>
       </div>
-      <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-4">
-        <div className="flex max-h-full min-h-0 w-full items-center justify-center overflow-y-auto">
+      <div className="flex min-h-0 flex-1 overflow-y-auto px-4">
+        <div className="agent-empty-history-frame flex min-h-full w-full shrink-0 items-center justify-center">
           <AgentEmptyHistory onPromptSelect={() => {}} actions={emptyHistoryActions} />
         </div>
       </div>

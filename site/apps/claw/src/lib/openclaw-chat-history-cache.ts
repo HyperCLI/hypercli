@@ -1,6 +1,6 @@
 "use client";
 
-import type { ChatMessage } from "@/lib/openclaw-chat";
+import { ensureChatMessageRenderId, type ChatMessage } from "@/lib/openclaw-chat";
 import { isEphemeralOpenClawSessionName } from "@/lib/openclaw-session-sdk-surface";
 
 const CACHE_VERSION = 1;
@@ -56,22 +56,23 @@ function trimText(value: string, maxChars: number, suffix: string): string {
 
 function compactMessage(message: ChatMessage): ChatMessage | null {
   if (message.role !== "user" && message.role !== "assistant" && message.role !== "system") return null;
-  const content = typeof message.content === "string" ? trimText(message.content, MAX_MESSAGE_CONTENT_CHARS, TRUNCATED_MESSAGE_SUFFIX) : "";
-  const timestamp = typeof message.timestamp === "number" && Number.isFinite(message.timestamp)
-    ? message.timestamp
+  const normalized = ensureChatMessageRenderId(message);
+  const content = typeof normalized.content === "string" ? trimText(normalized.content, MAX_MESSAGE_CONTENT_CHARS, TRUNCATED_MESSAGE_SUFFIX) : "";
+  const timestamp = typeof normalized.timestamp === "number" && Number.isFinite(normalized.timestamp)
+    ? normalized.timestamp
     : undefined;
-  const files = Array.isArray(message.files)
-    ? message.files.slice(0, 20).map((file) => ({
+  const files = Array.isArray(normalized.files)
+    ? normalized.files.slice(0, 20).map((file) => ({
         name: String(file.name ?? ""),
         path: String(file.path ?? ""),
         type: String(file.type ?? ""),
       })).filter((file) => file.name || file.path)
     : undefined;
-  const mediaUrls = Array.isArray(message.mediaUrls)
-    ? message.mediaUrls.filter((url): url is string => typeof url === "string").slice(0, 20)
+  const mediaUrls = Array.isArray(normalized.mediaUrls)
+    ? normalized.mediaUrls.filter((url): url is string => typeof url === "string").slice(0, 20)
     : undefined;
-  const toolCalls = Array.isArray(message.toolCalls)
-    ? message.toolCalls.slice(0, 40).map((toolCall) => ({
+  const toolCalls = Array.isArray(normalized.toolCalls)
+    ? normalized.toolCalls.slice(0, 40).map((toolCall) => ({
         id: typeof toolCall.id === "string" ? toolCall.id : undefined,
         name: typeof toolCall.name === "string" ? toolCall.name : "tool",
         args: typeof toolCall.args === "string" ? trimText(toolCall.args, MAX_TOOL_TEXT_CHARS, TRUNCATED_TOOL_SUFFIX) : "",
@@ -82,13 +83,26 @@ function compactMessage(message: ChatMessage): ChatMessage | null {
   if (!content && !files?.length && !mediaUrls?.length && !toolCalls?.length) return null;
 
   return {
-    role: message.role,
+    role: normalized.role,
     content,
     timestamp,
+    renderId: normalized.renderId,
+    ...(typeof normalized.clientTurnId === "string" && normalized.clientTurnId ? { clientTurnId: normalized.clientTurnId } : {}),
+    ...(typeof normalized.eventId === "string" && normalized.eventId ? { eventId: normalized.eventId } : {}),
+    ...(typeof normalized.messageId === "string" && normalized.messageId ? { messageId: normalized.messageId } : {}),
+    ...(typeof normalized.turnId === "string" && normalized.turnId ? { turnId: normalized.turnId } : {}),
+    ...(typeof normalized.runId === "string" && normalized.runId ? { runId: normalized.runId } : {}),
+    ...(typeof normalized.sessionKey === "string" && normalized.sessionKey ? { sessionKey: normalized.sessionKey } : {}),
+    ...(
+      (typeof normalized.revision === "number" && Number.isFinite(normalized.revision)) ||
+      (typeof normalized.revision === "string" && normalized.revision)
+        ? { revision: normalized.revision }
+        : {}
+    ),
     ...(files?.length ? { files } : {}),
     ...(mediaUrls?.length ? { mediaUrls } : {}),
     ...(toolCalls?.length ? { toolCalls } : {}),
-    ...(message.status ? { status: message.status } : {}),
+    ...(normalized.status ? { status: normalized.status } : {}),
   };
 }
 

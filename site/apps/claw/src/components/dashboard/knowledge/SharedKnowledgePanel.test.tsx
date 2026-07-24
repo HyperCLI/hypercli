@@ -16,7 +16,7 @@ import { renderWithClient } from "@/test/utils";
 import { SharedKnowledgePanel, type SharedKnowledgeAgent } from "./SharedKnowledgePanel";
 
 const agents: SharedKnowledgeAgent[] = [
-  { id: "agent-docs", name: "Docs Agent", pod_name: "docs-agent", state: "RUNNING", meta: null },
+  { id: "agent-docs", name: "Docs Agent", displayName: "Docs Pilot", pod_name: "docs-agent", state: "RUNNING", meta: null },
   { id: "agent-brand", name: "Brand Agent", pod_name: "brand-agent", state: "STOPPED", meta: null },
 ];
 
@@ -171,7 +171,7 @@ describe("SharedKnowledgePanel", () => {
 
     fireEvent.click(await screen.findByText("docs"));
     expect(await screen.findByText("brief.md")).toBeInTheDocument();
-    expect(screen.getByText("Docs Agent")).toBeInTheDocument();
+    expect(screen.getByText("Docs Pilot")).toBeInTheDocument();
   });
 
   it("uses and updates the shared Workspace selection", async () => {
@@ -274,7 +274,7 @@ describe("SharedKnowledgePanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /new shared knowledge/i }));
     expect(screen.getByRole("button", { name: /brand agent/i })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: /docs agent/i })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: /docs pilot/i })).toHaveAttribute("aria-pressed", "false");
     fireEvent.change(screen.getByPlaceholderText(/team knowledge/i), { target: { value: "Support Docs" } });
     fireEvent.change(screen.getByPlaceholderText(/what should agents find here/i), { target: { value: "Customer support procedures." } });
     fireEvent.click(screen.getByRole("button", { name: /create shared knowledge/i }));
@@ -480,13 +480,13 @@ describe("SharedKnowledgePanel", () => {
     const knowledge = within(card);
 
     fireEvent.click(knowledge.getByRole("button", { name: /assign agent/i }));
-    expect(knowledge.getByRole("button", { name: /docs agent/i })).toBeInTheDocument();
+    expect(knowledge.getByRole("button", { name: /docs pilot/i })).toBeInTheDocument();
     expect(knowledge.getByRole("button", { name: /brand agent/i })).toBeInTheDocument();
     fireEvent.click(knowledge.getByRole("button", { name: /brand agent/i }));
     await waitFor(() => expect(workspaces.grant).toHaveBeenCalledWith("team-knowledge", { subjectType: "agent", subjectId: "agent-brand", role: "viewer" }));
     await waitFor(() => expect(workspaceContext.refreshSelectedWorkspaceAgents).toHaveBeenCalledTimes(1));
 
-    fireEvent.click(knowledge.getByRole("button", { name: /docs agent/i }));
+    fireEvent.click(knowledge.getByRole("button", { name: /docs pilot/i }));
     await waitFor(() => expect(workspaces.revokeGrant).toHaveBeenCalledWith("team-knowledge", "grant-1"));
     await waitFor(() => expect(workspaceContext.refreshSelectedWorkspaceAgents).toHaveBeenCalledTimes(2));
   });
@@ -522,7 +522,7 @@ describe("SharedKnowledgePanel", () => {
     const knowledge = within(card);
 
     fireEvent.click(knowledge.getByRole("button", { name: /assign agent/i }));
-    fireEvent.click(knowledge.getByRole("button", { name: /docs agent/i }));
+    fireEvent.click(knowledge.getByRole("button", { name: /docs pilot/i }));
 
     await waitFor(() => expect(workspaces.revokeGrant).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(workspaceContext.refreshSelectedWorkspaceAgents).toHaveBeenCalledOnce());

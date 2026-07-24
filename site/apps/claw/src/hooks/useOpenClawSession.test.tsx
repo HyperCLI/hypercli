@@ -131,6 +131,40 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+function controlledChatStream() {
+  type StreamResult = IteratorResult<ChatEvent, void>;
+  const queuedResults: StreamResult[] = [];
+  const pendingReads: Array<ReturnType<typeof deferred<StreamResult>>> = [];
+  const returnResult = deferred<StreamResult>();
+  const push = (result: StreamResult) => {
+    const pendingRead = pendingReads.shift();
+    if (pendingRead) pendingRead.resolve(result);
+    else queuedResults.push(result);
+  };
+  const returnIterator = vi.fn(() => returnResult.promise);
+  const iterator = {
+    next: vi.fn(() => {
+      const queuedResult = queuedResults.shift();
+      if (queuedResult) return Promise.resolve(queuedResult);
+      const pendingRead = deferred<StreamResult>();
+      pendingReads.push(pendingRead);
+      return pendingRead.promise;
+    }),
+    return: returnIterator,
+    [Symbol.asyncIterator]() {
+      return this;
+    },
+  } as unknown as AsyncGenerator<ChatEvent, void, unknown>;
+
+  return {
+    iterator,
+    returnIterator,
+    emit: (event: ChatEvent) => push({ done: false, value: event }),
+    finish: () => push({ done: true, value: undefined }),
+    releaseReturn: () => returnResult.resolve({ done: true, value: undefined }),
+  };
+}
+
 describe("useOpenClawSession", () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -206,6 +240,91 @@ describe("useOpenClawSession", () => {
         content: "Recovered after sequence gap",
       }),
     ]));
+    unmount();
+  });
+
+  it("does not let gap recovery roll back a newer live reply", async () => {
+    const gateway = buildGateway();
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+    const initialHistoryCalls = gateway.chatHistory.mock.calls.length;
+    const initialSessionCalls = gateway.sessionsList.mock.calls.length;
+    const gapSessions = deferred<unknown[]>();
+    const gapHistory = deferred<unknown[]>();
+    gateway.sessionsList.mockImplementation(() => gapSessions.promise);
+    gateway.chatHistory.mockReturnValue(gapHistory.promise);
+    const gatewayOptions = agent.gateway.mock.calls[0]?.[0] as {
+      onGap?: (info: { expected: number; received: number }) => void;
+    } | undefined;
+    act(() => {
+      gatewayOptions?.onGap?.({ expected: 4, received: 6 });
+    });
+    await waitFor(() => expect(gateway.sessionsList.mock.calls.length).toBeGreaterThan(initialSessionCalls));
+    expect(gateway.chatHistory.mock.calls).toHaveLength(initialHistoryCalls);
+
+    act(() => {
+      gateway.emit({
+        event: "chat.content",
+        payload: { sessionKey: result.current.activeSessionKey, text: "Newer live reply" },
+      });
+    });
+    await waitFor(() => expect(result.current.messages).toEqual([
+      expect.objectContaining({ content: "Newer live reply" }),
+    ]));
+
+    await act(async () => {
+      gapSessions.resolve([]);
+      await gapSessions.promise;
+    });
+    await waitFor(() => expect(gateway.chatHistory.mock.calls.length).toBeGreaterThan(initialHistoryCalls));
+    await act(async () => {
+      gapHistory.resolve([{ role: "assistant", content: "Stale recovered reply", timestamp: 1 }]);
+      await gapHistory.promise;
+    });
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ content: "Newer live reply" }),
+    ]);
+    unmount();
+  });
+
+  it("clears a provisional history error after canonical-key correction succeeds", async () => {
+    const gateway = buildGateway();
+    const freshSessions = deferred<unknown[]>();
+    gateway.sessionsList.mockReturnValue(freshSessions.promise);
+    gateway.chatHistory.mockImplementation((sessionKey: string) => (
+      sessionKey === "visible"
+        ? Promise.reject(new Error("provisional history unavailable"))
+        : Promise.resolve([{ role: "assistant", content: "Canonical history", timestamp: 2 }])
+    ));
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "visible"));
+
+    await waitFor(() => expect(result.current.historyPhase).toBe("error"));
+    await act(async () => {
+      freshSessions.resolve([
+        { key: "visible", gatewaySessionKey: "gateway-canonical", title: "Visible", updatedAt: 2 },
+      ]);
+      await freshSessions.promise;
+    });
+
+    await waitFor(() => expect(result.current.messages).toEqual([
+      expect.objectContaining({ content: "Canonical history" }),
+    ]));
+    expect(result.current.historyPhase).toBe("ready");
     unmount();
   });
 
@@ -2612,7 +2731,7 @@ describe("useOpenClawSession", () => {
         : [{ role: "assistant", content: "Main history" }]
     ));
     gateway.sessionsPreview.mockImplementation(async (sessionKey: string) => (
-      sessionKey === "agent:default:main"
+      sessionKey === "telegram:489595440"
         ? [{ role: "assistant", content: "Telegram history" }]
         : []
     ));
@@ -2628,8 +2747,7 @@ describe("useOpenClawSession", () => {
     await waitFor(() => expect(result.current.connected).toBe(true));
     await waitFor(() => expect(result.current.hydrating).toBe(false));
 
-    expect(gateway.sessionsPreview).toHaveBeenCalledWith("agent:default:main", 200);
-    expect(gateway.sessionsPreview).not.toHaveBeenCalledWith("telegram:489595440", 200);
+    expect(gateway.sessionsPreview).toHaveBeenCalledWith("telegram:489595440", 200);
     expect(gateway.chatHistory).not.toHaveBeenCalledWith("agent:default:main", 200);
     expect(result.current.messages.map((message) => message.content)).toEqual(["Telegram history"]);
     expect(result.current.activeSessionReadOnly).toBe(true);
@@ -4099,6 +4217,39 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
+  it("can resend an explicit attachment payload without relying on the composer draft", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const attachment = {
+      type: "image" as const,
+      mimeType: "image/png",
+      content: "aW1hZ2U=",
+      fileName: "reference.png",
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+
+    await act(async () => {
+      await result.current.sendMessage("Retry image request", { attachments: [attachment] });
+    });
+
+    expect(gateway.chatSend).toHaveBeenCalledWith("Retry image request", "main", [attachment]);
+    expect(result.current.messages[0]).toEqual(expect.objectContaining({
+      role: "user",
+      content: "Retry image request",
+      attachments: [attachment],
+    }));
+    unmount();
+  });
+
   it("can send voice-note instructions while showing only the attached audio file", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
@@ -4132,6 +4283,7 @@ describe("useOpenClawSession", () => {
     expect(result.current.messages[0]).toEqual(expect.objectContaining({
       role: "user",
       content: "",
+      retryContent: voiceMessage,
       files: [voiceFile],
     }));
     unmount();
@@ -4217,6 +4369,45 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
+  it("clears prior live mutations when a later hydration is authoritatively empty", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => {
+      gateway.emit({
+        event: "chat.content",
+        payload: { sessionKey: "main", messageId: "stale-message", text: "Stale live answer" },
+      });
+    });
+    await waitFor(() => expect(result.current.messages).toEqual([
+      expect.objectContaining({ content: "Stale live answer" }),
+    ]));
+
+    const emptyHydration = deferred<unknown[]>();
+    const historyCallsBeforeReconnect = gateway.chatHistory.mock.calls.length;
+    gateway.chatHistory.mockReturnValue(emptyHydration.promise);
+    act(() => gateway.emitConnectionState("connecting"));
+    await waitFor(() => expect(result.current.status).toBe("connecting"));
+    act(() => gateway.emitConnectionState("connected"));
+    await waitFor(() => expect(gateway.chatHistory.mock.calls.length).toBeGreaterThan(historyCallsBeforeReconnect));
+
+    await act(async () => {
+      emptyHydration.resolve([]);
+      await emptyHydration.promise;
+    });
+    await waitFor(() => expect(result.current.messages).toEqual([]));
+    expect(result.current.historyPhase).toBe("ready");
+    unmount();
+  });
+
   it("keeps cached browser history when gateway history fails", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
@@ -4243,11 +4434,233 @@ describe("useOpenClawSession", () => {
     await waitFor(() => expect(result.current.gatewayConnected).toBe(true));
     await waitFor(() => expect(result.current.hydrating).toBe(false));
     expect(result.current.messages).toEqual([
-      { role: "user", content: "cached question", timestamp: 1 },
-      { role: "assistant", content: "cached answer", timestamp: 2 },
+      expect.objectContaining({ role: "user", content: "cached question", timestamp: 1, renderId: expect.any(String) }),
+      expect.objectContaining({ role: "assistant", content: "cached answer", timestamp: 2, renderId: expect.any(String) }),
     ]);
     expect(result.current.historyPhase).toBe("error");
     expect(window.localStorage.getItem(cacheKey!)).not.toBeNull();
+    unmount();
+  });
+
+  it("ignores an old iterator event and completion after the gateway reconnects", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    const oldStream = controlledChatStream();
+    const newStream = controlledChatStream();
+    gateway.chatSend
+      .mockReturnValueOnce(oldStream.iterator)
+      .mockReturnValueOnce(newStream.iterator);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => result.current.setInput("first request"));
+    let oldSendPromise!: Promise<void>;
+    act(() => {
+      oldSendPromise = result.current.sendMessage();
+    });
+    await waitFor(() => expect(gateway.chatSend).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current.sending).toBe(true));
+
+    act(() => gateway.emitConnectionState("connecting"));
+    await waitFor(() => expect(result.current.status).toBe("connecting"));
+    expect(oldStream.returnIterator).toHaveBeenCalled();
+
+    act(() => gateway.emitConnectionState("connected"));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => result.current.setInput("second request"));
+    let newSendPromise!: Promise<void>;
+    act(() => {
+      newSendPromise = result.current.sendMessage();
+    });
+    await waitFor(() => expect(gateway.chatSend).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.sending).toBe(true));
+
+    await act(async () => {
+      oldStream.emit({ type: "content", text: "Stale reply" });
+      oldStream.releaseReturn();
+      await oldSendPromise;
+    });
+
+    expect(result.current.messages.map((message) => message.content)).not.toContain("Stale reply");
+    expect(result.current.sending).toBe(true);
+    expect(result.current.activeSessionSending).toBe(true);
+
+    await act(async () => {
+      newStream.emit({ type: "content", text: "Fresh reply" });
+      newStream.emit({ type: "done", data: {} });
+      newStream.finish();
+      await newSendPromise;
+    });
+
+    expect(result.current.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "assistant", content: "Fresh reply" }),
+    ]));
+    expect(result.current.sending).toBe(false);
+    unmount();
+  });
+
+  it("does not let an aborted iterator clear or update its replacement", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    const oldStream = controlledChatStream();
+    const replacementStream = controlledChatStream();
+    gateway.chatSend
+      .mockReturnValueOnce(oldStream.iterator)
+      .mockReturnValueOnce(replacementStream.iterator);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => result.current.setInput("first request"));
+    let oldSendPromise!: Promise<void>;
+    act(() => {
+      oldSendPromise = result.current.sendMessage();
+    });
+    oldStream.emit({ type: "content", text: "Partial reply" });
+    await waitFor(() => expect(result.current.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "assistant", content: "Partial reply" }),
+    ])));
+
+    await act(async () => {
+      await result.current.abortMessage();
+    });
+    expect(result.current.sending).toBe(false);
+    expect(oldStream.returnIterator).toHaveBeenCalled();
+
+    act(() => result.current.setInput("replacement request"));
+    let replacementSendPromise!: Promise<void>;
+    act(() => {
+      replacementSendPromise = result.current.sendMessage();
+    });
+    await waitFor(() => expect(gateway.chatSend).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.sending).toBe(true));
+
+    await act(async () => {
+      oldStream.emit({ type: "content", text: "Late stale reply" });
+      oldStream.releaseReturn();
+      await oldSendPromise;
+    });
+
+    expect(result.current.messages.map((message) => message.content)).not.toContain("Late stale reply");
+    expect(result.current.sending).toBe(true);
+    expect(result.current.activeSessionSending).toBe(true);
+
+    await act(async () => {
+      replacementStream.emit({ type: "content", text: "Replacement reply" });
+      replacementStream.emit({ type: "done", data: {} });
+      replacementStream.finish();
+      await replacementSendPromise;
+    });
+
+    expect(result.current.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "assistant", content: "Replacement reply" }),
+    ]));
+    expect(result.current.sending).toBe(false);
+    unmount();
+  });
+
+  it("uses unique local turn render ids while one turn keeps one identified assistant row", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    const firstStream = controlledChatStream();
+    const secondStream = controlledChatStream();
+    gateway.chatSend
+      .mockReturnValueOnce(firstStream.iterator)
+      .mockReturnValueOnce(secondStream.iterator);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => result.current.setInput("first turn"));
+    let firstSend!: Promise<void>;
+    act(() => {
+      firstSend = result.current.sendMessage();
+    });
+    await waitFor(() => expect(gateway.chatSend).toHaveBeenCalledTimes(1));
+    const firstUserRenderId = result.current.messages.find((message) => message.role === "user")?.renderId;
+    const firstClientTurnId = result.current.messages.find((message) => message.role === "user")?.clientTurnId;
+    expect(firstUserRenderId).toEqual(expect.any(String));
+    expect(firstClientTurnId).toEqual(expect.any(String));
+
+    act(() => firstStream.emit({
+      type: "content",
+      text: "Draft",
+      messageId: "message-1",
+      turnId: "turn-1",
+      runId: "run-1",
+      sessionKey: "agent:default:main",
+      revision: 1,
+    }));
+    await waitFor(() => expect(result.current.messages.find((message) => message.role === "assistant"))
+      .toMatchObject({ content: "Draft", renderId: expect.any(String) }));
+    const firstAssistantRenderId = result.current.messages.find((message) => message.role === "assistant")?.renderId;
+    expect(result.current.messages.find((message) => message.role === "assistant")?.clientTurnId).toBe(firstClientTurnId);
+
+    act(() => firstStream.emit({
+      type: "content",
+      text: "Corrected answer",
+      replace: true,
+      messageId: "message-1",
+      turnId: "turn-1",
+      runId: "run-1",
+      sessionKey: "agent:default:main",
+      revision: 2,
+    }));
+    await waitFor(() => expect(result.current.messages.find((message) => message.role === "assistant"))
+      .toMatchObject({
+        content: "Corrected answer",
+        renderId: firstAssistantRenderId,
+        messageId: "message-1",
+        turnId: "turn-1",
+        runId: "run-1",
+        revision: 2,
+      }));
+
+    await act(async () => {
+      firstStream.emit({ type: "done", messageId: "message-1", turnId: "turn-1", runId: "run-1" });
+      firstStream.finish();
+      await firstSend;
+    });
+
+    act(() => result.current.setInput("second turn"));
+    let secondSend!: Promise<void>;
+    act(() => {
+      secondSend = result.current.sendMessage();
+    });
+    await waitFor(() => expect(gateway.chatSend).toHaveBeenCalledTimes(2));
+    const userMessages = result.current.messages.filter((message) => message.role === "user");
+    expect(userMessages).toHaveLength(2);
+    expect(userMessages[1]?.renderId).toEqual(expect.any(String));
+    expect(userMessages[1]?.renderId).not.toBe(firstUserRenderId);
+    expect(userMessages[1]?.clientTurnId).not.toBe(firstClientTurnId);
+
+    await act(async () => {
+      secondStream.emit({ type: "content", text: "Second answer", messageId: "message-2", turnId: "turn-2", runId: "run-2" });
+      secondStream.emit({ type: "done", messageId: "message-2", turnId: "turn-2", runId: "run-2" });
+      secondStream.finish();
+      await secondSend;
+    });
+
+    const assistantMessages = result.current.messages.filter((message) => message.role === "assistant");
+    expect(assistantMessages).toHaveLength(2);
+    expect(assistantMessages[0]?.renderId).toBe(firstAssistantRenderId);
+    expect(assistantMessages[1]?.renderId).not.toBe(firstAssistantRenderId);
     unmount();
   });
 
@@ -4414,6 +4827,77 @@ describe("useOpenClawSession", () => {
 
     await act(async () => {
       release.resolve();
+      await sendPromise;
+    });
+    unmount();
+  });
+
+  it("marks the captured session interrupted when abort acknowledgement arrives after a session switch", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([
+      { key: "session-alpha", title: "Alpha" },
+      { key: "session-beta", title: "Beta" },
+    ]);
+    gateway.chatHistory.mockResolvedValue([]);
+    const stream = controlledChatStream();
+    const abortAck = deferred<void>();
+    gateway.chatSend.mockReturnValue(stream.iterator);
+    gateway.chatAbort.mockReturnValue(abortAck.promise);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, rerender, unmount } = renderHookWithClient(
+      ({ sessionKey }: { sessionKey: string }) => useOpenClawSession(agent as any, true, sessionKey),
+      { initialProps: { sessionKey: "session-alpha" } },
+    );
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => result.current.setInput("stop alpha"));
+    let sendPromise!: Promise<void>;
+    act(() => {
+      sendPromise = result.current.sendMessage();
+    });
+    stream.emit({ type: "content", text: "Alpha partial reply" });
+    await waitFor(() => expect(result.current.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "assistant", content: "Alpha partial reply" }),
+    ])));
+
+    let abortPromise!: Promise<void>;
+    act(() => {
+      abortPromise = result.current.abortMessage();
+    });
+    await waitFor(() => expect(result.current.aborting).toBe(true));
+    expect(gateway.chatAbort).toHaveBeenCalledWith("session-alpha");
+
+    rerender({ sessionKey: "session-beta" });
+    await waitFor(() => expect(result.current.activeSessionKey).toBe("session-beta"));
+    await waitFor(() => expect(result.current.messages).toEqual([]));
+    expect(result.current.activeSessionAborting).toBe(false);
+    expect(result.current.aborting).toBe(true);
+
+    await act(async () => {
+      abortAck.resolve();
+      await abortPromise;
+    });
+
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.aborting).toBe(false);
+    expect(result.current.sending).toBe(false);
+
+    rerender({ sessionKey: "session-alpha" });
+    await waitFor(() => expect(result.current.activeSessionKey).toBe("session-alpha"));
+    await waitFor(() => expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "stop alpha" }),
+      expect.objectContaining({ role: "assistant", content: "Alpha partial reply", status: "interrupted" }),
+    ]));
+
+    await act(async () => {
+      stream.finish();
+      stream.releaseReturn();
       await sendPromise;
     });
     unmount();

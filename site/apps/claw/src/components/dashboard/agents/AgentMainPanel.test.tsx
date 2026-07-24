@@ -102,6 +102,18 @@ describe("AgentMainPanel", () => {
     expect(container.firstElementChild).toHaveClass("min-h-0", "overflow-hidden");
   });
 
+  it("uses the effective display name in the agent header", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({
+      name: "research-agent",
+      managed: true,
+    }), { managedDisplayName: "Research Pilot" });
+
+    renderAgentMainPanel({ selectedAgent });
+
+    expect(screen.getByText("Research Pilot")).toBeInTheDocument();
+    expect(screen.queryByText("research-agent")).not.toBeInTheDocument();
+  });
+
   it("waits for the first agent load before showing the empty state", () => {
     renderAgentMainPanel({
       selectedAgent: null,

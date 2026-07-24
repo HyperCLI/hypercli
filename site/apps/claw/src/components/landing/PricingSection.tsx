@@ -2,11 +2,10 @@
 
 import { useRef, useState, useEffect } from "react";
 import { motion, useInView } from "framer-motion";
-import { MarketingSection, PricingCard, PrivyLoginModal, SectionHeading } from "@hypercli/shared-ui";
+import { MarketingSection, PricingCard, SectionHeading } from "@hypercli/shared-ui";
 import type { HyperAgentPlan } from "@hypercli.com/sdk/agent";
-import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { AUTH_BASE_URL } from "@/lib/api";
 import { createPublicHyperAgentClient } from "@/lib/agent-client";
+import { buildAgentLauncherHref } from "@/lib/dashboard-route";
 import { Plan, formatTokens } from "@/lib/format";
 
 function toDisplayPlan(plan: HyperAgentPlan): Plan {
@@ -32,8 +31,6 @@ function toDisplayPlan(plan: HyperAgentPlan): Plan {
 export function PricingSection() {
   const sectionRef = useRef<HTMLElement>(null);
   const isInView = useInView(sectionRef, { once: true, margin: "-100px" });
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-  const { isAuthenticated } = useAgentAuth();
   const [plans, setPlans] = useState<Plan[]>([]);
 
   useEffect(() => {
@@ -49,20 +46,15 @@ export function PricingSection() {
     };
   }, []);
 
-  const handleSelect = () => {
-    if (isAuthenticated) {
-      window.location.href = "/plans";
-    } else {
-      setIsLoginModalOpen(true);
-    }
+  const handleSelect = (planId: string) => {
+    window.location.assign(buildAgentLauncherHref(planId));
   };
 
   return (
-    <>
-      <MarketingSection
-        ref={sectionRef}
-        id="pricing"
-      >
+    <MarketingSection
+      ref={sectionRef}
+      id="pricing"
+    >
           <motion.div
             initial={{ opacity: 0, y: 40 }}
             animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 40 }}
@@ -110,25 +102,12 @@ export function PricingSection() {
                     }
                     features={plan.features.map((feature) => ({ label: feature }))}
                     actionLabel="Get Started"
-                    onAction={handleSelect}
+                    onAction={() => handleSelect(plan.id)}
                   />
                 </motion.div>
               );
             })}
           </div>
-      </MarketingSection>
-
-      <PrivyLoginModal
-        isOpen={isLoginModalOpen}
-        onClose={() => setIsLoginModalOpen(false)}
-        title="Welcome to HyperCLI"
-        description="Please sign in to continue"
-        apiBaseUrl={AUTH_BASE_URL}
-        tokenStorageKey="claw_auth_token"
-        onSuccess={() => {
-          window.location.href = "/plans";
-        }}
-      />
-    </>
+    </MarketingSection>
   );
 }

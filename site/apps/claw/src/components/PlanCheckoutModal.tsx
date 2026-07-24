@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X, CreditCard, Coins, Wallet } from "lucide-react";
 import { createHyperAgentClient } from "@/lib/agent-client";
 import { formatTokens } from "@/lib/format";
-import { buildStripeCheckoutReturnUrl, writePendingPlanCheckout } from "@/lib/plan-checkout-state";
+import { buildStripeCheckoutReturnUrl, clearPendingPlanCheckout, writePendingPlanCheckout } from "@/lib/plan-checkout-state";
 import { createWalletClient, custom, type WalletClient } from "viem";
 import { base } from "viem/chains";
 
@@ -112,6 +112,9 @@ interface PlanCheckoutModalProps {
     };
   };
   ownedCount?: number;
+  principalId: string;
+  baselineGrantedSlots?: Record<string, number>;
+  isPrincipalCurrent?: () => boolean;
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
@@ -127,6 +130,9 @@ function hasBundle(bundle: Record<string, number> | undefined): bundle is Record
 export function PlanCheckoutModal({
   plan,
   ownedCount = 0,
+  principalId,
+  baselineGrantedSlots = {},
+  isPrincipalCurrent,
   isOpen,
   onClose,
   onSuccess,
@@ -139,6 +145,17 @@ export function PlanCheckoutModal({
   const [walletAddress, setWalletAddress] = useState<string | null>(
     () => getWalletState()?.address ?? null
   );
+  const activeRef = useRef(true);
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const canContinue = () => activeRef.current && (isPrincipalCurrent?.() ?? true);
+
+  useEffect(() => {
+    activeRef.current = true;
+    return () => {
+      activeRef.current = false;
+      if (successTimerRef.current) clearTimeout(successTimerRef.current);
+    };
+  }, []);
 
   const handleClose = () => {
     if (processing) return;
@@ -152,7 +169,9 @@ export function PlanCheckoutModal({
     setProcessing(true);
     setError(null);
     try {
+      if (!principalId) throw new Error("Sign in again before starting checkout.");
       const token = await getToken();
+      if (!canContinue()) return;
       const hyperAgent = createHyperAgentClient(token);
       const planBundle = hasBundle(plan.bundle) ? plan.bundle : undefined;
       const data = await hyperAgent.createStripeCheckout(
@@ -164,14 +183,20 @@ export function PlanCheckoutModal({
         },
         plan.id,
       );
+      if (!canContinue()) return;
       writePendingPlanCheckout({
+        principalId,
         planId: plan.id,
         planName: plan.name,
         ownedCount,
         startedAt: Date.now(),
+        ...(planBundle ? { bundle: planBundle } : {}),
+        baselineGrantedSlots,
       });
+      if (!canContinue()) return;
       window.location.href = data.checkoutUrl;
     } catch (err) {
+      if (!canContinue()) return;
       setError(
         err instanceof Error ? err.message : "Failed to create checkout session"
       );
@@ -184,11 +209,13 @@ export function PlanCheckoutModal({
     setError(null);
     try {
       const wallet = await connectWallet();
+      if (!canContinue()) return;
       setWalletAddress(wallet.address);
     } catch (err: any) {
+      if (!canContinue()) return;
       setError(err.message || "Failed to connect wallet");
     } finally {
-      setProcessing(false);
+      if (canContinue()) setProcessing(false);
     }
   };
 
@@ -196,22 +223,48 @@ export function PlanCheckoutModal({
     setProcessing(true);
     setError(null);
     try {
+      if (!principalId) throw new Error("Sign in again before starting checkout.");
       const token = await getToken();
+      if (!canContinue()) return;
       const hyperAgent = createHyperAgentClient(token);
       const wallet = await connectWallet();
+      if (!canContinue()) return;
       const planBundle = hasBundle(plan.bundle) ? plan.bundle : undefined;
+      writePendingPlanCheckout({
+        principalId,
+        planId: plan.id,
+        planName: plan.name,
+        ownedCount,
+        startedAt: Date.now(),
+        ...(planBundle ? { bundle: planBundle } : {}),
+        baselineGrantedSlots,
+      });
       await hyperAgent.purchaseViaX402WithSigner(plan.id, {
         quantity: 1,
         ...(planBundle ? { bundle: planBundle } : {}),
         signer: walletClientToX402Signer(wallet.client),
         amountUsd: plan.price,
       });
+      if (!canContinue()) return;
+      writePendingPlanCheckout({
+        principalId,
+        planId: plan.id,
+        planName: plan.name,
+        ownedCount,
+        startedAt: Date.now(),
+        returnSessionId: `x402:${Date.now()}`,
+        ...(planBundle ? { bundle: planBundle } : {}),
+        baselineGrantedSlots,
+      });
       setSuccess(true);
-      setTimeout(() => {
-        onSuccess();
+      onSuccess();
+      successTimerRef.current = setTimeout(() => {
+        if (!canContinue()) return;
         handleClose();
       }, 2000);
     } catch (err: any) {
+      if (!canContinue()) return;
+      clearPendingPlanCheckout(principalId);
       let msg = "Payment failed. Please try again.";
       if (err.response?.data?.detail) {
         msg =
@@ -223,7 +276,7 @@ export function PlanCheckoutModal({
       }
       setError(msg);
     } finally {
-      setProcessing(false);
+      if (canContinue()) setProcessing(false);
     }
   };
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
   HyperAgentCurrentPlan,
   HyperAgentEntitlement,
@@ -22,7 +22,9 @@ import {
   getCheckoutReflectionStatus,
   getEffectivePlanName,
   getLaunchSlotInventoryFromSummary,
+  getGrantedLaunchSlotsByTier,
   getPlanOwnedCountFromSummary,
+  markPendingPlanCheckoutReturned,
   readPendingPlanCheckout,
   readStripeCheckoutReturnState,
 } from "@/lib/plan-checkout-state";
@@ -205,11 +207,14 @@ function formatEntitlementDate(entitlement: HyperAgentEntitlement): string {
 }
 
 export default function PlansPage() {
-  const { getToken } = useAgentAuth();
+  const { getToken, user } = useAgentAuth();
   const getTokenRef = useRef(getToken);
+  const activePrincipalRef = useRef(user?.id ?? null);
   const [catalogPlans, setCatalogPlans] = useState<HyperAgentPlan[]>([]);
   const [currentPlan, setCurrentPlan] = useState<HyperAgentCurrentPlan | null>(null);
   const [summary, setSummary] = useState<HyperAgentSubscriptionSummary | null>(null);
+  const [billingReadyPrincipalId, setBillingReadyPrincipalId] = useState<string | null>(null);
+  const [billingError, setBillingError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [checkoutPlan, setCheckoutPlan] = useState<CheckoutPlan | null>(null);
   const [mutatingSubscriptionId, setMutatingSubscriptionId] = useState<string | null>(null);
@@ -221,14 +226,40 @@ export default function PlansPage() {
   const [redeemingCode, setRedeemingCode] = useState(false);
   const [checkoutSync, setCheckoutSync] = useState<CheckoutSyncState | null>(null);
   const checkoutReturnHandledRef = useRef(false);
+  const planRequestRef = useRef(0);
+  const checkoutBaselineGrantedSlots = useMemo(() => getGrantedLaunchSlotsByTier(summary), [summary]);
 
   useEffect(() => {
     getTokenRef.current = getToken;
   }, [getToken]);
 
+  useLayoutEffect(() => {
+    const nextPrincipal = user?.id ?? null;
+    if (activePrincipalRef.current !== nextPrincipal) {
+      planRequestRef.current += 1;
+      setCatalogPlans([]);
+      setCurrentPlan(null);
+      setSummary(null);
+      setBillingReadyPrincipalId(null);
+      setBillingError(null);
+      setCheckoutPlan(null);
+      setCheckoutSync(null);
+      setLoading(true);
+      checkoutReturnHandledRef.current = false;
+    }
+    activePrincipalRef.current = nextPrincipal;
+  }, [user?.id]);
+
   const refreshPlan = useCallback(async () => {
+    const principalId = user?.id ?? null;
+    if (!principalId) return null;
+    const requestId = ++planRequestRef.current;
+    const isCurrentRequest = () => (
+      requestId === planRequestRef.current && activePrincipalRef.current === principalId
+    );
     try {
       const token = await getTokenRef.current();
+      if (!isCurrentRequest()) return null;
       const agentClient = createHyperAgentClient(token);
       const [catalog, current, subscriptions] = await Promise.allSettled([
         withTimeout(agentClient.plans(), CORE_PLAN_FETCH_TIMEOUT_MS, "Plan catalog request"),
@@ -238,32 +269,51 @@ export default function PlansPage() {
       const nextCatalogPlans = catalog.status === "fulfilled" ? catalog.value : [];
       const nextCurrentPlan = current.status === "fulfilled" ? current.value : null;
       const nextSummary = subscriptions.status === "fulfilled" ? subscriptions.value : null;
+      if (!isCurrentRequest()) return null;
       setCatalogPlans(nextCatalogPlans);
       setCatalogError(catalog.status === "fulfilled" ? null : "Plan catalog is unavailable right now.");
       setCurrentPlan(nextCurrentPlan);
       setSummary(nextSummary);
-      return { currentPlan: nextCurrentPlan, subscriptionSummary: nextSummary };
+      setBillingReadyPrincipalId(subscriptions.status === "fulfilled" ? principalId : null);
+      setBillingError(subscriptions.status === "fulfilled" ? null : "Billing data could not be loaded. Retry before checkout.");
+      return {
+        currentPlan: nextCurrentPlan,
+        subscriptionSummary: nextSummary,
+        billingReady: subscriptions.status === "fulfilled",
+      };
     } catch {
+      if (isCurrentRequest()) {
+        setBillingReadyPrincipalId(null);
+        setBillingError("Billing data could not be loaded. Retry before checkout.");
+      }
       return null;
+    } finally {
+      if (isCurrentRequest()) setLoading(false);
     }
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
-    setLoading(true);
-    void refreshPlan().finally(() => setLoading(false));
+    void refreshPlan();
   }, [refreshPlan]);
 
   const refreshCheckoutEntitlements = useCallback(async () => {
-    const pending = readPendingPlanCheckout();
+    const pending = readPendingPlanCheckout(user?.id);
     setCheckoutSync({
       status: "syncing",
       message: `Refreshing ${pending?.planName ?? "your plan"} entitlements from billing...`,
     });
     const refreshed = await refreshPlan();
+    if (!refreshed?.billingReady) {
+      setCheckoutSync({
+        status: "pending",
+        message: "Billing data could not be loaded. Retry before checking checkout status.",
+      });
+      return;
+    }
     const reflectionStatus = getCheckoutReflectionStatus(refreshed?.subscriptionSummary ?? null, pending);
 
     if (reflectionStatus === "ready") {
-      clearPendingPlanCheckout();
+      clearPendingPlanCheckout(user?.id);
       setCheckoutSync({
         status: "success",
         message: `${pending?.planName ?? "Your plan"} is active. Agent slots and limits are updated.`,
@@ -283,16 +333,24 @@ export default function PlansPage() {
       status: "pending",
       message: "Payment succeeded. Billing is still updating, so this page will keep showing the latest plan data.",
     });
-  }, [refreshPlan]);
+  }, [refreshPlan, user?.id]);
 
   useEffect(() => {
     if (checkoutReturnHandledRef.current) return;
     const checkoutReturn = readStripeCheckoutReturnState();
     if (!checkoutReturn) return;
+    const principalId = user?.id;
+    if (!principalId) return;
+    let pending = readPendingPlanCheckout(principalId);
+    if (!pending) {
+      checkoutReturnHandledRef.current = true;
+      clearStripeCheckoutReturnState();
+      return;
+    }
 
     if (checkoutReturn.status === "cancelled") {
       checkoutReturnHandledRef.current = true;
-      clearPendingPlanCheckout();
+      clearPendingPlanCheckout(principalId);
       setCheckoutSync({
         status: "cancelled",
         message: "Checkout cancelled. No plan changes were made.",
@@ -301,8 +359,21 @@ export default function PlansPage() {
       return;
     }
 
+    if (billingReadyPrincipalId !== principalId) {
+      setCheckoutSync({
+        status: billingError ? "pending" : "syncing",
+        message: billingError ?? `Loading billing data for ${pending.planName}...`,
+      });
+      return;
+    }
+
+    pending = markPendingPlanCheckoutReturned(principalId, checkoutReturn.sessionId ?? "");
+    if (!pending) {
+      checkoutReturnHandledRef.current = true;
+      clearStripeCheckoutReturnState();
+      return;
+    }
     let active = true;
-    const pending = readPendingPlanCheckout();
     const planLabel = pending?.planName ? `${pending.planName} plan` : "your plan";
     setCheckoutSync({
       status: "syncing",
@@ -332,7 +403,7 @@ export default function PlansPage() {
       if (!active) return;
 
       if (reflectionStatus === "ready") {
-        clearPendingPlanCheckout();
+        clearPendingPlanCheckout(principalId);
         setCheckoutSync({
           status: "success",
           message: `${pending?.planName ?? "Your plan"} is active. Agent slots and limits are updated.`,
@@ -356,13 +427,37 @@ export default function PlansPage() {
     return () => {
       active = false;
     };
-  }, [refreshPlan]);
+  }, [billingError, billingReadyPrincipalId, refreshPlan, user?.id]);
 
   useEffect(() => {
     if (!checkoutSync || (checkoutSync.status !== "success" && checkoutSync.status !== "cancelled")) return;
     const timer = setTimeout(() => setCheckoutSync(null), 5000);
     return () => clearTimeout(timer);
   }, [checkoutSync]);
+
+  useEffect(() => {
+    if (loading || !user?.id || readStripeCheckoutReturnState()) return;
+    const pending = readPendingPlanCheckout(user.id);
+    if (!pending?.returnSessionId) return;
+    const reflectionStatus = getCheckoutReflectionStatus(summary, pending);
+    if (reflectionStatus === "ready") {
+      clearPendingPlanCheckout(user.id);
+      setCheckoutSync({
+        status: "success",
+        message: `${pending.planName} is active. Agent slots and limits are updated.`,
+      });
+    } else if (reflectionStatus === "waiting-entitlement") {
+      setCheckoutSync({
+        status: "pending",
+        message: "Payment active. Waiting for launch entitlements to finish provisioning before agents can be created.",
+      });
+    } else {
+      setCheckoutSync({
+        status: "pending",
+        message: "Payment succeeded. Billing is still updating, so this page will keep showing the latest plan data.",
+      });
+    }
+  }, [loading, summary, user?.id]);
 
   const ownedBundles = useMemo(() => {
     const entries = new Map<string, number>();
@@ -400,6 +495,7 @@ export default function PlansPage() {
   }, [summary?.subscriptions]);
 
   const displayProducts = useMemo(() => buildDisplayProducts(catalogPlans), [catalogPlans]);
+  const billingReady = Boolean(user?.id && billingReadyPrincipalId === user.id);
   const launchSlotInventory = useMemo(() => getLaunchSlotInventoryFromSummary(summary), [summary]);
   const effectivePlanName = useMemo(
     () => getEffectivePlanName(summary, currentPlan, catalogPlans),
@@ -606,6 +702,22 @@ export default function PlansPage() {
               Dismiss
             </button>
           </div>
+        </div>
+      )}
+
+      {billingError && (
+        <div className="glass-card mb-6 flex items-center justify-between gap-3 border border-destructive/30 p-4">
+          <p className="text-sm text-destructive">{billingError}</p>
+          <button
+            type="button"
+            onClick={() => {
+              setBillingError(null);
+              void refreshPlan();
+            }}
+            className="text-sm font-medium text-foreground underline underline-offset-4 transition hover:text-[var(--selection-accent)]"
+          >
+            Retry
+          </button>
         </div>
       )}
 
@@ -820,6 +932,7 @@ export default function PlansPage() {
 
                 <button
                   onClick={() => {
+                    if (!billingReady) return;
                     if (waitingForLaunchEntitlement) {
                       void refreshCheckoutEntitlements();
                       return;
@@ -833,10 +946,10 @@ export default function PlansPage() {
                       limits: product.limits,
                     });
                   }}
-                  disabled={product.id === "free"}
+                  disabled={product.id === "free" || !billingReady}
                   className="w-full py-2.5 rounded-lg text-sm font-medium btn-secondary flex items-center justify-center gap-2 disabled:opacity-50"
                 >
-                  {product.id === "free" ? "Included" : waitingForLaunchEntitlement ? "Refresh billing" : ownedCount > 0 ? "Add Another" : "Purchase"}
+                  {product.id === "free" ? "Included" : !billingReady ? "Billing unavailable" : waitingForLaunchEntitlement ? "Refresh billing" : ownedCount > 0 ? "Add Another" : "Purchase"}
                 </button>
               </div>
             );
@@ -847,6 +960,9 @@ export default function PlansPage() {
       {checkoutPlan && (
         <PlanCheckoutModal
           plan={checkoutPlan}
+          baselineGrantedSlots={checkoutBaselineGrantedSlots}
+          principalId={user?.id ?? ""}
+          isPrincipalCurrent={() => activePrincipalRef.current === user?.id}
           ownedCount={
             Math.max(
               ownedPlanCounts.get(checkoutPlan.id) ?? 0,

@@ -76,13 +76,9 @@ function filesListingCacheKey(
   return [normalizedAgentId, sourceMode, normalizePanelPath(rootPath), normalizePanelPath(path)].join("\n");
 }
 
-function sourceInitialPath(source: AgentFilesPanelSource, workspaceRootPath: string): string {
+function sourceRootPath(source: AgentFilesPanelSource, workspaceRootPath: string): string {
   if (source === "gateway") return workspaceRootPath;
   return workspaceRootPath.split("/").filter(Boolean)[0] ?? "";
-}
-
-function sourceEffectiveRootPath(source: AgentFilesPanelSource, workspaceRootPath: string): string {
-  return source === "gateway" ? workspaceRootPath : "";
 }
 
 function resolveAvailableSource(
@@ -209,15 +205,9 @@ export function AgentFilesPanel({
   const initialSourceMode = resolveAvailableSource(defaultSource, sourceDisabledReasons);
   const [sourceMode, setSourceMode] = useState<AgentFilesPanelSource>(() => initialSourceMode);
   const isGatewaySource = sourceMode === "gateway";
-  // The highest directory each source can navigate up to (the breadcrumb "Home" target):
-  // - gateway: name-addressed workspace files — flat, no directory nav; pin to the workspace root.
-  // - agent (live pod) + backup (S3): the deployment files API is sync-root-relative, so the real
-  //   root is the sync root (`""` === /home/node). Un-clamp so the user can climb above the
-  //   `.openclaw/workspace` subdir. NOTE: the pod filesystem above the sync root (up to `/`) is
-  //   NOT reachable through the current backend files API, so `agent` also stops at the sync root.
-  const effectiveRootPath = sourceEffectiveRootPath(sourceMode, normalizedRootPath);
+  const currentRootPath = sourceRootPath(sourceMode, normalizedRootPath);
   const [searchQuery, setSearchQuery] = useState("");
-  const [currentPath, setCurrentPath] = useState(() => sourceInitialPath(initialSourceMode, normalizedRootPath));
+  const [currentPath, setCurrentPath] = useState(() => sourceRootPath(initialSourceMode, normalizedRootPath));
   const [showHidden, setShowHidden] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
@@ -230,8 +220,8 @@ export function AgentFilesPanel({
   const [files, setFiles] = useState<FileEntry[]>(() => (
     getCachedFiles(filesListingCacheKey(
       agentId,
-      sourceEffectiveRootPath(initialSourceMode, normalizedRootPath),
-      sourceInitialPath(initialSourceMode, normalizedRootPath),
+      sourceRootPath(initialSourceMode, normalizedRootPath),
+      sourceRootPath(initialSourceMode, normalizedRootPath),
       initialSourceMode,
     )) ?? []
   ));
@@ -244,8 +234,8 @@ export function AgentFilesPanel({
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const currentListingCacheKey = useMemo(
-    () => filesListingCacheKey(agentId, effectiveRootPath, currentPath, sourceMode),
-    [agentId, currentPath, effectiveRootPath, sourceMode],
+    () => filesListingCacheKey(agentId, currentRootPath, currentPath, sourceMode),
+    [agentId, currentPath, currentRootPath, sourceMode],
   );
   const currentSourceDisabledReason = sourceDisabledReasons[sourceMode] ?? null;
   const backupComparisonDisabledReason = isGatewaySource
@@ -254,7 +244,7 @@ export function AgentFilesPanel({
   const backupComparisonAvailable = connected && showSourceTabs && !isGatewaySource && !backupComparisonDisabledReason;
   const resetSourceSelection = useCallback((nextSource: AgentFilesPanelSource) => {
     setSourceMode(nextSource);
-    setCurrentPath(sourceInitialPath(nextSource, normalizedRootPath));
+    setCurrentPath(sourceRootPath(nextSource, normalizedRootPath));
     setSearchQuery("");
     setPreviewEntry(null);
     setPreviewContent(null);
@@ -547,9 +537,9 @@ export function AgentFilesPanel({
   }, [copyText]);
 
   const handleNavigate = useCallback((path: string) => {
-    setCurrentPath(pathFromRoot(path, effectiveRootPath));
+    setCurrentPath(pathFromRoot(path, currentRootPath));
     setPreviewEntry(null);
-  }, [effectiveRootPath]);
+  }, [currentRootPath]);
 
   const handleSourceModeChange = useCallback((mode: AgentFilesPanelSource) => {
     if (mode === sourceMode) return;
@@ -567,7 +557,7 @@ export function AgentFilesPanel({
     setSortMenuOpen(false);
   }, [sortKey]);
 
-  const breadcrumbPath = pathRelativeToRoot(currentPath, effectiveRootPath);
+  const breadcrumbPath = pathRelativeToRoot(currentPath, currentRootPath);
   const filePreview = previewEntry ? (
     <FilePreview
       key={previewEntry.path}
@@ -904,7 +894,7 @@ export function AgentFilesPanel({
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: "100%", opacity: 0.98 }}
             transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-            className="absolute inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-background shadow-[0_-18px_50px_color-mix(in_srgb,var(--foreground)_18%,transparent)]"
+            className="elevation-shadow-top absolute inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-background"
           >
             <div className="flex flex-shrink-0 justify-center py-2">
               <div className="h-1 w-10 rounded-full bg-border" />

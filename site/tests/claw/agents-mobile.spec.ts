@@ -341,7 +341,7 @@ async function mockAuthenticatedMobileAgent(page: Page): Promise<void> {
 }
 
 async function openMobileAgentsDashboard(page: Page): Promise<void> {
-  await page.setViewportSize({ width: 1440, height: 1024 });
+  await page.setViewportSize(MOBILE_VIEWPORT);
   await mockAuthenticatedMobileAgent(page);
   await page.goto("/dashboard/agents", { waitUntil: "domcontentloaded" });
   await expect.poll(async () => page.evaluate(() => ({
@@ -361,8 +361,7 @@ async function openMobileAgentsDashboard(page: Page): Promise<void> {
       { timeout: 20_000, intervals: [250, 500, 1_000] }
     )
     .toBe(true);
-  await page.setViewportSize(MOBILE_VIEWPORT);
-  await expect(page.getByRole("button", { name: /open agents sidebar/i })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: "Open navigation" })).toBeVisible({ timeout: 20_000 });
   await expectNoHorizontalOverflow(page);
 }
 
@@ -409,21 +408,23 @@ async function expectNoHorizontalOverflow(page: Page): Promise<void> {
   expect(metrics.offenders).toEqual([]);
 }
 
-async function openWorkspaceDrawer(page: Page): Promise<void> {
-  await page.getByRole("button", { name: /open workspace sidebar/i }).click();
+async function openMobileNavigation(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Open navigation" }).click();
+  await expect(page.getByRole("dialog", { name: "Agent navigation" })).toBeVisible();
   await expect(page.getByRole("button", { name: /^files$/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Close navigation" })).toBeFocused();
   await page.waitForTimeout(250);
   await expectNoHorizontalOverflow(page);
 }
 
-async function openSettingsFromWorkspaceDrawer(page: Page): Promise<void> {
-  await openWorkspaceDrawer(page);
+async function openSettingsFromMobileNavigation(page: Page): Promise<void> {
+  await openMobileNavigation(page);
   await page.getByRole("button", { name: /^advanced$/i }).click();
   await page.getByRole("menuitem", { name: /^settings$/i }).click();
 }
 
-async function expectWorkspaceDrawerClosed(page: Page): Promise<void> {
-  await expect(page.getByRole("button", { name: /close workspace sidebar/i })).toHaveCount(0);
+async function expectMobileNavigationClosed(page: Page): Promise<void> {
+  await expect(page.getByRole("dialog", { name: "Agent navigation" })).toHaveCount(0);
   await page.waitForTimeout(250);
 }
 
@@ -437,26 +438,40 @@ test.describe("Agents mobile layout", () => {
   test("keeps mobile navigation, settings, and billing within the viewport", async ({ page }) => {
     await openMobileAgentsDashboard(page);
 
-    await page.getByRole("button", { name: /open agents sidebar/i }).click();
+    await expect(page.getByRole("button", { name: /open agents sidebar/i })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /open workspace sidebar/i })).toHaveCount(0);
+    await openMobileNavigation(page);
+    await expect(page.getByRole("dialog", { name: "Agent navigation" })).toHaveAttribute("data-state", "open");
+    await page.keyboard.press("Escape");
+    await expectMobileNavigationClosed(page);
+    await expect(page.getByRole("button", { name: "Open navigation" })).toBeFocused();
+
+    await openMobileNavigation(page);
+    await page.getByRole("button", { name: "Launch agent" }).click();
+    await expectMobileNavigationClosed(page);
+    await expect(page.getByRole("dialog", { name: "Launch agent" })).toBeVisible();
+    await page.getByRole("button", { name: "Close launch agent" }).click();
+    await expect(page.getByRole("button", { name: "Open navigation" })).toBeFocused();
+
+    await openMobileNavigation(page);
     await expect(page.getByRole("button", { name: "Select Mobile Regression Agent" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Move Mobile Regression Agent" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Select Offline Mobile Agent" })).toHaveCount(0);
-    await expect(page.getByText(/^available agents$/i)).toHaveCount(0);
-    const showOfflineAgents = page.getByRole("switch", { name: "Show offline agents" });
-    await expect(showOfflineAgents).toHaveAttribute("aria-checked", "false");
-    await showOfflineAgents.click();
     await expect(page.getByRole("button", { name: "Select Offline Mobile Agent" })).toBeVisible();
-    const closeAgentsSidebar = page.getByRole("button", { name: /close agents sidebar/i }).last();
-    await expect(closeAgentsSidebar).toBeVisible();
+    await expect(page.getByText(/^available agents$/i)).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Expand agents sidebar" })).toBeVisible();
+    await page.getByRole("button", { name: "Expand agents sidebar" }).click();
+    await expect(page.getByRole("heading", { name: "Agents" })).toBeVisible();
+    await page.getByRole("button", { name: "Collapse sidebar" }).click();
+    await expect(page.getByRole("button", { name: /^files$/i })).toBeVisible();
     await page.waitForTimeout(250);
     await expectNoHorizontalOverflow(page);
-    await closeAgentsSidebar.click();
-    await expect(closeAgentsSidebar).toBeHidden();
+    await page.getByRole("button", { name: "Close navigation" }).click();
+    await expectMobileNavigationClosed(page);
 
-    await openSettingsFromWorkspaceDrawer(page);
-    await expectWorkspaceDrawerClosed(page);
+    await openSettingsFromMobileNavigation(page);
+    await expectMobileNavigationClosed(page);
 
-    await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Settings" })).toHaveCount(1);
     await expect(page.getByRole("navigation", { name: /settings sections/i })).toBeVisible();
     await expectNoHorizontalOverflow(page);
 
@@ -476,10 +491,10 @@ test.describe("Agents mobile layout", () => {
 
   test("opens the file editor as a full mobile drawer with aligned action buttons", async ({ page }) => {
     await openMobileAgentsDashboard(page);
-    await openWorkspaceDrawer(page);
+    await openMobileNavigation(page);
 
     await page.getByRole("button", { name: /^files$/i }).click();
-    await expectWorkspaceDrawerClosed(page);
+    await expectMobileNavigationClosed(page);
     const fileButton = page.getByRole("button", { name: /README\.md/i }).first();
     await expect(fileButton).toBeVisible();
     await expectNoHorizontalOverflow(page);

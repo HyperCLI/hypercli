@@ -1,5 +1,5 @@
 import { createRef, useState, type ComponentProps } from "react";
-import { act, fireEvent, screen, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentChannelSummary } from "@hypercli.com/sdk/channels";
 import type { AgentSkillsProvider } from "@hypercli.com/sdk/skills";
@@ -7,14 +7,33 @@ import type { AgentSkillsProvider } from "@hypercli.com/sdk/skills";
 import { buildSdkAgent } from "@/test/factories";
 import { renderWithClient } from "@/test/utils";
 import { toAgentViewModel } from "./agentViewModel";
-import { AgentChatPanel } from "./AgentChatPanel";
+import {
+  AgentChatPanel,
+  chatMessageRowKey,
+  failedReplyRetrySource,
+  isRetryableFailedReply,
+  scrollTranscriptToBottom,
+} from "./AgentChatPanel";
 
 const chatMessageBubbleMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/components/dashboard/ChatMessage", () => ({
-  ChatMessageBubble: (props: unknown) => {
+  ChatMessageBubble: (props: {
+    onRetryFailedReply?: () => void;
+    retryFailedReplyDisabled?: boolean;
+    retryingFailedReply?: boolean;
+  }) => {
     chatMessageBubbleMock(props);
-    return null;
+    return props.onRetryFailedReply ? (
+      <button
+        type="button"
+        aria-label={props.retryingFailedReply ? "Retrying failed reply" : "Retry failed reply"}
+        disabled={props.retryFailedReplyDisabled || props.retryingFailedReply}
+        onClick={props.onRetryFailedReply}
+      >
+        {props.retryingFailedReply ? "Retrying..." : "Retry"}
+      </button>
+    ) : null;
   },
   ChatThinkingIndicator: () => <div role="status" aria-label="Thinking">Thinking</div>,
 }));
@@ -163,7 +182,8 @@ function buildAgentChatPanelProps(overrides: Partial<AgentChatPanelProps> = {}):
     handleChatFileDrop: vi.fn(),
     chatScrollRef: createRef<HTMLDivElement>(),
     handleChatScroll: vi.fn(),
-    chatEndRef: createRef<HTMLDivElement>(),
+    onTranscriptResize: vi.fn(),
+    onRequestTranscriptScroll: vi.fn(),
     recording: false,
     audioLevel: 0,
     recordingDuration: 0,
@@ -226,10 +246,270 @@ function renderAgentChatPanelWithInputState({
   return renderWithClient(<StatefulAgentChatPanel />);
 }
 
+function setScrollMetrics(
+  element: HTMLDivElement,
+  { scrollHeight, clientHeight, scrollTop }: { scrollHeight: number; clientHeight: number; scrollTop: number },
+) {
+  Object.defineProperties(element, {
+    scrollHeight: { configurable: true, value: scrollHeight },
+    clientHeight: { configurable: true, value: clientHeight },
+    scrollTop: { configurable: true, writable: true, value: scrollTop },
+  });
+}
+
 describe("AgentChatPanel", () => {
   afterEach(() => {
     vi.useRealTimers();
     chatMessageBubbleMock.mockClear();
+  });
+
+  it("keys production message rows by target and immutable render identity", () => {
+    const initialKey = chatMessageRowKey(
+      "agent-1",
+      "main",
+      { renderId: "render-1" },
+      "legacy-ignored",
+    );
+    const identifiedKey = chatMessageRowKey(
+      "agent-1",
+      "main",
+      { renderId: "render-1", messageId: "message-1" },
+      "legacy-ignored",
+    );
+
+    expect(identifiedKey).toBe(initialKey);
+    expect(chatMessageRowKey("agent-1", "main", { messageId: "message-1" }, "legacy-ignored"))
+      .toBe(JSON.stringify(["agent-1", "main", "message-1"]));
+    expect(chatMessageRowKey("agent-1", "secondary", { renderId: "render-1" }, "legacy-ignored"))
+      .not.toBe(initialKey);
+  });
+
+  it("recognizes failed replies and resolves their originating user turn", () => {
+    const messages: ChatSession["messages"] = [
+      { role: "user", content: "Earlier request", clientTurnId: "turn-1" },
+      { role: "user", content: "Retry this request", clientTurnId: "turn-2" },
+      {
+        role: "assistant",
+        content: "The agent run failed before producing a reply.",
+        clientTurnId: "turn-2",
+      },
+    ];
+
+    expect(isRetryableFailedReply(messages[2]!)).toBe(true);
+    expect(isRetryableFailedReply({ role: "assistant", content: "A normal response." })).toBe(false);
+    expect(failedReplyRetrySource(messages, 2)).toBe(messages[1]);
+  });
+
+  it("retries a failed reply with the original prompt and attachments", async () => {
+    const sendMessage = vi.fn(async () => undefined);
+    const attachment = {
+      type: "image" as const,
+      mimeType: "image/png",
+      content: "aW1hZ2U=",
+      fileName: "reference.png",
+    };
+    const file = {
+      name: "context.md",
+      path: "/home/node/.openclaw/workspace/context.md",
+      type: "text/markdown",
+    };
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        sendMessage,
+        messages: [
+          {
+            role: "user",
+            content: "Visible request",
+            retryContent: "Original request sent to the agent",
+            clientTurnId: "turn-retry",
+            attachments: [attachment],
+            files: [file],
+          },
+          {
+            role: "assistant",
+            content: "The agent run failed before producing a reply.",
+            clientTurnId: "turn-retry",
+          },
+        ],
+      }),
+      isSelectedRunning: true,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry failed reply" }));
+
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledWith(
+      "Original request sent to the agent",
+      {
+        displayContent: "Visible request",
+        attachments: [attachment],
+        files: [file],
+      },
+    ));
+  });
+
+  it("offers a way to scroll to the latest message when reading earlier messages", () => {
+    const chatScrollRef = createRef<HTMLDivElement>();
+    const handleChatScroll = vi.fn();
+    const onRequestTranscriptScroll = vi.fn();
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        messages: [{ role: "assistant", content: "An earlier response" }],
+      }),
+      chatScrollRef,
+      handleChatScroll,
+      onRequestTranscriptScroll,
+    });
+
+    const scroller = chatScrollRef.current!;
+    setScrollMetrics(scroller, { scrollHeight: 1_200, clientHeight: 400, scrollTop: 300 });
+    fireEvent.scroll(scroller);
+
+    const latestButton = screen.getByRole("button", { name: "Scroll to latest message" });
+    expect(handleChatScroll).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(latestButton);
+    expect(onRequestTranscriptScroll).toHaveBeenCalledWith("smooth");
+
+    scroller.scrollTop = 750;
+    fireEvent.scroll(scroller);
+    expect(screen.queryByRole("button", { name: "Scroll to latest message" })).not.toBeInTheDocument();
+  });
+
+  it("uses the transcript scroll owner and disables smooth scrolling for reduced motion", () => {
+    const originalMatchMedia = window.matchMedia;
+    const matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(() => true),
+    } satisfies MediaQueryList));
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: matchMedia,
+    });
+
+    try {
+      const scroller = document.createElement("div");
+      const scrollTo = vi.fn();
+      Object.defineProperty(scroller, "scrollTo", { configurable: true, value: scrollTo });
+      setScrollMetrics(scroller, { scrollHeight: 1_200, clientHeight: 400, scrollTop: 300 });
+      scrollTranscriptToBottom(scroller, "smooth");
+
+      expect(matchMedia).toHaveBeenCalledWith("(prefers-reduced-motion: reduce)");
+      expect(scrollTo).not.toHaveBeenCalled();
+      expect(scroller.scrollTop).toBe(1_200);
+    } finally {
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        writable: true,
+        value: originalMatchMedia,
+      });
+    }
+  });
+
+  it("keeps the transcript content unconstrained inside the single vertical scroll owner", () => {
+    const chatScrollRef = createRef<HTMLDivElement>();
+    renderAgentChatPanel({ chatScrollRef });
+
+    const scroller = chatScrollRef.current!;
+    const content = scroller.firstElementChild as HTMLDivElement;
+    expect(scroller).toHaveClass("overflow-y-auto");
+    expect(content).toHaveClass("min-h-full");
+    expect(content.className).not.toMatch(/\boverflow(?:-[xy])?-(?:auto|scroll|hidden)\b/);
+    expect(content).not.toHaveClass("h-full", "max-h-full");
+  });
+
+  it("reattaches transcript resize observation to the actual nodes after a stopped-to-running remount", () => {
+    const originalResizeObserver = globalThis.ResizeObserver;
+    const observers: Array<{
+      callback: ResizeObserverCallback;
+      observe: ReturnType<typeof vi.fn>;
+      disconnect: ReturnType<typeof vi.fn>;
+    }> = [];
+    class TestResizeObserver {
+      callback: ResizeObserverCallback;
+      observe = vi.fn();
+      unobserve = vi.fn();
+      disconnect = vi.fn();
+
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback;
+        observers.push(this);
+      }
+    }
+    vi.stubGlobal("ResizeObserver", TestResizeObserver);
+
+    const chatScrollRef = createRef<HTMLDivElement>();
+    const onTranscriptResize = vi.fn();
+    const props = buildAgentChatPanelProps({ chatScrollRef, onTranscriptResize });
+    function Harness({ running }: { running: boolean }) {
+      return running ? <AgentChatPanel {...props} /> : <div>Stopped</div>;
+    }
+
+    try {
+      const { rerender, unmount } = renderWithClient(<Harness running />);
+      const firstScroller = chatScrollRef.current!;
+      const firstContent = firstScroller.firstElementChild;
+      const firstTranscriptObserver = observers.find((observer) => observer.observe.mock.calls.some(([node]) => node === firstScroller));
+      expect(firstTranscriptObserver?.observe.mock.calls).toEqual([[firstScroller], [firstContent]]);
+
+      act(() => rerender(<Harness running={false} />));
+      expect(firstTranscriptObserver?.disconnect).toHaveBeenCalledTimes(1);
+      expect(chatScrollRef.current).toBeNull();
+
+      act(() => rerender(<Harness running />));
+      const secondScroller = chatScrollRef.current!;
+      const secondContent = secondScroller.firstElementChild;
+      const secondTranscriptObserver = observers.find((observer) => observer.observe.mock.calls.some(([node]) => node === secondScroller));
+      expect(secondTranscriptObserver?.observe.mock.calls).toEqual([[secondScroller], [secondContent]]);
+
+      secondTranscriptObserver?.callback([], secondTranscriptObserver as unknown as ResizeObserver);
+      expect(onTranscriptResize).toHaveBeenCalledTimes(1);
+      expect(onTranscriptResize).toHaveBeenCalledWith("smooth");
+      unmount();
+      expect(secondTranscriptObserver?.disconnect).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.stubGlobal("ResizeObserver", originalResizeObserver);
+    }
+  });
+
+  it("hides the latest-message control when the active session changes", () => {
+    const chatScrollRef = createRef<HTMLDivElement>();
+    const chat = buildChat({
+      status: "connected",
+      gatewayConnected: true,
+      ready: true,
+      connected: true,
+      messages: [{ role: "assistant", content: "Session response" }],
+    });
+    const props = buildAgentChatPanelProps({ chat, chatScrollRef });
+    const { rerender } = renderWithClient(<AgentChatPanel {...props} />);
+
+    const scroller = chatScrollRef.current!;
+    setScrollMetrics(scroller, { scrollHeight: 1_200, clientHeight: 400, scrollTop: 300 });
+    fireEvent.scroll(scroller);
+    expect(screen.getByRole("button", { name: "Scroll to latest message" })).toBeInTheDocument();
+
+    rerender(
+      <AgentChatPanel
+        {...props}
+        chat={{ ...chat, activeSessionKey: "secondary" }}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Scroll to latest message" })).not.toBeInTheDocument();
   });
 
   it("explains the transcript-only boundary while private chat is active", () => {
@@ -293,6 +573,29 @@ describe("AgentChatPanel", () => {
     expect(screen.queryByRole("button", { name: /connect slack/i })).not.toBeInTheDocument();
   });
 
+  it("keeps existing messages visible and exposes retry when history refresh fails", () => {
+    const retry = vi.fn();
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        historyPhase: "error",
+        messages: [{ role: "assistant", content: "Cached answer", renderId: "cached-answer" }],
+        retry,
+      }),
+      isSelectedRunning: true,
+    });
+
+    expect(chatMessageBubbleMock.mock.calls.some(([props]) => (
+      props as { message?: { content?: string } } | undefined
+    )?.message?.content === "Cached answer")).toBe(true);
+    expect(screen.getByRole("alert")).toHaveTextContent("Showing saved messages");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps the composer out of the provisioning stage", () => {
     const selectedAgent = buildAgent("PENDING");
     renderAgentChatPanel({
@@ -306,7 +609,7 @@ describe("AgentChatPanel", () => {
   });
 
   it("passes workspace file actions to rendered chat messages", () => {
-    const selectedAgent = buildAgent();
+    const selectedAgent = { ...buildAgent(), name: "research-agent", displayName: "Research Pilot" };
     const onReadFileBytesFromChat = vi.fn();
     const onOpenFileFromChat = vi.fn();
     const onDownloadFileFromChat = vi.fn();
@@ -340,11 +643,59 @@ describe("AgentChatPanel", () => {
     const bubbleProps = chatMessageBubbleMock.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
     expect(bubbleProps).toEqual(expect.objectContaining({
       agentId: selectedAgent.id,
+      agentName: "Research Pilot",
       animationVariant: "off",
       onReadFileBytesFromChat,
       onOpenFileFromChat,
       onDownloadFileFromChat,
     }));
+  });
+
+  it("contains a malformed message render without losing the transcript", () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    chatMessageBubbleMock.mockImplementation((props: { message?: { content?: string } }) => {
+      if (props.message?.content === "Malformed payload") throw new Error("render failed");
+    });
+    try {
+      const initialProps = buildAgentChatPanelProps({
+        chat: buildChat({
+          status: "connected",
+          gatewayConnected: true,
+          ready: true,
+          connected: true,
+          messages: [
+            { role: "assistant", content: "Malformed payload", renderId: "bad-row" },
+            { role: "assistant", content: "Healthy payload", renderId: "good-row" },
+          ],
+        }),
+      });
+      const { rerender } = renderWithClient(<AgentChatPanel {...initialProps} />);
+
+      expect(screen.getByRole("alert")).toHaveTextContent("This message could not be displayed");
+      expect(chatMessageBubbleMock.mock.calls.some(([props]) => (
+        props as { message?: { content?: string } } | undefined
+      )?.message?.content === "Healthy payload")).toBe(true);
+
+      rerender(
+        <AgentChatPanel
+          {...initialProps}
+          chat={{
+            ...initialProps.chat,
+            messages: [
+              { role: "assistant", content: "Recovered payload", renderId: "bad-row", revision: 2 },
+              { role: "assistant", content: "Healthy payload", renderId: "good-row" },
+            ],
+          }}
+        />,
+      );
+      expect(screen.queryByText("This message could not be displayed.")).not.toBeInTheDocument();
+      expect(chatMessageBubbleMock.mock.calls.some(([props]) => (
+        props as { message?: { content?: string } } | undefined
+      )?.message?.content === "Recovered payload")).toBe(true);
+    } finally {
+      chatMessageBubbleMock.mockImplementation(() => undefined);
+      consoleError.mockRestore();
+    }
   });
 
   it("passes assistant audio reply files to chat message bubbles", () => {
@@ -457,7 +808,99 @@ describe("AgentChatPanel", () => {
       isSelectedRunning: true,
     });
 
-    expect(screen.getByRole("button", { name: "Model: GPT-5 Mini, Medium" })).toBeInTheDocument();
+    const modelTrigger = screen.getByRole("button", { name: "Model: GPT-5 Mini, Medium" });
+    expect(modelTrigger).toHaveClass("max-w-24", "sm:max-w-40");
+    expect(modelTrigger.parentElement).toHaveClass("hidden", "sm:block");
+    expect(within(modelTrigger).getByText("Medium")).toHaveClass("hidden", "sm:inline");
+    expect(screen.getByRole("textbox", { name: /message agent/i })).toHaveClass("pr-32", "sm:pr-72");
+  });
+
+  it("groups mobile model and attachment controls beside the voice button", () => {
+    const fileInputClick = vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => undefined);
+    renderAgentChatPanel({
+      chat: buildChat({
+        backend: "openclaw",
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        config: {
+          agents: { defaults: { model: { primary: "openai/gpt-5-mini" } } },
+          models: { providers: { openai: { name: "OpenAI", models: [{ id: "gpt-5-mini", name: "GPT-5 Mini" }] } } },
+        },
+      }),
+      isSelectedRunning: true,
+    });
+
+    const desktopAttachment = screen.getByRole("button", { name: "Attach file" });
+    expect(desktopAttachment.parentElement).toHaveClass("hidden", "sm:block");
+
+    const toolsTrigger = screen.getByRole("button", { name: "Open message tools" });
+    const voiceTrigger = screen.getByRole("button", { name: "Record voice message" });
+    expect(toolsTrigger).toHaveClass("sm:hidden");
+    expect(toolsTrigger.nextElementSibling).toBe(voiceTrigger);
+
+    fireEvent.click(toolsTrigger);
+
+    const toolsMenu = screen.getByLabelText("Message tools");
+    expect(within(toolsMenu).getByRole("button", { name: /model: gpt-5 mini/i })).toBeInTheDocument();
+    fireEvent.click(within(toolsMenu).getByRole("button", { name: "Attach file" }));
+
+    expect(fileInputClick).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText("Message tools")).not.toBeInTheDocument();
+    fileInputClick.mockRestore();
+  });
+
+  it("stacks mobile tools and send controls at the right edge when text is present", () => {
+    renderAgentChatPanel({
+      chat: buildChat({
+        backend: "openclaw",
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input: "A draft that needs the full composer width",
+      }),
+      isSelectedRunning: true,
+    });
+
+    const composer = screen.getByRole("textbox", { name: /message agent/i });
+    expect(composer).toHaveClass("pr-12", "sm:pr-72", "max-sm:min-h-20");
+
+    const toolsTrigger = screen.getByRole("button", { name: "Open message tools" });
+    const sendTrigger = screen.getByRole("button", { name: "Send message" });
+    const actionRail = toolsTrigger.parentElement;
+    expect(actionRail).toBe(sendTrigger.parentElement);
+    expect(toolsTrigger).toHaveClass("sm:hidden");
+    expect(actionRail).toHaveClass("right-2", "top-[calc(50%-3px)]", "-translate-y-1/2", "max-sm:top-1/2", "max-sm:flex-col");
+    expect(actionRail).not.toHaveClass("flex-col");
+
+    const voiceTrigger = screen.getByLabelText("Clear text to record voice");
+    expect(voiceTrigger.parentElement).toHaveClass("max-sm:hidden");
+  });
+
+  it("selects a model from the mobile tools menu and closes both menus", async () => {
+    const chat = buildChat({
+      backend: "openclaw",
+      status: "connected",
+      gatewayConnected: true,
+      ready: true,
+      connected: true,
+      config: {
+        agents: { defaults: { model: { primary: "openai/gpt-5-mini" } } },
+        models: { providers: { openai: { name: "OpenAI", models: [{ id: "gpt-5-mini", name: "GPT-5 Mini" }] } } },
+      },
+      models: [{ id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5", providerId: "anthropic", providerName: "Anthropic" }],
+    });
+    renderAgentChatPanel({ chat, isSelectedRunning: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open message tools" }));
+    const toolsMenu = screen.getByLabelText("Message tools");
+    fireEvent.click(within(toolsMenu).getByRole("button", { name: /model: gpt-5 mini/i }));
+    fireEvent.click(screen.getByRole("option", { name: "Claude Sonnet 4.5 (Anthropic)" }));
+
+    await waitFor(() => expect(chat.setActiveSessionModel).toHaveBeenCalledWith("anthropic/claude-sonnet-4-5"));
+    await waitFor(() => expect(screen.queryByLabelText("Message tools")).not.toBeInTheDocument());
   });
 
   it("disables the composer for read-only connected conversations", () => {
@@ -916,9 +1359,9 @@ describe("AgentChatPanel", () => {
       isSelectedRunning: true,
     });
 
-    const renderedContents = chatMessageBubbleMock.mock.calls.map(([props]) => (
+    const renderedContents = Array.from(new Set(chatMessageBubbleMock.mock.calls.map(([props]) => (
       props as { message: { content: string } }
-    ).message.content);
+    ).message.content)));
     expect(renderedContents).toEqual([
       "Can you check the README while GitHub connects?",
       "The repository has no open issues.",
@@ -2031,6 +2474,44 @@ describe("AgentChatPanel", () => {
 
     expect(screen.getByRole("status", { name: /preparing image attachment/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+  });
+
+  it("keeps a workspace upload visible and blocks sending until it is attached", () => {
+    const handleSendChat = vi.fn();
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input: "Review the attached document",
+      }),
+      chatFilesUploading: true,
+      handleSendChat,
+      isSelectedRunning: true,
+    });
+
+    expect(screen.getByRole("status", { name: /uploading workspace files/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+    fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
+    expect(handleSendChat).not.toHaveBeenCalled();
+  });
+
+  it("does not flash the textarea while a stopped recording becomes a preview", () => {
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input: "draft text",
+      }),
+      preparingAudioPreview: true,
+      isSelectedRunning: true,
+    });
+
+    expect(screen.getByRole("status", { name: /preparing voice message/i })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /message agent/i })).not.toBeInTheDocument();
   });
 
   it("keeps an existing draft visible but disabled during reconnect", () => {

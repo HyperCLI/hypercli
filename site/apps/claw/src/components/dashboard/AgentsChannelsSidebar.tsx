@@ -22,6 +22,7 @@ import {
   CreditCard,
   Settings,
   LogOut,
+  LogIn,
   GripVertical,
   HardDrive,
   House,
@@ -178,6 +179,7 @@ export interface AgentsChannelsSidebarProps {
   /** Increment to imperatively open the inline agent creator (e.g. from the main panel's empty state). */
   openAgentCreatorSignal?: number;
   accountInitial?: string;
+  onLogin?: () => void;
   onLogout?: () => void | Promise<void>;
 }
 
@@ -758,11 +760,13 @@ export function AgentsSidebarDashboardLinks({
   compact = false,
   mobileMode = false,
   accountInitial = "?",
+  onLogin,
   onLogout,
 }: {
   compact?: boolean;
   mobileMode?: boolean;
   accountInitial?: string;
+  onLogin?: () => void;
   onLogout?: () => void | Promise<void>;
 }) {
   const pathname = usePathname() ?? "";
@@ -793,7 +797,7 @@ export function AgentsSidebarDashboardLinks({
             }`}
             role="menu"
           >
-            {ACCOUNT_LINKS.map((item) => {
+            {!onLogin && ACCOUNT_LINKS.map((item) => {
               const Icon = item.icon;
               const active = isDashboardLinkActive(pathname, item.href);
 
@@ -814,6 +818,20 @@ export function AgentsSidebarDashboardLinks({
                 </Link>
               );
             })}
+            {onLogin ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  onLogin();
+                }}
+                role="menuitem"
+                className={`flex w-full items-center gap-2 px-3 text-left text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground ${mobileMode ? "py-2" : "py-1.5"}`}
+              >
+                <LogIn className={`${mobileMode ? "h-5 w-5" : "h-3.5 w-3.5"} flex-shrink-0`} />
+                <span className="text-[11px] font-medium">Sign in</span>
+              </button>
+            ) : null}
             <ThemeToggle
               showLabel
               title=""
@@ -867,7 +885,7 @@ export function AgentsSidebarDashboardLinks({
             }`}>
               {initial}
             </span>
-            {!compact && <span className="truncate text-[11px] font-medium">Account</span>}
+            {!compact && <span className="truncate text-[11px] font-medium">{onLogin ? "Sign in" : "Account"}</span>}
           </span>
           {!compact && (
             <ChevronDown className={`${mobileMode ? "h-5 w-5" : "h-3.5 w-3.5"} flex-shrink-0 text-text-muted transition-transform ${open ? "rotate-180" : ""}`} />
@@ -1975,9 +1993,7 @@ function HandoffThreadView({
     <motion.div layoutScroll className="agents-roster-scroll flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--agent-roster-background)]">
       <div className="agents-roster-actions flex w-full shrink-0 items-center px-3 py-1.5">
         <div className="flex w-full items-center justify-between gap-2">
-          {embeddedInNavigation ? (
-            <h2 className="text-[13px] font-medium text-text-secondary">Agents</h2>
-          ) : offlineAgentCount > 0 && onShowOfflineAgentsChange ? (
+          {offlineAgentCount > 0 && onShowOfflineAgentsChange ? (
             <RosterTooltip label={`${offlineAgentCount} offline ${offlineAgentCount === 1 ? "agent" : "agents"}`}>
               <div className="inline-flex h-6 shrink-0 items-center gap-2 text-[11px] font-medium text-text-secondary">
                 <span>Show Offline({offlineAgentCount})</span>
@@ -1988,8 +2004,10 @@ function HandoffThreadView({
                 />
               </div>
             </RosterTooltip>
+          ) : embeddedInNavigation ? (
+            <h2 className="text-[13px] font-medium text-text-secondary">Agents</h2>
           ) : null}
-          {!mobileMode ? (
+          {!mobileMode || embeddedInNavigation ? (
             onCollapse ? (
               <RosterTooltip label="Collapse sidebar" side="right">
                 <button
@@ -2471,6 +2489,7 @@ export function AgentsChannelsSidebar({
   accountSettingsActive,
   openAgentCreatorSignal,
   accountInitial,
+  onLogin,
   onLogout,
 }: AgentsChannelsSidebarProps) {
   const [showSearch, setShowSearch] = useState(false);
@@ -2526,6 +2545,7 @@ export function AgentsChannelsSidebar({
           selectedThreadId={selectedThreadId}
           onSelectThread={onSelectThread}
           onDeleteThread={onDeleteThread}
+          onRenameThread={onRenameThread}
           onStartAgentChat={onStartAgentChat}
           onCreateChannel={onCreateChannel}
           onCreateAgent={onCreateAgent}
@@ -2612,6 +2632,7 @@ export function AgentsChannelsSidebar({
       <AgentsSidebarDashboardLinks
         mobileMode={mobileMode}
         accountInitial={accountInitial}
+        onLogin={onLogin}
         onLogout={onLogout}
       />
     </div>

@@ -45,11 +45,12 @@ test("shows mobile agent navigation without horizontal overflow", async ({ page 
   await page.goto("/dashboard/agents", { waitUntil: "networkidle" });
   await expect(page).toHaveURL(/\/dashboard\/agents$/);
 
-  const navMenuButton = page.getByRole("button", { name: /open agents sidebar/i });
+  const navMenuButton = page.getByRole("button", { name: "Open navigation" });
   await expect(navMenuButton).toBeVisible();
   await navMenuButton.click();
 
-  await expect(page.getByRole("button", { name: /^my agents$/i })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Agent navigation" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Expand agents sidebar" })).toBeVisible();
   await expect(page.getByRole("button", { name: /launch agent/i })).toBeVisible();
   await expect(page.getByText(/^available agents$/i)).toHaveCount(0);
   await expectNoHorizontalOverflow(page);

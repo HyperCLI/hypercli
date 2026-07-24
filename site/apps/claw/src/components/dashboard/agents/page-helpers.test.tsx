@@ -76,6 +76,7 @@ describe("AgentLoadingState", () => {
     expect(screen.getByText("Connecting gateway .")).toBeInTheDocument();
     expect(screen.getByText("Opening the agent session")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /agent workspace loading/i })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveClass("elevation-shadow-medium", "bg-popover");
   });
 
   it("keeps the loading animation mounted while status text changes", async () => {

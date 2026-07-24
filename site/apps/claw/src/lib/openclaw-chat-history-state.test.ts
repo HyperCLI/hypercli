@@ -17,7 +17,12 @@ describe("openclaw chat history state", () => {
       messages: [voiceMessage, { ...voiceMessage, timestamp: 2 }],
     });
 
-    expect(messages).toEqual([voiceMessage]);
+    expect(messages).toEqual([
+      expect.objectContaining({
+        ...voiceMessage,
+        renderId: expect.any(String),
+      }),
+    ]);
   });
 
   it("preserves optimistic messages when refreshed history is shorter", () => {
@@ -31,7 +36,10 @@ describe("openclaw chat history state", () => {
       messages: [{ role: "assistant", content: "Old response", timestamp: 3 }],
     });
 
-    expect(messages).toBe(current);
+    expect(messages).toEqual(current.map((message) => expect.objectContaining({
+      ...message,
+      renderId: expect.any(String),
+    })));
   });
 
   it("keeps a live assistant reply while history only contains its user turn", () => {
@@ -48,6 +56,22 @@ describe("openclaw chat history state", () => {
     expect(messages).toEqual([
       expect.objectContaining({ role: "user", content: "Summarize the workspace" }),
       expect.objectContaining({ role: "assistant", content: "The workspace contains three projects." }),
+    ]);
+  });
+
+  it("does not carry an assistant reply onto a different fetched user turn", () => {
+    const current: ChatMessage[] = [
+      { role: "user", content: "Summarize project alpha", timestamp: 1 },
+      { role: "assistant", content: "Alpha contains three services.", timestamp: 2 },
+    ];
+
+    const messages = reduceChatHistoryMessages(current, {
+      type: "merge-history-refresh",
+      messages: [{ role: "user", content: "Summarize project beta", timestamp: 3 }],
+    });
+
+    expect(messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Summarize project beta" }),
     ]);
   });
 
@@ -166,6 +190,170 @@ describe("openclaw chat history state", () => {
           }),
         ],
       }),
+    ]);
+  });
+
+  it("does not roll a fuller identified live reply back to a partial snapshot", () => {
+    const current: ChatMessage[] = [
+      { role: "user", content: "Explain the migration", renderId: "user-live" },
+      {
+        role: "assistant",
+        content: "The migration has three complete steps.",
+        messageId: "message-1",
+        turnId: "turn-1",
+        runId: "run-1",
+        revision: 2,
+        status: "interrupted",
+        renderId: "assistant-live",
+      },
+    ];
+
+    const messages = reduceChatHistoryMessages(current, {
+      type: "merge-history-refresh",
+      messages: [
+        { role: "user", content: "Explain the migration", renderId: "user-history" },
+        {
+          role: "assistant",
+          content: "The migration has three",
+          messageId: "message-1",
+          turnId: "turn-1",
+          runId: "run-1",
+          revision: 1,
+          renderId: "assistant-history",
+        },
+      ],
+    });
+
+    expect(messages[1]).toMatchObject({
+      content: "The migration has three complete steps.",
+      messageId: "message-1",
+      revision: 2,
+      status: "interrupted",
+      renderId: "assistant-live",
+    });
+  });
+
+  it("accepts a shorter correction when the history revision is newer", () => {
+    const messages = reduceChatHistoryMessages([
+      { role: "user", content: "Give the exact total", renderId: "user-live" },
+      {
+        role: "assistant",
+        content: "The total is approximately one hundred and twenty.",
+        messageId: "message-1",
+        revision: 2,
+        renderId: "assistant-live",
+      },
+    ], {
+      type: "merge-history-refresh",
+      messages: [
+        { role: "user", content: "Give the exact total", renderId: "user-history" },
+        {
+          role: "assistant",
+          content: "The total is 120.",
+          messageId: "message-1",
+          revision: 3,
+          renderId: "assistant-history",
+        },
+      ],
+    });
+
+    expect(messages[1]).toMatchObject({
+      content: "The total is 120.",
+      revision: 3,
+      renderId: "assistant-live",
+    });
+  });
+
+  it("does not match repeated user text when both turns have different protocol identities", () => {
+    const messages = reduceChatHistoryMessages([
+      { role: "user", content: "Try again", messageId: "user-live", renderId: "user-live-row" },
+      {
+        role: "assistant",
+        content: "New reply",
+        messageId: "assistant-live",
+        turnId: "turn-live",
+        renderId: "assistant-live-row",
+      },
+    ], {
+      type: "merge-history-refresh",
+      messages: [
+        { role: "user", content: "Try again", messageId: "user-history", renderId: "user-history-row" },
+      ],
+    });
+
+    expect(messages).toEqual([
+      expect.objectContaining({ messageId: "user-history", renderId: "user-history-row" }),
+    ]);
+  });
+
+  it("preserves the original retry prompt when history replaces a local user row", () => {
+    const messages = reduceChatHistoryMessages([
+      {
+        role: "user",
+        content: "Visible request",
+        retryContent: "Internal request sent to the agent",
+        renderId: "user-live",
+      },
+    ], {
+      type: "merge-history-refresh",
+      messages: [{ role: "user", content: "Visible request", renderId: "user-history" }],
+    });
+
+    expect(messages[0]).toEqual(expect.objectContaining({
+      content: "Visible request",
+      retryContent: "Internal request sent to the agent",
+      renderId: "user-live",
+    }));
+  });
+
+  it("preserves a stopped-reply notice across a lagging same-turn snapshot", () => {
+    const current = reduceChatHistoryMessages([
+      { role: "user", content: "Stop immediately", renderId: "user-live" },
+    ], { type: "mark-interrupted" });
+
+    const messages = reduceChatHistoryMessages(current, {
+      type: "merge-history-refresh",
+      messages: [{ role: "user", content: "Stop immediately", renderId: "user-history" }],
+    });
+
+    expect(messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Stop immediately", renderId: "user-live" }),
+      expect.objectContaining({ role: "system", content: "Reply stopped", renderId: expect.any(String) }),
+    ]);
+  });
+
+  it("assigns distinct render ids without globally deduping equal message content", () => {
+    const messages = reduceChatHistoryMessages([], {
+      type: "restore-cache",
+      messages: [
+        { role: "assistant", content: "Repeated answer" },
+        { role: "assistant", content: "Repeated answer" },
+      ],
+    });
+
+    expect(messages).toHaveLength(2);
+    expect(messages[0]?.renderId).toEqual(expect.any(String));
+    expect(messages[1]?.renderId).toEqual(expect.any(String));
+    expect(messages[0]?.renderId).not.toBe(messages[1]?.renderId);
+  });
+
+  it("retains render ids for unchanged legacy rows when history prepends a message", () => {
+    const messages = reduceChatHistoryMessages([
+      { role: "user", content: "Existing question", timestamp: 10, renderId: "user-existing" },
+      { role: "assistant", content: "Existing answer", timestamp: 20, renderId: "assistant-existing" },
+    ], {
+      type: "merge-history-refresh",
+      messages: [
+        { role: "system", content: "Earlier notice", timestamp: 5 },
+        { role: "user", content: "Existing question", timestamp: 10 },
+        { role: "assistant", content: "Existing answer", timestamp: 20 },
+      ],
+    });
+
+    expect(messages).toEqual([
+      expect.objectContaining({ content: "Earlier notice", renderId: expect.any(String) }),
+      expect.objectContaining({ content: "Existing question", renderId: "user-existing" }),
+      expect.objectContaining({ content: "Existing answer", renderId: "assistant-existing" }),
     ]);
   });
 

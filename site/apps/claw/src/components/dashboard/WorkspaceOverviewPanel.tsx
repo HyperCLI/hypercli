@@ -27,6 +27,7 @@ import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { createHyperAgentClient, createWorkspacesClient } from "@/lib/agent-client";
 import { integrationDisplayName } from "@/lib/integration-display-name";
 import { relativeTime } from "@/components/dashboard/agentViewUtils";
+import { agentDisplayLabel } from "@/components/dashboard/agents/agentViewModel";
 
 type WorkspaceOverviewPanelProps = {
   accountAgents: Agent[];
@@ -136,7 +137,7 @@ export function WorkspaceOverviewPanel({
       const updatedAt = timestampFromIso(agent.updated_at ?? agent.started_at);
       return {
         id: agent.id,
-        name: agent.name || agent.id,
+        name: agentDisplayLabel(agent),
         status: agent.state,
         integrations: canAttributeUsage ? activeIntegrationCount : null,
         requests: canAttributeUsage ? totals.requests : null,

@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => {
 vi.mock("@/hooks/useAgentAuth", () => ({
   useAgentAuth: () => ({
     getToken: mocks.unstableTokenGetter ? () => mocks.getToken() : mocks.getToken,
+    user: { id: "user-1" },
   }),
 }));
 
@@ -127,6 +128,35 @@ describe("PlansPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /purchase/i }));
     expect(screen.getByRole("dialog")).toHaveTextContent("Checkout catalog-pro without bundle");
+  });
+
+  it("blocks checkout until billing data loads successfully", async () => {
+    mocks.hyperAgent.plans.mockResolvedValue([{
+      id: "catalog-pro",
+      name: "Catalog Pro",
+      price: 123,
+      priceUsd: 123,
+      aiu: 5,
+      agents: 1,
+      features: [],
+      models: [],
+      highlighted: true,
+      limits: { tpd: 123_000_000, tpm: 0, burstTpm: 456_000, rpm: 789 },
+      tpmLimit: 0,
+      rpmLimit: 789,
+      meta: { checkout_bundle: { large: 1 } },
+    }]);
+    mocks.hyperAgent.subscriptionSummary.mockRejectedValueOnce(new Error("billing unavailable"));
+
+    renderWithClient(<PlansPage />);
+
+    expect(await screen.findByText("Billing data could not be loaded. Retry before checkout.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Billing unavailable" })).toBeDisabled();
+
+    mocks.hyperAgent.subscriptionSummary.mockResolvedValue(buildSummary());
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Purchase" })).toBeEnabled());
   });
 
   it("does not restart plan loading when the auth token getter identity changes", async () => {

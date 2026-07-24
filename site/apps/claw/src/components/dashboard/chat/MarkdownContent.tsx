@@ -1,9 +1,12 @@
 "use client";
 
-import { createContext, useContext, useEffect, useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { AlertCircle, AlertTriangle, Check, Copy, Info, Lightbulb, ShieldAlert, type LucideIcon } from "lucide-react";
 import Markdown from "react-markdown";
+import remend from "remend";
 import { Prism as SyntaxHighlighter, type SyntaxHighlighterProps } from "react-syntax-highlighter";
 import rehypeKatex from "rehype-katex";
+import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema, type Options as RehypeSanitizeOptions } from "rehype-sanitize";
 import remarkEmoji from "remark-emoji";
 import remarkGfm from "remark-gfm";
@@ -15,6 +18,15 @@ import {
   knownFileExtensionsPattern,
 } from "@hypercli/shared-ui/files";
 import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
+import { writeClipboardText } from "@/lib/browser-clipboard";
+import {
+  isCompleteOpenClawEmbedDirective,
+  openClawEmbedFromHref,
+  openClawEmbedHref,
+  parseOpenClawEmbedDirective,
+  sandboxedOpenClawEmbedDocument,
+  type OpenClawEmbed,
+} from "@/lib/openclaw-embed";
 import { ChatImageViewer } from "./ChatImageViewer";
 import { useTypewriter } from "./useTypewriter";
 import { ResourceImage } from "@/components/ResourceImage";
@@ -23,6 +35,7 @@ import { TooltipHint } from "@/components/ClawTooltip";
 interface MarkdownContentProps {
   content: string;
   typewriter?: boolean;
+  isStreaming?: boolean;
   className?: string;
   style?: CSSProperties;
   onOpenWorkspaceFile?: (path: string) => void;
@@ -37,6 +50,22 @@ const MARKDOWN_DIAGRAM_WRAP_CLASS = `${MARKDOWN_WRAP_CLASS} my-3 overflow-hidden
 const MARKDOWN_TABLE_WRAP_CLASS = "my-2 w-full max-w-full overflow-hidden";
 const MARKDOWN_TABLE_CLASS = "w-full table-fixed border-collapse text-left text-xs";
 const MARKDOWN_TABLE_CELL_CLASS = "border-b border-border/60 px-2 py-1 align-top break-words [overflow-wrap:anywhere]";
+const MERMAID_THEME_FALLBACKS = {
+  dark: {
+    background: "#0a0a0b",
+    surface: "#141416",
+    foreground: "#fafafa",
+    border: "rgba(255, 255, 255, 0.24)",
+    secondaryText: "#a1a1a6",
+  },
+  light: {
+    background: "#f7f8f4",
+    surface: "#ffffff",
+    foreground: "#0d1511",
+    border: "rgba(13, 21, 17, 0.2)",
+    secondaryText: "#35463f",
+  },
+} as const;
 const SYNTAX_BASE_STYLE: CSSProperties = {
   color: "var(--foreground)",
   fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
@@ -97,23 +126,69 @@ const FILE_MENTION_PATTERN = new RegExp(
 );
 const MARKDOWN_SANITIZE_SCHEMA: RehypeSanitizeOptions = {
   ...defaultSchema,
-  tagNames: [...(defaultSchema.tagNames ?? []), "abbr"],
+  tagNames: [...(defaultSchema.tagNames ?? []), "abbr", "video"],
+  attributes: {
+    ...defaultSchema.attributes,
+    blockquote: [...(defaultSchema.attributes?.blockquote ?? []), ["dataAlertType", "note", "tip", "important", "warning", "caution"]],
+    source: [...(defaultSchema.attributes?.source ?? []), "src", "type"],
+    video: ["src", "title"],
+  },
   protocols: {
     ...defaultSchema.protocols,
     src: [...(defaultSchema.protocols?.src ?? []), "data", "blob"],
   },
 };
 const MARKDOWN_REHYPE_PLUGINS: NonNullable<Parameters<typeof Markdown>[0]["rehypePlugins"]> = [
+  rehypeSupportedHtml,
+  rehypeRaw,
   [rehypeSanitize, MARKDOWN_SANITIZE_SCHEMA],
   rehypeKatex,
 ];
 const MarkdownLinkContext = createContext(false);
+const MarkdownStreamingContext = createContext(false);
 const MarkdownWorkspaceFileContext = createContext<((path: string) => void) | undefined>(undefined);
+let mermaidImportPromise: Promise<typeof import("mermaid")> | null = null;
+let mermaidRenderAttemptId = 0;
 
 interface MarkdownAbbreviation {
   term: string;
   title: string;
 }
+
+type MarkdownAlertType = "note" | "tip" | "important" | "warning" | "caution";
+
+const MARKDOWN_ALERTS: Record<MarkdownAlertType, { label: string; icon: LucideIcon; className: string; iconClassName: string }> = {
+  note: {
+    label: "Note",
+    icon: Info,
+    className: "border-info/50 bg-info/8",
+    iconClassName: "text-info",
+  },
+  tip: {
+    label: "Tip",
+    icon: Lightbulb,
+    className: "border-primary/50 bg-primary/8",
+    iconClassName: "text-primary",
+  },
+  important: {
+    label: "Important",
+    icon: ShieldAlert,
+    className: "border-primary/50 bg-primary/8",
+    iconClassName: "text-primary",
+  },
+  warning: {
+    label: "Warning",
+    icon: AlertTriangle,
+    className: "border-warning/50 bg-warning/8",
+    iconClassName: "text-warning",
+  },
+  caution: {
+    label: "Caution",
+    icon: AlertCircle,
+    className: "border-destructive/50 bg-destructive/8",
+    iconClassName: "text-destructive",
+  },
+};
 
 function mediaFileNameFromUrl(url: string, fallback = "image"): string {
   try {
@@ -127,6 +202,42 @@ function mediaFileNameFromUrl(url: string, fallback = "image"): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isVideoHtmlBlock(value: string): boolean {
+  const trimmed = value.trim();
+  if (!/^<video(?:\s|>)/i.test(trimmed) || !/<\/video\s*>$/i.test(trimmed) || trimmed.includes("<!--")) return false;
+  const tags = trimmed.match(/<\/?[A-Za-z][^>]*>/g) ?? [];
+  if (tags.length < 2 || !/^<video(?:\s|>)/i.test(tags[0] ?? "") || !/^<\/video\s*>$/i.test(tags.at(-1) ?? "")) return false;
+  return tags.slice(1, -1).every((tag) => /^<source(?:\s|\/?>)/i.test(tag));
+}
+
+function isKbdHtmlTag(value: string): boolean {
+  const trimmed = value.trim();
+  return /^<kbd(?:\s+[^<>]*)?>$/i.test(trimmed) || /^<\/kbd\s*>$/i.test(trimmed);
+}
+
+function retainSupportedHtmlInAst(node: unknown): void {
+  if (!isRecord(node)) return;
+  const children = Array.isArray(node.children) ? node.children : null;
+  if (!children) return;
+
+  for (let index = 0; index < children.length; index += 1) {
+    const child = children[index];
+    if (!isRecord(child)) continue;
+    if (child.type === "raw") {
+      if (!(typeof child.value === "string" && (isVideoHtmlBlock(child.value) || isKbdHtmlTag(child.value)))) {
+        children.splice(index, 1);
+        index -= 1;
+      }
+      continue;
+    }
+    retainSupportedHtmlInAst(child);
+  }
+}
+
+function rehypeSupportedHtml() {
+  return (tree: unknown) => retainSupportedHtmlInAst(tree);
 }
 
 function escapeRegExp(value: string): string {
@@ -383,6 +494,73 @@ function applyCodeMetaToAst(node: unknown): void {
   for (const child of children) applyCodeMetaToAst(child);
 }
 
+function nodeSourceText(node: Record<string, unknown>, source: string): string | null {
+  const position = isRecord(node.position) ? node.position : null;
+  const start = isRecord(position?.start) && typeof position.start.offset === "number" ? position.start.offset : null;
+  const end = isRecord(position?.end) && typeof position.end.offset === "number" ? position.end.offset : null;
+  return start != null && end != null ? source.slice(start, end) : null;
+}
+
+function applyOpenClawEmbedsToAst(node: unknown, source: string): void {
+  if (!isRecord(node)) return;
+  const children = Array.isArray(node.children) ? node.children : null;
+  if (!children) return;
+
+  for (let index = 0; index < children.length; index += 1) {
+    const child = children[index];
+    if (!isRecord(child)) continue;
+    if (child.type === "paragraph") {
+      const directiveSource = nodeSourceText(child, source);
+      if (directiveSource && isCompleteOpenClawEmbedDirective(directiveSource)) {
+        const embed = parseOpenClawEmbedDirective(directiveSource);
+        children[index] = embed
+          ? {
+            type: "link",
+            url: openClawEmbedHref(embed),
+            children: [{ type: "text", value: embed.title }],
+          }
+          : {
+            type: "paragraph",
+            children: [{ type: "text", value: directiveSource.trim() }],
+          };
+        continue;
+      }
+    }
+    applyOpenClawEmbedsToAst(child, source);
+  }
+}
+
+function markdownAlertType(value: unknown): MarkdownAlertType | null {
+  return typeof value === "string" && value in MARKDOWN_ALERTS ? value as MarkdownAlertType : null;
+}
+
+function applyMarkdownAlertsToAst(node: unknown): void {
+  if (!isRecord(node)) return;
+  const children = Array.isArray(node.children) ? node.children : null;
+  if (!children) return;
+
+  if (node.type === "blockquote") {
+    const firstParagraph = isRecord(children[0]) && children[0].type === "paragraph" ? children[0] : null;
+    const paragraphChildren = firstParagraph && Array.isArray(firstParagraph.children) ? firstParagraph.children : null;
+    const firstText = paragraphChildren && isRecord(paragraphChildren[0]) && paragraphChildren[0].type === "text" ? paragraphChildren[0] : null;
+    if (firstText && typeof firstText.value === "string") {
+      const marker = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\](?:[ \t]*\n[ \t]*|[ \t]+|$)/i.exec(firstText.value);
+      const type = markdownAlertType(marker?.[1]?.toLowerCase());
+      if (marker && type) {
+        const nextText = firstText.value.slice(marker[0].length);
+        if (nextText) firstText.value = nextText;
+        else paragraphChildren?.shift();
+        if (paragraphChildren?.length === 0) children.shift();
+        const data = isRecord(node.data) ? node.data : {};
+        const hProperties = isRecord(data.hProperties) ? data.hProperties : {};
+        node.data = { ...data, hProperties: { ...hProperties, dataAlertType: type } };
+      }
+    }
+  }
+
+  for (const child of children) applyMarkdownAlertsToAst(child);
+}
+
 function remarkAbbreviations(abbreviations: MarkdownAbbreviation[]) {
   return function transformAbbreviations() {
     return (tree: unknown) => applyAbbreviationsToAst(tree, abbreviations);
@@ -393,15 +571,25 @@ function remarkCodeMeta() {
   return (tree: unknown) => applyCodeMetaToAst(tree);
 }
 
+function remarkOpenClawEmbeds(source: string) {
+  return () => (tree: unknown) => applyOpenClawEmbedsToAst(tree, source);
+}
+
+function remarkMarkdownAlerts() {
+  return (tree: unknown) => applyMarkdownAlertsToAst(tree);
+}
+
 function remarkWorkspaceFileLinks() {
   return (tree: unknown) => applyWorkspaceFileLinksToAst(tree);
 }
 
-function markdownRemarkPlugins(abbreviations: MarkdownAbbreviation[], linkWorkspaceFiles: boolean): NonNullable<Parameters<typeof Markdown>[0]["remarkPlugins"]> {
+function markdownRemarkPlugins(abbreviations: MarkdownAbbreviation[], linkWorkspaceFiles: boolean, source: string): NonNullable<Parameters<typeof Markdown>[0]["remarkPlugins"]> {
   return [
     remarkGfm,
     remarkMath,
     [remarkEmoji, { emoticon: false }],
+    remarkMarkdownAlerts,
+    remarkOpenClawEmbeds(source),
     remarkCodeMeta,
     remarkAbbreviations(abbreviations),
     ...(linkWorkspaceFiles ? [remarkWorkspaceFileLinks] : []),
@@ -419,6 +607,37 @@ function isRenderableMarkdownImageSrc(src: string): boolean {
   return false;
 }
 
+function isRenderableMarkdownVideoSrc(src: string): boolean {
+  const trimmed = src.trim();
+  const normalized = trimmed.replace(/^\/+/, "");
+  if (!trimmed || /^(?:media:|javascript:|file:)/i.test(trimmed)) return false;
+  if (/^(?:home\/node\/\.openclaw\/workspace|\.?openclaw\/workspace|workspace|home)(?:\/|$)/i.test(normalized)) return false;
+  if (/^(?:data:video\/|blob:|https?:\/\/|\/)/i.test(trimmed)) return true;
+  return /\.(?:mp4|m4v|mov|webm|ogv|ogg)(?:[?#].*)?$/i.test(trimmed);
+}
+
+function concreteMermaidColor(styles: CSSStyleDeclaration, property: string, fallback: string): string {
+  const value = styles.getPropertyValue(property).trim();
+  return /^(?:#[\dA-F]{3,8}|rgba?\([^)]*\)|hsla?\([^)]*\)|[A-Za-z]+)$/i.test(value) ? value : fallback;
+}
+
+function resolvedMermaidThemeVariables() {
+  const root = document.documentElement;
+  const styles = window.getComputedStyle(root);
+  const fallback = root.getAttribute("data-theme") === "light" ? MERMAID_THEME_FALLBACKS.light : MERMAID_THEME_FALLBACKS.dark;
+  const surface = concreteMermaidColor(styles, "--surface-low", fallback.surface);
+  const foreground = concreteMermaidColor(styles, "--foreground", fallback.foreground);
+  return {
+    background: concreteMermaidColor(styles, "--background", fallback.background),
+    mainBkg: surface,
+    primaryColor: surface,
+    primaryTextColor: foreground,
+    primaryBorderColor: concreteMermaidColor(styles, "--border-medium", fallback.border),
+    lineColor: concreteMermaidColor(styles, "--text-secondary", fallback.secondaryText),
+    textColor: foreground,
+  };
+}
+
 function MarkdownMediaUnavailable() {
   return (
     <span
@@ -432,55 +651,50 @@ function MarkdownMediaUnavailable() {
 }
 
 function MarkdownMermaidDiagram({ chart }: { chart: string }) {
+  const isStreaming = useContext(MarkdownStreamingContext);
   const reactId = useId();
-  const diagramId = useMemo(() => `markdown-mermaid-${reactId.replace(/[^A-Za-z0-9_-]/g, "")}`, [reactId]);
-  const [svg, setSvg] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const diagramIdPrefix = useMemo(() => `markdown-mermaid-${reactId.replace(/[^A-Za-z0-9_-]/g, "")}`, [reactId]);
+  const activeAttemptRef = useRef(0);
+  const [result, setResult] = useState<{ chart: string; svg: string; error: string | null } | null>(null);
+  const currentResult = result?.chart === chart ? result : null;
+  const trimmedChart = chart.trim();
+  const svg = currentResult?.svg ?? "";
+  const error = !trimmedChart ? "Diagram is empty." : currentResult?.error ?? null;
 
   useEffect(() => {
-    const trimmedChart = chart.trim();
-    if (!trimmedChart) {
-      setSvg("");
-      setError("Diagram is empty.");
-      return;
-    }
-
-    let cancelled = false;
-    setSvg("");
-    setError(null);
+    if (!trimmedChart) return;
+    const attemptId = ++mermaidRenderAttemptId;
+    const diagramId = `${diagramIdPrefix}-${attemptId}`;
+    activeAttemptRef.current = attemptId;
 
     async function renderDiagram() {
       try {
-        const { default: mermaid } = await import("mermaid");
+        const { default: mermaid } = await (mermaidImportPromise ??= import("mermaid"));
         mermaid.initialize({
           startOnLoad: false,
           securityLevel: "strict",
           theme: "base",
-          themeVariables: {
-            background: "transparent",
-            mainBkg: "var(--surface-low)",
-            primaryColor: "var(--surface-low)",
-            primaryTextColor: "var(--foreground)",
-            primaryBorderColor: "var(--border-medium)",
-            lineColor: "var(--text-secondary)",
-            textColor: "var(--foreground)",
-          },
+          themeVariables: resolvedMermaidThemeVariables(),
         });
         const result = await mermaid.render(diagramId, trimmedChart);
-        if (!cancelled) setSvg(result.svg);
+        if (activeAttemptRef.current === attemptId) {
+          setResult({ chart, svg: result.svg, error: null });
+        }
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Could not render diagram.");
+        if (activeAttemptRef.current === attemptId) {
+          setResult({ chart, svg: "", error: err instanceof Error ? err.message : "Could not render diagram." });
+        }
       }
     }
 
     void renderDiagram();
 
     return () => {
-      cancelled = true;
+      if (activeAttemptRef.current === attemptId) activeAttemptRef.current = 0;
     };
-  }, [chart, diagramId]);
+  }, [chart, diagramIdPrefix, trimmedChart]);
 
-  if (error) {
+  if (error && !isStreaming) {
     return (
       <div className={MARKDOWN_DIAGRAM_WRAP_CLASS}>
         <p className="mb-2 text-xs text-destructive">{error}</p>
@@ -557,14 +771,45 @@ function parseCodeMeta(meta: string): { showLineNumbers: boolean; highlightedLin
 
 function MarkdownCodeBlock({ code, language, meta }: { code: string; language?: string; meta: string }) {
   const codeMeta = parseCodeMeta(meta);
+  const [copyState, setCopyState] = useState<{ code: string; status: "idle" | "copied" | "failed" }>({
+    code: "",
+    status: "idle",
+  });
+  const copyResetTimerRef = useRef<number | null>(null);
+  const copyStatus = copyState.code === code ? copyState.status : "idle";
+  const codeLabel = language && language !== "text" ? `${language} code` : "code";
+
+  useEffect(() => () => {
+    if (copyResetTimerRef.current !== null) window.clearTimeout(copyResetTimerRef.current);
+  }, []);
+
+  const copyCode = async () => {
+    if (copyResetTimerRef.current !== null) window.clearTimeout(copyResetTimerRef.current);
+    const copied = await writeClipboardText(code);
+    setCopyState({ code, status: copied ? "copied" : "failed" });
+    copyResetTimerRef.current = window.setTimeout(() => {
+      setCopyState((current) => current.code === code ? { code, status: "idle" } : current);
+      copyResetTimerRef.current = null;
+    }, 2_000);
+  };
+
   return (
     <figure className={MARKDOWN_CODE_BLOCK_CLASS}>
-      {(language || codeMeta.showLineNumbers) && (
-        <figcaption className="flex min-w-0 items-center justify-between gap-3 border-b border-border/70 px-3 py-1.5 text-[10px] uppercase tracking-wide text-text-muted">
-          <span className="truncate font-mono">{language || "code"}</span>
-          {codeMeta.showLineNumbers && <span className="shrink-0">Line numbers</span>}
-        </figcaption>
-      )}
+      <figcaption className="flex min-w-0 items-center justify-between gap-3 border-b border-border/70 px-3 py-1.5 text-[10px] uppercase tracking-wide text-text-muted">
+        <span className="truncate font-mono">{language || "code"}</span>
+        <span className="flex shrink-0 items-center gap-2">
+          {codeMeta.showLineNumbers && <span>Line numbers</span>}
+          <button
+            type="button"
+            onClick={() => { void copyCode(); }}
+            aria-label={copyStatus === "copied" ? "Code copied" : copyStatus === "failed" ? `Copy ${codeLabel} failed; try again` : `Copy ${codeLabel}`}
+            className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 font-medium tracking-normal transition-colors hover:bg-surface-low hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)]"
+          >
+            {copyStatus === "copied" ? <Check aria-hidden="true" className="h-3 w-3" /> : <Copy aria-hidden="true" className="h-3 w-3" />}
+            <span aria-live="polite">{copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Retry" : "Copy"}</span>
+          </button>
+        </span>
+      </figcaption>
       <SyntaxHighlighter
         language={language || "text"}
         style={SEMANTIC_SYNTAX_THEME}
@@ -613,6 +858,8 @@ function MarkdownCodeBlock({ code, language, meta }: { code: string; language?: 
 
 function MarkdownLink({ href, children, className }: { href?: string; children?: ReactNode; className?: string }) {
   const onOpenWorkspaceFile = useContext(MarkdownWorkspaceFileContext);
+  const embed = openClawEmbedFromHref(href);
+  if (embed) return <MarkdownOpenClawEmbed embed={embed} />;
   const workspacePath = workspacePathFromHref(href);
   const isExternal = typeof href === "string" && /^(?:https?:|mailto:|irc:|ircs:|xmpp:)/i.test(href);
   const link = (
@@ -676,10 +923,95 @@ function MarkdownImage({ src, alt, title }: { src?: string; alt?: string; title?
   );
 }
 
+function MarkdownVideo({ src, title, children }: { src?: string; title?: string; children?: ReactNode }) {
+  const videoSrc = typeof src === "string" && isRenderableMarkdownVideoSrc(src) ? src : undefined;
+  const label = title || (videoSrc ? mediaFileNameFromUrl(videoSrc, "video") : "Video preview");
+  return (
+    <video
+      src={videoSrc}
+      controls
+      playsInline
+      preload="metadata"
+      title={title}
+      aria-label={label === "Video preview" ? label : `Video preview ${label}`}
+      className="my-2 max-h-[320px] w-full max-w-[28rem] rounded-md border border-border bg-black"
+    >
+      {children}
+    </video>
+  );
+}
+
+function MarkdownVideoSource({ src, type }: { src?: string; type?: string }) {
+  if (!(typeof src === "string" && isRenderableMarkdownVideoSrc(src))) return null;
+  const sourceType = typeof type === "string" && /^video\/[A-Za-z0-9.+-]+$/i.test(type) ? type : undefined;
+  return <source src={src} type={sourceType} />;
+}
+
+function MarkdownOpenClawEmbed({ embed }: { embed: OpenClawEmbed }) {
+  return (
+    <figure className="my-2 w-full max-w-[40rem] overflow-hidden rounded-lg border border-border bg-background/50">
+      <figcaption className="border-b border-border/70 px-3 py-2 text-xs font-medium text-text-secondary">
+        {embed.title}
+      </figcaption>
+      <iframe
+        title={embed.title}
+        srcDoc={sandboxedOpenClawEmbedDocument(embed.html)}
+        sandbox=""
+        referrerPolicy="no-referrer"
+        loading="lazy"
+        className="block w-full border-0 bg-white"
+        style={{ height: `${embed.height}px` }}
+      />
+    </figure>
+  );
+}
+
+function MarkdownAlert({ type, children }: { type: MarkdownAlertType; children?: ReactNode }) {
+  const alert = MARKDOWN_ALERTS[type];
+  const Icon = alert.icon;
+  return (
+    <aside
+      role="note"
+      aria-label={`${alert.label} callout`}
+      className={`${MARKDOWN_WRAP_CLASS} my-3 rounded-r-lg border-l-[3px] px-3 py-2.5 ${alert.className}`}
+    >
+      <div className={`mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide ${alert.iconClassName}`}>
+        <Icon aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+        <span>{alert.label}</span>
+      </div>
+      <div className="text-text-secondary [&>*:last-child]:mb-0">{children}</div>
+    </aside>
+  );
+}
+
+function markdownAlertTypeFromNode(node: unknown): MarkdownAlertType | null {
+  if (!isRecord(node) || !isRecord(node.properties)) return null;
+  return markdownAlertType(node.properties.dataAlertType);
+}
+
+function MarkdownTaskCheckbox({ initialChecked }: { initialChecked: boolean }) {
+  const [checked, setChecked] = useState(initialChecked);
+  return (
+    <input
+      type="checkbox"
+      checked={checked}
+      onChange={(event) => setChecked(event.currentTarget.checked)}
+      aria-label={checked ? "Mark task incomplete" : "Mark task complete"}
+      title="Toggle task locally"
+      className="mr-2 h-4 w-4 shrink-0 cursor-pointer align-middle accent-[var(--selection-accent)]"
+    />
+  );
+}
+
 const CHAT_MARKDOWN_COMPONENTS: Parameters<typeof Markdown>[0]["components"] = {
   p: ({ children }) => <p className={MARKDOWN_BLOCK_CLASS}>{children}</p>,
   strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
   em: ({ children }) => <em className="italic">{children}</em>,
+  kbd: ({ children }) => (
+    <kbd className="mx-0.5 inline-flex min-h-5 min-w-5 items-center justify-center rounded border border-border border-b-2 bg-surface-low px-1.5 py-0.5 align-baseline font-mono text-[0.8em] font-medium leading-none text-foreground">
+      {children}
+    </kbd>
+  ),
   code: ({ children, className, node }) => {
     const language = className?.match(/language-([^\s]+)/)?.[1]?.toLowerCase();
     const { code: text, meta } = decodeCodeTextAndMeta(children, codeNodeMeta(node));
@@ -691,9 +1023,23 @@ const CHAT_MARKDOWN_COMPONENTS: Parameters<typeof Markdown>[0]["components"] = {
     );
   },
   pre: ({ children }) => <>{children}</>,
-  ul: ({ children }) => <ul className={`${MARKDOWN_WRAP_CLASS} mb-2 list-disc space-y-1 pl-4`}>{children}</ul>,
-  ol: ({ children }) => <ol className={`${MARKDOWN_WRAP_CLASS} mb-2 list-decimal space-y-1 pl-4`}>{children}</ol>,
-  li: ({ children }) => <li className={MARKDOWN_WRAP_CLASS}>{children}</li>,
+  ul: ({ children, className }) => {
+    const taskList = className?.split(/\s+/).includes("contains-task-list") ?? false;
+    return (
+      <ul className={`${MARKDOWN_WRAP_CLASS} mb-2 space-y-1 pl-5 ${taskList ? "list-none" : "list-disc"} ${className ?? ""}`}>
+        {children}
+      </ul>
+    );
+  },
+  ol: ({ children, className }) => <ol className={`${MARKDOWN_WRAP_CLASS} mb-2 list-decimal space-y-1 pl-5 ${className ?? ""}`}>{children}</ol>,
+  li: ({ children, className }) => <li className={`${MARKDOWN_WRAP_CLASS} ${className ?? ""}`}>{children}</li>,
+  input: ({ type, checked, disabled, node, ...props }) => {
+    void node;
+    if (type === "checkbox") {
+      return <MarkdownTaskCheckbox key={checked ? "checked" : "unchecked"} initialChecked={Boolean(checked)} />;
+    }
+    return <input {...props} type={type} disabled={disabled} />;
+  },
   a: ({ href, children, className }) => <MarkdownLink href={href} className={className}>{children}</MarkdownLink>,
   abbr: ({ children, title }) => {
     const label = typeof title === "string" ? title : undefined;
@@ -703,9 +1049,12 @@ const CHAT_MARKDOWN_COMPONENTS: Parameters<typeof Markdown>[0]["components"] = {
   h1: ({ children, className }) => <h1 className={`${className ?? ""} ${MARKDOWN_WRAP_CLASS} mb-2 text-lg font-bold`}>{children}</h1>,
   h2: ({ children, className }) => <h2 className={`${className ?? ""} ${MARKDOWN_WRAP_CLASS} mb-2 text-base font-bold`}>{children}</h2>,
   h3: ({ children, className }) => <h3 className={`${className ?? ""} ${MARKDOWN_WRAP_CLASS} mb-1 text-sm font-bold`}>{children}</h3>,
-  blockquote: ({ children }) => (
-    <blockquote className={`${MARKDOWN_WRAP_CLASS} my-2 border-l-2 border-text-muted pl-3 italic text-text-secondary`}>{children}</blockquote>
-  ),
+  blockquote: ({ children, node }) => {
+    const alertType = markdownAlertTypeFromNode(node);
+    return alertType
+      ? <MarkdownAlert type={alertType}>{children}</MarkdownAlert>
+      : <blockquote className={`${MARKDOWN_WRAP_CLASS} my-2 border-l-2 border-text-muted pl-3 italic text-text-secondary`}>{children}</blockquote>;
+  },
   hr: () => <hr className="border-border my-3" />,
   table: ({ children }) => (
     <div className={MARKDOWN_TABLE_WRAP_CLASS}>
@@ -721,6 +1070,20 @@ const CHAT_MARKDOWN_COMPONENTS: Parameters<typeof Markdown>[0]["components"] = {
       title={typeof title === "string" ? title : undefined}
     />
   ),
+  video: ({ src, title, children }) => (
+    <MarkdownVideo
+      src={typeof src === "string" ? src : undefined}
+      title={typeof title === "string" ? title : undefined}
+    >
+      {children}
+    </MarkdownVideo>
+  ),
+  source: ({ src, type }) => (
+    <MarkdownVideoSource
+      src={typeof src === "string" ? src : undefined}
+      type={typeof type === "string" ? type : undefined}
+    />
+  ),
 };
 
 function renderMarkdown(text: string, linkWorkspaceFiles: boolean) {
@@ -729,24 +1092,29 @@ function renderMarkdown(text: string, linkWorkspaceFiles: boolean) {
     <Markdown
       components={CHAT_MARKDOWN_COMPONENTS}
       rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
-      remarkPlugins={markdownRemarkPlugins(prepared.abbreviations, linkWorkspaceFiles)}
-      skipHtml
+      remarkPlugins={markdownRemarkPlugins(prepared.abbreviations, linkWorkspaceFiles, prepared.content)}
     >
       {prepared.content}
     </Markdown>
   );
 }
 
-export function MarkdownContent({ content, typewriter = false, className, style, onOpenWorkspaceFile }: MarkdownContentProps) {
+export function MarkdownContent({ content, typewriter = false, isStreaming = false, className, style, onOpenWorkspaceFile }: MarkdownContentProps) {
   const displayedContent = useTypewriter(content, typewriter);
+  const renderableContent = useMemo(
+    () => isStreaming ? remend(displayedContent, { linkMode: "text-only" }) : displayedContent,
+    [displayedContent, isStreaming],
+  );
   const linkWorkspaceFiles = Boolean(onOpenWorkspaceFile);
-  const renderedContent = useMemo(() => renderMarkdown(displayedContent, linkWorkspaceFiles), [displayedContent, linkWorkspaceFiles]);
+  const renderedContent = useMemo(() => renderMarkdown(renderableContent, linkWorkspaceFiles), [linkWorkspaceFiles, renderableContent]);
 
   return (
-    <MarkdownWorkspaceFileContext.Provider value={onOpenWorkspaceFile}>
-      <div className={`prose-chat min-w-0 max-w-full overflow-hidden break-words leading-relaxed [overflow-wrap:anywhere] ${className ?? ""}`} style={style}>
-        <div className="min-w-0 max-w-full overflow-hidden">{renderedContent}</div>
-      </div>
-    </MarkdownWorkspaceFileContext.Provider>
+    <MarkdownStreamingContext.Provider value={isStreaming}>
+      <MarkdownWorkspaceFileContext.Provider value={onOpenWorkspaceFile}>
+        <div className={`prose-chat min-w-0 max-w-full overflow-hidden break-words leading-relaxed [overflow-wrap:anywhere] ${className ?? ""}`} style={style}>
+          <div className="min-w-0 max-w-full overflow-hidden">{renderedContent}</div>
+        </div>
+      </MarkdownWorkspaceFileContext.Provider>
+    </MarkdownStreamingContext.Provider>
   );
 }

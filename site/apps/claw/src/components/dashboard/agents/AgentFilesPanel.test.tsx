@@ -167,6 +167,24 @@ describe("AgentFilesPanel", () => {
     expect(screen.getByRole("button", { name: "Hide dotfiles" })).toBeInTheDocument();
   });
 
+  it("uses the OpenClaw directory as the breadcrumb root", async () => {
+    const onListFiles = vi.fn(async (path?: string) => path === ".openclaw"
+      ? [{ name: "workspace", path: ".openclaw/workspace", type: "directory" as const }]
+      : []);
+
+    renderFilesPanel({ onListFiles });
+
+    fireEvent.click(await screen.findByRole("button", { name: "workspace" }));
+    await waitFor(() => {
+      expect(onListFiles).toHaveBeenCalledWith(".openclaw/workspace", "agent");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Root" }));
+    await waitFor(() => {
+      expect(onListFiles).toHaveBeenLastCalledWith(".openclaw", "agent");
+    });
+  });
+
   it("switches to the Backup source from panel tabs at the OpenClaw directory", async () => {
     const onListFiles = vi.fn(async () => []);
 

@@ -32,6 +32,7 @@ import { TooltipHint } from "@/components/ClawTooltip";
 export type SharedKnowledgeAgent = {
   id: string;
   name?: string | null;
+  displayName?: string | null;
   pod_name?: string | null;
   state?: string | null;
   meta?: AgentMeta | null;
@@ -70,7 +71,7 @@ type PendingPathDelete = {
 };
 
 function agentDisplayName(agent: SharedKnowledgeAgent): string {
-  return agent.name || agent.pod_name || agent.id;
+  return agent.displayName?.trim() || agent.name || agent.pod_name || agent.id;
 }
 
 function normalizeAgentState(state?: string | null): string {

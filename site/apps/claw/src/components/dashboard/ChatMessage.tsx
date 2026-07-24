@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { Brain, ChevronRight, Download, FileImage, FolderOpen, Loader2, Paperclip, Square } from "lucide-react";
+import { Brain, ChevronRight, Download, FileImage, FolderOpen, Loader2, Paperclip, RefreshCw, Square } from "lucide-react";
 import { AnimatePresence, motion, type HTMLMotionProps } from "framer-motion";
 import type { ChatMessage as ChatMessageType, ChatPendingFile } from "@/lib/openclaw-chat";
 import { getStoredToken } from "@/lib/api";
@@ -13,6 +13,7 @@ import {
   extractContentMediaReferences,
   findFileForMediaReference,
   getChatFileLabel,
+  inferChatMediaFileType,
   isAudioFileReference,
   isImageFileReference,
   isVideoFileReference,
@@ -33,15 +34,6 @@ import { TimestampDisplay } from "@/components/dashboard/chat/TimestampDisplay";
 import { TooltipHint } from "@/components/ClawTooltip";
 
 // ── Helpers ──
-
-function extractImagePath(tc: { name: string; args: string; result?: string }): string | null {
-  try {
-    const args = JSON.parse(tc.args);
-    const path = args.file_path || args.path || "";
-    if (typeof path === "string" && isImageFileReference({ path })) return path;
-  } catch { /* ignore */ }
-  return null;
-}
 
 function normalizeChatFileReference(file: ChatPendingFile): ChatPendingFile | null {
   const candidate = file as Partial<ChatPendingFile>;
@@ -437,6 +429,9 @@ interface ChatMessageProps {
   onReadFileBytesFromChat?: (path: string) => Promise<Uint8Array>;
   onOpenFileFromChat?: (path: string) => void;
   onDownloadFileFromChat?: (file: ChatPendingFile) => void | Promise<void>;
+  onRetryFailedReply?: () => void;
+  retryFailedReplyDisabled?: boolean;
+  retryingFailedReply?: boolean;
 }
 
 interface AgentFileReference {
@@ -511,7 +506,7 @@ function useAgentFileObjectState(
     bytesPromise
       .then((bytes) => {
         if (cancelled) return;
-        const blob = new Blob([toArrayBuffer(bytes)]);
+        const blob = new Blob([toArrayBuffer(bytes)], { type: inferChatMediaFileType(filePath) });
         const url = URL.createObjectURL(blob);
         blobRef.current = url;
         setObjectState({ key: fileKey, url, failed: false });
@@ -555,7 +550,7 @@ export function AuthImage({
       <div
         role="status"
         aria-label={failed ? "Image unavailable" : "Loading image"}
-        className={`flex min-h-24 min-w-24 max-w-full items-center justify-center rounded-md border border-border bg-surface-low px-3 py-3 text-center text-xs text-text-muted ${className ?? ""}`}
+        className={`flex aspect-square min-h-24 min-w-24 w-full max-w-[320px] items-center justify-center rounded-md border border-border bg-surface-low px-3 py-3 text-center text-xs text-text-muted ${className ?? ""}`}
       >
         {failed ? (
           <span>Image unavailable</span>
@@ -637,6 +632,29 @@ function StreamingStatusAnchor({ active }: { active: boolean }) {
   );
 }
 
+function FailedReplyRetryButton({
+  onRetry,
+  disabled = false,
+  retrying = false,
+}: {
+  onRetry: () => void;
+  disabled?: boolean;
+  retrying?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onRetry}
+      disabled={disabled || retrying}
+      aria-label={retrying ? "Retrying failed reply" : "Retry failed reply"}
+      className="mt-2 inline-flex h-8 w-fit items-center gap-1.5 rounded-lg border border-border bg-surface-low/70 px-2.5 text-xs font-medium text-foreground transition-colors hover:border-border-strong hover:bg-surface-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)] disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      <RefreshCw aria-hidden="true" className={`h-3.5 w-3.5 ${retrying ? "animate-spin motion-reduce:animate-none" : ""}`} />
+      {retrying ? "Retrying..." : "Retry"}
+    </button>
+  );
+}
+
 // Returns framer-motion props for the bubble entrance animation.
 // Returns {} for "off" — motion.div with no animation props is a plain div.
 function getEntranceProps(variant: AnimationVariant, isUser: boolean): HTMLMotionProps<"div"> {
@@ -696,7 +714,6 @@ function ToolCallDisclosure({
   defaultOpen,
   onToggle,
   themeVariant,
-  agentId,
   isStreaming,
 }: {
   tc: { id?: string; name: string; args: string; result?: string };
@@ -705,15 +722,12 @@ function ToolCallDisclosure({
   defaultOpen: boolean;
   onToggle: (index: number, defaultOpen: boolean) => void;
   themeVariant: ThemeVariant;
-  agentId?: string | null;
   isStreaming: boolean;
 }) {
   const detailId = useId();
   const [pendingTimedOut, setPendingTimedOut] = useState(false);
   const rawPending = tc.result === undefined && isStreaming;
   const view = buildToolCallView(tc, { isStreaming, pendingTimedOut });
-  const imagePath = agentId ? extractImagePath(tc) : null;
-  const imageFile = imagePath && agentId ? { agentId, path: imagePath } : null;
   const directoryListing = tc.result !== undefined ? parseDirectoryVisualization(tc.result) : null;
 
   useEffect(() => {
@@ -739,15 +753,6 @@ function ToolCallDisclosure({
           <ToolCallSectionList sections={[directoryListing ? null : view.resultSection]} />
         </div>
       )}
-      {imageFile && (
-        <div className="max-w-full border-t border-border px-2.5 py-2">
-          <AuthImage
-            file={imageFile}
-            alt={imagePath?.split("/").pop() || "generated image"}
-            className={CHAT_MARKDOWN_IMAGE_CLASS}
-          />
-        </div>
-      )}
     </div>
   );
 }
@@ -755,12 +760,10 @@ function ToolCallDisclosure({
 function ToolCallStackDisclosure({
   toolCalls,
   themeVariant,
-  agentId,
   isStreaming,
 }: {
   toolCalls: ToolCall[];
   themeVariant: ThemeVariant;
-  agentId?: string | null;
   isStreaming: boolean;
 }) {
   const detailId = useId();
@@ -865,7 +868,6 @@ function ToolCallStackDisclosure({
                         setToolsOpen((prev) => ({ ...prev, [toolIndex]: !(prev[toolIndex] ?? fallbackOpen) }));
                       }}
                       themeVariant={themeVariant}
-                      agentId={agentId}
                       isStreaming={isStreaming && !pendingTimedOut}
                     />
                   </motion.div>
@@ -897,8 +899,12 @@ export function ChatMessageBubble({
   onReadFileBytesFromChat,
   onOpenFileFromChat,
   onDownloadFileFromChat,
+  onRetryFailedReply,
+  retryFailedReplyDisabled = false,
+  retryingFailedReply = false,
 }: ChatMessageProps) {
   const [toolsOpen, setToolsOpen] = useState<Record<number, boolean>>({});
+  const [stackToolCalls] = useState(() => shouldStackToolCalls(message.toolCalls));
   const messageFiles = uniqueChatFiles([
     ...(message.files ?? []),
     ...(message.role === "assistant" ? deriveToolWrittenFiles(message.toolCalls) : []),
@@ -920,6 +926,15 @@ export function ChatMessageBubble({
       <div className="flex min-w-0 max-w-full justify-center">
         <div className={`max-w-[85%] break-words rounded-lg border px-4 py-2 text-sm [overflow-wrap:anywhere] ${isStoppedNotice ? "border-border bg-surface-low/70 text-text-muted" : "border-destructive/20 bg-destructive/10 text-destructive"}`}>
           {message.content}
+          {onRetryFailedReply ? (
+            <div>
+              <FailedReplyRetryButton
+                onRetry={onRetryFailedReply}
+                disabled={retryFailedReplyDisabled}
+                retrying={retryingFailedReply}
+              />
+            </div>
+          ) : null}
         </div>
       </div>
     );
@@ -1066,11 +1081,10 @@ export function ChatMessageBubble({
         )}
 
         {/* Tool calls */}
-        {shouldStackToolCalls(message.toolCalls) ? (
+        {stackToolCalls ? (
           <ToolCallStackDisclosure
             toolCalls={message.toolCalls ?? []}
             themeVariant={themeVariant}
-            agentId={agentId}
             isStreaming={isStreaming}
           />
         ) : (
@@ -1088,7 +1102,6 @@ export function ChatMessageBubble({
                   setToolsOpen((prev) => ({ ...prev, [index]: !(prev[index] ?? fallbackOpen) }));
                 }}
                 themeVariant={themeVariant}
-                agentId={agentId}
                 isStreaming={isStreaming}
               />
             );
@@ -1366,6 +1379,7 @@ export function ChatMessageBubble({
               <MarkdownContent
                 content={displayContent}
                 typewriter={false}
+                isStreaming={showStreamingDot}
                 className="relative"
                 onOpenWorkspaceFile={!isUser ? onOpenFileFromChat : undefined}
               />
@@ -1373,6 +1387,14 @@ export function ChatMessageBubble({
             <StreamingStatusAnchor active={showStreamingDot} />
           </div>
         )}
+
+        {onRetryFailedReply && !isUser ? (
+          <FailedReplyRetryButton
+            onRetry={onRetryFailedReply}
+            disabled={retryFailedReplyDisabled}
+            retrying={retryingFailedReply}
+          />
+        ) : null}
 
         {message.status === "interrupted" && !isUser && (
           <div

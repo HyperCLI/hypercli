@@ -62,6 +62,61 @@ interface ChatStreamEventContext {
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
   setSending: Dispatch<SetStateAction<boolean>>;
   appendActivity: (entry: { type: ActivityKind; action: string; detail?: string; id?: string; timestamp?: number }) => void;
+  assistantRenderId?: string;
+  clientTurnId?: string;
+}
+
+type ChatMessageIdentity = Partial<Pick<
+  ChatMessage,
+  "eventId" | "messageId" | "turnId" | "runId" | "sessionKey" | "revision"
+>>;
+
+function protocolIdentityString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function payloadChatMessageIdentity(payload: Record<string, unknown>): ChatMessageIdentity {
+  const eventId = protocolIdentityString(payload.eventId);
+  const messageId = protocolIdentityString(payload.messageId);
+  const turnId = protocolIdentityString(payload.turnId);
+  const runId = protocolIdentityString(payload.runId);
+  const sessionKey = protocolIdentityString(payload.canonicalSessionKey) ?? protocolIdentityString(payload.sessionKey);
+  const revision = typeof payload.revision === "number" && Number.isFinite(payload.revision)
+    ? payload.revision
+    : protocolIdentityString(payload.revision);
+  return {
+    ...(eventId ? { eventId } : {}),
+    ...(messageId ? { messageId } : {}),
+    ...(turnId ? { turnId } : {}),
+    ...(runId ? { runId } : {}),
+    ...(sessionKey ? { sessionKey } : {}),
+    ...(revision !== undefined ? { revision } : {}),
+  };
+}
+
+function streamChatMessageIdentity(chatEvent: ChatEvent): ChatMessageIdentity {
+  return {
+    ...(chatEvent.eventId ? { eventId: chatEvent.eventId } : {}),
+    ...(chatEvent.messageId ? { messageId: chatEvent.messageId } : {}),
+    ...(chatEvent.turnId ? { turnId: chatEvent.turnId } : {}),
+    ...(chatEvent.runId ? { runId: chatEvent.runId } : {}),
+    ...(chatEvent.sessionKey ? { sessionKey: chatEvent.sessionKey } : {}),
+    ...(chatEvent.revision !== undefined ? { revision: chatEvent.revision } : {}),
+  };
+}
+
+function identifiedAssistantMessage(
+  message: ChatMessage,
+  identity: ChatMessageIdentity,
+  renderId?: string,
+  clientTurnId?: string,
+): ChatMessage {
+  return {
+    ...message,
+    ...identity,
+    ...(renderId ? { renderId } : {}),
+    ...(clientTurnId ? { clientTurnId } : {}),
+  };
 }
 
 function normalizeAbortSignal(value: unknown): string {
@@ -103,30 +158,46 @@ export function handleOpenClawChatStreamEvent({
   setMessages,
   setSending,
   appendActivity,
+  assistantRenderId,
+  clientTurnId,
 }: ChatStreamEventContext): void {
   const payload = chatEvent.data ?? {};
+  const identity = streamChatMessageIdentity(chatEvent);
 
   if (chatEvent.type === "content") {
     const text = sanitizeChatDisplayText(chatEvent.text ?? "");
-    if (text) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: text, timestamp: Date.now() }));
+    if (text || chatEvent.replace === true) {
+      setMessages((prev) => upsertAssistantMessage(
+        prev,
+        identifiedAssistantMessage({ role: "assistant", content: text, timestamp: Date.now() }, identity, assistantRenderId, clientTurnId),
+        { replaceContent: chatEvent.replace === true },
+      ));
+    }
   } else if (chatEvent.type === "thinking") {
     const text = sanitizeChatDisplayText(chatEvent.text ?? "");
-    if (text) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", thinking: text, timestamp: Date.now() }));
+    if (text) setMessages((prev) => upsertAssistantMessage(prev, identifiedAssistantMessage({ role: "assistant", content: "", thinking: text, timestamp: Date.now() }, identity, assistantRenderId, clientTurnId)));
   } else if (chatEvent.type === "tool_call") {
     const toolCall = normalizeLiveToolCall(payload);
-    if (toolCall) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", toolCalls: [toolCall], timestamp: Date.now() }));
+    if (toolCall) setMessages((prev) => upsertAssistantMessage(prev, identifiedAssistantMessage({ role: "assistant", content: "", toolCalls: [toolCall], timestamp: Date.now() }, identity, assistantRenderId, clientTurnId)));
     if (toolCall && !isInternalHeartbeatMessage({ toolCalls: [toolCall] })) {
       appendActivity({ type: "tool", action: toolCall.name, detail: toolCall.args || "" });
     }
   } else if (chatEvent.type === "tool_result") {
     const toolResult = normalizeLiveToolResult(payload);
-    if (toolResult) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", toolCalls: [toolResult], timestamp: Date.now() }));
+    if (toolResult) setMessages((prev) => upsertAssistantMessage(prev, identifiedAssistantMessage({ role: "assistant", content: "", toolCalls: [toolResult], timestamp: Date.now() }, identity, assistantRenderId, clientTurnId)));
     if (toolResult?.result && !isInternalHeartbeatMessage({ toolCalls: [toolResult] })) {
       appendActivity({ type: "tool", action: `${toolResult.name} → result`, detail: toolResult.result });
     }
   } else if (chatEvent.type === "done") {
     const normalized = normalizeHistoryMessage(payload.message);
-    if (normalized?.role === "assistant") setMessages((prev) => upsertAssistantMessage(prev, normalized));
+    if (normalized?.role === "assistant") {
+      setMessages((prev) => upsertAssistantMessage(prev, identifiedAssistantMessage(normalized, identity, assistantRenderId, clientTurnId)));
+    } else if (assistantRenderId && Object.keys(identity).length > 0) {
+      setMessages((prev) => upsertAssistantMessage(
+        prev,
+        identifiedAssistantMessage({ role: "assistant", content: "", timestamp: Date.now() }, identity, assistantRenderId, clientTurnId),
+      ));
+    }
     setSending(false);
     appendActivity({ type: "message", action: "Assistant response complete" });
   } else if (chatEvent.type === "error") {
@@ -145,10 +216,11 @@ export function handleOpenClawChatStreamEvent({
 function appendLiveChatMessage(
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>,
   message: ChatMessage | null,
+  options: { replaceContent?: boolean } = {},
 ): void {
   if (!message) return;
   if (message.role === "assistant") {
-    setMessages((prev) => upsertAssistantMessage(prev, message));
+    setMessages((prev) => upsertAssistantMessage(prev, message, options));
     return;
   }
   setMessages((prev) => [...prev, message]);
@@ -167,6 +239,7 @@ export function handleOpenClawSessionEvent({
   const event = gatewayEvent.event;
   const payload = gatewayEvent.payload ?? {};
   const payloadRecord = payload as Record<string, unknown>;
+  const identity = payloadChatMessageIdentity(payloadRecord);
 
   if (isGatewayChatStreamEvent(event, payload) && !openClawEventMatchesSession(payload, activeSessionKey)) {
     return;
@@ -182,11 +255,11 @@ export function handleOpenClawSessionEvent({
       const phase = typeof data.phase === "string" ? data.phase.toLowerCase() : "";
       if (phase === "start") {
         const toolCall = normalizeLiveToolCall(data);
-        if (toolCall) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", toolCalls: [toolCall], timestamp: Date.now() }));
+        if (toolCall) setMessages((prev) => upsertAssistantMessage(prev, identifiedAssistantMessage({ role: "assistant", content: "", toolCalls: [toolCall], timestamp: Date.now() }, identity)));
       } else if (phase === "result") {
         const toolResult = normalizeLiveToolResult(data);
         if (toolResult) {
-          setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", toolCalls: [toolResult], timestamp: Date.now() }));
+          setMessages((prev) => upsertAssistantMessage(prev, identifiedAssistantMessage({ role: "assistant", content: "", toolCalls: [toolResult], timestamp: Date.now() }, identity)));
         }
       }
     }
@@ -198,25 +271,40 @@ export function handleOpenClawSessionEvent({
       appendReplyStoppedActivity(appendActivity);
       return;
     }
-    appendLiveChatMessage(setMessages, normalizeHistoryMessage(payloadRecord.message ?? payloadRecord));
+    const normalized = normalizeHistoryMessage(payloadRecord.message ?? payloadRecord);
+    appendLiveChatMessage(
+      setMessages,
+      normalized ? identifiedAssistantMessage(normalized, identity) : null,
+      { replaceContent: payloadRecord.replace === true },
+    );
     if ((payload as Record<string, unknown>).state === "final") setSending(false);
   } else if (event === "chat.content") {
     const normalized = normalizeHistoryMessage(payloadRecord.message ?? payloadRecord);
     if (normalized) {
-      appendLiveChatMessage(setMessages, normalized);
+      appendLiveChatMessage(
+        setMessages,
+        identifiedAssistantMessage(normalized, identity),
+        { replaceContent: payloadRecord.replace === true },
+      );
     } else {
       const text = sanitizeChatDisplayText((payload as Record<string, unknown>).text as string ?? "");
-      if (text) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: text, timestamp: Date.now() }));
+      if (text || payloadRecord.replace === true) {
+        setMessages((prev) => upsertAssistantMessage(
+          prev,
+          identifiedAssistantMessage({ role: "assistant", content: text, timestamp: Date.now() }, identity),
+          { replaceContent: payloadRecord.replace === true },
+        ));
+      }
     }
   } else if (event === "chat.thinking") {
     const text = sanitizeChatDisplayText((payload as Record<string, unknown>).text as string ?? "");
-    if (text) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", thinking: text, timestamp: Date.now() }));
+    if (text) setMessages((prev) => upsertAssistantMessage(prev, identifiedAssistantMessage({ role: "assistant", content: "", thinking: text, timestamp: Date.now() }, identity)));
   } else if (event === "chat.tool_call") {
     const toolCall = normalizeLiveToolCall(payload as Record<string, unknown>);
-    if (toolCall) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", toolCalls: [toolCall], timestamp: Date.now() }));
+    if (toolCall) setMessages((prev) => upsertAssistantMessage(prev, identifiedAssistantMessage({ role: "assistant", content: "", toolCalls: [toolCall], timestamp: Date.now() }, identity)));
   } else if (event === "chat.tool_result") {
     const toolResult = normalizeLiveToolResult(payload as Record<string, unknown>);
-    if (toolResult) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", toolCalls: [toolResult], timestamp: Date.now() }));
+    if (toolResult) setMessages((prev) => upsertAssistantMessage(prev, identifiedAssistantMessage({ role: "assistant", content: "", toolCalls: [toolResult], timestamp: Date.now() }, identity)));
   } else if (event === "chat.done") {
     setSending(false);
     void refreshSessions();
@@ -336,10 +424,10 @@ function rawSessionKeyCandidates(session: OpenClawSessionRecord | null | undefin
 function channelHistorySessionKeys(session: OpenClawSessionRecord | null | undefined): string[] {
   if (session?.readOnly !== true || !session.sourceChannelId) return [];
   return uniqueNonEmptyStrings([
-    session.gatewaySessionKey,
-    ...rawSessionKeyCandidates(session),
     session.sourceSessionKey,
     session.key,
+    session.gatewaySessionKey,
+    ...rawSessionKeyCandidates(session),
   ]);
 }
 
@@ -395,7 +483,11 @@ function channelIdsFromRecord(record: Record<string, unknown>): string[] {
   ]);
 }
 
-function previewItemMatchesReadOnlyChannel(item: unknown, session: OpenClawSessionRecord): boolean {
+function previewItemMatchesReadOnlyChannel(
+  item: unknown,
+  session: OpenClawSessionRecord,
+  queriedSessionKey: string,
+): boolean {
   const expectedChannelId = normalizedChannelId(session.sourceChannelId);
   if (!expectedChannelId || !isRecord(item)) return true;
   const messageRecord = nestedRecord(item.message);
@@ -403,7 +495,12 @@ function previewItemMatchesReadOnlyChannel(item: unknown, session: OpenClawSessi
     ...channelIdsFromRecord(item),
     ...(messageRecord ? channelIdsFromRecord(messageRecord) : []),
   ]);
-  if (channelIds.length === 0) return true;
+  if (channelIds.length === 0) {
+    return Boolean(
+      session.sourceSessionKey &&
+      sameOpenClawSessionKey(queriedSessionKey, session.sourceSessionKey),
+    );
+  }
   return channelIds.includes(expectedChannelId);
 }
 
@@ -418,7 +515,7 @@ async function loadReadOnlyChannelHistory(
   for (const sessionKey of sessionKeys) {
     try {
       const items = previewItemsFromResponse(await gateway.sessionsPreview(sessionKey, limit), sessionKey)
-        .filter((item) => previewItemMatchesReadOnlyChannel(item, session));
+        .filter((item) => previewItemMatchesReadOnlyChannel(item, session, sessionKey));
       const messages = normalizeHistoryMessages(items);
       if (messages.length > 0) return messages;
     } catch {}

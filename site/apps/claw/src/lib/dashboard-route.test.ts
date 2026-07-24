@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   ACCOUNT_PAGE_HREFS,
   DASHBOARD_VIEW_HREFS,
+  buildAgentLauncherHref,
   buildDashboardAgentsRedirectHref,
   buildDashboardViewHref,
   buildDashboardViewRedirectHref,
@@ -25,6 +26,13 @@ describe("dashboard routes", () => {
       session: "session focus",
     })).toBe(
       "/dashboard/agents?view=usage&agentId=agent%2Fone&session=session+focus",
+    );
+  });
+
+  it("builds the canonical agent launcher entry", () => {
+    expect(buildAgentLauncherHref()).toBe("/dashboard/agents?open=agent-launcher");
+    expect(buildAgentLauncherHref(" pro/annual ")).toBe(
+      "/dashboard/agents?open=agent-launcher&plan=pro%2Fannual",
     );
   });
 

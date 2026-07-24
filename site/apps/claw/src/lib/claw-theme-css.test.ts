@@ -108,6 +108,7 @@ describe("claw theme CSS", () => {
     expect(fixedDefaultBlock).toContain("--selection-accent: #63e452;");
     expect(fixedDefaultBlock).toContain("--selection-accent-rgb: 99 228 82;");
     expect(fixedDefaultBlock).toContain("--selection-background: rgba(99, 228, 82, 0.3);");
+    expect(fixedDefaultBlock).toContain("--elevation-shadow-medium: 0 18px 48px rgba(0, 0, 0, 0.46);");
     expect(tokenValue(fixedDefaultBlock, "--success")).not.toBe(tokenValue(fixedDefaultBlock, "--primary"));
   });
 
@@ -122,6 +123,7 @@ describe("claw theme CSS", () => {
     expect(lightBlock).toContain("--button-primary-rgb: 23 122 85;");
     expect(lightBlock).toContain("--selection-accent: #177a55;");
     expect(lightBlock).toContain("--glass-card-background: rgba(255, 255, 255, 0.78);");
+    expect(lightBlock).toContain("--elevation-shadow-medium: 0 18px 48px rgba(13, 21, 17, 0.15);");
     expect(lightBlock).toContain("color-scheme: light;");
     expect(fixedDefaultBlock).toContain("color-scheme: dark;");
     expect(tokenNames(lightBlock)).toEqual(tokenNames(fixedDefaultBlock));
@@ -137,6 +139,7 @@ describe("claw theme CSS", () => {
     expect(clawThemeCss).toContain("@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)))");
     expect(clawThemeCss).toContain(".glass-card");
     expect(clawThemeCss).toContain(".btn-primary");
+    expect(clawThemeCss).toContain(".elevation-shadow-medium");
     expect(clawThemeCss).toContain(':where(button, a, [role="button"]):hover');
     expect(clawThemeCss).toContain("--button-primary-foreground: var(--button-hover-foreground);");
     expect(clawThemeCss).toContain('.bg-foreground.text-background:hover');
@@ -161,12 +164,12 @@ describe("claw theme CSS", () => {
     expect(sliderSource).toContain("data-[disabled]:cursor-not-allowed");
   });
 
-  it("compacts the agent empty state within the available chat height", () => {
+  it("compacts the agent empty state within the available chat width", () => {
+    expect(clawGlobalsCss).toContain("align-items: safe center;");
     expect(clawGlobalsCss).toContain("container-name: agent-empty-history;");
-    expect(clawGlobalsCss).toContain("@container agent-empty-history (max-height: 52rem)");
-    expect(clawGlobalsCss).toContain("@container agent-empty-history (max-height: 40rem)");
-    expect(clawGlobalsCss).toContain("@container agent-empty-history (max-height: 30rem)");
-    expect(clawGlobalsCss).toContain(".agent-empty-history-card-description");
+    expect(clawGlobalsCss).toContain("container-type: inline-size;");
+    expect(clawGlobalsCss).toContain("@container agent-empty-history (max-width: 40rem)");
+    expect(clawGlobalsCss).toContain(".agent-empty-history-workspace-card");
   });
 
   it("propagates the canonical switchable theme to main and console", () => {
@@ -192,6 +195,16 @@ describe("claw theme CSS", () => {
     );
     const offenders = oldBrandScanTargets.flatMap(sourceFilesIn)
       .filter((filePath) => oldBrandPalette.test(readFileSync(filePath, "utf8")))
+      .map((filePath) => path.relative(siteRoot, filePath));
+
+    expect(offenders).toEqual([]);
+  });
+
+  it("does not derive outer elevation shadows from foreground text color", () => {
+    const outerForegroundShadow = /shadow-\[(?!inset_)[^\]]*var\(--foreground\)/;
+    const offenders = [sharedUiSrcDir, path.resolve(siteRoot, "apps/claw/src")]
+      .flatMap(sourceFilesIn)
+      .filter((filePath) => outerForegroundShadow.test(readFileSync(filePath, "utf8")))
       .map((filePath) => path.relative(siteRoot, filePath));
 
     expect(offenders).toEqual([]);

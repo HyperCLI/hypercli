@@ -12,7 +12,7 @@ describe("billing reflection machine", () => {
   });
 
   it("transitions from syncing to ready", () => {
-    const pending = { planId: "pro", planName: "Pro", ownedCount: 0, startedAt: 1 };
+    const pending = { principalId: "user-1", planId: "pro", planName: "Pro", ownedCount: 0, startedAt: 1 };
     const syncing = billingReflectionReducer(initialBillingReflectionState, {
       type: "SYNC_STARTED",
       pending,
@@ -54,7 +54,7 @@ describe("billing reflection machine", () => {
   });
 
   it("models waiting-payment as a pending billing state", () => {
-    const pending = { planId: "pro", planName: "Pro", ownedCount: 0, startedAt: 1 };
+    const pending = { principalId: "user-1", planId: "pro", planName: "Pro", ownedCount: 0, startedAt: 1 };
 
     expect(
       billingReflectionReducer(initialBillingReflectionState, {
@@ -70,7 +70,7 @@ describe("billing reflection machine", () => {
   });
 
   it("models entitlement provisioning and cancellation", () => {
-    const pending = { planId: "pro", planName: "Pro", ownedCount: 0, startedAt: 1 };
+    const pending = { principalId: "user-1", planId: "pro", planName: "Pro", ownedCount: 0, startedAt: 1 };
 
     expect(
       billingReflectionReducer(initialBillingReflectionState, {
@@ -94,7 +94,7 @@ describe("billing reflection machine", () => {
   });
 
   it("dismisses any visible state back to idle", () => {
-    const pending = { planId: "pro", planName: "Pro", ownedCount: 0, startedAt: 1 };
+    const pending = { principalId: "user-1", planId: "pro", planName: "Pro", ownedCount: 0, startedAt: 1 };
     const syncing = billingReflectionReducer(initialBillingReflectionState, {
       type: "SYNC_STARTED",
       pending,

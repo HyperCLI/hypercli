@@ -32,6 +32,7 @@ import {
   resolveBrowserTimeZone,
 } from "@/lib/dashboard-greeting";
 import { integrationDisplayName } from "@/lib/integration-display-name";
+import { agentDisplayLabel } from "@/components/dashboard/agents/agentViewModel";
 
 type WorkspaceUsagePanelProps = {
   accountAgentCount: number;
@@ -174,7 +175,7 @@ export default function WorkspaceUsagePanel({
     const canAttributeUsage = accountAgentCount === 1;
     return workspaceAgents.map((agent) => ({
       id: agent.id,
-      name: agent.name || agent.id,
+      name: agentDisplayLabel(agent),
       status: agent.state,
       integrations: canAttributeUsage ? activeIntegrationCount : null,
       requests: canAttributeUsage ? totals.requests : null,

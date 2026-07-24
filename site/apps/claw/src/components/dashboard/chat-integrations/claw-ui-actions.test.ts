@@ -89,4 +89,35 @@ describe("parseClawUiActionBlocks", () => {
     expect(parseClawUiActionBlocks(unsupported, "assistant")).toEqual({ displayContent: unsupported, actions: [] });
     expect(parseClawUiActionBlocks(malformed, "assistant")).toEqual({ displayContent: malformed, actions: [] });
   });
+
+  it("hides partial reserved controls while preserving streamed prose", () => {
+    expect(parseClawUiActionBlocks(
+      "I can help connect GitHub.\n@@hypercli.ui-action/v1 integration.con",
+      "assistant",
+      { streaming: true },
+    )).toEqual({
+      displayContent: "I can help connect GitHub.",
+      actions: [],
+    });
+
+    expect(parseClawUiActionBlocks(
+      "I can help connect GitHub.\n```claw-ui-action\n{\"version\":1",
+      "assistant",
+      { streaming: true },
+    )).toEqual({
+      displayContent: "I can help connect GitHub.",
+      actions: [],
+    });
+  });
+
+  it("still extracts a complete action before the stream terminal event", () => {
+    expect(parseClawUiActionBlocks(
+      'Ready.\n```claw-ui-action\n{"version":1,"type":"integration.connect","integrationId":"github"}\n```',
+      "assistant",
+      { streaming: true },
+    )).toEqual({
+      displayContent: "Ready.",
+      actions: [{ version: 1, type: "integration.connect", integrationId: "github" }],
+    });
+  });
 });

@@ -296,6 +296,21 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.queryByRole("button", { name: /workspace sidebar/i })).not.toBeInTheDocument();
   });
 
+  it("respects controlled collapse and exposes a close action in embedded mobile navigation", () => {
+    const onClose = vi.fn();
+    renderAgentWorkspaceSidebar({
+      isDesktopViewport: false,
+      renderMobile: true,
+      collapsed: false,
+      embeddedInNavigation: true,
+      onClose,
+    });
+
+    expect(document.querySelector(".agent-workspace-shell")).toHaveAttribute("data-collapsed", "false");
+    fireEvent.click(screen.getByRole("button", { name: "Close navigation" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("does not render shared knowledge in the agent workspace list", () => {
     renderAgentWorkspaceSidebar();
 

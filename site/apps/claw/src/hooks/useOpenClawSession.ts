@@ -48,6 +48,7 @@ import {
   type ChatMessage,
   type ChatPendingFile,
   type WorkspaceFile,
+  createChatRenderId,
   normalizeHistoryMessage,
 } from "@/lib/openclaw-chat";
 import {
@@ -158,6 +159,7 @@ function isUnsupportedSessionLabelPatchError(error: unknown): boolean {
 
 interface SendMessageOptions {
   displayContent?: string;
+  attachments?: ChatAttachment[];
   files?: ChatPendingFile[];
 }
 
@@ -255,6 +257,15 @@ interface ChatHistoryRefreshEntry {
 interface ChatHistoryPhaseState {
   targetKey: string;
   phase: OpenClawHistoryPhase;
+}
+
+interface ActiveChatStreamEntry {
+  token: symbol;
+  gateway: GatewayClient;
+  lifecycleRevision: number;
+  iterator: AsyncGenerator<ChatEvent> | null;
+  ownsStreamEvents: boolean;
+  abortRequested: boolean;
 }
 
 type DeletedSessionTombstones = Record<string, number>;
@@ -390,6 +401,24 @@ function localOpenClawSessionRecord(sessionKey: string, title = fallbackOpenClaw
 
 function chatHistoryTargetKey(target: ChatHistoryTarget): string {
   return JSON.stringify([target.agentId ?? null, target.sessionKey]);
+}
+
+function historyConfirmsLatestOptimisticUser(
+  currentMessages: ChatMessage[],
+  historyMessages: ChatMessage[],
+): boolean {
+  const currentUser = [...currentMessages].reverse().find((message) => message.role === "user");
+  const historyUser = [...historyMessages].reverse().find((message) => message.role === "user");
+  if (!currentUser || !historyUser) return false;
+  for (const field of ["messageId", "turnId", "runId", "clientTurnId"] as const) {
+    if (currentUser[field] && currentUser[field] === historyUser[field]) return true;
+  }
+  const currentHasProtocolIdentity = Boolean(currentUser.messageId || currentUser.turnId || currentUser.runId);
+  const historyHasProtocolIdentity = Boolean(historyUser.messageId || historyUser.turnId || historyUser.runId);
+  if (currentHasProtocolIdentity && historyHasProtocolIdentity) return false;
+  return currentUser.content.trim() === historyUser.content.trim() &&
+    JSON.stringify(currentUser.files ?? []) === JSON.stringify(historyUser.files ?? []) &&
+    JSON.stringify(currentUser.attachments ?? []) === JSON.stringify(historyUser.attachments ?? []);
 }
 
 function emptyComposerDraft(): ComposerDraftState {
@@ -767,8 +796,7 @@ export function useOpenClawSession(
   const [abortingTarget, setAbortingTarget] = useState<ChatHistoryTarget | null>(null);
   const [retrySignal, setRetrySignal] = useState(0);
   const activeChatSendTargetsRef = useRef<Set<string>>(new Set());
-  const activeChatStreamsRef = useRef<Map<string, AsyncGenerator<ChatEvent>>>(new Map());
-  const abortRequestedTargetsRef = useRef<Set<string>>(new Set());
+  const activeChatStreamsRef = useRef<Map<string, ActiveChatStreamEntry>>(new Map());
   const messagesRef = useRef<ChatMessage[]>([]);
   const liveChatHistoryByTargetRef = useRef<Map<string, ChatMessage[]>>(new Map());
   const composerDraftsByTargetRef = useRef<Map<string, ComposerDraftState>>(new Map());
@@ -776,6 +804,7 @@ export function useOpenClawSession(
   const sendingRef = useRef(false);
   const sendingTargetsRef = useRef<Map<string, ChatHistoryTarget>>(new Map());
   const abortingTargetRef = useRef<ChatHistoryTarget | null>(null);
+  const abortingStreamTokenRef = useRef<symbol | null>(null);
   const chatHistoryTargetRef = useRef<ChatHistoryTarget>({ agentId, sessionKey: activeSessionKey });
   const cacheRestoreTargetRef = useRef<ChatHistoryTarget | null>(null);
   const sessionTitleMapRef = useRef<Record<string, string>>({});
@@ -789,6 +818,8 @@ export function useOpenClawSession(
   const chatHistoryRefreshRef = useRef<ChatHistoryRefreshEntry | null>(null);
   const chatHistoryRequestRevisionsRef = useRef<Map<string, number>>(new Map());
   const chatHistoryMutationRevisionsRef = useRef<Map<string, number>>(new Map());
+  const optimisticChatHistoryTargetsRef = useRef<Set<string>>(new Set());
+  const connectionLiveHistoryTargetsRef = useRef<Set<string>>(new Set());
   const activeGatewayRef = useRef<GatewayClient | null>(null);
   const gatewayLifecycleRevisionRef = useRef(0);
   const gatewayGapRecoveryRef = useRef<(targetGateway: GatewayClient) => void>(() => undefined);
@@ -850,19 +881,44 @@ export function useOpenClawSession(
     }
   }, [clearSendingForTarget, markSendingForTarget]);
 
-  const markAbortingForTarget = useCallback((target: ChatHistoryTarget) => {
+  const markAbortingForTarget = useCallback((target: ChatHistoryTarget, streamToken: symbol) => {
     abortingTargetRef.current = target;
+    abortingStreamTokenRef.current = streamToken;
     setAbortingTarget(target);
     setAborting(true);
   }, []);
 
-  const clearAbortingForTarget = useCallback((target?: ChatHistoryTarget | null) => {
+  const clearAbortingForTarget = useCallback((target?: ChatHistoryTarget | null, streamToken?: symbol) => {
     const currentTarget = abortingTargetRef.current;
     if (target && currentTarget && !sameChatHistoryTarget(currentTarget, target)) return;
+    if (streamToken && abortingStreamTokenRef.current !== streamToken) return;
     abortingTargetRef.current = null;
+    abortingStreamTokenRef.current = null;
     setAbortingTarget(null);
     setAborting(false);
   }, []);
+
+  const chatStreamEntryIsCurrent = useCallback((targetKey: string, entry: ActiveChatStreamEntry) => (
+    activeChatStreamsRef.current.get(targetKey)?.token === entry.token &&
+    activeGatewayRef.current === entry.gateway &&
+    gatewayLifecycleRevisionRef.current === entry.lifecycleRevision
+  ), []);
+
+  const requestChatStreamCancellation = useCallback((entry: ActiveChatStreamEntry) => {
+    entry.abortRequested = true;
+    try {
+      void entry.iterator?.return(undefined).catch(() => undefined);
+    } catch {}
+  }, []);
+
+  const cancelAndClearActiveChatStreams = useCallback(() => {
+    for (const entry of activeChatStreamsRef.current.values()) requestChatStreamCancellation(entry);
+    activeChatStreamsRef.current.clear();
+    activeChatSendTargetsRef.current.clear();
+    sendingTargetsRef.current.clear();
+    publishSendingTargets();
+    clearAbortingForTarget(null);
+  }, [clearAbortingForTarget, publishSendingTargets, requestChatStreamCancellation]);
 
   const cancelAutoTitleCandidate = useCallback((targetAgentId: string | null, sessionKey: string) => {
     if (!targetAgentId) return;
@@ -934,6 +990,9 @@ export function useOpenClawSession(
   const dispatchChatHistory = useCallback((action: ChatHistoryAction, target?: ChatHistoryTarget) => {
     const dispatchTarget = target ?? chatHistoryTargetRef.current;
     const targetKey = chatHistoryTargetKey(dispatchTarget);
+    const currentTargetMessages = sameChatHistoryTarget(chatHistoryTargetRef.current, dispatchTarget)
+      ? messagesRef.current
+      : liveChatHistoryByTargetRef.current.get(targetKey) ?? [];
     if (
       action.type === "apply-update" ||
       action.type === "append-system-message" ||
@@ -944,6 +1003,21 @@ export function useOpenClawSession(
         targetKey,
         (chatHistoryMutationRevisionsRef.current.get(targetKey) ?? 0) + 1,
       );
+    }
+    if (action.type === "append-user-message") optimisticChatHistoryTargetsRef.current.add(targetKey);
+    if (action.type === "apply-update" || action.type === "append-system-message" || action.type === "mark-interrupted") {
+      connectionLiveHistoryTargetsRef.current.add(targetKey);
+    }
+    if (
+      (action.type === "merge-history-refresh" || action.type === "replace") &&
+      historyConfirmsLatestOptimisticUser(currentTargetMessages, action.messages)
+    ) {
+      optimisticChatHistoryTargetsRef.current.delete(targetKey);
+      connectionLiveHistoryTargetsRef.current.delete(targetKey);
+    }
+    if (action.type === "clear" || (action.type === "replace" && action.messages.length === 0)) {
+      optimisticChatHistoryTargetsRef.current.delete(targetKey);
+      connectionLiveHistoryTargetsRef.current.delete(targetKey);
     }
     if (!sameChatHistoryTarget(chatHistoryTargetRef.current, dispatchTarget)) {
       const currentMessages = liveChatHistoryByTargetRef.current.get(targetKey) ?? [];
@@ -1069,14 +1143,7 @@ export function useOpenClawSession(
     sessionListRefreshRef.current = null;
     chatHistoryRefreshRef.current = null;
     clearGatewayStatusCaches();
-    activeChatSendTargetsRef.current.clear();
-    activeChatStreamsRef.current.clear();
-    abortRequestedTargetsRef.current.clear();
-    abortingTargetRef.current = null;
-    sendingTargetsRef.current.clear();
-    publishSendingTargets();
-    setAbortingTarget(null);
-    setAborting(false);
+    cancelAndClearActiveChatStreams();
     setHydrating(false);
     setReady(false);
     if (!preserveMessages) dispatchChatHistory({ type: "clear" });
@@ -1100,7 +1167,7 @@ export function useOpenClawSession(
     setCronJobs([]);
     setModels([]);
     setActivityFeed([]);
-  }, [clearGatewayStatusCaches, completeReconnectSessionRefresh, dispatchChatHistory, publishSendingTargets]);
+  }, [cancelAndClearActiveChatStreams, clearGatewayStatusCaches, completeReconnectSessionRefresh, dispatchChatHistory]);
 
   useEffect(() => {
     if (!enabled || !agentId || seededE2EConnection || status !== "connecting" || ready || error) return;
@@ -1114,7 +1181,11 @@ export function useOpenClawSession(
     let active = true;
     let localGateway: GatewayClient | null = null;
     let unsubscribeConnectionState: (() => void) | null = null;
+    const activeChatStreams = activeChatStreamsRef.current;
+    const connectionLiveHistoryTargets = connectionLiveHistoryTargetsRef.current;
     gatewayLifecycleRevisionRef.current += 1;
+    connectionLiveHistoryTargets.clear();
+    cancelAndClearActiveChatStreams();
     connectionHydrationRef.current = null;
     sessionListRefreshRef.current = null;
     chatHistoryRefreshRef.current = null;
@@ -1183,6 +1254,7 @@ export function useOpenClawSession(
         const applyState = (nextState: GatewayConnectionState) => {
           if (!active) return;
           gatewayLifecycleRevisionRef.current += 1;
+          connectionLiveHistoryTargets.clear();
           setStatus(nextState);
           if (nextState === "disconnected") {
             if (activeGatewayRef.current === client) activeGatewayRef.current = null;
@@ -1200,17 +1272,10 @@ export function useOpenClawSession(
             sessionListRefreshRef.current = null;
             chatHistoryRefreshRef.current = null;
             clearGatewayStatusCaches();
-            abortingTargetRef.current = null;
-            activeChatSendTargetsRef.current.clear();
-            activeChatStreamsRef.current.clear();
-            abortRequestedTargetsRef.current.clear();
-            sendingTargetsRef.current.clear();
-            publishSendingTargets();
+            cancelAndClearActiveChatStreams();
             setGateway(null);
             setHydrating(false);
             setReady(false);
-            setAbortingTarget(null);
-            setAborting(false);
             return;
           }
           if (nextState === "connected") {
@@ -1240,6 +1305,8 @@ export function useOpenClawSession(
     return () => {
       active = false;
       gatewayLifecycleRevisionRef.current += 1;
+      connectionLiveHistoryTargets.clear();
+      for (const entry of activeChatStreams.values()) requestChatStreamCancellation(entry);
       if (activeGatewayRef.current === localGateway) activeGatewayRef.current = null;
       unsubscribeConnectionState?.();
       const temporaryLease = temporaryChatLeaseRef.current;
@@ -1248,7 +1315,7 @@ export function useOpenClawSession(
       }
       localGateway?.close();
     };
-  }, [enabled, agentId, retrySignal, seededE2EConnection, clearGatewayStatusCaches, publishSendingTargets, resetSessionStateForDisconnect]);
+  }, [enabled, agentId, retrySignal, seededE2EConnection, cancelAndClearActiveChatStreams, clearGatewayStatusCaches, requestChatStreamCancellation, resetSessionStateForDisconnect]);
 
   const appendActivity = useCallback((entry: { type: ActivityKind; action: string; detail?: string; id?: string; timestamp?: number }) => {
     setActivityFeed((prev) => appendActivityEntry(prev, entry));
@@ -1360,10 +1427,13 @@ export function useOpenClawSession(
   const refreshSessionList = useCallback(async (
     targetGateway: GatewayClient | null = gateway,
     options: { fresh?: boolean } = {},
+    isCurrent?: () => boolean,
   ) => {
     if (!targetGateway) return undefined;
     try {
-      return applyFetchedSessions(await fetchSessionList(targetGateway, options));
+      const nextSessions = await fetchSessionList(targetGateway, options);
+      if (isCurrent && !isCurrent()) return undefined;
+      return applyFetchedSessions(nextSessions);
     } catch {
       return undefined;
     }
@@ -1575,7 +1645,7 @@ export function useOpenClawSession(
     const liveMessages = liveChatHistoryByTargetRef.current.get(targetKey);
     if (activeSessionReadOnly || activeSessionIsEphemeral) {
       dispatchChatHistory(liveMessages && liveMessages.length > 0
-        ? { type: "replace", messages: liveMessages }
+        ? { type: "restore-cache", messages: liveMessages }
         : { type: "clear" }, target);
       return;
     }
@@ -1591,15 +1661,12 @@ export function useOpenClawSession(
     return () => window.clearTimeout(timeout);
   }, [agentId, activeSessionKey, activeSessionIsEphemeral, activeSessionReadOnly, messages]);
 
-  const markCurrentReplyInterrupted = useCallback(() => {
-    dispatchChatHistory({ type: "mark-interrupted" });
-  }, [dispatchChatHistory]);
-
   const refreshMessagesFromHistory = useCallback(async (
     targetGateway: GatewayClient | null = gateway,
     targetOverride?: ChatHistoryTarget,
+    isCurrent?: () => boolean,
   ) => {
-    if (!targetGateway) return;
+    if (!targetGateway || (isCurrent && !isCurrent())) return;
     const refreshTarget = targetOverride ?? { agentId, sessionKey: activeSessionKey };
     if (refreshTarget.agentId !== agentId) return;
     const targetState = resolveChatTargetState(refreshTarget);
@@ -1626,6 +1693,7 @@ export function useOpenClawSession(
       { throwOnError: true },
     )
       .then((historyMessages) => {
+        if (isCurrent && !isCurrent()) return undefined;
         if (!chatHistoryRequestIsCurrent(refreshTarget, requestRevision, lifecycleRevision)) return undefined;
         if (isEphemeralOpenClawSessionName(targetState.gatewaySessionKey)) {
           const entry = temporaryChatLeaseRef.current;
@@ -1641,7 +1709,10 @@ export function useOpenClawSession(
         return historyMessages;
       })
       .catch(() => {
-        if (chatHistoryRequestIsCurrent(refreshTarget, requestRevision, lifecycleRevision)) {
+        if (
+          (!isCurrent || isCurrent()) &&
+          chatHistoryRequestIsCurrent(refreshTarget, requestRevision, lifecycleRevision)
+        ) {
           setChatHistoryPhase(refreshTarget, "error", { onlyIfLoading: true });
         }
         return undefined;
@@ -1668,6 +1739,9 @@ export function useOpenClawSession(
       const recoveryLifecycleRevision = gatewayLifecycleRevisionRef.current;
       const recoveryTarget = { ...chatHistoryTargetRef.current };
       const recoveryTargetState = resolveChatTargetState(recoveryTarget);
+      const recoveryMutationRevision = chatHistoryMutationRevisionsRef.current.get(
+        chatHistoryTargetKey(recoveryTarget),
+      ) ?? 0;
       const recoveryIsCurrent = () => (
         activeGatewayRef.current === targetGateway &&
         gatewayLifecycleRevisionRef.current === recoveryLifecycleRevision &&
@@ -1694,6 +1768,7 @@ export function useOpenClawSession(
           : recoveryTargetState.sessionRecord;
         const refreshedGatewaySessionKey = openClawGatewaySessionKey(refreshedSessionRecord)
           ?? recoveryTargetState.gatewaySessionKey;
+        if (refreshedGatewaySessionKey !== recoveryTargetState.gatewaySessionKey) return;
         const requestRevision = beginChatHistoryRequest(recoveryTarget);
         try {
           const historyMessages = await refreshOpenClawChatMessages(
@@ -1704,11 +1779,16 @@ export function useOpenClawSession(
             refreshedSessionRecord,
             { throwOnError: true },
           );
+          const recoveryHasNoNewLiveMutations = (
+            chatHistoryMutationRevisionsRef.current.get(chatHistoryTargetKey(recoveryTarget)) ?? 0
+          ) === recoveryMutationRevision;
           if (
             recoveryIsCurrent() &&
             chatHistoryRequestIsCurrent(recoveryTarget, requestRevision, recoveryLifecycleRevision)
           ) {
-            dispatchChatHistory({ type: "merge-history-refresh", messages: historyMessages }, recoveryTarget);
+            if (recoveryHasNoNewLiveMutations) {
+              dispatchChatHistory({ type: "merge-history-refresh", messages: historyMessages }, recoveryTarget);
+            }
             setChatHistoryPhase(recoveryTarget, "ready");
           }
         } catch {
@@ -1765,7 +1845,14 @@ export function useOpenClawSession(
       handleOpenClawSessionEvent({
         gatewayEvent,
         setMessages: (update) => dispatchChatHistory({ type: "apply-update", update }, target),
-        setSending: (value) => setSendingForTarget(target, value),
+        setSending: (value) => {
+          setSendingForTarget(target, value);
+          if (value !== false) return;
+          const entry = activeChatStreamsRef.current.get(targetKey);
+          if (!entry || entry.ownsStreamEvents || !chatStreamEntryIsCurrent(targetKey, entry)) return;
+          activeChatStreamsRef.current.delete(targetKey);
+          clearAbortingForTarget(target, entry.token);
+        },
         setSessions: applyFetchedSessions,
         refreshSessions: () => queuePassiveCompletionRefresh({ sessions: true }),
         appendActivity,
@@ -1789,7 +1876,7 @@ export function useOpenClawSession(
       if (passiveCompletionRefreshTimer !== null) window.clearTimeout(passiveCompletionRefreshTimer);
       unsubscribe();
     };
-  }, [gateway, agentId, activeSessionKey, activeGatewaySessionKey, activeSessionIsEphemeral, appendActivity, applyFetchedSessions, dispatchChatHistory, fullHydrationEnabled, refreshMessagesFromHistory, refreshSessionList, setSendingForTarget]);
+  }, [gateway, agentId, activeSessionKey, activeGatewaySessionKey, activeSessionIsEphemeral, appendActivity, applyFetchedSessions, chatStreamEntryIsCurrent, clearAbortingForTarget, dispatchChatHistory, fullHydrationEnabled, refreshMessagesFromHistory, refreshSessionList, setSendingForTarget]);
 
   useEffect(() => {
     if (!gateway || status !== "connected") return;
@@ -1806,8 +1893,6 @@ export function useOpenClawSession(
     const historyLifecycleRevision = gatewayLifecycleRevisionRef.current;
     const historyRequestRevision = fullHydrationEnabled ? beginChatHistoryRequest(target) : 0;
     const historyMutationRevision = chatHistoryMutationRevisionsRef.current.get(targetKey) ?? 0;
-    const historyHasLiveMutations = historyMutationRevision > 0 &&
-      (liveChatHistoryByTargetRef.current.get(targetKey)?.length ?? 0) > 0;
     if (fullHydrationEnabled) setChatHistoryPhase(target, "loading");
     type SessionListResult =
       | { status: "fulfilled"; sessions: OpenClawSessionRecord[] }
@@ -1905,17 +1990,27 @@ export function useOpenClawSession(
           !activeChatSendTargetsRef.current.has(targetKey)
         ) {
           if (hydrated.historyStatus === "fulfilled") {
-            dispatchChatHistory({
-              type: historyHasLiveMutations ? "merge-history-refresh" : "replace",
-              messages: hydrated.messages,
-            }, target);
-            if (
-              hydrated.messages.length === 0 &&
-              !historyHasLiveMutations &&
-              hydrated.activeSessionRecord?.readOnly !== true &&
-              !isEphemeralOpenClawSessionName(activeSessionKey)
-            ) {
-              clearCachedOpenClawChatHistory(agentId, activeSessionKey);
+            if (hydrated.messages.length === 0) {
+              if (
+                optimisticChatHistoryTargetsRef.current.has(targetKey) ||
+                connectionLiveHistoryTargetsRef.current.has(targetKey)
+              ) {
+                dispatchChatHistory({ type: "merge-history-refresh", messages: [] }, target);
+              } else {
+                dispatchChatHistory({ type: "replace", messages: [] }, target);
+                if (
+                  hydrated.activeSessionRecord?.readOnly !== true &&
+                  !isEphemeralOpenClawSessionName(activeSessionKey)
+                ) {
+                  clearCachedOpenClawChatHistory(agentId, activeSessionKey);
+                }
+              }
+            } else {
+              const hasCurrentMessages = (liveChatHistoryByTargetRef.current.get(targetKey)?.length ?? 0) > 0;
+              dispatchChatHistory({
+                type: hasCurrentMessages ? "merge-history-refresh" : "replace",
+                messages: hydrated.messages,
+              }, target);
             }
           }
         }
@@ -1963,7 +2058,15 @@ export function useOpenClawSession(
               correctionHasNoNewLiveMutations &&
               chatHistoryRequestIsCurrent(target, correctionRequestRevision, historyLifecycleRevision)
             ) {
-              dispatchChatHistory({ type: "merge-history-refresh", messages: refreshedMessages }, target);
+              dispatchChatHistory(
+                refreshedMessages.length === 0
+                  ? optimisticChatHistoryTargetsRef.current.has(targetKey) || connectionLiveHistoryTargetsRef.current.has(targetKey)
+                    ? { type: "merge-history-refresh", messages: [] }
+                    : { type: "replace", messages: [] }
+                  : { type: "merge-history-refresh", messages: refreshedMessages },
+                target,
+              );
+              setChatHistoryPhase(target, "ready");
             }
           } catch {
             // Keep the first resolved history when canonical-key correction fails.
@@ -1984,7 +2087,7 @@ export function useOpenClawSession(
     return () => {
       cancelled = true;
     };
-  }, [gateway, status, agentId, activeSessionKey, applyFetchedSessions, beginChatHistoryRequest, chatHistoryRequestIsCurrent, completeReconnectSessionRefresh, dispatchChatHistory, fetchSessionList, fullHydrationEnabled, hydrateConnectionForGateway, setChatHistoryPhase, setTitledSessions]);
+  }, [gateway, status, agentId, activeSessionKey, activeGatewaySessionKey, applyFetchedSessions, beginChatHistoryRequest, chatHistoryRequestIsCurrent, completeReconnectSessionRefresh, dispatchChatHistory, fetchSessionList, fullHydrationEnabled, hydrateConnectionForGateway, setChatHistoryPhase, setTitledSessions]);
 
   useEffect(() => {
     if (status !== "disconnected") return;
@@ -2116,7 +2219,7 @@ export function useOpenClawSession(
     const appendTargetActivity = targetIsTemporary ? (() => undefined) : appendActivity;
     const targetDraft = readComposerDraftForTarget(target);
     const nextInput = typeof overrideInput === "string" ? overrideInput : targetDraft.input;
-    const nextAttachments = typeof overrideInput === "string" ? [] : targetDraft.pendingAttachments;
+    const nextAttachments = options.attachments ?? (typeof overrideInput === "string" ? [] : targetDraft.pendingAttachments);
     const nextFiles = options.files ?? (typeof overrideInput === "string" ? [] : targetDraft.pendingFiles);
     const readingAttachments = typeof overrideInput !== "string" && targetDraft.pendingAttachmentReads > 0;
     if ((!nextInput.trim() && nextAttachments.length === 0 && nextFiles.length === 0) || sendingTargetsRef.current.has(targetKey) || readingAttachments) return;
@@ -2151,12 +2254,40 @@ export function useOpenClawSession(
       pendingAttachmentReads: 0,
       pendingFiles: [],
     }));
-    clearAbortingForTarget(null);
-    abortRequestedTargetsRef.current.delete(targetKey);
+    const streamEntry: ActiveChatStreamEntry = {
+      token: Symbol("openclaw-chat-stream"),
+      gateway,
+      lifecycleRevision: gatewayLifecycleRevisionRef.current,
+      iterator: null,
+      ownsStreamEvents: false,
+      abortRequested: false,
+    };
+    const previousStreamEntry = activeChatStreamsRef.current.get(targetKey);
+    if (previousStreamEntry) {
+      requestChatStreamCancellation(previousStreamEntry);
+      clearAbortingForTarget(target, previousStreamEntry.token);
+    } else {
+      clearAbortingForTarget(target);
+    }
+    activeChatStreamsRef.current.set(targetKey, streamEntry);
     markSendingForTarget(target);
 
     const messageTimestamp = Date.now();
-    const userMsg: ChatMessage = { role: "user", content: msg, timestamp: messageTimestamp };
+    const clientTurnId = createChatRenderId("turn");
+    const userRenderId = `${clientTurnId}:user`;
+    const assistantRenderId = `${clientTurnId}:assistant`;
+    const hasPriorAssistantHistory = (
+      liveChatHistoryByTargetRef.current.get(targetKey) ??
+      (sameChatHistoryTarget(chatHistoryTargetRef.current, target) ? messagesRef.current : [])
+    ).some((message) => message.role === "assistant" && Boolean(message.content.trim()));
+    const userMsg: ChatMessage = {
+      role: "user",
+      content: msg,
+      timestamp: messageTimestamp,
+      renderId: userRenderId,
+      clientTurnId,
+      ...(agentInput !== msg ? { retryContent: agentInput } : {}),
+    };
     if (attachments.length > 0) userMsg.attachments = attachments;
     if (files.length > 0) userMsg.files = files;
     dispatchChatHistory({ type: "append-user-message", message: userMsg }, target);
@@ -2180,11 +2311,16 @@ export function useOpenClawSession(
 
     let handledByChatSend = false;
     let chatSendCompleted = false;
+    let sendFailed = false;
     let sawChatError = false;
     let assistantEventsText = "";
     let finalAssistantMessage: unknown;
     const observeAutoTitleEvent = (chatEvent: ChatEvent) => {
-      if (chatEvent.type === "content") assistantEventsText += chatEvent.text ?? "";
+      if (chatEvent.type === "content") {
+        assistantEventsText = chatEvent.replace === true
+          ? chatEvent.text ?? ""
+          : assistantEventsText + (chatEvent.text ?? "");
+      }
       if (chatEvent.type === "error") sawChatError = true;
       if (chatEvent.type === "done") {
         finalAssistantMessage = chatEvent.data?.message;
@@ -2196,124 +2332,183 @@ export function useOpenClawSession(
       const attachmentsToSend = attachments.length > 0 ? attachments : undefined;
       if (targetIsTemporary && temporaryLease) {
         handledByChatSend = true;
+        streamEntry.ownsStreamEvents = true;
         activeChatSendTargetsRef.current.add(targetKey);
         const chatStream = temporaryLease.session.chatSend(messageToSend, attachmentsToSend);
-        activeChatStreamsRef.current.set(targetKey, chatStream);
+        streamEntry.iterator = chatStream;
+        if (!chatStreamEntryIsCurrent(targetKey, streamEntry) || streamEntry.abortRequested) {
+          requestChatStreamCancellation(streamEntry);
+          return;
+        }
         for await (const chatEvent of chatStream) {
-          if (abortRequestedTargetsRef.current.has(targetKey)) continue;
+          if (!chatStreamEntryIsCurrent(targetKey, streamEntry)) {
+            requestChatStreamCancellation(streamEntry);
+            break;
+          }
+          if (streamEntry.abortRequested) continue;
           observeAutoTitleEvent(chatEvent);
           handleOpenClawChatStreamEvent({
             chatEvent,
             setMessages: (update) => dispatchChatHistory({ type: "apply-update", update }, target),
             setSending: (value) => setSendingForTarget(target, value),
             appendActivity: appendTargetActivity,
+            assistantRenderId,
+            clientTurnId,
           });
         }
-        chatSendCompleted = true;
+        if (chatStreamEntryIsCurrent(targetKey, streamEntry)) chatSendCompleted = true;
       } else if (typeof gateway.chatSend === "function") {
         handledByChatSend = true;
+        streamEntry.ownsStreamEvents = true;
         activeChatSendTargetsRef.current.add(targetKey);
-        const chatStream = streamOpenClawChat(gateway, messageToSend, sessionKey, attachmentsToSend);
-        activeChatStreamsRef.current.set(targetKey, chatStream);
+        const chatStream = streamOpenClawChat(
+          gateway,
+          messageToSend,
+          sessionKey,
+          attachmentsToSend,
+          hasPriorAssistantHistory,
+        );
+        streamEntry.iterator = chatStream;
+        if (!chatStreamEntryIsCurrent(targetKey, streamEntry) || streamEntry.abortRequested) {
+          requestChatStreamCancellation(streamEntry);
+          return;
+        }
         for await (const chatEvent of chatStream) {
-          if (abortRequestedTargetsRef.current.has(targetKey)) continue;
+          if (!chatStreamEntryIsCurrent(targetKey, streamEntry)) {
+            requestChatStreamCancellation(streamEntry);
+            break;
+          }
+          if (streamEntry.abortRequested) continue;
           observeAutoTitleEvent(chatEvent);
           handleOpenClawChatStreamEvent({
             chatEvent,
             setMessages: (update) => dispatchChatHistory({ type: "apply-update", update }, target),
             setSending: (value) => setSendingForTarget(target, value),
             appendActivity: appendTargetActivity,
+            assistantRenderId,
+            clientTurnId,
           });
         }
-        chatSendCompleted = true;
+        if (chatStreamEntryIsCurrent(targetKey, streamEntry)) chatSendCompleted = true;
       } else {
         await sendOpenClawChatFallback(gateway, messageToSend, sessionKey, attachmentsToSend);
       }
     } catch (e: unknown) {
-      const errMsg = formatOpenClawConnectionError(e);
-      if (!abortRequestedTargetsRef.current.has(targetKey)) {
-        dispatchChatHistory({ type: "append-system-message", content: `Error: ${errMsg}` }, target);
-        appendTargetActivity({ type: "error", action: "Send failed", detail: errMsg });
-      }
-      clearSendingForTarget(target);
-    } finally {
-      const wasAborted = abortRequestedTargetsRef.current.has(targetKey);
-      activeChatStreamsRef.current.delete(targetKey);
-      activeChatSendTargetsRef.current.delete(targetKey);
-      abortRequestedTargetsRef.current.delete(targetKey);
-      clearAbortingForTarget(target);
-      if (handledByChatSend) {
+      sendFailed = true;
+      if (chatStreamEntryIsCurrent(targetKey, streamEntry)) {
+        const errMsg = formatOpenClawConnectionError(e);
+        if (!streamEntry.abortRequested) {
+          dispatchChatHistory({ type: "append-system-message", content: `Error: ${errMsg}` }, target);
+          appendTargetActivity({ type: "error", action: "Send failed", detail: errMsg });
+        }
         clearSendingForTarget(target);
       }
-      const temporaryLeaseStillActive = !targetIsTemporary || (
-        temporaryChatLeaseRef.current?.session === temporaryLease?.session &&
-        temporaryLease?.session.closed === false
-      );
-      let refreshedMessages: ChatMessage[] | undefined;
-      let refreshedSessions: OpenClawSessionRecord[] | undefined;
-      if (handledByChatSend && chatSendCompleted && temporaryLeaseStillActive) {
-        refreshedMessages = await refreshMessagesFromHistory(gateway, target);
-        if (!targetIsTemporary) refreshedSessions = await refreshSessionList(gateway);
+    } finally {
+      const entryIsCurrent = () => chatStreamEntryIsCurrent(targetKey, streamEntry);
+      if (!entryIsCurrent()) return;
+      if (!handledByChatSend) {
+        if (sendFailed && entryIsCurrent()) {
+          activeChatStreamsRef.current.delete(targetKey);
+          clearAbortingForTarget(target, streamEntry.token);
+        }
+        return;
       }
-      if (!targetIsTemporary && autoTitleKey && chatSendCompleted && !sawChatError && !wasAborted) {
-        const gatewaySessionKey = resolveOpenClawGatewaySessionKey(
-          refreshedSessions ?? sessionSnapshotRef.current.sessions,
-          targetState.visibleSessionKey,
+
+      const wasAborted = streamEntry.abortRequested;
+      activeChatSendTargetsRef.current.delete(targetKey);
+      clearAbortingForTarget(target, streamEntry.token);
+      clearSendingForTarget(target);
+      try {
+        const temporaryLeaseStillActive = !targetIsTemporary || (
+          temporaryChatLeaseRef.current?.session === temporaryLease?.session &&
+          temporaryLease?.session.closed === false
         );
-        let assistantReply = autoTitleAssistantText(
-          assistantEventsText,
-          finalAssistantMessage,
-          refreshedMessages,
-        );
-        if (!assistantReply) {
-          await new Promise((resolve) => setTimeout(resolve, OPENCLAW_AUTO_TITLE_HISTORY_RETRY_MS));
-          const sessionRecord = findOpenClawSelectableSession(
+        let refreshedMessages: ChatMessage[] | undefined;
+        let refreshedSessions: OpenClawSessionRecord[] | undefined;
+        if (chatSendCompleted && temporaryLeaseStillActive && entryIsCurrent()) {
+          refreshedMessages = await refreshMessagesFromHistory(gateway, target, entryIsCurrent);
+          if (!entryIsCurrent()) return;
+          if (!targetIsTemporary) {
+            refreshedSessions = await refreshSessionList(gateway, {}, entryIsCurrent);
+            if (!entryIsCurrent()) return;
+          }
+        }
+        if (!targetIsTemporary && autoTitleKey && chatSendCompleted && !sawChatError && !wasAborted && entryIsCurrent()) {
+          const gatewaySessionKey = resolveOpenClawGatewaySessionKey(
             refreshedSessions ?? sessionSnapshotRef.current.sessions,
             targetState.visibleSessionKey,
           );
-          const retryMessages = await refreshOpenClawChatMessages(
-            gateway,
-            target.agentId,
-            target.sessionKey,
-            gatewaySessionKey,
-            sessionRecord,
+          let assistantReply = autoTitleAssistantText(
+            assistantEventsText,
+            finalAssistantMessage,
+            refreshedMessages,
           );
-          dispatchChatHistory({ type: "merge-history-refresh", messages: retryMessages }, target);
-          assistantReply = autoTitleAssistantText("", undefined, retryMessages);
+          if (!assistantReply) {
+            await new Promise((resolve) => setTimeout(resolve, OPENCLAW_AUTO_TITLE_HISTORY_RETRY_MS));
+            if (!entryIsCurrent()) return;
+            const sessionRecord = findOpenClawSelectableSession(
+              refreshedSessions ?? sessionSnapshotRef.current.sessions,
+              targetState.visibleSessionKey,
+            );
+            const retryMessages = await refreshOpenClawChatMessages(
+              gateway,
+              target.agentId,
+              target.sessionKey,
+              gatewaySessionKey,
+              sessionRecord,
+            );
+            if (!entryIsCurrent()) return;
+            dispatchChatHistory({ type: "merge-history-refresh", messages: retryMessages }, target);
+            assistantReply = autoTitleAssistantText("", undefined, retryMessages);
+          }
+          if (assistantReply && entryIsCurrent()) {
+            void attemptAutoTitle(autoTitleKey, assistantReply, gateway, gatewaySessionKey, refreshedSessions);
+          }
         }
-        if (assistantReply) {
-          void attemptAutoTitle(autoTitleKey, assistantReply, gateway, gatewaySessionKey, refreshedSessions);
-        }
+      } finally {
+        if (entryIsCurrent()) activeChatStreamsRef.current.delete(targetKey);
       }
     }
-  }, [gateway, ready, agentId, activeSessionKey, appendActivity, applyLocalSessionTitle, attemptAutoTitle, clearAbortingForTarget, clearSendingForTarget, dispatchChatHistory, markSendingForTarget, readComposerDraftForTarget, refreshMessagesFromHistory, refreshSessionList, resolveChatTargetState, setSendingForTarget, setTitledSessions, updateComposerDraftForTarget]);
+  }, [gateway, ready, agentId, activeSessionKey, appendActivity, applyLocalSessionTitle, attemptAutoTitle, chatStreamEntryIsCurrent, clearAbortingForTarget, clearSendingForTarget, dispatchChatHistory, markSendingForTarget, readComposerDraftForTarget, refreshMessagesFromHistory, refreshSessionList, requestChatStreamCancellation, resolveChatTargetState, setSendingForTarget, setTitledSessions, updateComposerDraftForTarget]);
 
   const abortMessage = useCallback(async () => {
     const target = { agentId, sessionKey: activeSessionKey };
     const targetKey = chatHistoryTargetKey(target);
-    if (!gateway || !ready || !sendingTargetsRef.current.has(targetKey) || abortRequestedTargetsRef.current.has(targetKey) || typeof gateway.chatAbort !== "function") return;
+    const streamEntry = activeChatStreamsRef.current.get(targetKey);
+    if (
+      !gateway ||
+      !ready ||
+      !sendingTargetsRef.current.has(targetKey) ||
+      !streamEntry ||
+      streamEntry.abortRequested ||
+      !chatStreamEntryIsCurrent(targetKey, streamEntry) ||
+      typeof gateway.chatAbort !== "function"
+    ) return;
+    const gatewaySessionKey = resolveChatTargetState(target).gatewaySessionKey;
     const temporaryLease = temporaryChatLeaseRef.current;
     const targetIsTemporary = Boolean(
       temporaryLease &&
-      temporaryLease.agentId === agentId &&
-      sameOpenClawSessionKey(temporaryLease.session.sessionKey, activeGatewaySessionKey),
+      temporaryLease.agentId === target.agentId &&
+      sameOpenClawSessionKey(temporaryLease.session.sessionKey, gatewaySessionKey),
     );
-    abortRequestedTargetsRef.current.add(targetKey);
-    markAbortingForTarget(target);
+    streamEntry.abortRequested = true;
+    markAbortingForTarget(target, streamEntry.token);
     try {
       if (targetIsTemporary && temporaryLease) await temporaryLease.session.chatAbort();
-      else await gateway.chatAbort(activeGatewaySessionKey);
-      void activeChatStreamsRef.current.get(targetKey)?.return(undefined).catch(() => undefined);
-      markCurrentReplyInterrupted();
+      else await gateway.chatAbort(gatewaySessionKey);
+      if (!chatStreamEntryIsCurrent(targetKey, streamEntry)) return;
+      requestChatStreamCancellation(streamEntry);
+      dispatchChatHistory({ type: "mark-interrupted" }, target);
       clearSendingForTarget(target);
-      clearAbortingForTarget(target);
+      clearAbortingForTarget(target, streamEntry.token);
       if (!targetIsTemporary) appendActivity({ type: "system", action: "Assistant reply stopped" });
     } catch (e: unknown) {
-      abortRequestedTargetsRef.current.delete(targetKey);
-      clearAbortingForTarget(target);
+      if (!chatStreamEntryIsCurrent(targetKey, streamEntry)) return;
+      streamEntry.abortRequested = false;
+      clearAbortingForTarget(target, streamEntry.token);
       if (!targetIsTemporary) appendActivity({ type: "error", action: "Stop failed", detail: formatOpenClawConnectionError(e) });
     }
-  }, [gateway, ready, agentId, activeSessionKey, activeGatewaySessionKey, markAbortingForTarget, markCurrentReplyInterrupted, clearSendingForTarget, clearAbortingForTarget, appendActivity]);
+  }, [gateway, ready, agentId, activeSessionKey, appendActivity, chatStreamEntryIsCurrent, clearAbortingForTarget, clearSendingForTarget, dispatchChatHistory, markAbortingForTarget, requestChatStreamCancellation, resolveChatTargetState]);
 
   const runEphemeralPrompt = useCallback(async (message: string, options?: GatewayEphemeralChatOptions) => {
     if (!gateway || status !== "connected") throw new Error("Chat is not connected");
@@ -2752,11 +2947,14 @@ export function useOpenClawSession(
     const target = { agentId: entry.agentId, sessionKey: entry.session.sessionKey };
     const targetKey = chatHistoryTargetKey(target);
     if (temporaryChatLeaseRef.current === entry) temporaryChatLeaseRef.current = null;
-    activeChatSendTargetsRef.current.delete(targetKey);
-    activeChatStreamsRef.current.delete(targetKey);
-    abortRequestedTargetsRef.current.delete(targetKey);
-    clearSendingForTarget(target);
-    clearAbortingForTarget(target);
+    const streamEntry = activeChatStreamsRef.current.get(targetKey);
+    if (streamEntry) requestChatStreamCancellation(streamEntry);
+    if (!streamEntry || activeChatStreamsRef.current.get(targetKey)?.token === streamEntry.token) {
+      activeChatSendTargetsRef.current.delete(targetKey);
+      activeChatStreamsRef.current.delete(targetKey);
+      clearSendingForTarget(target);
+      clearAbortingForTarget(target, streamEntry?.token);
+    }
     setPendingMessages((prev) => prev.filter((item) => !sameChatHistoryTarget(item.target, target)));
     dispatchChatHistory({ type: "clear" }, target);
     liveChatHistoryByTargetRef.current.delete(targetKey);
@@ -2771,7 +2969,7 @@ export function useOpenClawSession(
         : current
     ));
     setTemporaryChatState("inactive");
-  }, [clearAbortingForTarget, clearSendingForTarget, dispatchChatHistory, setTitledSessions]);
+  }, [clearAbortingForTarget, clearSendingForTarget, dispatchChatHistory, requestChatStreamCancellation, setTitledSessions]);
 
   const endTemporaryChat = useCallback((): Promise<void> => {
     if (temporaryChatEndPromiseRef.current) return temporaryChatEndPromiseRef.current;

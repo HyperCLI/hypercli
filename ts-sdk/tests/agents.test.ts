@@ -75,6 +75,7 @@ describe('Agents SDK', () => {
     const agent = await deployments.get('agent-123');
 
     expect(agent.tags).toEqual(['team=dev']);
+    expect(agent.managed).toBeNull();
   });
 
   it('hydrates granular restore and workspace sync states', async () => {
@@ -276,6 +277,7 @@ describe('Agents SDK', () => {
         refresh_from_lagoon: true,
       },
     ]);
+    expect((http.patch as any).mock.calls[0][1]).not.toHaveProperty('display_name');
   });
 
   it('uploads profile images through the deployments API', async () => {
@@ -617,6 +619,7 @@ describe('Agents SDK', () => {
       },
       image_url: 'https://cdn.example/legacy.png',
       runtime: 'openclaw',
+      managed: true,
       is_launchable: false,
       launch_config: { image: 'ghcr.io/hypercli/hypercli-openclaw:prod' },
       gateway_id: 'gateway-123',
@@ -633,6 +636,7 @@ describe('Agents SDK', () => {
       channel_overrides: {},
     });
     expect(agent.runtime).toBe('openclaw');
+    expect(agent.managed).toBe(true);
     expect(agent.isLaunchable).toBe(false);
     expect(agent.launchConfig).toEqual({ image: 'ghcr.io/hypercli/hypercli-openclaw:prod' });
     expect(agent.gatewayId).toBe('gateway-123');
@@ -649,7 +653,43 @@ describe('Agents SDK', () => {
       managed: false,
     } as any);
     expect(legacy.avatarUrl).toBeNull();
+    expect(legacy.managed).toBe(false);
     expect(legacy.isLaunchable).toBe(false);
+  });
+
+  it('updates external agents by exact id with nullable camel-case fields', async () => {
+    const http = {
+      patch: vi.fn().mockResolvedValue({
+        id: 'backend-external-id',
+        user_id: 'user-456',
+        state: 'inactive',
+        name: 'external-agent-renamed',
+        display_name: null,
+        managed: false,
+        runtime: 'openclaw',
+      }),
+    } as unknown as HTTPClient;
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+
+    const agent = await deployments.updateExternalAgent('backend-external-id', {
+      name: 'external-agent-renamed',
+      displayName: null,
+      handle: null,
+      runtime: 'openclaw',
+      status: 'inactive',
+      meta: null,
+    });
+
+    expect(http.patch).toHaveBeenCalledWith('/external-agents/backend-external-id', {
+      name: 'external-agent-renamed',
+      display_name: null,
+      handle: null,
+      runtime: 'openclaw',
+      status: 'inactive',
+      meta: null,
+    });
+    expect(agent.id).toBe('backend-external-id');
+    expect(agent.managed).toBe(false);
   });
 
   it('creates and rotates external agent relay keys through dedicated routes', async () => {

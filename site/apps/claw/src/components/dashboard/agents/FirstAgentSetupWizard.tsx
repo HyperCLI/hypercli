@@ -55,8 +55,10 @@ export interface FirstAgentSetupCreateParams {
 
 interface FirstAgentSetupWizardProps {
   onCreateAgent: (params: FirstAgentSetupCreateParams) => Promise<string | null>;
-  onOpenPlanCatalog?: () => void | Promise<void>;
+  onOpenPlanCatalog?: (planId?: string) => void | Promise<void>;
   onClose?: () => void;
+  initialPlanId?: string | null;
+  selectedCatalogPlanId?: string | null;
   budget?: {
     slots: SlotInventory;
     pooled_tpd: number;
@@ -67,6 +69,7 @@ interface FirstAgentSetupWizardProps {
   showProFeatureLabels?: boolean;
   enableCustomImageOption?: boolean;
   enforceProFeaturePlanRestrictions?: boolean;
+  size?: "default" | "large";
 }
 
 type WizardStepId = "identity" | "knowledge" | "plan";
@@ -76,6 +79,67 @@ const MAX_FILE_SIZE = 25 * 1024 * 1024;
 const EMPTY_SLOT_INVENTORY: SlotInventory = {};
 
 const helpCategories = ["General", "Research", "Support", "Sales", "Ops", "Dev", "Content", "Automation"];
+
+interface FirstAgentSetupDraft {
+  name: string;
+  iconIndex: number;
+  category: string;
+  plan: string | null;
+  starterFileNames: string[];
+  enableDesktop: boolean;
+  enableMemoryIndex: boolean;
+  enableCustomImage: boolean;
+  customImage: string;
+}
+
+function readFirstAgentSetupDraft(): FirstAgentSetupDraft | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(FIRST_AGENT_SETUP_DRAFT_KEY);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Record<string, unknown>;
+    if (value.source !== "first-agent-setup") return null;
+    const name = typeof value.name === "string" ? value.name.trim().slice(0, 80) : "";
+    const category = typeof value.category === "string" && helpCategories.includes(value.category)
+      ? value.category
+      : "General";
+    const iconIndex = Number(value.iconIndex);
+    const starterFiles = Array.isArray(value.starterFiles) ? value.starterFiles : [];
+    return {
+      name,
+      iconIndex: avatarOptions.some((option) => option.iconIndex === iconIndex) ? iconIndex : avatarOptions[0].iconIndex,
+      category,
+      plan: typeof value.plan === "string" && value.plan.trim() ? value.plan.trim() : null,
+      starterFileNames: starterFiles.flatMap((entry) => {
+        if (!entry || typeof entry !== "object") return [];
+        const fileName = (entry as { name?: unknown }).name;
+        return typeof fileName === "string" && fileName.trim() ? [fileName.trim().slice(0, 180)] : [];
+      }).slice(0, 4),
+      enableDesktop: Boolean(value.enableDesktop),
+      enableMemoryIndex: Boolean(value.enableMemoryIndex),
+      enableCustomImage: Boolean(value.enableCustomImage),
+      customImage: typeof value.customImage === "string" ? value.customImage.slice(0, 500) : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function updateFirstAgentSetupDraftPlan(planId: string): void {
+  if (typeof window === "undefined") return;
+  const normalizedPlanId = planId.trim();
+  if (!normalizedPlanId) return;
+  try {
+    const raw = window.sessionStorage.getItem(FIRST_AGENT_SETUP_DRAFT_KEY);
+    if (!raw) return;
+    const draft = JSON.parse(raw) as Record<string, unknown>;
+    if (draft.source !== "first-agent-setup") return;
+    window.sessionStorage.setItem(
+      FIRST_AGENT_SETUP_DRAFT_KEY,
+      JSON.stringify({ ...draft, plan: normalizedPlanId }),
+    );
+  } catch {}
+}
 
 const avatarOptions: Array<{
   iconIndex: number;
@@ -147,6 +211,7 @@ type LaunchPlanAction = "launch" | "plans";
 
 type LaunchPlanOption = {
   id: string;
+  catalogPlanId?: string;
   name: string;
   size: string;
   icon: ComponentType<{ className?: string }>;
@@ -183,6 +248,7 @@ type CatalogPlan = HyperAgentPlan & {
 
 type ActiveLaunchPlanGroup = {
   id: string;
+  catalogPlanId: string;
   tier: string;
   planName: string;
   catalogPlan?: HyperAgentPlan;
@@ -304,11 +370,11 @@ function isProPlan(plan: HyperAgentPlan): boolean {
   return hasPlanWord(plan.id, "pro") || hasPlanWord(plan.name, "pro");
 }
 
-function isBasicOrPlusPlanOption(plan: LaunchPlanOption): boolean {
-  return hasPlanWord(plan.id, "basic") ||
-    hasPlanWord(plan.name, "basic") ||
-    hasPlanWord(plan.id, "plus") ||
-    hasPlanWord(plan.name, "plus");
+function isProFeatureEligiblePlan(plan: LaunchPlanOption): boolean {
+  const planId = plan.catalogPlanId ?? plan.id;
+  return ["pro", "team", "enterprise"].some((word) => (
+    hasPlanWord(planId, word) || hasPlanWord(plan.name, word)
+  ));
 }
 
 function selectProPlan(plans: HyperAgentPlan[]): HyperAgentPlan | null {
@@ -457,6 +523,7 @@ function buildLaunchPlanOptions(
     if (!group) {
       group = {
         id: `active:${groupKey}`,
+        catalogPlanId: catalogPlan?.id || rawPlanId,
         tier,
         planName,
         catalogPlan,
@@ -509,6 +576,7 @@ function buildLaunchPlanOptions(
 
     return {
       id: group.id,
+      catalogPlanId: group.catalogPlanId,
       name: group.planName,
       size: tier,
       icon: iconForTier(tier),
@@ -565,6 +633,7 @@ function buildLaunchPlanOptions(
     const slotBeingReleased = Boolean(isEffectivePlan && tier && !canLaunch && !waitingForEntitlement && releasing > 0);
     return {
       id: plan.id,
+      catalogPlanId: plan.id,
       name: plan.name,
       size,
       icon: iconForTier(tier),
@@ -720,7 +789,7 @@ function LaunchCapacityFallback({
   };
 
   return (
-    <div role="alert" className="mb-4 rounded-[14px] border border-warning/30 bg-warning/10 p-4 text-sm shadow-[0_16px_40px_color-mix(in_srgb,var(--foreground)_10%,transparent)]">
+    <div role="alert" className="elevation-shadow-soft mb-4 rounded-[14px] border border-warning/30 bg-warning/10 p-4 text-sm">
       <div className="flex items-start gap-3">
         <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-warning/30 bg-warning/10 text-warning">
           <Sparkles className="h-4 w-4" />
@@ -770,6 +839,8 @@ export function FirstAgentSetupWizard({
   onCreateAgent,
   onOpenPlanCatalog,
   onClose,
+  initialPlanId,
+  selectedCatalogPlanId,
   budget,
   subscriptionSummary,
   catalogPlans,
@@ -777,16 +848,19 @@ export function FirstAgentSetupWizard({
   showProFeatureLabels = false,
   enableCustomImageOption = false,
   enforceProFeaturePlanRestrictions = false,
+  size = "default",
 }: FirstAgentSetupWizardProps) {
+  const [restoredDraft] = React.useState(readFirstAgentSetupDraft);
   const [defaultAgentName, setDefaultAgentName] = React.useState("");
-  const [agentName, setAgentName] = React.useState("");
-  const [selectedCategory, setSelectedCategory] = React.useState("General");
-  const [selectedIconIndex, setSelectedIconIndex] = React.useState(avatarOptions[0].iconIndex);
-  const [enableDesktop, setEnableDesktop] = React.useState(false);
-  const [enableMemoryIndex, setEnableMemoryIndex] = React.useState(false);
-  const [enableCustomImage, setEnableCustomImage] = React.useState(false);
-  const [customImage, setCustomImage] = React.useState("");
-  const [customImageEdited, setCustomImageEdited] = React.useState(false);
+  const [agentName, setAgentName] = React.useState(restoredDraft?.name ?? "");
+  const [selectedCategory, setSelectedCategory] = React.useState(restoredDraft?.category ?? "General");
+  const [selectedIconIndex, setSelectedIconIndex] = React.useState(restoredDraft?.iconIndex ?? avatarOptions[0].iconIndex);
+  const [enableDesktop, setEnableDesktop] = React.useState(restoredDraft?.enableDesktop ?? false);
+  const [enableMemoryIndex, setEnableMemoryIndex] = React.useState(restoredDraft?.enableMemoryIndex ?? false);
+  const [enableCustomImage, setEnableCustomImage] = React.useState(restoredDraft?.enableCustomImage ?? false);
+  const [customImage, setCustomImage] = React.useState(restoredDraft?.customImage ?? "");
+  const [customImageEdited, setCustomImageEdited] = React.useState(Boolean(restoredDraft?.customImage));
+  const [missingStarterFileNames, setMissingStarterFileNames] = React.useState(restoredDraft?.starterFileNames ?? []);
   const slotInventory = budget?.slots ?? EMPTY_SLOT_INVENTORY;
   const planOptions = React.useMemo(
     () => buildLaunchPlanOptions(subscriptionSummary, slotInventory, catalogPlans, pendingSlotReleases),
@@ -794,18 +868,19 @@ export function FirstAgentSetupWizard({
   );
   const [wizardState, dispatchWizard] = React.useReducer(
     firstAgentWizardReducer,
-    planOptions[0]?.id ?? "free",
+    restoredDraft?.plan || initialPlanId?.trim() || planOptions[0]?.id || "free",
     createFirstAgentWizardState,
   );
   const { stepIndex, selectedPlanId, creating, createError } = wizardState;
   const [files, setFiles] = React.useState<File[]>([]);
   const [planComparisonOpen, setPlanComparisonOpen] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const appliedInitialPlanIdRef = React.useRef<string | null>(null);
   const requiresProPlan = enforceProFeaturePlanRestrictions && (enableDesktop || enableMemoryIndex || enableCustomImage);
   const displayedPlanOptions = React.useMemo(() => {
     if (!requiresProPlan) return planOptions;
     return planOptions.map((plan) => {
-      if (!isBasicOrPlusPlanOption(plan)) return plan;
+      if (isProFeatureEligiblePlan(plan)) return plan;
       return {
         ...plan,
         cta: "Pro required",
@@ -836,6 +911,15 @@ export function FirstAgentSetupWizard({
   }, []);
 
   React.useEffect(() => {
+    if (!restoredDraft) return;
+    const stepIndex = restoredDraft.starterFileNames.length > 0 ? 1 : 2;
+    const timeout = window.setTimeout(() => {
+      dispatchWizard({ type: "GO_TO_STEP", stepIndex, maxStepIndex: steps.length - 1 });
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [restoredDraft]);
+
+  React.useEffect(() => {
     dispatchWizard({
       type: "PLAN_OPTIONS_CHANGED",
       planIds: planOptions.map((plan) => plan.id),
@@ -843,13 +927,31 @@ export function FirstAgentSetupWizard({
     });
   }, [planOptions]);
 
+  React.useEffect(() => {
+    const normalizedPlanId = selectedCatalogPlanId?.trim() || restoredDraft?.plan || initialPlanId?.trim() || null;
+    if (!normalizedPlanId) return;
+    const matchingPlan = displayedPlanOptions.find((plan) => (
+      plan.id === normalizedPlanId || plan.catalogPlanId === normalizedPlanId
+    ));
+    if (!matchingPlan) return;
+    const applicationKey = `${normalizedPlanId}:${matchingPlan.id}`;
+    if (appliedInitialPlanIdRef.current === applicationKey) return;
+    appliedInitialPlanIdRef.current = applicationKey;
+    dispatchWizard({ type: "SELECT_PLAN", planId: matchingPlan.id });
+  }, [displayedPlanOptions, initialPlanId, restoredDraft?.plan, selectedCatalogPlanId]);
+
   const goToStep = (nextStep: number) => {
     dispatchWizard({ type: "GO_TO_STEP", stepIndex: nextStep, maxStepIndex: steps.length - 1 });
   };
 
   const handleFileSelection = (fileList: FileList | null) => {
     if (!fileList) return;
-    setFiles(Array.from(fileList).filter((file) => file.size <= MAX_FILE_SIZE).slice(0, 4));
+    const selectedFiles = Array.from(fileList).filter((file) => file.size <= MAX_FILE_SIZE).slice(0, 4);
+    const selectedNames = new Set(selectedFiles.map((file) => file.name));
+    setFiles(selectedFiles);
+    setMissingStarterFileNames(
+      (restoredDraft?.starterFileNames ?? []).filter((fileName) => !selectedNames.has(fileName)),
+    );
   };
 
   const persistDraft = (plan: LaunchPlanOption) => {
@@ -863,7 +965,7 @@ export function FirstAgentSetupWizard({
           size: plan.size,
           iconIndex: selectedIconIndex,
           category: selectedCategory,
-          plan: plan.id,
+          plan: plan.catalogPlanId ?? plan.id,
           starterFiles: files.map((file) => ({ name: file.name, size: file.size, type: file.type })),
           enableDesktop,
           enableMemoryIndex,
@@ -895,7 +997,7 @@ export function FirstAgentSetupWizard({
     if (plan.action === "plans") {
       if (onOpenPlanCatalog) {
         try {
-          await onOpenPlanCatalog();
+          await onOpenPlanCatalog(plan.catalogPlanId ?? plan.id);
         } catch (error) {
           dispatchWizard({
             type: "CREATE_FAILED",
@@ -925,6 +1027,9 @@ export function FirstAgentSetupWizard({
         enableMemoryIndex,
         customImage: selectedCustomImage,
       });
+      if (createdId && typeof window !== "undefined") {
+        window.sessionStorage.removeItem(FIRST_AGENT_SETUP_DRAFT_KEY);
+      }
       if (!createdId) {
         dispatchWizard({ type: "CREATE_FINISHED_WITHOUT_ID" });
       }
@@ -947,7 +1052,10 @@ export function FirstAgentSetupWizard({
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.2 }}
-        className="flex h-full max-h-[680px] min-h-0 w-full max-w-[980px] flex-col overflow-hidden rounded-[20px] border border-border bg-background text-foreground shadow-[0_20px_56px_color-mix(in_srgb,var(--foreground)_16%,transparent)]"
+        className={cx(
+          "elevation-shadow-strong flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[20px] border border-border bg-background text-foreground",
+          size === "large" ? "max-h-[800px] max-w-[1240px]" : "max-h-[680px] max-w-[980px]",
+        )}
       >
         <header className="relative flex-shrink-0 border-b border-border px-5 py-4 sm:px-6 lg:px-7">
           <div className={cx("min-w-0", currentStep === "plan" && "sm:pr-[190px]")}>
@@ -1157,6 +1265,11 @@ export function FirstAgentSetupWizard({
         {currentStep === "knowledge" && (
           <>
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6 lg:px-7">
+              {missingStarterFileNames.length > 0 ? (
+                <div role="status" className="mb-4 rounded-[12px] border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-text-secondary">
+                  Reselect {missingStarterFileNames.join(", ")} to restore file contents after checkout.
+                </div>
+              ) : null}
               <div
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={(event) => {
@@ -1208,7 +1321,7 @@ export function FirstAgentSetupWizard({
                 <ChevronLeft className="mr-2 h-4 w-4" />
                 Back
               </WizardButton>
-              <WizardButton onClick={() => goToStep(2)}>Continue</WizardButton>
+              <WizardButton disabled={missingStarterFileNames.length > 0} onClick={() => goToStep(2)}>Continue</WizardButton>
             </footer>
           </>
         )}

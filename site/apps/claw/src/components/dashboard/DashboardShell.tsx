@@ -96,6 +96,7 @@ export function DashboardShell({
   useVisualViewportHeightVar();
   const { isLoading, isAuthenticated, flowState, error } = useAgentAuth();
   const pathname = normalizeShellPathname(usePathname());
+  const allowsAnonymous = pathname === "/dashboard/agents";
   const isAgentsRoute =
     pathname === "/agents" ||
     pathname.startsWith("/agents/") ||
@@ -144,9 +145,9 @@ export function DashboardShell({
                   : `max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 ${hasTopNavOffset ? "h-[calc(100dvh-3.5rem)]" : "h-dvh"} overflow-y-auto py-8`
               }
             >
-              {isLoading ? (
+              {isLoading && !allowsAnonymous ? (
                 <FullPageSkeleton />
-              ) : !isAuthenticated ? null : isImmersiveRoute ? (
+              ) : !isAuthenticated && !allowsAnonymous ? null : isImmersiveRoute ? (
                 <div className="h-full overflow-hidden">{children}</div>
               ) : (
                 <AnimatePresence mode="wait">

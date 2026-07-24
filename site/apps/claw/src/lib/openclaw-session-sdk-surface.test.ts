@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   applyOpenClawSessionTitleMap,
@@ -8,9 +8,18 @@ import {
   normalizeOpenClawThinkingLevels,
   openClawEventMatchesSession,
   sameOpenClawSelectableSessionKey,
+  streamOpenClawChat,
 } from "./openclaw-session-sdk-surface";
 
 describe("openclaw-session-sdk-surface", () => {
+  it("captures a raw gateway history baseline for established conversations", () => {
+    const stream = (async function* () {})();
+    const chatSend = vi.fn(() => stream);
+
+    expect(streamOpenClawChat({ chatSend } as any, "hello", "main", undefined, true)).toBe(stream);
+    expect(chatSend).toHaveBeenCalledWith("hello", "main", undefined, { captureHistoryBaseline: true });
+  });
+
   it("keeps a durable backend label ahead of legacy and local session titles", () => {
     const sessions = normalizeOpenClawSessions([{
       key: "agent:default:session-alpha",

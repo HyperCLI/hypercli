@@ -101,6 +101,32 @@ describe("ChatMessageBubble", () => {
     expect(screen.getByRole("status", { name: /reply stopped/i })).toHaveTextContent("Stopped");
   });
 
+  it("renders a retry action for failed replies and exposes its pending state", () => {
+    const onRetryFailedReply = vi.fn();
+    const message = {
+      role: "assistant" as const,
+      content: "The agent run failed before producing a reply.",
+    };
+    const { rerender } = render(
+      <ChatMessageBubble message={message} onRetryFailedReply={onRetryFailedReply} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry failed reply" }));
+    expect(onRetryFailedReply).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <ChatMessageBubble
+        message={message}
+        onRetryFailedReply={onRetryFailedReply}
+        retryingFailedReply
+      />,
+    );
+
+    const retrying = screen.getByRole("button", { name: "Retrying failed reply" });
+    expect(retrying).toBeDisabled();
+    expect(retrying).toHaveTextContent("Retrying...");
+  });
+
   it("renders the full gateway stream update without a second typewriter delay", () => {
     const content = "The gateway already streams this response progressively, so every received word should render immediately.";
     render(
@@ -112,6 +138,26 @@ describe("ChatMessageBubble", () => {
     );
 
     expect(screen.getByText(content)).toBeInTheDocument();
+  });
+
+  it("repairs incomplete Markdown only while an assistant reply is streaming", () => {
+    const content = "Working on **important text";
+    const { container, rerender } = render(
+      <ChatMessageBubble
+        message={{ role: "assistant", content }}
+        isStreaming
+      />,
+    );
+
+    expect(container.querySelector("strong")).toHaveTextContent("important text");
+    expect(container).not.toHaveTextContent("**");
+
+    rerender(
+      <ChatMessageBubble message={{ role: "assistant", content }} />,
+    );
+
+    expect(container.querySelector("strong")).not.toBeInTheDocument();
+    expect(container).toHaveTextContent(content);
   });
 
   it("renders reply stopped system notices without error styling", () => {
@@ -448,6 +494,40 @@ describe("ChatMessageBubble", () => {
     expect(onOpenFileFromChat).toHaveBeenCalledWith("/home/node/.openclaw/workspace/demo-event.ics");
   });
 
+  it("waits for a completed image write and renders one generated preview", async () => {
+    const readFileBytes = vi.fn(() => new Promise<Uint8Array>(() => {}));
+    const toolCall = {
+      id: "write-image-1",
+      name: "write_file",
+      args: JSON.stringify({ path: "/home/node/.openclaw/workspace/generated.png" }),
+    };
+    const { rerender } = render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        message={{ role: "assistant", content: "", toolCalls: [toolCall] }}
+        isStreaming
+        onReadFileBytesFromChat={readFileBytes}
+      />,
+    );
+
+    expect(readFileBytes).not.toHaveBeenCalled();
+
+    rerender(
+      <ChatMessageBubble
+        agentId="agent-123"
+        message={{
+          role: "assistant",
+          content: "",
+          toolCalls: [{ ...toolCall, result: "saved" }],
+        }}
+        onReadFileBytesFromChat={readFileBytes}
+      />,
+    );
+
+    await waitFor(() => expect(readFileBytes).toHaveBeenCalledTimes(1));
+    expect(screen.getAllByRole("status", { name: /loading image/i })).toHaveLength(1);
+  });
+
   it("renders workspace ICS MEDIA paths as file chips without unavailable preview labels", () => {
     render(
       <ChatMessageBubble
@@ -506,6 +586,37 @@ describe("ChatMessageBubble", () => {
       path: ".openclaw/workspace/865621.jpg",
       type: "image/jpeg",
     });
+  });
+
+  it("creates SVG workspace previews with the image MIME type", async () => {
+    const createObjectURL = vi.fn(() => "blob:generated-svg");
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectURL,
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    const readFileBytes = vi.fn().mockResolvedValue(new TextEncoder().encode(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" /></svg>',
+    ));
+
+    render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        message={{
+          role: "assistant",
+          content: "MEDIA:/home/node/.openclaw/workspace/test-image.svg",
+        }}
+        onReadFileBytesFromChat={readFileBytes}
+      />,
+    );
+
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
+    expect(createObjectURL.mock.calls[0]?.[0]).toBeInstanceOf(Blob);
+    expect((createObjectURL.mock.calls[0]?.[0] as Blob).type).toBe("image/svg+xml");
+    expect(readFileBytes).toHaveBeenCalledWith(".openclaw/workspace/test-image.svg");
   });
 
   it("renders MEDIA workspace urls as generated media without showing MEDIA text", () => {
@@ -1261,6 +1372,35 @@ describe("ChatMessageBubble", () => {
     const stackButton = screen.getByRole("button", { name: /4 tool calls/i });
     expect(stackButton).toHaveTextContent("Done");
     expect(screen.queryByText(/0\/4 done/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the initial tool presentation when more calls stream in", () => {
+    const buildToolCalls = (count: number) => Array.from({ length: count }, (_, index) => ({
+      id: `tool-${index}`,
+      name: `tool-${index}`,
+      args: "{}",
+    }));
+    const { rerender } = render(
+      <ChatMessageBubble
+        message={{ role: "assistant", content: "", toolCalls: buildToolCalls(3) }}
+        isStreaming
+      />,
+    );
+
+    const secondToolButton = screen.getByText("Tool 1").closest("button");
+    expect(secondToolButton).not.toBeNull();
+    fireEvent.click(secondToolButton!);
+    expect(secondToolButton).toHaveAttribute("aria-expanded", "true");
+
+    rerender(
+      <ChatMessageBubble
+        message={{ role: "assistant", content: "", toolCalls: buildToolCalls(4) }}
+        isStreaming
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /4 tool calls/i })).not.toBeInTheDocument();
+    expect(screen.getByText("Tool 1").closest("button")).toHaveAttribute("aria-expanded", "true");
   });
 
   it("renders stacked tool calls with duplicate gateway ids without key warnings", () => {

@@ -7,6 +7,12 @@ import { DashboardShell } from "./DashboardShell";
 const mocks = vi.hoisted(() => ({
   pathname: "/dashboard",
   push: vi.fn(),
+  auth: {
+    isLoading: false,
+    isAuthenticated: true,
+    flowState: "complete",
+    error: null,
+  },
 }));
 
 vi.mock("next/navigation", () => ({
@@ -15,12 +21,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/hooks/useAgentAuth", () => ({
-  useAgentAuth: () => ({
-    isLoading: false,
-    isAuthenticated: true,
-    flowState: "authenticated",
-    error: null,
-  }),
+  useAgentAuth: () => mocks.auth,
 }));
 
 vi.mock("@/components/dashboard/WorkspaceContext", () => ({
@@ -55,6 +56,10 @@ describe("DashboardShell", () => {
   beforeEach(() => {
     mocks.pathname = "/dashboard";
     mocks.push.mockClear();
+    mocks.auth.isLoading = false;
+    mocks.auth.isAuthenticated = true;
+    mocks.auth.flowState = "complete";
+    mocks.auth.error = null;
   });
 
   it("keeps a mobile-only account nav for the dashboard overview", () => {
@@ -98,6 +103,49 @@ describe("DashboardShell", () => {
     expect(screen.queryByTestId("dashboard-nav")).not.toBeInTheDocument();
     expect(screen.queryByTestId("motion-route")).not.toBeInTheDocument();
     expect(screen.getByRole("main")).toHaveClass("h-dvh", "pt-0");
+  });
+
+  it("renders the exact agents dashboard for anonymous visitors", () => {
+    mocks.pathname = "/dashboard/agents/";
+    mocks.auth.isAuthenticated = false;
+    mocks.auth.flowState = "idle";
+
+    render(
+      <DashboardShell>
+        <div>Anonymous agents page</div>
+      </DashboardShell>,
+    );
+
+    expect(screen.getByText("Anonymous agents page")).toBeInTheDocument();
+  });
+
+  it("keeps the public agents dashboard mounted while authentication exchanges", () => {
+    mocks.pathname = "/dashboard/agents";
+    mocks.auth.isLoading = true;
+    mocks.auth.isAuthenticated = false;
+    mocks.auth.flowState = "exchanging";
+
+    render(
+      <DashboardShell>
+        <div>Pending agents setup</div>
+      </DashboardShell>,
+    );
+
+    expect(screen.getByText("Pending agents setup")).toBeInTheDocument();
+  });
+
+  it("does not expose nested agent routes to anonymous visitors", () => {
+    mocks.pathname = "/dashboard/agents/agent-1/files";
+    mocks.auth.isAuthenticated = false;
+    mocks.auth.flowState = "idle";
+
+    render(
+      <DashboardShell>
+        <div>Private agent files</div>
+      </DashboardShell>,
+    );
+
+    expect(screen.queryByText("Private agent files")).not.toBeInTheDocument();
   });
 
   it("keeps settings immersive with a mobile-only account nav", () => {

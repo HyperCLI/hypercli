@@ -7,7 +7,10 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   return (
-    <PrivyAuthRouteBoundary unauthenticatedRedirectTo="/">
+    <PrivyAuthRouteBoundary
+      publicPaths={["/dashboard/agents", "/dashboard/agents/"]}
+      unauthenticatedRedirectTo="/"
+    >
       <DashboardShell>{children}</DashboardShell>
     </PrivyAuthRouteBoundary>
   );

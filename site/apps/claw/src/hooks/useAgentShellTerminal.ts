@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FitAddon } from "@xterm/addon-fit";
+import type { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import type { ShellStatus } from "@/hooks/useAgentShell";
 
@@ -322,53 +322,61 @@ export function useAgentShellTerminal({
   useEffect(() => {
     if (!visible || !containerElement || !agentId || terminalRef.current) return;
 
-    if (sessionAgentRef.current !== agentId) {
-      clearOutput();
-      sessionAgentRef.current = agentId;
-    }
+    let cancelled = false;
+    let initialFrame: number | null = null;
 
-    const terminal = new Terminal({
-      convertEol: false,
-      cursorBlink: true,
-      cursorStyle: "bar",
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace",
-      fontSize: 12,
-      lineHeight: 1.45,
-      scrollback: 3000,
-      disableStdin: statusRef.current !== "connected" || !visibleRef.current,
-      theme: {
-        background: "#0c1016",
-        foreground: "#d8dde7",
-        cursor: "#d8dde7",
-        selectionBackground: "#2a3445",
-      },
-    });
+    void import("@xterm/addon-fit").then(({ FitAddon }) => {
+      if (cancelled || !visibleRef.current || terminalRef.current) return;
 
-    const fitAddon = new FitAddon();
-    terminal.loadAddon(fitAddon);
-    terminal.open(containerElement);
-    terminalRef.current = terminal;
-    fitAddonRef.current = fitAddon;
-    updateDiagnostics();
+      if (sessionAgentRef.current !== agentId) {
+        clearOutput();
+        sessionAgentRef.current = agentId;
+      }
 
-    const initialFrame = window.requestAnimationFrame(() => {
-      fitTerminal(true);
-      terminal.focus();
-    });
+      const terminal = new Terminal({
+        convertEol: false,
+        cursorBlink: true,
+        cursorStyle: "bar",
+        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace",
+        fontSize: 12,
+        lineHeight: 1.45,
+        scrollback: 3000,
+        disableStdin: statusRef.current !== "connected" || !visibleRef.current,
+        theme: {
+          background: "#0c1016",
+          foreground: "#d8dde7",
+          cursor: "#d8dde7",
+          selectionBackground: "#2a3445",
+        },
+      });
 
-    const bufferedOutput = outputBufferRef.current.join("");
-    if (bufferedOutput) terminal.write(bufferedOutput);
+      const fitAddon = new FitAddon();
+      terminal.loadAddon(fitAddon);
+      terminal.open(containerElement);
+      terminalRef.current = terminal;
+      fitAddonRef.current = fitAddon;
+      updateDiagnostics();
 
-    dataDisposableRef.current = terminal.onData((data) => {
-      if (statusRef.current !== "connected" || !visibleRef.current) return;
-      onInputRef.current(data);
-    });
-    resizeDisposableRef.current = terminal.onResize(({ cols, rows }) => {
-      scheduleResize(rows, cols);
+      initialFrame = window.requestAnimationFrame(() => {
+        fitTerminal(true);
+        terminal.focus();
+      });
+
+      const bufferedOutput = outputBufferRef.current.join("");
+      if (bufferedOutput) terminal.write(bufferedOutput);
+
+      dataDisposableRef.current = terminal.onData((data) => {
+        if (statusRef.current !== "connected" || !visibleRef.current) return;
+        onInputRef.current(data);
+      });
+      resizeDisposableRef.current = terminal.onResize(({ cols, rows }) => {
+        scheduleResize(rows, cols);
+      });
     });
 
     return () => {
-      window.cancelAnimationFrame(initialFrame);
+      cancelled = true;
+      if (initialFrame !== null) window.cancelAnimationFrame(initialFrame);
     };
   }, [agentId, clearOutput, containerElement, fitTerminal, scheduleResize, updateDiagnostics, visible]);
 

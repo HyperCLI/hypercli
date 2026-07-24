@@ -106,6 +106,8 @@ interface AgentWorkspaceSidebarProps {
   onCollapsedChange?: (collapsed: boolean) => void;
   fillParent?: boolean;
   embeddedInNavigation?: boolean;
+  footerAction?: React.ReactNode;
+  closeButtonRef?: React.Ref<HTMLButtonElement>;
   onClose?: () => void;
   sessions?: OpenClawSessionRecord[] | null;
   sessionsFetched?: boolean;
@@ -1135,6 +1137,8 @@ export function AgentWorkspaceSidebar({
   onCollapsedChange,
   fillParent = false,
   embeddedInNavigation = false,
+  footerAction,
+  closeButtonRef,
   onClose,
   sessions,
   sessionsFetched = sessions != null,
@@ -1166,7 +1170,7 @@ export function AgentWorkspaceSidebar({
     window.localStorage.setItem(WORKSPACE_COLLAPSED_KEY, uncontrolledCollapsed ? "1" : "0");
   }, [controlledCollapsed, uncontrolledCollapsed]);
   const collapsed = controlledCollapsed ?? uncontrolledCollapsed;
-  const isCollapsed = forceExpanded ? false : !isDesktopViewport || collapsed;
+  const isCollapsed = forceExpanded ? false : (!isDesktopViewport && !embeddedInNavigation) || collapsed;
   const toggleCollapsed = () => {
     const nextCollapsed = !collapsed;
     if (controlledCollapsed === undefined) setUncontrolledCollapsed(nextCollapsed);
@@ -1358,6 +1362,17 @@ export function AgentWorkspaceSidebar({
             <HyperCLILogoMark className="h-6 w-6" />
           </Link>
           <WorkspacePicker sharedHeader />
+          {onClose ? (
+            <button
+              ref={closeButtonRef}
+              type="button"
+              onClick={onClose}
+              aria-label="Close navigation"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          ) : null}
         </div>
       ) : (
         <div
@@ -1488,6 +1503,10 @@ export function AgentWorkspaceSidebar({
         }}
       />
 
+      {footerAction && !isCollapsed ? (
+        <div className="flex shrink-0 px-3 pb-2">{footerAction}</div>
+      ) : null}
+
       <div ref={advancedMenuRef} className={`agent-workspace-advanced relative border-b border-border pb-4 ${isCollapsed ? "px-1.5" : "px-3"}`}>
         {isCollapsed ? (
           <div className="flex justify-center">
@@ -1545,7 +1564,7 @@ export function AgentWorkspaceSidebar({
             animate={{ opacity: 1, scale: 1, x: 0, y: 0 }}
             transition={{ duration: 0.12 }}
             role="menu"
-            className={`absolute z-50 overflow-hidden rounded-xl border border-border bg-popover p-1.5 shadow-[0_14px_40px_color-mix(in_srgb,var(--foreground)_7%,transparent)] ring-1 ring-border/40 ${
+            className={`elevation-shadow-soft absolute z-50 overflow-hidden rounded-xl border border-border bg-popover p-1.5 ring-1 ring-border/40 ${
               isCollapsed
                  ? "bottom-4 left-full ml-2 w-52"
                  : renderMobile

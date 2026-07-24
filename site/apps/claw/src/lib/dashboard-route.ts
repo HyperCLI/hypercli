@@ -18,6 +18,13 @@ export const ACCOUNT_PAGE_HREFS = {
   billing: "/dashboard/billing",
 } as const;
 
+export function buildAgentLauncherHref(planId?: string | null): string {
+  const params = new URLSearchParams({ open: "agent-launcher" });
+  const normalizedPlanId = planId?.trim();
+  if (normalizedPlanId) params.set("plan", normalizedPlanId);
+  return `${DASHBOARD_AGENTS_PATH}?${params.toString()}`;
+}
+
 export function resolveDashboardView(value: string | null | undefined): DashboardView | null {
   const normalized = value?.trim() as DashboardView | undefined;
   return normalized && DASHBOARD_VIEWS.has(normalized) ? normalized : null;

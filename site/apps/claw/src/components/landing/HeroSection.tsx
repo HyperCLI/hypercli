@@ -1,10 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import { motion, useScroll, useTransform, useSpring } from "framer-motion";
-import { CodeSnippetCard, CTAButtonGroup, HeroBadge, PrivyLoginModal } from "@hypercli/shared-ui";
-import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { AUTH_BASE_URL } from "@/lib/api";
+import { CodeSnippetCard, CTAButtonGroup, HeroBadge } from "@hypercli/shared-ui";
+import { buildAgentLauncherHref } from "@/lib/dashboard-route";
 
 const codeSnippet = `curl https://api.hypercli.com/v1/chat/completions \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
@@ -13,12 +12,8 @@ const codeSnippet = `curl https://api.hypercli.com/v1/chat/completions \\
     "model": "kimi-k2.5",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'`;
-const POST_LOGIN_PATH = "/dashboard/agents";
-
 export function HeroSection() {
   const sectionRef = useRef<HTMLElement>(null);
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-  const { isAuthenticated } = useAgentAuth();
 
   const { scrollYProgress } = useScroll({
     target: sectionRef,
@@ -35,19 +30,14 @@ export function HeroSection() {
   const contentOpacity = useTransform(smoothProgress, [0, 0.5], [1, 0]);
 
   const handleGetStarted = () => {
-    if (isAuthenticated) {
-      window.location.href = POST_LOGIN_PATH;
-    } else {
-      setIsLoginModalOpen(true);
-    }
+    window.location.assign(buildAgentLauncherHref());
   };
 
   return (
-    <>
-      <section
-        ref={sectionRef}
-        className="relative min-h-screen flex items-center justify-center pt-20 px-4 sm:px-6 lg:px-8 overflow-hidden"
-      >
+    <section
+      ref={sectionRef}
+      className="relative min-h-screen flex items-center justify-center pt-20 px-4 sm:px-6 lg:px-8 overflow-hidden"
+    >
         {/* Grain texture */}
         <div className="absolute inset-0 opacity-[0.03] pointer-events-none bg-grid-pattern" />
 
@@ -142,19 +132,6 @@ export function HeroSection() {
         </motion.div>
 
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_0%,var(--background)_75%)] opacity-40" />
-      </section>
-
-      <PrivyLoginModal
-        isOpen={isLoginModalOpen}
-        onClose={() => setIsLoginModalOpen(false)}
-        title="Welcome to HyperCLI"
-        description="Please sign in to continue"
-        apiBaseUrl={AUTH_BASE_URL}
-        tokenStorageKey="claw_auth_token"
-        onSuccess={() => {
-          window.location.href = POST_LOGIN_PATH;
-        }}
-      />
-    </>
+    </section>
   );
 }

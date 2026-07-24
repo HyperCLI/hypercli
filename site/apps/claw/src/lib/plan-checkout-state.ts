@@ -9,6 +9,7 @@ import {
   hasLaunchEntitlementSlots,
   mergeLaunchSlotInventories,
 } from "@/lib/agent-launch-state";
+import { bundleKey, compactBundle, subscriptionSlotBundle, type SlotBundle } from "@/lib/subscriptions";
 
 export {
   getEffectivePlanIdFromSummary,
@@ -19,11 +20,19 @@ export {
 
 const PENDING_CHECKOUT_KEY = "hyperclaw.pendingPlanCheckout.v1";
 
+function pendingCheckoutKey(principalId: string): string {
+  return `${PENDING_CHECKOUT_KEY}:${encodeURIComponent(principalId)}`;
+}
+
 export interface PendingPlanCheckout {
+  principalId: string;
   planId: string;
   planName: string;
   ownedCount: number;
   startedAt: number;
+  returnSessionId?: string;
+  bundle?: SlotBundle;
+  baselineGrantedSlots?: Record<string, number>;
 }
 
 export interface StripeCheckoutReturnState {
@@ -36,31 +45,68 @@ export type CheckoutReflectionStatus = "waiting-payment" | "waiting-entitlement"
 export function writePendingPlanCheckout(checkout: PendingPlanCheckout): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(PENDING_CHECKOUT_KEY, JSON.stringify(checkout));
+    window.localStorage.setItem(pendingCheckoutKey(checkout.principalId), JSON.stringify(checkout));
   } catch {}
 }
 
-export function readPendingPlanCheckout(): PendingPlanCheckout | null {
+export function readPendingPlanCheckout(expectedPrincipalId?: string | null): PendingPlanCheckout | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(PENDING_CHECKOUT_KEY);
+    const raw = expectedPrincipalId
+      ? window.localStorage.getItem(pendingCheckoutKey(expectedPrincipalId)) ?? window.localStorage.getItem(PENDING_CHECKOUT_KEY)
+      : window.localStorage.getItem(PENDING_CHECKOUT_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<PendingPlanCheckout>;
-    if (!parsed.planId || !parsed.planName) return null;
+    if (!parsed.principalId || !parsed.planId || !parsed.planName) return null;
+    if (expectedPrincipalId && parsed.principalId !== expectedPrincipalId) return null;
     return {
+      principalId: parsed.principalId,
       planId: parsed.planId,
       planName: parsed.planName,
       ownedCount: Number.isFinite(Number(parsed.ownedCount)) ? Number(parsed.ownedCount) : 0,
       startedAt: Number.isFinite(Number(parsed.startedAt)) ? Number(parsed.startedAt) : Date.now(),
+      ...(typeof parsed.returnSessionId === "string" && parsed.returnSessionId.trim()
+        ? { returnSessionId: parsed.returnSessionId.trim() }
+        : {}),
+      ...(parsed.bundle && typeof parsed.bundle === "object"
+        ? { bundle: compactBundle(parsed.bundle as SlotBundle) }
+        : {}),
+      ...(parsed.baselineGrantedSlots && typeof parsed.baselineGrantedSlots === "object"
+        ? {
+            baselineGrantedSlots: Object.fromEntries(
+              Object.entries(parsed.baselineGrantedSlots)
+                .map(([tier, count]) => [tier, Math.max(Number(count || 0), 0)] as const)
+                .filter(([, count]) => Number.isFinite(count)),
+            ),
+          }
+        : {}),
     };
   } catch {
     return null;
   }
 }
 
-export function clearPendingPlanCheckout(): void {
+export function markPendingPlanCheckoutReturned(
+  principalId: string,
+  sessionId: string,
+): PendingPlanCheckout | null {
+  const pending = readPendingPlanCheckout(principalId);
+  const normalizedSessionId = sessionId.trim();
+  if (!pending || !normalizedSessionId) return null;
+  const returned = { ...pending, returnSessionId: normalizedSessionId };
+  writePendingPlanCheckout(returned);
+  return returned;
+}
+
+export function clearPendingPlanCheckout(expectedPrincipalId?: string | null): void {
   if (typeof window === "undefined") return;
   try {
+    if (expectedPrincipalId) {
+      window.localStorage.removeItem(pendingCheckoutKey(expectedPrincipalId));
+      const legacy = readPendingPlanCheckout();
+      if (legacy?.principalId === expectedPrincipalId) window.localStorage.removeItem(PENDING_CHECKOUT_KEY);
+      return;
+    }
     window.localStorage.removeItem(PENDING_CHECKOUT_KEY);
   } catch {}
 }
@@ -93,7 +139,7 @@ export function readStripeCheckoutReturnState(): StripeCheckoutReturnState | nul
   }
 
   const sessionId = params.get("session_id");
-  if (checkoutStatus === "success" || sessionId) {
+  if (checkoutStatus === "success" && sessionId) {
     return { status: "success", sessionId };
   }
 
@@ -136,12 +182,41 @@ export function getPlanOwnedCountFromSummary(
   return count;
 }
 
+export function getCheckoutOwnedCountFromSummary(
+  summary: HyperAgentSubscriptionSummary | null | undefined,
+  checkout: { planId: string; bundle?: SlotBundle | null } | null | undefined,
+): number {
+  if (!summary || !checkout) return 0;
+  const checkoutBundleKey = bundleKey(checkout.bundle);
+  let count = getPlanOwnedCountFromSummary(summary, checkout.planId);
+  if (checkoutBundleKey === "{}") return count;
+
+  for (const subscription of summary.activeSubscriptions ?? []) {
+    if (subscription.planId === checkout.planId) continue;
+    if (bundleKey(subscriptionSlotBundle(subscription)) === checkoutBundleKey) {
+      count += Math.max(subscription.quantity || 1, 1);
+    }
+  }
+  return count;
+}
+
 export function getGrantedLaunchSlotCountFromSummary(
   summary: HyperAgentSubscriptionSummary | null | undefined,
 ): number {
   return Object.values(getLaunchSlotInventoryFromSummary(summary)).reduce(
     (total, entry) => total + Math.max(Number(entry?.granted ?? 0), 0),
     0,
+  );
+}
+
+export function getGrantedLaunchSlotsByTier(
+  summary: HyperAgentSubscriptionSummary | null | undefined,
+): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(getLaunchSlotInventoryFromSummary(summary)).map(([tier, entry]) => [
+      tier,
+      Math.max(Number(entry?.granted ?? 0), 0),
+    ]),
   );
 }
 
@@ -167,10 +242,22 @@ export function getCheckoutReflectionStatus(
   const summaryEffectivePlanId = getEffectivePlanIdFromSummary(summary);
   const effectivePlanId = summaryEffectivePlanId && summaryEffectivePlanId !== "free" ? summaryEffectivePlanId : "";
   const planReflected = pending
-    ? getPlanOwnedCountFromSummary(summary, pending.planId) > pending.ownedCount
+    ? getCheckoutOwnedCountFromSummary(summary, pending) > pending.ownedCount
     : activeEntitlementCount > 0 || Boolean(effectivePlanId);
 
   if (!planReflected) return "waiting-payment";
+  if (pending?.baselineGrantedSlots) {
+    const currentGrantedSlots = getGrantedLaunchSlotsByTier(summary);
+    const purchasedTiers = Object.entries(compactBundle(pending.bundle));
+    const slotsReflected = purchasedTiers.length > 0
+      ? purchasedTiers.every(([tier, count]) => (
+          Math.max(currentGrantedSlots[tier] ?? 0, 0) >=
+          Math.max(pending.baselineGrantedSlots?.[tier] ?? 0, 0) + Math.max(Number(count || 0), 0)
+        ))
+      : Object.values(currentGrantedSlots).reduce((total, count) => total + count, 0) >
+        Object.values(pending.baselineGrantedSlots).reduce((total, count) => total + count, 0);
+    if (!slotsReflected) return "waiting-entitlement";
+  }
   return hasLaunchEntitlementSlots(summary) ? "ready" : "waiting-entitlement";
 }
 

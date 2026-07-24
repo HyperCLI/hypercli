@@ -10,7 +10,7 @@ import { TooltipHint } from "@/components/ClawTooltip";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { AUTH_BASE_URL } from "@/lib/api";
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
-import { ACCOUNT_PAGE_HREFS, DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
+import { ACCOUNT_PAGE_HREFS, DASHBOARD_VIEW_HREFS, buildAgentLauncherHref } from "@/lib/dashboard-route";
 
 const navLinks = [
   { label: "Features", href: "#features" },
@@ -43,6 +43,11 @@ export function ClawHeader() {
   const openLoginModal = () => {
     setMobileOpen(false);
     setIsLoginModalOpen(true);
+  };
+
+  const openAgentLauncher = () => {
+    setMobileOpen(false);
+    router.push(buildAgentLauncherHref());
   };
 
   useEffect(() => {
@@ -198,7 +203,7 @@ export function ClawHeader() {
                     Sign In
                   </button>
                   <button
-                    onClick={openLoginModal}
+                    onClick={openAgentLauncher}
                     className="btn-primary px-4 py-2 rounded-lg text-sm font-medium"
                   >
                     Get Started
@@ -292,7 +297,7 @@ export function ClawHeader() {
                       Sign In
                     </button>
                     <button
-                      onClick={openLoginModal}
+                      onClick={openAgentLauncher}
                       className="btn-primary px-4 py-2 rounded-lg text-sm font-medium w-full"
                     >
                       Get Started

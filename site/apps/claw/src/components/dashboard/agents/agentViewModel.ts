@@ -1,6 +1,10 @@
 import type { SdkAgent } from "@/types";
 import type { Agent, AgentState } from "@/app/dashboard/agents/types";
 
+interface AgentViewModelOptions {
+  managedDisplayName?: string | null;
+}
+
 export function normalizeAgentState(state: unknown): AgentState {
   const normalized = typeof state === "string" ? state.toUpperCase() : "";
   if (!normalized) return "STOPPED";
@@ -22,14 +26,23 @@ export function normalizeAgentState(state: unknown): AgentState {
   return "FAILED";
 }
 
-export function toAgentViewModel(agent: SdkAgent): Agent {
+export function agentDisplayLabel(agent: Pick<Agent, "id" | "name" | "displayName" | "pod_name">): string {
+  return agent.displayName?.trim() || agent.name?.trim() || agent.pod_name?.trim() || agent.id;
+}
+
+export function toAgentViewModel(agent: SdkAgent, options: AgentViewModelOptions = {}): Agent {
+  const managed = agent.managed ?? null;
+  const managedDisplayName = options.managedDisplayName?.trim() || null;
   return {
     id: agent.id,
     name: agent.name ?? agent.id,
     handle: agent.handle ?? null,
-    displayName: agent.displayName ?? null,
+    displayName: managed === false
+      ? agent.displayName ?? agent.name ?? null
+      : managedDisplayName ?? agent.name ?? agent.displayName ?? null,
     avatarUrl: agent.avatarUrl ?? null,
     displayIdentity: agent.displayIdentity ?? null,
+    managed,
     user_id: agent.userId,
     pod_id: agent.podId || null,
     pod_name: agent.podName || null,

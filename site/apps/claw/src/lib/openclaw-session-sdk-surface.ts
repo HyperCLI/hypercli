@@ -601,8 +601,11 @@ export function streamOpenClawChat(
   message: string,
   sessionKey: string,
   attachments?: ChatAttachment[],
+  captureHistoryBaseline = false,
 ): AsyncGenerator<ChatEvent> {
-  return gateway.chatSend(message, sessionKey, attachments);
+  return captureHistoryBaseline
+    ? gateway.chatSend(message, sessionKey, attachments, { captureHistoryBaseline: true })
+    : gateway.chatSend(message, sessionKey, attachments);
 }
 
 export async function sendOpenClawChatFallback(

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { handleOpenClawChatStreamEvent, handleOpenClawSessionEvent, hydrateOpenClawSession } from "./openclaw-session";
+import { handleOpenClawChatStreamEvent, handleOpenClawSessionEvent, hydrateOpenClawSession, refreshOpenClawChatMessages } from "./openclaw-session";
 import type { ChatMessage } from "./openclaw-chat";
 import { resolveOpenClawSessionKey } from "./openclaw-session-key";
 
@@ -457,6 +457,126 @@ describe("openclaw session keys", () => {
         content: "I'll lookup and get bread",
       }),
     ]);
+  });
+
+  it("applies stream replacements to one identified assistant render row", () => {
+    let messages: ChatMessage[] = [];
+    const setMessages = vi.fn((value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+      messages = typeof value === "function" ? value(messages) : value;
+    });
+    const context = {
+      setMessages,
+      setSending: vi.fn(),
+      appendActivity: vi.fn(),
+      assistantRenderId: "assistant-render-1",
+      clientTurnId: "client-turn-1",
+    };
+
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: {
+        type: "content",
+        text: "Draft response",
+        messageId: "message-1",
+        turnId: "turn-1",
+        runId: "run-1",
+        sessionKey: "agent:default:main",
+        revision: 1,
+      },
+    });
+    const initialRenderId = messages[0]?.renderId;
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: {
+        type: "content",
+        text: "Corrected response",
+        replace: true,
+        messageId: "message-1",
+        turnId: "turn-1",
+        runId: "run-1",
+        sessionKey: "agent:default:main",
+        revision: 2,
+      },
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: {
+        type: "done",
+        eventId: "event-final",
+        messageId: "message-1",
+        turnId: "turn-1",
+        runId: "run-1",
+        sessionKey: "agent:default:main",
+        revision: 3,
+      },
+    });
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      role: "assistant",
+      content: "Corrected response",
+      renderId: "assistant-render-1",
+      clientTurnId: "client-turn-1",
+      messageId: "message-1",
+      turnId: "turn-1",
+      runId: "run-1",
+      sessionKey: "agent:default:main",
+      eventId: "event-final",
+      revision: 3,
+    });
+    expect(messages[0]?.renderId).toBe(initialRenderId);
+  });
+
+  it("prefers a channel source key for metadata-poor read-only previews", async () => {
+    const sessionsPreview = vi.fn(async (sessionKey: string) => (
+      sessionKey === "telegram:123"
+        ? [{ role: "user", content: "Telegram message" }]
+        : [{ role: "user", content: "Main workspace message" }]
+    ));
+    const messages = await refreshOpenClawChatMessages(
+      { sessionsPreview, chatHistory: vi.fn() } as any,
+      "agent-1",
+      "telegram:123",
+      "agent:default:main",
+      {
+        key: "telegram:123",
+        gatewaySessionKey: "agent:default:main",
+        sourceSessionKey: "telegram:123",
+        sourceChannelId: "telegram",
+        readOnly: true,
+        raw: {},
+      },
+    );
+
+    expect(sessionsPreview).toHaveBeenCalledTimes(1);
+    expect(sessionsPreview).toHaveBeenCalledWith("telegram:123", 200);
+    expect(messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Telegram message" }),
+    ]);
+  });
+
+  it("rejects metadata-poor previews from an ambiguous shared channel key", async () => {
+    const sessionsPreview = vi.fn(async (sessionKey: string) => (
+      sessionKey === "telegram:123"
+        ? []
+        : [{ role: "user", content: "Main workspace message" }]
+    ));
+    const messages = await refreshOpenClawChatMessages(
+      { sessionsPreview, chatHistory: vi.fn() } as any,
+      "agent-1",
+      "telegram:123",
+      "agent:default:main",
+      {
+        key: "telegram:123",
+        gatewaySessionKey: "agent:default:main",
+        sourceSessionKey: "telegram:123",
+        sourceChannelId: "telegram",
+        readOnly: true,
+        raw: {},
+      },
+    );
+
+    expect(messages).toEqual([]);
   });
 
   it("hydrates message wrappers with nested output instead of the wrapper label", async () => {

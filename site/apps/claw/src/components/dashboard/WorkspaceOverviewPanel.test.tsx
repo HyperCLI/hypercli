@@ -64,7 +64,10 @@ vi.mock("@/components/dashboard/members/MembersSection", () => ({
 import { WorkspaceOverviewPanel } from "./WorkspaceOverviewPanel";
 
 describe("WorkspaceOverviewPanel", () => {
-  const accountAgent = toAgentViewModel(buildSdkAgent({ id: "agent-1", name: "Research Agent" }));
+  const accountAgent = toAgentViewModel(
+    buildSdkAgent({ id: "agent-1", name: "research-agent" }),
+    { managedDisplayName: "Research Pilot" },
+  );
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -101,7 +104,7 @@ describe("WorkspaceOverviewPanel", () => {
     const knowledgeMetric = await screen.findByRole("link", { name: /Knowledge files/i });
     await waitFor(() => expect(within(knowledgeMetric).getByText("2")).toBeInTheDocument());
     await waitFor(() => expect(screen.getAllByText("3.0k").length).toBeGreaterThan(0));
-    expect(screen.getAllByText("Research Agent").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Research Pilot").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: "Members" }));
     fireEvent.click(screen.getByRole("button", { name: "New agent" }));

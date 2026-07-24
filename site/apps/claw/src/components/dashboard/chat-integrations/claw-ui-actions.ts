@@ -134,7 +134,7 @@ function normalizeSentinelLine(line: string): ClawUiAction | null {
   return null;
 }
 
-function parseSentinelActions(content: string): ParsedClawUiActions {
+function parseSentinelActions(content: string, streaming: boolean): ParsedClawUiActions {
   const actions: ClawUiAction[] = [];
   const visibleLines: string[] = [];
 
@@ -146,6 +146,10 @@ function parseSentinelActions(content: string): ParsedClawUiActions {
         actions.push(action);
         continue;
       }
+      if (streaming) continue;
+    }
+    if (streaming && trimmed.startsWith("@@hypercli.") && SENTINEL_PREFIX.startsWith(trimmed)) {
+      continue;
     }
     visibleLines.push(line);
   }
@@ -156,14 +160,33 @@ function parseSentinelActions(content: string): ParsedClawUiActions {
   };
 }
 
-export function parseClawUiActionBlocks(content: string, role: string): ParsedClawUiActions {
-  if (role !== "assistant" || (!content.includes("```claw-ui-action") && !content.includes(SENTINEL_PREFIX))) {
+function stripIncompleteActionBlock(content: string): string {
+  const openingIndex = content.lastIndexOf("```claw-ui-action");
+  if (openingIndex < 0) return content;
+  const closingIndex = content.indexOf("```", openingIndex + "```claw-ui-action".length);
+  return closingIndex < 0 ? content.slice(0, openingIndex) : content;
+}
+
+export function parseClawUiActionBlocks(
+  content: string,
+  role: string,
+  options: { streaming?: boolean } = {},
+): ParsedClawUiActions {
+  const streaming = options.streaming === true;
+  const containsPartialSentinel = streaming && content.split(/\r?\n/).some((line) => {
+    const trimmed = line.trim();
+    return trimmed.startsWith("@@hypercli.") && SENTINEL_PREFIX.startsWith(trimmed);
+  });
+  if (role !== "assistant" || (!content.includes("```claw-ui-action") && !content.includes(SENTINEL_PREFIX) && !containsPartialSentinel)) {
     return { displayContent: content, actions: [] };
   }
 
-  const parsedSentinels = parseSentinelActions(content);
+  const parsedSentinels = parseSentinelActions(content, streaming);
   const actions: ClawUiAction[] = [...parsedSentinels.actions];
-  const displayContent = parsedSentinels.displayContent.replace(ACTION_BLOCK_RE, (block, rawJson: string) => {
+  const contentWithoutPartialBlock = streaming
+    ? stripIncompleteActionBlock(parsedSentinels.displayContent)
+    : parsedSentinels.displayContent;
+  const displayContent = contentWithoutPartialBlock.replace(ACTION_BLOCK_RE, (block, rawJson: string) => {
     try {
       const action = normalizeAction(JSON.parse(rawJson));
       if (!action) return block;

@@ -49,6 +49,7 @@ import { AgentSettingsMobileChrome } from "./AgentSettingsMobileChrome";
 import { AgentTeamSettingsContent } from "./AgentTeamSettingsContent";
 import { getAgentGatewayPanelBootStatus } from "./chat-boot-stage";
 import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
+import { agentDisplayLabel } from "./agentViewModel";
 
 interface SessionLike {
   connected: boolean;
@@ -466,22 +467,15 @@ interface AgentSettingsPanelProps {
   openclawModels?: Array<Record<string, unknown>> | null;
   reportedChannels?: AgentChannelSummary[];
   reportedChannelsReady?: boolean;
-  onUpdateAgentName?: (agentId: string, name: string) => Promise<void>;
   onUpdateAgentProfile?: (agentId: string, profile: { name?: string; handle?: string | null }) => Promise<void>;
+  onUpdateExternalAgentProfile?: (agentId: string, profile: { name?: string; displayName?: string | null; handle?: string | null }) => Promise<void>;
+  onSetManagedAgentDisplayName?: (agentId: string, displayName: string | null) => void | Promise<void>;
   onUploadAgentAvatar?: (agentId: string, file: File) => Promise<string>;
   onUpdateAgentLaunchConfig?: (agentId: string, launchConfig: Record<string, unknown>) => Promise<void>;
   onSaveOpenClawConfig?: (patch: Record<string, unknown>) => Promise<void>;
   showFileSourceTabs?: boolean;
   onShowFileSourceTabsChange?: (value: boolean) => void;
   isDesktopViewport?: boolean;
-  agentsMenuOpen?: boolean;
-  mobileReturnLabel?: string;
-  onSessionReturn?: () => void;
-  onOpenAgentsMenu?: () => void;
-  onOpenMobileMenu?: () => void;
-  onOpenWorkspaceMenu?: () => void;
-  showSessionReturn?: boolean;
-  workspaceMenuOpen?: boolean;
 }
 
 type AgentSettingsSection = "general" | "agent" | "index" | "usage" | "team";
@@ -562,6 +556,10 @@ function agentSettingsName(agent: Agent | null): string {
   return agent?.name || agent?.pod_name || agent?.id || "";
 }
 
+function agentSettingsDisplayName(agent: Agent | null): string {
+  return agent?.displayName?.trim() || agentSettingsName(agent);
+}
+
 function agentSettingsHandle(agent: Agent | null): string {
   return agent?.handle || "";
 }
@@ -572,7 +570,7 @@ function agentSettingsAvatar(agent: Agent | null): string | null {
   if (agent.displayIdentity?.avatar_url && typeof agent.displayIdentity.avatar_url === "string") {
     return agent.displayIdentity.avatar_url;
   }
-  return agentAvatar(agent.name || agent.id, agent.meta).imageUrl ?? null;
+  return agentAvatar(agentDisplayLabel(agent), agent.meta).imageUrl ?? null;
 }
 
 function normalizeAgentHandle(value: string): string | null {
@@ -1025,9 +1023,11 @@ function AgentGeneralSettingsContent({
 function AgentSectionSettingsContent({
   agent,
   agentName,
+  agentDisplayName,
   agentHandle,
   agentAvatarPreview,
   onAgentNameChange,
+  onAgentDisplayNameChange,
   onAgentHandleChange,
   onAgentAvatarSelect,
   onAgentAvatarRemove,
@@ -1061,9 +1061,11 @@ function AgentSectionSettingsContent({
 }: {
   agent: Agent;
   agentName: string;
+  agentDisplayName: string;
   agentHandle: string;
   agentAvatarPreview: string | null;
   onAgentNameChange: (value: string) => void;
+  onAgentDisplayNameChange: (value: string) => void;
   onAgentHandleChange: (value: string) => void;
   onAgentAvatarSelect: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onAgentAvatarRemove: () => void;
@@ -1097,6 +1099,7 @@ function AgentSectionSettingsContent({
 }) {
   const avatarInputRef = React.useRef<HTMLInputElement | null>(null);
   const agentAvatarUpdatesEnabled = true;
+  const externalAgent = agent.managed === false;
   const canStartAgent = agent.state === "STOPPED" || isAgentFailureState(agent.state);
   const canStopAgent = agent.state === "RUNNING";
   const lifecycleBusy = Boolean(agentStarting || agentStopping || isAgentTransitionalState(agent.state));
@@ -1165,12 +1168,30 @@ function AgentSectionSettingsContent({
         )}
 
         <section className="mt-4 divide-y divide-foreground border-b border-foreground md:mt-7">
-          <AgentProfileSettingsRow label="Display name" description="Shown in the agent roster and other user-facing views.">
+          <AgentProfileSettingsRow label="Agent name" description="Unique name used to identify this agent.">
             <input
-              aria-label="Agent display name"
+              aria-label="Agent name"
               value={agentName}
               onChange={(event) => onAgentNameChange(event.target.value)}
+              placeholder="Agent name"
+              maxLength={externalAgent ? 64 : 32}
+              spellCheck={false}
+              className={SETTINGS_FIELD_CLASS}
+            />
+          </AgentProfileSettingsRow>
+
+          <AgentProfileSettingsRow
+            label="Display name"
+            description={externalAgent
+              ? "Shown in the agent roster and other user-facing views."
+              : "Saved only in this browser. Other browsers and members use the agent name."}
+          >
+            <input
+              aria-label="Agent display name"
+              value={agentDisplayName}
+              onChange={(event) => onAgentDisplayNameChange(event.target.value)}
               placeholder="Display name"
+              maxLength={255}
               className={SETTINGS_FIELD_CLASS}
             />
           </AgentProfileSettingsRow>
@@ -1204,7 +1225,7 @@ function AgentSectionSettingsContent({
                   {agentAvatarPreview ? (
                     <ResourceImage src={agentAvatarPreview} alt="Agent avatar" fill sizes="64px" className="object-cover" />
                   ) : (
-                    <span>{initialsFromName(agentName)}</span>
+                    <span>{initialsFromName(agentDisplayName || agentName)}</span>
                   )}
                 </button>
               </TooltipHint>
@@ -1236,15 +1257,17 @@ function AgentSectionSettingsContent({
             </div>
           </AgentProfileSettingsRow>
 
-          <AgentProfileSettingsRow label="Docker image" description="Container image used when this agent starts.">
-            <input
-              value={agentImageDraft}
-              onChange={(event) => onAgentImageChange(event.target.value)}
-              placeholder="ghcr.io/hypercli/hypercli-openclaw:pro-latest"
-              aria-label="Agent Docker image"
-              className={SETTINGS_FIELD_CLASS}
-            />
-          </AgentProfileSettingsRow>
+          <div hidden>
+            <AgentProfileSettingsRow label="Docker image" description="Container image used when this agent starts.">
+              <input
+                value={agentImageDraft}
+                onChange={(event) => onAgentImageChange(event.target.value)}
+                placeholder="ghcr.io/hypercli/hypercli-openclaw:pro-latest"
+                aria-label="Agent Docker image"
+                className={SETTINGS_FIELD_CLASS}
+              />
+            </AgentProfileSettingsRow>
+          </div>
 
           <AgentProfileSettingsRow label="Desktop" description="Expose the protected browser desktop route when the agent starts.">
             <label className="flex h-9 items-center gap-2 text-sm font-medium text-foreground">
@@ -1611,22 +1634,15 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     openclawModels = null,
     reportedChannels = [],
     reportedChannelsReady = false,
-    onUpdateAgentName,
     onUpdateAgentProfile,
+    onUpdateExternalAgentProfile,
+    onSetManagedAgentDisplayName,
     onUploadAgentAvatar,
     onUpdateAgentLaunchConfig,
     onSaveOpenClawConfig,
     showFileSourceTabs = false,
     onShowFileSourceTabsChange,
     isDesktopViewport = true,
-    agentsMenuOpen = false,
-    mobileReturnLabel = "Session",
-    onSessionReturn,
-    onOpenAgentsMenu,
-    onOpenMobileMenu,
-    onOpenWorkspaceMenu,
-    showSessionReturn = false,
-    workspaceMenuOpen = false,
   } = props;
   const [activeSettingsSection, setActiveSettingsSection] = React.useState<AgentSettingsSection>("general");
   const [savedProfileName, setSavedProfileName] = React.useState(() => profileNameFromUser(user));
@@ -1639,6 +1655,8 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const [profileSuccess, setProfileSuccess] = React.useState<string | null>(null);
   const [savedAgentName, setSavedAgentName] = React.useState(() => agentSettingsName(agent));
   const [agentNameDraft, setAgentNameDraft] = React.useState(() => agentSettingsName(agent));
+  const [savedAgentDisplayName, setSavedAgentDisplayName] = React.useState(() => agentSettingsDisplayName(agent));
+  const [agentDisplayNameDraft, setAgentDisplayNameDraft] = React.useState(() => agentSettingsDisplayName(agent));
   const [savedAgentHandle, setSavedAgentHandle] = React.useState(() => agentSettingsHandle(agent));
   const [agentHandleDraft, setAgentHandleDraft] = React.useState(() => agentSettingsHandle(agent));
   const [savedAgentAvatar, setSavedAgentAvatar] = React.useState<string | null>(() => agentSettingsAvatar(agent));
@@ -1662,6 +1680,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const [agentSettingsSuccess, setAgentSettingsSuccess] = React.useState<string | null>(null);
   const [confirmImageChange, setConfirmImageChange] = React.useState(false);
   const objectUrlsRef = React.useRef<string[]>([]);
+  const syncedAgentSettingsIdRef = React.useRef(agent?.id ?? null);
   const authUserId = user?.id ?? null;
   const profileUserId = loadedProfileUser?.authUserId === authUserId
     ? loadedProfileUser.userId
@@ -1707,34 +1726,48 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   }, [getToken, user]);
 
   React.useEffect(() => {
+    const nextAgentId = agent?.id ?? null;
+    const agentChanged = syncedAgentSettingsIdRef.current !== nextAgentId;
+    syncedAgentSettingsIdRef.current = nextAgentId;
     const nextName = agentSettingsName(agent);
+    const nextDisplayName = agentSettingsDisplayName(agent);
     const nextHandle = agentSettingsHandle(agent);
     const nextAvatar = agentSettingsAvatar(agent);
+    setAgentNameDraft((current) => agentChanged || current === savedAgentName ? nextName : current);
     setSavedAgentName(nextName);
-    setAgentNameDraft(nextName);
+    setAgentDisplayNameDraft((current) => agentChanged || current === savedAgentDisplayName ? nextDisplayName : current);
+    setSavedAgentDisplayName(nextDisplayName);
+    setAgentHandleDraft((current) => agentChanged || current === savedAgentHandle ? nextHandle : current);
     setSavedAgentHandle(nextHandle);
-    setAgentHandleDraft(nextHandle);
+    setAgentAvatarDraft((current) => agentChanged || current === savedAgentAvatar ? nextAvatar : current);
     setSavedAgentAvatar(nextAvatar);
-    setAgentAvatarDraft(nextAvatar);
-    setAgentAvatarFile(null);
     const nextImage = launchConfigImage(agent);
     const nextAdditionalEnv = additionalEnvTextFromAgent(agent);
     const nextDesktopEnabled = getDesktopEnabled(agent);
     const nextWorkspacesSync = getWorkspacesSyncSettings(agent);
+    setAgentImageDraft((current) => agentChanged || current === savedAgentImage ? nextImage : current);
     setSavedAgentImage(nextImage);
-    setAgentImageDraft(nextImage);
+    setAdditionalEnvDraft((current) => agentChanged || current === savedAdditionalEnvDraft ? nextAdditionalEnv : current);
     setSavedAdditionalEnvDraft(nextAdditionalEnv);
-    setAdditionalEnvDraft(nextAdditionalEnv);
+    setDesktopEnabledDraft((current) => agentChanged || current === savedDesktopEnabled ? nextDesktopEnabled : current);
     setSavedDesktopEnabled(nextDesktopEnabled);
-    setDesktopEnabledDraft(nextDesktopEnabled);
-    setSavedWorkspacesSyncDraft(nextWorkspacesSync);
-    setWorkspacesSyncDraft(nextWorkspacesSync);
-    setSavedArchiveDraft("not-configured");
-    setArchiveDraft("not-configured");
-    setAgentSettingsError(null);
-    setAgentSettingsSuccess(null);
-    setConfirmImageChange(false);
-  }, [agent]);
+    setWorkspacesSyncDraft((current) => (
+      agentChanged || workspacesSyncSettingsEqual(current, savedWorkspacesSyncDraft)
+        ? nextWorkspacesSync
+        : current
+    ));
+    setSavedWorkspacesSyncDraft((current) => (
+      workspacesSyncSettingsEqual(current, nextWorkspacesSync) ? current : nextWorkspacesSync
+    ));
+    if (agentChanged) {
+      setAgentAvatarFile(null);
+      setSavedArchiveDraft("not-configured");
+      setArchiveDraft("not-configured");
+      setAgentSettingsError(null);
+      setAgentSettingsSuccess(null);
+      setConfirmImageChange(false);
+    }
+  }, [agent, savedAdditionalEnvDraft, savedAgentAvatar, savedAgentDisplayName, savedAgentHandle, savedAgentImage, savedAgentName, savedDesktopEnabled, savedWorkspacesSyncDraft]);
 
   React.useEffect(() => {
     const nextModel = getOpenClawDefaultModel(openclawConfig);
@@ -1760,9 +1793,11 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   );
 
   const profileChanged = profileName !== savedProfileName;
+  const externalAgent = agent?.managed === false;
   const normalizedSavedAgentHandle = normalizeAgentHandle(savedAgentHandle);
   const normalizedAgentHandleDraft = normalizeAgentHandle(agentHandleDraft);
   const agentProfileChanged = agentNameDraft !== savedAgentName
+    || agentDisplayNameDraft !== savedAgentDisplayName
     || normalizedAgentHandleDraft !== normalizedSavedAgentHandle
     || Boolean(agentAvatarFile)
     || archiveDraft !== savedArchiveDraft;
@@ -1786,6 +1821,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     setProfileName(savedProfileName);
     setProfileAvatar(savedProfileAvatar);
     setAgentNameDraft(savedAgentName);
+    setAgentDisplayNameDraft(savedAgentDisplayName);
     setAgentHandleDraft(savedAgentHandle);
     setAgentAvatarDraft(savedAgentAvatar);
     setAgentAvatarFile(null);
@@ -1798,7 +1834,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     setMemoryIndexDraft(savedMemoryIndexDraft);
     setAgentSettingsError(null);
     setAgentSettingsSuccess(null);
-  }, [savedAdditionalEnvDraft, savedAgentAvatar, savedAgentHandle, savedAgentImage, savedAgentName, savedArchiveDraft, savedDesktopEnabled, savedMemoryIndexDraft, savedModelDraft, savedProfileAvatar, savedProfileName, savedWorkspacesSyncDraft]);
+  }, [savedAdditionalEnvDraft, savedAgentAvatar, savedAgentDisplayName, savedAgentHandle, savedAgentImage, savedAgentName, savedArchiveDraft, savedDesktopEnabled, savedMemoryIndexDraft, savedModelDraft, savedProfileAvatar, savedProfileName, savedWorkspacesSyncDraft]);
 
   const saveProfileChanges = React.useCallback(async (removeConfiguredChannels = false) => {
     setProfileError(null);
@@ -1816,8 +1852,12 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
 
     const agentNameChanged = agentNameDraft !== savedAgentName;
     const nextAgentName = agentNameDraft.trim();
+    const agentDisplayNameChanged = agentDisplayNameDraft !== savedAgentDisplayName;
+    const nextAgentDisplayName = agentDisplayNameDraft.trim() || null;
     const agentHandleChanged = normalizedAgentHandleDraft !== normalizedSavedAgentHandle;
     const nextAgentHandle = normalizedAgentHandleDraft;
+    const backendProfileChanged = agentNameChanged || agentHandleChanged || (externalAgent && agentDisplayNameChanged);
+    const managedDisplayNameChanged = !externalAgent && agentDisplayNameChanged;
     const agentImageChanged = agentImageDraft !== savedAgentImage;
     const additionalEnvChanged = additionalEnvDraft !== savedAdditionalEnvDraft;
     const nextAgentImage = agentImageDraft.trim();
@@ -1846,8 +1886,13 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
       }
     }
 
-    if ((agentNameChanged || agentHandleChanged) && !onUpdateAgentProfile && !(agentNameChanged && onUpdateAgentName)) {
+    if (backendProfileChanged && (externalAgent ? !onUpdateExternalAgentProfile : !onUpdateAgentProfile)) {
       setAgentSettingsError("Agent profile updates are unavailable.");
+      return;
+    }
+
+    if (managedDisplayNameChanged && !onSetManagedAgentDisplayName) {
+      setAgentSettingsError("Local display name updates are unavailable.");
       return;
     }
 
@@ -1900,7 +1945,28 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         setProfileSuccess("Profile updated.");
       }
 
-      if ((agentNameChanged || agentHandleChanged) && onUpdateAgentProfile) {
+      if (backendProfileChanged && externalAgent && onUpdateExternalAgentProfile) {
+        savingSection = "agent";
+        await onUpdateExternalAgentProfile(agent.id, {
+          ...(agentNameChanged ? { name: nextAgentName } : {}),
+          ...(agentDisplayNameChanged ? { displayName: nextAgentDisplayName } : {}),
+          ...(agentHandleChanged ? { handle: nextAgentHandle } : {}),
+        });
+        if (agentNameChanged) {
+          setAgentNameDraft(nextAgentName);
+          setSavedAgentName(nextAgentName);
+        }
+        if (agentDisplayNameChanged) {
+          const savedDisplayName = nextAgentDisplayName ?? nextAgentName;
+          setAgentDisplayNameDraft(savedDisplayName);
+          setSavedAgentDisplayName(savedDisplayName);
+        }
+        if (agentHandleChanged) {
+          setAgentHandleDraft(nextAgentHandle ?? "");
+          setSavedAgentHandle(nextAgentHandle ?? "");
+        }
+        setAgentSettingsSuccess("Agent settings updated.");
+      } else if (backendProfileChanged && !externalAgent && onUpdateAgentProfile) {
         savingSection = "agent";
         await onUpdateAgentProfile(agent.id, {
           ...(agentNameChanged ? { name: nextAgentName } : {}),
@@ -1915,11 +1981,15 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
           setSavedAgentHandle(nextAgentHandle ?? "");
         }
         setAgentSettingsSuccess("Agent settings updated.");
-      } else if (agentNameChanged && onUpdateAgentName) {
+      }
+
+      if (managedDisplayNameChanged && onSetManagedAgentDisplayName) {
         savingSection = "agent";
-        await onUpdateAgentName(agent.id, nextAgentName);
-        setAgentNameDraft(nextAgentName);
-        setSavedAgentName(nextAgentName);
+        const localDisplayName = nextAgentDisplayName === nextAgentName ? null : nextAgentDisplayName;
+        await onSetManagedAgentDisplayName(agent.id, localDisplayName);
+        const savedDisplayName = localDisplayName ?? nextAgentName;
+        setAgentDisplayNameDraft(savedDisplayName);
+        setSavedAgentDisplayName(savedDisplayName);
         setAgentSettingsSuccess("Agent settings updated.");
       }
 
@@ -1989,6 +2059,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     agentLaunchChanged,
     agentAvatarDraft,
     agentAvatarFile,
+    agentDisplayNameDraft,
     agentImageDraft,
     agentNameDraft,
     agent,
@@ -1996,6 +2067,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     configuredChannelIds,
     desktopChanged,
     desktopEnabledDraft,
+    externalAgent,
     getToken,
     hasSettingsChanges,
     memoryIndexChanged,
@@ -2004,9 +2076,10 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     modelDraft,
     normalizedAgentHandleDraft,
     normalizedSavedAgentHandle,
+    onUpdateExternalAgentProfile,
     onUpdateAgentLaunchConfig,
-    onUpdateAgentName,
     onUpdateAgentProfile,
+    onSetManagedAgentDisplayName,
     onUploadAgentAvatar,
     onSaveOpenClawConfig,
     profileAvatar,
@@ -2014,6 +2087,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     profileName,
     reportedChannelsReady,
     savedAdditionalEnvDraft,
+    savedAgentDisplayName,
     savedAgentImage,
     savedAgentName,
     workspacesSyncChanged,
@@ -2070,15 +2144,8 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
       ) : (
         <AgentSettingsMobileChrome
           activeSection={activeSettingsSection}
-          agentsMenuOpen={agentsMenuOpen}
-          onSessionReturn={onSessionReturn}
-          onOpenAgentsMenu={onOpenAgentsMenu}
-          onOpenWorkspaceMenu={onOpenWorkspaceMenu ?? onOpenMobileMenu}
-          returnLabel={mobileReturnLabel}
           onSectionChange={(sectionId) => setActiveSettingsSection(sectionId as AgentSettingsSection)}
           sections={AGENT_SETTINGS_SECTIONS}
-          showSessionReturn={showSessionReturn}
-          workspaceMenuOpen={workspaceMenuOpen}
         />
       )}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -2101,9 +2168,11 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
           <AgentSectionSettingsContent
             agent={agent}
             agentName={agentNameDraft}
+            agentDisplayName={agentDisplayNameDraft}
             agentHandle={agentHandleDraft}
             agentAvatarPreview={agentAvatarDraft}
             onAgentNameChange={setAgentNameDraft}
+            onAgentDisplayNameChange={setAgentDisplayNameDraft}
             onAgentHandleChange={setAgentHandleDraft}
             onAgentAvatarSelect={handleAgentAvatarSelect}
             onAgentAvatarRemove={() => {
@@ -2336,6 +2405,7 @@ export function AgentTierSelectionModal({
 interface AgentListProps {
   sidebarCollapsed: boolean;
   isDesktopViewport: boolean;
+  renderMobileNavigation?: boolean;
   mobileShowChat: boolean;
   agents: Agent[];
   rosterLoading?: boolean;
@@ -2348,14 +2418,18 @@ interface AgentListProps {
   agentCardDataById?: Record<string, AgentCardTooltipData>;
   getToken: () => Promise<string>;
   createOpenClawAgent: (apiKey: string, options?: Record<string, unknown>) => Promise<{ id?: string | null }>;
+  onCreateAgent?: (params: AgentCreationSetupCreateParams) => Promise<string | null>;
   associateCreatedAgent?: (agentId: string) => Promise<void>;
   agentCreationDisabledReason?: string | null;
+  onOpenAgentLauncher?: () => void;
+  agentLauncherSuspended?: boolean;
   fetchAgents: () => Promise<boolean | void>;
   setError: (value: string | null) => void;
   sidebarCreatorSignal: number;
   setPendingAgentDelete: (value: { id: string; name: string } | null) => void;
-  updateAgentName: (agentId: string, name: string) => Promise<void>;
+  updateAgentDisplayName: (agentId: string, displayName: string) => Promise<void>;
   accountInitial?: string;
+  onLogin?: () => void;
   onOpenSettings?: () => void;
   settingsActive?: boolean;
   onLogout?: () => void | Promise<void>;
@@ -2365,7 +2439,8 @@ interface AgentListProps {
   } | null;
   subscriptionSummary?: HyperAgentSubscriptionSummary | null;
   catalogPlans?: HyperAgentPlan[] | null;
-  onOpenPlanCatalog?: () => void | Promise<void>;
+  onOpenPlanCatalog?: (planId?: string) => void | Promise<void>;
+  preferredPlanId?: string | null;
   homeActive?: boolean;
   onOpenHome?: () => void;
   onOpenUsage?: () => void;
@@ -2390,7 +2465,7 @@ interface AgentListProps {
 function toAgentCardTooltipData(agent: Agent): AgentCardTooltipData {
   return {
     id: agent.id,
-    name: agent.name || agent.id,
+    name: agentDisplayLabel(agent),
     state: agent.state,
     cpuMillicores: agent.cpu_millicores,
     memoryMib: agent.memory_mib,
@@ -2405,6 +2480,7 @@ function toAgentCardTooltipData(agent: Agent): AgentCardTooltipData {
 export function AgentList({
   sidebarCollapsed,
   isDesktopViewport,
+  renderMobileNavigation = false,
   mobileShowChat,
   agents,
   rosterLoading = false,
@@ -2417,14 +2493,18 @@ export function AgentList({
   agentCardDataById,
   getToken,
   createOpenClawAgent,
+  onCreateAgent,
   associateCreatedAgent,
   agentCreationDisabledReason,
+  onOpenAgentLauncher,
+  agentLauncherSuspended = false,
   fetchAgents,
   setError,
   sidebarCreatorSignal,
   setPendingAgentDelete,
-  updateAgentName,
+  updateAgentDisplayName,
   accountInitial,
+  onLogin,
   onOpenSettings,
   settingsActive = false,
   onLogout,
@@ -2432,6 +2512,7 @@ export function AgentList({
   subscriptionSummary,
   catalogPlans,
   onOpenPlanCatalog,
+  preferredPlanId,
   homeActive = false,
   onOpenHome,
   onOpenUsage,
@@ -2457,8 +2538,12 @@ export function AgentList({
       setError(effectiveCreationDisabledReason);
       return;
     }
+    if (onOpenAgentLauncher) {
+      onOpenAgentLauncher();
+      return;
+    }
     setShowAgentLauncher(true);
-  }, [effectiveCreationDisabledReason, setError]);
+  }, [effectiveCreationDisabledReason, onOpenAgentLauncher, setError]);
   const handledSidebarCreatorSignalRef = React.useRef(0);
   const [showOfflineAgents, setShowOfflineAgents] = useAgentRosterShowOffline();
   const [reorderingAgentId, setReorderingAgentId] = React.useState<string | null>(null);
@@ -2508,11 +2593,12 @@ export function AgentList({
   }, [agents, agentCardDataById]);
 
   React.useEffect(() => {
+    if (!isDesktopViewport && !renderMobileNavigation) return;
     if (sidebarCreatorSignal === 0 || handledSidebarCreatorSignalRef.current === sidebarCreatorSignal) return;
     if (rosterLoading) return;
     handledSidebarCreatorSignalRef.current = sidebarCreatorSignal;
     openAgentLauncher();
-  }, [openAgentLauncher, rosterLoading, sidebarCreatorSignal]);
+  }, [isDesktopViewport, openAgentLauncher, renderMobileNavigation, rosterLoading, sidebarCreatorSignal]);
 
   const createAgentFromLauncher = React.useCallback(async ({ name, iconIndex, size, files, enableDesktop, enableMemoryIndex = false, customImage = null }: AgentCreationSetupCreateParams) => {
     try {
@@ -2576,14 +2662,22 @@ export function AgentList({
     }
   }, [associateCreatedAgent, createOpenClawAgent, effectiveCreationDisabledReason, fetchAgents, getToken, setError, setMobileShowChat, setSelectedAgentId]);
 
-  if (!isDesktopViewport) return null;
+  const createAgentAndCloseLauncher = React.useCallback(async (params: AgentCreationSetupCreateParams) => {
+    const createdId = await (onCreateAgent ?? createAgentFromLauncher)(params);
+    if (createdId) setShowAgentLauncher(false);
+    return createdId;
+  }, [createAgentFromLauncher, onCreateAgent]);
+
+  if (!isDesktopViewport && !renderMobileNavigation) return null;
+
+  const navigationVisible = isDesktopViewport || renderMobileNavigation;
 
   return (
     <motion.div
-      className={`agents-roster-shell relative h-full flex-shrink-0 overflow-visible bg-surface-low transition-[width] duration-200 ease-out ${sidebarCollapsed ? "w-12" : "w-52"} ${mobileShowChat && !isDesktopViewport ? "hidden" : "flex"} flex-col`}
+      className={`agents-roster-shell relative h-full flex-shrink-0 overflow-visible bg-surface-low transition-[width] duration-200 ease-out ${sidebarCollapsed ? "w-12" : "w-52"} ${mobileShowChat && !navigationVisible ? "hidden" : "flex"} flex-col`}
       aria-busy={rosterLoading}
     >
-      {sidebarCollapsed && isDesktopViewport ? (
+      {sidebarCollapsed && navigationVisible ? (
           <motion.div
             key="rail"
             initial={{ opacity: 0 }}
@@ -2678,10 +2772,10 @@ export function AgentList({
                   className="flex w-full flex-col items-center gap-2"
                 >
                   {visibleAgents.map((a) => {
-                  const av = agentAvatar(a.name || a.id, a.meta);
+                  const agentName = agentDisplayLabel(a);
+                  const av = agentAvatar(agentName, a.meta);
                   const Icon = av.icon;
                   const selected = selectedAgentId === a.id;
-                  const agentName = a.name || a.id;
                   const agentButton = (
                     <button
                       onClick={() => {
@@ -2868,6 +2962,7 @@ export function AgentList({
             <AgentsSidebarDashboardLinks
               compact
               accountInitial={accountInitial}
+              onLogin={onLogin}
               onLogout={onLogout}
             />
           </motion.div>
@@ -2884,12 +2979,13 @@ export function AgentList({
               showDivider={false}
               fillParent
               embeddedInNavigation={embeddedInNavigation}
+              mobileMode={renderMobileNavigation}
               threads={visibleSyntheticThreads}
               selectedThreadId={selectedAgentId}
               showChannels={showChannels}
               availableAgents={orderedAgents.map((a) => ({
                 id: a.id,
-                name: a.name || a.id,
+                name: agentDisplayLabel(a),
                 type: "agent" as const,
                 meta: a.meta ?? null,
               }))}
@@ -2906,7 +3002,7 @@ export function AgentList({
                 setSelectedAgentId(agent.id);
                 setMobileShowChat(true);
               }}
-              onCreateAgent={createAgentFromLauncher}
+              onCreateAgent={createAgentAndCloseLauncher}
               onOpenAgentLauncher={openAgentLauncher}
               agentCreationDisabledReason={agentCreationDisabledReason}
               rosterLoading={rosterLoading}
@@ -2923,42 +3019,44 @@ export function AgentList({
               onOpenAccountSettings={onOpenAccountSettings}
               accountSettingsActive={accountSettingsActive}
               accountInitial={accountInitial}
+              onLogin={onLogin}
               onLogout={onLogout}
               onDeleteThread={(threadId) => {
                 const a = agents.find((x) => x.id === threadId);
-                if (a) setPendingAgentDelete({ id: a.id, name: a.name || a.id });
+                if (a) setPendingAgentDelete({ id: a.id, name: agentDisplayLabel(a) });
               }}
               onRenameThread={async (threadId, title) => {
                 const a = agents.find((x) => x.id === threadId);
                 if (!a) return;
                 try {
-                  await updateAgentName(a.id, title);
-                  await fetchAgents();
+                  await updateAgentDisplayName(a.id, title);
                 } catch (e) {
                   setError(e instanceof Error ? e.message : String(e));
                 }
               }}
-              onCollapse={isDesktopViewport ? () => setSidebarCollapsed(true) : undefined}
+              onCollapse={navigationVisible ? () => setSidebarCollapsed(true) : undefined}
             />
           </motion.div>
         )}
       {typeof document !== "undefined" ? createPortal(
         <AnimatePresence>
-          {showAgentLauncher && !agentCreationDisabledReason && (
+          {showAgentLauncher && (
             <motion.div
               data-testid="agent-launcher-overlay"
-              className="fixed inset-0 z-[80] flex items-center justify-center bg-background/70 p-3 backdrop-blur-sm sm:p-5"
+              aria-hidden={agentLauncherSuspended || undefined}
+              className={`fixed inset-0 z-[80] flex items-center justify-center bg-background/70 p-3 backdrop-blur-sm sm:p-5 ${agentLauncherSuspended ? "invisible pointer-events-none" : ""}`}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.16 }}
             >
               <motion.div
+                data-testid="agent-launcher-dialog"
                 initial={{ opacity: 0, scale: 0.98, y: 8 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.98, y: 8 }}
                 transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                className="relative h-[min(720px,calc(100vh-1.5rem))] w-[min(1020px,calc(100vw-1.5rem))]"
+                className="relative h-[min(840px,calc(100dvh-1.5rem))] w-[min(1280px,calc(100vw-1.5rem))] sm:h-[min(840px,calc(100dvh-2.5rem))] sm:w-[min(1280px,calc(100vw-2.5rem))]"
               >
                 <button
                   type="button"
@@ -2969,12 +3067,14 @@ export function AgentList({
                   <X className="h-4 w-4" />
                 </button>
                 <AgentCreationSetupWizard
+                  size="large"
+                  initialPlanId={preferredPlanId}
                   budget={budget}
                   subscriptionSummary={subscriptionSummary}
                   catalogPlans={catalogPlans}
                   pendingSlotReleases={pendingSlotReleases}
                   onOpenPlanCatalog={onOpenPlanCatalog}
-                  onCreateAgent={createAgentFromLauncher}
+                  onCreateAgent={createAgentAndCloseLauncher}
                 />
               </motion.div>
             </motion.div>
@@ -2997,7 +3097,8 @@ type AgentEmptyStateProps = {
   } | null;
   subscriptionSummary?: import("@hypercli.com/sdk/agent").HyperAgentSubscriptionSummary | null;
   catalogPlans?: HyperAgentPlan[] | null;
-  onOpenPlanCatalog?: () => void | Promise<void>;
+  onOpenPlanCatalog?: (planId?: string) => void | Promise<void>;
+  preferredPlanId?: string | null;
   pendingSlotReleases?: Record<string, number>;
   workspaceName?: string | null;
   hasAccountAgents?: boolean;
@@ -3016,38 +3117,14 @@ type AgentLaunchActionProps = {
 
 export function LaunchFirstAgentEmptyState({
   onCreate,
-  onCreateAgent,
-  budget,
-  subscriptionSummary,
-  catalogPlans,
-  onOpenPlanCatalog,
-  pendingSlotReleases,
   workspaceName,
   hasAccountAgents = false,
   creationDisabledReason,
   onCreateWorkspace,
   onOpenMembers,
 }: AgentEmptyStateProps) {
-  const [showWizard, setShowWizard] = React.useState(false);
   const workspaceScoped = Boolean(workspaceName);
   const workspaceSetupRequired = !workspaceScoped && Boolean(onCreateWorkspace);
-
-  if (showWizard && !creationDisabledReason) {
-    return (
-      <AgentCreationSetupWizard
-        budget={budget}
-        subscriptionSummary={subscriptionSummary}
-        catalogPlans={catalogPlans}
-        pendingSlotReleases={pendingSlotReleases}
-        onOpenPlanCatalog={onOpenPlanCatalog}
-        onClose={() => setShowWizard(false)}
-        onCreateAgent={onCreateAgent ?? (async () => {
-          onCreate();
-          return null;
-        })}
-      />
-    );
-  }
 
   return (
     <div className="flex h-full min-h-0 flex-1 items-center justify-center bg-background px-5 py-8">
@@ -3078,7 +3155,7 @@ export function LaunchFirstAgentEmptyState({
                 onCreateWorkspace();
                 return;
               }
-              setShowWizard(true);
+              onCreate();
             }}
             disabled={!workspaceSetupRequired && Boolean(creationDisabledReason)}
             whileHover={{ y: -1 }}
@@ -3129,6 +3206,7 @@ export function AgentEmptyState({
   subscriptionSummary,
   catalogPlans,
   onOpenPlanCatalog,
+  preferredPlanId,
   pendingSlotReleases,
   launchLabel,
   launching,
@@ -3141,6 +3219,7 @@ export function AgentEmptyState({
   if (showWizard) {
     return (
       <AgentCreationSetupWizard
+        initialPlanId={preferredPlanId}
         budget={budget}
         subscriptionSummary={subscriptionSummary}
         catalogPlans={catalogPlans}

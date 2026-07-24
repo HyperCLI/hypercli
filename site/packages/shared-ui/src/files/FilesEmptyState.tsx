@@ -33,7 +33,7 @@ export function FilesEmptyState({ kind, searchQuery, errorMessage, title, descri
           role="status"
           aria-live="polite"
           aria-label={`${title ?? "Loading files"} ${description ?? "Fetching folders and files."}`}
-          className="flex w-full max-w-[240px] items-center gap-3 rounded-xl border border-border bg-popover/80 px-3 py-2.5 text-left shadow-[0_14px_36px_color-mix(in_srgb,var(--foreground)_10%,transparent)]"
+          className="elevation-shadow-soft flex w-full max-w-[240px] items-center gap-3 rounded-xl border border-border bg-popover px-3 py-2.5 text-left"
         >
           <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-border bg-surface-low text-text-muted">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />

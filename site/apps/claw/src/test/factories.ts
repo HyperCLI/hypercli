@@ -79,6 +79,7 @@ export function buildSdkAgent(overrides: Partial<SdkAgent> = {}): SdkAgent {
     podName: "agent-1",
     state: "RUNNING",
     name: "Test Agent",
+    managed: true,
     cpu: 4,
     memory: 4,
     hostname: "agent.example.com",

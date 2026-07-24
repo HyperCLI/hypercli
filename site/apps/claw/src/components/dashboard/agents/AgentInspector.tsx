@@ -7,6 +7,7 @@ import { AgentView } from "@/components/dashboard/AgentView";
 import type { AgentViewProps } from "@/components/dashboard/agentViewTypes";
 import type { Agent } from "@/app/dashboard/agents/types";
 import { isAgentFailureState, isAgentTransitionalState } from "@/app/dashboard/agents/types";
+import { agentDisplayLabel } from "@/components/dashboard/agents/agentViewModel";
 
 interface AgentInspectorProps {
   isDesktopViewport: boolean;
@@ -65,7 +66,7 @@ export function AgentInspector({
   const inspector = (
     <AgentView
       {...viewProps}
-      agentName={selectedAgent.name || selectedAgent.id}
+      agentName={agentDisplayLabel(selectedAgent)}
       activeTab={activeTab}
       onTabChange={onTabChange}
       agentStatus={buildAgentStatus(selectedAgent, isSelectedRunning)}

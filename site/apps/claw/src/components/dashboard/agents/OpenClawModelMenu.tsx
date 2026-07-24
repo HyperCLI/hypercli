@@ -48,6 +48,7 @@ interface OpenClawModelMenuProps {
   chat: OpenClawModelMenuSession;
   disabled?: boolean;
   onOpenSettings?: () => void;
+  onSelectionComplete?: () => void;
 }
 
 function errorMessage(cause: unknown, fallback: string): string {
@@ -73,7 +74,7 @@ function thinkingLevelLabel(option: { id: string; label: string } | undefined, f
   return option?.label.trim() || (fallback ? titleizeVariant(fallback) : "");
 }
 
-export function OpenClawModelMenu({ chat, disabled = false, onOpenSettings }: OpenClawModelMenuProps) {
+export function OpenClawModelMenu({ chat, disabled = false, onOpenSettings, onSelectionComplete }: OpenClawModelMenuProps) {
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [addDialogOpen, setAddDialogOpen] = React.useState(false);
   const [providerValue, setProviderValue] = React.useState("");
@@ -110,6 +111,7 @@ export function OpenClawModelMenu({ chat, disabled = false, onOpenSettings }: Op
     try {
       await chat.setActiveSessionModel(model);
       setMenuOpen(false);
+      onSelectionComplete?.();
     } catch (cause) {
       setSelectionError(errorMessage(cause, "Unable to change the conversation model."));
     } finally {
@@ -124,6 +126,7 @@ export function OpenClawModelMenu({ chat, disabled = false, onOpenSettings }: Op
     try {
       await chat.setActiveSessionThinkingLevel(thinkingLevel);
       setMenuOpen(false);
+      onSelectionComplete?.();
     } catch (cause) {
       setSelectionError(errorMessage(cause, "Unable to change the conversation variant."));
     } finally {
@@ -171,6 +174,7 @@ export function OpenClawModelMenu({ chat, disabled = false, onOpenSettings }: Op
       await chat.setActiveSessionModel(configuredModel);
       setAddDialogOpen(false);
       setModelValue("");
+      onSelectionComplete?.();
     } catch (cause) {
       setAddDialogOpen(false);
       setSelectionError(`Model added, but it could not be selected: ${errorMessage(cause, "Unknown error")}`);
@@ -196,10 +200,10 @@ export function OpenClawModelMenu({ chat, disabled = false, onOpenSettings }: Op
             type="button"
             disabled={disabled}
             aria-label={triggerVariant ? `Model: ${triggerLabel}, ${triggerVariant}` : `Model: ${triggerLabel}`}
-            className="flex h-8 max-w-40 items-center justify-start gap-1.5 rounded-lg px-2 text-left transition-colors hover:bg-surface-low disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex h-8 max-w-24 items-center justify-start gap-1.5 rounded-lg px-2 text-left transition-colors hover:bg-surface-low disabled:cursor-not-allowed disabled:opacity-40 sm:max-w-40"
           >
             <span className="min-w-0 truncate text-[12px] font-semibold text-foreground">{triggerLabel}</span>
-            {triggerVariant ? <span className="shrink-0 text-[12px] font-medium text-text-muted">{triggerVariant}</span> : null}
+            {triggerVariant ? <span className="hidden shrink-0 text-[12px] font-medium text-text-muted sm:inline">{triggerVariant}</span> : null}
             <ChevronDown className="h-3 w-3 shrink-0 text-text-muted" />
           </button>
         </PopoverTrigger>

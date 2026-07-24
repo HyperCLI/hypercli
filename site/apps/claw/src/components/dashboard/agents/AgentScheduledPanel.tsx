@@ -724,7 +724,7 @@ export function AgentScheduledPanel({
                       id="scheduled-session-options"
                       role="listbox"
                       aria-label="Session"
-                      className="absolute left-0 right-0 z-50 mt-2 max-h-56 overflow-auto rounded-xl border border-selection-accent/45 bg-popover p-1.5 shadow-[0_18px_55px_color-mix(in_srgb,var(--foreground)_14%,transparent)] ring-1 ring-selection-accent/20"
+                      className="elevation-shadow-medium absolute left-0 right-0 z-50 mt-2 max-h-56 overflow-auto rounded-xl border border-selection-accent/45 bg-popover p-1.5 ring-1 ring-selection-accent/20"
                     >
                       {normalizedSessionOptions.map((option) => {
                         const selected = sameOpenClawSelectableSessionKey(option.key, draft.targetSessionKey);

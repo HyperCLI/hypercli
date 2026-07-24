@@ -56,6 +56,7 @@ DEFAULT_OPENCLAW_SYNC_ROOT = "/home/node"
 AGENT_FILE_MAX_BYTES = 250 * 1024 * 1024
 AGENT_FILE_TRANSFER_CHUNK_BYTES = 64 * 1024
 AGENT_FILE_OPERATION_TIMEOUT_SECONDS = 300
+_UNSET = object()
 
 # The three file-access paths for an OpenClaw agent, each with its own root —
 # the SDK owns the roots so a workspace-relative path (e.g. "AGENTS.md") hits the
@@ -755,6 +756,7 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         "avatar_url": data.get("avatar_url"),
         "display_identity": copy.deepcopy(data.get("display_identity")) if isinstance(data.get("display_identity"), dict) else None,
         "runtime": data.get("runtime"),
+        "managed": data.get("managed"),
         "is_launchable": bool(is_launchable),
         "gateway_id": data.get("gateway_id"),
         "runtime_key_alias": data.get("runtime_key_alias"),
@@ -828,6 +830,7 @@ class Agent:
     avatar_url: Optional[str] = None
     display_identity: Optional[dict] = None
     runtime: Optional[str] = None
+    managed: Optional[bool] = None
     is_launchable: bool = True
     gateway_id: Optional[str] = None
     runtime_key_alias: Optional[str] = None
@@ -1726,6 +1729,17 @@ class Deployments:
             raise APIError(resp.status_code, detail)
         return resp.json()
 
+    def _patch(self, path: str, json: dict = None) -> Any:
+        with httpx.Client(timeout=30) as client:
+            resp = client.patch(f"{self._api_base}{path}", headers=self._headers, json=json)
+        if resp.status_code >= 400:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            raise APIError(resp.status_code, detail)
+        return resp.json()
+
     def _delete(self, path: str) -> Any:
         with httpx.Client(timeout=30) as client:
             resp = client.delete(f"{self._api_base}{path}", headers=self._headers)
@@ -2079,6 +2093,34 @@ class Deployments:
         if meta is not None:
             body["meta"] = meta
         return self._hydrate_agent(self._post("/external-agents", body))
+
+    def update_external_agent(
+        self,
+        external_agent_id: str,
+        *,
+        name: str | None | object = _UNSET,
+        display_name: str | None | object = _UNSET,
+        handle: str | None | object = _UNSET,
+        runtime: Literal["openclaw"] | None | object = _UNSET,
+        status: Literal["active", "inactive", "error"] | None | object = _UNSET,
+        meta: dict | None | object = _UNSET,
+    ) -> Agent:
+        """Update a customer-hosted external agent by its exact backend ID."""
+        body: dict[str, Any] = {}
+        if name is not _UNSET:
+            body["name"] = name
+        if display_name is not _UNSET:
+            body["display_name"] = display_name
+        if handle is not _UNSET:
+            body["handle"] = handle
+        if runtime is not _UNSET:
+            body["runtime"] = runtime
+        if status is not _UNSET:
+            body["status"] = status
+        if meta is not _UNSET:
+            body["meta"] = meta
+        data = self._patch(f"/external-agents/{external_agent_id}", body)
+        return self._hydrate_agent(data)
 
     def rotate_external_agent_key(self, agent_id_or_name: str) -> dict:
         """Rotate an external agent relay key and return the new plaintext key once."""

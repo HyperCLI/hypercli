@@ -20,6 +20,18 @@ export interface ChatPendingFile {
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
+  /** Stable client identity used only to preserve the rendered row across updates. */
+  readonly renderId?: string;
+  /** Identifies a turn initiated by this browser so viewport behavior is not inferred from role alone. */
+  readonly clientTurnId?: string;
+  /** Client-only prompt used to retry a turn when its visible content differs from the agent input. */
+  readonly retryContent?: string;
+  eventId?: string;
+  messageId?: string;
+  turnId?: string;
+  runId?: string;
+  sessionKey?: string;
+  revision?: number | string;
   status?: "interrupted";
   thinking?: string;
   toolCalls?: Array<{ id?: string; name: string; args: string; result?: string }>;
@@ -27,6 +39,20 @@ export interface ChatMessage {
   attachments?: ChatAttachment[]; // user-sent images
   files?: ChatPendingFile[]; // user-sent workspace files
   timestamp?: number;
+}
+
+let fallbackRenderIdCounter = 0;
+
+export function createChatRenderId(scope = "message"): string {
+  const randomId = typeof globalThis.crypto?.randomUUID === "function"
+    ? globalThis.crypto.randomUUID()
+    : `${Date.now().toString(36)}-${(fallbackRenderIdCounter += 1).toString(36)}`;
+  return `${scope}:${randomId}`;
+}
+
+export function ensureChatMessageRenderId(message: ChatMessage, renderId?: string): ChatMessage {
+  if (typeof message.renderId === "string" && message.renderId.trim()) return message;
+  return { ...message, renderId: renderId?.trim() || createChatRenderId(message.role) };
 }
 
 export interface WorkspaceFile {
@@ -704,11 +730,52 @@ function summarizeToolCalls(
   }));
 }
 
+function protocolIdentityString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function historyMessageIdentity(
+  message: unknown,
+  normalized: NonNullable<ReturnType<typeof normalizeGatewayChatMessage>> | null,
+): Partial<Pick<ChatMessage, "messageId" | "turnId" | "runId" | "sessionKey" | "revision">> {
+  const record = asRecord(message);
+  const messageId = normalized?.messageId ?? protocolIdentityString(record?.messageId);
+  const turnId = normalized?.turnId ?? protocolIdentityString(record?.turnId);
+  const runId = normalized?.runId ?? protocolIdentityString(record?.runId);
+  const sessionKey = normalized?.sessionKey ??
+    protocolIdentityString(record?.canonicalSessionKey) ??
+    protocolIdentityString(record?.sessionKey);
+  const rawRevision = normalized?.revision ?? record?.revision;
+  const revision = typeof rawRevision === "number" && Number.isFinite(rawRevision)
+    ? rawRevision
+    : protocolIdentityString(rawRevision);
+  return {
+    ...(messageId ? { messageId } : {}),
+    ...(turnId ? { turnId } : {}),
+    ...(runId ? { runId } : {}),
+    ...(sessionKey ? { sessionKey } : {}),
+    ...(revision !== undefined ? { revision } : {}),
+  };
+}
+
+function historyMessageRenderId(
+  role: ChatMessage["role"],
+  identity: Partial<Pick<ChatMessage, "messageId" | "turnId" | "runId" | "sessionKey">>,
+): string {
+  const scope = identity.sessionKey ?? "session";
+  if (identity.messageId) return JSON.stringify(["history", scope, "message", identity.messageId]);
+  if (identity.turnId) return JSON.stringify(["history", scope, "turn", identity.turnId, role]);
+  if (identity.runId) return JSON.stringify(["history", scope, "run", identity.runId, role]);
+  return createChatRenderId("history");
+}
+
 function normalizeHistoryMessage(message: unknown): ChatMessage | null {
   if (isDeliveryMirrorHistoryMessage(message)) return null;
   if (isInternalToolHistoryRole(rawHistoryRole(message))) return null;
   const normalized = normalizeGatewayChatMessage(message);
+  const identity = historyMessageIdentity(message, normalized);
   const role = normalized ? normalizeChatRole(normalized.role) : roleFromHistoryMessage(message);
+  const renderId = historyMessageRenderId(role, identity);
   const fallbackContent = extractVisibleHistoryText(message) || extractNaturalLanguageToolOutputText(message);
   const rawContent = chooseVisibleHistoryText(normalized?.text ?? "", fallbackContent);
   const userContent = role === "user"
@@ -736,6 +803,8 @@ function normalizeHistoryMessage(message: unknown): ChatMessage | null {
       role: "system",
       content: historyErrorContent,
       timestamp: normalized?.timestamp ?? Date.now(),
+      renderId,
+      ...identity,
     };
   }
   const thinking = sanitizeChatDisplayText(normalized?.thinking ?? "").trim();
@@ -763,6 +832,8 @@ function normalizeHistoryMessage(message: unknown): ChatMessage | null {
   return {
     role,
     content,
+    renderId,
+    ...identity,
     ...(mediaUrls.length > 0 ? { mediaUrls } : {}),
     ...(userContent.files.length > 0 ? { files: userContent.files } : {}),
     timestamp: normalized?.timestamp ?? Date.now(),
@@ -808,20 +879,70 @@ function mergeToolCalls(
   return next;
 }
 
-function mergeAssistantMessage(current: ChatMessage, incoming: ChatMessage): ChatMessage {
+interface AssistantUpsertOptions {
+  replaceContent?: boolean;
+}
+
+function chatMessageProtocolIdentity(
+  message: ChatMessage,
+): Partial<Pick<ChatMessage, "eventId" | "messageId" | "turnId" | "runId" | "sessionKey" | "revision">> {
+  return {
+    ...(message.eventId ? { eventId: message.eventId } : {}),
+    ...(message.messageId ? { messageId: message.messageId } : {}),
+    ...(message.turnId ? { turnId: message.turnId } : {}),
+    ...(message.runId ? { runId: message.runId } : {}),
+    ...(message.sessionKey ? { sessionKey: message.sessionKey } : {}),
+    ...(message.revision !== undefined ? { revision: message.revision } : {}),
+  };
+}
+
+function hasAssistantCorrelationIdentity(message: ChatMessage): boolean {
+  return Boolean(message.messageId || message.turnId || message.runId);
+}
+
+function matchingAssistantIndex(messages: ChatMessage[], incoming: ChatMessage): number {
+  const findBy = (field: "messageId" | "turnId" | "runId" | "clientTurnId" | "renderId"): number => {
+    const value = incoming[field];
+    if (!value) return -1;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const candidate = messages[index];
+      if (candidate?.role === "assistant" && candidate[field] === value) return index;
+    }
+    return -1;
+  };
+
+  for (const field of ["messageId", "turnId", "runId", "clientTurnId", "renderId"] as const) {
+    const index = findBy(field);
+    if (index >= 0) return index;
+  }
+
+  const lastIndex = messages.length - 1;
+  const last = messages[lastIndex];
+  if (last?.role !== "assistant") return -1;
+  if (hasAssistantCorrelationIdentity(incoming) && hasAssistantCorrelationIdentity(last)) return -1;
+  return lastIndex;
+}
+
+function mergeAssistantMessage(
+  current: ChatMessage,
+  incoming: ChatMessage,
+  options: AssistantUpsertOptions = {},
+): ChatMessage {
   const cleanCurrent = sanitizeAssistantMessage(current);
   // Cumulative vs delta detection: only treat as cumulative when the incoming
   // text actually contains the current text as a prefix. The previous
   // length-based heuristic broke delta streams whenever a single chunk was
   // longer than the accumulated text, silently dropping prior content.
-  const rawMergedContent = incoming.content
-    ? (
-      cleanCurrent.content && incoming.content.startsWith(cleanCurrent.content)
-        ? incoming.content
-        : `${cleanCurrent.content ?? ""}${incoming.content}`
-    )
-    : cleanCurrent.content;
-  const mergedContent = isBinaryOmittedText(cleanCurrent.content) && incoming.content
+  const rawMergedContent = options.replaceContent
+    ? incoming.content
+    : incoming.content
+      ? (
+        cleanCurrent.content && incoming.content.startsWith(cleanCurrent.content)
+          ? incoming.content
+          : `${cleanCurrent.content ?? ""}${incoming.content}`
+      )
+      : cleanCurrent.content;
+  const mergedContent = !options.replaceContent && isBinaryOmittedText(cleanCurrent.content) && incoming.content
     ? cleanCurrent.content
     : sanitizeChatDisplayText(rawMergedContent);
   const mergedMediaUrls = [
@@ -833,6 +954,13 @@ function mergeAssistantMessage(current: ChatMessage, incoming: ChatMessage): Cha
     : cleanCurrent.toolCalls;
   return {
     ...cleanCurrent,
+    ...chatMessageProtocolIdentity(incoming),
+    ...((cleanCurrent.clientTurnId ?? incoming.clientTurnId)
+      ? { clientTurnId: cleanCurrent.clientTurnId ?? incoming.clientTurnId }
+      : {}),
+    ...((cleanCurrent.renderId ?? incoming.renderId)
+      ? { renderId: cleanCurrent.renderId ?? incoming.renderId }
+      : {}),
     content: mergedContent,
     ...(mergedToolCalls && mergedToolCalls.length > 0 ? { toolCalls: mergedToolCalls } : {}),
     ...(mergedMediaUrls.length > 0 ? { mediaUrls: mergedMediaUrls } : {}),
@@ -863,6 +991,9 @@ function sanitizeAssistantMessage(message: ChatMessage): ChatMessage {
       isInternalAsyncCommandCompletionText(content) ||
       isInternalExecutionStatusText(content)
     ) ? "" : content,
+    ...chatMessageProtocolIdentity(message),
+    ...(message.clientTurnId ? { clientTurnId: message.clientTurnId } : {}),
+    ...(message.renderId ? { renderId: message.renderId } : {}),
     ...(toolCalls && toolCalls.length > 0 ? { toolCalls } : {}),
     ...(message.mediaUrls && message.mediaUrls.length > 0 ? { mediaUrls: message.mediaUrls } : {}),
     ...(message.attachments && message.attachments.length > 0 ? { attachments: message.attachments } : {}),
@@ -872,7 +1003,11 @@ function sanitizeAssistantMessage(message: ChatMessage): ChatMessage {
   };
 }
 
-function upsertAssistantMessage(prev: ChatMessage[], incoming: ChatMessage): ChatMessage[] {
+function upsertAssistantMessage(
+  prev: ChatMessage[],
+  incoming: ChatMessage,
+  options: AssistantUpsertOptions = {},
+): ChatMessage[] {
   const last = prev[prev.length - 1];
   if (isInternalHeartbeatMessage(incoming)) {
     return last && isLikelyInternalHeartbeatPrelude(last) ? prev.slice(0, -1) : prev;
@@ -888,13 +1023,20 @@ function upsertAssistantMessage(prev: ChatMessage[], incoming: ChatMessage): Cha
   if (isInternalAudioReplyCarrierMessage(sanitizedIncoming)) {
     return prev;
   }
+  const assistantIndex = matchingAssistantIndex(prev, sanitizedIncoming);
   if (!hasDisplayableMessageContent(sanitizedIncoming)) {
-    const canMergeWhitespaceDelta = last?.role === "assistant" && sanitizedIncoming.role === "assistant" && sanitizedIncoming.content.length > 0;
-    if (!canMergeWhitespaceDelta) return prev;
+    const canUpdateExisting = assistantIndex >= 0 && (
+      options.replaceContent === true ||
+      sanitizedIncoming.content.length > 0 ||
+      hasAssistantCorrelationIdentity(sanitizedIncoming)
+    );
+    if (!canUpdateExisting) return prev;
   }
   let next: ChatMessage[];
-  if (last?.role === "assistant") {
-    next = [...prev.slice(0, -1), mergeAssistantMessage(last, sanitizedIncoming)];
+  if (assistantIndex >= 0) {
+    next = prev.map((message, index) => (
+      index === assistantIndex ? mergeAssistantMessage(message, sanitizedIncoming, options) : message
+    ));
   } else {
     next = [...prev, sanitizedIncoming];
   }

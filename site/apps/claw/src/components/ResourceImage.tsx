@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type SyntheticEvent } from "react";
+import { useLayoutEffect, useRef, useState, type SyntheticEvent } from "react";
 import Image, { type ImageLoader, type ImageProps } from "next/image";
 
 const resourceImageLoader: ImageLoader = ({ src }) => src;
@@ -24,22 +24,25 @@ export function ResourceImage({
   onError,
   ...props
 }: ResourceImageProps) {
-  const [loaded, setLoaded] = useState(false);
-  const [failed, setFailed] = useState(false);
   const srcKey = imageSrcKey(src);
+  const currentSrcKeyRef = useRef(srcKey);
+  const [status, setStatus] = useState<{ srcKey: string; value: "loaded" | "failed" } | null>(null);
+  const loaded = status?.srcKey === srcKey && status.value === "loaded";
+  const failed = status?.srcKey === srcKey && status.value === "failed";
 
-  useEffect(() => {
-    setLoaded(false);
-    setFailed(false);
+  useLayoutEffect(() => {
+    currentSrcKeyRef.current = srcKey;
   }, [srcKey]);
 
   const handleLoad = (event: SyntheticEvent<HTMLImageElement>) => {
-    setLoaded(true);
+    if (currentSrcKeyRef.current !== srcKey) return;
+    setStatus({ srcKey, value: "loaded" });
     onLoad?.(event);
   };
 
   const handleError = (event: SyntheticEvent<HTMLImageElement>) => {
-    setFailed(true);
+    if (currentSrcKeyRef.current !== srcKey) return;
+    setStatus({ srcKey, value: "failed" });
     onError?.(event);
   };
 
@@ -60,6 +63,7 @@ export function ResourceImage({
         </span>
       )}
       <Image
+        key={srcKey}
         {...props}
         src={src}
         fill={fill}

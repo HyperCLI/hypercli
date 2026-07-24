@@ -8,6 +8,8 @@ import { AgentFilesPanel, type AgentFilesPanelSource } from "@/components/dashbo
 import { AgentLoadingState } from "@/components/dashboard/agents/page-helpers";
 import type { FileEntry } from "@hypercli/shared-ui/files";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
+import { managedAgentDisplayNameScope, useManagedAgentDisplayNames } from "@/hooks/useManagedAgentDisplayNames";
+import { agentDisplayLabel, toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 import { createAgentClient } from "@/lib/agent-client";
 import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import { readFileSourceTabsPreference } from "@/lib/file-source-tabs-preference";
@@ -75,7 +77,9 @@ export default function AgentFilesPage() {
   const searchParams = useSearchParams();
   const agentId = params?.id ?? "";
   const initialFilePath = searchParams?.get("file") ?? null;
-  const { getToken } = useAgentAuth();
+  const { getToken, user } = useAgentAuth();
+  const displayNameStorageScope = managedAgentDisplayNameScope(user);
+  const { displayNamesByAgentId } = useManagedAgentDisplayNames(displayNameStorageScope);
   const [agent, setAgent] = useState<OpenClawAgent | null>(null);
   const [agentError, setAgentError] = useState<string | null>(null);
   const [agentLoading, setAgentLoading] = useState(true);
@@ -185,6 +189,9 @@ export default function AgentFilesPage() {
   }, [agentId, getToken]);
 
   const filesDefaultSource: AgentFilesPanelSource = agent?.state === "RUNNING" ? "agent" : "backup";
+  const agentView = useMemo(() => agent ? toAgentViewModel(agent, {
+    managedDisplayName: displayNamesByAgentId[agent.id],
+  }) : null, [agent, displayNamesByAgentId]);
   const filesSourceDisabledReasons = useMemo<Partial<Record<AgentFilesPanelSource, string>>>(() => {
     const reasons: Partial<Record<AgentFilesPanelSource, string>> = {};
     if (!agent) return reasons;
@@ -224,7 +231,7 @@ export default function AgentFilesPage() {
   return (
     <AgentFilesPanel
       agentId={agentId}
-      agentName={agent.name || agent.podName || "Agent"}
+      agentName={agentView ? agentDisplayLabel(agentView) : "Agent"}
       rootPath={OPENCLAW_WORKSPACE_PREFIX}
       defaultSource={filesDefaultSource}
       sourceDisabledReasons={filesSourceDisabledReasons}

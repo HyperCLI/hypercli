@@ -18,7 +18,8 @@ describe("AgentEmptyHistory", () => {
 
     const heading = screen.getByRole("heading", { name: "Your agent is ready for real work" });
     expect(heading).toBeInTheDocument();
-    expect(heading.closest("section")).toHaveClass("agent-empty-history", "max-h-full", "overflow-hidden");
+    expect(heading.closest("section")).toHaveClass("agent-empty-history", "w-full", "max-w-[50rem]");
+    expect(screen.getByText(/connect the tools your agent needs/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Start with something concrete" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /map this workspace/i }));
@@ -41,6 +42,7 @@ describe("AgentEmptyHistory", () => {
     );
 
     expect(screen.getByRole("button", { name: /connect slack/i })).toBeInTheDocument();
+    expect(screen.getByText("Browse integrations")).toBeInTheDocument();
     expect(screen.getByText(/GitHub, Telegram, Discord, WhatsApp/i)).toBeInTheDocument();
     expect(screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual([
       "Build out the workspace",

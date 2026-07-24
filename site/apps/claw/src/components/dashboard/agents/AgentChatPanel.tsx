@@ -1,10 +1,11 @@
 "use client";
 
 import React from "react";
-import { ArrowRight, FileText, Loader2, LockKeyhole, Mic, Paperclip, Pause, Play, Send, Sparkles, Square, X } from "lucide-react";
+import { ArrowDown, ArrowRight, FileText, Loader2, LockKeyhole, Mic, Paperclip, Pause, Play, Plus, Send, Sparkles, Square, X } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@hypercli/shared-ui";
 import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import { extractVoicePathFromMessage, OPENCLAW_WORKSPACE_DIR } from "@/lib/openclaw-config";
-import type { ChatPendingFile } from "@/lib/openclaw-chat";
+import { createChatRenderId, type ChatMessage, type ChatPendingFile } from "@/lib/openclaw-chat";
 import { extractGitHubAgentSetupStatus, GITHUB_AGENT_SETUP_PROMPT, GITHUB_AGENT_VERIFY_PROMPT, shouldHideGitHubAgentSetupMessage } from "@/lib/github-cli-workspace";
 import { shouldHideTelegramAgentConfigMessage } from "@/lib/telegram-config-workspace";
 import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard/ChatMessage";
@@ -30,11 +31,14 @@ import {
   stabilizeAgentChatBootStatus,
   type AgentChatBootStatus,
 } from "@/components/dashboard/agents/chat-boot-stage";
+import { agentDisplayLabel } from "@/components/dashboard/agents/agentViewModel";
 
 export type { ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
 
 type ChatSession = AgentGatewaySession;
 const CHAT_READY_SETTLE_MS = 180;
+const CHAT_NEAR_BOTTOM_THRESHOLD_PX = 100;
+const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 const AUDIO_BAR_WEIGHTS = [
   0.62,
   0.78,
@@ -76,6 +80,65 @@ const FILE_TYPE_BY_EXTENSION: Record<string, string> = {
   xls: "application/vnd.ms-excel",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 };
+
+export function scrollTranscriptToBottom(scroller: HTMLDivElement, behavior: ScrollBehavior): void {
+  const reduceMotion = behavior === "smooth" &&
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia(REDUCED_MOTION_QUERY).matches;
+  if (behavior === "smooth" && !reduceMotion && typeof scroller.scrollTo === "function") {
+    scroller.scrollTo({ top: scroller.scrollHeight, behavior: "smooth" });
+    return;
+  }
+  scroller.scrollTop = scroller.scrollHeight;
+}
+
+export function chatMessageRowKey(
+  agentId: string,
+  sessionKey: string,
+  message: Pick<ChatMessage, "renderId" | "messageId">,
+  legacyRenderId: string,
+): string {
+  return JSON.stringify([agentId, sessionKey, message.renderId ?? message.messageId ?? legacyRenderId]);
+}
+
+const legacyMessageRenderIds = new WeakMap<ChatMessage, string>();
+
+function legacyChatMessageRenderId(message: ChatMessage): string {
+  const current = legacyMessageRenderIds.get(message);
+  if (current) return current;
+  const renderId = createChatRenderId("legacy-row");
+  legacyMessageRenderIds.set(message, renderId);
+  return renderId;
+}
+
+class ChatMessageRenderBoundary extends React.Component<
+  React.PropsWithChildren<{ messageVersion: ChatMessage }>,
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidUpdate(previousProps: Readonly<React.PropsWithChildren<{ messageVersion: ChatMessage }>>) {
+    if (this.state.failed && previousProps.messageVersion !== this.props.messageVersion) {
+      this.setState({ failed: false });
+    }
+  }
+
+  render() {
+    if (this.state.failed) {
+      return (
+        <div role="alert" className="rounded-xl border border-border bg-surface-low px-3 py-2 text-xs text-text-muted">
+          This message could not be displayed.
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 interface ActiveFileMention {
   start: number;
@@ -194,6 +257,32 @@ function hasRenderableMessagePayload(message: ChatSession["messages"][number]): 
   );
 }
 
+export function isRetryableFailedReply(message: Pick<ChatMessage, "role" | "content">): boolean {
+  if (message.role === "user") return false;
+  const content = message.content.trim().replace(/\s+/g, " ");
+  if (/^(?:the )?agent run failed before producing a reply\.?$/i.test(content)) return true;
+  if (/^assistant response failed(?: before returning content(?: \([^)]+\))?|:\s*.+)\.?$/i.test(content)) return true;
+  return message.role === "system" && /^error:\s*\S/i.test(content);
+}
+
+export function failedReplyRetrySource(messages: ChatMessage[], failureIndex: number): ChatMessage | null {
+  const failure = messages[failureIndex];
+  if (!failure || !isRetryableFailedReply(failure)) return null;
+  const correlationId = failure.clientTurnId ?? failure.turnId;
+  let nearestUser: ChatMessage | null = null;
+
+  for (let index = failureIndex - 1; index >= 0; index -= 1) {
+    const candidate = messages[index];
+    if (candidate?.role !== "user") continue;
+    nearestUser ??= candidate;
+    if (correlationId && (candidate.clientTurnId === correlationId || candidate.turnId === correlationId)) {
+      return candidate;
+    }
+  }
+
+  return nearestUser;
+}
+
 function isIntegrationConnectAction(action: ClawUiAction): action is ClawIntegrationConnectAction {
   return action.type === "integration.connect";
 }
@@ -204,8 +293,8 @@ function shouldHideIntegrationSetupMessage(message: ChatSession["messages"][numb
 
 function ChatEmptyStateFrame({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden text-text-muted">
-      <div className="agent-empty-history-frame flex h-full max-h-full min-h-0 w-full flex-1 items-center justify-center overflow-hidden">
+    <div className="flex flex-1 shrink-0 items-center justify-center text-text-muted">
+      <div className="agent-empty-history-frame flex w-full flex-1 shrink-0 items-center justify-center">
         {children}
       </div>
     </div>
@@ -263,37 +352,39 @@ function caretIsOnLastLogicalLine(textarea: HTMLTextAreaElement): boolean {
 }
 
 function useSettledChatBootStatus(agentId: string, nextStatus: AgentChatBootStatus) {
-  const [status, setStatus] = React.useState(nextStatus);
+  const [settled, setSettled] = React.useState({ agentId, status: nextStatus });
   const statusRef = React.useRef(nextStatus);
   const agentIdRef = React.useRef(agentId);
 
-  const commitStatus = React.useCallback((value: AgentChatBootStatus) => {
+  const commitStatus = React.useCallback((targetAgentId: string, value: AgentChatBootStatus) => {
     statusRef.current = value;
-    setStatus(value);
+    setSettled({ agentId: targetAgentId, status: value });
   }, []);
 
   React.useEffect(() => {
     if (agentIdRef.current !== agentId) {
       agentIdRef.current = agentId;
-      commitStatus(nextStatus);
+      commitStatus(agentId, nextStatus);
       return;
     }
 
     if (nextStatus.status !== "ready") {
-      commitStatus(stabilizeAgentChatBootStatus(statusRef.current, nextStatus));
+      commitStatus(agentId, stabilizeAgentChatBootStatus(statusRef.current, nextStatus));
       return;
     }
 
     if (statusRef.current.status !== "loading") {
-      commitStatus(nextStatus);
+      commitStatus(agentId, nextStatus);
       return;
     }
 
-    const timeout = window.setTimeout(() => commitStatus(nextStatus), CHAT_READY_SETTLE_MS);
+    const timeout = window.setTimeout(() => {
+      if (agentIdRef.current === agentId) commitStatus(agentId, nextStatus);
+    }, CHAT_READY_SETTLE_MS);
     return () => window.clearTimeout(timeout);
   }, [agentId, commitStatus, nextStatus]);
 
-  return status;
+  return settled.agentId === agentId ? settled.status : nextStatus;
 }
 
 interface AgentChatPanelProps {
@@ -304,15 +395,19 @@ interface AgentChatPanelProps {
   setChatDragActive: (active: boolean) => void;
   chatDragDepthRef: React.MutableRefObject<number>;
   handleChatFileDrop: (files: FileList) => Promise<void> | void;
+  chatFilesUploading?: boolean;
   chatScrollRef: React.RefObject<HTMLDivElement | null>;
   handleChatScroll: (event: React.UIEvent<HTMLDivElement>) => void;
-  chatEndRef: React.RefObject<HTMLDivElement | null>;
+  chatEndRef?: React.RefObject<HTMLDivElement | null>;
+  onTranscriptResize?: (behavior: ScrollBehavior) => void;
+  onRequestTranscriptScroll?: (behavior: ScrollBehavior) => void;
   recording: boolean;
   audioLevel: number;
   recordingDuration: number;
   stopRecording: () => void;
   audioUrl: string | null;
   audioPreviewPlaying: boolean;
+  preparingAudioPreview?: boolean;
   audioPreviewDuration: number;
   toggleAudioPreviewPlayback: () => void;
   discardAudio: () => void;
@@ -340,15 +435,19 @@ export function AgentChatPanel({
   setChatDragActive,
   chatDragDepthRef,
   handleChatFileDrop,
+  chatFilesUploading = false,
   chatScrollRef,
   handleChatScroll,
   chatEndRef,
+  onTranscriptResize,
+  onRequestTranscriptScroll,
   recording,
   audioLevel,
   recordingDuration,
   stopRecording,
   audioUrl,
   audioPreviewPlaying,
+  preparingAudioPreview = false,
   audioPreviewDuration,
   toggleAudioPreviewPlayback,
   discardAudio,
@@ -367,6 +466,8 @@ export function AgentChatPanel({
   journeyMissionCard,
   skillDraftTestBanner,
 }: AgentChatPanelProps) {
+  const chatScrollContext = `${selectedAgent.id}\0${chat.activeSessionKey}`;
+  const selectedAgentDisplayName = agentDisplayLabel(selectedAgent);
   const slashCommandMenuRef = React.useRef<AgentSlashCommandMenuHandle>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const slashFeedbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -374,6 +475,16 @@ export function AgentChatPanel({
   const [dismissedFileMentionInput, setDismissedFileMentionInput] = React.useState<string | null>(null);
   const [slashCommandFeedback, setSlashCommandFeedback] = React.useState("");
   const [activeIntegrationCard, setActiveIntegrationCard] = React.useState<ActiveIntegrationCard | null>(null);
+  const [retryingFailedReplyKey, setRetryingFailedReplyKey] = React.useState<string | null>(null);
+  const [composerToolsOpen, setComposerToolsOpen] = React.useState(false);
+  const [scrollToLatestState, setScrollToLatestState] = React.useState({
+    context: chatScrollContext,
+    visible: false,
+  });
+  if (scrollToLatestState.context !== chatScrollContext) {
+    setScrollToLatestState({ context: chatScrollContext, visible: false });
+  }
+  const showScrollToLatest = scrollToLatestState.context === chatScrollContext && scrollToLatestState.visible;
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
   const fileMentionOptionRefs = React.useRef(new Map<string, HTMLButtonElement>());
   const [composerSelectionStart, setComposerSelectionStart] = React.useState<number | null>(null);
@@ -384,6 +495,39 @@ export function AgentChatPanel({
   const draftBeforeHistoryRef = React.useRef("");
   const pendingHistoryInputRef = React.useRef<string | null>(null);
   const setChatInput = chat.setInput;
+  const [transcriptScrollElement, setTranscriptScrollElement] = React.useState<HTMLDivElement | null>(null);
+  const [transcriptContentElement, setTranscriptContentElement] = React.useState<HTMLDivElement | null>(null);
+  const bindTranscriptScrollElement = React.useCallback((element: HTMLDivElement | null) => {
+    chatScrollRef.current = element;
+    setTranscriptScrollElement(element);
+  }, [chatScrollRef]);
+  const handleTranscriptScroll = React.useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    const scroller = event.currentTarget;
+    const distanceFromBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+    const visible = distanceFromBottom >= CHAT_NEAR_BOTTOM_THRESHOLD_PX;
+    setScrollToLatestState((current) => (
+      current.context === chatScrollContext && current.visible === visible
+        ? current
+        : { context: chatScrollContext, visible }
+    ));
+    handleChatScroll(event);
+  }, [chatScrollContext, handleChatScroll]);
+  const requestTranscriptScroll = React.useCallback((behavior: ScrollBehavior) => {
+    if (onRequestTranscriptScroll) {
+      onRequestTranscriptScroll(behavior);
+      return;
+    }
+    const scroller = chatScrollRef.current;
+    if (!scroller) return;
+    scrollTranscriptToBottom(scroller, behavior);
+  }, [chatScrollRef, onRequestTranscriptScroll]);
+  React.useLayoutEffect(() => {
+    if (!onTranscriptResize || !transcriptScrollElement || !transcriptContentElement || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => onTranscriptResize("smooth"));
+    observer.observe(transcriptScrollElement);
+    observer.observe(transcriptContentElement);
+    return () => observer.disconnect();
+  }, [onTranscriptResize, transcriptContentElement, transcriptScrollElement]);
   const connectionSuggestions = React.useMemo(
     () => getConnectionSuggestions(chat.input, chat.reportedChannels),
     [chat.input, chat.reportedChannels],
@@ -420,13 +564,25 @@ export function AgentChatPanel({
   }, [chat.input, chat.reportedChannels, handleSendChat, openIntegrationChatCard, setChatInput, slashCommandActions]);
   const visibleChatMessages = React.useMemo(
     () => chat.messages
-      .map((message, index) => ({ message, index }))
+      .map((message, index) => {
+        return {
+          message,
+          index,
+          rowKey: chatMessageRowKey(
+            selectedAgent.id,
+            chat.activeSessionKey,
+            message,
+            message.renderId || message.messageId ? "" : legacyChatMessageRenderId(message),
+          ),
+        };
+      })
       .filter(({ message }) => !shouldHideIntegrationSetupMessage(message)),
-    [chat.messages],
+    [chat.activeSessionKey, chat.messages, selectedAgent.id],
   );
+  const triggerFilePicker = React.useCallback(() => fileInputRef.current?.click(), []);
   const commandActions = React.useMemo<AgentSlashCommandActions>(() => ({
     ...slashCommandActions,
-    onTriggerFilePicker: slashCommandActions?.onTriggerFilePicker ?? (() => fileInputRef.current?.click()),
+    onTriggerFilePicker: slashCommandActions?.onTriggerFilePicker ?? triggerFilePicker,
     onOpenConnectionSuggestion: async (suggestion) => {
       if (suggestion.connectorId) {
         openIntegrationChatCard(suggestion.connectorId);
@@ -437,7 +593,7 @@ export function AgentChatPanel({
     onOpenIntegrationChatCard: (integrationId) => {
       openIntegrationChatCard(integrationId);
     },
-  }), [onConnectionCta, openIntegrationChatCard, slashCommandActions]);
+  }), [onConnectionCta, openIntegrationChatCard, slashCommandActions, triggerFilePicker]);
   const slashInputActive = !recording && !audioUrl && chat.input.trimStart().startsWith("/") && !chat.input.trimStart().startsWith("//");
   const slashMenuDismissed = dismissedSlashInput === chat.input;
   const slashMenuOpen = slashInputActive && !slashMenuDismissed;
@@ -555,12 +711,8 @@ export function AgentChatPanel({
   }, [onConnectionCta, openIntegrationChatCard]);
   React.useEffect(() => {
     if (!activeIntegrationAction) return;
-    const frame = window.requestAnimationFrame(() => {
-      if (typeof chatEndRef.current?.scrollIntoView !== "function") return;
-      chatEndRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [activeIntegrationAction, chatEndRef]);
+    requestTranscriptScroll("smooth");
+  }, [activeIntegrationAction, requestTranscriptScroll]);
   React.useEffect(() => {
     resetPromptHistoryNavigation();
   }, [chat.activeSessionKey, promptHistory, resetPromptHistoryNavigation, selectedAgent.id]);
@@ -633,33 +785,60 @@ export function AgentChatPanel({
   );
   const bootStatus = useSettledChatBootStatus(selectedAgent.id, rawBootStatus);
   const displayBootStatus = bootStatus;
-  const hasPendingAttachmentWork = chat.pendingAttachments.length > 0 || chat.pendingAttachmentReads > 0;
+  const hasPendingAttachmentWork = chat.pendingAttachments.length > 0 || chat.pendingAttachmentReads > 0 || chatFilesUploading;
   const temporaryChatTransitioning = chat.temporaryChatState === "starting" || chat.temporaryChatState === "ending";
   const readOnlyComposerReason = chat.activeSessionReadOnlyReason ?? "This connected conversation is read-only here.";
+  const composerHasText = chat.input.trim().length > 0;
   const canSendChatDraft =
     chat.connected &&
     !chat.activeSessionReadOnly &&
     !temporaryChatTransitioning &&
+    !chatFilesUploading &&
     chat.pendingAttachmentReads === 0 &&
-    (chat.input.trim().length > 0 || chat.pendingAttachments.length > 0 || chat.pendingFiles.length > 0);
+    (composerHasText || chat.pendingAttachments.length > 0 || chat.pendingFiles.length > 0);
   const composerHasDraft =
     recording ||
+    preparingAudioPreview ||
     Boolean(audioUrl) ||
-    chat.input.trim().length > 0 ||
+    composerHasText ||
     hasPendingAttachmentWork ||
     chat.pendingFiles.length > 0;
   const showComposer = displayBootStatus.status === "ready" || (
     isSelectedRunning && displayBootStatus.status !== "stopped"
   ) || composerHasDraft;
   const composerDisabled = displayBootStatus.status !== "ready" || !chat.connected || chat.activeSessionReadOnly || temporaryChatTransitioning;
+  const failedReplyRetryDisabled = composerDisabled || activeSessionSending;
+  const retryFailedReply = React.useCallback(async (rowKey: string, source: ChatMessage) => {
+    if (!chat.connected || chat.activeSessionReadOnly || activeSessionSending || temporaryChatTransitioning) return;
+    const retryContent = source.retryContent ?? source.content;
+    if (!retryContent.trim() && !(source.attachments?.length || source.files?.length)) return;
+    setRetryingFailedReplyKey(rowKey);
+    try {
+      await chat.sendMessage(retryContent, {
+        displayContent: source.content,
+        attachments: source.attachments,
+        files: source.files,
+      });
+    } finally {
+      setRetryingFailedReplyKey((current) => current === rowKey ? null : current);
+    }
+  }, [activeSessionSending, chat, temporaryChatTransitioning]);
   const modelMenuAvailable = chat.backend === "openclaw";
-  const composerRightPadding = modelMenuAvailable
-    ? activeSessionSending ? "pr-60 min-[421px]:pr-72" : "pr-52 min-[421px]:pr-64"
-    : activeSessionSending ? "pr-40" : "pr-24 sm:pr-28";
+  const mobileComposerRightPadding = composerHasText ? "pr-12" : activeSessionSending ? "pr-40" : "pr-32";
+  const desktopComposerRightPadding = modelMenuAvailable
+    ? activeSessionSending ? "sm:pr-80" : "sm:pr-72"
+    : activeSessionSending ? "sm:pr-40" : "sm:pr-32";
+  const composerRightPadding = `${mobileComposerRightPadding} ${desktopComposerRightPadding}`;
+  const composerMinHeight = composerHasText
+    ? activeSessionSending ? "max-sm:min-h-28" : "max-sm:min-h-20"
+    : "";
+  const composerActionsLayout = composerHasText
+    ? "top-[calc(50%-3px)] -translate-y-1/2 max-sm:top-1/2 max-sm:flex-col"
+    : "top-[calc(50%-3px)] -translate-y-1/2";
   const attachFileTooltip = chat.activeSessionReadOnly ? readOnlyComposerReason : "Attach file";
   const recordVoiceTooltip = chat.activeSessionReadOnly
     ? readOnlyComposerReason
-    : chat.input.trim().length > 0
+    : composerHasText
       ? "Clear text to record voice"
       : "Record voice message";
   const composerPlaceholder = chat.activeSessionReadOnly
@@ -673,7 +852,20 @@ export function AgentChatPanel({
     const textarea = textareaRef.current;
     if (!textarea) return;
     resizeComposer(textarea);
-  }, [audioUrl, chat.input, recording, showComposer]);
+  }, [activeSessionSending, audioUrl, chat.input, composerRightPadding, recording, showComposer]);
+  React.useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea || typeof ResizeObserver === "undefined") return;
+    let previousWidth = textarea.getBoundingClientRect().width;
+    const observer = new ResizeObserver(([entry]) => {
+      const width = entry?.contentRect.width ?? textarea.getBoundingClientRect().width;
+      if (width === previousWidth) return;
+      previousWidth = width;
+      resizeComposer(textarea);
+    });
+    observer.observe(textarea);
+    return () => observer.disconnect();
+  }, [showComposer]);
   const originDenied = displayBootStatus.status === "error" && /another dashboard address/i.test(displayBootStatus.detail);
   const errorActionLabel = originDenied && isSelectedRunning && slashCommandActions?.onStopAgent ? "Stop agent" : "Retry";
   const handleErrorAction = originDenied && isSelectedRunning && slashCommandActions?.onStopAgent
@@ -712,6 +904,13 @@ export function AgentChatPanel({
 
     return <StoppedChatEmptyState />;
   })();
+  const transcriptError = visibleChatMessages.length > 0
+    ? displayBootStatus.status === "error"
+      ? { message: displayBootStatus.detail, actionLabel: errorActionLabel, onAction: handleErrorAction }
+      : displayBootStatus.status === "ready" && chat.historyPhase === "error"
+        ? { message: "Could not refresh this conversation. Showing saved messages.", actionLabel: "Retry", onAction: chat.retry }
+        : null
+    : null;
 
   return (
     <div
@@ -772,19 +971,38 @@ export function AgentChatPanel({
           </p>
         </div>
       ) : null}
-      <div
-        ref={chatScrollRef}
-        onScroll={handleChatScroll}
-        aria-busy={chat.historyPhase === "loading"}
-        className="flex min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto"
-      >
-        <div className="mx-auto flex min-h-full w-full max-w-5xl min-w-0 flex-1 flex-col gap-4 overflow-x-hidden px-3 py-3 sm:px-4 sm:py-4">
+      <div className="relative min-h-0 min-w-0 flex-1">
+        <div
+          ref={bindTranscriptScrollElement}
+          onScroll={handleTranscriptScroll}
+          aria-busy={chat.historyPhase === "loading"}
+          className="h-full min-h-0 min-w-0 overflow-x-hidden overflow-y-auto"
+        >
+          <div
+            ref={setTranscriptContentElement}
+            className="mx-auto flex min-h-full w-full max-w-5xl min-w-0 flex-col gap-4 px-3 py-3 sm:px-4 sm:py-4"
+          >
           {visibleChatMessages.length === 0 && !activeIntegrationAction && (
             <ChatEmptyStateFrame>{emptyChatContent}</ChatEmptyStateFrame>
           )}
 
-          {visibleChatMessages.map(({ message: msg, index: i }) => {
-            const parsedUiActions = parseClawUiActionBlocks(msg.content, msg.role);
+          {transcriptError ? (
+            <div role="alert" className="flex w-full items-center justify-between gap-3 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-text-secondary">
+              <span className="min-w-0 flex-1">{transcriptError.message}</span>
+              <button
+                type="button"
+                onClick={transcriptError.onAction}
+                className="shrink-0 rounded-lg border border-warning/35 px-2.5 py-1 font-medium text-foreground transition-colors hover:bg-warning/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning/35"
+              >
+                {transcriptError.actionLabel}
+              </button>
+            </div>
+          ) : null}
+
+          {visibleChatMessages.map(({ message: msg, index: i, rowKey }) => {
+            const rowIsStreaming = activeSessionSending && i === chat.messages.length - 1 && msg.role === "assistant";
+            const retrySource = failedReplyRetrySource(chat.messages, i);
+            const parsedUiActions = parseClawUiActionBlocks(msg.content, msg.role, { streaming: rowIsStreaming });
             const integrationConnectActions = parsedUiActions.actions
               .filter(isIntegrationConnectAction)
               .filter((action) => action.integrationId !== activeIntegrationAction?.integrationId);
@@ -796,7 +1014,7 @@ export function AgentChatPanel({
               ? { agentId: selectedAgent.id, path: voicePath }
               : null;
             return (
-              <React.Fragment key={`${chat.activeSessionKey}:${i}`}>
+              <ChatMessageRenderBoundary key={rowKey} messageVersion={msg}>
                 {integrationConnectActions.length === 0 && hasRenderableMessagePayload(displayMessage) && (
                   <ChatMessageBubble
                     message={displayMessage}
@@ -808,12 +1026,15 @@ export function AgentChatPanel({
                     animationVariant="off"
                     themeVariant="v2"
                     streamingVariant="v2"
-                    isStreaming={activeSessionSending && i === chat.messages.length - 1 && msg.role === "assistant"}
-                    agentName={selectedAgent.name ?? "Agent"}
+                    isStreaming={rowIsStreaming}
+                    agentName={selectedAgentDisplayName}
                     agentMeta={selectedAgent.meta}
                     onReadFileBytesFromChat={onReadFileBytesFromChat}
                     onOpenFileFromChat={onOpenFileFromChat}
                     onDownloadFileFromChat={onDownloadFileFromChat}
+                    onRetryFailedReply={retrySource ? () => { void retryFailedReply(rowKey, retrySource); } : undefined}
+                    retryFailedReplyDisabled={failedReplyRetryDisabled}
+                    retryingFailedReply={retryingFailedReplyKey === rowKey}
                   />
                 )}
                 {integrationConnectActions.length > 0 && (
@@ -825,7 +1046,7 @@ export function AgentChatPanel({
                           action={action}
                           chat={chat}
                           agentId={selectedAgent.id}
-                          agentName={selectedAgent.name || selectedAgent.id}
+                          agentName={selectedAgentDisplayName}
                           agentSetupStatus={githubAgentSetupStatus}
                           onStartAgentGitHubSetup={startAgentGitHubSetup}
                           onVerifyAgentGitHubSetup={verifyAgentGitHubSetup}
@@ -835,7 +1056,7 @@ export function AgentChatPanel({
                     </div>
                   </div>
                 )}
-              </React.Fragment>
+              </ChatMessageRenderBoundary>
             );
           })}
 
@@ -853,7 +1074,7 @@ export function AgentChatPanel({
                   action={activeIntegrationAction}
                   chat={chat}
                   agentId={selectedAgent.id}
-                  agentName={selectedAgent.name || selectedAgent.id}
+                  agentName={selectedAgentDisplayName}
                   agentSetupStatus={githubAgentSetupStatus}
                   onStartAgentGitHubSetup={startAgentGitHubSetup}
                   onVerifyAgentGitHubSetup={verifyAgentGitHubSetup}
@@ -887,13 +1108,27 @@ export function AgentChatPanel({
           })()}
 
           <div ref={chatEndRef} aria-hidden="true" />
+          </div>
         </div>
+        {showScrollToLatest ? (
+          <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center px-3">
+            <button
+              type="button"
+              aria-label="Scroll to latest message"
+              onClick={() => requestTranscriptScroll("smooth")}
+              className="pointer-events-auto inline-flex min-h-10 items-center gap-1.5 rounded-full border border-border bg-background/95 px-3 text-xs font-medium text-foreground shadow-lg backdrop-blur transition-colors hover:bg-surface-low focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)]"
+            >
+              <ArrowDown aria-hidden="true" className="h-3.5 w-3.5" />
+              Latest
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {showComposer && (
         <div className={`max-h-[45%] flex-shrink-0 px-3 pt-2 pb-[max(0.625rem,env(safe-area-inset-bottom,0.625rem))] md:max-h-[38%] md:p-3 ${slashMenuOpen || fileMentionMenuOpen ? "overflow-visible" : "overflow-y-auto"}`}>
           <div className="mx-auto flex w-full max-w-5xl min-w-0 flex-col">
-            {!activeIntegrationAction && !recording && !audioUrl && displayBootStatus.status === "ready" && connectionSuggestions.length > 0 && (
+            {!activeIntegrationAction && !recording && !preparingAudioPreview && !audioUrl && displayBootStatus.status === "ready" && connectionSuggestions.length > 0 && (
               <div className="mb-2 flex flex-col gap-2">
                 {connectionSuggestions.map((suggestion) => {
                   const Icon = suggestion.Icon;
@@ -938,6 +1173,16 @@ export function AgentChatPanel({
             ) : null}
             {hasPendingAttachmentWork && (
               <div className="flex gap-2 mb-2 flex-wrap">
+                {chatFilesUploading ? (
+                  <div
+                    role="status"
+                    aria-label="Uploading workspace files"
+                    className="inline-flex h-16 items-center gap-2 rounded-md border border-border bg-surface-low px-3 text-xs text-text-secondary"
+                  >
+                    <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-text-muted/25 border-t-[var(--selection-accent)]" />
+                    Uploading files...
+                  </div>
+                ) : null}
                 {chat.pendingAttachments.map((att, i) => (
                   <div key={i} className="group relative h-16 w-16">
                     <ResourceImage
@@ -1006,6 +1251,15 @@ export function AgentChatPanel({
                     </button>
                   </TooltipHint>
                 </>
+              ) : preparingAudioPreview ? (
+                <div
+                  role="status"
+                  aria-label="Preparing voice message"
+                  className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-full border border-border bg-surface-low px-3 text-xs text-text-secondary"
+                >
+                  <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+                  Preparing voice message...
+                </div>
               ) : audioUrl ? (
                 <>
                   <div className="min-w-0 flex-1 flex items-center gap-1 rounded-full border border-border bg-surface-low px-2 py-1.5">
@@ -1161,6 +1415,7 @@ export function AgentChatPanel({
                           void slashCommandMenuRef.current.executeCurrentInput();
                           return;
                         }
+                        if (!canSendChatDraft) return;
                         handleSendChatWithIntegrationIntent();
                       }
                     }}
@@ -1185,14 +1440,14 @@ export function AgentChatPanel({
                     rows={1}
                     placeholder={composerPlaceholder}
                     disabled={composerDisabled}
-                    className={`w-full resize-none bg-surface-low border border-border rounded-3xl pl-5 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden ${composerRightPadding}`}
+                    className={`w-full resize-none bg-surface-low border border-border rounded-3xl pl-5 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden ${composerRightPadding} ${composerMinHeight}`}
                   />
                   {slashMenuOpen ? (
                     <AgentSlashCommandMenu
                       ref={slashCommandMenuRef}
                       chat={chat}
                       input={chat.input}
-                      selectedAgentName={selectedAgent.name || "Agent"}
+                      selectedAgentName={selectedAgentDisplayName}
                       isSelectedRunning={isSelectedRunning}
                       actions={commandActions}
                       onFeedback={handleSlashCommandFeedback}
@@ -1244,39 +1499,82 @@ export function AgentChatPanel({
                       </div>
                     </div>
                   ) : null}
-                  <div className="absolute right-2 top-[calc(50%-3px)] -translate-y-1/2 flex items-center gap-1">
+                  <div className={`absolute right-2 flex items-center gap-1 ${composerActionsLayout}`}>
                     {modelMenuAvailable ? (
-                      <OpenClawModelMenu
-                        chat={chat}
-                        disabled={composerDisabled || activeSessionSending}
-                        onOpenSettings={slashCommandActions?.onOpenConfig}
-                      />
-                    ) : null}
-                    <TooltipHint label={attachFileTooltip} disabled={composerDisabled}>
-                      <label
-                        aria-label={attachFileTooltip}
-                        aria-disabled={composerDisabled}
-                        className={`w-8 h-8 rounded-full text-text-muted flex items-center justify-center transition-colors ${composerDisabled ? "cursor-not-allowed opacity-40" : "hover:text-foreground hover:bg-surface-low cursor-pointer"}`}
-                      >
-                        <Paperclip className="w-4 h-4" />
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          multiple
-                          className="hidden"
-                          disabled={composerDisabled}
-                          onChange={(e) => {
-                            if (composerDisabled) return;
-                            if (e.target.files?.length) {
-                              void handleChatFileDrop(e.target.files);
-                              e.target.value = "";
-                            }
-                          }}
+                      <div className="hidden sm:block">
+                        <OpenClawModelMenu
+                          chat={chat}
+                          disabled={composerDisabled || activeSessionSending}
+                          onOpenSettings={slashCommandActions?.onOpenConfig}
                         />
-                      </label>
-                    </TooltipHint>
-                    <TooltipHint label={recordVoiceTooltip} disabled={composerDisabled || chat.input.trim().length > 0}>
-                      <button aria-label={recordVoiceTooltip} onClick={startRecording} disabled={composerDisabled || chat.input.trim().length > 0} className="w-8 h-8 rounded-full bg-[rgb(var(--selection-accent-rgb)_/_0.15)] text-[var(--selection-accent)] hover:bg-[rgb(var(--selection-accent-rgb)_/_0.25)] hover:text-[var(--selection-accent)] flex items-center justify-center transition-colors disabled:opacity-40 disabled:hover:bg-[rgb(var(--selection-accent-rgb)_/_0.15)]">
+                      </div>
+                    ) : null}
+                    <div className="hidden sm:block">
+                      <TooltipHint label={attachFileTooltip} disabled={composerDisabled}>
+                        <button
+                          type="button"
+                          aria-label={attachFileTooltip}
+                          aria-disabled={composerDisabled}
+                          disabled={composerDisabled}
+                          onClick={triggerFilePicker}
+                          className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-low hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <Paperclip className="h-4 w-4" />
+                        </button>
+                      </TooltipHint>
+                    </div>
+                    <Popover open={composerToolsOpen} onOpenChange={setComposerToolsOpen}>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label="Open message tools"
+                          disabled={composerDisabled}
+                          className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-low hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 data-[state=open]:bg-surface-low data-[state=open]:text-foreground sm:hidden"
+                        >
+                          <Plus className="h-4 w-4" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        side="top"
+                        align="end"
+                        sideOffset={8}
+                        aria-label="Message tools"
+                        className="z-[60] w-56 rounded-xl border-border bg-popover p-1.5 shadow-2xl sm:hidden"
+                      >
+                        {modelMenuAvailable ? (
+                          <div className="flex min-h-10 items-center justify-between gap-2 rounded-lg px-2 text-xs font-medium text-text-secondary">
+                            <span>Model</span>
+                            <OpenClawModelMenu
+                              chat={chat}
+                              disabled={composerDisabled || activeSessionSending}
+                              onOpenSettings={() => {
+                                setComposerToolsOpen(false);
+                                slashCommandActions?.onOpenConfig?.();
+                              }}
+                              onSelectionComplete={() => setComposerToolsOpen(false)}
+                            />
+                          </div>
+                        ) : null}
+                        <button
+                          type="button"
+                          disabled={composerDisabled}
+                          onClick={() => {
+                            setComposerToolsOpen(false);
+                            triggerFilePicker();
+                          }}
+                          className="flex h-10 w-full items-center gap-2.5 rounded-lg px-2 text-left text-xs font-medium text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <Paperclip className="h-4 w-4 text-text-muted" />
+                          <span>{attachFileTooltip}</span>
+                        </button>
+                      </PopoverContent>
+                    </Popover>
+                    <TooltipHint
+                      label={recordVoiceTooltip}
+                      disabled={composerDisabled || composerHasText}
+                      triggerClassName={composerHasText ? "max-sm:hidden" : undefined}
+                    >
+                      <button aria-label={recordVoiceTooltip} onClick={startRecording} disabled={composerDisabled || composerHasText} className="w-8 h-8 rounded-full bg-[rgb(var(--selection-accent-rgb)_/_0.15)] text-[var(--selection-accent)] hover:bg-[rgb(var(--selection-accent-rgb)_/_0.25)] hover:text-[var(--selection-accent)] flex items-center justify-center transition-colors disabled:opacity-40 disabled:hover:bg-[rgb(var(--selection-accent-rgb)_/_0.15)]">
                         <Mic className="w-4 h-4" />
                       </button>
                     </TooltipHint>
@@ -1299,6 +1597,20 @@ export function AgentChatPanel({
                       </button>
                     </TooltipHint>
                   </div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    disabled={composerDisabled}
+                    onChange={(event) => {
+                      if (composerDisabled) return;
+                      if (event.target.files?.length) {
+                        void handleChatFileDrop(event.target.files);
+                        event.target.value = "";
+                      }
+                    }}
+                  />
                 </div>
               )}
             </div>

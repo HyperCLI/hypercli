@@ -1,10 +1,10 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { HyperAgentPlan } from "@hypercli.com/sdk/agent";
 import { renderWithClient } from "@/test/utils";
 
-import { FirstAgentSetupWizard } from "./FirstAgentSetupWizard";
+import { FirstAgentSetupWizard, updateFirstAgentSetupDraftPlan } from "./FirstAgentSetupWizard";
 
 const catalogPlans = [
   {
@@ -84,6 +84,36 @@ function getPlanFooterAction(name: string): HTMLElement {
 }
 
 describe("FirstAgentSetupWizard", () => {
+  beforeEach(() => {
+    window.sessionStorage.clear();
+  });
+
+  it("supports the larger launcher presentation without changing the default bounds", () => {
+    const view = renderWithClient(
+      <FirstAgentSetupWizard
+        size="large"
+        onCreateAgent={vi.fn(async () => null)}
+        budget={null}
+        subscriptionSummary={null}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    expect(view.container.querySelector("section")).toHaveClass("max-h-[800px]", "max-w-[1240px]");
+  });
+
+  it("updates an existing draft with the product selected in checkout", () => {
+    window.sessionStorage.setItem("hypercli-first-agent-draft", JSON.stringify({
+      source: "first-agent-setup",
+      plan: "starter",
+      name: "checkout-agent",
+    }));
+
+    updateFirstAgentSetupDraftPlan("pro");
+
+    expect(JSON.parse(window.sessionStorage.getItem("hypercli-first-agent-draft") ?? "{}").plan).toBe("pro");
+  });
+
   it("generates a three-word default agent name", async () => {
     renderWithClient(
       <FirstAgentSetupWizard
@@ -220,7 +250,168 @@ describe("FirstAgentSetupWizard", () => {
     fireEvent.click(getPlanCardAction("View plan"));
 
     await waitFor(() => expect(onOpenPlanCatalog).toHaveBeenCalledTimes(1));
+    expect(onOpenPlanCatalog).toHaveBeenCalledWith("team-launch");
     expect(onCreateAgent).not.toHaveBeenCalled();
+  });
+
+  it("applies a valid preferred plan from the dashboard route", async () => {
+    const onOpenPlanCatalog = vi.fn();
+    renderWithClient(
+      <FirstAgentSetupWizard
+        initialPlanId="plus"
+        onCreateAgent={vi.fn(async () => null)}
+        onOpenPlanCatalog={onOpenPlanCatalog}
+        budget={null}
+        subscriptionSummary={null}
+        catalogPlans={unsortedCatalogPlans}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(getPlanFooterAction("View plan"));
+
+    await waitFor(() => expect(onOpenPlanCatalog).toHaveBeenCalledWith("plus"));
+  });
+
+  it("restores the existing setup draft and asks for file reselection", async () => {
+    window.sessionStorage.setItem("hypercli-first-agent-draft", JSON.stringify({
+      source: "first-agent-setup",
+      name: "restored-agent",
+      iconIndex: 12,
+      category: "Research",
+      plan: "team-launch",
+      starterFiles: [{ name: "brief.pdf", size: 123, type: "application/pdf" }],
+      enableDesktop: true,
+      enableMemoryIndex: true,
+      enableCustomImage: false,
+      customImage: null,
+    }));
+
+    renderWithClient(
+      <FirstAgentSetupWizard
+        onCreateAgent={vi.fn(async () => null)}
+        budget={null}
+        subscriptionSummary={null}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Give it something to know" })).toBeInTheDocument();
+    expect(screen.getByText("Reselect brief.pdf to restore file contents after checkout.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByLabelText("Agent name")).toHaveValue("restored-agent");
+    expect(screen.getByRole("button", { name: "Shield avatar" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("requires every restored starter file before continuing", async () => {
+    window.sessionStorage.setItem("hypercli-first-agent-draft", JSON.stringify({
+      source: "first-agent-setup",
+      name: "restored-agent",
+      iconIndex: 0,
+      category: "General",
+      plan: "team-launch",
+      starterFiles: [{ name: "brief.txt" }, { name: "notes.csv" }],
+    }));
+    const brief = new File(["brief"], "brief.txt", { type: "text/plain" });
+    const notes = new File(["notes"], "notes.csv", { type: "text/csv" });
+    const { container } = renderWithClient(
+      <FirstAgentSetupWizard
+        onCreateAgent={vi.fn(async () => null)}
+        budget={null}
+        subscriptionSummary={null}
+        catalogPlans={catalogPlans}
+      />,
+    );
+    expect(await screen.findByRole("heading", { name: "Give it something to know" })).toBeInTheDocument();
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    fireEvent.change(fileInput, { target: { files: [brief] } });
+    expect(screen.getByText("Reselect notes.csv to restore file contents after checkout.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+
+    fireEvent.change(fileInput, { target: { files: [brief, notes] } });
+    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+  });
+
+  it("maps a restored catalog plan to its active entitlement option", async () => {
+    window.sessionStorage.setItem("hypercli-first-agent-draft", JSON.stringify({
+      source: "first-agent-setup",
+      name: "restored-agent",
+      iconIndex: 0,
+      category: "General",
+      plan: "team-launch",
+      starterFiles: [],
+    }));
+    const onOpenPlanCatalog = vi.fn();
+    const onCreateAgent = vi.fn(async () => null);
+    const activeBudget = {
+      slots: {
+        small: { granted: 1, used: 1, available: 0 },
+        medium: { granted: 1, used: 1, available: 0 },
+      },
+      pooled_tpd: 250000,
+    };
+    const activeSummary = {
+      effectivePlanId: "basic",
+      activeSubscriptions: [
+        { id: "sub-basic", planId: "basic", planName: "Basic", slotGrants: { small: 1 }, quantity: 1 },
+        { id: "sub-team", planId: "team-launch", planName: "Team Launch", slotGrants: { medium: 1 }, quantity: 1 },
+      ],
+    } as any;
+    const plans = [{ ...catalogPlans[0], id: "basic", name: "Basic", price: 19, priceUsd: 19 }, catalogPlans[0]];
+    const view = renderWithClient(
+      <FirstAgentSetupWizard
+        onCreateAgent={onCreateAgent}
+        onOpenPlanCatalog={onOpenPlanCatalog}
+        budget={null}
+        subscriptionSummary={null}
+        catalogPlans={plans}
+      />,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Choose your plan" })).toBeInTheDocument();
+    view.rerender(
+      <FirstAgentSetupWizard
+        onCreateAgent={onCreateAgent}
+        onOpenPlanCatalog={onOpenPlanCatalog}
+        budget={activeBudget}
+        subscriptionSummary={activeSummary}
+        catalogPlans={plans}
+      />,
+    );
+    await screen.findAllByText("No slots available");
+    fireEvent.click(getPlanFooterAction("Buy more slots"));
+
+    await waitFor(() => expect(onOpenPlanCatalog).toHaveBeenCalledWith("team-launch"));
+  });
+
+  it("lets an explicit catalog checkout selection override the restored plan", async () => {
+    window.sessionStorage.setItem("hypercli-first-agent-draft", JSON.stringify({
+      source: "first-agent-setup",
+      name: "restored-agent",
+      iconIndex: 0,
+      category: "General",
+      plan: "team-launch",
+      starterFiles: [],
+    }));
+    const onOpenPlanCatalog = vi.fn();
+    const plans = [{ ...catalogPlans[0], id: "basic", name: "Basic", price: 19, priceUsd: 19 }, catalogPlans[0]];
+    const props = {
+      onCreateAgent: vi.fn(async () => null),
+      onOpenPlanCatalog,
+      budget: null,
+      subscriptionSummary: null,
+      catalogPlans: plans,
+    };
+    const view = renderWithClient(<FirstAgentSetupWizard {...props} />);
+
+    expect(await screen.findByRole("heading", { name: "Choose your plan" })).toBeInTheDocument();
+    view.rerender(<FirstAgentSetupWizard {...props} selectedCatalogPlanId="basic" />);
+    fireEvent.click(getPlanFooterAction("View plan"));
+
+    await waitFor(() => expect(onOpenPlanCatalog).toHaveBeenCalledWith("basic"));
   });
 
   it("sorts catalog plan options by price", () => {
@@ -338,6 +529,7 @@ describe("FirstAgentSetupWizard", () => {
     fireEvent.click(getPlanCardAction("Buy more slots"));
 
     await waitFor(() => expect(onOpenPlanCatalog).toHaveBeenCalledTimes(1));
+    expect(onOpenPlanCatalog).toHaveBeenCalledWith("team-launch");
     expect(onCreateAgent).not.toHaveBeenCalled();
   });
 
@@ -421,6 +613,7 @@ describe("FirstAgentSetupWizard", () => {
     fireEvent.click(getPlanCardAction("Open plans"));
 
     await waitFor(() => expect(onOpenPlanCatalog).toHaveBeenCalledTimes(1));
+    expect(onOpenPlanCatalog).toHaveBeenCalledWith("team-launch");
     expect(onCreateAgent).not.toHaveBeenCalled();
   });
 

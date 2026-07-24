@@ -223,4 +223,42 @@ describe("AgentCreationSetupWizard", () => {
     expect(within(getPlanCard("Pro")).getByRole("button", { name: "Launch agent" })).toBeEnabled();
     expect(within(getPlanCard("Basic")).getByText("Desktop, indexing, and custom images require Pro.")).toBeInTheDocument();
   });
+
+  it("disables Free when a Pro feature is selected", () => {
+    renderWithClient(
+      <AgentCreationSetupWizard
+        onCreateAgent={vi.fn(async () => null)}
+        budget={null}
+        subscriptionSummary={null}
+        catalogPlans={[
+          {
+            ...catalogPlans[0],
+            id: "free",
+            name: "Free",
+            price: 0,
+            priceUsd: 0,
+            highlighted: false,
+            meta: { checkout_bundle: { free: 1 } },
+          } as HyperAgentPlan,
+          {
+            ...catalogPlans[0],
+            id: "starter",
+            name: "Starter",
+            price: 20,
+            priceUsd: 20,
+            highlighted: false,
+            meta: { checkout_bundle: { small: 1 } },
+          } as HyperAgentPlan,
+          tieredCatalogPlans[2],
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText(/Desktop browser/i));
+    goToPlanStep();
+
+    expect(within(getPlanCard("Free")).getByRole("button", { name: "Pro required" })).toBeDisabled();
+    expect(within(getPlanCard("Starter")).getByRole("button", { name: "Pro required" })).toBeDisabled();
+    expect(within(getPlanCard("Pro")).getByRole("button", { name: "View plan" })).toBeEnabled();
+  });
 });

@@ -85,7 +85,7 @@
     "clean": "rm -rf dist",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "test": "vitest run tests/config.test.ts tests/client.test.ts tests/jobs.test.ts tests/keys.test.ts tests/models.test.ts tests/workspaces.test.ts tests/exec-shell-dryrun.test.ts tests/gateway.test.ts tests/openclaw-skills.test.ts tests/openclaw-channels.test.ts tests/openclaw-connectors.test.ts tests/openclaw-slack.test.ts tests/openclaw-whatsapp.test.ts",
+    "test": "vitest run tests/config.test.ts tests/client.test.ts tests/agents.test.ts tests/jobs.test.ts tests/keys.test.ts tests/models.test.ts tests/workspaces.test.ts tests/exec-shell-dryrun.test.ts tests/gateway.test.ts tests/openclaw-skills.test.ts tests/openclaw-channels.test.ts tests/openclaw-connectors.test.ts tests/openclaw-slack.test.ts tests/openclaw-whatsapp.test.ts",
     "test:integration": "vitest run tests/integration",
     "test:watch": "vitest"
   },

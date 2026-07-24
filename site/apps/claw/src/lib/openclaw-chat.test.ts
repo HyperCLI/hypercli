@@ -463,12 +463,13 @@ describe("openclaw chat normalization", () => {
       ],
     });
 
-    expect(normalized).toEqual({
+    expect(normalized).toEqual(expect.objectContaining({
       role: "assistant",
       content: "Audio reply",
       mediaUrls: ["data:audio/mpeg;base64,AAAA"],
       timestamp: 123,
-    });
+      renderId: expect.any(String),
+    }));
   });
 
   it("drops persisted toolResult records instead of rendering them as assistant messages", () => {
@@ -1246,5 +1247,85 @@ describe("openclaw chat normalization", () => {
     expect(next).toHaveLength(1);
     expect(next[0]?.content).toContain("Binary file content omitted");
     expect(next[0]?.content).not.toContain("%PDF-1.4");
+  });
+
+  it("preserves history protocol identity and assigns a render identity", () => {
+    const historyMessage = {
+      role: "assistant",
+      content: "Persisted answer",
+      messageId: "message-1",
+      turnId: "turn-1",
+      runId: "run-1",
+      canonicalSessionKey: "agent:default:main",
+      revision: "rev-2",
+    };
+    const normalized = normalizeHistoryMessage(historyMessage);
+    const normalizedAgain = normalizeHistoryMessage(historyMessage);
+
+    expect(normalized).toMatchObject({
+      role: "assistant",
+      content: "Persisted answer",
+      messageId: "message-1",
+      turnId: "turn-1",
+      runId: "run-1",
+      sessionKey: "agent:default:main",
+      revision: "rev-2",
+      renderId: expect.any(String),
+    });
+    expect(normalizedAgain?.renderId).toBe(normalized?.renderId);
+  });
+
+  it("upserts assistants by message, then turn, then run identity while retaining render ids", () => {
+    const current: ChatMessage[] = [
+      {
+        role: "assistant",
+        content: "First",
+        messageId: "message-1",
+        turnId: "turn-1",
+        runId: "run-1",
+        renderId: "render-1",
+      },
+      {
+        role: "assistant",
+        content: "Second",
+        messageId: "message-2",
+        turnId: "turn-2",
+        runId: "run-2",
+        renderId: "render-2",
+      },
+    ];
+
+    const byMessage = upsertAssistantMessage(current, {
+      role: "assistant",
+      content: " updated by message",
+      messageId: "message-1",
+      turnId: "turn-2",
+      runId: "run-2",
+      renderId: "incoming-render",
+      revision: 2,
+    });
+    expect(byMessage[0]).toMatchObject({
+      content: "First updated by message",
+      renderId: "render-1",
+      revision: 2,
+    });
+    expect(byMessage[1]?.content).toBe("Second");
+
+    const byTurn = upsertAssistantMessage(current, {
+      role: "assistant",
+      content: " updated by turn",
+      turnId: "turn-1",
+      runId: "run-2",
+    });
+    expect(byTurn[0]).toMatchObject({ content: "First updated by turn", renderId: "render-1" });
+    expect(byTurn[1]?.content).toBe("Second");
+
+    const byRun = upsertAssistantMessage(current, {
+      role: "assistant",
+      content: " updated by run",
+      runId: "run-1",
+    });
+    expect(byRun[0]).toMatchObject({ content: "First updated by run", renderId: "render-1" });
+    expect(byRun[1]?.content).toBe("Second");
   });
 });

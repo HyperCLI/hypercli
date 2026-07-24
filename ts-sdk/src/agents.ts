@@ -422,6 +422,15 @@ export interface CreateExternalAgentOptions {
   meta?: Record<string, any> | null;
 }
 
+export interface UpdateExternalAgentOptions {
+  name?: string | null;
+  displayName?: string | null;
+  handle?: string | null;
+  runtime?: 'openclaw' | null;
+  status?: 'active' | 'inactive' | 'error' | null;
+  meta?: Record<string, any> | null;
+}
+
 export interface StartAgentOptions extends BuildAgentConfigOptions {
   config?: Record<string, any>;
   dryRun?: boolean;
@@ -683,6 +692,7 @@ export interface AgentStateFields {
   avatarUrl?: string | null;
   displayIdentity?: Record<string, any> | null;
   runtime?: string | null;
+  managed?: boolean | null;
   isLaunchable?: boolean;
   gatewayId?: string | null;
   runtimeKeyAlias?: string | null;
@@ -1058,6 +1068,7 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     avatarUrl: data.avatar_url ?? null,
     displayIdentity: data.display_identity ? structuredClone(data.display_identity) : null,
     runtime: data.runtime ?? null,
+    managed: data.managed ?? null,
     isLaunchable: data.is_launchable ?? data.managed !== false,
     gatewayId: data.gateway_id ?? null,
     runtimeKeyAlias: data.runtime_key_alias ?? null,
@@ -1430,6 +1441,7 @@ export class Agent {
   public readonly avatarUrl: string | null;
   public readonly displayIdentity: Record<string, any> | null;
   public readonly runtime: string | null;
+  public readonly managed: boolean | null;
   public readonly isLaunchable: boolean;
   public readonly gatewayId: string | null;
   public readonly runtimeKeyAlias: string | null;
@@ -1466,6 +1478,7 @@ export class Agent {
     this.avatarUrl = fields.avatarUrl ?? null;
     this.displayIdentity = fields.displayIdentity ? structuredClone(fields.displayIdentity) : null;
     this.runtime = fields.runtime ?? null;
+    this.managed = fields.managed ?? null;
     this.isLaunchable = fields.isLaunchable ?? true;
     this.gatewayId = fields.gatewayId ?? null;
     this.runtimeKeyAlias = fields.runtimeKeyAlias ?? null;
@@ -2616,6 +2629,18 @@ export class Deployments {
     if (options.handle !== undefined) body.handle = options.handle;
     if (options.meta !== undefined) body.meta = options.meta;
     const data = await this.agentHttp.post<AgentHydrationData>('/external-agents', body);
+    return this.hydrateAgent(data);
+  }
+
+  async updateExternalAgent(externalAgentId: string, options: UpdateExternalAgentOptions): Promise<Agent> {
+    const body: Record<string, any> = {};
+    if (options.name !== undefined) body.name = options.name;
+    if (options.displayName !== undefined) body.display_name = options.displayName;
+    if (options.handle !== undefined) body.handle = options.handle;
+    if (options.runtime !== undefined) body.runtime = options.runtime;
+    if (options.status !== undefined) body.status = options.status;
+    if (options.meta !== undefined) body.meta = options.meta;
+    const data = await this.agentHttp.patch<AgentHydrationData>(`/external-agents/${externalAgentId}`, body);
     return this.hydrateAgent(data);
   }
 

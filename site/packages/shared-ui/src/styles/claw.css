@@ -64,6 +64,10 @@
   --glass-card-border: rgba(255, 255, 255, 0.06);
   --glass-card-hover-border: rgba(255, 255, 255, 0.1);
   --glass-card-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  --elevation-shadow-soft: 0 14px 40px rgba(0, 0, 0, 0.38);
+  --elevation-shadow-medium: 0 18px 48px rgba(0, 0, 0, 0.46);
+  --elevation-shadow-strong: 0 20px 56px rgba(0, 0, 0, 0.56);
+  --elevation-shadow-top: 0 -18px 50px rgba(0, 0, 0, 0.48);
   --glassmorphism-background: rgba(11, 13, 14, 0.8);
   --glassmorphism-background-fallback: rgba(11, 13, 14, 0.96);
   --gradient-text: linear-gradient(to right, #d4d6d7, #9ba0a2, #6e7375);
@@ -167,6 +171,10 @@
   --glass-card-border: rgba(13, 21, 17, 0.08);
   --glass-card-hover-border: rgba(23, 122, 85, 0.24);
   --glass-card-shadow: 0 4px 24px rgba(13, 21, 17, 0.1);
+  --elevation-shadow-soft: 0 14px 40px rgba(13, 21, 17, 0.1);
+  --elevation-shadow-medium: 0 18px 48px rgba(13, 21, 17, 0.15);
+  --elevation-shadow-strong: 0 20px 56px rgba(13, 21, 17, 0.2);
+  --elevation-shadow-top: 0 -18px 50px rgba(13, 21, 17, 0.16);
   --glassmorphism-background: rgba(247, 248, 244, 0.84);
   --glassmorphism-background-fallback: rgba(247, 248, 244, 0.98);
   --gradient-text: linear-gradient(to right, #0d1511, #35463f, #63716a);
@@ -465,6 +473,22 @@ h6 {
 
 .glow-green {
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+}
+
+.elevation-shadow-soft {
+  box-shadow: var(--elevation-shadow-soft);
+}
+
+.elevation-shadow-medium {
+  box-shadow: var(--elevation-shadow-medium);
+}
+
+.elevation-shadow-strong {
+  box-shadow: var(--elevation-shadow-strong);
+}
+
+.elevation-shadow-top {
+  box-shadow: var(--elevation-shadow-top);
 }
 
 .glow-green-subtle,

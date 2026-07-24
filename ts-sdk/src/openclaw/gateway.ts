@@ -116,6 +116,20 @@ export interface GatewayEvent {
 export interface ChatEvent {
   type: "content" | "thinking" | "tool_call" | "tool_result" | "done" | "error";
   text?: string;
+  /** For content events, `true` replaces the turn's display text; `false` or omission appends. */
+  replace?: boolean;
+  /** Protocol event identity, when supplied by the gateway payload. */
+  eventId?: string;
+  /** Protocol message identity, when supplied by the gateway payload. */
+  messageId?: string;
+  /** Protocol turn identity, when supplied by the gateway payload. */
+  turnId?: string;
+  /** Protocol run identity, when supplied by the gateway payload. */
+  runId?: string;
+  /** Canonical session key reported by the gateway. */
+  sessionKey?: string;
+  /** Protocol payload revision, when supplied by the gateway. */
+  revision?: number | string;
   data?: Record<string, any>;
 }
 
@@ -148,6 +162,16 @@ export interface GatewayChatMessageSummary {
   toolCalls: GatewayChatToolCall[];
   mediaUrls: string[];
   timestamp?: number;
+  /** Protocol message identity, when supplied by the raw history message. */
+  messageId?: string;
+  /** Protocol turn identity, when supplied by the raw history message. */
+  turnId?: string;
+  /** Protocol run identity, when supplied by the raw history message. */
+  runId?: string;
+  /** Canonical session key reported by the raw history message. */
+  sessionKey?: string;
+  /** Protocol message revision, when supplied by the raw history message. */
+  revision?: number | string;
 }
 
 export interface GatewaySessionPatch {
@@ -1567,6 +1591,11 @@ export function normalizeGatewayChatMessage(message: unknown): GatewayChatMessag
   const mediaUrls = extractGatewayChatMediaUrls(record);
   const timestamp = typeof record.timestamp === "number" ? record.timestamp : undefined;
   const role = typeof record.role === "string" && record.role.trim() ? record.role : "assistant";
+  const messageId = protocolIdentityString(record.messageId);
+  const turnId = protocolIdentityString(record.turnId);
+  const runId = extractMessageRunId(record) ?? undefined;
+  const sessionKey = chatPayloadSessionKey(record);
+  const revision = protocolRevision(record.revision);
 
   if (!text && !thinking && toolCalls.length === 0 && mediaUrls.length === 0) {
     return null;
@@ -1579,6 +1608,11 @@ export function normalizeGatewayChatMessage(message: unknown): GatewayChatMessag
     toolCalls,
     mediaUrls,
     ...(timestamp !== undefined ? { timestamp } : {}),
+    ...(messageId ? { messageId } : {}),
+    ...(turnId ? { turnId } : {}),
+    ...(runId ? { runId } : {}),
+    ...(sessionKey ? { sessionKey } : {}),
+    ...(revision !== undefined ? { revision } : {}),
   };
 }
 
@@ -1700,6 +1734,75 @@ function streamDelta(previousText: string, nextText: string): { delta: string; n
     return { delta: "", nextText: previousText };
   }
   return { delta: nextText, nextText };
+}
+
+interface StreamContentUpdate {
+  text: string;
+  nextText: string;
+  replace: boolean;
+}
+
+function appendStreamContent(
+  previousText: string,
+  text: string,
+  replace: boolean,
+): StreamContentUpdate | null {
+  if (replace) return reconcileStreamContent(previousText, text, true);
+  if (!text) return null;
+  return { text, nextText: previousText + text, replace: false };
+}
+
+function reconcileStreamContent(
+  previousText: string,
+  snapshot: string,
+  replace = false,
+): StreamContentUpdate | null {
+  if (replace) return { text: snapshot, nextText: snapshot, replace: true };
+  if (snapshot === previousText) return null;
+  if (snapshot.startsWith(previousText)) {
+    const text = snapshot.slice(previousText.length);
+    return text ? { text, nextText: snapshot, replace: false } : null;
+  }
+  return { text: snapshot, nextText: snapshot, replace: true };
+}
+
+function protocolIdentityString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function chatPayloadSessionKey(payload: Record<string, any>): string | undefined {
+  return protocolIdentityString(payload.canonicalSessionKey) ?? protocolIdentityString(payload.sessionKey);
+}
+
+function protocolRevision(value: unknown): number | string | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : protocolIdentityString(value);
+}
+
+function chatEventIdentity(
+  payload: Record<string, any>,
+): Pick<ChatEvent, "eventId" | "messageId" | "turnId" | "runId" | "sessionKey" | "revision"> {
+  const message = asRecord(payload.message);
+  const eventId = protocolIdentityString(payload.eventId) ?? protocolIdentityString(message?.eventId);
+  const messageId = protocolIdentityString(payload.messageId) ?? protocolIdentityString(message?.messageId);
+  const turnId = protocolIdentityString(payload.turnId) ?? protocolIdentityString(message?.turnId);
+  const runId = protocolIdentityString(payload.runId) ?? extractMessageRunId(message);
+  const sessionKey = chatPayloadSessionKey(payload) ?? (message ? chatPayloadSessionKey(message) : undefined);
+  const revision = protocolRevision(payload.revision) ?? protocolRevision(message?.revision);
+  return {
+    ...(eventId ? { eventId } : {}),
+    ...(messageId ? { messageId } : {}),
+    ...(turnId ? { turnId } : {}),
+    ...(runId ? { runId } : {}),
+    ...(sessionKey ? { sessionKey } : {}),
+    ...(revision !== undefined ? { revision } : {}),
+  };
+}
+
+function applyChatEventContent(currentText: string, event: ChatEvent): string {
+  if (event.type !== "content") return currentText;
+  return event.replace === true ? event.text ?? "" : currentText + (event.text ?? "");
 }
 
 function parseAgentSessionKey(sessionKey: string | null | undefined): { agentId: string; rest: string } | null {
@@ -2552,6 +2655,7 @@ export class GatewayClient {
   private pending = new Map<string, PendingRequest>();
   private eventHandlers = new Set<GatewayEventHandler>();
   private internalEventHandlers = new Set<InternalGatewayEventHandler>();
+  private internalStreamCloseHandlers = new Set<(error: Error) => void>();
   private activeEphemeralSessionKeys = new Map<string, number | null>();
   private suppressedEphemeralRunIds = new Map<string, number>();
   private pendingEphemeralChatAcks = 0;
@@ -2703,7 +2807,7 @@ export class GatewayClient {
     const payload = asRecord(event.payload) ?? {};
     const activeSessionKeys = this.currentEphemeralSessionKeys();
     if (valueReferencesEphemeralSession(payload, activeSessionKeys)) return true;
-    const sessionKey = typeof payload.sessionKey === "string" ? payload.sessionKey.trim() : "";
+    const sessionKey = chatPayloadSessionKey(payload)?.trim() ?? "";
     const unscopedSessionKey = parseAgentSessionKey(sessionKey)?.rest ?? sessionKey;
     if (isReservedEphemeralSessionKey(unscopedSessionKey)) return true;
     if (
@@ -2787,6 +2891,16 @@ export class GatewayClient {
     }
   }
 
+  private notifyInternalStreamClose(error: Error): void {
+    for (const handler of this.internalStreamCloseHandlers) {
+      try {
+        handler(error);
+      } catch {
+        // Stream close handlers are isolated from the socket lifecycle.
+      }
+    }
+  }
+
   private reportProtocolError(info: GatewayProtocolErrorInfo): void {
     try {
       this.onProtocolError?.(info);
@@ -2853,7 +2967,9 @@ export class GatewayClient {
     if (ws) {
       ws.close();
     }
-    this.flushPending(new Error("gateway client stopped"));
+    const stoppedError = new Error("gateway client stopped");
+    this.flushPending(stoppedError);
+    this.notifyInternalStreamClose(stoppedError);
     if (this.rejectConnectPromise) {
       this.rejectConnectPromise(new Error("gateway client stopped"));
     }
@@ -3028,7 +3144,9 @@ export class GatewayClient {
     }
     const error = this.pendingConnectError;
     this.pendingConnectError = null;
-    this.flushPending(new Error(`gateway closed (${code}): ${reason || "no reason"}`));
+    const closeError = new Error(`gateway closed (${code}): ${reason || "no reason"}`);
+    this.flushPending(closeError);
+    this.notifyInternalStreamClose(closeError);
     this.onClose?.({ code, reason, error });
     if (!this.closed) {
       this.onDisconnect?.();
@@ -3866,7 +3984,7 @@ export class GatewayClient {
         let turnText = "";
         let turnRecorded = false;
         const observeEvent = (event: ChatEvent) => {
-          if (event.type === "content") turnText += event.text ?? "";
+          turnText = applyChatEventContent(turnText, event);
           if (event.type !== "done" && event.type !== "error") return;
           backendTurnMayBeActive = false;
           if (event.type === "done" && turnText.trim() && !turnRecorded) {
@@ -4079,20 +4197,42 @@ export class GatewayClient {
     const queuedEvents: GatewayEvent[] = [];
     let resolveWait: (() => void) | null = null;
     let correlationReady = false;
-    let streamedDisplayText = false;
-    let lastLegacyText = "";
+    let emittedDisplayText = "";
     let lastThinkingText = "";
     const seenToolCallIds = new Set<string>();
     const seenToolResultIds = new Set<string>();
     let acknowledgementPending = false;
     let historyBaseline: HistoryAssistantBaseline | null | undefined;
+    let streamCloseError: Error | null = null;
+    let resolveStreamClose: ((error: Error) => void) | null = null;
+    const streamClosed = new Promise<Error>((resolve) => {
+      resolveStreamClose = resolve;
+    });
+    const wakeWaiter = () => {
+      const waiter = resolveWait;
+      resolveWait = null;
+      waiter?.();
+    };
+    const closeHandler = (error: Error) => {
+      if (streamCloseError) return;
+      streamCloseError = error;
+      this.internalEventHandlers.delete(handler);
+      this.internalStreamCloseHandlers.delete(closeHandler);
+      resolveStreamClose?.(error);
+      wakeWaiter();
+    };
+    const stopOnStreamClose = async <T>(promise: Promise<T>): Promise<T> => {
+      return await Promise.race([
+        promise,
+        streamClosed.then((error) => Promise.reject(error)),
+      ]);
+    };
 
     const handler: InternalGatewayEventHandler = (evt) => {
       if (!isChatStreamGatewayEvent(evt)) return false;
       const payload = asRecord(evt.payload) ?? {};
       const payloadRunId = typeof payload.runId === "string" ? payload.runId.trim() : "";
-      const payloadSessionKey =
-        typeof payload.sessionKey === "string" ? payload.sessionKey.trim() : "";
+      const payloadSessionKey = chatPayloadSessionKey(payload)?.trim() ?? "";
       if (options.strictCorrelation) {
         if (!payloadRunId && !payloadSessionKey) return false;
         if (payloadSessionKey && !sameSessionKey(payloadSessionKey, sessionKey)) return false;
@@ -4108,9 +4248,7 @@ export class GatewayClient {
         }
       }
       queuedEvents.push(evt);
-      const waiter = resolveWait;
-      resolveWait = null;
-      waiter?.();
+      wakeWaiter();
       return options.strictCorrelation === true;
     };
 
@@ -4122,8 +4260,12 @@ export class GatewayClient {
             options.priorAssistantTexts,
           );
         } catch {
-          historyBaseline = historyAssistantBaseline([], options.priorAssistantTexts);
+          historyBaseline = options.priorAssistantTexts?.length
+            ? historyAssistantBaseline([], options.priorAssistantTexts)
+            : null;
         }
+      } else if (options.priorAssistantTexts) {
+        historyBaseline = historyAssistantBaseline([], options.priorAssistantTexts);
       }
       const normalizedAttachments = normalizeChatAttachments(attachments);
       if (options.ephemeralSession) {
@@ -4131,6 +4273,7 @@ export class GatewayClient {
         acknowledgementPending = true;
       }
       this.internalEventHandlers.add(handler);
+      this.internalStreamCloseHandlers.add(closeHandler);
       const params: Record<string, any> = {
         message,
         deliver: false,
@@ -4150,7 +4293,7 @@ export class GatewayClient {
         for (let index = queuedEvents.length - 1; index >= 0; index -= 1) {
           const payload = asRecord(queuedEvents[index]?.payload) ?? {};
           const queuedRunId = typeof payload.runId === "string" ? payload.runId.trim() : "";
-          const queuedSessionKey = typeof payload.sessionKey === "string" ? payload.sessionKey.trim() : "";
+          const queuedSessionKey = chatPayloadSessionKey(payload)?.trim() ?? "";
           const mismatchedSession = Boolean(queuedSessionKey && !sameSessionKey(queuedSessionKey, sessionKey));
           const unacceptedRunOnlyEvent = Boolean(!queuedSessionKey && queuedRunId && !acceptedRunIds.has(queuedRunId));
           if (mismatchedSession || unacceptedRunOnlyEvent) {
@@ -4167,19 +4310,20 @@ export class GatewayClient {
         const historyDeadline = Date.now() + Math.min(timeoutMs, DEFAULT_AGENT_TIMEOUT);
         while (true) {
           const historyText = latestHistoryAssistantText(
-            await this.chatHistory(sessionKey, 20),
+            await stopOnStreamClose(this.chatHistory(sessionKey, 20)),
             acceptedRunIds,
             historyBaseline,
           );
           if (historyText) return historyText;
           if (Date.now() >= historyDeadline) return "";
-          await new Promise((resolve) => setTimeout(resolve, 500));
+          await stopOnStreamClose(new Promise<void>((resolve) => setTimeout(resolve, 500)));
         }
       };
 
       let deadline = Date.now() + DEFAULT_AGENT_TIMEOUT;
       while (Date.now() < deadline) {
         if (queuedEvents.length === 0) {
+          if (streamCloseError) throw streamCloseError;
           const remainingMs = Math.max(100, Math.min(1000, deadline - Date.now()));
           await new Promise<void>((resolve) => {
             const timer = setTimeout(() => {
@@ -4194,28 +4338,35 @@ export class GatewayClient {
             };
             resolveWait = release;
           });
+          if (queuedEvents.length === 0 && streamCloseError) throw streamCloseError;
           continue;
         }
 
         const evt = queuedEvents.shift()!;
         const payload = asRecord(evt.payload) ?? {};
         const payloadRunId = typeof payload.runId === "string" ? payload.runId.trim() : "";
-        const payloadSessionKey =
-          typeof payload.sessionKey === "string" ? payload.sessionKey.trim() : "";
+        const payloadSessionKey = chatPayloadSessionKey(payload)?.trim() ?? "";
         if (payloadRunId && !acceptedRunIds.has(payloadRunId)) {
           continue;
         }
         if (payloadSessionKey && !sameSessionKey(payloadSessionKey, sessionKey)) {
           continue;
         }
+        const identity = chatEventIdentity(payload);
 
         deadline = Date.now() + DEFAULT_AGENT_TIMEOUT;
 
         if (evt.event === "chat.content") {
           const text = typeof payload.text === "string" ? payload.text : "";
-          if (text) {
-            streamedDisplayText = true;
-            yield { type: "content", text };
+          const update = appendStreamContent(emittedDisplayText, text, payload.replace === true);
+          if (update) {
+            emittedDisplayText = update.nextText;
+            yield {
+              type: "content",
+              text: update.text,
+              ...(update.replace ? { replace: true } : {}),
+              ...identity,
+            };
           }
           continue;
         }
@@ -4229,6 +4380,7 @@ export class GatewayClient {
             seenToolCallIds.add(toolCallId);
             yield {
               type: "tool_call",
+              ...identity,
               data: {
                 ...gatewayToolStreamPayload(toolPayload),
                 args: toolPayload.args,
@@ -4238,6 +4390,7 @@ export class GatewayClient {
             seenToolResultIds.add(toolCallId);
             yield {
               type: "tool_result",
+              ...identity,
               data: {
                 ...gatewayToolStreamPayload(toolPayload),
                 result: toolPayload.result ?? toolPayload.meta ?? toolPayload.content ?? toolPayload.text ?? toolPayload.partialResult,
@@ -4257,18 +4410,27 @@ export class GatewayClient {
             const historyText =
               hasNonTextActivity
                 ? ""
-                : streamedDisplayText || lastLegacyText
-                ? latestHistoryAssistantText(await this.chatHistory(sessionKey, 20), acceptedRunIds, historyBaseline)
+                : emittedDisplayText
+                ? latestHistoryAssistantText(
+                    await stopOnStreamClose(this.chatHistory(sessionKey, 20)),
+                    acceptedRunIds,
+                    historyBaseline,
+                  )
                 : await waitForHistoryText();
             if (historyText) {
-              const streamed = streamDelta(lastLegacyText, historyText);
-              lastLegacyText = streamed.nextText;
-              if (streamed.delta) {
-                streamedDisplayText = true;
-                yield { type: "content", text: streamed.delta, data: payload };
+              const update = reconcileStreamContent(emittedDisplayText, historyText);
+              if (update) {
+                emittedDisplayText = update.nextText;
+                yield {
+                  type: "content",
+                  text: update.text,
+                  ...(update.replace ? { replace: true } : {}),
+                  ...identity,
+                  data: payload,
+                };
               }
             }
-            yield { type: "done", data: payload };
+            yield { type: "done", ...identity, data: payload };
             return;
           }
           if (phase === "error") {
@@ -4280,6 +4442,7 @@ export class GatewayClient {
                   : typeof payload.errorMessage === "string" && payload.errorMessage
                     ? payload.errorMessage
                     : phase,
+              ...identity,
               data: payload,
             };
             return;
@@ -4291,7 +4454,7 @@ export class GatewayClient {
           if (text) {
             lastThinkingText += text;
           }
-          yield { type: "thinking", text };
+          yield { type: "thinking", text, ...identity };
           continue;
         }
         if (evt.event === "chat.tool_call") {
@@ -4299,7 +4462,7 @@ export class GatewayClient {
             gatewayToolCallId(payload) ??
             `${gatewayToolName(payload) ?? "tool"}:${JSON.stringify(payload.args ?? payload.arguments ?? null)}`;
           seenToolCallIds.add(toolCallId);
-          yield { type: "tool_call", data: payload };
+          yield { type: "tool_call", ...identity, data: payload };
           continue;
         }
         if (evt.event === "chat.tool_result") {
@@ -4307,25 +4470,36 @@ export class GatewayClient {
             gatewayToolCallId(payload) ??
             `${gatewayToolName(payload) ?? "tool"}:${JSON.stringify(payload.args ?? payload.arguments ?? null)}`;
           seenToolResultIds.add(toolCallId);
-          yield { type: "tool_result", data: payload };
+          yield { type: "tool_result", ...identity, data: payload };
           continue;
         }
         if (evt.event === "chat.done") {
           const hasNonTextActivity =
             Boolean(lastThinkingText) || seenToolCallIds.size > 0 || seenToolResultIds.size > 0;
-          if (!streamedDisplayText && !lastLegacyText && !hasNonTextActivity) {
+          if (!emittedDisplayText && !hasNonTextActivity) {
             const historyText = await waitForHistoryText();
             if (historyText) {
-              yield { type: "content", text: historyText, data: payload };
+              const update = reconcileStreamContent(emittedDisplayText, historyText);
+              if (update) {
+                emittedDisplayText = update.nextText;
+                yield {
+                  type: "content",
+                  text: update.text,
+                  ...(update.replace ? { replace: true } : {}),
+                  ...identity,
+                  data: payload,
+                };
+              }
             }
           }
-          yield { type: "done", data: payload };
+          yield { type: "done", ...identity, data: payload };
           return;
         }
         if (evt.event === "chat.error") {
           yield {
             type: "error",
             text: typeof payload.message === "string" ? payload.message : "Unknown error",
+            ...identity,
             data: payload,
           };
           return;
@@ -4335,24 +4509,22 @@ export class GatewayClient {
         }
 
         const state = typeof payload.state === "string" ? payload.state.trim().toLowerCase() : "";
-        const currentText = extractMessageText(payload.message) ?? "";
+        const currentText = extractMessageText(payload.message);
         const currentDeltaText = typeof payload.deltaText === "string" ? payload.deltaText : "";
         const normalizedMessage = normalizeGatewayChatMessage(payload.message);
         if (state === "delta") {
-          const streamed = currentText
-            ? streamDelta(lastLegacyText, currentText)
-            : {
-                delta: currentDeltaText,
-                nextText: currentDeltaText
-                  ? payload.replace === true
-                    ? currentDeltaText
-                    : lastLegacyText + currentDeltaText
-                  : lastLegacyText,
-              };
-          lastLegacyText = streamed.nextText;
-          if (streamed.delta) {
-            streamedDisplayText = true;
-            yield { type: "content", text: streamed.delta, data: payload };
+          const update = currentText !== null && (currentText || payload.replace === true)
+            ? reconcileStreamContent(emittedDisplayText, currentText, payload.replace === true)
+            : appendStreamContent(emittedDisplayText, currentDeltaText, payload.replace === true);
+          if (update) {
+            emittedDisplayText = update.nextText;
+            yield {
+              type: "content",
+              text: update.text,
+              ...(update.replace ? { replace: true } : {}),
+              ...identity,
+              data: payload,
+            };
           }
           continue;
         }
@@ -4362,7 +4534,7 @@ export class GatewayClient {
             : { delta: "", nextText: lastThinkingText };
           lastThinkingText = thinkingDelta.nextText;
           if (thinkingDelta.delta) {
-            yield { type: "thinking", text: thinkingDelta.delta, data: payload };
+            yield { type: "thinking", text: thinkingDelta.delta, ...identity, data: payload };
           }
 
           for (const toolCall of normalizedMessage?.toolCalls ?? []) {
@@ -4373,6 +4545,7 @@ export class GatewayClient {
               seenToolCallIds.add(toolCallKey);
               yield {
                 type: "tool_call",
+                ...identity,
                 data: {
                   ...(toolCall.id ? { toolCallId: toolCall.id } : {}),
                   name: toolCall.name,
@@ -4384,6 +4557,7 @@ export class GatewayClient {
               seenToolResultIds.add(toolCallKey);
               yield {
                 type: "tool_result",
+                ...identity,
                 data: {
                   ...(toolCall.id ? { toolCallId: toolCall.id } : {}),
                   name: toolCall.name,
@@ -4393,53 +4567,84 @@ export class GatewayClient {
             }
           }
 
-          if (currentText) {
-            const streamed = streamDelta(lastLegacyText, currentText);
-            lastLegacyText = streamed.nextText;
-            if (streamed.delta) {
-              streamedDisplayText = true;
-              yield { type: "content", text: streamed.delta, data: payload };
+          if (currentText !== null && (currentText || payload.replace === true)) {
+            const update = reconcileStreamContent(
+              emittedDisplayText,
+              currentText,
+              payload.replace === true,
+            );
+            if (update) {
+              emittedDisplayText = update.nextText;
+              yield {
+                type: "content",
+                text: update.text,
+                ...(update.replace ? { replace: true } : {}),
+                ...identity,
+                data: payload,
+              };
             }
-            yield { type: "done", data: payload };
+            yield { type: "done", ...identity, data: payload };
             return;
           }
-          if (streamedDisplayText || lastLegacyText) {
-            yield { type: "done", data: payload };
+          if (emittedDisplayText) {
+            yield { type: "done", ...identity, data: payload };
             return;
           }
           if (normalizedMessage?.thinking || (normalizedMessage?.toolCalls.length ?? 0) > 0) {
-            yield { type: "done", data: payload };
+            yield { type: "done", ...identity, data: payload };
             return;
           }
           const historyText = await waitForHistoryText();
           if (historyText) {
-            yield { type: "content", text: historyText, data: payload };
+            const update = reconcileStreamContent(emittedDisplayText, historyText);
+            if (update) {
+              emittedDisplayText = update.nextText;
+              yield {
+                type: "content",
+                text: update.text,
+                ...(update.replace ? { replace: true } : {}),
+                ...identity,
+                data: payload,
+              };
+            }
           }
-          yield { type: "done", data: payload };
+          yield { type: "done", ...identity, data: payload };
           return;
         }
         if (state === "error" || state === "aborted") {
-          if (currentText) {
-            const streamed = streamDelta(lastLegacyText, currentText);
-            lastLegacyText = streamed.nextText;
-            if (streamed.delta) {
-              streamedDisplayText = true;
-              yield { type: "content", text: streamed.delta, data: payload };
+          if (currentText !== null && (currentText || payload.replace === true)) {
+            const update = reconcileStreamContent(
+              emittedDisplayText,
+              currentText,
+              payload.replace === true,
+            );
+            if (update) {
+              emittedDisplayText = update.nextText;
+              yield {
+                type: "content",
+                text: update.text,
+                ...(update.replace ? { replace: true } : {}),
+                ...identity,
+                data: payload,
+              };
             }
           }
           yield {
             type: "error",
             text: typeof payload.errorMessage === "string" ? payload.errorMessage : state,
+            ...identity,
             data: payload,
           };
           return;
         }
       }
 
+      if (streamCloseError) throw streamCloseError;
       throw new Error("Streaming chat.send timed out");
     } finally {
       if (acknowledgementPending) this.finishEphemeralChatAcknowledgement(false);
       this.internalEventHandlers.delete(handler);
+      this.internalStreamCloseHandlers.delete(closeHandler);
     }
   }
 
@@ -4540,7 +4745,7 @@ export class GatewayClient {
         const event = next.value;
         if (stopError) throw stopError;
         if (event.type === "content") {
-          content += event.text ?? "";
+          content = applyChatEventContent(content, event);
           if (content.length > maxResponseChars) {
             const error = new Error("Ephemeral chat response exceeds the configured limit.");
             requestAbort(error);

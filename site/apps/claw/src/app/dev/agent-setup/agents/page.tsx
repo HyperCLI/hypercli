@@ -40,6 +40,7 @@ import {
   isAgentCleanupConflictError,
   startOpenClawAgent,
 } from "@/lib/agent-client";
+import { persistAgentCanonicalName, persistAgentDisplayName } from "@/lib/agent-profile-updates";
 import { formatCpu, formatMemory } from "@/lib/format";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
 import { useOpenClawSession } from "@/hooks/useOpenClawSession";
@@ -47,6 +48,7 @@ import { useAgentLogs } from "@/hooks/useAgentLogs";
 import { useAgentShell } from "@/hooks/useAgentShell";
 import { useAgentShellActivation } from "@/hooks/useAgentShellActivation";
 import { useAgentShellTerminal } from "@/hooks/useAgentShellTerminal";
+import { managedAgentDisplayNameScope, useManagedAgentDisplayNames } from "@/hooks/useManagedAgentDisplayNames";
 import { agentAvatar } from "@/lib/avatar";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { IntegrationsDirectoryPanel } from "@/components/dashboard/integrations";
@@ -109,7 +111,7 @@ import { AgentTerminalPanel } from "@/components/dashboard/agents/AgentTerminalP
 import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
 import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
 import { AgentGatewaySessionProvider, asAgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
-import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
+import { agentDisplayLabel, toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 import { createAudioMediaRecorder } from "@/lib/audio-recorder";
 import { normalizeCronJob } from "@/lib/cron-jobs";
@@ -280,6 +282,12 @@ function removeSdkAgent(prev: SdkAgent[], agentId: string): SdkAgent[] {
 
 export default function DevAgentSetupAgentsPage() {
   const { getToken, user } = useAgentAuth();
+  const displayNameStorageScope = managedAgentDisplayNameScope(user);
+  const {
+    displayNamesByAgentId,
+    setDisplayName: setManagedAgentDisplayName,
+    clearDisplayName: clearManagedAgentDisplayName,
+  } = useManagedAgentDisplayNames(displayNameStorageScope);
   const router = useRouter();
   const { setAgentMenu } = useDashboardMobileAgentMenu();
   const accountInitial = user?.email?.trim()[0]?.toUpperCase() || "?";
@@ -465,7 +473,33 @@ export default function DevAgentSetupAgentsPage() {
 
   useEffect(() => { fetchAgents(); }, [fetchAgents]);
 
-  const agents = useMemo(() => sdkAgents.map(toAgentViewModel), [sdkAgents]);
+  const agents = useMemo(
+    () => sdkAgents.map((agent) => toAgentViewModel(agent, {
+      managedDisplayName: displayNamesByAgentId[agent.id],
+    })),
+    [displayNamesByAgentId, sdkAgents],
+  );
+  const updateAgentCanonicalName = useCallback(async (agentId: string, name: string) => {
+    const agent = sdkAgents.find((entry) => entry.id === agentId);
+    if (!agent) throw new Error("Agent is unavailable.");
+    const token = await getToken();
+    const client = createAgentClient(token);
+    const updatedAgent = await persistAgentCanonicalName(client, agent, name);
+    setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
+  }, [getToken, sdkAgents]);
+  const updateAgentDisplayName = useCallback(async (agentId: string, displayName: string) => {
+    const agent = sdkAgents.find((entry) => entry.id === agentId);
+    if (!agent) throw new Error("Agent is unavailable.");
+    const updatedAgent = await persistAgentDisplayName(
+      async () => createAgentClient(await getToken()),
+      agent,
+      displayName,
+      displayNameStorageScope ? setManagedAgentDisplayName : undefined,
+    );
+    if (updatedAgent) {
+      setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
+    }
+  }, [displayNameStorageScope, getToken, sdkAgents, setManagedAgentDisplayName]);
 
   // Detect STARTING→RUNNING for burst
   useEffect(() => {
@@ -486,9 +520,10 @@ export default function DevAgentSetupAgentsPage() {
     [sdkAgents, selectedAgentId],
   );
   const selectedAgent = useMemo(
-    () => (selectedSdkAgent ? toAgentViewModel(selectedSdkAgent) : null),
-    [selectedSdkAgent],
+    () => (selectedAgentId ? agents.find((agent) => agent.id === selectedAgentId) ?? null : null),
+    [agents, selectedAgentId],
   );
+  const selectedAgentDisplayName = selectedAgent ? agentDisplayLabel(selectedAgent) : null;
   const selectedOpenClawAgent = useMemo(
     () => (selectedSdkAgent && typeof (selectedSdkAgent as { connect?: unknown }).connect === "function"
       ? (selectedSdkAgent as SdkOpenClawAgent)
@@ -652,8 +687,8 @@ export default function DevAgentSetupAgentsPage() {
     if (!teamSetupSummary) return;
     setMainTab("chat");
     setMobileShowChat(true);
-    chat.setInput(buildTeamFirstPrompt(teamSetupSummary, selectedAgent?.name));
-  }, [chat, selectedAgent?.name, teamSetupSummary]);
+    chat.setInput(buildTeamFirstPrompt(teamSetupSummary, selectedAgentDisplayName));
+  }, [chat, selectedAgentDisplayName, teamSetupSummary]);
 
   const retryTeamStarterContext = useCallback(async () => {
     if (!teamSetupSummary || !chat.connected) return;
@@ -866,10 +901,10 @@ export default function DevAgentSetupAgentsPage() {
       sessionKey: resolveOpenClawSessionKey(agent.id),
       participants: [
         { id: "user", name: "You", type: "user" as const },
-        { id: agent.id, name: agent.name || agent.id, type: "agent" as const, meta: agent.meta ?? null },
+        { id: agent.id, name: agentDisplayLabel(agent), type: "agent" as const, meta: agent.meta ?? null },
       ],
       kind: "user-agent" as const,
-      title: agent.name || agent.pod_name || agent.id,
+      title: agentDisplayLabel(agent),
       lastMessage: agent.state === "RUNNING" ? "Connected" : agent.state.toLowerCase(),
       lastMessageBy: agent.id,
       lastMessageAt: agent.updated_at ? new Date(agent.updated_at).getTime() : Date.now(),
@@ -971,7 +1006,7 @@ export default function DevAgentSetupAgentsPage() {
     return {
       [selectedAgent.id]: {
         id: selectedAgent.id,
-        name: selectedAgent.name || selectedAgent.id,
+        name: agentDisplayLabel(selectedAgent),
         state: selectedAgent.state,
         cpuMillicores: selectedAgent.cpu_millicores,
         memoryMib: selectedAgent.memory_mib,
@@ -1238,6 +1273,7 @@ export default function DevAgentSetupAgentsPage() {
     try {
       const token = await getToken();
       await createAgentClient(token).delete(agentId);
+      clearManagedAgentDisplayName(agentId);
       if (selectedAgentId === agentId) setSelectedAgentId(null);
       setSdkAgents((prev) => removeSdkAgent(prev, agentId));
     } catch (err) {
@@ -1254,9 +1290,7 @@ export default function DevAgentSetupAgentsPage() {
     if (!trimmed || trimmed === (selectedAgent.name || "")) return;
     setSavingName(true);
     try {
-      const token = await getToken();
-      const updatedAgent = await createAgentClient(token).update(selectedAgent.id, { name: trimmed });
-      setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
+      await updateAgentCanonicalName(selectedAgent.id, trimmed);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to rename agent");
     } finally {
@@ -1556,7 +1590,7 @@ export default function DevAgentSetupAgentsPage() {
       onDelete: () => {
         setPendingAgentDelete({
           id: selectedAgent.id,
-          name: selectedAgent.name || selectedAgent.id,
+          name: agentDisplayLabel(selectedAgent),
         });
       },
       deleting: deletingId === selectedAgent.id,
@@ -1657,7 +1691,7 @@ export default function DevAgentSetupAgentsPage() {
                     )}
                     <button
                       onClick={() => {
-                        setPendingAgentDelete({ id: selectedAgent.id, name: selectedAgent.name || selectedAgent.id });
+                        setPendingAgentDelete({ id: selectedAgent.id, name: agentDisplayLabel(selectedAgent) });
                         setMobileAgentMenuOpen(false);
                       }}
                       disabled={deletingId === selectedAgent.id}
@@ -1712,7 +1746,7 @@ export default function DevAgentSetupAgentsPage() {
       {teamSetupSummary ? (
         <TeamSetupArrival
           summary={teamSetupSummary}
-          agentName={selectedAgent?.name ?? teamSetupSummary.agentName ?? "Your agent"}
+          agentName={selectedAgentDisplayName ?? teamSetupSummary.agentName ?? "Your agent"}
           connected={chat.connected}
           warning={teamSetupSafeWriteWarning}
           retrying={retryingTeamContext}
@@ -1753,11 +1787,7 @@ export default function DevAgentSetupAgentsPage() {
           budget={budget}
           subscriptionSummary={subscriptionSummary}
           catalogPlans={catalogPlans}
-          updateAgentName={async (agentId, name) => {
-            const token = await getToken();
-            const updatedAgent = await createAgentClient(token).update(agentId, { name });
-            setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
-          }}
+          updateAgentDisplayName={updateAgentDisplayName}
           showChannels={isTeamPlanActive}
         />
 
@@ -1872,9 +1902,7 @@ export default function DevAgentSetupAgentsPage() {
                   },
                   onRenameAgent: async (name) => {
                     if (!selectedAgent) return;
-                    const token = await getToken();
-                    const updatedAgent = await createAgentClient(token).update(selectedAgent.id, { name });
-                    setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
+                    await updateAgentCanonicalName(selectedAgent.id, name);
                   },
                   onOpenAgentSettings: () => {
                     setMainTab("settings");
@@ -1894,7 +1922,7 @@ export default function DevAgentSetupAgentsPage() {
                   setMobileShowChat(true);
                 } : undefined}
                 agentId={selectedAgent?.id ?? selectedAgentId}
-                agentName={selectedAgent?.name || selectedAgent?.pod_name || "Agent"}
+                agentName={selectedAgentDisplayName ?? "Agent"}
                 agentPublicUrl={selectedOpenClawAgent?.publicUrl ?? (selectedAgent?.hostname ? `https://${selectedAgent.hostname}` : null)}
                 gatewaySession={gatewayChat}
                 channelsProvider={chat.channelsProvider}
@@ -1912,7 +1940,7 @@ export default function DevAgentSetupAgentsPage() {
             ) : mainTab === "skills" ? (
               <SkillsPanel
                 key={selectedAgent?.id ?? "no-agent"}
-                agentName={selectedAgent?.name || selectedAgent?.pod_name || "Agent"}
+                agentName={selectedAgentDisplayName ?? "Agent"}
                 draftScope={skillDraftScope}
                 connected={chat.connected}
                 isDesktopViewport={isDesktopViewport}
@@ -1952,11 +1980,19 @@ export default function DevAgentSetupAgentsPage() {
                 openclawModels={chat.models}
                 reportedChannels={chat.reportedChannels}
                 reportedChannelsReady={chat.reportedChannelsReady}
-                onUpdateAgentName={async (agentId, name) => {
+                onUpdateAgentProfile={async (agentId, profile) => {
                   const token = await getToken();
-                  const updatedAgent = await createAgentClient(token).update(agentId, { name });
+                  const updatedAgent = await createAgentClient(token).update(agentId, profile);
                   setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
                 }}
+                onUpdateExternalAgentProfile={async (agentId, profile) => {
+                  const token = await getToken();
+                  const updatedAgent = await createAgentClient(token).updateExternalAgent(agentId, profile);
+                  setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
+                }}
+                onSetManagedAgentDisplayName={displayNameStorageScope ? (agentId, displayName) => {
+                  setManagedAgentDisplayName(agentId, displayName);
+                } : undefined}
                 onUpdateAgentLaunchConfig={async (agentId, launchConfig) => {
                   const token = await getToken();
                   const updatedAgent = await createAgentClient(token).update(agentId, { launchConfig });
