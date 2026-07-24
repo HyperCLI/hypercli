@@ -1659,18 +1659,30 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
   };
 
   const dismissAgentDashboardTour = async (): Promise<void> => {
-    const tourDialog = page.getByRole("dialog", { name: /A quick tour of your agent workspace/i }).first();
+    const tourDialog = page
+      .getByRole("dialog")
+      .filter({ hasText: /A quick tour of your agent workspace|Agent Briefing|Build a teammate, not another chat window/i })
+      .first();
     if (!(await tourDialog.isVisible().catch(() => false))) {
       return;
     }
 
-    const skipButton = tourDialog.getByRole("button", { name: "Skip tour" }).first();
-    if (await skipButton.isVisible().catch(() => false)) {
-      await skipButton.click();
-    } else {
-      await tourDialog.getByRole("button", { name: "Close agent tour" }).click();
+    const dismissControls = [
+      tourDialog.getByRole("button", { name: /^Skip tour$/i }).first(),
+      tourDialog.getByRole("button", { name: /^Close agent tour$/i }).first(),
+      tourDialog.getByRole("button", { name: /^Close$/i }).first(),
+      tourDialog.locator("button").filter({ hasText: /^Skip tour$/i }).first(),
+    ];
+
+    for (const control of dismissControls) {
+      if (await control.isVisible().catch(() => false)) {
+        await control.click();
+        await expect(tourDialog).not.toBeVisible({ timeout: 10_000 });
+        return;
+      }
     }
-    await expect(tourDialog).not.toBeVisible({ timeout: 10_000 });
+
+    throw new Error("Agent dashboard tour is visible but no dismiss control was found");
   };
 
   const dashboardFetches = waitForAgentDashboardFetches();
