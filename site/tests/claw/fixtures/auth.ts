@@ -1695,7 +1695,7 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
   };
 
   const dashboardFetches = waitForAgentDashboardFetches();
-  await page.goto("/dashboard/agents", { waitUntil: "domcontentloaded" });
+  await page.goto("/dashboard/agents?tab=chat", { waitUntil: "domcontentloaded" });
   await dashboardFetches;
   await dismissAgentDashboardTour();
   await expect(page.getByRole("status", { name: /Loading agents/i })).not.toBeVisible({ timeout: 90_000 });
