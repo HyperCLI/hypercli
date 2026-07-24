@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef, useMemo } from "react";
-import { Header, Footer, getGPUDisplayName, getRegionFlag, getRegionName, getAuthBackendUrl, getAuthCookieToken } from "@hypercli/shared-ui";
+import { Header, Footer, getGPUDisplayName, getRegionName, getAuthBackendUrl, getAuthCookieToken, RegionDisplay } from "@hypercli/shared-ui";
 import { usePathname, useRouter } from "next/navigation";
 
 import { JobDetailPage } from "./JobDetailPage";
@@ -820,7 +820,7 @@ function LaunchJobFormPage() {
                           }`}
                         >
                           <div className="flex items-center gap-2">
-                            <span className="text-xl">{getRegionFlag(region.code)}</span>
+                            <RegionDisplay region={region.code} showName={false} />
                             <span className="font-semibold text-foreground">
                               {region.info?.description || getRegionName(region.code)}
                             </span>
@@ -1103,9 +1103,11 @@ function LaunchJobFormPage() {
 
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Region</span>
-                    <span className="font-medium text-foreground">
-                      {selectedRegion ? `${getRegionFlag(selectedRegion)} ${getRegionName(selectedRegion)}` : '-'}
-                    </span>
+                    {selectedRegion ? (
+                      <RegionDisplay region={selectedRegion} nameClassName="font-medium text-foreground" />
+                    ) : (
+                      <span className="font-medium text-foreground">-</span>
+                    )}
                   </div>
 
                   <div className="flex justify-between text-sm">

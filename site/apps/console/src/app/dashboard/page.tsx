@@ -199,6 +199,12 @@ export default function DashboardPage() {
             </h1>
             <div className="flex items-center gap-3">
               <Link
+                href="/jobs"
+                className="border border-border text-foreground font-semibold py-2 px-6 rounded-lg hover:bg-surface-low hover:border-primary transition-colors"
+              >
+                Jobs
+              </Link>
+              <Link
                 href="/keys"
                 className="border border-border text-foreground font-semibold py-2 px-6 rounded-lg hover:bg-surface-low hover:border-primary transition-colors"
               >

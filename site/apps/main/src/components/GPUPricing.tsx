@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ContactModal, getGPUArch, getGPUDisplayName, getGPUVram, getRegionName, getRegionFlag } from "@hypercli/shared-ui";
+import { ContactModal, getGPUArch, getGPUDisplayName, getGPUVram, getRegionName, RegionDisplay } from "@hypercli/shared-ui";
 
 interface InstanceConfig {
   gpu_count: number;
@@ -261,7 +261,7 @@ export default function GPUPricing() {
                       {Object.entries(selectedInstance.pricing).map(([region, prices]) => (
                         <div key={region} className="flex items-center justify-between p-4 bg-background rounded-xl border border-border-medium">
                           <div className="flex items-center gap-3">
-                            <span className="text-2xl">{getRegionFlag(region)}</span>
+                            <RegionDisplay region={region} showName={false} />
                             <div>
                               <p className="font-semibold text-foreground">{getRegionName(region)}</p>
                               <p className="text-xs text-text-muted uppercase">{region}</p>
@@ -295,8 +295,10 @@ export default function GPUPricing() {
                           key={region}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-surface-high text-secondary-foreground border border-border-medium"
                         >
-                          <span>{getRegionFlag(region)}</span>
-                          {getRegionName(region)}
+                          <RegionDisplay
+                            region={region}
+                            nameClassName="text-secondary-foreground"
+                          />
                         </span>
                       ))}
                     </div>

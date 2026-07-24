@@ -26,6 +26,7 @@ export {
   HYPERCLI_LOGO_ICON_SRC,
   HyperCLILogo,
 } from "./components/HyperCLILogo";
+export { RegionDisplay, type RegionDisplayProps } from "./components/RegionDisplay";
 export type {
   AuthFlowState as PrivyAuthFlowState,
   AuthContextType as PrivyAuthContextType,

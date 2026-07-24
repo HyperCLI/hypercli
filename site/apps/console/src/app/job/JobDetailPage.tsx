@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
-import { Header, Footer, formatDateTime, getBadgeClass, cookieUtils, AlertDialog, Modal, getRegionName, getRegionFlag, getAuthBackendUrl, getAuthCookieToken } from "@hypercli/shared-ui";
+import { Header, Footer, formatDateTime, getBadgeClass, cookieUtils, AlertDialog, Modal, getRegionName, getAuthBackendUrl, getAuthCookieToken, RegionDisplay } from "@hypercli/shared-ui";
 import { useRouter } from "next/navigation";
 
 interface Job {
@@ -869,10 +869,7 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
                 <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                   Region
                 </h3>
-                <div className="flex items-center gap-2">
-                  <span className="text-2xl">{getRegionFlag(job.region)}</span>
-                  <span className="text-foreground">{getRegionName(job.region)}</span>
-                </div>
+                <RegionDisplay region={job.region} />
               </div>
 
               {job.runtime && !job.started_at && (

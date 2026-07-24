@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Header, Footer, formatDateTime, getBadgeClass, AlertDialog, getRegionName, getRegionFlag, getAuthBackendUrl, getAuthCookieToken } from "@hypercli/shared-ui";
+import { Header, Footer, formatDateTime, getBadgeClass, AlertDialog, getRegionName, getAuthBackendUrl, getAuthCookieToken, RegionDisplay } from "@hypercli/shared-ui";
 import { useRouter } from "next/navigation";
 import AmountDisplay from "../../components/AmountDisplay";
 
@@ -463,7 +463,10 @@ export default function JobsPage() {
                         )}
                       </div>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider w-24">
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider w-12">
+                      Flag
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider w-32">
                       Region
                     </th>
                     <th
@@ -533,10 +536,12 @@ export default function JobsPage() {
                           {job.gpu_count}x {job.gpu_type}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap w-24 text-sm">
-                        <span className="inline-flex items-center gap-1" title={getRegionName(job.region)}>
-                          <span className="text-lg">{getRegionFlag(job.region)}</span>
-                          <span className="text-foreground">{getRegionName(job.region)}</span>
+                      <td className="px-4 py-4 whitespace-nowrap w-12">
+                        <RegionDisplay region={job.region} showName={false} />
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap w-32 text-sm">
+                        <span className="block max-w-32 truncate text-foreground" title={getRegionName(job.region)}>
+                          {getRegionName(job.region)}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-sm font-mono w-64">
@@ -585,7 +590,7 @@ export default function JobsPage() {
                     {/* Expandable Details Row */}
                     {expandedJobId === job.job_id && (
                       <tr>
-                        <td colSpan={8} className="px-6 py-4 bg-background">
+                        <td colSpan={9} className="px-6 py-4 bg-background">
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                               <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
