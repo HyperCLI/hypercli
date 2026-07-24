@@ -1658,9 +1658,25 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
     return false;
   };
 
+  const dismissAgentDashboardTour = async (): Promise<void> => {
+    const tourDialog = page.getByRole("dialog", { name: /A quick tour of your agent workspace/i }).first();
+    if (!(await tourDialog.isVisible().catch(() => false))) {
+      return;
+    }
+
+    const skipButton = tourDialog.getByRole("button", { name: "Skip tour" }).first();
+    if (await skipButton.isVisible().catch(() => false)) {
+      await skipButton.click();
+    } else {
+      await tourDialog.getByRole("button", { name: "Close agent tour" }).click();
+    }
+    await expect(tourDialog).not.toBeVisible({ timeout: 10_000 });
+  };
+
   const dashboardFetches = waitForAgentDashboardFetches();
   await page.goto("/dashboard/agents", { waitUntil: "domcontentloaded" });
   await dashboardFetches;
+  await dismissAgentDashboardTour();
   await expect(page.getByRole("status", { name: /Loading agents/i })).not.toBeVisible({ timeout: 90_000 });
   await expect(
     page.locator("main").getByText(/Checking your workspace before selecting an agent/i).first()
