@@ -1190,7 +1190,7 @@ def test_agents_get_returns_generic_agent_without_gateway_metadata(agents_client
 
 
 def test_agents_file_ops_use_backend_file_api(agents_client):
-    assert AGENT_FILE_MAX_BYTES == 50 * 1024 * 1024
+    assert AGENT_FILE_MAX_BYTES == 250 * 1024 * 1024
     assert AGENT_FILE_TRANSFER_CHUNK_BYTES == 64 * 1024
 
     class FakeResponse:
@@ -1265,7 +1265,7 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
 
 
 def test_agent_file_write_rejects_content_above_sdk_limit(agents_client):
-    with pytest.raises(ValueError, match="50 MiB"):
+    with pytest.raises(ValueError, match="250 MiB"):
         agents_client.file_write_bytes("agent-123", "too-large.bin", b"x" * (AGENT_FILE_MAX_BYTES + 1))
 
 

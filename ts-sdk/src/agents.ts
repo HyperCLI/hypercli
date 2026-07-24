@@ -60,7 +60,7 @@ export const OPENCLAW_WORKSPACES_SYNC_ENV_DEFAULTS = {
 } as const;
 const LAUNCH_CONFIG_KEYS = new Set(['image', 'env', 'routes', 'ports', 'command', 'entrypoint', 'sync_root', 'sync_enabled', 'sync_uid', 'sync_gid', 'registry_url', 'registry_auth']);
 const DEFAULT_OPENCLAW_SYNC_ROOT = '/home/node';
-export const AGENT_FILE_MAX_BYTES = 50 * 1024 * 1024;
+export const AGENT_FILE_MAX_BYTES = 250 * 1024 * 1024;
 export const AGENT_FILE_TRANSFER_CHUNK_BYTES = 64 * 1024;
 export const AGENT_FILE_OPERATION_TIMEOUT_MS = 300_000;
 

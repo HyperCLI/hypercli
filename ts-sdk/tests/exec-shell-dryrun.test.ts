@@ -1159,7 +1159,7 @@ describe('HyperClaw agents SDK', () => {
   });
 
   it('file operations use the path-based deployment file API', async () => {
-    expect(AGENT_FILE_MAX_BYTES).toBe(50 * 1024 * 1024);
+    expect(AGENT_FILE_MAX_BYTES).toBe(250 * 1024 * 1024);
     expect(AGENT_FILE_TRANSFER_CHUNK_BYTES).toBe(64 * 1024);
     expect(AGENT_FILE_OPERATION_TIMEOUT_MS).toBe(300_000);
 
@@ -1222,6 +1222,6 @@ describe('HyperClaw agents SDK', () => {
     await expect(agents.fileRead('agent-1', '.openclaw')).rejects.toThrow('Path is a directory: .openclaw');
     await expect(
       agents.fileWriteBytes('agent-1', 'workspace/too-large.bin', new Uint8Array(AGENT_FILE_MAX_BYTES + 1)),
-    ).rejects.toThrow('50 MiB');
+    ).rejects.toThrow('250 MiB');
   });
 });
