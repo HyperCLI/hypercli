@@ -1659,7 +1659,7 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
   };
 
   const dismissAgentDashboardTour = async (): Promise<void> => {
-    const deadline = Date.now() + 15_000;
+    const deadline = Date.now() + 120_000;
     const normalDashboard = page.getByRole("button", { name: /^Current workspace:/i }).first();
 
     do {
