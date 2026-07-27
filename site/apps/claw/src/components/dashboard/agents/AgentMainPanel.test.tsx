@@ -20,6 +20,7 @@ vi.mock("@/components/dashboard/agents/AgentPanels", () => {
     creationDisabledReason?: string | null;
     onCreateWorkspace?: () => void;
     onOpenMembers?: () => void;
+    showTrialOffer?: boolean;
   };
   const emptyStateButton = (regionLabel: string, defaultButtonLabel: string) => {
     function EmptyStateButton({
@@ -33,11 +34,13 @@ vi.mock("@/components/dashboard/agents/AgentPanels", () => {
       creationDisabledReason,
       onCreateWorkspace,
       onOpenMembers,
+      showTrialOffer,
     }: EmptyStateMockProps) {
       const workspaceSetupRequired = Boolean(onCreateWorkspace);
       return (
         <section aria-label={regionLabel}>
           {workspaceName ? <p>No agents in {workspaceName}</p> : null}
+          {showTrialOffer ? <p>Trial offer</p> : null}
           <button
             type="button"
             onClick={onCreateWorkspace ?? onLaunchAction ?? onCreate}
@@ -105,12 +108,13 @@ describe("AgentMainPanel", () => {
   it("uses the effective display name in the agent header", () => {
     const selectedAgent = toAgentViewModel(buildSdkAgent({
       name: "research-agent",
+      handle: "research-pilot",
       managed: true,
-    }), { managedDisplayName: "Research Pilot" });
+    }));
 
     renderAgentMainPanel({ selectedAgent });
 
-    expect(screen.getByText("Research Pilot")).toBeInTheDocument();
+    expect(screen.getByText("research-pilot")).toBeInTheDocument();
     expect(screen.queryByText("research-agent")).not.toBeInTheDocument();
   });
 
@@ -133,6 +137,30 @@ describe("AgentMainPanel", () => {
 
     const emptyState = screen.getByRole("region", { name: /first agent empty state/i });
     fireEvent.click(within(emptyState).getByRole("button", { name: /create an agent/i }));
+    expect(onCreate).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Trial offer")).not.toBeInTheDocument();
+  });
+
+  it("replaces panel content with the inline agent launcher", () => {
+    renderAgentMainPanel({
+      selectedAgent: null,
+      launcherContent: <section aria-label="Inline agent launcher">Create agent inline</section>,
+    });
+
+    expect(screen.getByRole("region", { name: "Inline agent launcher" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "First agent empty state" })).not.toBeInTheDocument();
+  });
+
+  it("shows the first-agent trial offer only while signed out", () => {
+    const onCreate = vi.fn();
+    renderAgentMainPanel({
+      selectedAgent: null,
+      isAuthenticated: false,
+      onCreate,
+    });
+
+    expect(screen.getByText("Trial offer")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Create an agent" }));
     expect(onCreate).toHaveBeenCalledTimes(1);
   });
 
@@ -466,6 +494,22 @@ describe("AgentMainPanel", () => {
 
     expect(screen.getByText("Chat panel")).toBeInTheDocument();
     expect(screen.getByTestId("persistent-shell")).toBeInTheDocument();
+  });
+
+  it("keeps persistent panel content mounted while the launcher owns the center panel", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "RUNNING" }));
+    renderAgentMainPanel({
+      selectedAgent,
+      isSelectedRunning: true,
+      currentPanel: "shell",
+      panelContent: <div>Shell panel</div>,
+      persistentPanelContent: <div data-testid="persistent-shell">Shell runtime</div>,
+      launcherContent: <div>Agent launcher</div>,
+    });
+
+    expect(screen.getByText("Agent launcher")).toBeInTheDocument();
+    expect(screen.getByTestId("persistent-shell")).toBeInTheDocument();
+    expect(screen.queryByText("Shell panel")).not.toBeInTheDocument();
   });
 
   it("renders a desktop header return control for the selected session", () => {

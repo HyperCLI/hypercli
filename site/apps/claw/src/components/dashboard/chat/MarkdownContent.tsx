@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { AlertCircle, AlertTriangle, Check, Copy, Info, Lightbulb, ShieldAlert, type LucideIcon } from "lucide-react";
-import Markdown from "react-markdown";
+import Markdown, { defaultUrlTransform } from "react-markdown";
 import remend from "remend";
 import { Prism as SyntaxHighlighter, type SyntaxHighlighterProps } from "react-syntax-highlighter";
 import rehypeKatex from "rehype-katex";
@@ -13,21 +13,23 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import {
   KNOWN_FILE_EXTENSIONS,
+  isAudioFileReference,
   isImageFileReference,
   isKnownNonImageFileReference,
   knownFileExtensionsPattern,
 } from "@hypercli/shared-ui/files";
 import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import { writeClipboardText } from "@/lib/browser-clipboard";
+import { isSafeDirectMediaUrl } from "@/lib/chat-media";
 import {
   isCompleteOpenClawEmbedDirective,
   openClawEmbedFromHref,
   openClawEmbedHref,
   parseOpenClawEmbedDirective,
-  sandboxedOpenClawEmbedDocument,
   type OpenClawEmbed,
 } from "@/lib/openclaw-embed";
 import { ChatImageViewer } from "./ChatImageViewer";
+import { AudioPlayer } from "./AudioPlayer";
 import { useTypewriter } from "./useTypewriter";
 import { ResourceImage } from "@/components/ResourceImage";
 import { TooltipHint } from "@/components/ClawTooltip";
@@ -124,13 +126,53 @@ const FILE_MENTION_PATTERN = new RegExp(
   `(^|[\\s([{<"'])([^\\s)\\]}>"',;:!?]+\\.(?:${FILE_MENTION_EXTENSIONS}))(?=$|[\\s)\\]}>"',.;:!?])`,
   "gi",
 );
+const SAFE_SVG_TAG_NAMES = new Set(["circle", "desc", "ellipse", "g", "line", "path", "polygon", "polyline", "rect", "svg", "text", "title", "tspan"]);
+const SAFE_PICTURE_TAG_NAMES = new Set(["img", "picture", "source"]);
+const SAFE_FIGURE_TAG_NAMES = new Set(["audio", "figcaption", "img", "picture", "svg", "video"]);
+const SAFE_FIGCAPTION_TAG_NAMES = new Set(["a", "abbr", "b", "br", "cite", "code", "del", "em", "i", "kbd", "s", "small", "span", "strong", "sub", "sup"]);
+const SAFE_INDICATOR_FALLBACK_TAG_NAMES = new Set(["abbr", "b", "br", "code", "em", "i", "span", "strong"]);
+const SAFE_SVG_COLOR = /^(?:none|currentColor|transparent|#[\dA-F]{3,8}|rgba?\([^)]*\)|hsla?\([^)]*\)|[A-Za-z]+)$/i;
+const SAFE_SVG_PAINT_ATTRIBUTES: Array<string | [string, RegExp]> = [
+  ["fill", SAFE_SVG_COLOR],
+  ["stroke", SAFE_SVG_COLOR],
+  "fillOpacity",
+  "opacity",
+  "strokeDasharray",
+  "strokeLinecap",
+  "strokeLinejoin",
+  "strokeOpacity",
+  "strokeWidth",
+  "transform",
+  "vectorEffect",
+];
 const MARKDOWN_SANITIZE_SCHEMA: RehypeSanitizeOptions = {
   ...defaultSchema,
-  tagNames: [...(defaultSchema.tagNames ?? []), "abbr", "video"],
+  tagNames: [...(defaultSchema.tagNames ?? []), "abbr", "audio", "circle", "desc", "ellipse", "figcaption", "figure", "g", "line", "meter", "path", "polygon", "polyline", "progress", "rect", "svg", "text", "title", "tspan", "video"],
   attributes: {
     ...defaultSchema.attributes,
-    blockquote: [...(defaultSchema.attributes?.blockquote ?? []), ["dataAlertType", "note", "tip", "important", "warning", "caution"]],
+    audio: ["src", "title"],
+    blockquote: [
+      ...(defaultSchema.attributes?.blockquote ?? []),
+      ["dataAlertType", "note", "tip", "important", "warning", "caution"],
+      ["dataSecurityNotice", "iframe", "object", "canvas", "embed"],
+      "dataSecurityFallback",
+    ],
+    figure: [...(defaultSchema.attributes?.figure ?? []), ["dataMediaGallery", "true"]],
+    img: [...(defaultSchema.attributes?.img ?? []), ["fetchPriority", "high", "low", "auto"]],
+    meter: ["high", "low", "max", "min", "optimum", "value"],
+    progress: ["max", "value"],
     source: [...(defaultSchema.attributes?.source ?? []), "src", "type"],
+    svg: ["ariaLabel", "height", "preserveAspectRatio", ["role", "img", "presentation"], "viewBox", "width"],
+    g: SAFE_SVG_PAINT_ATTRIBUTES,
+    path: ["d", "pathLength", ...SAFE_SVG_PAINT_ATTRIBUTES],
+    circle: ["cx", "cy", "r", ...SAFE_SVG_PAINT_ATTRIBUTES],
+    ellipse: ["cx", "cy", "rx", "ry", ...SAFE_SVG_PAINT_ATTRIBUTES],
+    line: ["x1", "x2", "y1", "y2", ...SAFE_SVG_PAINT_ATTRIBUTES],
+    polygon: ["points", ...SAFE_SVG_PAINT_ATTRIBUTES],
+    polyline: ["points", ...SAFE_SVG_PAINT_ATTRIBUTES],
+    rect: ["height", "rx", "ry", "width", "x", "y", ...SAFE_SVG_PAINT_ATTRIBUTES],
+    text: ["dominantBaseline", "fontSize", "fontWeight", "textAnchor", "x", "y", ...SAFE_SVG_PAINT_ATTRIBUTES],
+    tspan: ["dx", "dy", "fontSize", "fontWeight", "textAnchor", "x", "y", ...SAFE_SVG_PAINT_ATTRIBUTES],
     video: ["src", "title"],
   },
   protocols: {
@@ -141,10 +183,14 @@ const MARKDOWN_SANITIZE_SCHEMA: RehypeSanitizeOptions = {
 const MARKDOWN_REHYPE_PLUGINS: NonNullable<Parameters<typeof Markdown>[0]["rehypePlugins"]> = [
   rehypeSupportedHtml,
   rehypeRaw,
+  rehypeReplaceBlockedActiveContent,
+  rehypeRestrictSvg,
   [rehypeSanitize, MARKDOWN_SANITIZE_SCHEMA],
   rehypeKatex,
 ];
 const MarkdownLinkContext = createContext(false);
+const MarkdownImageGalleryContext = createContext(false);
+const MarkdownPictureContext = createContext(false);
 const MarkdownStreamingContext = createContext(false);
 const MarkdownWorkspaceFileContext = createContext<((path: string) => void) | undefined>(undefined);
 let mermaidImportPromise: Promise<typeof import("mermaid")> | null = null;
@@ -156,6 +202,7 @@ interface MarkdownAbbreviation {
 }
 
 type MarkdownAlertType = "note" | "tip" | "important" | "warning" | "caution";
+type MarkdownSecurityNoticeType = "iframe" | "object" | "canvas" | "embed";
 
 const MARKDOWN_ALERTS: Record<MarkdownAlertType, { label: string; icon: LucideIcon; className: string; iconClassName: string }> = {
   note: {
@@ -191,6 +238,7 @@ const MARKDOWN_ALERTS: Record<MarkdownAlertType, { label: string; icon: LucideIc
 };
 
 function mediaFileNameFromUrl(url: string, fallback = "image"): string {
+  if (/^data:/i.test(url.trim())) return fallback;
   try {
     const parsed = new URL(url, "https://hypercli.local");
     const name = parsed.pathname.split("/").filter(Boolean).pop();
@@ -204,11 +252,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function isVideoHtmlBlock(value: string): boolean {
+function isMediaHtmlBlock(value: string, tagName: "audio" | "video"): boolean {
   const trimmed = value.trim();
-  if (!/^<video(?:\s|>)/i.test(trimmed) || !/<\/video\s*>$/i.test(trimmed) || trimmed.includes("<!--")) return false;
+  const openingTag = new RegExp(`^<${tagName}(?:\\s|>)`, "i");
+  const closingTag = new RegExp(`^<\\/${tagName}\\s*>$`, "i");
+  const closingBlock = new RegExp(`<\\/${tagName}\\s*>$`, "i");
+  if (!openingTag.test(trimmed) || !closingBlock.test(trimmed) || trimmed.includes("<!--")) return false;
   const tags = trimmed.match(/<\/?[A-Za-z][^>]*>/g) ?? [];
-  if (tags.length < 2 || !/^<video(?:\s|>)/i.test(tags[0] ?? "") || !/^<\/video\s*>$/i.test(tags.at(-1) ?? "")) return false;
+  if (tags.length < 2 || !openingTag.test(tags[0] ?? "") || !closingTag.test(tags.at(-1) ?? "")) return false;
   return tags.slice(1, -1).every((tag) => /^<source(?:\s|\/?>)/i.test(tag));
 }
 
@@ -217,18 +268,251 @@ function isKbdHtmlTag(value: string): boolean {
   return /^<kbd(?:\s+[^<>]*)?>$/i.test(trimmed) || /^<\/kbd\s*>$/i.test(trimmed);
 }
 
+function isImageHtmlTag(value: string): boolean {
+  return /^<img(?:\s+[^<>]*)?\/?>$/i.test(value.trim());
+}
+
+function isIframeHtmlBlock(value: string): boolean {
+  const trimmed = value.trim();
+  if (!/^<iframe(?:\s|>)/i.test(trimmed)) return false;
+  return /<\/iframe\s*>$/i.test(trimmed) || /^<iframe(?:\s+[^<>]*)?\/>$/i.test(trimmed);
+}
+
+function isOpeningRawHtmlTag(value: string, tagName: string): boolean {
+  return new RegExp(`^<${tagName}(?:\\s+[^<>]*)?>$`, "i").test(value.trim());
+}
+
+function isClosingRawHtmlTag(value: string, tagName: string): boolean {
+  return new RegExp(`^<\\/${tagName}\\s*>$`, "i").test(value.trim());
+}
+
+function isEmbedHtmlTag(value: string): boolean {
+  return /^<embed(?:\s+[^<>]*)?\/?>$/i.test(value.trim());
+}
+
+function securityNoticeAstNode(type: MarkdownSecurityNoticeType, fallback = ""): Record<string, unknown> {
+  return {
+    type: "element",
+    tagName: "blockquote",
+    properties: {
+      dataSecurityNotice: type,
+      ...(fallback ? { dataSecurityFallback: fallback.slice(0, 500) } : {}),
+    },
+    children: [],
+  };
+}
+
+function closingRawHtmlTagIndex(children: unknown[], startIndex: number, tagName: string): number {
+  return children.findIndex((candidate, index) => (
+    index > startIndex && isRecord(candidate) && candidate.type === "raw" &&
+    typeof candidate.value === "string" && isClosingRawHtmlTag(candidate.value, tagName)
+  ));
+}
+
+function activeContentFallbackFromRange(children: unknown[]): string {
+  const suppressedTags: string[] = [];
+  const text: string[] = [];
+  for (const child of children) {
+    if (!isRecord(child)) continue;
+    if (child.type === "raw" && typeof child.value === "string") {
+      const closingTag = [...suppressedTags].reverse().find((tagName) => isClosingRawHtmlTag(child.value as string, tagName));
+      if (closingTag) {
+        suppressedTags.splice(suppressedTags.lastIndexOf(closingTag), 1);
+        continue;
+      }
+      const openingTag = ["canvas", "iframe", "object", "script", "style"].find((tagName) => isOpeningRawHtmlTag(child.value as string, tagName));
+      if (openingTag) suppressedTags.push(openingTag);
+      continue;
+    }
+    if (suppressedTags.length === 0) text.push(activeContentFallbackText(child));
+  }
+  return text.join(" ").replace(/\s+/g, " ").replace(/\s+([,.;:!?])/g, "$1").trim();
+}
+
+function imageGalleryHtml(value: string): string | null {
+  const trimmed = value.trim();
+  const wrapper = /^<div(?:\s+[^<>]*)?>([\s\S]*)<\/div\s*>$/i.exec(trimmed);
+  const inner = wrapper?.[1] ?? trimmed;
+  const imagePattern = /<img(?:\s+[^<>]*)?\/?>/gi;
+  const images = inner.match(imagePattern) ?? [];
+  if (images.length < 2 || inner.replace(imagePattern, "").trim()) return null;
+  return images.join("\n");
+}
+
+function isActiveContentHtmlBlock(value: string, tagName: "object" | "canvas"): boolean {
+  const trimmed = value.trim();
+  return new RegExp(`^<${tagName}(?:\\s|>)[\\s\\S]*<\\/${tagName}\\s*>$`, "i").test(trimmed);
+}
+
+function isNativeIndicatorHtmlBlock(value: string, tagName: "meter" | "progress"): boolean {
+  const trimmed = value.trim();
+  return new RegExp(`^<${tagName}(?:\\s|>)[\\s\\S]*<\\/${tagName}\\s*>$`, "i").test(trimmed);
+}
+
+function canvasHtmlWithoutTrailingScripts(value: string): string | null {
+  const match = /^(<canvas(?:\s|>)[\s\S]*?<\/canvas\s*>)([\s\S]*)$/i.exec(value.trim());
+  if (!match?.[1] || !/^(?:\s*<script(?:\s|>)[\s\S]*?<\/script\s*>)*\s*$/i.test(match[2] ?? "")) return null;
+  return match[1];
+}
+
+function isSvgHtmlBlock(value: string): boolean {
+  const trimmed = value.trim();
+  return /^<svg(?:\s|>)/i.test(trimmed) && /<\/svg\s*>$/i.test(trimmed);
+}
+
+function isPictureHtmlBlock(value: string): boolean {
+  const trimmed = value.trim();
+  return /^<picture(?:\s|>)/i.test(trimmed) && /<\/picture\s*>$/i.test(trimmed);
+}
+
+function isFigureHtmlBlock(value: string): boolean {
+  const trimmed = value.trim();
+  return /^<figure(?:\s|>)/i.test(trimmed) && /<\/figure\s*>$/i.test(trimmed);
+}
+
+function isOpeningFigureHtmlTag(value: string): boolean {
+  return /^<figure(?:\s+[^<>]*)?>$/i.test(value.trim());
+}
+
+function isClosingFigureHtmlTag(value: string): boolean {
+  return /^<\/figure\s*>$/i.test(value.trim());
+}
+
+function isOpeningPictureHtmlTag(value: string): boolean {
+  return /^<picture(?:\s+[^<>]*)?>$/i.test(value.trim());
+}
+
+function isClosingPictureHtmlTag(value: string): boolean {
+  return /^<\/picture\s*>$/i.test(value.trim());
+}
+
+function isOpeningSvgHtmlTag(value: string): boolean {
+  return /^<svg(?:\s+[^<>]*)?>$/i.test(value.trim());
+}
+
+function isClosingSvgHtmlTag(value: string): boolean {
+  return /^<\/svg\s*>$/i.test(value.trim());
+}
+
+function isInlineAudioHtmlTag(value: string): boolean {
+  const trimmed = value.trim();
+  return /^<audio(?:\s+[^<>]*)?>$/i.test(trimmed) ||
+    /^<\/audio\s*>$/i.test(trimmed) ||
+    /^<source(?:\s+[^<>]*)?\/?>$/i.test(trimmed);
+}
+
 function retainSupportedHtmlInAst(node: unknown): void {
   if (!isRecord(node)) return;
   const children = Array.isArray(node.children) ? node.children : null;
   if (!children) return;
+  let inlineFigureOpen = false;
+  let inlineIndicatorOpen: "meter" | "progress" | null = null;
+  let inlineSvgOpen = false;
+  let inlinePictureOpen = false;
 
   for (let index = 0; index < children.length; index += 1) {
     const child = children[index];
     if (!isRecord(child)) continue;
     if (child.type === "raw") {
-      if (!(typeof child.value === "string" && (isVideoHtmlBlock(child.value) || isKbdHtmlTag(child.value)))) {
+      let raw = typeof child.value === "string" ? child.value : "";
+      const pairedTag = (["iframe", "object", "canvas"] as const).find((tagName) => isOpeningRawHtmlTag(raw, tagName));
+      if (pairedTag) {
+        const closingIndex = closingRawHtmlTagIndex(children, index, pairedTag);
+        if (closingIndex < 0) {
+          children.splice(index);
+          break;
+        }
+        const fallback = pairedTag === "object" || pairedTag === "canvas"
+          ? activeContentFallbackFromRange(children.slice(index + 1, closingIndex))
+          : "";
+        children.splice(index, closingIndex - index + 1, securityNoticeAstNode(pairedTag, fallback));
+        continue;
+      }
+      const strippedTag = (["script", "style"] as const).find((tagName) => isOpeningRawHtmlTag(raw, tagName));
+      if (strippedTag) {
+        const closingIndex = closingRawHtmlTagIndex(children, index, strippedTag);
+        children.splice(index, closingIndex < 0 ? children.length - index : closingIndex - index + 1);
+        index -= 1;
+        continue;
+      }
+      if (isEmbedHtmlTag(raw)) {
+        children[index] = securityNoticeAstNode("embed");
+        continue;
+      }
+      if (isIframeHtmlBlock(raw)) {
+        children[index] = securityNoticeAstNode("iframe");
+        continue;
+      }
+      const splitIndicatorTag = (["meter", "progress"] as const).find((tagName) => isOpeningRawHtmlTag(raw, tagName));
+      if (splitIndicatorTag && closingRawHtmlTagIndex(children, index, splitIndicatorTag) < 0) {
+        children.splice(index);
+        break;
+      }
+      const gallery = imageGalleryHtml(raw);
+      if (gallery) {
+        child.value = `<figure data-media-gallery="true">${gallery}</figure>`;
+        continue;
+      }
+      const canvas = canvasHtmlWithoutTrailingScripts(raw);
+      if (canvas) {
+        child.value = canvas;
+        raw = canvas;
+      }
+      const opensInlineIndicator = splitIndicatorTag && children.slice(index + 1).some((candidate) => (
+        isRecord(candidate) && candidate.type === "raw" && typeof candidate.value === "string" && isClosingRawHtmlTag(candidate.value, splitIndicatorTag)
+      )) ? splitIndicatorTag : undefined;
+      const closesInlineIndicator = inlineIndicatorOpen !== null && isClosingRawHtmlTag(raw, inlineIndicatorOpen);
+      const opensInlineFigure = isOpeningFigureHtmlTag(raw) && children.slice(index + 1).some((candidate) => (
+        isRecord(candidate) && candidate.type === "raw" && typeof candidate.value === "string" && isClosingFigureHtmlTag(candidate.value)
+      ));
+      const closesInlineFigure = inlineFigureOpen && isClosingFigureHtmlTag(raw);
+      const opensInlineSvg = isOpeningSvgHtmlTag(raw) && children.slice(index + 1).some((candidate) => (
+        isRecord(candidate) && candidate.type === "raw" && typeof candidate.value === "string" && isClosingSvgHtmlTag(candidate.value)
+      ));
+      const closesInlineSvg = inlineSvgOpen && isClosingSvgHtmlTag(raw);
+      const opensInlinePicture = isOpeningPictureHtmlTag(raw) && children.slice(index + 1).some((candidate) => (
+        isRecord(candidate) && candidate.type === "raw" && typeof candidate.value === "string" && isClosingPictureHtmlTag(candidate.value)
+      ));
+      const closesInlinePicture = inlinePictureOpen && isClosingPictureHtmlTag(raw);
+      const supported = isMediaHtmlBlock(raw, "audio") ||
+        isMediaHtmlBlock(raw, "video") ||
+        isInlineAudioHtmlTag(raw) ||
+        isImageHtmlTag(raw) ||
+        isActiveContentHtmlBlock(raw, "object") ||
+        isActiveContentHtmlBlock(raw, "canvas") ||
+        isNativeIndicatorHtmlBlock(raw, "meter") ||
+        isNativeIndicatorHtmlBlock(raw, "progress") ||
+        isFigureHtmlBlock(raw) ||
+        isPictureHtmlBlock(raw) ||
+        isSvgHtmlBlock(raw) ||
+        Boolean(opensInlineIndicator) ||
+        inlineIndicatorOpen !== null ||
+        opensInlineFigure ||
+        inlineFigureOpen ||
+        opensInlinePicture ||
+        inlinePictureOpen ||
+        opensInlineSvg ||
+        inlineSvgOpen ||
+        isKbdHtmlTag(raw);
+      if (!supported) {
         children.splice(index, 1);
         index -= 1;
+      } else if (opensInlineIndicator) {
+        inlineIndicatorOpen = opensInlineIndicator;
+      } else if (closesInlineIndicator) {
+        inlineIndicatorOpen = null;
+      } else if (opensInlineFigure) {
+        inlineFigureOpen = true;
+      } else if (closesInlineFigure) {
+        inlineFigureOpen = false;
+      } else if (opensInlineSvg) {
+        inlineSvgOpen = true;
+      } else if (closesInlineSvg) {
+        inlineSvgOpen = false;
+      } else if (opensInlinePicture) {
+        inlinePictureOpen = true;
+      } else if (closesInlinePicture) {
+        inlinePictureOpen = false;
       }
       continue;
     }
@@ -238,6 +522,115 @@ function retainSupportedHtmlInAst(node: unknown): void {
 
 function rehypeSupportedHtml() {
   return (tree: unknown) => retainSupportedHtmlInAst(tree);
+}
+
+const ACTIVE_CONTENT_FALLBACK_SKIP_TAGS = new Set(["canvas", "iframe", "object", "script", "style"]);
+
+function activeContentFallbackText(node: unknown): string {
+  if (!isRecord(node)) return "";
+  if (node.type === "text") return typeof node.value === "string" ? node.value : "";
+  if (node.type === "element" && typeof node.tagName === "string" && ACTIVE_CONTENT_FALLBACK_SKIP_TAGS.has(node.tagName.toLowerCase())) return "";
+  if (!Array.isArray(node.children)) return "";
+  return node.children
+    .map(activeContentFallbackText)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .trim();
+}
+
+function replaceBlockedActiveContent(node: unknown): void {
+  if (!isRecord(node) || !Array.isArray(node.children)) return;
+  for (let index = 0; index < node.children.length; index += 1) {
+    const child = node.children[index];
+    if (!isRecord(child)) continue;
+    const tagName = child.type === "element" && typeof child.tagName === "string" ? child.tagName.toLowerCase() : "";
+    if (tagName === "object" || tagName === "canvas") {
+      const fallback = Array.isArray(child.children)
+        ? child.children.map(activeContentFallbackText).join(" ").replace(/\s+/g, " ").trim().slice(0, 500)
+        : "";
+      node.children[index] = {
+        ...securityNoticeAstNode(tagName, fallback),
+      };
+      continue;
+    }
+    replaceBlockedActiveContent(child);
+  }
+}
+
+function rehypeReplaceBlockedActiveContent() {
+  return (tree: unknown) => replaceBlockedActiveContent(tree);
+}
+
+function restrictEmbeddedMediaSubtrees(
+  node: unknown,
+  insideSvg = false,
+  insidePicture = false,
+  insideAudioOrVideo = false,
+  figureSection: "media" | "caption" | null = null,
+  insideIndicator = false,
+): void {
+  if (!isRecord(node) || !Array.isArray(node.children)) return;
+  for (let index = 0; index < node.children.length; index += 1) {
+    const child = node.children[index];
+    if (!isRecord(child)) continue;
+    const childTagName = child.type === "element" && typeof child.tagName === "string" ? child.tagName.toLowerCase() : null;
+    if (insideSvg && child.type === "element" && (
+      !childTagName || !SAFE_SVG_TAG_NAMES.has(childTagName)
+    )) {
+      node.children.splice(index, 1);
+      index -= 1;
+      continue;
+    }
+    if (insidePicture && child.type === "element" && (
+      !childTagName || !SAFE_PICTURE_TAG_NAMES.has(childTagName)
+    )) {
+      node.children.splice(index, 1);
+      index -= 1;
+      continue;
+    }
+    if (insideAudioOrVideo && child.type === "element" && childTagName !== "source") {
+      node.children.splice(index, 1);
+      index -= 1;
+      continue;
+    }
+    if (insideIndicator && child.type === "element" && (
+      !childTagName || !SAFE_INDICATOR_FALLBACK_TAG_NAMES.has(childTagName)
+    )) {
+      node.children.splice(index, 1);
+      index -= 1;
+      continue;
+    }
+    if (figureSection === "media" && (
+      (child.type === "element" && (!childTagName || !SAFE_FIGURE_TAG_NAMES.has(childTagName))) ||
+      (child.type === "text" && typeof child.value === "string" && child.value.trim())
+    )) {
+      node.children.splice(index, 1);
+      index -= 1;
+      continue;
+    }
+    if (figureSection === "caption" && child.type === "element" && (
+      !childTagName || !SAFE_FIGCAPTION_TAG_NAMES.has(childTagName)
+    )) {
+      node.children.splice(index, 1);
+      index -= 1;
+      continue;
+    }
+    const childInsideSvg = insideSvg || childTagName === "svg";
+    const childInsidePicture = insidePicture || childTagName === "picture";
+    const childInsideAudioOrVideo = insideAudioOrVideo || childTagName === "audio" || childTagName === "video";
+    const childInsideIndicator = insideIndicator || childTagName === "meter" || childTagName === "progress";
+    const childFigureSection = childTagName === "figure"
+      ? "media"
+      : figureSection === "media"
+        ? childTagName === "figcaption" ? "caption" : null
+        : figureSection;
+    restrictEmbeddedMediaSubtrees(child, childInsideSvg, childInsidePicture, childInsideAudioOrVideo, childFigureSection, childInsideIndicator);
+  }
+}
+
+function rehypeRestrictSvg() {
+  return (tree: unknown) => restrictEmbeddedMediaSubtrees(tree);
 }
 
 function escapeRegExp(value: string): string {
@@ -596,15 +989,25 @@ function markdownRemarkPlugins(abbreviations: MarkdownAbbreviation[], linkWorksp
   ];
 }
 
-function isRenderableMarkdownImageSrc(src: string): boolean {
+function normalizeRenderableMarkdownImageSrc(src: string): string | null {
   const trimmed = src.trim();
   const normalized = trimmed.replace(/^\/+/, "");
-  if (!trimmed || /^media:/i.test(trimmed)) return false;
-  if (/^(?:home\/node\/\.openclaw\/workspace|\.?openclaw\/workspace|workspace|home)(?:\/|$)/i.test(normalized)) return false;
-  if (/^(?:data:image\/|blob:)/i.test(trimmed)) return true;
-  if (isImageFileReference(trimmed)) return true;
-  if (/^(?:https?:\/\/|\/)/i.test(trimmed)) return !isKnownNonImageFileReference(trimmed);
-  return false;
+  if (!trimmed || /^media:/i.test(trimmed)) return null;
+  if (/^(?:home\/node\/\.openclaw\/workspace|\.?openclaw\/workspace|workspace|home)(?:\/|$)/i.test(normalized)) return null;
+  if (/^data:image\//i.test(trimmed)) {
+    const match = /^data:image\/(avif|bmp|gif|jpe?g|png|webp);base64,([\s\S]+)$/i.exec(trimmed);
+    if (!match?.[1] || !match[2]) return null;
+    const compactPayload = match[2].replace(/\s+/g, "").replace(/-/g, "+").replace(/_/g, "/");
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(compactPayload)) return null;
+    const unpaddedPayload = compactPayload.replace(/=+$/, "");
+    if (!unpaddedPayload || unpaddedPayload.length % 4 === 1) return null;
+    const paddedPayload = unpaddedPayload.padEnd(Math.ceil(unpaddedPayload.length / 4) * 4, "=");
+    return `data:image/${match[1].toLowerCase()};base64,${paddedPayload}`;
+  }
+  if (/^blob:/i.test(trimmed)) return trimmed;
+  if (isImageFileReference(trimmed)) return trimmed;
+  if (/^(?:https?:\/\/|\/)/i.test(trimmed)) return isKnownNonImageFileReference(trimmed) ? null : trimmed;
+  return null;
 }
 
 function isRenderableMarkdownVideoSrc(src: string): boolean {
@@ -614,6 +1017,20 @@ function isRenderableMarkdownVideoSrc(src: string): boolean {
   if (/^(?:home\/node\/\.openclaw\/workspace|\.?openclaw\/workspace|workspace|home)(?:\/|$)/i.test(normalized)) return false;
   if (/^(?:data:video\/|blob:|https?:\/\/|\/)/i.test(trimmed)) return true;
   return /\.(?:mp4|m4v|mov|webm|ogv|ogg)(?:[?#].*)?$/i.test(trimmed);
+}
+
+function isRenderableMarkdownAudioSrc(src: string): boolean {
+  const trimmed = src.trim();
+  const normalized = trimmed.replace(/^\/+/, "");
+  if (!isSafeDirectMediaUrl(trimmed, "audio")) return false;
+  if (/^(?:home\/node\/\.openclaw\/workspace|\.?openclaw\/workspace|workspace|home)(?:\/|$)/i.test(normalized)) return false;
+  if (/^(?:data:audio\/|blob:|https?:\/\/|\/)/i.test(trimmed)) return true;
+  return isAudioFileReference(trimmed);
+}
+
+function markdownUrlTransform(value: string, key: string): string {
+  if (key === "src" && /^(?:data:(?:audio|image|video)\/|blob:)/i.test(value)) return value;
+  return defaultUrlTransform(value);
 }
 
 function concreteMermaidColor(styles: CSSStyleDeclaration, property: string, fallback: string): string {
@@ -662,7 +1079,7 @@ function MarkdownMermaidDiagram({ chart }: { chart: string }) {
   const error = !trimmedChart ? "Diagram is empty." : currentResult?.error ?? null;
 
   useEffect(() => {
-    if (!trimmedChart) return;
+    if (!trimmedChart || isStreaming) return;
     const attemptId = ++mermaidRenderAttemptId;
     const diagramId = `${diagramIdPrefix}-${attemptId}`;
     activeAttemptRef.current = attemptId;
@@ -692,7 +1109,7 @@ function MarkdownMermaidDiagram({ chart }: { chart: string }) {
     return () => {
       if (activeAttemptRef.current === attemptId) activeAttemptRef.current = 0;
     };
-  }, [chart, diagramIdPrefix, trimmedChart]);
+  }, [chart, diagramIdPrefix, isStreaming, trimmedChart]);
 
   if (error && !isStreaming) {
     return (
@@ -859,7 +1276,7 @@ function MarkdownCodeBlock({ code, language, meta }: { code: string; language?: 
 function MarkdownLink({ href, children, className }: { href?: string; children?: ReactNode; className?: string }) {
   const onOpenWorkspaceFile = useContext(MarkdownWorkspaceFileContext);
   const embed = openClawEmbedFromHref(href);
-  if (embed) return <MarkdownOpenClawEmbed embed={embed} />;
+  if (embed) return <MarkdownBlockedEmbed embed={embed} />;
   const workspacePath = workspacePathFromHref(href);
   const isExternal = typeof href === "string" && /^(?:https?:|mailto:|irc:|ircs:|xmpp:)/i.test(href);
   const link = (
@@ -883,21 +1300,41 @@ function MarkdownLink({ href, children, className }: { href?: string; children?:
   );
 }
 
-function MarkdownImage({ src, alt, title }: { src?: string; alt?: string; title?: string }) {
+function MarkdownImage({ src, alt, title, fetchPriority }: { src?: string; alt?: string; title?: string; fetchPriority?: string }) {
+  const insideGallery = useContext(MarkdownImageGalleryContext);
   const insideLink = useContext(MarkdownLinkContext);
+  const insidePicture = useContext(MarkdownPictureContext);
   const imageAlt = typeof alt === "string" ? alt : "image";
   const imageTitle = typeof title === "string" ? title : undefined;
-  if (!(typeof src === "string" && src && isRenderableMarkdownImageSrc(src))) return <MarkdownMediaUnavailable />;
+  const imageFetchPriority = fetchPriority === "high" || fetchPriority === "low" || fetchPriority === "auto" ? fetchPriority : undefined;
+  const imageSrc = typeof src === "string" ? normalizeRenderableMarkdownImageSrc(src) : null;
+  if (!imageSrc) return insidePicture ? null : <MarkdownMediaUnavailable />;
+  if (insidePicture) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- picture source selection requires a direct img fallback.
+      <img
+        src={imageSrc}
+        alt={imageAlt}
+        title={imageTitle}
+        width={320}
+        height={320}
+        loading="lazy"
+        fetchPriority={imageFetchPriority}
+        className={CHAT_MARKDOWN_IMAGE_CLASS}
+      />
+    );
+  }
   if (insideLink) {
     const image = (
       <ResourceImage
-        src={src}
+        src={imageSrc}
         alt={imageAlt}
         width={320}
         height={320}
         sizes="(max-width: 640px) 100vw, 320px"
         className={CHAT_MARKDOWN_IMAGE_CLASS}
         loading="lazy"
+        fetchPriority={imageFetchPriority}
       />
     );
     return imageTitle ? (
@@ -908,17 +1345,18 @@ function MarkdownImage({ src, alt, title }: { src?: string; alt?: string; title?
   }
   return (
     <ChatImageViewer
-      src={src}
+      src={imageSrc}
       alt={imageAlt}
       title={imageTitle}
       width={320}
       height={320}
-      sizes="(max-width: 640px) 100vw, 320px"
-      className={CHAT_MARKDOWN_IMAGE_CLASS}
-      containerClassName={`${CHAT_MEDIA_LINK_CLASS} my-2`}
+      sizes={insideGallery ? "(max-width: 640px) 50vw, 240px" : "(max-width: 640px) 100vw, 320px"}
+      className={insideGallery ? "h-32 w-full max-w-full rounded-md object-cover sm:h-40" : CHAT_MARKDOWN_IMAGE_CLASS}
+      containerClassName={insideGallery ? "h-full w-full min-w-0 overflow-hidden" : `${CHAT_MEDIA_LINK_CLASS} my-2`}
       loading="lazy"
-      downloadHref={src}
-      downloadFileName={mediaFileNameFromUrl(src, imageAlt)}
+      fetchPriority={imageFetchPriority}
+      downloadHref={imageSrc}
+      downloadFileName={mediaFileNameFromUrl(imageSrc, imageAlt)}
     />
   );
 }
@@ -947,23 +1385,170 @@ function MarkdownVideoSource({ src, type }: { src?: string; type?: string }) {
   return <source src={src} type={sourceType} />;
 }
 
-function MarkdownOpenClawEmbed({ embed }: { embed: OpenClawEmbed }) {
+function safeMarkdownImageSrcSet(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const entries = value.split(",").map((entry) => entry.trim()).filter(Boolean);
+  if (entries.length === 0) return undefined;
+  const safeEntries = entries.map((entry) => {
+    const match = /^(\S+)(?:\s+(\d+w|\d+(?:\.\d+)?x))?$/.exec(entry);
+    if (!match?.[1] || !normalizeRenderableMarkdownImageSrc(match[1]) || /^data:/i.test(match[1])) return null;
+    return `${match[1]}${match[2] ? ` ${match[2]}` : ""}`;
+  });
+  return safeEntries.every((entry): entry is string => Boolean(entry)) ? safeEntries.join(", ") : undefined;
+}
+
+function MarkdownPictureSource({ srcSet, media, type }: { srcSet?: string; media?: string; type?: string }) {
+  const safeSrcSet = safeMarkdownImageSrcSet(srcSet);
+  if (!safeSrcSet) return null;
+  const safeMedia = typeof media === "string" && media.length <= 200 && /^[A-Za-z0-9\s():.,/_-]+$/.test(media) ? media : undefined;
+  const safeType = typeof type === "string" && /^image\/[A-Za-z0-9.+-]+$/i.test(type) ? type : undefined;
+  return <source srcSet={safeSrcSet} media={safeMedia} type={safeType} />;
+}
+
+function MarkdownPicture({ children }: { children?: ReactNode }) {
   return (
-    <figure className="my-2 w-full max-w-[40rem] overflow-hidden rounded-lg border border-border bg-background/50">
-      <figcaption className="border-b border-border/70 px-3 py-2 text-xs font-medium text-text-secondary">
-        {embed.title}
-      </figcaption>
-      <iframe
-        title={embed.title}
-        srcDoc={sandboxedOpenClawEmbedDocument(embed.html)}
-        sandbox=""
-        referrerPolicy="no-referrer"
-        loading="lazy"
-        className="block w-full border-0 bg-white"
-        style={{ height: `${embed.height}px` }}
-      />
-    </figure>
+    <MarkdownPictureContext.Provider value>
+      <picture className="my-2 block max-w-full">{children}</picture>
+    </MarkdownPictureContext.Provider>
   );
+}
+
+function markdownAudioSources(node: unknown): Array<{ src: string; type?: string }> {
+  if (!isRecord(node) || !Array.isArray(node.children)) return [];
+  return node.children.flatMap((child) => {
+    if (!isRecord(child) || child.type !== "element" || child.tagName !== "source" || !isRecord(child.properties)) return [];
+    const src = typeof child.properties.src === "string" ? child.properties.src : "";
+    if (!isRenderableMarkdownAudioSrc(src)) return [];
+    const type = typeof child.properties.type === "string" && /^audio\/[A-Za-z0-9.+-]+$/i.test(child.properties.type)
+      ? child.properties.type
+      : undefined;
+    return [{ src, ...(type ? { type } : {}) }];
+  });
+}
+
+function MarkdownAudio({ src, title, node }: { src?: string; title?: string; node?: unknown }) {
+  const audioSrc = typeof src === "string" && isRenderableMarkdownAudioSrc(src) ? src : undefined;
+  const sources = markdownAudioSources(node);
+  const primarySource = audioSrc ?? sources[0]?.src;
+  const label = title || (primarySource ? mediaFileNameFromUrl(primarySource, "Audio") : "Audio");
+  return (
+    <AudioPlayer
+      src={audioSrc}
+      sources={sources}
+      title={label}
+      downloadHref={primarySource}
+      downloadFileName={primarySource ? mediaFileNameFromUrl(primarySource, "audio") : undefined}
+      className="my-2"
+    />
+  );
+}
+
+function markdownIndicatorNumber(value: unknown): number | undefined {
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function MarkdownProgress({ value, max, children }: { value?: unknown; max?: unknown; children?: ReactNode }) {
+  const parsedMax = markdownIndicatorNumber(max);
+  const safeMax = parsedMax !== undefined && parsedMax > 0 ? parsedMax : 1;
+  const parsedValue = markdownIndicatorNumber(value);
+  const safeValue = parsedValue === undefined ? undefined : Math.min(safeMax, Math.max(0, parsedValue));
+  const percentage = safeValue === undefined ? null : Math.round((safeValue / safeMax) * 100);
+  return (
+    <progress
+      value={safeValue}
+      max={safeMax}
+      aria-label={percentage === null ? "Progress" : `${percentage}% complete`}
+      className="my-2 block h-3 w-full max-w-sm overflow-hidden rounded-full accent-[var(--selection-accent)]"
+    >
+      {children}
+    </progress>
+  );
+}
+
+function MarkdownMeter({ value, min, max, low, high, optimum, children }: {
+  value?: unknown;
+  min?: unknown;
+  max?: unknown;
+  low?: unknown;
+  high?: unknown;
+  optimum?: unknown;
+  children?: ReactNode;
+}) {
+  const safeMin = markdownIndicatorNumber(min) ?? 0;
+  const parsedMax = markdownIndicatorNumber(max);
+  const safeMax = parsedMax !== undefined && parsedMax > safeMin ? parsedMax : safeMin + 1;
+  const parsedValue = markdownIndicatorNumber(value) ?? safeMin;
+  const safeValue = Math.min(safeMax, Math.max(safeMin, parsedValue));
+  const boundedOptionalValue = (candidate: unknown) => {
+    const parsed = markdownIndicatorNumber(candidate);
+    return parsed !== undefined && parsed >= safeMin && parsed <= safeMax ? parsed : undefined;
+  };
+  const percentage = Math.round(((safeValue - safeMin) / (safeMax - safeMin)) * 100);
+  return (
+    <meter
+      value={safeValue}
+      min={safeMin}
+      max={safeMax}
+      low={boundedOptionalValue(low)}
+      high={boundedOptionalValue(high)}
+      optimum={boundedOptionalValue(optimum)}
+      aria-label={`${percentage}%`}
+      className="my-2 block h-3 w-full max-w-sm accent-[var(--selection-accent)]"
+    >
+      {children}
+    </meter>
+  );
+}
+
+const MARKDOWN_SECURITY_NOTICES: Record<MarkdownSecurityNoticeType, { label: string; description: string }> = {
+  iframe: {
+    label: "Embedded frame blocked",
+    description: "Iframes can load untrusted pages and run active content, so they are not displayed in chat.",
+  },
+  object: {
+    label: "Embedded object blocked",
+    description: "Object embeds can load untrusted external content or legacy plugins, so they are not displayed in chat.",
+  },
+  canvas: {
+    label: "Interactive canvas blocked",
+    description: "Script-driven canvases require executable content, which is not run in chat.",
+  },
+  embed: {
+    label: "Legacy embed blocked",
+    description: "Embed tags can load untrusted external content or legacy plugins, so they are not displayed in chat.",
+  },
+};
+
+function MarkdownSecurityNotice({ type, title, fallback }: { type: MarkdownSecurityNoticeType; title?: string; fallback?: string }) {
+  const notice = MARKDOWN_SECURITY_NOTICES[type];
+  return (
+    <aside
+      role="note"
+      aria-label={notice.label}
+      className={`${MARKDOWN_WRAP_CLASS} my-3 rounded-r-lg border-l-[3px] border-warning/60 bg-warning/8 px-3 py-2.5`}
+    >
+      <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-warning">
+        <ShieldAlert aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+        <span>{notice.label}</span>
+      </div>
+      <p className="text-sm text-text-secondary">
+        {title ? `${title} was not displayed. ` : ""}
+        {notice.description}
+      </p>
+      {fallback && (
+        <p className="mt-2 border-t border-warning/20 pt-2 text-xs text-text-muted">
+          <span className="font-medium text-text-secondary">Fallback:</span> {fallback}
+        </p>
+      )}
+    </aside>
+  );
+}
+
+function MarkdownBlockedEmbed({ embed }: { embed: OpenClawEmbed }) {
+  return <MarkdownSecurityNotice type="iframe" title={embed.title} />;
 }
 
 function MarkdownAlert({ type, children }: { type: MarkdownAlertType; children?: ReactNode }) {
@@ -989,6 +1574,34 @@ function markdownAlertTypeFromNode(node: unknown): MarkdownAlertType | null {
   return markdownAlertType(node.properties.dataAlertType);
 }
 
+function markdownSecurityNoticeFromNode(node: unknown): { type: MarkdownSecurityNoticeType; fallback?: string } | null {
+  if (!isRecord(node) || !isRecord(node.properties)) return null;
+  const type = node.properties.dataSecurityNotice;
+  if (type !== "iframe" && type !== "object" && type !== "canvas" && type !== "embed") return null;
+  const fallback = typeof node.properties.dataSecurityFallback === "string" ? node.properties.dataSecurityFallback : undefined;
+  return { type, ...(fallback ? { fallback } : {}) };
+}
+
+function isMarkdownImageGalleryNode(node: unknown): boolean {
+  return isRecord(node) && isRecord(node.properties) && node.properties.dataMediaGallery === "true";
+}
+
+function MarkdownImageGallery({ children }: { children?: ReactNode }) {
+  return (
+    <MarkdownImageGalleryContext.Provider value>
+      <figure aria-label="Image gallery" className={`${MARKDOWN_WRAP_CLASS} my-3 grid w-full max-w-[48rem] grid-cols-2 gap-2 sm:grid-cols-3`}>
+        {children}
+      </figure>
+    </MarkdownImageGalleryContext.Provider>
+  );
+}
+
+function markdownParagraphContainsBlockMedia(node: unknown): boolean {
+  return isRecord(node) && Array.isArray(node.children) && node.children.some((child) => (
+    isRecord(child) && child.type === "element" && typeof child.tagName === "string" && ["audio", "blockquote", "figure", "video"].includes(child.tagName)
+  ));
+}
+
 function MarkdownTaskCheckbox({ initialChecked }: { initialChecked: boolean }) {
   const [checked, setChecked] = useState(initialChecked);
   return (
@@ -1004,7 +1617,9 @@ function MarkdownTaskCheckbox({ initialChecked }: { initialChecked: boolean }) {
 }
 
 const CHAT_MARKDOWN_COMPONENTS: Parameters<typeof Markdown>[0]["components"] = {
-  p: ({ children }) => <p className={MARKDOWN_BLOCK_CLASS}>{children}</p>,
+  p: ({ children, node }) => markdownParagraphContainsBlockMedia(node)
+    ? <div className={MARKDOWN_BLOCK_CLASS}>{children}</div>
+    : <p className={MARKDOWN_BLOCK_CLASS}>{children}</p>,
   strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
   em: ({ children }) => <em className="italic">{children}</em>,
   kbd: ({ children }) => (
@@ -1050,6 +1665,8 @@ const CHAT_MARKDOWN_COMPONENTS: Parameters<typeof Markdown>[0]["components"] = {
   h2: ({ children, className }) => <h2 className={`${className ?? ""} ${MARKDOWN_WRAP_CLASS} mb-2 text-base font-bold`}>{children}</h2>,
   h3: ({ children, className }) => <h3 className={`${className ?? ""} ${MARKDOWN_WRAP_CLASS} mb-1 text-sm font-bold`}>{children}</h3>,
   blockquote: ({ children, node }) => {
+    const securityNotice = markdownSecurityNoticeFromNode(node);
+    if (securityNotice) return <MarkdownSecurityNotice {...securityNotice} />;
     const alertType = markdownAlertTypeFromNode(node);
     return alertType
       ? <MarkdownAlert type={alertType}>{children}</MarkdownAlert>
@@ -1063,11 +1680,41 @@ const CHAT_MARKDOWN_COMPONENTS: Parameters<typeof Markdown>[0]["components"] = {
   ),
   th: ({ children }) => <th className={`${MARKDOWN_TABLE_CELL_CLASS} font-semibold text-foreground`}>{children}</th>,
   td: ({ children }) => <td className={`${MARKDOWN_TABLE_CELL_CLASS} text-text-secondary`}>{children}</td>,
-  img: ({ src, alt, title }) => (
+  img: ({ src, alt, title, fetchPriority }) => (
     <MarkdownImage
       src={typeof src === "string" ? src : undefined}
       alt={typeof alt === "string" ? alt : undefined}
       title={typeof title === "string" ? title : undefined}
+      fetchPriority={typeof fetchPriority === "string" ? fetchPriority : undefined}
+    />
+  ),
+  svg: ({ children, node, className, ...props }) => {
+    void node;
+    return (
+      <svg
+        {...props}
+        role="img"
+        aria-label={props["aria-label"] ?? "Inline SVG"}
+        className={`${className ?? ""} my-2 h-auto max-h-[320px] max-w-full`}
+      >
+        {children}
+      </svg>
+    );
+  },
+  picture: ({ children }) => <MarkdownPicture>{children}</MarkdownPicture>,
+  progress: ({ value, max, children }) => <MarkdownProgress value={value} max={max}>{children}</MarkdownProgress>,
+  meter: ({ value, min, max, low, high, optimum, children }) => (
+    <MarkdownMeter value={value} min={min} max={max} low={low} high={high} optimum={optimum}>{children}</MarkdownMeter>
+  ),
+  figure: ({ children, node }) => isMarkdownImageGalleryNode(node)
+    ? <MarkdownImageGallery>{children}</MarkdownImageGallery>
+    : <figure className={`${MARKDOWN_WRAP_CLASS} my-3 w-fit max-w-full`}>{children}</figure>,
+  figcaption: ({ children }) => <figcaption className="mt-1.5 max-w-prose text-xs italic text-text-secondary">{children}</figcaption>,
+  audio: ({ src, title, node }) => (
+    <MarkdownAudio
+      src={typeof src === "string" ? src : undefined}
+      title={typeof title === "string" ? title : undefined}
+      node={node}
     />
   ),
   video: ({ src, title, children }) => (
@@ -1078,12 +1725,20 @@ const CHAT_MARKDOWN_COMPONENTS: Parameters<typeof Markdown>[0]["components"] = {
       {children}
     </MarkdownVideo>
   ),
-  source: ({ src, type }) => (
-    <MarkdownVideoSource
-      src={typeof src === "string" ? src : undefined}
-      type={typeof type === "string" ? type : undefined}
-    />
-  ),
+  source: ({ src, srcSet, media, type }) => typeof srcSet === "string"
+    ? (
+      <MarkdownPictureSource
+        srcSet={srcSet}
+        media={typeof media === "string" ? media : undefined}
+        type={typeof type === "string" ? type : undefined}
+      />
+    )
+    : (
+      <MarkdownVideoSource
+        src={typeof src === "string" ? src : undefined}
+        type={typeof type === "string" ? type : undefined}
+      />
+    ),
 };
 
 function renderMarkdown(text: string, linkWorkspaceFiles: boolean) {
@@ -1093,6 +1748,7 @@ function renderMarkdown(text: string, linkWorkspaceFiles: boolean) {
       components={CHAT_MARKDOWN_COMPONENTS}
       rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
       remarkPlugins={markdownRemarkPlugins(prepared.abbreviations, linkWorkspaceFiles, prepared.content)}
+      urlTransform={markdownUrlTransform}
     >
       {prepared.content}
     </Markdown>

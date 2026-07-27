@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -58,7 +58,7 @@ describe("AgentsSidebarDashboardLinks", () => {
     expect(document.querySelector(".agents-dashboard-links")).toHaveClass("bg-[var(--agent-roster-background)]");
   });
 
-  it("places Home above My Agents and workspace tools under Administration", () => {
+  it("places Home first under Administration", () => {
     const onOpenHome = vi.fn();
     const onOpenKnowledge = vi.fn();
     const onOpenMembers = vi.fn();
@@ -92,8 +92,10 @@ describe("AgentsSidebarDashboardLinks", () => {
     const rosterScroll = document.querySelector(".agents-roster-scroll");
     const agentList = document.querySelector(".agents-roster-agent-list");
 
-    expect(home.compareDocumentPosition(myAgents) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(myAgents.compareDocumentPosition(administration) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(administration).toContainElement(home);
+    expect(administration.children[1]).toBe(home);
+    expect(home.compareDocumentPosition(sharedKnowledge) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(rosterScroll).toHaveClass("flex-col", "overflow-hidden");
     expect(agentList).toHaveClass("shrink", "overflow-y-auto");
     expect(administration).toHaveClass("shrink-0");
@@ -154,7 +156,7 @@ describe("AgentsChannelsSidebar", () => {
     expect(onOpenAgentLauncher).not.toHaveBeenCalled();
   });
 
-  it("exposes agent rows as selectable buttons", () => {
+  it("exposes agent rows as selectable buttons without delete actions", () => {
     const onSelectThread = vi.fn();
     const onDeleteThread = vi.fn();
     render(
@@ -198,7 +200,7 @@ describe("AgentsChannelsSidebar", () => {
     expect(onSelectThread).toHaveBeenCalledWith("agent-2");
     fireEvent.keyDown(secondary, { key: "Enter" });
     expect(onSelectThread).toHaveBeenCalledTimes(2);
-    fireEvent.keyDown(within(secondary).getByRole("button", { name: "Delete agent" }), { key: "Enter" });
+    expect(screen.queryByRole("button", { name: "Delete agent" })).not.toBeInTheDocument();
     expect(onDeleteThread).not.toHaveBeenCalled();
     expect(onSelectThread).toHaveBeenCalledTimes(2);
     expect(screen.getByRole("button", { name: "Select Primary Agent" })).toHaveAttribute("aria-current", "page");

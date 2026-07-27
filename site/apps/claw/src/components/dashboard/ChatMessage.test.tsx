@@ -1,10 +1,17 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { getStoredToken } from "@/lib/api";
 import { createAgentClient } from "@/lib/agent-client";
 import { normalizeHistoryMessage } from "@/lib/openclaw-chat";
 import { ChatMessageBubble } from "./ChatMessage";
+
+function expectBoundedMediaRead(readFileBytes: unknown, path: string) {
+  expect(readFileBytes).toHaveBeenCalledWith(path, {
+    maxBytes: 64 * 1024 * 1024,
+    signal: expect.any(AbortSignal),
+  });
+}
 import { parseDirectoryVisualization } from "./chat/DirectoryVisualization";
 
 vi.mock("@/lib/api", () => ({
@@ -257,7 +264,12 @@ describe("ChatMessageBubble", () => {
     expect(screen.getByRole("status", { name: /loading image/i })).toBeInTheDocument();
     expect(screen.queryByText("bosquejo.png")).not.toBeInTheDocument();
     await waitFor(() => {
-      expect(fileReadBytes).toHaveBeenCalledWith("agent-123", ".openclaw/workspace/bosquejo.png");
+      expect(fileReadBytes).toHaveBeenCalledWith(
+        "agent-123",
+        ".openclaw/workspace/bosquejo.png",
+        "auto",
+        { maxBytes: 64 * 1024 * 1024, signal: expect.any(AbortSignal) },
+      );
     });
   });
 
@@ -290,8 +302,57 @@ describe("ChatMessageBubble", () => {
     );
 
     expect(await screen.findByAltText("bosquejo.png")).toBeInTheDocument();
-    expect(readFileBytes).toHaveBeenCalledWith(file.path);
+    expectBoundedMediaRead(readFileBytes, file.path);
     expect(createAgentClient).not.toHaveBeenCalled();
+  });
+
+  it("defers workspace media reads until the preview is near the viewport", async () => {
+    const originalIntersectionObserver = window.IntersectionObserver;
+    let observerCallback: IntersectionObserverCallback = () => undefined;
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+    class TestIntersectionObserver {
+      constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) {
+        observerCallback = callback;
+        expect(options?.rootMargin).toBe("800px 0px");
+      }
+      observe = observe;
+      disconnect = disconnect;
+    }
+    vi.stubGlobal("IntersectionObserver", TestIntersectionObserver);
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:deferred-chat-preview"),
+    });
+    const readFileBytes = vi.fn().mockResolvedValue(new Uint8Array([137, 80, 78, 71]));
+
+    try {
+      render(
+        <ChatMessageBubble
+          agentId="agent-123"
+          message={{
+            role: "assistant",
+            content: "Generated an image.",
+            files: [{ name: "deferred.png", path: "/workspace/deferred.png", type: "image/png" }],
+          }}
+          onReadFileBytesFromChat={readFileBytes}
+        />,
+      );
+
+      expect(screen.getByRole("status", { name: "Loading image" })).toBeInTheDocument();
+      expect(observe).toHaveBeenCalledTimes(1);
+      expect(readFileBytes).not.toHaveBeenCalled();
+
+      act(() => {
+        observerCallback([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver);
+      });
+
+      expect(await screen.findByAltText("deferred.png")).toBeInTheDocument();
+      expectBoundedMediaRead(readFileBytes, "/workspace/deferred.png");
+      expect(disconnect).toHaveBeenCalled();
+    } finally {
+      vi.stubGlobal("IntersectionObserver", originalIntersectionObserver);
+    }
   });
 
   it("does not render duplicate workspace image previews when an inline attachment is present", () => {
@@ -571,7 +632,7 @@ describe("ChatMessageBubble", () => {
     );
 
     expect(await screen.findByAltText("865621.jpg")).toBeInTheDocument();
-    expect(readFileBytes).toHaveBeenCalledWith(".openclaw/workspace/865621.jpg");
+    expectBoundedMediaRead(readFileBytes, ".openclaw/workspace/865621.jpg");
     expect(screen.queryByText(/MEDIA:\/home\/node\/\.openclaw\/workspace\/865621\.jpg/i)).not.toBeInTheDocument();
     const mediaLabel = screen.getByText("865621.jpg");
     fireEvent.focus(mediaLabel);
@@ -616,7 +677,7 @@ describe("ChatMessageBubble", () => {
     await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
     expect(createObjectURL.mock.calls[0]?.[0]).toBeInstanceOf(Blob);
     expect((createObjectURL.mock.calls[0]?.[0] as Blob).type).toBe("image/svg+xml");
-    expect(readFileBytes).toHaveBeenCalledWith(".openclaw/workspace/test-image.svg");
+    expectBoundedMediaRead(readFileBytes, ".openclaw/workspace/test-image.svg");
   });
 
   it("renders MEDIA workspace urls as generated media without showing MEDIA text", () => {
@@ -635,7 +696,7 @@ describe("ChatMessageBubble", () => {
     );
 
     expect(screen.getByRole("status", { name: /loading image/i })).toBeInTheDocument();
-    expect(readFileBytes).toHaveBeenCalledWith(".openclaw/workspace/865621.jpg");
+    expectBoundedMediaRead(readFileBytes, ".openclaw/workspace/865621.jpg");
     expect(screen.queryByText(/^media:?$/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/MEDIA:\/home\/node\/\.openclaw\/workspace\/865621\.jpg/i)).not.toBeInTheDocument();
   });
@@ -666,7 +727,7 @@ describe("ChatMessageBubble", () => {
     expect(screen.queryByText("Generated audio:")).not.toBeInTheDocument();
     expect(screen.queryByText(/MEDIA:\/home\/node\/\.openclaw\/workspace\/voice-clip\.mp3/i)).not.toBeInTheDocument();
     await waitFor(() => {
-      expect(readFileBytes).toHaveBeenCalledWith(".openclaw/workspace/voice-clip.mp3");
+      expectBoundedMediaRead(readFileBytes, ".openclaw/workspace/voice-clip.mp3");
     });
   });
 
@@ -728,7 +789,7 @@ describe("ChatMessageBubble", () => {
     expect(await screen.findByLabelText(/video preview generated-demo-clip\.mp4/i)).toHaveAttribute("src", "blob:generated-video");
     expect(screen.queryByText(/MEDIA:\/home\/node\/\.openclaw\/workspace\/generated-demo-clip\.mp4/i)).not.toBeInTheDocument();
     await waitFor(() => {
-      expect(readFileBytes).toHaveBeenCalledWith(".openclaw/workspace/generated-demo-clip.mp4");
+      expectBoundedMediaRead(readFileBytes, ".openclaw/workspace/generated-demo-clip.mp4");
     });
   });
 
@@ -761,7 +822,7 @@ describe("ChatMessageBubble", () => {
     expect(screen.getByRole("button", { name: /play reply-summary\.mp3/i })).toBeInTheDocument();
     expect(screen.queryByText(/audio reply/i)).not.toBeInTheDocument();
     await waitFor(() => {
-      expect(readFileBytes).toHaveBeenCalledWith("/home/node/.openclaw/workspace/reply-summary.mp3");
+      expectBoundedMediaRead(readFileBytes, "/home/node/.openclaw/workspace/reply-summary.mp3");
     });
   });
 
@@ -785,6 +846,53 @@ describe("ChatMessageBubble", () => {
 
     expect(screen.getAllByRole("button", { name: /play reply-summary\.mp3/i })).toHaveLength(1);
     expect(screen.queryByText(/audio reply/i)).not.toBeInTheDocument();
+  });
+
+  it("does not duplicate attached audio referenced by MEDIA content and media urls", () => {
+    const file = {
+      name: "tts-serena.mp3",
+      path: "/home/node/.openclaw/workspace/tts-serena.mp3",
+      type: "audio/mpeg",
+    };
+    const readFileBytes = vi.fn(() => new Promise<Uint8Array>(() => {}));
+
+    render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        message={{
+          role: "assistant",
+          content: `TTS reply:\nMEDIA:${file.path}`,
+          files: [file],
+          mediaUrls: [`media://outbound/${file.name}`],
+        }}
+        onReadFileBytesFromChat={readFileBytes}
+      />,
+    );
+
+    expect(screen.getAllByRole("button", { name: /play tts-serena\.mp3/i })).toHaveLength(1);
+    expect(readFileBytes).toHaveBeenCalledTimes(1);
+  });
+
+  it("suppresses TTS carrier text when a path-derived player is shown", () => {
+    const readFileBytes = vi.fn(() => new Promise<Uint8Array>(() => {}));
+
+    render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        inlineAudioFile={{
+          agentId: "agent-123",
+          path: "/home/node/.openclaw/workspace/tts-serena.mp3",
+        }}
+        message={{
+          role: "assistant",
+          content: "TTS speech saved at /home/node/.openclaw/workspace/tts-serena.mp3",
+        }}
+        onReadFileBytesFromChat={readFileBytes}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /play tts-serena\.mp3/i })).toBeInTheDocument();
+    expect(screen.queryByText(/tts speech saved/i)).not.toBeInTheDocument();
   });
 
   it("renders direct audio media urls with playback and download controls", () => {
@@ -821,9 +929,10 @@ describe("ChatMessageBubble", () => {
   });
 
   it("renders workspace audio file attachments with the chat audio player", async () => {
+    const createObjectURL = vi.fn(() => "blob:voice-attachment");
     Object.defineProperty(URL, "createObjectURL", {
       configurable: true,
-      value: vi.fn(() => "blob:voice-attachment"),
+      value: createObjectURL,
     });
     Object.defineProperty(URL, "revokeObjectURL", {
       configurable: true,
@@ -851,8 +960,9 @@ describe("ChatMessageBubble", () => {
     expect(screen.getByRole("button", { name: /play voice-message\.webm/i })).toBeInTheDocument();
     expect(screen.queryByText("voice-message.webm")).toBeInTheDocument();
     await waitFor(() => {
-      expect(readFileBytes).toHaveBeenCalledWith(file.path);
+      expectBoundedMediaRead(readFileBytes, file.path);
     });
+    expect((createObjectURL.mock.calls[0]?.[0] as Blob).type).toBe("audio/webm");
   });
 
   it("hides voice-note transcription instructions when the sent audio file is attached", async () => {
@@ -887,7 +997,7 @@ describe("ChatMessageBubble", () => {
     expect(screen.queryByText(/I recorded a voice message/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/hyper voice transcribe/i)).not.toBeInTheDocument();
     await waitFor(() => {
-      expect(readFileBytes).toHaveBeenCalledWith(file.path);
+      expectBoundedMediaRead(readFileBytes, file.path);
     });
   });
 
@@ -943,7 +1053,7 @@ describe("ChatMessageBubble", () => {
 
     expect(screen.queryByRole("status", { name: /loading preview/i })).not.toBeInTheDocument();
     expect(screen.getByRole("status", { name: /loading image/i })).toBeInTheDocument();
-    expect(readFileBytes).toHaveBeenCalledWith(".openclaw/workspace/865621.jpg");
+    expectBoundedMediaRead(readFileBytes, ".openclaw/workspace/865621.jpg");
     expect(screen.queryByText(/^media:?$/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/MEDIA:\/home\/node\/\.openclaw\/workspace\/865621\.jpg/i)).not.toBeInTheDocument();
   });
@@ -1052,7 +1162,7 @@ describe("ChatMessageBubble", () => {
     );
 
     expect(screen.getByRole("status", { name: /loading image/i })).toBeInTheDocument();
-    expect(readFileBytes).toHaveBeenCalledWith(".openclaw/workspace/865621.jpg");
+    expectBoundedMediaRead(readFileBytes, ".openclaw/workspace/865621.jpg");
     expect(screen.queryByText(/^media$/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /view media/i })).not.toBeInTheDocument();
   });
@@ -1088,7 +1198,7 @@ describe("ChatMessageBubble", () => {
     );
 
     expect(screen.getByRole("status", { name: /loading image/i })).toBeInTheDocument();
-    expect(readFileBytes).toHaveBeenCalledWith(".openclaw/workspace/865621.jpg");
+    expectBoundedMediaRead(readFileBytes, ".openclaw/workspace/865621.jpg");
     const mediaLabel = screen.getByText("865621.jpg");
     fireEvent.focus(mediaLabel);
     expect(await screen.findByRole("tooltip")).toHaveTextContent("MEDIA:/home/865621.jpg");

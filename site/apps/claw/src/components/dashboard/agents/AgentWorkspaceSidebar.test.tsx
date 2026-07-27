@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import type { ComponentProps, ReactNode } from "react";
+import { useState, type ComponentProps, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent } from "@/app/dashboard/agents/types";
@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => {
     marketingWorkspace,
     productWorkspace,
     workspacesClient,
+    preloadShell: vi.fn(),
     workspaceContext: {
       principalId: "user-1" as string | null,
       workspacesClient: workspacesClient as typeof workspacesClient | null,
@@ -52,6 +53,10 @@ const mocks = vi.hoisted(() => {
 vi.mock("@/components/dashboard/WorkspaceContext", () => ({
   useWorkspace: () => mocks.workspaceContext,
   workspaceDisplayName: (workspace: { displayName?: string | null; name: string }) => workspace.displayName?.trim() || workspace.name,
+}));
+
+vi.mock("@/lib/agent-shell-terminal-loader", () => ({
+  preloadAgentShellTerminalRuntime: mocks.preloadShell,
 }));
 
 vi.mock("@hypercli/shared-ui", () => ({
@@ -166,6 +171,7 @@ describe("AgentWorkspaceSidebar", () => {
     mocks.workspaceContext.selectWorkspace.mockReset();
     mocks.workspaceContext.createWorkspace.mockReset().mockResolvedValue(mocks.productWorkspace);
     mocks.workspacesClient.grant.mockReset().mockResolvedValue({ id: "grant-1" });
+    mocks.preloadShell.mockReset();
   });
 
   it("selects an available Workspace from the sidebar menu", () => {
@@ -276,6 +282,37 @@ describe("AgentWorkspaceSidebar", () => {
     expect(onCollapsedChange).toHaveBeenCalledWith(false);
   });
 
+  it("expands the collapsed workspace sidebar when an option is selected", () => {
+    const onCollapsedChange = vi.fn();
+    const props = renderAgentWorkspaceSidebar({ collapsed: true, onCollapsedChange });
+
+    fireEvent.click(screen.getByRole("button", { name: "Files" }));
+
+    expect(onCollapsedChange).toHaveBeenCalledWith(false);
+    expect(props.onOpenFiles).toHaveBeenCalledTimes(1);
+  });
+
+  it("expands the collapsed workspace sidebar before rendering the Advanced menu", () => {
+    const onOpenSettings = vi.fn();
+    const props = agentWorkspaceSidebarProps({ onOpenSettings });
+    function Harness() {
+      const [collapsed, setCollapsed] = useState(true);
+      return <AgentWorkspaceSidebar {...props} collapsed={collapsed} onCollapsedChange={setCollapsed} />;
+    }
+    renderWithClient(<Harness />);
+
+    expect(document.querySelector(".agent-workspace-shell")).toHaveAttribute("data-collapsed", "true");
+    expect(document.querySelector(".agent-workspace-advanced [role='menu']")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
+
+    expect(document.querySelector(".agent-workspace-shell")).toHaveAttribute("data-collapsed", "false");
+    const advancedMenu = document.querySelector<HTMLElement>(".agent-workspace-advanced [role='menu']");
+    expect(advancedMenu).toHaveClass("bottom-full", "left-3", "right-3");
+    fireEvent.click(within(advancedMenu!).getByRole("menuitem", { name: "Settings" }));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps the shared header visible while only the navigation body is collapsed", () => {
     renderAgentWorkspaceSidebar({ collapsed: true, embeddedInNavigation: true });
 
@@ -334,6 +371,32 @@ describe("AgentWorkspaceSidebar", () => {
     renderAgentWorkspaceSidebar();
 
     expect(screen.queryByRole("button", { name: "Desktop" })).not.toBeInTheDocument();
+  });
+
+  it("warms the Shell runtime only from Shell-specific navigation intent", () => {
+    const onShellIntent = vi.fn();
+    const onShellIntentEnd = vi.fn();
+    const props = renderAgentWorkspaceSidebar({ onShellIntent, onShellIntentEnd });
+    const advanced = screen.getByRole("button", { name: "Advanced" });
+
+    fireEvent.pointerEnter(advanced);
+    expect(mocks.preloadShell).not.toHaveBeenCalled();
+    expect(onShellIntent).not.toHaveBeenCalled();
+    fireEvent.click(advanced);
+    fireEvent.pointerLeave(document.querySelector(".agent-workspace-advanced")!);
+    expect(onShellIntentEnd).not.toHaveBeenCalled();
+
+    const shell = screen.getByRole("menuitem", { name: "Shell" });
+    fireEvent.pointerEnter(shell);
+    expect(mocks.preloadShell).not.toHaveBeenCalled();
+    expect(onShellIntent).toHaveBeenCalledTimes(1);
+    fireEvent.click(shell);
+
+    expect(props.onOpenShell).toHaveBeenCalledTimes(1);
+    expect(onShellIntent).toHaveBeenCalledTimes(1);
+
+    fireEvent.pointerLeave(document.querySelector(".agent-workspace-advanced")!);
+    expect(onShellIntentEnd).toHaveBeenCalledTimes(1);
   });
 
   it("creates a session from the primary workspace action and highlights the selected session", async () => {
@@ -1245,6 +1308,26 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.getByText("Tokens today")).toBeInTheDocument();
     expect(screen.getByText("1.2K / 5K")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /upgrade/i })).toBeInTheDocument();
+    expect(screen.queryByText("7-day free trial on every plan")).not.toBeInTheDocument();
     expect(screen.queryByText("Purchased plans")).not.toBeInTheDocument();
+  });
+
+  it("offers a seven-day trial before registration", () => {
+    const onStartTrial = vi.fn();
+    const props = renderAgentWorkspaceSidebar({
+      isAuthenticated: false,
+      tokenUsed: null,
+      tokenLimit: null,
+      onStartTrial,
+    });
+
+    expect(screen.getByText("7-day free trial on every plan")).toBeInTheDocument();
+    expect(screen.getByText("Tokens today")).toBeInTheDocument();
+    expect(screen.getByText("0 / --")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /upgrade/i })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Start free trial" }));
+    expect(onStartTrial).toHaveBeenCalledTimes(1);
+    expect(props.onUpgrade).not.toHaveBeenCalled();
   });
 });

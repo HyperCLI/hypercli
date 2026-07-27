@@ -1,22 +1,21 @@
 "use client";
 
 import React, { type ComponentType } from "react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import {
   ArrowRight,
   Bot,
   Brain,
   Check,
+  ChevronDown,
   ChevronLeft,
   Circle,
-  FileText,
-  Package,
+  Globe,
   Rocket,
+  Settings2,
   Shield,
   Sparkles,
-  Monitor,
-  X,
   Zap,
 } from "lucide-react";
 import type { SlotInventory } from "@/lib/format";
@@ -35,7 +34,11 @@ import {
   getEffectivePlanIdFromSummary,
   type LaunchSourceKind,
 } from "@/lib/agent-launch-state";
-import { agentAvatar } from "@/lib/avatar";
+import {
+  clearFirstAgentSetupDraft,
+  readFirstAgentSetupDraft,
+  writeFirstAgentSetupDraft,
+} from "@/hooks/useFirstAgentSetupDraft";
 import { PlanComparisonModal } from "./PlanComparisonModal";
 import { SlotProvisioningStatus } from "./SlotProvisioningStatus";
 import {
@@ -69,77 +72,15 @@ interface FirstAgentSetupWizardProps {
   showProFeatureLabels?: boolean;
   enableCustomImageOption?: boolean;
   enforceProFeaturePlanRestrictions?: boolean;
-  size?: "default" | "large";
+  saveDraftAsYouGo?: boolean;
+  size?: "default" | "inline" | "large";
 }
 
-type WizardStepId = "identity" | "knowledge" | "plan";
+type WizardStepId = "identity" | "plan";
 
-const FIRST_AGENT_SETUP_DRAFT_KEY = "hypercli-first-agent-draft";
-const MAX_FILE_SIZE = 25 * 1024 * 1024;
 const EMPTY_SLOT_INVENTORY: SlotInventory = {};
 
-const helpCategories = ["General", "Research", "Support", "Sales", "Ops", "Dev", "Content", "Automation"];
-
-interface FirstAgentSetupDraft {
-  name: string;
-  iconIndex: number;
-  category: string;
-  plan: string | null;
-  starterFileNames: string[];
-  enableDesktop: boolean;
-  enableMemoryIndex: boolean;
-  enableCustomImage: boolean;
-  customImage: string;
-}
-
-function readFirstAgentSetupDraft(): FirstAgentSetupDraft | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.sessionStorage.getItem(FIRST_AGENT_SETUP_DRAFT_KEY);
-    if (!raw) return null;
-    const value = JSON.parse(raw) as Record<string, unknown>;
-    if (value.source !== "first-agent-setup") return null;
-    const name = typeof value.name === "string" ? value.name.trim().slice(0, 80) : "";
-    const category = typeof value.category === "string" && helpCategories.includes(value.category)
-      ? value.category
-      : "General";
-    const iconIndex = Number(value.iconIndex);
-    const starterFiles = Array.isArray(value.starterFiles) ? value.starterFiles : [];
-    return {
-      name,
-      iconIndex: avatarOptions.some((option) => option.iconIndex === iconIndex) ? iconIndex : avatarOptions[0].iconIndex,
-      category,
-      plan: typeof value.plan === "string" && value.plan.trim() ? value.plan.trim() : null,
-      starterFileNames: starterFiles.flatMap((entry) => {
-        if (!entry || typeof entry !== "object") return [];
-        const fileName = (entry as { name?: unknown }).name;
-        return typeof fileName === "string" && fileName.trim() ? [fileName.trim().slice(0, 180)] : [];
-      }).slice(0, 4),
-      enableDesktop: Boolean(value.enableDesktop),
-      enableMemoryIndex: Boolean(value.enableMemoryIndex),
-      enableCustomImage: Boolean(value.enableCustomImage),
-      customImage: typeof value.customImage === "string" ? value.customImage.slice(0, 500) : "",
-    };
-  } catch {
-    return null;
-  }
-}
-
-export function updateFirstAgentSetupDraftPlan(planId: string): void {
-  if (typeof window === "undefined") return;
-  const normalizedPlanId = planId.trim();
-  if (!normalizedPlanId) return;
-  try {
-    const raw = window.sessionStorage.getItem(FIRST_AGENT_SETUP_DRAFT_KEY);
-    if (!raw) return;
-    const draft = JSON.parse(raw) as Record<string, unknown>;
-    if (draft.source !== "first-agent-setup") return;
-    window.sessionStorage.setItem(
-      FIRST_AGENT_SETUP_DRAFT_KEY,
-      JSON.stringify({ ...draft, plan: normalizedPlanId }),
-    );
-  } catch {}
-}
+export { updateFirstAgentSetupDraftPlan } from "@/hooks/useFirstAgentSetupDraft";
 
 const avatarOptions: Array<{
   iconIndex: number;
@@ -155,12 +96,8 @@ const avatarOptions: Array<{
 
 const stepCopy: Record<WizardStepId, { title: string; subtitle: string }> = {
   identity: {
-    title: "Create your agent",
+    title: "Create agent",
     subtitle: "Give it a name, a look, and a quick note on what it does. You can change anything later.",
-  },
-  knowledge: {
-    title: "Give it something to know",
-    subtitle: "Add a file so your agent has real context.",
   },
   plan: {
     title: "Choose your plan",
@@ -168,7 +105,7 @@ const stepCopy: Record<WizardStepId, { title: string; subtitle: string }> = {
   },
 };
 
-const steps: WizardStepId[] = ["identity", "knowledge", "plan"];
+const steps: WizardStepId[] = ["identity", "plan"];
 const agentNameFirstWords = [
   "bright",
   "clear",
@@ -684,12 +621,6 @@ function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 function randomIndex(max: number): number {
   if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
     const values = new Uint32Array(1);
@@ -712,16 +643,30 @@ function generateAgentName(): string {
   return `${first}-${second}-${third}`;
 }
 
+function agentUrlSlug(name: string): string {
+  const normalized = name
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[’']/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48)
+    .replace(/-+$/g, "");
+  return normalized || "agent";
+}
+
 function WizardButton({
   children,
   disabled = false,
   busy = false,
+  large = false,
   onClick,
   variant = "primary",
 }: {
   children: React.ReactNode;
   disabled?: boolean;
   busy?: boolean;
+  large?: boolean;
   onClick: () => void;
   variant?: "primary" | "secondary";
 }) {
@@ -731,7 +676,10 @@ function WizardButton({
       onClick={onClick}
       disabled={disabled}
       className={cx(
-        "inline-flex h-9 items-center justify-center rounded-[10px] px-3.5 text-[14px] font-medium transition-colors disabled:opacity-60 sm:h-10 sm:px-4 sm:text-[15px]",
+        "inline-flex shrink-0 items-center justify-center font-medium transition-colors disabled:opacity-60",
+        large
+          ? "h-[clamp(2.75rem,4.7vw,3.5rem)] rounded-[14px] px-[clamp(1rem,2.7vw,2rem)] text-[clamp(0.9375rem,1.5vw,1.125rem)]"
+          : "h-9 rounded-[10px] px-3.5 text-[14px] sm:h-10 sm:px-4 sm:text-[15px]",
         busy ? "disabled:cursor-wait" : "disabled:cursor-not-allowed",
         variant === "primary"
           ? "bg-[var(--button-primary)] text-[var(--button-primary-foreground)] hover:bg-[var(--button-primary-hover)]"
@@ -740,6 +688,39 @@ function WizardButton({
     >
       {children}
     </button>
+  );
+}
+
+function WizardMomentum({ finalStep }: { finalStep: boolean }) {
+  const reducedMotion = useReducedMotion();
+  const progress = finalStep ? 92 : 48;
+  const status = finalStep ? "Launch ready" : "Taking shape";
+  const detail = finalStep ? "Choose its power" : "Moments from launch";
+
+  return (
+    <div
+      role="progressbar"
+      aria-label="Agent setup progress"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={progress}
+      aria-valuetext={`${status}. ${detail}.`}
+      className="flex min-w-0 flex-1 flex-col items-center justify-center px-2 text-center"
+    >
+      <div aria-hidden="true" className="absolute inset-x-0 top-0 h-[2px] overflow-hidden bg-border/70">
+        <motion.div
+          initial={reducedMotion ? false : { width: finalStep ? "48%" : "0%" }}
+          animate={{ width: `${progress}%` }}
+          transition={reducedMotion ? { duration: 0 } : { duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+          className="h-full bg-[var(--selection-accent)] shadow-[0_0_14px_rgb(var(--selection-accent-rgb)_/_0.65)]"
+        />
+      </div>
+      <span className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-[0.14em] text-[var(--selection-accent)]">
+        <span className="h-1.5 w-1.5 rounded-full bg-current shadow-[0_0_8px_currentColor]" />
+        {status}
+      </span>
+      <span className="mt-0.5 truncate text-[10px] font-medium text-text-muted sm:text-[11px]">{detail}</span>
+    </div>
   );
 }
 
@@ -848,19 +829,26 @@ export function FirstAgentSetupWizard({
   showProFeatureLabels = false,
   enableCustomImageOption = false,
   enforceProFeaturePlanRestrictions = false,
+  saveDraftAsYouGo = false,
   size = "default",
 }: FirstAgentSetupWizardProps) {
-  const [restoredDraft] = React.useState(readFirstAgentSetupDraft);
+  const [restoredDraft] = React.useState(() => {
+    const draft = readFirstAgentSetupDraft();
+    if (!draft) return null;
+    const iconIndex = avatarOptions.some((option) => option.iconIndex === draft.iconIndex)
+      ? draft.iconIndex
+      : avatarOptions[0].iconIndex;
+    return iconIndex === draft.iconIndex ? draft : { ...draft, iconIndex };
+  });
   const [defaultAgentName, setDefaultAgentName] = React.useState("");
   const [agentName, setAgentName] = React.useState(restoredDraft?.name ?? "");
-  const [selectedCategory, setSelectedCategory] = React.useState(restoredDraft?.category ?? "General");
+  const [selectedCategory] = React.useState(restoredDraft?.category ?? "General");
   const [selectedIconIndex, setSelectedIconIndex] = React.useState(restoredDraft?.iconIndex ?? avatarOptions[0].iconIndex);
   const [enableDesktop, setEnableDesktop] = React.useState(restoredDraft?.enableDesktop ?? false);
   const [enableMemoryIndex, setEnableMemoryIndex] = React.useState(restoredDraft?.enableMemoryIndex ?? false);
   const [enableCustomImage, setEnableCustomImage] = React.useState(restoredDraft?.enableCustomImage ?? false);
   const [customImage, setCustomImage] = React.useState(restoredDraft?.customImage ?? "");
   const [customImageEdited, setCustomImageEdited] = React.useState(Boolean(restoredDraft?.customImage));
-  const [missingStarterFileNames, setMissingStarterFileNames] = React.useState(restoredDraft?.starterFileNames ?? []);
   const slotInventory = budget?.slots ?? EMPTY_SLOT_INVENTORY;
   const planOptions = React.useMemo(
     () => buildLaunchPlanOptions(subscriptionSummary, slotInventory, catalogPlans, pendingSlotReleases),
@@ -872,9 +860,7 @@ export function FirstAgentSetupWizard({
     createFirstAgentWizardState,
   );
   const { stepIndex, selectedPlanId, creating, createError } = wizardState;
-  const [files, setFiles] = React.useState<File[]>([]);
   const [planComparisonOpen, setPlanComparisonOpen] = React.useState(false);
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
   const appliedInitialPlanIdRef = React.useRef<string | null>(null);
   const requiresProPlan = enforceProFeaturePlanRestrictions && (enableDesktop || enableMemoryIndex || enableCustomImage);
   const displayedPlanOptions = React.useMemo(() => {
@@ -896,25 +882,66 @@ export function FirstAgentSetupWizard({
 
   const currentStep = steps[stepIndex];
   const currentCopy = stepCopy[currentStep];
+  const largePresentation = size === "large";
+  const inlinePresentation = size === "inline";
   const selectedPlan = displayedPlanOptions.find((plan) => plan.id === selectedPlanId) ?? displayedPlanOptions[0];
-  const selectedAvatar = avatarOptions.find((option) => option.iconIndex === selectedIconIndex) ?? avatarOptions[0];
-  const SelectedAvatarIcon = selectedAvatar.icon;
+  const selectedPlanIsProvisioning = selectedPlan?.statusText === "Payment active, waiting for entitlement";
+  const selectedPlanIsReleasing = selectedPlan?.statusText === "Slot being released";
+  const selectedPlanStatusFeature = selectedPlanIsProvisioning || selectedPlanIsReleasing ? null : selectedPlan?.slotStatus;
+  const selectedPlanFeatureRows = selectedPlan
+    ? uniqueFeatureList([selectedPlanStatusFeature, ...selectedPlan.features].filter((feature): feature is string => Boolean(feature))).slice(0, 7)
+    : [];
   const displayName = agentName.trim() || defaultAgentName || "agent";
-  const selectedAvatarStyle = agentAvatar(displayName, { ui: { avatar: { icon_index: selectedIconIndex } } });
+  const agentUrl = agentUrlSlug(displayName);
   const defaultCustomImage = getOpenClawDefaultImage(enableDesktop);
   const effectiveCustomImage = customImageEdited ? customImage : defaultCustomImage;
+  const persistDraft = React.useCallback((plan: LaunchPlanOption | null = null) => {
+    const retainedPlanId = selectedCatalogPlanId?.trim() || restoredDraft?.plan || initialPlanId?.trim() || null;
+    writeFirstAgentSetupDraft({
+      name: displayName,
+      description: `${displayName} helps with ${selectedCategory.toLowerCase()} workflows.`,
+      size: plan?.size ?? restoredDraft?.size ?? null,
+      iconIndex: selectedIconIndex,
+      category: selectedCategory,
+      plan: plan?.catalogPlanId ?? plan?.id ?? retainedPlanId,
+      enableDesktop,
+      enableMemoryIndex,
+      enableCustomImage,
+      customImage: enableCustomImage ? effectiveCustomImage.trim() : "",
+    });
+  }, [
+    displayName,
+    effectiveCustomImage,
+    enableCustomImage,
+    enableDesktop,
+    enableMemoryIndex,
+    initialPlanId,
+    restoredDraft?.plan,
+    restoredDraft?.size,
+    selectedCatalogPlanId,
+    selectedCategory,
+    selectedIconIndex,
+  ]);
 
   React.useEffect(() => {
-    const generatedName = generateAgentName();
-    setDefaultAgentName(generatedName);
-    setAgentName((currentName) => currentName.trim() ? currentName : generatedName);
+    const timeout = window.setTimeout(() => {
+      const generatedName = generateAgentName();
+      setDefaultAgentName(generatedName);
+      setAgentName((currentName) => currentName.trim() ? currentName : generatedName);
+    }, 0);
+    return () => window.clearTimeout(timeout);
   }, []);
 
   React.useEffect(() => {
+    if (!saveDraftAsYouGo || !agentName.trim()) return;
+    const timeout = window.setTimeout(() => persistDraft(), 120);
+    return () => window.clearTimeout(timeout);
+  }, [agentName, persistDraft, saveDraftAsYouGo]);
+
+  React.useEffect(() => {
     if (!restoredDraft) return;
-    const stepIndex = restoredDraft.starterFileNames.length > 0 ? 1 : 2;
     const timeout = window.setTimeout(() => {
-      dispatchWizard({ type: "GO_TO_STEP", stepIndex, maxStepIndex: steps.length - 1 });
+      dispatchWizard({ type: "GO_TO_STEP", stepIndex: 1, maxStepIndex: steps.length - 1 });
     }, 0);
     return () => window.clearTimeout(timeout);
   }, [restoredDraft]);
@@ -942,38 +969,6 @@ export function FirstAgentSetupWizard({
 
   const goToStep = (nextStep: number) => {
     dispatchWizard({ type: "GO_TO_STEP", stepIndex: nextStep, maxStepIndex: steps.length - 1 });
-  };
-
-  const handleFileSelection = (fileList: FileList | null) => {
-    if (!fileList) return;
-    const selectedFiles = Array.from(fileList).filter((file) => file.size <= MAX_FILE_SIZE).slice(0, 4);
-    const selectedNames = new Set(selectedFiles.map((file) => file.name));
-    setFiles(selectedFiles);
-    setMissingStarterFileNames(
-      (restoredDraft?.starterFileNames ?? []).filter((fileName) => !selectedNames.has(fileName)),
-    );
-  };
-
-  const persistDraft = (plan: LaunchPlanOption) => {
-    if (typeof window !== "undefined") {
-      window.sessionStorage.setItem(
-        FIRST_AGENT_SETUP_DRAFT_KEY,
-        JSON.stringify({
-          source: "first-agent-setup",
-          name: displayName,
-          description: `${displayName} helps with ${selectedCategory.toLowerCase()} workflows.`,
-          size: plan.size,
-          iconIndex: selectedIconIndex,
-          category: selectedCategory,
-          plan: plan.catalogPlanId ?? plan.id,
-          starterFiles: files.map((file) => ({ name: file.name, size: file.size, type: file.type })),
-          enableDesktop,
-          enableMemoryIndex,
-          enableCustomImage,
-          customImage: enableCustomImage ? effectiveCustomImage.trim() : null,
-        }),
-      );
-    }
   };
 
   const saveDraftAndCreate = async (planId = selectedPlanId) => {
@@ -1022,13 +1017,13 @@ export function FirstAgentSetupWizard({
         name: displayName,
         iconIndex: selectedIconIndex,
         size: plan.size,
-        files,
+        files: [],
         enableDesktop,
         enableMemoryIndex,
         customImage: selectedCustomImage,
       });
       if (createdId && typeof window !== "undefined") {
-        window.sessionStorage.removeItem(FIRST_AGENT_SETUP_DRAFT_KEY);
+        clearFirstAgentSetupDraft();
       }
       if (!createdId) {
         dispatchWizard({ type: "CREATE_FINISHED_WITHOUT_ID" });
@@ -1047,399 +1042,345 @@ export function FirstAgentSetupWizard({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-1 items-center justify-center overflow-hidden px-3 py-3 sm:px-4 sm:py-4">
+    <div className={cx(
+      "flex h-full min-h-0 flex-1 items-center justify-center overflow-hidden",
+      largePresentation ? "p-0" : inlinePresentation ? "px-4 py-6 sm:px-8" : "px-3 py-3 sm:px-4 sm:py-4",
+    )}>
       <motion.section
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.2 }}
+        aria-labelledby="first-agent-setup-title"
+        data-agent-launch-surface={inlinePresentation || undefined}
+        initial={inlinePresentation ? false : { opacity: 0, y: 10 }}
+        animate={inlinePresentation ? { opacity: 1, y: 0, scale: 1 } : { opacity: 1, y: 0 }}
+        transition={{ duration: inlinePresentation ? 0 : 0.2 }}
         className={cx(
-          "elevation-shadow-strong flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[20px] border border-border bg-background text-foreground",
-          size === "large" ? "max-h-[800px] max-w-[1240px]" : "max-h-[680px] max-w-[980px]",
+          "relative flex min-h-0 w-full flex-col overflow-hidden border border-border text-foreground",
+          inlinePresentation
+            ? "bg-surface-low shadow-[0_24px_80px_rgb(0_0_0_/_0.3)]"
+            : "elevation-shadow-strong bg-background",
+          largePresentation
+            ? "h-full max-h-[910px] max-w-[1168px] rounded-[26px]"
+            : inlinePresentation
+              ? "h-[546px] max-w-[660px] rounded-[24px] sm:!h-[428px]"
+              : "h-full max-h-[680px] max-w-[456px] rounded-[20px]",
         )}
       >
-        <header className="relative flex-shrink-0 border-b border-border px-5 py-4 sm:px-6 lg:px-7">
+        {inlinePresentation ? <div aria-hidden="true" className="absolute inset-x-0 top-0 z-10 h-px bg-[linear-gradient(90deg,transparent,rgb(var(--selection-accent-rgb)_/_0.9),transparent)]" /> : null}
+        <header className={cx(
+          "relative flex-shrink-0 border-b border-border",
+          largePresentation ? "px-5 py-4 sm:px-8 sm:py-7" : "px-5 py-3 sm:px-6",
+        )}>
           <div className={cx("min-w-0", currentStep === "plan" && "sm:pr-[190px]")}>
-            <h2 className="text-[20px] font-medium leading-tight text-foreground sm:text-[24px]">{currentCopy.title}</h2>
-            <p className="mt-2 text-[13px] leading-snug text-text-muted sm:text-[15px] lg:text-[16px]">{currentCopy.subtitle}</p>
+            <h2 className={cx(
+              "font-medium leading-tight text-foreground",
+              largePresentation ? "text-[24px] sm:text-[36px]" : "text-[20px] sm:text-[22px]",
+            )} id="first-agent-setup-title">{currentCopy.title}</h2>
+            <p className={cx(
+              "text-text-muted",
+              largePresentation ? "mt-2 text-[13px] leading-5 sm:mt-5 sm:text-[22px] sm:leading-7" : "mt-1 text-[12px] leading-5 sm:text-[13px]",
+            )}>{currentCopy.subtitle}</p>
           </div>
           {currentStep === "plan" && (
-            <div className="mt-4 flex items-center justify-end gap-2 sm:absolute sm:right-6 sm:top-4 sm:mt-0 lg:right-7">
+            <div className={cx(
+              "mt-4 flex items-center justify-end gap-2 sm:absolute sm:mt-0",
+              largePresentation ? "sm:right-8 sm:top-7" : "sm:right-6 sm:top-4 lg:right-7",
+            )}>
               <button
                 type="button"
                 onClick={() => setPlanComparisonOpen(true)}
-                className="inline-flex h-9 shrink-0 items-center justify-center whitespace-nowrap rounded-[10px] border border-border bg-surface-low px-3.5 text-[14px] font-medium text-foreground transition-colors hover:border-border-strong hover:bg-surface-high"
+                className={cx(
+                  "inline-flex shrink-0 items-center justify-center whitespace-nowrap border border-border bg-surface-low font-medium text-foreground transition-colors hover:border-border-strong hover:bg-surface-high",
+                  largePresentation ? "h-12 rounded-[13px] px-5 text-[16px]" : "h-9 rounded-[10px] px-3.5 text-[14px]",
+                )}
               >
                 Compare plans
               </button>
-              {onClose ? (
-                <button
-                  type="button"
-                  aria-label="Close choose plan"
-                  onClick={onClose}
-                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-border bg-surface-low text-text-secondary transition-colors hover:border-border-strong hover:bg-surface-high hover:text-foreground"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              ) : null}
             </div>
           )}
         </header>
 
         {currentStep === "identity" && (
           <>
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6 lg:px-7">
-              <div className="grid gap-5 md:grid-cols-[72px_minmax(0,1fr)] md:items-center lg:grid-cols-[80px_minmax(0,1fr)]">
-                <div className="relative mx-auto h-[72px] w-[72px] md:mx-0 lg:h-20 lg:w-20">
-                  <div
-                    className="flex h-[72px] w-[72px] items-center justify-center rounded-full lg:h-20 lg:w-20"
-                    style={{
-                      backgroundColor: selectedAvatarStyle.bgColor,
-                      color: selectedAvatarStyle.fgColor,
-                    }}
-                  >
-                    <SelectedAvatarIcon className="h-7 w-7 lg:h-8 lg:w-8" />
-                  </div>
-                </div>
-
-                <label className="block min-w-0">
-                  <span className="mb-2 block text-[14px] font-semibold leading-none text-foreground sm:text-[16px]">Agent name</span>
-                  <input
-                    value={agentName}
-                    onChange={(event) => setAgentName(event.target.value)}
-                    className="h-10 w-full rounded-[12px] border border-border bg-surface-low px-3 text-[15px] text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-border-strong sm:h-11 sm:text-[16px] lg:h-12"
-                  />
-                </label>
-              </div>
-
-              <div className="mt-7 lg:mt-8">
-                <p className="mb-3 text-[14px] font-semibold leading-tight text-foreground sm:text-[16px]">What does it help with?</p>
-                <div className="flex flex-wrap gap-2">
-                  {helpCategories.map((category) => {
-                    const selected = selectedCategory === category;
-                    return (
-                      <button
-                        key={category}
-                        type="button"
-                        aria-pressed={selected}
-                        onClick={() => setSelectedCategory(category)}
-                        className={cx(
-                           "inline-flex h-9 min-w-0 items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-semibold leading-none transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-selection-accent/35 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:text-[14px]",
-                           selected
-                             ? "border-selection-accent/70 bg-surface-high text-selection-accent shadow-[0_0_0_1px_color-mix(in_srgb,var(--selection-accent)_38%,transparent)]"
-                             : "border-border bg-surface-high text-text-secondary shadow-[inset_0_1px_0_color-mix(in_srgb,var(--foreground)_3%,transparent)] hover:border-border-strong hover:bg-surface-low hover:text-foreground",
-                        )}
-                      >
-                        {selected ? <Check className="h-3.5 w-3.5 shrink-0" /> : null}
-                        {category}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="mt-6">
-                <p className="mb-3 text-[14px] font-semibold leading-tight text-foreground sm:text-[16px]">Avatar</p>
-                <div className="flex flex-wrap gap-2">
-                  {avatarOptions.map((option) => {
-                    const Icon = option.icon;
-                    const selected = selectedIconIndex === option.iconIndex;
-                    const avatarStyle = agentAvatar(displayName, { ui: { avatar: { icon_index: option.iconIndex } } });
-                    return (
-                      <button
-                        key={option.iconIndex}
-                        type="button"
-                        aria-label={option.label}
-                        aria-pressed={selected}
-                        onClick={() => setSelectedIconIndex(option.iconIndex)}
-                        className={cx(
-                          "flex h-8 w-8 items-center justify-center rounded-[8px] border transition-colors",
-                          selected
-                            ? "border-selection-accent shadow-[0_0_0_1px_color-mix(in_srgb,var(--selection-accent)_28%,transparent)]"
-                            : "border-border hover:border-border-strong hover:bg-surface-low",
-                        )}
-                        style={{
-                          backgroundColor: avatarStyle.bgColor,
-                          color: avatarStyle.fgColor,
-                        }}
-                      >
-                        <Icon className="h-4 w-4" />
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <label className="mt-7 flex items-start gap-3 rounded-[12px] border border-border bg-surface-low px-4 py-3">
+            <div className={cx(
+              "min-h-0 flex-1 overflow-y-auto",
+              largePresentation ? "px-[clamp(1.25rem,2.7vw,2rem)] py-[clamp(1.25rem,4vw,3rem)]" : "px-5 py-4 sm:px-6",
+            )} data-slot="agent-setup-scroll-body">
+              <div className="mx-auto w-full">
+                <label htmlFor="first-agent-name" className={cx(
+                  "block font-semibold leading-none text-foreground",
+                  largePresentation ? "mb-[clamp(0.75rem,1.7vw,1.25rem)] text-[clamp(0.9375rem,1.7vw,1.25rem)]" : "mb-1.5 text-[13px]",
+                )}>Agent name</label>
                 <input
-                  type="checkbox"
-                  checked={enableDesktop}
-                  onChange={(event) => setEnableDesktop(event.target.checked)}
-                  className="mt-1 h-4 w-4 rounded border-border bg-background accent-[var(--button-primary)]"
+                  id="first-agent-name"
+                  autoFocus
+                  maxLength={80}
+                  value={agentName}
+                  onChange={(event) => setAgentName(event.target.value)}
+                  className={cx(
+                    "w-full border border-border bg-surface-low text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-border-strong",
+                    largePresentation ? "h-[clamp(3rem,5.4vw,4rem)] rounded-[18px] px-[clamp(1rem,1.7vw,1.25rem)] text-[clamp(1rem,1.7vw,1.25rem)]" : "h-10 rounded-[10px] px-3 text-[14px]",
+                  )}
                 />
-                <span className="min-w-0">
-                  <span className="flex items-center gap-2 text-[14px] font-semibold leading-tight text-foreground sm:text-[15px]">
-                    <Monitor className="h-4 w-4 text-text-muted" />
-                    Desktop browser
-                    {showProFeatureLabels ? <ProFeatureBadge /> : null}
-                  </span>
-                  <span className="mt-1 block text-[12px] leading-5 text-text-muted sm:text-[13px]">
-                    Adds a protected noVNC desktop at desktop-&lt;agent&gt;.hypercli.app.
-                  </span>
-                </span>
-              </label>
 
-              <label className="mt-3 flex items-start gap-3 rounded-[12px] border border-border bg-surface-low px-4 py-3">
-                <input
-                  type="checkbox"
-                  checked={enableMemoryIndex}
-                  onChange={(event) => setEnableMemoryIndex(event.target.checked)}
-                  className="mt-1 h-4 w-4 rounded border-border bg-background accent-[var(--button-primary)]"
-                />
-                <span className="min-w-0">
-                  <span className="flex items-center gap-2 text-[14px] font-semibold leading-tight text-foreground sm:text-[15px]">
-                    <Brain className="h-4 w-4 text-text-muted" />
-                    Memory indexing
-                    {showProFeatureLabels ? <ProFeatureBadge /> : null}
-                  </span>
-                  <span className="mt-1 block text-[12px] leading-5 text-text-muted sm:text-[13px]">
-                    Index memory files on session start, search, and watched file changes.
-                  </span>
-                </span>
-              </label>
-
-              {enableCustomImageOption ? (
-                <div className="mt-3 rounded-[12px] border border-border bg-surface-low px-4 py-3">
-                  <label className="flex items-start gap-3">
-                    <input
-                      type="checkbox"
-                      checked={enableCustomImage}
-                      onChange={(event) => {
-                        const checked = event.target.checked;
-                        setEnableCustomImage(checked);
-                        if (!checked) {
-                          setCustomImage("");
-                          setCustomImageEdited(false);
-                        }
-                      }}
-                      className="mt-1 h-4 w-4 rounded border-border bg-background accent-[var(--button-primary)]"
-                    />
-                    <span className="min-w-0">
-                      <span className="flex items-center gap-2 text-[14px] font-semibold leading-tight text-foreground sm:text-[15px]">
-                        <Package className="h-4 w-4 text-text-muted" />
-                        Custom image
-                        {showProFeatureLabels ? <ProFeatureBadge /> : null}
-                      </span>
-                      <span className="mt-1 block text-[12px] leading-5 text-text-muted sm:text-[13px]">
-                        Start this agent from a specific container image instead of the account default.
-                      </span>
+                <div className={largePresentation ? "mt-[clamp(1.5rem,4vw,3rem)]" : "mt-4"}>
+                  <span className={cx(
+                    "block font-semibold leading-none text-foreground",
+                    largePresentation ? "mb-[clamp(0.75rem,1.7vw,1.25rem)] text-[clamp(0.9375rem,1.7vw,1.25rem)]" : "mb-1.5 text-[13px]",
+                  )}>Agent URL</span>
+                  <div className={cx(
+                    "flex overflow-hidden border border-border bg-surface-low text-text-muted",
+                    largePresentation ? "h-[clamp(3rem,5.4vw,4rem)] rounded-[18px] text-[clamp(0.9375rem,1.7vw,1.25rem)]" : "h-10 rounded-[10px] text-[13px]",
+                  )}>
+                    <span className={cx(
+                      "flex shrink-0 items-center justify-center border-r border-border text-foreground",
+                      largePresentation ? "w-[clamp(3rem,5.4vw,4rem)]" : "w-10",
+                    )}>
+                      <Globe className={largePresentation ? "h-[clamp(1.25rem,2.4vw,1.75rem)] w-[clamp(1.25rem,2.4vw,1.75rem)]" : "h-4 w-4"} />
                     </span>
-                  </label>
-                  {enableCustomImage ? (
-                    <div className="mt-3 pl-7">
-                      <input
-                        value={effectiveCustomImage}
-                        onChange={(event) => {
-                          setCustomImageEdited(true);
-                          setCustomImage(event.target.value);
-                        }}
-                        aria-label="Custom agent image"
-                        placeholder={defaultCustomImage || "ghcr.io/example/openclaw:latest"}
-                        spellCheck={false}
-                        className="h-10 w-full rounded-[10px] border border-border bg-background px-3 font-mono text-[12px] text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-border-strong sm:text-[13px]"
-                      />
-                      <p className="mt-2 text-[11px] leading-4 text-text-muted">
-                        Defaults to the configured {enableDesktop ? "desktop" : "standard"} image.
-                      </p>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-
-            <footer className="flex h-[72px] flex-shrink-0 items-center justify-end border-t border-border bg-surface-low px-5 sm:px-7">
-              <WizardButton onClick={() => goToStep(1)}>Continue</WizardButton>
-            </footer>
-          </>
-        )}
-
-        {currentStep === "knowledge" && (
-          <>
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6 lg:px-7">
-              {missingStarterFileNames.length > 0 ? (
-                <div role="status" className="mb-4 rounded-[12px] border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-text-secondary">
-                  Reselect {missingStarterFileNames.join(", ")} to restore file contents after checkout.
-                </div>
-              ) : null}
-              <div
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  handleFileSelection(event.dataTransfer.files);
-                }}
-                className="flex min-h-[190px] flex-col items-center justify-center rounded-[12px] border border-dashed border-border bg-background px-5 text-center sm:min-h-[220px]"
-              >
-                <div className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface-low text-text-muted sm:h-12 sm:w-12">
-                  <FileText className="h-5 w-5 sm:h-6 sm:w-6" />
-                </div>
-                <p className="mt-5 text-[16px] font-semibold leading-tight text-foreground sm:text-[18px]">
-                  Drop your files here, or{" "}
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="underline underline-offset-4 transition-colors hover:text-selection-accent"
-                  >
-                    click to browse
-                  </button>
-                </p>
-                <p className="mt-2 text-[13px] leading-tight text-text-muted sm:text-[14px]">PDF, DOCX, EPUB, TXT, or CSV - up to 25 MB each</p>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  accept=".pdf,.doc,.docx,.epub,.txt,.csv"
-                  className="hidden"
-                  onChange={(event) => handleFileSelection(event.target.files)}
-                />
-
-                {files.length > 0 && (
-                  <div className="mt-7 flex max-w-full flex-wrap justify-center gap-3">
-                    {files.map((file) => (
-                      <span
-                        key={`${file.name}-${file.size}`}
-                        className="max-w-[260px] truncate rounded-full border border-border bg-surface-low px-4 py-2 text-sm text-text-secondary"
-                      >
-                        {file.name} - {formatFileSize(file.size)}
-                      </span>
-                    ))}
+                    <output aria-label="Agent URL preview" className={cx("flex min-w-0 flex-1 items-center truncate font-medium", largePresentation ? "px-4 sm:px-5" : "px-3")}>{agentUrl}</output>
+                    <span className={cx("flex shrink-0 items-center border-l border-border", largePresentation ? "px-4 sm:px-5" : "px-2.5")}>.hypercli.com</span>
                   </div>
-                )}
+                </div>
+
+                <div className={largePresentation ? "mt-[clamp(1.5rem,4vw,3rem)]" : "mt-4"}>
+                  <p className={cx("font-semibold leading-tight text-foreground", largePresentation ? "text-[clamp(0.9375rem,1.7vw,1.25rem)]" : "text-[13px]")}>Avatar</p>
+                  <div className={cx("flex flex-wrap", largePresentation ? "mt-[clamp(0.75rem,1.7vw,1.25rem)] gap-[clamp(0.625rem,1.35vw,1rem)]" : "mt-2 gap-1.5")}>
+                    {avatarOptions.map((option) => {
+                      const Icon = option.icon;
+                      const selected = selectedIconIndex === option.iconIndex;
+                      return (
+                        <button
+                          key={option.iconIndex}
+                          type="button"
+                          aria-label={option.label}
+                          aria-pressed={selected}
+                          onClick={() => setSelectedIconIndex(option.iconIndex)}
+                          className={cx(
+                            "flex items-center justify-center border bg-surface-high transition-colors",
+                            largePresentation ? "h-[clamp(3rem,5.4vw,4rem)] w-[clamp(3rem,5.4vw,4rem)] rounded-[18px]" : "h-9 w-9 rounded-[9px]",
+                            selected
+                              ? "border-selection-accent text-selection-accent shadow-[0_0_0_1px_color-mix(in_srgb,var(--selection-accent)_28%,transparent)]"
+                              : "border-border text-foreground hover:border-border-strong hover:bg-surface-low",
+                          )}
+                        >
+                          <Icon className={largePresentation ? "h-[clamp(1.25rem,2vw,1.5rem)] w-[clamp(1.25rem,2vw,1.5rem)]" : "h-4 w-4"} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <details className={cx(
+                  "group overflow-hidden border border-border bg-surface-high",
+                  largePresentation ? "mt-[clamp(2rem,3.4vw,2.5rem)] rounded-[18px]" : "mt-4 rounded-[11px]",
+                )}>
+                  <summary className={cx(
+                    "flex cursor-pointer list-none items-center outline-none transition-colors hover:bg-surface-low focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection-accent/40 [&::-webkit-details-marker]:hidden",
+                    largePresentation ? "gap-[clamp(0.75rem,1.35vw,1rem)] px-[clamp(1.25rem,2vw,1.5rem)] py-[clamp(1.25rem,2vw,1.5rem)]" : "gap-2.5 px-3.5 py-3",
+                  )}>
+                    <Settings2 className={cx("shrink-0 text-foreground", largePresentation ? "h-[clamp(1.25rem,2.4vw,1.75rem)] w-[clamp(1.25rem,2.4vw,1.75rem)]" : "h-4.5 w-4.5")} />
+                    <span className={cx("min-w-0 flex-1 font-semibold text-foreground", largePresentation ? "text-[clamp(1.0625rem,1.9vw,1.375rem)]" : "text-[13px]")}>Advanced</span>
+                    <ChevronDown className={cx("shrink-0 text-text-muted transition-transform duration-200 group-open:rotate-180", largePresentation ? "h-[clamp(1.25rem,2vw,1.5rem)] w-[clamp(1.25rem,2vw,1.5rem)]" : "h-4 w-4")} />
+                  </summary>
+
+                  <div className={cx("border-t border-border", largePresentation ? "px-5 py-5 sm:px-6 sm:py-6" : "px-3.5 py-3")}>
+                    {enableCustomImageOption ? (
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <label htmlFor="first-agent-custom-image" className={cx("font-semibold leading-tight text-foreground", largePresentation ? "text-[16px] sm:text-[20px]" : "text-[12px]")}>Custom image</label>
+                          {showProFeatureLabels ? <ProFeatureBadge /> : null}
+                        </div>
+                        <input
+                          id="first-agent-custom-image"
+                          value={enableCustomImage ? effectiveCustomImage : ""}
+                          onChange={(event) => {
+                            const nextImage = event.target.value;
+                            setCustomImageEdited(true);
+                            setCustomImage(nextImage);
+                            setEnableCustomImage(Boolean(nextImage.trim()));
+                          }}
+                          aria-label="Custom agent image"
+                          placeholder={defaultCustomImage || "ghcr.io/example/openclaw:latest"}
+                          spellCheck={false}
+                          className={cx(
+                            "w-full border border-border bg-background font-mono text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-border-strong",
+                            largePresentation ? "mt-3 h-12 rounded-[13px] px-4 text-[13px] sm:h-14 sm:text-[15px]" : "mt-2 h-9 rounded-[9px] px-2.5 text-[11px]",
+                          )}
+                        />
+                        <p className={cx("text-text-muted", largePresentation ? "mt-2 text-[13px] leading-5" : "mt-1 text-[11px] leading-4")}>Use a custom container image instead of the default.</p>
+                      </div>
+                    ) : null}
+
+                    <div className={cx("grid sm:grid-cols-2", largePresentation ? "gap-3 sm:gap-4" : "gap-2", enableCustomImageOption && (largePresentation ? "mt-5" : "mt-3"))}>
+                      <label className={cx("flex items-start border border-border bg-background", largePresentation ? "gap-3 rounded-[14px] px-4 py-4" : "gap-2 rounded-[10px] px-3 py-2.5")}>
+                        <input
+                          type="checkbox"
+                          checked={enableDesktop}
+                          onChange={(event) => setEnableDesktop(event.target.checked)}
+                          className={cx("mt-1 rounded border-border bg-background accent-[var(--button-primary)]", largePresentation ? "h-5 w-5" : "h-4 w-4")}
+                        />
+                        <span className="min-w-0">
+                          <span className={cx("flex items-center gap-1.5 font-semibold leading-tight text-foreground", largePresentation ? "text-[15px]" : "text-[12px]")}>
+                            Desktop browser
+                            {showProFeatureLabels ? <ProFeatureBadge /> : null}
+                          </span>
+                          <span className={cx("mt-1 block text-text-muted", largePresentation ? "text-[13px] leading-5" : "text-[11px] leading-4")}>Private browser for visual tasks.</span>
+                        </span>
+                      </label>
+
+                      <label className={cx("flex items-start border border-border bg-background", largePresentation ? "gap-3 rounded-[14px] px-4 py-4" : "gap-2 rounded-[10px] px-3 py-2.5")}>
+                        <input
+                          type="checkbox"
+                          checked={enableMemoryIndex}
+                          onChange={(event) => setEnableMemoryIndex(event.target.checked)}
+                          className={cx("mt-1 rounded border-border bg-background accent-[var(--button-primary)]", largePresentation ? "h-5 w-5" : "h-4 w-4")}
+                        />
+                        <span className="min-w-0">
+                          <span className={cx("flex items-center gap-1.5 font-semibold leading-tight text-foreground", largePresentation ? "text-[15px]" : "text-[12px]")}>
+                            Memory indexing
+                            {showProFeatureLabels ? <ProFeatureBadge /> : null}
+                          </span>
+                          <span className={cx("mt-1 block text-text-muted", largePresentation ? "text-[13px] leading-5" : "text-[11px] leading-4")}>Searchable workspace memory.</span>
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+                </details>
               </div>
             </div>
 
-            <footer className="flex h-[72px] flex-shrink-0 items-center justify-between border-t border-border bg-surface-low px-5 sm:px-7">
-              <WizardButton variant="secondary" onClick={() => goToStep(0)}>
-                <ChevronLeft className="mr-2 h-4 w-4" />
-                Back
-              </WizardButton>
-              <WizardButton disabled={missingStarterFileNames.length > 0} onClick={() => goToStep(2)}>Continue</WizardButton>
+            <footer className={cx(
+              "relative flex flex-shrink-0 items-center gap-2 border-t border-border bg-surface-low",
+              onClose ? "justify-between" : "justify-end",
+              largePresentation ? "h-[clamp(5.125rem,10vw,7.375rem)] px-[clamp(1.25rem,2.7vw,2rem)]" : "h-[60px] px-5 sm:px-6",
+            )}>
+              {onClose ? <WizardButton large={largePresentation} variant="secondary" onClick={onClose}>Cancel</WizardButton> : null}
+              {largePresentation ? null : <WizardMomentum finalStep={false} />}
+              <WizardButton onClick={() => {
+                if (saveDraftAsYouGo) persistDraft();
+                goToStep(1);
+              }} large={largePresentation}>Continue</WizardButton>
             </footer>
           </>
         )}
 
         {currentStep === "plan" && (
           <>
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6 lg:px-7">
+            <div data-slot="agent-setup-scroll-body" className={cx("min-h-0 flex-1 overflow-y-auto", largePresentation ? "px-5 py-5 sm:px-8 sm:py-7" : "px-5 py-5 sm:px-6 lg:px-7")}>
               {createError && <LaunchCapacityFallback error={createError} onOpenPlanCatalog={onOpenPlanCatalog} />}
-              <div className="grid min-h-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div role="group" aria-label="Available plans" className={cx(
+                "grid min-h-0",
+                largePresentation ? "gap-3 sm:grid-cols-[repeat(auto-fit,minmax(260px,1fr))]" : "gap-2",
+              )}>
                 {displayedPlanOptions.map((plan) => {
                   const Icon = plan.icon;
-                  const isProvisioning = plan.statusText === "Payment active, waiting for entitlement";
                   const isReleasing = plan.statusText === "Slot being released";
-                  const statusFeature = isProvisioning || isReleasing ? null : plan.slotStatus;
-                  const featureRows = uniqueFeatureList([statusFeature, ...plan.features].filter((feature): feature is string => Boolean(feature))).slice(0, 7);
+                  const selected = selectedPlanId === plan.id;
                   return (
-                    <div
+                    <button
+                      type="button"
                       key={plan.id}
-                      aria-disabled={plan.disabled || undefined}
+                      aria-pressed={selected}
+                      disabled={plan.disabled}
                       onClick={() => {
-                        if (plan.disabled) return;
                         dispatchWizard({ type: "SELECT_PLAN", planId: plan.id });
+                        if (saveDraftAsYouGo) persistDraft(plan);
                       }}
-                      onKeyDown={(event) => {
-                        if (event.target !== event.currentTarget) return;
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          if (plan.disabled) return;
-                          dispatchWizard({ type: "SELECT_PLAN", planId: plan.id });
-                        }
-                      }}
-                      role="button"
-                      tabIndex={0}
                       className={cx(
-                        "relative flex min-h-[302px] flex-col rounded-[8px] border border-border bg-surface-low p-4 text-left transition-colors hover:border-border-strong",
-                        selectedPlanId === plan.id && "border-selection-accent/60",
-                        plan.disabled && "opacity-60",
-                        isReleasing ? "cursor-wait" : plan.disabled ? "cursor-not-allowed" : "cursor-pointer",
+                        "group relative flex w-full items-center overflow-hidden border bg-surface-low text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                        largePresentation ? "min-h-[92px] gap-3.5 rounded-[15px] px-4 py-4" : "min-h-[68px] gap-3 rounded-[11px] px-3.5 py-3",
+                        selected
+                          ? "border-selection-accent/65 bg-[rgb(var(--selection-accent-rgb)_/_0.055)] shadow-[inset_3px_0_0_var(--selection-accent)]"
+                          : "border-border hover:border-border-strong hover:bg-surface-high",
+                        plan.disabled && "cursor-not-allowed opacity-55 hover:border-border hover:bg-surface-low",
+                        isReleasing && "cursor-wait",
                       )}
-	                    >
-	                      {plan.accent && (
-	                        <span className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 rounded-full bg-selection-accent px-2.5 py-1 text-[12px] font-medium leading-none text-selection-accent-foreground">
-	                          Most Popular
-	                        </span>
-	                      )}
-
-                      <div className="flex items-center gap-2.5">
-                        <span className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-border bg-surface-high text-foreground">
-                          <Icon className="h-4 w-4" />
+                    >
+                      <span className={cx(
+                        "flex shrink-0 items-center justify-center border transition-colors",
+                        largePresentation ? "h-11 w-11 rounded-[12px]" : "h-9 w-9 rounded-[9px]",
+                        selected
+                          ? "border-selection-accent/45 bg-[rgb(var(--selection-accent-rgb)_/_0.12)] text-selection-accent"
+                          : "border-border bg-surface-high text-foreground",
+                      )}>
+                        <Icon className={largePresentation ? "h-5 w-5" : "h-4 w-4"} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex min-w-0 items-center gap-2">
+                          <h3 className={cx("truncate font-semibold leading-tight text-foreground", largePresentation ? "text-[18px]" : "text-[16px]")}>{plan.name}</h3>
+                          {plan.accent ? (
+                            <span className="shrink-0 rounded-full bg-selection-accent px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] text-selection-accent-foreground">
+                              Most Popular
+                            </span>
+                          ) : null}
                         </span>
-                        <h3 className="truncate text-[18px] font-semibold leading-none text-foreground">{plan.name}</h3>
-                      </div>
-
-                      <p className="mt-5 min-h-[34px] text-[13px] leading-[1.35] text-text-muted">{plan.description}</p>
-
-                      <div className="mt-3 flex min-h-[42px] items-center gap-2.5">
-                        {plan.oldPrice && (
-                          <span className="text-[24px] font-bold leading-none text-text-muted line-through decoration-[2px]">{plan.oldPrice}</span>
-                        )}
+                        <span className={cx("mt-1 block truncate leading-4", largePresentation ? "text-[12px]" : "text-[11px]", plan.disabled ? "text-warning" : "text-text-muted")}>
+                          {plan.disabled ? plan.cta : plan.description}
+                        </span>
+                      </span>
+                      <span className="flex max-w-[94px] shrink-0 flex-col items-end text-right">
+                        {plan.oldPrice ? <span className="text-[10px] leading-none text-text-muted line-through">{plan.oldPrice}</span> : null}
                         {plan.price ? (
                           <>
-                            <span className="text-[28px] font-bold leading-none text-foreground">{plan.price}</span>
-                            <span className="max-w-[78px] text-[10px] font-semibold leading-[1.1] text-foreground">{plan.priceNote}</span>
+                            <span className={cx("font-bold leading-none text-foreground", largePresentation ? "text-[24px]" : "text-[20px]")}>{plan.price}</span>
+                            <span className="mt-1 text-[9px] font-medium leading-none text-text-muted">per agent / mo</span>
                           </>
                         ) : (
-                          <span className="text-[18px] font-semibold leading-none text-foreground">{plan.statusText ?? "Already active"}</span>
+                          <span className={cx("text-[11px] font-semibold leading-tight", isReleasing ? "text-warning" : "text-foreground")}>
+                            {plan.statusText ?? "Already active"}
+                          </span>
                         )}
-                      </div>
-                      {plan.price && plan.statusText && (
-                        <p className="mt-2 text-[12px] font-medium text-warning">{plan.statusText}</p>
-                      )}
-
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handlePlanAction(plan.id);
-                        }}
-	                        disabled={creating || plan.disabled}
-	                        className={cx(
-	                          "mt-3 h-8 rounded-[8px] text-[13px] font-medium leading-tight transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-70",
-	                          creating || isReleasing ? "disabled:cursor-wait" : "disabled:cursor-not-allowed",
-	                          plan.accent
-	                            ? "bg-[var(--button-primary)] text-[var(--button-primary-foreground)] hover:bg-[var(--button-primary-hover)]"
-	                            : "border border-primary/40 bg-primary/10 text-primary hover:border-primary/55 hover:bg-primary/15",
-	                        )}
-	                      >
-                        {creating && selectedPlanId === plan.id ? "Creating..." : plan.cta}
-                      </button>
-
-                      {isProvisioning || isReleasing ? (
-                        <SlotProvisioningStatus
-                          status={plan.slotStatus}
-                          detail={isReleasing ? "Refreshing slot availability" : undefined}
-                        />
-                      ) : null}
-
-                      <div className="mt-5 space-y-2.5">
-                        {featureRows.map((feature, featureIndex) => (
-                          <div key={`${plan.id}-${featureIndex}-${feature}`} className="flex items-start gap-2.5 text-[13px] leading-tight text-foreground">
-                            <Check className="mt-px h-4 w-4 flex-shrink-0 text-text-muted" />
-                            <span>{feature}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                      </span>
+                    </button>
                   );
                 })}
-            </div>
+              </div>
+
+              {selectedPlan ? (
+                <div className={cx(
+                  "border border-border bg-background/65 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.025)]",
+                  largePresentation ? "mt-4 rounded-[16px] p-5" : "mt-3 rounded-[12px] p-3.5",
+                )}>
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-text-muted">What&apos;s included</p>
+                    {selectedPlan.price && selectedPlan.statusText ? (
+                      <span className="max-w-[132px] shrink-0 text-right text-[10px] font-semibold leading-4 text-warning">{selectedPlan.statusText}</span>
+                    ) : null}
+                  </div>
+
+                  {selectedPlanIsProvisioning || selectedPlanIsReleasing ? (
+                    <SlotProvisioningStatus
+                      status={selectedPlan.slotStatus}
+                      detail={selectedPlanIsReleasing ? "Refreshing slot availability" : undefined}
+                    />
+                  ) : null}
+
+                  <div className={cx(
+                    "grid border-t border-border",
+                    largePresentation ? "mt-3 gap-x-6 gap-y-3 pt-4 sm:grid-cols-2 lg:grid-cols-3" : "mt-2.5 gap-x-4 gap-y-2 pt-3 sm:grid-cols-2",
+                  )}>
+                    {selectedPlanFeatureRows.map((feature, featureIndex) => (
+                      <div key={`${selectedPlan.id}-${featureIndex}-${feature}`} className={cx("flex min-w-0 items-start text-foreground", largePresentation ? "gap-2.5 text-[13px] leading-5" : "gap-2 text-[11px] leading-4")}>
+                        <Check className={cx("mt-0.5 flex-shrink-0 text-text-muted", largePresentation ? "h-4 w-4" : "h-3.5 w-3.5")} />
+                        <span>{feature}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
           </div>
-          <footer className="flex h-[72px] flex-shrink-0 items-center justify-between border-t border-border bg-surface-low px-5 sm:px-7">
-            <WizardButton variant="secondary" onClick={() => goToStep(1)}>
+          <footer className={cx(
+            "relative flex flex-shrink-0 items-center gap-2 border-t border-border bg-surface-low",
+            largePresentation ? "h-[82px] justify-between px-5 sm:h-[104px] sm:px-8" : "h-[72px] px-5 sm:px-6",
+          )}>
+            <WizardButton large={largePresentation} variant="secondary" onClick={() => goToStep(0)}>
               <ChevronLeft className="mr-2 h-4 w-4" />
               Back
             </WizardButton>
+            {largePresentation ? null : <WizardMomentum finalStep />}
             <WizardButton
+              large={largePresentation}
               disabled={!selectedPlan || creating || Boolean(selectedPlan.disabled)}
-              busy={creating}
+              busy={creating || selectedPlanIsReleasing}
               onClick={() => handlePlanAction()}
             >
               {creating ? "Creating..." : selectedPlan?.cta ?? "Continue"}

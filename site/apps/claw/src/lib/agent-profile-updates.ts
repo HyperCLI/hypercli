@@ -11,7 +11,41 @@ interface AgentProfileUpdateClient<TAgent = SdkAgent> {
   updateExternalAgent: (agentId: string, options: UpdateExternalAgentOptions) => Promise<TAgent>;
 }
 
-type ManagedDisplayNameSetter = (agentId: string, displayName: string | null) => void | Promise<void>;
+export function mergeAgentListAfterMutations<TAgent extends { id: string }>(
+  currentAgents: TAgent[],
+  listedAgents: TAgent[],
+  versionsAtRequest: ReadonlyMap<string, number>,
+  currentVersions: ReadonlyMap<string, number>,
+): TAgent[] {
+  const currentById = new Map(currentAgents.map((agent) => [agent.id, agent]));
+  const listedIds = new Set(listedAgents.map((agent) => agent.id));
+  const changedDuringRequest = (agentId: string) => (
+    (versionsAtRequest.get(agentId) ?? 0) !== (currentVersions.get(agentId) ?? 0)
+  );
+  const merged = listedAgents.map((agent) => (
+    changedDuringRequest(agent.id) ? currentById.get(agent.id) ?? agent : agent
+  ));
+
+  for (const agent of currentAgents) {
+    if (!listedIds.has(agent.id) && changedDuringRequest(agent.id)) merged.push(agent);
+  }
+  return merged;
+}
+
+export function createAgentMutationQueue() {
+  const tails = new Map<string, Promise<void>>();
+
+  return function runAgentMutation<T>(agentId: string, mutation: () => Promise<T>): Promise<T> {
+    const previous = tails.get(agentId) ?? Promise.resolve();
+    const result = previous.then(mutation);
+    const tail = result.then(() => undefined, () => undefined);
+    tails.set(agentId, tail);
+    void tail.then(() => {
+      if (tails.get(agentId) === tail) tails.delete(agentId);
+    });
+    return result;
+  };
+}
 
 export async function persistAgentCanonicalName<TAgent>(
   client: AgentProfileUpdateClient<TAgent>,
@@ -26,23 +60,19 @@ export async function persistAgentCanonicalName<TAgent>(
 }
 
 export async function persistAgentDisplayName<TAgent>(
-  getClient: () => AgentProfileUpdateClient<TAgent> | Promise<AgentProfileUpdateClient<TAgent>>,
+  client: AgentProfileUpdateClient<TAgent>,
   agent: AgentProfileIdentity,
   displayName: string,
-  setManagedDisplayName?: ManagedDisplayNameSetter,
-): Promise<TAgent | null> {
-  const nextDisplayName = displayName.trim().slice(0, 255);
+): Promise<TAgent> {
+  const nextDisplayName = displayName.trim();
   if (!nextDisplayName) throw new Error("Display name is required.");
-  const customDisplayName = nextDisplayName === (agent.name ?? "").trim() ? null : nextDisplayName;
 
   if (agent.managed === false) {
-    const client = await getClient();
-    return client.updateExternalAgent(agent.id, { displayName: customDisplayName });
+    return client.updateExternalAgent(agent.id, { displayName: nextDisplayName.slice(0, 255) });
   }
-
-  if (!setManagedDisplayName) {
-    throw new Error("Local display name updates are unavailable without an authenticated account session.");
+  const handle = nextDisplayName.replace(/^@+/, "").toLowerCase();
+  if (!/^[a-z0-9][a-z0-9_-]{1,63}$/.test(handle)) {
+    throw new Error("Display names must start with a lowercase letter or number and contain 2-64 lowercase letters, numbers, underscores, or dashes.");
   }
-  await setManagedDisplayName(agent.id, customDisplayName);
-  return null;
+  return client.update(agent.id, { handle });
 }

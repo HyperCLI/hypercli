@@ -27,7 +27,6 @@ import {
   Timer,
   FolderOpen,
 } from "lucide-react";
-import "@xterm/xterm/css/xterm.css";
 
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import {
@@ -40,15 +39,18 @@ import {
   isAgentCleanupConflictError,
   startOpenClawAgent,
 } from "@/lib/agent-client";
-import { persistAgentCanonicalName, persistAgentDisplayName } from "@/lib/agent-profile-updates";
+import {
+  createAgentMutationQueue,
+  mergeAgentListAfterMutations,
+  persistAgentCanonicalName,
+  persistAgentDisplayName,
+} from "@/lib/agent-profile-updates";
 import { formatCpu, formatMemory } from "@/lib/format";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
 import { useOpenClawSession } from "@/hooks/useOpenClawSession";
 import { useAgentLogs } from "@/hooks/useAgentLogs";
-import { useAgentShell } from "@/hooks/useAgentShell";
+import type { ShellStatus } from "@/hooks/useAgentShell";
 import { useAgentShellActivation } from "@/hooks/useAgentShellActivation";
-import { useAgentShellTerminal } from "@/hooks/useAgentShellTerminal";
-import { managedAgentDisplayNameScope, useManagedAgentDisplayNames } from "@/hooks/useManagedAgentDisplayNames";
 import { agentAvatar } from "@/lib/avatar";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { IntegrationsDirectoryPanel } from "@/components/dashboard/integrations";
@@ -71,7 +73,7 @@ import { MOCK_PARTICIPANTS, type ConversationThread } from "@/components/dashboa
 import { ChannelCreationWizard } from "@/components/dashboard/ChannelCreationWizard";
 import { getCategoryForPlugin, type DirectoryCategory } from "@/components/dashboard/directory/directory-utils";
 import type { AgentFileEntry, SdkAgent } from "@/types";
-import type { FileEntry } from "@hypercli/shared-ui/files";
+import { isFileTypeReference, type FileEntry } from "@hypercli/shared-ui/files";
 import { buildBrowserDesktopUrl } from "@hypercli.com/sdk/agents";
 import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
 import type { WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
@@ -105,9 +107,15 @@ import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
 import type { CenterPanel } from "@/components/dashboard/agents/page-helpers";
 import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner } from "@/components/dashboard/agents/AgentPanels";
 import type { AgentCreationSetupCreateParams } from "@/components/dashboard/agents/AgentCreationSetupWizard";
-import { AgentChatPanel, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatPanel";
+import {
+  AgentChatPanel,
+  normalizeChatFileDropItems,
+  type ChatConnectionSuggestion,
+  type ChatFileDropInput,
+  type ChatPendingFileRemovalState,
+} from "@/components/dashboard/agents/AgentChatPanel";
 import { AgentLogsPanel } from "@/components/dashboard/agents/AgentLogsPanel";
-import { AgentTerminalPanel } from "@/components/dashboard/agents/AgentTerminalPanel";
+import { AgentShellController, type AgentShellControllerHandle } from "@/components/dashboard/agents/AgentShellController";
 import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
 import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
 import { AgentGatewaySessionProvider, asAgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
@@ -115,6 +123,14 @@ import { agentDisplayLabel, toAgentViewModel } from "@/components/dashboard/agen
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 import { createAudioMediaRecorder } from "@/lib/audio-recorder";
 import { normalizeCronJob } from "@/lib/cron-jobs";
+import {
+  deleteChatImageCollection,
+  shouldStageChatImageCollection,
+  uploadChatImageCollection,
+  type ChatImageCollectionDescriptor,
+  type ChatImageCollectionProgress,
+} from "@/lib/chat-image-collection";
+import type { ChatPendingFile } from "@/lib/openclaw-chat";
 
 type MainTab = AgentMainTab;
 type AgentFileSource = "auto" | "pod" | "s3";
@@ -282,12 +298,7 @@ function removeSdkAgent(prev: SdkAgent[], agentId: string): SdkAgent[] {
 
 export default function DevAgentSetupAgentsPage() {
   const { getToken, user } = useAgentAuth();
-  const displayNameStorageScope = managedAgentDisplayNameScope(user);
-  const {
-    displayNamesByAgentId,
-    setDisplayName: setManagedAgentDisplayName,
-    clearDisplayName: clearManagedAgentDisplayName,
-  } = useManagedAgentDisplayNames(displayNameStorageScope);
+  const runAgentMutation = useMemo(() => createAgentMutationQueue(), []);
   const router = useRouter();
   const { setAgentMenu } = useDashboardMobileAgentMenu();
   const accountInitial = user?.email?.trim()[0]?.toUpperCase() || "?";
@@ -298,12 +309,19 @@ export default function DevAgentSetupAgentsPage() {
 
   // Agent data
   const [sdkAgents, setSdkAgents] = useState<SdkAgent[]>([]);
+  const [agentDataPrincipalId, setAgentDataPrincipalId] = useState<string | null>(null);
   const [budget, setBudget] = useState<AgentBudget | null>(null);
   const [catalogPlans, setCatalogPlans] = useState<HyperAgentPlan[]>([]);
   const [planName, setPlanName] = useState<string | null>(null);
   const [subscriptionSummary, setSubscriptionSummary] = useState<HyperAgentSubscriptionSummary | null>(null);
   const [tokenUsage, setTokenUsage] = useState<number | null>(null);
   const [deployments, setDeployments] = useState<Deployments | null>(null);
+  const deploymentsRef = useRef<Deployments | null>(null);
+  const agentDataGenerationRef = useRef(0);
+  const fetchAgentsRequestRef = useRef(0);
+  const agentMutationVersionsRef = useRef<Map<string, number>>(new Map());
+  const deletingAgentIdsRef = useRef<Set<string>>(new Set());
+  const privatePrincipalRef = useRef<string | null>(user?.id ?? null);
   const [workspacesClient, setWorkspacesClient] = useState<WorkspacesAPI | null>(null);
   const [, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -359,7 +377,8 @@ export default function DevAgentSetupAgentsPage() {
   const logBoxRef = useRef<HTMLDivElement | null>(null);
 
   // Shell
-  const shellOutputHandlerRef = useRef<(text: string) => void>(() => undefined);
+  const shellControllerRef = useRef<AgentShellControllerHandle | null>(null);
+  const [shellStatus, setShellStatus] = useState<ShellStatus>("disconnected");
 
   // Files panel
 
@@ -394,8 +413,45 @@ export default function DevAgentSetupAgentsPage() {
   const [savingName, setSavingName] = useState(false);
   const [chatDragActive, setChatDragActive] = useState(false);
   const chatDragDepthRef = useRef(0);
+  const applyAgentMutationResult = useCallback((updatedAgent: SdkAgent) => {
+    agentMutationVersionsRef.current.set(
+      updatedAgent.id,
+      (agentMutationVersionsRef.current.get(updatedAgent.id) ?? 0) + 1,
+    );
+    setSdkAgents((current) => upsertSdkAgent(current, updatedAgent));
+  }, []);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    agentDataGenerationRef.current += 1;
+    fetchAgentsRequestRef.current += 1;
+    agentMutationVersionsRef.current.clear();
+    deletingAgentIdsRef.current.clear();
+    deploymentsRef.current = null;
+    const nextPrincipal = user?.id ?? null;
+    if (privatePrincipalRef.current === nextPrincipal) return;
+    privatePrincipalRef.current = nextPrincipal;
+    setSdkAgents([]);
+    setAgentDataPrincipalId(null);
+    setBudget(null);
+    setCatalogPlans([]);
+    setPlanName(null);
+    setSubscriptionSummary(null);
+    setTokenUsage(null);
+    setDeployments(null);
+    setWorkspacesClient(null);
+    setSelectedAgentId(null);
+    setSelectedSessionKeysByAgent({});
+    setDeletingId(null);
+    setStartingId(null);
+    setStoppingId(null);
+    setOpeningDesktopId(null);
+    setTierSelection(null);
+    setPendingAgentDelete(null);
+    setError(null);
+    setLoading(true);
+  }, [user?.id]);
 
   const openConnectionSuggestion = useCallback((suggestion: ChatConnectionSuggestion) => {
     if (suggestion.directoryPluginId) {
@@ -413,10 +469,20 @@ export default function DevAgentSetupAgentsPage() {
   }, []);
 
   const fetchAgents = useCallback(async () => {
+    const principalId = user?.id ?? null;
+    if (!principalId) return;
+    const generation = agentDataGenerationRef.current;
+    const requestId = ++fetchAgentsRequestRef.current;
+    const mutationVersionsAtRequest = new Map(agentMutationVersionsRef.current);
+    const isCurrentRequest = () => (
+      generation === agentDataGenerationRef.current && requestId === fetchAgentsRequestRef.current
+    );
     try {
       const token = await getToken();
-      const agentClient = deployments ?? createAgentClient(token);
-      if (!deployments) {
+      if (!isCurrentRequest()) return;
+      const agentClient = deploymentsRef.current ?? createAgentClient(token);
+      if (!deploymentsRef.current) {
+        deploymentsRef.current = agentClient;
         setDeployments(agentClient);
       }
       setWorkspacesClient((current) => current ?? createWorkspacesClient(token));
@@ -429,11 +495,18 @@ export default function DevAgentSetupAgentsPage() {
         hyperAgent.usageHistory(1).catch(() => null),
         hyperAgent.agentTypes().catch(() => null),
       ]);
+      if (!isCurrentRequest()) return;
       const plans = Array.isArray(catalogData) ? catalogData : [];
       const normalizedCurrentPlan = currentPlan as HyperAgentCurrentPlan | null;
       const summary = (summaryData as HyperAgentSubscriptionSummary | null) || null;
       const typeCatalog = (typeCatalogData as HyperAgentTypeCatalog | null) || null;
-      setSdkAgents(listedAgents);
+      setSdkAgents((current) => mergeAgentListAfterMutations(
+        current,
+        listedAgents,
+        mutationVersionsAtRequest,
+        agentMutationVersionsRef.current,
+      ));
+      setAgentDataPrincipalId(principalId);
       setBudget(buildBillingBudget(summary, normalizedCurrentPlan, typeCatalog));
       setCatalogPlans(plans);
       setPlanName(getEffectivePlanName(summary, normalizedCurrentPlan, plans));
@@ -453,53 +526,64 @@ export default function DevAgentSetupAgentsPage() {
           : (listedAgents[0]?.id ?? null);
       });
     } catch (err) {
+      if (!isCurrentRequest()) return;
       const described = describeAgentsPageError(err);
       setError(described.message);
       setAgentClusterUnavailable(described.clusterUnavailable);
       setSdkAgents([]);
+      setAgentDataPrincipalId(null);
       setBudget(null);
       setCatalogPlans([]);
+      deploymentsRef.current = null;
       setDeployments(null);
       setWorkspacesClient(null);
     } finally {
-      setLoading(false);
+      if (isCurrentRequest()) setLoading(false);
     }
-  }, [deployments, getToken]);
+  }, [getToken, user?.id]);
 
   const getAgentClient = useCallback(async () => {
-    if (deployments) return deployments;
+    if (deploymentsRef.current) return deploymentsRef.current;
     return createAgentClient(await getToken());
-  }, [deployments, getToken]);
+  }, [getToken]);
+  const getFreshShellDeployments = useCallback(async (signal: AbortSignal) => {
+    const token = await getToken(signal);
+    if (signal.aborted) throw signal.reason ?? new Error("Shell connection cancelled");
+    return createAgentClient(token);
+  }, [getToken]);
 
   useEffect(() => { fetchAgents(); }, [fetchAgents]);
 
   const agents = useMemo(
-    () => sdkAgents.map((agent) => toAgentViewModel(agent, {
-      managedDisplayName: displayNamesByAgentId[agent.id],
-    })),
-    [displayNamesByAgentId, sdkAgents],
+    () => agentDataPrincipalId === user?.id ? sdkAgents.map(toAgentViewModel) : [],
+    [agentDataPrincipalId, sdkAgents, user?.id],
   );
   const updateAgentCanonicalName = useCallback(async (agentId: string, name: string) => {
+    const generation = agentDataGenerationRef.current;
     const agent = sdkAgents.find((entry) => entry.id === agentId);
     if (!agent) throw new Error("Agent is unavailable.");
-    const token = await getToken();
-    const client = createAgentClient(token);
-    const updatedAgent = await persistAgentCanonicalName(client, agent, name);
-    setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
-  }, [getToken, sdkAgents]);
+    const updatedAgent = await runAgentMutation(agentId, async () => {
+      if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+      const token = await getToken();
+      if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+      return persistAgentCanonicalName(createAgentClient(token), agent, name);
+    });
+    if (!updatedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+    applyAgentMutationResult(updatedAgent);
+  }, [applyAgentMutationResult, getToken, runAgentMutation, sdkAgents]);
   const updateAgentDisplayName = useCallback(async (agentId: string, displayName: string) => {
+    const generation = agentDataGenerationRef.current;
     const agent = sdkAgents.find((entry) => entry.id === agentId);
     if (!agent) throw new Error("Agent is unavailable.");
-    const updatedAgent = await persistAgentDisplayName(
-      async () => createAgentClient(await getToken()),
-      agent,
-      displayName,
-      displayNameStorageScope ? setManagedAgentDisplayName : undefined,
-    );
-    if (updatedAgent) {
-      setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
-    }
-  }, [displayNameStorageScope, getToken, sdkAgents, setManagedAgentDisplayName]);
+    const updatedAgent = await runAgentMutation(agentId, async () => {
+      if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+      const token = await getToken();
+      if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+      return persistAgentDisplayName(createAgentClient(token), agent, displayName);
+    });
+    if (!updatedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+    applyAgentMutationResult(updatedAgent);
+  }, [applyAgentMutationResult, getToken, runAgentMutation, sdkAgents]);
 
   // Detect STARTING→RUNNING for burst
   useEffect(() => {
@@ -591,10 +675,6 @@ export default function DevAgentSetupAgentsPage() {
   }, [mainTab, selectedAgentId, isDesktopViewport]);
 
   // ── Gateway Chat hook ──
-  const handleShellData = useCallback((text: string) => {
-    shellOutputHandlerRef.current(text);
-  }, []);
-
   const {
     logs,
     status: wsStatus,
@@ -606,38 +686,6 @@ export default function DevAgentSetupAgentsPage() {
     agentState: selectedAgentState,
     activeTab: mainTab,
   });
-
-  const {
-    status: shellStatus,
-    send: sendShell,
-    resize: resizeShell,
-    reconnect: reconnectShell,
-  } = useAgentShell(deployments, {
-    agentId: selectedAgentId,
-    enabled: shellEnabled,
-    onData: handleShellData,
-  });
-
-  const {
-    shellBoxRef,
-    writeOutput: writeShellOutput,
-    clearOutput: clearShellOutput,
-  } = useAgentShellTerminal({
-    agentId: selectedAgentId,
-    status: shellStatus,
-    visible: mainTab === "shell" && Boolean(isSelectedRunning),
-    onInput: sendShell,
-    onResize: resizeShell,
-  });
-
-  useEffect(() => {
-    shellOutputHandlerRef.current = writeShellOutput;
-  }, [writeShellOutput]);
-
-  useEffect(() => {
-    if (mainTab !== "shell" || (shellStatus !== "connecting" && shellStatus !== "reconnecting")) return;
-    clearShellOutput();
-  }, [clearShellOutput, mainTab, shellStatus]);
 
   const gatewayEnabled = isSelectedRunning;
   const selectedSessionKey = selectedAgentId
@@ -1121,11 +1169,18 @@ export default function DevAgentSetupAgentsPage() {
     }
     setStartingId(agentId);
     setError(null);
+    const generation = agentDataGenerationRef.current;
     try {
-      const token = await getToken();
-      const startedAgent = await startOpenClawAgent(token, agentId);
-      setSdkAgents((prev) => upsertSdkAgent(prev, startedAgent));
+      const startedAgent = await runAgentMutation(agentId, async () => {
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+        const token = await getToken();
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+        return startOpenClawAgent(token, agentId);
+      });
+      if (!startedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+      applyAgentMutationResult(startedAgent);
     } catch (err) {
+      if (generation !== agentDataGenerationRef.current) return;
       if (isAgentCleanupConflictError(err)) {
         markAgentCleanupCooldown(agentId);
         setError(AGENT_CLEANUP_START_MESSAGE);
@@ -1150,14 +1205,16 @@ export default function DevAgentSetupAgentsPage() {
         setError(err instanceof Error ? err.message : "Failed to start agent");
       }
     } finally {
-      setStartingId(null);
+      if (generation === agentDataGenerationRef.current) setStartingId(null);
     }
   };
 
   const handleCreateFirstAgent = useCallback(async ({ name, iconIndex, size, files, enableDesktop, enableMemoryIndex = false, customImage = null }: AgentCreationSetupCreateParams) => {
+    const generation = agentDataGenerationRef.current;
     try {
       setError(null);
       const token = await getToken();
+      if (generation !== agentDataGenerationRef.current) return null;
       const created = await createOpenClawAgent(token, {
         name: name || undefined,
         start: true,
@@ -1171,6 +1228,7 @@ export default function DevAgentSetupAgentsPage() {
             : null,
         }),
       });
+      if (generation !== agentDataGenerationRef.current) return null;
       if (created.id) {
         if (files.length > 0) {
           try {
@@ -1182,22 +1240,27 @@ export default function DevAgentSetupAgentsPage() {
                 agentClient.fileWriteBytes(agentId, path, content, destination)
               ),
             });
+            if (generation !== agentDataGenerationRef.current) return null;
           } catch (uploadError) {
+            if (generation !== agentDataGenerationRef.current) return null;
             setError(uploadError instanceof Error
               ? `Agent created, but starter files could not be uploaded: ${uploadError.message}`
               : "Agent created, but starter files could not be uploaded.");
           }
         }
         await fetchAgents();
+        if (generation !== agentDataGenerationRef.current) return null;
         setSelectedAgentId(created.id);
         setMainTab("chat");
         setMobileShowChat(true);
         return created.id;
       }
       await fetchAgents();
+      if (generation !== agentDataGenerationRef.current) return null;
       setError("Agent was created, but no agent id was returned.");
       return null;
     } catch (err) {
+      if (generation !== agentDataGenerationRef.current) return null;
       const message = err instanceof Error ? err.message : "Failed to create agent";
       setError(message);
       throw err;
@@ -1205,17 +1268,25 @@ export default function DevAgentSetupAgentsPage() {
   }, [fetchAgents, getToken]);
 
   const handleResizeAndStart = useCallback(async (agentId: string, tier: string) => {
+    const generation = agentDataGenerationRef.current;
     setStartingId(agentId);
     setError(null);
     setTierSelection(null);
     try {
-      const token = await getToken();
-      const agentClient = createAgentClient(token);
-      const resizedAgent = await agentClient.resize(agentId, { size: tier });
-      setSdkAgents((prev) => upsertSdkAgent(prev, resizedAgent));
-      const startedAgent = await startOpenClawAgent(token, agentId);
-      setSdkAgents((prev) => upsertSdkAgent(prev, startedAgent));
+      const startedAgent = await runAgentMutation(agentId, async () => {
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+        const token = await getToken();
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+        const agentClient = createAgentClient(token);
+        const resizedAgent = await agentClient.resize(agentId, { size: tier });
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+        applyAgentMutationResult(resizedAgent);
+        return startOpenClawAgent(token, agentId);
+      });
+      if (!startedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+      applyAgentMutationResult(startedAgent);
     } catch (err) {
+      if (generation !== agentDataGenerationRef.current) return;
       if (isAgentCleanupConflictError(err)) {
         markAgentCleanupCooldown(agentId);
         setError(AGENT_CLEANUP_START_MESSAGE);
@@ -1223,9 +1294,9 @@ export default function DevAgentSetupAgentsPage() {
         setError(err instanceof Error ? err.message : "Failed to resize and start agent");
       }
     } finally {
-      setStartingId(null);
+      if (generation === agentDataGenerationRef.current) setStartingId(null);
     }
-  }, [getToken, markAgentCleanupCooldown]);
+  }, [applyAgentMutationResult, getToken, markAgentCleanupCooldown, runAgentMutation]);
 
   const selectedAgentHasTierOptions = Boolean(selectedAgentStartGuidance?.availableTiers?.length);
   const selectedAgentRecentlyStopped = Boolean(selectedAgent && recentlyStoppedIds.has(selectedAgent.id));
@@ -1253,34 +1324,53 @@ export default function DevAgentSetupAgentsPage() {
   );
 
   const handleStop = async (agentId: string) => {
+    const generation = agentDataGenerationRef.current;
     setStoppingId(agentId);
     setError(null);
     try {
-      const token = await getToken();
-      const stoppedAgent = await createAgentClient(token).stop(agentId);
-      setSdkAgents((prev) => upsertSdkAgent(prev, stoppedAgent));
+      const stoppedAgent = await runAgentMutation(agentId, async () => {
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+        const token = await getToken();
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+        return createAgentClient(token).stop(agentId);
+      });
+      if (!stoppedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+      applyAgentMutationResult(stoppedAgent);
       markAgentCleanupCooldown(agentId);
     } catch (err) {
+      if (generation !== agentDataGenerationRef.current) return;
       setError(err instanceof Error ? err.message : "Failed to stop agent");
     } finally {
-      setStoppingId(null);
+      if (generation === agentDataGenerationRef.current) setStoppingId(null);
     }
   };
 
   const handleDelete = async (agentId: string) => {
+    const generation = agentDataGenerationRef.current;
+    deletingAgentIdsRef.current.add(agentId);
     setDeletingId(agentId);
     setError(null);
     try {
-      const token = await getToken();
-      await createAgentClient(token).delete(agentId);
-      clearManagedAgentDisplayName(agentId);
+      const deleted = await runAgentMutation(agentId, async () => {
+        const token = await getToken();
+        if (generation !== agentDataGenerationRef.current) return false;
+        await createAgentClient(token).delete(agentId);
+        return true;
+      });
+      if (!deleted || generation !== agentDataGenerationRef.current) return;
+      fetchAgentsRequestRef.current += 1;
+      agentMutationVersionsRef.current.delete(agentId);
       if (selectedAgentId === agentId) setSelectedAgentId(null);
       setSdkAgents((prev) => removeSdkAgent(prev, agentId));
     } catch (err) {
+      if (generation !== agentDataGenerationRef.current) return;
+      deletingAgentIdsRef.current.delete(agentId);
       setError(err instanceof Error ? err.message : "Failed to delete agent");
     } finally {
-      setDeletingId(null);
-      setPendingAgentDelete(null);
+      if (generation === agentDataGenerationRef.current) {
+        setDeletingId(null);
+        setPendingAgentDelete(null);
+      }
     }
   };
 
@@ -1327,6 +1417,13 @@ export default function DevAgentSetupAgentsPage() {
   const [audioPreviewDuration, setAudioPreviewDuration] = useState(0);
   const [audioPreviewPlaying, setAudioPreviewPlaying] = useState(false);
   const [sendingAudio, setSendingAudio] = useState(false);
+  const [uploadingChatFiles, setUploadingChatFiles] = useState(false);
+  const [chatFileUploadProgress, setChatFileUploadProgress] = useState<ChatImageCollectionProgress | null>(null);
+  const [pendingFileRemovalStates, setPendingFileRemovalStates] = useState<Record<string, ChatPendingFileRemovalState>>({});
+  const pendingFileRemovalStatesRef = useRef<Record<string, ChatPendingFileRemovalState>>({});
+  const chatFileUploadQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const chatFileUploadGenerationRef = useRef(0);
+  const chatFileUploadTargetRef = useRef({ agentId: selectedAgentId, sessionKey: chat.activeSessionKey });
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -1334,6 +1431,26 @@ export default function DevAgentSetupAgentsPage() {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const levelAnimRef = useRef<number>(0);
+
+  const setPendingFileRemovalState = useCallback((path: string, state: ChatPendingFileRemovalState | null) => {
+    const next = { ...pendingFileRemovalStatesRef.current };
+    if (state) next[path] = state;
+    else delete next[path];
+    pendingFileRemovalStatesRef.current = next;
+    setPendingFileRemovalStates(next);
+  }, []);
+
+  useLayoutEffect(() => {
+    chatFileUploadGenerationRef.current += 1;
+    const generation = chatFileUploadGenerationRef.current;
+    chatFileUploadQueueRef.current = Promise.resolve();
+    chatFileUploadTargetRef.current = { agentId: selectedAgentId, sessionKey: chat.activeSessionKey };
+    queueMicrotask(() => {
+      if (chatFileUploadGenerationRef.current !== generation) return;
+      setUploadingChatFiles(false);
+      setChatFileUploadProgress(null);
+    });
+  }, [chat.activeSessionKey, selectedAgentId]);
 
   const startRecording = useCallback(async () => {
     let stream: MediaStream | null = null;
@@ -1489,46 +1606,176 @@ export default function DevAgentSetupAgentsPage() {
     }
   }, [audioBlob, chat, discardAudio, selectedAgent, getToken, sendingAudio]);
 
-  const handleChatFileDrop = useCallback(async (fileList: FileList | File[]) => {
-    if (!selectedAgent || !chat.connected) return;
+  const handleChatFileDrop = useCallback((fileList: ChatFileDropInput) => {
+    if (!selectedAgent || !chat.connected) return Promise.resolve();
+    const droppedItems = normalizeChatFileDropItems(fileList);
+    const target = { agentId: selectedAgent.id, sessionKey: chat.activeSessionKey };
+    const generation = chatFileUploadGenerationRef.current;
+    const targetIsCurrent = () => (
+      generation === chatFileUploadGenerationRef.current &&
+      chatFileUploadTargetRef.current.agentId === target.agentId &&
+      chatFileUploadTargetRef.current.sessionKey === target.sessionKey
+    );
+    const run = async () => {
+      if (!targetIsCurrent()) return;
+      const imageItems = droppedItems.filter(({ file }) => (
+        file.type.startsWith("image/") || isFileTypeReference({ name: file.name, mimeType: file.type }, "image")
+      ));
+      const imageFiles = imageItems.map(({ file }) => file);
+      const workspaceItems = droppedItems.filter((item) => !imageItems.includes(item));
+      const stageImageCollection = imageFiles.length > 0 && (
+        chat.pendingAttachmentReads > 0 ||
+        shouldStageChatImageCollection([
+          ...chat.pendingAttachments.map((attachment) => ({ size: Math.ceil((attachment.content?.length ?? 0) * 3 / 4) })),
+          ...imageFiles,
+        ])
+      );
+      if (imageFiles.length > 0 && !stageImageCollection) {
+        const result = await chat.addAttachments(imageFiles, imageItems.map(({ relativePath }) => relativePath));
+        if (result.failures.length > 0) throw new Error(result.failures[0].message);
+      }
+      if (workspaceItems.length === 0 && !stageImageCollection) return;
 
-    const files = Array.from(fileList);
-    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+      setUploadingChatFiles(true);
+      let agentClient: ReturnType<typeof createAgentClient> | null = null;
+      let stagedCollection: ChatImageCollectionDescriptor | null = null;
+      let uploadCommitted = false;
+      try {
+        const token = await getToken();
+        if (!targetIsCurrent()) return;
+        const client = createAgentClient(token);
+        agentClient = client;
+        const uploaded: ChatPendingFile[] = [];
+        if (stageImageCollection) {
+          const result = await uploadChatImageCollection({
+            files: imageItems.map(({ file, relativePath }) => ({
+              name: relativePath,
+              size: file.size,
+              type: file.type,
+              arrayBuffer: () => file.arrayBuffer(),
+            })),
+            isActive: targetIsCurrent,
+            onProgress: (progress) => {
+              if (targetIsCurrent()) setChatFileUploadProgress(progress);
+            },
+            writeFile: (path, content) => client.fileWriteBytes(target.agentId, path, content),
+            deleteFile: (path) => client.fileDelete(target.agentId, path),
+          });
+          if (result.cleanupFailures.length > 0) {
+            console.error("Image collection rollback was incomplete:", result.cleanupFailures);
+          }
+          if (result.cancelled || !targetIsCurrent()) return;
+          if (!result.collection || !result.manifestName) {
+            const failure = result.failures[0];
+            throw new Error(failure
+              ? `Could not upload "${failure.name}": ${failure.message}`
+              : "The image collection could not be uploaded.");
+          }
+          stagedCollection = result.collection;
+          uploaded.push({
+            name: result.manifestName,
+            path: result.collection.manifestPath,
+            type: "application/json",
+            imageCollection: result.collection,
+          });
+        }
 
-    try {
+        for (const [index, { file, relativePath }] of workspaceItems.entries()) {
+          if (!targetIsCurrent()) return;
+          setChatFileUploadProgress({
+            completed: index,
+            total: workspaceItems.length,
+            label: workspaceItems.length === 1 ? "Uploading file" : `Uploading ${workspaceItems.length} files`,
+          });
+          const uploadPath = `${OPENCLAW_WORKSPACE_PREFIX}/${relativePath}`;
+          let content: ArrayBuffer;
+          try {
+            content = await file.arrayBuffer();
+          } catch (cause) {
+            const detail = cause instanceof Error ? cause.message : "The file could not be read.";
+            throw new Error(`Could not read "${relativePath}": ${detail}`);
+          }
+          await client.fileWriteBytes(target.agentId, uploadPath, content);
+          if (!targetIsCurrent()) return;
+          uploaded.push({
+            name: file.name,
+            path: `${OPENCLAW_SYNC_ROOT}/${uploadPath}`,
+            type: file.type,
+          });
+          setChatFileUploadProgress({
+            completed: index + 1,
+            total: workspaceItems.length,
+            label: workspaceItems.length === 1 ? "Uploading file" : `Uploading ${workspaceItems.length} files`,
+          });
+        }
+        if (!targetIsCurrent()) return;
+        chat.addPendingFiles(uploaded);
+        uploadCommitted = true;
+      } catch (cause) {
+        console.error("Chat file upload failed:", cause);
+        const uploadError = cause instanceof Error ? cause : new Error("File upload failed");
+        if (targetIsCurrent()) setError(uploadError.message);
+        throw uploadError;
+      } finally {
+        const cleanupClient = agentClient;
+        if (!uploadCommitted && cleanupClient) {
+          if (stagedCollection) {
+            const cleanupFailures = await deleteChatImageCollection(
+              stagedCollection,
+              (path) => cleanupClient.fileDelete(target.agentId, path),
+            );
+            if (cleanupFailures.length > 0) {
+              console.error("Image collection cleanup was incomplete:", cleanupFailures);
+            }
+          }
+        }
+        if (generation === chatFileUploadGenerationRef.current) {
+          setUploadingChatFiles(false);
+          setChatFileUploadProgress(null);
+        }
+      }
+    };
+    const queued = chatFileUploadQueueRef.current.then(run, run);
+    chatFileUploadQueueRef.current = queued.catch(() => undefined);
+    return queued;
+  }, [chat, getToken, selectedAgent]);
+
+  const removePendingChatFile = useCallback((index: number, file: ChatPendingFile) => {
+    const target = { agentId: selectedAgent?.id ?? null, sessionKey: chat.activeSessionKey };
+    if (!selectedAgent || !file.imageCollection) {
+      chat.removePendingFile(index, file.path, target);
+      return;
+    }
+    const collection = file.imageCollection;
+    const agentId = selectedAgent.id;
+    setPendingFileRemovalState(file.path, "removing");
+    void (async () => {
       const token = await getToken();
       const agentClient = createAgentClient(token);
-      const uploaded: Array<{ name: string; path: string; type: string }> = [];
-
-      for (const file of files) {
-        const uploadPath = `${OPENCLAW_WORKSPACE_PREFIX}/${file.name}`;
-        await agentClient.fileWriteBytes(selectedAgent.id, uploadPath, await file.arrayBuffer());
-        uploaded.push({
-          name: file.name,
-          path: `${OPENCLAW_SYNC_ROOT}/${uploadPath}`,
-          type: file.type,
-        });
+      const cleanupFailures = await deleteChatImageCollection(collection, (path) => agentClient.fileDelete(agentId, path));
+      if (cleanupFailures.length > 0) {
+        throw new Error("The image collection could not be removed completely. Please retry.");
       }
-
-      if (imageFiles.length > 0) {
-        const dt = new DataTransfer();
-        imageFiles.forEach((file) => dt.items.add(file));
-        chat.addAttachments(dt.files);
-      }
-      chat.addPendingFiles(uploaded);
-    } catch (e) {
-      console.error("Chat file upload failed:", e);
-      setError(e instanceof Error ? e.message : "File upload failed");
-    }
-  }, [chat, getToken, selectedAgent]);
+      chat.removePendingFile(index, file.path, target);
+      setPendingFileRemovalState(file.path, null);
+    })().catch((cause: unknown) => {
+      console.error("Image collection cleanup failed:", cause);
+      setPendingFileRemovalState(file.path, "failed");
+      setError(cause instanceof Error ? cause.message : "The image collection could not be removed.");
+    });
+  }, [chat, getToken, selectedAgent, setPendingFileRemovalState]);
 
   const formatDuration = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
 
   const handleSendChat = () => {
     const draftInput = chat.input;
+    if (chat.pendingFiles.some((file) => pendingFileRemovalStatesRef.current[file.path])) return;
     if (chat.activeSessionSending) {
-      chat.setInput("");
-      chat.addPendingMessage(draftInput);
+      chat.addPendingMessage(draftInput, {
+        attachments: chat.pendingAttachments,
+        files: chat.pendingFiles,
+        consumeDraft: true,
+      });
       return;
     }
     chat.sendMessage();
@@ -1667,7 +1914,7 @@ export default function DevAgentSetupAgentsPage() {
                       <button
                         onClick={() => {
                           if (mainTab === "logs") reconnectLogs();
-                          if (mainTab === "shell") reconnectShell();
+                          if (mainTab === "shell") shellControllerRef.current?.reconnect();
                           setMobileAgentMenuOpen(false);
                         }}
                         className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-foreground hover:bg-surface-low/70"
@@ -1809,13 +2056,16 @@ export default function DevAgentSetupAgentsPage() {
             suggestedTierActions={selectedAgentSuggestedTierActions}
             currentPanel={selectedCenterPanel}
             stoppedTabLabel={stoppedTabLabel[selectedCenterPanel]}
-            persistentPanelContent={
-              <AgentTerminalPanel
-                status={shellStatus}
-                shellBoxRef={shellBoxRef}
-                visible={mainTab === "shell" && Boolean(isSelectedRunning)}
+            persistentPanelContent={shellEnabled ? (
+              <AgentShellController
+                ref={shellControllerRef}
+                deployments={deployments}
+                agentId={selectedAgentId}
+                visible={mainTab === "shell" && Boolean(isSelectedRunning) && (isDesktopViewport || mobileShowChat)}
+                getDeployments={getFreshShellDeployments}
+                onStatusChange={setShellStatus}
               />
-            }
+            ) : null}
             panelContent={mainTab === "chat" ? (
               <AgentChatPanel
                 chat={gatewayChat}
@@ -1825,6 +2075,10 @@ export default function DevAgentSetupAgentsPage() {
                 setChatDragActive={setChatDragActive}
                 chatDragDepthRef={chatDragDepthRef}
                 handleChatFileDrop={handleChatFileDrop}
+                chatFilesUploading={uploadingChatFiles}
+                chatFileUploadProgress={chatFileUploadProgress}
+                pendingFileRemovalStates={pendingFileRemovalStates}
+                onRemovePendingFile={removePendingChatFile}
                 chatScrollRef={chatScrollRef}
                 handleChatScroll={handleChatScroll}
                 chatEndRef={chatEndRef}
@@ -1963,6 +2217,7 @@ export default function DevAgentSetupAgentsPage() {
               <SharedKnowledgePanel agents={agents} workspaces={workspacesClient} ready={Boolean(workspacesClient)} />
             ) : mainTab === "settings" || mainTab === "openclaw" ? (
               <AgentSettingsPanel
+                key={selectedAgent?.id ?? "no-agent"}
                 agent={selectedAgent}
                 user={user}
                 getToken={getToken}
@@ -1981,22 +2236,37 @@ export default function DevAgentSetupAgentsPage() {
                 reportedChannels={chat.reportedChannels}
                 reportedChannelsReady={chat.reportedChannelsReady}
                 onUpdateAgentProfile={async (agentId, profile) => {
-                  const token = await getToken();
-                  const updatedAgent = await createAgentClient(token).update(agentId, profile);
-                  setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
+                  const generation = agentDataGenerationRef.current;
+                  const updatedAgent = await runAgentMutation(agentId, async () => {
+                    if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+                    const token = await getToken();
+                    if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+                    return createAgentClient(token).update(agentId, profile);
+                  });
+                  if (!updatedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+                  applyAgentMutationResult(updatedAgent);
                 }}
                 onUpdateExternalAgentProfile={async (agentId, profile) => {
-                  const token = await getToken();
-                  const updatedAgent = await createAgentClient(token).updateExternalAgent(agentId, profile);
-                  setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
+                  const generation = agentDataGenerationRef.current;
+                  const updatedAgent = await runAgentMutation(agentId, async () => {
+                    if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+                    const token = await getToken();
+                    if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+                    return createAgentClient(token).updateExternalAgent(agentId, profile);
+                  });
+                  if (!updatedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+                  applyAgentMutationResult(updatedAgent);
                 }}
-                onSetManagedAgentDisplayName={displayNameStorageScope ? (agentId, displayName) => {
-                  setManagedAgentDisplayName(agentId, displayName);
-                } : undefined}
                 onUpdateAgentLaunchConfig={async (agentId, launchConfig) => {
-                  const token = await getToken();
-                  const updatedAgent = await createAgentClient(token).update(agentId, { launchConfig });
-                  setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
+                  const generation = agentDataGenerationRef.current;
+                  const updatedAgent = await runAgentMutation(agentId, async () => {
+                    if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+                    const token = await getToken();
+                    if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+                    return createAgentClient(token).update(agentId, { launchConfig });
+                  });
+                  if (!updatedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+                  applyAgentMutationResult(updatedAgent);
                 }}
                 onSaveOpenClawConfig={async (patch) => { await chat.saveConfig(patch); }}
               />
@@ -2022,7 +2292,7 @@ export default function DevAgentSetupAgentsPage() {
             }}
             onReconnect={() => {
               if (mainTab === "logs") reconnectLogs();
-              if (mainTab === "shell") reconnectShell();
+              if (mainTab === "shell") shellControllerRef.current?.reconnect();
             }}
           />
 

@@ -43,9 +43,7 @@ export function AgentLogsPanel({ status, logs, logBoxRef }: AgentLogsPanelProps)
   return (
     <div ref={logBoxRef} className="h-full overflow-auto bg-background p-4 font-mono text-xs leading-5 text-text-secondary">
       {logs.length === 0 && <div className="text-text-muted">Connected. Waiting for log lines.</div>}
-      {logs.map((line, idx) => (
-        <div key={`${idx}-${line.slice(0, 32)}`} className="whitespace-pre-wrap break-words">{line}</div>
-      ))}
+      {logs.length > 0 && <pre className="whitespace-pre-wrap break-words font-inherit">{logs.join("\n")}</pre>}
     </div>
   );
 }

@@ -30,7 +30,7 @@ const SUPPORTED_CHAT_CONNECTORS: Record<ClawIntegrationConnectId, string[]> = {
 };
 
 const GENERIC_INTEGRATION_NOUN_RE = /\b(?:integration|integrations|channel|channels|chat connection|messaging connection)\b/i;
-const DIRECT_SETUP_INTENT_RE = /\b(?:connect|configure|link|enable|integrate)\b|\bset\s+up\b|\bsetup\b/i;
+const DIRECT_SETUP_INTENT_RE = /^\s*(?:(?:please|can\s+you|could\s+you|would\s+you|help\s+me(?:\s+to)?|how\s+(?:do|can)\s+i|i\s+(?:want|need)\s+to|we\s+need\s+to)\s+)*(?:connect|configure|link|enable|integrate|set\s+up|setup)\b/i;
 const CREATE_SETUP_INTENT_RE = /\b(?:add|create|make|want|need)\b.{0,48}\b(?:integration|integrations|channel|channels|connection|bot)\b/i;
 const REVERSE_CREATE_SETUP_INTENT_RE = /\b(?:integration|integrations|channel|channels|connection|bot)\b.{0,48}\b(?:add|create|make|want|need)\b/i;
 const NEGATED_SETUP_INTENT_RE = /\b(?:do\s+not|don\s+t|dont|never|not)\s+(?:want\s+to\s+)?(?:connect|configure|link|enable|integrate|set\s+up|setup|add|create|make)\b/i;

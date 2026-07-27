@@ -104,6 +104,7 @@ function buildChat(overrides: Partial<ChatSession> = {}): ChatSession {
     activeSessionThinkingDefault: null,
     activeSessionReadOnly: false,
     activeSessionReadOnlyReason: null,
+    activeSessionCanSend: true,
     temporaryChatAvailable: true,
     temporaryChatActive: false,
     temporaryChatState: "inactive",
@@ -300,6 +301,140 @@ describe("AgentChatPanel", () => {
     expect(failedReplyRetrySource(messages, 2)).toBe(messages[1]);
   });
 
+  it("automatically loads transcript history in 100-message increments at the top", () => {
+    const messages = Array.from({ length: 225 }, (_, index) => ({
+      role: index % 2 === 0 ? "user" as const : "assistant" as const,
+      content: `History message ${index}`,
+      renderId: `history-${index}`,
+    }));
+    const chatScrollRef = createRef<HTMLDivElement>();
+    const props = buildAgentChatPanelProps({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        messages,
+      }),
+      isSelectedRunning: true,
+      chatScrollRef,
+    });
+    const { rerender } = renderWithClient(<AgentChatPanel {...props} />);
+
+    const renderedMessages = chatMessageBubbleMock.mock.calls.map(([props]) => (
+      (props as { message: ChatSession["messages"][number] }).message.content
+    ));
+    const uniqueRenderedMessages = Array.from(new Set(renderedMessages));
+    expect(uniqueRenderedMessages).toHaveLength(100);
+    expect(uniqueRenderedMessages[0]).toBe("History message 125");
+    expect(uniqueRenderedMessages.at(-1)).toBe("History message 224");
+    expect(screen.queryByText(/125 earlier messages/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Show earlier messages" })).not.toBeInTheDocument();
+    chatMessageBubbleMock.mockClear();
+
+    const scroller = chatScrollRef.current!;
+    let scrollHeightRead = 0;
+    Object.defineProperties(scroller, {
+      scrollHeight: {
+        configurable: true,
+        get: () => {
+          scrollHeightRead += 1;
+          return scrollHeightRead <= 2 ? 1_000 : 1_800;
+        },
+      },
+      clientHeight: { configurable: true, value: 400 },
+      scrollTop: { configurable: true, writable: true, value: 0 },
+    });
+    fireEvent.scroll(scroller);
+
+    const expandedMessages = Array.from(new Set(chatMessageBubbleMock.mock.calls.map(([props]) => (
+      (props as { message: ChatSession["messages"][number] }).message.content
+    ))));
+    expect(expandedMessages).toHaveLength(100);
+    expect(expandedMessages[0]).toBe("History message 25");
+    expect(expandedMessages.at(-1)).toBe("History message 124");
+    expect(scroller.scrollTop).toBe(800);
+
+    chatMessageBubbleMock.mockClear();
+    scroller.scrollTop = 0;
+    fireEvent.scroll(scroller);
+    const allMessages = Array.from(new Set(chatMessageBubbleMock.mock.calls.map(([props]) => (
+      (props as { message: ChatSession["messages"][number] }).message.content
+    ))));
+    expect(allMessages).toHaveLength(25);
+    expect(allMessages[0]).toBe("History message 0");
+    expect(allMessages.at(-1)).toBe("History message 24");
+
+    chatMessageBubbleMock.mockClear();
+    rerender(
+      <AgentChatPanel
+        {...props}
+        chat={{ ...props.chat, activeSessionKey: "secondary" }}
+      />,
+    );
+    const nextSessionMessages = Array.from(new Set(chatMessageBubbleMock.mock.calls.map(([nextProps]) => (
+      (nextProps as { message: ChatSession["messages"][number] }).message.content
+    ))));
+    expect(nextSessionMessages).toHaveLength(100);
+    expect(nextSessionMessages[0]).toBe("History message 125");
+  });
+
+  it("does not rerender stable historical bubbles for streamed content updates", () => {
+    const historicalMessage = { role: "user" as const, content: "Stable history", renderId: "history-1" };
+    const streamingMessage = { role: "assistant" as const, content: "Streaming", renderId: "stream-1" };
+    const props = buildAgentChatPanelProps({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        sending: true,
+        activeSessionSending: true,
+        messages: [historicalMessage, streamingMessage],
+      }),
+      isSelectedRunning: true,
+    });
+    const { rerender } = renderWithClient(<AgentChatPanel {...props} />);
+    chatMessageBubbleMock.mockClear();
+
+    rerender(
+      <AgentChatPanel
+        {...props}
+        chat={{
+          ...props.chat,
+          messages: [historicalMessage, { ...streamingMessage, content: "Streaming update" }],
+        }}
+      />,
+    );
+
+    const rerenderedContents = Array.from(new Set(chatMessageBubbleMock.mock.calls.map(([bubbleProps]) => (
+      (bubbleProps as { message: ChatSession["messages"][number] }).message.content
+    ))));
+    expect(rerenderedContents).toEqual(["Streaming update"]);
+  });
+
+  it("keeps memoized message file actions current", () => {
+    const firstOpen = vi.fn();
+    const nextOpen = vi.fn();
+    const message = { role: "assistant" as const, content: "Open the file", renderId: "file-action-1" };
+    const props = buildAgentChatPanelProps({
+      chat: buildChat({ messages: [message] }),
+      onOpenFileFromChat: firstOpen,
+    });
+    const { rerender } = renderWithClient(<AgentChatPanel {...props} />);
+    const bubbleProps = chatMessageBubbleMock.mock.calls.at(-1)?.[0] as {
+      onOpenFileFromChat?: (path: string) => void;
+    };
+    chatMessageBubbleMock.mockClear();
+
+    rerender(<AgentChatPanel {...props} onOpenFileFromChat={nextOpen} />);
+    expect(chatMessageBubbleMock).not.toHaveBeenCalled();
+    bubbleProps.onOpenFileFromChat?.("README.md");
+
+    expect(firstOpen).not.toHaveBeenCalled();
+    expect(nextOpen).toHaveBeenCalledWith("README.md");
+  });
+
   it("retries a failed reply with the original prompt and attachments", async () => {
     const sendMessage = vi.fn(async () => undefined);
     const attachment = {
@@ -374,6 +509,11 @@ describe("AgentChatPanel", () => {
 
     const latestButton = screen.getByRole("button", { name: "Scroll to latest message" });
     expect(handleChatScroll).toHaveBeenCalledTimes(1);
+    expect(latestButton).toHaveClass(
+      "bg-[var(--button-primary)]",
+      "text-[var(--button-primary-foreground)]",
+      "hover:bg-[var(--button-primary-hover)]",
+    );
 
     fireEvent.click(latestButton);
     expect(onRequestTranscriptScroll).toHaveBeenCalledWith("smooth");
@@ -478,7 +618,7 @@ describe("AgentChatPanel", () => {
 
       secondTranscriptObserver?.callback([], secondTranscriptObserver as unknown as ResizeObserver);
       expect(onTranscriptResize).toHaveBeenCalledTimes(1);
-      expect(onTranscriptResize).toHaveBeenCalledWith("smooth");
+      expect(onTranscriptResize).toHaveBeenCalledWith("auto");
       unmount();
       expect(secondTranscriptObserver?.disconnect).toHaveBeenCalledTimes(1);
     } finally {
@@ -565,12 +705,15 @@ describe("AgentChatPanel", () => {
         connected: true,
         historyPhase: "loading",
         historyPending: true,
+        activeSessionCanSend: false,
       }),
       isSelectedRunning: true,
     });
 
     expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /connect slack/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox")).toBeDisabled();
+    expect(screen.getByPlaceholderText("Verifying conversation...")).toBeInTheDocument();
   });
 
   it("keeps existing messages visible and exposes retry when history refresh fails", () => {
@@ -582,6 +725,7 @@ describe("AgentChatPanel", () => {
         ready: true,
         connected: true,
         historyPhase: "error",
+        activeSessionCanSend: false,
         messages: [{ role: "assistant", content: "Cached answer", renderId: "cached-answer" }],
         retry,
       }),
@@ -592,6 +736,8 @@ describe("AgentChatPanel", () => {
       props as { message?: { content?: string } } | undefined
     )?.message?.content === "Cached answer")).toBe(true);
     expect(screen.getByRole("alert")).toHaveTextContent("Showing saved messages");
+    expect(screen.getByRole("textbox")).toBeDisabled();
+    expect(screen.getByPlaceholderText("Retry conversation before sending...")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(retry).toHaveBeenCalledTimes(1);
   });
@@ -609,7 +755,7 @@ describe("AgentChatPanel", () => {
   });
 
   it("passes workspace file actions to rendered chat messages", () => {
-    const selectedAgent = { ...buildAgent(), name: "research-agent", displayName: "Research Pilot" };
+    const selectedAgent = { ...buildAgent(), name: "research-agent", handle: "research-pilot", displayName: "ignored-external-name" };
     const onReadFileBytesFromChat = vi.fn();
     const onOpenFileFromChat = vi.fn();
     const onDownloadFileFromChat = vi.fn();
@@ -643,12 +789,16 @@ describe("AgentChatPanel", () => {
     const bubbleProps = chatMessageBubbleMock.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
     expect(bubbleProps).toEqual(expect.objectContaining({
       agentId: selectedAgent.id,
-      agentName: "Research Pilot",
+      agentName: "research-pilot",
       animationVariant: "off",
-      onReadFileBytesFromChat,
-      onOpenFileFromChat,
-      onDownloadFileFromChat,
+      onReadFileBytesFromChat: expect.any(Function),
+      onOpenFileFromChat: expect.any(Function),
+      onDownloadFileFromChat: expect.any(Function),
     }));
+    (bubbleProps?.onOpenFileFromChat as (path: string) => void)("report.pdf");
+    (bubbleProps?.onDownloadFileFromChat as (file: { path: string }) => void)({ path: "report.pdf" });
+    expect(onOpenFileFromChat).toHaveBeenCalledWith("report.pdf");
+    expect(onDownloadFileFromChat).toHaveBeenCalledWith({ path: "report.pdf" });
   });
 
   it("contains a malformed message render without losing the transcript", () => {
@@ -956,6 +1106,111 @@ describe("AgentChatPanel", () => {
     expect(setChatDragActive).not.toHaveBeenCalledWith(true);
   });
 
+  it("expands a dropped folder before passing its files to chat", async () => {
+    const handleChatFileDrop = vi.fn(async () => undefined);
+    const file = new File(["image"], "photo.png", { type: "image/png" });
+    const fileEntry = {
+      isFile: true,
+      isDirectory: false,
+      name: "photo.png",
+      file: (resolve: (value: File) => void) => resolve(file),
+    };
+    let unread = true;
+    const directoryEntry = {
+      isFile: false,
+      isDirectory: true,
+      name: "photos",
+      createReader: () => ({
+        readEntries: (resolve: (entries: typeof fileEntry[]) => void) => {
+          if (!unread) {
+            resolve([]);
+            return;
+          }
+          unread = false;
+          resolve([fileEntry]);
+        },
+      }),
+    };
+    renderAgentChatPanel({
+      chat: buildChat({ status: "connected", gatewayConnected: true, ready: true, connected: true }),
+      handleChatFileDrop,
+      isSelectedRunning: true,
+    });
+    const chatRoot = closestClassNameContaining(screen.getByRole("textbox", { name: /message agent/i }), "max-h-full");
+
+    fireEvent.drop(chatRoot!, {
+      dataTransfer: {
+        types: ["Files"],
+        files: [],
+        items: [{ kind: "file", webkitGetAsEntry: () => directoryEntry, getAsFile: () => null }],
+      },
+    });
+
+    await waitFor(() => expect(handleChatFileDrop).toHaveBeenCalledWith([{
+      file,
+      relativePath: "photos/photo.png",
+    }]));
+  });
+
+  it("shows a useful error when a dropped chat folder disappears", async () => {
+    const handleChatFileDrop = vi.fn();
+    const notFound = new DOMException(
+      "A requested file or directory could not be found at the time an operation was processed.",
+      "NotFoundError",
+    );
+    const directoryEntry = {
+      isFile: false,
+      isDirectory: true,
+      name: "missing-photos",
+      createReader: () => ({
+        readEntries: (_resolve: (entries: unknown[]) => void, reject: (cause: DOMException) => void) => reject(notFound),
+      }),
+    };
+    renderAgentChatPanel({
+      chat: buildChat({ status: "connected", gatewayConnected: true, ready: true, connected: true }),
+      handleChatFileDrop,
+      isSelectedRunning: true,
+    });
+    const chatRoot = closestClassNameContaining(screen.getByRole("textbox", { name: /message agent/i }), "max-h-full");
+
+    fireEvent.drop(chatRoot!, {
+      dataTransfer: {
+        types: ["Files"],
+        files: [],
+        items: [{ kind: "file", webkitGetAsEntry: () => directoryEntry, getAsFile: () => null }],
+      },
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      'Could not read folder "missing-photos". It may have been moved or removed while it was being added.',
+    );
+    expect(handleChatFileDrop).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unreadable folder pseudo-file before chat reads its bytes", async () => {
+    const handleChatFileDrop = vi.fn();
+    const pseudoFile = new File([], "photos.folder", { type: "" });
+    renderAgentChatPanel({
+      chat: buildChat({ status: "connected", gatewayConnected: true, ready: true, connected: true }),
+      handleChatFileDrop,
+      isSelectedRunning: true,
+    });
+    const chatRoot = closestClassNameContaining(screen.getByRole("textbox", { name: /message agent/i }), "max-h-full");
+
+    fireEvent.drop(chatRoot!, {
+      dataTransfer: {
+        types: ["Files"],
+        files: [pseudoFile],
+        items: [],
+      },
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      'Could not open folder "photos.folder". This browser did not provide access to its contents.',
+    );
+    expect(handleChatFileDrop).not.toHaveBeenCalled();
+  });
+
   it("renders GitHub connector cards from assistant UI action metadata", async () => {
     renderAgentChatPanel({
       chat: buildChat({
@@ -1110,6 +1365,7 @@ describe("AgentChatPanel", () => {
     "write a Slack announcement",
     "compare Telegram and Discord",
     "do not connect Telegram",
+    "Generate a dense Markdown rendering test with a standard link, bare URL, tables, HTML elements, and a conclusion. This query should not navigate to integrations.",
   ])("does not open integration UI for ordinary discussion: %s", (input) => {
     const handleSendChat = vi.fn();
     const onOpenIntegrations = vi.fn();
@@ -1184,6 +1440,32 @@ describe("AgentChatPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open Telegram connection setup" }));
 
     expect(await screen.findByText("Start setup")).toBeInTheDocument();
+    expect(onConnectionCta).not.toHaveBeenCalled();
+  });
+
+  it("dismisses individual composer integration suggestions", () => {
+    const onConnectionCta = vi.fn();
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input: "connect telegram and discord",
+        reportedChannels: [channel("telegram"), channel("discord")],
+      }),
+      isSelectedRunning: true,
+      onConnectionCta,
+    });
+
+    expect(screen.getByRole("button", { name: "Open Telegram connection setup" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open Discord connection setup" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss Telegram connection suggestion" }));
+
+    expect(screen.queryByRole("button", { name: "Open Telegram connection setup" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Dismiss Telegram connection suggestion" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open Discord connection setup" })).toBeInTheDocument();
     expect(onConnectionCta).not.toHaveBeenCalled();
   });
 
@@ -2063,9 +2345,12 @@ describe("AgentChatPanel", () => {
     expect(screen.getByRole("status", { name: /installed code review/i })).toBeInTheDocument();
   });
 
-  it("starts a new session through the slash command callback", async () => {
+  it("clears the source composer before the new session callback resolves", async () => {
     const setInput = vi.fn();
-    const onNewConversation = vi.fn(async () => undefined);
+    let resolveNewConversation!: () => void;
+    const onNewConversation = vi.fn(() => new Promise<void>((resolve) => {
+      resolveNewConversation = resolve;
+    }));
     const handleSendChat = vi.fn();
     renderAgentChatPanel({
       chat: buildChat({
@@ -2088,7 +2373,48 @@ describe("AgentChatPanel", () => {
     expect(handleSendChat).not.toHaveBeenCalled();
     expect(onNewConversation).toHaveBeenCalledTimes(1);
     expect(setInput).toHaveBeenCalledWith("");
+    expect(screen.queryByRole("status", { name: /new session opened/i })).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveNewConversation();
+    });
+
     expect(screen.getByRole("status", { name: /new session opened/i })).toBeInTheDocument();
+  });
+
+  it("restores the source slash draft when new session creation fails", async () => {
+    const onNewConversation = vi.fn(async () => {
+      throw new Error("Could not create conversation");
+    });
+
+    function StatefulNewSessionChat() {
+      const [input, setInput] = useState("/new");
+      return (
+        <AgentChatPanel
+          {...buildAgentChatPanelProps({
+            chat: buildChat({
+              status: "connected",
+              gatewayConnected: true,
+              ready: true,
+              connected: true,
+              input,
+              setInput,
+            }),
+            isSelectedRunning: true,
+            slashCommandActions: { onNewConversation },
+          })}
+        />
+      );
+    }
+    renderWithClient(<StatefulNewSessionChat />);
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
+    });
+
+    expect(onNewConversation).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("textbox", { name: /message agent/i })).toHaveValue("/new");
+    expect(screen.getByRole("status", { name: /could not create conversation/i })).toBeInTheDocument();
   });
 
   it("passes a path through the open file slash command", async () => {
@@ -2355,6 +2681,61 @@ describe("AgentChatPanel", () => {
     expect(handleSendChat).toHaveBeenCalledTimes(1);
   });
 
+  it("uses /stop to abort the active reply without stopping the agent", async () => {
+    const abortMessage = vi.fn(async () => undefined);
+    const onStopAgent = vi.fn(async () => undefined);
+    const setInput = vi.fn();
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        sending: true,
+        activeSessionSending: true,
+        input: "/stop",
+        setInput,
+        abortMessage,
+      }),
+      isSelectedRunning: true,
+      slashCommandActions: { onStopAgent },
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
+    });
+
+    expect(abortMessage).toHaveBeenCalledTimes(1);
+    expect(onStopAgent).not.toHaveBeenCalled();
+    expect(setInput).toHaveBeenCalledWith("");
+    expect(screen.queryByRole("heading", { name: "Stop agent" })).not.toBeInTheDocument();
+    expect(screen.getByRole("status", { name: /stop requested/i })).toBeInTheDocument();
+  });
+
+  it("does not let /stop abort a reply running in another session", async () => {
+    const abortMessage = vi.fn(async () => undefined);
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        sending: true,
+        activeSessionSending: false,
+        input: "/stop",
+        abortMessage,
+      }),
+      isSelectedRunning: true,
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
+    });
+
+    expect(abortMessage).not.toHaveBeenCalled();
+    expect(screen.getByText("No reply is currently running.")).toBeInTheDocument();
+  });
+
   it("stops the current reply when Escape is pressed in the composer", () => {
     const abortMessage = vi.fn(async () => undefined);
     renderAgentChatPanel({
@@ -2487,14 +2868,103 @@ describe("AgentChatPanel", () => {
         input: "Review the attached document",
       }),
       chatFilesUploading: true,
+      chatFileUploadProgress: { completed: 37, total: 100, label: "Preparing 100 images" },
       handleSendChat,
       isSelectedRunning: true,
     });
 
     expect(screen.getByRole("status", { name: /uploading workspace files/i })).toBeInTheDocument();
+    expect(screen.getByText("Preparing 100 images")).toBeInTheDocument();
+    expect(screen.getByText("37/100")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: /file upload progress/i })).toHaveAttribute("aria-valuenow", "37");
     expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
     fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
     expect(handleSendChat).not.toHaveBeenCalled();
+  });
+
+  it("delegates staged collection removal so its workspace files can be cleaned up", () => {
+    const pendingFile = {
+      name: "image-collection-100.json",
+      path: "/workspace/image-collection-100.json",
+      type: "application/json",
+      imageCollection: {
+        count: 100,
+        manifestPath: "/workspace/image-collection-100.json",
+        manifestUploadPath: ".openclaw/workspace/image-collection-100.json",
+        uploadPaths: [],
+      },
+    };
+    const onRemovePendingFile = vi.fn();
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        pendingFiles: [pendingFile],
+      }),
+      onRemovePendingFile,
+      isSelectedRunning: true,
+    });
+
+    expect(screen.getByText("100 images")).toBeInTheDocument();
+    expect(screen.queryByText("image-collection-100.json")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remove 100-image collection" }));
+    expect(onRemovePendingFile).toHaveBeenCalledWith(0, pendingFile);
+  });
+
+  it("blocks sending a collection whose cleanup failed and offers a retry", () => {
+    const pendingFile = {
+      name: "image-collection-100.json",
+      path: "/workspace/image-collection-100.json",
+      type: "application/json",
+      imageCollection: {
+        count: 100,
+        manifestPath: "/workspace/image-collection-100.json",
+        manifestUploadPath: ".openclaw/workspace/image-collection-100.json",
+        uploadPaths: [],
+      },
+    };
+    const onRemovePendingFile = vi.fn();
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input: "Compare these images",
+        pendingFiles: [pendingFile],
+      }),
+      pendingFileRemovalStates: { [pendingFile.path]: "failed" },
+      onRemovePendingFile,
+      isSelectedRunning: true,
+    });
+
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Retry removing 100-image collection" }));
+    expect(onRemovePendingFile).toHaveBeenCalledWith(0, pendingFile);
+  });
+
+  it("routes pasted images through the same large-drop handler", () => {
+    const chat = buildChat({
+      status: "connected",
+      gatewayConnected: true,
+      ready: true,
+      connected: true,
+    });
+    const handleChatFileDrop = vi.fn();
+    renderAgentChatPanel({ chat, handleChatFileDrop, isSelectedRunning: true });
+    const image = new File(["image"], "pasted.png", { type: "image/png" });
+
+    fireEvent.paste(screen.getByRole("textbox", { name: /message agent/i }), {
+      clipboardData: {
+        items: [{ type: "image/png", getAsFile: () => image }],
+      },
+    });
+
+    expect(handleChatFileDrop).toHaveBeenCalledTimes(1);
+    expect(handleChatFileDrop.mock.calls[0]?.[0]).toHaveLength(1);
+    expect(chat.addAttachments).not.toHaveBeenCalled();
   });
 
   it("does not flash the textarea while a stopped recording becomes a preview", () => {

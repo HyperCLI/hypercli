@@ -83,12 +83,16 @@ function getPlanFooterAction(name: string): HTMLElement {
   return actions[actions.length - 1];
 }
 
+function goToPlanStep() {
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+}
+
 describe("FirstAgentSetupWizard", () => {
   beforeEach(() => {
     window.sessionStorage.clear();
   });
 
-  it("supports the larger launcher presentation without changing the default bounds", () => {
+  it("uses the wide launcher presentation while preserving compact default bounds", () => {
     const view = renderWithClient(
       <FirstAgentSetupWizard
         size="large"
@@ -99,7 +103,97 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    expect(view.container.querySelector("section")).toHaveClass("max-h-[800px]", "max-w-[1240px]");
+    expect(view.container.querySelector("section")).toHaveClass("max-h-[910px]", "max-w-[1168px]");
+  });
+
+  it("matches the saved-agent surface in the inline presentation", () => {
+    const view = renderWithClient(
+      <FirstAgentSetupWizard
+        size="inline"
+        onCreateAgent={vi.fn(async () => null)}
+        budget={null}
+        subscriptionSummary={null}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    expect(view.container.querySelector("section")).toHaveClass("h-[546px]", "sm:!h-[428px]", "max-w-[660px]");
+  });
+
+  it("keeps agent customization optional on the identity step", async () => {
+    renderWithClient(
+      <FirstAgentSetupWizard
+        onCreateAgent={vi.fn(async () => null)}
+        budget={null}
+        subscriptionSummary={null}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Create agent" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Agent name")).toBeInTheDocument();
+    expect(screen.queryByText("What does it help with?")).not.toBeInTheDocument();
+    expect(document.querySelector('input[type="file"]')).toBeNull();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Agent URL preview")).toHaveTextContent(/^[a-z]+-[a-z]+-[a-z]+$/);
+    });
+    const optionalSettings = screen.getByText("Advanced").closest("details");
+    expect(optionalSettings).not.toHaveAttribute("open");
+    fireEvent.click(optionalSettings!.querySelector("summary")!);
+    expect(optionalSettings).toHaveAttribute("open");
+  });
+
+  it("shows launch momentum across both setup steps", () => {
+    renderWithClient(
+      <FirstAgentSetupWizard
+        onCreateAgent={vi.fn(async () => null)}
+        budget={null}
+        subscriptionSummary={null}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    expect(screen.getByText("Taking shape")).toBeInTheDocument();
+    expect(screen.getByText("Moments from launch")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Agent setup progress" })).toHaveAttribute("aria-valuenow", "48");
+
+    goToPlanStep();
+
+    expect(screen.getByText("Launch ready")).toBeInTheDocument();
+    expect(screen.getByText("Choose its power")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Agent setup progress" })).toHaveAttribute("aria-valuenow", "92");
+  });
+
+  it("saves anonymous identity changes for a later launch", async () => {
+    renderWithClient(
+      <FirstAgentSetupWizard
+        saveDraftAsYouGo
+        onCreateAgent={vi.fn(async () => null)}
+        budget={null}
+        subscriptionSummary={null}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: "night-ops-pilot" } });
+
+    await waitFor(() => {
+      const draft = JSON.parse(window.sessionStorage.getItem("hypercli-first-agent-draft") ?? "{}");
+      expect(draft).toMatchObject({
+        source: "first-agent-setup",
+        name: "night-ops-pilot",
+        plan: null,
+      });
+    });
+
+    goToPlanStep();
+    fireEvent.click(screen.getByRole("heading", { name: "Team Launch" }).closest("button")!);
+
+    await waitFor(() => {
+      const draft = JSON.parse(window.sessionStorage.getItem("hypercli-first-agent-draft") ?? "{}");
+      expect(draft).toMatchObject({ plan: "team-launch", size: "medium" });
+    });
   });
 
   it("updates an existing draft with the product selected in checkout", () => {
@@ -169,8 +263,7 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    goToPlanStep();
 
     expect(screen.getByRole("heading", { name: "Choose your plan" })).toBeInTheDocument();
     expect(screen.getByText("Team Launch")).toBeInTheDocument();
@@ -179,6 +272,10 @@ describe("FirstAgentSetupWizard", () => {
     expect(screen.getByText("Team channels")).toBeInTheDocument();
     expect(screen.getByText("1x Medium launch slot")).toBeInTheDocument();
     expect(screen.getAllByText("250K tokens/day")).toHaveLength(1);
+    const planSelector = screen.getByRole("group", { name: "Available plans" });
+    expect(planSelector).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Team Launch" }).closest("button")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("What's included")).toBeInTheDocument();
     expect(getPlanCardAction("View plan")).toHaveClass("bg-[var(--button-primary)]");
     expect(screen.getByText("Most Popular")).toHaveClass("bg-selection-accent");
     expect(screen.getByText("Most Popular")).toHaveClass("text-selection-accent-foreground");
@@ -196,8 +293,7 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    goToPlanStep();
     fireEvent.click(screen.getByRole("button", { name: "Compare plans" }));
 
     const dialog = screen.getByRole("dialog", { name: "Plan comparison" });
@@ -211,7 +307,7 @@ describe("FirstAgentSetupWizard", () => {
     expect(screen.queryByRole("dialog", { name: "Plan comparison" })).not.toBeInTheDocument();
   });
 
-  it("calls the close handler from the choose-plan step", () => {
+  it("calls the close handler from the identity step", () => {
     const onClose = vi.fn();
 
     renderWithClient(
@@ -224,9 +320,7 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("button", { name: "Close choose plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });
@@ -245,8 +339,7 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    goToPlanStep();
     fireEvent.click(getPlanCardAction("View plan"));
 
     await waitFor(() => expect(onOpenPlanCatalog).toHaveBeenCalledTimes(1));
@@ -267,14 +360,13 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    goToPlanStep();
     fireEvent.click(getPlanFooterAction("View plan"));
 
     await waitFor(() => expect(onOpenPlanCatalog).toHaveBeenCalledWith("plus"));
   });
 
-  it("restores the existing setup draft and asks for file reselection", async () => {
+  it("restores an existing setup draft directly to plan selection", async () => {
     window.sessionStorage.setItem("hypercli-first-agent-draft", JSON.stringify({
       source: "first-agent-setup",
       name: "restored-agent",
@@ -297,42 +389,12 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    expect(await screen.findByRole("heading", { name: "Give it something to know" })).toBeInTheDocument();
-    expect(screen.getByText("Reselect brief.pdf to restore file contents after checkout.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    expect(await screen.findByRole("heading", { name: "Choose your plan" })).toBeInTheDocument();
+    expect(screen.queryByText(/Reselect brief\.pdf/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByLabelText("Agent name")).toHaveValue("restored-agent");
+    fireEvent.click(screen.getByText("Advanced").closest("summary")!);
     expect(screen.getByRole("button", { name: "Shield avatar" })).toHaveAttribute("aria-pressed", "true");
-  });
-
-  it("requires every restored starter file before continuing", async () => {
-    window.sessionStorage.setItem("hypercli-first-agent-draft", JSON.stringify({
-      source: "first-agent-setup",
-      name: "restored-agent",
-      iconIndex: 0,
-      category: "General",
-      plan: "team-launch",
-      starterFiles: [{ name: "brief.txt" }, { name: "notes.csv" }],
-    }));
-    const brief = new File(["brief"], "brief.txt", { type: "text/plain" });
-    const notes = new File(["notes"], "notes.csv", { type: "text/csv" });
-    const { container } = renderWithClient(
-      <FirstAgentSetupWizard
-        onCreateAgent={vi.fn(async () => null)}
-        budget={null}
-        subscriptionSummary={null}
-        catalogPlans={catalogPlans}
-      />,
-    );
-    expect(await screen.findByRole("heading", { name: "Give it something to know" })).toBeInTheDocument();
-    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
-    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
-    fireEvent.change(fileInput, { target: { files: [brief] } });
-    expect(screen.getByText("Reselect notes.csv to restore file contents after checkout.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
-
-    fireEvent.change(fileInput, { target: { files: [brief, notes] } });
-    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
   });
 
   it("maps a restored catalog plan to its active entitlement option", async () => {
@@ -424,8 +486,7 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    goToPlanStep();
 
     expect(screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual([
       "Basic",
@@ -444,8 +505,7 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    goToPlanStep();
 
     expect(screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual([
       "Starter",
@@ -479,8 +539,7 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    goToPlanStep();
 
     expect(screen.queryByRole("heading", { name: "5 AIU" })).not.toBeInTheDocument();
     expect(screen.getByText("1 Large slot available")).toBeInTheDocument();
@@ -521,8 +580,7 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    goToPlanStep();
 
     expect(screen.getAllByText("No slots available")).toHaveLength(2);
     expect(screen.queryByText("0 Medium slots available")).not.toBeInTheDocument();
@@ -564,8 +622,7 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    goToPlanStep();
 
     expect(screen.getByText("Slot being released")).toBeInTheDocument();
     expect(screen.getByText("1 Medium slot being released")).toBeInTheDocument();
@@ -604,8 +661,7 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    goToPlanStep();
 
     expect(screen.getByText("Payment active, waiting for entitlement")).toBeInTheDocument();
     expect(screen.getByText("Medium slot provisioning")).toBeInTheDocument();
@@ -647,57 +703,15 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    goToPlanStep();
 
     expect(screen.getByText("1 Medium slot available")).toBeInTheDocument();
     fireEvent.click(getPlanCardAction("Launch agent"));
 
     await waitFor(() =>
-      expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({ size: "medium" })),
+      expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({ files: [], size: "medium" })),
     );
     expect(onOpenPlanCatalog).not.toHaveBeenCalled();
-  });
-
-  it("forwards selected knowledge files when launching", async () => {
-    const onCreateAgent = vi.fn(async () => "agent-1");
-    const file = new File(["launch brief"], "Launch Brief.txt", { type: "text/plain" });
-    const { container } = renderWithClient(
-      <FirstAgentSetupWizard
-        onCreateAgent={onCreateAgent}
-        budget={{
-          slots: {
-            medium: { granted: 1, used: 0, available: 1 },
-          },
-          pooled_tpd: 250000,
-        }}
-        subscriptionSummary={{
-          effectivePlanId: "team-launch",
-          activeSubscriptions: [
-            {
-              id: "sub-1",
-              planId: "team-launch",
-              planName: "Team Launch",
-              slotGrants: { medium: 1 },
-              quantity: 1,
-            },
-          ],
-        } as any}
-        catalogPlans={catalogPlans}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
-    fireEvent.change(fileInput, { target: { files: [file] } });
-    expect(screen.getByText("Launch Brief.txt - 12 B")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(getPlanCardAction("Launch agent"));
-
-    await waitFor(() =>
-      expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({ files: [file], size: "medium" })),
-    );
   });
 
   it("launches from the selected plan footer action", async () => {
@@ -730,8 +744,7 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    goToPlanStep();
     fireEvent.click(getPlanFooterAction("Launch agent"));
 
     await waitFor(() =>
@@ -773,8 +786,7 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    goToPlanStep();
 
     expect(screen.getByRole("heading", { name: "Pro" })).toBeInTheDocument();
     expect(screen.getByText("1 Large slot available")).toBeInTheDocument();
@@ -808,8 +820,7 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    goToPlanStep();
 
     expect(screen.getByRole("heading", { name: "Pro" })).toBeInTheDocument();
     expect(screen.getByText("1 Large slot available")).toBeInTheDocument();
@@ -847,8 +858,7 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    goToPlanStep();
     fireEvent.click(getPlanCardAction("Launch agent"));
 
     await waitFor(() => expect(screen.getByText("Large capacity unavailable")).toBeInTheDocument());
@@ -895,8 +905,7 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    goToPlanStep();
 
     expect(screen.getAllByRole("heading", { name: "Team Launch" })).toHaveLength(1);
     expect(screen.getByText("2 Medium slots available")).toBeInTheDocument();
@@ -937,8 +946,7 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    goToPlanStep();
 
     expect(screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual(["Pro"]);
     expect(screen.queryByRole("heading", { name: "5 AIU" })).not.toBeInTheDocument();
@@ -981,8 +989,7 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    goToPlanStep();
 
     expect(screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual([
       "Basic",

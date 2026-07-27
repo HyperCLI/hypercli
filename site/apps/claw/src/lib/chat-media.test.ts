@@ -96,6 +96,30 @@ describe("chat media references", () => {
     ]);
   });
 
+  it("rejects executable schemes before classifying media extensions", () => {
+    expect(classifyChatMediaReference("javascript:play.mp3")).toEqual({
+      kind: "unsupported",
+      raw: "javascript:play.mp3",
+      label: "Preview unavailable",
+    });
+    expect(classifyChatMediaReference("data:text/html;base64,PHNjcmlwdD4=")).toEqual({
+      kind: "unsupported",
+      raw: "data:text/html;base64,PHNjcmlwdD4=",
+      label: "Preview unavailable",
+    });
+    expect(classifyChatMediaReference("\u0000javascript:play.mp3")).toMatchObject({ kind: "unsupported" });
+    expect(classifyChatMediaReference("java\nscript:play.mp3")).toMatchObject({ kind: "unsupported" });
+  });
+
+  it("requires type context before classifying blob media urls", () => {
+    expect(classifyChatMediaReference("blob:opaque-media")).toMatchObject({ kind: "unsupported" });
+    expect(classifyChatMediaReference("blob:audio", {
+      name: "reply.mp3",
+      path: "/workspace/reply.mp3",
+      type: "audio/mpeg",
+    })).toMatchObject({ kind: "audio", url: "blob:audio", fileName: "reply.mp3" });
+  });
+
   it("classifies ICS local MEDIA handles as recognized file references", () => {
     const result = extractContentMediaReferences(
       "Calendar ready\nMEDIA:media://inbound/placeholder-calendar---741bc582-9e41-492d-9a13-d8ecd3a2e0b8.ics",
@@ -151,6 +175,24 @@ describe("chat media references", () => {
     expect(result.mediaFiles).toHaveLength(0);
     expect(result.directMedia).toHaveLength(0);
     expect(result.pendingMedia).toBe(true);
+  });
+
+  it("defers ambiguous trailing MEDIA urls while streaming", () => {
+    const partial = extractContentMediaReferences(
+      "Preparing speech\nMEDIA:https://cdn.example.test/output/reply.m",
+      { streaming: true },
+    );
+
+    expect(partial.content).toBe("Preparing speech");
+    expect(partial.directMedia).toHaveLength(0);
+    expect(partial.pendingMedia).toBe(true);
+
+    const complete = extractContentMediaReferences(
+      "Preparing speech\nMEDIA:https://cdn.example.test/output/reply.mp3",
+      { streaming: true },
+    );
+    expect(complete.directMedia).toMatchObject([{ kind: "audio", url: "https://cdn.example.test/output/reply.mp3" }]);
+    expect(complete.pendingMedia).toBe(false);
   });
 
   it("strips wrappers and trailing sentence punctuation from media paths", () => {

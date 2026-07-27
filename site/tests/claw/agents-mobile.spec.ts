@@ -449,8 +449,8 @@ test.describe("Agents mobile layout", () => {
     await openMobileNavigation(page);
     await page.getByRole("button", { name: "Launch agent" }).click();
     await expectMobileNavigationClosed(page);
-    await expect(page.getByRole("dialog", { name: "Launch agent" })).toBeVisible();
-    await page.getByRole("button", { name: "Close launch agent" }).click();
+    await expect(page.getByRole("heading", { name: "Create agent" })).toBeVisible();
+    await page.getByRole("button", { name: "Cancel" }).click();
     await expect(page.getByRole("button", { name: "Open navigation" })).toBeFocused();
 
     await openMobileNavigation(page);

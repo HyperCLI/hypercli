@@ -1,5 +1,5 @@
 import type { ComponentProps, ComponentType, ReactNode } from "react";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { AgentFilesPanel } from "./AgentFilesPanel";
@@ -67,6 +67,7 @@ describe("AgentFilesPanel", () => {
     await waitFor(() => {
       expect(onOpenFile).toHaveBeenCalledWith(".openclaw/workspace/report.md", "agent");
     });
+    expect(onOpenFile).toHaveBeenCalledTimes(1);
   });
 
   it("opens generated home preview paths through the workspace file path", async () => {
@@ -78,8 +79,13 @@ describe("AgentFilesPanel", () => {
     });
 
     await waitFor(() => {
-      expect(onOpenFileBytes).toHaveBeenCalledWith(".openclaw/workspace/865621.jpg", "agent");
+      expect(onOpenFileBytes).toHaveBeenCalledWith(
+        ".openclaw/workspace/865621.jpg",
+        "agent",
+        { maxBytes: 64 * 1024 * 1024, signal: expect.any(AbortSignal) },
+      );
     });
+    expect(onOpenFileBytes).toHaveBeenCalledTimes(1);
   });
 
   it("opens ZIP previews through the byte reader instead of text read", async () => {
@@ -93,7 +99,11 @@ describe("AgentFilesPanel", () => {
     });
 
     await waitFor(() => {
-      expect(onOpenFileBytes).toHaveBeenCalledWith(".openclaw/workspace/archive.zip", "agent");
+      expect(onOpenFileBytes).toHaveBeenCalledWith(
+        ".openclaw/workspace/archive.zip",
+        "agent",
+        { maxBytes: 64 * 1024 * 1024, signal: expect.any(AbortSignal) },
+      );
     });
     expect(onOpenFile).not.toHaveBeenCalled();
   });
@@ -109,9 +119,60 @@ describe("AgentFilesPanel", () => {
     });
 
     await waitFor(() => {
-      expect(onOpenFileBytes).toHaveBeenCalledWith(".openclaw/workspace/book.epub", "agent");
+      expect(onOpenFileBytes).toHaveBeenCalledWith(
+        ".openclaw/workspace/book.epub",
+        "agent",
+        { maxBytes: 64 * 1024 * 1024, signal: expect.any(AbortSignal) },
+      );
     });
     expect(onOpenFile).not.toHaveBeenCalled();
+  });
+
+  it("validates unknown file bytes before exposing a text editor", async () => {
+    const onOpenFile = vi.fn(async () => "unsafe fallback");
+    const onOpenFileBytes = vi.fn(async () => new TextEncoder().encode("validated custom text"));
+
+    renderFilesPanel({
+      onListFiles: vi.fn(async () => [
+        { name: "notes.custom", path: ".openclaw/workspace/notes.custom", type: "file" as const },
+      ]),
+      onOpenFile,
+      onOpenFileBytes,
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "notes.custom" }));
+    await waitFor(() => expect(onOpenFileBytes).toHaveBeenCalled());
+    expect(await screen.findByRole("textbox", { name: "notes.custom contents" })).toHaveValue("validated custom text");
+    expect(onOpenFileBytes).toHaveBeenCalledWith(
+      ".openclaw/workspace/notes.custom",
+      "agent",
+      { maxBytes: 4 * 1024 * 1024, signal: expect.any(AbortSignal) },
+    );
+    expect(onOpenFile).not.toHaveBeenCalled();
+  });
+
+  it("keeps invalid unknown bytes out of the text editor", async () => {
+    renderFilesPanel({
+      initialPreviewPath: ".openclaw/workspace/payload.custom",
+      onOpenFileBytes: vi.fn(async () => new Uint8Array([0, 1, 2, 255])),
+    });
+
+    expect(await screen.findByText("File preview is not available.")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "payload.custom contents" })).not.toBeInTheDocument();
+  });
+
+  it("does not read known download-only formats just to show an unavailable preview", async () => {
+    const onOpenFileBytes = vi.fn(async () => new Uint8Array([1, 2, 3]));
+    renderFilesPanel({
+      onListFiles: vi.fn(async () => [
+        { name: "proposal.docx", path: ".openclaw/proposal.docx", type: "file" as const },
+      ]),
+      onOpenFileBytes,
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "proposal.docx" }));
+    expect(await screen.findByText("Document preview is not available.")).toBeInTheDocument();
+    expect(onOpenFileBytes).not.toHaveBeenCalled();
   });
 
   it("updates the preview entry when a recovered read returns a renamed path", async () => {
@@ -185,6 +246,29 @@ describe("AgentFilesPanel", () => {
     });
   });
 
+  it("keeps breadcrumbs available at the root, during search, and for Gateway files", async () => {
+    const onListFiles = vi.fn(async (_path?: string, source?: string) => source === "gateway"
+      ? []
+      : [{ name: "workspace", path: ".openclaw/workspace", type: "directory" as const }]);
+    renderFilesPanel({
+      showSourceTabs: true,
+      onListFiles,
+    });
+
+    expect(await screen.findByRole("button", { name: "workspace" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Root" })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText("Search files..."), { target: { value: "missing" } });
+    expect(await screen.findByText("No files matching 'missing'")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Root" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Gateway" }));
+    await waitFor(() => expect(onListFiles).toHaveBeenCalledWith(undefined, "gateway"));
+    expect(await screen.findByText("No files yet")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByPlaceholderText("Search files...")).toHaveValue(""));
+    expect(screen.getByRole("button", { name: "Root" })).toBeInTheDocument();
+  });
+
   it("switches to the Backup source from panel tabs at the OpenClaw directory", async () => {
     const onListFiles = vi.fn(async () => []);
 
@@ -220,6 +304,151 @@ describe("AgentFilesPanel", () => {
     });
     expect(screen.getByRole("button", { name: /new folder/i })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Upload files" })).toBeDisabled();
+  });
+
+  it("does not request binary files through the text-only Gateway source", async () => {
+    const onListFiles = vi.fn(async (_path?: string, source?: string) => source === "gateway"
+      ? [{ name: "preview.png", path: "preview.png", type: "file" as const }]
+      : []);
+    const onOpenFile = vi.fn(async () => "base64");
+    const onOpenFileBytes = vi.fn(async () => new Uint8Array([1, 2, 3]));
+
+    renderFilesPanel({ onListFiles, onOpenFile, onOpenFileBytes, showSourceTabs: true });
+    fireEvent.click(screen.getByRole("tab", { name: "Gateway" }));
+    fireEvent.click(await screen.findByRole("button", { name: "preview.png" }));
+
+    expect(await screen.findByText(/byte access.*not available through Gateway files/i)).toBeInTheDocument();
+    expect(onOpenFile).not.toHaveBeenCalled();
+    expect(onOpenFileBytes).not.toHaveBeenCalled();
+  });
+
+  it("does not trust unknown files from the text-only Gateway source", async () => {
+    const onListFiles = vi.fn(async (_path?: string, source?: string) => source === "gateway"
+      ? [{ name: "payload.custom", path: "payload.custom", type: "file" as const }]
+      : []);
+    const onOpenFile = vi.fn(async () => "decoded binary");
+
+    renderFilesPanel({ onListFiles, onOpenFile, showSourceTabs: true });
+    fireEvent.click(screen.getByRole("tab", { name: "Gateway" }));
+    fireEvent.click(await screen.findByRole("button", { name: "payload.custom" }));
+
+    expect(await screen.findByText(/byte access.*not available through Gateway files/i)).toBeInTheDocument();
+    expect(onOpenFile).not.toHaveBeenCalled();
+  });
+
+  it("uses response MIME metadata before decoding preview bytes", async () => {
+    const onOpenFileBytes = vi.fn(async () => ({
+      content: new TextEncoder().encode("%PDF-1.7"),
+      mimeType: "application/pdf",
+    }));
+
+    renderFilesPanel({
+      onListFiles: vi.fn(async () => [
+        { name: "upload", path: ".openclaw/upload", type: "file" as const },
+      ]),
+      onOpenFileBytes,
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "upload" }));
+    expect(await screen.findByLabelText("PDF preview for upload")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "upload contents" })).not.toBeInTheDocument();
+  });
+
+  it("ignores a stale read after another file is opened", async () => {
+    let resolveFirst: ((content: string) => void) | undefined;
+    const firstRead = new Promise<string>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const onOpenFile = vi.fn((path: string) => path.endsWith("first.txt")
+      ? firstRead
+      : Promise.resolve("second content"));
+
+    renderFilesPanel({
+      onListFiles: vi.fn(async () => [
+        { name: "first.txt", path: ".openclaw/first.txt", type: "file" as const },
+        { name: "second.txt", path: ".openclaw/second.txt", type: "file" as const },
+      ]),
+      onOpenFile,
+      onOpenFileBytes: undefined,
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "first.txt" }));
+    fireEvent.click(screen.getByRole("button", { name: "second.txt" }));
+    expect(await screen.findByRole("textbox", { name: "second.txt contents" })).toHaveValue("second content");
+
+    resolveFirst?.("first content");
+    await waitFor(() => expect(onOpenFile).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("textbox", { name: "second.txt contents" })).toHaveValue("second content");
+    expect(screen.queryByText("first content")).not.toBeInTheDocument();
+  });
+
+  it("does not publish a completed save into a different file preview", async () => {
+    let resolveSave: (() => void) | undefined;
+    const savePending = new Promise<void>((resolve) => {
+      resolveSave = resolve;
+    });
+    const onSaveFile = vi.fn(() => savePending);
+    const onOpenFile = vi.fn(async (path: string) => path.endsWith("first.txt") ? "first content" : "second content");
+
+    renderFilesPanel({
+      isDesktopViewport: true,
+      onListFiles: vi.fn(async () => [
+        { name: "first.txt", path: ".openclaw/first.txt", type: "file" as const },
+        { name: "second.txt", path: ".openclaw/second.txt", type: "file" as const },
+      ]),
+      onOpenFile,
+      onOpenFileBytes: undefined,
+      onSaveFile,
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "first.txt" }));
+    const firstEditor = await screen.findByRole("textbox", { name: "first.txt contents" });
+    fireEvent.change(firstEditor, { target: { value: "saved first content" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(firstEditor).toHaveAttribute("readonly");
+
+    fireEvent.click(screen.getByRole("button", { name: "second.txt" }));
+    expect(await screen.findByRole("textbox", { name: "second.txt contents" })).toHaveValue("second content");
+    await act(async () => {
+      resolveSave?.();
+      await savePending;
+    });
+
+    expect(screen.getByRole("textbox", { name: "second.txt contents" })).toHaveValue("second content");
+  });
+
+  it("aborts a bounded byte read when the preview closes", async () => {
+    let readSignal: AbortSignal | undefined;
+    const onOpenFileBytes = vi.fn((_path: string, _source?: string, options?: { signal: AbortSignal }) => {
+      readSignal = options?.signal;
+      return new Promise<Uint8Array>(() => undefined);
+    });
+
+    renderFilesPanel({
+      onListFiles: vi.fn(async () => [
+        { name: "preview.png", path: ".openclaw/preview.png", type: "file" as const },
+      ]),
+      onOpenFileBytes,
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "preview.png" }));
+    await waitFor(() => expect(readSignal).toBeDefined());
+    expect(readSignal?.aborted).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Close file preview" }));
+    expect(readSignal?.aborted).toBe(true);
+  });
+
+  it("enforces preview limits when a listing does not report file size", async () => {
+    renderFilesPanel({
+      onListFiles: vi.fn(async () => [
+        { name: "large.txt", path: ".openclaw/large.txt", type: "file" as const },
+      ]),
+      onOpenFileBytes: vi.fn(async () => new Uint8Array((4 * 1024 * 1024) + 1)),
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "large.txt" }));
+    expect(await screen.findByText("Preview is limited to 4 MiB for this file type.")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "large.txt contents" })).not.toBeInTheDocument();
   });
 
   it("defaults to Backup and disables Agent when the live source is unavailable", async () => {
@@ -355,12 +584,53 @@ describe("AgentFilesPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
 
     await waitFor(() => {
-      expect(onCreateDirectory).toHaveBeenCalledWith(".openclaw/reports");
+      expect(onCreateDirectory).toHaveBeenCalledWith(".openclaw/reports", "agent");
     });
     await waitFor(() => {
       expect(onListFiles).toHaveBeenCalledWith(".openclaw", "agent");
     });
     expect(onListFiles).not.toHaveBeenCalledWith(".openclaw", "backup");
+  });
+
+  it("creates a folder in the selected Backup source", async () => {
+    const onCreateDirectory = vi.fn(async () => undefined);
+    const onListFiles = vi.fn(async () => []);
+    renderFilesPanel({ onCreateDirectory, onListFiles, showSourceTabs: true });
+
+    await waitFor(() => expect(onListFiles).toHaveBeenCalledWith(".openclaw", "agent"));
+    fireEvent.click(screen.getByRole("tab", { name: "Backup" }));
+    await waitFor(() => expect(onListFiles).toHaveBeenCalledWith(".openclaw", "backup"));
+    fireEvent.click(screen.getByRole("button", { name: /new folder/i }));
+    fireEvent.change(screen.getByLabelText(/folder name/i), { target: { value: "archives" } });
+    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
+
+    await waitFor(() => {
+      expect(onCreateDirectory).toHaveBeenCalledWith(".openclaw/archives", "backup");
+    });
+  });
+
+  it("uploads folder contents to the selected Backup source", async () => {
+    const onUploadFile = vi.fn(async () => undefined);
+    const onListFiles = vi.fn(async () => []);
+    renderFilesPanel({ onUploadFile, onListFiles, showSourceTabs: true });
+
+    await waitFor(() => expect(onListFiles).toHaveBeenCalledWith(".openclaw", "agent"));
+    fireEvent.click(screen.getByRole("tab", { name: "Backup" }));
+    await waitFor(() => expect(onListFiles).toHaveBeenCalledWith(".openclaw", "backup"));
+    fireEvent.click(screen.getByRole("button", { name: "Upload files" }));
+    const input = document.querySelector('input[type="file"]');
+    expect(input).toBeInstanceOf(HTMLInputElement);
+    fireEvent.change(input as HTMLInputElement, {
+      target: { files: [new File(["archive"], "archive.txt", { type: "text/plain" })] },
+    });
+
+    await waitFor(() => {
+      expect(onUploadFile).toHaveBeenCalledWith(
+        ".openclaw/archive.txt",
+        expect.any(Uint8Array),
+        "backup",
+      );
+    });
   });
 
   it("rejects nested folder names", async () => {

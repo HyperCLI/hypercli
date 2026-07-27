@@ -114,6 +114,7 @@ describe("FilePreview", () => {
     expect(screen.getByText("src/")).toBeInTheDocument();
     expect(screen.getByText("src/index.ts")).toBeInTheDocument();
     expect(screen.getByText("assets/logo.png")).toBeInTheDocument();
+    expect(screen.getByText("Contents only. Files inside are not opened or extracted.")).toBeInTheDocument();
   });
 
   it("previews EPUB files as ZIP-based archives", () => {
@@ -134,6 +135,36 @@ describe("FilePreview", () => {
     expect(screen.getByText("2 files")).toBeInTheDocument();
     expect(screen.getByText("mimetype")).toBeInTheDocument();
     expect(screen.getByText("META-INF/container.xml")).toBeInTheDocument();
+  });
+
+  it("previews ZIP-compatible packages but keeps Office containers download-only", () => {
+    const content = createZip([{ name: "META-INF/MANIFEST.MF", content: "Manifest-Version: 1.0" }]);
+    const { rerender } = render(
+      <FilePreview
+        entry={{ name: "library.jar", path: ".openclaw/workspace/library.jar", type: "file", size: content.byteLength }}
+        content={content}
+        loading={false}
+        error={null}
+        renderMarkdown={renderMarkdown}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("META-INF/MANIFEST.MF")).toBeInTheDocument();
+
+    rerender(
+      <FilePreview
+        entry={{ name: "proposal.docx", path: ".openclaw/workspace/proposal.docx", type: "file", size: content.byteLength }}
+        content={content}
+        loading={false}
+        error={null}
+        renderMarkdown={renderMarkdown}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Document preview is not available.")).toBeInTheDocument();
+    expect(screen.queryByText("META-INF/MANIFEST.MF")).not.toBeInTheDocument();
   });
 
   it("shows an archive preview error for invalid ZIP bytes", () => {
@@ -172,6 +203,52 @@ describe("FilePreview", () => {
 
     expect(screen.getByRole("textbox")).toHaveValue(content);
     expect(screen.getByRole("button", { name: "Raw" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("renders HTML in a no-script sandbox and toggles to editable source", () => {
+    const content = [
+      "<!doctype html>",
+      '<meta http-equiv="refresh" content="0;url=https://tracker.example.test">',
+      "<style>body { color: rgb(12 34 56); }</style>",
+      "<h1>Sandboxed document</h1>",
+      '<img src="https://tracker.example.test/pixel.png" alt="Tracking pixel">',
+      '<form action="https://tracker.example.test/submit"><button>Submit</button></form>',
+      '<script>parent.__htmlPreviewScriptRan = true</script>',
+    ].join("\n");
+
+    render(
+      <FilePreview
+        entry={{ name: "demo.html", path: ".openclaw/workspace/demo.html", type: "file", size: content.length }}
+        content={content}
+        loading={false}
+        error={null}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const iframe = screen.getByTitle("Sandboxed HTML preview for demo.html");
+    expect(iframe).toHaveAttribute("sandbox", "");
+    expect(iframe.getAttribute("sandbox")).not.toContain("allow-scripts");
+    expect(iframe).toHaveAttribute("referrerpolicy", "no-referrer");
+    expect(iframe.getAttribute("allow")).toContain("camera 'none'");
+    expect(screen.getByRole("status", { name: "HTML preview security" })).toHaveTextContent(/scripts and form submissions are disabled/i);
+
+    const srcDoc = iframe.getAttribute("srcdoc") ?? "";
+    expect(srcDoc).toContain("default-src 'none'");
+    expect(srcDoc).toContain("script-src 'none'");
+    expect(srcDoc).toContain("form-action 'none'");
+    expect(srcDoc).toContain("connect-src 'none'");
+    expect(srcDoc).not.toMatch(/http-equiv=["']refresh/i);
+    expect(srcDoc).toContain("<h1>Sandboxed document</h1>");
+
+    fireEvent.click(screen.getByRole("button", { name: "Raw" }));
+    const editor = screen.getByRole("textbox", { name: "demo.html contents" });
+    expect(editor).toHaveValue(content);
+    expect(screen.queryByTitle("Sandboxed HTML preview for demo.html")).not.toBeInTheDocument();
+
+    fireEvent.change(editor, { target: { value: "<h1>Updated preview</h1>" } });
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    expect(screen.getByTitle("Sandboxed HTML preview for demo.html").getAttribute("srcdoc")).toContain("<h1>Updated preview</h1>");
   });
 
   it("does not show the markdown view switch for non-markdown files", () => {
@@ -219,6 +296,186 @@ describe("FilePreview", () => {
     expect(screen.queryByText(/preview is not available yet/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Preview" })).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "placeholder-calendar.ics contents" })).toHaveValue(content);
+  });
+
+  it("renders browser-native audio, video, and PDF previews from file bytes", () => {
+    const common = {
+      loading: false,
+      error: null,
+      onClose: vi.fn(),
+    };
+    const { container, rerender } = render(
+      <FilePreview
+        {...common}
+        entry={{ name: "voice.mp3", path: "voice.mp3", type: "file", mimeType: "audio/mpeg" }}
+        content={new Uint8Array([1, 2, 3])}
+      />,
+    );
+
+    expect(screen.getByLabelText("Audio preview for voice.mp3")).toBeInTheDocument();
+    expect(container.querySelector("audio")).toHaveAttribute("src", expect.stringMatching(/^blob:/));
+
+    rerender(
+      <FilePreview
+        {...common}
+        entry={{ name: "clip.webm", path: "clip.webm", type: "file", mimeType: "video/webm" }}
+        content={new Uint8Array([4, 5, 6])}
+      />,
+    );
+    expect(screen.getByLabelText("Video preview for clip.webm")).toBeInTheDocument();
+
+    rerender(
+      <FilePreview
+        {...common}
+        entry={{ name: "report.pdf", path: "report.pdf", type: "file", mimeType: "application/pdf" }}
+        content={new Uint8Array([37, 80, 68, 70])}
+      />,
+    );
+    expect(screen.getByLabelText("PDF preview for report.pdf")).toHaveAttribute("type", "application/pdf");
+  });
+
+  it("creates native preview URLs after commit and revokes them when replaced", () => {
+    const createObjectURL = vi.spyOn(URL, "createObjectURL")
+      .mockReturnValueOnce("blob:voice")
+      .mockReturnValueOnce("blob:clip");
+    const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    const voiceBytes = new Uint8Array([1, 2, 3]);
+    const clipBytes = new Uint8Array([4, 5, 6]);
+
+    const { rerender, unmount } = render(
+      <FilePreview
+        entry={{ name: "voice.mp3", path: "voice.mp3", type: "file", mimeType: "audio/mpeg" }}
+        content={voiceBytes}
+        loading={false}
+        error={null}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect((createObjectURL.mock.calls[0]?.[0] as Blob).type).toBe("audio/mpeg");
+    expect(screen.getByLabelText("Audio preview for voice.mp3")).toHaveAttribute("src", "blob:voice");
+
+    rerender(
+      <FilePreview
+        entry={{ name: "clip.webm", path: "clip.webm", type: "file", mimeType: "video/webm" }}
+        content={clipBytes}
+        loading={false}
+        error={null}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:voice");
+    expect(screen.getByLabelText("Video preview for clip.webm")).toHaveAttribute("src", "blob:clip");
+    unmount();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:clip");
+
+    createObjectURL.mockRestore();
+    revokeObjectURL.mockRestore();
+  });
+
+  it("does not create an active preview for conflicting filename and MIME metadata", () => {
+    const createObjectURL = vi.spyOn(URL, "createObjectURL");
+
+    render(
+      <FilePreview
+        entry={{ name: "report.pdf", path: "report.pdf", type: "file", mimeType: "image/svg+xml" }}
+        content={new TextEncoder().encode("<svg><script>throw 1</script></svg>")}
+        loading={false}
+        error={null}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("File preview is not available.")).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "report.pdf" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("PDF preview for report.pdf")).not.toBeInTheDocument();
+    expect(createObjectURL).not.toHaveBeenCalled();
+    createObjectURL.mockRestore();
+  });
+
+  it("does not render Markdown when text metadata selects a different renderer", () => {
+    render(
+      <FilePreview
+        entry={{ name: "README.md", path: "README.md", type: "file", mimeType: "application/javascript" }}
+        content="# Unsafe renderer conflict"
+        loading={false}
+        error={null}
+        renderMarkdown={renderMarkdown}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("File preview is not available.")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Unsafe renderer conflict" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("edits validated unknown text but keeps unknown binary content download-only", () => {
+    const common = {
+      loading: false,
+      error: null,
+      onClose: vi.fn(),
+      onSave: vi.fn(async () => undefined),
+    };
+    const { rerender } = render(
+      <FilePreview
+        {...common}
+        entry={{ name: "notes.custom", path: "notes.custom", type: "file" }}
+        content="validated UTF-8"
+      />,
+    );
+
+    expect(screen.getByRole("textbox", { name: "notes.custom contents" })).toHaveValue("validated UTF-8");
+
+    rerender(
+      <FilePreview
+        {...common}
+        entry={{ name: "payload.custom", path: "payload.custom", type: "file" }}
+        content={new Uint8Array([0, 1, 2])}
+      />,
+    );
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.getByText("File preview is not available.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+  });
+
+  it("copies an intentionally cleared editor as empty text", async () => {
+    const copyText = vi.fn(async () => true);
+    render(
+      <FilePreview
+        entry={{ name: "notes.txt", path: "notes.txt", type: "file" }}
+        content="original"
+        loading={false}
+        error={null}
+        onClose={vi.fn()}
+        copyText={copyText}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "notes.txt contents" }), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Copy content" }));
+    await waitFor(() => expect(copyText).toHaveBeenCalledWith(""));
+  });
+
+  it("keeps save failures visible without dropping the edit", async () => {
+    render(
+      <FilePreview
+        entry={{ name: "notes.txt", path: "notes.txt", type: "file" }}
+        content="original"
+        loading={false}
+        error={null}
+        onClose={vi.fn()}
+        onSave={vi.fn(async () => { throw new Error("Write was rejected"); })}
+      />,
+    );
+
+    const editor = screen.getByRole("textbox", { name: "notes.txt contents" });
+    fireEvent.change(editor, { target: { value: "updated" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Write was rejected");
+    expect(editor).toHaveValue("updated");
   });
 
   it("does not render raw HTML in markdown preview", () => {

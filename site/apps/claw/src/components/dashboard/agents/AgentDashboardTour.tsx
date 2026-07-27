@@ -1,10 +1,9 @@
 "use client";
 
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { AnimatePresence, motion, useReducedMotion, type Variants } from "framer-motion";
 import {
   ArrowRight,
-  Bot,
   Brain,
   Check,
   Database,
@@ -70,33 +69,161 @@ const slideVariants: Variants = {
   exit: (direction: number) => ({ opacity: 0, x: direction > 0 ? -18 : 18 }),
 };
 
-function StatusPill({ icon: Icon, children, className = "" }: {
-  icon: typeof Check;
-  children: string;
+const floatingIllustrationStyles = `
+  @keyframes agent-tour-float {
+    0%, 100% {
+      transform: translate3d(0, 0, 0) rotate(var(--agent-tour-float-base-rotation, 0deg));
+    }
+    50% {
+      transform: translate3d(
+        var(--agent-tour-float-x, 1px),
+        calc(0px - var(--agent-tour-float-y, 4px)),
+        0
+      ) rotate(calc(var(--agent-tour-float-base-rotation, 0deg) + var(--agent-tour-float-rotation, 0.25deg)));
+    }
+  }
+
+  @keyframes agent-tour-status-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.84; transform: scale(1.12); }
+  }
+
+  @keyframes agent-tour-context-flow {
+    0% { opacity: 0.62; stroke-dashoffset: 0; }
+    50% { opacity: 1; }
+    100% { opacity: 0.62; stroke-dashoffset: -20; }
+  }
+
+  .agent-tour-float {
+    animation: agent-tour-float var(--agent-tour-float-duration, 7.5s) cubic-bezier(0.45, 0, 0.55, 1) infinite;
+    animation-delay: var(--agent-tour-float-delay, 0s);
+    transform-origin: center;
+    will-change: transform;
+  }
+
+  .agent-tour-status-pulse {
+    animation: agent-tour-status-pulse 3.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+    will-change: opacity, transform;
+  }
+
+  .agent-tour-context-links path {
+    animation: agent-tour-context-flow 10s linear infinite;
+  }
+
+  .agent-tour-context-links path:nth-child(2) { animation-delay: -2.5s; }
+  .agent-tour-context-links path:nth-child(3) { animation-delay: -5s; }
+  .agent-tour-context-links path:nth-child(4) { animation-delay: -7.5s; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .agent-tour-float, .agent-tour-status-pulse, .agent-tour-context-links path { animation: none; will-change: auto; }
+    .agent-tour-float { transform: rotate(var(--agent-tour-float-base-rotation, 0deg)); }
+  }
+`;
+
+function FloatingLayer({
+  children,
+  className = "",
+  reducedMotion,
+  distance = 4,
+  horizontal = 1,
+  rotation = 0.25,
+  baseRotation = 0,
+  duration = 7.5,
+  phase = 0,
+}: {
+  children?: ReactNode;
   className?: string;
+  reducedMotion: boolean;
+  distance?: number;
+  horizontal?: number;
+  rotation?: number;
+  baseRotation?: number;
+  duration?: number;
+  phase?: number;
 }) {
+  const floatStyle = {
+    transform: reducedMotion ? `rotate(${baseRotation}deg)` : undefined,
+    "--agent-tour-float-x": `${horizontal}px`,
+    "--agent-tour-float-y": `${distance}px`,
+    "--agent-tour-float-rotation": `${rotation}deg`,
+    "--agent-tour-float-base-rotation": `${baseRotation}deg`,
+    "--agent-tour-float-duration": `${duration}s`,
+    "--agent-tour-float-delay": `${-phase}s`,
+  } as CSSProperties;
+
   return (
-    <div className={`absolute flex items-center gap-2 rounded-xl border border-border bg-background/90 px-3 py-2 text-[11px] font-semibold text-foreground shadow-[0_12px_32px_rgba(0,0,0,0.18)] backdrop-blur-md ${className}`}>
-      <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-[rgb(var(--selection-accent-rgb)_/_0.12)] text-[var(--selection-accent)]">
-        <Icon className="h-3.5 w-3.5" />
-      </span>
+    <div className={`${reducedMotion ? "" : "agent-tour-float"} ${className}`} style={floatStyle}>
       {children}
     </div>
   );
 }
 
-function WorkspaceIllustration() {
+function StatusPill({
+  icon: Icon,
+  children,
+  className = "",
+  reducedMotion,
+  duration,
+  phase,
+  horizontal,
+}: {
+  icon: typeof Check;
+  children: string;
+  className?: string;
+  reducedMotion: boolean;
+  duration: number;
+  phase: number;
+  horizontal: number;
+}) {
+  return (
+    <FloatingLayer
+      reducedMotion={reducedMotion}
+      duration={duration}
+      phase={phase}
+      horizontal={horizontal}
+      className={`absolute flex items-center gap-2 rounded-xl border border-border bg-background/90 px-3 py-2 text-[11px] font-semibold text-foreground shadow-[0_12px_32px_rgba(0,0,0,0.18)] backdrop-blur-md ${className}`}
+    >
+      <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-[rgb(var(--selection-accent-rgb)_/_0.12)] text-[var(--selection-accent)]">
+        <Icon className="h-3.5 w-3.5" />
+      </span>
+      {children}
+    </FloatingLayer>
+  );
+}
+
+function WorkspaceIllustration({ reducedMotion }: { reducedMotion: boolean }) {
   return (
     <div className="relative h-[250px] w-[300px] max-w-full scale-[0.78] sm:scale-90 md:scale-100">
       <div className="absolute left-1/2 top-1/2 h-44 w-44 -translate-x-1/2 -translate-y-1/2 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.18)]" />
-      <div className="absolute left-1/2 top-1/2 h-32 w-32 -translate-x-1/2 -translate-y-1/2 rotate-6 rounded-[30px] border border-[rgb(var(--selection-accent-rgb)_/_0.32)] bg-[rgb(var(--selection-accent-rgb)_/_0.08)]" />
-      <div className="absolute left-1/2 top-1/2 flex h-28 w-28 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-[26px] border border-border bg-background shadow-[0_24px_60px_rgba(0,0,0,0.28)]">
-        <HyperCLILogoMark className="h-12 w-12" />
-        <span className="absolute bottom-3 right-3 h-3 w-3 rounded-full border-2 border-background bg-[var(--selection-accent)]" />
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+        <FloatingLayer
+          reducedMotion={reducedMotion}
+          distance={3}
+          horizontal={-0.75}
+          rotation={0.35}
+          baseRotation={6}
+          duration={9.6}
+          phase={2.4}
+          className="h-32 w-32 rounded-[30px] border border-[rgb(var(--selection-accent-rgb)_/_0.32)] bg-[rgb(var(--selection-accent-rgb)_/_0.08)]"
+        />
       </div>
-      <StatusPill icon={FileText} className="left-0 top-7">Files in reach</StatusPill>
-      <StatusPill icon={MessageSquare} className="bottom-7 right-0">Context kept</StatusPill>
-      <StatusPill icon={Zap} className="right-1 top-2">Always ready</StatusPill>
+      <div className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2">
+        <FloatingLayer
+          reducedMotion={reducedMotion}
+          distance={4}
+          horizontal={0.75}
+          rotation={0.25}
+          duration={8.4}
+          phase={1.2}
+          className="relative flex h-28 w-28 items-center justify-center rounded-[26px] border border-border bg-background shadow-[0_24px_60px_rgba(0,0,0,0.28)]"
+        >
+          <HyperCLILogoMark className="h-12 w-12" />
+          <span className={`absolute bottom-3 right-3 h-3 w-3 rounded-full border-2 border-background bg-[var(--selection-accent)] ${reducedMotion ? "" : "agent-tour-status-pulse"}`} />
+        </FloatingLayer>
+      </div>
+      <StatusPill reducedMotion={reducedMotion} duration={7.8} phase={0.6} horizontal={1.1} icon={FileText} className="left-0 top-7">Files in reach</StatusPill>
+      <StatusPill reducedMotion={reducedMotion} duration={8.6} phase={2.8} horizontal={-0.75} icon={MessageSquare} className="bottom-7 right-0">Context kept</StatusPill>
+      <StatusPill reducedMotion={reducedMotion} duration={7.4} phase={1.7} horizontal={-1.1} icon={Zap} className="right-1 top-2">Always ready</StatusPill>
       <div className="absolute bottom-4 left-12 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">
         <span className="h-1.5 w-1.5 rounded-full bg-[var(--selection-accent)]" />
         Agent workspace
@@ -105,41 +232,88 @@ function WorkspaceIllustration() {
   );
 }
 
-function ContextIllustration() {
+function ContextIllustration({ reducedMotion }: { reducedMotion: boolean }) {
   return (
     <div className="relative h-[250px] w-[310px] max-w-full scale-[0.78] sm:scale-90 md:scale-100">
-      <svg className="absolute inset-0 h-full w-full" viewBox="0 0 310 250" fill="none" aria-hidden="true">
+      <svg className={`absolute inset-0 h-full w-full ${reducedMotion ? "" : "agent-tour-context-links"}`} viewBox="0 0 310 250" fill="none" aria-hidden="true">
         <path d="M55 62 C100 62 105 125 145 125" stroke="rgb(var(--selection-accent-rgb) / 0.36)" strokeWidth="1.5" strokeDasharray="4 6" />
         <path d="M55 188 C100 188 105 125 145 125" stroke="rgb(var(--selection-accent-rgb) / 0.36)" strokeWidth="1.5" strokeDasharray="4 6" />
         <path d="M255 62 C210 62 205 125 165 125" stroke="rgb(var(--selection-accent-rgb) / 0.36)" strokeWidth="1.5" strokeDasharray="4 6" />
         <path d="M255 188 C210 188 205 125 165 125" stroke="rgb(var(--selection-accent-rgb) / 0.36)" strokeWidth="1.5" strokeDasharray="4 6" />
       </svg>
-      <div className="absolute left-1/2 top-1/2 z-10 flex h-24 w-24 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.36)] bg-background shadow-[0_0_0_12px_rgb(var(--selection-accent-rgb)_/_0.07),0_22px_55px_rgba(0,0,0,0.24)]">
-        <Brain className="h-9 w-9 text-[var(--selection-accent)]" />
+      <div className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2">
+        <FloatingLayer
+          reducedMotion={reducedMotion}
+          distance={2.75}
+          horizontal={0.4}
+          rotation={0.12}
+          duration={10.8}
+          phase={1.4}
+          className="flex h-24 w-24 items-center justify-center rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.36)] bg-background shadow-[0_0_0_12px_rgb(var(--selection-accent-rgb)_/_0.07),0_22px_55px_rgba(0,0,0,0.24)]"
+        >
+          <Brain className="h-9 w-9 text-[var(--selection-accent)]" />
+        </FloatingLayer>
       </div>
       {[
-        { Icon: FileText, label: "Docs", position: "left-2 top-7" },
-        { Icon: MessageSquare, label: "Chats", position: "bottom-6 left-2" },
-        { Icon: Link2, label: "Tools", position: "right-2 top-7" },
-        { Icon: Database, label: "Memory", position: "bottom-6 right-2" },
-      ].map(({ Icon, label, position }) => (
-        <div key={label} className={`absolute ${position} flex h-[70px] w-[74px] flex-col items-center justify-center gap-2 rounded-2xl border border-border bg-background/90 text-text-secondary shadow-[0_12px_32px_rgba(0,0,0,0.16)] backdrop-blur-md`}>
+        { Icon: FileText, label: "Docs", position: "left-2 top-7", duration: 9.4, phase: 0.4, distance: 2.8, horizontal: 0.75, rotation: 0.12 },
+        { Icon: MessageSquare, label: "Chats", position: "bottom-6 left-2", duration: 10.6, phase: 2.2, distance: 3.2, horizontal: -0.6, rotation: -0.1 },
+        { Icon: Link2, label: "Tools", position: "right-2 top-7", duration: 10, phase: 1.3, distance: 2.6, horizontal: -0.75, rotation: -0.12 },
+        { Icon: Database, label: "Memory", position: "bottom-6 right-2", duration: 11.2, phase: 3.1, distance: 3, horizontal: 0.6, rotation: 0.1 },
+      ].map(({ Icon, label, position, duration, phase, distance, horizontal, rotation }) => (
+        <FloatingLayer
+          key={label}
+          reducedMotion={reducedMotion}
+          duration={duration}
+          phase={phase}
+          distance={distance}
+          horizontal={horizontal}
+          rotation={rotation}
+          className={`absolute ${position} flex h-[70px] w-[74px] flex-col items-center justify-center gap-2 rounded-2xl border border-border bg-background/90 text-text-secondary shadow-[0_12px_32px_rgba(0,0,0,0.16)] backdrop-blur-md`}
+        >
           <Icon className="h-5 w-5 text-[var(--selection-accent)]" />
           <span className="text-[10px] font-semibold uppercase tracking-[0.12em]">{label}</span>
-        </div>
+        </FloatingLayer>
       ))}
-      <div className="absolute left-1/2 top-[14px] -translate-x-1/2 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.24)] bg-[rgb(var(--selection-accent-rgb)_/_0.08)] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--selection-accent)]">
-        One shared context
+      <div className="absolute left-1/2 top-[14px] -translate-x-1/2">
+        <FloatingLayer
+          reducedMotion={reducedMotion}
+          distance={1.5}
+          horizontal={0.35}
+          rotation={0.08}
+          duration={11.6}
+          phase={2.6}
+          className="rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.24)] bg-[rgb(var(--selection-accent-rgb)_/_0.08)] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--selection-accent)]"
+        >
+          One shared context
+        </FloatingLayer>
       </div>
     </div>
   );
 }
 
-function LaunchIllustration() {
+function LaunchIllustration({ reducedMotion }: { reducedMotion: boolean }) {
   return (
     <div className="relative h-[250px] w-[310px] max-w-full scale-[0.78] sm:scale-90 md:scale-100">
-      <div className="absolute inset-x-6 bottom-8 top-7 rotate-[-2deg] rounded-[28px] border border-border bg-background/75 shadow-[0_24px_60px_rgba(0,0,0,0.22)] backdrop-blur-md" />
-      <div className="absolute inset-x-9 bottom-11 top-4 rotate-[2deg] rounded-[26px] border border-[rgb(var(--selection-accent-rgb)_/_0.28)] bg-surface-high/90 p-5 shadow-[0_20px_55px_rgba(0,0,0,0.2)]">
+      <FloatingLayer
+        reducedMotion={reducedMotion}
+        distance={2}
+        horizontal={-0.5}
+        rotation={0.15}
+        baseRotation={-2}
+        duration={11.4}
+        phase={2.5}
+        className="absolute inset-x-6 bottom-8 top-7 rounded-[28px] border border-border bg-background/75 shadow-[0_24px_60px_rgba(0,0,0,0.22)] backdrop-blur-md"
+      />
+      <FloatingLayer
+        reducedMotion={reducedMotion}
+        distance={3}
+        horizontal={0.45}
+        rotation={0.12}
+        baseRotation={2}
+        duration={10.4}
+        phase={1.1}
+        className="absolute inset-x-9 bottom-11 top-4 rounded-[26px] border border-[rgb(var(--selection-accent-rgb)_/_0.28)] bg-surface-high/90 p-5 shadow-[0_20px_55px_rgba(0,0,0,0.2)]"
+      >
         <div className="flex items-start justify-between">
           <div>
             <div className="text-[9px] font-semibold uppercase tracking-[0.18em] text-text-muted">Launch brief</div>
@@ -159,19 +333,27 @@ function LaunchIllustration() {
             </div>
           ))}
         </div>
-      </div>
-      <div className="absolute bottom-0 right-0 flex items-center gap-2 rounded-xl border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-background px-3 py-2 shadow-[0_12px_32px_rgba(0,0,0,0.2)]">
+      </FloatingLayer>
+      <FloatingLayer
+        reducedMotion={reducedMotion}
+        distance={2}
+        horizontal={-0.6}
+        rotation={0.1}
+        duration={9.8}
+        phase={3.1}
+        className="absolute bottom-0 right-0 flex items-center gap-2 rounded-xl border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-background px-3 py-2 shadow-[0_12px_32px_rgba(0,0,0,0.2)]"
+      >
         <Sparkles className="h-4 w-4 text-[var(--selection-accent)]" />
         <span className="text-[11px] font-semibold text-foreground">Ready for work</span>
-      </div>
+      </FloatingLayer>
     </div>
   );
 }
 
-function StepIllustration({ stepIndex }: { stepIndex: number }) {
-  if (stepIndex === 1) return <ContextIllustration />;
-  if (stepIndex === 2) return <LaunchIllustration />;
-  return <WorkspaceIllustration />;
+function StepIllustration({ stepIndex, reducedMotion }: { stepIndex: number; reducedMotion: boolean }) {
+  if (stepIndex === 1) return <ContextIllustration reducedMotion={reducedMotion} />;
+  if (stepIndex === 2) return <LaunchIllustration reducedMotion={reducedMotion} />;
+  return <WorkspaceIllustration reducedMotion={reducedMotion} />;
 }
 
 export function AgentDashboardTour({ open, onOpenChange, onStartCreating }: AgentDashboardTourProps) {
@@ -236,6 +418,7 @@ export function AgentDashboardTour({ open, onOpenChange, onStartCreating }: Agen
         <DialogDescription className="sr-only">
           Learn how agent workspaces, context, and launch plans fit together before creating your agent.
         </DialogDescription>
+        <style>{floatingIllustrationStyles}</style>
 
         <div onKeyDown={handleKeyDown} className="contents">
           <div
@@ -246,12 +429,6 @@ export function AgentDashboardTour({ open, onOpenChange, onStartCreating }: Agen
               backgroundSize: "auto, 28px 28px, 28px 28px",
             }}
           >
-            <div className="relative z-10 flex items-center gap-2 px-5 pt-5 text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted sm:px-7 sm:pt-7">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.24)] bg-[rgb(var(--selection-accent-rgb)_/_0.08)]">
-                <Bot className="h-3.5 w-3.5 text-[var(--selection-accent)]" />
-              </span>
-              Agent briefing
-            </div>
             <div className="relative z-10 flex min-h-0 flex-1 items-center justify-center">
               <AnimatePresence mode="wait" initial={false} custom={direction}>
                 <motion.div
@@ -264,7 +441,7 @@ export function AgentDashboardTour({ open, onOpenChange, onStartCreating }: Agen
                   transition={transition}
                   className="absolute inset-0 flex items-center justify-center"
                 >
-                  <StepIllustration stepIndex={stepIndex} />
+                  <StepIllustration stepIndex={stepIndex} reducedMotion={Boolean(reducedMotion)} />
                 </motion.div>
               </AnimatePresence>
             </div>
@@ -285,7 +462,7 @@ export function AgentDashboardTour({ open, onOpenChange, onStartCreating }: Agen
               </span>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto py-5 sm:py-7 md:flex md:items-center">
+            <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto py-5 sm:py-7 md:flex md:items-center">
               <AnimatePresence mode="wait" initial={false} custom={direction}>
                 <motion.div
                   key={stepIndex}
@@ -302,6 +479,7 @@ export function AgentDashboardTour({ open, onOpenChange, onStartCreating }: Agen
                   <h2
                     ref={stepIndex === 0 ? headingRef : undefined}
                     tabIndex={stepIndex === 0 ? -1 : undefined}
+                    style={{ outline: "none" }}
                     className="mt-3 max-w-[31rem] text-[clamp(1.7rem,4.2vw,2.65rem)] font-semibold leading-[1.05] tracking-[-0.045em] text-foreground outline-none"
                   >
                     {step.title}

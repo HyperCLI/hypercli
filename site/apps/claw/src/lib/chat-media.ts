@@ -16,6 +16,7 @@ const CONTENT_MEDIA_MARKDOWN_LINE = /^\s*!\[([^\]]*)\](?:\(([^)]*)\))?\s*$/i;
 const CONTENT_INLINE_MEDIA_REFERENCE = /\bMEDIA:(?!\/\/)\s*(?:"([^"]+)"|'([^']+)'|`([^`]+)`|(\S+))/i;
 const CONTENT_INLINE_LOCAL_MEDIA_REFERENCE = /\b(media:\/\/\S+)/i;
 const UUID_FILE_SUFFIX = /---[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(\.[^.?#]+)$/i;
+const URL_SCHEME = /^([A-Za-z][A-Za-z0-9+.-]*):/;
 
 export interface ContentMediaReference {
   file: ChatPendingFile;
@@ -41,6 +42,10 @@ export interface ExtractedContentMediaReferences {
   mediaFiles: ContentMediaReference[];
   directMedia: DirectChatMediaReference[];
   pendingMedia: boolean;
+}
+
+interface ExtractContentMediaOptions {
+  streaming?: boolean;
 }
 
 export function getChatFileLabel(file: { name?: string; path?: string }): string {
@@ -102,8 +107,20 @@ export function isVideoFileReference(file: { name?: string; path?: string; type?
   return isSharedVideoFileReference(file);
 }
 
-export function inferChatMediaFileType(path: string): string {
-  return inferFileMimeType(path);
+export function isSafeDirectMediaUrl(value: string, kind?: "audio" | "image" | "video"): boolean {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.startsWith("//") || /[\u0000-\u001f\u007f]/.test(trimmed)) return false;
+  const scheme = URL_SCHEME.exec(trimmed)?.[1]?.toLowerCase();
+  if (!scheme) return true;
+  if (scheme === "http" || scheme === "https" || scheme === "blob") return true;
+  if (scheme !== "data") return false;
+  return kind
+    ? new RegExp(`^data:${kind}/`, "i").test(trimmed)
+    : /^data:(?:audio|image|video)\//i.test(trimmed);
+}
+
+export function inferChatMediaFileType(path: string, mimeType?: string): string {
+  return inferFileMimeType({ path, mimeType });
 }
 
 function isKnownLocalFileHandle(value: string): boolean {
@@ -145,13 +162,26 @@ export function classifyChatMediaReference(raw: string, matchingFile?: ChatPendi
     }
     return { kind: "local", raw, label: "Preview unavailable" };
   }
-  if (/^(?:data:audio\/|blob:)/i.test(value) || isAudioFileReference({ path: value })) {
+  if (!isSafeDirectMediaUrl(value)) return { kind: "unsupported", raw, label: "Preview unavailable" };
+  if (/^data:/i.test(value)) {
+    if (/^data:audio\//i.test(value)) return { kind: "audio", url: value, fileName: mediaFileNameFromUrl(value, "audio"), raw };
+    if (/^data:video\//i.test(value)) return { kind: "video", url: value, fileName: mediaFileNameFromUrl(value, "video"), raw };
+    if (/^data:image\//i.test(value)) return { kind: "image", url: value, fileName: mediaFileNameFromUrl(value), raw };
+    return { kind: "unsupported", raw, label: "Preview unavailable" };
+  }
+  if (/^blob:/i.test(value)) {
+    if (matchingFile && isAudioFileReference(matchingFile)) return { kind: "audio", url: value, fileName: getChatFileLabel(matchingFile), raw };
+    if (matchingFile && isVideoFileReference(matchingFile)) return { kind: "video", url: value, fileName: getChatFileLabel(matchingFile), raw };
+    if (matchingFile && isImageFileReference(matchingFile)) return { kind: "image", url: value, fileName: getChatFileLabel(matchingFile), raw };
+    return { kind: "unsupported", raw, label: "Preview unavailable" };
+  }
+  if (isAudioFileReference({ path: value })) {
     return { kind: "audio", url: value, fileName: mediaFileNameFromUrl(value, "audio"), raw };
   }
-  if (/^data:video\//i.test(value) || isVideoFileReference({ path: value })) {
+  if (isVideoFileReference({ path: value })) {
     return { kind: "video", url: value, fileName: mediaFileNameFromUrl(value, "video"), raw };
   }
-  if (/^data:image\//i.test(value) || isImageFileReference({ path: value })) {
+  if (isImageFileReference({ path: value })) {
     return { kind: "image", url: value, fileName: mediaFileNameFromUrl(value), raw };
   }
   if (/^(?:https?:\/\/|\/)/i.test(value)) {
@@ -185,7 +215,17 @@ function addUniqueDirectReference(
   refs.push(ref);
 }
 
-export function extractContentMediaReferences(content: string): ExtractedContentMediaReferences {
+function isDefinitiveStreamingMediaReference(raw: string): boolean {
+  const value = mediaWorkspacePathFromReference(raw);
+  if (!value) return false;
+  if (/^data:(?:audio|image|video)\//i.test(value)) return true;
+  return isAudioFileReference({ path: value }) ||
+    isVideoFileReference({ path: value }) ||
+    isImageFileReference({ path: value }) ||
+    isKnownNonImageFileReference(value);
+}
+
+export function extractContentMediaReferences(content: string, options: ExtractContentMediaOptions = {}): ExtractedContentMediaReferences {
   const mediaFiles: ContentMediaReference[] = [];
   const directMedia: DirectChatMediaReference[] = [];
   const visibleLines: string[] = [];
@@ -193,9 +233,13 @@ export function extractContentMediaReferences(content: string): ExtractedContent
   const seenDirectMedia = new Set<string>();
   let pendingMedia = false;
 
-  const consumeReference = (raw: string): boolean => {
+  const consumeReference = (raw: string, deferAmbiguous = false): boolean => {
     const value = mediaWorkspacePathFromReference(raw);
     if (!value) {
+      pendingMedia = true;
+      return true;
+    }
+    if (deferAmbiguous && !isDefinitiveStreamingMediaReference(value)) {
       pendingMedia = true;
       return true;
     }
@@ -208,7 +252,10 @@ export function extractContentMediaReferences(content: string): ExtractedContent
     return true;
   };
 
-  for (const line of content.replace(/\r\n/g, "\n").split("\n")) {
+  const normalizedContent = content.replace(/\r\n/g, "\n");
+  const contentLines = normalizedContent.split("\n");
+  for (const [lineIndex, line] of contentLines.entries()) {
+    const deferAmbiguous = Boolean(options.streaming && lineIndex === contentLines.length - 1 && !normalizedContent.endsWith("\n"));
     const markdownMediaMatch = line.match(CONTENT_MEDIA_MARKDOWN_LINE);
     if (markdownMediaMatch && /^MEDIA\b/i.test(markdownMediaMatch[1]?.trim() ?? "")) {
       const altPath = markdownMediaMatch[1]?.replace(/^MEDIA:?\s*/i, "").trim();
@@ -218,7 +265,7 @@ export function extractContentMediaReferences(content: string): ExtractedContent
         pendingMedia = true;
         continue;
       }
-      consumeReference(raw);
+      consumeReference(raw, deferAmbiguous);
       continue;
     }
 
@@ -229,7 +276,7 @@ export function extractContentMediaReferences(content: string): ExtractedContent
 
     const localMediaMatch = line.match(CONTENT_LOCAL_MEDIA_REFERENCE_LINE);
     if (localMediaMatch?.[1]) {
-      consumeReference(localMediaMatch[1]);
+      consumeReference(localMediaMatch[1], deferAmbiguous);
       continue;
     }
 
@@ -239,20 +286,21 @@ export function extractContentMediaReferences(content: string): ExtractedContent
       continue;
     }
 
-    consumeReference(match[1] ?? "");
+    consumeReference(match[1] ?? "", deferAmbiguous);
   }
 
   const visibleContent = visibleLines
-    .map((line) => {
+    .map((line, lineIndex) => {
+      const deferAmbiguous = Boolean(options.streaming && lineIndex === visibleLines.length - 1 && !normalizedContent.endsWith("\n"));
       const inlineMatch = line.match(CONTENT_INLINE_MEDIA_REFERENCE);
       const raw = inlineMatch?.[1] ?? inlineMatch?.[2] ?? inlineMatch?.[3] ?? inlineMatch?.[4];
       if (inlineMatch && raw != null) {
-        consumeReference(raw);
+        consumeReference(raw, deferAmbiguous);
         return line.replace(inlineMatch[0], "").trimEnd();
       }
       const localInlineMatch = line.match(CONTENT_INLINE_LOCAL_MEDIA_REFERENCE);
       if (!localInlineMatch?.[1]) return line;
-      consumeReference(localInlineMatch[1]);
+      consumeReference(localInlineMatch[1], deferAmbiguous);
       return line.replace(localInlineMatch[0], "").trimEnd();
     })
     .join("\n")

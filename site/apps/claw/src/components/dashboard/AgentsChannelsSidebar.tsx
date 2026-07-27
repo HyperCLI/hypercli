@@ -472,6 +472,8 @@ function ThreadRow({
   const resolvedTitle = threadTitle(thread);
   const lastMessageSender = senderName(thread);
   const showLastMessageSender = Boolean(lastMessageSender && lastMessageSender !== resolvedTitle);
+  const deleteAction = thread.kind === "user-agent" ? undefined : onDelete;
+  const deleteLabel = thread.kind === "group" ? "Delete channel" : "Delete conversation";
 
   const startEdit = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -556,17 +558,17 @@ function ThreadRow({
             {!editing && thread.isActive && <span className="w-1.5 h-1.5 rounded-full bg-[var(--selection-accent)] flex-shrink-0" />}
           </div>
           {!editing && (
-            <span className={`text-[10px] text-text-muted flex-shrink-0 ${mobileMode && onDelete ? "hidden" : "group-hover/row:hidden"}`}>
+            <span className={`text-[10px] text-text-muted flex-shrink-0 ${mobileMode && deleteAction ? "hidden" : "group-hover/row:hidden"}`}>
               {relativeTime(thread.lastMessageAt)}
             </span>
           )}
           {/* Delete is hover-revealed on desktop and always visible in the mobile drawer. */}
-          {!editing && onDelete && (
-            <RosterTooltip label="Delete agent">
+          {!editing && deleteAction && (
+            <RosterTooltip label={deleteLabel}>
               <button
                 type="button"
-                aria-label="Delete agent"
-                onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                aria-label={deleteLabel}
+                onClick={(e) => { e.stopPropagation(); deleteAction(); }}
                 className={`flex-shrink-0 items-center justify-center text-text-muted transition-colors hover:bg-destructive/10 hover:text-destructive ${
                   mobileMode ? "flex h-8 w-8 rounded-lg" : "hidden h-5 w-5 rounded group-hover/row:flex"
                 }`}
@@ -2024,43 +2026,6 @@ function HandoffThreadView({
         </div>
       </div>
 
-      {onOpenHome ? (
-        <button
-          type="button"
-          aria-current={homeIsActive ? "page" : undefined}
-          onClick={onOpenHome}
-          className={`agents-roster-home flex w-full shrink-0 items-center gap-0 border-l-2 text-left transition-colors ${
-            mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
-          } ${
-            homeIsActive
-              ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
-              : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
-          }`}
-        >
-          <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
-            <House className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
-          </span>
-          <span className="font-medium">Home</span>
-        </button>
-      ) : (
-        <Link
-          href={DASHBOARD_VIEW_HREFS.overview}
-          aria-current={homeIsActive ? "page" : undefined}
-          className={`agents-roster-home flex w-full shrink-0 items-center gap-0 border-l-2 text-left transition-colors ${
-          mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
-        } ${
-          homeIsActive
-            ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
-            : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
-        }`}
-        >
-          <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
-            <House className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
-          </span>
-          <span className="font-medium">Home</span>
-        </Link>
-      )}
-
       {!embeddedInNavigation ? <div className={`agents-roster-section-header flex shrink-0 items-center gap-1 pb-1.5 pt-0.5 transition-colors hover:bg-surface-low/40 ${sectionHeadingInsetClass}`}>
           <h2 className="flex min-w-0 flex-1 items-center gap-0 text-left">
             <span className={`${mobileMode ? "text-sm" : "text-[13px]"} font-medium text-text-secondary`}>My Agents({privateThreads.length})</span>
@@ -2226,6 +2191,42 @@ function HandoffThreadView({
         <div className={`${sectionHeadingInsetClass} ${mobileMode ? "text-sm" : "text-[13px]"} py-1.5`}>
           <span className="font-medium text-text-secondary">Administration</span>
         </div>
+        {onOpenHome ? (
+          <button
+            type="button"
+            aria-current={homeIsActive ? "page" : undefined}
+            onClick={onOpenHome}
+            className={`agents-roster-home flex w-full shrink-0 items-center gap-0 border-l-2 text-left transition-colors ${
+              mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
+            } ${
+              homeIsActive
+                ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
+                : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
+            }`}
+          >
+            <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
+              <House className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
+            </span>
+            <span className="font-medium">Home</span>
+          </button>
+        ) : (
+          <Link
+            href={DASHBOARD_VIEW_HREFS.overview}
+            aria-current={homeIsActive ? "page" : undefined}
+            className={`agents-roster-home flex w-full shrink-0 items-center gap-0 border-l-2 text-left transition-colors ${
+            mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
+          } ${
+            homeIsActive
+              ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
+              : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
+          }`}
+          >
+            <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
+              <House className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
+            </span>
+            <span className="font-medium">Home</span>
+          </Link>
+        )}
         {onOpenKnowledge ? (
           <button
             type="button"

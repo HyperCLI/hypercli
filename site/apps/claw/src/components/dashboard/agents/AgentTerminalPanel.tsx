@@ -7,19 +7,34 @@ import type { ShellStatus } from "@/hooks/useAgentShell";
 
 interface AgentTerminalPanelProps {
   status: ShellStatus;
+  terminalReady: boolean;
+  terminalError: string | null;
   shellBoxRef: React.Ref<HTMLDivElement>;
   visible?: boolean;
 }
 
-export function AgentTerminalPanel({ status, shellBoxRef, visible = true }: AgentTerminalPanelProps) {
+export const AgentTerminalPanel = React.memo(function AgentTerminalPanel({ status, terminalReady, terminalError, shellBoxRef, visible = true }: AgentTerminalPanelProps) {
+  const ready = status === "connected" && terminalReady;
   const connecting = status === "connecting" || status === "reconnecting";
-  const loadingTitle = status === "reconnecting" ? "Reconnecting shell" : connecting ? "Connecting shell" : "Waiting for shell";
-  const loadingDetail = status === "reconnecting"
-    ? "Restoring the terminal session."
-    : connecting
-      ? "Opening a terminal session."
-      : "The terminal will attach when the runtime is ready.";
-  const bootStatus = status === "connected" ? null : getAgentGatewayPanelBootStatus({
+  const loadingTitle = terminalError
+    ? "Unable to load shell"
+    : status === "reconnecting"
+      ? "Reconnecting shell"
+      : connecting
+        ? "Connecting shell"
+        : status === "connected"
+          ? "Preparing shell"
+          : "Waiting for shell";
+  const loadingDetail = terminalError
+    ? terminalError
+    : status === "reconnecting"
+      ? "Restoring the terminal session."
+      : connecting
+        ? "Opening a terminal session."
+        : status === "connected"
+          ? "Attaching the terminal."
+          : "The terminal will attach when the runtime is ready.";
+  const bootStatus = ready ? null : getAgentGatewayPanelBootStatus({
     connected: false,
     connecting,
     loadingTitle: "Loading shell",
@@ -32,11 +47,12 @@ export function AgentTerminalPanel({ status, shellBoxRef, visible = true }: Agen
 
   return (
     <div
-      className={`${visible ? "relative z-10 h-full" : "pointer-events-none absolute inset-0 h-full opacity-0"} bg-background p-4`}
+      className={`${visible ? "relative z-10 h-full" : "pointer-events-none absolute inset-0 h-full opacity-0"} isolate bg-background p-4 [contain:layout_paint]`}
       aria-hidden={!visible}
+      inert={visible ? undefined : true}
     >
-      <div ref={shellBoxRef} className={`h-full w-full ${status === "connected" ? "" : "invisible"}`} />
-      {status !== "connected" && (
+      <div ref={shellBoxRef} className={`h-full w-full ${ready ? "" : "invisible"}`} />
+      {visible && !ready && (
         <div className="absolute inset-0 p-4">
           <TabLoadingState
             label={loadingTitle}
@@ -47,4 +63,4 @@ export function AgentTerminalPanel({ status, shellBoxRef, visible = true }: Agen
       )}
     </div>
   );
-}
+});

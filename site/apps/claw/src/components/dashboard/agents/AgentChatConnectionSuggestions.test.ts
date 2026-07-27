@@ -118,6 +118,7 @@ describe("detectChatIntegrationIntent", () => {
   it.each([
     ["connect Telegram", "telegram"],
     ["please set up Slack", "slack"],
+    ["can you link Slack", "slack"],
     ["add a Discord integration", "discord"],
     ["configure my WhatsApp channel", "whatsapp"],
     ["how do I connect GitHub?", "github"],
@@ -143,6 +144,7 @@ describe("detectChatIntegrationIntent", () => {
     "do not connect Telegram",
     "I don't want to set up Slack",
     "disconnect Telegram",
+    "Generate a rendering test with a standard link and explain why this prompt navigates to integrations.",
   ])("ignores non-setup intent: %s", (input) => {
     expect(detectChatIntegrationIntent(input)).toBeNull();
   });

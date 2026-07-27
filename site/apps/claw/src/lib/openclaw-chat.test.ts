@@ -472,6 +472,41 @@ describe("openclaw chat normalization", () => {
     }));
   });
 
+  it("extracts direct and nested output_audio records from persisted history", () => {
+    const normalized = normalizeHistoryMessage({
+      role: "assistant",
+      content: [
+        { type: "output_audio", data: "AAAA", format: "wav" },
+        { type: "output_audio", output_audio: { data: "BBBB", mime_type: "audio/ogg" } },
+        { type: "audio", audio: { url: "https://cdn.example.test/reply.mp3" } },
+      ],
+    });
+
+    expect(normalized?.mediaUrls).toEqual([
+      "data:audio/wav;base64,AAAA",
+      "data:audio/ogg;base64,BBBB",
+      "https://cdn.example.test/reply.mp3",
+    ]);
+  });
+
+  it("falls back to an audio mime type for malformed TTS metadata", () => {
+    const normalized = normalizeHistoryMessage({
+      role: "assistant",
+      content: [{ type: "output_audio", data: "AAAA", media_type: "text/html" }],
+    });
+
+    expect(normalized?.mediaUrls).toEqual(["data:audio/mpeg;base64,AAAA"]);
+  });
+
+  it("normalizes codec parameters on TTS audio MIME metadata", () => {
+    const normalized = normalizeHistoryMessage({
+      role: "assistant",
+      content: [{ type: "output_audio", data: "AAAA", media_type: "audio/webm;codecs=opus" }],
+    });
+
+    expect(normalized?.mediaUrls).toEqual(["data:audio/webm;base64,AAAA"]);
+  });
+
   it("drops persisted toolResult records instead of rendering them as assistant messages", () => {
     expect(normalizeHistoryMessage({
       role: "toolResult",
@@ -716,6 +751,22 @@ describe("openclaw chat normalization", () => {
       ],
     });
     expect(JSON.stringify(image)).not.toContain("media://inbound");
+  });
+
+  it("keeps recorder-named WebM history files classified as audio", () => {
+    const normalized = normalizeHistoryMessage({
+      role: "user",
+      content: [{
+        type: "text",
+        text: "file: /home/node/.openclaw/workspace/voice-1779810830903.webm\n\nTranscribe this recording.",
+      }],
+    });
+
+    expect(normalized?.files).toEqual([{
+      name: "voice-1779810830903.webm",
+      path: "/home/node/.openclaw/workspace/voice-1779810830903.webm",
+      type: "audio/webm",
+    }]);
   });
 
   it("keeps an image-only refreshed user message displayable", () => {

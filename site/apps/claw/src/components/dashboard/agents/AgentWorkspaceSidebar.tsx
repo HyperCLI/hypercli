@@ -75,6 +75,7 @@ import {
   type OpenClawSessionRecord,
   unscopedOpenClawSessionKey,
 } from "@/lib/openclaw-session-sdk-surface";
+import { preloadAgentShellTerminalRuntime } from "@/lib/agent-shell-terminal-loader";
 
 const WORKSPACE_COLLAPSED_KEY = "agents.workspaceCollapsed.v2";
 
@@ -84,6 +85,7 @@ interface AgentWorkspaceSidebarProps {
   skillsActive?: boolean;
   tokenUsed?: number | null;
   tokenLimit?: number | null;
+  isAuthenticated?: boolean;
   disabled?: boolean;
   disabledReason?: string;
   scheduledDisabled?: boolean;
@@ -97,9 +99,12 @@ interface AgentWorkspaceSidebarProps {
   onOpenDesktop?: (agent: Agent) => Promise<void> | void;
   onOpenLogs: () => void;
   onOpenShell: () => void;
+  onShellIntent?: () => void;
+  onShellIntentEnd?: () => void;
   onOpenOpenClaw: () => void;
   onOpenSettings: () => void;
   onUpgrade: () => void;
+  onStartTrial?: () => void;
   renderMobile?: boolean;
   forceExpanded?: boolean;
   collapsed?: boolean;
@@ -140,11 +145,13 @@ function WorkspaceButton({
   collapsed,
   mobileMode = false,
   navigationMode = false,
+  onExpand,
 }: {
   item: WorkspaceItem;
   collapsed?: boolean;
   mobileMode?: boolean;
   navigationMode?: boolean;
+  onExpand?: () => void;
 }) {
   const Icon = item.icon;
   const disabled = Boolean(item.disabled);
@@ -157,6 +164,10 @@ function WorkspaceButton({
         : "h-7 w-full gap-2 px-2 text-left";
   const iconClassName = `${mobileMode && !collapsed ? "h-5 w-5" : "h-4 w-4"} shrink-0 ${item.busy ? "animate-spin" : ""}`;
   const roundedClassName = "rounded-full";
+  const activate = () => {
+    item.onClick();
+    if (collapsed) onExpand?.();
+  };
   const buttonClassName = `flex ${buttonSizeClass} items-center ${roundedClassName} text-sm transition-colors ${
     disabled
       ? `${item.busy ? "cursor-wait" : "cursor-not-allowed"} text-text-muted/45`
@@ -173,7 +184,7 @@ function WorkspaceButton({
         <TooltipTrigger asChild>
           <button
             type="button"
-            onClick={disabled ? undefined : () => item.onClick()}
+            onClick={disabled ? undefined : activate}
             disabled={disabled}
             aria-label={item.label}
             aria-disabled={disabled}
@@ -190,7 +201,7 @@ function WorkspaceButton({
   const button = (
     <button
       type="button"
-      onClick={disabled ? undefined : () => item.onClick()}
+      onClick={disabled ? undefined : activate}
       disabled={disabled}
       aria-disabled={disabled}
       aria-busy={item.busy || undefined}
@@ -1115,6 +1126,7 @@ export function AgentWorkspaceSidebar({
   skillsActive = false,
   tokenUsed,
   tokenLimit,
+  isAuthenticated = true,
   disabled = false,
   disabledReason = "Workspace is loading",
   scheduledDisabled = false,
@@ -1128,9 +1140,12 @@ export function AgentWorkspaceSidebar({
   onOpenDesktop,
   onOpenLogs,
   onOpenShell,
+  onShellIntent,
+  onShellIntentEnd,
   onOpenOpenClaw,
   onOpenSettings,
   onUpgrade,
+  onStartTrial,
   renderMobile = false,
   forceExpanded = false,
   collapsed: controlledCollapsed,
@@ -1171,17 +1186,19 @@ export function AgentWorkspaceSidebar({
   }, [controlledCollapsed, uncontrolledCollapsed]);
   const collapsed = controlledCollapsed ?? uncontrolledCollapsed;
   const isCollapsed = forceExpanded ? false : (!isDesktopViewport && !embeddedInNavigation) || collapsed;
-  const toggleCollapsed = () => {
-    const nextCollapsed = !collapsed;
+  const changeCollapsed = (nextCollapsed: boolean) => {
     if (controlledCollapsed === undefined) setUncontrolledCollapsed(nextCollapsed);
     onCollapsedChange?.(nextCollapsed);
   };
+  const toggleCollapsed = () => changeCollapsed(!collapsed);
   const tokensUsed = typeof tokenUsed === "number" && Number.isFinite(tokenUsed) ? Math.max(0, tokenUsed) : null;
   const tokenTotal = tokenLimit && tokenLimit > 0 ? tokenLimit : null;
   const tokenProgress = tokenTotal && tokensUsed != null ? Math.min(100, Math.round((tokensUsed / tokenTotal) * 100)) : 0;
+  const emptyUsageLabel = isAuthenticated ? "--" : "0";
   const tokenUsageLabel = tokenTotal
-    ? `${tokensUsed == null ? "--" : formatTokens(tokensUsed)} / ${formatTokens(tokenTotal)}`
-    : `${tokensUsed == null ? "--" : formatTokens(tokensUsed)} / --`;
+    ? `${tokensUsed == null ? emptyUsageLabel : formatTokens(tokensUsed)} / ${formatTokens(tokenTotal)}`
+    : `${tokensUsed == null ? emptyUsageLabel : formatTokens(tokensUsed)} / --`;
+  const onUsageAction = isAuthenticated ? onUpgrade : onStartTrial ?? onUpgrade;
   const hasSelectedAgent = Boolean(selectedAgent);
   const sessionsInteractive = hasSelectedAgent && sessionsFetched && !disabled;
   const sessionsDisabledReason = disabled ? disabledReason : sessionsFetched ? undefined : sessionsUnavailableReason;
@@ -1318,14 +1335,29 @@ export function AgentWorkspaceSidebar({
     { id: "settings", label: "Settings", icon: Settings, active: activeTab === "settings", onClick: onOpenSettings, ...(disabled || noSelectedAgent ? { disabled: true, disabledReason: advancedDropdownDisabledReason } : {}) },
   ];
   const advancedActive = advancedItems.some((item) => item.active);
+  const prepareShell = () => {
+    if (onShellIntent) onShellIntent();
+    else preloadAgentShellTerminalRuntime();
+  };
+  const toggleAdvanced = () => {
+    if (advancedItemsOpen) onShellIntentEnd?.();
+    if (isCollapsed) changeCollapsed(false);
+    setAdvancedOpen(!advancedItemsOpen);
+  };
 
   useEffect(() => {
     if (!advancedOpen) return;
     const handlePointerDown = (event: MouseEvent) => {
-      if (advancedMenuRef.current && !advancedMenuRef.current.contains(event.target as Node)) setAdvancedOpen(false);
+      if (advancedMenuRef.current && !advancedMenuRef.current.contains(event.target as Node)) {
+        setAdvancedOpen(false);
+        onShellIntentEnd?.();
+      }
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setAdvancedOpen(false);
+      if (event.key === "Escape") {
+        setAdvancedOpen(false);
+        onShellIntentEnd?.();
+      }
     };
     document.addEventListener("mousedown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
@@ -1333,7 +1365,7 @@ export function AgentWorkspaceSidebar({
       document.removeEventListener("mousedown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [advancedOpen]);
+  }, [advancedOpen, onShellIntentEnd]);
 
   if (!isDesktopViewport && !renderMobile) return null;
 
@@ -1427,7 +1459,14 @@ export function AgentWorkspaceSidebar({
         )}
         <nav className={isCollapsed ? "flex flex-col items-center space-y-1" : renderMobile ? "space-y-1" : "space-y-0"}>
           {workspaceItems.map((item) => (
-            <WorkspaceButton key={item.id} item={item} collapsed={isCollapsed} mobileMode={renderMobile} navigationMode={embeddedInNavigation} />
+            <WorkspaceButton
+              key={item.id}
+              item={item}
+              collapsed={isCollapsed}
+              mobileMode={renderMobile}
+              navigationMode={embeddedInNavigation}
+              onExpand={() => changeCollapsed(false)}
+            />
           ))}
         </nav>
 
@@ -1507,15 +1546,22 @@ export function AgentWorkspaceSidebar({
         <div className="flex shrink-0 px-3 pb-2">{footerAction}</div>
       ) : null}
 
-      <div ref={advancedMenuRef} className={`agent-workspace-advanced relative border-b border-border pb-4 ${isCollapsed ? "px-1.5" : "px-3"}`}>
+      <div
+        ref={advancedMenuRef}
+        onPointerLeave={advancedItemsOpen ? undefined : onShellIntentEnd}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onShellIntentEnd?.();
+        }}
+        className={`agent-workspace-advanced relative border-b border-border pb-4 ${isCollapsed ? "px-1.5" : "px-3"}`}
+      >
         {isCollapsed ? (
           <div className="flex justify-center">
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={advancedDropdownDisabled ? undefined : () => setAdvancedOpen((open) => !open)}
-                  disabled={advancedDropdownDisabled}
+                 <button
+                   type="button"
+                   onClick={advancedDropdownDisabled ? undefined : toggleAdvanced}
+                   disabled={advancedDropdownDisabled}
                   aria-label="Advanced"
                   aria-expanded={advancedItemsOpen}
                   aria-haspopup="menu"
@@ -1536,9 +1582,9 @@ export function AgentWorkspaceSidebar({
           </div>
         ) : (
           <button
-            type="button"
-            onClick={advancedDropdownDisabled ? undefined : () => setAdvancedOpen((open) => !open)}
-            disabled={advancedDropdownDisabled}
+           type="button"
+           onClick={advancedDropdownDisabled ? undefined : toggleAdvanced}
+           disabled={advancedDropdownDisabled}
             aria-expanded={advancedItemsOpen}
             aria-haspopup="menu"
             aria-disabled={advancedDropdownDisabled}
@@ -1580,8 +1626,15 @@ export function AgentWorkspaceSidebar({
                   role="menuitem"
                   onClick={item.disabled ? undefined : () => {
                     setAdvancedOpen(false);
+                    if (item.id !== "shell") onShellIntentEnd?.();
                     item.onClick();
+                    if (isCollapsed) changeCollapsed(false);
                   }}
+                  onPointerEnter={item.id === "shell" && !item.disabled ? prepareShell : undefined}
+                  onPointerDown={item.id === "shell" && !item.disabled ? prepareShell : undefined}
+                  onFocus={item.id === "shell" && !item.disabled ? prepareShell : undefined}
+                  onPointerLeave={item.id === "shell" && !item.disabled ? onShellIntentEnd : undefined}
+                  onBlur={item.id === "shell" && !item.disabled ? onShellIntentEnd : undefined}
                   disabled={item.disabled}
                   aria-disabled={item.disabled}
                   className={`block w-full whitespace-nowrap rounded-full px-2.5 py-1.5 text-left text-sm leading-5 transition-colors ${
@@ -1606,33 +1659,41 @@ export function AgentWorkspaceSidebar({
             <TooltipTrigger asChild>
               <button
                 type="button"
-                onClick={onUpgrade}
-                aria-label={`Tokens today: ${tokenUsageLabel}`}
+                onClick={onUsageAction}
+                aria-label={isAuthenticated ? `Tokens today: ${tokenUsageLabel}` : "Start free trial"}
                 className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
               >
                 <Sparkles className="h-4 w-4" />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="right">Tokens today: {tokenUsageLabel}</TooltipContent>
+            <TooltipContent side="right">{isAuthenticated ? `Tokens today: ${tokenUsageLabel}` : "Start your 7-day free trial"}</TooltipContent>
           </Tooltip>
         ) : (
           <div className="space-y-2">
+            {!isAuthenticated ? (
+              <div className="flex w-full items-center justify-center gap-1.5 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.36)] bg-[rgb(var(--selection-accent-rgb)_/_0.06)] px-2 py-1 text-[10px] font-semibold leading-none text-[var(--selection-accent)]">
+                <Sparkles className="h-3 w-3 shrink-0" />
+                <span className="whitespace-nowrap">7-day free trial on every plan</span>
+              </div>
+            ) : null}
             <div className="flex items-center justify-between gap-3 text-xs">
               <span className="text-text-muted">Tokens today</span>
               <span className="font-medium text-foreground">{tokenUsageLabel}</span>
             </div>
-            <div className="h-1 rounded-full bg-surface-low">
-              <div className="h-full rounded-full bg-foreground/45" style={{ width: `${tokenProgress}%` }} />
-            </div>
+            {isAuthenticated ? (
+              <div className="h-1 rounded-full bg-surface-low">
+                <div className="h-full rounded-full bg-foreground/45" style={{ width: `${tokenProgress}%` }} />
+              </div>
+            ) : null}
             <button
               type="button"
-              onClick={onUpgrade}
+              onClick={onUsageAction}
               className={`flex w-full items-center justify-center gap-2 border border-border bg-background font-medium text-foreground transition-colors hover:bg-surface-low ${
-                renderMobile ? "h-10 rounded-full text-sm" : "h-8 rounded-full text-xs"
+                renderMobile ? "h-10 rounded-[10px] text-sm" : isAuthenticated ? "h-8 rounded-full text-xs" : "h-9 rounded-[9px] text-xs"
               }`}
             >
               <Sparkles className={renderMobile ? "h-5 w-5" : "h-3.5 w-3.5"} />
-              Upgrade
+              {isAuthenticated ? "Upgrade" : "Start free trial"}
             </button>
           </div>
         )}

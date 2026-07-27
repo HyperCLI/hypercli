@@ -1474,7 +1474,12 @@ export function extractGatewayChatMediaUrls(message: unknown): string[] {
     if (item.type !== "image" && item.type !== "audio" && item.type !== "input_audio" && item.type !== "output_audio") {
       continue;
     }
-    const source = asRecord(item.source);
+    const isAudio = item.type === "audio" || item.type === "input_audio" || item.type === "output_audio";
+    const source = asRecord(item.source) ?? (
+      isAudio
+        ? asRecord(item.audio) ?? asRecord(item.input_audio) ?? asRecord(item.output_audio) ?? item
+        : null
+    );
     if (!source) {
       continue;
     }
@@ -1482,14 +1487,43 @@ export function extractGatewayChatMediaUrls(message: unknown): string[] {
       mediaUrls.push(source.url);
       continue;
     }
-    if (source.type === "base64" && typeof source.data === "string" && source.data.trim()) {
-      const mimeType =
-        typeof source.media_type === "string" && source.media_type.trim()
-          ? source.media_type.trim()
-          : item.type === "image"
-            ? "image/png"
-            : "audio/mpeg";
-      mediaUrls.push(`data:${mimeType};base64,${source.data}`);
+    if (isAudio && typeof source.url === "string" && source.url.trim()) {
+      mediaUrls.push(source.url.trim());
+      continue;
+    }
+    if (typeof source.data === "string" && source.data.trim()) {
+      if (isAudio && /^data:audio\//i.test(source.data.trim())) {
+        mediaUrls.push(source.data.trim());
+        continue;
+      }
+      const rawMimeType = [source.media_type, source.mime_type, item.media_type, item.mime_type]
+        .find((value) => typeof value === "string" && value.trim());
+      const rawFormat = [source.format, item.format]
+        .find((value) => typeof value === "string" && value.trim());
+      const format = typeof rawFormat === "string" ? rawFormat.trim().toLowerCase() : "";
+      const normalizedMimeType = typeof rawMimeType === "string"
+        ? rawMimeType.trim().split(";", 1)[0].trim()
+        : "";
+      const audioMimeTypes: Record<string, string> = {
+        aac: "audio/aac",
+        flac: "audio/flac",
+        m4a: "audio/mp4",
+        mp3: "audio/mpeg",
+        oga: "audio/ogg",
+        ogg: "audio/ogg",
+        opus: "audio/ogg",
+        wav: "audio/wav",
+        weba: "audio/webm",
+        webm: "audio/webm",
+      };
+      const mimeType = isAudio
+        ? (/^audio\/[A-Za-z0-9.+-]+$/i.test(normalizedMimeType)
+            ? normalizedMimeType
+            : audioMimeTypes[format] ?? "audio/mpeg")
+        : (/^image\/[A-Za-z0-9.+-]+$/i.test(normalizedMimeType)
+            ? normalizedMimeType
+            : "image/png");
+      mediaUrls.push(`data:${mimeType};base64,${source.data.trim()}`);
     }
   }
   if (typeof record.mediaUrl === "string" && record.mediaUrl.trim()) {
@@ -1502,7 +1536,7 @@ export function extractGatewayChatMediaUrls(message: unknown): string[] {
       }
     }
   }
-  return mediaUrls;
+  return Array.from(new Set(mediaUrls));
 }
 
 export function extractGatewayChatToolCalls(message: unknown): GatewayChatToolCall[] {
@@ -3504,7 +3538,9 @@ export class GatewayClient {
         timeout === null
           ? null
           : setTimeout(() => {
+              const pending = this.pending.get(id);
               this.pending.delete(id);
+              pending?.cleanup();
               reject(new Error(`RPC timeout: ${method}`));
             }, timeout);
       const abortHandler = () => {
@@ -3904,7 +3940,12 @@ export class GatewayClient {
     const params: Record<string, any> = { limit };
     if (sessionKey) params.sessionKey = sessionKey;
     const res = await this.rpc("chat.history", params);
-    return res?.messages ?? res ?? [];
+    if (Array.isArray(res)) return res;
+    if (asRecord(res) && Array.isArray(res.messages)) return res.messages;
+    throw new GatewayRequestError({
+      code: "PROTOCOL_ERROR",
+      message: "Gateway protocol error: chat.history response must be an array or an object with an array `messages` property",
+    });
   }
 
   async chatAbort(sessionKey?: string): Promise<void> {

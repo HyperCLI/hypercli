@@ -21,6 +21,7 @@ import {
   type OpenClawWhatsAppProgressEvent,
 } from "@hypercli.com/sdk/openclaw/whatsapp";
 import { OpenClawSkillsProvider } from "@hypercli.com/sdk/openclaw/skills";
+import { inferFileMimeType, isFileTypeReference } from "@hypercli/shared-ui/files";
 import type {
   ChatEvent,
   GatewayClient,
@@ -59,7 +60,7 @@ import {
   handleOpenClawChatStreamEvent,
   handleOpenClawSessionEvent,
   hydrateOpenClawConnection,
-  hydrateOpenClawSession,
+  hydrateOpenClawHistory,
   refreshOpenClawChatMessages,
 } from "@/lib/openclaw-session";
 import {
@@ -101,6 +102,7 @@ import {
 } from "@/lib/openclaw-session-sdk-surface";
 import { cronScheduleLabel } from "@/lib/cron-jobs";
 import { useConnectorWorkflow } from "@/hooks/useConnectorWorkflow";
+import { markDashboardPerformance, measureDashboardPerformance } from "@/lib/agent-dashboard-performance";
 
 const E2E_OPENCLAW_CONNECTED_KEY = "claw_e2e_openclaw_connected";
 const OPENCLAW_SESSION_TITLE_STORAGE_PREFIX = "openclaw.sessionTitles.v1";
@@ -110,6 +112,7 @@ const OPENCLAW_DELETED_SESSION_TOMBSTONE_TTL_MS = 30_000;
 const GATEWAY_CONNECTING_STALL_MS = 30_000;
 const GATEWAY_STATUS_CACHE_TTL_MS = 5_000;
 const OPENCLAW_PASSIVE_COMPLETION_REFRESH_DEBOUNCE_MS = 100;
+const OPENCLAW_STREAM_PUBLICATION_INTERVAL_MS = 32;
 const OPENCLAW_TEMPORARY_CHAT_CLEANUP_WAIT_MS = 1_500;
 const OPENCLAW_TEMPORARY_CHAT_TITLE = "Private chat";
 const OPENCLAW_TEMPORARY_CHAT_CLEANUP_TIMEOUT = Symbol("temporary-chat-cleanup-timeout");
@@ -118,6 +121,7 @@ const OPENCLAW_AUTO_TITLE_MAX_SOURCE_CHARS = 4_000;
 const OPENCLAW_AUTO_TITLE_MAX_RESPONSE_CHARS = 1_024;
 const OPENCLAW_AUTO_TITLE_MAX_LENGTH = 60;
 const OPENCLAW_AUTO_TITLE_HISTORY_RETRY_MS = 300;
+const CHAT_IMAGE_READ_CONCURRENCY = 4;
 const WHATSAPP_GATEWAY_READY_TIMEOUT_MS = 120_000;
 const GATEWAY_CONNECTING_STALL_MESSAGE =
   "Timed out opening the agent session. The gateway is still reconnecting in the background.";
@@ -125,6 +129,48 @@ const GENERIC_OPENCLAW_CONNECTION_ERROR = "Could not connect to the agent sessio
 const OPENCLAW_ORIGIN_DENIED_MESSAGE =
   "This agent was opened from another dashboard address. Stop and start it from this page, then retry.";
 let fallbackSessionCounter = 0;
+
+type ChatHistoryUpdate = Extract<ChatHistoryAction, { type: "apply-update" }>["update"];
+
+interface PendingChatHistoryUpdates {
+  target: ChatHistoryTarget;
+  updates: ChatHistoryUpdate[];
+}
+
+interface ChatAttachmentReadResult {
+  attachment: ChatAttachment | null;
+  error: string | null;
+}
+
+function readChatImageAttachment(file: File, fileName = file.name): Promise<ChatAttachmentReadResult> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    let settled = false;
+    const finish = (attachment: ChatAttachment | null, error: string | null = null) => {
+      if (settled) return;
+      settled = true;
+      resolve({ attachment, error });
+    };
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      const base64 = result.split(",", 2)[1];
+      finish(base64 ? {
+        type: "image",
+        mimeType: file.type || inferFileMimeType(file.name),
+        content: base64,
+        fileName,
+      } : null, base64 ? null : `Could not read "${fileName}" as an image.`);
+    };
+    reader.onerror = () => finish(null, `Could not read "${fileName}": ${reader.error?.message || "The file is no longer available."}`);
+    reader.onabort = () => finish(null, `Reading "${fileName}" was cancelled.`);
+    try {
+      reader.readAsDataURL(file);
+    } catch (cause) {
+      const detail = cause instanceof Error ? cause.message : "The file is no longer available.";
+      finish(null, `Could not read "${fileName}": ${detail}`);
+    }
+  });
+}
 
 function whatsAppChannelEnabled(config: Record<string, unknown> | null): boolean {
   const channels = isRecord(config?.channels) ? config.channels : null;
@@ -163,6 +209,10 @@ interface SendMessageOptions {
   files?: ChatPendingFile[];
 }
 
+interface QueueMessageOptions extends SendMessageOptions {
+  consumeDraft?: boolean;
+}
+
 interface CreateSessionOptions {
   initialMessage?: string;
   initialDisplayContent?: string;
@@ -179,9 +229,10 @@ interface ComposerDraftState {
 interface QueuedChatMessage {
   message: string;
   target: ChatHistoryTarget;
+  options: SendMessageOptions;
 }
 
-export type OpenClawHydrationMode = "full" | "sessions";
+export type OpenClawHydrationMode = "chat" | "full" | "sessions";
 export type OpenClawTemporaryChatState = "inactive" | "starting" | "active" | "ending";
 export type OpenClawHistoryPhase = "idle" | "loading" | "ready" | "error";
 
@@ -257,6 +308,12 @@ interface ChatHistoryRefreshEntry {
 interface ChatHistoryPhaseState {
   targetKey: string;
   phase: OpenClawHistoryPhase;
+}
+
+interface ChatSendAuthorityEntry {
+  gateway: GatewayClient;
+  gatewaySessionKey: string;
+  lifecycleRevision: number;
 }
 
 interface ActiveChatStreamEntry {
@@ -384,6 +441,17 @@ function newOpenClawSessionRecord(sessionKey: string): OpenClawSessionRecord {
   return localOpenClawSessionRecord(sessionKey, OPENCLAW_NEW_SESSION_TITLE);
 }
 
+function withOpenClawGatewaySessionKey(
+  session: OpenClawSessionRecord,
+  gatewaySessionKey: string,
+): OpenClawSessionRecord {
+  return {
+    ...session,
+    gatewaySessionKey,
+    raw: { ...session.raw, gatewaySessionKey },
+  };
+}
+
 function localOpenClawSessionRecord(sessionKey: string, title = fallbackOpenClawSessionDisplayName(sessionKey)): OpenClawSessionRecord {
   const now = Date.now();
   return {
@@ -403,22 +471,44 @@ function chatHistoryTargetKey(target: ChatHistoryTarget): string {
   return JSON.stringify([target.agentId ?? null, target.sessionKey]);
 }
 
-function historyConfirmsLatestOptimisticUser(
+function chatHistoryTargetFromKey(value: string): ChatHistoryTarget | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed) || parsed.length !== 2) return null;
+    const [parsedAgentId, parsedSessionKey] = parsed;
+    if ((parsedAgentId !== null && typeof parsedAgentId !== "string") || typeof parsedSessionKey !== "string") return null;
+    return { agentId: parsedAgentId, sessionKey: parsedSessionKey };
+  } catch {
+    return null;
+  }
+}
+
+function sameConfirmedChatMessage(current: ChatMessage, history: ChatMessage): boolean {
+  if (current.role !== history.role) return false;
+  for (const field of ["messageId", "turnId", "runId", "clientTurnId"] as const) {
+    if (current[field] && current[field] === history[field]) return true;
+  }
+  const currentHasProtocolIdentity = Boolean(current.messageId || current.turnId || current.runId);
+  const historyHasProtocolIdentity = Boolean(history.messageId || history.turnId || history.runId);
+  if (currentHasProtocolIdentity && historyHasProtocolIdentity) return false;
+  return current.content.trim() === history.content.trim() &&
+    JSON.stringify((current.files ?? []).map((file) => [file.path, file.name, file.type])) ===
+      JSON.stringify((history.files ?? []).map((file) => [file.path, file.name, file.type])) &&
+    JSON.stringify(current.attachments ?? []) === JSON.stringify(history.attachments ?? []);
+}
+
+function historyConfirmsCurrentConversationTail(
   currentMessages: ChatMessage[],
   historyMessages: ChatMessage[],
 ): boolean {
-  const currentUser = [...currentMessages].reverse().find((message) => message.role === "user");
-  const historyUser = [...historyMessages].reverse().find((message) => message.role === "user");
-  if (!currentUser || !historyUser) return false;
-  for (const field of ["messageId", "turnId", "runId", "clientTurnId"] as const) {
-    if (currentUser[field] && currentUser[field] === historyUser[field]) return true;
-  }
-  const currentHasProtocolIdentity = Boolean(currentUser.messageId || currentUser.turnId || currentUser.runId);
-  const historyHasProtocolIdentity = Boolean(historyUser.messageId || historyUser.turnId || historyUser.runId);
-  if (currentHasProtocolIdentity && historyHasProtocolIdentity) return false;
-  return currentUser.content.trim() === historyUser.content.trim() &&
-    JSON.stringify(currentUser.files ?? []) === JSON.stringify(historyUser.files ?? []) &&
-    JSON.stringify(currentUser.attachments ?? []) === JSON.stringify(historyUser.attachments ?? []);
+  const latestUser = [...currentMessages].reverse().find((message) => message.role === "user");
+  const latestAssistant = [...currentMessages].reverse().find((message) => (
+    message.role === "assistant" && Boolean(message.content.trim())
+  ));
+  const currentTail = [latestUser, latestAssistant].filter((message): message is ChatMessage => Boolean(message));
+  return currentTail.length > 0 && currentTail.every((current) => (
+    historyMessages.some((history) => sameConfirmedChatMessage(current, history))
+  ));
 }
 
 function emptyComposerDraft(): ComposerDraftState {
@@ -598,12 +688,6 @@ function shouldReconcileGeneratedSessionsAsMain(
   return !isActiveSessionChannelBackedDefault(sessions, activeSessionKey);
 }
 
-function shouldWaitForSessionListBeforeHistory(activeSessionKey: string): boolean {
-  const unscoped = unscopedOpenClawSessionKey(activeSessionKey);
-  if (unscoped === OPENCLAW_DEFAULT_SESSION_KEY) return true;
-  return /^[a-z0-9._-]+:.+$/i.test(unscoped);
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -740,7 +824,10 @@ export function useOpenClawSession(
 ) {
   const agentId = agent?.id ?? null;
   const hydrationMode = options.hydrationMode ?? "full";
+  const historyHydrationEnabled = hydrationMode !== "sessions";
   const fullHydrationEnabled = hydrationMode === "full";
+  const hydrationModeRef = useRef(hydrationMode);
+  hydrationModeRef.current = hydrationMode;
   const normalActiveSessionKey = resolveOpenClawActiveSessionKey(agentId, requestedActiveSessionKey);
   const [temporaryChat, setTemporaryChat] = useState<{ agentId: string; sessionKey: string } | null>(null);
   const [temporaryChatState, setTemporaryChatState] = useState<OpenClawTemporaryChatState>("inactive");
@@ -756,6 +843,7 @@ export function useOpenClawSession(
     targetKey: chatHistoryTargetKey({ agentId, sessionKey: activeSessionKey }),
     phase: "idle",
   }));
+  const [chatSendAuthorityRevision, setChatSendAuthorityRevision] = useState(0);
   const [hydrating, setHydrating] = useState(false);
   const [ready, setReady] = useState(false);
   const [input, setActiveInput] = useState("");
@@ -818,8 +906,15 @@ export function useOpenClawSession(
   const chatHistoryRefreshRef = useRef<ChatHistoryRefreshEntry | null>(null);
   const chatHistoryRequestRevisionsRef = useRef<Map<string, number>>(new Map());
   const chatHistoryMutationRevisionsRef = useRef<Map<string, number>>(new Map());
+  const pendingChatHistoryUpdatesRef = useRef<Map<string, PendingChatHistoryUpdates>>(new Map());
+  const chatHistoryPublicationTimerRef = useRef<number | null>(null);
+  const flushQueuedChatHistoryUpdatesRef = useRef<(targetKey?: string) => void>(() => undefined);
   const optimisticChatHistoryTargetsRef = useRef<Set<string>>(new Set());
   const connectionLiveHistoryTargetsRef = useRef<Set<string>>(new Set());
+  const chatSendAuthoritiesRef = useRef<Map<string, ChatSendAuthorityEntry>>(new Map());
+  const createdSessionGatewayKeysRef = useRef<Map<string, string>>(new Map());
+  const deferredComposerSendTargetsRef = useRef<Map<string, ChatHistoryTarget>>(new Map());
+  const chatHistoryRecoveryTargetsRef = useRef<Set<string>>(new Set());
   const activeGatewayRef = useRef<GatewayClient | null>(null);
   const gatewayLifecycleRevisionRef = useRef(0);
   const gatewayGapRecoveryRef = useRef<(targetGateway: GatewayClient) => void>(() => undefined);
@@ -912,6 +1007,7 @@ export function useOpenClawSession(
   }, []);
 
   const cancelAndClearActiveChatStreams = useCallback(() => {
+    flushQueuedChatHistoryUpdatesRef.current();
     for (const entry of activeChatStreamsRef.current.values()) requestChatStreamCancellation(entry);
     activeChatStreamsRef.current.clear();
     activeChatSendTargetsRef.current.clear();
@@ -1010,7 +1106,7 @@ export function useOpenClawSession(
     }
     if (
       (action.type === "merge-history-refresh" || action.type === "replace") &&
-      historyConfirmsLatestOptimisticUser(currentTargetMessages, action.messages)
+      historyConfirmsCurrentConversationTail(currentTargetMessages, action.messages)
     ) {
       optimisticChatHistoryTargetsRef.current.delete(targetKey);
       connectionLiveHistoryTargetsRef.current.delete(targetKey);
@@ -1019,10 +1115,12 @@ export function useOpenClawSession(
       optimisticChatHistoryTargetsRef.current.delete(targetKey);
       connectionLiveHistoryTargetsRef.current.delete(targetKey);
     }
-    if (!sameChatHistoryTarget(chatHistoryTargetRef.current, dispatchTarget)) {
+    const dispatchTargetsActiveHistory = sameChatHistoryTarget(chatHistoryTargetRef.current, dispatchTarget);
+    if (!dispatchTargetsActiveHistory || hydrationModeRef.current === "sessions") {
       const currentMessages = liveChatHistoryByTargetRef.current.get(targetKey) ?? [];
       const nextMessages = reduceChatHistoryMessages(currentMessages, action);
       liveChatHistoryByTargetRef.current.set(targetKey, nextMessages);
+      if (dispatchTargetsActiveHistory) messagesRef.current = nextMessages;
       return;
     }
     setMessages((currentMessages) => {
@@ -1032,6 +1130,96 @@ export function useOpenClawSession(
       return nextMessages;
     });
   }, []);
+
+  const flushQueuedChatHistoryUpdates = useCallback((onlyTargetKey?: string) => {
+    const queuedEntries = onlyTargetKey
+      ? (() => {
+          const entry = pendingChatHistoryUpdatesRef.current.get(onlyTargetKey);
+          if (!entry) return [];
+          pendingChatHistoryUpdatesRef.current.delete(onlyTargetKey);
+          return [entry];
+        })()
+      : (() => {
+          const entries = Array.from(pendingChatHistoryUpdatesRef.current.values());
+          pendingChatHistoryUpdatesRef.current.clear();
+          return entries;
+        })();
+
+    if (pendingChatHistoryUpdatesRef.current.size === 0 && chatHistoryPublicationTimerRef.current !== null) {
+      window.clearTimeout(chatHistoryPublicationTimerRef.current);
+      chatHistoryPublicationTimerRef.current = null;
+    }
+
+    for (const entry of queuedEntries) {
+      const updates = entry.updates;
+      dispatchChatHistory({
+        type: "apply-update",
+        update: (currentMessages) => updates.reduce<ChatMessage[]>((nextMessages, update) => (
+          typeof update === "function" ? update(nextMessages) : update
+        ), currentMessages),
+      }, entry.target);
+    }
+  }, [dispatchChatHistory]);
+
+  useLayoutEffect(() => {
+    flushQueuedChatHistoryUpdatesRef.current = flushQueuedChatHistoryUpdates;
+  }, [flushQueuedChatHistoryUpdates]);
+
+  const queueChatHistoryUpdate = useCallback((update: ChatHistoryUpdate, target: ChatHistoryTarget) => {
+    if (
+      hydrationModeRef.current === "sessions" ||
+      !sameChatHistoryTarget(chatHistoryTargetRef.current, target)
+    ) {
+      dispatchChatHistory({ type: "apply-update", update }, target);
+      return;
+    }
+    const targetKey = chatHistoryTargetKey(target);
+    const queued = pendingChatHistoryUpdatesRef.current.get(targetKey);
+    if (queued) {
+      queued.updates.push(update);
+    } else {
+      pendingChatHistoryUpdatesRef.current.set(targetKey, { target, updates: [update] });
+    }
+    if (chatHistoryPublicationTimerRef.current !== null) return;
+    chatHistoryPublicationTimerRef.current = window.setTimeout(() => {
+      chatHistoryPublicationTimerRef.current = null;
+      flushQueuedChatHistoryUpdatesRef.current();
+    }, OPENCLAW_STREAM_PUBLICATION_INTERVAL_MS);
+  }, [dispatchChatHistory]);
+
+  const publishChatHistoryUpdate = useCallback((
+    update: ChatHistoryUpdate,
+    target: ChatHistoryTarget,
+    immediate = false,
+  ) => {
+    if (immediate) {
+      const targetKey = chatHistoryTargetKey(target);
+      flushQueuedChatHistoryUpdates(targetKey);
+      dispatchChatHistory({ type: "apply-update", update }, target);
+      return;
+    }
+    queueChatHistoryUpdate(update, target);
+  }, [dispatchChatHistory, flushQueuedChatHistoryUpdates, queueChatHistoryUpdate]);
+
+  useEffect(() => () => {
+    if (chatHistoryPublicationTimerRef.current !== null) {
+      window.clearTimeout(chatHistoryPublicationTimerRef.current);
+      chatHistoryPublicationTimerRef.current = null;
+    }
+    pendingChatHistoryUpdatesRef.current.clear();
+  }, []);
+
+  const previousHydrationModeRef = useRef(hydrationMode);
+  useLayoutEffect(() => {
+    const previousHydrationMode = previousHydrationModeRef.current;
+    previousHydrationModeRef.current = hydrationMode;
+    if (previousHydrationMode === "full" || hydrationMode !== "full") return;
+    const targetKey = chatHistoryTargetKey({ agentId, sessionKey: activeSessionKey });
+    const cachedMessages = liveChatHistoryByTargetRef.current.get(targetKey);
+    if (!cachedMessages || cachedMessages === messages) return;
+    messagesRef.current = cachedMessages;
+    setMessages(cachedMessages);
+  }, [activeSessionKey, agentId, hydrationMode, messages]);
 
   const beginChatHistoryRequest = useCallback((target: ChatHistoryTarget) => {
     const targetKey = chatHistoryTargetKey(target);
@@ -1063,6 +1251,57 @@ export function useOpenClawSession(
     });
   }, []);
 
+  const publishChatSendAuthorities = useCallback(() => {
+    setChatSendAuthorityRevision((revision) => revision + 1);
+  }, []);
+
+  const grantChatSendAuthority = useCallback((
+    target: ChatHistoryTarget,
+    targetGateway: GatewayClient,
+    gatewaySessionKey: string,
+    options: { allowDuringRecovery?: boolean } = {},
+  ) => {
+    const targetKey = chatHistoryTargetKey(target);
+    if (chatHistoryRecoveryTargetsRef.current.has(targetKey) && !options.allowDuringRecovery) return false;
+    chatSendAuthoritiesRef.current.set(targetKey, {
+      gateway: targetGateway,
+      gatewaySessionKey,
+      lifecycleRevision: gatewayLifecycleRevisionRef.current,
+    });
+    publishChatSendAuthorities();
+    return true;
+  }, [publishChatSendAuthorities]);
+
+  const revokeChatSendAuthority = useCallback((target?: ChatHistoryTarget) => {
+    if (target) {
+      if (!chatSendAuthoritiesRef.current.delete(chatHistoryTargetKey(target))) return;
+    } else {
+      if (chatSendAuthoritiesRef.current.size === 0) return;
+      chatSendAuthoritiesRef.current.clear();
+    }
+    publishChatSendAuthorities();
+  }, [publishChatSendAuthorities]);
+
+  const chatTargetHasSendAuthority = useCallback((
+    target: ChatHistoryTarget,
+    targetGateway: GatewayClient | null,
+    gatewaySessionKey: string,
+  ) => {
+    const targetKey = chatHistoryTargetKey(target);
+    if (
+      !targetGateway ||
+      creatingSessionKeysRef.current.has(target.sessionKey) ||
+      chatHistoryRecoveryTargetsRef.current.has(targetKey)
+    ) return false;
+    const authority = chatSendAuthoritiesRef.current.get(targetKey);
+    return Boolean(
+      authority &&
+      authority.gateway === targetGateway &&
+      authority.lifecycleRevision === gatewayLifecycleRevisionRef.current &&
+      authority.gatewaySessionKey === gatewaySessionKey
+    );
+  }, []);
+
   useLayoutEffect(() => {
     const titleMap = readStoredSessionTitles(agentId);
     writeStoredSessionTitles(agentId, titleMap);
@@ -1078,8 +1317,13 @@ export function useOpenClawSession(
     setSessionsFetchedAgentId(null);
     creatingSessionKeysRef.current = new Set();
     setCreatingSessionKeys([]);
+    chatSendAuthoritiesRef.current.clear();
+    createdSessionGatewayKeysRef.current.clear();
+    deferredComposerSendTargetsRef.current.clear();
+    chatHistoryRecoveryTargetsRef.current.clear();
+    publishChatSendAuthorities();
     sessionTitleMapRef.current = titleMap;
-  }, [agentId]);
+  }, [agentId, publishChatSendAuthorities]);
 
   const completeReconnectSessionRefresh = useCallback((request: ReconnectSessionRefreshRequest | null, sessions: OpenClawSessionRecord[] | undefined) => {
     if (!request) return;
@@ -1110,20 +1354,34 @@ export function useOpenClawSession(
     integrationsStatusCacheRef.current.clear();
   }, []);
 
+  const applyConnectionHydration = useCallback((hydrated: HydratedOpenClawConnection) => {
+    setConfig(hydrated.config);
+    setConfigSchema(hydrated.configSchema);
+    setFiles(hydrated.files);
+    setGwAgentId(hydrated.gwAgentId);
+    setCronJobs(hydrated.cronJobs);
+    setModels(hydrated.models);
+  }, []);
+
   const hydrateConnectionForGateway = useCallback((nextGateway: GatewayClient) => {
     const current = connectionHydrationRef.current;
-    if (current && current.gateway === nextGateway && current.agentId === agentId) return current.promise;
+    if (current && current.gateway === nextGateway && current.agentId === agentId) {
+      if (current.value && hydrationModeRef.current !== "sessions") applyConnectionHydration(current.value);
+      return current.promise;
+    }
 
     const promise = hydrateOpenClawConnection(nextGateway, agentId);
     const nextEntry: ConnectionHydrationEntry = { gateway: nextGateway, agentId, promise };
     connectionHydrationRef.current = nextEntry;
     void promise.then((value) => {
-      if (connectionHydrationRef.current === nextEntry) nextEntry.value = value;
+      if (connectionHydrationRef.current !== nextEntry) return;
+      nextEntry.value = value;
+      if (hydrationModeRef.current !== "sessions") applyConnectionHydration(value);
     }).catch(() => {
       if (connectionHydrationRef.current === nextEntry) connectionHydrationRef.current = null;
     });
     return promise;
-  }, [agentId]);
+  }, [agentId, applyConnectionHydration]);
 
   const updateConnectionHydration = useCallback((update: (connection: HydratedOpenClawConnection) => void) => {
     const current = connectionHydrationRef.current;
@@ -1137,7 +1395,13 @@ export function useOpenClawSession(
     }).catch(() => undefined);
   }, []);
 
-  const resetSessionStateForDisconnect = useCallback(({ preserveMessages = false }: { preserveMessages?: boolean } = {}) => {
+  const resetSessionStateForDisconnect = useCallback(({
+    preserveMessages = false,
+    preserveDrafts = false,
+  }: {
+    preserveMessages?: boolean;
+    preserveDrafts?: boolean;
+  } = {}) => {
     completeReconnectSessionRefresh(reconnectSessionRefreshRef.current, undefined);
     connectionHydrationRef.current = null;
     sessionListRefreshRef.current = null;
@@ -1146,18 +1410,23 @@ export function useOpenClawSession(
     cancelAndClearActiveChatStreams();
     setHydrating(false);
     setReady(false);
+    revokeChatSendAuthority();
+    deferredComposerSendTargetsRef.current.clear();
+    chatHistoryRecoveryTargetsRef.current.clear();
     if (!preserveMessages) dispatchChatHistory({ type: "clear" });
     setFiles([]);
     setConfig(null);
     setConfigSchema(null);
     setSending(false);
     setGwAgentId("main");
-    composerDraftsByTargetRef.current.clear();
-    setActiveInput("");
-    setPendingAttachments([]);
-    setPendingAttachmentReads(0);
-    setPendingFiles([]);
-    setPendingMessages([]);
+    if (!preserveDrafts) {
+      composerDraftsByTargetRef.current.clear();
+      setActiveInput("");
+      setPendingAttachments([]);
+      setPendingAttachmentReads(0);
+      setPendingFiles([]);
+      setPendingMessages([]);
+    }
     setSessions([]);
     setSessionsAgentId(null);
     setSessionsFetchedAgentId(null);
@@ -1167,7 +1436,7 @@ export function useOpenClawSession(
     setCronJobs([]);
     setModels([]);
     setActivityFeed([]);
-  }, [cancelAndClearActiveChatStreams, clearGatewayStatusCaches, completeReconnectSessionRefresh, dispatchChatHistory]);
+  }, [cancelAndClearActiveChatStreams, clearGatewayStatusCaches, completeReconnectSessionRefresh, dispatchChatHistory, revokeChatSendAuthority]);
 
   useEffect(() => {
     if (!enabled || !agentId || seededE2EConnection || status !== "connecting" || ready || error) return;
@@ -1179,12 +1448,15 @@ export function useOpenClawSession(
 
   useEffect(() => {
     let active = true;
+    const gatewayContextAbortController = new AbortController();
     let localGateway: GatewayClient | null = null;
     let unsubscribeConnectionState: (() => void) | null = null;
+    let appliedConnectionState: GatewayConnectionState | null = null;
     const activeChatStreams = activeChatStreamsRef.current;
     const connectionLiveHistoryTargets = connectionLiveHistoryTargetsRef.current;
     gatewayLifecycleRevisionRef.current += 1;
     connectionLiveHistoryTargets.clear();
+    optimisticChatHistoryTargetsRef.current.clear();
     cancelAndClearActiveChatStreams();
     connectionHydrationRef.current = null;
     sessionListRefreshRef.current = null;
@@ -1221,7 +1493,11 @@ export function useOpenClawSession(
 
     void (async () => {
       try {
-        await sessionAgent.waitForGatewayContext();
+        markDashboardPerformance("gateway-context-start");
+        await sessionAgent.waitForGatewayContext({ signal: gatewayContextAbortController.signal });
+        if (!active) return;
+        markDashboardPerformance("gateway-context-ready");
+        measureDashboardPerformance("gateway-context", "gateway-context-start", "gateway-context-ready");
         const client = sessionAgent.gateway({
           autoApprovePairing: true,
           onGap: () => {
@@ -1253,8 +1529,11 @@ export function useOpenClawSession(
         localGateway = client;
         const applyState = (nextState: GatewayConnectionState) => {
           if (!active) return;
+          if (appliedConnectionState === nextState) return;
+          appliedConnectionState = nextState;
           gatewayLifecycleRevisionRef.current += 1;
           connectionLiveHistoryTargets.clear();
+          optimisticChatHistoryTargetsRef.current.clear();
           setStatus(nextState);
           if (nextState === "disconnected") {
             if (activeGatewayRef.current === client) activeGatewayRef.current = null;
@@ -1263,7 +1542,7 @@ export function useOpenClawSession(
             chatHistoryRefreshRef.current = null;
             clearGatewayStatusCaches();
             setGateway(null);
-            resetSessionStateForDisconnect({ preserveMessages: true });
+            resetSessionStateForDisconnect({ preserveMessages: true, preserveDrafts: true });
             return;
           }
           if (nextState === "connecting") {
@@ -1273,6 +1552,8 @@ export function useOpenClawSession(
             chatHistoryRefreshRef.current = null;
             clearGatewayStatusCaches();
             cancelAndClearActiveChatStreams();
+            sessionSnapshotRef.current = { ...sessionSnapshotRef.current, fetchedAgentId: null };
+            setSessionsFetchedAgentId(null);
             setGateway(null);
             setHydrating(false);
             setReady(false);
@@ -1282,6 +1563,8 @@ export function useOpenClawSession(
             activeGatewayRef.current = client;
             setGateway(client);
             setError(null);
+            markDashboardPerformance("gateway-connected");
+            measureDashboardPerformance("gateway-connect", "gateway-context-ready", "gateway-connected");
           }
         };
         applyState(client.state);
@@ -1290,22 +1573,24 @@ export function useOpenClawSession(
           if (!active) return;
           setGateway(null);
           setStatus("disconnected");
-          resetSessionStateForDisconnect({ preserveMessages: true });
+          resetSessionStateForDisconnect({ preserveMessages: true, preserveDrafts: true });
           setError(formatOpenClawConnectionError(e));
         });
       } catch (e: unknown) {
         if (!active) return;
         setGateway(null);
         setStatus("disconnected");
-        resetSessionStateForDisconnect({ preserveMessages: true });
+        resetSessionStateForDisconnect({ preserveMessages: true, preserveDrafts: true });
         setError(formatOpenClawConnectionError(e));
       }
     })();
 
     return () => {
       active = false;
+      gatewayContextAbortController.abort(new Error("OpenClaw session changed"));
       gatewayLifecycleRevisionRef.current += 1;
       connectionLiveHistoryTargets.clear();
+      optimisticChatHistoryTargetsRef.current.clear();
       for (const entry of activeChatStreams.values()) requestChatStreamCancellation(entry);
       if (activeGatewayRef.current === localGateway) activeGatewayRef.current = null;
       unsubscribeConnectionState?.();
@@ -1582,7 +1867,10 @@ export function useOpenClawSession(
     ?? (shouldReconcileGeneratedSessionsAsMain(activeSessionRecords, activeSessionKey)
       ? findOpenClawSelectableSession(activeSessionRecords, OPENCLAW_DEFAULT_SESSION_KEY)
       : null);
-  const activeGatewaySessionKey = openClawGatewaySessionKey(activeSessionRecord) ?? activeSessionKey;
+  const activeTargetKey = chatHistoryTargetKey({ agentId, sessionKey: activeSessionKey });
+  const activeGatewaySessionKey = openClawGatewaySessionKey(activeSessionRecord)
+    ?? createdSessionGatewayKeysRef.current.get(activeTargetKey)
+    ?? activeSessionKey;
   const activeSessionSelectionKey = activeSessionRecord?.key ?? activeSessionKey;
   const activeSessionModel = activeSessionRecord?.model ?? null;
   const activeSessionThinkingLevel = activeSessionRecord?.thinkingLevel ?? null;
@@ -1591,7 +1879,10 @@ export function useOpenClawSession(
   const activeSessionReadOnly = Boolean(activeSessionRecord?.readOnly);
   const activeSessionReadOnlyReason = activeSessionRecord?.readOnlyReason ?? null;
   const activeSessionIsEphemeral = isEphemeralOpenClawSessionName(activeSessionKey);
-  const activeSessionTarget = { agentId, sessionKey: activeSessionKey };
+  const activeSessionTarget = useMemo(
+    () => ({ agentId, sessionKey: activeSessionKey }),
+    [activeSessionKey, agentId],
+  );
   const activeSessionSending = sendingTargets.some((target) => sameChatHistoryTarget(target, activeSessionTarget));
   const activeSessionAborting = Boolean(aborting && abortingTarget && sameChatHistoryTarget(abortingTarget, activeSessionTarget));
   const thinkingSessionKeys = useMemo(() => {
@@ -1605,17 +1896,25 @@ export function useOpenClawSession(
   }, [agentId, sendingTargets]);
 
   const resolveChatTargetState = useCallback((target: ChatHistoryTarget) => {
+    const sessionSnapshot = sessionSnapshotRef.current;
+    const targetSessionRecords = target.agentId === agentId && sessionSnapshot.agentId === agentId
+      ? sessionSnapshot.sessions
+      : target.agentId === agentId
+        ? activeSessionRecords
+        : [];
     const targetSessionRecord = target.agentId === agentId
-      ? findOpenClawSelectableSession(activeSessionRecords, target.sessionKey)
-        ?? (shouldReconcileGeneratedSessionsAsMain(activeSessionRecords, target.sessionKey)
-          ? findOpenClawSelectableSession(activeSessionRecords, OPENCLAW_DEFAULT_SESSION_KEY)
+      ? findOpenClawSelectableSession(targetSessionRecords, target.sessionKey)
+        ?? (shouldReconcileGeneratedSessionsAsMain(targetSessionRecords, target.sessionKey)
+          ? findOpenClawSelectableSession(targetSessionRecords, OPENCLAW_DEFAULT_SESSION_KEY)
           : null)
       : null;
-    const visibleSessionKey = shouldReconcileGeneratedSessionsAsMain(activeSessionRecords, target.sessionKey)
+    const visibleSessionKey = shouldReconcileGeneratedSessionsAsMain(targetSessionRecords, target.sessionKey)
       ? OPENCLAW_DEFAULT_SESSION_KEY
       : target.sessionKey;
     return {
-      gatewaySessionKey: openClawGatewaySessionKey(targetSessionRecord) ?? target.sessionKey,
+      gatewaySessionKey: openClawGatewaySessionKey(targetSessionRecord)
+        ?? createdSessionGatewayKeysRef.current.get(chatHistoryTargetKey(target))
+        ?? target.sessionKey,
       readOnly: Boolean(targetSessionRecord?.readOnly),
       visibleSessionKey,
       sessionRecord: targetSessionRecord,
@@ -1630,7 +1929,7 @@ export function useOpenClawSession(
     );
     const nextPhase: OpenClawHistoryPhase = seededE2EConnection
       ? "ready"
-      : fullHydrationEnabled && enabled && agentId
+      : historyHydrationEnabled && enabled && agentId
         ? "loading"
         : "idle";
     setHistoryState((current) => {
@@ -1651,15 +1950,42 @@ export function useOpenClawSession(
     }
     const restoredMessages = liveMessages ?? readCachedOpenClawChatHistory(agentId, activeSessionKey);
     dispatchChatHistory({ type: "restore-cache", messages: restoredMessages }, target);
-  }, [agentId, activeSessionKey, activeSessionIsEphemeral, activeSessionReadOnly, dispatchChatHistory, enabled, fullHydrationEnabled, seededE2EConnection]);
+  }, [agentId, activeSessionKey, activeSessionIsEphemeral, activeSessionReadOnly, dispatchChatHistory, enabled, historyHydrationEnabled, seededE2EConnection]);
 
   useEffect(() => {
-    if (activeSessionReadOnly || activeSessionIsEphemeral || !agentId || messages.length === 0 || typeof window === "undefined") return;
+    if (
+      hydrationMode === "sessions" ||
+      activeSessionReadOnly ||
+      activeSessionIsEphemeral ||
+      !agentId ||
+      typeof window === "undefined"
+    ) return;
+    const target = { agentId, sessionKey: activeSessionKey };
+    const targetKey = chatHistoryTargetKey(target);
+    const targetState = resolveChatTargetState(target);
+    if (!chatTargetHasSendAuthority(target, gateway, targetState.gatewaySessionKey)) return;
+    if (activeChatSendTargetsRef.current.has(targetKey)) return;
+    const targetMessages = liveChatHistoryByTargetRef.current.get(targetKey);
+    if (!targetMessages || targetMessages.length === 0) return;
     const timeout = window.setTimeout(() => {
-      writeCachedOpenClawChatHistory(agentId, messages, activeSessionKey);
+      writeCachedOpenClawChatHistory(agentId, targetMessages, activeSessionKey);
     }, 250);
     return () => window.clearTimeout(timeout);
-  }, [agentId, activeSessionKey, activeSessionIsEphemeral, activeSessionReadOnly, messages]);
+  }, [agentId, activeSessionKey, activeSessionIsEphemeral, activeSessionReadOnly, chatSendAuthorityRevision, chatTargetHasSendAuthority, gateway, hydrationMode, messages, resolveChatTargetState, sendingTargets]);
+
+  const replaceChatHistoryFromGateway = useCallback((
+    target: ChatHistoryTarget,
+    historyMessages: ChatMessage[],
+  ) => {
+    dispatchChatHistory({ type: "replace", messages: historyMessages }, target);
+    if (
+      historyMessages.length === 0 &&
+      target.agentId &&
+      !isEphemeralOpenClawSessionName(target.sessionKey)
+    ) {
+      clearCachedOpenClawChatHistory(target.agentId, target.sessionKey);
+    }
+  }, [dispatchChatHistory]);
 
   const refreshMessagesFromHistory = useCallback(async (
     targetGateway: GatewayClient | null = gateway,
@@ -1671,6 +1997,16 @@ export function useOpenClawSession(
     if (refreshTarget.agentId !== agentId) return;
     const targetState = resolveChatTargetState(refreshTarget);
     const lifecycleRevision = gatewayLifecycleRevisionRef.current;
+    const targetKey = chatHistoryTargetKey(refreshTarget);
+    const mutationRevision = chatHistoryMutationRevisionsRef.current.get(targetKey) ?? 0;
+    const targetHadSendAuthority = chatTargetHasSendAuthority(
+      refreshTarget,
+      targetGateway,
+      targetState.gatewaySessionKey,
+    );
+    if (!targetHadSendAuthority && !isEphemeralOpenClawSessionName(targetState.gatewaySessionKey)) {
+      setChatHistoryPhase(refreshTarget, "loading");
+    }
     const current = chatHistoryRefreshRef.current;
     if (
       current &&
@@ -1695,6 +2031,12 @@ export function useOpenClawSession(
       .then((historyMessages) => {
         if (isCurrent && !isCurrent()) return undefined;
         if (!chatHistoryRequestIsCurrent(refreshTarget, requestRevision, lifecycleRevision)) return undefined;
+        const latestTargetState = resolveChatTargetState(refreshTarget);
+        if (latestTargetState.gatewaySessionKey !== targetState.gatewaySessionKey) {
+          revokeChatSendAuthority(refreshTarget);
+          setChatHistoryPhase(refreshTarget, "loading");
+          return undefined;
+        }
         if (isEphemeralOpenClawSessionName(targetState.gatewaySessionKey)) {
           const entry = temporaryChatLeaseRef.current;
           if (
@@ -1703,17 +2045,53 @@ export function useOpenClawSession(
             entry.session.closed ||
             !sameOpenClawSessionKey(entry.session.sessionKey, targetState.gatewaySessionKey)
           ) return undefined;
+          dispatchChatHistory({ type: "merge-history-refresh", messages: historyMessages }, refreshTarget);
+          setChatHistoryPhase(refreshTarget, "ready");
+          return historyMessages;
         }
-        dispatchChatHistory({ type: "merge-history-refresh", messages: historyMessages }, refreshTarget);
-        setChatHistoryPhase(refreshTarget, "ready");
+        if (targetState.readOnly) {
+          dispatchChatHistory({ type: "merge-history-refresh", messages: historyMessages }, refreshTarget);
+          setChatHistoryPhase(refreshTarget, "ready");
+          return historyMessages;
+        }
+        if (targetHadSendAuthority) {
+          dispatchChatHistory({ type: "merge-history-refresh", messages: historyMessages }, refreshTarget);
+          setChatHistoryPhase(refreshTarget, "ready");
+          return historyMessages;
+        }
+        const historyHasNoNewLiveMutations = (
+          chatHistoryMutationRevisionsRef.current.get(targetKey) ?? 0
+        ) === mutationRevision;
+        if (historyHasNoNewLiveMutations && !activeChatSendTargetsRef.current.has(targetKey)) {
+          if (chatHistoryRecoveryTargetsRef.current.has(targetKey)) return historyMessages;
+          const targetHasUnconfirmedLiveState = (
+            optimisticChatHistoryTargetsRef.current.has(targetKey) ||
+            connectionLiveHistoryTargetsRef.current.has(targetKey)
+          );
+          if (
+            targetHasUnconfirmedLiveState &&
+            !historyConfirmsCurrentConversationTail(
+              liveChatHistoryByTargetRef.current.get(targetKey) ?? [],
+              historyMessages,
+            )
+          ) {
+            setChatHistoryPhase(refreshTarget, "error");
+            return historyMessages;
+          }
+          replaceChatHistoryFromGateway(refreshTarget, historyMessages);
+          if (grantChatSendAuthority(refreshTarget, targetGateway, targetState.gatewaySessionKey)) {
+            setChatHistoryPhase(refreshTarget, "ready");
+          }
+        }
         return historyMessages;
       })
       .catch(() => {
         if (
           (!isCurrent || isCurrent()) &&
+          !targetHadSendAuthority &&
           chatHistoryRequestIsCurrent(refreshTarget, requestRevision, lifecycleRevision)
         ) {
-          setChatHistoryPhase(refreshTarget, "error", { onlyIfLoading: true });
+          setChatHistoryPhase(refreshTarget, "error");
         }
         return undefined;
       });
@@ -1731,16 +2109,17 @@ export function useOpenClawSession(
       if (chatHistoryRefreshRef.current === entry) chatHistoryRefreshRef.current = null;
     });
     return promise;
-  }, [gateway, agentId, activeSessionKey, beginChatHistoryRequest, chatHistoryRequestIsCurrent, dispatchChatHistory, resolveChatTargetState, setChatHistoryPhase]);
+  }, [gateway, agentId, activeSessionKey, beginChatHistoryRequest, chatHistoryRequestIsCurrent, chatTargetHasSendAuthority, dispatchChatHistory, grantChatSendAuthority, replaceChatHistoryFromGateway, resolveChatTargetState, revokeChatSendAuthority, setChatHistoryPhase]);
 
   useEffect(() => {
     const recoverFromGap = (targetGateway: GatewayClient) => {
       const recoveryAgentId = agentId;
       const recoveryLifecycleRevision = gatewayLifecycleRevisionRef.current;
       const recoveryTarget = { ...chatHistoryTargetRef.current };
+      const recoveryTargetKey = chatHistoryTargetKey(recoveryTarget);
       const recoveryTargetState = resolveChatTargetState(recoveryTarget);
       const recoveryMutationRevision = chatHistoryMutationRevisionsRef.current.get(
-        chatHistoryTargetKey(recoveryTarget),
+        recoveryTargetKey,
       ) ?? 0;
       const recoveryIsCurrent = () => (
         activeGatewayRef.current === targetGateway &&
@@ -1749,52 +2128,82 @@ export function useOpenClawSession(
         chatHistoryTargetRef.current.agentId === recoveryAgentId
       );
       if (!recoveryIsCurrent() || recoveryTarget.agentId !== recoveryAgentId) return;
+      chatHistoryRecoveryTargetsRef.current.add(recoveryTargetKey);
+      revokeChatSendAuthority(recoveryTarget);
+      setChatHistoryPhase(recoveryTarget, "loading");
 
       void (async () => {
-        let nextSessions: OpenClawSessionRecord[] | null = null;
         try {
-          nextSessions = await fetchSessionList(targetGateway, { fresh: true });
-        } catch {
-          // Keep the current session mapping when only the catalog refresh fails.
-        }
-        if (!recoveryIsCurrent()) return;
-        if (nextSessions) applyFetchedSessions(nextSessions);
-        if (!fullHydrationEnabled) return;
-        const refreshedSessionRecord = nextSessions
-          ? findOpenClawSelectableSession(nextSessions, recoveryTarget.sessionKey)
+          let nextSessions: OpenClawSessionRecord[];
+          try {
+            nextSessions = await fetchSessionList(targetGateway, { fresh: true });
+          } catch {
+            if (recoveryIsCurrent()) setChatHistoryPhase(recoveryTarget, "error", { onlyIfLoading: true });
+            return;
+          }
+          if (!recoveryIsCurrent()) return;
+          applyFetchedSessions(nextSessions);
+          if (!historyHydrationEnabled) return;
+          const refreshedSessionRecord = findOpenClawSelectableSession(nextSessions, recoveryTarget.sessionKey)
             ?? (shouldReconcileGeneratedSessionsAsMain(nextSessions, recoveryTarget.sessionKey)
               ? findOpenClawSelectableSession(nextSessions, OPENCLAW_DEFAULT_SESSION_KEY)
-              : null)
-          : recoveryTargetState.sessionRecord;
-        const refreshedGatewaySessionKey = openClawGatewaySessionKey(refreshedSessionRecord)
-          ?? recoveryTargetState.gatewaySessionKey;
-        if (refreshedGatewaySessionKey !== recoveryTargetState.gatewaySessionKey) return;
-        const requestRevision = beginChatHistoryRequest(recoveryTarget);
-        try {
-          const historyMessages = await refreshOpenClawChatMessages(
-            targetGateway,
-            recoveryTarget.agentId,
-            recoveryTarget.sessionKey,
-            refreshedGatewaySessionKey,
-            refreshedSessionRecord,
-            { throwOnError: true },
-          );
-          const recoveryHasNoNewLiveMutations = (
-            chatHistoryMutationRevisionsRef.current.get(chatHistoryTargetKey(recoveryTarget)) ?? 0
-          ) === recoveryMutationRevision;
-          if (
-            recoveryIsCurrent() &&
-            chatHistoryRequestIsCurrent(recoveryTarget, requestRevision, recoveryLifecycleRevision)
-          ) {
-            if (recoveryHasNoNewLiveMutations) {
-              dispatchChatHistory({ type: "merge-history-refresh", messages: historyMessages }, recoveryTarget);
+              : null);
+          const refreshedGatewaySessionKey = openClawGatewaySessionKey(refreshedSessionRecord)
+            ?? recoveryTargetState.gatewaySessionKey;
+          const requestRevision = beginChatHistoryRequest(recoveryTarget);
+          try {
+            const historyMessages = await refreshOpenClawChatMessages(
+              targetGateway,
+              recoveryTarget.agentId,
+              recoveryTarget.sessionKey,
+              refreshedGatewaySessionKey,
+              refreshedSessionRecord,
+              { throwOnError: true },
+            );
+            const recoveryHasNoNewLiveMutations = (
+              chatHistoryMutationRevisionsRef.current.get(recoveryTargetKey) ?? 0
+            ) === recoveryMutationRevision;
+            const recoveryHasUnconfirmedLiveState = (
+              optimisticChatHistoryTargetsRef.current.has(recoveryTargetKey) ||
+              connectionLiveHistoryTargetsRef.current.has(recoveryTargetKey)
+            );
+            const recoveryHistoryConfirmsLiveState = !recoveryHasUnconfirmedLiveState || historyConfirmsCurrentConversationTail(
+              liveChatHistoryByTargetRef.current.get(recoveryTargetKey) ?? [],
+              historyMessages,
+            );
+            if (
+              recoveryIsCurrent() &&
+              chatHistoryRequestIsCurrent(recoveryTarget, requestRevision, recoveryLifecycleRevision) &&
+              recoveryHasNoNewLiveMutations &&
+              recoveryHistoryConfirmsLiveState
+            ) {
+              if (refreshedSessionRecord?.readOnly) {
+                dispatchChatHistory({ type: "merge-history-refresh", messages: historyMessages }, recoveryTarget);
+                setChatHistoryPhase(recoveryTarget, "ready");
+              } else {
+                replaceChatHistoryFromGateway(recoveryTarget, historyMessages);
+                if (grantChatSendAuthority(
+                  recoveryTarget,
+                  targetGateway,
+                  refreshedGatewaySessionKey,
+                  { allowDuringRecovery: true },
+                )) {
+                  setChatHistoryPhase(recoveryTarget, "ready");
+                }
+              }
+            } else if (
+              recoveryIsCurrent() &&
+              chatHistoryRequestIsCurrent(recoveryTarget, requestRevision, recoveryLifecycleRevision)
+            ) {
+              setChatHistoryPhase(recoveryTarget, "error", { onlyIfLoading: true });
             }
-            setChatHistoryPhase(recoveryTarget, "ready");
+          } catch {
+            if (chatHistoryRequestIsCurrent(recoveryTarget, requestRevision, recoveryLifecycleRevision)) {
+              setChatHistoryPhase(recoveryTarget, "error", { onlyIfLoading: true });
+            }
           }
-        } catch {
-          if (chatHistoryRequestIsCurrent(recoveryTarget, requestRevision, recoveryLifecycleRevision)) {
-            setChatHistoryPhase(recoveryTarget, "error", { onlyIfLoading: true });
-          }
+        } finally {
+          chatHistoryRecoveryTargetsRef.current.delete(recoveryTargetKey);
         }
       })();
     };
@@ -1804,7 +2213,7 @@ export function useOpenClawSession(
         gatewayGapRecoveryRef.current = () => undefined;
       }
     };
-  }, [agentId, applyFetchedSessions, beginChatHistoryRequest, chatHistoryRequestIsCurrent, dispatchChatHistory, fetchSessionList, fullHydrationEnabled, resolveChatTargetState, setChatHistoryPhase]);
+  }, [agentId, applyFetchedSessions, beginChatHistoryRequest, chatHistoryRequestIsCurrent, dispatchChatHistory, fetchSessionList, grantChatSendAuthority, historyHydrationEnabled, replaceChatHistoryFromGateway, resolveChatTargetState, revokeChatSendAuthority, setChatHistoryPhase]);
 
   const finishCreatingSession = useCallback((sessionKey: string) => {
     creatingSessionKeysRef.current.delete(sessionKey);
@@ -1844,8 +2253,9 @@ export function useOpenClawSession(
       const suppressChatStreamEvents = activeChatSendTargetsRef.current.has(targetKey);
       handleOpenClawSessionEvent({
         gatewayEvent,
-        setMessages: (update) => dispatchChatHistory({ type: "apply-update", update }, target),
+        setMessages: (update) => queueChatHistoryUpdate(update, target),
         setSending: (value) => {
+          if (value === false) flushQueuedChatHistoryUpdates(targetKey);
           setSendingForTarget(target, value);
           if (value !== false) return;
           const entry = activeChatStreamsRef.current.get(targetKey);
@@ -1855,7 +2265,9 @@ export function useOpenClawSession(
         },
         setSessions: applyFetchedSessions,
         refreshSessions: () => queuePassiveCompletionRefresh({ sessions: true }),
-        appendActivity,
+        appendActivity: (entry) => {
+          if (hydrationModeRef.current !== "sessions") appendActivity(entry);
+        },
         activeSessionKey: activeGatewaySessionKey,
         suppressChatStreamEvents,
       });
@@ -1870,30 +2282,46 @@ export function useOpenClawSession(
         (gatewayEvent.event === "chat" && payloadRecord.state === "final") ||
         isAgentLifecycleEnd
       );
-      if (isPassiveCompletion && fullHydrationEnabled) queuePassiveCompletionRefresh({ history: true });
+      if (isPassiveCompletion && historyHydrationEnabled) queuePassiveCompletionRefresh({ history: true });
     });
     return () => {
       if (passiveCompletionRefreshTimer !== null) window.clearTimeout(passiveCompletionRefreshTimer);
       unsubscribe();
     };
-  }, [gateway, agentId, activeSessionKey, activeGatewaySessionKey, activeSessionIsEphemeral, appendActivity, applyFetchedSessions, chatStreamEntryIsCurrent, clearAbortingForTarget, dispatchChatHistory, fullHydrationEnabled, refreshMessagesFromHistory, refreshSessionList, setSendingForTarget]);
+  }, [gateway, agentId, activeSessionKey, activeGatewaySessionKey, activeSessionIsEphemeral, appendActivity, applyFetchedSessions, chatStreamEntryIsCurrent, clearAbortingForTarget, flushQueuedChatHistoryUpdates, historyHydrationEnabled, queueChatHistoryUpdate, refreshMessagesFromHistory, refreshSessionList, setSendingForTarget]);
 
   useEffect(() => {
     if (!gateway || status !== "connected") return;
     const target = { agentId, sessionKey: activeSessionKey };
     if (creatingSessionKeysRef.current.has(activeSessionKey)) {
-      setReady(fullHydrationEnabled);
+      setReady(historyHydrationEnabled);
       setHydrating(false);
-      if (fullHydrationEnabled) dispatchChatHistory({ type: "clear" }, { agentId, sessionKey: activeSessionKey });
-      setChatHistoryPhase(target, fullHydrationEnabled ? "ready" : "idle");
+      if (historyHydrationEnabled) dispatchChatHistory({ type: "clear" }, { agentId, sessionKey: activeSessionKey });
+      setChatHistoryPhase(target, historyHydrationEnabled ? "loading" : "idle");
       return;
+    }
+    const currentTargetState = resolveChatTargetState(target);
+    if (historyHydrationEnabled && chatTargetHasSendAuthority(target, gateway, currentTargetState.gatewaySessionKey)) {
+      const currentConnectionHydration = connectionHydrationRef.current;
+      const matchingConnectionHydration = currentConnectionHydration?.gateway === gateway &&
+        currentConnectionHydration.agentId === agentId
+        ? currentConnectionHydration
+        : null;
+      if (!fullHydrationEnabled || matchingConnectionHydration?.value) {
+        if (matchingConnectionHydration?.value) applyConnectionHydration(matchingConnectionHydration.value);
+        else void hydrateConnectionForGateway(gateway);
+        setReady(true);
+        setHydrating(false);
+        setChatHistoryPhase(target, "ready");
+        return;
+      }
     }
     let cancelled = false;
     const targetKey = chatHistoryTargetKey(target);
     const historyLifecycleRevision = gatewayLifecycleRevisionRef.current;
-    const historyRequestRevision = fullHydrationEnabled ? beginChatHistoryRequest(target) : 0;
+    const historyRequestRevision = historyHydrationEnabled ? beginChatHistoryRequest(target) : 0;
     const historyMutationRevision = chatHistoryMutationRevisionsRef.current.get(targetKey) ?? 0;
-    if (fullHydrationEnabled) setChatHistoryPhase(target, "loading");
+    if (historyHydrationEnabled) setChatHistoryPhase(target, "loading");
     type SessionListResult =
       | { status: "fulfilled"; sessions: OpenClawSessionRecord[] }
       | { status: "rejected" };
@@ -1916,10 +2344,12 @@ export function useOpenClawSession(
     );
     const initialSessionHydration = readSessionHydration();
     const currentConnectionHydration = connectionHydrationRef.current;
-    const keepSessionSwitchReady = fullHydrationEnabled &&
-      currentConnectionHydration?.gateway === gateway &&
-      currentConnectionHydration.agentId === agentId &&
-      Boolean(currentConnectionHydration.value) &&
+    const keepSessionSwitchReady = historyHydrationEnabled &&
+      (!fullHydrationEnabled || (
+        currentConnectionHydration?.gateway === gateway &&
+        currentConnectionHydration.agentId === agentId &&
+        Boolean(currentConnectionHydration.value)
+      )) &&
       sessionHydrationHasActiveSession(initialSessionHydration) &&
       !shouldRefreshSessionsAfterReconnect;
     setReady(keepSessionSwitchReady);
@@ -1930,7 +2360,7 @@ export function useOpenClawSession(
       let shouldFetchSessionList = shouldRefreshSessionsAfterReconnect || needsSessionListForHydration;
       let sessionListResult: Promise<SessionListResult> | null = null;
       const getSessionListResult = () => {
-        sessionListResult ??= fetchSessionList(gateway)
+        sessionListResult ??= fetchSessionList(gateway, { fresh: shouldRefreshSessionsAfterReconnect })
           .then((nextSessions): SessionListResult => ({ status: "fulfilled", sessions: nextSessions }))
           .catch((): SessionListResult => ({ status: "rejected" }));
         return sessionListResult;
@@ -1939,7 +2369,7 @@ export function useOpenClawSession(
       if (needsSessionListForHydration) void getSessionListResult();
 
       try {
-        if (!fullHydrationEnabled) {
+        if (!historyHydrationEnabled) {
           sessionHydration = readSessionHydration();
           needsSessionListForHydration = sessionListNeededForHydration(sessionHydration);
           shouldFetchSessionList = shouldRefreshSessionsAfterReconnect || needsSessionListForHydration;
@@ -1958,24 +2388,34 @@ export function useOpenClawSession(
           return;
         }
 
-        const connectionHydration = await hydrateConnectionForGateway(gateway);
-        if (cancelled) return;
+        if (fullHydrationEnabled) {
+          await hydrateConnectionForGateway(gateway);
+          if (cancelled) return;
+        }
         sessionHydration = readSessionHydration();
         needsSessionListForHydration = sessionListNeededForHydration(sessionHydration);
         shouldFetchSessionList = shouldRefreshSessionsAfterReconnect || needsSessionListForHydration;
-        if (needsSessionListForHydration) void getSessionListResult();
-        if (needsSessionListForHydration && shouldWaitForSessionListBeforeHistory(activeSessionKey)) {
+        let sessionRouteResolved = !shouldFetchSessionList;
+        if (shouldFetchSessionList) {
           const initialSessionListResult = await getSessionListResult();
           if (cancelled) return;
           if (initialSessionListResult.status === "fulfilled") {
-            sessionHydration = { sessions: initialSessionListResult.sessions, fetched: true };
+            const appliedSessions = applyFetchedSessions(initialSessionListResult.sessions);
+            sessionHydration = { sessions: appliedSessions, fetched: true };
+            sessionRouteResolved = sessionHydrationHasActiveSession(sessionHydration);
+            completeReconnectSessionRefresh(reconnectRefreshRequest, appliedSessions);
+          } else {
+            completeReconnectSessionRefresh(reconnectRefreshRequest, undefined);
           }
         }
         if (cancelled) return;
-        const hydrated = await hydrateOpenClawSession(gateway, agentId, activeSessionKey, connectionHydration, sessionHydration);
+        markDashboardPerformance("chat-history-start");
+        const historyHydration = hydrateOpenClawHistory(gateway, agentId, activeSessionKey, sessionHydration);
+        if (!fullHydrationEnabled) void hydrateConnectionForGateway(gateway);
+        const hydrated = await historyHydration;
         if (cancelled) return;
-        setConfig(hydrated.config);
-        setConfigSchema(hydrated.configSchema);
+        markDashboardPerformance("chat-history-ready");
+        measureDashboardPerformance("chat-history", "chat-history-start", "chat-history-ready");
         const historyRequestCurrent = chatHistoryRequestIsCurrent(
           target,
           historyRequestRevision,
@@ -1984,94 +2424,45 @@ export function useOpenClawSession(
         const historyHasNoNewLiveMutations = (
           chatHistoryMutationRevisionsRef.current.get(targetKey) ?? 0
         ) === historyMutationRevision;
+        const hydratedSessionReadOnly = hydrated.activeSessionRecord?.readOnly === true;
+        const preserveLocalSessionHistory = hydratedSessionReadOnly || activeSessionIsEphemeral;
+        const targetHasUnconfirmedLiveState = (
+          optimisticChatHistoryTargetsRef.current.has(targetKey) ||
+          connectionLiveHistoryTargetsRef.current.has(targetKey)
+        );
+        const gatewayConfirmsCurrentLiveState = !targetHasUnconfirmedLiveState || historyConfirmsCurrentConversationTail(
+          liveChatHistoryByTargetRef.current.get(targetKey) ?? [],
+          hydrated.messages,
+        );
+        let historyApplied = false;
         if (
+          sessionRouteResolved &&
           historyRequestCurrent &&
-          historyHasNoNewLiveMutations &&
-          !activeChatSendTargetsRef.current.has(targetKey)
+          (historyHasNoNewLiveMutations || preserveLocalSessionHistory) &&
+          (gatewayConfirmsCurrentLiveState || preserveLocalSessionHistory) &&
+          !activeChatSendTargetsRef.current.has(targetKey) &&
+          hydrated.historyStatus === "fulfilled"
         ) {
-          if (hydrated.historyStatus === "fulfilled") {
-            if (hydrated.messages.length === 0) {
-              if (
-                optimisticChatHistoryTargetsRef.current.has(targetKey) ||
-                connectionLiveHistoryTargetsRef.current.has(targetKey)
-              ) {
-                dispatchChatHistory({ type: "merge-history-refresh", messages: [] }, target);
-              } else {
-                dispatchChatHistory({ type: "replace", messages: [] }, target);
-                if (
-                  hydrated.activeSessionRecord?.readOnly !== true &&
-                  !isEphemeralOpenClawSessionName(activeSessionKey)
-                ) {
-                  clearCachedOpenClawChatHistory(agentId, activeSessionKey);
-                }
-              }
-            } else {
-              const hasCurrentMessages = (liveChatHistoryByTargetRef.current.get(targetKey)?.length ?? 0) > 0;
-              dispatchChatHistory({
-                type: hasCurrentMessages ? "merge-history-refresh" : "replace",
-                messages: hydrated.messages,
-              }, target);
-            }
+          if (preserveLocalSessionHistory) {
+            dispatchChatHistory({ type: "merge-history-refresh", messages: hydrated.messages }, target);
+            historyApplied = true;
+          } else if (!chatHistoryRecoveryTargetsRef.current.has(targetKey)) {
+            replaceChatHistoryFromGateway(target, hydrated.messages);
+            historyApplied = grantChatSendAuthority(target, gateway, hydrated.gatewaySessionKey);
           }
         }
         if (historyRequestCurrent) {
-          setChatHistoryPhase(target, hydrated.historyStatus === "fulfilled" ? "ready" : "error");
+          if (historyApplied) {
+            setChatHistoryPhase(target, "ready");
+          } else if (
+            !sessionRouteResolved ||
+            hydrated.historyStatus === "rejected" ||
+            (historyHasNoNewLiveMutations && !gatewayConfirmsCurrentLiveState)
+          ) {
+            setChatHistoryPhase(target, "error");
+          }
         }
-        setFiles(hydrated.files);
-        setGwAgentId(hydrated.gwAgentId);
-        setCronJobs(hydrated.cronJobs);
-        setModels(hydrated.models);
         setReady(true);
-        if (!shouldFetchSessionList) return;
-        void (async () => {
-          let nextSessions: OpenClawSessionRecord[] | null = null;
-          const initialSessionListResult = await getSessionListResult();
-          if (cancelled) return;
-          if (initialSessionListResult.status === "fulfilled") {
-            nextSessions = applyFetchedSessions(initialSessionListResult.sessions);
-          }
-          completeReconnectSessionRefresh(reconnectRefreshRequest, nextSessions ?? undefined);
-          if (!nextSessions || activeChatSendTargetsRef.current.has(targetKey)) return;
-          const refreshedSessionRecord = findOpenClawSelectableSession(nextSessions, activeSessionKey)
-            ?? (shouldReconcileGeneratedSessionsAsMain(nextSessions, activeSessionKey)
-              ? findOpenClawSelectableSession(nextSessions, OPENCLAW_DEFAULT_SESSION_KEY)
-              : null);
-          const refreshedGatewaySessionKey = openClawGatewaySessionKey(refreshedSessionRecord)
-            ?? activeSessionKey;
-          if (refreshedGatewaySessionKey === hydrated.gatewaySessionKey) return;
-          const correctionRequestRevision = beginChatHistoryRequest(target);
-          const correctionMutationRevision = chatHistoryMutationRevisionsRef.current.get(targetKey) ?? 0;
-          try {
-            const refreshedMessages = await refreshOpenClawChatMessages(
-              gateway,
-              agentId,
-              activeSessionKey,
-              refreshedGatewaySessionKey,
-              refreshedSessionRecord,
-              { throwOnError: true },
-            );
-            const correctionHasNoNewLiveMutations = (
-              chatHistoryMutationRevisionsRef.current.get(targetKey) ?? 0
-            ) === correctionMutationRevision;
-            if (
-              !cancelled &&
-              correctionHasNoNewLiveMutations &&
-              chatHistoryRequestIsCurrent(target, correctionRequestRevision, historyLifecycleRevision)
-            ) {
-              dispatchChatHistory(
-                refreshedMessages.length === 0
-                  ? optimisticChatHistoryTargetsRef.current.has(targetKey) || connectionLiveHistoryTargetsRef.current.has(targetKey)
-                    ? { type: "merge-history-refresh", messages: [] }
-                    : { type: "replace", messages: [] }
-                  : { type: "merge-history-refresh", messages: refreshedMessages },
-                target,
-              );
-              setChatHistoryPhase(target, "ready");
-            }
-          } catch {
-            // Keep the first resolved history when canonical-key correction fails.
-          }
-        })();
       } catch (e: unknown) {
         if (cancelled) return;
         completeReconnectSessionRefresh(reconnectRefreshRequest, undefined);
@@ -2087,7 +2478,7 @@ export function useOpenClawSession(
     return () => {
       cancelled = true;
     };
-  }, [gateway, status, agentId, activeSessionKey, activeGatewaySessionKey, applyFetchedSessions, beginChatHistoryRequest, chatHistoryRequestIsCurrent, completeReconnectSessionRefresh, dispatchChatHistory, fetchSessionList, fullHydrationEnabled, hydrateConnectionForGateway, setChatHistoryPhase, setTitledSessions]);
+  }, [gateway, status, agentId, activeSessionKey, activeGatewaySessionKey, activeSessionIsEphemeral, applyConnectionHydration, applyFetchedSessions, beginChatHistoryRequest, chatHistoryRequestIsCurrent, chatTargetHasSendAuthority, completeReconnectSessionRefresh, dispatchChatHistory, fetchSessionList, fullHydrationEnabled, grantChatSendAuthority, historyHydrationEnabled, hydrateConnectionForGateway, replaceChatHistoryFromGateway, resolveChatTargetState, setChatHistoryPhase]);
 
   useEffect(() => {
     if (status !== "disconnected") return;
@@ -2095,14 +2486,36 @@ export function useOpenClawSession(
     resetSessionStateForDisconnect({ preserveMessages: true });
   }, [status, enabled, agentId, resetSessionStateForDisconnect]);
 
-  const addPendingMessage = useCallback((message: string) => {
+  const addPendingMessage = useCallback((message: string, options: QueueMessageOptions = {}) => {
     const target = activeComposerTargetRef.current;
-    setPendingMessages((prev) => [...prev, { message, target }]);
-  }, []);
+    const { consumeDraft = false, ...sendOptions } = options;
+    setPendingMessages((prev) => [...prev, {
+      message,
+      target,
+      options: {
+        ...sendOptions,
+        ...(sendOptions.attachments ? { attachments: [...sendOptions.attachments] } : {}),
+        ...(sendOptions.files ? { files: [...sendOptions.files] } : {}),
+      },
+    }]);
+    if (consumeDraft) {
+      updateComposerDraftForTarget(target, (draft) => ({
+        ...draft,
+        input: "",
+        pendingAttachments: [],
+        pendingAttachmentReads: 0,
+        pendingFiles: [],
+      }));
+    }
+  }, [updateComposerDraftForTarget]);
 
-  const addAttachments = useCallback((files: FileList) => {
-    const imageFiles = Array.from(files).filter((file) => file.type.startsWith("image/"));
-    if (imageFiles.length === 0) return;
+  const addAttachments = useCallback((files: FileList | File[], fileNames?: string[]) => {
+    const imageFiles = Array.from(files)
+      .map((file, index) => ({ file, fileName: fileNames?.[index] || file.name }))
+      .filter(({ file }) => (
+        file.type.startsWith("image/") || isFileTypeReference({ name: file.name }, "image")
+      ));
+    if (imageFiles.length === 0) return Promise.resolve({ failures: [] as Array<{ name: string; message: string }> });
     const target = activeComposerTargetRef.current;
     const targetStillAcceptsAttachments = () => {
       if (!isEphemeralOpenClawSessionName(target.sessionKey)) return true;
@@ -2120,37 +2533,45 @@ export function useOpenClawSession(
       pendingAttachmentReads: draft.pendingAttachmentReads + imageFiles.length,
     }));
 
-    imageFiles.forEach((file) => {
-      const reader = new FileReader();
-      let finished = false;
-      const finishRead = () => {
-        if (finished) return;
-        finished = true;
-        if (!targetStillAcceptsAttachments()) return;
-        updateComposerDraftForTarget(target, (draft) => ({
-          ...draft,
-          pendingAttachmentReads: Math.max(0, draft.pendingAttachmentReads - 1),
-        }));
+    return (async () => {
+      const results = new Array<ChatAttachmentReadResult | null>(imageFiles.length).fill(null);
+      let cursor = 0;
+      let completed = 0;
+      const worker = async () => {
+        while (true) {
+          const index = cursor;
+          cursor += 1;
+          const item = imageFiles[index];
+          if (!item) return;
+          const result = await readChatImageAttachment(item.file, item.fileName);
+          if (!targetStillAcceptsAttachments()) return;
+          results[index] = result;
+          completed += 1;
+          if (completed < imageFiles.length) {
+            updateComposerDraftForTarget(target, (draft) => ({
+              ...draft,
+              pendingAttachmentReads: Math.max(1, draft.pendingAttachmentReads - 1),
+            }));
+          }
+        }
       };
-      reader.onload = () => {
-        if (!targetStillAcceptsAttachments()) return;
-        const result = typeof reader.result === "string" ? reader.result : "";
-        const base64 = result.split(",")[1];
-        if (!base64) return;
-        updateComposerDraftForTarget(target, (draft) => ({
-          ...draft,
-          pendingAttachments: [...draft.pendingAttachments, { type: "image", mimeType: file.type, content: base64, fileName: file.name }],
-        }));
-      };
-      reader.onerror = finishRead;
-      reader.onabort = finishRead;
-      reader.onloadend = finishRead;
-      try {
-        reader.readAsDataURL(file);
-      } catch {
-        finishRead();
-      }
-    });
+      await Promise.all(Array.from(
+        { length: Math.min(CHAT_IMAGE_READ_CONCURRENCY, imageFiles.length) },
+        () => worker(),
+      ));
+      if (!targetStillAcceptsAttachments()) return { failures: [] as Array<{ name: string; message: string }> };
+      const completedAttachments = results.flatMap((result) => result?.attachment ? [result.attachment] : []);
+      const failures = results.flatMap((result, index) => result?.error ? [{
+        name: imageFiles[index]?.fileName ?? "image",
+        message: result.error,
+      }] : []);
+      updateComposerDraftForTarget(target, (draft) => ({
+        ...draft,
+        pendingAttachmentReads: Math.max(0, draft.pendingAttachmentReads - 1),
+        pendingAttachments: [...draft.pendingAttachments, ...completedAttachments],
+      }));
+      return { failures };
+    })();
   }, [updateComposerDraftForTarget]);
 
   const addPendingFiles = useCallback((files: ChatPendingFile[]) => {
@@ -2178,10 +2599,14 @@ export function useOpenClawSession(
     });
   }, [updateComposerDraftForTarget]);
 
-  const removePendingFile = useCallback((index: number) => {
-    const target = activeComposerTargetRef.current;
+  const removePendingFile = useCallback((index: number, expectedPath?: string, targetOverride?: ChatHistoryTarget) => {
+    const target = targetOverride ?? activeComposerTargetRef.current;
     updateComposerDraftForTarget(target, (draft) => {
-      const file = draft.pendingFiles[index];
+      const fileIndex = expectedPath
+        ? draft.pendingFiles.findIndex((candidate) => candidate.path === expectedPath)
+        : index;
+      if (fileIndex === -1) return draft;
+      const file = draft.pendingFiles[fileIndex];
       let nextPendingAttachments = draft.pendingAttachments;
       if (file?.type.startsWith("image/")) {
         const attachmentIndex = nextPendingAttachments.findIndex((attachment) => attachment.fileName === file.name);
@@ -2190,7 +2615,7 @@ export function useOpenClawSession(
       return {
         ...draft,
         pendingAttachments: nextPendingAttachments,
-        pendingFiles: draft.pendingFiles.filter((_, i) => i !== index),
+        pendingFiles: draft.pendingFiles.filter((_, i) => i !== fileIndex),
       };
     });
   }, [updateComposerDraftForTarget]);
@@ -2200,7 +2625,7 @@ export function useOpenClawSession(
     options: SendMessageOptions = {},
     targetOverride?: ChatHistoryTarget,
   ) => {
-    if (!gateway || !ready) throw new Error("Chat is not ready");
+    if (!gateway || !ready) return;
     const target = targetOverride ?? { agentId, sessionKey: activeSessionKey };
     if (target.agentId !== agentId) return;
     const targetKey = chatHistoryTargetKey(target);
@@ -2216,13 +2641,47 @@ export function useOpenClawSession(
       isEphemeralOpenClawSessionName(targetState.gatewaySessionKey) &&
       (!targetIsTemporary || temporaryLease?.session.closed)
     ) return;
-    const appendTargetActivity = targetIsTemporary ? (() => undefined) : appendActivity;
+    const appendTargetActivity = targetIsTemporary
+      ? (() => undefined)
+      : ((entry: Parameters<typeof appendActivity>[0]) => {
+          if (hydrationModeRef.current !== "sessions") appendActivity(entry);
+        });
     const targetDraft = readComposerDraftForTarget(target);
     const nextInput = typeof overrideInput === "string" ? overrideInput : targetDraft.input;
     const nextAttachments = options.attachments ?? (typeof overrideInput === "string" ? [] : targetDraft.pendingAttachments);
     const nextFiles = options.files ?? (typeof overrideInput === "string" ? [] : targetDraft.pendingFiles);
     const readingAttachments = typeof overrideInput !== "string" && targetDraft.pendingAttachmentReads > 0;
-    if ((!nextInput.trim() && nextAttachments.length === 0 && nextFiles.length === 0) || sendingTargetsRef.current.has(targetKey) || readingAttachments) return;
+    if ((!nextInput.trim() && nextAttachments.length === 0 && nextFiles.length === 0) || readingAttachments) return;
+    const targetCanSend = targetIsTemporary || chatTargetHasSendAuthority(
+      target,
+      gateway,
+      targetState.gatewaySessionKey,
+    );
+    if (!targetCanSend && typeof overrideInput !== "string") {
+      deferredComposerSendTargetsRef.current.set(targetKey, target);
+      return;
+    }
+    if (!targetCanSend || sendingTargetsRef.current.has(targetKey)) {
+      setPendingMessages((current) => [...current, {
+        message: nextInput,
+        target,
+        options: {
+          ...options,
+          attachments: [...nextAttachments],
+          files: [...nextFiles],
+        },
+      }]);
+      if (typeof overrideInput !== "string") {
+        updateComposerDraftForTarget(target, (draft) => ({
+          ...draft,
+          input: "",
+          pendingAttachments: [],
+          pendingAttachmentReads: 0,
+          pendingFiles: [],
+        }));
+      }
+      return;
+    }
 
     const msg = (options.displayContent ?? nextInput).trim();
     const agentInput = nextInput.trim();
@@ -2317,9 +2776,14 @@ export function useOpenClawSession(
     let finalAssistantMessage: unknown;
     const observeAutoTitleEvent = (chatEvent: ChatEvent) => {
       if (chatEvent.type === "content") {
-        assistantEventsText = chatEvent.replace === true
-          ? chatEvent.text ?? ""
-          : assistantEventsText + (chatEvent.text ?? "");
+        if (chatEvent.replace === true) {
+          assistantEventsText = (chatEvent.text ?? "").slice(0, OPENCLAW_AUTO_TITLE_MAX_SOURCE_CHARS);
+        } else if (assistantEventsText.length < OPENCLAW_AUTO_TITLE_MAX_SOURCE_CHARS) {
+          assistantEventsText += (chatEvent.text ?? "").slice(
+            0,
+            OPENCLAW_AUTO_TITLE_MAX_SOURCE_CHARS - assistantEventsText.length,
+          );
+        }
       }
       if (chatEvent.type === "error") sawChatError = true;
       if (chatEvent.type === "done") {
@@ -2349,8 +2813,15 @@ export function useOpenClawSession(
           observeAutoTitleEvent(chatEvent);
           handleOpenClawChatStreamEvent({
             chatEvent,
-            setMessages: (update) => dispatchChatHistory({ type: "apply-update", update }, target),
-            setSending: (value) => setSendingForTarget(target, value),
+            setMessages: (update) => publishChatHistoryUpdate(
+              update,
+              target,
+              chatEvent.type === "done" || chatEvent.type === "error",
+            ),
+            setSending: (value) => {
+              if (value === false) flushQueuedChatHistoryUpdates(targetKey);
+              setSendingForTarget(target, value);
+            },
             appendActivity: appendTargetActivity,
             assistantRenderId,
             clientTurnId,
@@ -2382,8 +2853,15 @@ export function useOpenClawSession(
           observeAutoTitleEvent(chatEvent);
           handleOpenClawChatStreamEvent({
             chatEvent,
-            setMessages: (update) => dispatchChatHistory({ type: "apply-update", update }, target),
-            setSending: (value) => setSendingForTarget(target, value),
+            setMessages: (update) => publishChatHistoryUpdate(
+              update,
+              target,
+              chatEvent.type === "done" || chatEvent.type === "error",
+            ),
+            setSending: (value) => {
+              if (value === false) flushQueuedChatHistoryUpdates(targetKey);
+              setSendingForTarget(target, value);
+            },
             appendActivity: appendTargetActivity,
             assistantRenderId,
             clientTurnId,
@@ -2398,6 +2876,7 @@ export function useOpenClawSession(
       if (chatStreamEntryIsCurrent(targetKey, streamEntry)) {
         const errMsg = formatOpenClawConnectionError(e);
         if (!streamEntry.abortRequested) {
+          flushQueuedChatHistoryUpdates(targetKey);
           dispatchChatHistory({ type: "append-system-message", content: `Error: ${errMsg}` }, target);
           appendTargetActivity({ type: "error", action: "Send failed", detail: errMsg });
         }
@@ -2415,6 +2894,7 @@ export function useOpenClawSession(
       }
 
       const wasAborted = streamEntry.abortRequested;
+      flushQueuedChatHistoryUpdates(targetKey);
       activeChatSendTargetsRef.current.delete(targetKey);
       clearAbortingForTarget(target, streamEntry.token);
       clearSendingForTarget(target);
@@ -2469,7 +2949,7 @@ export function useOpenClawSession(
         if (entryIsCurrent()) activeChatStreamsRef.current.delete(targetKey);
       }
     }
-  }, [gateway, ready, agentId, activeSessionKey, appendActivity, applyLocalSessionTitle, attemptAutoTitle, chatStreamEntryIsCurrent, clearAbortingForTarget, clearSendingForTarget, dispatchChatHistory, markSendingForTarget, readComposerDraftForTarget, refreshMessagesFromHistory, refreshSessionList, requestChatStreamCancellation, resolveChatTargetState, setSendingForTarget, setTitledSessions, updateComposerDraftForTarget]);
+  }, [gateway, ready, agentId, activeSessionKey, appendActivity, applyLocalSessionTitle, attemptAutoTitle, chatStreamEntryIsCurrent, chatTargetHasSendAuthority, clearAbortingForTarget, clearSendingForTarget, dispatchChatHistory, flushQueuedChatHistoryUpdates, markSendingForTarget, publishChatHistoryUpdate, readComposerDraftForTarget, refreshMessagesFromHistory, refreshSessionList, requestChatStreamCancellation, resolveChatTargetState, setSendingForTarget, setTitledSessions, updateComposerDraftForTarget]);
 
   const abortMessage = useCallback(async () => {
     const target = { agentId, sessionKey: activeSessionKey };
@@ -2498,6 +2978,7 @@ export function useOpenClawSession(
       else await gateway.chatAbort(gatewaySessionKey);
       if (!chatStreamEntryIsCurrent(targetKey, streamEntry)) return;
       requestChatStreamCancellation(streamEntry);
+      flushQueuedChatHistoryUpdates(targetKey);
       dispatchChatHistory({ type: "mark-interrupted" }, target);
       clearSendingForTarget(target);
       clearAbortingForTarget(target, streamEntry.token);
@@ -2508,7 +2989,7 @@ export function useOpenClawSession(
       clearAbortingForTarget(target, streamEntry.token);
       if (!targetIsTemporary) appendActivity({ type: "error", action: "Stop failed", detail: formatOpenClawConnectionError(e) });
     }
-  }, [gateway, ready, agentId, activeSessionKey, appendActivity, chatStreamEntryIsCurrent, clearAbortingForTarget, clearSendingForTarget, dispatchChatHistory, markAbortingForTarget, requestChatStreamCancellation, resolveChatTargetState]);
+  }, [gateway, ready, agentId, activeSessionKey, appendActivity, chatStreamEntryIsCurrent, clearAbortingForTarget, clearSendingForTarget, dispatchChatHistory, flushQueuedChatHistoryUpdates, markAbortingForTarget, requestChatStreamCancellation, resolveChatTargetState]);
 
   const runEphemeralPrompt = useCallback(async (message: string, options?: GatewayEphemeralChatOptions) => {
     if (!gateway || status !== "connected") throw new Error("Chat is not connected");
@@ -2518,15 +2999,47 @@ export function useOpenClawSession(
 
   useEffect(() => {
     if (!ready) return;
+    for (const [targetKey, target] of deferredComposerSendTargetsRef.current) {
+      if (target.agentId !== agentId || sendingTargetsRef.current.has(targetKey)) continue;
+      const targetState = resolveChatTargetState(target);
+      if (
+        targetState.readOnly ||
+        !chatTargetHasSendAuthority(target, gateway, targetState.gatewaySessionKey)
+      ) continue;
+      deferredComposerSendTargetsRef.current.delete(targetKey);
+      void sendMessage(undefined, {}, target);
+      break;
+    }
+  }, [agentId, chatSendAuthorityRevision, chatTargetHasSendAuthority, gateway, ready, resolveChatTargetState, sendMessage, sendingTargets]);
+
+  useEffect(() => {
+    if (!ready) return;
     const nextMessageIndex = pendingMessages.findIndex((message) => (
-      message.target.agentId === agentId && !sendingTargetsRef.current.has(chatHistoryTargetKey(message.target))
+      message.target.agentId === agentId &&
+      !sendingTargetsRef.current.has(chatHistoryTargetKey(message.target)) &&
+      (() => {
+        const targetState = resolveChatTargetState(message.target);
+        if (targetState.readOnly) return false;
+        const temporaryLease = temporaryChatLeaseRef.current;
+        const targetIsTemporary = Boolean(
+          temporaryLease &&
+          !temporaryLease.session.closed &&
+          temporaryLease.agentId === message.target.agentId &&
+          sameOpenClawSessionKey(temporaryLease.session.sessionKey, targetState.gatewaySessionKey)
+        );
+        return targetIsTemporary || chatTargetHasSendAuthority(
+          message.target,
+          gateway,
+          targetState.gatewaySessionKey,
+        );
+      })()
     ));
     if (nextMessageIndex !== -1) {
       const nextMessage = pendingMessages[nextMessageIndex];
       setPendingMessages((prev) => prev.filter((_, index) => index !== nextMessageIndex));
-      if (nextMessage) void sendMessage(nextMessage.message, {}, nextMessage.target);
+      if (nextMessage) void sendMessage(nextMessage.message, nextMessage.options, nextMessage.target);
     }
-  }, [ready, pendingMessages, sendMessage, agentId, sendingTargets]);
+  }, [agentId, chatSendAuthorityRevision, chatTargetHasSendAuthority, gateway, pendingMessages, ready, resolveChatTargetState, sendMessage, sendingTargets]);
 
   const openFile = useCallback(async (name: string): Promise<string> => {
     if (!gateway) throw new Error("Not connected");
@@ -2865,7 +3378,7 @@ export function useOpenClawSession(
   }, [channelsProvider, channelsStatus, config]);
 
   useEffect(() => {
-    if (!channelsProvider || status !== "connected") return;
+    if (!fullHydrationEnabled || !channelsProvider || status !== "connected") return;
     let cancelled = false;
     const hasConfiguredChannels = Boolean(
       config &&
@@ -2897,10 +3410,10 @@ export function useOpenClawSession(
     return () => {
       cancelled = true;
     };
-  }, [channelsProvider, channelsStatus, config, status]);
+  }, [channelsProvider, channelsStatus, config, fullHydrationEnabled, status]);
 
   useEffect(() => {
-    if (!channelsProvider || status !== "connected" || !config) return;
+    if (!fullHydrationEnabled || !channelsProvider || status !== "connected" || !config) return;
     if (
       reportedChannelsState.provider !== channelsProvider ||
       reportedChannelsState.config !== config ||
@@ -2920,7 +3433,7 @@ export function useOpenClawSession(
       void refreshReportedChannels(true).catch(() => undefined);
     }, 1_500);
     return () => window.clearTimeout(timer);
-  }, [channelsProvider, config, refreshReportedChannels, reportedChannelsState, status]);
+  }, [channelsProvider, config, fullHydrationEnabled, refreshReportedChannels, reportedChannelsState, status]);
 
   const reportedChannels = useMemo(
     () => reportedChannelsState.provider === channelsProvider
@@ -3138,6 +3651,14 @@ export function useOpenClawSession(
     if (!gateway) throw new Error("Not connected");
     if (!agentId) throw new Error("Session creation is unavailable.");
     if (sessionsFetchedAgentId !== agentId) throw new Error("Sessions are still loading.");
+    const creationGateway = gateway;
+    const creationAgentId = agentId;
+    const creationLifecycleRevision = gatewayLifecycleRevisionRef.current;
+    const creationIsCurrent = () => (
+      latestAgentRef.current?.id === creationAgentId &&
+      activeGatewayRef.current === creationGateway &&
+      gatewayLifecycleRevisionRef.current === creationLifecycleRevision
+    );
 
     const sessionKey = createOpenClawSessionKey(sessions);
     const target = { agentId, sessionKey };
@@ -3156,6 +3677,7 @@ export function useOpenClawSession(
     setSessionTitleOverride(sessionKey, OPENCLAW_NEW_SESSION_TITLE);
     creatingSessionKeysRef.current.add(sessionKey);
     setCreatingSessionKeys((prev) => prev.includes(sessionKey) ? prev : [...prev, sessionKey]);
+    revokeChatSendAuthority(target);
     dispatchChatHistory({ type: "clear" }, target);
     updateComposerDraftForTarget(target, () => emptyComposerDraft());
     setDeletedSessionKeys((prev) => {
@@ -3171,21 +3693,42 @@ export function useOpenClawSession(
     appendActivity({ type: "system", action: OPENCLAW_NEW_SESSION_TITLE });
     const performCreation = async () => {
       try {
-        const gatewaySessionKey = await createOpenClawSession(gateway, sessionKey);
+        const createdGatewaySessionKey = await createOpenClawSession(creationGateway, sessionKey);
+        if (!creationIsCurrent()) throw new Error("The gateway reconnected while creating this conversation. Please try again.");
+        const gatewaySessionKey = nonEmptyString(createdGatewaySessionKey) ?? sessionKey;
+        createdSessionGatewayKeysRef.current.set(chatHistoryTargetKey(target), gatewaySessionKey);
         const candidate = autoTitleCandidatesRef.current.get(autoTitleCandidateKey(agentId, sessionKey));
         if (candidate) candidate.gatewaySessionKey = gatewaySessionKey;
+        setTitledSessions((current) => {
+          const existing = findOpenClawSelectableSession(current, sessionKey) ?? newOpenClawSessionRecord(sessionKey);
+          const routedSession = withOpenClawGatewaySessionKey(existing, gatewaySessionKey);
+          return [
+            routedSession,
+            ...current.filter((session) => !sameOpenClawSelectableSessionKey(session.key, sessionKey)),
+          ];
+        });
+        grantChatSendAuthority(target, creationGateway, gatewaySessionKey);
         finishCreatingSession(sessionKey);
+        setChatHistoryPhase(target, "ready");
         if (initialMessage) void sendMessage(initialMessage, { displayContent: initialDisplayContent }, target);
         try {
-          const nextSessions = await fetchSessionList(gateway);
-          const refreshedSessions = nextSessions.some((session) => sameOpenClawSelectableSessionKey(session.key, sessionKey))
-            ? nextSessions
-            : [newOpenClawSessionRecord(sessionKey), ...nextSessions];
+          const nextSessions = await fetchSessionList(creationGateway, { fresh: true });
+          if (!creationIsCurrent()) return;
+          const matchingSession = findOpenClawSelectableSession(nextSessions, sessionKey);
+          const refreshedSessions = matchingSession
+            ? nextSessions.map((session) => (
+                session === matchingSession ? withOpenClawGatewaySessionKey(session, gatewaySessionKey) : session
+              ))
+            : [withOpenClawGatewaySessionKey(newOpenClawSessionRecord(sessionKey), gatewaySessionKey), ...nextSessions];
           applyFetchedSessions(refreshedSessions);
         } catch {}
       } catch (e: unknown) {
+        createdSessionGatewayKeysRef.current.delete(chatHistoryTargetKey(target));
+        deferredComposerSendTargetsRef.current.delete(chatHistoryTargetKey(target));
         cancelAutoTitleCandidate(agentId, sessionKey);
         finishCreatingSession(sessionKey);
+        revokeChatSendAuthority(target);
+        setChatHistoryPhase(target, "error");
         const errMsg = formatOpenClawConnectionError(e);
         setError(errMsg);
         appendActivity({ type: "error", action: "Session creation failed", detail: errMsg });
@@ -3195,7 +3738,7 @@ export function useOpenClawSession(
     if (options.waitForCreation) await performCreation();
     else void performCreation().catch(() => undefined);
     return sessionKey;
-  }, [gateway, sessionsFetchedAgentId, agentId, sessions, applyFetchedSessions, setSessionTitleOverride, setTitledSessions, appendActivity, cancelAutoTitleCandidate, fetchSessionList, finishCreatingSession, dispatchChatHistory, endTemporaryChat, sendMessage, updateComposerDraftForTarget]);
+  }, [gateway, sessionsFetchedAgentId, agentId, sessions, applyFetchedSessions, setSessionTitleOverride, setTitledSessions, appendActivity, cancelAutoTitleCandidate, fetchSessionList, finishCreatingSession, dispatchChatHistory, endTemporaryChat, grantChatSendAuthority, revokeChatSendAuthority, sendMessage, setChatHistoryPhase, updateComposerDraftForTarget]);
 
   const renameSession = useCallback(async (sessionKey: string, title: string) => {
     if (!agentId) throw new Error("Session rename is unavailable.");
@@ -3213,13 +3756,53 @@ export function useOpenClawSession(
     if (unscopedOpenClawSessionKey(session?.key ?? sessionKey) === OPENCLAW_DEFAULT_SESSION_KEY) {
       throw new Error("The main session cannot be deleted.");
     }
-    await deleteOpenClawSession(gateway, openClawGatewaySessionKey(session) ?? sessionKey);
-    clearCachedOpenClawChatHistory(agentId, sessionKey);
     const target = { agentId, sessionKey };
-    const targetKey = chatHistoryTargetKey(target);
-    liveChatHistoryByTargetRef.current.delete(targetKey);
-    composerDraftsByTargetRef.current.delete(targetKey);
-    setPendingMessages((prev) => prev.filter((item) => !sameChatHistoryTarget(item.target, target)));
+    const candidateTargetKeys = new Set([
+      chatHistoryTargetKey(target),
+      ...chatSendAuthoritiesRef.current.keys(),
+      ...createdSessionGatewayKeysRef.current.keys(),
+      ...deferredComposerSendTargetsRef.current.keys(),
+      ...liveChatHistoryByTargetRef.current.keys(),
+      ...composerDraftsByTargetRef.current.keys(),
+      ...activeChatStreamsRef.current.keys(),
+    ]);
+    const equivalentTargets = Array.from(candidateTargetKeys)
+      .map(chatHistoryTargetFromKey)
+      .filter((candidate): candidate is ChatHistoryTarget => Boolean(
+        candidate &&
+        candidate.agentId === agentId &&
+        sameOpenClawSelectableSessionKey(candidate.sessionKey, sessionKey)
+      ));
+    for (const equivalentTarget of equivalentTargets) {
+      revokeChatSendAuthority(equivalentTarget);
+      const targetKey = chatHistoryTargetKey(equivalentTarget);
+      const stream = activeChatStreamsRef.current.get(targetKey);
+      if (stream) requestChatStreamCancellation(stream);
+    }
+    try {
+      await deleteOpenClawSession(gateway, openClawGatewaySessionKey(session) ?? sessionKey);
+    } catch (error) {
+      for (const equivalentTarget of equivalentTargets) {
+        void refreshMessagesFromHistory(gateway, equivalentTarget);
+      }
+      throw error;
+    }
+    for (const equivalentTarget of equivalentTargets) {
+      const targetKey = chatHistoryTargetKey(equivalentTarget);
+      clearCachedOpenClawChatHistory(agentId, equivalentTarget.sessionKey);
+      createdSessionGatewayKeysRef.current.delete(targetKey);
+      deferredComposerSendTargetsRef.current.delete(targetKey);
+      liveChatHistoryByTargetRef.current.delete(targetKey);
+      composerDraftsByTargetRef.current.delete(targetKey);
+      activeChatSendTargetsRef.current.delete(targetKey);
+      activeChatStreamsRef.current.delete(targetKey);
+      clearSendingForTarget(equivalentTarget);
+      clearAbortingForTarget(equivalentTarget);
+    }
+    setPendingMessages((prev) => prev.filter((item) => !(
+      item.target.agentId === agentId &&
+      sameOpenClawSelectableSessionKey(item.target.sessionKey, sessionKey)
+    )));
     removeSessionTitleOverride(sessionKey);
     setDeletedSessionKeys((prev) => ({
       ...prev,
@@ -3231,7 +3814,7 @@ export function useOpenClawSession(
       syncActiveComposerDraft(target);
     }
     void refreshSessionList(gateway, { fresh: true });
-  }, [gateway, agentId, activeSessionKey, sessions, cancelAutoTitleCandidate, removeSessionTitleOverride, refreshSessionList, setTitledSessions, dispatchChatHistory, syncActiveComposerDraft]);
+  }, [gateway, agentId, activeSessionKey, sessions, cancelAutoTitleCandidate, clearAbortingForTarget, clearSendingForTarget, removeSessionTitleOverride, refreshMessagesFromHistory, refreshSessionList, requestChatStreamCancellation, revokeChatSendAuthority, setTitledSessions, dispatchChatHistory, syncActiveComposerDraft]);
 
   const refreshCron = useCallback(async () => {
     if (!gateway) throw new Error("Not connected");
@@ -3451,27 +4034,40 @@ export function useOpenClawSession(
     runShellProposal: runConnectorShellProposal,
   });
 
-  const connected = seededE2EConnection || (status === "connected" && !hydrating && (fullHydrationEnabled ? ready : true));
+  const connected = seededE2EConnection || (status === "connected" && !hydrating && (historyHydrationEnabled ? ready : true));
   const connecting = seededE2EConnection || Boolean(error)
     ? false
-    : status === "connecting" || hydrating || (fullHydrationEnabled && status === "connected" && !ready);
+    : status === "connecting" || hydrating || (historyHydrationEnabled && status === "connected" && !ready);
   const activeSessions = activeSessionRecords;
   const temporaryChatActive = Boolean(activeTemporaryChat);
   const temporaryChatAvailable = Boolean(gateway && typeof gateway.createEphemeralChatSession === "function");
   const sessionsFetched = Boolean(agentId && sessionsFetchedAgentId === agentId);
   const activeHistoryTargetKey = chatHistoryTargetKey(activeSessionTarget);
+  const publishedMessages = historyHydrationEnabled
+    ? messages
+    : liveChatHistoryByTargetRef.current.get(activeHistoryTargetKey) ?? [];
   const historyPhase: OpenClawHistoryPhase = historyState.targetKey === activeHistoryTargetKey
     ? historyState.phase
-    : fullHydrationEnabled
+    : historyHydrationEnabled
       ? "loading"
       : "idle";
-  const visibleSessions = activeSessions.filter((session) => (
+  const activeSessionCanSend = Boolean(
+    !activeSessionReadOnly &&
+    connected &&
+    (
+      seededE2EConnection ||
+      (activeTemporaryChat && temporaryChatState === "active") ||
+      chatTargetHasSendAuthority(activeSessionTarget, gateway, activeGatewaySessionKey)
+    )
+  );
+  const deletedSessionKeyList = useMemo(() => Object.keys(deletedSessionKeys), [deletedSessionKeys]);
+  const visibleSessions = useMemo(() => activeSessions.filter((session) => (
     session.ephemeral !== true &&
-    !Object.keys(deletedSessionKeys).some((deletedKey) => sameOpenClawSelectableSessionKey(session.key, deletedKey))
-  ));
-  const pendingInput = pendingMessages
+    !deletedSessionKeyList.some((deletedKey) => sameOpenClawSelectableSessionKey(session.key, deletedKey))
+  )), [activeSessions, deletedSessionKeyList]);
+  const pendingInput = useMemo(() => pendingMessages
     .filter((item) => sameChatHistoryTarget(item.target, activeSessionTarget))
-    .map((item) => item.message);
+    .map((item) => item.message), [activeSessionTarget, pendingMessages]);
 
   return {
     gateway,
@@ -3484,7 +4080,7 @@ export function useOpenClawSession(
     hydrating,
     historyPhase,
     historyPending: historyPhase === "loading",
-    messages,
+    messages: publishedMessages,
     sendMessage,
     abortMessage,
     aborting,
@@ -3500,6 +4096,7 @@ export function useOpenClawSession(
     activeSessionThinkingDefault,
     activeSessionReadOnly,
     activeSessionReadOnlyReason,
+    activeSessionCanSend,
     temporaryChatAvailable,
     temporaryChatActive,
     temporaryChatState,

@@ -8,6 +8,8 @@ import {
   type GatewayClient,
   normalizeGatewayChatMessage,
 } from "@hypercli.com/sdk/openclaw/gateway";
+import { inferFileMimeType } from "@hypercli/shared-ui/files";
+import type { ChatImageCollectionDescriptor } from "@/lib/chat-image-collection";
 
 export type ChatAttachment = GatewayChatAttachmentPayload;
 
@@ -15,6 +17,8 @@ export interface ChatPendingFile {
   name: string;
   path: string;
   type: string;
+  /** Client-side details used to manage a staged large image drop. */
+  imageCollection?: ChatImageCollectionDescriptor;
 }
 
 export interface ChatMessage {
@@ -427,10 +431,10 @@ function extractAudioDataUrlFromContentItem(item: unknown): string | null {
   const source = directSource ?? nestedSource ?? record;
   const sourceType = typeof source.type === "string" ? source.type.trim().toLowerCase() : "";
 
-  if (sourceType === "url" && typeof source.url === "string" && source.url.trim()) {
+  if (typeof source.url === "string" && source.url.trim()) {
     return source.url.trim();
   }
-  if (sourceType && sourceType !== "base64" && sourceType !== "input_audio" && sourceType !== "output_audio") {
+  if (sourceType && sourceType !== "audio" && sourceType !== "base64" && sourceType !== "input_audio" && sourceType !== "output_audio") {
     return null;
   }
 
@@ -438,12 +442,23 @@ function extractAudioDataUrlFromContentItem(item: unknown): string | null {
   if (!data) return null;
   if (/^data:audio\//i.test(data)) return data;
 
-  const mimeType =
+  const rawMimeType =
     (typeof source.media_type === "string" && source.media_type.trim()) ||
     (typeof source.mime_type === "string" && source.mime_type.trim()) ||
     (typeof record.media_type === "string" && record.media_type.trim()) ||
     (typeof record.mime_type === "string" && record.mime_type.trim()) ||
-    "audio/mpeg";
+    "";
+  const rawFormat =
+    (typeof source.format === "string" && source.format.trim().toLowerCase()) ||
+    (typeof record.format === "string" && record.format.trim().toLowerCase()) ||
+    "";
+  const normalizedMimeType = rawMimeType.split(";", 1)[0].trim();
+  const inferredMimeType = FILE_TYPE_BY_EXTENSION[rawFormat] ?? "";
+  const mimeType = /^audio\/[A-Za-z0-9.+-]+$/i.test(normalizedMimeType)
+    ? normalizedMimeType
+    : /^audio\//i.test(inferredMimeType)
+      ? inferredMimeType
+      : "audio/mpeg";
   return `data:${mimeType};base64,${data}`;
 }
 
@@ -599,8 +614,8 @@ function fileNameFromPath(path: string): string {
 }
 
 function inferFileType(path: string): string {
-  const extension = fileNameFromPath(path).split(".").pop()?.toLowerCase() ?? "";
-  return FILE_TYPE_BY_EXTENSION[extension] ?? "application/octet-stream";
+  if (/(?:^|[/\\])(?:voice|audio|reply|tts|speech)[-_][^/\\]*\.webm(?:[?#].*)?$/i.test(path)) return "audio/webm";
+  return inferFileMimeType(path);
 }
 
 function isMediaAttachmentSentinel(line: string): boolean {

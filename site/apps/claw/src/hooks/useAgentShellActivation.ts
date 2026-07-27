@@ -6,6 +6,7 @@ interface UseAgentShellActivationOptions {
   agentId: string | null;
   agentState: string | null;
   activeTab: string;
+  intent?: boolean;
 }
 
 interface ShellActivationEvent {
@@ -24,6 +25,7 @@ export function useAgentShellActivation({
   agentId,
   agentState,
   activeTab,
+  intent = false,
 }: UseAgentShellActivationOptions): boolean {
   const [activatedAgentId, updateActivation] = useReducer(shellActivationReducer, null);
   const agentRunning = agentState === "RUNNING";
@@ -32,5 +34,9 @@ export function useAgentShellActivation({
     updateActivation({ agentId, agentRunning, activeTab });
   }, [activeTab, agentId, agentRunning]);
 
-  return Boolean(agentId && agentRunning && activatedAgentId === agentId);
+  return Boolean(
+    agentId &&
+    agentRunning &&
+    (activeTab === "shell" || intent || activatedAgentId === agentId)
+  );
 }

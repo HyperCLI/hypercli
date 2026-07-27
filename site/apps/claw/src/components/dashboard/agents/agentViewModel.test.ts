@@ -48,35 +48,68 @@ describe("agentViewModel", () => {
     expect(mapped.managed).toBe(false);
   });
 
-  it("overlays local display names only for managed or unknown agents", () => {
+  it("uses backend handles as display names for managed or unknown agents", () => {
     const managed = toAgentViewModel(buildSdkAgent({
       name: "research-agent",
-      displayName: "research-agent",
+      handle: "research-pilot",
+      displayName: "ignored-backend-name",
       managed: true,
-    }), { managedDisplayName: "Research Pilot" });
+    }));
     const unknown = toAgentViewModel(buildSdkAgent({
       name: "unknown-agent",
+      handle: "unknown-pilot",
       managed: null,
-    }), { managedDisplayName: "Unknown Pilot" });
+    }));
     const external = toAgentViewModel(buildSdkAgent({
       name: "external-agent",
       displayName: "Backend Name",
+      handle: "external-handle",
       managed: false,
-    }), { managedDisplayName: "Local Name" });
+    }));
 
-    expect(managed.displayName).toBe("Research Pilot");
+    expect(managed.displayName).toBe("research-pilot");
     expect(managed.name).toBe("research-agent");
-    expect(unknown.displayName).toBe("Unknown Pilot");
+    expect(unknown.displayName).toBe("unknown-pilot");
     expect(external.displayName).toBe("Backend Name");
-    expect(agentDisplayLabel(managed)).toBe("Research Pilot");
+    expect(agentDisplayLabel(managed)).toBe("research-pilot");
   });
 
-  it("ignores blank local aliases", () => {
+  it("falls back to the canonical name without a managed handle", () => {
     const mapped = toAgentViewModel(buildSdkAgent({
       name: "research-agent",
+      handle: null,
       managed: true,
-    }), { managedDisplayName: "   " });
+    }));
 
     expect(mapped.displayName).toBe("research-agent");
+  });
+
+  it("does not cross display-name fields between agent provenances", () => {
+    const managed = toAgentViewModel(buildSdkAgent({
+      name: null,
+      podName: "managed-pod",
+      handle: null,
+      displayName: "external-only-name",
+      managed: true,
+    }));
+    const external = toAgentViewModel(buildSdkAgent({
+      name: "external-agent",
+      handle: "external-handle",
+      displayName: "   ",
+      managed: false,
+    }));
+
+    expect(managed.displayName).toBe("managed-pod");
+    expect(agentDisplayLabel(managed)).toBe("managed-pod");
+    expect(agentDisplayLabel({
+      id: "raw-managed",
+      name: "canonical-managed",
+      pod_name: null,
+      handle: null,
+      displayName: "external-only-name",
+      managed: null,
+    })).toBe("canonical-managed");
+    expect(external.displayName).toBe("external-agent");
+    expect(agentDisplayLabel(external)).toBe("external-agent");
   });
 });

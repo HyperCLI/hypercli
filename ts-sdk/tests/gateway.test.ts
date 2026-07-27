@@ -161,6 +161,26 @@ describe("GatewayClient", () => {
     return { client, ws, request };
   }
 
+  it("removes request abort listeners after an RPC timeout", async () => {
+    vi.useFakeTimers();
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN, send: vi.fn() };
+    const controller = new AbortController();
+    const removeEventListener = vi.spyOn(controller.signal, "removeEventListener");
+    const request = client.request("status", {}, { timeoutMs: 25, signal: controller.signal });
+    const rejected = expect(request).rejects.toThrow("RPC timeout: status");
+
+    await vi.advanceTimersByTimeAsync(25);
+    await rejected;
+
+    expect(removeEventListener).toHaveBeenCalledWith("abort", expect.any(Function));
+    expect((client as any).pending.size).toBe(0);
+  });
+
 
   it("exposes connection state transitions", async () => {
     const client = new GatewayClient({
@@ -754,6 +774,42 @@ describe("GatewayClient", () => {
     expect(items).toEqual([{ role: "assistant", text: "hello" }]);
   });
 
+  it("accepts direct and wrapped chat.history message arrays", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const directMessages = [{ role: "assistant", content: "direct" }];
+    const wrappedMessages = [{ role: "assistant", content: "wrapped" }];
+    const rpc = vi.spyOn(client as any, "rpc")
+      .mockResolvedValueOnce(directMessages)
+      .mockResolvedValueOnce({ messages: wrappedMessages });
+
+    await expect(client.chatHistory("main", 12)).resolves.toBe(directMessages);
+    await expect(client.chatHistory(undefined, 5)).resolves.toBe(wrappedMessages);
+    expect(rpc).toHaveBeenNthCalledWith(1, "chat.history", { sessionKey: "main", limit: 12 });
+    expect(rpc).toHaveBeenNthCalledWith(2, "chat.history", { limit: 5 });
+  });
+
+  it.each([
+    ["null", null],
+    ["a string", "not history"],
+    ["an object without messages", {}],
+    ["an object with non-array messages", { messages: {} }],
+  ])("rejects %s chat.history responses", async (_description, response) => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    vi.spyOn(client as any, "rpc").mockResolvedValue(response);
+
+    await expect(client.chatHistory()).rejects.toMatchObject({
+      name: "GatewayRequestError",
+      gatewayCode: "PROTOCOL_ERROR",
+      message: "Gateway protocol error: chat.history response must be an array or an object with an array `messages` property",
+    });
+  });
+
   it("sends sessions.reset with key and optional reason", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",
@@ -767,6 +823,20 @@ describe("GatewayClient", () => {
       key: "agent:main:main",
       reason: "new",
     });
+  });
+
+  it.each([
+    ["key", { key: "agent:default:session-one" }],
+    ["sessionKey", { sessionKey: "agent:default:session-one" }],
+    ["nested session key", { session: { key: "agent:default:session-one" } }],
+  ])("uses the canonical sessions.reset key from %s", async (_description, response) => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    vi.spyOn(client, "rpc").mockResolvedValue(response);
+
+    await expect(client.sessionsReset("session-one", "new")).resolves.toBe("agent:default:session-one");
   });
 
   it("sends skills read RPCs with protocol payloads", async () => {
@@ -3036,6 +3106,34 @@ describe("GatewayClient", () => {
       mediaUrls: ["data:audio/mpeg;base64,AAAA"],
       timestamp: 123,
     });
+  });
+
+  it("normalizes direct and nested TTS output audio shapes", () => {
+    const normalized = normalizeGatewayChatMessage({
+      role: "assistant",
+      content: [
+        { type: "output_audio", data: "AAAA", format: "wav" },
+        { type: "output_audio", output_audio: { data: "BBBB", mime_type: "audio/ogg" } },
+        { type: "output_audio", output_audio: { data: "CCCC", mime_type: "audio/webm;codecs=opus" } },
+        { type: "audio", audio: { url: "https://cdn.example.test/reply.mp3" } },
+      ],
+    });
+
+    expect(normalized?.mediaUrls).toEqual([
+      "data:audio/wav;base64,AAAA",
+      "data:audio/ogg;base64,BBBB",
+      "data:audio/webm;base64,CCCC",
+      "https://cdn.example.test/reply.mp3",
+    ]);
+  });
+
+  it("does not trust non-audio mime types on TTS payloads", () => {
+    const normalized = normalizeGatewayChatMessage({
+      role: "assistant",
+      content: [{ type: "output_audio", data: "AAAA", media_type: "text/html" }],
+    });
+
+    expect(normalized?.mediaUrls).toEqual(["data:audio/mpeg;base64,AAAA"]);
   });
 
   it("chatSend emits thinking and tool events from final structured snapshots", async () => {

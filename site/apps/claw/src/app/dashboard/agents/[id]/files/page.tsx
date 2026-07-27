@@ -4,11 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 
-import { AgentFilesPanel, type AgentFilesPanelSource } from "@/components/dashboard/agents/AgentFilesPanel";
+import {
+  AgentFilesPanel,
+  type AgentFilePreviewReadOptions,
+  type AgentFilesPanelSource,
+} from "@/components/dashboard/agents/AgentFilesPanel";
 import { AgentLoadingState } from "@/components/dashboard/agents/page-helpers";
 import type { FileEntry } from "@hypercli/shared-ui/files";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { managedAgentDisplayNameScope, useManagedAgentDisplayNames } from "@/hooks/useManagedAgentDisplayNames";
 import { agentDisplayLabel, toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 import { createAgentClient } from "@/lib/agent-client";
 import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
@@ -17,7 +20,6 @@ import { OPENCLAW_WORKSPACE_PREFIX } from "@/lib/openclaw-config";
 import type { AgentFileEntry } from "@/types";
 import { OpenClawAgent } from "@hypercli.com/sdk/agents";
 
-type AgentFileSource = "auto" | "pod" | "s3";
 /** The 3-way selector in AgentFilesPanel: live pod, S3 backup, or the gateway RPC. */
 type AgentFilePanelSource = AgentFilesPanelSource;
 
@@ -50,6 +52,10 @@ function toDashboardFileEntry(entry: AgentFileEntry): FileEntry {
     path,
     type: entry.type,
     size: entry.size,
+    mimeType: stringFileMetadata(entry.mime_type)
+      ?? stringFileMetadata(entry.mimeType)
+      ?? stringFileMetadata(entry.content_type)
+      ?? stringFileMetadata(entry.contentType),
     lastModified: stringFileMetadata(entry.last_modified ?? entry.lastModified),
     checksum: stringFileMetadata(entry.checksum),
     checksumAlgorithm: stringFileMetadata(entry.checksum_algorithm ?? entry.checksumAlgorithm ?? entry.checksum_algo),
@@ -68,41 +74,44 @@ function isAgentDirectoryMarkerEntry(entry: AgentFileEntry): boolean {
   return name === AGENT_DIRECTORY_MARKER_NAME;
 }
 
-function agentFileDestinationForState(agentState: string | null | undefined): AgentFileSource {
-  return agentState === "RUNNING" ? "auto" : "s3";
-}
-
 export default function AgentFilesPage() {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
   const agentId = params?.id ?? "";
   const initialFilePath = searchParams?.get("file") ?? null;
   const { getToken, user } = useAgentAuth();
-  const displayNameStorageScope = managedAgentDisplayNameScope(user);
-  const { displayNamesByAgentId } = useManagedAgentDisplayNames(displayNameStorageScope);
-  const [agent, setAgent] = useState<OpenClawAgent | null>(null);
-  const [agentError, setAgentError] = useState<string | null>(null);
-  const [agentLoading, setAgentLoading] = useState(true);
+  const agentRequestKey = user?.id && agentId ? `${user.id}:${agentId}` : null;
+  const [agentLoad, setAgentLoad] = useState<{
+    key: string;
+    agent: OpenClawAgent | null;
+    error: string | null;
+  } | null>(null);
+  const activeAgentLoad = agentLoad?.key === agentRequestKey ? agentLoad : null;
+  const agent = activeAgentLoad?.agent ?? null;
+  const agentError = activeAgentLoad?.error ?? null;
+  const agentLoading = Boolean(agentRequestKey && !activeAgentLoad);
   const [showFileSourceTabs] = useState(() => readFileSourceTabsPreference());
 
   useEffect(() => {
-    if (!agentId) return;
+    if (!agentRequestKey) return;
     let cancelled = false;
     void (async () => {
       try {
         const token = await getToken();
         const deployment = await createAgentClient(token).get(agentId);
-        if (!cancelled) setAgent(deployment as OpenClawAgent);
+        if (!cancelled) setAgentLoad({ key: agentRequestKey, agent: deployment as OpenClawAgent, error: null });
       } catch (e) {
-        if (!cancelled) setAgentError(e instanceof Error ? e.message : String(e));
-      } finally {
-        if (!cancelled) setAgentLoading(false);
+        if (!cancelled) setAgentLoad({
+          key: agentRequestKey,
+          agent: null,
+          error: e instanceof Error ? e.message : String(e),
+        });
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [agentId, getToken]);
+  }, [agentId, agentRequestKey, getToken]);
 
   // Gateway file ops go through the SDK's OpenClawAgent instance (operator-WS agents.files.*),
   // so they need the hydrated agent record rather than the Deployments client.
@@ -137,12 +146,21 @@ export default function AgentFilesPage() {
     return createAgentClient(token).fileRead(agentId, normalizeAgentFilePath(path), backendWireSource(requestedSource));
   }, [agentId, gatewayFilesAgent, getToken]);
 
-  const openFileBytes = useCallback(async (path: string, requestedSource: AgentFilePanelSource = "agent") => {
+  const openFileBytes = useCallback(async (
+    path: string,
+    requestedSource: AgentFilePanelSource = "agent",
+    options?: AgentFilePreviewReadOptions,
+  ) => {
     if (requestedSource === "gateway") {
-      return gatewayFilesAgent().fileReadBytes(path, "gateway");
+      return gatewayFilesAgent().fileReadBytesWithMetadata(path, "gateway", options);
     }
     const token = await getToken();
-    return createAgentClient(token).fileReadBytes(agentId, normalizeAgentFilePath(path), backendWireSource(requestedSource));
+    return createAgentClient(token).fileReadBytesWithMetadata(
+      agentId,
+      normalizeAgentFilePath(path),
+      backendWireSource(requestedSource),
+      options,
+    );
   }, [agentId, gatewayFilesAgent, getToken]);
 
   const saveFile = useCallback(async (path: string, content: string, destination: AgentFilePanelSource = "agent") => {
@@ -164,17 +182,24 @@ export default function AgentFilesPage() {
     await createAgentClient(token).fileDelete(agentId, normalizeAgentFilePath(path), options);
   }, [agentId, getToken]);
 
-  const uploadFile = useCallback(async (path: string, content: Uint8Array) => {
+  const uploadFile = useCallback(async (
+    path: string,
+    content: Uint8Array,
+    source: Exclude<AgentFilesPanelSource, "gateway">,
+  ) => {
     const token = await getToken();
     await createAgentClient(token).fileWriteBytes(
       agentId,
       normalizeAgentFilePath(path),
       content,
-      agentFileDestinationForState(agent?.state),
+      backendWireSource(source),
     );
-  }, [agent?.state, agentId, getToken]);
+  }, [agentId, getToken]);
 
-  const createDirectory = useCallback(async (path: string) => {
+  const createDirectory = useCallback(async (
+    path: string,
+    source: Exclude<AgentFilesPanelSource, "gateway">,
+  ) => {
     const normalizedPath = normalizeAgentFilePath(path);
     if (!normalizedPath) {
       throw new Error("Folder path is required.");
@@ -184,14 +209,12 @@ export default function AgentFilesPage() {
       agentId,
       `${normalizedPath}/${AGENT_DIRECTORY_MARKER_NAME}`,
       new Uint8Array(),
-      "s3",
+      backendWireSource(source),
     );
   }, [agentId, getToken]);
 
   const filesDefaultSource: AgentFilesPanelSource = agent?.state === "RUNNING" ? "agent" : "backup";
-  const agentView = useMemo(() => agent ? toAgentViewModel(agent, {
-    managedDisplayName: displayNamesByAgentId[agent.id],
-  }) : null, [agent, displayNamesByAgentId]);
+  const agentView = useMemo(() => agent ? toAgentViewModel(agent) : null, [agent]);
   const filesSourceDisabledReasons = useMemo<Partial<Record<AgentFilesPanelSource, string>>>(() => {
     const reasons: Partial<Record<AgentFilesPanelSource, string>> = {};
     if (!agent) return reasons;

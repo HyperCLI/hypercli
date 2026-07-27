@@ -1,14 +1,20 @@
 "use client";
 
 import React from "react";
+import dynamic from "next/dynamic";
 import { ArrowDown, ArrowRight, FileText, Loader2, LockKeyhole, Mic, Paperclip, Pause, Play, Plus, Send, Sparkles, Square, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@hypercli/shared-ui";
+import {
+  inferFileMimeType,
+  normalizeDroppedRelativePath,
+  readDroppedFileSelection,
+} from "@hypercli/shared-ui/files";
 import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import { extractVoicePathFromMessage, OPENCLAW_WORKSPACE_DIR } from "@/lib/openclaw-config";
 import { createChatRenderId, type ChatMessage, type ChatPendingFile } from "@/lib/openclaw-chat";
 import { extractGitHubAgentSetupStatus, GITHUB_AGENT_SETUP_PROMPT, GITHUB_AGENT_VERIFY_PROMPT, shouldHideGitHubAgentSetupMessage } from "@/lib/github-cli-workspace";
 import { shouldHideTelegramAgentConfigMessage } from "@/lib/telegram-config-workspace";
-import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard/ChatMessage";
+import { ChatMessageBubble, ChatThinkingIndicator, type ChatFileBytesReader } from "@/components/dashboard/ChatMessage";
 import type { Agent } from "@/app/dashboard/agents/types";
 import type { AgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
 import { AgentLoadingState } from "@/components/dashboard/agents/page-helpers";
@@ -17,7 +23,6 @@ import { OpenClawModelMenu } from "@/components/dashboard/agents/OpenClawModelMe
 import { JourneyIntroPanel, type JourneyIntroPanelProps } from "@/components/dashboard/journey/JourneyIntroPanel";
 import { JourneyMissionChatCard, type JourneyMissionChatCardProps } from "@/components/dashboard/journey/JourneyMissionChatCard";
 import { detectChatIntegrationIntent, getChatConnectorSuggestion, getConnectionSuggestions, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
-import { IntegrationChatCardHost } from "@/components/dashboard/chat-integrations/IntegrationChatCardHost";
 import { parseClawUiActionBlocks, type ClawIntegrationConnectAction, type ClawUiAction } from "@/components/dashboard/chat-integrations/claw-ui-actions";
 import {
   AgentSlashCommandMenu,
@@ -26,6 +31,7 @@ import {
 } from "@/components/dashboard/agents/AgentSlashCommandMenu";
 import { ResourceImage } from "@/components/ResourceImage";
 import { TooltipHint } from "@/components/ClawTooltip";
+import type { ChatImageCollectionProgress } from "@/lib/chat-image-collection";
 import {
   getAgentChatBootStatus,
   stabilizeAgentChatBootStatus,
@@ -34,10 +40,35 @@ import {
 import { agentDisplayLabel } from "@/components/dashboard/agents/agentViewModel";
 
 export type { ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
+export type ChatPendingFileRemovalState = "removing" | "failed";
+
+export interface ChatFileDropItem {
+  file: File;
+  relativePath: string;
+}
+
+export type ChatFileDropInput = FileList | File[] | ChatFileDropItem[];
+
+export function normalizeChatFileDropItems(input: ChatFileDropInput): ChatFileDropItem[] {
+  return Array.from(input as ArrayLike<File | ChatFileDropItem>).map((item) => {
+    if ("file" in item) {
+      return {
+        file: item.file,
+        relativePath: normalizeDroppedRelativePath(item.relativePath),
+      };
+    }
+    return {
+      file: item,
+      relativePath: normalizeDroppedRelativePath(item.webkitRelativePath || item.name),
+    };
+  });
+}
 
 type ChatSession = AgentGatewaySession;
 const CHAT_READY_SETTLE_MS = 180;
 const CHAT_NEAR_BOTTOM_THRESHOLD_PX = 100;
+const CHAT_HISTORY_LOAD_THRESHOLD_PX = 48;
+const CHAT_TRANSCRIPT_RENDER_LIMIT = 100;
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 const AUDIO_BAR_WEIGHTS = [
   0.62,
@@ -61,25 +92,17 @@ const AUDIO_BAR_WEIGHTS = [
   0.64,
   0.8,
 ] as const;
-
-const FILE_TYPE_BY_EXTENSION: Record<string, string> = {
-  csv: "text/csv",
-  gif: "image/gif",
-  jpeg: "image/jpeg",
-  jpg: "image/jpeg",
-  md: "text/markdown",
-  mp3: "audio/mpeg",
-  ogg: "audio/ogg",
-  pdf: "application/pdf",
-  png: "image/png",
-  svg: "image/svg+xml",
-  txt: "text/plain",
-  wav: "audio/wav",
-  webm: "audio/webm",
-  webp: "image/webp",
-  xls: "application/vnd.ms-excel",
-  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-};
+const MemoizedChatMessageBubble = React.memo(ChatMessageBubble);
+const IntegrationChatCardHost = dynamic(
+  () => import("@/components/dashboard/chat-integrations/IntegrationChatCardHost").then((module) => module.IntegrationChatCardHost),
+  {
+    loading: () => (
+      <div className="flex min-h-24 w-full items-center justify-center rounded-xl border border-border bg-surface-low/50" role="status" aria-label="Loading integration setup">
+        <Loader2 className="h-4 w-4 animate-spin text-text-muted" />
+      </div>
+    ),
+  },
+);
 
 export function scrollTranscriptToBottom(scroller: HTMLDivElement, behavior: ScrollBehavior): void {
   const reduceMotion = behavior === "smooth" &&
@@ -173,8 +196,7 @@ function getActiveFileMention(input: string, caretIndex: number | null): ActiveF
 }
 
 function inferReferenceFileType(path: string): string {
-  const extension = path.split(/[?#]/)[0].split("/").filter(Boolean).pop()?.split(".").pop()?.toLowerCase() ?? "";
-  return FILE_TYPE_BY_EXTENSION[extension] ?? "application/octet-stream";
+  return inferFileMimeType(path);
 }
 
 function normalizeReferenceRelativePath(path: string): string {
@@ -394,8 +416,11 @@ interface AgentChatPanelProps {
   chatDragActive: boolean;
   setChatDragActive: (active: boolean) => void;
   chatDragDepthRef: React.MutableRefObject<number>;
-  handleChatFileDrop: (files: FileList) => Promise<void> | void;
+  handleChatFileDrop: (files: ChatFileDropInput) => Promise<void> | void;
   chatFilesUploading?: boolean;
+  chatFileUploadProgress?: ChatImageCollectionProgress | null;
+  pendingFileRemovalStates?: Record<string, ChatPendingFileRemovalState>;
+  onRemovePendingFile?: (index: number, file: ChatPendingFile) => void;
   chatScrollRef: React.RefObject<HTMLDivElement | null>;
   handleChatScroll: (event: React.UIEvent<HTMLDivElement>) => void;
   chatEndRef?: React.RefObject<HTMLDivElement | null>;
@@ -418,7 +443,7 @@ interface AgentChatPanelProps {
   formatDuration: (seconds: number) => string;
   onConnectionCta?: (suggestion: ChatConnectionSuggestion) => void;
   slashCommandActions?: AgentSlashCommandActions;
-  onReadFileBytesFromChat?: (path: string) => Promise<Uint8Array>;
+  onReadFileBytesFromChat?: ChatFileBytesReader;
   onOpenFileFromChat?: (path: string) => void;
   onDownloadFileFromChat?: (file: ChatPendingFile) => void | Promise<void>;
   fileReferenceCandidates?: ChatPendingFile[];
@@ -436,6 +461,9 @@ export function AgentChatPanel({
   chatDragDepthRef,
   handleChatFileDrop,
   chatFilesUploading = false,
+  chatFileUploadProgress = null,
+  pendingFileRemovalStates = {},
+  onRemovePendingFile,
   chatScrollRef,
   handleChatScroll,
   chatEndRef,
@@ -471,12 +499,40 @@ export function AgentChatPanel({
   const slashCommandMenuRef = React.useRef<AgentSlashCommandMenuHandle>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const slashFeedbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const readFileBytesFromChatRef = React.useRef(onReadFileBytesFromChat);
+  const openFileFromChatRef = React.useRef(onOpenFileFromChat);
+  const downloadFileFromChatRef = React.useRef(onDownloadFileFromChat);
+  React.useLayoutEffect(() => {
+    readFileBytesFromChatRef.current = onReadFileBytesFromChat;
+    openFileFromChatRef.current = onOpenFileFromChat;
+    downloadFileFromChatRef.current = onDownloadFileFromChat;
+  }, [onDownloadFileFromChat, onOpenFileFromChat, onReadFileBytesFromChat]);
+  const stableReadFileBytesFromChat = React.useCallback<ChatFileBytesReader>((path, options) => (
+    readFileBytesFromChatRef.current!(path, options)
+  ), []);
+  const stableOpenFileFromChat = React.useCallback((path: string) => {
+    openFileFromChatRef.current?.(path);
+  }, []);
+  const stableDownloadFileFromChat = React.useCallback((file: ChatPendingFile) => (
+    downloadFileFromChatRef.current?.(file)
+  ), []);
   const [dismissedSlashInput, setDismissedSlashInput] = React.useState<string | null>(null);
   const [dismissedFileMentionInput, setDismissedFileMentionInput] = React.useState<string | null>(null);
   const [slashCommandFeedback, setSlashCommandFeedback] = React.useState("");
+  const [fileDropError, setFileDropError] = React.useState("");
   const [activeIntegrationCard, setActiveIntegrationCard] = React.useState<ActiveIntegrationCard | null>(null);
+  const [dismissedConnectionSuggestions, setDismissedConnectionSuggestions] = React.useState<{ context: string; ids: string[] }>({ context: "", ids: [] });
   const [retryingFailedReplyKey, setRetryingFailedReplyKey] = React.useState<string | null>(null);
   const [composerToolsOpen, setComposerToolsOpen] = React.useState(false);
+  const [transcriptRenderState, setTranscriptRenderState] = React.useState({
+    context: chatScrollContext,
+    limit: CHAT_TRANSCRIPT_RENDER_LIMIT,
+  });
+  const transcriptRenderLimit = transcriptRenderState.context === chatScrollContext
+    ? transcriptRenderState.limit
+    : CHAT_TRANSCRIPT_RENDER_LIMIT;
+  const transcriptPrependScrollRef = React.useRef<{ context: string; scrollHeight: number; scrollTop: number } | null>(null);
+  const hasEarlierMessagesRef = React.useRef(false);
   const [scrollToLatestState, setScrollToLatestState] = React.useState({
     context: chatScrollContext,
     visible: false,
@@ -501,17 +557,6 @@ export function AgentChatPanel({
     chatScrollRef.current = element;
     setTranscriptScrollElement(element);
   }, [chatScrollRef]);
-  const handleTranscriptScroll = React.useCallback((event: React.UIEvent<HTMLDivElement>) => {
-    const scroller = event.currentTarget;
-    const distanceFromBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
-    const visible = distanceFromBottom >= CHAT_NEAR_BOTTOM_THRESHOLD_PX;
-    setScrollToLatestState((current) => (
-      current.context === chatScrollContext && current.visible === visible
-        ? current
-        : { context: chatScrollContext, visible }
-    ));
-    handleChatScroll(event);
-  }, [chatScrollContext, handleChatScroll]);
   const requestTranscriptScroll = React.useCallback((behavior: ScrollBehavior) => {
     if (onRequestTranscriptScroll) {
       onRequestTranscriptScroll(behavior);
@@ -521,9 +566,45 @@ export function AgentChatPanel({
     if (!scroller) return;
     scrollTranscriptToBottom(scroller, behavior);
   }, [chatScrollRef, onRequestTranscriptScroll]);
+  const showEarlierMessages = React.useCallback((scroller: HTMLDivElement) => {
+    if (!hasEarlierMessagesRef.current || transcriptPrependScrollRef.current) return;
+    transcriptPrependScrollRef.current = {
+      context: chatScrollContext,
+      scrollHeight: scroller.scrollHeight,
+      scrollTop: scroller.scrollTop,
+    };
+    setTranscriptRenderState((current) => ({
+      context: chatScrollContext,
+      limit: (current.context === chatScrollContext ? current.limit : CHAT_TRANSCRIPT_RENDER_LIMIT) + CHAT_TRANSCRIPT_RENDER_LIMIT,
+    }));
+  }, [chatScrollContext]);
+  const handleTranscriptScroll = React.useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    const scroller = event.currentTarget;
+    if (scroller.scrollTop <= CHAT_HISTORY_LOAD_THRESHOLD_PX) showEarlierMessages(scroller);
+    const distanceFromBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+    const visible = distanceFromBottom >= CHAT_NEAR_BOTTOM_THRESHOLD_PX;
+    setScrollToLatestState((current) => (
+      current.context === chatScrollContext && current.visible === visible
+        ? current
+        : { context: chatScrollContext, visible }
+    ));
+    handleChatScroll(event);
+  }, [chatScrollContext, handleChatScroll, showEarlierMessages]);
+  React.useLayoutEffect(() => {
+    const snapshot = transcriptPrependScrollRef.current;
+    if (!snapshot) return;
+    if (snapshot.context !== chatScrollContext) {
+      transcriptPrependScrollRef.current = null;
+      return;
+    }
+    transcriptPrependScrollRef.current = null;
+    const scroller = chatScrollRef.current;
+    if (!scroller) return;
+    scroller.scrollTop = snapshot.scrollTop + Math.max(0, scroller.scrollHeight - snapshot.scrollHeight);
+  }, [chatScrollContext, chatScrollRef, transcriptRenderLimit]);
   React.useLayoutEffect(() => {
     if (!onTranscriptResize || !transcriptScrollElement || !transcriptContentElement || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => onTranscriptResize("smooth"));
+    const observer = new ResizeObserver(() => onTranscriptResize("auto"));
     observer.observe(transcriptScrollElement);
     observer.observe(transcriptContentElement);
     return () => observer.disconnect();
@@ -532,6 +613,10 @@ export function AgentChatPanel({
     () => getConnectionSuggestions(chat.input, chat.reportedChannels),
     [chat.input, chat.reportedChannels],
   );
+  const connectionSuggestionContext = `${chatScrollContext}\0${chat.input}`;
+  const visibleConnectionSuggestions = dismissedConnectionSuggestions.context === connectionSuggestionContext
+    ? connectionSuggestions.filter((suggestion) => !dismissedConnectionSuggestions.ids.includes(suggestion.id))
+    : connectionSuggestions;
   const openIntegrationChatCard = React.useCallback((integrationId: ClawIntegrationConnectAction["integrationId"]) => {
     setActiveIntegrationCard({
       action: { version: 1, type: "integration.connect", integrationId },
@@ -562,24 +647,41 @@ export function AgentChatPanel({
     }
     handleSendChat();
   }, [chat.input, chat.reportedChannels, handleSendChat, openIntegrationChatCard, setChatInput, slashCommandActions]);
-  const visibleChatMessages = React.useMemo(
-    () => chat.messages
+  const chatMessageWindow = React.useMemo(() => {
+    const renderableMessages = chat.messages
       .map((message, index) => {
         return {
           message,
           index,
-          rowKey: chatMessageRowKey(
-            selectedAgent.id,
-            chat.activeSessionKey,
-            message,
-            message.renderId || message.messageId ? "" : legacyChatMessageRenderId(message),
-          ),
         };
       })
-      .filter(({ message }) => !shouldHideIntegrationSetupMessage(message)),
-    [chat.activeSessionKey, chat.messages, selectedAgent.id],
-  );
+      .filter(({ message }) => !shouldHideIntegrationSetupMessage(message));
+    const hasEarlierMessages = renderableMessages.length > transcriptRenderLimit;
+    const messages = renderableMessages.slice(-transcriptRenderLimit).map(({ message, index }) => ({
+      message,
+      index,
+      rowKey: chatMessageRowKey(
+        selectedAgent.id,
+        chat.activeSessionKey,
+        message,
+        message.renderId || message.messageId ? "" : legacyChatMessageRenderId(message),
+      ),
+    }));
+    return { messages, hasEarlierMessages };
+  }, [chat.activeSessionKey, chat.messages, selectedAgent.id, transcriptRenderLimit]);
+  React.useEffect(() => {
+    hasEarlierMessagesRef.current = chatMessageWindow.hasEarlierMessages;
+  }, [chatMessageWindow.hasEarlierMessages]);
+  const visibleChatMessages = chatMessageWindow.messages;
   const triggerFilePicker = React.useCallback(() => fileInputRef.current?.click(), []);
+  const submitChatFileDrop = React.useCallback(async (files: ChatFileDropInput) => {
+    setFileDropError("");
+    try {
+      await handleChatFileDrop(files);
+    } catch (cause) {
+      setFileDropError(cause instanceof Error ? cause.message : "The files could not be added.");
+    }
+  }, [handleChatFileDrop]);
   const commandActions = React.useMemo<AgentSlashCommandActions>(() => ({
     ...slashCommandActions,
     onTriggerFilePicker: slashCommandActions?.onTriggerFilePicker ?? triggerFilePicker,
@@ -694,11 +796,11 @@ export function AgentChatPanel({
     [chat.messages],
   );
   const startAgentGitHubSetup = React.useCallback(async () => {
-    if (chat.activeSessionReadOnly) return;
+    if (!chat.activeSessionCanSend || chat.activeSessionReadOnly) return;
     await chat.sendMessage(GITHUB_AGENT_SETUP_PROMPT, { displayContent: "Set up GitHub in this workspace." });
   }, [chat]);
   const verifyAgentGitHubSetup = React.useCallback(async () => {
-    if (activeSessionSending || chat.activeSessionReadOnly) return;
+    if (activeSessionSending || !chat.activeSessionCanSend || chat.activeSessionReadOnly) return;
     await chat.sendMessage(GITHUB_AGENT_VERIFY_PROMPT, { displayContent: "Check GitHub connection in this workspace." });
   }, [activeSessionSending, chat]);
 
@@ -709,6 +811,13 @@ export function AgentChatPanel({
     }
     onConnectionCta?.(suggestion);
   }, [onConnectionCta, openIntegrationChatCard]);
+  const handleDismissConnectionSuggestion = React.useCallback((suggestionId: string) => {
+    setDismissedConnectionSuggestions((current) => {
+      const ids = current.context === connectionSuggestionContext ? current.ids : [];
+      if (ids.includes(suggestionId)) return current;
+      return { context: connectionSuggestionContext, ids: [...ids, suggestionId] };
+    });
+  }, [connectionSuggestionContext]);
   React.useEffect(() => {
     if (!activeIntegrationAction) return;
     requestTranscriptScroll("smooth");
@@ -789,11 +898,14 @@ export function AgentChatPanel({
   const temporaryChatTransitioning = chat.temporaryChatState === "starting" || chat.temporaryChatState === "ending";
   const readOnlyComposerReason = chat.activeSessionReadOnlyReason ?? "This connected conversation is read-only here.";
   const composerHasText = chat.input.trim().length > 0;
+  const pendingFileRemovalActive = chat.pendingFiles.some((file) => Boolean(pendingFileRemovalStates[file.path]));
   const canSendChatDraft =
     chat.connected &&
+    chat.activeSessionCanSend &&
     !chat.activeSessionReadOnly &&
     !temporaryChatTransitioning &&
     !chatFilesUploading &&
+    !pendingFileRemovalActive &&
     chat.pendingAttachmentReads === 0 &&
     (composerHasText || chat.pendingAttachments.length > 0 || chat.pendingFiles.length > 0);
   const composerHasDraft =
@@ -806,10 +918,15 @@ export function AgentChatPanel({
   const showComposer = displayBootStatus.status === "ready" || (
     isSelectedRunning && displayBootStatus.status !== "stopped"
   ) || composerHasDraft;
-  const composerDisabled = displayBootStatus.status !== "ready" || !chat.connected || chat.activeSessionReadOnly || temporaryChatTransitioning;
+  const composerDisabled = displayBootStatus.status !== "ready" || !chat.connected || !chat.activeSessionCanSend || chat.activeSessionReadOnly || temporaryChatTransitioning;
+  React.useEffect(() => {
+    if (!composerDisabled || !chatDragActive) return;
+    chatDragDepthRef.current = 0;
+    setChatDragActive(false);
+  }, [chatDragActive, chatDragDepthRef, composerDisabled, setChatDragActive]);
   const failedReplyRetryDisabled = composerDisabled || activeSessionSending;
   const retryFailedReply = React.useCallback(async (rowKey: string, source: ChatMessage) => {
-    if (!chat.connected || chat.activeSessionReadOnly || activeSessionSending || temporaryChatTransitioning) return;
+    if (!chat.connected || !chat.activeSessionCanSend || chat.activeSessionReadOnly || activeSessionSending || temporaryChatTransitioning) return;
     const retryContent = source.retryContent ?? source.content;
     if (!retryContent.trim() && !(source.attachments?.length || source.files?.length)) return;
     setRetryingFailedReplyKey(rowKey);
@@ -844,7 +961,11 @@ export function AgentChatPanel({
   const composerPlaceholder = chat.activeSessionReadOnly
     ? readOnlyComposerReason
     : chat.connected
-      ? "Message agent..."
+      ? chat.activeSessionCanSend
+        ? "Message agent..."
+        : chat.historyPhase === "error"
+          ? "Retry conversation before sending..."
+          : "Verifying conversation..."
       : chat.connecting
         ? "Preparing chat..."
         : "Connect gateway to message...";
@@ -918,7 +1039,7 @@ export function AgentChatPanel({
       onDragEnter={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (chat.activeSessionReadOnly || temporaryChatTransitioning) return;
+        if (composerDisabled) return;
         if (!e.dataTransfer.types.includes("Files")) return;
         chatDragDepthRef.current += 1;
         setChatDragActive(true);
@@ -926,12 +1047,11 @@ export function AgentChatPanel({
       onDragOver={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (chat.activeSessionReadOnly || temporaryChatTransitioning) return;
+        if (composerDisabled) return;
       }}
       onDragLeave={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (chat.activeSessionReadOnly || temporaryChatTransitioning) return;
         chatDragDepthRef.current = Math.max(0, chatDragDepthRef.current - 1);
         if (chatDragDepthRef.current === 0) {
           setChatDragActive(false);
@@ -942,17 +1062,23 @@ export function AgentChatPanel({
         e.stopPropagation();
         chatDragDepthRef.current = 0;
         setChatDragActive(false);
-        if (chat.activeSessionReadOnly || temporaryChatTransitioning) return;
-        if (e.dataTransfer.files?.length) {
-          void handleChatFileDrop(e.dataTransfer.files);
-        }
+        if (composerDisabled) return;
+        setFileDropError("");
+        void readDroppedFileSelection(e.dataTransfer)
+          .then(async ({ files }) => {
+            if (files.length === 0) throw new Error("The dropped folder does not contain any files.");
+            await submitChatFileDrop(files);
+          })
+          .catch((cause: unknown) => {
+            setFileDropError(cause instanceof Error ? cause.message : "The folder could not be added.");
+          });
       }}
     >
       {chatDragActive && (
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center border-2 border-dashed border-[rgb(var(--selection-accent-rgb)_/_0.5)] bg-[rgb(var(--selection-accent-rgb)_/_0.08)]">
           <div className="rounded-xl border border-border bg-background/95 px-4 py-3 text-center shadow-lg backdrop-blur">
-            <p className="text-sm font-medium text-foreground">Drop files into chat</p>
-            <p className="mt-1 text-xs text-text-muted">Images attach inline. Other files upload to the workspace and prepare a prompt.</p>
+            <p className="text-sm font-medium text-foreground">Drop files or folders into chat</p>
+            <p className="mt-1 text-xs text-text-muted">Large image sets are grouped in your workspace automatically.</p>
           </div>
         </div>
       )}
@@ -1016,7 +1142,7 @@ export function AgentChatPanel({
             return (
               <ChatMessageRenderBoundary key={rowKey} messageVersion={msg}>
                 {integrationConnectActions.length === 0 && hasRenderableMessagePayload(displayMessage) && (
-                  <ChatMessageBubble
+                  <MemoizedChatMessageBubble
                     message={displayMessage}
                     inlineAudioFile={inlineAudioFile}
                     agentId={selectedAgent.id}
@@ -1029,12 +1155,12 @@ export function AgentChatPanel({
                     isStreaming={rowIsStreaming}
                     agentName={selectedAgentDisplayName}
                     agentMeta={selectedAgent.meta}
-                    onReadFileBytesFromChat={onReadFileBytesFromChat}
-                    onOpenFileFromChat={onOpenFileFromChat}
-                    onDownloadFileFromChat={onDownloadFileFromChat}
+                    onReadFileBytesFromChat={onReadFileBytesFromChat ? stableReadFileBytesFromChat : undefined}
+                    onOpenFileFromChat={onOpenFileFromChat ? stableOpenFileFromChat : undefined}
+                    onDownloadFileFromChat={onDownloadFileFromChat ? stableDownloadFileFromChat : undefined}
                     onRetryFailedReply={retrySource ? () => { void retryFailedReply(rowKey, retrySource); } : undefined}
-                    retryFailedReplyDisabled={failedReplyRetryDisabled}
-                    retryingFailedReply={retryingFailedReplyKey === rowKey}
+                    retryFailedReplyDisabled={retrySource ? failedReplyRetryDisabled : undefined}
+                    retryingFailedReply={retrySource ? retryingFailedReplyKey === rowKey : undefined}
                   />
                 )}
                 {integrationConnectActions.length > 0 && (
@@ -1116,7 +1242,7 @@ export function AgentChatPanel({
               type="button"
               aria-label="Scroll to latest message"
               onClick={() => requestTranscriptScroll("smooth")}
-              className="pointer-events-auto inline-flex min-h-10 items-center gap-1.5 rounded-full border border-border bg-background/95 px-3 text-xs font-medium text-foreground shadow-lg backdrop-blur transition-colors hover:bg-surface-low focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)]"
+              className="pointer-events-auto inline-flex min-h-10 items-center gap-1.5 rounded-full border border-transparent bg-[var(--button-primary)] px-3 text-xs font-medium text-[var(--button-primary-foreground)] shadow-lg transition-colors hover:bg-[var(--button-primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--button-primary-rgb)_/_0.6)]"
             >
               <ArrowDown aria-hidden="true" className="h-3.5 w-3.5" />
               Latest
@@ -1128,9 +1254,9 @@ export function AgentChatPanel({
       {showComposer && (
         <div className={`max-h-[45%] flex-shrink-0 px-3 pt-2 pb-[max(0.625rem,env(safe-area-inset-bottom,0.625rem))] md:max-h-[38%] md:p-3 ${slashMenuOpen || fileMentionMenuOpen ? "overflow-visible" : "overflow-y-auto"}`}>
           <div className="mx-auto flex w-full max-w-5xl min-w-0 flex-col">
-            {!activeIntegrationAction && !recording && !preparingAudioPreview && !audioUrl && displayBootStatus.status === "ready" && connectionSuggestions.length > 0 && (
+            {!activeIntegrationAction && !recording && !preparingAudioPreview && !audioUrl && displayBootStatus.status === "ready" && visibleConnectionSuggestions.length > 0 && (
               <div className="mb-2 flex flex-col gap-2">
-                {connectionSuggestions.map((suggestion) => {
+                {visibleConnectionSuggestions.map((suggestion) => {
                   const Icon = suggestion.Icon;
                   return (
                     <div key={suggestion.id} className="flex items-center gap-3 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.2)] bg-[rgb(var(--selection-accent-rgb)_/_0.08)] px-3 py-2 shadow-sm">
@@ -1156,6 +1282,16 @@ export function AgentChatPanel({
                           <ArrowRight className="h-3.5 w-3.5" />
                         </button>
                       </TooltipHint>
+                      <TooltipHint label={`Dismiss ${suggestion.displayName} connection suggestion`}>
+                        <button
+                          type="button"
+                          aria-label={`Dismiss ${suggestion.displayName} connection suggestion`}
+                          onClick={() => handleDismissConnectionSuggestion(suggestion.id)}
+                          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-[rgb(var(--selection-accent-rgb)_/_0.12)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.5)]"
+                        >
+                          <X aria-hidden="true" className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipHint>
                     </div>
                   );
                 })}
@@ -1171,16 +1307,43 @@ export function AgentChatPanel({
                 <span className="truncate">{slashCommandFeedback}</span>
               </div>
             ) : null}
+            {fileDropError ? (
+              <div role="alert" className="mb-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {fileDropError}
+              </div>
+            ) : null}
             {hasPendingAttachmentWork && (
               <div className="flex gap-2 mb-2 flex-wrap">
                 {chatFilesUploading ? (
                   <div
                     role="status"
                     aria-label="Uploading workspace files"
-                    className="inline-flex h-16 items-center gap-2 rounded-md border border-border bg-surface-low px-3 text-xs text-text-secondary"
+                    className="flex h-16 min-w-52 items-center gap-3 rounded-xl border border-border bg-surface-low px-3 text-xs text-text-secondary"
                   >
                     <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-text-muted/25 border-t-[var(--selection-accent)]" />
-                    Uploading files...
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="truncate font-medium text-foreground">{chatFileUploadProgress?.label ?? "Uploading files..."}</span>
+                        {chatFileUploadProgress ? (
+                          <span className="shrink-0 tabular-nums text-text-muted">{chatFileUploadProgress.completed}/{chatFileUploadProgress.total}</span>
+                        ) : null}
+                      </div>
+                      {chatFileUploadProgress ? (
+                        <div
+                          role="progressbar"
+                          aria-label="File upload progress"
+                          aria-valuemin={0}
+                          aria-valuemax={chatFileUploadProgress.total}
+                          aria-valuenow={chatFileUploadProgress.completed}
+                          className="mt-2 h-1 overflow-hidden rounded-full bg-border"
+                        >
+                          <div
+                            className="h-full rounded-full bg-[var(--selection-accent)] transition-[width] duration-200"
+                            style={{ width: `${chatFileUploadProgress.total > 0 ? (chatFileUploadProgress.completed / chatFileUploadProgress.total) * 100 : 0}%` }}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 ) : null}
                 {chat.pendingAttachments.map((att, i) => (
@@ -1213,17 +1376,37 @@ export function AgentChatPanel({
             )}
             {chat.pendingFiles.length > 0 && (
               <div className="mb-2 flex flex-wrap gap-2">
-                {chat.pendingFiles.map((file, i) => (
-                  <div key={`${file.name}-${i}`} className="inline-flex max-w-full items-center gap-2 rounded-full border border-border bg-surface-low px-3 py-1.5 text-xs text-text-secondary">
-                    <Paperclip className="h-3.5 w-3.5 shrink-0" />
-                    <span className="truncate">{file.name}</span>
-                    <TooltipHint label="Remove attachment">
-                      <button type="button" aria-label="Remove attachment" onClick={() => chat.removePendingFile(i)} className="text-text-muted transition-colors hover:text-destructive">
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </TooltipHint>
-                  </div>
-                ))}
+                {chat.pendingFiles.map((file, i) => {
+                  const removalState = pendingFileRemovalStates[file.path];
+                  const attachmentLabel = file.imageCollection
+                    ? `${file.imageCollection.count}-image collection`
+                    : "attachment";
+                  const removeLabel = removalState === "removing"
+                    ? `Removing ${attachmentLabel}`
+                    : removalState === "failed"
+                      ? `Retry removing ${attachmentLabel}`
+                      : `Remove ${attachmentLabel}`;
+                  return (
+                    <div key={`${file.name}-${i}`} className={`inline-flex max-w-full items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${removalState === "failed" ? "border-destructive/40 bg-destructive/10 text-destructive" : "border-border bg-surface-low text-text-secondary"}`}>
+                      <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">{file.imageCollection ? `${file.imageCollection.count} images` : file.name}</span>
+                      <TooltipHint label={removeLabel}>
+                        <button
+                          type="button"
+                          aria-label={removeLabel}
+                          disabled={removalState === "removing"}
+                          onClick={() => {
+                            if (onRemovePendingFile) onRemovePendingFile(i, file);
+                            else chat.removePendingFile(i);
+                          }}
+                          className="text-text-muted transition-colors hover:text-destructive disabled:cursor-wait disabled:opacity-60"
+                        >
+                          {removalState === "removing" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+                        </button>
+                      </TooltipHint>
+                    </div>
+                  );
+                })}
               </div>
             )}
             <div className="flex gap-2 items-center">
@@ -1432,9 +1615,7 @@ export function AgentChatPanel({
                       }
                       if (imageFiles.length > 0) {
                         e.preventDefault();
-                        const dt = new DataTransfer();
-                        imageFiles.forEach((f) => dt.items.add(f));
-                        chat.addAttachments(dt.files);
+                        void submitChatFileDrop(imageFiles);
                       }
                     }}
                     rows={1}
@@ -1606,7 +1787,7 @@ export function AgentChatPanel({
                     onChange={(event) => {
                       if (composerDisabled) return;
                       if (event.target.files?.length) {
-                        void handleChatFileDrop(event.target.files);
+                        void submitChatFileDrop(event.target.files);
                         event.target.value = "";
                       }
                     }}

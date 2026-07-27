@@ -13,12 +13,13 @@ export function useTypewriter(fullText: string, isActive: boolean): string {
   const currentRef = useRef(0);
   const textRef = useRef(fullText);
 
-  textRef.current = fullText;
-  targetRef.current = fullText.length;
+  useEffect(() => {
+    textRef.current = fullText;
+    targetRef.current = fullText.length;
+  }, [fullText]);
 
   useEffect(() => {
     if (!isActive) {
-      setDisplayedLength(fullText.length);
       currentRef.current = fullText.length;
     }
   }, [isActive, fullText.length]);
@@ -33,7 +34,7 @@ export function useTypewriter(fullText: string, isActive: boolean): string {
         if (target < 20) {
           currentRef.current = target;
           setDisplayedLength(target);
-          rafRef.current = requestAnimationFrame(tick);
+          rafRef.current = 0;
           return;
         }
         const charsPerFrame = Math.max(3, Math.ceil(target / 200));
@@ -50,12 +51,17 @@ export function useTypewriter(fullText: string, isActive: boolean): string {
         currentRef.current = next;
         setDisplayedLength(next);
       }
-      rafRef.current = requestAnimationFrame(tick);
+      rafRef.current = currentRef.current < targetRef.current
+        ? requestAnimationFrame(tick)
+        : 0;
     }
 
     rafRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [isActive]);
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
+    };
+  }, [isActive, fullText.length]);
 
   if (!isActive) return fullText;
   return fullText.slice(0, displayedLength);

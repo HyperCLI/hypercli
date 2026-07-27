@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode, type RefCallback } from "react";
 import { motion } from "framer-motion";
 import Image, { type ImageLoader } from "next/image";
 import {
@@ -21,11 +21,12 @@ import {
   Folder,
   AlertCircle,
   Lock,
+  ShieldCheck,
 } from "lucide-react";
 import type { FileEntry } from "./types";
 import { formatFileSize, getFileBackupBadge } from "./FileRow";
 import { parseZipPreview } from "./zip-preview";
-import { inferFileMimeType, resolveFileType, type ResolvedFileType } from "./file-types";
+import { inferFileMimeType, isFileByteContent, resolveFileType, type ResolvedFileType } from "./file-types";
 import { writeClipboardText } from "../utils/browser-clipboard";
 import { TooltipHint } from "../components/ui/tooltip";
 
@@ -38,6 +39,7 @@ export interface FilePreviewProps {
   content: string | Uint8Array | null;
   loading: boolean;
   error: string | null;
+  unavailableReason?: string | null;
   dirty?: boolean;
   /** When true, the editor becomes read-only and the Save button is hidden.
    *  Used for core agent files that should be edited via download/re-upload. */
@@ -58,8 +60,24 @@ const PREVIEW_ACTION_BUTTON_CLASS =
   "flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30";
 const PREVIEW_ACTION_ICON_CLASS = "h-3.5 w-3.5";
 const PREVIEW_HEADER_ICON_CLASS = "w-4 h-4 text-text-muted flex-shrink-0";
-const MARKDOWN_MODE_BUTTON_CLASS = "rounded-md px-2 py-1 text-[10px] font-medium transition-colors";
+const VIEW_MODE_BUTTON_CLASS = "rounded-md px-2 py-1 text-[10px] font-medium transition-colors";
 const filePreviewImageLoader: ImageLoader = ({ src }) => src;
+const HTML_PREVIEW_CSP = [
+  "default-src 'none'",
+  "base-uri 'none'",
+  "connect-src 'none'",
+  "font-src data:",
+  "form-action 'none'",
+  "frame-src 'none'",
+  "img-src data: blob:",
+  "media-src data: blob:",
+  "navigate-to 'none'",
+  "object-src 'none'",
+  "script-src 'none'",
+  "style-src 'unsafe-inline'",
+  "worker-src 'none'",
+].join("; ");
+const HTML_PREVIEW_PERMISSIONS = "accelerometer 'none'; camera 'none'; geolocation 'none'; microphone 'none'; payment 'none'; usb 'none'";
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(
@@ -68,28 +86,58 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   ) as ArrayBuffer;
 }
 
-function imageSrcFromText(name: string, value: string): string {
+function imageSrcFromText(entry: FileEntry, value: string): string {
   const trimmed = value.trim();
   if (trimmed.startsWith("data:") || trimmed.startsWith("blob:") || trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
     return trimmed;
   }
-  return `data:${inferFileMimeType(name, "image/png")};base64,${trimmed}`;
+  return `data:${inferFileMimeType(entry, "image/png")};base64,${trimmed}`;
 }
 
-function useImagePreviewSrc(name: string, content: string | Uint8Array | null): string | null {
-  const blobUrl = useMemo(() => {
-    if (!(content instanceof Uint8Array)) return null;
-    return URL.createObjectURL(new Blob([toArrayBuffer(content)], { type: inferFileMimeType(name, "image/png") }));
-  }, [content, name]);
+function createSandboxedHtmlDocument(source: string): string {
+  const withoutNavigationMetadata = source
+    .replace(/<base\b[^>]*>/gi, "")
+    .replace(/<meta\b[^>]*>/gi, (tag) => (
+      /\bhttp-equiv\s*=\s*(?:"\s*refresh\s*"|'\s*refresh\s*'|refresh(?:\s|\/?>))/i.test(tag) ? "" : tag
+    ));
+  return [
+    "<!doctype html>",
+    '<meta charset="utf-8">',
+    '<meta name="referrer" content="no-referrer">',
+    `<meta http-equiv="Content-Security-Policy" content="${HTML_PREVIEW_CSP}">`,
+    withoutNavigationMetadata,
+  ].join("");
+}
 
-  useEffect(() => {
-    if (!blobUrl) return;
-    return () => URL.revokeObjectURL(blobUrl);
-  }, [blobUrl]);
+function useFileObjectUrl(
+  entry: FileEntry,
+  content: string | Uint8Array | null,
+  enabled: boolean,
+): readonly [string | null, RefCallback<HTMLSpanElement>] {
+  const mimeType = inferFileMimeType(entry);
+  const [objectUrlState, setObjectUrlState] = useState<{
+    content: Uint8Array;
+    mimeType: string;
+    url: string;
+  } | null>(null);
 
-  if (content instanceof Uint8Array) return blobUrl;
-  if (typeof content === "string") return imageSrcFromText(name, content);
-  return null;
+  const objectUrlAnchorRef = useCallback<RefCallback<HTMLSpanElement>>((element) => {
+    if (!element || !enabled || !isFileByteContent(content)) {
+      if (element) setObjectUrlState(null);
+      return;
+    }
+    const url = URL.createObjectURL(new Blob([toArrayBuffer(content)], { type: mimeType }));
+    setObjectUrlState({ content, mimeType, url });
+    return () => URL.revokeObjectURL(url);
+  }, [content, enabled, mimeType]);
+
+  const objectUrl = enabled
+    && isFileByteContent(content)
+    && objectUrlState?.content === content
+    && objectUrlState.mimeType === mimeType
+    ? objectUrlState.url
+    : null;
+  return [objectUrl, objectUrlAnchorRef];
 }
 
 function renderPreviewIcon(fileType: ResolvedFileType) {
@@ -113,6 +161,7 @@ export function FilePreview({
   content,
   loading,
   error,
+  unavailableReason,
   dirty = false,
   readOnly = false,
   readOnlyLabel = "Read-only",
@@ -126,24 +175,56 @@ export function FilePreview({
 }: FilePreviewProps) {
   const [editContent, setEditContent] = useState(typeof content === "string" ? content : "");
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [markdownMode, setMarkdownMode] = useState<"preview" | "raw">("preview");
+  const [viewModeState, setViewModeState] = useState<{ path: string; mode: "preview" | "raw" }>({
+    path: entry.path,
+    mode: "preview",
+  });
+  const [failedPreviewSource, setFailedPreviewSource] = useState<string | null>(null);
 
-  const fileType = useMemo(() => resolveFileType(entry.name), [entry.name]);
-  const previewType = fileType.previewKind;
+  const fileType = useMemo(() => resolveFileType(entry), [entry]);
+  const unknownTextDetected = !fileType.known && typeof content === "string";
+  const invalidTextBytes = fileType.readMode === "text" && isFileByteContent(content);
+  const previewType = unknownTextDetected
+    ? "text"
+    : invalidTextBytes
+      ? "binary"
+      : fileType.previewKind;
   const isMarkdown = previewType === "markdown";
-  const isEditable = fileType.editable;
+  const isHtml = previewType === "html";
+  const hasViewMode = isMarkdown || isHtml;
+  const viewMode = viewModeState.path === entry.path ? viewModeState.mode : "preview";
+  const setViewMode = (mode: "preview" | "raw") => setViewModeState({ path: entry.path, mode });
+  const isEditable = (fileType.editable || unknownTextDetected) && !invalidTextBytes;
   const textContent = typeof content === "string" ? content : "";
-  const imageSrc = useImagePreviewSrc(entry.name, content);
+  const nativePreviewEnabled = previewType === "image" || previewType === "audio" || previewType === "video" || previewType === "pdf";
+  const [objectUrl, objectUrlAnchorRef] = useFileObjectUrl(
+    entry,
+    content,
+    nativePreviewEnabled,
+  );
+  const nativePreviewPending = nativePreviewEnabled && isFileByteContent(content) && !objectUrl;
+  const imageSrc = isFileByteContent(content)
+    ? objectUrl
+    : typeof content === "string"
+      ? imageSrcFromText(entry, content)
+      : null;
+  const nativePreviewSource = previewType === "image" ? imageSrc : objectUrl;
+  const nativePreviewFailed = Boolean(nativePreviewSource && failedPreviewSource === nativePreviewSource);
   const backupStatus = getFileBackupBadge(entry.backupComparison, entry.type === "directory");
   const archivePreview = useMemo(() => {
-    if (previewType !== "archive" || !(content instanceof Uint8Array)) return null;
+    if (previewType !== "archive" || !isFileByteContent(content)) return null;
     try {
       return { data: parseZipPreview(content), error: null };
     } catch (err) {
       return { data: null, error: err instanceof Error ? err.message : "Could not preview archive." };
     }
   }, [content, previewType]);
+  const htmlPreviewDocument = useMemo(
+    () => isHtml ? createSandboxedHtmlDocument(editContent) : "",
+    [editContent, isHtml],
+  );
 
   // Sync content when loaded
   const [lastContent, setLastContent] = useState(content);
@@ -157,15 +238,18 @@ export function FilePreview({
   const handleSave = async () => {
     if (!onSave || !isDirty) return;
     setSaving(true);
+    setSaveError(null);
     try {
       await onSave(entry.path, editContent);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to save file");
     } finally {
       setSaving(false);
     }
   };
 
   const handleCopy = async () => {
-    if (await copyText(editContent || textContent)) {
+    if (await copyText(editContent)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -179,6 +263,7 @@ export function FilePreview({
       transition={{ duration: 0.2 }}
       className="flex flex-col h-full"
     >
+      <span ref={objectUrlAnchorRef} hidden aria-hidden="true" />
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border flex-shrink-0">
         {renderPreviewIcon(fileType)}
@@ -202,21 +287,21 @@ export function FilePreview({
               />
             </TooltipHint>
           )}
-          {isMarkdown && (
-            <div className="mr-1 flex items-center rounded-lg border border-border bg-background/40 p-0.5" aria-label="Markdown view mode">
+          {hasViewMode && (
+            <div className="mr-1 flex items-center rounded-lg border border-border bg-background/40 p-0.5" aria-label={`${fileType.label} view mode`}>
               <button
                 type="button"
-                onClick={() => setMarkdownMode("preview")}
-                aria-pressed={markdownMode === "preview"}
-                className={`${MARKDOWN_MODE_BUTTON_CLASS} ${markdownMode === "preview" ? "bg-surface-low text-foreground" : "text-text-muted hover:text-foreground"}`}
+                onClick={() => setViewMode("preview")}
+                aria-pressed={viewMode === "preview"}
+                className={`${VIEW_MODE_BUTTON_CLASS} ${viewMode === "preview" ? "bg-surface-low text-foreground" : "text-text-muted hover:text-foreground"}`}
               >
                 Preview
               </button>
               <button
                 type="button"
-                onClick={() => setMarkdownMode("raw")}
-                aria-pressed={markdownMode === "raw"}
-                className={`${MARKDOWN_MODE_BUTTON_CLASS} ${markdownMode === "raw" ? "bg-surface-low text-foreground" : "text-text-muted hover:text-foreground"}`}
+                onClick={() => setViewMode("raw")}
+                aria-pressed={viewMode === "raw"}
+                className={`${VIEW_MODE_BUTTON_CLASS} ${viewMode === "raw" ? "bg-surface-low text-foreground" : "text-text-muted hover:text-foreground"}`}
               >
                 Raw
               </button>
@@ -241,15 +326,17 @@ export function FilePreview({
               </button>
             </TooltipHint>
           )}
-          <TooltipHint label="Copy content">
-            <button aria-label="Copy content" onClick={handleCopy} className={PREVIEW_ACTION_BUTTON_CLASS}>
-              {copied ? (
-                <Check className={`${PREVIEW_ACTION_ICON_CLASS} text-[var(--selection-accent)]`} />
-              ) : (
-                <Copy className={PREVIEW_ACTION_ICON_CLASS} />
-              )}
-            </button>
-          </TooltipHint>
+          {typeof content === "string" && (
+            <TooltipHint label="Copy content">
+              <button aria-label="Copy content" onClick={handleCopy} className={PREVIEW_ACTION_BUTTON_CLASS}>
+                {copied ? (
+                  <Check className={`${PREVIEW_ACTION_ICON_CLASS} text-[var(--selection-accent)]`} />
+                ) : (
+                  <Copy className={PREVIEW_ACTION_ICON_CLASS} />
+                )}
+              </button>
+            </TooltipHint>
+          )}
           {onDownload && (
             <TooltipHint label="Download">
               <button aria-label="Download" onClick={() => onDownload(entry)} className={PREVIEW_ACTION_BUTTON_CLASS}>
@@ -259,6 +346,8 @@ export function FilePreview({
           )}
           {showClose && (
             <button
+              type="button"
+              aria-label="Close file preview"
               onClick={onClose}
               className={PREVIEW_ACTION_BUTTON_CLASS}
             >
@@ -285,24 +374,32 @@ export function FilePreview({
       {/* Content */}
       <div className="flex-1 overflow-auto min-h-0">
         {loading && (
-          <div className="flex items-center justify-center h-full">
+          <div role="status" aria-label="Loading file preview" className="flex items-center justify-center h-full">
             <Loader2 className="w-5 h-5 text-text-muted animate-spin" />
           </div>
         )}
 
         {error && (
-          <div className="flex flex-col items-center justify-center h-full gap-2 px-6">
+          <div role="alert" className="flex flex-col items-center justify-center h-full gap-2 px-6">
             <AlertCircle className="w-6 h-6 text-destructive" />
             <p className="text-center text-xs text-destructive">{error}</p>
           </div>
         )}
 
-        {!loading && !error && content !== null && (
+        {!loading && !error && unavailableReason && (
+          <div role="status" aria-live="polite" className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-xs text-text-muted">
+            <FileText className="h-6 w-6 opacity-60" />
+            <p>{unavailableReason}</p>
+            {onDownload && <p>Download the file to inspect it locally.</p>}
+          </div>
+        )}
+
+        {!loading && !error && !unavailableReason && content !== null && (
           <>
             {previewType === "image" ? (
               <div className="flex items-center justify-center p-4 h-full">
                 <div className="relative h-full w-full overflow-hidden rounded border border-border">
-                  {imageSrc ? (
+                  {imageSrc && !nativePreviewFailed ? (
                     <Image
                       src={imageSrc}
                       alt={entry.name}
@@ -311,13 +408,88 @@ export function FilePreview({
                       loader={filePreviewImageLoader}
                       unoptimized
                       className="object-contain"
+                      onError={() => setFailedPreviewSource(imageSrc)}
                     />
                   ) : (
-                    <div className="flex h-full items-center justify-center">
-                      <Loader2 className="h-5 w-5 animate-spin text-text-muted" />
+                    <div role="status" aria-live="polite" className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-xs text-text-muted">
+                      <FileImage className="h-6 w-6 opacity-60" />
+                      <p>{nativePreviewFailed ? "This browser could not display the image." : nativePreviewPending ? "Preparing image preview." : "Image preview needs file bytes."}</p>
+                      {onDownload && <p>Download the file to inspect it locally.</p>}
                     </div>
                   )}
                 </div>
+              </div>
+            ) : previewType === "audio" ? (
+              <div className="flex h-full items-center justify-center p-6">
+                {objectUrl && !nativePreviewFailed ? (
+                  <div className="elevation-shadow-soft w-full max-w-xl rounded-2xl border border-border bg-surface-low p-5">
+                    <div className="mb-4 flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-background">
+                        <FileAudio className="h-4 w-4 text-text-muted" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-medium text-foreground">{entry.name}</p>
+                        <p className="text-[10px] text-text-muted">{inferFileMimeType(entry)}</p>
+                      </div>
+                    </div>
+                    <audio
+                      aria-label={`Audio preview for ${entry.name}`}
+                      controls
+                      preload="metadata"
+                      src={objectUrl}
+                      onError={() => setFailedPreviewSource(objectUrl)}
+                      className="h-10 w-full"
+                    />
+                  </div>
+                ) : (
+                  <div role="status" aria-live="polite" className="flex flex-col items-center gap-2 text-center text-xs text-text-muted">
+                    <FileAudio className="h-6 w-6 opacity-60" />
+                    <p>{nativePreviewFailed ? "This browser cannot play this audio format." : nativePreviewPending ? "Preparing audio preview." : "Audio preview needs file bytes."}</p>
+                    {onDownload && <p>Download the file to play it locally.</p>}
+                  </div>
+                )}
+              </div>
+            ) : previewType === "video" ? (
+              <div className="flex h-full items-center justify-center bg-black/30 p-4">
+                {objectUrl && !nativePreviewFailed ? (
+                  <video
+                    aria-label={`Video preview for ${entry.name}`}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    src={objectUrl}
+                    onError={() => setFailedPreviewSource(objectUrl)}
+                    className="max-h-full max-w-full rounded-xl border border-border bg-black shadow-2xl"
+                  />
+                ) : (
+                  <div role="status" aria-live="polite" className="flex flex-col items-center gap-2 text-center text-xs text-text-muted">
+                    <FileVideo className="h-6 w-6 opacity-60" />
+                    <p>{nativePreviewFailed ? "This browser cannot play this video format." : nativePreviewPending ? "Preparing video preview." : "Video preview needs file bytes."}</p>
+                    {onDownload && <p>Download the file to play it locally.</p>}
+                  </div>
+                )}
+              </div>
+            ) : previewType === "pdf" ? (
+              <div className="h-full bg-surface-low p-3">
+                {objectUrl ? (
+                  <object
+                    aria-label={`PDF preview for ${entry.name}`}
+                    data={objectUrl}
+                    type="application/pdf"
+                    className="h-full w-full rounded-lg border border-border bg-white"
+                  >
+                    <div role="status" aria-live="polite" className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-xs text-text-muted">
+                      <FileText className="h-6 w-6 opacity-60" />
+                      <p>This browser could not display the PDF.</p>
+                    </div>
+                  </object>
+                ) : (
+                  <div role="status" aria-live="polite" className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-xs text-text-muted">
+                    <FileText className="h-6 w-6 opacity-60" />
+                    <p>{nativePreviewPending ? "Preparing PDF preview." : "PDF preview needs file bytes."}</p>
+                    {onDownload && <p>Download the file to inspect it locally.</p>}
+                  </div>
+                )}
               </div>
             ) : previewType === "archive" ? (
               <div className="flex min-h-full flex-col">
@@ -335,6 +507,9 @@ export function FilePreview({
                         <span>Showing first {archivePreview.data.entries.length.toLocaleString()} of {archivePreview.data.totalEntries.toLocaleString()}</span>
                       )}
                     </div>
+                    <p className="border-b border-border px-3 py-1.5 text-[10px] text-text-muted">
+                      Contents only. Files inside are not opened or extracted.
+                    </p>
                     {archivePreview.data.entries.length > 0 ? (
                       <div className="divide-y divide-border">
                         {archivePreview.data.entries.map((archiveEntry, index) => {
@@ -374,7 +549,22 @@ export function FilePreview({
                   </div>
                 )}
               </div>
-            ) : isMarkdown && markdownMode === "preview" ? (
+            ) : isHtml && viewMode === "preview" ? (
+              <div className="flex h-full min-h-80 flex-col bg-white">
+                <div role="status" aria-label="HTML preview security" className="flex flex-shrink-0 items-center gap-2 border-b border-border bg-surface-low px-3 py-2 text-[10px] text-text-muted">
+                  <ShieldCheck className="h-3.5 w-3.5 text-[var(--selection-accent)]" />
+                  <span>Sandboxed preview. Scripts and form submissions are disabled; network resources are blocked.</span>
+                </div>
+                <iframe
+                  title={`Sandboxed HTML preview for ${entry.name}`}
+                  srcDoc={htmlPreviewDocument}
+                  sandbox=""
+                  referrerPolicy="no-referrer"
+                  allow={HTML_PREVIEW_PERMISSIONS}
+                  className="min-h-0 w-full flex-1 border-0 bg-white"
+                />
+              </div>
+            ) : isMarkdown && viewMode === "preview" ? (
               <div className="min-h-full p-4 text-sm text-text-secondary">
                 {renderMarkdown ? (
                   renderMarkdown(editContent, "text-sm")
@@ -387,14 +577,14 @@ export function FilePreview({
             ) : previewType === "binary" ? (
               <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-xs text-text-muted">
                 <FileText className="h-6 w-6 opacity-60" />
-                <p>{fileType.label} preview is not available yet.</p>
+                <p>{invalidTextBytes ? "This file is not valid UTF-8, so editing is disabled." : `${fileType.label} preview is not available.`}</p>
                 {onDownload && <p>Download the file to inspect it locally.</p>}
               </div>
             ) : isEditable ? (
               <textarea
                 value={editContent}
                 onChange={(e) => setEditContent(e.target.value)}
-                readOnly={readOnly}
+                readOnly={readOnly || saving}
                 aria-label={`${entry.name} contents`}
                 className="w-full h-full p-3 bg-transparent text-xs font-mono text-foreground leading-relaxed resize-none focus:outline-none"
                 spellCheck={false}
@@ -407,6 +597,12 @@ export function FilePreview({
           </>
         )}
       </div>
+
+      {saveError && (
+        <div role="alert" className="border-t border-destructive/30 bg-destructive/10 px-3 py-2 text-[10px] text-destructive">
+          {saveError}
+        </div>
+      )}
 
       {/* Dirty state footer */}
       {isDirty && onSave && !readOnly && (

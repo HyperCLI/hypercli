@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X,
@@ -18,7 +18,7 @@ import { FilesDirectoryTree } from "./FilesDirectoryTree";
 import { FilePreview, type FilePreviewMarkdownRenderer } from "./FilePreview";
 import { FilesEmptyState } from "./FilesEmptyState";
 import { writeClipboardText } from "../utils/browser-clipboard";
-import { shouldReadFileAsBytes } from "./file-types";
+import { decodeUtf8FileContent, isFileByteContent, resolveFileType, shouldReadFileAsBytes } from "./file-types";
 import { TooltipHint } from "../components/ui/tooltip";
 
 // ── Types ──
@@ -41,6 +41,8 @@ const SORT_OPTIONS: { key: FileSortKey; label: string }[] = [
   { key: "size", label: "Size" },
   { key: "date", label: "Date" },
 ];
+const MAX_TEXT_PREVIEW_BYTES = 4 * 1024 * 1024;
+const MAX_INLINE_PREVIEW_BYTES = 64 * 1024 * 1024;
 
 // ── Component ──
 
@@ -69,6 +71,25 @@ export function FilesDrawer({
   const [previewContent, setPreviewContent] = useState<string | Uint8Array | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewUnavailableReason, setPreviewUnavailableReason] = useState<string | null>(null);
+  const previewRequestIdRef = useRef(0);
+  useEffect(() => () => {
+    previewRequestIdRef.current += 1;
+  }, []);
+
+  const clearPreview = useCallback(() => {
+    previewRequestIdRef.current += 1;
+    setPreviewEntry(null);
+    setPreviewContent(null);
+    setPreviewLoading(false);
+    setPreviewError(null);
+    setPreviewUnavailableReason(null);
+  }, []);
+
+  const handleClose = useCallback(() => {
+    clearPreview();
+    onClose();
+  }, [clearPreview, onClose]);
 
   // ── Sync external files ──
   useEffect(() => {
@@ -120,31 +141,66 @@ export function FilesDrawer({
 
   // ── File actions ──
   const handleOpenFile = useCallback(async (entry: FileEntry) => {
+    const requestId = ++previewRequestIdRef.current;
     if (entry.type === "directory") {
       setCurrentPath(entry.path);
+      clearPreview();
       return;
     }
     setPreviewEntry(entry);
     setPreviewContent(null);
+    setPreviewLoading(false);
     setPreviewError(null);
+    setPreviewUnavailableReason(null);
+    const fileType = resolveFileType(entry);
+    const previewLimit = fileType.readMode === "text" || !fileType.known
+      ? MAX_TEXT_PREVIEW_BYTES
+      : MAX_INLINE_PREVIEW_BYTES;
+    if (entry.size !== undefined && entry.size > previewLimit) {
+      setPreviewUnavailableReason(`Preview is limited to ${previewLimit / 1024 / 1024} MiB for this file type.`);
+      return;
+    }
+    if (fileType.known && fileType.previewKind === "binary") {
+      setPreviewUnavailableReason(`${fileType.label} preview is not available.`);
+      return;
+    }
     setPreviewLoading(true);
     try {
       if (callbacks) {
-        const content = shouldReadFileAsBytes(entry.name) && callbacks.onGetFileBytes
-          ? await callbacks.onGetFileBytes(entry.path)
+        const readAsBytes = shouldReadFileAsBytes(entry);
+        if (readAsBytes && !callbacks.onGetFileBytes) {
+          throw new Error("A byte reader is required to preview this file type.");
+        }
+        const content = readAsBytes
+          ? await callbacks.onGetFileBytes!(entry.path)
           : await callbacks.onGetFile(entry.path);
-        setPreviewContent(content);
+        if (requestId !== previewRequestIdRef.current) return;
+        const contentByteLength = isFileByteContent(content)
+          ? content.byteLength
+          : new TextEncoder().encode(content).byteLength;
+        if (contentByteLength > previewLimit) {
+          setPreviewUnavailableReason(`Preview is limited to ${previewLimit / 1024 / 1024} MiB for this file type.`);
+          return;
+        }
+        const decodedContent = isFileByteContent(content) && !fileType.known
+          ? decodeUtf8FileContent(content)
+          : null;
+        setPreviewContent(decodedContent ?? content);
       }
     } catch (err) {
-      setPreviewError(err instanceof Error ? err.message : "Failed to load file");
+      if (requestId === previewRequestIdRef.current) {
+        setPreviewError(err instanceof Error ? err.message : "Failed to load file");
+      }
     } finally {
-      setPreviewLoading(false);
+      if (requestId === previewRequestIdRef.current) setPreviewLoading(false);
     }
-  }, [callbacks]);
+  }, [callbacks, clearPreview]);
 
   const handleSaveFile = useCallback(async (path: string, content: string) => {
     if (!callbacks) return;
+    const previewRequestId = previewRequestIdRef.current;
     await callbacks.onSetFile(path, content);
+    if (previewRequestId === previewRequestIdRef.current) setPreviewContent(content);
   }, [callbacks]);
 
   const handleDeleteFile = useCallback(async (entry: FileEntry) => {
@@ -153,13 +209,13 @@ export function FilesDrawer({
       await callbacks.onDeleteFile(entry.path);
       setFiles((prev) => prev.filter((f) => f.path !== entry.path));
       if (previewEntry?.path === entry.path) {
-        setPreviewEntry(null);
+        clearPreview();
       }
     } catch (err) {
       // TODO: show toast
       console.error("Delete failed:", err);
     }
-  }, [callbacks, previewEntry]);
+  }, [callbacks, clearPreview, previewEntry]);
 
   const handleUploadFile = useCallback(async (path: string, content: Uint8Array) => {
     if (!callbacks) return;
@@ -174,8 +230,8 @@ export function FilesDrawer({
 
   const handleNavigate = useCallback((path: string) => {
     setCurrentPath(path);
-    setPreviewEntry(null);
-  }, []);
+    clearPreview();
+  }, [clearPreview]);
 
   const toggleSort = useCallback((key: FileSortKey) => {
     if (sortKey === key) {
@@ -212,13 +268,13 @@ export function FilesDrawer({
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (previewEntry) setPreviewEntry(null);
-        else onClose();
+        if (previewEntry) clearPreview();
+        else handleClose();
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [open, onClose, previewEntry]);
+  }, [clearPreview, handleClose, open, previewEntry]);
 
   return (
     <AnimatePresence>
@@ -231,7 +287,7 @@ export function FilesDrawer({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
             className="fixed inset-0 z-40 bg-background/70 backdrop-blur-sm"
-            onClick={onClose}
+            onClick={handleClose}
           />
 
           {/* Drawer panel */}
@@ -305,7 +361,9 @@ export function FilesDrawer({
               </div>
 
               <button
-                onClick={onClose}
+                type="button"
+                aria-label="Close files"
+                onClick={handleClose}
                 className="w-6 h-6 rounded flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
               >
                 <X className="w-3.5 h-3.5" />
@@ -335,7 +393,8 @@ export function FilesDrawer({
                     content={previewContent}
                     loading={previewLoading}
                     error={previewError}
-                    onClose={() => setPreviewEntry(null)}
+                    unavailableReason={previewUnavailableReason}
+                    onClose={clearPreview}
                     onSave={callbacks ? handleSaveFile : undefined}
                     renderMarkdown={renderMarkdown}
                     copyText={copyText}

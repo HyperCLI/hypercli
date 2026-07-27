@@ -8,6 +8,7 @@ import {
   flattenLaunchConfig,
   launchConfigHasDesktop,
   OpenClawAgent,
+  OpenClawProAgent,
   attachSlackRelayAgent,
   getSlackInstallStatus,
   listSlackDirectoryConversations,
@@ -18,6 +19,7 @@ import { HTTPClient } from '../src/http.js';
 
 describe('Agents SDK', () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -834,64 +836,123 @@ describe('Agents SDK', () => {
     ]);
   });
 
-  it('resolves missing gateway tokens through inferenceToken', async () => {
-    const http = {
-      get: vi
-        .fn()
-        .mockResolvedValueOnce({
-          id: 'agent-123',
-          user_id: 'user-456',
-          pod_id: 'pod-789',
-          pod_name: 'pod-789',
-          state: 'running',
-          hostname: 'openclaw-test.hypercli.com',
-        })
-        .mockResolvedValueOnce({
-          agent_id: 'agent-123',
-          env: {
-            OPENCLAW_GATEWAY_TOKEN: 'gw-fetched',
-          },
-        }),
-    } as unknown as HTTPClient;
+  it('returns file response MIME metadata and forwards preview cancellation', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(new Uint8Array([1, 2, 3]), {
+      headers: { 'Content-Type': 'image/png' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const deployments = new Deployments({ apiKey: 'hyper_api_test' } as unknown as HTTPClient, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+    const abortController = new AbortController();
 
-    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+    const result = await deployments.fileReadBytesWithMetadata(
+      'agent-123',
+      '.openclaw/workspace/preview.png',
+      'pod',
+      { maxBytes: 16, signal: abortController.signal },
+    );
+
+    expect(result.content).toEqual(new Uint8Array([1, 2, 3]));
+    expect(result.mimeType).toBe('image/png');
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ signal: abortController.signal });
+  });
+
+  it('stops a chunked file read when it crosses the requested byte limit', async () => {
+    const response = new Response(new globalThis.ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2, 3]));
+        controller.enqueue(new Uint8Array([4, 5, 6]));
+        controller.close();
+      },
+    }));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response));
+    const deployments = new Deployments({ apiKey: 'hyper_api_test' } as unknown as HTTPClient, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+
+    await expect(deployments.fileReadBytes(
+      'agent-123',
+      '.openclaw/workspace/large.txt',
+      'pod',
+      { maxBytes: 4 },
+    )).rejects.toThrow(/exceeds the .* read limit/i);
+  });
+
+  it('hydrates gateway urls and skips context calls when url and token are complete', async () => {
+    const deployments = {
+      get: vi.fn(),
+      env: vi.fn(),
+    } as unknown as Deployments;
     const agent = OpenClawAgent.fromDict({
       id: 'agent-123',
       user_id: 'user-456',
       pod_id: 'pod-789',
       pod_name: 'pod-789',
       state: 'running',
+      hostname: 'openclaw-test.hypercli.com',
+      gateway_token: 'gw-inline',
+    });
+    const proAgent = OpenClawProAgent.fromDict({
+      id: 'agent-pro',
+      user_id: 'user-456',
+      pod_id: 'pod-pro',
+      pod_name: 'pod-pro',
+      state: 'running',
+      hostname: 'openclaw-pro.hypercli.com',
+      gateway_token: 'gw-pro',
     });
     agent._deployments = deployments;
 
-    const gatewayToken = await agent.resolveGatewayToken();
+    const context = await agent.waitForGatewayContext();
 
-    expect(gatewayToken).toBe('gw-fetched');
-    expect(agent.gatewayToken).toBe('gw-fetched');
     expect(agent.gatewayUrl).toBe('wss://openclaw-test.hypercli.com');
+    expect(proAgent.gatewayUrl).toBe('wss://openclaw-pro.hypercli.com');
+    expect(context).toEqual({
+      agent_id: 'agent-123',
+      hostname: 'openclaw-test.hypercli.com',
+      gateway_token: 'gw-inline',
+    });
+    expect(deployments.get).not.toHaveBeenCalled();
+    expect(deployments.env).not.toHaveBeenCalled();
   });
 
-  it('resolveGatewayToken backfills missing gateway url through hostname and env', async () => {
-    const http = {
+  it('fetches only env when the hydrated hostname already provides the gateway url', async () => {
+    const deployments = {
+      get: vi.fn(),
+      env: vi.fn().mockResolvedValue({
+        agent_id: 'agent-123',
+        env: { OPENCLAW_GATEWAY_TOKEN: 'gw-fetched' },
+      }),
+    } as unknown as Deployments;
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-123',
+      user_id: 'user-456',
+      pod_id: 'pod-789',
+      pod_name: 'pod-789',
+      state: 'running',
+      hostname: 'openclaw-test.hypercli.com',
+    });
+    agent._deployments = deployments;
+
+    const context = await agent.waitForGatewayContext();
+
+    expect(context.gateway_token).toBe('gw-fetched');
+    expect(agent.gatewayUrl).toBe('wss://openclaw-test.hypercli.com');
+    expect(deployments.get).not.toHaveBeenCalled();
+    expect(deployments.env).toHaveBeenCalledOnce();
+  });
+
+  it('fetches only the deployment when the gateway token is already known', async () => {
+    const deployments = {
       get: vi
         .fn()
-        .mockResolvedValueOnce({
+        .mockResolvedValue(OpenClawAgent.fromDict({
           id: 'agent-123',
           user_id: 'user-456',
           pod_id: 'pod-789',
           pod_name: 'pod-789',
           state: 'running',
           hostname: 'openclaw-test.hypercli.com',
-        })
-        .mockResolvedValueOnce({
-          agent_id: 'agent-123',
-          env: {
-            OPENCLAW_GATEWAY_TOKEN: 'gw-fetched',
-          },
-        }),
-    } as unknown as HTTPClient;
-
-    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+        })),
+      env: vi.fn(),
+    } as unknown as Deployments;
     const agent = OpenClawAgent.fromDict({
       id: 'agent-123',
       user_id: 'user-456',
@@ -902,48 +963,79 @@ describe('Agents SDK', () => {
     });
     agent._deployments = deployments;
 
-    const gatewayToken = await agent.resolveGatewayToken();
+    const context = await agent.waitForGatewayContext();
 
-    expect(gatewayToken).toBe('gw-fetched');
+    expect(context.gateway_token).toBe('gw-inline');
     expect(agent.gatewayUrl).toBe('wss://openclaw-test.hypercli.com');
-    expect(agent.gatewayToken).toBe('gw-fetched');
+    expect(agent.gatewayToken).toBe('gw-inline');
+    expect(deployments.get).toHaveBeenCalledOnce();
+    expect(deployments.env).not.toHaveBeenCalled();
   });
 
-  it('waitForGatewayContext retries until both gateway url and token are ready', async () => {
-    const http = {
+  it('fetches deployment and env concurrently when both are missing', async () => {
+    let resolveDeployment!: (agent: OpenClawAgent) => void;
+    const deploymentResponse = new Promise<OpenClawAgent>((resolve) => {
+      resolveDeployment = resolve;
+    });
+    const deployments = {
+      get: vi.fn().mockReturnValue(deploymentResponse),
+      env: vi.fn().mockResolvedValue({
+        agent_id: 'agent-123',
+        env: { OPENCLAW_GATEWAY_TOKEN: 'gw-fetched' },
+      }),
+    } as unknown as Deployments;
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-123',
+      user_id: 'user-456',
+      pod_id: 'pod-789',
+      pod_name: 'pod-789',
+      state: 'running',
+    });
+    agent._deployments = deployments;
+
+    const contextPromise = agent.waitForGatewayContext();
+
+    expect(deployments.get).toHaveBeenCalledOnce();
+    expect(deployments.env).toHaveBeenCalledOnce();
+    resolveDeployment(OpenClawAgent.fromDict({
+      id: 'agent-123',
+      user_id: 'user-456',
+      pod_id: 'pod-789',
+      pod_name: 'pod-789',
+      state: 'running',
+      hostname: 'openclaw-test.hypercli.com',
+    }));
+    await expect(contextPromise).resolves.toMatchObject({
+      hostname: 'openclaw-test.hypercli.com',
+      gateway_token: 'gw-fetched',
+    });
+  });
+
+  it('waitForGatewayContext retries only the context that remains missing', async () => {
+    const deployments = {
       get: vi
         .fn()
-        .mockResolvedValueOnce({
+        .mockResolvedValueOnce(OpenClawAgent.fromDict({
           id: 'agent-123',
           user_id: 'user-456',
           pod_id: 'pod-789',
           pod_name: 'pod-789',
           state: 'running',
           hostname: null,
-        })
-        .mockResolvedValueOnce({
-          agent_id: 'agent-123',
-          env: {
-            OPENCLAW_GATEWAY_TOKEN: 'gw-fetched',
-          },
-        })
-        .mockResolvedValueOnce({
+        }))
+        .mockResolvedValueOnce(OpenClawAgent.fromDict({
           id: 'agent-123',
           user_id: 'user-456',
           pod_id: 'pod-789',
           pod_name: 'pod-789',
           state: 'running',
           hostname: 'openclaw-test.hypercli.com',
-        })
-        .mockResolvedValueOnce({
-          agent_id: 'agent-123',
-          env: {
-            OPENCLAW_GATEWAY_TOKEN: 'gw-fetched',
-          },
-        }),
-    } as unknown as HTTPClient;
-
-    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+        })),
+      env: vi.fn().mockResolvedValue({
+        agent_id: 'agent-123',
+        env: { OPENCLAW_GATEWAY_TOKEN: 'gw-fetched' },
+      }),
+    } as unknown as Deployments;
     const agent = OpenClawAgent.fromDict({
       id: 'agent-123',
       user_id: 'user-456',
@@ -958,6 +1050,56 @@ describe('Agents SDK', () => {
     expect(context.gateway_token).toBe('gw-fetched');
     expect(context.hostname).toBe('openclaw-test.hypercli.com');
     expect(agent.gatewayUrl).toBe('wss://openclaw-test.hypercli.com');
-    expect(http.get).toHaveBeenCalledTimes(4);
+    expect(deployments.get).toHaveBeenCalledTimes(2);
+    expect(deployments.env).toHaveBeenCalledOnce();
+  });
+
+  it('times out an in-flight gateway context attempt and aborts its requests', async () => {
+    vi.useFakeTimers();
+    const pending = new Promise<never>(() => undefined);
+    const deployments = {
+      get: vi.fn().mockReturnValue(pending),
+      env: vi.fn().mockReturnValue(pending),
+    } as unknown as Deployments;
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-123',
+      user_id: 'user-456',
+      pod_id: 'pod-789',
+      pod_name: 'pod-789',
+      state: 'running',
+    });
+    agent._deployments = deployments;
+
+    const contextPromise = agent.waitForGatewayContext({ timeoutMs: 100 });
+    const rejection = expect(contextPromise).rejects.toThrow('Timed out waiting for OpenClaw gateway context');
+
+    await vi.advanceTimersByTimeAsync(100);
+    await rejection;
+    expect((deployments.get.mock.calls[0]?.[1] as { signal: AbortSignal }).signal.aborted).toBe(true);
+    expect((deployments.env.mock.calls[0]?.[1] as { signal: AbortSignal }).signal.aborted).toBe(true);
+  });
+
+  it('aborts an in-flight gateway context attempt from the caller signal', async () => {
+    const pending = new Promise<never>(() => undefined);
+    const deployments = {
+      get: vi.fn().mockReturnValue(pending),
+      env: vi.fn().mockReturnValue(pending),
+    } as unknown as Deployments;
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-123',
+      user_id: 'user-456',
+      pod_id: 'pod-789',
+      pod_name: 'pod-789',
+      state: 'running',
+    });
+    agent._deployments = deployments;
+    const controller = new AbortController();
+
+    const contextPromise = agent.waitForGatewayContext({ signal: controller.signal });
+    controller.abort();
+
+    await expect(contextPromise).rejects.toMatchObject({ name: 'AbortError' });
+    expect((deployments.get.mock.calls[0]?.[1] as { signal: AbortSignal }).signal.aborted).toBe(true);
+    expect((deployments.env.mock.calls[0]?.[1] as { signal: AbortSignal }).signal.aborted).toBe(true);
   });
 });

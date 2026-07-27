@@ -25,6 +25,7 @@ export function ResourceImage({
   ...props
 }: ResourceImageProps) {
   const srcKey = imageSrcKey(src);
+  const nativeDataImage = typeof src === "string" && /^data:image\/(?:avif|bmp|gif|jpe?g|png|webp);base64,/i.test(src);
   const currentSrcKeyRef = useRef(srcKey);
   const [status, setStatus] = useState<{ srcKey: string; value: "loaded" | "failed" } | null>(null);
   const loaded = status?.srcKey === srcKey && status.value === "loaded";
@@ -62,18 +63,37 @@ export function ResourceImage({
           Image unavailable
         </span>
       )}
-      <Image
-        key={srcKey}
-        {...props}
-        src={src}
-        fill={fill}
-        alt={alt}
-        loader={resourceImageLoader}
-        unoptimized
-        className={`${className ?? ""} ${loaded && !failed ? "opacity-100" : "opacity-0"} transition-opacity duration-150`}
-        onLoad={handleLoad}
-        onError={handleError}
-      />
+      {nativeDataImage ? (
+        // eslint-disable-next-line @next/next/no-img-element -- data URLs are already complete local resources and cannot be optimized.
+        <img
+          key={srcKey}
+          src={src}
+          alt={alt}
+          width={fill ? undefined : props.width}
+          height={fill ? undefined : props.height}
+          sizes={props.sizes}
+          loading={props.loading}
+          decoding={props.decoding}
+          fetchPriority={props.fetchPriority}
+          style={fill ? { ...props.style, position: "absolute", inset: 0, width: "100%", height: "100%" } : props.style}
+          className={`${className ?? ""} ${loaded && !failed ? "opacity-100" : "opacity-0"} transition-opacity duration-150`}
+          onLoad={handleLoad}
+          onError={handleError}
+        />
+      ) : (
+        <Image
+          key={srcKey}
+          {...props}
+          src={src}
+          fill={fill}
+          alt={alt}
+          loader={resourceImageLoader}
+          unoptimized
+          className={`${className ?? ""} ${loaded && !failed ? "opacity-100" : "opacity-0"} transition-opacity duration-150`}
+          onLoad={handleLoad}
+          onError={handleError}
+        />
+      )}
     </span>
   );
 }

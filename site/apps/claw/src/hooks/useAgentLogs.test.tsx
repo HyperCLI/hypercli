@@ -109,12 +109,31 @@ describe("useAgentLogs", () => {
       firstSocket.onmessage?.({ data: "agent-1 log" } as MessageEvent);
       await Promise.resolve();
     });
-    expect(result.current.logs).toEqual(["agent-1 log"]);
+    await waitFor(() => expect(result.current.logs).toEqual(["agent-1 log"]));
 
     rerender({ agentId: "agent-2" });
 
     await waitFor(() => expect(result.current.logs).toEqual([]));
     await waitFor(() => expect(result.current.status).toBe("connected"));
+  });
+
+  it("bounds a single oversized log event by character count", async () => {
+    const socket = createSocket();
+    const deployments = {
+      logsConnect: vi.fn().mockResolvedValue(socket),
+    } as unknown as Deployments;
+    const { result } = renderHookWithClient(
+      () => useAgentLogs(deployments, "agent-1", true),
+    );
+
+    await waitFor(() => expect(result.current.status).toBe("connected"));
+    act(() => {
+      socket.onmessage?.({ data: `prefix-${"x".repeat(1_000_000)}` } as MessageEvent);
+    });
+
+    await waitFor(() => expect(result.current.logs).toHaveLength(1));
+    expect(result.current.logs[0]).toHaveLength(1_000_000);
+    expect(result.current.logs[0]).not.toContain("prefix-");
   });
 
   it("reconnects transient closes but not terminal closes", async () => {

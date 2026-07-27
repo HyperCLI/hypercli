@@ -139,14 +139,20 @@ function renderTieredLaunchableWizard(onCreateAgent = vi.fn(async () => "agent-1
 
 function goToPlanStep() {
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 }
 
 function getPlanCard(name: string): HTMLElement {
   const heading = screen.getByRole("heading", { name });
-  const card = heading.closest("div[role='button']");
+  const card = heading.closest("button");
   expect(card).toBeTruthy();
   return card as HTMLElement;
+}
+
+function openAdvancedSettings() {
+  const details = screen.getByText("Advanced").closest("details");
+  if (!details?.hasAttribute("open")) {
+    fireEvent.click(details!.querySelector("summary")!);
+  }
 }
 
 describe("AgentCreationSetupWizard", () => {
@@ -157,6 +163,7 @@ describe("AgentCreationSetupWizard", () => {
 
   it("marks desktop, memory indexing, and custom image as Pro features", () => {
     renderLaunchableWizard();
+    openAdvancedSettings();
 
     expect(screen.getByText("Desktop browser")).toBeInTheDocument();
     expect(screen.getByText("Memory indexing")).toBeInTheDocument();
@@ -166,28 +173,28 @@ describe("AgentCreationSetupWizard", () => {
 
   it("defaults the custom image input from the configured launch image", async () => {
     renderLaunchableWizard();
+    openAdvancedSettings();
 
-    fireEvent.click(screen.getByLabelText(/Custom image/i));
     const imageInput = screen.getByRole("textbox", { name: "Custom agent image" }) as HTMLInputElement;
 
-    expect(imageInput).toHaveValue("ghcr.io/hypercli/hypercli-openclaw:pro-latest");
+    expect(imageInput).toHaveValue("");
+    expect(imageInput).toHaveAttribute("placeholder", "ghcr.io/hypercli/hypercli-openclaw:pro-latest");
 
     fireEvent.click(screen.getByLabelText(/Desktop browser/i));
 
     await waitFor(() => {
-      expect(imageInput).toHaveValue("ghcr.io/hypercli/hypercli-openclaw:pro-latest");
+      expect(imageInput).toHaveAttribute("placeholder", "ghcr.io/hypercli/hypercli-openclaw:pro-latest");
     });
   });
 
   it("forwards a selected custom image when launching", async () => {
     const onCreateAgent = renderLaunchableWizard();
+    openAdvancedSettings();
 
-    fireEvent.click(screen.getByLabelText(/Custom image/i));
     fireEvent.change(screen.getByRole("textbox", { name: "Custom agent image" }), {
       target: { value: "ghcr.io/acme/openclaw:stable" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    goToPlanStep();
     fireEvent.click(screen.getAllByRole("button", { name: "Launch agent" })[0]);
 
     await waitFor(() => {
@@ -203,9 +210,9 @@ describe("AgentCreationSetupWizard", () => {
 
     goToPlanStep();
 
-    expect(within(getPlanCard("Basic")).getByRole("button", { name: "Launch agent" })).toBeEnabled();
-    expect(within(getPlanCard("Plus")).getByRole("button", { name: "Launch agent" })).toBeEnabled();
-    expect(within(getPlanCard("Pro")).getByRole("button", { name: "Launch agent" })).toBeEnabled();
+    expect(getPlanCard("Basic")).toBeEnabled();
+    expect(getPlanCard("Plus")).toBeEnabled();
+    expect(getPlanCard("Pro")).toBeEnabled();
   });
 
   it.each([
@@ -214,14 +221,21 @@ describe("AgentCreationSetupWizard", () => {
     ["Custom image"],
   ])("disables Basic and Plus when %s is selected", (featureLabel) => {
     renderTieredLaunchableWizard();
+    openAdvancedSettings();
 
-    fireEvent.click(screen.getByLabelText(new RegExp(featureLabel, "i")));
+    if (featureLabel === "Custom image") {
+      fireEvent.change(screen.getByRole("textbox", { name: "Custom agent image" }), {
+        target: { value: "ghcr.io/acme/openclaw:stable" },
+      });
+    } else {
+      fireEvent.click(screen.getByLabelText(new RegExp(featureLabel, "i")));
+    }
     goToPlanStep();
 
-    expect(within(getPlanCard("Basic")).getByRole("button", { name: "Pro required" })).toBeDisabled();
-    expect(within(getPlanCard("Plus")).getByRole("button", { name: "Pro required" })).toBeDisabled();
-    expect(within(getPlanCard("Pro")).getByRole("button", { name: "Launch agent" })).toBeEnabled();
-    expect(within(getPlanCard("Basic")).getByText("Desktop, indexing, and custom images require Pro.")).toBeInTheDocument();
+    expect(getPlanCard("Basic")).toBeDisabled();
+    expect(getPlanCard("Plus")).toBeDisabled();
+    expect(getPlanCard("Pro")).toBeEnabled();
+    expect(within(getPlanCard("Basic")).getByText("Pro required")).toBeInTheDocument();
   });
 
   it("disables Free when a Pro feature is selected", () => {
@@ -254,11 +268,12 @@ describe("AgentCreationSetupWizard", () => {
       />,
     );
 
+    openAdvancedSettings();
     fireEvent.click(screen.getByLabelText(/Desktop browser/i));
     goToPlanStep();
 
-    expect(within(getPlanCard("Free")).getByRole("button", { name: "Pro required" })).toBeDisabled();
-    expect(within(getPlanCard("Starter")).getByRole("button", { name: "Pro required" })).toBeDisabled();
-    expect(within(getPlanCard("Pro")).getByRole("button", { name: "View plan" })).toBeEnabled();
+    expect(getPlanCard("Free")).toBeDisabled();
+    expect(getPlanCard("Starter")).toBeDisabled();
+    expect(getPlanCard("Pro")).toBeEnabled();
   });
 });

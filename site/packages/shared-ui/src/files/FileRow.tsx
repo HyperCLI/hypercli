@@ -50,7 +50,7 @@ function getFileIcon(entry: FileEntry): { icon: LucideIcon; color: string } {
   if (entry.type === "directory") {
     return { icon: Folder, color: "var(--primary)" };
   }
-  const fileType = resolveFileType(entry.name);
+  const fileType = resolveFileType(entry);
   return FILE_TYPE_ICONS[fileType.iconKind] ?? FILE_TYPE_ICONS.file;
 }
 

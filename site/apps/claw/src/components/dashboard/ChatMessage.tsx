@@ -35,6 +35,13 @@ import { TooltipHint } from "@/components/ClawTooltip";
 
 // ── Helpers ──
 
+export interface ChatFileReadOptions {
+  maxBytes: number;
+  signal: AbortSignal;
+}
+
+export type ChatFileBytesReader = (path: string, options?: ChatFileReadOptions) => Promise<Uint8Array>;
+
 function normalizeChatFileReference(file: ChatPendingFile): ChatPendingFile | null {
   const candidate = file as Partial<ChatPendingFile>;
   const path = typeof candidate.path === "string" ? candidate.path : "";
@@ -65,7 +72,7 @@ function escapeRegExp(value: string): string {
 
 function isAudioReplyCarrierText(value: string): boolean {
   return !value
-    .replace(/\b(?:audio|voice|generated|reply|message|file|saved|created|available|at|here|is|the|your|an|as)\b/gi, "")
+    .replace(/\b(?:audio|voice|tts|speech|spoken|synthesized|generated|reply|message|file|saved|created|available|at|here|is|the|your|an|as)\b/gi, "")
     .replace(/[`"'()[\]{}:;,.!?\-_/\\|]+/g, "")
     .trim();
 }
@@ -160,14 +167,19 @@ function ChatAudioFilePreview({
 }: {
   file: ChatPendingFile;
   agentId: string;
-  readFileBytes?: (path: string) => Promise<Uint8Array>;
+  readFileBytes?: ChatFileBytesReader;
   onOpenFile?: (path: string) => void;
   onDownloadFile?: (file: ChatPendingFile) => void | Promise<void>;
 }) {
-  const audioState = useAgentFileObjectState({ agentId, path: file.path }, readFileBytes);
+  const { visibilityRef, shouldLoad } = useNearViewportMedia(true);
+  const audioState = useAgentFileObjectState(
+    { agentId, path: file.path, mimeType: file.type },
+    readFileBytes,
+    shouldLoad,
+  );
 
   return (
-    <div className="flex w-full max-w-[22rem] flex-col gap-1">
+    <div ref={visibilityRef} className="flex w-full max-w-[22rem] flex-col gap-1">
       <AudioPlayer
         src={audioState.url}
         title={file.name}
@@ -197,14 +209,19 @@ function ChatVideoFilePreview({
 }: {
   file: ChatPendingFile;
   agentId: string;
-  readFileBytes?: (path: string) => Promise<Uint8Array>;
+  readFileBytes?: ChatFileBytesReader;
   onOpenFile?: (path: string) => void;
   onDownloadFile?: (file: ChatPendingFile) => void | Promise<void>;
 }) {
-  const videoState = useAgentFileObjectState({ agentId, path: file.path }, readFileBytes);
+  const { visibilityRef, shouldLoad } = useNearViewportMedia(true);
+  const videoState = useAgentFileObjectState(
+    { agentId, path: file.path, mimeType: file.type },
+    readFileBytes,
+    shouldLoad,
+  );
 
   return (
-    <div className="flex w-full max-w-[28rem] flex-col gap-1">
+    <div ref={visibilityRef} className="flex w-full max-w-[28rem] flex-col gap-1">
       {videoState.url ? (
         <video
           src={videoState.url}
@@ -241,7 +258,7 @@ interface GeneratedMediaFilePreviewProps {
   file: ChatPendingFile;
   displayPath: string;
   imagePreviewAgentId: string;
-  readFileBytes?: (path: string) => Promise<Uint8Array>;
+  readFileBytes?: ChatFileBytesReader;
   onOpenFile?: (path: string) => void;
   onDownloadFile?: (file: ChatPendingFile) => void | Promise<void>;
 }
@@ -256,14 +273,16 @@ function GeneratedMediaFilePreview({
 }: GeneratedMediaFilePreviewProps) {
   const isAudio = isAudioFileReference(file);
   const isVideo = isVideoFileReference(file);
+  const { visibilityRef, shouldLoad } = useNearViewportMedia(isAudio);
   const audioState = useAgentFileObjectState(
-    isAudio && imagePreviewAgentId ? { agentId: imagePreviewAgentId, path: file.path } : null,
+    isAudio && imagePreviewAgentId ? { agentId: imagePreviewAgentId, path: file.path, mimeType: file.type } : null,
     readFileBytes,
+    shouldLoad,
   );
 
   if (isAudio) {
     return (
-      <div className="flex w-full max-w-[22rem] flex-col gap-1">
+      <div ref={visibilityRef} className="flex w-full max-w-[22rem] flex-col gap-1">
         <AudioPlayer
           src={audioState.url}
           title={file.name}
@@ -303,7 +322,7 @@ function GeneratedMediaFilePreview({
     return (
       <div className="flex max-w-full flex-col gap-1">
         <AuthImage
-          file={{ agentId: imagePreviewAgentId, path: file.path }}
+          file={{ agentId: imagePreviewAgentId, path: file.path, mimeType: file.type }}
           alt={file.name}
           className="h-auto max-h-[240px] max-w-full rounded-md object-contain sm:max-w-[240px]"
           readFileBytes={readFileBytes}
@@ -426,7 +445,7 @@ interface ChatMessageProps {
   senderName?: string;
   isGroupChat?: boolean;
   compactToolCalls?: boolean;
-  onReadFileBytesFromChat?: (path: string) => Promise<Uint8Array>;
+  onReadFileBytesFromChat?: ChatFileBytesReader;
   onOpenFileFromChat?: (path: string) => void;
   onDownloadFileFromChat?: (file: ChatPendingFile) => void | Promise<void>;
   onRetryFailedReply?: () => void;
@@ -437,6 +456,7 @@ interface ChatMessageProps {
 interface AgentFileReference {
   agentId: string;
   path: string;
+  mimeType?: string;
 }
 
 type ToolCall = NonNullable<ChatMessageType["toolCalls"]>[number];
@@ -449,6 +469,8 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 }
 
 const AGENT_FILE_READ_RETRY_DELAYS_MS = [0, 250, 750, 1500, 2500];
+const MAX_CHAT_MEDIA_PREVIEW_BYTES = 64 * 1024 * 1024;
+const CHAT_MEDIA_PRELOAD_MARGIN_PX = 800;
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -456,9 +478,35 @@ function wait(ms: number): Promise<void> {
   });
 }
 
+function useNearViewportMedia(enabled: boolean): {
+  visibilityRef: (element: HTMLElement | null) => void;
+  shouldLoad: boolean;
+} {
+  const [element, setElement] = useState<HTMLElement | null>(null);
+  const [nearViewport, setNearViewport] = useState(false);
+  const observerSupported = typeof window !== "undefined" && typeof window.IntersectionObserver === "function";
+
+  useEffect(() => {
+    if (!enabled || nearViewport || !element || !observerSupported) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      setNearViewport(true);
+      observer.disconnect();
+    }, { rootMargin: `${CHAT_MEDIA_PRELOAD_MARGIN_PX}px 0px` });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [element, enabled, nearViewport, observerSupported]);
+
+  return {
+    visibilityRef: setElement,
+    shouldLoad: enabled && (!observerSupported || nearViewport),
+  };
+}
+
 function useAgentFileObjectState(
   file: AgentFileReference | null | undefined,
-  readFileBytes?: (path: string) => Promise<Uint8Array>,
+  readFileBytes?: ChatFileBytesReader,
+  enabled = true,
 ): { url: string | null; loading: boolean; failed: boolean } {
   const [objectState, setObjectState] = useState<{ key: string; url: string | null; failed: boolean }>({
     key: "",
@@ -468,23 +516,33 @@ function useAgentFileObjectState(
   const blobRef = useRef<string | null>(null);
   const fileAgentId = file?.agentId;
   const filePath = file?.path;
-  const fileKey = fileAgentId && filePath ? `${fileAgentId}\n${filePath}` : "";
+  const fileMimeType = file?.mimeType;
+  const fileKey = fileAgentId && filePath ? `${fileAgentId}\n${filePath}\n${fileMimeType ?? ""}` : "";
 
   useEffect(() => {
     if (blobRef.current) { URL.revokeObjectURL(blobRef.current); blobRef.current = null; }
 
-    if (!fileAgentId || !filePath) return;
+    if (!enabled || !fileAgentId || !filePath) return;
     let cancelled = false;
+    const abortController = new AbortController();
 
     const readBytes = () => {
       if (readFileBytes) {
-        return readFileBytes(filePath);
+        return readFileBytes(filePath, {
+          maxBytes: MAX_CHAT_MEDIA_PREVIEW_BYTES,
+          signal: abortController.signal,
+        });
       }
       const token = getStoredToken();
       if (!token) {
         return Promise.reject(new Error("Missing auth token"));
       }
-      return createAgentClient(token).fileReadBytes(fileAgentId, normalizeOpenClawWorkspaceFilePath(filePath));
+      return createAgentClient(token).fileReadBytes(
+        fileAgentId,
+        normalizeOpenClawWorkspaceFilePath(filePath),
+        "auto",
+        { maxBytes: MAX_CHAT_MEDIA_PREVIEW_BYTES, signal: abortController.signal },
+      );
     };
 
     const bytesPromise = (async () => {
@@ -495,7 +553,11 @@ function useAgentFileObjectState(
         if (delay > 0) await wait(delay);
         if (cancelled) throw new Error("Cancelled");
         try {
-          return await readBytes();
+          const bytes = await readBytes();
+          if (bytes.byteLength > MAX_CHAT_MEDIA_PREVIEW_BYTES) {
+            throw new Error("Media preview exceeds the 64 MiB limit");
+          }
+          return bytes;
         } catch (error) {
           lastError = error;
         }
@@ -506,7 +568,7 @@ function useAgentFileObjectState(
     bytesPromise
       .then((bytes) => {
         if (cancelled) return;
-        const blob = new Blob([toArrayBuffer(bytes)], { type: inferChatMediaFileType(filePath) });
+        const blob = new Blob([toArrayBuffer(bytes)], { type: inferChatMediaFileType(filePath, fileMimeType) });
         const url = URL.createObjectURL(blob);
         blobRef.current = url;
         setObjectState({ key: fileKey, url, failed: false });
@@ -518,9 +580,10 @@ function useAgentFileObjectState(
 
     return () => {
       cancelled = true;
+      abortController.abort();
       if (blobRef.current) { URL.revokeObjectURL(blobRef.current); blobRef.current = null; }
     };
-  }, [fileAgentId, fileKey, filePath, readFileBytes]);
+  }, [enabled, fileAgentId, fileKey, fileMimeType, filePath, readFileBytes]);
 
   const stale = objectState.key !== fileKey;
   const failed = Boolean(fileKey && !stale && objectState.failed);
@@ -541,13 +604,15 @@ export function AuthImage({
   className?: string;
   onOpenFile?: () => void;
   onDownload?: () => void | Promise<void>;
-  readFileBytes?: (path: string) => Promise<Uint8Array>;
+  readFileBytes?: ChatFileBytesReader;
 }) {
-  const { url: blobUrl, failed } = useAgentFileObjectState(file, readFileBytes);
+  const { visibilityRef, shouldLoad } = useNearViewportMedia(true);
+  const { url: blobUrl, failed } = useAgentFileObjectState(file, readFileBytes, shouldLoad);
 
   if (!blobUrl) {
     return (
       <div
+        ref={visibilityRef}
         role="status"
         aria-label={failed ? "Image unavailable" : "Loading image"}
         className={`flex aspect-square min-h-24 min-w-24 w-full max-w-[320px] items-center justify-center rounded-md border border-border bg-surface-low px-3 py-3 text-center text-xs text-text-muted ${className ?? ""}`}
@@ -915,7 +980,14 @@ export function ChatMessageBubble({
     isAudioFileReference(file) && isSameWorkspaceFilePath(file.path, inlineAudioFile.path)
   )));
   const standaloneInlineAudioFile = inlineAudioAlreadyAttached ? null : inlineAudioFile;
-  const inlineAudioState = useAgentFileObjectState(standaloneInlineAudioFile, onReadFileBytesFromChat);
+  const { visibilityRef: inlineAudioVisibilityRef, shouldLoad: shouldLoadInlineAudio } = useNearViewportMedia(
+    Boolean(standaloneInlineAudioFile),
+  );
+  const inlineAudioState = useAgentFileObjectState(
+    standaloneInlineAudioFile,
+    onReadFileBytesFromChat,
+    shouldLoadInlineAudio,
+  );
 
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
@@ -963,7 +1035,7 @@ export function ChatMessageBubble({
     ? stripInlineAudioReplyContent(rawEffectiveContent, inlineAudioFile)
     : rawEffectiveContent;
   const extractedContentMedia: ExtractedContentMediaReferences = !isUser
-    ? extractContentMediaReferences(effectiveContent)
+    ? extractContentMediaReferences(effectiveContent, { streaming: isStreaming })
     : { content: effectiveContent, mediaFiles: [] as ContentMediaReference[], directMedia: [], pendingMedia: false };
   const hasInlineImageAttachments = (message.attachments?.length ?? 0) > 0;
   const imageFiles = messageFiles.filter(isImageFileReference);
@@ -991,8 +1063,15 @@ export function ChatMessageBubble({
       reference.kind === "workspace" ? [{ sourceUrl, ...reference.media }] : []
     ))
     : [];
+  const messageFilePaths = new Set(messageFiles.map((file) => normalizeOpenClawWorkspaceFilePath(file.path)));
+  const contentMediaFilePreviews = extractedContentMedia.mediaFiles.filter(({ file }) => (
+    !messageFilePaths.has(normalizeOpenClawWorkspaceFilePath(file.path))
+  ));
   const contentMediaDisplayPaths = new Set(extractedContentMedia.mediaFiles.map(({ displayPath }) => displayPath));
-  const generatedMediaUrlPreviews = generatedMediaUrlReferences.filter(({ displayPath }) => !contentMediaDisplayPaths.has(displayPath));
+  const generatedMediaUrlPreviews = generatedMediaUrlReferences.filter(({ displayPath, file }) => (
+    !contentMediaDisplayPaths.has(displayPath) &&
+    !messageFilePaths.has(normalizeOpenClawWorkspaceFilePath(file.path))
+  ));
   const directMediaReferences = uniqueDirectMediaReferences([
     ...extractedContentMedia.directMedia.map((reference) => directMediaRenderReference(reference, messageFiles)),
     ...mediaUrlReferences.flatMap(({ matchingFile, reference }) => (
@@ -1007,11 +1086,15 @@ export function ChatMessageBubble({
       ...extractedContentMedia.mediaFiles,
       ...generatedMediaUrlReferences,
     ].some(({ file }) => isAudioFileReference(file) && isSameWorkspaceFilePath(file.path, inlineAudioFile.path))
+    || directMediaReferences.some(({ reference }) => (
+      reference.kind === "audio" &&
+      getChatFileLabel({ path: inlineAudioFile.path }).toLowerCase() === reference.fileName.toLowerCase()
+    ))
   ));
   const hasAudioPresentation = Boolean(
     inlineAudioFile ||
     shouldRenderAudioFilePreviews ||
-    extractedContentMedia.mediaFiles.some(({ file }) => isAudioFileReference(file)) ||
+    contentMediaFilePreviews.some(({ file }) => isAudioFileReference(file)) ||
     generatedMediaUrlReferences.some(({ file }) => isAudioFileReference(file)) ||
     directMediaReferences.some(({ reference }) => reference.kind === "audio"),
   );
@@ -1217,9 +1300,9 @@ export function ChatMessageBubble({
           </>
         )}
 
-        {extractedContentMedia.mediaFiles.length > 0 && (
+        {contentMediaFilePreviews.length > 0 && (
           <div className="mb-2 flex max-w-full flex-wrap gap-2">
-            {extractedContentMedia.mediaFiles.map(({ file, displayPath }, i) => (
+            {contentMediaFilePreviews.map(({ file, displayPath }, i) => (
               <GeneratedMediaFilePreview
                 key={`${file.path}-${i}`}
                 file={file}
@@ -1291,6 +1374,7 @@ export function ChatMessageBubble({
               }
 
               if (reference.kind === "audio") {
+                if (matchingFile && shouldRenderAudioFilePreviews) return null;
                 return (
                   <AudioPlayer
                     key={`${sourceKey}-${i}`}
@@ -1409,15 +1493,17 @@ export function ChatMessageBubble({
 
 
         {standaloneInlineAudioFile && !inlineAudioRenderedAsGeneratedMedia && (
-          <AudioPlayer
-            src={inlineAudioState.url}
-            title={getChatFileLabel({ path: standaloneInlineAudioFile.path }) || "Voice message"}
-            loading={inlineAudioState.loading}
-            error={inlineAudioState.failed}
-            downloadHref={inlineAudioState.url ?? undefined}
-            downloadFileName={getChatFileLabel({ path: standaloneInlineAudioFile.path }) || "voice-message.webm"}
-            className="mt-2"
-          />
+          <div ref={inlineAudioVisibilityRef}>
+            <AudioPlayer
+              src={inlineAudioState.url}
+              title={getChatFileLabel({ path: standaloneInlineAudioFile.path }) || "Voice message"}
+              loading={inlineAudioState.loading}
+              error={inlineAudioState.failed}
+              downloadHref={inlineAudioState.url ?? undefined}
+              downloadFileName={getChatFileLabel({ path: standaloneInlineAudioFile.path }) || "voice-message.webm"}
+              className="mt-2"
+            />
+          </div>
         )}
 
         <TimestampDisplay timestamp={message.timestamp} variant={timestampVariant} placement="inside" isUser={isUser} />

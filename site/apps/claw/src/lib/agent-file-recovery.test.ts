@@ -75,4 +75,25 @@ describe("agent file recovery", () => {
       renamed: true,
     });
   });
+
+  it("does not rename a file after its read is cancelled", async () => {
+    const abortController = new AbortController();
+    const read = vi.fn()
+      .mockRejectedValueOnce(podReadError())
+      .mockImplementationOnce(async () => {
+        abortController.abort();
+        throw podReadError();
+      });
+    const rename = vi.fn(async (_from: string, to: string) => to);
+
+    await expect(readAgentFileWithRecovery({
+      path: ".openclaw/workspace/Unsafe File.md",
+      read,
+      rename,
+      retryCount: 1,
+      retryDelayMs: 0,
+      signal: abortController.signal,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(rename).not.toHaveBeenCalled();
+  });
 });

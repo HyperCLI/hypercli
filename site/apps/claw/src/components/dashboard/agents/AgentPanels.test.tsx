@@ -1,9 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState, type ComponentProps, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent } from "@/app/dashboard/agents/types";
 import { AGENT_ROSTER_ORDER_STORAGE_KEY } from "@/hooks/useAgentRosterOrder";
+import { writeFirstAgentSetupDraft } from "@/hooks/useFirstAgentSetupDraft";
 import { renderWithClient } from "@/test/utils";
 
 const clipboardMocks = vi.hoisted(() => ({
@@ -107,6 +108,7 @@ import { AgentList, AgentSettingsPanel, ErrorBanner, LaunchFirstAgentEmptyState 
 
 beforeEach(() => {
   window.localStorage.clear();
+  window.sessionStorage.clear();
   vi.clearAllMocks();
   sdkMocks.userGet.mockResolvedValue({
     userId: "user-1234567890abcdef",
@@ -292,7 +294,105 @@ describe("LaunchFirstAgentEmptyState", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /^Create an agent/ }));
     expect(onCreate).toHaveBeenCalledOnce();
+    expect(screen.getByRole("heading", { name: "Launch your first agent" })).toHaveClass("whitespace-nowrap");
+    expect(screen.queryByText(/Every plan starts with a 7-day free trial/)).not.toBeInTheDocument();
     expect(screen.queryByText("First agent setup wizard")).not.toBeInTheDocument();
+  });
+
+  it("shows the trial reassurance only when requested for a signed-out visitor", () => {
+    render(<LaunchFirstAgentEmptyState onCreate={vi.fn()} showTrialOffer />);
+
+    const createButton = screen.getByRole("button", { name: /^Create an agent/ });
+    const trialMessage = screen.getByText("Every plan starts with a 7-day free trial — nothing charged today.");
+    expect(trialMessage).toBeInTheDocument();
+    expect(createButton.compareDocumentPosition(trialMessage) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+  });
+
+  it("keeps the anonymous launch card mounted when a saved draft appears", async () => {
+    const { container } = render(<LaunchFirstAgentEmptyState onCreate={vi.fn()} showTrialOffer />);
+    const launchCard = container.querySelector('[data-slot="anonymous-agent-launch-card"]');
+
+    expect(launchCard).not.toBeNull();
+    expect(screen.getByRole("progressbar", { name: "Agent setup progress" })).toHaveAttribute("aria-valuenow", "0");
+
+    act(() => writeFirstAgentSetupDraft({
+      name: "seamless-pilot",
+      description: "",
+      size: "small",
+      iconIndex: 3,
+      category: "General",
+      plan: "starter",
+      enableDesktop: false,
+      enableMemoryIndex: false,
+      enableCustomImage: false,
+      customImage: "",
+    }));
+
+    await screen.findByRole("heading", { name: "Your agent has a head start." });
+    expect(container.querySelector('[data-slot="anonymous-agent-launch-card"]')).toBe(launchCard);
+  });
+
+  it("replaces the anonymous create state with a saved agent launch", () => {
+    window.sessionStorage.setItem("hypercli-first-agent-draft", JSON.stringify({
+      source: "first-agent-setup",
+      name: "night-ops-pilot",
+      iconIndex: 11,
+      category: "Ops",
+      plan: "pro",
+      size: "large",
+      enableDesktop: true,
+      enableMemoryIndex: true,
+      enableCustomImage: false,
+      customImage: "",
+    }));
+    const onCreate = vi.fn();
+
+    render(<LaunchFirstAgentEmptyState onCreate={onCreate} showTrialOffer />);
+
+    expect(screen.getByRole("heading", { name: "Your agent has a head start." })).toHaveClass("whitespace-nowrap");
+    expect(screen.getByText("night-ops-pilot")).toBeInTheDocument();
+    expect(screen.getByText("night-ops-pilot.hypercli.com")).toBeInTheDocument();
+    expect(screen.getByText("Browser ready")).toBeInTheDocument();
+    expect(screen.getByText("Memory ready")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Agent setup progress" })).toHaveAttribute("aria-valuenow", "2");
+    expect(screen.queryByText("Draft saved")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Launch your first agent" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /finish the launch/i }));
+    expect(onCreate).toHaveBeenCalledOnce();
+  });
+
+  it("clears an anonymous draft before starting fresh", () => {
+    window.sessionStorage.setItem("hypercli-first-agent-draft", JSON.stringify({
+      source: "first-agent-setup",
+      name: "fresh-start-pilot",
+      iconIndex: 0,
+      category: "General",
+      plan: null,
+    }));
+    const onCreate = vi.fn();
+
+    render(<LaunchFirstAgentEmptyState onCreate={onCreate} showTrialOffer />);
+    expect(screen.getByRole("progressbar", { name: "Agent setup progress" })).toHaveAttribute("aria-valuenow", "1");
+    fireEvent.click(screen.getByRole("button", { name: "Start fresh" }));
+
+    expect(window.sessionStorage.getItem("hypercli-first-agent-draft")).toBeNull();
+    expect(onCreate).toHaveBeenCalledOnce();
+  });
+
+  it("does not expose an anonymous draft in the authenticated empty state", () => {
+    window.sessionStorage.setItem("hypercli-first-agent-draft", JSON.stringify({
+      source: "first-agent-setup",
+      name: "private-draft",
+      iconIndex: 0,
+      category: "General",
+      plan: "pro",
+    }));
+
+    render(<LaunchFirstAgentEmptyState onCreate={vi.fn()} />);
+
+    expect(screen.getByRole("heading", { name: "Launch your first agent" })).toBeInTheDocument();
+    expect(screen.queryByText("private-draft")).not.toBeInTheDocument();
   });
 
   it("replaces the blocked agent action with a friendly Workspace setup CTA", () => {
@@ -371,7 +471,7 @@ describe("AgentList", () => {
     expect(props.setSidebarCollapsed).toHaveBeenCalledWith(true);
   });
 
-  it("keeps the agents/channels sidebar collapsed until the explicit expand control is used", () => {
+  it("expands the agents/channels sidebar when an agent is selected", () => {
     const props = renderAgentList();
     const shell = document.querySelector(".agents-roster-shell");
 
@@ -379,10 +479,9 @@ describe("AgentList", () => {
     expect(shell).not.toHaveClass("w-52");
 
     fireEvent.click(screen.getByRole("button", { name: /select test agent/i }));
-    expect(props.setSidebarCollapsed).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Expand agents sidebar" }));
     expect(props.setSidebarCollapsed).toHaveBeenCalledWith(false);
+    expect(props.setSelectedAgentId).toHaveBeenCalledWith("agent-1");
+    expect(props.setMobileShowChat).toHaveBeenCalledWith(true);
   });
 
   it("only collapses the expanded agents/channels sidebar from its explicit collapse control", () => {
@@ -634,6 +733,7 @@ describe("AgentList", () => {
       id: "agent-marketing",
       name: "rapid-forge-engine",
       displayName: "Marketing",
+      managed: false,
     };
     const agents = [agent, displayAgent];
     renderAgentList({
@@ -655,6 +755,7 @@ describe("AgentList", () => {
       ...agent,
       name: "rapid-forge-engine",
       displayName: "Marketing",
+      managed: false,
     };
     const updateAgentDisplayName = vi.fn(async () => undefined);
     const fetchAgents = vi.fn();
@@ -683,8 +784,9 @@ describe("AgentList", () => {
     expect(screen.getByText("First agent setup wizard")).toBeInTheDocument();
     const overlay = screen.getByTestId("agent-launcher-overlay");
     expect(screen.getByTestId("agent-launcher-dialog")).toHaveClass(
-      "h-[min(840px,calc(100dvh-1.5rem))]",
-      "w-[min(1280px,calc(100vw-1.5rem))]",
+      "h-[min(700px,calc(100dvh-1rem))]",
+      "w-[calc(100vw-1rem)]",
+      "max-w-[660px]",
     );
     expect(document.body).toContainElement(overlay);
     expect(document.querySelector(".agents-roster-shell")).not.toContainElement(overlay);
@@ -720,6 +822,8 @@ describe("AgentList", () => {
     expect(dividers[1]).toHaveAttribute("aria-hidden", "true");
     expect(dividers[0]).toHaveClass("my-2");
     expect(dividers[1]).toHaveClass("my-2");
+    expect(dividers[1].compareDocumentPosition(home) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(home.compareDocumentPosition(sharedKnowledge) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(document.querySelector(".agents-roster-rail .agents-roster-scroll")).toHaveClass("flex-col", "overflow-hidden");
     expect(document.querySelector(".agents-roster-rail-primary")).toHaveClass("shrink-0", "gap-2");
     expect(document.querySelector(".agents-roster-rail-agents")).toHaveClass("w-full", "shrink", "overflow-y-auto", "py-1");
@@ -740,6 +844,18 @@ describe("AgentList", () => {
     expect(onOpenMembers).toHaveBeenCalledOnce();
     expect(onOpenUsage).toHaveBeenCalledOnce();
     expect(onOpenAccountSettings).toHaveBeenCalledOnce();
+  });
+
+  it("opens account settings before expanding the collapsed agents sidebar", () => {
+    const operations: string[] = [];
+    renderAgentList({
+      onOpenAccountSettings: () => operations.push("settings"),
+      setSidebarCollapsed: (collapsed) => operations.push(collapsed ? "collapse" : "expand"),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+
+    expect(operations).toEqual(["settings", "expand"]);
   });
 
   it("shows stopped agents in the collapsed rail by default", () => {
@@ -1004,7 +1120,8 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByText("Display name")).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Agent display name" })).toHaveValue("Test Agent");
     expect(screen.getByRole("textbox", { name: "Agent display name" })).not.toHaveAttribute("readonly");
-    expect(screen.getByText(/saved only in this browser/i)).toBeInTheDocument();
+    expect(screen.getByText(/used for .* mentions/i)).toBeInTheDocument();
+    expect(screen.queryByText("Slack handle")).not.toBeInTheDocument();
     expect(screen.getByText("Default model")).toBeInTheDocument();
     expect(screen.getByText("Visibility")).toBeInTheDocument();
     expect(screen.getByText("Auto-archive idle projects")).toBeInTheDocument();
@@ -1112,7 +1229,7 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByText("Profile updated.")).toBeInTheDocument();
   });
 
-  it("saves the managed agent name independently from its local display name", async () => {
+  it("saves the managed agent name independently from its handle-backed display name", async () => {
     const onUpdateAgentProfile = vi.fn(async () => undefined);
     renderAgentSettingsPanel({ onUpdateAgentProfile });
 
@@ -1128,7 +1245,7 @@ describe("AgentSettingsPanel", () => {
   });
 
   it("preserves unsaved settings when the selected agent display name changes", async () => {
-    const initialAgent = { ...agent, displayName: "Research Pilot" };
+    const initialAgent = { ...agent, handle: "research-pilot", displayName: "research-pilot" };
     const { props, rerender } = renderAgentSettingsPanel({ agent: initialAgent });
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
@@ -1139,39 +1256,39 @@ describe("AgentSettingsPanel", () => {
       target: { value: "CUSTOM_FLAG=unsaved" },
     });
 
-    rerender(<AgentSettingsPanel {...props} agent={{ ...initialAgent, displayName: "Marketing" }} />);
+    rerender(<AgentSettingsPanel {...props} agent={{ ...initialAgent, handle: "marketing", displayName: "marketing" }} />);
 
     await waitFor(() => {
-      expect(screen.getByRole("textbox", { name: "Agent display name" })).toHaveValue("Marketing");
+      expect(screen.getByRole("textbox", { name: "Agent display name" })).toHaveValue("marketing");
     });
     expect(screen.getByRole("textbox", { name: "Agent name" })).toHaveValue("Unsaved canonical name");
     expect(screen.getByRole("textbox", { name: "Additional env" })).toHaveValue("CUSTOM_FLAG=unsaved");
   });
 
   it("treats unknown management provenance as managed", async () => {
-    const onSetManagedAgentDisplayName = vi.fn(async () => undefined);
+    const onUpdateAgentProfile = vi.fn(async () => undefined);
     const onUpdateExternalAgentProfile = vi.fn(async () => undefined);
     renderAgentSettingsPanel({
       agent: { ...agent, managed: null },
-      onSetManagedAgentDisplayName,
+      onUpdateAgentProfile,
       onUpdateExternalAgentProfile,
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Agent display name" }), { target: { value: "Local Alias" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Agent display name" }), { target: { value: "@Local_Alias" } });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => {
-      expect(onSetManagedAgentDisplayName).toHaveBeenCalledWith("agent-1", "Local Alias");
+      expect(onUpdateAgentProfile).toHaveBeenCalledWith("agent-1", { handle: "local_alias" });
     });
     expect(onUpdateExternalAgentProfile).not.toHaveBeenCalled();
   });
 
-  it("clears a managed local display name back to its agent name", async () => {
-    const onSetManagedAgentDisplayName = vi.fn(async () => undefined);
+  it("clears a managed display handle back to its agent name", async () => {
+    const onUpdateAgentProfile = vi.fn(async () => undefined);
     renderAgentSettingsPanel({
-      agent: { ...agent, displayName: "Research Pilot" },
-      onSetManagedAgentDisplayName,
+      agent: { ...agent, handle: "research-pilot", displayName: "research-pilot" },
+      onUpdateAgentProfile,
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
@@ -1179,24 +1296,35 @@ describe("AgentSettingsPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => {
-      expect(onSetManagedAgentDisplayName).toHaveBeenCalledWith("agent-1", null);
+      expect(onUpdateAgentProfile).toHaveBeenCalledWith("agent-1", { handle: null });
     });
     expect(screen.getByRole("textbox", { name: "Agent display name" })).toHaveValue("Test Agent");
   });
 
-  it("does not report a successful managed display-name save when local updates are unavailable", async () => {
-    renderAgentSettingsPanel({
-      agent: { ...agent, displayName: "Research Pilot" },
-    });
+  it("dismisses invalid managed display-name feedback after five seconds", () => {
+    const onUpdateAgentProfile = vi.fn(async () => undefined);
+    renderAgentSettingsPanel({ onUpdateAgentProfile });
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Agent display name" }), {
-      target: { value: "Marketing" },
+      target: { value: "Friendly Alias" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
-    expect(await screen.findByText("Local display name updates are unavailable.")).toBeInTheDocument();
-    expect(screen.queryByText("Agent settings updated.")).not.toBeInTheDocument();
+      const message = "Display names must start with a lowercase letter or number and contain 2-64 lowercase letters, numbers, underscores, or dashes.";
+      expect(screen.getByText(message)).toBeInTheDocument();
+      expect(onUpdateAgentProfile).not.toHaveBeenCalled();
+
+      act(() => vi.advanceTimersByTime(4999));
+      expect(screen.getByText(message)).toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.queryByText(message)).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("saves an external display name without changing its agent name", async () => {

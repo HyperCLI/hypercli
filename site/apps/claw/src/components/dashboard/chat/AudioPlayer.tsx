@@ -1,11 +1,18 @@
 "use client";
 
-import { useCallback, useId, useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { Download, Loader2, Pause, Play, Volume2 } from "lucide-react";
 import { TooltipHint } from "@/components/ClawTooltip";
+import { isSafeDirectMediaUrl } from "@/lib/chat-media";
+
+interface AudioPlayerSource {
+  src: string;
+  type?: string;
+}
 
 interface AudioPlayerProps {
   src?: string | null;
+  sources?: AudioPlayerSource[];
   title?: string;
   loading?: boolean;
   error?: boolean;
@@ -25,6 +32,7 @@ function formatAudioTime(seconds: number): string {
 
 export function AudioPlayer({
   src,
+  sources,
   title = "Audio",
   loading = false,
   error = false,
@@ -42,14 +50,19 @@ export function AudioPlayer({
     duration: 0,
     currentTime: 0,
   });
-  const unavailable = error || (!loading && !src);
-  const currentPlayback = playback.src === (src ?? null)
+  const [failedSourceKey, setFailedSourceKey] = useState<string | null>(null);
+  const safeSrc = src && isSafeDirectMediaUrl(src, "audio") ? src : null;
+  const safeSources = (sources ?? []).filter((source) => isSafeDirectMediaUrl(source.src, "audio"));
+  const sourceKey = safeSrc ?? (safeSources.length > 0 ? safeSources.map((source) => `${source.src}:${source.type ?? ""}`).join("|") : null);
+  const safeDownloadHref = downloadHref && isSafeDirectMediaUrl(downloadHref, "audio") ? downloadHref : undefined;
+  const unavailable = error || Boolean(sourceKey && failedSourceKey === sourceKey) || (!loading && !sourceKey);
+  const currentPlayback = playback.src === sourceKey
     ? playback
-    : { src: src ?? null, playing: false, duration: 0, currentTime: 0 };
+    : { src: sourceKey, playing: false, duration: 0, currentTime: 0 };
   const canSeek = currentPlayback.duration > 0 && Number.isFinite(currentPlayback.duration);
 
-  const updatePlayback = useCallback((next: Partial<Omit<typeof playback, "src">>) => {
-    const activeSrc = src ?? null;
+  const updatePlayback = (next: Partial<Omit<typeof playback, "src">>) => {
+    const activeSrc = sourceKey;
     setPlayback((current) => ({
       src: activeSrc,
       playing: current.src === activeSrc ? current.playing : false,
@@ -57,18 +70,18 @@ export function AudioPlayer({
       currentTime: current.src === activeSrc ? current.currentTime : 0,
       ...next,
     }));
-  }, [src]);
+  };
 
-  const syncMetadata = useCallback(() => {
+  const syncMetadata = () => {
     const audio = audioRef.current;
     if (!audio) return;
     updatePlayback({
       duration: Number.isFinite(audio.duration) ? audio.duration : 0,
       currentTime: Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
     });
-  }, [updatePlayback]);
+  };
 
-  const togglePlayback = useCallback(() => {
+  const togglePlayback = () => {
     const audio = audioRef.current;
     if (!audio || unavailable || loading) return;
     if (audio.paused) {
@@ -76,21 +89,21 @@ export function AudioPlayer({
       return;
     }
     audio.pause();
-  }, [loading, unavailable, updatePlayback]);
+  };
 
-  const handleSeek = useCallback((value: string) => {
+  const handleSeek = (value: string) => {
     const audio = audioRef.current;
     if (!audio || !canSeek) return;
     const nextTime = Number(value);
     if (!Number.isFinite(nextTime)) return;
     audio.currentTime = nextTime;
     updatePlayback({ currentTime: nextTime });
-  }, [canSeek, updatePlayback]);
+  };
 
-  const handleDownload = useCallback(() => {
+  const handleDownload = () => {
     if (!onDownload) return;
     void onDownload();
-  }, [onDownload]);
+  };
 
   const statusLabel = loading ? "Loading audio" : "Audio unavailable";
   const displayTitle = unavailable ? statusLabel : title;
@@ -100,12 +113,15 @@ export function AudioPlayer({
       className={`flex w-full max-w-[22rem] min-w-0 items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-2 text-text-secondary ${className ?? ""}`}
       aria-labelledby={labelId}
     >
-      {src && (
+      {sourceKey && (
         <audio
           ref={audioRef}
-          src={src}
+          src={safeSrc ?? undefined}
           preload="metadata"
-          onLoadedMetadata={syncMetadata}
+          onLoadedMetadata={() => {
+            setFailedSourceKey(null);
+            syncMetadata();
+          }}
           onDurationChange={syncMetadata}
           onTimeUpdate={syncMetadata}
           onPlay={() => updatePlayback({ playing: true })}
@@ -114,9 +130,12 @@ export function AudioPlayer({
             updatePlayback({ playing: false, currentTime: 0 });
           }}
           onError={() => {
+            setFailedSourceKey(sourceKey);
             updatePlayback({ playing: false });
           }}
-        />
+        >
+          {safeSources.map((source) => <source key={`${source.src}:${source.type ?? ""}`} src={source.src} type={source.type} />)}
+        </audio>
       )}
 
       <TooltipHint label={currentPlayback.playing ? "Pause" : "Play"} disabled={loading || unavailable}>
@@ -166,9 +185,9 @@ export function AudioPlayer({
             <Download className="h-4 w-4" />
           </button>
         </TooltipHint>
-      ) : downloadHref ? (
+      ) : safeDownloadHref ? (
         <TooltipHint label="Download">
-          <a href={downloadHref} download={downloadFileName} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-surface-low text-text-muted transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary" aria-label={downloadLabel ?? `Download ${title}`}>
+          <a href={safeDownloadHref} download={downloadFileName} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-surface-low text-text-muted transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary" aria-label={downloadLabel ?? `Download ${title}`}>
             <Download className="h-4 w-4" />
           </a>
         </TooltipHint>

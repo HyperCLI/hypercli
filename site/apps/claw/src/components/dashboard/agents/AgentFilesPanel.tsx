@@ -12,6 +12,7 @@ import { isProtectedFile } from "@/lib/protected-files";
 export type {
   AgentFileOpenResponse,
   AgentFileOpenResult,
+  AgentFilePreviewReadOptions,
   AgentFilesPanelProps,
   AgentFilesPanelSource,
   AgentFilesPanelSourceDisabledReasons,

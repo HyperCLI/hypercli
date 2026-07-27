@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -19,7 +20,6 @@ import {
   Timer,
   Sparkles,
 } from "lucide-react";
-import "@xterm/xterm/css/xterm.css";
 
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useAgentRosterCollapsed } from "@/hooks/useAgentRosterCollapsed";
@@ -33,23 +33,24 @@ import {
   isAgentCleanupConflictError,
   startOpenClawAgent,
 } from "@/lib/agent-client";
-import { persistAgentCanonicalName, persistAgentDisplayName } from "@/lib/agent-profile-updates";
+import {
+  createAgentMutationQueue,
+  mergeAgentListAfterMutations,
+  persistAgentCanonicalName,
+  persistAgentDisplayName,
+} from "@/lib/agent-profile-updates";
 import { isVisibleCurrentAgentPlan } from "@/lib/agent-plan-catalog";
 import { formatCpu, formatMemory, formatTokens, type SlotInventoryEntry } from "@/lib/format";
 import { useOpenClawSession, type OpenClawHydrationMode } from "@/hooks/useOpenClawSession";
-import { useAgentLogs } from "@/hooks/useAgentLogs";
-import { useAgentShell } from "@/hooks/useAgentShell";
+import type { ShellStatus } from "@/hooks/useAgentShell";
 import { useAgentShellActivation } from "@/hooks/useAgentShellActivation";
-import { useAgentShellTerminal } from "@/hooks/useAgentShellTerminal";
+import { preloadAgentShellTerminalRuntime } from "@/lib/agent-shell-terminal-loader";
 import { clearOpenClawSessionPins, useOpenClawSessionPins } from "@/hooks/useOpenClawSessionPins";
 import { useAgentRosterOrder } from "@/hooks/useAgentRosterOrder";
-import { managedAgentDisplayNameScope, useManagedAgentDisplayNames } from "@/hooks/useManagedAgentDisplayNames";
 import { agentAvatar } from "@/lib/avatar";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
-import { IntegrationsDirectoryPanel } from "@/components/dashboard/integrations";
 import {
   SkillDraftTestBanner,
-  SkillsPanel,
   assertSkillDraftTestable,
   buildSkillTestPrompt,
   createSkillDraftRevision,
@@ -67,7 +68,7 @@ import { getCategoryForPlugin, type DirectoryCategory } from "@/components/dashb
 import { PlanComparisonModal } from "@/components/dashboard/agents/PlanComparisonModal";
 import { AgentCreationSetupWizard, type AgentCreationSetupCreateParams } from "@/components/dashboard/agents/AgentCreationSetupWizard";
 import { AgentDashboardTour } from "@/components/dashboard/agents/AgentDashboardTour";
-import { updateFirstAgentSetupDraftPlan } from "@/components/dashboard/agents/FirstAgentSetupWizard";
+import { updateFirstAgentSetupDraftPlan, useFirstAgentSetupDraft } from "@/hooks/useFirstAgentSetupDraft";
 import type { AgentFileEntry, SdkAgent } from "@/types";
 import {
   Dialog,
@@ -80,7 +81,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@hypercli/shared-ui";
-import type { FileEntry } from "@hypercli/shared-ui/files";
+import { inferFileMimeType, isAudioFileReference, isFileTypeReference, isImageFileReference, type FileEntry } from "@hypercli/shared-ui/files";
 import { buildBrowserDesktopUrl } from "@hypercli.com/sdk/agents";
 import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
 import type {
@@ -142,26 +143,32 @@ import {
   type CenterPanel,
 } from "@/components/dashboard/agents/page-helpers";
 import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner } from "@/components/dashboard/agents/AgentPanels";
-import { OpenClawSettingsDrawer } from "@/components/dashboard/agents/OpenClawSettingsDrawer";
 import {
   AgentChatPanel,
+  normalizeChatFileDropItems,
   scrollTranscriptToBottom,
   type ChatConnectionSuggestion,
+  type ChatFileDropInput,
+  type ChatPendingFileRemovalState,
 } from "@/components/dashboard/agents/AgentChatPanel";
-import { AgentFilesPanel, type AgentFilesPanelSource } from "@/components/dashboard/agents/AgentFilesPanel";
-import { AgentLogsPanel } from "@/components/dashboard/agents/AgentLogsPanel";
-import { AgentScheduledPanel } from "@/components/dashboard/agents/AgentScheduledPanel";
-import { AgentTerminalPanel } from "@/components/dashboard/agents/AgentTerminalPanel";
+import {
+  deleteChatImageCollection,
+  shouldStageChatImageCollection,
+  uploadChatImageCollection,
+  type ChatImageCollectionDescriptor,
+  type ChatImageCollectionProgress,
+} from "@/lib/chat-image-collection";
+import {
+  type AgentFilePreviewReadOptions,
+  type AgentFilesPanelSource,
+} from "@/components/dashboard/agents/AgentFilesPanel";
+import { AgentLogsController, type AgentLogsControllerHandle } from "@/components/dashboard/agents/AgentLogsController";
+import { AgentShellController, type AgentShellControllerHandle } from "@/components/dashboard/agents/AgentShellController";
 import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
 import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
 import { AgentPrivateChatControl } from "@/components/dashboard/agents/AgentPrivateChatControl";
 import { AgentWorkspaceSidebar, WorkspaceCreationDialog } from "@/components/dashboard/agents/AgentWorkspaceSidebar";
 import { AgentGatewaySessionProvider, asAgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
-import { SharedKnowledgeSection } from "@/components/dashboard/knowledge/SharedKnowledgeSection";
-import { MembersSection } from "@/components/dashboard/members/MembersSection";
-import AccountSettingsPanel from "@/components/dashboard/AccountSettingsPanel";
-import { WorkspaceOverviewPanel } from "@/components/dashboard/WorkspaceOverviewPanel";
-import WorkspaceUsagePanel from "@/components/dashboard/WorkspaceUsagePanel";
 import {
   useWorkspace,
   workspaceAgentCreationDisabledReason,
@@ -186,6 +193,7 @@ import {
   type DashboardView,
 } from "@/lib/dashboard-route";
 import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
+import { markDashboardPerformance, measureDashboardPerformance } from "@/lib/agent-dashboard-performance";
 import { normalizeCronJob } from "@/lib/cron-jobs";
 import {
   readAgentFileWithRecovery,
@@ -200,6 +208,7 @@ import type { JourneyCompletionEvent, JourneyDay } from "@/components/dashboard/
 import { resolveWorkspaceAgentSelection } from "@/lib/workspace-agent-roster";
 
 type MainTab = AgentMainTab;
+type AgentOnboardingOverlay = "tour" | "launcher" | null;
 type AgentFileSource = "auto" | "pod" | "s3";
 /**
  * Sources requested by callers: the 3-way AgentFilesPanel selector (agent/backup/gateway)
@@ -227,7 +236,56 @@ const TOKEN_USAGE_RECONCILE_DELAYS_MS = [2000, 5000] as const;
 const CHAT_UPLOAD_DRAIN_WAIT_MS = 1_500;
 const TOKEN_USAGE_RUNNING_REFRESH_INTERVAL_MS = 60_000;
 const AGENT_DASHBOARD_ENRICHMENT_TIMEOUT_MS = 10_000;
+const SHELL_INTENT_TTL_MS = 12_000;
 const AGENT_DIRECTORY_MARKER_NAME = ".hypercli-folder";
+
+function DeferredDashboardPanel() {
+  return (
+    <div className="flex min-h-64 items-center justify-center" role="status" aria-label="Loading workspace panel">
+      <Loader2 className="h-5 w-5 animate-spin text-text-muted" />
+    </div>
+  );
+}
+
+const AgentFilesPanel = dynamic(
+  () => import("@/components/dashboard/agents/AgentFilesPanel").then((module) => module.AgentFilesPanel),
+  { loading: DeferredDashboardPanel },
+);
+const AgentScheduledPanel = dynamic(
+  () => import("@/components/dashboard/agents/AgentScheduledPanel").then((module) => module.AgentScheduledPanel),
+  { loading: DeferredDashboardPanel },
+);
+const IntegrationsDirectoryPanel = dynamic(
+  () => import("@/components/dashboard/integrations/IntegrationsDirectoryPanel").then((module) => module.IntegrationsDirectoryPanel),
+  { loading: DeferredDashboardPanel },
+);
+const SkillsPanel = dynamic(
+  () => import("@/components/dashboard/skills/SkillsPanel").then((module) => module.SkillsPanel),
+  { loading: DeferredDashboardPanel },
+);
+const SharedKnowledgeSection = dynamic(
+  () => import("@/components/dashboard/knowledge/SharedKnowledgeSection").then((module) => module.SharedKnowledgeSection),
+  { loading: DeferredDashboardPanel },
+);
+const MembersSection = dynamic(
+  () => import("@/components/dashboard/members/MembersSection").then((module) => module.MembersSection),
+  { loading: DeferredDashboardPanel },
+);
+const WorkspaceOverviewPanel = dynamic(
+  () => import("@/components/dashboard/WorkspaceOverviewPanel").then((module) => module.WorkspaceOverviewPanel),
+  { loading: DeferredDashboardPanel },
+);
+const WorkspaceUsagePanel = dynamic(
+  () => import("@/components/dashboard/WorkspaceUsagePanel"),
+  { loading: DeferredDashboardPanel },
+);
+const AccountSettingsPanel = dynamic(
+  () => import("@/components/dashboard/AccountSettingsPanel"),
+  { loading: DeferredDashboardPanel },
+);
+const OpenClawSettingsDrawer = dynamic(
+  () => import("@/components/dashboard/agents/OpenClawSettingsDrawer").then((module) => module.OpenClawSettingsDrawer),
+);
 
 function optionalDashboardData<T>(promise: Promise<T>, fallback: T): Promise<T> {
   let timeout: ReturnType<typeof setTimeout> | null = null;
@@ -242,16 +300,12 @@ function optionalDashboardData<T>(promise: Promise<T>, fallback: T): Promise<T> 
   });
 }
 
-function pendingFileMatches(file: ChatPendingFile, mimePrefix: string, extensionPattern: RegExp): boolean {
-  return file.type.toLowerCase().startsWith(mimePrefix) || extensionPattern.test(file.name) || extensionPattern.test(file.path);
-}
-
 function pendingFileIsImage(file: ChatPendingFile): boolean {
-  return pendingFileMatches(file, "image/", /\.(avif|bmp|gif|heic|jpeg|jpg|png|svg|webp)$/i);
+  return isImageFileReference(file);
 }
 
 function pendingFileIsAudio(file: ChatPendingFile): boolean {
-  return pendingFileMatches(file, "audio/", /\.(aac|flac|m4a|mp3|oga|ogg|opus|wav|weba|webm)$/i);
+  return isAudioFileReference(file);
 }
 
 function workspaceFileReferenceFromEntry(entry: FileEntry): ChatPendingFile | null {
@@ -264,7 +318,7 @@ function workspaceFileReferenceFromEntry(entry: FileEntry): ChatPendingFile | nu
   return {
     name: entry.name || relativePath.split("/").filter(Boolean).pop() || relativePath,
     path: `${OPENCLAW_WORKSPACE_DIR}/${relativePath}`,
-    type: "application/octet-stream",
+    type: entry.mimeType || inferFileMimeType(entry),
   };
 }
 
@@ -758,6 +812,10 @@ function toDashboardFileEntry(entry: AgentFileEntry): FileEntry {
     path,
     type: entry.type,
     size: entry.size,
+    mimeType: stringFileMetadata(entry.mime_type)
+      ?? stringFileMetadata(entry.mimeType)
+      ?? stringFileMetadata(entry.content_type)
+      ?? stringFileMetadata(entry.contentType),
     lastModified: stringFileMetadata(entry.last_modified ?? entry.lastModified),
     checksum: stringFileMetadata(entry.checksum),
     checksumAlgorithm: stringFileMetadata(entry.checksum_algorithm ?? entry.checksumAlgorithm ?? entry.checksum_algo),
@@ -869,12 +927,16 @@ function AgentsPageContent() {
     login,
     logout,
   } = useAgentAuth();
-  const displayNameStorageScope = managedAgentDisplayNameScope(user);
-  const {
-    displayNamesByAgentId,
-    setDisplayName: setManagedAgentDisplayName,
-    clearDisplayName: clearManagedAgentDisplayName,
-  } = useManagedAgentDisplayNames(displayNameStorageScope);
+  useEffect(() => {
+    markDashboardPerformance("page-mounted");
+  }, []);
+  useEffect(() => {
+    if (authLoading) return;
+    markDashboardPerformance("auth-ready");
+    measureDashboardPerformance("page-to-auth", "page-mounted", "auth-ready");
+  }, [authLoading]);
+  const firstAgentSetupDraft = useFirstAgentSetupDraft();
+  const runAgentMutation = useMemo(() => createAgentMutationQueue(), []);
   const {
     workspacesClient,
     workspaces,
@@ -913,7 +975,7 @@ function AgentsPageContent() {
   const shouldOpenAgentLauncherFromQuery = requestedOpen ? AGENT_LAUNCHER_OPEN_VALUES.has(requestedOpen) : false;
   const shouldOpenAgentTourFromPageEntry = !requestedOpen && !requestedAgentId && !requestedSessionKey &&
     !requestedIntegrationId && !requestedSection && !requestedTab && !requestedView &&
-    !slackOAuthOk && !slackOAuthError;
+    !slackOAuthOk && !slackOAuthError && (isAuthenticated || !firstAgentSetupDraft);
   const { setAgentMenu } = useDashboardMobileAgentMenu();
   const dashboardDisplayName = displayNameForDashboard(user);
   const suggestedJourneyUserName = dashboardDisplayName === "there" ? null : dashboardDisplayName;
@@ -1017,8 +1079,16 @@ function AgentsPageContent() {
   const tokenUsageRefreshInFlightRef = useRef(false);
   const checkoutReturnHandledRef = useRef(false);
   const agentDataGenerationRef = useRef(0);
+  const agentMutationVersionsRef = useRef<Map<string, number>>(new Map());
+  const deletingAgentIdsRef = useRef<Set<string>>(new Set());
   const fetchAgentsRequestRef = useRef(0);
+  const fetchBillingRequestRef = useRef(0);
   const fetchAgentsInFlightRef = useRef<{
+    generation: number;
+    principalId: string;
+    promise: Promise<FetchAgentsResult | null>;
+  } | null>(null);
+  const fetchBillingInFlightRef = useRef<{
     generation: number;
     principalId: string;
     promise: Promise<FetchAgentsResult | null>;
@@ -1037,7 +1107,15 @@ function AgentsPageContent() {
   const chatUploadGenerationRef = useRef(0);
   const chatUploadIdleWaitersRef = useRef<Set<() => void>>(new Set());
   const retireChatUploadsRef = useRef<() => void>(() => undefined);
-  const waitForChatUploads = useCallback((): Promise<void> => {
+  const handleChatFileDropRef = useRef<(files: ChatFileDropInput) => Promise<void>>(async () => undefined);
+  const applyAgentMutationResult = useCallback((updatedAgent: SdkAgent) => {
+    agentMutationVersionsRef.current.set(
+      updatedAgent.id,
+      (agentMutationVersionsRef.current.get(updatedAgent.id) ?? 0) + 1,
+    );
+    setSdkAgents((current) => upsertSdkAgent(current, updatedAgent));
+  }, []);
+  const waitForChatUploads = useCallback((retireAfterMs: number | null = CHAT_UPLOAD_DRAIN_WAIT_MS): Promise<void> => {
     if (chatUploadsInFlightRef.current === 0) return Promise.resolve();
     return new Promise((resolve) => {
       let timeout: ReturnType<typeof setTimeout> | null = null;
@@ -1046,10 +1124,12 @@ function AgentsPageContent() {
         chatUploadIdleWaitersRef.current.delete(finish);
         resolve();
       };
-      timeout = setTimeout(() => {
-        retireChatUploadsRef.current();
-        finish();
-      }, CHAT_UPLOAD_DRAIN_WAIT_MS);
+      if (retireAfterMs !== null) {
+        timeout = setTimeout(() => {
+          retireChatUploadsRef.current();
+          finish();
+        }, retireAfterMs);
+      }
       chatUploadIdleWaitersRef.current.add(finish);
     });
   }, []);
@@ -1145,22 +1225,32 @@ function AgentsPageContent() {
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   const [mobileRosterCollapsed, setMobileRosterCollapsed] = useState(true);
-  const [agentTourOpen, setAgentTourOpen] = useState(false);
-  const [agentLauncherOpen, setAgentLauncherOpen] = useState(false);
+  const [agentOnboardingOverlay, setAgentOnboardingOverlay] = useState<AgentOnboardingOverlay>(null);
+  const agentTourOpen = agentOnboardingOverlay === "tour";
+  const agentLauncherOpen = agentOnboardingOverlay === "launcher";
+  const setAgentTourOpen = useCallback((open: boolean) => {
+    setAgentOnboardingOverlay((current) => open ? "tour" : current === "tour" ? null : current);
+  }, []);
+  const setAgentLauncherOpen = useCallback((open: boolean) => {
+    setAgentOnboardingOverlay((current) => open ? "launcher" : current === "launcher" ? null : current);
+  }, []);
+  const closeAgentCreationFlow = useCallback(() => {
+    setAgentLauncherOpen(false);
+    window.setTimeout(() => mobileNavigationTriggerRef.current?.focus(), 0);
+  }, [setAgentLauncherOpen]);
   const [launcherPreferredPlanId, setLauncherPreferredPlanId] = useState<string | null>(requestedPlanId);
   const [launcherSelectedCatalogPlanId, setLauncherSelectedCatalogPlanId] = useState<string | null>(null);
   const mobileNavigationTriggerRef = useRef<HTMLButtonElement>(null);
   const mobileNavigationCloseRef = useRef<HTMLButtonElement>(null);
-  const preserveAgentLauncherRef = useRef(false);
   const [workspaceCreationOpen, setWorkspaceCreationOpen] = useState(false);
   const [resumeAgentLauncher, setResumeAgentLauncher] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useAgentRosterCollapsed();
   const showAgentCreationFlow = useCallback(() => {
-    setMobileShowChat(false);
+    setMobileShowChat(true);
     setMobileNavigationOpen(false);
     setAgentLauncherOpen(true);
     return true;
-  }, []);
+  }, [setAgentLauncherOpen]);
   const openAgentCreationFlow = useCallback(() => {
     if (agentCreationBlockedReason) {
       setError(agentCreationBlockedReason);
@@ -1173,10 +1263,10 @@ function AgentsPageContent() {
     setMobileNavigationOpen(false);
     setAgentTourOpen(true);
     return true;
-  }, []);
+  }, [setAgentTourOpen]);
   const startAgentCreationFromTour = useCallback(() => {
     if (openAgentCreationFlow()) setAgentTourOpen(false);
-  }, [openAgentCreationFlow]);
+  }, [openAgentCreationFlow, setAgentTourOpen]);
 
   const requestAuthentication = useCallback((intent: AgentAuthIntent) => {
     setPendingAuthIntent(intent);
@@ -1186,7 +1276,11 @@ function AgentsPageContent() {
   useLayoutEffect(() => {
     agentDataGenerationRef.current += 1;
     fetchAgentsRequestRef.current += 1;
+    fetchBillingRequestRef.current += 1;
     fetchAgentsInFlightRef.current = null;
+    fetchBillingInFlightRef.current = null;
+    agentMutationVersionsRef.current.clear();
+    deletingAgentIdsRef.current.clear();
     deploymentsRef.current = null;
     const nextPrincipal = isAuthenticated ? user?.id ?? null : null;
     if (privatePrincipalRef.current === nextPrincipal) return;
@@ -1228,7 +1322,6 @@ function AgentsPageContent() {
     const timeout = window.setTimeout(() => {
       setAuthGateOpen(false);
       setPendingAuthIntent(null);
-      preserveAgentLauncherRef.current = false;
       if (pendingAuthIntent.kind === "checkout") {
         setUpgradeCheckoutPlan(pendingAuthIntent.plan);
       } else if (pendingAuthIntent.kind === "navigate") {
@@ -1277,10 +1370,12 @@ function AgentsPageContent() {
   }, [router, searchParams]);
 
   // Logs
-  const logBoxRef = useRef<HTMLDivElement | null>(null);
+  const logsControllerRef = useRef<AgentLogsControllerHandle | null>(null);
+  const [logsStatus, setLogsStatus] = useState<ShellStatus>("disconnected");
 
   // Shell
-  const shellOutputHandlerRef = useRef<(text: string) => void>(() => undefined);
+  const shellControllerRef = useRef<AgentShellControllerHandle | null>(null);
+  const [shellStatus, setShellStatus] = useState<ShellStatus>("disconnected");
 
   // Files panel
   const [filesPreviewPath, setFilesPreviewPath] = useState<string | null>(null);
@@ -1384,48 +1479,27 @@ function AgentsPageContent() {
     ));
   }, [clearScheduledTokenUsageRefreshes, refreshTokenUsage]);
 
-  const fetchAgents = useCallback((options?: { force?: boolean }): Promise<FetchAgentsResult | null> => {
+  const refreshAgentEnrichment = useCallback((options?: {
+    force?: boolean;
+    token?: string;
+  }): Promise<FetchAgentsResult | null> => {
     const principalId = user?.id ?? null;
     if (!isAuthenticated || !principalId) return Promise.resolve(null);
     const generation = agentDataGenerationRef.current;
-    const inFlight = fetchAgentsInFlightRef.current;
+    const inFlight = fetchBillingInFlightRef.current;
     if (!options?.force && inFlight?.generation === generation && inFlight.principalId === principalId) {
       return inFlight.promise;
     }
-    const requestId = ++fetchAgentsRequestRef.current;
+    const requestId = ++fetchBillingRequestRef.current;
     const isCurrentRequest = () => (
-      generation === agentDataGenerationRef.current && requestId === fetchAgentsRequestRef.current
+      generation === agentDataGenerationRef.current && requestId === fetchBillingRequestRef.current
     );
     const promise = (async () => {
       try {
-        const token = await getToken();
+        const token = options?.token ?? await getToken();
         if (!isCurrentRequest()) return null;
-        const agentClient = deploymentsRef.current ?? createAgentClient(token);
-        if (!deploymentsRef.current) {
-          deploymentsRef.current = agentClient;
-          setDeployments(agentClient);
-        }
         const hyperAgent = createHyperAgentClient(token);
-        const listedAgents = await agentClient.list();
-        if (!isCurrentRequest()) return null;
-        setAgentsLoadError(null);
-        const listedAgentIds = new Set(listedAgents.map((agent) => agent.id));
-        setSdkAgents(listedAgents);
-        setAgentDataPrincipalId(principalId);
-        setSelectedSessionKeysByAgent((current) => {
-          let changed = false;
-          const next: Record<string, string> = {};
-          for (const [agentId, sessionKey] of Object.entries(current)) {
-            if (listedAgentIds.has(agentId)) {
-              next[agentId] = sessionKey;
-            } else {
-              changed = true;
-            }
-          }
-          return changed ? next : current;
-        });
-        setAgentClusterUnavailable(false);
-
+        markDashboardPerformance("enrichment-start");
         const [catalogData, currentPlan, summaryResult, dailyUsage, typeCatalogData] = await Promise.all([
           optionalDashboardData(hyperAgent.plans(), [] as HyperAgentPlan[]),
           optionalDashboardData(hyperAgent.currentPlan(), null),
@@ -1453,7 +1527,82 @@ function AgentsPageContent() {
         setBillingDataPrincipalId(billingReady ? principalId : null);
         setBillingDataError(billingReady ? null : "Billing data could not be loaded. Retry before checkout.");
         setTokenUsage(dailyTokenUsageTotal(dailyUsage));
+        markDashboardPerformance("enrichment-ready");
+        measureDashboardPerformance("enrichment", "enrichment-start", "enrichment-ready");
         return { subscriptionSummary: summary, budget: nextBudget, billingReady };
+      } catch {
+        if (!isCurrentRequest()) return null;
+        setBillingDataPrincipalId(null);
+        setBillingDataError("Billing data could not be loaded. Retry before checkout.");
+        return null;
+      }
+    })();
+    fetchBillingInFlightRef.current = { generation, principalId, promise };
+    void promise.finally(() => {
+      if (fetchBillingInFlightRef.current?.promise === promise) {
+        fetchBillingInFlightRef.current = null;
+      }
+    });
+    return promise;
+  }, [getToken, isAuthenticated, user?.id]);
+
+  const fetchAgents = useCallback((options?: {
+    force?: boolean;
+    includeEnrichment?: boolean;
+  }): Promise<FetchAgentsResult | null> => {
+    const principalId = user?.id ?? null;
+    if (!isAuthenticated || !principalId) return Promise.resolve(null);
+    const generation = agentDataGenerationRef.current;
+    const mutationVersionsAtRequest = new Map(agentMutationVersionsRef.current);
+    const inFlight = fetchAgentsInFlightRef.current;
+    if (!options?.force && inFlight?.generation === generation && inFlight.principalId === principalId) {
+      return inFlight.promise;
+    }
+    const requestId = ++fetchAgentsRequestRef.current;
+    const isCurrentRequest = () => (
+      generation === agentDataGenerationRef.current && requestId === fetchAgentsRequestRef.current
+    );
+    const promise = (async () => {
+      try {
+        markDashboardPerformance("deployments-start");
+        const token = await getToken();
+        if (!isCurrentRequest()) return null;
+        const agentClient = deploymentsRef.current ?? createAgentClient(token);
+        if (!deploymentsRef.current) {
+          deploymentsRef.current = agentClient;
+          setDeployments(agentClient);
+        }
+        const listedAgents = await agentClient.list();
+        if (!isCurrentRequest()) return null;
+        setAgentsLoadError(null);
+        const listedAgentIds = new Set(listedAgents.map((listedAgent) => listedAgent.id));
+        setSdkAgents((current) => mergeAgentListAfterMutations(
+          current,
+          listedAgents,
+          mutationVersionsAtRequest,
+          agentMutationVersionsRef.current,
+        ));
+        setAgentDataPrincipalId(principalId);
+        setSelectedSessionKeysByAgent((current) => {
+          let changed = false;
+          const next: Record<string, string> = {};
+          for (const [listedAgentId, sessionKey] of Object.entries(current)) {
+            if (listedAgentIds.has(listedAgentId)) {
+              next[listedAgentId] = sessionKey;
+            } else {
+              changed = true;
+            }
+          }
+          return changed ? next : current;
+        });
+        setAgentClusterUnavailable(false);
+        setAgentsLoading(false);
+        markDashboardPerformance("deployments-ready");
+        measureDashboardPerformance("deployments", "deployments-start", "deployments-ready");
+        measureDashboardPerformance("auth-to-deployments", "auth-ready", "deployments-ready");
+
+        if (options?.includeEnrichment === false) return null;
+        return await refreshAgentEnrichment({ force: options?.force, token });
       } catch (err) {
         if (!isCurrentRequest()) return null;
         const described = describeAgentsPageError(err);
@@ -1482,12 +1631,17 @@ function AgentsPageContent() {
       }
     });
     return promise;
-  }, [clearScheduledTokenUsageRefreshes, getToken, isAuthenticated, user?.id]);
+  }, [clearScheduledTokenUsageRefreshes, getToken, isAuthenticated, refreshAgentEnrichment, user?.id]);
 
   const getAgentClient = useCallback(async () => {
     if (deployments) return deployments;
     return createAgentClient(await getToken());
   }, [deployments, getToken]);
+  const getFreshShellDeployments = useCallback(async (signal: AbortSignal) => {
+    const token = await getToken(signal);
+    if (signal.aborted) throw signal.reason ?? new Error("Shell connection cancelled");
+    return createAgentClient(token);
+  }, [getToken]);
 
   const handleOpenDesktop = useCallback(async (agent: Agent) => {
     const desktopBaseUrl = agent.desktopUrl || (agent.hostname ? `https://desktop-${agent.hostname}` : "");
@@ -1549,7 +1703,7 @@ function AgentsPageContent() {
 
     const timer = setTimeout(() => {
       void (async () => {
-        const refreshed = await fetchAgents({ force: true });
+        const refreshed = await refreshAgentEnrichment({ force: true });
         const refreshedEntry = refreshed?.budget?.slots?.[tier];
         if (slotReleaseLanded(baseline, refreshedEntry) || attempt >= 8) {
           clearPendingSlotRelease(releaseId, tier);
@@ -1560,7 +1714,7 @@ function AgentsPageContent() {
     }, attempt === 0 ? 1500 : 2500);
 
     slotReleaseTimersRef.current.set(releaseId, timer);
-  }, [clearPendingSlotRelease, fetchAgents]);
+  }, [clearPendingSlotRelease, refreshAgentEnrichment]);
 
   const trackPendingSlotRelease = useCallback((releaseId: string, tier: string, baseline: SlotInventoryEntry) => {
     if (Math.max(baseline.used ?? 0, 0) <= 0) return;
@@ -1580,7 +1734,7 @@ function AgentsPageContent() {
       pending,
       message: `Refreshing ${pending?.planName ?? "your plan"} entitlements from billing...`,
     });
-    const refreshed = await fetchAgents({ force: true });
+    const refreshed = await refreshAgentEnrichment({ force: true });
     const reflectionStatus = getCheckoutReflectionStatus(refreshed?.subscriptionSummary ?? null, pending);
 
     if (reflectionStatus === "ready") {
@@ -1593,7 +1747,7 @@ function AgentsPageContent() {
       pending,
       reflectionStatus,
     });
-  }, [fetchAgents, user?.id]);
+  }, [refreshAgentEnrichment, user?.id]);
 
   const openUpgradeCatalog = useCallback(async (preferredPlanId?: string) => {
     if (preferredPlanId === "free") {
@@ -1601,7 +1755,6 @@ function AgentsPageContent() {
         requestAuthentication({ kind: "launch" });
       } else {
         await fetchAgents({ force: true });
-        preserveAgentLauncherRef.current = false;
       }
       return;
     }
@@ -1719,8 +1872,12 @@ function AgentsPageContent() {
     if (!shouldOpenAgentTourFromPageEntry || appliedAgentTourEntryRef.current) return;
     if (authLoading) return;
     if (isAuthenticated && (agentsLoading || agentsLoadError || sdkAgents.length > 0)) return;
-    appliedAgentTourEntryRef.current = true;
-    openAgentTourFlow();
+    const timeout = window.setTimeout(() => {
+      if (appliedAgentTourEntryRef.current) return;
+      appliedAgentTourEntryRef.current = true;
+      openAgentTourFlow();
+    }, 0);
+    return () => window.clearTimeout(timeout);
   }, [
     agentsLoadError,
     agentsLoading,
@@ -1787,7 +1944,7 @@ function AgentsPageContent() {
       let reflectionStatus = getCheckoutReflectionStatus(null, pending);
 
       for (let attempt = 0; attempt < 6; attempt += 1) {
-        const refreshed = await fetchAgents({ force: true });
+        const refreshed = await refreshAgentEnrichment({ force: true });
         if (!active) return;
 
         reflectionStatus = getCheckoutReflectionStatus(refreshed?.subscriptionSummary ?? null, pending);
@@ -1820,7 +1977,7 @@ function AgentsPageContent() {
     return () => {
       active = false;
     };
-  }, [authLoading, billingDataError, billingDataPrincipalId, fetchAgents, isAuthenticated, user?.id]);
+  }, [authLoading, billingDataError, billingDataPrincipalId, isAuthenticated, refreshAgentEnrichment, user?.id]);
 
   useEffect(() => {
     const principalId = user?.id ?? null;
@@ -1858,11 +2015,9 @@ function AgentsPageContent() {
 
   const accountAgents = useMemo(
     () => agentDataPrincipalId === user?.id
-      ? sdkAgents.map((agent) => toAgentViewModel(agent, {
-          managedDisplayName: displayNamesByAgentId[agent.id],
-        }))
+      ? sdkAgents.map(toAgentViewModel)
       : [],
-    [agentDataPrincipalId, displayNamesByAgentId, sdkAgents, user?.id],
+    [agentDataPrincipalId, sdkAgents, user?.id],
   );
   const selectedWorkspaceAgentIdSet = useMemo(
     () => new Set(selectedWorkspaceAgentIds),
@@ -1878,28 +2033,28 @@ function AgentsPageContent() {
     const generation = agentDataGenerationRef.current;
     const agent = sdkAgents.find((entry) => entry.id === agentId);
     if (!agent) throw new Error("Agent is unavailable.");
-    const token = await getToken();
-    if (generation !== agentDataGenerationRef.current) return;
-    const client = createAgentClient(token);
-    const updatedAgent = await persistAgentCanonicalName(client, agent, name);
-    if (generation !== agentDataGenerationRef.current) return;
-    setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
-  }, [getToken, sdkAgents]);
+    const updatedAgent = await runAgentMutation(agentId, async () => {
+      if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+      const token = await getToken();
+      if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+      return persistAgentCanonicalName(createAgentClient(token), agent, name);
+    });
+    if (!updatedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+    applyAgentMutationResult(updatedAgent);
+  }, [applyAgentMutationResult, getToken, runAgentMutation, sdkAgents]);
   const updateAgentDisplayName = useCallback(async (agentId: string, displayName: string) => {
     const generation = agentDataGenerationRef.current;
     const agent = sdkAgents.find((entry) => entry.id === agentId);
     if (!agent) throw new Error("Agent is unavailable.");
-    const updatedAgent = await persistAgentDisplayName(
-      async () => createAgentClient(await getToken()),
-      agent,
-      displayName,
-      displayNameStorageScope ? setManagedAgentDisplayName : undefined,
-    );
-    if (generation !== agentDataGenerationRef.current) return;
-    if (updatedAgent) {
-      setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
-    }
-  }, [displayNameStorageScope, getToken, sdkAgents, setManagedAgentDisplayName]);
+    const updatedAgent = await runAgentMutation(agentId, async () => {
+      if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+      const token = await getToken();
+      if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+      return persistAgentDisplayName(createAgentClient(token), agent, displayName);
+    });
+    if (!updatedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+    applyAgentMutationResult(updatedAgent);
+  }, [applyAgentMutationResult, getToken, runAgentMutation, sdkAgents]);
   const agentRosterIds = useMemo(() => agents.map((agent) => agent.id), [agents]);
   const { orderedAgentIds } = useAgentRosterOrder(agentRosterIds, selectedWorkspaceId);
   const orderedRosterAgents = useMemo(() => {
@@ -2071,7 +2226,7 @@ function AgentsPageContent() {
     }
 
     const timer = setInterval(() => {
-      void fetchAgents();
+      void fetchAgents({ force: true, includeEnrichment: false });
     }, 2000);
 
     return () => clearInterval(timer);
@@ -2127,57 +2282,46 @@ function AgentsPageContent() {
   }, [selectedAgentId]);
 
   // ── Gateway Chat hook ──
-  const handleShellData = useCallback((text: string) => {
-    shellOutputHandlerRef.current(text);
+  const [shellIntentAgentId, setShellIntentAgentId] = useState<string | null>(null);
+  const shellIntentAgentIdRef = useRef<string | null>(null);
+  const shellIntentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelShellIntent = useCallback(() => {
+    if (shellIntentTimerRef.current) {
+      clearTimeout(shellIntentTimerRef.current);
+      shellIntentTimerRef.current = null;
+    }
+    shellIntentAgentIdRef.current = null;
+    setShellIntentAgentId(null);
   }, []);
-
-  const {
-    logs,
-    status: wsStatus,
-    reconnect: reconnectLogs,
-  } = useAgentLogs(
-    deployments,
-    selectedAgentId,
-    !dashboardView && mainTab === "logs" && selectedAgentState === "RUNNING",
-  );
+  const prepareShell = useCallback(() => {
+    if (
+      selectedAgentId &&
+      shellIntentAgentIdRef.current === selectedAgentId &&
+      shellIntentTimerRef.current
+    ) return;
+    preloadAgentShellTerminalRuntime();
+    if (selectedAgentId && selectedAgentState === "RUNNING") {
+      shellIntentAgentIdRef.current = selectedAgentId;
+      setShellIntentAgentId(selectedAgentId);
+      if (shellIntentTimerRef.current) clearTimeout(shellIntentTimerRef.current);
+      const intendedAgentId = selectedAgentId;
+      shellIntentTimerRef.current = setTimeout(() => {
+        shellIntentTimerRef.current = null;
+        if (shellIntentAgentIdRef.current === intendedAgentId) shellIntentAgentIdRef.current = null;
+        setShellIntentAgentId((current) => current === intendedAgentId ? null : current);
+      }, SHELL_INTENT_TTL_MS);
+    }
+  }, [selectedAgentId, selectedAgentState]);
+  useEffect(() => () => {
+    if (shellIntentTimerRef.current) clearTimeout(shellIntentTimerRef.current);
+  }, []);
 
   const shellEnabled = useAgentShellActivation({
     agentId: selectedAgentId,
     agentState: selectedAgentState,
     activeTab: mainTab,
+    intent: shellIntentAgentId === selectedAgentId,
   });
-
-  const {
-    status: shellStatus,
-    send: sendShell,
-    resize: resizeShell,
-    reconnect: reconnectShell,
-  } = useAgentShell(deployments, {
-    agentId: selectedAgentId,
-    enabled: shellEnabled,
-    onData: handleShellData,
-  });
-
-  const {
-    shellBoxRef,
-    writeOutput: writeShellOutput,
-    clearOutput: clearShellOutput,
-  } = useAgentShellTerminal({
-    agentId: selectedAgentId,
-    status: shellStatus,
-    visible: !dashboardView && mainTab === "shell" && Boolean(isSelectedRunning),
-    onInput: sendShell,
-    onResize: resizeShell,
-  });
-
-  useEffect(() => {
-    shellOutputHandlerRef.current = writeShellOutput;
-  }, [writeShellOutput]);
-
-  useEffect(() => {
-    if (mainTab !== "shell" || (shellStatus !== "connecting" && shellStatus !== "reconnecting")) return;
-    clearShellOutput();
-  }, [clearShellOutput, mainTab, shellStatus]);
 
   const selectedSessionKey = selectedAgentId
     ? selectedSessionKeysByAgent[selectedAgentId] ?? resolveOpenClawSessionKey(selectedAgentId)
@@ -2229,8 +2373,11 @@ function AgentsPageContent() {
   const skillDraftScope = useMemo(() => ({ ownerId: user?.email ?? "local", agentId: selectedAgentId ?? "unknown-agent" }), [selectedAgentId, user?.email]);
   const activeSkillDraftTest = useSkillDraftTestSession(skillDraftScope, selectedSessionKey);
   const gatewayEnabled = isSelectedRunning && agentWorkspaceActivated;
-  const openClawHydrationMode: OpenClawHydrationMode = (
-    mainTab === "chat" ||
+  const openClawHydrationMode: OpenClawHydrationMode = !dashboardView &&
+    mainTab === "chat" &&
+    !openclawSettingsOpen
+    ? "chat"
+    : !dashboardView && (
     mainTab === "workspace" ||
     mainTab === "integrations" ||
     mainTab === "skills" ||
@@ -2238,7 +2385,7 @@ function AgentsPageContent() {
     mainTab === "settings" ||
     mainTab === "openclaw" ||
     openclawSettingsOpen
-  ) ? "full" : "sessions";
+    ) ? "full" : "sessions";
 
   const chat = useOpenClawSession(
     selectedAgent && isSelectedRunning ? selectedOpenClawAgent : null,
@@ -2291,7 +2438,7 @@ function AgentsPageContent() {
       return selectedAgentId ? "connected" as const : null;
     }
     if (!isSelectedRunning) return null;
-    if (mainTab === "logs") return wsStatus;
+    if (mainTab === "logs") return logsStatus;
     if (mainTab === "shell") return shellStatus;
     if (mainTab === "chat" || mainTab === "workspace" || mainTab === "integrations" || mainTab === "skills" || mainTab === "scheduled" || mainTab === "settings") {
       if (chat.connected) return "connected" as const;
@@ -2299,7 +2446,7 @@ function AgentsPageContent() {
       return "disconnected" as const;
     }
     return null;
-  }, [chat.connected, chat.connecting, isSelectedRunning, mainTab, selectedAgentId, shellStatus, wsStatus]);
+  }, [chat.connected, chat.connecting, isSelectedRunning, logsStatus, mainTab, selectedAgentId, shellStatus]);
 
   // Gateway file ops go through the SDK's OpenClawAgent instance (operator-WS agents.files.*),
   // so they need the hydrated agent record rather than the Deployments client.
@@ -2339,9 +2486,14 @@ function AgentsPageContent() {
       setChatFileReferenceCandidates([]);
       return;
     }
+    const target = { agentId: selectedAgentId, sessionKey: chat.activeSessionKey };
     const entries = await listAgentFiles(OPENCLAW_WORKSPACE_PREFIX);
+    if (
+      activeChatTargetRef.current.agentId !== target.agentId ||
+      activeChatTargetRef.current.sessionKey !== target.sessionKey
+    ) return;
     setChatFileReferenceCandidates(entries.map(workspaceFileReferenceFromEntry).filter((file): file is ChatPendingFile => Boolean(file)));
-  }, [chat.connected, listAgentFiles, mainTab, selectedAgentId]);
+  }, [chat.activeSessionKey, chat.connected, listAgentFiles, mainTab, selectedAgentId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2369,6 +2521,7 @@ function AgentsPageContent() {
     agentClient: Deployments,
     fromPath: string,
     safeCandidatePath: string,
+    options?: AgentFilePreviewReadOptions,
   ) => {
     const agentId = selectedAgentId;
     if (!agentId) throw new Error("No agent selected");
@@ -2382,7 +2535,8 @@ function AgentsPageContent() {
       throw new Error("Only workspace files can be renamed safely.");
     }
 
-    const content = await agentClient.fileReadBytes(agentId, normalizedFromPath, "s3");
+    const content = await agentClient.fileReadBytes(agentId, normalizedFromPath, "s3", options);
+    options?.signal.throwIfAborted();
     await agentClient.fileWriteBytes(agentId, normalizedSafePath, content, "s3");
     try {
       await agentClient.fileDelete(agentId, normalizedFromPath);
@@ -2421,28 +2575,35 @@ function AgentsPageContent() {
   const readAgentFileBytesResult = useCallback(async (
     path: string,
     source: AgentFilePanelSource = "auto",
+    options?: AgentFilePreviewReadOptions,
   ): Promise<AgentFileReadRecoveryResult<Uint8Array>> => {
     const agentId = selectedAgentId;
     if (source === "gateway") {
-      const content = await gatewayFilesAgent().fileReadBytes(path, "gateway");
-      return { content, path, renamed: false };
+      const result = await gatewayFilesAgent().fileReadBytesWithMetadata(path, "gateway", options);
+      return { ...result, path, renamed: false };
     }
     const normalizedPath = normalizeAgentFilePath(path);
     if (!agentId) return { content: new Uint8Array(), path: normalizedPath, renamed: false };
 
     const agentClient = await getAgentClient();
     const readSource = agentFileSourceForState(selectedAgentState, backendSourceFromPanel(source));
-    return readAgentFileWithRecovery({
+    const recovered = await readAgentFileWithRecovery({
       path: normalizedPath,
       read: (targetPath) => readAgentFileWithSourceFallback(readSource, (fallbackSource) => (
-        agentClient.fileReadBytes(agentId, targetPath, fallbackSource)
+        agentClient.fileReadBytesWithMetadata(agentId, targetPath, fallbackSource, options)
       )),
-      rename: (fromPath, safeCandidatePath) => renameAgentFileToSafeName(agentClient, fromPath, safeCandidatePath),
+      rename: (fromPath, safeCandidatePath) => renameAgentFileToSafeName(agentClient, fromPath, safeCandidatePath, options),
+      signal: options?.signal,
     });
+    return {
+      ...recovered,
+      content: recovered.content.content,
+      mimeType: recovered.content.mimeType,
+    };
   }, [gatewayFilesAgent, getAgentClient, renameAgentFileToSafeName, selectedAgentId, selectedAgentState]);
 
-  const readAgentFileBytes = useCallback(async (path: string, source: AgentFilePanelSource = "auto") => {
-    const result = await readAgentFileBytesResult(path, source);
+  const readAgentFileBytes = useCallback(async (path: string, options?: AgentFilePreviewReadOptions) => {
+    const result = await readAgentFileBytesResult(path, "auto", options);
     return result.content;
   }, [readAgentFileBytesResult]);
 
@@ -2471,19 +2632,29 @@ function AgentsPageContent() {
     await refreshChatFileReferences().catch(() => undefined);
   }, [gatewayFilesAgent, getAgentClient, refreshChatFileReferences, selectedAgentId, selectedAgentState]);
 
-  const uploadAgentFile = useCallback(async (path: string, content: Uint8Array) => {
+  const uploadAgentFile = useCallback(async (
+    path: string,
+    content: Uint8Array,
+    destination: "agent" | "backup" | "auto" = "auto",
+  ) => {
     if (!selectedAgentId) return;
     const agentClient = await getAgentClient();
+    const writeDestination = destination === "agent" || destination === "backup"
+      ? backendSourceFromPanel(destination)
+      : agentFileDestinationForState(selectedAgentState);
     await agentClient.fileWriteBytes(
       selectedAgentId,
       normalizeAgentFilePath(path),
       content,
-      agentFileDestinationForState(selectedAgentState),
+      writeDestination,
     );
     await refreshChatFileReferences().catch(() => undefined);
   }, [getAgentClient, refreshChatFileReferences, selectedAgentId, selectedAgentState]);
 
-  const createAgentDirectory = useCallback(async (path: string) => {
+  const createAgentDirectory = useCallback(async (
+    path: string,
+    destination: "agent" | "backup" | "auto" = "auto",
+  ) => {
     if (!selectedAgentId) return;
     const normalizedPath = normalizeAgentFilePath(path);
     if (!normalizedPath) {
@@ -2491,13 +2662,16 @@ function AgentsPageContent() {
     }
 
     const agentClient = await getAgentClient();
+    const writeDestination = destination === "agent" || destination === "backup"
+      ? backendSourceFromPanel(destination)
+      : agentFileDestinationForState(selectedAgentState);
     await agentClient.fileWriteBytes(
       selectedAgentId,
       `${normalizedPath}/${AGENT_DIRECTORY_MARKER_NAME}`,
       new Uint8Array(),
-      "s3",
+      writeDestination,
     );
-  }, [getAgentClient, selectedAgentId]);
+  }, [getAgentClient, selectedAgentId, selectedAgentState]);
 
   const deleteAgentFile = useCallback(async (path: string, options?: { recursive?: boolean }) => {
     if (!selectedAgentId) return;
@@ -2687,7 +2861,11 @@ function AgentsPageContent() {
         title: displayName,
         lastMessage: agent.state === "RUNNING" ? "Connected" : agent.state.toLowerCase(),
         lastMessageBy: agent.id,
-        lastMessageAt: agent.updated_at ? new Date(agent.updated_at).getTime() : Date.now(),
+        lastMessageAt: agent.updated_at
+          ? new Date(agent.updated_at).getTime()
+          : agent.created_at
+            ? new Date(agent.created_at).getTime()
+            : 0,
         messageCount: agent.id === selectedAgentId ? chat.messages.length : 0,
         unreadCount: 0,
         isActive: agent.state === "RUNNING",
@@ -2697,11 +2875,11 @@ function AgentsPageContent() {
   // Derive RecentToolCall[] by flattening toolCalls across assistant messages.
   // Newest last (matches the Activity tab order).
   const recentToolCallsForView = useMemo(() => {
-    if (!chat.messages || chat.messages.length === 0) return null;
+    if (!SHOW_AGENT_INSPECTOR || chat.messages.length === 0) return null;
     const out: Array<{ id: string; name: string; args: string; result?: string; timestamp: number }> = [];
     chat.messages.forEach((msg) => {
       if (msg.role !== "assistant" || !msg.toolCalls) return;
-      const ts = msg.timestamp ?? Date.now();
+      const ts = msg.timestamp ?? 0;
       msg.toolCalls.forEach((tc, idx) => {
         out.push({
           id: tc.id ?? `${ts}-${idx}`,
@@ -2884,23 +3062,26 @@ function AgentsPageContent() {
     scheduleChatScroll(behavior, true);
   }, [scheduleChatScroll]);
 
+  const chatMessageCount = chat.messages.length;
+  const latestChatMessage = chat.messages[chatMessageCount - 1];
+  const latestChatMessageRole = latestChatMessage?.role;
+  const latestChatMessageClientTurnId = latestChatMessage?.clientTurnId;
   useEffect(() => {
-    const count = chat.messages.length;
+    const count = chatMessageCount;
     const previousCount = lastMsgCountRef.current;
     lastMsgCountRef.current = count;
     if (mainTab !== "chat" || count <= previousCount) return;
 
-    const appendedUserMessage = chat.messages[count - 1];
     const appendedLocalUserMessage = count === previousCount + 1 &&
-      appendedUserMessage?.role === "user" &&
-      Boolean(appendedUserMessage.clientTurnId);
+      latestChatMessageRole === "user" &&
+      Boolean(latestChatMessageClientTurnId);
     if (appendedLocalUserMessage) {
       isNearBottomRef.current = true;
       scheduleChatScroll("smooth");
     } else {
       scheduleChatScroll("auto", true);
     }
-  }, [chat.messages, mainTab, scheduleChatScroll]);
+  }, [chatMessageCount, latestChatMessageClientTurnId, latestChatMessageRole, mainTab, scheduleChatScroll]);
 
   const prevSendingRef = useRef(chat.sending);
   useEffect(() => {
@@ -2930,8 +3111,6 @@ function AgentsPageContent() {
 
   useEffect(() => cancelScheduledChatScroll, [cancelScheduledChatScroll]);
 
-  useEffect(() => { if (logBoxRef.current) logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight; }, [logs]);
-
   // ── Actions ──
 
   const handleStart = async (agentId: string) => {
@@ -2950,11 +3129,14 @@ function AgentsPageContent() {
     setError(null);
     const generation = agentDataGenerationRef.current;
     try {
-      const token = await getToken();
-      if (generation !== agentDataGenerationRef.current) return;
-      const startedAgent = await startOpenClawAgent(token, agentId);
-      if (generation !== agentDataGenerationRef.current) return;
-      setSdkAgents((prev) => upsertSdkAgent(prev, startedAgent));
+      const startedAgent = await runAgentMutation(agentId, async () => {
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+        const token = await getToken();
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+        return startOpenClawAgent(token, agentId);
+      });
+      if (!startedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+      applyAgentMutationResult(startedAgent);
     } catch (err) {
       if (generation !== agentDataGenerationRef.current) return;
       if (isAgentCleanupConflictError(err)) {
@@ -2991,7 +3173,6 @@ function AgentsPageContent() {
 
   const handleCreateFirstAgent = useCallback(async ({ name, iconIndex, size, files, enableDesktop, enableMemoryIndex = false, customImage = null }: AgentCreationSetupCreateParams) => {
     if (!isAuthenticated) {
-      if (agentLauncherOpen) preserveAgentLauncherRef.current = true;
       requestAuthentication({ kind: "launch" });
       return null;
     }
@@ -3079,7 +3260,6 @@ function AgentsPageContent() {
     fetchAgents,
     getToken,
     isAuthenticated,
-    agentLauncherOpen,
     requestAuthentication,
     selectAgent,
     shouldOfferWorkspaceCreation,
@@ -3091,15 +3271,18 @@ function AgentsPageContent() {
     setError(null);
     setTierSelection(null);
     try {
-      const token = await getToken();
-      if (generation !== agentDataGenerationRef.current) return;
-      const agentClient = createAgentClient(token);
-      const resizedAgent = await agentClient.resize(agentId, { size: tier });
-      if (generation !== agentDataGenerationRef.current) return;
-      setSdkAgents((prev) => upsertSdkAgent(prev, resizedAgent));
-      const startedAgent = await startOpenClawAgent(token, agentId);
-      if (generation !== agentDataGenerationRef.current) return;
-      setSdkAgents((prev) => upsertSdkAgent(prev, startedAgent));
+      const startedAgent = await runAgentMutation(agentId, async () => {
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+        const token = await getToken();
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+        const agentClient = createAgentClient(token);
+        const resizedAgent = await agentClient.resize(agentId, { size: tier });
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+        applyAgentMutationResult(resizedAgent);
+        return startOpenClawAgent(token, agentId);
+      });
+      if (!startedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+      applyAgentMutationResult(startedAgent);
     } catch (err) {
       if (generation !== agentDataGenerationRef.current) return;
       if (isAgentCleanupConflictError(err)) {
@@ -3111,7 +3294,7 @@ function AgentsPageContent() {
     } finally {
       if (generation === agentDataGenerationRef.current) setStartingId(null);
     }
-  }, [getToken, markAgentCleanupCooldown]);
+  }, [applyAgentMutationResult, getToken, markAgentCleanupCooldown, runAgentMutation]);
 
   const selectedAgentHasTierOptions = Boolean(selectedAgentStartGuidance?.availableTiers?.length);
   const selectedAgentRecentlyStopped = Boolean(selectedAgent && recentlyStoppedIds.has(selectedAgent.id));
@@ -3153,11 +3336,14 @@ function AgentsPageContent() {
         await endTemporaryChatBeforeSelectionRef.current();
         if (generation !== agentDataGenerationRef.current) return;
       }
-      const token = await getToken();
-      if (generation !== agentDataGenerationRef.current) return;
-      const stoppedAgent = await createAgentClient(token).stop(agentId);
-      if (generation !== agentDataGenerationRef.current) return;
-      setSdkAgents((prev) => upsertSdkAgent(prev, stoppedAgent));
+      const stoppedAgent = await runAgentMutation(agentId, async () => {
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+        const token = await getToken();
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+        return createAgentClient(token).stop(agentId);
+      });
+      if (!stoppedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+      applyAgentMutationResult(stoppedAgent);
       markAgentCleanupCooldown(agentId);
     } catch (err) {
       if (generation !== agentDataGenerationRef.current) return;
@@ -3169,6 +3355,7 @@ function AgentsPageContent() {
 
   const handleDelete = async (agentId: string) => {
     const generation = agentDataGenerationRef.current;
+    deletingAgentIdsRef.current.add(agentId);
     setDeletingId(agentId);
     setError(null);
     try {
@@ -3179,17 +3366,20 @@ function AgentsPageContent() {
       const agentToDelete = agents.find((agent) => agent.id === agentId) ?? null;
       const releaseTier = agentToDelete ? inferAgentTier(agentToDelete, budget) : null;
       const releaseBaseline = releaseTier ? budget?.slots?.[releaseTier] : null;
-      const token = await getToken();
-      if (generation !== agentDataGenerationRef.current) return;
-      await createAgentClient(token).delete(agentId);
-      if (generation !== agentDataGenerationRef.current) return;
+      const deleted = await runAgentMutation(agentId, async () => {
+        const token = await getToken();
+        if (generation !== agentDataGenerationRef.current) return false;
+        await createAgentClient(token).delete(agentId);
+        return true;
+      });
+      if (!deleted || generation !== agentDataGenerationRef.current) return;
+      agentMutationVersionsRef.current.delete(agentId);
       clearOpenClawSessionPins(agentId);
-      clearManagedAgentDisplayName(agentId);
       const nextAgents = removeSdkAgent(sdkAgents, agentId);
       const deletedIndex = sdkAgents.findIndex((agent) => agent.id === agentId);
       const replacementIndex = deletedIndex === -1 ? 0 : Math.min(deletedIndex, nextAgents.length - 1);
       const replacementAgentId = nextAgents[replacementIndex]?.id ?? null;
-      setSdkAgents(nextAgents);
+      setSdkAgents((current) => removeSdkAgent(current, agentId));
       setSelectedSessionKeysByAgent((current) => {
         if (!Object.prototype.hasOwnProperty.call(current, agentId)) return current;
         const next = { ...current };
@@ -3213,6 +3403,7 @@ function AgentsPageContent() {
       }
     } catch (err) {
       if (generation !== agentDataGenerationRef.current) return;
+      deletingAgentIdsRef.current.delete(agentId);
       setError(err instanceof Error ? err.message : "Failed to delete agent");
     } finally {
       if (generation === agentDataGenerationRef.current) {
@@ -3247,6 +3438,9 @@ function AgentsPageContent() {
   const [preparingAudioPreview, setPreparingAudioPreview] = useState(false);
   const [sendingAudio, setSendingAudio] = useState(false);
   const [uploadingChatFiles, setUploadingChatFiles] = useState(0);
+  const [chatFileUploadProgress, setChatFileUploadProgress] = useState<ChatImageCollectionProgress | null>(null);
+  const [pendingFileRemovalStates, setPendingFileRemovalStates] = useState<Record<string, ChatPendingFileRemovalState>>({});
+  const pendingFileRemovalStatesRef = useRef<Record<string, ChatPendingFileRemovalState>>({});
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
   const beginChatUpload = useCallback((): number => {
@@ -3263,10 +3457,18 @@ function AgentsPageContent() {
     chatUploadIdleWaitersRef.current.forEach((resolve) => resolve());
     chatUploadIdleWaitersRef.current.clear();
   }, []);
+  const setPendingFileRemovalState = useCallback((path: string, state: ChatPendingFileRemovalState | null) => {
+    const next = { ...pendingFileRemovalStatesRef.current };
+    if (state) next[path] = state;
+    else delete next[path];
+    pendingFileRemovalStatesRef.current = next;
+    setPendingFileRemovalStates(next);
+  }, []);
   const retireChatUploads = useCallback(() => {
     chatUploadGenerationRef.current += 1;
     chatUploadsInFlightRef.current = 0;
     setUploadingChatFiles(0);
+    setChatFileUploadProgress(null);
     setSendingAudio(false);
     chatUploadIdleWaitersRef.current.forEach((resolve) => resolve());
     chatUploadIdleWaitersRef.current.clear();
@@ -3529,64 +3731,193 @@ function AgentsPageContent() {
     }
   }, [audioBlob, beginChatUpload, chat, discardAudio, finishChatUpload, selectedAgent, getToken, sendingAudio]);
 
-  const handleChatFileDrop = useCallback(async (fileList: FileList | File[]) => {
+  const handleChatFileDrop = useCallback(async (fileList: ChatFileDropInput) => {
     if (!selectedAgent || !chat.connected) return;
+    const droppedItems = normalizeChatFileDropItems(fileList);
     const target = { agentId: selectedAgent.id, sessionKey: chat.activeSessionKey };
     const operation = chatAsyncOperationRef.current;
-
-    const files = Array.from(fileList);
-    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
-    const workspaceFiles = files.filter((file) => !file.type.startsWith("image/"));
+    if (chatUploadsInFlightRef.current > 0) {
+      await waitForChatUploads(null);
+      if (
+        chatAsyncOperationRef.current !== operation ||
+        activeChatTargetRef.current.agentId !== target.agentId ||
+        activeChatTargetRef.current.sessionKey !== target.sessionKey
+      ) return;
+      await handleChatFileDropRef.current(droppedItems);
+      return;
+    }
+    const imageItems = droppedItems.filter(({ file }) => (
+      file.type.startsWith("image/") || isFileTypeReference({ name: file.name, mimeType: file.type }, "image")
+    ));
+    const imageFiles = imageItems.map(({ file }) => file);
+    const workspaceItems = droppedItems.filter((item) => !imageItems.includes(item));
+    const stageImageCollection = imageFiles.length > 0 && (
+      chat.pendingAttachmentReads > 0 ||
+      shouldStageChatImageCollection([
+        ...chat.pendingAttachments.map((attachment) => ({ size: Math.ceil((attachment.content?.length ?? 0) * 3 / 4) })),
+        ...imageFiles,
+      ])
+    );
+    let uploadGeneration: number | null = null;
     const targetIsCurrent = () => (
       chatAsyncOperationRef.current === operation &&
+      (uploadGeneration === null || uploadGeneration === chatUploadGenerationRef.current) &&
       activeChatTargetRef.current.agentId === target.agentId &&
       activeChatTargetRef.current.sessionKey === target.sessionKey
     );
 
-    if (imageFiles.length > 0) {
-      const dt = new DataTransfer();
-      imageFiles.forEach((file) => dt.items.add(file));
-      chat.addAttachments(dt.files);
+    if (imageFiles.length > 0 && !stageImageCollection) {
+      const result = await chat.addAttachments(imageFiles, imageItems.map(({ relativePath }) => relativePath));
+      if (result.failures.length > 0) throw new Error(result.failures[0].message);
     }
-    if (workspaceFiles.length === 0) return;
+    if (workspaceItems.length === 0 && !stageImageCollection) return;
 
-    const uploadGeneration = beginChatUpload();
+    uploadGeneration = beginChatUpload();
     let uploadInFlight = true;
+    let uploadCommitted = false;
+    let agentClient: ReturnType<typeof createAgentClient> | null = null;
+    let stagedCollection: ChatImageCollectionDescriptor | null = null;
     try {
       const token = await getToken();
-      const agentClient = createAgentClient(token);
-      const uploaded: Array<{ name: string; path: string; type: string }> = [];
+      const client = createAgentClient(token);
+      agentClient = client;
+      const uploaded: Array<{
+        name: string;
+        path: string;
+        type: string;
+        imageCollection?: ChatImageCollectionDescriptor;
+      }> = [];
 
-      for (const file of workspaceFiles) {
+      if (stageImageCollection) {
+        const result = await uploadChatImageCollection({
+          files: imageItems.map(({ file, relativePath }) => ({
+            name: relativePath,
+            size: file.size,
+            type: file.type,
+            arrayBuffer: () => file.arrayBuffer(),
+          })),
+          isActive: targetIsCurrent,
+          onProgress: (progress) => {
+            if (targetIsCurrent()) setChatFileUploadProgress(progress);
+          },
+          writeFile: (path, content) => client.fileWriteBytes(selectedAgent.id, path, content),
+          deleteFile: (path) => client.fileDelete(selectedAgent.id, path),
+        });
+        if (result.cleanupFailures.length > 0) {
+          console.error("Image collection rollback was incomplete:", result.cleanupFailures);
+        }
+        if (result.cancelled || !targetIsCurrent()) return;
+        if (!result.collection || !result.manifestName) {
+          const failure = result.failures[0];
+          throw new Error(failure
+            ? `Could not upload "${failure.name}": ${failure.message}`
+            : "The image collection could not be uploaded.");
+        }
+        uploaded.push({
+          name: result.manifestName,
+          path: result.collection.manifestPath,
+          type: "application/json",
+          imageCollection: result.collection,
+        });
+        stagedCollection = result.collection;
+      }
+
+      for (const [index, { file, relativePath }] of workspaceItems.entries()) {
         if (!targetIsCurrent()) return;
-        const uploadPath = `${OPENCLAW_WORKSPACE_PREFIX}/${file.name}`;
-        const content = await file.arrayBuffer();
+        setChatFileUploadProgress({
+          completed: index,
+          total: workspaceItems.length,
+          label: workspaceItems.length === 1 ? "Uploading file" : `Uploading ${workspaceItems.length} files`,
+        });
+        const uploadPath = `${OPENCLAW_WORKSPACE_PREFIX}/${relativePath}`;
+        let content: ArrayBuffer;
+        try {
+          content = await file.arrayBuffer();
+        } catch (cause) {
+          const detail = cause instanceof Error ? cause.message : "The file could not be read.";
+          throw new Error(`Could not read "${relativePath}": ${detail}`);
+        }
         if (!targetIsCurrent()) return;
-        await agentClient.fileWriteBytes(selectedAgent.id, uploadPath, content);
+        await client.fileWriteBytes(selectedAgent.id, uploadPath, content);
+        if (!targetIsCurrent()) return;
         uploaded.push({
           name: file.name,
           path: `${OPENCLAW_SYNC_ROOT}/${uploadPath}`,
           type: file.type,
         });
+        setChatFileUploadProgress({
+          completed: index + 1,
+          total: workspaceItems.length,
+          label: workspaceItems.length === 1 ? "Uploading file" : `Uploading ${workspaceItems.length} files`,
+        });
       }
 
       if (!targetIsCurrent()) return;
       chat.addPendingFiles(uploaded);
+      uploadCommitted = true;
       finishChatUpload(uploadGeneration);
       uploadInFlight = false;
       await refreshChatFileReferences().catch(() => undefined);
     } catch (e) {
       console.error("Chat file upload failed:", e);
-      setError(e instanceof Error ? e.message : "File upload failed");
+      const uploadError = e instanceof Error ? e : new Error("File upload failed");
+      if (targetIsCurrent()) setError(uploadError.message);
+      throw uploadError;
     } finally {
+      const cleanupClient = agentClient;
+      if (!uploadCommitted && cleanupClient) {
+        if (stagedCollection) {
+          const cleanupFailures = await deleteChatImageCollection(
+            stagedCollection,
+            (path) => cleanupClient.fileDelete(selectedAgent.id, path),
+          );
+          if (cleanupFailures.length > 0) {
+            console.error("Image collection cleanup was incomplete:", cleanupFailures);
+          }
+        }
+      }
       if (uploadInFlight) finishChatUpload(uploadGeneration);
+      if (
+        uploadGeneration === chatUploadGenerationRef.current &&
+        chatUploadsInFlightRef.current === 0
+      ) setChatFileUploadProgress(null);
     }
-  }, [beginChatUpload, chat, finishChatUpload, getToken, refreshChatFileReferences, selectedAgent]);
+  }, [beginChatUpload, chat, finishChatUpload, getToken, refreshChatFileReferences, selectedAgent, waitForChatUploads]);
+  useLayoutEffect(() => {
+    handleChatFileDropRef.current = handleChatFileDrop;
+  }, [handleChatFileDrop]);
+
+  const removePendingChatFile = useCallback((index: number, file: ChatPendingFile) => {
+    const target = { agentId: selectedAgent?.id ?? null, sessionKey: chat.activeSessionKey };
+    if (!selectedAgent || !file.imageCollection) {
+      chat.removePendingFile(index, file.path, target);
+      return;
+    }
+    const agentId = selectedAgent.id;
+    const collection = file.imageCollection;
+    setPendingFileRemovalState(file.path, "removing");
+    void (async () => {
+      const token = await getToken();
+      const agentClient = createAgentClient(token);
+      const cleanupFailures = await deleteChatImageCollection(collection, (path) => agentClient.fileDelete(agentId, path));
+      if (cleanupFailures.length > 0) {
+        throw new Error("The image collection could not be removed completely. Please retry.");
+      }
+      chat.removePendingFile(index, file.path, target);
+      setPendingFileRemovalState(file.path, null);
+      await refreshChatFileReferences().catch(() => undefined);
+    })().catch((cause: unknown) => {
+      console.error("Image collection cleanup failed:", cause);
+      setPendingFileRemovalState(file.path, "failed");
+      setError(cause instanceof Error ? cause.message : "The image collection could not be removed.");
+    });
+  }, [chat, getToken, refreshChatFileReferences, selectedAgent, setPendingFileRemovalState]);
 
   const formatDuration = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
 
   const handleSendChat = () => {
     if (chat.activeSessionReadOnly || uploadingChatFiles > 0) return;
+    if (chat.pendingFiles.some((file) => pendingFileRemovalStatesRef.current[file.path])) return;
     const draftInput = chat.input;
     const hasChatWork = draftInput.trim().length > 0 || chat.pendingFiles.length > 0 || chat.pendingAttachments.length > 0;
     const pendingJourneyCompletion = journeyChatCompletionRef.current;
@@ -3599,8 +3930,11 @@ function AgentsPageContent() {
       journeyChatCompletionRef.current = null;
     };
     if (chat.activeSessionSending) {
-      chat.setInput("");
-      chat.addPendingMessage(draftInput);
+      chat.addPendingMessage(draftInput, {
+        attachments: chat.pendingAttachments,
+        files: chat.pendingFiles,
+        consumeDraft: true,
+      });
       if (hasChatWork) {
         completePendingJourney();
       }
@@ -3866,7 +4200,7 @@ function AgentsPageContent() {
     const name = result.renamed
       ? result.path.split("/").filter(Boolean).pop() || file.name || "download"
       : file.name || file.path.split("/").filter(Boolean).pop() || "download";
-    downloadFileBytes(name, result.content, file.type || "application/octet-stream");
+    downloadFileBytes(name, result.content, result.mimeType || file.type || inferFileMimeType(file));
   }, [readAgentFileBytesResult]);
   const openIntegrationsTab = () => {
     openAgentSurfaceRoute("integrations");
@@ -3977,6 +4311,7 @@ function AgentsPageContent() {
     closeMobileNavigation();
   };
   const openShellTab = () => {
+    prepareShell();
     openAgentSurfaceRoute("shell");
     setOpenclawSettingsOpen(false);
     selectMainTab("shell");
@@ -4030,7 +4365,6 @@ function AgentsPageContent() {
     try {
       const createdId = await handleCreateFirstAgent(params);
       if (createdId) {
-        preserveAgentLauncherRef.current = false;
         setAgentLauncherOpen(false);
       }
       return createdId;
@@ -4207,6 +4541,7 @@ function AgentsPageContent() {
           skillsActive={mainTab === "skills"}
           tokenUsed={tokenUsage}
           tokenLimit={budget?.pooled_tpd ?? null}
+          isAuthenticated={isAuthenticated}
           disabled={workspaceSidebarDisabled}
           disabledReason={workspaceSidebarDisabledReason}
           scheduledDisabled={!SCHEDULED_SECTION_ENABLED}
@@ -4238,11 +4573,17 @@ function AgentsPageContent() {
           openingDesktop={openingDesktopId === selectedAgent?.id}
           onOpenLogs={openLogsTab}
           onOpenShell={openShellTab}
+          onShellIntent={prepareShell}
+          onShellIntentEnd={cancelShellIntent}
           onOpenOpenClaw={openOpenClawSettings}
           onOpenSettings={openAgentSettingsTab}
           onUpgrade={() => {
             closeMobileNavigation();
             void openUpgradeCatalog();
+          }}
+          onStartTrial={() => {
+            closeMobileNavigation();
+            openAgentCreationFlow();
           }}
         />
         <div aria-hidden="true" className="pointer-events-none absolute -top-2 bottom-0 right-0 z-[60] w-px bg-border" />
@@ -4340,7 +4681,6 @@ function AgentsPageContent() {
             error={upgradeCatalogError}
             onClose={() => {
               setUpgradeCatalogOpen(false);
-              preserveAgentLauncherRef.current = false;
             }}
             onOpenPlans={() => {
               if (isAuthenticated) leaveAgentsPage("/plans");
@@ -4361,7 +4701,6 @@ function AgentsPageContent() {
           isOpen={Boolean(upgradeCheckoutPlan)}
           onClose={() => {
             setUpgradeCheckoutPlan(null);
-            preserveAgentLauncherRef.current = false;
           }}
           onSuccess={() => { void refreshCheckoutEntitlements(); }}
           getToken={getToken}
@@ -4374,7 +4713,6 @@ function AgentsPageContent() {
           setAuthGateOpen(open);
           if (!open) {
             setPendingAuthIntent(null);
-            preserveAgentLauncherRef.current = false;
           }
         }}
       >
@@ -4481,46 +4819,12 @@ function AgentsPageContent() {
         onOpenChange={setAgentTourOpen}
         onStartCreating={startAgentCreationFromTour}
       />
-      <Dialog
-        modal={!agentLauncherSuspended}
-        open={agentLauncherOpen}
-        onOpenChange={(open) => {
-          if (!open && preserveAgentLauncherRef.current) return;
-          setAgentLauncherOpen(open);
-        }}
-      >
-        <DialogContent
-          aria-describedby={undefined}
-          closeLabel="Close launch agent"
-          overlayClassName={`z-[79] bg-black/70 backdrop-blur-sm ${agentLauncherSuspended ? "invisible pointer-events-none" : ""}`}
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            mobileNavigationTriggerRef.current?.focus();
-          }}
-          className={`z-[80] h-[min(840px,calc(100dvh-1.5rem))] w-[min(1280px,calc(100vw-1.5rem))] max-w-none gap-0 overflow-hidden border-0 bg-transparent p-0 shadow-none sm:h-[min(840px,calc(100dvh-2.5rem))] sm:w-[min(1280px,calc(100vw-2.5rem))] sm:max-w-none ${agentLauncherSuspended ? "invisible pointer-events-none" : ""}`}
-        >
-          <DialogTitle className="sr-only">Launch agent</DialogTitle>
-          <AgentCreationSetupWizard
-            size="large"
-            initialPlanId={launcherPreferredPlanId}
-            selectedCatalogPlanId={launcherSelectedCatalogPlanId}
-            budget={budget}
-            subscriptionSummary={subscriptionSummary}
-            catalogPlans={catalogPlans}
-            pendingSlotReleases={pendingSlotReleases}
-            onOpenPlanCatalog={(planId) => {
-              preserveAgentLauncherRef.current = true;
-              return openUpgradeCatalog(planId);
-            }}
-            onCreateAgent={createAgentFromLauncher}
-          />
-        </DialogContent>
-      </Dialog>
 
       {/* Main layout: AgentList + AgentMainPanel + AgentInspector */}
       <div className="flex flex-1 min-h-0">
+        {isDesktopViewport ? (
         <div
-          className={`agent-desktop-navigation relative flex h-full min-h-0 shrink-0 flex-col pt-14 ${isDesktopViewport ? "w-64" : "w-0"}`}
+          className="agent-desktop-navigation relative flex h-full min-h-0 w-64 shrink-0 flex-col pt-14"
           data-roster-collapsed={sidebarCollapsed}
           data-expanded-section={sidebarCollapsed ? "workspace" : "agents"}
         >
@@ -4582,6 +4886,7 @@ function AgentsPageContent() {
             skillsActive={mainTab === "skills"}
             tokenUsed={tokenUsage}
             tokenLimit={budget?.pooled_tpd ?? null}
+            isAuthenticated={isAuthenticated}
             disabled={workspaceSidebarDisabled}
             disabledReason={workspaceSidebarDisabledReason}
             scheduledDisabled={!SCHEDULED_SECTION_ENABLED}
@@ -4609,19 +4914,24 @@ function AgentsPageContent() {
             openingDesktop={openingDesktopId === selectedAgent?.id}
             onOpenLogs={openLogsTab}
             onOpenShell={openShellTab}
+            onShellIntent={prepareShell}
+            onShellIntentEnd={cancelShellIntent}
             onOpenOpenClaw={openOpenClawSettings}
             onOpenSettings={openAgentSettingsTab}
             onUpgrade={() => { void openUpgradeCatalog(); }}
+            onStartTrial={() => { openAgentCreationFlow(); }}
           />
           <div aria-hidden="true" className="pointer-events-none absolute -top-2 bottom-0 right-0 z-[60] w-px bg-border" />
           </div>
         </div>
+        ) : null}
 
           <div className={dashboardView ? "hidden" : "contents"}>
           <AgentMainPanel
           isDesktopViewport={isDesktopViewport}
           mobileShowChat={mobileMainPanelVisible}
           selectedAgent={selectedAgent}
+          isAuthenticated={isAuthenticated}
           hasAgents={agents.length > 0}
           loadingInitialAgents={agentsLoading || isAgentRosterLoading}
           isSelectedRunning={Boolean(isSelectedRunning)}
@@ -4642,13 +4952,39 @@ function AgentsPageContent() {
           skillsPanelActive={mainTab === "skills"}
           stoppedTabLabel={stoppedTabLabel[selectedCenterPanel]}
           headerAction={renderPrivateChatControl()}
-          persistentPanelContent={
-            <AgentTerminalPanel
-              status={shellStatus}
-              shellBoxRef={shellBoxRef}
-              visible={!dashboardView && mainTab === "shell" && Boolean(isSelectedRunning)}
+          launcherContent={agentLauncherOpen ? (
+            <div
+              aria-hidden={agentLauncherSuspended || undefined}
+              className={`flex min-h-0 flex-1 ${agentLauncherSuspended ? "invisible pointer-events-none" : ""}`}
+            >
+              <AgentCreationSetupWizard
+                size="inline"
+                saveDraftAsYouGo={!isAuthenticated}
+                onClose={closeAgentCreationFlow}
+                initialPlanId={launcherPreferredPlanId}
+                selectedCatalogPlanId={launcherSelectedCatalogPlanId}
+                budget={budget}
+                subscriptionSummary={subscriptionSummary}
+                catalogPlans={catalogPlans}
+                pendingSlotReleases={pendingSlotReleases}
+                onOpenPlanCatalog={(planId) => {
+                  return openUpgradeCatalog(planId);
+                }}
+                onCreateAgent={createAgentFromLauncher}
+              />
+            </div>
+          ) : null}
+          persistentPanelContent={shellEnabled ? (
+            <AgentShellController
+              ref={shellControllerRef}
+              deployments={deployments}
+              agentId={selectedAgentId}
+              visible={!agentLauncherOpen && !dashboardView && mainTab === "shell" && Boolean(isSelectedRunning)}
+              prewarm={shellIntentAgentId === selectedAgentId}
+              getDeployments={getFreshShellDeployments}
+              onStatusChange={setShellStatus}
             />
-          }
+          ) : null}
           panelContent={mainTab === "chat" ? (
             <AgentChatPanel
               chat={gatewayChat}
@@ -4659,6 +4995,9 @@ function AgentsPageContent() {
               chatDragDepthRef={chatDragDepthRef}
               handleChatFileDrop={handleChatFileDrop}
               chatFilesUploading={uploadingChatFiles > 0}
+              chatFileUploadProgress={chatFileUploadProgress}
+              pendingFileRemovalStates={pendingFileRemovalStates}
+              onRemovePendingFile={removePendingChatFile}
               chatScrollRef={chatScrollRef}
               handleChatScroll={handleChatScroll}
               onTranscriptResize={handleTranscriptResize}
@@ -4763,12 +5102,12 @@ function AgentsPageContent() {
                 completeJourneyForEvent("source-added");
               }}
               onDeleteFile={deleteAgentFile}
-              onUploadFile={async (path, content) => {
-                await uploadAgentFile(path, content);
+              onUploadFile={async (path, content, source) => {
+                await uploadAgentFile(path, content, source);
                 completeJourneyForEvent("source-added");
               }}
-              onCreateDirectory={async (path) => {
-                await createAgentDirectory(path);
+              onCreateDirectory={async (path, source) => {
+                await createAgentDirectory(path, source);
                 completeJourneyForEvent("source-added");
               }}
             />
@@ -4866,6 +5205,7 @@ function AgentsPageContent() {
             />
           ) : mainTab === "settings" ? (
             <AgentSettingsPanel
+              key={selectedAgent?.id ?? "no-agent"}
               agent={selectedAgent}
               user={user}
               getToken={getToken}
@@ -4892,42 +5232,52 @@ function AgentsPageContent() {
               reportedChannelsReady={chat.reportedChannelsReady}
               onUpdateAgentProfile={async (agentId, profile) => {
                 const generation = agentDataGenerationRef.current;
-                const token = await getToken();
-                if (generation !== agentDataGenerationRef.current) return;
-                const updatedAgent = await createAgentClient(token).update(agentId, profile);
-                if (generation !== agentDataGenerationRef.current) return;
-                setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
+                const updatedAgent = await runAgentMutation(agentId, async () => {
+                  if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+                  const token = await getToken();
+                  if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+                  return createAgentClient(token).update(agentId, profile);
+                });
+                if (!updatedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+                applyAgentMutationResult(updatedAgent);
               }}
               onUpdateExternalAgentProfile={async (agentId, profile) => {
                 const generation = agentDataGenerationRef.current;
-                const token = await getToken();
-                if (generation !== agentDataGenerationRef.current) return;
-                const updatedAgent = await createAgentClient(token).updateExternalAgent(agentId, profile);
-                if (generation !== agentDataGenerationRef.current) return;
-                setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
+                const updatedAgent = await runAgentMutation(agentId, async () => {
+                  if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+                  const token = await getToken();
+                  if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+                  return createAgentClient(token).updateExternalAgent(agentId, profile);
+                });
+                if (!updatedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+                applyAgentMutationResult(updatedAgent);
               }}
-              onSetManagedAgentDisplayName={displayNameStorageScope ? (agentId, displayName) => {
-                setManagedAgentDisplayName(agentId, displayName);
-              } : undefined}
               onUploadAgentAvatar={async (agentId, file) => {
                 const generation = agentDataGenerationRef.current;
-                const token = await getToken();
-                if (generation !== agentDataGenerationRef.current) throw new Error("Account changed during upload.");
-                const client = createAgentClient(token);
-                const upload = await client.uploadProfileImage(agentId, file, file.type || "image/png");
-                if (generation !== agentDataGenerationRef.current) return upload.avatar_url;
-                const updatedAgent = await client.get(agentId);
-                if (generation !== agentDataGenerationRef.current) return upload.avatar_url;
-                setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
-                return upload.avatar_url;
+                return runAgentMutation(agentId, async () => {
+                  if (deletingAgentIdsRef.current.has(agentId)) throw new Error("Agent is being deleted.");
+                  const token = await getToken();
+                  if (generation !== agentDataGenerationRef.current) throw new Error("Account changed during upload.");
+                  if (deletingAgentIdsRef.current.has(agentId)) throw new Error("Agent is being deleted.");
+                  const client = createAgentClient(token);
+                  const upload = await client.uploadProfileImage(agentId, file, file.type || "image/png");
+                  if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return upload.avatar_url;
+                  const updatedAgent = await client.get(agentId);
+                  if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return upload.avatar_url;
+                  applyAgentMutationResult(updatedAgent);
+                  return upload.avatar_url;
+                });
               }}
               onUpdateAgentLaunchConfig={async (agentId, launchConfig) => {
                 const generation = agentDataGenerationRef.current;
-                const token = await getToken();
-                if (generation !== agentDataGenerationRef.current) return;
-                const updatedAgent = await createAgentClient(token).update(agentId, { launchConfig });
-                if (generation !== agentDataGenerationRef.current) return;
-                setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
+                const updatedAgent = await runAgentMutation(agentId, async () => {
+                  if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+                  const token = await getToken();
+                  if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+                  return createAgentClient(token).update(agentId, { launchConfig });
+                });
+                if (!updatedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+                applyAgentMutationResult(updatedAgent);
               }}
               onSaveOpenClawConfig={async (patch) => {
                 await chat.saveConfig(patch);
@@ -4938,7 +5288,12 @@ function AgentsPageContent() {
               isDesktopViewport={isDesktopViewport}
             />
           ) : mainTab === "logs" ? (
-            <AgentLogsPanel status={wsStatus} logs={logs} logBoxRef={logBoxRef} />
+            <AgentLogsController
+              ref={logsControllerRef}
+              deployments={deployments}
+              agentId={selectedAgentId}
+              onStatusChange={setLogsStatus}
+            />
           ) : mainTab === "shell" ? (
             null
           ) : null}
@@ -4967,8 +5322,8 @@ function AgentsPageContent() {
             }
           }}
           onReconnect={() => {
-            if (mainTab === "logs") reconnectLogs();
-            if (mainTab === "shell") reconnectShell();
+            if (mainTab === "logs") logsControllerRef.current?.reconnect();
+            if (mainTab === "shell") shellControllerRef.current?.reconnect();
           }}
         />
 

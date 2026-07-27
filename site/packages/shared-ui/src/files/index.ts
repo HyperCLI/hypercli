@@ -2,6 +2,7 @@ export { AgentFilesPanel } from "./AgentFilesPanel";
 export type {
   AgentFileOpenResponse,
   AgentFileOpenResult,
+  AgentFilePreviewReadOptions,
   AgentFilesPanelProps,
   AgentFilesPanelSource,
   AgentFilesPanelSourceDisabledReasons,
@@ -9,7 +10,12 @@ export type {
 export { FilesDrawer } from "./FilesDrawer";
 export type { FilesDrawerProps } from "./FilesDrawer";
 export { FilesSearchBar, HighlightMatch } from "./FilesSearchBar";
-export { FilesUploadZone } from "./FilesUploadZone";
+export {
+  FilesUploadZone,
+  normalizeDroppedRelativePath,
+  readDroppedFileSelection,
+} from "./FilesUploadZone";
+export type { DroppedFileSelection, DroppedUploadFile } from "./FilesUploadZone";
 export { FileBreadcrumbs } from "./FileBreadcrumbs";
 export { FileRow, formatFileSize } from "./FileRow";
 export { FilesDirectoryTree } from "./FilesDirectoryTree";
@@ -28,11 +34,13 @@ export { parseZipPreview } from "./zip-preview";
 export {
   FILE_TYPE_DEFINITIONS,
   KNOWN_FILE_EXTENSIONS,
+  decodeUtf8FileContent,
   getFileExtension,
   inferFileMimeType,
   isArchiveFileReference,
   isAudioFileReference,
   isFileTypeReference,
+  isFileByteContent,
   isImageFileReference,
   isKnownNonImageFileReference,
   isVideoFileReference,

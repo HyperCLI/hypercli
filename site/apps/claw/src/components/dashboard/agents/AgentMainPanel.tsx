@@ -20,6 +20,7 @@ interface AgentMainPanelProps {
   isDesktopViewport: boolean;
   mobileShowChat: boolean;
   selectedAgent: Agent | null;
+  isAuthenticated?: boolean;
   hasAgents?: boolean;
   loadingInitialAgents?: boolean;
   isSelectedRunning: boolean;
@@ -43,6 +44,7 @@ interface AgentMainPanelProps {
   skillsPanelActive?: boolean;
   stoppedTabLabel: string;
   panelContent: React.ReactNode;
+  launcherContent?: React.ReactNode;
   persistentPanelContent?: React.ReactNode;
   headerAction?: React.ReactNode;
   onCreate: () => void;
@@ -73,6 +75,7 @@ export function AgentMainPanel({
   isDesktopViewport,
   mobileShowChat,
   selectedAgent,
+  isAuthenticated = true,
   hasAgents = false,
   loadingInitialAgents = false,
   isSelectedRunning,
@@ -93,6 +96,7 @@ export function AgentMainPanel({
   skillsPanelActive = false,
   stoppedTabLabel,
   panelContent,
+  launcherContent,
   persistentPanelContent,
   headerAction,
   onCreate,
@@ -370,7 +374,12 @@ export function AgentMainPanel({
 
   return (
     <div className={`min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${!mobileShowChat && !isDesktopViewport ? "hidden" : "flex"}`}>
-      {!selectedAgent && (currentPanel === "knowledge" || currentPanel === "members") ? (
+      {launcherContent ? (
+        <div className="relative flex min-h-0 flex-1 overflow-hidden">
+          {persistentPanelContent}
+          <div className="relative z-20 flex min-h-0 flex-1 bg-background">{launcherContent}</div>
+        </div>
+      ) : !selectedAgent && (currentPanel === "knowledge" || currentPanel === "members") ? (
         <div className="flex-1 min-h-0">{panelContent}</div>
       ) : loadingInitialAgents && !selectedAgent ? (
         <div className="flex-1 min-h-0">
@@ -405,6 +414,7 @@ export function AgentMainPanel({
           creationDisabledReason={creationDisabledReason}
           onCreateWorkspace={onCreateWorkspace}
           onOpenMembers={onOpenMembers}
+          showTrialOffer={!isAuthenticated}
         />
       ) : (
         <>

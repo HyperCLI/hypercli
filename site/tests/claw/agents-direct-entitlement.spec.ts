@@ -167,13 +167,13 @@ test("agents page launches from a direct entitlement without an active subscript
   await page.goto("/dashboard/agents", { waitUntil: "domcontentloaded" });
 
   await page.locator("main").getByRole("button", { name: /Create an agent/i }).last().click();
+  await page.locator("summary").filter({ hasText: /^Advanced$/i }).click();
   await page
     .locator("label")
     .filter({ hasText: /Desktop browser/i })
     .locator("input[type='checkbox']")
     .first()
     .check();
-  await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: "Continue" }).click();
 
   await expect(page.getByRole("heading", { name: "Pro" })).toBeVisible();

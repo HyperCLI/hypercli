@@ -4,8 +4,10 @@ import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react
 import type { Deployments } from "@hypercli.com/sdk/agents";
 
 const MAX_LOG_LINES = 1500;
+const MAX_LOG_CHARS = 1_000_000;
 const RECONNECT_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 15_000, 30_000];
 const RECONNECT_JITTER = 0.2;
+const LOG_PUBLICATION_INTERVAL_MS = 32;
 const LOGS_CLOSE_CODES = new Set([1000, 1008, 4001, 4003, 4004, 4401, 4403, 4404]);
 
 export type LogsStatus = "connected" | "connecting" | "reconnecting" | "disconnected";
@@ -44,6 +46,21 @@ function shouldReconnectClose(event: CloseEvent): boolean {
   return true;
 }
 
+function boundedLogLines(current: string[], pending: string[]): string[] {
+  const combined = [...current, ...pending.map((line) => (
+    line.length > MAX_LOG_CHARS ? line.slice(-MAX_LOG_CHARS) : line
+  ))];
+  let start = combined.length;
+  let chars = 0;
+  while (start > 0 && combined.length - start < MAX_LOG_LINES) {
+    const nextLength = combined[start - 1].length;
+    if (chars + nextLength > MAX_LOG_CHARS) break;
+    chars += nextLength;
+    start -= 1;
+  }
+  return combined.slice(start);
+}
+
 export function useAgentLogs(deployments: Deployments | null, agentId: string | null, enabled: boolean = true) {
   const [logs, setLogs] = useState<string[]>([]);
   const [status, setStatus] = useState<LogsStatus>("disconnected");
@@ -54,6 +71,33 @@ export function useAgentLogs(deployments: Deployments | null, agentId: string | 
   const agentIdRef = useRef(agentId);
   const enabledRef = useRef(enabled);
   const reconnectAttemptRef = useRef(0);
+  const pendingLogsRef = useRef<string[]>([]);
+  const logPublicationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearPendingLogs = useCallback(() => {
+    if (logPublicationTimerRef.current) {
+      clearTimeout(logPublicationTimerRef.current);
+      logPublicationTimerRef.current = null;
+    }
+    pendingLogsRef.current = [];
+  }, []);
+
+  const flushPendingLogs = useCallback(() => {
+    if (logPublicationTimerRef.current) {
+      clearTimeout(logPublicationTimerRef.current);
+      logPublicationTimerRef.current = null;
+    }
+    if (pendingLogsRef.current.length === 0) return;
+    const pending = pendingLogsRef.current;
+    pendingLogsRef.current = [];
+    setLogs((current) => boundedLogLines(current, pending));
+  }, []);
+
+  const queueLog = useCallback((line: string) => {
+    pendingLogsRef.current.push(line);
+    if (logPublicationTimerRef.current) return;
+    logPublicationTimerRef.current = setTimeout(flushPendingLogs, LOG_PUBLICATION_INTERVAL_MS);
+  }, [flushPendingLogs]);
 
   const cleanup = useCallback((options: CleanupOptions = {}) => {
     const { resetReconnect = true } = options;
@@ -62,6 +106,7 @@ export function useAgentLogs(deployments: Deployments | null, agentId: string | 
       clearTimeout(reconnectTimer.current);
       reconnectTimer.current = null;
     }
+    clearPendingLogs();
     if (wsRef.current) {
       wsRef.current.onclose = null;
       wsRef.current.onerror = null;
@@ -71,12 +116,16 @@ export function useAgentLogs(deployments: Deployments | null, agentId: string | 
     }
     if (resetReconnect) reconnectAttemptRef.current = 0;
     setStatus("disconnected");
-  }, []);
+  }, [clearPendingLogs]);
 
   const scheduleReconnect = useCallback(() => {
     if (reconnectTimer.current) {
       clearTimeout(reconnectTimer.current);
       reconnectTimer.current = null;
+    }
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+      setStatus("disconnected");
+      return;
     }
     const attempt = reconnectAttemptRef.current;
     reconnectAttemptRef.current += 1;
@@ -88,6 +137,7 @@ export function useAgentLogs(deployments: Deployments | null, agentId: string | 
 
   const connect = useCallback(async (options: ConnectOptions = {}) => {
     if (!deployments || !agentId || !enabledRef.current) return;
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
 
     cleanup({ resetReconnect: false });
     const connectionId = connectionIdRef.current + 1;
@@ -119,14 +169,12 @@ export function useAgentLogs(deployments: Deployments | null, agentId: string | 
       ws.onmessage = (event) => {
         if (connectionIdRef.current !== connectionId || wsRef.current !== ws) return;
         const line = typeof event.data === "string" ? event.data : "";
-        setLogs((prev) => {
-          const next = [...prev, line];
-          return next.length > MAX_LOG_LINES ? next.slice(-MAX_LOG_LINES) : next;
-        });
+        queueLog(line);
       };
 
       ws.onclose = (event) => {
         if (connectionIdRef.current !== connectionId || wsRef.current !== ws) return;
+        flushPendingLogs();
         setStatus("disconnected");
         wsRef.current = null;
         if (enabledRef.current && agentIdRef.current === requestedAgentId && shouldReconnectClose(event)) {
@@ -145,7 +193,7 @@ export function useAgentLogs(deployments: Deployments | null, agentId: string | 
         scheduleReconnect();
       }
     }
-  }, [deployments, agentId, cleanup, scheduleReconnect]);
+  }, [deployments, agentId, cleanup, flushPendingLogs, queueLog, scheduleReconnect]);
 
   useLayoutEffect(() => {
     agentIdRef.current = agentId;
@@ -167,6 +215,18 @@ export function useAgentLogs(deployments: Deployments | null, agentId: string | 
       cleanup();
     };
   }, [deployments, enabled, agentId, connect, cleanup]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        cleanup({ resetReconnect: false });
+      } else if (enabledRef.current && agentIdRef.current) {
+        connectRef.current?.({ reconnecting: true });
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [cleanup]);
 
   const clearLogs = useCallback(() => setLogs([]), []);
 

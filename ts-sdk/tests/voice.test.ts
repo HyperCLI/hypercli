@@ -32,6 +32,21 @@ describe('Voice API', () => {
     ]);
   });
 
+  it('forwards TTS cancellation to the HTTP request', async () => {
+    const controller = new AbortController();
+    let receivedSignal: AbortSignal | undefined;
+    const http = {
+      postBytes: async (_path: string, _body: any, options?: { signal?: AbortSignal }) => {
+        receivedSignal = options?.signal;
+        return new Uint8Array([1]);
+      },
+    };
+
+    await new VoiceAPI(http as any).tts({ text: 'hello', signal: controller.signal });
+
+    expect(receivedSignal).toBe(controller.signal);
+  });
+
   it('base64 encodes clone reference audio', async () => {
     const calls: Array<{ path: string; body: any }> = [];
     const http = {

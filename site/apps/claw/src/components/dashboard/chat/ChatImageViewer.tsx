@@ -16,6 +16,7 @@ interface ChatImageViewerProps {
   height?: number;
   sizes?: string;
   loading?: "eager" | "lazy";
+  fetchPriority?: "high" | "low" | "auto";
   downloadHref?: string;
   downloadFileName?: string;
   downloadLabel?: string;
@@ -34,6 +35,7 @@ export function ChatImageViewer({
   height = 320,
   sizes = "(max-width: 640px) 100vw, 320px",
   loading = "lazy",
+  fetchPriority,
   downloadHref,
   downloadFileName,
   downloadLabel,
@@ -91,6 +93,7 @@ export function ChatImageViewer({
         sizes={sizes}
         className={className}
         loading={loading}
+        fetchPriority={fetchPriority}
       />
       <span className="pointer-events-none absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background/75 text-foreground opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
         <ZoomIn className="h-3.5 w-3.5" />

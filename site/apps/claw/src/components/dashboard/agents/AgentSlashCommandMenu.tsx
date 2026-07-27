@@ -163,14 +163,27 @@ async function openConnectionSuggestion(ctx: SlashCommandContext, suggestion: Ch
   ctx.close();
 }
 
-function runAction(action: (() => void | Promise<void>) | undefined, disabledMessage: string, feedbackMessage?: string) {
+function runAction(
+  action: (() => void | Promise<void>) | undefined,
+  disabledMessage: string,
+  feedbackMessage?: string,
+  options: { clearBeforeAction?: boolean } = {},
+) {
   return async (ctx: SlashCommandContext) => {
     if (!action) {
       ctx.setStatus(disabledMessage);
       return;
     }
-    await action();
-    ctx.chat.setInput("");
+    const sourceInput = ctx.chat.input;
+    if (options.clearBeforeAction) ctx.chat.setInput("");
+    try {
+      await action();
+    } catch (error) {
+      if (options.clearBeforeAction) ctx.chat.setInput(sourceInput);
+      ctx.showFeedback(error instanceof Error ? error.message : "Command failed.");
+      throw error;
+    }
+    if (!options.clearBeforeAction) ctx.chat.setInput("");
     if (feedbackMessage) ctx.showFeedback(feedbackMessage);
     ctx.close();
   };
@@ -236,6 +249,10 @@ function refreshedSessionCount(refreshedSessions: Awaited<ReturnType<ChatSession
 function sendPrompt(prompt: string | ((args: string) => string)): SlashCommand["run"] {
   return async ({ args, chat, close, showFeedback }) => {
     const message = typeof prompt === "function" ? prompt(args) : promptWithContext(prompt, args);
+    if (!chat.activeSessionCanSend) {
+      showFeedback("Wait for this conversation to finish loading, then try again.");
+      return;
+    }
     chat.setInput("");
     if (chat.activeSessionSending) {
       chat.addPendingMessage(message);
@@ -296,19 +313,20 @@ function buildSlashCommands(): SlashCommand[] {
       run: runAction(undefined, "New Session is unavailable here."),
     },
     {
-      id: "abort",
-      aliases: ["abort", "cancel"],
+      id: "stop",
+      aliases: ["stop", "abort", "cancel"],
       title: "Stop reply",
       description: "Stop the current assistant reply.",
       category: "Chat",
       mode: "ui",
       Icon: Square,
       run: async ({ chat, setStatus, close, showFeedback }) => {
-        if (!chat.sending) {
+        if (!chat.activeSessionSending) {
           setStatus("No reply is currently running.");
           return;
         }
         await chat.abortMessage();
+        chat.setInput("");
         close();
         showFeedback("Stop requested.");
       },
@@ -372,31 +390,6 @@ function buildSlashCommands(): SlashCommand[] {
         await ctx.actions.onStartAgent?.();
         ctx.chat.setInput("");
         ctx.showFeedback("Start requested.");
-        ctx.close();
-      },
-    },
-    {
-      id: "stop",
-      aliases: ["stop"],
-      title: "Stop agent",
-      description: "Stop the selected running agent.",
-      category: "Agent",
-      mode: "confirm",
-      Icon: Square,
-      danger: true,
-      isEnabled: ({ isSelectedRunning, actions }) => (
-        !isSelectedRunning ? "Agent is not running." : actions.onStopAgent ? true : "Stop action is unavailable here."
-      ),
-      confirm: ({ selectedAgentName }) => ({
-        title: "Stop agent",
-        message: `Stop ${selectedAgentName}?`,
-        confirmLabel: "Stop",
-        danger: true,
-      }),
-      run: async (ctx) => {
-        await ctx.actions.onStopAgent?.();
-        ctx.chat.setInput("");
-        ctx.showFeedback("Stop requested.");
         ctx.close();
       },
     },
@@ -977,7 +970,12 @@ function bindAction(command: SlashCommand, actions: AgentSlashCommandActions): S
   return {
     ...command,
     isEnabled: command.isEnabled ?? (() => action ? true : `${command.title} is unavailable here.`),
-    run: runAction(action, `${command.title} is unavailable here.`, `${command.title} opened.`),
+    run: runAction(
+      action,
+      `${command.title} is unavailable here.`,
+      `${command.title} opened.`,
+      { clearBeforeAction: command.id === "new" },
+    ),
   };
 }
 

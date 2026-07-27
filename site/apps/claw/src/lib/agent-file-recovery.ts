@@ -8,12 +8,14 @@ export interface AgentFileReadRecoveryResult<T> {
   content: T;
   path: string;
   renamed: boolean;
+  mimeType?: string;
 }
 
 interface AgentFileReadRecoveryOptions<T> {
   path: string;
   read: (path: string) => Promise<T>;
   rename: (fromPath: string, safeCandidatePath: string) => Promise<string>;
+  signal?: AbortSignal;
   retryCount?: number;
   retryDelayMs?: number;
 }
@@ -34,6 +36,14 @@ function errorMessage(value: unknown): string {
 function sleep(ms: number): Promise<void> {
   if (ms <= 0) return Promise.resolve();
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function throwIfFileReadAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  if (signal.reason instanceof Error) throw signal.reason;
+  const error = new Error("File read cancelled");
+  error.name = "AbortError";
+  throw error;
 }
 
 export function isPodFileReadFailedError(value: unknown): boolean {
@@ -129,10 +139,12 @@ export async function readAgentFileWithRecovery<T>({
   path,
   read,
   rename,
+  signal,
   retryCount = DEFAULT_RETRY_COUNT,
   retryDelayMs = DEFAULT_RETRY_DELAY_MS,
 }: AgentFileReadRecoveryOptions<T>): Promise<AgentFileReadRecoveryResult<T>> {
   const normalizedPath = normalizeOpenClawWorkspaceFilePath(path);
+  throwIfFileReadAborted(signal);
 
   try {
     return { content: await read(normalizedPath), path: normalizedPath, renamed: false };
@@ -142,6 +154,7 @@ export async function readAgentFileWithRecovery<T>({
     let lastError = error;
     for (let attempt = 0; attempt < retryCount; attempt += 1) {
       await sleep(retryDelayMs);
+      throwIfFileReadAborted(signal);
       try {
         return { content: await read(normalizedPath), path: normalizedPath, renamed: false };
       } catch (retryError) {
@@ -152,19 +165,23 @@ export async function readAgentFileWithRecovery<T>({
 
     const safeCandidatePath = getSafeOpenClawWorkspaceFilePath(normalizedPath);
     if (!safeCandidatePath) throw lastError;
+    throwIfFileReadAborted(signal);
 
     let renamedPath: string;
     try {
       renamedPath = normalizeOpenClawWorkspaceFilePath(await rename(normalizedPath, safeCandidatePath));
     } catch (renameError) {
+      throwIfFileReadAborted(signal);
       throw new Error(
         `API Error 502: Pod file read failed. Retried the read and tried to rename the file to ${safeCandidatePath}, but rename failed: ${errorMessage(renameError)}`,
       );
     }
 
     try {
+      throwIfFileReadAborted(signal);
       return { content: await read(renamedPath), path: renamedPath, renamed: true };
     } catch (renamedReadError) {
+      throwIfFileReadAborted(signal);
       throw new Error(
         `API Error 502: Pod file read failed. Retried the read and renamed the file to ${renamedPath}, but reading the renamed file failed: ${errorMessage(renamedReadError)}`,
       );

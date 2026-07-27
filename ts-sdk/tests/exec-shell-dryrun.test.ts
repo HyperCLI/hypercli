@@ -13,11 +13,16 @@ import {
   buildAgentConfig,
   buildOpenClawRoutes,
 } from '../src/agents.js';
+import { APIError } from '../src/errors.js';
+import { HTTPClient } from '../src/http.js';
 
 class MockWebSocket {
   public readonly url: string;
+  public binaryType = 'blob';
   public onopen: (() => void) | null = null;
   public onerror: (() => void) | null = null;
+  public onclose: ((event: { reason?: string }) => void) | null = null;
+  public close = vi.fn();
 
   constructor(url: string) {
     this.url = url;
@@ -411,13 +416,13 @@ describe('HyperClaw agents SDK', () => {
     expect(generic.publicUrl).toBe('https://agent.dev.hyperclaw.app');
     expect(generic.desktopUrl).toBe('https://desktop-agent.dev.hyperclaw.app');
     expect(generic.shellUrl).toBeNull();
-    expect(openclaw.gatewayUrl).toBeNull();
+    expect(openclaw.gatewayUrl).toBe('wss://openclaw-agent2.dev.hyperclaw.app');
     expect(openclaw.gatewayToken).toBe('gw-123');
     expect(openclaw.command).toEqual(['sleep', '3600']);
     expect(openclaw.entrypoint).toEqual(['/bin/sh', '-c']);
   });
 
-  it('OpenClawAgent does not synthesize a gateway URL from the hostname', () => {
+  it('OpenClawAgent derives its gateway URL from the hostname', () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-root',
       user_id: 'user-1',
@@ -427,25 +432,15 @@ describe('HyperClaw agents SDK', () => {
       hostname: 'agent-root.dev.hyperclaw.app',
     });
 
-    expect(agent.gatewayUrl).toBeNull();
+    expect(agent.gatewayUrl).toBe('wss://agent-root.dev.hyperclaw.app');
   });
 
   it('OpenClawAgent gateway forwards deployment pairing context without using jwt query auth', async () => {
-    const get = vi.fn()
-      .mockResolvedValueOnce({
-        id: 'agent-ctx',
-        user_id: 'user-1',
-        pod_id: 'pod-ctx',
-        pod_name: 'pod-ctx',
-        state: 'running',
-        hostname: 'openclaw-agent.dev.hypercli.com',
-        routes: { openclaw: { port: 18789, auth: false } },
-      })
-      .mockResolvedValueOnce({
-        env: {
-          OPENCLAW_GATEWAY_TOKEN: 'gw-ctx',
-        },
-      });
+    const get = vi.fn().mockResolvedValue({
+      env: {
+        OPENCLAW_GATEWAY_TOKEN: 'gw-ctx',
+      },
+    });
     const deployments = new Deployments(
       { post: vi.fn(), get, delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
       'sk-hyper-test',
@@ -476,21 +471,11 @@ describe('HyperClaw agents SDK', () => {
   });
 
   it('OpenClawAgent gateway allows jwt-less connect when openclaw route auth is disabled', async () => {
-    const get = vi.fn()
-      .mockResolvedValueOnce({
-        id: 'agent-jwtless',
-        user_id: 'user-1',
-        pod_id: 'pod-jwtless',
-        pod_name: 'pod-jwtless',
-        state: 'running',
-        hostname: 'openclaw-agent.dev.hypercli.com',
-        routes: { openclaw: { port: 18789, auth: false } },
-      })
-      .mockResolvedValueOnce({
-        env: {
-          OPENCLAW_GATEWAY_TOKEN: 'gw-jwtless',
-        },
-      });
+    const get = vi.fn().mockResolvedValue({
+      env: {
+        OPENCLAW_GATEWAY_TOKEN: 'gw-jwtless',
+      },
+    });
     const deployments = new Deployments(
       { post: vi.fn(), get, delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
       'sk-hyper-test',
@@ -1124,8 +1109,14 @@ describe('HyperClaw agents SDK', () => {
     });
     expect(post).toHaveBeenNthCalledWith(2, '/deployments/agent-1/shell/token', {
       shell: '/bin/sh',
+    }, {
+      retries: 3,
+      retryStatuses: [429, 502, 503, 504],
+      timeout: 4_000,
+      signal: expect.any(AbortSignal),
     });
     expect((ws as any).url).toBe('wss://api.agents.dev.hypercli.com/ws/shell/agent-1?jwt=jwt-abc&shell=%2Fbin%2Fsh');
+    expect(ws.binaryType).toBe('arraybuffer');
   });
 
   it('shellConnect defaults to websocket shells without exec probing', async () => {
@@ -1141,8 +1132,231 @@ describe('HyperClaw agents SDK', () => {
     expect(post).toHaveBeenCalledTimes(1);
     expect(post).toHaveBeenCalledWith('/deployments/agent-1/shell/token', {
       shell: '/bin/bash',
+    }, {
+      retries: 3,
+      retryStatuses: [429, 502, 503, 504],
+      timeout: 4_000,
+      signal: expect.any(AbortSignal),
     });
     expect((ws as any).url).toBe('wss://api.agents.dev.hypercli.com/ws/shell/agent-1?jwt=jwt-bash&shell=%2Fbin%2Fbash');
+  });
+
+  it('shellConnect bounds websocket opening and closes a stalled socket', async () => {
+    vi.useFakeTimers();
+    let pendingSocketClose: ReturnType<typeof vi.fn> | null = null;
+    class PendingWebSocket {
+      public readonly url: string;
+      public binaryType = 'blob';
+      public onopen: (() => void) | null = null;
+      public onerror: (() => void) | null = null;
+      public onclose: ((event: { reason?: string }) => void) | null = null;
+      public close = vi.fn();
+
+      constructor(public readonly url: string) {
+        this.url = url;
+        pendingSocketClose = this.close;
+      }
+    }
+    vi.stubGlobal('WebSocket', PendingWebSocket as any);
+    const post = vi.fn().mockResolvedValue({ jwt: 'jwt-bash', shell: '/bin/bash' });
+    const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.dev.hypercli.com');
+
+    const connection = agents.shellConnect('agent-1', '/bin/bash', { openTimeoutMs: 100 });
+    const rejection = expect(connection).rejects.toThrow('Shell connection timed out');
+    await vi.advanceTimersByTimeAsync(100);
+    await rejection;
+    expect(pendingSocketClose).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it('shellConnect bounds the complete token operation', async () => {
+    vi.useFakeTimers();
+    const post = vi.fn().mockReturnValue(new Promise(() => undefined));
+    const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.dev.hypercli.com');
+
+    const connection = agents.shellConnect('agent-1', '/bin/bash', { tokenTimeoutMs: 100 });
+    const rejection = expect(connection).rejects.toThrow('Shell token request timed out');
+    await vi.advanceTimersByTimeAsync(100);
+    await rejection;
+    vi.useRealTimers();
+  });
+
+  it('shellConnect bounds agent-name resolution within the token deadline', async () => {
+    vi.useFakeTimers();
+    const get = vi.fn().mockReturnValue(new Promise(() => undefined));
+    const post = vi.fn();
+    const agents = new Deployments({ post, get, delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.dev.hypercli.com');
+
+    const connection = agents.shellConnect('friendly-name', '/bin/bash', { tokenTimeoutMs: 100 });
+    const rejection = expect(connection).rejects.toThrow('Shell token request timed out');
+    await vi.advanceTimersByTimeAsync(100);
+    await rejection;
+
+    expect(post).not.toHaveBeenCalled();
+    expect(get).toHaveBeenCalledWith('/deployments', undefined, {
+      signal: expect.any(AbortSignal),
+    });
+    expect((get.mock.calls[0][2] as { signal: AbortSignal }).signal.aborted).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it('shellConnect only falls back when bash is explicitly unavailable', async () => {
+    const post = vi.fn()
+      .mockRejectedValueOnce(new APIError(422, '/bin/bash not found'))
+      .mockResolvedValueOnce({ jwt: 'jwt-sh', shell: '/bin/sh' });
+    const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.dev.hypercli.com');
+
+    const ws = await agents.shellConnect('agent-1');
+
+    expect(post).toHaveBeenCalledTimes(2);
+    expect((ws as any).url).toContain('shell=%2Fbin%2Fsh');
+  });
+
+  it('shellConnect retains a close reason after websocket error for shell fallback', async () => {
+    class ShellAwareWebSocket {
+      public binaryType = 'blob';
+      public onopen: (() => void) | null = null;
+      public onerror: (() => void) | null = null;
+      public onclose: ((event: { reason?: string }) => void) | null = null;
+      public close = vi.fn();
+
+      constructor(public readonly url: string) {
+        queueMicrotask(() => {
+          if (url.includes('shell=%2Fbin%2Fbash')) {
+            this.onerror?.();
+            this.onclose?.({ reason: '/bin/bash not found' });
+          } else {
+            this.onopen?.();
+          }
+        });
+      }
+    }
+    vi.stubGlobal('WebSocket', ShellAwareWebSocket as any);
+    const post = vi.fn((_: string, payload: { shell: string }) => Promise.resolve({
+      jwt: payload.shell === '/bin/bash' ? 'jwt-bash' : 'jwt-sh',
+      shell: payload.shell,
+    }));
+    const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.dev.hypercli.com');
+
+    const ws = await agents.shellConnect('agent-1');
+
+    expect(post).toHaveBeenCalledTimes(2);
+    expect((ws as any).url).toContain('shell=%2Fbin%2Fsh');
+  });
+
+  it('shellConnect retains close metadata when the websocket closes before opening', async () => {
+    class ClosingWebSocket {
+      public binaryType = 'blob';
+      public onopen: (() => void) | null = null;
+      public onerror: (() => void) | null = null;
+      public onclose: ((event: { code: number; reason: string }) => void) | null = null;
+      public close = vi.fn();
+
+      constructor(public readonly url: string) {
+        queueMicrotask(() => this.onclose?.({ code: 4403, reason: 'forbidden' }));
+      }
+    }
+    vi.stubGlobal('WebSocket', ClosingWebSocket as any);
+    const post = vi.fn().mockResolvedValue({ jwt: 'jwt-sh', shell: '/bin/sh' });
+    const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.dev.hypercli.com');
+
+    const error = await agents.shellConnect('agent-1', '/bin/sh').catch((cause: unknown) => cause);
+
+    expect(error).toMatchObject({
+      message: 'WebSocket closed before opening: forbidden',
+      closeCode: 4403,
+      closeReason: 'forbidden',
+    });
+  });
+
+  it('shellConnect aborts and closes a pending websocket', async () => {
+    let pendingSocketClose: ReturnType<typeof vi.fn> | null = null;
+    class PendingWebSocket {
+      public binaryType = 'blob';
+      public onopen: (() => void) | null = null;
+      public onerror: (() => void) | null = null;
+      public onclose: ((event: { reason?: string }) => void) | null = null;
+      public close = vi.fn();
+
+      constructor(public readonly url: string) {
+        pendingSocketClose = this.close;
+      }
+    }
+    vi.stubGlobal('WebSocket', PendingWebSocket as any);
+    const post = vi.fn().mockResolvedValue({ jwt: 'jwt-bash', shell: '/bin/bash' });
+    const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.dev.hypercli.com');
+    const controller = new AbortController();
+
+    const connection = agents.shellConnect('agent-1', '/bin/bash', { signal: controller.signal });
+    const rejection = expect(connection).rejects.toThrow('Shell connection cancelled');
+    await vi.waitFor(() => expect(pendingSocketClose).not.toBeNull());
+    controller.abort();
+
+    await rejection;
+    expect(pendingSocketClose).toHaveBeenCalledTimes(1);
+    await expect(connection).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('shellConnect does not retry another shell after a network failure', async () => {
+    const post = vi.fn().mockRejectedValue(new Error('network unavailable'));
+    const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.dev.hypercli.com');
+
+    await expect(agents.shellConnect('agent-1')).rejects.toThrow('network unavailable');
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['empty', ''],
+    ['plain-text', 'temporarily unavailable'],
+  ])('HTTPClient retries an explicitly configured %s transient response', async (_, body) => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(body, {
+        status: 503,
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ jwt: 'jwt-ready' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+    const client = new HTTPClient('https://api.agents.dev.hypercli.com', 'sk-hyper-test');
+
+    const result = await client.post<{ jwt: string }>('/deployments/agent-1/shell/token', {}, {
+      retries: 2,
+      backoff: 0,
+      retryStatuses: [503],
+    });
+
+    expect(result.jwt).toBe('jwt-ready');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    vi.stubGlobal('fetch', originalFetch);
+  });
+
+  it('HTTPClient does not replay a POST when its response body times out', async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => Promise.resolve({
+      status: 200,
+      statusText: 'OK',
+      json: () => new Promise((_, reject) => {
+        const signal = init?.signal as AbortSignal;
+        const rejectOnAbort = () => {
+          const error = new Error('Response body timed out');
+          error.name = 'AbortError';
+          reject(error);
+        };
+        if (signal.aborted) rejectOnAbort();
+        else signal.addEventListener('abort', rejectOnAbort, { once: true });
+      }),
+    } as Response));
+    vi.stubGlobal('fetch', fetchMock);
+    const client = new HTTPClient('https://api.agents.dev.hypercli.com', 'sk-hyper-test', 10);
+
+    await expect(client.post('/deployments/agent-1/shell/token', {})).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.stubGlobal('fetch', originalFetch);
   });
 
   it('logsConnect uses configured agents websocket base', async () => {

@@ -12,12 +12,32 @@ export interface RequestOptions {
   retries?: number;
   backoff?: number;
   timeout?: number;
+  signal?: AbortSignal;
+  retryStatuses?: readonly number[];
 }
 
-/**
- * Make an HTTP request with retry logic for transient errors
- */
-export async function requestWithRetry(options: RequestOptions): Promise<Response> {
+export type RequestOverrides = Pick<RequestOptions, 'retries' | 'backoff' | 'timeout' | 'signal' | 'retryStatuses'>;
+
+function waitForBackoff(delayMs: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(signal.reason ?? new Error('Request cancelled'));
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', abortWait);
+      resolve();
+    }, delayMs);
+    const abortWait = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abortWait);
+      reject(signal?.reason ?? new Error('Request cancelled'));
+    };
+    signal?.addEventListener('abort', abortWait, { once: true });
+  });
+}
+
+async function requestWithRetryHandled<T>(
+  options: RequestOptions,
+  handle: (response: Response) => Promise<T>,
+): Promise<T> {
   const {
     method,
     url,
@@ -27,6 +47,8 @@ export async function requestWithRetry(options: RequestOptions): Promise<Respons
     retries = 3,
     backoff = 1.0,
     timeout = 30000,
+    signal,
+    retryStatuses = [],
   } = options;
 
   // Build URL with query params
@@ -55,9 +77,14 @@ export async function requestWithRetry(options: RequestOptions): Promise<Respons
   let lastError: Error | undefined;
 
   for (let attempt = 0; attempt < retries; attempt++) {
+    const controller = new AbortController();
+    const abortRequest = () => controller.abort(signal?.reason);
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    let responseReceived = false;
+    let retry = false;
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeout);
+      if (signal?.aborted) abortRequest();
+      signal?.addEventListener('abort', abortRequest, { once: true });
 
       const response = await fetch(finalUrl, {
         method,
@@ -65,26 +92,38 @@ export async function requestWithRetry(options: RequestOptions): Promise<Respons
         body: body ? JSON.stringify(body) : undefined,
         signal: controller.signal,
       });
-
-      clearTimeout(timeoutId);
-      return response;
+      responseReceived = true;
+      if (retryStatuses.includes(response.status) && attempt < retries - 1) {
+        void response.body?.cancel().catch(() => undefined);
+        retry = true;
+      } else {
+        return await handle(response);
+      }
     } catch (error: any) {
       lastError = error;
-      
+
+      if (signal?.aborted) throw error;
+
       // Check if it's a transient error (network, timeout, etc.)
-      const isTransient = 
+      const isTransient = !responseReceived && (
         error.name === 'AbortError' ||
         error.cause?.code === 'ECONNREFUSED' ||
         error.cause?.code === 'ECONNRESET' ||
-        error.cause?.code === 'ETIMEDOUT';
+        error.cause?.code === 'ETIMEDOUT'
+      );
 
       if (isTransient && attempt < retries - 1) {
-        // Wait before retry with exponential backoff
-        await new Promise(resolve => setTimeout(resolve, backoff * (attempt + 1) * 1000));
-        continue;
+        retry = true;
+      } else {
+        throw error;
       }
+    } finally {
+      clearTimeout(timeoutId);
+      signal?.removeEventListener('abort', abortRequest);
+    }
 
-      throw error;
+    if (retry) {
+      await waitForBackoff(backoff * (attempt + 1) * 1000, signal);
     }
   }
 
@@ -92,18 +131,36 @@ export async function requestWithRetry(options: RequestOptions): Promise<Respons
 }
 
 /**
+ * Make an HTTP request with retry logic for transient errors
+ */
+export async function requestWithRetry(options: RequestOptions): Promise<Response> {
+  return requestWithRetryHandled(options, async (response) => response);
+}
+
+async function responseErrorDetail(response: Response): Promise<string> {
+  const fallback = response.statusText || 'Request failed';
+  let text: string;
+  try {
+    text = await response.text();
+  } catch {
+    return fallback;
+  }
+  if (!text) return fallback;
+  try {
+    const payload = JSON.parse(text) as { detail?: unknown };
+    if (payload.detail !== undefined && payload.detail !== null) return String(payload.detail);
+  } catch {
+    // Plain-text error bodies are valid API responses.
+  }
+  return text;
+}
+
+/**
  * Handle API response, raise on error
  */
 async function handleResponse<T = any>(response: Response): Promise<T> {
   if (response.status >= 400) {
-    let detail: string;
-    try {
-      const json: any = await response.json();
-      detail = json.detail || response.statusText;
-    } catch {
-      detail = response.statusText || await response.text();
-    }
-    throw new APIError(response.status, detail);
+    throw new APIError(response.status, await responseErrorDetail(response));
   }
 
   if (response.status === 204) {
@@ -115,14 +172,7 @@ async function handleResponse<T = any>(response: Response): Promise<T> {
 
 async function handleBytesResponse(response: Response): Promise<Uint8Array> {
   if (response.status >= 400) {
-    let detail: string;
-    try {
-      const json: any = await response.json();
-      detail = json.detail || response.statusText;
-    } catch {
-      detail = response.statusText || await response.text();
-    }
-    throw new APIError(response.status, detail);
+    throw new APIError(response.status, await responseErrorDetail(response));
   }
 
   return new Uint8Array(await response.arrayBuffer());
@@ -157,15 +207,22 @@ export class HTTPClient {
     };
   }
 
-  async get<T = any>(path: string, params?: Record<string, string | number | Array<string | number>>): Promise<T> {
-    const response = await requestWithRetry({
+  async get<T = any>(
+    path: string,
+    params?: Record<string, string | number | Array<string | number>>,
+    options: RequestOverrides = {},
+  ): Promise<T> {
+    return requestWithRetryHandled({
       method: 'GET',
       url: `${this.baseUrl}${path}`,
       headers: this.headers,
       params,
-      timeout: this.timeout,
-    });
-    return handleResponse<T>(response);
+      timeout: options.timeout ?? this.timeout,
+      retries: options.retries,
+      backoff: options.backoff,
+      signal: options.signal,
+      retryStatuses: options.retryStatuses,
+    }, handleResponse<T>);
   }
 
   async getWithHeaders<T = any>(
@@ -173,57 +230,60 @@ export class HTTPClient {
     params?: Record<string, string | number | Array<string | number>>,
     headers?: Record<string, string>,
   ): Promise<T> {
-    const response = await requestWithRetry({
+    return requestWithRetryHandled({
       method: 'GET',
       url: `${this.baseUrl}${path}`,
       headers: { ...this.headers, ...(headers ?? {}) },
       params,
       timeout: this.timeout,
-    });
-    return handleResponse<T>(response);
+    }, handleResponse<T>);
   }
 
-  async post<T = any>(path: string, body?: any): Promise<T> {
-    const response = await requestWithRetry({
+  async post<T = any>(path: string, body?: any, options: RequestOverrides = {}): Promise<T> {
+    return requestWithRetryHandled({
       method: 'POST',
       url: `${this.baseUrl}${path}`,
       headers: this.headers,
       body,
-      timeout: this.timeout,
-    });
-    return handleResponse<T>(response);
+      timeout: options.timeout ?? this.timeout,
+      retries: options.retries,
+      backoff: options.backoff,
+      signal: options.signal,
+      retryStatuses: options.retryStatuses,
+    }, handleResponse<T>);
   }
 
-  async postBytes(path: string, body?: any): Promise<Uint8Array> {
-    const response = await requestWithRetry({
+  async postBytes(path: string, body?: any, options: RequestOverrides = {}): Promise<Uint8Array> {
+    return requestWithRetryHandled({
       method: 'POST',
       url: `${this.baseUrl}${path}`,
       headers: this.headers,
       body,
-      timeout: this.timeout,
-    });
-    return handleBytesResponse(response);
+      timeout: options.timeout ?? this.timeout,
+      retries: options.retries,
+      backoff: options.backoff,
+      signal: options.signal,
+      retryStatuses: options.retryStatuses,
+    }, handleBytesResponse);
   }
 
   async patch<T = any>(path: string, body?: any): Promise<T> {
-    const response = await requestWithRetry({
+    return requestWithRetryHandled({
       method: 'PATCH',
       url: `${this.baseUrl}${path}`,
       headers: this.headers,
       body,
       timeout: this.timeout,
-    });
-    return handleResponse<T>(response);
+    }, handleResponse<T>);
   }
 
   async delete<T = any>(path: string): Promise<T> {
-    const response = await requestWithRetry({
+    return requestWithRetryHandled({
       method: 'DELETE',
       url: `${this.baseUrl}${path}`,
       headers: this.headers,
       timeout: this.timeout,
-    });
-    return handleResponse<T>(response);
+    }, handleResponse<T>);
   }
 
   /**
@@ -256,15 +316,13 @@ export class HTTPClient {
       'Authorization': `Bearer ${this.apiKey}`,
     };
 
-    const response = await requestWithRetry({
+    return requestWithRetryHandled({
       method: 'POST',
       url,
       headers,
       body: formData as any,
       timeout: this.timeout,
-    });
-
-    return handleResponse<T>(response);
+    }, handleResponse<T>);
   }
 
   /**

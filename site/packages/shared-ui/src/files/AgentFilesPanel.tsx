@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { startTransition, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowUpDown,
@@ -12,6 +12,7 @@ import {
   Loader2,
   Upload,
   WifiOff,
+  X,
 } from "lucide-react";
 
 import { FileBreadcrumbs } from "./FileBreadcrumbs";
@@ -26,7 +27,7 @@ import { FilesEmptyState } from "./FilesEmptyState";
 import { FilesSearchBar } from "./FilesSearchBar";
 import { FilesUploadZone } from "./FilesUploadZone";
 import type { FileEntry, FileSortDir, FileSortKey } from "./types";
-import { shouldReadFileAsBytes } from "./file-types";
+import { decodeUtf8FileContent, inferFileMimeType, isFileByteContent, resolveFileType, shouldReadFileAsBytes } from "./file-types";
 import { downloadFileBytes } from "../utils/download-file";
 import { writeClipboardText } from "../utils/browser-clipboard";
 import { TooltipHint } from "../components/ui/tooltip";
@@ -36,6 +37,8 @@ const SORT_OPTIONS: Array<{ key: FileSortKey; label: string }> = [
   { key: "size", label: "Size" },
   { key: "date", label: "Date" },
 ];
+const MAX_TEXT_PREVIEW_BYTES = 4 * 1024 * 1024;
+const MAX_INLINE_PREVIEW_BYTES = 64 * 1024 * 1024;
 
 /**
  * Which file-access path panel operations are routed through:
@@ -44,6 +47,7 @@ const SORT_OPTIONS: Array<{ key: FileSortKey; label: string }> = [
  * - `gateway` → the gateway `agents.files.*` RPC (name-addressed workspace files).
  */
 export type AgentFilesPanelSource = "agent" | "backup" | "gateway";
+type AgentFilesWritableSource = Exclude<AgentFilesPanelSource, "gateway">;
 export type AgentFilesPanelSourceDisabledReasons = Partial<Record<AgentFilesPanelSource, string>>;
 
 const SOURCE_MODE_OPTIONS: Array<{ key: AgentFilesPanelSource; label: string; title: string }> = [
@@ -127,15 +131,21 @@ export interface AgentFileOpenResult<T extends string | Uint8Array> {
   content: T;
   path?: string;
   name?: string;
+  mimeType?: string;
   renamed?: boolean;
 }
 
 export type AgentFileOpenResponse<T extends string | Uint8Array> = T | AgentFileOpenResult<T>;
 
+export interface AgentFilePreviewReadOptions {
+  maxBytes: number;
+  signal: AbortSignal;
+}
+
 function isAgentFileOpenResult<T extends string | Uint8Array>(
   value: AgentFileOpenResponse<T>,
 ): value is AgentFileOpenResult<T> {
-  return Boolean(value) && typeof value === "object" && !(value instanceof Uint8Array) && "content" in value;
+  return Boolean(value) && typeof value === "object" && !isFileByteContent(value) && "content" in value;
 }
 
 function resolveAgentFileOpenResult<T extends string | Uint8Array>(
@@ -146,6 +156,12 @@ function resolveAgentFileOpenResult<T extends string | Uint8Array>(
 
 function fileNameFromPath(path: string): string {
   return path.split("/").filter(Boolean).pop() || path || "file";
+}
+
+function fileContentByteLength(content: string | Uint8Array): number {
+  return isFileByteContent(content)
+    ? content.byteLength
+    : new TextEncoder().encode(content).byteLength;
 }
 
 export interface AgentFilesPanelProps {
@@ -161,12 +177,16 @@ export interface AgentFilesPanelProps {
   error?: string | null;
   onListFiles: (path?: string, source?: AgentFilesPanelSource) => Promise<FileEntry[]>;
   onOpenFile: (path: string, source?: AgentFilesPanelSource) => Promise<AgentFileOpenResponse<string>>;
-  onOpenFileBytes?: (path: string, source?: AgentFilesPanelSource) => Promise<AgentFileOpenResponse<Uint8Array>>;
+  onOpenFileBytes?: (
+    path: string,
+    source?: AgentFilesPanelSource,
+    options?: AgentFilePreviewReadOptions,
+  ) => Promise<AgentFileOpenResponse<Uint8Array>>;
   onDownloadFileBytes?: (path: string, source?: AgentFilesPanelSource) => Promise<AgentFileOpenResponse<Uint8Array>>;
   onSaveFile?: (path: string, content: string, source?: AgentFilesPanelSource) => Promise<void>;
   onDeleteFile?: (path: string, options?: { recursive?: boolean }) => Promise<void>;
-  onUploadFile?: (path: string, content: Uint8Array) => Promise<void>;
-  onCreateDirectory?: (path: string) => Promise<void>;
+  onUploadFile?: (path: string, content: Uint8Array, source: AgentFilesWritableSource) => Promise<void>;
+  onCreateDirectory?: (path: string, source: AgentFilesWritableSource) => Promise<void>;
   isReadOnlyFile?: (path: string) => boolean;
   readOnlyLabel?: string;
   readOnlyDescription?: ReactNode;
@@ -227,12 +247,23 @@ export function AgentFilesPanel({
   ));
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const listRequestIdRef = useRef(0);
+  const viewRevisionRef = useRef(0);
 
   const [previewEntry, setPreviewEntry] = useState<FileEntry | null>(null);
   const [previewContent, setPreviewContent] = useState<string | Uint8Array | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewUnavailableReason, setPreviewUnavailableReason] = useState<string | null>(null);
+  const previewRequestIdRef = useRef(0);
+  const previewAbortControllerRef = useRef<AbortController | null>(null);
+  useEffect(() => () => {
+    listRequestIdRef.current += 1;
+    previewRequestIdRef.current += 1;
+    viewRevisionRef.current += 1;
+    previewAbortControllerRef.current?.abort();
+  }, []);
   const currentListingCacheKey = useMemo(
     () => filesListingCacheKey(agentId, currentRootPath, currentPath, sourceMode),
     [agentId, currentPath, currentRootPath, sourceMode],
@@ -242,16 +273,26 @@ export function AgentFilesPanel({
     ? null
     : sourceDisabledReasons.agent ?? sourceDisabledReasons.backup ?? null;
   const backupComparisonAvailable = connected && showSourceTabs && !isGatewaySource && !backupComparisonDisabledReason;
+  const clearPreview = useCallback(() => {
+    previewRequestIdRef.current += 1;
+    previewAbortControllerRef.current?.abort();
+    previewAbortControllerRef.current = null;
+    setPreviewEntry(null);
+    setPreviewContent(null);
+    setPreviewLoading(false);
+    setPreviewError(null);
+    setPreviewUnavailableReason(null);
+  }, []);
   const resetSourceSelection = useCallback((nextSource: AgentFilesPanelSource) => {
+    viewRevisionRef.current += 1;
     setSourceMode(nextSource);
     setCurrentPath(sourceRootPath(nextSource, normalizedRootPath));
     setSearchQuery("");
-    setPreviewEntry(null);
-    setPreviewContent(null);
-    setPreviewError(null);
+    setActionError(null);
+    clearPreview();
     setShowUpload(false);
     setShowCreateFolder(false);
-  }, [normalizedRootPath]);
+  }, [clearPreview, normalizedRootPath]);
 
   const loadFiles = useCallback(async () => {
     if (!connected || currentSourceDisabledReason) return;
@@ -345,8 +386,10 @@ export function AgentFilesPanel({
     let cancelled = false;
     if (!connected) {
       listRequestIdRef.current += 1;
+      viewRevisionRef.current += 1;
       queueMicrotask(() => {
         if (cancelled) return;
+        clearPreview();
         setFiles([]);
         setListLoading(false);
         setListError(null);
@@ -361,7 +404,7 @@ export function AgentFilesPanel({
     return () => {
       cancelled = true;
     };
-  }, [connected, loadFiles]);
+  }, [clearPreview, connected, loadFiles]);
 
   const fileCount = files.filter((file) => file.type === "file").length;
   const dirCount = files.filter((file) => file.type === "directory").length;
@@ -412,41 +455,105 @@ export function AgentFilesPanel({
               : null;
 
   const handleOpenFile = useCallback(async (entry: FileEntry) => {
+    previewAbortControllerRef.current?.abort();
+    previewAbortControllerRef.current = null;
+    const requestId = ++previewRequestIdRef.current;
     if (entry.type === "directory") {
+      viewRevisionRef.current += 1;
       setCurrentPath(normalizePanelPath(entry.path));
-      setPreviewEntry(null);
+      clearPreview();
       return;
     }
 
     setPreviewEntry(entry);
     setPreviewContent(null);
     setPreviewError(null);
+    setPreviewUnavailableReason(null);
+    const fileType = resolveFileType(entry);
+    if (isGatewaySource && fileType.readMode === "bytes") {
+      setPreviewLoading(false);
+      setPreviewUnavailableReason("This file type needs byte access, which is not available through Gateway files.");
+      return;
+    }
+    const previewLimit = fileType.readMode === "text" || !fileType.known
+      ? MAX_TEXT_PREVIEW_BYTES
+      : MAX_INLINE_PREVIEW_BYTES;
+    if (entry.size !== undefined && entry.size > previewLimit) {
+      setPreviewLoading(false);
+      setPreviewUnavailableReason(`Preview is limited to ${previewLimit / 1024 / 1024} MiB for this file type.`);
+      return;
+    }
+    if (fileType.known && fileType.previewKind === "binary") {
+      setPreviewLoading(false);
+      setPreviewUnavailableReason(`${fileType.label} preview is not available.`);
+      return;
+    }
+    if (fileType.readMode === "bytes" && !onOpenFileBytes) {
+      setPreviewLoading(false);
+      setPreviewUnavailableReason("A byte reader is required to preview this file type.");
+      return;
+    }
+
+    const abortController = new AbortController();
+    previewAbortControllerRef.current = abortController;
     setPreviewLoading(true);
     try {
-      const openAsBytes = shouldReadFileAsBytes(entry.name) && onOpenFileBytes;
+      const openAsBytes = !isGatewaySource && onOpenFileBytes;
       const result = resolveAgentFileOpenResult(
         await (openAsBytes
-          ? onOpenFileBytes(entry.path, sourceMode)
+          ? onOpenFileBytes(entry.path, sourceMode, { maxBytes: previewLimit, signal: abortController.signal })
           : onOpenFile(entry.path, sourceMode)),
       );
+      if (requestId !== previewRequestIdRef.current) return;
       const nextPath = result.path ? normalizePanelPath(result.path) : entry.path;
       const nextName = result.name || (nextPath !== entry.path ? fileNameFromPath(nextPath) : entry.name);
-      if (nextPath !== entry.path || nextName !== entry.name) {
-        setPreviewEntry({ ...entry, path: nextPath, name: nextName });
+      const nextMimeType = result.mimeType ?? entry.mimeType;
+      const nextEntry = { ...entry, path: nextPath, name: nextName, mimeType: nextMimeType };
+      const nextFileType = resolveFileType(nextEntry);
+      if (nextPath !== entry.path || nextName !== entry.name || nextMimeType !== entry.mimeType) {
+        setPreviewEntry(nextEntry);
         void loadFiles();
       }
-      setPreviewContent(result.content);
+
+      if (nextFileType.readMode === "bytes" && !isFileByteContent(result.content)) {
+        setPreviewUnavailableReason(isGatewaySource
+          ? "This file type needs byte access, which is not available through Gateway files."
+          : "A byte reader is required to preview this file type.");
+        return;
+      }
+
+      const resultPreviewLimit = nextFileType.readMode === "text" || !nextFileType.known
+        ? MAX_TEXT_PREVIEW_BYTES
+        : MAX_INLINE_PREVIEW_BYTES;
+      if (fileContentByteLength(result.content) > resultPreviewLimit) {
+        setPreviewUnavailableReason(`Preview is limited to ${resultPreviewLimit / 1024 / 1024} MiB for this file type.`);
+        return;
+      }
+
+      const decodedContent = isFileByteContent(result.content) && (nextFileType.readMode === "text" || !nextFileType.known)
+        ? decodeUtf8FileContent(result.content)
+        : null;
+      setPreviewContent(decodedContent ?? result.content);
     } catch (err) {
-      setPreviewError(err instanceof Error ? err.message : "Failed to load file");
+      if (requestId === previewRequestIdRef.current) {
+        setPreviewError(err instanceof Error ? err.message : "Failed to load file");
+      }
     } finally {
-      setPreviewLoading(false);
+      if (requestId === previewRequestIdRef.current) {
+        previewAbortControllerRef.current = null;
+        setPreviewLoading(false);
+      }
     }
-  }, [loadFiles, onOpenFile, onOpenFileBytes, sourceMode]);
+  }, [clearPreview, isGatewaySource, loadFiles, onOpenFile, onOpenFileBytes, sourceMode]);
 
   const normalizedInitialPreviewPath = useMemo(
     () => initialPreviewPath ? normalizePanelPath(initialPreviewPath) : "",
     [initialPreviewPath],
   );
+
+  const openInitialPreview = useEffectEvent((entry: FileEntry) => {
+    void handleOpenFile(entry);
+  });
 
   useEffect(() => {
     if (!connected || !normalizedInitialPreviewPath) return;
@@ -460,36 +567,56 @@ export function AgentFilesPanel({
     let cancelled = false;
     queueMicrotask(() => {
       if (cancelled) return;
+      viewRevisionRef.current += 1;
       setCurrentPath(parentPath || normalizedRootPath);
-      void handleOpenFile({ name, path: fullPath, type: "file" });
+      openInitialPreview({ name, path: fullPath, type: "file" });
     });
     return () => {
       cancelled = true;
     };
-  }, [connected, handleOpenFile, normalizedInitialPreviewPath, normalizedRootPath]);
+  }, [connected, normalizedInitialPreviewPath, normalizedRootPath]);
 
   const handleSaveFile = useCallback(async (path: string, content: string) => {
     if (!onSaveFile) return;
+    const previewRequestId = previewRequestIdRef.current;
+    const viewRevision = viewRevisionRef.current;
     await onSaveFile(path, content, sourceMode);
-    setPreviewContent(content);
-    void loadFiles();
+    if (previewRequestId === previewRequestIdRef.current) setPreviewContent(content);
+    if (viewRevision === viewRevisionRef.current) void loadFiles();
   }, [loadFiles, onSaveFile, sourceMode]);
 
   const handleDeleteFile = useCallback(async (entry: FileEntry) => {
     if (!onDeleteFile) return;
-    await onDeleteFile(entry.path, entry.type === "directory" ? { recursive: true } : undefined);
-    if (previewEntry?.path === entry.path) {
-      setPreviewEntry(null);
-      setPreviewContent(null);
+    const previewRequestId = previewRequestIdRef.current;
+    const viewRevision = viewRevisionRef.current;
+    setActionError(null);
+    try {
+      await onDeleteFile(entry.path, entry.type === "directory" ? { recursive: true } : undefined);
+      if (previewRequestId === previewRequestIdRef.current && previewEntry?.path === entry.path) {
+        clearPreview();
+      }
+      if (viewRevision === viewRevisionRef.current) await loadFiles();
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "Delete failed";
+      if (viewRevision === viewRevisionRef.current) {
+        setActionError(`Could not delete ${entry.name}: ${detail}`);
+      }
     }
-    await loadFiles();
-  }, [loadFiles, onDeleteFile, previewEntry]);
+  }, [clearPreview, loadFiles, onDeleteFile, previewEntry]);
 
   const handleUploadFile = useCallback(async (path: string, content: Uint8Array) => {
-    if (!onUploadFile) return;
-    await onUploadFile(path, content);
-    await loadFiles();
-  }, [loadFiles, onUploadFile]);
+    if (!onUploadFile || sourceMode === "gateway") return;
+    const viewRevision = viewRevisionRef.current;
+    await onUploadFile(path, content, sourceMode);
+    if (viewRevision === viewRevisionRef.current) await loadFiles();
+  }, [loadFiles, onUploadFile, sourceMode]);
+
+  const handleUploadDirectory = useCallback(async (path: string) => {
+    if (!onCreateDirectory || sourceMode === "gateway") return;
+    const viewRevision = viewRevisionRef.current;
+    await onCreateDirectory(path, sourceMode);
+    if (viewRevision === viewRevisionRef.current) await loadFiles();
+  }, [loadFiles, onCreateDirectory, sourceMode]);
 
   const validateNewFolderName = useCallback((name: string): string | null => {
     if (!name.trim()) return "Folder name is required.";
@@ -499,7 +626,7 @@ export function AgentFilesPanel({
   }, []);
 
   const handleCreateDirectory = useCallback(async () => {
-    if (!onCreateDirectory) return;
+    if (!onCreateDirectory || sourceMode === "gateway") return;
     const trimmedName = newFolderName.trim();
     const validationError = validateNewFolderName(trimmedName);
     if (validationError) {
@@ -508,38 +635,57 @@ export function AgentFilesPanel({
     }
 
     const targetPath = currentPath ? `${currentPath}/${trimmedName}` : trimmedName;
+    const viewRevision = viewRevisionRef.current;
     setCreatingFolder(true);
     setNewFolderError(null);
     try {
-      await onCreateDirectory(targetPath);
-      setNewFolderName("");
-      setShowCreateFolder(false);
-      await loadFiles();
+      await onCreateDirectory(targetPath, sourceMode);
+      if (viewRevision === viewRevisionRef.current) {
+        setNewFolderName("");
+        setShowCreateFolder(false);
+        await loadFiles();
+      }
     } catch (err) {
-      setNewFolderError(err instanceof Error ? err.message : "Failed to create folder.");
+      if (viewRevision === viewRevisionRef.current) {
+        setNewFolderError(err instanceof Error ? err.message : "Failed to create folder.");
+      }
     } finally {
       setCreatingFolder(false);
     }
-  }, [currentPath, loadFiles, newFolderName, onCreateDirectory, validateNewFolderName]);
+  }, [currentPath, loadFiles, newFolderName, onCreateDirectory, sourceMode, validateNewFolderName]);
 
   const handleDownloadFile = useCallback(async (entry: FileEntry) => {
     if (!onDownloadFileBytes || entry.type === "directory") return;
-    const result = resolveAgentFileOpenResult(
-      await onDownloadFileBytes(entry.path, sourceMode),
-    );
-    const nextPath = result.path ? normalizePanelPath(result.path) : entry.path;
-    downloadBytes(result.name || (nextPath !== entry.path ? fileNameFromPath(nextPath) : entry.name), result.content);
-    if (nextPath !== entry.path) void loadFiles();
-  }, [downloadBytes, loadFiles, onDownloadFileBytes, sourceMode]);
+    const fileType = resolveFileType(entry);
+    if (isGatewaySource && fileType.readMode === "bytes") return;
+    const viewRevision = viewRevisionRef.current;
+    setActionError(null);
+    try {
+      const result = resolveAgentFileOpenResult(
+        await onDownloadFileBytes(entry.path, sourceMode),
+      );
+      const nextPath = result.path ? normalizePanelPath(result.path) : entry.path;
+      const nextName = result.name || (nextPath !== entry.path ? fileNameFromPath(nextPath) : entry.name);
+      const nextEntry = { ...entry, name: nextName, path: nextPath, mimeType: result.mimeType ?? entry.mimeType };
+      downloadBytes(nextName, result.content, inferFileMimeType(nextEntry));
+      if (nextPath !== entry.path && viewRevision === viewRevisionRef.current) void loadFiles();
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "Download failed";
+      if (viewRevision === viewRevisionRef.current) {
+        setActionError(`Could not download ${entry.name}: ${detail}`);
+      }
+    }
+  }, [downloadBytes, isGatewaySource, loadFiles, onDownloadFileBytes, sourceMode]);
 
   const handleCopyPath = useCallback((entry: FileEntry) => {
     void copyText(entry.path);
   }, [copyText]);
 
   const handleNavigate = useCallback((path: string) => {
+    viewRevisionRef.current += 1;
     setCurrentPath(pathFromRoot(path, currentRootPath));
-    setPreviewEntry(null);
-  }, [currentRootPath]);
+    clearPreview();
+  }, [clearPreview, currentRootPath]);
 
   const handleSourceModeChange = useCallback((mode: AgentFilesPanelSource) => {
     if (mode === sourceMode) return;
@@ -565,12 +711,13 @@ export function AgentFilesPanel({
       content={previewContent}
       loading={previewLoading}
       error={previewError}
+      unavailableReason={previewUnavailableReason}
       readOnly={!isGatewaySource && isReadOnlyFile(previewEntry.path)}
       readOnlyLabel={readOnlyLabel}
       readOnlyDescription={readOnlyDescription}
-      onClose={() => setPreviewEntry(null)}
+      onClose={clearPreview}
       onSave={onSaveFile ? handleSaveFile : undefined}
-      onDownload={onDownloadFileBytes ? handleDownloadFile : undefined}
+      onDownload={onDownloadFileBytes && !(isGatewaySource && shouldReadFileAsBytes(previewEntry)) ? handleDownloadFile : undefined}
       renderMarkdown={renderMarkdown}
       copyText={copyText}
     />
@@ -721,6 +868,20 @@ export function AgentFilesPanel({
         </div>
       </div>
 
+      {actionError && (
+        <div role="alert" className="flex flex-shrink-0 items-center gap-2 border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-[10px] text-destructive">
+          <span className="min-w-0 flex-1 truncate">{actionError}</span>
+          <button
+            type="button"
+            aria-label="Dismiss file action error"
+            onClick={() => setActionError(null)}
+            className="flex h-5 w-5 items-center justify-center rounded hover:bg-destructive/10"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+      )}
+
       <AnimatePresence>
         {showCreateFolder && currentSourceAvailable && !isGatewaySource && onCreateDirectory && (
           <motion.div
@@ -789,7 +950,12 @@ export function AgentFilesPanel({
             className="flex-shrink-0 overflow-hidden border-b border-border"
           >
             <div className="px-4 py-3">
-              <FilesUploadZone currentPath={currentPath} onUpload={handleUploadFile} compact />
+              <FilesUploadZone
+                currentPath={currentPath}
+                onUpload={handleUploadFile}
+                onCreateDirectory={onCreateDirectory && !isGatewaySource ? handleUploadDirectory : undefined}
+                compact
+              />
             </div>
           </motion.div>
         )}
@@ -810,9 +976,7 @@ export function AgentFilesPanel({
               resultCount={searchResultCount}
               totalCount={files.length}
             />
-            {!isGatewaySource && breadcrumbPath && !searchQuery.trim() && (
-              <FileBreadcrumbs path={breadcrumbPath} onNavigate={handleNavigate} />
-            )}
+            <FileBreadcrumbs path={breadcrumbPath} onNavigate={handleNavigate} />
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
@@ -852,6 +1016,7 @@ export function AgentFilesPanel({
                 onOpenDirectory={handleOpenFile}
                 onDeleteFile={isGatewaySource || !currentSourceAvailable || !onDeleteFile ? undefined : handleDeleteFile}
                 onDownloadFile={onDownloadFileBytes ? handleDownloadFile : undefined}
+                canDownloadFile={(entry) => !(isGatewaySource && shouldReadFileAsBytes(entry))}
                 onCopyPath={handleCopyPath}
               />
             )}

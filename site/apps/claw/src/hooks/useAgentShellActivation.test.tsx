@@ -19,7 +19,7 @@ describe("useAgentShellActivation", () => {
     expect(result.current).toBe(false);
 
     rerender({ activeTab: "shell", agentId: "agent-1", agentState: "RUNNING" });
-    await waitFor(() => expect(result.current).toBe(true));
+    expect(result.current).toBe(true);
 
     rerender({ activeTab: "files", agentId: "agent-1", agentState: "RUNNING" });
     expect(result.current).toBe(true);
@@ -56,5 +56,23 @@ describe("useAgentShellActivation", () => {
 
     rerender({ activeTab: "chat", agentId: null, agentState: null });
     await waitFor(() => expect(result.current).toBe(false));
+  });
+
+  it("enables a running shell immediately from navigation intent", () => {
+    const { result, rerender } = renderHookWithClient(
+      ({ intent, agentState }) => useAgentShellActivation({
+        activeTab: "chat",
+        agentId: "agent-1",
+        agentState,
+        intent,
+      }),
+      { initialProps: { intent: false, agentState: "RUNNING" as string | null } },
+    );
+
+    expect(result.current).toBe(false);
+    rerender({ intent: true, agentState: "RUNNING" });
+    expect(result.current).toBe(true);
+    rerender({ intent: true, agentState: "STOPPED" });
+    expect(result.current).toBe(false);
   });
 });

@@ -88,6 +88,7 @@ export function TtsPanel({ currentSpeaker, currentFormat, onSave, onClose }: Tts
         voice: voiceName,
         language: "auto",
         responseFormat: "mp3",
+        signal: controller.signal,
       });
       if (controller.signal.aborted) return;
       const blob = new Blob([toArrayBuffer(bytes)], { type: "audio/mpeg" });

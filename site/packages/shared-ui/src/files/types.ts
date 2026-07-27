@@ -7,6 +7,7 @@ export interface FileEntry {
   path: string;
   type: "file" | "directory";
   size?: number;
+  mimeType?: string;
   lastModified?: string;
   checksum?: string;
   checksumAlgorithm?: string;
@@ -68,6 +69,8 @@ export interface DirectoryListing {
 export interface UploadItem {
   id: string;
   file: File;
+  relativePath?: string;
+  targetPath: string;
   progress: number;
   status: "pending" | "uploading" | "done" | "error";
   error?: string;

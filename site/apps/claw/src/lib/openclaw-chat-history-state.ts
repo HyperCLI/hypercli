@@ -148,7 +148,8 @@ function sameLegacyUserTurn(current: ChatMessage, history: ChatMessage): boolean
   return current.role === "user" &&
     history.role === "user" &&
     current.content.trim() === history.content.trim() &&
-    JSON.stringify(current.files ?? []) === JSON.stringify(history.files ?? []) &&
+    JSON.stringify((current.files ?? []).map((file) => [file.path, file.name, file.type])) ===
+      JSON.stringify((history.files ?? []).map((file) => [file.path, file.name, file.type])) &&
     JSON.stringify(current.attachments ?? []) === JSON.stringify(history.attachments ?? []);
 }
 

@@ -21,6 +21,7 @@ export interface TTSOptions {
   voice?: string;
   language?: string;
   responseFormat?: string;
+  signal?: AbortSignal;
 }
 
 export interface CloneOptions {
@@ -61,7 +62,7 @@ export class VoiceAPI {
       voice: options.voice ?? 'serena',
       language: options.language ?? 'auto',
       response_format: options.responseFormat ?? 'mp3',
-    });
+    }, options.signal ? { signal: options.signal } : {});
   }
 
   async clone(options: CloneOptions): Promise<Uint8Array> {

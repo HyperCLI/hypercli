@@ -4,7 +4,7 @@
 import { randomFillSync } from 'node:crypto';
 import { getAgentsApiBaseUrl, getConfigValue } from './config.js';
 import { APIError } from './errors.js';
-import { HTTPClient } from './http.js';
+import { HTTPClient, type RequestOverrides } from './http.js';
 import {
   GatewayClient,
   type ChatAttachment,
@@ -92,6 +92,7 @@ export interface AgentGatewayContext {
 export interface GatewayContextWaitOptions {
   timeoutMs?: number;
   retryIntervalMs?: number;
+  signal?: AbortSignal;
 }
 
 export interface AgentShellTokenResponse {
@@ -101,6 +102,65 @@ export interface AgentShellTokenResponse {
   ws_url?: string;
   shell?: string | null;
   dry_run?: boolean;
+}
+
+export interface AgentShellConnectOptions {
+  signal?: AbortSignal;
+  tokenTimeoutMs?: number;
+  openTimeoutMs?: number;
+}
+
+function shellAbortError(): Error {
+  const error = new Error('Shell connection cancelled');
+  error.name = 'AbortError';
+  return error;
+}
+
+function runShellOperation<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  signal: AbortSignal | undefined,
+  timeoutMs: number,
+  timeoutMessage: string,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const controller = new AbortController();
+    let settled = false;
+    const cleanup = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abortOperation);
+    };
+    const finish = (error?: unknown, value?: T) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error) reject(error);
+      else resolve(value as T);
+    };
+    const abortOperation = () => {
+      controller.abort(signal?.reason);
+      finish(shellAbortError());
+    };
+    const timer = setTimeout(() => {
+      controller.abort();
+      finish(new Error(timeoutMessage));
+    }, timeoutMs);
+
+    if (signal?.aborted) {
+      abortOperation();
+      return;
+    }
+    signal?.addEventListener('abort', abortOperation, { once: true });
+    void operation(controller.signal).then(
+      (value) => finish(undefined, value),
+      (error) => {
+        if (error instanceof Error && error.name === 'AbortError' && !signal?.aborted) {
+          finish(new Error(timeoutMessage));
+        } else {
+          finish(error);
+        }
+      },
+    );
+  });
 }
 
 export interface AgentLogsTokenResponse {
@@ -470,6 +530,10 @@ export interface AgentFileEntry {
   type: 'file' | 'directory';
   size?: number;
   size_formatted?: string;
+  mime_type?: string;
+  mimeType?: string;
+  content_type?: string;
+  contentType?: string;
   last_modified?: string;
   checksum?: string;
   checksum_algorithm?: string;
@@ -485,6 +549,16 @@ export interface AgentFileEntry {
   versionId?: string;
   source?: AgentFileSource;
   [key: string]: any;
+}
+
+export interface AgentFileReadOptions {
+  maxBytes?: number;
+  signal?: AbortSignal;
+}
+
+export interface AgentFileReadBytesResult {
+  content: Uint8Array;
+  mimeType?: string;
 }
 
 /**
@@ -613,16 +687,45 @@ export class AgentFiles {
       .filter((f) => !name || f.name === name || f.name.startsWith(name.endsWith('/') ? name : `${name}/`));
   }
 
-  async readBytes(path: string, source: OpenClawFileSource = 'auto'): Promise<Uint8Array> {
+  async readBytes(path: string, source: OpenClawFileSource = 'auto', options?: AgentFileReadOptions): Promise<Uint8Array> {
     if (!GATEWAY_FILE_SOURCES.has(source)) {
-      return this.deployments.fileReadBytes(this.agent, resolveBackendFilePath(path, source as AgentFileBackendSource), toWireFileSource(source as AgentFileBackendSource));
+      const resolvedPath = resolveBackendFilePath(path, source as AgentFileBackendSource);
+      const wireSource = toWireFileSource(source as AgentFileBackendSource);
+      return options
+        ? this.deployments.fileReadBytes(this.agent, resolvedPath, wireSource, options)
+        : this.deployments.fileReadBytes(this.agent, resolvedPath, wireSource);
     }
-    return encodeUtf8(await this.read(path, source));
+    return (await this.readBytesWithMetadata(path, source, options)).content;
   }
 
-  async read(path: string, source: OpenClawFileSource = 'auto'): Promise<string> {
+  async readBytesWithMetadata(
+    path: string,
+    source: OpenClawFileSource = 'auto',
+    options?: AgentFileReadOptions,
+  ): Promise<AgentFileReadBytesResult> {
     if (!GATEWAY_FILE_SOURCES.has(source)) {
-      return decodeUtf8(await this.readBytes(path, source));
+      return this.deployments.fileReadBytesWithMetadata(
+        this.agent,
+        resolveBackendFilePath(path, source as AgentFileBackendSource),
+        toWireFileSource(source as AgentFileBackendSource),
+        options,
+      );
+    }
+    if (options?.signal?.aborted) {
+      const error = new Error('File read cancelled');
+      error.name = 'AbortError';
+      throw error;
+    }
+    const content = encodeUtf8(await this.read(path, source));
+    if (options?.maxBytes !== undefined && content.byteLength > options.maxBytes) {
+      throw fileReadLimitError(path, options.maxBytes);
+    }
+    return { content, mimeType: 'text/plain' };
+  }
+
+  async read(path: string, source: OpenClawFileSource = 'auto', options?: AgentFileReadOptions): Promise<string> {
+    if (!GATEWAY_FILE_SOURCES.has(source)) {
+      return decodeUtf8(await this.readBytes(path, source, options));
     }
     const gw = this.requireGateway();
     return gw.withGateway(async (c) => c.fileGet(await gw.resolveAgentId(c), resolveGatewayFileName(path)));
@@ -1032,6 +1135,54 @@ function decodeUtf8(content: Uint8Array): string {
 
 function encodeUtf8(content: string): Uint8Array {
   return new TextEncoder().encode(content);
+}
+
+function fileReadLimitError(path: string, maxBytes: number): Error {
+  return new Error(`File ${path} exceeds the ${maxBytes / 1024 / 1024} MiB read limit`);
+}
+
+async function readResponseBytes(response: Response, path: string, maxBytes?: number): Promise<Uint8Array> {
+  if (maxBytes === undefined) return new Uint8Array(await response.arrayBuffer());
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
+    throw new RangeError('maxBytes must be a non-negative safe integer');
+  }
+
+  const contentLength = Number(response.headers.get('content-length'));
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    await response.body?.cancel();
+    throw fileReadLimitError(path, maxBytes);
+  }
+  if (!response.body) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > maxBytes) throw fileReadLimitError(path, maxBytes);
+    return bytes;
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel();
+        throw fileReadLimitError(path, maxBytes);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
 }
 
 /** Coerce write content to a string for the gateway (text-only) file source. */
@@ -1632,12 +1783,20 @@ export class Agent {
     return this.files.list(path, source);
   }
 
-  async fileReadBytes(path: string, source: AgentFileSource = 'auto'): Promise<Uint8Array> {
-    return this.files.readBytes(path, source);
+  async fileReadBytes(path: string, source: AgentFileSource = 'auto', options?: AgentFileReadOptions): Promise<Uint8Array> {
+    return this.files.readBytes(path, source, options);
   }
 
-  async fileRead(path: string, source: AgentFileSource = 'auto'): Promise<string> {
-    return this.files.read(path, source);
+  async fileReadBytesWithMetadata(
+    path: string,
+    source: AgentFileSource = 'auto',
+    options?: AgentFileReadOptions,
+  ): Promise<AgentFileReadBytesResult> {
+    return this.files.readBytesWithMetadata(path, source, options);
+  }
+
+  async fileRead(path: string, source: AgentFileSource = 'auto', options?: AgentFileReadOptions): Promise<string> {
+    return this.files.read(path, source, options);
   }
 
   async fileWriteBytes(path: string, content: Uint8Array | ArrayBuffer | string, destination: AgentFileSource = 'auto'): Promise<Record<string, any>> {
@@ -1660,8 +1819,8 @@ export class Agent {
     return this.requireDeployments().cpFrom(this, remotePath, localPath);
   }
 
-  async shellConnect(shell?: string): Promise<WebSocket> {
-    return this.requireDeployments().shellConnect(this.id, shell);
+  async shellConnect(shell?: string, options?: AgentShellConnectOptions): Promise<WebSocket> {
+    return this.requireDeployments().shellConnect(this.id, shell, options);
   }
 }
 
@@ -1678,12 +1837,12 @@ export class OpenClawAgent extends Agent {
   static override fromDict(data: AgentHydrationData): OpenClawAgent {
     return new OpenClawAgent({
       ...agentStateFromDict(data),
-      gatewayUrl: null,
+      gatewayUrl: this.gatewayUrlFromHostname(data.hostname),
       gatewayToken: data.gateway_token ?? null,
     });
   }
 
-  private static gatewayUrlFromHostname(hostname: string | null | undefined): string | null {
+  protected static gatewayUrlFromHostname(hostname: string | null | undefined): string | null {
     const trimmed = String(hostname ?? '').trim();
     return trimmed ? `wss://${trimmed}` : null;
   }
@@ -1707,6 +1866,13 @@ export class OpenClawAgent extends Agent {
    * token from `OPENCLAW_GATEWAY_TOKEN` in the agent env route.
    */
   async waitForGatewayContext(options: GatewayContextWaitOptions = {}): Promise<AgentGatewayContext> {
+    const callerAbortError = (): Error => {
+      if (options.signal?.reason instanceof Error) return options.signal.reason;
+      const error = new Error('OpenClaw gateway context wait cancelled');
+      error.name = 'AbortError';
+      return error;
+    };
+    if (options.signal?.aborted) throw callerAbortError();
     if (this.gatewayToken && this.gatewayUrl) {
       return {
         agent_id: this.id,
@@ -1719,27 +1885,96 @@ export class OpenClawAgent extends Agent {
     const deployments = this.requireDeployments();
     const deadline = Date.now() + timeoutMs;
     let lastError: unknown = null;
-    while (true) {
-      try {
-        const refreshed = await deployments.get(this.id);
-        const hostname = refreshed.hostname ?? null;
-        const gatewayUrl = OpenClawAgent.gatewayUrlFromHostname(hostname);
-        const envData = await deployments.env(this.id);
-        const gatewayToken = envData.env?.OPENCLAW_GATEWAY_TOKEN?.trim() || null;
-        if (gatewayToken && gatewayUrl) {
-          this.gatewayToken = gatewayToken;
-          this.gatewayUrl = gatewayUrl;
-          return { agent_id: this.id, gateway_token: gatewayToken, hostname };
+    const timeoutError = (): Error => {
+      return lastError instanceof Error
+        ? lastError
+        : new Error('Timed out waiting for OpenClaw gateway context');
+    };
+    const controller = new AbortController();
+    const forwardAbort = () => controller.abort(callerAbortError());
+    options.signal?.addEventListener('abort', forwardAbort, { once: true });
+    const timeoutId = setTimeout(() => controller.abort(timeoutError()), Math.max(0, timeoutMs));
+    const waitAbortError = (): Error => {
+      return controller.signal.reason instanceof Error ? controller.signal.reason : callerAbortError();
+    };
+    const runWithAbort = <T>(operation: Promise<T>): Promise<T> => {
+      if (controller.signal.aborted) return Promise.reject(waitAbortError());
+      return new Promise<T>((resolve, reject) => {
+        const abortOperation = () => {
+          cleanup();
+          reject(waitAbortError());
+        };
+        const cleanup = () => controller.signal.removeEventListener('abort', abortOperation);
+        controller.signal.addEventListener('abort', abortOperation, { once: true });
+        operation.then(
+          (value) => {
+            cleanup();
+            resolve(value);
+          },
+          (error) => {
+            cleanup();
+            reject(error);
+          },
+        );
+      });
+    };
+    const waitForRetry = (delayMs: number): Promise<void> => {
+      if (controller.signal.aborted) return Promise.reject(waitAbortError());
+      return new Promise<void>((resolve, reject) => {
+        const finish = () => {
+          controller.signal.removeEventListener('abort', abortWait);
+          resolve();
+        };
+        const timer = setTimeout(finish, delayMs);
+        const abortWait = () => {
+          clearTimeout(timer);
+          controller.signal.removeEventListener('abort', abortWait);
+          reject(waitAbortError());
+        };
+        controller.signal.addEventListener('abort', abortWait, { once: true });
+      });
+    };
+
+    try {
+      while (true) {
+        const remainingMs = deadline - Date.now();
+        if (remainingMs <= 0) throw timeoutError();
+        const requestOptions: RequestOverrides = {
+          signal: controller.signal,
+          timeout: Math.max(1, remainingMs),
+        };
+        const requests: Promise<void>[] = [];
+        if (!this.gatewayUrl) {
+          requests.push(deployments.get(this.id, requestOptions).then((refreshed) => {
+            const gatewayUrl = OpenClawAgent.gatewayUrlFromHostname(refreshed.hostname);
+            if (gatewayUrl) this.gatewayUrl = gatewayUrl;
+          }));
         }
-        lastError = new Error('missing gateway context');
-      } catch (error) {
-        lastError = error;
+        if (!this.gatewayToken) {
+          requests.push(deployments.env(this.id, requestOptions).then((envData) => {
+            const gatewayToken = envData.env?.OPENCLAW_GATEWAY_TOKEN?.trim() || null;
+            if (gatewayToken) this.gatewayToken = gatewayToken;
+          }));
+        }
+
+        const results = await runWithAbort(Promise.allSettled(requests));
+        const rejected = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+        if (this.gatewayToken && this.gatewayUrl) {
+          return {
+            agent_id: this.id,
+            hostname: this.currentGatewayHostname(),
+            gateway_token: this.gatewayToken,
+          };
+        }
+        lastError = rejected?.reason ?? new Error('missing gateway context');
+        const remainingAfterRequestMs = deadline - Date.now();
+        if (remainingAfterRequestMs <= 0) throw timeoutError();
+        const retryDelayMs = Math.min(Math.max(0, retryIntervalMs), remainingAfterRequestMs);
+        await waitForRetry(retryDelayMs);
       }
-      if (Date.now() >= deadline) {
-        if (lastError instanceof Error) throw lastError;
-        throw new Error('Timed out waiting for OpenClaw gateway context');
-      }
-      await new Promise((resolve) => setTimeout(resolve, retryIntervalMs));
+    } finally {
+      clearTimeout(timeoutId);
+      options.signal?.removeEventListener('abort', forwardAbort);
     }
   }
 
@@ -2423,7 +2658,7 @@ export class OpenClawProAgent extends OpenClawAgent {
   static override fromDict(data: AgentHydrationData): OpenClawProAgent {
     return new OpenClawProAgent({
       ...agentStateFromDict(data),
-      gatewayUrl: null,
+      gatewayUrl: this.gatewayUrlFromHostname(data.hostname),
       gatewayToken: data.gateway_token ?? null,
     });
   }
@@ -2467,22 +2702,25 @@ export class Deployments {
     return bindAgent(agent, this);
   }
 
-  private async getById(agentId: string): Promise<Agent> {
-    const data = await this.agentHttp.get<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}`);
+  private async getById(agentId: string, requestOptions: RequestOverrides = {}): Promise<Agent> {
+    const path = `${DEPLOYMENTS_API_PREFIX}/${agentId}`;
+    const data = Object.keys(requestOptions).length === 0
+      ? await this.agentHttp.get<AgentHydrationData>(path)
+      : await this.agentHttp.get<AgentHydrationData>(path, undefined, requestOptions);
     return this.hydrateAgent(data);
   }
 
-  async resolveAgent(agentIdOrName: string): Promise<Agent> {
+  async resolveAgent(agentIdOrName: string, requestOptions: RequestOverrides = {}): Promise<Agent> {
     const raw = String(agentIdOrName || '').trim();
     if (!raw) {
       throw new Error('agentIdOrName is required');
     }
     if (isUuidRef(raw)) {
-      return this.getById(raw);
+      return this.getById(raw, requestOptions);
     }
 
     const matches: Agent[] = [];
-    for (const agent of await this.list()) {
+    for (const agent of await this.list(requestOptions)) {
       const values = [agent.id, agent.name, agent.podName, agent.hostname];
       if (values.some((value) => String(value || '') === raw)) {
         matches.push(agent);
@@ -2499,10 +2737,10 @@ export class Deployments {
     if (matches.length > 1) {
       throw new Error(`Agent reference is ambiguous: ${raw} (${matches.slice(0, 5).map((agent) => agent.id).join(', ')})`);
     }
-    return this.getById(matches[0].id);
+    return this.getById(matches[0].id, requestOptions);
   }
 
-  async resolveAgentId(agentIdOrName: string): Promise<string> {
+  async resolveAgentId(agentIdOrName: string, requestOptions: RequestOverrides = {}): Promise<string> {
     const raw = String(agentIdOrName || '').trim();
     if (!raw) {
       throw new Error('agentIdOrName is required');
@@ -2510,7 +2748,7 @@ export class Deployments {
     if (isDirectAgentIdRef(raw)) {
       return raw;
     }
-    return (await this.resolveAgent(raw)).id;
+    return (await this.resolveAgent(raw, requestOptions)).id;
   }
 
   private async agentIdFor(target: Agent | string): Promise<string> {
@@ -2600,22 +2838,24 @@ export class Deployments {
     return this.agentHttp.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/metrics`);
   }
 
-  async list(): Promise<Agent[]> {
-    const data = await this.agentHttp.get<any>(DEPLOYMENTS_API_PREFIX);
+  async list(requestOptions: RequestOverrides = {}): Promise<Agent[]> {
+    const data = Object.keys(requestOptions).length === 0
+      ? await this.agentHttp.get<any>(DEPLOYMENTS_API_PREFIX)
+      : await this.agentHttp.get<any>(DEPLOYMENTS_API_PREFIX, undefined, requestOptions);
     const items = Array.isArray(data) ? data : data.items ?? [];
     return items.map((item: AgentHydrationData) => this.hydrateAgent(item));
   }
 
-  async get(agentIdOrName: string): Promise<Agent> {
+  async get(agentIdOrName: string, requestOptions: RequestOverrides = {}): Promise<Agent> {
     const raw = String(agentIdOrName || '').trim();
     if (!raw) throw new Error('agentIdOrName is required');
     try {
-      return await this.getById(raw);
+      return await this.getById(raw, requestOptions);
     } catch (error) {
       if (!(error instanceof APIError) || error.statusCode !== 404 || isUuidRef(raw)) {
         throw error;
       }
-      return this.resolveAgent(raw);
+      return this.resolveAgent(raw, requestOptions);
     }
   }
 
@@ -2815,9 +3055,15 @@ export class Deployments {
     return this.agentHttp.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/logs/token`);
   }
 
-  async env(agentIdOrName: string): Promise<{ agent_id: string; env: Record<string, string> }> {
-    const agentId = await this.resolveAgentId(agentIdOrName);
-    return this.agentHttp.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/env`);
+  async env(
+    agentIdOrName: string,
+    requestOptions: RequestOverrides = {},
+  ): Promise<{ agent_id: string; env: Record<string, string> }> {
+    const agentId = await this.resolveAgentId(agentIdOrName, requestOptions);
+    const path = `${DEPLOYMENTS_API_PREFIX}/${agentId}/env`;
+    return Object.keys(requestOptions).length === 0
+      ? this.agentHttp.get(path)
+      : this.agentHttp.get(path, undefined, requestOptions);
   }
 
   async exec(target: Agent | string, command: string, options: AgentExecOptions = {}): Promise<AgentExecResult> {
@@ -2859,14 +3105,20 @@ export class Deployments {
     return [...(payload.directories ?? []), ...(payload.files ?? [])];
   }
 
-  async fileReadBytes(target: Agent | string, path: string, source: 'auto' | 'pod' | 's3' = 'auto'): Promise<Uint8Array> {
+  async fileReadBytesWithMetadata(
+    target: Agent | string,
+    path: string,
+    source: 'auto' | 'pod' | 's3' = 'auto',
+    options?: AgentFileReadOptions,
+  ): Promise<AgentFileReadBytesResult> {
     const encodedPath = encodeFilePath(path);
     const params = new URLSearchParams({ source });
     const agentId = await this.agentIdFor(target);
     const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${agentId}/files/${encodedPath}?${params.toString()}`, {
       redirect: 'follow',
+      signal: options?.signal,
     });
-    const bytes = new Uint8Array(await response.arrayBuffer());
+    const bytes = await readResponseBytes(response, path, options?.maxBytes);
     const contentType = response.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
       try {
@@ -2880,11 +3132,25 @@ export class Deployments {
         }
       }
     }
-    return bytes;
+    return { content: bytes, mimeType: contentType || undefined };
   }
 
-  async fileRead(target: Agent | string, path: string, source: 'auto' | 'pod' | 's3' = 'auto'): Promise<string> {
-    return decodeUtf8(await this.fileReadBytes(target, path, source));
+  async fileReadBytes(
+    target: Agent | string,
+    path: string,
+    source: 'auto' | 'pod' | 's3' = 'auto',
+    options?: AgentFileReadOptions,
+  ): Promise<Uint8Array> {
+    return (await this.fileReadBytesWithMetadata(target, path, source, options)).content;
+  }
+
+  async fileRead(
+    target: Agent | string,
+    path: string,
+    source: 'auto' | 'pod' | 's3' = 'auto',
+    options?: AgentFileReadOptions,
+  ): Promise<string> {
+    return decodeUtf8(await this.fileReadBytes(target, path, source, options));
   }
 
   async fileWriteBytes(
@@ -2975,34 +3241,107 @@ export class Deployments {
     });
   }
 
-  async shellToken(agentIdOrName: string, shell?: string, dryRun: boolean = false): Promise<AgentShellTokenResponse> {
+  async shellToken(
+    agentIdOrName: string,
+    shell?: string,
+    dryRun: boolean = false,
+    requestOptions: RequestOverrides = {},
+  ): Promise<AgentShellTokenResponse> {
     const selectedShell = shell ?? '/bin/bash';
     const payload: Record<string, any> = { shell: selectedShell };
     if (dryRun) payload.dry_run = true;
-    const agentId = await this.resolveAgentId(agentIdOrName);
-    return this.agentHttp.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/shell/token`, payload);
+    const agentId = await this.resolveAgentId(agentIdOrName, requestOptions);
+    const path = `${DEPLOYMENTS_API_PREFIX}/${agentId}/shell/token`;
+    if (Object.keys(requestOptions).length === 0) return this.agentHttp.post(path, payload);
+    return this.agentHttp.post(path, payload, requestOptions);
   }
 
-  async shellConnect(agentIdOrName: string, shell?: string): Promise<WebSocket> {
-    const agentId = await this.resolveAgentId(agentIdOrName);
+  async shellConnect(
+    agentIdOrName: string,
+    shell?: string,
+    options: AgentShellConnectOptions = {},
+  ): Promise<WebSocket> {
+    if (options.signal?.aborted) throw shellAbortError();
+    const tokenTimeoutMs = options.tokenTimeoutMs ?? 15_000;
+    const openTimeoutMs = options.openTimeoutMs ?? 10_000;
+    const tokenDeadline = Date.now() + tokenTimeoutMs;
+    const remainingTokenTime = () => Math.max(0, tokenDeadline - Date.now());
+    const runBeforeTokenDeadline = <T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> => {
+      const remaining = remainingTokenTime();
+      if (remaining <= 0) return Promise.reject(new Error('Shell token request timed out'));
+      return runShellOperation(
+        operation,
+        options.signal,
+        remaining,
+        'Shell token request timed out',
+      );
+    };
+    const agentId = await runBeforeTokenDeadline(
+      (signal) => this.resolveAgentId(agentIdOrName, { signal }),
+    );
     const connectWithShell = async (requestedShell: string): Promise<WebSocket> => {
-      const tokenData = await this.shellToken(agentId, requestedShell);
+      const remaining = remainingTokenTime();
+      if (remaining <= 0) throw new Error('Shell token request timed out');
+      const requestOptions: RequestOverrides = {
+        retries: 3,
+        timeout: Math.max(500, Math.floor((tokenTimeoutMs - 3_000) / 3)),
+        retryStatuses: [429, 502, 503, 504],
+      };
+      const tokenData = await runBeforeTokenDeadline(
+        (signal) => {
+          requestOptions.signal = signal;
+          return this.shellToken(agentId, requestedShell, false, requestOptions);
+        },
+      );
       const baseUrl = `${this.agentsWsUrl}/shell/${agentId}`;
       const separator = baseUrl.includes("?") ? "&" : "?";
       const wsUrl =
         `${baseUrl}${separator}jwt=${encodeURIComponent(tokenData.jwt)}` +
         `&shell=${encodeURIComponent(tokenData.shell || requestedShell)}`;
       const ws = new WebSocket(wsUrl);
+      ws.binaryType = 'arraybuffer';
       return await new Promise<WebSocket>((resolve, reject) => {
         let settled = false;
-        ws.onopen = () => {
-          settled = true;
-          resolve(ws);
+        const abortConnection = () => finish(shellAbortError());
+        const openTimer = setTimeout(() => finish(new Error('Shell connection timed out')), openTimeoutMs);
+        const cleanup = () => {
+          clearTimeout(openTimer);
+          options.signal?.removeEventListener('abort', abortConnection);
         };
-        ws.onerror = () => {
-          if (!settled) {
-            reject(new Error('WebSocket connection failed'));
+        const finish = (error?: Error) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          if (error) {
+            try {
+              ws.close();
+            } catch {
+              // The browser may have already finalized a failed socket.
+            }
+            reject(error);
+          } else {
+            resolve(ws);
           }
+        };
+
+        if (options.signal?.aborted) {
+          finish(shellAbortError());
+          return;
+        }
+        options.signal?.addEventListener('abort', abortConnection, { once: true });
+        ws.onopen = () => {
+          finish();
+        };
+        ws.onerror = () => undefined;
+        ws.onclose = (event) => {
+          const reason = event.reason ? `: ${event.reason}` : '';
+          const error = new Error(`WebSocket closed before opening${reason}`) as Error & {
+            closeCode: number;
+            closeReason: string;
+          };
+          error.closeCode = event.code;
+          error.closeReason = event.reason;
+          finish(error);
         };
       });
     };
@@ -3013,7 +3352,12 @@ export class Deployments {
 
     try {
       return await connectWithShell('/bin/bash');
-    } catch {
+    } catch (error) {
+      if (options.signal?.aborted) throw error;
+      const detail = error instanceof APIError ? error.detail : error instanceof Error ? error.message : '';
+      const bashUnavailable = /(\/bin\/bash|\bbash\b)/i.test(detail)
+        && /(not found|no such file|missing|unavailable|unsupported)/i.test(detail);
+      if (!bashUnavailable) throw error;
       return connectWithShell('/bin/sh');
     }
   }

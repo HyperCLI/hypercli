@@ -29,7 +29,7 @@ export interface AuthContextType {
   error: string | null;
   login: () => void;
   logout: () => Promise<void>;
-  getToken: () => Promise<string>;
+  getToken: (signal?: AbortSignal) => Promise<string>;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -49,6 +49,39 @@ function trimTrailingSlash(value: string): string {
 function getAuthUrl(apiBaseUrl: string, path: string): string {
   const baseUrl = trimTrailingSlash(apiBaseUrl);
   return `${baseUrl}${path}`;
+}
+
+function authAbortReason(signal: AbortSignal): Error {
+  if (signal.reason instanceof Error) return signal.reason;
+  const error = new Error("Token request cancelled");
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfAuthAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw authAbortReason(signal);
+}
+
+function waitForAuthOperation<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return operation;
+  if (signal.aborted) return Promise.reject(authAbortReason(signal));
+  return new Promise((resolve, reject) => {
+    const handleAbort = () => {
+      signal.removeEventListener("abort", handleAbort);
+      reject(authAbortReason(signal));
+    };
+    signal.addEventListener("abort", handleAbort, { once: true });
+    void operation.then(
+      (value) => {
+        signal.removeEventListener("abort", handleAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", handleAbort);
+        reject(error);
+      },
+    );
+  });
 }
 
 export function getStoredToken(tokenStorageKey = "app_auth_token"): string | null {
@@ -170,14 +203,17 @@ export async function exchangePrivyToken(
   apiBaseUrl: string,
   privyToken: string,
   tokenStorageKey = "app_auth_token",
-  cookieName = "auth_token"
+  cookieName = "auth_token",
+  signal?: AbortSignal,
 ): Promise<string> {
+  throwIfAuthAborted(signal);
   const response = await fetch(getAuthUrl(apiBaseUrl, "/auth/login"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ privy_token: privyToken }),
+    signal,
   });
 
   if (!response.ok) {
@@ -191,6 +227,7 @@ export async function exchangePrivyToken(
     throw new Error("Token exchange failed: response missing token");
   }
 
+  throwIfAuthAborted(signal);
   setStoredToken(appToken, tokenStorageKey);
   const expiresIn = Number(data.expires_in) || parseInt(process.env.NEXT_PUBLIC_COOKIE_VALIDITY || "15", 10) * 24 * 60 * 60;
   cookieUtils.setWithMaxAge(cookieName, appToken, expiresIn);
@@ -202,18 +239,20 @@ export async function getAppToken(
   apiBaseUrl: string,
   getPrivyToken: () => Promise<string | null>,
   tokenStorageKey = "app_auth_token",
-  cookieName = "auth_token"
+  cookieName = "auth_token",
+  signal?: AbortSignal,
 ): Promise<string> {
+  throwIfAuthAborted(signal);
   const storedSession = getStoredSession(tokenStorageKey, cookieName);
   if (storedSession) return storedSession;
 
-  const privyToken = await getPrivyToken();
+  const privyToken = await waitForAuthOperation(getPrivyToken(), signal);
   if (!privyToken) {
     clearStoredToken(tokenStorageKey);
     throw new Error("Not authenticated");
   }
 
-  return exchangePrivyToken(apiBaseUrl, privyToken, tokenStorageKey, cookieName);
+  return exchangePrivyToken(apiBaseUrl, privyToken, tokenStorageKey, cookieName, signal);
 }
 
 export function useAuth(): AuthContextType {
@@ -306,7 +345,8 @@ function StoredSessionAuthProvider({
     resetSession();
   }, [cookieName, resetSession, tokenStorageKey]);
 
-  const getToken = useCallback(async (): Promise<string> => {
+  const getToken = useCallback(async (signal?: AbortSignal): Promise<string> => {
+    throwIfAuthAborted(signal);
     const storedSession = getStoredSession(tokenStorageKey, cookieName);
     if (!storedSession) {
       resetSession("Not authenticated");
@@ -436,13 +476,14 @@ function PrivySessionAuthProvider({
     }
 
     let cancelled = false;
+    const controller = new AbortController();
 
     const exchange = async () => {
       try {
         setFlowState("exchanging");
         setIsLoading(true);
         setError(null);
-        await getAppToken(apiBaseUrl, getAccessToken, tokenStorageKey, cookieName);
+        await getAppToken(apiBaseUrl, getAccessToken, tokenStorageKey, cookieName, controller.signal);
         if (!cancelled) {
           completeSession();
         }
@@ -459,6 +500,7 @@ function PrivySessionAuthProvider({
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [
     apiBaseUrl,
@@ -515,8 +557,8 @@ function PrivySessionAuthProvider({
     await privyLogout();
   }, [cookieName, privyLogout, resetSession, tokenStorageKey]);
 
-  const getToken = useCallback(async (): Promise<string> => {
-    return getAppToken(apiBaseUrl, getAccessToken, tokenStorageKey, cookieName);
+  const getToken = useCallback(async (signal?: AbortSignal): Promise<string> => {
+    return getAppToken(apiBaseUrl, getAccessToken, tokenStorageKey, cookieName, signal);
   }, [apiBaseUrl, cookieName, getAccessToken, tokenStorageKey]);
 
   return (

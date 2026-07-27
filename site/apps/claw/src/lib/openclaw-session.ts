@@ -379,7 +379,17 @@ export interface HydratedOpenClawConnection {
   models: Array<Record<string, unknown>>;
 }
 
-interface HydratedOpenClawSessionList {
+export interface HydratedOpenClawHistory {
+  messages: ChatMessage[];
+  gatewaySessionKey: string;
+  activeSessionRecord: OpenClawSessionRecord | null;
+  historyStatus: "fulfilled" | "rejected";
+  useLocalCacheFallback: boolean;
+  sessions: OpenClawSessionRecord[];
+  sessionsFetched: boolean;
+}
+
+export interface HydratedOpenClawSessionList {
   sessions: OpenClawSessionRecord[];
   fetched: boolean;
 }
@@ -529,8 +539,10 @@ async function loadSessionHistory(
   session: OpenClawSessionRecord | null | undefined,
   limit: number,
 ): Promise<ChatMessage[]> {
-  const channelHistory = await loadReadOnlyChannelHistory(gateway, session, limit);
-  if (channelHistory) return channelHistory;
+  if (session?.readOnly === true) {
+    const channelHistory = await loadReadOnlyChannelHistory(gateway, session, limit);
+    if (channelHistory) return channelHistory;
+  }
   return normalizeHistoryMessages(await loadOpenClawChatHistory(gateway, sessionKey, limit));
 }
 
@@ -712,23 +724,20 @@ export async function hydrateOpenClawConnection(
   };
 }
 
-export async function hydrateOpenClawSession(
+export async function hydrateOpenClawHistory(
   gateway: GatewayClient,
   preferredAgentId?: string | null,
   activeSessionKey?: string | null,
-  connectionHydration?: HydratedOpenClawConnection,
   sessionHydration?: HydratedOpenClawSessionList,
-): Promise<HydratedOpenClawSession> {
+): Promise<HydratedOpenClawHistory> {
   const normalizedPreferredAgentId = (preferredAgentId ?? "").trim();
   const requestedSessionKey = resolveOpenClawActiveSessionKey(normalizedPreferredAgentId, activeSessionKey);
-  const connection = connectionHydration ?? await hydrateOpenClawConnection(gateway, normalizedPreferredAgentId);
   const sessionsRes = sessionHydration
     ? { status: sessionHydration.fetched ? "fulfilled" as const : "rejected" as const, value: sessionHydration.sessions }
     : await listOpenClawSessions(gateway)
       .then((value) => ({ status: "fulfilled" as const, value }))
       .catch((reason: unknown) => ({ status: "rejected" as const, reason, value: [] as OpenClawSessionRecord[] }));
 
-  const agents = connection.agents;
   const sessions = sessionsRes.value;
   const activeSessionRecord = findOpenClawSelectableSession(sessions, requestedSessionKey);
   const resolvedSessionKey = resolveOpenClawGatewaySessionKey(sessions, requestedSessionKey);
@@ -756,17 +765,43 @@ export async function hydrateOpenClawSession(
     ? "fulfilled"
     : "rejected";
   return {
-    config: connection.config,
-    configSchema: connection.configSchema,
     messages,
-    files: connection.files,
-    gwAgentId: connection.gwAgentId,
     gatewaySessionKey: sessionKey,
     activeSessionRecord,
     historyStatus,
     useLocalCacheFallback: !skipAmbiguousSyntheticMainHistory && activeSessionRecord?.readOnly !== true,
     sessions,
     sessionsFetched: sessionsRes.status === "fulfilled",
+  };
+}
+
+export async function hydrateOpenClawSession(
+  gateway: GatewayClient,
+  preferredAgentId?: string | null,
+  activeSessionKey?: string | null,
+  connectionHydration?: HydratedOpenClawConnection,
+  sessionHydration?: HydratedOpenClawSessionList,
+): Promise<HydratedOpenClawSession> {
+  const normalizedPreferredAgentId = (preferredAgentId ?? "").trim();
+  const connection = connectionHydration ?? await hydrateOpenClawConnection(gateway, normalizedPreferredAgentId);
+  const history = await hydrateOpenClawHistory(
+    gateway,
+    normalizedPreferredAgentId,
+    activeSessionKey,
+    sessionHydration,
+  );
+  return {
+    config: connection.config,
+    configSchema: connection.configSchema,
+    messages: history.messages,
+    files: connection.files,
+    gwAgentId: connection.gwAgentId,
+    gatewaySessionKey: history.gatewaySessionKey,
+    activeSessionRecord: history.activeSessionRecord,
+    historyStatus: history.historyStatus,
+    useLocalCacheFallback: history.useLocalCacheFallback,
+    sessions: history.sessions,
+    sessionsFetched: history.sessionsFetched,
     cronJobs: connection.cronJobs,
     models: connection.models,
   };

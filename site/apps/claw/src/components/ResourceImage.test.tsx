@@ -46,6 +46,16 @@ describe("ResourceImage", () => {
     await waitFor(() => {
       expect(screen.queryByRole("status", { name: /loading image/i })).not.toBeInTheDocument();
     });
+    expect(nextImageMock.renders).toHaveLength(0);
+  });
+
+  it("uses the native image element for raster data URLs", () => {
+    const source = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nAAAAABJRU5ErkJggg==";
+    render(<ResourceImage src={source} alt="inline preview" width={32} height={32} fetchPriority="high" />);
+
+    expect(screen.getByAltText("inline preview")).toHaveAttribute("src", source);
+    expect(screen.getByAltText("inline preview")).toHaveAttribute("fetchpriority", "high");
+    expect(nextImageMock.renders).toHaveLength(0);
   });
 
   it("shows an unavailable state when the image fails", async () => {

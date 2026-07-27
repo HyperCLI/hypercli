@@ -13,7 +13,7 @@ export function renderTelegramSetup(context: IntegrationSetupRenderContext) {
       agentName={context.agentName}
       onSaveConfig={typeof chat.saveConfig === "function" ? chat.saveConfig : undefined}
       onChannelProbe={typeof chat.channelsStatus === "function" ? () => chat.channelsStatus(true) : undefined}
-      onAgentConfigUpdate={typeof chat.sendMessage === "function"
+      onAgentConfigUpdate={chat.activeSessionCanSend && typeof chat.sendMessage === "function"
         ? (prompt, displayContent) => chat.sendMessage(prompt, { displayContent })
         : undefined}
       onReconnectGateway={gatewayReconnect(chat)}

@@ -18,6 +18,7 @@ interface FilesDirectoryTreeProps {
   onDeleteFile?: (entry: FileEntry) => void;
   onRenameFile?: (entry: FileEntry, newName: string) => void;
   onDownloadFile?: (entry: FileEntry) => void;
+  canDownloadFile?: (entry: FileEntry) => boolean;
   onCopyPath?: (entry: FileEntry) => void;
 }
 
@@ -116,6 +117,7 @@ function TreeLevel({
   onDeleteFile,
   onRenameFile,
   onDownloadFile,
+  canDownloadFile,
   onCopyPath,
 }: {
   nodes: TreeNode[];
@@ -128,6 +130,7 @@ function TreeLevel({
   onDeleteFile?: (entry: FileEntry) => void;
   onRenameFile?: (entry: FileEntry, newName: string) => void;
   onDownloadFile?: (entry: FileEntry) => void;
+  canDownloadFile?: (entry: FileEntry) => boolean;
   onCopyPath?: (entry: FileEntry) => void;
 }) {
   return (
@@ -152,7 +155,7 @@ function TreeLevel({
               }}
               onDelete={onDeleteFile ? () => onDeleteFile(entry) : undefined}
               onRename={onRenameFile ? (_, name) => onRenameFile(entry, name) : undefined}
-              onDownload={onDownloadFile ? () => onDownloadFile(entry) : undefined}
+              onDownload={onDownloadFile && (!canDownloadFile || canDownloadFile(entry)) ? () => onDownloadFile(entry) : undefined}
               onCopyPath={onCopyPath ? () => onCopyPath(entry) : undefined}
             />
             <AnimatePresence initial={false}>
@@ -175,6 +178,7 @@ function TreeLevel({
                     onDeleteFile={onDeleteFile}
                     onRenameFile={onRenameFile}
                     onDownloadFile={onDownloadFile}
+                    canDownloadFile={canDownloadFile}
                     onCopyPath={onCopyPath}
                   />
                 </motion.div>
@@ -200,6 +204,7 @@ export function FilesDirectoryTree({
   onDeleteFile,
   onRenameFile,
   onDownloadFile,
+  canDownloadFile,
   onCopyPath,
 }: FilesDirectoryTreeProps) {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
@@ -245,6 +250,7 @@ export function FilesDirectoryTree({
       onDeleteFile={onDeleteFile}
       onRenameFile={onRenameFile}
       onDownloadFile={onDownloadFile}
+      canDownloadFile={canDownloadFile}
       onCopyPath={onCopyPath}
     />
   );

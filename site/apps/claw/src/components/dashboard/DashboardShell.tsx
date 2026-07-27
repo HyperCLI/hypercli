@@ -48,6 +48,7 @@ function useVisualViewportHeightVar() {
     const root = document.documentElement;
     let frame = 0;
     let timeouts: number[] = [];
+    let lastHeight = -1;
 
     const syncViewportHeight = () => {
       frame = 0;
@@ -55,7 +56,10 @@ function useVisualViewportHeightVar() {
       const height = visualHeight && Number.isFinite(visualHeight)
         ? visualHeight
         : window.innerHeight;
-      root.style.setProperty("--claw-viewport-height", `${Math.round(height)}px`);
+      const roundedHeight = Math.round(height);
+      if (roundedHeight === lastHeight) return;
+      lastHeight = roundedHeight;
+      root.style.setProperty("--claw-viewport-height", `${roundedHeight}px`);
     };
 
     const scheduleSync = () => {

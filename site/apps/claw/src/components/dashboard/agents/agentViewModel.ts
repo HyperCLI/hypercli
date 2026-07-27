@@ -1,10 +1,6 @@
 import type { SdkAgent } from "@/types";
 import type { Agent, AgentState } from "@/app/dashboard/agents/types";
 
-interface AgentViewModelOptions {
-  managedDisplayName?: string | null;
-}
-
 export function normalizeAgentState(state: unknown): AgentState {
   const normalized = typeof state === "string" ? state.toUpperCase() : "";
   if (!normalized) return "STOPPED";
@@ -26,20 +22,23 @@ export function normalizeAgentState(state: unknown): AgentState {
   return "FAILED";
 }
 
-export function agentDisplayLabel(agent: Pick<Agent, "id" | "name" | "displayName" | "pod_name">): string {
-  return agent.displayName?.trim() || agent.name?.trim() || agent.pod_name?.trim() || agent.id;
+export function agentDisplayLabel(agent: Pick<Agent, "id" | "name" | "handle" | "displayName" | "managed" | "pod_name">): string {
+  const canonicalName = agent.name?.trim() || agent.pod_name?.trim() || agent.id;
+  return agent.managed === false
+    ? agent.displayName?.trim() || canonicalName
+    : agent.handle?.trim() || canonicalName;
 }
 
-export function toAgentViewModel(agent: SdkAgent, options: AgentViewModelOptions = {}): Agent {
+export function toAgentViewModel(agent: SdkAgent): Agent {
   const managed = agent.managed ?? null;
-  const managedDisplayName = options.managedDisplayName?.trim() || null;
+  const canonicalName = agent.name?.trim() || agent.podName?.trim() || agent.id;
   return {
     id: agent.id,
-    name: agent.name ?? agent.id,
+    name: canonicalName,
     handle: agent.handle ?? null,
     displayName: managed === false
-      ? agent.displayName ?? agent.name ?? null
-      : managedDisplayName ?? agent.name ?? agent.displayName ?? null,
+      ? agent.displayName?.trim() || canonicalName
+      : agent.handle?.trim() || canonicalName,
     avatarUrl: agent.avatarUrl ?? null,
     displayIdentity: agent.displayIdentity ?? null,
     managed,

@@ -50,6 +50,8 @@ import { AgentTeamSettingsContent } from "./AgentTeamSettingsContent";
 import { getAgentGatewayPanelBootStatus } from "./chat-boot-stage";
 import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
 import { agentDisplayLabel } from "./agentViewModel";
+import { AnonymousAgentLaunchState } from "./AnonymousAgentDraftResume";
+import { clearFirstAgentSetupDraft, useFirstAgentSetupDraft } from "@/hooks/useFirstAgentSetupDraft";
 
 interface SessionLike {
   connected: boolean;
@@ -469,7 +471,6 @@ interface AgentSettingsPanelProps {
   reportedChannelsReady?: boolean;
   onUpdateAgentProfile?: (agentId: string, profile: { name?: string; handle?: string | null }) => Promise<void>;
   onUpdateExternalAgentProfile?: (agentId: string, profile: { name?: string; displayName?: string | null; handle?: string | null }) => Promise<void>;
-  onSetManagedAgentDisplayName?: (agentId: string, displayName: string | null) => void | Promise<void>;
   onUploadAgentAvatar?: (agentId: string, file: File) => Promise<string>;
   onUpdateAgentLaunchConfig?: (agentId: string, launchConfig: Record<string, unknown>) => Promise<void>;
   onSaveOpenClawConfig?: (patch: Record<string, unknown>) => Promise<void>;
@@ -557,7 +558,9 @@ function agentSettingsName(agent: Agent | null): string {
 }
 
 function agentSettingsDisplayName(agent: Agent | null): string {
-  return agent?.displayName?.trim() || agentSettingsName(agent);
+  return agent?.managed === false
+    ? agent.displayName?.trim() || agentSettingsName(agent)
+    : agent?.handle?.trim() || agentSettingsName(agent);
 }
 
 function agentSettingsHandle(agent: Agent | null): string {
@@ -1184,27 +1187,30 @@ function AgentSectionSettingsContent({
             label="Display name"
             description={externalAgent
               ? "Shown in the agent roster and other user-facing views."
-              : "Saved only in this browser. Other browsers and members use the agent name."}
+              : `Shown across the workspace and used for @${SLACK_APP_HANDLE} mentions. Start with a lowercase letter or number; use 2-64 letters, numbers, underscores, or dashes.`}
           >
             <input
               aria-label="Agent display name"
               value={agentDisplayName}
               onChange={(event) => onAgentDisplayNameChange(event.target.value)}
               placeholder="Display name"
-              maxLength={255}
+              maxLength={externalAgent ? 255 : 64}
+              spellCheck={externalAgent}
               className={SETTINGS_FIELD_CLASS}
             />
           </AgentProfileSettingsRow>
 
-          <AgentProfileSettingsRow label="Slack handle" description={`Mention as @${SLACK_APP_HANDLE} ${agentHandle || "agent"}.`}>
-            <input
-              value={agentHandle}
-              onChange={(event) => onAgentHandleChange(event.target.value)}
-              placeholder="coder"
-              spellCheck={false}
-              className={SETTINGS_FIELD_CLASS}
-            />
-          </AgentProfileSettingsRow>
+          {externalAgent ? (
+            <AgentProfileSettingsRow label="Slack handle" description={`Mention as @${SLACK_APP_HANDLE} ${agentHandle || "agent"}.`}>
+              <input
+                value={agentHandle}
+                onChange={(event) => onAgentHandleChange(event.target.value)}
+                placeholder="coder"
+                spellCheck={false}
+                className={SETTINGS_FIELD_CLASS}
+              />
+            </AgentProfileSettingsRow>
+          ) : null}
 
           <AgentProfileSettingsRow
             label="Avatar"
@@ -1636,7 +1642,6 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     reportedChannelsReady = false,
     onUpdateAgentProfile,
     onUpdateExternalAgentProfile,
-    onSetManagedAgentDisplayName,
     onUploadAgentAvatar,
     onUpdateAgentLaunchConfig,
     onSaveOpenClawConfig,
@@ -1685,6 +1690,12 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const profileUserId = loadedProfileUser?.authUserId === authUserId
     ? loadedProfileUser.userId
     : profileUserIdFromUser(user);
+
+  React.useEffect(() => {
+    if (!agentSettingsError) return;
+    const timer = window.setTimeout(() => setAgentSettingsError(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [agentSettingsError]);
 
   React.useEffect(() => {
     const nextName = profileNameFromUser(user);
@@ -1854,10 +1865,16 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     const nextAgentName = agentNameDraft.trim();
     const agentDisplayNameChanged = agentDisplayNameDraft !== savedAgentDisplayName;
     const nextAgentDisplayName = agentDisplayNameDraft.trim() || null;
-    const agentHandleChanged = normalizedAgentHandleDraft !== normalizedSavedAgentHandle;
-    const nextAgentHandle = normalizedAgentHandleDraft;
-    const backendProfileChanged = agentNameChanged || agentHandleChanged || (externalAgent && agentDisplayNameChanged);
     const managedDisplayNameChanged = !externalAgent && agentDisplayNameChanged;
+    const nextAgentHandle = externalAgent
+      ? normalizedAgentHandleDraft
+      : nextAgentDisplayName === nextAgentName
+        ? null
+        : normalizeAgentHandle(agentDisplayNameDraft);
+    const agentHandleChanged = externalAgent
+      ? normalizedAgentHandleDraft !== normalizedSavedAgentHandle
+      : managedDisplayNameChanged;
+    const backendProfileChanged = agentNameChanged || agentHandleChanged || (externalAgent && agentDisplayNameChanged);
     const agentImageChanged = agentImageDraft !== savedAgentImage;
     const additionalEnvChanged = additionalEnvDraft !== savedAdditionalEnvDraft;
     const nextAgentImage = agentImageDraft.trim();
@@ -1867,8 +1884,10 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
       return;
     }
 
-    if (!validAgentHandle(nextAgentHandle)) {
-      setAgentSettingsError("Slack handles must be 2-64 lowercase letters, numbers, underscores, or dashes.");
+    if (agentHandleChanged && !validAgentHandle(nextAgentHandle)) {
+      setAgentSettingsError(externalAgent
+        ? "Slack handles must start with a lowercase letter or number and contain 2-64 lowercase letters, numbers, underscores, or dashes."
+        : "Display names must start with a lowercase letter or number and contain 2-64 lowercase letters, numbers, underscores, or dashes.");
       return;
     }
 
@@ -1888,11 +1907,6 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
 
     if (backendProfileChanged && (externalAgent ? !onUpdateExternalAgentProfile : !onUpdateAgentProfile)) {
       setAgentSettingsError("Agent profile updates are unavailable.");
-      return;
-    }
-
-    if (managedDisplayNameChanged && !onSetManagedAgentDisplayName) {
-      setAgentSettingsError("Local display name updates are unavailable.");
       return;
     }
 
@@ -1979,17 +1993,10 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         if (agentHandleChanged) {
           setAgentHandleDraft(nextAgentHandle ?? "");
           setSavedAgentHandle(nextAgentHandle ?? "");
+          const savedDisplayName = nextAgentHandle ?? nextAgentName;
+          setAgentDisplayNameDraft(savedDisplayName);
+          setSavedAgentDisplayName(savedDisplayName);
         }
-        setAgentSettingsSuccess("Agent settings updated.");
-      }
-
-      if (managedDisplayNameChanged && onSetManagedAgentDisplayName) {
-        savingSection = "agent";
-        const localDisplayName = nextAgentDisplayName === nextAgentName ? null : nextAgentDisplayName;
-        await onSetManagedAgentDisplayName(agent.id, localDisplayName);
-        const savedDisplayName = localDisplayName ?? nextAgentName;
-        setAgentDisplayNameDraft(savedDisplayName);
-        setSavedAgentDisplayName(savedDisplayName);
         setAgentSettingsSuccess("Agent settings updated.");
       }
 
@@ -2079,7 +2086,6 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     onUpdateExternalAgentProfile,
     onUpdateAgentLaunchConfig,
     onUpdateAgentProfile,
-    onSetManagedAgentDisplayName,
     onUploadAgentAvatar,
     onSaveOpenClawConfig,
     profileAvatar,
@@ -2707,39 +2713,6 @@ export function AgentList({
                 </TooltipTrigger>
                 <TooltipContent side="right">Expand agents sidebar</TooltipContent>
               </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  {onOpenHome ? (
-                    <button
-                      type="button"
-                      onClick={onOpenHome}
-                      aria-label="Home"
-                      aria-current={homeActive ? "page" : undefined}
-                      className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
-                        homeActive
-                          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
-                          : "text-text-muted hover:bg-surface-low hover:text-foreground"
-                      }`}
-                    >
-                      <House className="h-4 w-4" />
-                    </button>
-                  ) : (
-                    <Link
-                      href={DASHBOARD_VIEW_HREFS.overview}
-                      aria-label="Home"
-                      aria-current={homeActive ? "page" : undefined}
-                      className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
-                        homeActive
-                          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
-                          : "text-text-muted hover:bg-surface-low hover:text-foreground"
-                      }`}
-                    >
-                      <House className="h-4 w-4" />
-                    </Link>
-                  )}
-                </TooltipTrigger>
-                <TooltipContent side="right">Home</TooltipContent>
-              </Tooltip>
               </div>
               <div aria-hidden="true" className="agents-roster-rail-divider my-2 h-px w-8 shrink-0 bg-border/70" />
               <div className="agents-roster-rail-agents min-h-0 w-full shrink overflow-y-auto py-1">
@@ -2781,6 +2754,7 @@ export function AgentList({
                       onClick={() => {
                         setSelectedAgentId(a.id);
                         setMobileShowChat(true);
+                        setSidebarCollapsed(false);
                       }}
                       aria-label={`Select ${agentName}`}
                       className={`relative flex h-8 w-8 items-center justify-center rounded-full transition-transform hover:scale-110 ${selected ? "ring-2 ring-[var(--selection-accent)]" : ""}`}
@@ -2826,6 +2800,39 @@ export function AgentList({
                 </div>
               </div>
               <div aria-hidden="true" className="agents-roster-rail-divider my-2 h-px w-8 shrink-0 bg-border/70" />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  {onOpenHome ? (
+                    <button
+                      type="button"
+                      onClick={onOpenHome}
+                      aria-label="Home"
+                      aria-current={homeActive ? "page" : undefined}
+                      className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+                        homeActive
+                          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
+                          : "text-text-muted hover:bg-surface-low hover:text-foreground"
+                      }`}
+                    >
+                      <House className="h-4 w-4" />
+                    </button>
+                  ) : (
+                    <Link
+                      href={DASHBOARD_VIEW_HREFS.overview}
+                      aria-label="Home"
+                      aria-current={homeActive ? "page" : undefined}
+                      className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+                        homeActive
+                          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
+                          : "text-text-muted hover:bg-surface-low hover:text-foreground"
+                      }`}
+                    >
+                      <House className="h-4 w-4" />
+                    </Link>
+                  )}
+                </TooltipTrigger>
+                <TooltipContent side="right">Home</TooltipContent>
+              </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
                   {onOpenKnowledge ? (
@@ -2930,7 +2937,10 @@ export function AgentList({
                   {onOpenAccountSettings ? (
                     <button
                       type="button"
-                      onClick={onOpenAccountSettings}
+                      onClick={() => {
+                        onOpenAccountSettings();
+                        setSidebarCollapsed(false);
+                      }}
                       aria-label="Settings"
                       aria-current={accountSettingsActive ? "page" : undefined}
                       className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
@@ -2944,6 +2954,7 @@ export function AgentList({
                   ) : (
                     <Link
                       href={DASHBOARD_VIEW_HREFS.settings}
+                      onClick={() => setSidebarCollapsed(false)}
                       aria-label="Settings"
                       aria-current={accountSettingsActive ? "page" : undefined}
                       className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
@@ -3056,7 +3067,7 @@ export function AgentList({
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.98, y: 8 }}
                 transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                className="relative h-[min(840px,calc(100dvh-1.5rem))] w-[min(1280px,calc(100vw-1.5rem))] sm:h-[min(840px,calc(100dvh-2.5rem))] sm:w-[min(1280px,calc(100vw-2.5rem))]"
+                className="relative h-[min(700px,calc(100dvh-1rem))] w-[calc(100vw-1rem)] max-w-[660px] sm:h-[min(700px,calc(100dvh-2rem))] sm:w-[calc(100vw-2rem)] sm:max-w-[660px]"
               >
                 <button
                   type="button"
@@ -3067,7 +3078,8 @@ export function AgentList({
                   <X className="h-4 w-4" />
                 </button>
                 <AgentCreationSetupWizard
-                  size="large"
+                  size="inline"
+                  onClose={() => setShowAgentLauncher(false)}
                   initialPlanId={preferredPlanId}
                   budget={budget}
                   subscriptionSummary={subscriptionSummary}
@@ -3105,6 +3117,7 @@ type AgentEmptyStateProps = {
   creationDisabledReason?: string | null;
   onCreateWorkspace?: () => void;
   onOpenMembers?: () => void;
+  showTrialOffer?: boolean;
 };
 
 type AgentLaunchActionProps = {
@@ -3122,9 +3135,24 @@ export function LaunchFirstAgentEmptyState({
   creationDisabledReason,
   onCreateWorkspace,
   onOpenMembers,
+  showTrialOffer = false,
 }: AgentEmptyStateProps) {
   const workspaceScoped = Boolean(workspaceName);
   const workspaceSetupRequired = !workspaceScoped && Boolean(onCreateWorkspace);
+  const anonymousDraft = useFirstAgentSetupDraft();
+
+  if (showTrialOffer && !workspaceScoped) {
+    return (
+      <AnonymousAgentLaunchState
+        draft={anonymousDraft}
+        onResume={onCreate}
+        onStartFresh={() => {
+          clearFirstAgentSetupDraft();
+          onCreate();
+        }}
+      />
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-1 items-center justify-center bg-background px-5 py-8">
@@ -3134,7 +3162,11 @@ export function LaunchFirstAgentEmptyState({
           <span>{workspaceScoped ? "Workspace roster" : "Let's get started"}</span>
         </div>
 
-        <h1 className="text-[44px] font-semibold leading-none tracking-normal text-foreground sm:text-[58px]">
+        <h1 className={`font-semibold leading-none tracking-normal text-foreground ${
+          workspaceScoped
+            ? "text-[40px] sm:text-[52px]"
+            : "whitespace-nowrap text-[clamp(1.75rem,7vw,3.625rem)]"
+        }`}>
           {workspaceScoped ? `No agents in ${workspaceName}` : "Launch your first agent"}
         </h1>
         <p className="mt-6 text-[16px] font-medium leading-6 text-text-muted">
@@ -3180,6 +3212,12 @@ export function LaunchFirstAgentEmptyState({
             </span>
           </motion.button>
         </TooltipHint>
+        {showTrialOffer && !workspaceScoped ? (
+          <p className="mt-3 flex items-center justify-center gap-1.5 text-[12px] font-medium leading-5 text-text-muted sm:text-[13px]">
+            <Sparkles className="h-3 w-3 shrink-0" />
+            <span>Every plan starts with a 7-day free trial — nothing charged today.</span>
+          </p>
+        ) : null}
         {workspaceSetupRequired ? (
           <p className="mt-3 text-sm text-text-muted">One quick step, then you can launch your first agent.</p>
         ) : creationDisabledReason ? (
