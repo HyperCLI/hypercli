@@ -2037,13 +2037,28 @@ class Deployments:
         agent_id = self.resolve_agent_id(agent_id_or_name)
         return self._get(f"{AGENTS_API_PREFIX}/{agent_id}/metrics")
 
-    def list(self) -> list[Agent]:
+    def list(
+        self,
+        *,
+        state: str | None = None,
+        handle: str | None = None,
+        name: str | None = None,
+        query: str | None = None,
+        include_deleted: bool | None = None,
+    ) -> list[Agent]:
         """List all agents for the authenticated user.
 
         Returns:
             List of Agent objects.
         """
-        data = self._get(AGENTS_API_PREFIX)
+        params = {
+            "state": state,
+            "handle": handle,
+            "name": name,
+            "q": query,
+            "include_deleted": include_deleted,
+        }
+        data = self._get(AGENTS_API_PREFIX, params={key: value for key, value in params.items() if value is not None})
         items = data.get("items", data) if isinstance(data, dict) else data
         return [self._hydrate_agent(p) for p in items]
 

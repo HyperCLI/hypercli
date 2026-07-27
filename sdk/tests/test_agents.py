@@ -1358,6 +1358,28 @@ def test_agents_list(agents_client):
         assert all(agent._deployments is agents_client for agent in agents)
 
 
+def test_agents_list_passes_filters(agents_client):
+    with patch.object(agents_client, "_get", return_value={"items": []}) as get:
+        assert agents_client.list(
+            state="RUNNING",
+            handle="coder",
+            name="coder-agent",
+            query="code",
+            include_deleted=True,
+        ) == []
+
+    get.assert_called_once_with(
+        "/deployments",
+        params={
+            "state": "RUNNING",
+            "handle": "coder",
+            "name": "coder-agent",
+            "q": "code",
+            "include_deleted": True,
+        },
+    )
+
+
 def test_agents_start_stop_delete(agents_client):
     with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-456"):
         mock_client = MagicMock()

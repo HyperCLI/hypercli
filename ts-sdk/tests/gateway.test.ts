@@ -3136,6 +3136,54 @@ describe("GatewayClient", () => {
     expect(normalized?.mediaUrls).toEqual(["data:audio/mpeg;base64,AAAA"]);
   });
 
+  it("normalizes OpenClaw managed outgoing image blocks as media urls", () => {
+    const mediaUrl = "/api/chat/media/outgoing/agent%3Adefault%3Amain/11111111-1111-4111-8111-111111111111/full";
+    const normalized = normalizeGatewayChatMessage({
+      role: "assistant",
+      timestamp: 123,
+      content: [
+        {
+          type: "image",
+          url: mediaUrl,
+          openUrl: mediaUrl,
+          alt: "cat.png",
+          mimeType: "image/png",
+        },
+      ],
+    });
+
+    expect(normalized).toEqual({
+      role: "assistant",
+      text: "",
+      thinking: "",
+      toolCalls: [],
+      mediaUrls: [mediaUrl],
+      timestamp: 123,
+    });
+  });
+
+  it("reads gateway managed media over authenticated HTTP", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example/ws",
+      gatewayToken: "gw-token",
+    });
+
+    const bytes = await client.readMediaBytes("/api/chat/media/outgoing/session/11111111-1111-4111-8111-111111111111/full");
+
+    expect([...bytes]).toEqual([1, 2, 3]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://openclaw-agent.example/api/chat/media/outgoing/session/11111111-1111-4111-8111-111111111111/full",
+      { headers: { Authorization: "Bearer gw-token" } },
+    );
+  });
+
   it("chatSend emits thinking and tool events from final structured snapshots", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",

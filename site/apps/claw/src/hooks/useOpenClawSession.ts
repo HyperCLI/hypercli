@@ -3868,6 +3868,11 @@ export function useOpenClawSession(
     return result;
   }, [gateway, appendActivity]);
 
+  const readGatewayMediaBytes = useCallback(async (pathOrUrl: string) => {
+    if (!gateway) throw new Error("Not connected");
+    return gateway.readMediaBytes(pathOrUrl);
+  }, [gateway]);
+
   const skillsStatus = useCallback(async (params: GatewaySkillsStatusParams = {}) => {
     if (!gateway) throw new Error("Not connected");
     return gateway.skillsStatus(params);
@@ -4154,6 +4159,7 @@ export function useOpenClawSession(
     updateCron,
     removeCron,
     runCron,
+    readGatewayMediaBytes,
     skillsProvider,
     integrationsAuthStart,
     integrationsAuthStatus,

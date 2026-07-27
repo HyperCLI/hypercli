@@ -80,6 +80,43 @@ describe('Agents SDK', () => {
     expect(agent.managed).toBeNull();
   });
 
+  it('passes typed list filters to deployments list', async () => {
+    const http = {
+      get: vi.fn().mockResolvedValue({ items: [] }),
+    } as unknown as HTTPClient;
+
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+    await deployments.list({
+      state: 'RUNNING',
+      handle: 'coder',
+      name: 'coder-agent',
+      query: 'code',
+      includeDeleted: true,
+    });
+
+    expect(http.get).toHaveBeenCalledWith('/deployments', {
+      state: 'RUNNING',
+      handle: 'coder',
+      name: 'coder-agent',
+      q: 'code',
+      include_deleted: 'true',
+    }, {});
+  });
+
+  it('keeps request overrides on deployments list', async () => {
+    const http = {
+      get: vi.fn().mockResolvedValue({ items: [] }),
+    } as unknown as HTTPClient;
+
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+    await deployments.list({ timeout: 1234, retryStatuses: [502] });
+
+    expect(http.get).toHaveBeenCalledWith('/deployments', undefined, {
+      timeout: 1234,
+      retryStatuses: [502],
+    });
+  });
+
   it('hydrates granular restore and workspace sync states', async () => {
     const http = {
       get: vi.fn().mockResolvedValue({

@@ -156,6 +156,26 @@ const README_REFRESH_HISTORY = [
 ];
 
 describe("openclaw chat normalization", () => {
+  it("keeps OpenClaw managed outgoing image blocks as media urls", () => {
+    const normalized = normalizeHistoryMessage({
+      role: "assistant",
+      content: [
+        {
+          type: "image",
+          url: "/api/chat/media/outgoing/agent%3Adefault%3Amain/11111111-1111-4111-8111-111111111111/full",
+          openUrl: "/api/chat/media/outgoing/agent%3Adefault%3Amain/11111111-1111-4111-8111-111111111111/full",
+          alt: "cat.png",
+          mimeType: "image/png",
+        },
+      ],
+    });
+
+    expect(normalized).not.toBeNull();
+    expect(normalized?.mediaUrls).toEqual([
+      "/api/chat/media/outgoing/agent%3Adefault%3Amain/11111111-1111-4111-8111-111111111111/full",
+    ]);
+  });
+
   it("filters heartbeat text from history thinking blocks", () => {
     const normalized = normalizeHistoryMessage({
       role: "assistant",

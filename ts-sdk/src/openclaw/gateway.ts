@@ -1475,6 +1475,14 @@ export function extractGatewayChatMediaUrls(message: unknown): string[] {
       continue;
     }
     const isAudio = item.type === "audio" || item.type === "input_audio" || item.type === "output_audio";
+    if (typeof item.url === "string" && item.url.trim()) {
+      mediaUrls.push(item.url);
+      continue;
+    }
+    if (typeof item.openUrl === "string" && item.openUrl.trim()) {
+      mediaUrls.push(item.openUrl);
+      continue;
+    }
     const source = asRecord(item.source) ?? (
       isAudio
         ? asRecord(item.audio) ?? asRecord(item.input_audio) ?? asRecord(item.output_audio) ?? item
@@ -3295,6 +3303,7 @@ export class GatewayClient {
       );
 
       if (hello?.auth?.deviceToken) {
+        this.deviceToken = hello.auth.deviceToken;
         storeStoredDeviceToken({
           deviceId: identity.deviceId,
           scope: this.storageScope(),
@@ -3847,6 +3856,28 @@ export class GatewayClient {
       ...params,
       idempotencyKey: params.idempotencyKey ?? makeId(),
     });
+  }
+
+  async readMediaBytes(pathOrUrl: string): Promise<Uint8Array> {
+    const token = this.gatewayToken ?? this.deviceToken ?? this.password;
+    if (!token) {
+      throw new Error("Gateway media requires an auth token");
+    }
+    if (typeof globalThis.fetch !== "function") {
+      throw new Error("fetch is not available in this runtime");
+    }
+    const base = new URL(this.url);
+    const protocol = base.protocol === "wss:" ? "https:" : base.protocol === "ws:" ? "http:" : base.protocol;
+    const url = pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")
+      ? pathOrUrl
+      : `${protocol}//${base.host}${pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`}`;
+    const response = await globalThis.fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) {
+      throw new Error(`Gateway media read failed: ${response.status} ${response.statusText}`);
+    }
+    return new Uint8Array(await response.arrayBuffer());
   }
 
   async pluginsList(): Promise<GatewayPluginsListResult> {

@@ -446,6 +446,7 @@ interface ChatMessageProps {
   isGroupChat?: boolean;
   compactToolCalls?: boolean;
   onReadFileBytesFromChat?: ChatFileBytesReader;
+  onReadGatewayMediaBytesFromChat?: ChatFileBytesReader;
   onOpenFileFromChat?: (path: string) => void;
   onDownloadFileFromChat?: (file: ChatPendingFile) => void | Promise<void>;
   onRetryFailedReply?: () => void;
@@ -589,6 +590,95 @@ function useAgentFileObjectState(
   const failed = Boolean(fileKey && !stale && objectState.failed);
   const url = fileKey && !stale && !failed ? objectState.url : null;
   return { url, loading: Boolean(fileKey && stale), failed };
+}
+
+function isGatewayManagedMediaUrl(value: string): boolean {
+  return /^\/api\/chat\/media\/outgoing\//.test(value);
+}
+
+function useGatewayMediaObjectState(
+  mediaUrl: string,
+  readGatewayMediaBytes: ChatFileBytesReader | undefined,
+) {
+  const [objectState, setObjectState] = useState<{ key: string; url: string | null; failed: boolean }>({
+    key: "",
+    url: null,
+    failed: false,
+  });
+  const blobRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!mediaUrl || !readGatewayMediaBytes) return undefined;
+    let cancelled = false;
+    const key = mediaUrl;
+
+    void readGatewayMediaBytes(mediaUrl)
+      .then((bytes) => {
+        if (cancelled) return;
+        const blob = new Blob([toArrayBuffer(bytes)]);
+        const url = URL.createObjectURL(blob);
+        blobRef.current = url;
+        setObjectState({ key, url, failed: false });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setObjectState({ key, url: null, failed: true });
+      });
+
+    return () => {
+      cancelled = true;
+      if (blobRef.current) {
+        URL.revokeObjectURL(blobRef.current);
+        blobRef.current = null;
+      }
+    };
+  }, [mediaUrl, readGatewayMediaBytes]);
+
+  const stale = objectState.key !== mediaUrl;
+  return {
+    url: stale || objectState.failed ? null : objectState.url,
+    failed: !stale && objectState.failed,
+  };
+}
+
+function GatewayManagedImagePreview({
+  mediaUrl,
+  alt,
+  readGatewayMediaBytes,
+}: {
+  mediaUrl: string;
+  alt: string;
+  readGatewayMediaBytes: ChatFileBytesReader;
+}) {
+  const { url: blobUrl, failed } = useGatewayMediaObjectState(mediaUrl, readGatewayMediaBytes);
+  if (!blobUrl) {
+    return (
+      <div
+        role="status"
+        aria-label={failed ? "Image unavailable" : "Loading image"}
+        className={`flex aspect-square min-h-24 min-w-24 w-full max-w-[320px] items-center justify-center rounded-md border border-border bg-surface-low px-3 py-3 text-center text-xs text-text-muted ${CHAT_MARKDOWN_IMAGE_CLASS}`}
+      >
+        {failed ? (
+          <span>Image unavailable</span>
+        ) : (
+          <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-text-muted/25 border-t-primary" />
+        )}
+      </div>
+    );
+  }
+  return (
+    <ChatImageViewer
+      src={blobUrl}
+      alt={alt}
+      width={320}
+      height={320}
+      sizes="(max-width: 640px) 100vw, 320px"
+      className={CHAT_MARKDOWN_IMAGE_CLASS}
+      loading="lazy"
+      downloadHref={blobUrl}
+      downloadFileName={alt}
+    />
+  );
 }
 
 export function AuthImage({
@@ -962,6 +1052,7 @@ export function ChatMessageBubble({
   senderName,
   isGroupChat = false,
   onReadFileBytesFromChat,
+  onReadGatewayMediaBytesFromChat,
   onOpenFileFromChat,
   onDownloadFileFromChat,
   onRetryFailedReply,
@@ -1388,6 +1479,16 @@ export function ChatMessageBubble({
               }
 
               if (reference.kind === "image") {
+                if (onReadGatewayMediaBytesFromChat && isGatewayManagedMediaUrl(reference.url)) {
+                  return (
+                    <GatewayManagedImagePreview
+                      key={`${sourceKey}-${i}`}
+                      mediaUrl={reference.url}
+                      alt={reference.fileName}
+                      readGatewayMediaBytes={onReadGatewayMediaBytesFromChat}
+                    />
+                  );
+                }
                 return (
                   <ChatImageViewer
                     key={`${sourceKey}-${i}`}

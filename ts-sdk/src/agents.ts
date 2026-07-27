@@ -186,6 +186,14 @@ export interface AgentProfileImageUploadResult {
   s3_key: string;
 }
 
+export interface ListAgentsOptions extends RequestOverrides {
+  state?: string | null;
+  handle?: string | null;
+  name?: string | null;
+  query?: string | null;
+  includeDeleted?: boolean | null;
+}
+
 export interface SlackOAuthStartOptions {
   relayBaseUrl: string;
   token: string;
@@ -2838,10 +2846,34 @@ export class Deployments {
     return this.agentHttp.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/metrics`);
   }
 
-  async list(requestOptions: RequestOverrides = {}): Promise<Agent[]> {
-    const data = Object.keys(requestOptions).length === 0
-      ? await this.agentHttp.get<any>(DEPLOYMENTS_API_PREFIX)
-      : await this.agentHttp.get<any>(DEPLOYMENTS_API_PREFIX, undefined, requestOptions);
+  async list(options: ListAgentsOptions = {}): Promise<Agent[]> {
+    const params: Record<string, string | number> = {};
+    if (options.state) params.state = options.state;
+    if (options.handle) params.handle = options.handle;
+    if (options.name) params.name = options.name;
+    if (options.query) params.q = options.query;
+    if (options.includeDeleted !== undefined && options.includeDeleted !== null) {
+      params.include_deleted = options.includeDeleted ? 'true' : 'false';
+    }
+    const requestOptions: RequestOverrides = {
+      retries: options.retries,
+      backoff: options.backoff,
+      timeout: options.timeout,
+      signal: options.signal,
+      retryStatuses: options.retryStatuses,
+    };
+    const cleanRequestOptions: RequestOverrides = {};
+    for (const key of Object.keys(requestOptions) as Array<keyof RequestOverrides>) {
+      const value = requestOptions[key];
+      if (value !== undefined) {
+        (cleanRequestOptions as Record<keyof RequestOverrides, unknown>)[key] = value;
+      }
+    }
+    const data = await this.agentHttp.get<any>(
+      DEPLOYMENTS_API_PREFIX,
+      Object.keys(params).length ? params : undefined,
+      cleanRequestOptions,
+    );
     const items = Array.isArray(data) ? data : data.items ?? [];
     return items.map((item: AgentHydrationData) => this.hydrateAgent(item));
   }

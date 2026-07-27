@@ -2023,12 +2023,13 @@ function AgentsPageContent() {
     () => new Set(selectedWorkspaceAgentIds),
     [selectedWorkspaceAgentIds],
   );
-  const agents = useMemo(
+  const workspaceAgents = useMemo(
     () => isAgentRosterLoading || agentRosterError
       ? []
       : accountAgents.filter((agent) => selectedWorkspaceAgentIdSet.has(agent.id)),
     [accountAgents, agentRosterError, isAgentRosterLoading, selectedWorkspaceAgentIdSet],
   );
+  const agents = accountAgents;
   const updateAgentCanonicalName = useCallback(async (agentId: string, name: string) => {
     const generation = agentDataGenerationRef.current;
     const agent = sdkAgents.find((entry) => entry.id === agentId);
@@ -2115,17 +2116,17 @@ function AgentsPageContent() {
   }, [agents]);
 
   const selectedSdkAgent = useMemo(
-    () => (selectedAgentId && !isAgentRosterLoading && !agentRosterError && selectedWorkspaceAgentIdSet.has(selectedAgentId)
+    () => (selectedAgentId
       ? sdkAgents.find((agent) => agent.id === selectedAgentId) ?? null
       : null),
-    [agentRosterError, isAgentRosterLoading, sdkAgents, selectedAgentId, selectedWorkspaceAgentIdSet],
+    [sdkAgents, selectedAgentId],
   );
   const selectedAgent = useMemo(
     () => (selectedAgentId ? agents.find((agent) => agent.id === selectedAgentId) ?? null : null),
     [agents, selectedAgentId],
   );
   useEffect(() => {
-    if (workspacesLoading || agentsLoading || isAgentRosterLoading || agentRosterError) return;
+    if (workspacesLoading || agentsLoading) return;
 
     const availableAgentIds = agents.map((agent) => agent.id);
     const availableAgentIdSet = new Set(availableAgentIds);
@@ -5019,6 +5020,7 @@ function AgentsPageContent() {
               formatDuration={formatDuration}
               onConnectionCta={openConnectionSuggestion}
               onReadFileBytesFromChat={readAgentFileBytes}
+              onReadGatewayMediaBytesFromChat={gatewayChat.readGatewayMediaBytes}
               onOpenFileFromChat={openFilesTab}
               onDownloadFileFromChat={downloadAgentFileFromChat}
               fileReferenceCandidates={chatFileReferenceCandidates}
@@ -5371,7 +5373,7 @@ function AgentsPageContent() {
             {dashboardView === "overview" ? (
               <WorkspaceOverviewPanel
                 accountAgents={accountAgents}
-                workspaceAgents={agents}
+                workspaceAgents={workspaceAgents}
                 agentsLoading={agentsLoading}
                 workspaceAgentsLoading={agentsLoading || isAgentRosterLoading}
                 agentCreationDisabledReason={agentCreationBlockedReason}
@@ -5386,7 +5388,7 @@ function AgentsPageContent() {
             ) : dashboardView === "usage" ? (
               <WorkspaceUsagePanel
                 accountAgentCount={accountAgents.length}
-                workspaceAgents={agents}
+                workspaceAgents={workspaceAgents}
                 rosterError={agentRosterError}
               />
             ) : (

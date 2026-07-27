@@ -444,6 +444,7 @@ interface AgentChatPanelProps {
   onConnectionCta?: (suggestion: ChatConnectionSuggestion) => void;
   slashCommandActions?: AgentSlashCommandActions;
   onReadFileBytesFromChat?: ChatFileBytesReader;
+  onReadGatewayMediaBytesFromChat?: ChatFileBytesReader;
   onOpenFileFromChat?: (path: string) => void;
   onDownloadFileFromChat?: (file: ChatPendingFile) => void | Promise<void>;
   fileReferenceCandidates?: ChatPendingFile[];
@@ -487,6 +488,7 @@ export function AgentChatPanel({
   onConnectionCta,
   slashCommandActions,
   onReadFileBytesFromChat,
+  onReadGatewayMediaBytesFromChat,
   onOpenFileFromChat,
   onDownloadFileFromChat,
   fileReferenceCandidates = [],
@@ -500,15 +502,20 @@ export function AgentChatPanel({
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const slashFeedbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const readFileBytesFromChatRef = React.useRef(onReadFileBytesFromChat);
+  const readGatewayMediaBytesFromChatRef = React.useRef(onReadGatewayMediaBytesFromChat);
   const openFileFromChatRef = React.useRef(onOpenFileFromChat);
   const downloadFileFromChatRef = React.useRef(onDownloadFileFromChat);
   React.useLayoutEffect(() => {
     readFileBytesFromChatRef.current = onReadFileBytesFromChat;
+    readGatewayMediaBytesFromChatRef.current = onReadGatewayMediaBytesFromChat;
     openFileFromChatRef.current = onOpenFileFromChat;
     downloadFileFromChatRef.current = onDownloadFileFromChat;
-  }, [onDownloadFileFromChat, onOpenFileFromChat, onReadFileBytesFromChat]);
+  }, [onDownloadFileFromChat, onOpenFileFromChat, onReadFileBytesFromChat, onReadGatewayMediaBytesFromChat]);
   const stableReadFileBytesFromChat = React.useCallback<ChatFileBytesReader>((path, options) => (
     readFileBytesFromChatRef.current!(path, options)
+  ), []);
+  const stableReadGatewayMediaBytesFromChat = React.useCallback<ChatFileBytesReader>((path, options) => (
+    readGatewayMediaBytesFromChatRef.current!(path, options)
   ), []);
   const stableOpenFileFromChat = React.useCallback((path: string) => {
     openFileFromChatRef.current?.(path);
@@ -1156,6 +1163,7 @@ export function AgentChatPanel({
                     agentName={selectedAgentDisplayName}
                     agentMeta={selectedAgent.meta}
                     onReadFileBytesFromChat={onReadFileBytesFromChat ? stableReadFileBytesFromChat : undefined}
+                    onReadGatewayMediaBytesFromChat={onReadGatewayMediaBytesFromChat ? stableReadGatewayMediaBytesFromChat : undefined}
                     onOpenFileFromChat={onOpenFileFromChat ? stableOpenFileFromChat : undefined}
                     onDownloadFileFromChat={onDownloadFileFromChat ? stableDownloadFileFromChat : undefined}
                     onRetryFailedReply={retrySource ? () => { void retryFailedReply(rowKey, retrySource); } : undefined}
