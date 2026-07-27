@@ -555,6 +555,65 @@ describe("openclaw session keys", () => {
     ]);
   });
 
+  it("loads full read-only channel history so managed delivery media is preserved", async () => {
+    const mediaUrl = "/api/chat/media/outgoing/agent%3Adefault%3Amain/221a9839-f7b1-4e2d-95b3-4b109c087e0b/full";
+    const sessionsPreview = vi.fn(async () => [
+      { role: "assistant", text: "cat with fluffy headphones" },
+    ]);
+    const chatHistory = vi.fn(async (sessionKey: string) => (
+      sessionKey === "slack:T0ALU0BFVTP:C0BJUTAR79T"
+        ? [
+          {
+            role: "assistant",
+            provider: "openclaw",
+            model: "delivery-mirror",
+            content: [{ type: "text", text: "cat1_fluffy_headphones---217f4253-edae-4c35-b822-b5b21f724134.png" }],
+          },
+          {
+            role: "assistant",
+            provider: "openclaw",
+            model: "delivery-mirror",
+            content: [
+              { type: "text", text: "cat with fluffy headphones" },
+              {
+                type: "image",
+                url: mediaUrl,
+                openUrl: mediaUrl,
+                alt: "cat1_fluffy_headphones---217f4253-edae-4c35-b822-b5b21f724134.png",
+                mimeType: "image/png",
+              },
+            ],
+          },
+        ]
+        : []
+    ));
+
+    const messages = await refreshOpenClawChatMessages(
+      { sessionsPreview, chatHistory } as any,
+      "agent-1",
+      "slack:T0ALU0BFVTP:C0BJUTAR79T",
+      "agent:default:main",
+      {
+        key: "slack:T0ALU0BFVTP:C0BJUTAR79T",
+        gatewaySessionKey: "agent:default:main",
+        sourceSessionKey: "slack:T0ALU0BFVTP:C0BJUTAR79T",
+        sourceChannelId: "slack",
+        readOnly: true,
+        raw: {},
+      },
+    );
+
+    expect(chatHistory).toHaveBeenCalledWith("slack:T0ALU0BFVTP:C0BJUTAR79T", 200);
+    expect(sessionsPreview).not.toHaveBeenCalled();
+    expect(messages).toEqual([
+      expect.objectContaining({
+        role: "assistant",
+        content: "cat with fluffy headphones",
+        mediaUrls: [mediaUrl],
+      }),
+    ]);
+  });
+
   it("rejects metadata-poor previews from an ambiguous shared channel key", async () => {
     const sessionsPreview = vi.fn(async (sessionKey: string) => (
       sessionKey === "telegram:123"

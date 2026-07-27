@@ -456,6 +456,32 @@ describe("openclaw chat normalization", () => {
     })).toBeNull();
   });
 
+  it("keeps delivery mirror assistant records with OpenClaw managed media", () => {
+    const mediaUrl = "/api/chat/media/outgoing/agent%3Adefault%3Amain/221a9839-f7b1-4e2d-95b3-4b109c087e0b/full";
+
+    const normalized = normalizeHistoryMessage({
+      role: "assistant",
+      provider: "openclaw",
+      model: "delivery-mirror",
+      content: [
+        { type: "text", text: "cat with fluffy headphones" },
+        {
+          type: "image",
+          url: mediaUrl,
+          openUrl: mediaUrl,
+          alt: "cat1_fluffy_headphones---217f4253-edae-4c35-b822-b5b21f724134.png",
+          mimeType: "image/png",
+        },
+      ],
+    });
+
+    expect(normalized).toEqual(expect.objectContaining({
+      role: "assistant",
+      content: "cat with fluffy headphones",
+      mediaUrls: [mediaUrl],
+    }));
+  });
+
   it("drops standalone audio reply carriers from persisted history", () => {
     expect(normalizeHistoryMessage({
       role: "assistant",
@@ -849,6 +875,20 @@ describe("openclaw chat normalization", () => {
     });
     expect(JSON.stringify([internalError, notFound])).not.toContain("validation errors");
     expect(JSON.stringify([internalError, notFound])).not.toContain("ChatCompletionStreamResponse");
+  });
+
+  it("surfaces context overflow history as a user-actionable system message", () => {
+    const normalized = normalizeHistoryMessage({
+      role: "assistant",
+      content: [],
+      stopReason: "error",
+      errorMessage: "Context overflow: prompt too large for the model (precheck).",
+    });
+
+    expect(normalized).toMatchObject({
+      role: "system",
+      content: "The conversation is too large for the current model. Start a new session or compact the context, then retry.",
+    });
   });
 
   it("drops contentless aborted assistant history records", () => {

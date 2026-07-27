@@ -152,6 +152,7 @@ export class HyperCLI {
       resolvedAgentApiKey,
       resolvedAgentsApiBase,
       resolvedAgentsWsUrl,
+      options.timeout,
     );
   }
 

@@ -2262,11 +2262,38 @@ export class OpenClawAgent extends Agent {
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & {
       probe?: boolean;
       timeoutMs?: number;
+      channel?: string;
     } = {},
   ): Promise<Record<string, any>> {
     const client = await this.connect(options);
     try {
-      return await client.channelsStatus(options.probe ?? false, options.timeoutMs);
+      return await client.channelsStatus(options.probe ?? false, options.timeoutMs, options.channel);
+    } finally {
+      client.close();
+    }
+  }
+
+  async channelsStart(
+    channel: string,
+    accountId?: string,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<Record<string, any>> {
+    const client = await this.connect(options);
+    try {
+      return await client.channelsStart(channel, accountId);
+    } finally {
+      client.close();
+    }
+  }
+
+  async channelsStop(
+    channel: string,
+    accountId?: string,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<Record<string, any>> {
+    const client = await this.connect(options);
+    try {
+      return await client.channelsStop(channel, accountId);
     } finally {
       client.close();
     }
@@ -2660,6 +2687,42 @@ export class OpenClawAgent extends Agent {
       client.close();
     }
   }
+
+  async cronAdd(
+    job: Record<string, any>,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<any> {
+    const client = await this.connect(options);
+    try {
+      return await client.cronAdd(job);
+    } finally {
+      client.close();
+    }
+  }
+
+  async cronRemove(
+    jobId: string,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<void> {
+    const client = await this.connect(options);
+    try {
+      await client.cronRemove(jobId);
+    } finally {
+      client.close();
+    }
+  }
+
+  async cronRun(
+    jobId: string,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<any> {
+    const client = await this.connect(options);
+    try {
+      return await client.cronRun(jobId);
+    } finally {
+      client.close();
+    }
+  }
 }
 
 export class OpenClawProAgent extends OpenClawAgent {
@@ -2683,11 +2746,13 @@ export class Deployments {
     agentApiKey?: string,
     agentApiBase?: string,
     agentsWsUrl?: string,
+    requestTimeout?: number,
   ) {
     this.apiKey = agentApiKey || (http as any).apiKey;
     this.apiBase = resolveAgentsApiBase(agentApiBase || getAgentsApiBaseUrl());
     this.agentsWsUrl = normalizeAgentsWsUrl(agentsWsUrl || getConfigValue('AGENTS_WS_URL') || defaultAgentsWsUrl(this.apiBase));
-    this.agentHttp = http instanceof HTTPClient ? new HTTPClient(this.apiBase, this.apiKey) : http;
+    const agentTimeout = requestTimeout ?? (http instanceof HTTPClient ? (http as any).timeout : undefined);
+    this.agentHttp = http instanceof HTTPClient ? new HTTPClient(this.apiBase, this.apiKey, agentTimeout) : http;
   }
 
   get agentApiKey(): string {
@@ -2872,7 +2937,7 @@ export class Deployments {
     const data = await this.agentHttp.get<any>(
       DEPLOYMENTS_API_PREFIX,
       Object.keys(params).length ? params : undefined,
-      cleanRequestOptions,
+      Object.keys(cleanRequestOptions).length ? cleanRequestOptions : undefined,
     );
     const items = Array.isArray(data) ? data : data.items ?? [];
     return items.map((item: AgentHydrationData) => this.hydrateAgent(item));

@@ -1087,6 +1087,35 @@ describe("ChatMessageBubble", () => {
     expect(readGatewayMediaBytes).toHaveBeenCalledWith(mediaUrl);
   });
 
+  it("renders OpenClaw delivery mirror text with managed media instead of dropping the image", async () => {
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:gateway-media"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    const readGatewayMediaBytes = vi.fn().mockResolvedValue(new Uint8Array([137, 80, 78, 71]));
+    const mediaUrl = "/api/chat/media/outgoing/agent%3Adefault%3Amain/221a9839-f7b1-4e2d-95b3-4b109c087e0b/full";
+
+    render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        message={{
+          role: "assistant",
+          content: "cat with fluffy headphones",
+          mediaUrls: [mediaUrl],
+        }}
+        onReadGatewayMediaBytesFromChat={readGatewayMediaBytes}
+      />,
+    );
+
+    expect(screen.getByText("cat with fluffy headphones")).toBeInTheDocument();
+    expect(await screen.findByAltText("full")).toBeInTheDocument();
+    expect(readGatewayMediaBytes).toHaveBeenCalledWith(mediaUrl);
+  });
+
   it("extracts inline MEDIA workspace paths before markdown rendering", () => {
     const readFileBytes = vi.fn(() => new Promise<Uint8Array>(() => {}));
 

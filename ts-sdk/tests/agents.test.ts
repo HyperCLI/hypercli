@@ -15,6 +15,7 @@ import {
   listSlackDirectoryUsers,
   startSlackOAuth,
 } from '../src/agents.js';
+import { HyperCLI } from '../src/client.js';
 import { HTTPClient } from '../src/http.js';
 
 describe('Agents SDK', () => {
@@ -100,7 +101,7 @@ describe('Agents SDK', () => {
       name: 'coder-agent',
       q: 'code',
       include_deleted: 'true',
-    }, {});
+    }, undefined);
   });
 
   it('keeps request overrides on deployments list', async () => {
@@ -115,6 +116,77 @@ describe('Agents SDK', () => {
       timeout: 1234,
       retryStatuses: [502],
     });
+  });
+
+  it('propagates client-level request timeout to deployments HTTP calls', () => {
+    const rootHttp = new HTTPClient('https://api.test.hypercli.com', 'hyper_api_test', 4321);
+    const directDeployments = new Deployments(rootHttp, undefined, 'https://api.test.hypercli.com/agents');
+    expect((directDeployments as any).agentHttp.timeout).toBe(4321);
+
+    const client = new HyperCLI({
+      apiKey: 'hyper_api_test',
+      apiUrl: 'https://api.test.hypercli.com',
+      agentsApiBaseUrl: 'https://api.test.hypercli.com/agents',
+      timeout: 9876,
+    });
+    expect((client.deployments as any).agentHttp.timeout).toBe(9876);
+  });
+
+  it('exposes OpenClaw channel lifecycle wrappers', async () => {
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-123',
+      user_id: 'user-456',
+      pod_id: 'pod-789',
+      pod_name: 'pod-789',
+      state: 'RUNNING',
+      hostname: 'agent.hypercli.app',
+      gateway_token: 'gw-token',
+    });
+    const gateway = {
+      channelsStatus: vi.fn(async () => ({ ok: true })),
+      channelsStart: vi.fn(async () => ({ started: true })),
+      channelsStop: vi.fn(async () => ({ stopped: true })),
+      close: vi.fn(),
+    };
+    vi.spyOn(agent, 'connect').mockResolvedValue(gateway as any);
+
+    await expect(agent.channelsStatus({ probe: true, timeoutMs: 123, channel: 'slack' })).resolves.toEqual({ ok: true });
+    await expect(agent.channelsStart('slack', 'work')).resolves.toEqual({ started: true });
+    await expect(agent.channelsStop('slack', 'work')).resolves.toEqual({ stopped: true });
+
+    expect(gateway.channelsStatus).toHaveBeenCalledWith(true, 123, 'slack');
+    expect(gateway.channelsStart).toHaveBeenCalledWith('slack', 'work');
+    expect(gateway.channelsStop).toHaveBeenCalledWith('slack', 'work');
+    expect(gateway.close).toHaveBeenCalledTimes(3);
+  });
+
+  it('exposes OpenClaw cron mutation wrappers', async () => {
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-123',
+      user_id: 'user-456',
+      pod_id: 'pod-789',
+      pod_name: 'pod-789',
+      state: 'RUNNING',
+      hostname: 'agent.hypercli.app',
+      gateway_token: 'gw-token',
+    });
+    const gateway = {
+      cronAdd: vi.fn(async () => ({ id: 'job-1' })),
+      cronRemove: vi.fn(async () => undefined),
+      cronRun: vi.fn(async () => ({ ran: true })),
+      close: vi.fn(),
+    };
+    vi.spyOn(agent, 'connect').mockResolvedValue(gateway as any);
+
+    const job = { id: 'job-1', every: '1h', prompt: 'ping' };
+    await expect(agent.cronAdd(job)).resolves.toEqual({ id: 'job-1' });
+    await expect(agent.cronRemove('job-1')).resolves.toBeUndefined();
+    await expect(agent.cronRun('job-1')).resolves.toEqual({ ran: true });
+
+    expect(gateway.cronAdd).toHaveBeenCalledWith(job);
+    expect(gateway.cronRemove).toHaveBeenCalledWith('job-1');
+    expect(gateway.cronRun).toHaveBeenCalledWith('job-1');
+    expect(gateway.close).toHaveBeenCalledTimes(3);
   });
 
   it('hydrates granular restore and workspace sync states', async () => {

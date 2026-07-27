@@ -521,6 +521,12 @@ async function loadReadOnlyChannelHistory(
 ): Promise<ChatMessage[] | null> {
   const sessionKeys = channelHistorySessionKeys(session);
   if (sessionKeys.length === 0 || !session) return null;
+  for (const sessionKey of sessionKeys) {
+    try {
+      const messages = normalizeHistoryMessages(await loadOpenClawChatHistory(gateway, sessionKey, limit));
+      if (messages.length > 0) return messages;
+    } catch {}
+  }
   if (typeof gateway.sessionsPreview !== "function") return [];
   for (const sessionKey of sessionKeys) {
     try {

@@ -6,6 +6,7 @@ import {
   type GatewayChatToolCall,
   type OpenClawConfigSchemaResponse,
   type GatewayClient,
+  extractGatewayChatMediaUrls,
   normalizeGatewayChatMessage,
 } from "@hypercli.com/sdk/openclaw/gateway";
 import { inferFileMimeType } from "@hypercli/shared-ui/files";
@@ -668,6 +669,14 @@ function isDeliveryMirrorHistoryMessage(message: unknown): boolean {
   return provider === "openclaw" && model === "delivery-mirror";
 }
 
+function isDisplayableDeliveryMirrorHistoryMessage(message: unknown): boolean {
+  return isDeliveryMirrorHistoryMessage(message) &&
+    (
+      extractGatewayChatMediaUrls(message).length > 0 ||
+      extractGatewayContentAudioUrls(message).length > 0
+    );
+}
+
 function isInternalToolHistoryRole(role: string): boolean {
   return role === "tool" || role === "toolresult" || role === "tool_result";
 }
@@ -723,6 +732,9 @@ function normalizeHistoryErrorContent(message: unknown): string | null {
   const payload = readHistoryErrorPayload(message);
   if (!payload) return null;
   const firstLine = (payload.message || payload.raw).split("\n").map((line) => line.trim()).find(Boolean) ?? "";
+  if (/context overflow|prompt too large|context length|maximum context/i.test(firstLine)) {
+    return "The conversation is too large for the current model. Start a new session or compact the context, then retry.";
+  }
   const canShowFirstLine = firstLine && !/validation errors?|pydantic|field required|input_value/i.test(firstLine);
   if (canShowFirstLine && firstLine.length <= 160) {
     return `Assistant response failed: ${firstLine.replace(/[.。]+$/, "")}.`;
@@ -785,7 +797,7 @@ function historyMessageRenderId(
 }
 
 function normalizeHistoryMessage(message: unknown): ChatMessage | null {
-  if (isDeliveryMirrorHistoryMessage(message)) return null;
+  if (isDeliveryMirrorHistoryMessage(message) && !isDisplayableDeliveryMirrorHistoryMessage(message)) return null;
   if (isInternalToolHistoryRole(rawHistoryRole(message))) return null;
   const normalized = normalizeGatewayChatMessage(message);
   const identity = historyMessageIdentity(message, normalized);

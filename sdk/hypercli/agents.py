@@ -13,6 +13,7 @@ from pathlib import Path
 import asyncio
 import copy
 import json
+import mimetypes
 import os
 import re
 import secrets
@@ -36,8 +37,8 @@ AGENTS_API_PREFIX = "/deployments"
 AGENTS_WS_URL = "wss://api.agents.hypercli.com/ws"
 DEV_AGENTS_API_BASE = "https://api.dev.hypercli.com/agents"
 DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
-DEFAULT_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:prod"
-DEFAULT_OPENCLAW_PRO_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-prod"
+DEFAULT_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-latest"
+DEFAULT_OPENCLAW_PRO_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-latest"
 OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
     "OPENCLAW_MEMORY_SEARCH_ENABLED": "1",
     "OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START": "0",
@@ -204,13 +205,16 @@ class AgentFiles:
         ]
 
     def read_bytes(self, path: str, source: str = "auto") -> bytes:
+        return self.read_bytes_with_metadata(path, source).get("content", b"")
+
+    def read_bytes_with_metadata(self, path: str, source: str = "auto") -> dict[str, Any]:
         if source not in _GATEWAY_FILE_SOURCES:
-            return self._deployments.file_read_bytes(
+            return self._deployments.file_read_bytes_with_metadata(
                 self._agent,
                 resolve_backend_file_path(path, source),
                 source=to_wire_file_source(source),
             )
-        return self.read(path, source).encode("utf-8")
+        return {"content": self.read(path, source).encode("utf-8"), "mime_type": "text/plain"}
 
     def read(self, path: str, source: str = "auto") -> str:
         if source not in _GATEWAY_FILE_SOURCES:
@@ -1008,6 +1012,9 @@ class Agent:
 
     def file_read_bytes(self, path: str, source: AgentFileSource = "auto") -> bytes:
         return self.files.read_bytes(path, source)
+
+    def file_read_bytes_with_metadata(self, path: str, source: AgentFileSource = "auto") -> dict[str, Any]:
+        return self.files.read_bytes_with_metadata(path, source)
 
     def file_read(self, path: str, source: AgentFileSource = "auto") -> str:
         return self.files.read(path, source)
@@ -2488,6 +2495,37 @@ class Deployments:
         resolved_agent_id = self.resolve_agent_id(agent_id)
         return self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/keys", json=payload or None)
 
+    def upload_profile_image(
+        self,
+        agent_id: str,
+        content: bytes | bytearray | memoryview | str | Path,
+        *,
+        content_type: str | None = None,
+    ) -> dict:
+        """Upload an agent avatar/profile image through the deployments API."""
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        guessed_content_type = content_type
+        if isinstance(content, (str, Path)):
+            path = Path(content)
+            payload = path.read_bytes()
+            guessed_content_type = guessed_content_type or mimetypes.guess_type(path.name)[0]
+        else:
+            payload = bytes(content)
+
+        with httpx.Client(timeout=AGENT_FILE_OPERATION_TIMEOUT_SECONDS) as client:
+            resp = client.post(
+                f"{self._api_base}{AGENTS_API_PREFIX}/{resolved_agent_id}/profile-image",
+                headers=self._file_headers(content_type=guessed_content_type or "image/png"),
+                content=payload,
+            )
+        if resp.status_code >= 400:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            raise APIError(resp.status_code, detail)
+        return resp.json()
+
     def web_search(self, query: str, *, count: int = 5, **params: Any) -> dict:
         """Run Brave web search through the HyperClaw agents API proxy.
 
@@ -2613,7 +2651,7 @@ class Deployments:
         payload = resp.json()
         return [*(payload.get("directories") or []), *(payload.get("files") or [])]
 
-    def file_read_bytes(self, pod: Agent | str, path: str, source: str = "auto") -> bytes:
+    def file_read_bytes_with_metadata(self, pod: Agent | str, path: str, source: str = "auto") -> dict[str, Any]:
         """Read a file from an agent via the backend file API."""
         agent_id = self._agent_id_for_target(pod)
         with httpx.Client(timeout=AGENT_FILE_OPERATION_TIMEOUT_SECONDS) as client:
@@ -2632,7 +2670,11 @@ class Deployments:
                 payload = None
             if _is_directory_listing_payload(payload):
                 raise ValueError(f"Path is a directory: {path}. Use files_list(path) instead.")
-        return resp.content
+        return {"content": resp.content, "mime_type": content_type or None}
+
+    def file_read_bytes(self, pod: Agent | str, path: str, source: str = "auto") -> bytes:
+        """Read a file from an agent via the backend file API."""
+        return self.file_read_bytes_with_metadata(pod, path, source=source).get("content", b"")
 
     def file_read(self, pod: Agent | str, path: str, source: str = "auto") -> str:
         """Read a UTF-8 text file from an agent."""

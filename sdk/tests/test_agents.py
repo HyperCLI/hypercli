@@ -753,6 +753,10 @@ def test_bound_agent_methods_delegate_to_agents(tmp_path):
         "expires_at": "2026-03-01T12:00:00Z",
     }
     manager.file_read_bytes.return_value = b"downloaded"
+    manager.file_read_bytes_with_metadata.return_value = {
+        "content": b"downloaded",
+        "mime_type": "text/plain",
+    }
 
     agent = Agent(
         id="agent-123",
@@ -1277,7 +1281,7 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
                 return FakeResponse(json_data={"directories": [{"name": "dir", "type": "directory"}], "files": [{"name": "a.txt", "type": "file"}]})
             if url.endswith("/deployments/agent-123/files/workspace/a.txt"):
                 assert params == {"source": "auto"}
-                return FakeResponse(content=b"hello")
+                return FakeResponse(content=b"hello", headers={"content-type": "text/plain"})
             if url.endswith("/deployments/agent-123/files/.openclaw"):
                 assert params == {"source": "auto"}
                 return FakeResponse(
@@ -1293,6 +1297,17 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
             raise AssertionError(url)
 
         def post(self, url, headers=None, params=None, content=None):
+            if url.endswith("/deployments/agent-123/profile-image"):
+                assert headers["Authorization"] == "Bearer sk-hyper-test123"
+                assert headers["Content-Type"] == "image/png"
+                assert content == b"png"
+                return FakeResponse(
+                    json_data={
+                        "id": "agent-123",
+                        "avatar_url": "https://cdn.example.test/prod/user-456/agent-123.png",
+                        "s3_key": "prod/user-456/agent-123.png",
+                    }
+                )
             assert url.endswith("/deployments/agent-123/files/workspace/a.txt")
             assert params == {"destination": "auto"}
             assert content == b"payload"
@@ -1311,8 +1326,17 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
         assert entries == [{"name": "dir", "type": "directory"}, {"name": "a.txt", "type": "file"}]
         assert hidden_entries == [{"name": "workspace", "type": "directory"}, {"name": "openclaw.json", "type": "file"}]
         assert agents_client.file_read(agent, "workspace/a.txt") == "hello"
+        assert agents_client.file_read_bytes_with_metadata(agent, "workspace/a.txt") == {
+            "content": b"hello",
+            "mime_type": "text/plain",
+        }
         assert agents_client.file_write_bytes(agent, "workspace/a.txt", b"payload") == {"status": "ok"}
         assert agents_client.file_delete(agent, "workspace/a.txt") == {"status": "ok"}
+        assert agents_client.upload_profile_image("agent-123", b"png") == {
+            "id": "agent-123",
+            "avatar_url": "https://cdn.example.test/prod/user-456/agent-123.png",
+            "s3_key": "prod/user-456/agent-123.png",
+        }
         with pytest.raises(ValueError, match=r"Path is a directory: \.openclaw"):
             agents_client.file_read(agent, ".openclaw")
 
