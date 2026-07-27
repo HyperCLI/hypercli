@@ -70,3 +70,14 @@ export function buildDashboardAgentsRedirectHref(searchParams: DashboardSearchPa
   const query = params.toString();
   return `${DASHBOARD_AGENTS_PATH}${query ? `?${query}` : ""}`;
 }
+
+export function syncDashboardSearchParams(params: URLSearchParams, push = false): void {
+  if (typeof window === "undefined") return;
+  const query = params.toString();
+  const href = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
+
+  // Avoid an App Router request: deployed sites serve static HTML, while Next
+  // patches these methods to retain its internal state and update search params.
+  if (push) window.history.pushState(null, "", href);
+  else window.history.replaceState(null, "", href);
+}

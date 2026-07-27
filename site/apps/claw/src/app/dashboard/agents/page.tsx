@@ -190,6 +190,7 @@ import {
   ACCOUNT_PAGE_HREFS,
   buildDashboardViewHref,
   resolveDashboardView,
+  syncDashboardSearchParams,
   type DashboardView,
 } from "@/lib/dashboard-route";
 import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
@@ -1363,11 +1364,8 @@ function AgentsPageContent() {
       params.delete("tab");
       params.delete("view");
     }
-    const query = params.toString();
-    const href = `/dashboard/agents${query ? `?${query}` : ""}`;
-    if (pushRoute) router.push(href, { scroll: false });
-    else router.replace(href, { scroll: false });
-  }, [router, searchParams]);
+    syncDashboardSearchParams(params, pushRoute);
+  }, [searchParams]);
 
   // Logs
   const logsControllerRef = useRef<AgentLogsControllerHandle | null>(null);

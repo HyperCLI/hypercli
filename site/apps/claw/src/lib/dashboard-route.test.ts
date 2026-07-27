@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   ACCOUNT_PAGE_HREFS,
@@ -8,7 +8,13 @@ import {
   buildDashboardViewHref,
   buildDashboardViewRedirectHref,
   resolveDashboardView,
+  syncDashboardSearchParams,
 } from "./dashboard-route";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  window.history.replaceState(null, "", "/");
+});
 
 describe("dashboard routes", () => {
   it("resolves supported dashboard views", () => {
@@ -56,5 +62,31 @@ describe("dashboard routes", () => {
     expect(buildDashboardAgentsRedirectHref({ agentId: "agent-1", tag: ["one", "two"] })).toBe(
       "/dashboard/agents?agentId=agent-1&tag=one&tag=two",
     );
+  });
+
+  it("shallowly replaces dashboard search params without changing the deployed pathname", () => {
+    window.history.replaceState(null, "", "/dashboard/agents/?view=overview#chat");
+    const replaceState = vi.spyOn(window.history, "replaceState");
+
+    syncDashboardSearchParams(new URLSearchParams({
+      agentId: "agent-1",
+      session: "focus session",
+    }));
+
+    expect(replaceState).toHaveBeenCalledWith(
+      null,
+      "",
+      "/dashboard/agents/?agentId=agent-1&session=focus+session#chat",
+    );
+    expect(window.location.pathname).toBe("/dashboard/agents/");
+  });
+
+  it("can add a shallow dashboard history entry", () => {
+    window.history.replaceState(null, "", "/dashboard/agents?agentId=agent-1");
+    const pushState = vi.spyOn(window.history, "pushState");
+
+    syncDashboardSearchParams(new URLSearchParams({ view: "settings" }), true);
+
+    expect(pushState).toHaveBeenCalledWith(null, "", "/dashboard/agents?view=settings");
   });
 });

@@ -333,6 +333,7 @@ test("refresh restores the selected agent and non-main chat session", async ({ p
   await page.goto("/dashboard/agents?agentId=agent-1", { waitUntil: "domcontentloaded" });
 
   await page.getByRole("button", { name: "Select Secondary Agent" }).click();
+  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
   await expect.poll(() => new URL(page.url()).searchParams.get("agentId")).toBe("agent-2");
   await expect.poll(() => page.evaluate(() => (
     (window as Window & { __agentChatNavigationGatewayCalls?: { methods: string[] } })
@@ -341,10 +342,19 @@ test("refresh restores the selected agent and non-main chat session", async ({ p
 
   const secondarySession = page.getByRole("button", { name: "Secondary Focus", exact: true });
   await expect(secondarySession).toBeEnabled();
+  const documentSentinel = "session-switch-kept-the-document";
+  await page.evaluate((value) => {
+    (window as Window & { __agentChatNavigationDocumentSentinel?: string })
+      .__agentChatNavigationDocumentSentinel = value;
+  }, documentSentinel);
   await secondarySession.click();
   await expect(secondarySession).toHaveAttribute("aria-current", "page");
   await expect.poll(() => new URL(page.url()).searchParams.get("session")).toBe(SECONDARY_SESSION_KEY);
   await expect(page.getByText("Secondary focus history restored")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (
+    (window as Window & { __agentChatNavigationDocumentSentinel?: string })
+      .__agentChatNavigationDocumentSentinel
+  ))).toBe(documentSentinel);
 
   await page.reload({ waitUntil: "domcontentloaded" });
 
@@ -426,6 +436,7 @@ test("pinned sessions stay first across reload and return to recency order after
   await mockAgentChat(page);
   await page.goto("/dashboard/agents?agentId=agent-1", { waitUntil: "domcontentloaded" });
   await page.getByRole("button", { name: "Select Secondary Agent" }).click();
+  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
 
   const archivedSession = page.getByRole("button", { name: "Archived Focus", exact: true });
   await expect(archivedSession).toBeEnabled();
