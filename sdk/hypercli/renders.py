@@ -90,14 +90,14 @@ class Renders:
             auth_me = self._auth_me()
         except APIError:
             return False
-        if not auth_me.get("has_active_subscription"):
-            return False
-        if auth_me.get("auth_type") == "user":
-            return True
         capabilities = set(auth_me.get("capabilities") or [])
         if f"{family}:*" in capabilities:
             return True
         if resource and f"{family}:{resource}" in capabilities:
+            return True
+        if not auth_me.get("has_active_subscription"):
+            return False
+        if auth_me.get("auth_type") == "user":
             return True
         return False
 

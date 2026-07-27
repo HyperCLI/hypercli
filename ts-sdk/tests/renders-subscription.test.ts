@@ -39,6 +39,35 @@ describe('Renders subscription routing', () => {
     expect(calls[1]).toEqual(['post', '/agents/flow/text-to-image', { prompt: 'hello' }]);
   });
 
+  it('uses /agents/flow for scoped runtime keys without an orchestra subscription flag', async () => {
+    const calls: Array<[string, string, any?]> = [];
+    const http = {
+      get: async (path: string) => {
+        calls.push(['get', path]);
+        if (path === '/api/auth/me') {
+          return {
+            auth_type: 'api_key',
+            capabilities: ['agents:none', 'flows:*', 'models:*', 'runtime=agent'],
+            has_active_subscription: false,
+          };
+        }
+        return { id: 'render-123', state: 'queued' };
+      },
+      post: async (path: string, body: any) => {
+        calls.push(['post', path, body]);
+        return { id: 'render-123', state: 'queued' };
+      },
+      delete: async (_path: string) => ({ status: 'cancelled' }),
+    };
+
+    const renders = new Renders(http as any);
+    const render = await renders.flow('text-to-image', { prompt: 'hello' });
+
+    expect(render.renderId).toBe('render-123');
+    expect(calls[0]).toEqual(['get', '/api/auth/me']);
+    expect(calls[1]).toEqual(['post', '/agents/flow/text-to-image', { prompt: 'hello' }]);
+  });
+
   it('falls back to paid flow on subscription rejection', async () => {
     const calls: Array<[string, string, any?]> = [];
     let first = true;

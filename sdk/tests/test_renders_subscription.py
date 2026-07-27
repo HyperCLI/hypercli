@@ -60,6 +60,22 @@ def test_create_flow_uses_subscription_route_when_available():
     assert http.calls[1] == ("post", "/agents/flow/text-to-image", {"prompt": "hello"})
 
 
+def test_create_flow_uses_subscription_route_for_scoped_runtime_key_without_orchestra_subscription():
+    http = DummyHTTP()
+    http.auth_me = {
+        "auth_type": "api_key",
+        "capabilities": ["agents:none", "flows:*", "models:*", "runtime=agent"],
+        "has_active_subscription": False,
+    }
+    renders = Renders(http)
+
+    render = renders.create_flow("text-to-image", prompt="hello")
+
+    assert render.render_id == "render-123"
+    assert http.calls[0] == ("get", "/api/auth/me", None)
+    assert http.calls[1] == ("post", "/agents/flow/text-to-image", {"prompt": "hello"})
+
+
 def test_create_flow_falls_back_to_paid_route_on_subscription_rejection():
     http = DummyHTTP()
     http.auth_me = {

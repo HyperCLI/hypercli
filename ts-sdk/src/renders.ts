@@ -65,17 +65,17 @@ export class Renders {
   private async supportsSubscriptionFamily(family: string, resource?: string): Promise<boolean> {
     try {
       const authMe = await this.authMe();
-      if (!authMe?.has_active_subscription) {
-        return false;
-      }
-      if (authMe.auth_type === 'user') {
-        return true;
-      }
       const capabilities = new Set(Array.isArray(authMe.capabilities) ? authMe.capabilities : []);
       if (capabilities.has(`${family}:*`)) {
         return true;
       }
-      return Boolean(resource && capabilities.has(`${family}:${resource}`));
+      if (resource && capabilities.has(`${family}:${resource}`)) {
+        return true;
+      }
+      if (!authMe?.has_active_subscription) {
+        return false;
+      }
+      return authMe.auth_type === 'user';
     } catch (error) {
       if (error instanceof APIError) {
         return false;
