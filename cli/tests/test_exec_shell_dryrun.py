@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
-from hypercli.agents import AGENT_FILE_MAX_BYTES
+from hypercli.agents import AGENT_FILE_MAX_BYTES, DEFAULT_OPENCLAW_PRO_IMAGE
 from hypercli_cli.cli import app
 
 
@@ -230,7 +230,7 @@ def test_agents_create_desktop_uses_openclaw_pro(monkeypatch):
     assert result.exit_code == 0
     assert captured["env"]["OPENCLAW_DESKTOP_ENABLED"] == "1"
     assert captured["openclaw_route_options"] == {"include_desktop": True}
-    assert captured["image"].endswith(":pro-prod")
+    assert captured["image"] == DEFAULT_OPENCLAW_PRO_IMAGE
     assert "https://desktop-demo.hypercli.app" in result.stdout
 
 

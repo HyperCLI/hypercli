@@ -431,6 +431,178 @@ def test_set_gateway_token_normalizes_blank_values() -> None:
 
 
 @pytest.mark.asyncio
+async def test_gateway_python_parity_rpc_wrappers() -> None:
+    client = GatewayClient(url="wss://openclaw-agent.example", gateway_token="gw-token")
+    calls: list[tuple[str, dict | None, float | None]] = []
+
+    async def fake_call(method: str, params: dict | None = None, timeout: float | None = None):
+        calls.append((method, params, timeout))
+        return {"ok": True}
+
+    client.call = fake_call  # type: ignore[method-assign]
+
+    await client.config_schema_lookup("channels.slack")
+    await client.skills_status({"agentId": "default"})
+    await client.skills_search({"query": "slack", "limit": 5})
+    await client.skills_detail({"slug": "demo"})
+    await client.skills_security_verdicts({"agentId": "default"})
+    await client.skills_skill_card({"skillKey": "demo"})
+    await client.skills_install({"source": "clawhub", "slug": "demo", "timeoutMs": 450000})
+    await client.skills_update({"source": "clawhub", "slug": "demo"})
+    await client.integrations_auth_start({"integrationId": "github"})
+    await client.integrations_auth_status({"authId": "auth-1"})
+    await client.integrations_status({"integrationId": "github"})
+    await client.integrations_disconnect({"integrationId": "github"})
+    await client.message_action({"channel": "slack", "action": "react", "params": {"emoji": "eyes"}})
+    await client.send({"to": "C123", "message": "hello", "channel": "slack"})
+    await client.plugins_list()
+    await client.plugins_install({"source": "official", "pluginId": "whatsapp"})
+    await client.plugins_set_enabled({"pluginId": "whatsapp", "enabled": True})
+    await client.plugins_uninstall({"pluginId": "whatsapp"})
+    await client.plugins_refresh()
+    await client.tools_catalog({"agentId": "default"})
+    await client.tools_effective({"agentId": "default"})
+    await client.tools_invoke({"toolName": "shell", "params": {"command": "true"}})
+    await client.commands_list({"agentId": "default"})
+
+    names = [entry[0] for entry in calls]
+    assert names == [
+        "config.schema.lookup",
+        "skills.status",
+        "skills.search",
+        "skills.detail",
+        "skills.securityVerdicts",
+        "skills.skillCard",
+        "skills.install",
+        "skills.update",
+        "integrations.auth.start",
+        "integrations.auth.status",
+        "integrations.status",
+        "integrations.disconnect",
+        "message.action",
+        "send",
+        "plugins.list",
+        "plugins.install",
+        "plugins.setEnabled",
+        "plugins.uninstall",
+        "plugins.refresh",
+        "tools.catalog",
+        "tools.effective",
+        "tools.invoke",
+        "commands.list",
+    ]
+    assert calls[6][2] == 450
+    assert calls[7][2] == 300.0
+    assert calls[8][2] == 30
+    assert calls[12][1]["idempotencyKey"]
+    assert calls[13][1]["idempotencyKey"]
+    assert calls[15][2] == 300.0
+    assert calls[17][2] == 300.0
+    assert calls[21][1]["idempotencyKey"]
+
+
+@pytest.mark.asyncio
+async def test_gateway_configure_channel_parity_patches() -> None:
+    client = GatewayClient(url="wss://openclaw-agent.example")
+    patches: list[dict] = []
+
+    async def fake_config_patch(patch: dict, base_hash: str | None = None):
+        patches.append(patch)
+        return {"ok": True}
+
+    client.config_patch = fake_config_patch  # type: ignore[method-assign]
+
+    await client.configure_slack_http(
+        bot_token={"source": "env", "provider": "default", "id": "SLACK_BOT_TOKEN"},
+        signing_secret={"source": "env", "provider": "default", "id": "SLACK_SIGNING_SECRET"},
+        webhook_path="/slack/events",
+    )
+    await client.configure_slack_relay(
+        url="wss://relay.example/slack/ws",
+        gateway_id="agent:agent-1",
+        account_id="hypercli",
+        bot_token={"source": "env", "provider": "default", "id": "HYPER_AGENTS_API_KEY"},
+    )
+    await client.configure_telegram({"enabled": True}, account_id="tg")
+
+    assert patches[0] == {
+        "channels": {
+            "slack": {
+                "mode": "http",
+                "botToken": {"source": "env", "provider": "default", "id": "SLACK_BOT_TOKEN"},
+                "signingSecret": {"source": "env", "provider": "default", "id": "SLACK_SIGNING_SECRET"},
+                "webhookPath": "/slack/events",
+            }
+        }
+    }
+    assert patches[1] == {
+        "channels": {
+            "slack": {
+                "accounts": {
+                    "hypercli": {
+                        "enterpriseOrgInstall": False,
+                        "mode": "relay",
+                        "botToken": {"source": "env", "provider": "default", "id": "HYPER_AGENTS_API_KEY"},
+                        "relay": {
+                            "url": "wss://relay.example/slack/ws",
+                            "authToken": {
+                                "source": "env",
+                                "provider": "default",
+                                "id": "HYPER_AGENTS_API_KEY",
+                            },
+                            "gatewayId": "agent:agent-1",
+                        },
+                    }
+                },
+                "defaultAccount": "hypercli",
+            }
+        }
+    }
+    assert patches[2] == {
+        "channels": {
+            "telegram": {
+                "accounts": {"tg": {"enabled": True}},
+            }
+        }
+    }
+
+
+@pytest.mark.asyncio
+async def test_gateway_read_media_bytes_uses_gateway_auth(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict = {}
+
+    class FakeResponse:
+        status_code = 200
+        reason_phrase = "OK"
+        content = b"image-bytes"
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:
+            captured["timeout"] = kwargs.get("timeout")
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def get(self, url: str, *, headers: dict):
+            captured["url"] = url
+            captured["headers"] = headers
+            return FakeResponse()
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+
+    client = GatewayClient(url="wss://agent.example/ws", gateway_token="gw-token", timeout=12)
+    content = await client.read_media_bytes("/media/cat.png")
+
+    assert content == b"image-bytes"
+    assert captured["url"] == "https://agent.example/media/cat.png"
+    assert captured["headers"] == {"Authorization": "Bearer gw-token"}
+    assert captured["timeout"] == 12
+
+
+@pytest.mark.asyncio
 async def test_chat_send_accepts_chat_content_and_done_events() -> None:
     client = GatewayClient(url="wss://openclaw-agent.example")
     client._connected = True
@@ -782,6 +954,7 @@ async def test_configure_slack_relay_patches_runtime_config() -> None:
         {
             "channels": {
                 "slack": {
+                    "enterpriseOrgInstall": False,
                     "mode": "relay",
                     "relay": {
                         "url": "wss://api.dev.hypercli.com/slack/ws",

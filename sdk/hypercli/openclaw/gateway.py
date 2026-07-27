@@ -35,6 +35,8 @@ MIN_PROTOCOL_VERSION = MIN_GATEWAY_VERSION
 PROTOCOL_VERSION = MAX_GATEWAY_VERSION
 DEFAULT_CONNECTION_TIMEOUT = 30.0
 DEFAULT_AGENT_TIMEOUT = 900.0
+SKILLS_MUTATION_TIMEOUT = 300.0
+PLUGIN_MUTATION_TIMEOUT = 300.0
 INITIAL_RECONNECT_DELAY = 0.8
 MAX_RECONNECT_DELAY = 15.0
 BACKOFF_MULTIPLIER = 1.7
@@ -354,6 +356,24 @@ def _with_query_token(url: str, token: str | None) -> str:
     query.append(("token", token))
     query_text = "&".join(f"{quote(k)}={quote(v)}" for k, v in query)
     return urlunsplit((parts.scheme, parts.netloc, parts.path, query_text, parts.fragment))
+
+
+def _channel_config_patch(
+    channel_id: str,
+    config: dict[str, Any],
+    account_id: str | None = None,
+    default_account: bool = False,
+) -> dict[str, Any]:
+    if not account_id:
+        return {"channels": {channel_id: config}}
+    return {
+        "channels": {
+            channel_id: {
+                "accounts": {account_id: config},
+                **({"defaultAccount": account_id} if default_account else {}),
+            }
+        }
+    }
 
 
 @dataclass
@@ -1375,6 +1395,9 @@ class GatewayClient:
     async def config_schema(self) -> dict:
         return await self.call("config.schema")
 
+    async def config_schema_lookup(self, path: str) -> dict:
+        return await self.call("config.schema.lookup", {"path": path})
+
     async def config_patch(self, patch: dict, base_hash: str | None = None) -> dict:
         if base_hash is None:
             raw_result = await self.call("config.get")
@@ -1416,6 +1439,7 @@ class GatewayClient:
     ) -> dict:
         relay_config = {
             **(config or {}),
+            "enterpriseOrgInstall": False,
             "mode": "relay",
             "relay": {
                 "url": url,
@@ -1425,18 +1449,28 @@ class GatewayClient:
         }
         if bot_token is not None:
             relay_config["botToken"] = bot_token
-        if account_id:
-            patch = {
-                "channels": {
-                    "slack": {
-                        "accounts": {account_id: relay_config},
-                        "defaultAccount": account_id,
-                    }
-                }
-            }
-        else:
-            patch = {"channels": {"slack": relay_config}}
-        return await self.config_patch(patch)
+        return await self.config_patch(
+            _channel_config_patch("slack", relay_config, account_id, bool(account_id))
+        )
+
+    async def configure_slack_http(
+        self,
+        *,
+        bot_token: Any,
+        signing_secret: Any,
+        webhook_path: str | None = None,
+        account_id: str | None = None,
+        config: dict[str, Any] | None = None,
+    ) -> dict:
+        http_config: dict[str, Any] = {
+            **(config or {}),
+            "mode": "http",
+            "botToken": bot_token,
+            "signingSecret": signing_secret,
+        }
+        if webhook_path is not None:
+            http_config["webhookPath"] = webhook_path
+        return await self.config_patch(_channel_config_patch("slack", http_config, account_id))
 
     async def configure_slack_socket(
         self,
@@ -1455,11 +1489,15 @@ class GatewayClient:
         }
         if socket_mode is not None:
             socket_config["socketMode"] = socket_mode
-        if account_id:
-            patch = {"channels": {"slack": {"accounts": {account_id: socket_config}}}}
-        else:
-            patch = {"channels": {"slack": socket_config}}
-        return await self.config_patch(patch)
+        return await self.config_patch(_channel_config_patch("slack", socket_config, account_id))
+
+    async def configure_telegram(
+        self,
+        config: dict[str, Any] | None = None,
+        *,
+        account_id: str | None = None,
+    ) -> dict:
+        return await self.config_patch(_channel_config_patch("telegram", config or {}, account_id))
 
     async def configure_whatsapp(
         self,
@@ -1468,18 +1506,9 @@ class GatewayClient:
         account_id: str | None = None,
     ) -> dict:
         whatsapp_config = {"enabled": True, **(config or {})}
-        if account_id:
-            patch = {
-                "channels": {
-                    "whatsapp": {
-                        "accounts": {account_id: whatsapp_config},
-                        "defaultAccount": account_id,
-                    }
-                }
-            }
-        else:
-            patch = {"channels": {"whatsapp": whatsapp_config}}
-        return await self.config_patch(patch)
+        return await self.config_patch(
+            _channel_config_patch("whatsapp", whatsapp_config, account_id, bool(account_id))
+        )
 
     async def status(self) -> dict:
         return await self.call("status")
@@ -1514,6 +1543,49 @@ class GatewayClient:
         result = await self.call("models.list")
         return result.get("models", [])
 
+    async def skills_status(self, params: dict[str, Any] | None = None) -> dict:
+        return await self.call("skills.status", params or {})
+
+    async def skills_search(self, params: dict[str, Any] | None = None) -> dict:
+        return await self.call("skills.search", params or {})
+
+    async def skills_detail(self, params: dict[str, Any]) -> dict:
+        return await self.call("skills.detail", params)
+
+    async def skills_security_verdicts(self, params: dict[str, Any] | None = None) -> dict:
+        return await self.call("skills.securityVerdicts", params or {})
+
+    async def skills_skill_card(self, params: dict[str, Any]) -> dict:
+        return await self.call("skills.skillCard", params)
+
+    async def skills_install(self, params: dict[str, Any]) -> dict:
+        timeout_ms = params.get("timeoutMs") if isinstance(params, dict) else None
+        timeout = max(
+            self.timeout,
+            float(timeout_ms) / 1000 if isinstance(timeout_ms, (int, float)) else SKILLS_MUTATION_TIMEOUT,
+        )
+        return await self.call("skills.install", params, timeout=timeout)
+
+    async def skills_update(self, params: dict[str, Any]) -> dict:
+        timeout = (
+            SKILLS_MUTATION_TIMEOUT
+            if isinstance(params, dict) and params.get("source") == "clawhub"
+            else None
+        )
+        return await self.call("skills.update", params, timeout=timeout)
+
+    async def integrations_auth_start(self, params: dict[str, Any]) -> dict:
+        return await self.call("integrations.auth.start", params, timeout=30)
+
+    async def integrations_auth_status(self, params: dict[str, Any]) -> dict:
+        return await self.call("integrations.auth.status", params)
+
+    async def integrations_status(self, params: dict[str, Any] | None = None) -> dict:
+        return await self.call("integrations.status", params or {})
+
+    async def integrations_disconnect(self, params: dict[str, Any]) -> dict:
+        return await self.call("integrations.disconnect", params)
+
     async def channels_status(
         self,
         probe: bool = False,
@@ -1544,6 +1616,65 @@ class GatewayClient:
         if account_id:
             params["accountId"] = account_id
         return await self.call("channels.logout", params)
+
+    async def message_action(self, params: dict[str, Any]) -> dict:
+        request = dict(params)
+        request.setdefault("idempotencyKey", str(uuid.uuid4()))
+        return await self.call("message.action", request)
+
+    async def send(self, params: dict[str, Any]) -> dict:
+        request = dict(params)
+        request.setdefault("idempotencyKey", str(uuid.uuid4()))
+        return await self.call("send", request)
+
+    async def read_media_bytes(self, path_or_url: str) -> bytes:
+        token = self.gateway_token or self.device_token or self.password
+        if not token:
+            raise ValueError("Gateway media requires an auth token")
+        if path_or_url.startswith(("http://", "https://")):
+            url = path_or_url
+        else:
+            parts = urlsplit(self.url)
+            scheme = "https" if parts.scheme == "wss" else "http" if parts.scheme == "ws" else parts.scheme
+            path = path_or_url if path_or_url.startswith("/") else f"/{path_or_url}"
+            url = urlunsplit((scheme, parts.netloc, path, "", ""))
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+            if response.status_code >= 400:
+                raise GatewayError(
+                    "MEDIA_READ_FAILED",
+                    f"Gateway media read failed: {response.status_code} {response.reason_phrase}",
+                )
+            return response.content
+
+    async def plugins_list(self) -> dict:
+        return await self.call("plugins.list", {})
+
+    async def plugins_install(self, params: dict[str, Any]) -> dict:
+        return await self.call("plugins.install", params, timeout=max(PLUGIN_MUTATION_TIMEOUT, self.timeout))
+
+    async def plugins_set_enabled(self, params: dict[str, Any]) -> dict:
+        return await self.call("plugins.setEnabled", params)
+
+    async def plugins_uninstall(self, params: dict[str, Any]) -> dict:
+        return await self.call("plugins.uninstall", params, timeout=max(PLUGIN_MUTATION_TIMEOUT, self.timeout))
+
+    async def plugins_refresh(self) -> dict:
+        return await self.call("plugins.refresh", {})
+
+    async def tools_catalog(self, params: dict[str, Any] | None = None) -> dict:
+        return await self.call("tools.catalog", params or {})
+
+    async def tools_effective(self, params: dict[str, Any]) -> dict:
+        return await self.call("tools.effective", params)
+
+    async def tools_invoke(self, params: dict[str, Any]) -> dict:
+        request = dict(params)
+        request.setdefault("idempotencyKey", str(uuid.uuid4()))
+        return await self.call("tools.invoke", request)
+
+    async def commands_list(self, params: dict[str, Any] | None = None) -> dict:
+        return await self.call("commands.list", params or {})
 
     async def web_login_start(
         self,
