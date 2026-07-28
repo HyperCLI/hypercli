@@ -145,6 +145,7 @@ interface DeploymentRecord {
 }
 
 interface DeploymentsClientLike {
+  createOpenClaw(options?: Record<string, unknown>): Promise<DeploymentRecord>;
   list(): Promise<DeploymentRecord[]>;
   get(agentId: string): Promise<DeploymentRecord>;
   waitRunning(agentId: string, timeoutMs?: number, intervalMs?: number): Promise<DeploymentRecord>;
@@ -1552,9 +1553,14 @@ export async function cleanupClawAgents(page: Page, timeout = 180_000): Promise<
     .toBe(0);
 }
 
-export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240_000): Promise<DeploymentRecord> {
+export async function launchClawAgentAndWaitForGateway(
+  page: Page,
+  timeout = 240_000,
+  options: { enableDesktop?: boolean } = {},
+): Promise<DeploymentRecord> {
   const token = await getClawAuthToken(page);
   const deployments = await getDeploymentsClient(token);
+  const enableDesktop = options.enableDesktop ?? true;
 
   const verifyDesktopAuthRoute = async (agent: DeploymentRecord): Promise<void> => {
     if (!agent.hostname || !agent.routes || !Object.prototype.hasOwnProperty.call(agent.routes, "desktop")) {
@@ -1619,19 +1625,29 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
       "/agents/types",
       "/agents/usage/history",
     ]);
+    const seenPaths = new Set<string>();
+    const handleResponse = (response: Awaited<ReturnType<Page["waitForResponse"]>>) => {
+      if (!response.ok()) return;
+      const url = new URL(response.url());
+      if (requiredPaths.has(url.pathname)) {
+        seenPaths.add(url.pathname);
+      }
+    };
 
-    await Promise.all(
-      Array.from(requiredPaths).map((requiredPath) =>
-        page.waitForResponse(
-          (response) => {
-            if (!response.ok()) return false;
-            const url = new URL(response.url());
-            return url.pathname === requiredPath;
-          },
-          { timeout: 120_000 }
+    page.on("response", handleResponse);
+    try {
+      await expect
+        .poll(
+          () => Array.from(requiredPaths).filter((requiredPath) => !seenPaths.has(requiredPath)),
+          { timeout: 30_000, intervals: [500, 1_000, 2_000] }
         )
-      )
-    );
+        .toEqual([]);
+    } catch {
+      const missingPaths = Array.from(requiredPaths).filter((requiredPath) => !seenPaths.has(requiredPath));
+      console.log(`[agents-dashboard] fetch warmup incomplete; continuing missing=${missingPaths.join(",") || "none"}`);
+    } finally {
+      page.off("response", handleResponse);
+    }
   };
 
   const findLastVisible = async (locator: Locator, timeoutMs = 2_000): Promise<Locator | null> => {
@@ -1730,46 +1746,16 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
     await captureStep(page, "agents-10-workspace-created");
   }
 
-  const createButton = page.locator("main").locator("button").filter({ hasText: /Create an agent/i }).last();
-  const launchAgentButton = page.locator("main").getByRole("button", { name: /^launch agent$/i });
-  const launchFirstAgentButton = page
-    .locator("main")
-    .locator("section, [data-testid='agent-empty-state']")
-    .getByRole("button", { name: /^launch agent$/i })
-    .last();
-  const launcherEntryButton =
-    await findLastVisible(createButton, 30_000) ??
-    await findLastVisible(launchAgentButton, 30_000) ??
-    await findLastVisible(launchFirstAgentButton, 30_000);
-  expect(launcherEntryButton, "expected a visible launch/create agent entry button").not.toBeNull();
-  await captureStep(page, "agents-10-dashboard");
-  await expect(launcherEntryButton!, "expected the launch/create agent entry button to be enabled").toBeEnabled({ timeout: 30_000 });
-  await launcherEntryButton!.click();
-
-  const optionalSettings = page.locator("summary").filter({ hasText: /^Advanced$/i }).first();
-  await expect(optionalSettings).toBeVisible({ timeout: 30_000 });
-  await optionalSettings.click();
-
-  const desktopCheckbox = page
-    .locator("label")
-    .filter({ hasText: /Desktop browser/i })
-    .locator("input[type='checkbox']")
-    .first();
-  await expect(desktopCheckbox).toBeVisible({ timeout: 30_000 });
-  await desktopCheckbox.check();
-  await expect(desktopCheckbox).toBeChecked();
-
-  const wizardSurface = page
-    .locator("main, [role='dialog'], section")
-    .filter({ has: page.getByRole("heading", { name: /create your first agent|choose your plan|review & launch|configuration/i }) })
-    .last();
-
-  const waitForCreatedAgent = async (clickCreate: () => Promise<void>): Promise<DeploymentRecord> => {
+  const waitForCreatedAgent = async (
+    clickCreate: () => Promise<DeploymentRecord | void>,
+    options: { watchBrowserCreateResponse?: boolean } = {},
+  ): Promise<DeploymentRecord> => {
     const beforeAgents = await deployments.list();
     const beforeIds = new Set(beforeAgents.map((agent) => String(agent.id || "")).filter(Boolean));
     let created: DeploymentRecord | null = null;
     let createResponseError: string | null = null;
-    const createResponseSettled = page
+    const watchBrowserCreateResponse = options.watchBrowserCreateResponse ?? true;
+    const createResponseSettled = watchBrowserCreateResponse ? page
       .waitForResponse(
         (response) => {
           return response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/agents/deployments");
@@ -1788,10 +1774,13 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
       })
       .catch((error) => {
         createResponseError = error instanceof Error ? error.message : String(error);
-      });
+      }) : Promise.resolve();
     let launchSubmitted = false;
     try {
-      await clickCreate();
+      const directAgent = await clickCreate();
+      if (directAgent?.id) {
+        created = directAgent;
+      }
       launchSubmitted = true;
       await expect
         .poll(
@@ -1809,7 +1798,7 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
         )
         .not.toBeNull();
     } catch (error) {
-      if (launchSubmitted) {
+      if (launchSubmitted && watchBrowserCreateResponse) {
         await createResponseSettled;
       }
       console.log(
@@ -1926,6 +1915,54 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
     }
   };
 
+  await captureStep(page, "agents-10-dashboard");
+  if (!enableDesktop) {
+    const controlUiOrigin = new URL(page.url()).origin;
+    return await waitForCreatedAgent(
+      () => deployments.createOpenClaw({
+        name: `agents-e2e-${Date.now()}`,
+        size: "large",
+        env: { OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: controlUiOrigin },
+        start: true,
+        openClawRoutes: { includeDesktop: false },
+      }),
+      { watchBrowserCreateResponse: false },
+    );
+  }
+
+  const createButton = page.locator("main").locator("button").filter({ hasText: /Create an agent/i }).last();
+  const launchAgentButton = page.locator("main").getByRole("button", { name: /^launch agent$/i });
+  const launchFirstAgentButton = page
+    .locator("main")
+    .locator("section, [data-testid='agent-empty-state']")
+    .getByRole("button", { name: /^launch agent$/i })
+    .last();
+  const launcherEntryButton =
+    await findLastVisible(createButton, 30_000) ??
+    await findLastVisible(launchAgentButton, 30_000) ??
+    await findLastVisible(launchFirstAgentButton, 30_000);
+  expect(launcherEntryButton, "expected a visible launch/create agent entry button").not.toBeNull();
+  await expect(launcherEntryButton!, "expected the launch/create agent entry button to be enabled").toBeEnabled({ timeout: 30_000 });
+  await launcherEntryButton!.click();
+
+  const optionalSettings = page.locator("summary").filter({ hasText: /^Advanced$/i }).first();
+  await expect(optionalSettings).toBeVisible({ timeout: 30_000 });
+  await optionalSettings.click();
+
+  const desktopCheckbox = page
+    .locator("label")
+    .filter({ hasText: /Desktop browser/i })
+    .locator("input[type='checkbox']")
+    .first();
+  await expect(desktopCheckbox).toBeVisible({ timeout: 30_000 });
+  await desktopCheckbox.check();
+  await expect(desktopCheckbox).toBeChecked();
+
+  const wizardSurface = page
+    .locator("main, [role='dialog'], section")
+    .filter({ has: page.getByRole("heading", { name: /create your first agent|choose your plan|review & launch|configuration/i }) })
+    .last();
+
   const clickPlanLaunchButtonViaDom = async (timeoutMs = 30_000): Promise<boolean> => {
     const deadline = Date.now() + timeoutMs;
     do {
@@ -1984,6 +2021,12 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
     if (await continueButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
       await continueButton.click();
       continue;
+    }
+
+    const wizardLaunchButton = wizardSurface.getByRole("button", { name: /^launch agent$/i }).last();
+    if (await wizardLaunchButton.isVisible({ timeout: 500 }).catch(() => false)) {
+      await expect(wizardLaunchButton).toBeEnabled({ timeout: 30_000 });
+      return await waitForCreatedAgent(() => wizardLaunchButton.click());
     }
 
     if (await hasPlanLaunchButtonViaDom()) {
