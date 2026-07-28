@@ -3,9 +3,16 @@ import { webcrypto } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  OPENCLAW_DASHBOARD_SESSION_PREFIX,
+  OPENCLAW_INTERNAL_MAIN_SESSION_KEY,
+  OPENCLAW_SDK_SESSION_PREFIX,
+  createOpenClawSdkSessionKey,
+  createOpenClawSessionKey,
   GatewayChatStreamInterruptedError,
   GatewayClient,
   NodeServer,
+  isOpenClawInternalMainSessionKey,
+  isOpenClawSdkSessionKey,
   normalizeGatewayChatMessage,
 } from "../src/openclaw/gateway.js";
 
@@ -136,6 +143,36 @@ async function parseFirstRequest(ws: MockWebSocket) {
     params: Record<string, any>;
   };
 }
+
+describe("OpenClaw session key helpers", () => {
+  it("creates SDK session keys with an hcli prefix by default", () => {
+    const key = createOpenClawSdkSessionKey();
+
+    expect(key).toMatch(/^hcli:[0-9a-f-]+$/i);
+    expect(key.startsWith(OPENCLAW_SDK_SESSION_PREFIX)).toBe(true);
+    expect(key).not.toBe(OPENCLAW_INTERNAL_MAIN_SESSION_KEY);
+  });
+
+  it("creates caller-prefixed and bare session keys", () => {
+    const dashboardKey = createOpenClawSessionKey([], OPENCLAW_DASHBOARD_SESSION_PREFIX);
+    const bareKey = createOpenClawSessionKey([], "");
+
+    expect(dashboardKey).toMatch(/^dashboard:[0-9a-f-]+$/i);
+    expect(bareKey).toMatch(/^[0-9a-f-]+$/i);
+    expect(bareKey).not.toContain(":");
+  });
+
+  it("classifies internal main and SDK sessions through agent-scoped keys", () => {
+    const sdkKey = "hcli:550e8400-e29b-41d4-a716-446655440000";
+
+    expect(isOpenClawInternalMainSessionKey("main")).toBe(true);
+    expect(isOpenClawInternalMainSessionKey("agent:default:main")).toBe(true);
+    expect(isOpenClawInternalMainSessionKey(sdkKey)).toBe(false);
+    expect(isOpenClawSdkSessionKey(sdkKey)).toBe(true);
+    expect(isOpenClawSdkSessionKey(`agent:default:${sdkKey}`)).toBe(true);
+    expect(isOpenClawSdkSessionKey("dashboard:550e8400-e29b-41d4-a716-446655440000")).toBe(false);
+  });
+});
 
 describe("GatewayClient", () => {
   beforeEach(() => {

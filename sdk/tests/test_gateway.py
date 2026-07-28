@@ -6,7 +6,17 @@ import json
 import pytest
 import httpx
 
-from hypercli.openclaw.gateway import GatewayClient, normalize_gateway_chat_message
+from hypercli.openclaw.gateway import (
+    OPENCLAW_DASHBOARD_SESSION_PREFIX,
+    OPENCLAW_INTERNAL_MAIN_SESSION_KEY,
+    OPENCLAW_SDK_SESSION_PREFIX,
+    GatewayClient,
+    create_openclaw_sdk_session_key,
+    create_openclaw_session_key,
+    is_openclaw_internal_main_session_key,
+    is_openclaw_sdk_session_key,
+    normalize_gateway_chat_message,
+)
 
 
 class MockConnection:
@@ -36,6 +46,23 @@ class MockConnection:
         return await self.recv()
 
 
+
+
+def test_openclaw_session_key_helpers() -> None:
+    sdk_key = create_openclaw_sdk_session_key()
+    dashboard_key = create_openclaw_session_key(prefix=OPENCLAW_DASHBOARD_SESSION_PREFIX)
+    bare_key = create_openclaw_session_key(prefix="")
+
+    assert sdk_key.startswith(OPENCLAW_SDK_SESSION_PREFIX)
+    assert sdk_key != OPENCLAW_INTERNAL_MAIN_SESSION_KEY
+    assert dashboard_key.startswith(OPENCLAW_DASHBOARD_SESSION_PREFIX)
+    assert ":" not in bare_key
+    assert is_openclaw_internal_main_session_key("main")
+    assert is_openclaw_internal_main_session_key("agent:default:main")
+    assert not is_openclaw_internal_main_session_key(sdk_key)
+    assert is_openclaw_sdk_session_key(sdk_key)
+    assert is_openclaw_sdk_session_key(f"agent:default:{sdk_key}")
+    assert not is_openclaw_sdk_session_key(dashboard_key)
 
 
 @pytest.mark.asyncio

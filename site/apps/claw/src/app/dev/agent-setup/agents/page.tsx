@@ -100,7 +100,7 @@ import {
 import { getOpenClawDefaultModel } from "@/lib/openclaw-models";
 import { buildOpenClawLaunchOptions } from "@/lib/openclaw-launch";
 import { getEffectivePlanName, mergeLaunchSlotInventories } from "@/lib/plan-checkout-state";
-import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
+import { createOpenClawDashboardSessionKey } from "@/lib/openclaw-session-key";
 import { displayOpenClawSessionName } from "@/lib/openclaw-session-sdk-surface";
 import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
@@ -353,6 +353,20 @@ export default function DevAgentSetupAgentsPage() {
   // Selection and tabs
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [selectedSessionKeysByAgent, setSelectedSessionKeysByAgent] = useState<Record<string, string>>({});
+  const generatedSessionKeysByAgentRef = useRef<Record<string, string>>({});
+  const sessionKeyForAgent = useCallback((agentId: string | null | undefined): string => {
+    const sessionOwnerKey = agentId ?? "__no-agent__";
+    const selected = agentId ? selectedSessionKeysByAgent[agentId] : null;
+    if (selected) return selected;
+    const existing = generatedSessionKeysByAgentRef.current[sessionOwnerKey];
+    if (existing) return existing;
+    const generated = createOpenClawDashboardSessionKey(Object.values({
+      ...selectedSessionKeysByAgent,
+      ...generatedSessionKeysByAgentRef.current,
+    }));
+    generatedSessionKeysByAgentRef.current[sessionOwnerKey] = generated;
+    return generated;
+  }, [selectedSessionKeysByAgent]);
   const [mainTab, setMainTab] = useState<MainTab>("chat");
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [mobileAgentMenuOpen, setMobileAgentMenuOpen] = useState(false);
@@ -690,8 +704,8 @@ export default function DevAgentSetupAgentsPage() {
 
   const gatewayEnabled = isSelectedRunning;
   const selectedSessionKey = selectedAgentId
-    ? selectedSessionKeysByAgent[selectedAgentId] ?? resolveOpenClawSessionKey(selectedAgentId)
-    : resolveOpenClawSessionKey(null);
+    ? selectedSessionKeysByAgent[selectedAgentId] ?? sessionKeyForAgent(selectedAgentId)
+    : sessionKeyForAgent(null);
   const skillDraftScope = useMemo(() => ({ ownerId: user?.email ?? "local", agentId: selectedAgentId ?? "unknown-agent" }), [selectedAgentId, user?.email]);
   const activeSkillDraftTest = useSkillDraftTestSession(skillDraftScope, selectedSessionKey);
   const chat = useOpenClawSession(
@@ -885,7 +899,7 @@ export default function DevAgentSetupAgentsPage() {
       createSkill: agentSkills.create,
       closeSession: async (sessionKey) => {
         await chat.deleteSession(sessionKey);
-        if (selectedAgentId) setSelectedSessionKeysByAgent((current) => ({ ...current, [selectedAgentId]: resolveOpenClawSessionKey(selectedAgentId) }));
+        if (selectedAgentId) setSelectedSessionKeysByAgent((current) => ({ ...current, [selectedAgentId]: sessionKeyForAgent(selectedAgentId) }));
       },
       openSkill: openSkillDraft,
     });
@@ -947,7 +961,7 @@ export default function DevAgentSetupAgentsPage() {
   const syntheticThreads = useMemo<ConversationThread[]>(() => {
     return agents.map((agent) => ({
       id: agent.id,
-      sessionKey: resolveOpenClawSessionKey(agent.id),
+      sessionKey: sessionKeyForAgent(agent.id),
       participants: [
         { id: "user", name: "You", type: "user" as const },
         { id: agent.id, name: agentDisplayLabel(agent), type: "agent" as const, meta: agent.meta ?? null },
@@ -961,7 +975,7 @@ export default function DevAgentSetupAgentsPage() {
       unreadCount: 0,
       isActive: agent.state === "RUNNING",
     }));
-  }, [agents, selectedAgentId, chat.messages.length]);
+  }, [agents, selectedAgentId, chat.messages.length, sessionKeyForAgent]);
 
   // Derive RecentToolCall[] by flattening toolCalls across assistant messages.
   // Newest last (matches the Activity tab order).

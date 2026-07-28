@@ -75,7 +75,6 @@ import {
 } from "@/lib/openclaw-chat-history-state";
 import {
   type OpenClawSessionRecord,
-  OPENCLAW_DEFAULT_SESSION_KEY,
   OPENCLAW_NEW_SESSION_TITLE,
   applyOpenClawSessionTitleMap,
   createOpenClawSession,
@@ -100,6 +99,10 @@ import {
   streamOpenClawChat,
   unscopedOpenClawSessionKey,
 } from "@/lib/openclaw-session-sdk-surface";
+import {
+  OPENCLAW_INTERNAL_SESSION_KEY,
+  createOpenClawDashboardSessionKey,
+} from "@/lib/openclaw-session-key";
 import { cronScheduleLabel } from "@/lib/cron-jobs";
 import { useConnectorWorkflow } from "@/hooks/useConnectorWorkflow";
 import { markDashboardPerformance, measureDashboardPerformance } from "@/lib/agent-dashboard-performance";
@@ -123,7 +126,6 @@ const GATEWAY_CONNECTING_STALL_MESSAGE =
 const GENERIC_OPENCLAW_CONNECTION_ERROR = "Could not connect to the agent session.";
 const OPENCLAW_ORIGIN_DENIED_MESSAGE =
   "This agent was opened from another dashboard address. Stop and start it from this page, then retry.";
-let fallbackSessionCounter = 0;
 
 type ChatHistoryUpdate = Extract<ChatHistoryAction, { type: "apply-update" }>["update"];
 
@@ -330,16 +332,7 @@ function sessionListStorageKey(agentId: string): string {
 }
 
 function createOpenClawSessionKey(existingSessions: OpenClawSessionRecord[]): string {
-  const existingKeys = new Set(existingSessions.flatMap((session) => openClawSessionTitleMapKeys(session.key)));
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    const suffix = typeof globalThis.crypto?.randomUUID === "function"
-      ? globalThis.crypto.randomUUID()
-      : `local-${(fallbackSessionCounter += 1).toString(36)}`;
-    const key = `dashboard:${suffix}`;
-    if (!existingKeys.has(key)) return key;
-  }
-  fallbackSessionCounter += 1;
-  return `dashboard:local-${fallbackSessionCounter.toString(36)}`;
+  return createOpenClawDashboardSessionKey(existingSessions.flatMap((session) => openClawSessionTitleMapKeys(session.key)));
 }
 
 function newOpenClawSessionRecord(sessionKey: string): OpenClawSessionRecord {
@@ -592,8 +585,8 @@ function shouldReconcileGeneratedSessionsAsMain(
   sessions: OpenClawSessionRecord[],
   activeSessionKey: string,
 ): boolean {
-  if (activeSessionKey === OPENCLAW_DEFAULT_SESSION_KEY) return true;
-  if (unscopedOpenClawSessionKey(activeSessionKey) !== OPENCLAW_DEFAULT_SESSION_KEY) return false;
+  if (activeSessionKey === OPENCLAW_INTERNAL_SESSION_KEY) return true;
+  if (unscopedOpenClawSessionKey(activeSessionKey) !== OPENCLAW_INTERNAL_SESSION_KEY) return false;
   return !isActiveSessionChannelBackedDefault(sessions, activeSessionKey);
 }
 
@@ -741,7 +734,16 @@ export function useOpenClawSession(
   const fullHydrationEnabled = hydrationMode === "full";
   const hydrationModeRef = useRef(hydrationMode);
   hydrationModeRef.current = hydrationMode;
-  const normalActiveSessionKey = resolveOpenClawActiveSessionKey(agentId, requestedActiveSessionKey);
+  const generatedActiveSessionKeysRef = useRef(new Map<string, string>());
+  const requestedActiveSessionKeyTrimmed = requestedActiveSessionKey?.trim() || null;
+  const normalActiveSessionKey = requestedActiveSessionKeyTrimmed ?? (() => {
+    const key = agentId ?? "__no-agent__";
+    const existing = generatedActiveSessionKeysRef.current.get(key);
+    if (existing) return existing;
+    const generated = createOpenClawDashboardSessionKey();
+    generatedActiveSessionKeysRef.current.set(key, generated);
+    return generated;
+  })();
   const [temporaryChat, setTemporaryChat] = useState<{ agentId: string; sessionKey: string } | null>(null);
   const [temporaryChatState, setTemporaryChatState] = useState<OpenClawTemporaryChatState>("inactive");
   const [temporaryChatError, setTemporaryChatError] = useState<string | null>(null);
@@ -1203,7 +1205,7 @@ export function useOpenClawSession(
     const titleMap = readStoredSessionTitles(agentId);
     writeStoredSessionTitles(agentId, titleMap);
     const storedSessions = readStoredSessions(agentId).filter((session) => !(
-      session.key === OPENCLAW_DEFAULT_SESSION_KEY &&
+      session.key === OPENCLAW_INTERNAL_SESSION_KEY &&
       isGeneratedOpenClawSessionName(openClawGatewaySessionKey(session))
     ));
     const cachedSessions = applyOpenClawSessionTitleMap(storedSessions, titleMap);
@@ -1594,6 +1596,22 @@ export function useOpenClawSession(
     return nextSessions;
   }, [agentId, pruneDeletedSessionTombstones, setTitledSessions, updateSessionTitleMap]);
 
+  const ensureLocalGeneratedSession = useCallback((nextSessions: OpenClawSessionRecord[]) => {
+    if (
+      !isGeneratedOpenClawSessionName(activeSessionKey) ||
+      findOpenClawSelectableSession(nextSessions, activeSessionKey)
+    ) {
+      return nextSessions;
+    }
+    const localSession = newOpenClawSessionRecord(activeSessionKey);
+    const withLocalSession = [
+      localSession,
+      ...nextSessions.filter((session) => !sameOpenClawSelectableSessionKey(session.key, activeSessionKey)),
+    ];
+    setTitledSessions(withLocalSession);
+    return withLocalSession;
+  }, [activeSessionKey, setTitledSessions]);
+
   const fetchSessionList = useCallback((
     targetGateway: GatewayClient,
     options: { fresh?: boolean } = {},
@@ -1704,7 +1722,7 @@ export function useOpenClawSession(
   );
   const activeSessionRecord = findOpenClawSelectableSession(activeSessionRecords, activeSessionKey)
     ?? (shouldReconcileGeneratedSessionsAsMain(activeSessionRecords, activeSessionKey)
-      ? findOpenClawSelectableSession(activeSessionRecords, OPENCLAW_DEFAULT_SESSION_KEY)
+      ? findOpenClawSelectableSession(activeSessionRecords, OPENCLAW_INTERNAL_SESSION_KEY)
       : null);
   const activeTargetKey = chatHistoryTargetKey({ agentId, sessionKey: activeSessionKey });
   const activeGatewaySessionKey = openClawGatewaySessionKey(activeSessionRecord)
@@ -1744,11 +1762,11 @@ export function useOpenClawSession(
     const targetSessionRecord = target.agentId === agentId
       ? findOpenClawSelectableSession(targetSessionRecords, target.sessionKey)
         ?? (shouldReconcileGeneratedSessionsAsMain(targetSessionRecords, target.sessionKey)
-          ? findOpenClawSelectableSession(targetSessionRecords, OPENCLAW_DEFAULT_SESSION_KEY)
+          ? findOpenClawSelectableSession(targetSessionRecords, OPENCLAW_INTERNAL_SESSION_KEY)
           : null)
       : null;
     const visibleSessionKey = shouldReconcileGeneratedSessionsAsMain(targetSessionRecords, target.sessionKey)
-      ? OPENCLAW_DEFAULT_SESSION_KEY
+      ? OPENCLAW_INTERNAL_SESSION_KEY
       : target.sessionKey;
     return {
       gatewaySessionKey: openClawGatewaySessionKey(targetSessionRecord)
@@ -1985,7 +2003,7 @@ export function useOpenClawSession(
           if (!historyHydrationEnabled) return;
           const refreshedSessionRecord = findOpenClawSelectableSession(nextSessions, recoveryTarget.sessionKey)
             ?? (shouldReconcileGeneratedSessionsAsMain(nextSessions, recoveryTarget.sessionKey)
-              ? findOpenClawSelectableSession(nextSessions, OPENCLAW_DEFAULT_SESSION_KEY)
+              ? findOpenClawSelectableSession(nextSessions, OPENCLAW_INTERNAL_SESSION_KEY)
               : null);
           const refreshedGatewaySessionKey = openClawGatewaySessionKey(refreshedSessionRecord)
             ?? recoveryTargetState.gatewaySessionKey;
@@ -2194,7 +2212,7 @@ export function useOpenClawSession(
       };
     };
     const sessionHydrationHasActiveSession = (value: ReturnType<typeof readSessionHydration>) => value.fetched && (
-      unscopedOpenClawSessionKey(activeSessionKey) === OPENCLAW_DEFAULT_SESSION_KEY ||
+      unscopedOpenClawSessionKey(activeSessionKey) === OPENCLAW_INTERNAL_SESSION_KEY ||
       Boolean(findOpenClawSelectableSession(value.sessions, activeSessionKey))
     );
     const sessionListNeededForHydration = (value: ReturnType<typeof readSessionHydration>) => (
@@ -2234,13 +2252,14 @@ export function useOpenClawSession(
           if (shouldFetchSessionList) void getSessionListResult();
 
           if (shouldFetchSessionList) {
-            const initialSessionListResult = await getSessionListResult();
-            if (cancelled) return;
-            if (initialSessionListResult.status === "fulfilled") {
-              completeReconnectSessionRefresh(reconnectRefreshRequest, applyFetchedSessions(initialSessionListResult.sessions));
-            } else {
-              completeReconnectSessionRefresh(reconnectRefreshRequest, undefined);
-            }
+          const initialSessionListResult = await getSessionListResult();
+          if (cancelled) return;
+          if (initialSessionListResult.status === "fulfilled") {
+            ensureLocalGeneratedSession(applyFetchedSessions(initialSessionListResult.sessions));
+            completeReconnectSessionRefresh(reconnectRefreshRequest, initialSessionListResult.sessions);
+          } else {
+            completeReconnectSessionRefresh(reconnectRefreshRequest, undefined);
+          }
           }
           setReady(false);
           return;
@@ -2258,10 +2277,10 @@ export function useOpenClawSession(
           const initialSessionListResult = await getSessionListResult();
           if (cancelled) return;
           if (initialSessionListResult.status === "fulfilled") {
-            const appliedSessions = applyFetchedSessions(initialSessionListResult.sessions);
+            const appliedSessions = ensureLocalGeneratedSession(applyFetchedSessions(initialSessionListResult.sessions));
             sessionHydration = { sessions: appliedSessions, fetched: true };
             sessionRouteResolved = sessionHydrationHasActiveSession(sessionHydration);
-            completeReconnectSessionRefresh(reconnectRefreshRequest, appliedSessions);
+            completeReconnectSessionRefresh(reconnectRefreshRequest, initialSessionListResult.sessions);
           } else {
             completeReconnectSessionRefresh(reconnectRefreshRequest, undefined);
           }
@@ -2336,7 +2355,7 @@ export function useOpenClawSession(
     return () => {
       cancelled = true;
     };
-  }, [gateway, status, agentId, activeSessionKey, activeGatewaySessionKey, activeSessionIsEphemeral, applyConnectionHydration, applyFetchedSessions, beginChatHistoryRequest, chatHistoryRequestIsCurrent, chatTargetHasSendAuthority, completeReconnectSessionRefresh, dispatchChatHistory, fetchSessionList, fullHydrationEnabled, grantChatSendAuthority, historyHydrationEnabled, hydrateConnectionForGateway, replaceChatHistoryFromGateway, resolveChatTargetState, setChatHistoryPhase]);
+  }, [gateway, status, agentId, activeSessionKey, activeGatewaySessionKey, activeSessionIsEphemeral, applyConnectionHydration, applyFetchedSessions, beginChatHistoryRequest, chatHistoryRequestIsCurrent, chatTargetHasSendAuthority, completeReconnectSessionRefresh, dispatchChatHistory, ensureLocalGeneratedSession, fetchSessionList, fullHydrationEnabled, grantChatSendAuthority, historyHydrationEnabled, hydrateConnectionForGateway, replaceChatHistoryFromGateway, resolveChatTargetState, setChatHistoryPhase]);
 
   useEffect(() => {
     if (status !== "disconnected") return;
@@ -3530,7 +3549,7 @@ export function useOpenClawSession(
     if (!gateway) throw new Error("Not connected");
     const session = findOpenClawSelectableSession(sessions, sessionKey);
     if (session?.readOnly) throw new Error(session.readOnlyReason ?? "This conversation is read-only.");
-    if (unscopedOpenClawSessionKey(session?.key ?? sessionKey) === OPENCLAW_DEFAULT_SESSION_KEY) {
+    if (unscopedOpenClawSessionKey(session?.key ?? sessionKey) === OPENCLAW_INTERNAL_SESSION_KEY) {
       throw new Error("The main session cannot be deleted.");
     }
     const target = { agentId, sessionKey };

@@ -1,7 +1,9 @@
 "use client";
 
+import {
+  OPENCLAW_INTERNAL_MAIN_SESSION_KEY,
+} from "@hypercli.com/sdk/openclaw/gateway";
 import type { ChatAttachment, ChatEvent, GatewayClient } from "@hypercli.com/sdk/openclaw/gateway";
-import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
 
 export interface OpenClawSessionRecord {
   key: string;
@@ -31,9 +33,8 @@ export interface OpenClawThinkingLevelOption {
   label: string;
 }
 
-export const OPENCLAW_DEFAULT_SESSION_KEY = "main";
 export const OPENCLAW_NEW_SESSION_TITLE = "New Session";
-const GENERATED_OPENCLAW_SESSION_KEY = /^(?:session-|dashboard:)(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|local-[a-z0-9-]+)$/i;
+const GENERATED_OPENCLAW_SESSION_KEY = /^(?:(?:session-|hcli:|dashboard:)(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|local-[a-z0-9-]+))$/i;
 const EPHEMERAL_OPENCLAW_SESSION_KEY = /^session-hypercli-ephemeral-[0-9a-f-]+$/i;
 const INTERNAL_OPENCLAW_SESSION_LABEL_PATTERNS = [
   /^Hyper Agent Web\b/i,
@@ -318,7 +319,7 @@ function channelSessionKeyFromMetadata(session: Record<string, unknown>, sourceC
 function shouldUseDerivedChannelSessionKey(rawKey: string | null, derivedKey: string | null): derivedKey is string {
   if (!derivedKey) return false;
   if (!rawKey) return true;
-  return unscopedOpenClawSessionKey(rawKey) === OPENCLAW_DEFAULT_SESSION_KEY;
+  return unscopedOpenClawSessionKey(rawKey) === OPENCLAW_INTERNAL_MAIN_SESSION_KEY;
 }
 
 function shouldUseCanonicalMainSessionKey(
@@ -327,7 +328,7 @@ function shouldUseCanonicalMainSessionKey(
   sourceChannelId: string | null,
 ): boolean {
   if (!rawKey || derivedChannelSessionKey) return false;
-  if (unscopedOpenClawSessionKey(rawKey) !== OPENCLAW_DEFAULT_SESSION_KEY) return false;
+  if (unscopedOpenClawSessionKey(rawKey) !== OPENCLAW_INTERNAL_MAIN_SESSION_KEY) return false;
   return !isReadOnlyOpenClawSessionSource(sourceChannelId);
 }
 
@@ -373,7 +374,7 @@ export function normalizeOpenClawSessionDisplayName(value: unknown, sessionKey?:
   if (isEphemeralOpenClawSessionName(label)) return null;
   if (isGeneratedOpenClawSessionName(label)) return null;
   if (isInternalOpenClawSessionDisplayName(label)) return null;
-  if (sessionKey && label === sessionKey && unscopedOpenClawSessionKey(sessionKey) === OPENCLAW_DEFAULT_SESSION_KEY) return null;
+  if (sessionKey && label === sessionKey && unscopedOpenClawSessionKey(sessionKey) === OPENCLAW_INTERNAL_MAIN_SESSION_KEY) return null;
   if (sessionKey && label === sessionKey && (isGeneratedOpenClawSessionName(sessionKey) || isEphemeralOpenClawSessionName(sessionKey))) return null;
   return label;
 }
@@ -403,7 +404,7 @@ function firstNormalizedOpenClawSessionDisplayName(
 }
 
 export function fallbackOpenClawSessionDisplayName(sessionKey: string): string {
-  if (unscopedOpenClawSessionKey(sessionKey) === OPENCLAW_DEFAULT_SESSION_KEY) return "Main Session";
+  if (unscopedOpenClawSessionKey(sessionKey) === OPENCLAW_INTERNAL_MAIN_SESSION_KEY) return "Main Session";
   return isGeneratedOpenClawSessionName(sessionKey) || isEphemeralOpenClawSessionName(sessionKey)
     ? OPENCLAW_NEW_SESSION_TITLE
     : sessionKey;
@@ -459,13 +460,17 @@ export function resolveOpenClawActiveSessionKey(
   requestedSessionKey?: string | null,
 ): string {
   const requested = nonEmptyString(requestedSessionKey);
-  return requested ?? resolveOpenClawSessionKey(agentId);
+  return requested ?? OPENCLAW_INTERNAL_MAIN_SESSION_KEY;
 }
 
 export function sameOpenClawSessionKey(a: string | null | undefined, b: string | null | undefined): boolean {
   const left = (a ?? "").trim();
   const right = (b ?? "").trim();
-  return left === right || unscopedOpenClawSessionKey(left) === unscopedOpenClawSessionKey(right);
+  if (left === right) return true;
+  const leftUnscoped = unscopedOpenClawSessionKey(left);
+  const rightUnscoped = unscopedOpenClawSessionKey(right);
+  if (leftUnscoped === OPENCLAW_INTERNAL_MAIN_SESSION_KEY || rightUnscoped === OPENCLAW_INTERNAL_MAIN_SESSION_KEY) return false;
+  return leftUnscoped === rightUnscoped;
 }
 
 export function sameOpenClawSelectableSessionKey(a: string | null | undefined, b: string | null | undefined): boolean {
@@ -475,7 +480,7 @@ export function sameOpenClawSelectableSessionKey(a: string | null | undefined, b
   if (left === right) return true;
   const leftUnscoped = unscopedOpenClawSessionKey(left);
   const rightUnscoped = unscopedOpenClawSessionKey(right);
-  if (leftUnscoped === OPENCLAW_DEFAULT_SESSION_KEY || rightUnscoped === OPENCLAW_DEFAULT_SESSION_KEY) return false;
+  if (leftUnscoped === OPENCLAW_INTERNAL_MAIN_SESSION_KEY || rightUnscoped === OPENCLAW_INTERNAL_MAIN_SESSION_KEY) return false;
   return leftUnscoped === rightUnscoped;
 }
 
@@ -494,7 +499,7 @@ export function resolveOpenClawGatewaySessionKey(
   sessions: OpenClawSessionRecord[],
   sessionKey: string | null | undefined,
 ): string {
-  const requested = nonEmptyString(sessionKey) ?? OPENCLAW_DEFAULT_SESSION_KEY;
+  const requested = nonEmptyString(sessionKey) ?? OPENCLAW_INTERNAL_MAIN_SESSION_KEY;
   return openClawGatewaySessionKey(findOpenClawSelectableSession(sessions, requested)) ?? requested;
 }
 
@@ -505,7 +510,7 @@ export function openClawEventMatchesSession(payload: unknown, sessionKey: string
   const eventSessionKey = firstNonEmptyString(payload.sessionKey, payload.session_key, payload.key);
   if (derivedChannelSessionKey) {
     if (sameOpenClawSessionKey(derivedChannelSessionKey, sessionKey)) return true;
-    if (unscopedOpenClawSessionKey(eventSessionKey) === OPENCLAW_DEFAULT_SESSION_KEY) return false;
+    if (unscopedOpenClawSessionKey(eventSessionKey) === OPENCLAW_INTERNAL_MAIN_SESSION_KEY) return false;
     return sameOpenClawSessionKey(eventSessionKey, sessionKey);
   }
   return Boolean(eventSessionKey && sameOpenClawSessionKey(eventSessionKey, sessionKey));
@@ -521,7 +526,7 @@ export function normalizeOpenClawSession(session: unknown): OpenClawSessionRecor
   const key = shouldUseDerivedChannelSessionKey(rawKey, derivedChannelSessionKey)
     ? derivedChannelSessionKey
     : shouldUseCanonicalMainSessionKey(rawKey, derivedChannelSessionKey, sourceChannelId)
-      ? OPENCLAW_DEFAULT_SESSION_KEY
+      ? OPENCLAW_INTERNAL_MAIN_SESSION_KEY
       : rawKey;
   if (!key) return null;
   const gatewaySessionKey = explicitGatewaySessionKey ?? rawKey;
@@ -624,11 +629,11 @@ export async function listOpenClawSessions(
     ? await gateway.sessionsListResult()
     : { sessions: await gateway.sessionsList() };
   const sessions = normalizeOpenClawSessions(result.sessions);
-  if (findOpenClawSelectableSession(sessions, OPENCLAW_DEFAULT_SESSION_KEY)) return sessions;
+  if (findOpenClawSelectableSession(sessions, OPENCLAW_INTERNAL_MAIN_SESSION_KEY)) return sessions;
 
   const defaults = isRecord(result.defaults) ? result.defaults : null;
   if (!defaults) return sessions;
-  const defaultSession = normalizeOpenClawSession({ ...defaults, key: OPENCLAW_DEFAULT_SESSION_KEY });
+  const defaultSession = normalizeOpenClawSession({ ...defaults, key: OPENCLAW_INTERNAL_MAIN_SESSION_KEY });
   const hasSelectableDefaults = Boolean(
     defaultSession?.model ||
     defaultSession?.thinkingDefault ||

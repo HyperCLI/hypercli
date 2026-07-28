@@ -47,6 +47,57 @@ STORAGE_KEY = "openclaw.device.auth.v1"
 CONNECT_ERROR_PAIRING_REQUIRED = "PAIRING_REQUIRED"
 CONNECT_ERROR_DEVICE_TOKEN_MISMATCH = "AUTH_DEVICE_TOKEN_MISMATCH"
 PAIRING_APPROVED_CODE = "PAIRING_APPROVED"
+OPENCLAW_INTERNAL_MAIN_SESSION_KEY = "main"
+OPENCLAW_SDK_SESSION_PREFIX = "hcli:"
+OPENCLAW_DASHBOARD_SESSION_PREFIX = "dashboard:"
+
+
+def _parse_agent_session_key(session_key: str | None) -> tuple[str, str] | None:
+    normalized = str(session_key or "").strip().lower()
+    if not normalized:
+        return None
+    parts = [part for part in normalized.split(":") if part]
+    if len(parts) < 3 or parts[0] != "agent":
+        return None
+    agent_id = parts[1].strip()
+    rest = ":".join(parts[2:]).strip()
+    if not agent_id or not rest:
+        return None
+    return agent_id, rest
+
+
+def create_openclaw_session_key(
+    existing_session_keys: list[str | None] | None = None,
+    *,
+    prefix: str = OPENCLAW_SDK_SESSION_PREFIX,
+) -> str:
+    resolved_prefix = prefix.strip()
+    existing = {str(key).strip() for key in (existing_session_keys or []) if str(key or "").strip()}
+    for _ in range(10):
+        key = f"{resolved_prefix}{uuid.uuid4()}"
+        if key not in existing:
+            return key
+    return f"{resolved_prefix}{uuid.uuid4()}"
+
+
+def create_openclaw_sdk_session_key(existing_session_keys: list[str | None] | None = None) -> str:
+    return create_openclaw_session_key(existing_session_keys, prefix=OPENCLAW_SDK_SESSION_PREFIX)
+
+
+def is_openclaw_internal_main_session_key(session_key: str | None) -> bool:
+    normalized = str(session_key or "").strip().lower()
+    if not normalized:
+        return False
+    parsed = _parse_agent_session_key(normalized)
+    return (parsed[1] if parsed else normalized) == OPENCLAW_INTERNAL_MAIN_SESSION_KEY
+
+
+def is_openclaw_sdk_session_key(session_key: str | None) -> bool:
+    normalized = str(session_key or "").strip().lower()
+    if not normalized:
+        return False
+    parsed = _parse_agent_session_key(normalized)
+    return (parsed[1] if parsed else normalized).startswith(OPENCLAW_SDK_SESSION_PREFIX)
 
 
 def _now_ms() -> int:

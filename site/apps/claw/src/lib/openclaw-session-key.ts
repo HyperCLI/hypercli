@@ -1,9 +1,11 @@
-/**
- * Each HyperCLI deployment connects to its own OpenClaw gateway, so the
- * gateway-local root session is already deployment scoped. Passing
- * "agent:<deploymentId>:main" makes the gateway treat the deployment UUID as an
- * internal OpenClaw agent and can create /workspace/<uuid>.
- */
-export function resolveOpenClawSessionKey(_agentId: string | null | undefined): string {
-  return "main";
+import {
+  OPENCLAW_DASHBOARD_SESSION_PREFIX,
+  OPENCLAW_INTERNAL_MAIN_SESSION_KEY,
+  createOpenClawSessionKey,
+} from "@hypercli.com/sdk/openclaw/gateway";
+
+export const OPENCLAW_INTERNAL_SESSION_KEY = OPENCLAW_INTERNAL_MAIN_SESSION_KEY;
+
+export function createOpenClawDashboardSessionKey(existingSessionKeys: Array<string | null | undefined> = []): string {
+  return createOpenClawSessionKey(existingSessionKeys, OPENCLAW_DASHBOARD_SESSION_PREFIX);
 }

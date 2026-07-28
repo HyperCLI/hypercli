@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 
 import type { Agent } from "@/app/dashboard/agents/types";
 import { buildAgentWorkspaceTabHref, type AgentRouteTab } from "@/lib/agent-workspace-route";
-import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
 import { AgentWorkspaceSidebar } from "./AgentWorkspaceSidebar";
 
 export function DashboardWorkspaceNavigation({
@@ -35,7 +34,7 @@ export function DashboardWorkspaceNavigation({
       sessions={null}
       sessionsFetched={false}
       sessionsUnavailableReason="Open the agent workspace to load sessions."
-      selectedSessionKey={selectedAgent ? resolveOpenClawSessionKey(selectedAgent.id) : null}
+      selectedSessionKey={null}
       showDesktop={false}
       onOpenFiles={() => openAgentTab("files")}
       onOpenIntegrations={() => openAgentTab("integrations")}

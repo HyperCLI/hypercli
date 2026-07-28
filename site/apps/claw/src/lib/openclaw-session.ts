@@ -10,6 +10,7 @@ import {
   resolveOpenClawActiveSessionKey,
   resolveOpenClawGatewaySessionKey,
   sameOpenClawSessionKey,
+  unscopedOpenClawSessionKey,
 } from "@/lib/openclaw-session-sdk-surface";
 import {
   type ChatMessage,
@@ -665,7 +666,8 @@ function hasRecoverableFiles(files: WorkspaceFile[]): boolean {
 
 function defaultSessionIsReadOnlyChannel(sessions: OpenClawSessionRecord[]): boolean {
   return sessions.some((session) => (
-    session.readOnly === true && sameOpenClawSessionKey(session.gatewaySessionKey ?? session.key, CANONICAL_GATEWAY_AGENT_ID)
+    session.readOnly === true &&
+    unscopedOpenClawSessionKey(session.gatewaySessionKey ?? session.key) === CANONICAL_GATEWAY_AGENT_ID
   ));
 }
 

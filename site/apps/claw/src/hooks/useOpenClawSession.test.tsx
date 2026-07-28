@@ -185,7 +185,7 @@ describe("useOpenClawSession", () => {
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
-    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
     await waitFor(() => expect(result.current.ready).toBe(true));
     const controller = new AbortController();
 
@@ -213,7 +213,7 @@ describe("useOpenClawSession", () => {
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
-    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
 
     await waitFor(() => expect(result.current.ready).toBe(true));
     await waitFor(() => expect(result.current.hydrating).toBe(false));
@@ -258,7 +258,7 @@ describe("useOpenClawSession", () => {
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
-    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
 
     await waitFor(() => expect(result.current.ready).toBe(true));
     await waitFor(() => expect(result.current.hydrating).toBe(false));
@@ -766,7 +766,7 @@ describe("useOpenClawSession", () => {
       webLoginStart: vi.fn(async () => ({ connected: false, message: "Scan QR", qrDataUrl: "data:image/png;base64,cXI=" })),
       webLoginWait: vi.fn(async () => ({ connected: true, message: "Connected" })),
     };
-    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
     await waitFor(() => expect(result.current.ready).toBe(true));
 
     await act(async () => {
@@ -798,7 +798,7 @@ describe("useOpenClawSession", () => {
         .mockRejectedValueOnce(new Error("web login provider is not available"))
         .mockResolvedValueOnce({ connected: false, message: "Scan QR", qrDataUrl: "data:image/png;base64,cXI=" }),
     };
-    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
     await waitFor(() => expect(result.current.ready).toBe(true));
 
     await expect(result.current.webLoginStart({ force: true })).rejects.toThrow("web login provider is not available");
@@ -820,7 +820,7 @@ describe("useOpenClawSession", () => {
       webLoginStart: vi.fn(async () => ({ connected: false, message: "Scan QR", qrDataUrl: "data:image/png;base64,cXI=" })),
     };
     const events: OpenClawWhatsAppProgressEvent[] = [];
-    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
     await waitFor(() => expect(result.current.ready).toBe(true));
 
     await act(async () => {
@@ -861,7 +861,7 @@ describe("useOpenClawSession", () => {
         stderr: "",
       })),
     };
-    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
     await waitFor(() => expect(result.current.ready).toBe(true));
 
     await act(async () => {
@@ -1961,6 +1961,8 @@ describe("useOpenClawSession", () => {
 
     await waitFor(() => expect(result.current.connected).toBe(true));
     await waitFor(() => expect(result.current.hydrating).toBe(false));
+    const activeSessionKey = result.current.activeSessionKey;
+    expect(activeSessionKey).toMatch(/^dashboard:[0-9a-f-]+$/i);
 
     act(() => {
       result.current.setInput("hello");
@@ -1970,7 +1972,7 @@ describe("useOpenClawSession", () => {
       await result.current.sendMessage();
     });
 
-    expect(gateway.chatSend).toHaveBeenCalledWith("hello", "main", undefined);
+    expect(gateway.chatSend).toHaveBeenCalledWith("hello", activeSessionKey, undefined);
     expect(gateway.sendChat).not.toHaveBeenCalled();
     unmount();
   });
@@ -2002,6 +2004,8 @@ describe("useOpenClawSession", () => {
     const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
     await waitFor(() => expect(result.current.connected).toBe(true));
     await waitFor(() => expect(result.current.hydrating).toBe(false));
+    const activeSessionKey = result.current.activeSessionKey;
+    expect(activeSessionKey).toMatch(/^dashboard:[0-9a-f-]+$/i);
 
     act(() => {
       result.current.setInput("Find duplicate screenshots and summarize the differences.");
@@ -2012,7 +2016,7 @@ describe("useOpenClawSession", () => {
     });
 
     const [message, sessionKey, attachments] = gateway.chatSend.mock.calls.at(-1)!;
-    expect(sessionKey).toBe("main");
+    expect(sessionKey).toMatch(/^dashboard:[0-9a-f-]+$/i);
     expect(attachments).toBeUndefined();
     expect(message).toBe(`file: ${collectionFile.path}\n\nFind duplicate screenshots and summarize the differences.`);
     expect(gateway.runEphemeralChat).not.toHaveBeenCalled();
@@ -2055,6 +2059,8 @@ describe("useOpenClawSession", () => {
     const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
     await waitFor(() => expect(result.current.connected).toBe(true));
     await waitFor(() => expect(result.current.hydrating).toBe(false));
+    const activeSessionKey = result.current.activeSessionKey;
+    expect(activeSessionKey).toMatch(/^dashboard:[0-9a-f-]+$/i);
 
     let firstSend: Promise<void> | undefined;
     act(() => {
@@ -2084,7 +2090,7 @@ describe("useOpenClawSession", () => {
     await waitFor(() => expect(gateway.chatSend).toHaveBeenCalledTimes(2));
     expect(gateway.chatSend.mock.calls[1]?.slice(0, 3)).toEqual([
       `file: ${collectionFile.path}\n\nCompare these screenshots.`,
-      "main",
+      activeSessionKey,
       undefined,
     ]);
     unmount();
@@ -3285,9 +3291,9 @@ describe("useOpenClawSession", () => {
       },
     ]);
     gateway.chatHistory.mockImplementation(async (sessionKey: string) => (
-      sessionKey === "agent:default:main"
-        ? [{ role: "assistant", content: "Main history from default gateway key" }]
-        : [{ role: "assistant", content: "Main history" }]
+      sessionKey === "main"
+        ? [{ role: "assistant", content: "Main history" }]
+        : []
     ));
     gateway.sessionsPreview.mockImplementation(async (sessionKey: string) => (
       sessionKey === "telegram:489595440"
@@ -3307,7 +3313,6 @@ describe("useOpenClawSession", () => {
     await waitFor(() => expect(result.current.hydrating).toBe(false));
 
     expect(gateway.sessionsPreview).toHaveBeenCalledWith("telegram:489595440", 200);
-    expect(gateway.chatHistory).not.toHaveBeenCalledWith("agent:default:main", 200);
     expect(result.current.messages.map((message) => message.content)).toEqual(["Telegram history"]);
     expect(result.current.activeSessionReadOnly).toBe(true);
     expect(result.current.activeSessionReadOnlyReason).toBe("Telegram conversations are read-only here. Reply from Telegram.");
@@ -3351,7 +3356,7 @@ describe("useOpenClawSession", () => {
       },
     ]);
     gateway.chatHistory.mockImplementation(async (sessionKey: string) => (
-      sessionKey === "main" || sessionKey === "agent:default:main"
+      sessionKey === "main"
         ? [{ role: "assistant", content: "Main history" }]
         : []
     ));
@@ -3375,7 +3380,6 @@ describe("useOpenClawSession", () => {
 
     await waitFor(() => expect(gateway.sessionsPreview).toHaveBeenCalledWith("agent:default:main", 200));
     await waitFor(() => expect(result.current.hydrating).toBe(false));
-    expect(gateway.chatHistory).not.toHaveBeenCalledWith("agent:default:main", 200);
     expect(result.current.activeSessionReadOnly).toBe(true);
     expect(result.current.messages).toEqual([]);
     unmount();
@@ -3386,7 +3390,7 @@ describe("useOpenClawSession", () => {
     const sessionsList = deferred<unknown[]>();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
     gateway.sessionsList.mockImplementation(async () => sessionsList.promise);
-    gateway.chatHistory.mockResolvedValue([{ role: "assistant", content: "Main history" }]);
+    gateway.chatHistory.mockResolvedValue([]);
     gateway.sessionsPreview.mockResolvedValue([]);
     const agent = {
       id: "deploy-123",
@@ -3430,7 +3434,6 @@ describe("useOpenClawSession", () => {
 
     await waitFor(() => expect(result.current.activeSessionReadOnly).toBe(true));
     await waitFor(() => expect(result.current.hydrating).toBe(false));
-    expect(gateway.chatHistory).not.toHaveBeenCalledWith("agent:default:main", 200);
     expect(result.current.messages).toEqual([
       expect.objectContaining({ role: "user", content: "Incoming Telegram before metadata" }),
     ]);
@@ -4909,18 +4912,20 @@ describe("useOpenClawSession", () => {
       gateway: vi.fn(() => gateway),
     };
 
-    const { unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
 
-    await waitFor(() => expect(gateway.chatHistory).toHaveBeenCalledWith("main", 200));
+    await waitFor(() => expect(result.current.activeSessionKey).toMatch(/^dashboard:[0-9a-f-]+$/i));
+    const activeSessionKey = result.current.activeSessionKey;
+    await waitFor(() => expect(gateway.chatHistory).toHaveBeenCalledWith(activeSessionKey, 200));
     await waitFor(() => expect(gateway.sessionsList).toHaveBeenCalledTimes(1));
     const historyCallsAfterHydration = gateway.chatHistory.mock.calls.length;
     const sessionCallsAfterHydration = gateway.sessionsList.mock.calls.length;
     gateway.chatHistory.mockResolvedValue([{ role: "assistant", content: "Refreshed history" }]);
 
     act(() => {
-      gateway.emit({ event: "chat", payload: { sessionKey: "main", state: "final" } });
-      gateway.emit({ event: "chat.done", payload: { sessionKey: "main" } });
-      gateway.emit({ event: "agent", payload: { sessionKey: "main", stream: "lifecycle", data: { phase: "end" } } });
+      gateway.emit({ event: "chat", payload: { sessionKey: activeSessionKey, state: "final" } });
+      gateway.emit({ event: "chat.done", payload: { sessionKey: activeSessionKey } });
+      gateway.emit({ event: "agent", payload: { sessionKey: activeSessionKey, stream: "lifecycle", data: { phase: "end" } } });
     });
 
     await act(async () => {
@@ -4944,17 +4949,19 @@ describe("useOpenClawSession", () => {
       gateway: vi.fn(() => gateway),
     };
 
-    const { unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
 
-    await waitFor(() => expect(gateway.chatHistory).toHaveBeenCalledWith("main", 200));
+    await waitFor(() => expect(result.current.activeSessionKey).toMatch(/^dashboard:[0-9a-f-]+$/i));
+    const activeSessionKey = result.current.activeSessionKey;
+    await waitFor(() => expect(gateway.chatHistory).toHaveBeenCalledWith(activeSessionKey, 200));
     await waitFor(() => expect(gateway.sessionsList).toHaveBeenCalledTimes(1));
     const historyCallsAfterHydration = gateway.chatHistory.mock.calls.length;
     const sessionCallsAfterHydration = gateway.sessionsList.mock.calls.length;
     gateway.chatHistory.mockResolvedValue([{ role: "assistant", content: "Refreshed history" }]);
 
     act(() => {
-      gateway.emit({ event: "chat.done", payload: { sessionKey: "main" } });
-      gateway.emit({ event: "chat.done", payload: { sessionKey: "main" } });
+      gateway.emit({ event: "chat.done", payload: { sessionKey: activeSessionKey } });
+      gateway.emit({ event: "chat.done", payload: { sessionKey: activeSessionKey } });
     });
 
     await act(async () => {
@@ -4985,12 +4992,14 @@ describe("useOpenClawSession", () => {
 
     await waitFor(() => expect(result.current.connected).toBe(true));
     await waitFor(() => expect(result.current.hydrating).toBe(false));
+    const activeSessionKey = result.current.activeSessionKey;
+    expect(activeSessionKey).toMatch(/^dashboard:[0-9a-f-]+$/i);
 
     await act(async () => {
       await result.current.sendMessage("Retry image request", { attachments: [attachment] });
     });
 
-    expect(gateway.chatSend).toHaveBeenCalledWith("Retry image request", "main", [attachment]);
+    expect(gateway.chatSend).toHaveBeenCalledWith("Retry image request", activeSessionKey, [attachment]);
     expect(result.current.messages[0]).toEqual(expect.objectContaining({
       role: "user",
       content: "Retry image request",
@@ -5019,6 +5028,8 @@ describe("useOpenClawSession", () => {
 
     await waitFor(() => expect(result.current.connected).toBe(true));
     await waitFor(() => expect(result.current.hydrating).toBe(false));
+    const activeSessionKey = result.current.activeSessionKey;
+    expect(activeSessionKey).toMatch(/^dashboard:[0-9a-f-]+$/i);
 
     await act(async () => {
       await result.current.sendMessage(voiceMessage, { displayContent: "", files: [voiceFile] });
@@ -5026,7 +5037,7 @@ describe("useOpenClawSession", () => {
 
     expect(gateway.chatSend).toHaveBeenCalledWith(
       `file: ${voiceFile.path}\n\n${voiceMessage}`,
-      "main",
+      activeSessionKey,
       undefined,
     );
     expect(result.current.messages[0]).toEqual(expect.objectContaining({
@@ -5106,7 +5117,7 @@ describe("useOpenClawSession", () => {
       gateway: vi.fn(() => gateway),
     };
 
-    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
 
     await waitFor(() => expect(result.current.connected).toBe(true));
     await waitFor(() => expect(result.current.hydrating).toBe(false));
@@ -5144,7 +5155,7 @@ describe("useOpenClawSession", () => {
       gateway: vi.fn(() => gateway),
     };
 
-    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
 
     await waitFor(() => expect(result.current.historyPhase).toBe("ready"));
     expect(result.current.activeSessionCanSend).toBe(true);
@@ -5168,7 +5179,7 @@ describe("useOpenClawSession", () => {
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
-    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
 
     await waitFor(() => expect(result.current.ready).toBe(true));
     act(() => {
@@ -5256,7 +5267,7 @@ describe("useOpenClawSession", () => {
       gateway: vi.fn(() => gateway),
     };
 
-    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
 
     await waitFor(() => expect(result.current.gatewayConnected).toBe(true));
     await waitFor(() => expect(result.current.hydrating).toBe(false));
@@ -5511,6 +5522,8 @@ describe("useOpenClawSession", () => {
 
     await waitFor(() => expect(result.current.connected).toBe(true));
     await waitFor(() => expect(result.current.hydrating).toBe(false));
+    const activeSessionKey = result.current.activeSessionKey;
+    expect(activeSessionKey).toMatch(/^dashboard:[0-9a-f-]+$/i);
 
     act(() => {
       result.current.setInput("hello");
@@ -5526,7 +5539,7 @@ describe("useOpenClawSession", () => {
       expect(assistantMessages[0]?.content).toBe("Hello");
     });
     await waitFor(() => {
-      const cachedMessages = readCachedOpenClawChatHistory("deploy-123");
+      const cachedMessages = readCachedOpenClawChatHistory("deploy-123", activeSessionKey);
       expect(cachedMessages.map((message) => message.content)).toEqual(["hello", "Hello"]);
     });
     unmount();
@@ -5616,6 +5629,8 @@ describe("useOpenClawSession", () => {
 
     await waitFor(() => expect(result.current.connected).toBe(true));
     await waitFor(() => expect(result.current.hydrating).toBe(false));
+    const activeSessionKey = result.current.activeSessionKey;
+    expect(activeSessionKey).toMatch(/^dashboard:[0-9a-f-]+$/i);
 
     act(() => {
       result.current.setInput("stop this reply");
@@ -5638,7 +5653,7 @@ describe("useOpenClawSession", () => {
     });
 
     await waitFor(() => expect(result.current.aborting).toBe(true));
-    expect(gateway.chatAbort).toHaveBeenCalledWith("main");
+    expect(gateway.chatAbort).toHaveBeenCalledWith(activeSessionKey);
 
     await act(async () => {
       abortAck.resolve();
@@ -5864,6 +5879,8 @@ describe("useOpenClawSession", () => {
 
     await waitFor(() => expect(result.current.connected).toBe(true));
     await waitFor(() => expect(result.current.hydrating).toBe(false));
+    const activeSessionKey = result.current.activeSessionKey;
+    expect(activeSessionKey).toMatch(/^dashboard:[0-9a-f-]+$/i);
 
     gateway.chatHistory.mockResolvedValue([
       { role: "user", content: "make an image" },
@@ -5884,7 +5901,7 @@ describe("useOpenClawSession", () => {
         expect.objectContaining({ role: "assistant", content: "MEDIA:/home/node/.openclaw/workspace/865621.jpg" }),
       ]);
     });
-    expect(gateway.chatHistory).toHaveBeenLastCalledWith("main", 200);
+    expect(gateway.chatHistory).toHaveBeenLastCalledWith(activeSessionKey, 200);
     unmount();
   });
 
@@ -5903,6 +5920,8 @@ describe("useOpenClawSession", () => {
 
     await waitFor(() => expect(result.current.connected).toBe(true));
     await waitFor(() => expect(result.current.hydrating).toBe(false));
+    const activeSessionKey = result.current.activeSessionKey;
+    expect(activeSessionKey).toMatch(/^dashboard:[0-9a-f-]+$/i);
 
     act(() => {
       result.current.setInput("hello");
@@ -5912,11 +5931,11 @@ describe("useOpenClawSession", () => {
       await result.current.sendMessage();
     });
 
-    expect(gateway.sendChat).toHaveBeenCalledWith("hello", "main", undefined, undefined);
+    expect(gateway.sendChat).toHaveBeenCalledWith("hello", activeSessionKey, undefined, undefined);
     expect(result.current.sending).toBe(true);
 
     act(() => {
-      gateway.emit({ event: "chat.done", payload: { sessionKey: "main" } });
+      gateway.emit({ event: "chat.done", payload: { sessionKey: activeSessionKey } });
     });
 
     await waitFor(() => expect(result.current.sending).toBe(false));

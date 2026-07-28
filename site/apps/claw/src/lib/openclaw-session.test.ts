@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { handleOpenClawChatStreamEvent, handleOpenClawSessionEvent, hydrateOpenClawSession, refreshOpenClawChatMessages } from "./openclaw-session";
 import { OPENCLAW_EMPTY_REPLY_NOTICE, type ChatMessage } from "./openclaw-chat";
-import { resolveOpenClawSessionKey } from "./openclaw-session-key";
+import { OPENCLAW_INTERNAL_SESSION_KEY, createOpenClawDashboardSessionKey } from "./openclaw-session-key";
 
 const THINKING_LEAK_SENTINEL = "DO_NOT_RENDER_THINKING_SENTINEL";
 const TOOL_ARG_LEAK_SENTINEL = "DO_NOT_RENDER_TOOL_ARG_SENTINEL";
@@ -151,15 +151,19 @@ const README_REFRESH_HISTORY = [
 ];
 
 describe("openclaw session keys", () => {
-  it("keeps the default root session on main", () => {
-    expect(resolveOpenClawSessionKey("main")).toBe("main");
-    expect(resolveOpenClawSessionKey("")).toBe("main");
-    expect(resolveOpenClawSessionKey(undefined)).toBe("main");
+  it("keeps OpenClaw's internal root session named main", () => {
+    expect(OPENCLAW_INTERNAL_SESSION_KEY).toBe("main");
   });
 
-  it("keeps deployment ids out of gateway session keys", () => {
-    expect(resolveOpenClawSessionKey("agent-123")).toBe("main");
-    expect(resolveOpenClawSessionKey("550e8400-e29b-41d4-a716-446655440000")).toBe("main");
+  it("creates dashboard session keys without deployment ids or main", () => {
+    const key = createOpenClawDashboardSessionKey([
+      "dashboard:550e8400-e29b-41d4-a716-446655440000",
+    ]);
+
+    expect(key).toMatch(/^dashboard:[0-9a-f-]+$/i);
+    expect(key).not.toBe("main");
+    expect(key).not.toContain("agent-123");
+    expect(key).not.toContain("550e8400-e29b-41d4-a716-446655440000");
   });
 
   it("uses the canonical gateway file agent id before probing legacy workspaces", async () => {

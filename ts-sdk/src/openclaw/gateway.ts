@@ -19,6 +19,50 @@ import type {
   OpenClawWhatsAppConfigPatch,
 } from "./channels.js";
 
+export const OPENCLAW_INTERNAL_MAIN_SESSION_KEY = "main";
+export const OPENCLAW_SDK_SESSION_PREFIX = "hcli:";
+export const OPENCLAW_DASHBOARD_SESSION_PREFIX = "dashboard:";
+
+export function createOpenClawSessionKey(
+  existingSessionKeys: Array<string | null | undefined> = [],
+  prefix = OPENCLAW_SDK_SESSION_PREFIX,
+): string {
+  const resolvedPrefix = prefix.trim();
+  const existing = new Set(
+    existingSessionKeys
+      .map((key) => key?.trim())
+      .filter((key): key is string => Boolean(key)),
+  );
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const suffix = typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    const key = `${resolvedPrefix}${suffix}`;
+    if (!existing.has(key)) return key;
+  }
+  return `${resolvedPrefix}local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export function createOpenClawSdkSessionKey(
+  existingSessionKeys: Array<string | null | undefined> = [],
+): string {
+  return createOpenClawSessionKey(existingSessionKeys, OPENCLAW_SDK_SESSION_PREFIX);
+}
+
+export function isOpenClawInternalMainSessionKey(sessionKey: string | null | undefined): boolean {
+  const normalized = (sessionKey ?? "").trim().toLowerCase();
+  if (!normalized) return false;
+  const parsed = parseAgentSessionKey(normalized);
+  return (parsed?.rest ?? normalized) === OPENCLAW_INTERNAL_MAIN_SESSION_KEY;
+}
+
+export function isOpenClawSdkSessionKey(sessionKey: string | null | undefined): boolean {
+  const normalized = (sessionKey ?? "").trim().toLowerCase();
+  if (!normalized) return false;
+  const parsed = parseAgentSessionKey(normalized);
+  return (parsed?.rest ?? normalized).startsWith(OPENCLAW_SDK_SESSION_PREFIX);
+}
+
 export type GatewayProtocolErrorCode =
   | "INVALID_JSON"
   | "INVALID_FRAME"

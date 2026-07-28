@@ -75,7 +75,7 @@ describe("DashboardWorkspaceNavigation", () => {
       sessions: null,
       sessionsFetched: false,
       sessionsUnavailableReason: "Open the agent workspace to load sessions.",
-      selectedSessionKey: "main",
+      selectedSessionKey: null,
       showDesktop: false,
     });
 

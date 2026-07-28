@@ -131,7 +131,10 @@ import {
   checkoutSyncBannerFromBillingState,
   initialBillingReflectionState,
 } from "@/lib/billing-reflection-machine";
-import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
+import {
+  OPENCLAW_INTERNAL_SESSION_KEY,
+  createOpenClawDashboardSessionKey,
+} from "@/lib/openclaw-session-key";
 import {
   displayOpenClawSessionName,
   fallbackOpenClawSessionDisplayName,
@@ -1163,9 +1166,23 @@ function AgentsPageContent() {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [selectedSessionKeysByAgent, setSelectedSessionKeysByAgent] = useState<Record<string, string>>(() => (
     requestedAgentId
-      ? { [requestedAgentId]: requestedSessionKey ?? resolveOpenClawSessionKey(requestedAgentId) }
+      ? { [requestedAgentId]: requestedSessionKey ?? createOpenClawDashboardSessionKey() }
       : {}
   ));
+  const generatedSessionKeysByAgentRef = useRef<Record<string, string>>({});
+  const sessionKeyForAgent = useCallback((agentId: string | null | undefined): string => {
+    const sessionOwnerKey = agentId ?? "__no-agent__";
+    const selected = agentId ? selectedSessionKeysByAgent[agentId] : null;
+    if (selected) return selected;
+    const existing = generatedSessionKeysByAgentRef.current[sessionOwnerKey];
+    if (existing) return existing;
+    const generated = createOpenClawDashboardSessionKey(Object.values({
+      ...selectedSessionKeysByAgent,
+      ...generatedSessionKeysByAgentRef.current,
+    }));
+    generatedSessionKeysByAgentRef.current[sessionOwnerKey] = generated;
+    return generated;
+  }, [selectedSessionKeysByAgent]);
   const { pinnedSessionKeys, setSessionPinned } = useOpenClawSessionPins(selectedAgentId);
   const mainTabBeforeAdministrationRef = useRef<MainTab>("chat");
   const appliedAgentRouteTabRef = useRef<AgentRouteTab | null>(null);
@@ -1355,7 +1372,7 @@ function AgentsPageContent() {
     if (
       agentId &&
       normalizedSessionKey &&
-      !sameOpenClawSelectableSessionKey(normalizedSessionKey, resolveOpenClawSessionKey(agentId))
+      !sameOpenClawSelectableSessionKey(normalizedSessionKey, OPENCLAW_INTERNAL_SESSION_KEY)
     ) {
       params.set("session", normalizedSessionKey);
     } else {
@@ -2153,7 +2170,7 @@ function AgentsPageContent() {
       ? JSON.stringify([requestedAgentId, requestedSessionKey])
       : null;
     const requestedAgentSessionKey = requestedAgentId
-      ? requestedSessionKey ?? resolveOpenClawSessionKey(requestedAgentId)
+      ? requestedSessionKey ?? sessionKeyForAgent(requestedAgentId)
       : null;
     const applyRequestedSession = () => {
       if (!requestedAgentId || !requestedAgentSessionKey) {
@@ -2325,13 +2342,13 @@ function AgentsPageContent() {
   });
 
   const selectedSessionKey = selectedAgentId
-    ? selectedSessionKeysByAgent[selectedAgentId] ?? resolveOpenClawSessionKey(selectedAgentId)
-    : resolveOpenClawSessionKey(null);
+    ? selectedSessionKeysByAgent[selectedAgentId] ?? sessionKeyForAgent(selectedAgentId)
+    : sessionKeyForAgent(null);
   const knowledgeSectionHref = useMemo(() => {
     const params = new URLSearchParams({ section: "knowledge" });
     if (selectedAgentId) {
       params.set("agentId", selectedAgentId);
-      if (!sameOpenClawSelectableSessionKey(selectedSessionKey, resolveOpenClawSessionKey(selectedAgentId))) {
+      if (!sameOpenClawSelectableSessionKey(selectedSessionKey, OPENCLAW_INTERNAL_SESSION_KEY)) {
         params.set("session", selectedSessionKey);
       }
     }
@@ -2341,14 +2358,14 @@ function AgentsPageContent() {
     const params = new URLSearchParams({ section: "members" });
     if (selectedAgentId) {
       params.set("agentId", selectedAgentId);
-      if (!sameOpenClawSelectableSessionKey(selectedSessionKey, resolveOpenClawSessionKey(selectedAgentId))) {
+      if (!sameOpenClawSelectableSessionKey(selectedSessionKey, OPENCLAW_INTERNAL_SESSION_KEY)) {
         params.set("session", selectedSessionKey);
       }
     }
     return `/dashboard/agents?${params.toString()}`;
   }, [selectedAgentId, selectedSessionKey]);
   const selectedSessionRouteValue = selectedAgentId
-    && !sameOpenClawSelectableSessionKey(selectedSessionKey, resolveOpenClawSessionKey(selectedAgentId))
+    && !sameOpenClawSelectableSessionKey(selectedSessionKey, OPENCLAW_INTERNAL_SESSION_KEY)
     ? selectedSessionKey
     : null;
   const selectedAgentHref = useMemo(() => {
@@ -2427,10 +2444,10 @@ function AgentsPageContent() {
       await endTemporaryChatBeforeSelectionRef.current();
     }
     if (agentSelectionOperationRef.current !== selectionOperation) return;
-    const sessionKey = selectedSessionKeysByAgent[agentId] ?? resolveOpenClawSessionKey(agentId);
+    const sessionKey = selectedSessionKeysByAgent[agentId] ?? sessionKeyForAgent(agentId);
     setSelectedAgentId(agentId);
     replaceAgentChatRoute(agentId, sessionKey, clearRoutedPanel, pushRoute);
-  }, [replaceAgentChatRoute, selectedAgentId, selectedSessionKeysByAgent]);
+  }, [replaceAgentChatRoute, selectedAgentId, selectedSessionKeysByAgent, sessionKeyForAgent]);
   const selectAgentFromRoster = useCallback((agentId: string) => {
     setAgentLauncherOpen(false);
     void selectAgent(agentId, Boolean(dashboardView), Boolean(dashboardView));
@@ -2882,7 +2899,7 @@ function AgentsPageContent() {
       const displayName = agentDisplayLabel(agent);
       return {
         id: agent.id,
-        sessionKey: resolveOpenClawSessionKey(agent.id),
+        sessionKey: sessionKeyForAgent(agent.id),
         participants: [
           { id: "user", name: "You", type: "user" as const },
           { id: agent.id, name: displayName, type: "agent" as const, meta: agent.meta ?? null },
@@ -2901,7 +2918,7 @@ function AgentsPageContent() {
         isActive: agent.state === "RUNNING",
       };
     });
-  }, [chat.messages.length, orderedRosterAgents, selectedAgentId]);
+  }, [chat.messages.length, orderedRosterAgents, selectedAgentId, sessionKeyForAgent]);
   // Derive RecentToolCall[] by flattening toolCalls across assistant messages.
   // Newest last (matches the Activity tab order).
   const recentToolCallsForView = useMemo(() => {
@@ -3423,7 +3440,7 @@ function AgentsPageContent() {
       replaceAgentChatRoute(
         nextSelectedAgentId,
         nextSelectedAgentId
-          ? selectedSessionKeysByAgent[nextSelectedAgentId] ?? resolveOpenClawSessionKey(nextSelectedAgentId)
+          ? selectedSessionKeysByAgent[nextSelectedAgentId] ?? sessionKeyForAgent(nextSelectedAgentId)
           : null,
       );
       const refreshed = await fetchAgents({ force: true });
@@ -4176,7 +4193,7 @@ function AgentsPageContent() {
     await chat.deleteSession(sessionKey);
     setSessionPinned(sessionKey, false);
     if (!selectedAgentId || !sameOpenClawSelectableSessionKey(sessionKey, selectedSessionKey)) return;
-    const fallbackSessionKey = chat.sessions.find((session) => !sameOpenClawSelectableSessionKey(session.key, sessionKey))?.key ?? resolveOpenClawSessionKey(selectedAgentId);
+    const fallbackSessionKey = chat.sessions.find((session) => !sameOpenClawSelectableSessionKey(session.key, sessionKey))?.key ?? sessionKeyForAgent(selectedAgentId);
     setSelectedSessionKeysByAgent((prev) => ({ ...prev, [selectedAgentId]: fallbackSessionKey }));
     replaceAgentChatRoute(selectedAgentId, fallbackSessionKey);
   };
