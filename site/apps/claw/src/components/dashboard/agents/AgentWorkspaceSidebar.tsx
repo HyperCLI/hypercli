@@ -72,7 +72,6 @@ import {
   displayOpenClawSessionName,
   fallbackOpenClawSessionDisplayName,
   isOpenClawSubagentSession,
-  isOpenClawSubagentSessionKey,
   sameOpenClawSelectableSessionKey,
   type OpenClawSessionRecord,
   unscopedOpenClawSessionKey,
@@ -119,6 +118,7 @@ interface AgentWorkspaceSidebarProps {
   sessions?: OpenClawSessionRecord[] | null;
   sessionsFetched?: boolean;
   sessionsUnavailableReason?: string;
+  showInternalMainSession?: boolean;
   creatingSessionKeys?: string[];
   thinkingSessionKeys?: string[];
   selectedSessionKey?: string | null;
@@ -1160,6 +1160,7 @@ export function AgentWorkspaceSidebar({
   sessions,
   sessionsFetched = sessions != null,
   sessionsUnavailableReason = "Sessions are loading.",
+  showInternalMainSession = false,
   creatingSessionKeys = [],
   thinkingSessionKeys = [],
   selectedSessionKey,
@@ -1208,29 +1209,19 @@ export function AgentWorkspaceSidebar({
   const sortedSessions = useMemo(() => {
     if (!hasSelectedAgent) return [];
     const sourceSessions = sessions ?? [];
-    const activeKey = selectedSessionKey?.trim() || "";
-    const selectedSessionIsSubagent = Boolean(activeKey && sourceSessions.some((session) => (
-      sameOpenClawSelectableSessionKey(session.key, activeKey) && isOpenClawSubagentSession(session)
-    )));
     const sessionRecords = sourceSessions.filter((session) => (
-      session.ephemeral !== true && !isOpenClawSubagentSession(session)
+      session.ephemeral !== true &&
+      (showInternalMainSession || !isCanonicalMainSession(session)) &&
+      !isOpenClawSubagentSession(session)
     ));
-    if (!sessionRecords.some(isCanonicalMainSession)) {
+    if (showInternalMainSession && !sessionRecords.some(isCanonicalMainSession)) {
       sessionRecords.unshift(selectedSessionRecord("main", 0));
-    }
-    if (
-      activeKey &&
-      !isOpenClawSubagentSessionKey(activeKey) &&
-      !selectedSessionIsSubagent &&
-      !hasSession(sessionRecords, activeKey)
-    ) {
-      sessionRecords.unshift(selectedSessionRecord(activeKey));
     }
     return sessionRecords.sort((a, b) => {
       const pinOrder = Number(isSessionPinned(b.key, pinnedSessionKeys)) - Number(isSessionPinned(a.key, pinnedSessionKeys));
       return pinOrder || b.lastMessageAt - a.lastMessageAt;
     });
-  }, [hasSelectedAgent, pinnedSessionKeys, sessions, selectedSessionKey]);
+  }, [hasSelectedAgent, pinnedSessionKeys, sessions, showInternalMainSession]);
   const titledSessions = useMemo(
     () => sessionsFetched ? sortedSessions : sortedSessions.filter((session) => !isUnresolvedPlaceholderSession(session)),
     [sessionsFetched, sortedSessions],

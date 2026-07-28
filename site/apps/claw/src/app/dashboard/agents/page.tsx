@@ -243,6 +243,7 @@ const TOKEN_USAGE_RUNNING_REFRESH_INTERVAL_MS = 60_000;
 const AGENT_DASHBOARD_ENRICHMENT_TIMEOUT_MS = 10_000;
 const SHELL_INTENT_TTL_MS = 12_000;
 const AGENT_DIRECTORY_MARKER_NAME = ".hypercli-folder";
+const SHOW_INTERNAL_MAIN_SESSION = false;
 
 function DeferredDashboardPanel() {
   return (
@@ -2974,7 +2975,9 @@ function AgentsPageContent() {
   // Derive AgentSession[] from chat.sessions
   const agentSessionsForView = useMemo(() => {
     if (!chat.sessions || chat.sessions.length === 0) return null;
-    return chat.sessions.map((session) => {
+    return chat.sessions.filter((session) => (
+      SHOW_INTERNAL_MAIN_SESSION || !sameOpenClawSelectableSessionKey(session.key, OPENCLAW_INTERNAL_SESSION_KEY)
+    )).map((session) => {
       const sourceChannelId = typeof session.sourceChannelId === "string" ? session.sourceChannelId : undefined;
       return {
         key: session.key,
@@ -2991,6 +2994,7 @@ function AgentsPageContent() {
     const options: Array<{ key: string; label: string }> = [];
     const addSession = (key: string, label: string) => {
       const normalizedKey = key.trim();
+      if (!SHOW_INTERNAL_MAIN_SESSION && sameOpenClawSelectableSessionKey(normalizedKey, OPENCLAW_INTERNAL_SESSION_KEY)) return;
       if (!normalizedKey || options.some((option) => sameOpenClawSelectableSessionKey(option.key, normalizedKey))) return;
       options.push({ key: normalizedKey, label: label.trim() || (normalizedKey === "main" ? "Main Session" : "Current Session") });
     };

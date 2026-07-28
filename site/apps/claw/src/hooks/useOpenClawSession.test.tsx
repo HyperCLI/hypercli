@@ -2659,8 +2659,8 @@ describe("useOpenClawSession", () => {
 
     expect(newSessionKey).toMatch(/^dashboard:/);
     expect(gateway.sessionsReset).toHaveBeenCalledWith(newSessionKey, "new");
-    expect(result.current.sessions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ key: newSessionKey, title: "New Session" }),
+    expect(result.current.sessions).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: newSessionKey }),
     ]));
     unmount();
   });
@@ -3806,11 +3806,9 @@ describe("useOpenClawSession", () => {
     expect(result.current.messages).toEqual([]);
     expect(JSON.parse(window.localStorage.getItem("openclaw.sessionTitles.v1:deploy-123") ?? "{}"))
       .toEqual({ [newSessionKey]: "New Session" });
-    await waitFor(() => {
-      expect(result.current.sessions).toEqual(expect.arrayContaining([
-        expect.objectContaining({ key: newSessionKey, title: "New Session" }),
-      ]));
-    });
+    expect(result.current.sessions).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: newSessionKey }),
+    ]));
 
     rerender({ sessionKey: newSessionKey });
     await waitFor(() => expect(result.current.activeSessionKey).toBe(newSessionKey));
@@ -3823,8 +3821,8 @@ describe("useOpenClawSession", () => {
       await reset.promise;
     });
     await waitFor(() => expect(result.current.creatingSessionKeys).not.toContain(newSessionKey));
-    expect(result.current.sessions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ key: newSessionKey, title: "New Session" }),
+    expect(result.current.sessions).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: newSessionKey }),
     ]));
 
     gateway.sessionsList.mockResolvedValue([{
@@ -4438,7 +4436,7 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
-  it("keeps a failed new session local and surfaces the gateway reset error", async () => {
+  it("does not keep a failed new session local and surfaces the gateway reset error", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
     gateway.sessionsReset.mockRejectedValueOnce(new Error("Session reset failed"));
@@ -4460,8 +4458,8 @@ describe("useOpenClawSession", () => {
     });
 
     expect(newSessionKey).toMatch(/^dashboard:/);
-    expect(result.current.sessions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ key: newSessionKey, title: "New Session" }),
+    expect(result.current.sessions).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: newSessionKey }),
     ]));
     await waitFor(() => expect(result.current.error).toBe("Session reset failed"));
     expect(result.current.creatingSessionKeys).not.toContain(newSessionKey);

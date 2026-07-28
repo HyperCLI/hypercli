@@ -6,6 +6,7 @@ loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
 
 const TEST_BASE_URL = process.env.TEST_BASE_URL!;
 const TEST_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQxMDI0NDQ4MDB9.signature";
+const DASHBOARD_SESSION_KEY_PATTERN = /^dashboard:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SECONDARY_SESSION_KEY = "session-secondary-focus";
 const ARCHIVED_SESSION_KEY = "session-archived-focus";
 const AGENT_ROSTER_COLLAPSED_STORAGE_KEY = "claw.agentRosterCollapsed.v1";
@@ -116,14 +117,24 @@ async function mockAgentChat(
         }
 
         if (message.method === "sessions.list") {
+          const indexedDashboardSessions = Array.from(historyBySession.keys())
+            .filter((key) => key.startsWith("dashboard:"))
+            .map((key, index) => ({
+              key,
+              title: "Dashboard Session",
+              displayName: "Dashboard Session",
+              updatedAt: 10 + index,
+            }));
           this.respond(message.id, {
             sessions: secondaryAgent
               ? [
+                  ...indexedDashboardSessions,
                   { key: "main", title: "Main Session", updatedAt: 1 },
                   { key: secondarySessionKey, title: "Secondary Focus", updatedAt: 3 },
                   { key: "session-archived-focus", title: "Archived Focus", updatedAt: 2 },
                 ]
               : [
+                  ...indexedDashboardSessions,
                   { key: "main", title: "Main Session", updatedAt: 1 },
                   { key: "session-primary-focus", title: "Primary Focus", updatedAt: 2 },
                 ],
@@ -426,18 +437,28 @@ test("parallel conversations recover after an interrupted gateway event sequence
   await page.getByRole("button", { name: "Select Secondary Agent" }).click();
   await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
 
-  const mainSession = page.getByRole("button", { name: "Main Session", exact: true });
   const secondarySession = page.getByRole("button", { name: "Secondary Focus", exact: true });
   const archivedSession = page.getByRole("button", { name: "Archived Focus", exact: true });
   const composer = page.locator("textarea").first();
   const send = page.getByRole("button", { name: "Send message" });
-  await expect(mainSession).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Main Session", exact: true })).toHaveCount(0);
+  await expect(secondarySession).toBeEnabled();
   await expect(composer).toBeVisible();
 
   await composer.fill("main parallel request");
   await send.click();
   await expect(page.getByText("main parallel request", { exact: true })).toBeVisible();
-  await expect(mainSession).toHaveAttribute("aria-busy", "true");
+  const latestDashboardSessionKey = async () => {
+    const requests = await page.evaluate(() => (
+      (window as Window & { __agentChatNavigationGatewayCalls?: { requests: AgentChatGatewayRequest[] } })
+        .__agentChatNavigationGatewayCalls?.requests ?? []
+    ));
+    return requests.find((request) => request.method === "chat.send")?.params?.sessionKey ?? null;
+  };
+  await expect.poll(latestDashboardSessionKey).toMatch(DASHBOARD_SESSION_KEY_PATTERN);
+  const dashboardSessionKey = await latestDashboardSessionKey();
+  expect(dashboardSessionKey).toBeTruthy();
+  await expect(page.getByRole("button", { name: "Dashboard Session", exact: true })).toHaveCount(0);
 
   await secondarySession.click();
   await expect(secondarySession).toHaveAttribute("aria-current", "page");
@@ -457,11 +478,13 @@ test("parallel conversations recover after an interrupted gateway event sequence
     (window as Window & { __releaseAgentChatParallelReplies?: () => void })
       .__releaseAgentChatParallelReplies?.();
   });
+  const dashboardSession = page.getByRole("button", { name: "Dashboard Session", exact: true });
+  await expect(dashboardSession).toBeVisible();
 
   for (const [session, reply] of [
     [archivedSession, `Parallel reply for ${ARCHIVED_SESSION_KEY}`],
     [secondarySession, `Parallel reply for ${SECONDARY_SESSION_KEY}`],
-    [mainSession, "Parallel reply for main"],
+    [dashboardSession, `Parallel reply for ${dashboardSessionKey}`],
   ] as const) {
     await session.click();
     await expect(session).toHaveAttribute("aria-current", "page");

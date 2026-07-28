@@ -666,7 +666,7 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.getByRole("button", { name: "Browser session" })).toBeInTheDocument();
   });
 
-  it("does not collapse a selected channel session into the main session", () => {
+  it("does not collapse a selected channel session into the hidden main session", () => {
     renderAgentWorkspaceSidebar({
       sessions: [
         {
@@ -694,14 +694,13 @@ describe("AgentWorkspaceSidebar", () => {
       selectedSessionKey: "agent:default:main",
     });
 
-    const mainProject = screen.getByRole("button", { name: "Main Session" });
     const telegramProject = screen.getByRole("button", { name: "Telegram DM" });
 
-    expect(mainProject).not.toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("button", { name: "Main Session" })).not.toBeInTheDocument();
     expect(telegramProject).toHaveAttribute("aria-current", "page");
   });
 
-  it("does not synthesize a duplicate main session for scoped main selections", () => {
+  it("does not render main for scoped main selections", () => {
     renderAgentWorkspaceSidebar({
       sessions: [
         {
@@ -719,12 +718,54 @@ describe("AgentWorkspaceSidebar", () => {
       selectedSessionKey: "agent:default:main",
     });
 
-    const mainProjects = screen.getAllByRole("button", { name: "Main Session" });
-    expect(mainProjects).toHaveLength(1);
-    expect(mainProjects[0]).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("button", { name: "Main Session" })).not.toBeInTheDocument();
   });
 
-  it("keeps the default session visible when a channel session is selected", () => {
+  it("does not synthesize an unindexed selected dashboard session", () => {
+    renderAgentWorkspaceSidebar({
+      sessions: [],
+      sessionsFetched: true,
+      selectedSessionKey: "dashboard:019789ab-cdef-4abc-8def-0123456789ab",
+    });
+
+    expect(screen.queryByText("Sessions")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New Session" })).toBeInTheDocument();
+    expect(screen.queryByText("dashboard:019789ab-cdef-4abc-8def-0123456789ab")).not.toBeInTheDocument();
+  });
+
+  it("shows indexed dashboard sessions while hiding the internal main session", () => {
+    renderAgentWorkspaceSidebar({
+      sessions: [
+        {
+          key: "main",
+          clientMode: "openclaw",
+          clientDisplayName: "Main Session",
+          createdAt: 1,
+          lastMessageAt: 10,
+          title: "Main Session",
+          messageCount: 1,
+          raw: {},
+        },
+        {
+          key: "dashboard:019789ab-cdef-4abc-8def-0123456789ab",
+          clientMode: "openclaw",
+          clientDisplayName: "Dashboard Session",
+          createdAt: 2,
+          lastMessageAt: 20,
+          title: "Dashboard Session",
+          messageCount: 1,
+          raw: {},
+        },
+      ],
+      sessionsFetched: true,
+      selectedSessionKey: "dashboard:019789ab-cdef-4abc-8def-0123456789ab",
+    });
+
+    expect(screen.queryByRole("button", { name: "Main Session" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dashboard Session" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("keeps a channel session selected without exposing the default session", () => {
     renderAgentWorkspaceSidebar({
       sessions: [
         {
@@ -743,7 +784,7 @@ describe("AgentWorkspaceSidebar", () => {
       selectedSessionKey: "telegram:489595440",
     });
 
-    expect(screen.getByRole("button", { name: "Main Session" })).not.toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("button", { name: "Main Session" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Telegram DM" })).toHaveAttribute("aria-current", "page");
   });
 
@@ -782,7 +823,7 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.getByText("Telegram conversations are read-only here. Reply from Telegram.")).toBeInTheDocument();
   });
 
-  it("does not allow the main session to be deleted", () => {
+  it("does not render actions for the hidden main session", () => {
     renderAgentWorkspaceSidebar({
       sessions: [{
         key: "main",
@@ -797,20 +838,18 @@ describe("AgentWorkspaceSidebar", () => {
       selectedSessionKey: "main",
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Session options for Main Session" }));
-
-    expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
-    expect(screen.getByText("The main session cannot be deleted.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Main Session" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Session options for Main Session" })).not.toBeInTheDocument();
   });
 
-  it("shows and highlights the current session when it is the only session", () => {
+  it("does not synthesize the internal main session when it is the selected session", () => {
     renderAgentWorkspaceSidebar({
       sessions: [],
       selectedSessionKey: "main",
     });
 
-    expect(screen.getByText("Sessions")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Main Session" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByText("Sessions")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Main Session" })).not.toBeInTheDocument();
     expect(screen.queryByText(/^main$/)).not.toBeInTheDocument();
   });
 
@@ -948,22 +987,22 @@ describe("AgentWorkspaceSidebar", () => {
       disabled: true,
       disabledReason: "Fetching messages, files, and config.",
       sessions: [{
-        key: "main",
+        key: "dashboard:019789ab-cdef-4abc-8def-0123456789ab",
         clientMode: "openclaw",
-        clientDisplayName: "main",
+        clientDisplayName: "Draft session",
         createdAt: 1,
         lastMessageAt: 20,
-        title: "",
+        title: "Draft session",
         messageCount: 0,
         raw: {},
       }],
       sessionsFetched: true,
-      selectedSessionKey: "main",
+      selectedSessionKey: "dashboard:019789ab-cdef-4abc-8def-0123456789ab",
       onSelectSession,
     });
 
     expect(screen.getByText("Sessions")).toBeInTheDocument();
-    const project = screen.getByRole("button", { name: "Main Session" });
+    const project = screen.getByRole("button", { name: "Draft session" });
     expect(project).toBeDisabled();
     expect(screen.getAllByText("Fetching messages, files, and config.").length).toBeGreaterThan(0);
     fireEvent.click(project);
@@ -981,7 +1020,7 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.queryByRole("button", { name: "Main Session" })).not.toBeInTheDocument();
   });
 
-  it("shows the default session with a product label when the gateway lists main", () => {
+  it("hides the internal main session when the gateway lists main", () => {
     renderAgentWorkspaceSidebar({
       sessions: [{
         key: "main",
@@ -996,7 +1035,7 @@ describe("AgentWorkspaceSidebar", () => {
       selectedSessionKey: "main",
     });
 
-    expect(screen.getByRole("button", { name: "Main Session" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("button", { name: "Main Session" })).not.toBeInTheDocument();
     expect(screen.queryByText(/^main$/)).not.toBeInTheDocument();
   });
 
@@ -1050,7 +1089,7 @@ describe("AgentWorkspaceSidebar", () => {
       selectedSessionKey: "main",
     });
 
-    expect(screen.getByRole("button", { name: "Main Session" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("button", { name: "Main Session" })).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "New Session" }).length).toBeGreaterThan(0);
     expect(screen.queryByText(/HEARTBEAT/i)).not.toBeInTheDocument();
   });
@@ -1153,7 +1192,7 @@ describe("AgentWorkspaceSidebar", () => {
       selectedSessionKey: "main",
     });
 
-    expect(screen.getByRole("button", { name: "Main Session" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Main Session" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Working session" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Session options for Working session" })).not.toBeInTheDocument();
   });
@@ -1187,7 +1226,7 @@ describe("AgentWorkspaceSidebar", () => {
       selectedSessionKey: selectedSubagentKey,
     });
 
-    expect(screen.getByRole("button", { name: "Main Session" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Main Session" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Research task" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "ACP task" })).not.toBeInTheDocument();
     expect(screen.queryByText(selectedSubagentKey)).not.toBeInTheDocument();

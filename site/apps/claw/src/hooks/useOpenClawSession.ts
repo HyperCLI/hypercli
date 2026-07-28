@@ -335,10 +335,6 @@ function createOpenClawSessionKey(existingSessions: OpenClawSessionRecord[]): st
   return createOpenClawDashboardSessionKey(existingSessions.flatMap((session) => openClawSessionTitleMapKeys(session.key)));
 }
 
-function newOpenClawSessionRecord(sessionKey: string): OpenClawSessionRecord {
-  return localOpenClawSessionRecord(sessionKey, OPENCLAW_NEW_SESSION_TITLE);
-}
-
 function withOpenClawGatewaySessionKey(
   session: OpenClawSessionRecord,
   gatewaySessionKey: string,
@@ -1596,22 +1592,6 @@ export function useOpenClawSession(
     return nextSessions;
   }, [agentId, pruneDeletedSessionTombstones, setTitledSessions, updateSessionTitleMap]);
 
-  const ensureLocalGeneratedSession = useCallback((nextSessions: OpenClawSessionRecord[]) => {
-    if (
-      !isGeneratedOpenClawSessionName(activeSessionKey) ||
-      findOpenClawSelectableSession(nextSessions, activeSessionKey)
-    ) {
-      return nextSessions;
-    }
-    const localSession = newOpenClawSessionRecord(activeSessionKey);
-    const withLocalSession = [
-      localSession,
-      ...nextSessions.filter((session) => !sameOpenClawSelectableSessionKey(session.key, activeSessionKey)),
-    ];
-    setTitledSessions(withLocalSession);
-    return withLocalSession;
-  }, [activeSessionKey, setTitledSessions]);
-
   const fetchSessionList = useCallback((
     targetGateway: GatewayClient,
     options: { fresh?: boolean } = {},
@@ -2213,6 +2193,7 @@ export function useOpenClawSession(
     };
     const sessionHydrationHasActiveSession = (value: ReturnType<typeof readSessionHydration>) => value.fetched && (
       unscopedOpenClawSessionKey(activeSessionKey) === OPENCLAW_INTERNAL_SESSION_KEY ||
+      isGeneratedOpenClawSessionName(activeSessionKey) ||
       Boolean(findOpenClawSelectableSession(value.sessions, activeSessionKey))
     );
     const sessionListNeededForHydration = (value: ReturnType<typeof readSessionHydration>) => (
@@ -2255,7 +2236,7 @@ export function useOpenClawSession(
           const initialSessionListResult = await getSessionListResult();
           if (cancelled) return;
           if (initialSessionListResult.status === "fulfilled") {
-            ensureLocalGeneratedSession(applyFetchedSessions(initialSessionListResult.sessions));
+            applyFetchedSessions(initialSessionListResult.sessions);
             completeReconnectSessionRefresh(reconnectRefreshRequest, initialSessionListResult.sessions);
           } else {
             completeReconnectSessionRefresh(reconnectRefreshRequest, undefined);
@@ -2277,7 +2258,7 @@ export function useOpenClawSession(
           const initialSessionListResult = await getSessionListResult();
           if (cancelled) return;
           if (initialSessionListResult.status === "fulfilled") {
-            const appliedSessions = ensureLocalGeneratedSession(applyFetchedSessions(initialSessionListResult.sessions));
+            const appliedSessions = applyFetchedSessions(initialSessionListResult.sessions);
             sessionHydration = { sessions: appliedSessions, fetched: true };
             sessionRouteResolved = sessionHydrationHasActiveSession(sessionHydration);
             completeReconnectSessionRefresh(reconnectRefreshRequest, initialSessionListResult.sessions);
@@ -2355,7 +2336,7 @@ export function useOpenClawSession(
     return () => {
       cancelled = true;
     };
-  }, [gateway, status, agentId, activeSessionKey, activeGatewaySessionKey, activeSessionIsEphemeral, applyConnectionHydration, applyFetchedSessions, beginChatHistoryRequest, chatHistoryRequestIsCurrent, chatTargetHasSendAuthority, completeReconnectSessionRefresh, dispatchChatHistory, ensureLocalGeneratedSession, fetchSessionList, fullHydrationEnabled, grantChatSendAuthority, historyHydrationEnabled, hydrateConnectionForGateway, replaceChatHistoryFromGateway, resolveChatTargetState, setChatHistoryPhase]);
+  }, [gateway, status, agentId, activeSessionKey, activeGatewaySessionKey, activeSessionIsEphemeral, applyConnectionHydration, applyFetchedSessions, beginChatHistoryRequest, chatHistoryRequestIsCurrent, chatTargetHasSendAuthority, completeReconnectSessionRefresh, dispatchChatHistory, fetchSessionList, fullHydrationEnabled, grantChatSendAuthority, historyHydrationEnabled, hydrateConnectionForGateway, replaceChatHistoryFromGateway, resolveChatTargetState, setChatHistoryPhase]);
 
   useEffect(() => {
     if (status !== "disconnected") return;
@@ -2616,10 +2597,11 @@ export function useOpenClawSession(
     if (!targetIsTemporary) {
       setTitledSessions((prev) => {
         const existing = prev.find((session) => sameOpenClawSelectableSessionKey(session.key, targetState.visibleSessionKey));
+        if (!existing) return prev;
         const touchedSession = {
-          ...(existing ?? localOpenClawSessionRecord(targetState.visibleSessionKey)),
+          ...existing,
           lastMessageAt: messageTimestamp,
-          messageCount: existing ? existing.messageCount + 1 : 1,
+          messageCount: existing.messageCount + 1,
         };
         return [
           touchedSession,
@@ -3486,10 +3468,6 @@ export function useOpenClawSession(
       delete next[sessionKey];
       return next;
     });
-    setTitledSessions((prev) => [
-      newOpenClawSessionRecord(sessionKey),
-      ...prev.filter((session) => session.key !== sessionKey),
-    ]);
     appendActivity({ type: "system", action: OPENCLAW_NEW_SESSION_TITLE });
     const performCreation = async () => {
       try {
@@ -3497,14 +3475,6 @@ export function useOpenClawSession(
         if (!creationIsCurrent()) throw new Error("The gateway reconnected while creating this conversation. Please try again.");
         const gatewaySessionKey = nonEmptyString(createdGatewaySessionKey) ?? sessionKey;
         createdSessionGatewayKeysRef.current.set(chatHistoryTargetKey(target), gatewaySessionKey);
-        setTitledSessions((current) => {
-          const existing = findOpenClawSelectableSession(current, sessionKey) ?? newOpenClawSessionRecord(sessionKey);
-          const routedSession = withOpenClawGatewaySessionKey(existing, gatewaySessionKey);
-          return [
-            routedSession,
-            ...current.filter((session) => !sameOpenClawSelectableSessionKey(session.key, sessionKey)),
-          ];
-        });
         grantChatSendAuthority(target, creationGateway, gatewaySessionKey);
         finishCreatingSession(sessionKey);
         setChatHistoryPhase(target, "ready");
@@ -3517,7 +3487,7 @@ export function useOpenClawSession(
             ? nextSessions.map((session) => (
                 session === matchingSession ? withOpenClawGatewaySessionKey(session, gatewaySessionKey) : session
               ))
-            : [withOpenClawGatewaySessionKey(newOpenClawSessionRecord(sessionKey), gatewaySessionKey), ...nextSessions];
+            : nextSessions;
           applyFetchedSessions(refreshedSessions);
         } catch {}
       } catch (e: unknown) {
