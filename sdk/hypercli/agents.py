@@ -2107,14 +2107,14 @@ class Deployments:
         if not raw:
             raise ValueError("agent_id_or_name is required")
         try:
+            UUID(raw)
+        except ValueError:
+            return self.resolve_agent(raw)
+        try:
             return self._get_by_id(raw)
         except APIError as exc:
             if exc.status_code != 404:
                 raise
-            try:
-                UUID(raw)
-            except ValueError:
-                return self.resolve_agent(raw)
             raise
 
     def create_external_agent(

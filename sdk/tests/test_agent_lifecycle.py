@@ -44,6 +44,29 @@ def test_resolve_agent_id_accepts_unique_agent_name(monkeypatch):
     assert deployments.resolve_agent_id("clear-window-works") == "11111111-1111-4111-8111-111111111111"
 
 
+def test_get_accepts_unique_agent_name_without_uuid_route(monkeypatch):
+    deployments = make_deployments(monkeypatch)
+    get_by_id_calls: list[str] = []
+
+    def fake_get_by_id(agent_id: str):
+        get_by_id_calls.append(agent_id)
+        return Agent(
+            id=agent_id,
+            user_id="user-456",
+            pod_id="pod-789",
+            pod_name="clear-window-works",
+            name="clear-window-works",
+            state="STOPPED",
+        )
+
+    monkeypatch.setattr(deployments, "_get_by_id", fake_get_by_id)
+
+    agent = deployments.get("clear-window-works")
+
+    assert agent.id == "11111111-1111-4111-8111-111111111111"
+    assert get_by_id_calls == ["11111111-1111-4111-8111-111111111111"]
+
+
 def test_attach_slack_relay_agent_resolves_name_and_posts_to_relay(monkeypatch):
     deployments = make_deployments(monkeypatch)
     calls: list[tuple[str, dict | None]] = []
