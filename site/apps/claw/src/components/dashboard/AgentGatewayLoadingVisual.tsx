@@ -46,7 +46,7 @@ function AgentGatewayLoadingStatus({
       role={isError ? "alert" : "status"}
       aria-live="polite"
       aria-label={`${title} ${detail}`}
-      className={`elevation-shadow-medium flex w-[min(300px,calc(100vw-3rem))] items-center gap-3 rounded-[13px] border bg-popover px-3 py-2.5 text-left ${
+      className={`flex w-[min(300px,calc(100vw-3rem))] items-center gap-3 rounded-[13px] border bg-popover px-3 py-2.5 text-left ${
         isError ? "border-destructive/35" : "border-border"
       }`}
     >

@@ -6,6 +6,7 @@ import type { AgentSkillsProvider } from "@hypercli.com/sdk/skills";
 
 import { buildSdkAgent } from "@/test/factories";
 import { renderWithClient } from "@/test/utils";
+import { OPENCLAW_EMPTY_REPLY_NOTICE } from "@/lib/openclaw-chat";
 import { toAgentViewModel } from "./agentViewModel";
 import {
   AgentChatPanel,
@@ -35,7 +36,7 @@ vi.mock("@/components/dashboard/ChatMessage", () => ({
       </button>
     ) : null;
   },
-  ChatThinkingIndicator: () => <div role="status" aria-label="Thinking">Thinking</div>,
+  ChatThinkingIndicator: ({ label = "Thinking" }: { label?: string }) => <div role="status" aria-label={label}>{label}</div>,
 }));
 
 vi.mock("@/components/dashboard/ConfirmDialog", () => ({
@@ -297,6 +298,7 @@ describe("AgentChatPanel", () => {
     ];
 
     expect(isRetryableFailedReply(messages[2]!)).toBe(true);
+    expect(isRetryableFailedReply({ role: "assistant", content: OPENCLAW_EMPTY_REPLY_NOTICE })).toBe(true);
     expect(isRetryableFailedReply({ role: "assistant", content: "A normal response." })).toBe(false);
     expect(failedReplyRetrySource(messages, 2)).toBe(messages[1]);
   });
@@ -1271,12 +1273,12 @@ describe("AgentChatPanel", () => {
   });
 
   it.each([
-    ["connect Telegram", "start setup", "telegram"],
-    ["set up Discord", "start setup", "discord"],
-    ["configure Slack", "advanced mode", "slack"],
-    ["connect my WhatsApp channel", "start setup", "whatsapp"],
-    ["connect GitHub", "start connection", "github"],
-  ] as const)("opens the matching connector card when the user sends %s", async (input, actionLabel, integrationId) => {
+    "connect Telegram",
+    "set up Discord",
+    "configure Slack",
+    "connect my WhatsApp channel",
+    "connect GitHub",
+  ])("sends integration-related text normally when the user submits %s", (input) => {
     const handleSendChat = vi.fn();
     const onConnectionCta = vi.fn();
     const setInput = vi.fn();
@@ -1297,17 +1299,13 @@ describe("AgentChatPanel", () => {
 
     fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
 
-    expect(handleSendChat).not.toHaveBeenCalled();
-    expect(setInput).toHaveBeenCalledWith("");
-    expect(await screen.findByRole("button", { name: new RegExp(actionLabel, "i") })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /open in integrations/i }));
-    expect(onConnectionCta).toHaveBeenCalledWith(expect.objectContaining({
-      connectorId: integrationId,
-      directoryPluginId: integrationId,
-    }));
+    expect(handleSendChat).toHaveBeenCalledTimes(1);
+    expect(setInput).not.toHaveBeenCalled();
+    expect(onConnectionCta).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /start setup|start connection|advanced mode/i })).not.toBeInTheDocument();
   });
 
-  it("detects connector intent from the send button", async () => {
+  it("sends integration-related text normally from the send button", () => {
     const handleSendChat = vi.fn();
     const setInput = vi.fn();
     renderAgentChatPanel({
@@ -1325,9 +1323,9 @@ describe("AgentChatPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
-    expect(handleSendChat).not.toHaveBeenCalled();
-    expect(setInput).toHaveBeenCalledWith("");
-    expect(await screen.findByRole("button", { name: /advanced mode/i })).toBeInTheDocument();
+    expect(handleSendChat).toHaveBeenCalledTimes(1);
+    expect(setInput).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /advanced mode/i })).not.toBeInTheDocument();
   });
 
   it.each([
@@ -1335,7 +1333,7 @@ describe("AgentChatPanel", () => {
     "make a messaging integration",
     "connect Telegram and Slack",
     "connect Signal",
-  ])("opens the integrations directory for generic or unsupported intent: %s", (input) => {
+  ])("sends generic or unsupported integration intent normally: %s", (input) => {
     const handleSendChat = vi.fn();
     const onOpenIntegrations = vi.fn();
     const setInput = vi.fn();
@@ -1355,9 +1353,9 @@ describe("AgentChatPanel", () => {
 
     fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
 
-    expect(handleSendChat).not.toHaveBeenCalled();
-    expect(setInput).toHaveBeenCalledWith("");
-    expect(onOpenIntegrations).toHaveBeenCalledTimes(1);
+    expect(handleSendChat).toHaveBeenCalledTimes(1);
+    expect(setInput).not.toHaveBeenCalled();
+    expect(onOpenIntegrations).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: /start setup|start connection/i })).not.toBeInTheDocument();
   });
 
@@ -2791,6 +2789,48 @@ describe("AgentChatPanel", () => {
 
     expect(screen.getByRole("status", { name: /thinking/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /stop reply/i })).toBeInTheDocument();
+  });
+
+  it("shows writing feedback while final text is pending after completed tools", () => {
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        sending: true,
+        activeSessionSending: true,
+        messages: [{
+          role: "assistant",
+          content: "I checked the available channels.",
+          toolCalls: [{ name: "web_search", args: "{}", result: "Search complete" }],
+        }],
+      }),
+      isSelectedRunning: true,
+    });
+
+    expect(screen.getByRole("status", { name: /writing response/i })).toBeInTheDocument();
+  });
+
+  it("relies on the running tool state while a tool call is pending", () => {
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        sending: true,
+        activeSessionSending: true,
+        messages: [{
+          role: "assistant",
+          content: "",
+          toolCalls: [{ name: "web_search", args: "{}" }],
+        }],
+      }),
+      isSelectedRunning: true,
+    });
+
+    expect(screen.queryByRole("status", { name: /thinking|writing response/i })).not.toBeInTheDocument();
   });
 
   it("shows a separate stop button while keeping send available for queued drafts", () => {

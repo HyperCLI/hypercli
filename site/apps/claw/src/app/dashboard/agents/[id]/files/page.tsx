@@ -14,7 +14,7 @@ import type { FileEntry } from "@hypercli/shared-ui/files";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { agentDisplayLabel, toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 import { createAgentClient } from "@/lib/agent-client";
-import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
+import { normalizeAgentBrowserFilePath } from "@/lib/agent-file-path";
 import { readFileSourceTabsPreference } from "@/lib/file-source-tabs-preference";
 import { OPENCLAW_WORKSPACE_PREFIX } from "@/lib/openclaw-config";
 import type { AgentFileEntry } from "@/types";
@@ -31,7 +31,7 @@ function backendWireSource(source: "agent" | "backup"): "pod" | "s3" {
 const AGENT_DIRECTORY_MARKER_NAME = ".hypercli-folder";
 
 function normalizeAgentFilePath(path: string): string {
-  return normalizeOpenClawWorkspaceFilePath(path);
+  return normalizeAgentBrowserFilePath(path);
 }
 
 function stringFileMetadata(value: unknown): string | undefined {
@@ -177,9 +177,19 @@ export default function AgentFilesPage() {
     );
   }, [agentId, gatewayFilesAgent, getToken]);
 
-  const deleteFile = useCallback(async (path: string, options?: { recursive?: boolean }) => {
+  const deleteFile = useCallback(async (
+    path: string,
+    options?: { recursive?: boolean },
+    source: AgentFilePanelSource = "agent",
+  ) => {
+    if (source === "gateway") {
+      throw new Error("Delete is not available for Gateway files.");
+    }
     const token = await getToken();
-    await createAgentClient(token).fileDelete(agentId, normalizeAgentFilePath(path), options);
+    await createAgentClient(token).fileDelete(agentId, normalizeAgentFilePath(path), {
+      ...options,
+      source: backendWireSource(source),
+    });
   }, [agentId, getToken]);
 
   const uploadFile = useCallback(async (

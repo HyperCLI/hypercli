@@ -11,7 +11,7 @@ import {
 } from "@hypercli/shared-ui/files";
 import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import { extractVoicePathFromMessage, OPENCLAW_WORKSPACE_DIR } from "@/lib/openclaw-config";
-import { createChatRenderId, type ChatMessage, type ChatPendingFile } from "@/lib/openclaw-chat";
+import { createChatRenderId, isOpenClawEmptyReplyFailureText, type ChatMessage, type ChatPendingFile } from "@/lib/openclaw-chat";
 import { extractGitHubAgentSetupStatus, GITHUB_AGENT_SETUP_PROMPT, GITHUB_AGENT_VERIFY_PROMPT, shouldHideGitHubAgentSetupMessage } from "@/lib/github-cli-workspace";
 import { shouldHideTelegramAgentConfigMessage } from "@/lib/telegram-config-workspace";
 import { ChatMessageBubble, ChatThinkingIndicator, type ChatFileBytesReader } from "@/components/dashboard/ChatMessage";
@@ -22,7 +22,7 @@ import { AgentEmptyHistory } from "@/components/dashboard/agents/AgentEmptyHisto
 import { OpenClawModelMenu } from "@/components/dashboard/agents/OpenClawModelMenu";
 import { JourneyIntroPanel, type JourneyIntroPanelProps } from "@/components/dashboard/journey/JourneyIntroPanel";
 import { JourneyMissionChatCard, type JourneyMissionChatCardProps } from "@/components/dashboard/journey/JourneyMissionChatCard";
-import { detectChatIntegrationIntent, getChatConnectorSuggestion, getConnectionSuggestions, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
+import { getChatConnectorSuggestion, getConnectionSuggestions, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
 import { parseClawUiActionBlocks, type ClawIntegrationConnectAction, type ClawUiAction } from "@/components/dashboard/chat-integrations/claw-ui-actions";
 import {
   AgentSlashCommandMenu,
@@ -282,6 +282,7 @@ function hasRenderableMessagePayload(message: ChatSession["messages"][number]): 
 export function isRetryableFailedReply(message: Pick<ChatMessage, "role" | "content">): boolean {
   if (message.role === "user") return false;
   const content = message.content.trim().replace(/\s+/g, " ");
+  if (isOpenClawEmptyReplyFailureText(content)) return true;
   if (/^(?:the )?agent run failed before producing a reply\.?$/i.test(content)) return true;
   if (/^assistant response failed(?: before returning content(?: \([^)]+\))?|:\s*.+)\.?$/i.test(content)) return true;
   return message.role === "system" && /^error:\s*\S/i.test(content);
@@ -634,26 +635,6 @@ export function AgentChatPanel({
   const activeIntegrationAction = activeIntegrationCard?.agentId === selectedAgent.id && activeIntegrationCard.sessionKey === chat.activeSessionKey
     ? activeIntegrationCard.action
     : null;
-  const handleSendChatWithIntegrationIntent = React.useCallback(() => {
-    const input = chat.input;
-    if (input.trimStart().startsWith("/")) {
-      handleSendChat();
-      return;
-    }
-    const intent = detectChatIntegrationIntent(input, chat.reportedChannels);
-    if (intent?.kind === "connector") {
-      setChatInput("");
-      openIntegrationChatCard(intent.integrationId);
-      return;
-    }
-    if (intent?.kind === "directory") {
-      setChatInput("");
-      setActiveIntegrationCard(null);
-      void slashCommandActions?.onOpenIntegrations?.();
-      return;
-    }
-    handleSendChat();
-  }, [chat.input, chat.reportedChannels, handleSendChat, openIntegrationChatCard, setChatInput, slashCommandActions]);
   const chatMessageWindow = React.useMemo(() => {
     const renderableMessages = chat.messages
       .map((message, index) => {
@@ -1237,8 +1218,12 @@ export function AgentChatPanel({
             if (!activeSessionSending) return null;
             const last = chat.messages[chat.messages.length - 1];
             if (last && shouldHideIntegrationSetupMessage(last)) return null;
-            const hasContent = last?.role === "assistant" && ((last.content && last.content.trim().length > 0) || (last.toolCalls && last.toolCalls.length > 0));
-            return hasContent ? null : <ChatThinkingIndicator variant="v2" />;
+            const hasResponseText = last?.role === "assistant" && Boolean(last.content.trim());
+            const hasRunningTool = last?.role === "assistant" && last.toolCalls?.some((toolCall) => toolCall.result === undefined);
+            const hasCompletedTools = last?.role === "assistant" && Boolean(last.toolCalls?.length);
+            if (hasRunningTool) return null;
+            if (hasCompletedTools) return <ChatThinkingIndicator variant="v2" label="Writing response" />;
+            return hasResponseText ? null : <ChatThinkingIndicator variant="v2" label="Thinking" />;
           })()}
 
           <div ref={chatEndRef} aria-hidden="true" />
@@ -1607,7 +1592,7 @@ export function AgentChatPanel({
                           return;
                         }
                         if (!canSendChatDraft) return;
-                        handleSendChatWithIntegrationIntent();
+                        handleSendChat();
                       }
                     }}
                     onPaste={(e) => {
@@ -1781,7 +1766,7 @@ export function AgentChatPanel({
                       </TooltipHint>
                     ) : null}
                     <TooltipHint label="Send message" disabled={!canSendChatDraft}>
-                      <button aria-label="Send message" onClick={handleSendChatWithIntegrationIntent} disabled={!canSendChatDraft} className="w-8 h-8 btn-primary rounded-full disabled:opacity-40 flex items-center justify-center">
+                      <button aria-label="Send message" onClick={handleSendChat} disabled={!canSendChatDraft} className="w-8 h-8 btn-primary rounded-full disabled:opacity-40 flex items-center justify-center">
                         <Send className="w-3.5 h-3.5" />
                       </button>
                     </TooltipHint>

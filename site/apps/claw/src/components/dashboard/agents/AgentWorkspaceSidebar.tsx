@@ -71,6 +71,8 @@ import { formatTokens } from "@/lib/format";
 import {
   displayOpenClawSessionName,
   fallbackOpenClawSessionDisplayName,
+  isOpenClawSubagentSession,
+  isOpenClawSubagentSessionKey,
   sameOpenClawSelectableSessionKey,
   type OpenClawSessionRecord,
   unscopedOpenClawSessionKey,
@@ -1200,16 +1202,28 @@ export function AgentWorkspaceSidebar({
     : `${tokensUsed == null ? emptyUsageLabel : formatTokens(tokensUsed)} / --`;
   const onUsageAction = isAuthenticated ? onUpgrade : onStartTrial ?? onUpgrade;
   const hasSelectedAgent = Boolean(selectedAgent);
+  const sessionsLoading = Array.isArray(sessions) && !sessionsFetched;
   const sessionsInteractive = hasSelectedAgent && sessionsFetched && !disabled;
   const sessionsDisabledReason = disabled ? disabledReason : sessionsFetched ? undefined : sessionsUnavailableReason;
   const sortedSessions = useMemo(() => {
     if (!hasSelectedAgent) return [];
-    const sessionRecords = (sessions ?? []).filter((session) => session.ephemeral !== true);
+    const sourceSessions = sessions ?? [];
     const activeKey = selectedSessionKey?.trim() || "";
+    const selectedSessionIsSubagent = Boolean(activeKey && sourceSessions.some((session) => (
+      sameOpenClawSelectableSessionKey(session.key, activeKey) && isOpenClawSubagentSession(session)
+    )));
+    const sessionRecords = sourceSessions.filter((session) => (
+      session.ephemeral !== true && !isOpenClawSubagentSession(session)
+    ));
     if (!sessionRecords.some(isCanonicalMainSession)) {
       sessionRecords.unshift(selectedSessionRecord("main", 0));
     }
-    if (activeKey && !hasSession(sessionRecords, activeKey)) {
+    if (
+      activeKey &&
+      !isOpenClawSubagentSessionKey(activeKey) &&
+      !selectedSessionIsSubagent &&
+      !hasSession(sessionRecords, activeKey)
+    ) {
       sessionRecords.unshift(selectedSessionRecord(activeKey));
     }
     return sessionRecords.sort((a, b) => {
@@ -1470,55 +1484,75 @@ export function AgentWorkspaceSidebar({
           ))}
         </nav>
 
-        {!isCollapsed && hasSelectedAgent && titledSessions.length > 0 && (
+        {!isCollapsed && hasSelectedAgent && (sessionsLoading || titledSessions.length > 0) && (
           <section className={renderMobile ? "mt-7" : "mt-2"}>
-            <button
-              type="button"
-              onClick={() => setRecentOpen((open) => !open)}
-              className={`flex w-full items-center justify-between gap-2 text-left ${renderMobile ? "mb-2 px-3" : "mb-0.5 px-2"}`}
-            >
-              <span className="text-xs text-text-muted">Sessions</span>
-              <ChevronUp className={`h-4 w-4 text-foreground transition-transform ${recentOpen ? "" : "rotate-180"}`} />
-            </button>
-            {recentOpen && (
-              <div className={renderMobile ? "space-y-0.5 border-l border-border pl-1.5" : "space-y-0.5"}>
-                {visibleSessions.map((session) => {
-                  const title = sessionTitle(session);
-                  const sourceChannel = resolveSessionSourceChannel(session.sourceChannelId);
-                  const thinking = thinkingSessionKeys.some((sessionKey) => isSessionActive(session, sessionKey, sortedSessions));
-                  const pinned = isSessionPinned(session.key, pinnedSessionKeys);
-                  return (
-                    <RecentSessionRow
-                      key={session.key}
-                      title={title}
-                      sourceChannel={sourceChannel}
-                      active={isSessionActive(session, selectedSessionKey, sortedSessions)}
-                      pinned={pinned}
-                      disabled={!sessionsInteractive}
-                      disabledReason={sessionsDisabledReason}
-                      deleteDisabled={session.readOnly === true || isCanonicalMainSession(session)}
-                      deleteDisabledReason={isCanonicalMainSession(session)
-                        ? "The main session cannot be deleted."
-                        : session.readOnlyReason ?? "Connected conversations cannot be deleted here."}
-                      creating={creatingSessionKeys.some((sessionKey) => sameOpenClawSelectableSessionKey(sessionKey, session.key))}
-                      thinking={thinking}
-                      onSelect={onSelectSession ? () => onSelectSession(session.key) : undefined}
-                      onSetPinned={onSetSessionPinned ? (nextPinned) => onSetSessionPinned(session.key, nextPinned) : undefined}
-                      onRename={() => setRenameTarget(session)}
-                      onDelete={() => setDeleteTarget(session)}
-                    />
-                  );
-                })}
-                {hiddenSessionCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setShowAllRecent(true)}
-                    className={`${renderMobile ? "px-3" : "px-2.5"} py-1.5 text-left text-[13px] text-text-muted transition-colors hover:text-foreground`}
-                  >
-                    Show more
-                  </button>
+            {sessionsLoading ? (
+              <>
+                <div
+                  className={`flex w-full items-center text-left ${renderMobile ? "mb-2 px-3" : "mb-0.5 px-2"}`}
+                >
+                  <span className="text-xs text-text-muted">Sessions</span>
+                </div>
+                <div
+                  role="status"
+                  aria-label="Loading sessions"
+                  aria-live="polite"
+                  className={`flex items-center justify-center py-2 text-text-muted ${renderMobile ? "px-3" : "px-2"}`}
+                >
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden="true" />
+                </div>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setRecentOpen((open) => !open)}
+                  className={`flex w-full items-center justify-between gap-2 text-left ${renderMobile ? "mb-2 px-3" : "mb-0.5 px-2"}`}
+                >
+                  <span className="text-xs text-text-muted">Sessions</span>
+                  <ChevronUp className={`h-4 w-4 text-foreground transition-transform ${recentOpen ? "" : "rotate-180"}`} />
+                </button>
+                {recentOpen && (
+                  <div className={renderMobile ? "space-y-0.5 border-l border-border pl-1.5" : "space-y-0.5"}>
+                    {visibleSessions.map((session) => {
+                      const title = sessionTitle(session);
+                      const sourceChannel = resolveSessionSourceChannel(session.sourceChannelId);
+                      const thinking = thinkingSessionKeys.some((sessionKey) => isSessionActive(session, sessionKey, sortedSessions));
+                      const pinned = isSessionPinned(session.key, pinnedSessionKeys);
+                      return (
+                        <RecentSessionRow
+                          key={session.key}
+                          title={title}
+                          sourceChannel={sourceChannel}
+                          active={isSessionActive(session, selectedSessionKey, sortedSessions)}
+                          pinned={pinned}
+                          disabled={!sessionsInteractive}
+                          disabledReason={sessionsDisabledReason}
+                          deleteDisabled={session.readOnly === true || isCanonicalMainSession(session)}
+                          deleteDisabledReason={isCanonicalMainSession(session)
+                            ? "The main session cannot be deleted."
+                            : session.readOnlyReason ?? "Connected conversations cannot be deleted here."}
+                          creating={creatingSessionKeys.some((sessionKey) => sameOpenClawSelectableSessionKey(sessionKey, session.key))}
+                          thinking={thinking}
+                          onSelect={onSelectSession ? () => onSelectSession(session.key) : undefined}
+                          onSetPinned={onSetSessionPinned ? (nextPinned) => onSetSessionPinned(session.key, nextPinned) : undefined}
+                          onRename={() => setRenameTarget(session)}
+                          onDelete={() => setDeleteTarget(session)}
+                        />
+                      );
+                    })}
+                    {hiddenSessionCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowAllRecent(true)}
+                        className={`${renderMobile ? "px-3" : "px-2.5"} py-1.5 text-left text-[13px] text-text-muted transition-colors hover:text-foreground`}
+                      >
+                        Show more
+                      </button>
+                    )}
+                  </div>
                 )}
-              </div>
+              </>
             )}
           </section>
         )}
@@ -1676,9 +1710,9 @@ export function AgentWorkspaceSidebar({
                 <span className="whitespace-nowrap">7-day free trial on every plan</span>
               </div>
             ) : null}
-            <div className="flex items-center justify-between gap-3 text-xs">
-              <span className="text-text-muted">Tokens today</span>
-              <span className="font-medium text-foreground">{tokenUsageLabel}</span>
+            <div className="flex items-center justify-between gap-1.5 text-[11px] leading-none">
+              <span className="shrink-0 whitespace-nowrap text-text-muted">Tokens today</span>
+              <span className="shrink-0 whitespace-nowrap font-medium tabular-nums text-foreground">{tokenUsageLabel}</span>
             </div>
             {isAuthenticated ? (
               <div className="h-1 rounded-full bg-surface-low">

@@ -215,13 +215,13 @@ function AnimatedPanel({
 
   return (
     <g>
-      <rect rx="14" fill="white" opacity={isSolid ? "0.98" : "0.045"}>
+      <rect rx="14" fill="var(--foreground)" opacity={isSolid ? "0.98" : "0.045"}>
         <GeometryAnimations panelIndex={panelIndex} />
       </rect>
       <rect
         rx="14"
         fill="none"
-        stroke="white"
+        stroke="var(--foreground)"
         strokeOpacity={isSolid ? "0" : "0.1"}
         strokeWidth="1"
         strokeDasharray="10 6"
@@ -245,7 +245,7 @@ function StaticPanel({
 
   return (
     <g>
-      <rect x={x} y={y} width={width} height={height} rx="14" fill="white" opacity={isSolid ? "0.98" : "0.045"} />
+      <rect x={x} y={y} width={width} height={height} rx="14" fill="var(--foreground)" opacity={isSolid ? "0.98" : "0.045"} />
       <rect
         x={x}
         y={y}
@@ -253,7 +253,7 @@ function StaticPanel({
         height={height}
         rx="14"
         fill="none"
-        stroke="white"
+        stroke="var(--foreground)"
         strokeOpacity={isSolid ? "0" : "0.1"}
         strokeWidth="1"
         strokeDasharray="10 6"
@@ -268,7 +268,7 @@ function CodeRow({ rowIndex }: { rowIndex: number }) {
 
   return (
     <g>
-      <rect x={x} y={y} width={width} height={height} rx="7.7" fill="white" opacity="0.13" />
+      <rect x={x} y={y} width={width} height={height} rx="7.7" fill="var(--foreground)" opacity="0.13" />
       <rect
         x={x}
         y={y}
@@ -276,7 +276,7 @@ function CodeRow({ rowIndex }: { rowIndex: number }) {
         height={height}
         rx="7.7"
         fill="none"
-        stroke="white"
+        stroke="var(--foreground)"
         strokeOpacity="0.16"
         strokeWidth="1"
         strokeDasharray="10 6"
@@ -323,12 +323,12 @@ export function AgentLayoutAnimation({
           <feDropShadow dx="0" dy="1" stdDeviation="1" floodColor="#000000" floodOpacity="0.05" />
         </filter>
         <linearGradient id={topFadeId} x1="132" y1="32" x2="132" y2="101.23" gradientUnits="userSpaceOnUse">
-          <stop offset="0.25" stopColor="#0A0A0A" />
-          <stop offset="1" stopColor="#0A0A0A" stopOpacity="0" />
+          <stop offset="0.25" stopColor="var(--background)" />
+          <stop offset="1" stopColor="var(--background)" stopOpacity="0" />
         </linearGradient>
         <linearGradient id={bottomFadeId} x1="132" y1="232" x2="132" y2="162.77" gradientUnits="userSpaceOnUse">
-          <stop offset="0.25" stopColor="#0A0A0A" />
-          <stop offset="1" stopColor="#0A0A0A" stopOpacity="0" />
+          <stop offset="0.25" stopColor="var(--background)" />
+          <stop offset="1" stopColor="var(--background)" stopOpacity="0" />
         </linearGradient>
       </defs>
       <style>
@@ -444,7 +444,7 @@ export function AgentLayoutAnimation({
               height="200"
               rx="14"
               fill="none"
-              stroke="white"
+              stroke="var(--foreground)"
               strokeOpacity="0.24"
               strokeWidth="1"
               strokeDasharray="10 6"

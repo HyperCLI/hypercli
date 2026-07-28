@@ -307,7 +307,7 @@ describe("FirstAgentSetupWizard", () => {
     expect(screen.queryByRole("dialog", { name: "Plan comparison" })).not.toBeInTheDocument();
   });
 
-  it("calls the close handler from the identity step", () => {
+  it("calls the close handler from the header and identity footer", () => {
     const onClose = vi.fn();
 
     renderWithClient(
@@ -320,9 +320,13 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close agent creation" }));
 
     expect(onClose).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(onClose).toHaveBeenCalledTimes(2);
   });
 
   it("opens the plan catalog modal for catalog plans when no entitlement can launch", async () => {

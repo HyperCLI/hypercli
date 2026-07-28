@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   applyOpenClawSessionTitleMap,
+  createOpenClawSession,
   isEphemeralOpenClawSessionName,
+  isOpenClawSubagentSession,
+  isOpenClawSubagentSessionKey,
   listOpenClawSessions,
   normalizeOpenClawSessions,
   normalizeOpenClawThinkingLevels,
@@ -39,6 +42,61 @@ describe("openclaw-session-sdk-surface", () => {
       title: "Durable title",
       clientDisplayName: "Durable title",
     }));
+  });
+
+  it("keeps a native dashboard display name ahead of a provisional local title", () => {
+    const sessions = normalizeOpenClawSessions([{
+      key: "agent:default:dashboard:019789ab-cdef-4abc-8def-0123456789ab",
+      displayName: "Weather Planning",
+    }]);
+
+    expect(sessions[0]).toEqual(expect.objectContaining({
+      title: "Weather Planning",
+      clientDisplayName: "Weather Planning",
+    }));
+    expect(applyOpenClawSessionTitleMap(sessions, {
+      "dashboard:019789ab-cdef-4abc-8def-0123456789ab": "New Session",
+    })[0]).toEqual(expect.objectContaining({
+      title: "Weather Planning",
+      clientDisplayName: "Weather Planning",
+    }));
+    expect(applyOpenClawSessionTitleMap(sessions, {
+      "dashboard:019789ab-cdef-4abc-8def-0123456789ab": "My Weather Notes",
+    })[0]).toEqual(expect.objectContaining({
+      title: "My Weather Notes",
+      clientDisplayName: "My Weather Notes",
+    }));
+  });
+
+  it("creates dashboard sessions through the native sessions.create RPC", async () => {
+    const sessionsSubscribe = vi.fn(async () => true);
+    const sessionsReset = vi.fn(async (key: string) => key);
+    const sessionsCreate = vi.fn(async () => ({
+      ok: true as const,
+      key: "agent:default:dashboard:019789ab-cdef-4abc-8def-0123456789ab",
+    }));
+
+    await expect(createOpenClawSession({ sessionsCreate, sessionsSubscribe, sessionsReset }, "dashboard:019789ab-cdef-4abc-8def-0123456789ab"))
+      .resolves.toBe("agent:default:dashboard:019789ab-cdef-4abc-8def-0123456789ab");
+    expect(sessionsSubscribe).toHaveBeenCalledOnce();
+    expect(sessionsSubscribe.mock.invocationCallOrder[0]).toBeLessThan(sessionsCreate.mock.invocationCallOrder[0] ?? 0);
+    expect(sessionsCreate).toHaveBeenCalledWith({
+      key: "dashboard:019789ab-cdef-4abc-8def-0123456789ab",
+    });
+    expect(sessionsReset).not.toHaveBeenCalled();
+  });
+
+  it("falls back to deterministic dashboard sessions on older gateways", async () => {
+    const sessionsSubscribe = vi.fn(async () => {
+      throw new Error("unknown method: sessions.subscribe");
+    });
+    const sessionsCreate = vi.fn();
+    const sessionsReset = vi.fn(async (key: string) => `agent:default:${key}`);
+
+    await expect(createOpenClawSession({ sessionsCreate, sessionsSubscribe, sessionsReset } as any, "dashboard:019789ab-cdef-4abc-8def-0123456789ab"))
+      .resolves.toBe("agent:default:dashboard:019789ab-cdef-4abc-8def-0123456789ab");
+    expect(sessionsCreate).not.toHaveBeenCalled();
+    expect(sessionsReset).toHaveBeenCalledWith("dashboard:019789ab-cdef-4abc-8def-0123456789ab", "new");
   });
 
   it("preserves gateway thinking-level IDs verbatim", () => {
@@ -196,10 +254,51 @@ describe("openclaw-session-sdk-surface", () => {
     ]);
   });
 
+  it("shows unnamed native dashboard sessions as new sessions", () => {
+    const sessions = normalizeOpenClawSessions([{
+      key: "agent:default:dashboard:019789ab-cdef-4abc-8def-0123456789ab",
+    }]);
+
+    expect(sessions).toEqual([
+      expect.objectContaining({
+        key: "agent:default:dashboard:019789ab-cdef-4abc-8def-0123456789ab",
+        title: "",
+        clientDisplayName: "New Session",
+      }),
+    ]);
+  });
+
+  it.each([
+    '{"title":"Weather Planning"}',
+    "Here's a concise title: Weather Planning",
+    "sk_live_1234567890abcdef",
+  ])("rejects malformed or sensitive native dashboard titles: %s", (displayName) => {
+    const sessions = normalizeOpenClawSessions([{
+      key: "agent:default:dashboard:019789ab-cdef-4abc-8def-0123456789ab",
+      displayName,
+    }]);
+
+    expect(sessions).toEqual([
+      expect.objectContaining({ title: "", clientDisplayName: "New Session" }),
+    ]);
+  });
+
   it("recognizes reserved HyperCLI ephemeral session keys", () => {
     expect(isEphemeralOpenClawSessionName("session-hypercli-ephemeral-019789ab-cdef-7abc-8def-0123456789ab")).toBe(true);
     expect(isEphemeralOpenClawSessionName("agent:default:session-hypercli-ephemeral-019789ab-cdef-7abc-8def-0123456789ab")).toBe(true);
     expect(isEphemeralOpenClawSessionName("session-019789ab-cdef-7abc-8def-0123456789ab")).toBe(false);
+  });
+
+  it("classifies OpenClaw subagent sessions by key or spawning metadata", () => {
+    const sessions = normalizeOpenClawSessions([
+      { key: "agent:main:subagent:research", label: "Research task" },
+      { key: "agent:copilot:acp:opaque-child", spawned_by: "agent:main:main", label: "ACP task" },
+      { key: "session-dashboard", parentSessionKey: "main", label: "Dashboard session" },
+    ]);
+
+    expect(isOpenClawSubagentSessionKey("agent:main:subagent:research")).toBe(true);
+    expect(sessions[1]).toEqual(expect.objectContaining({ spawnedBy: "agent:main:main" }));
+    expect(sessions.map(isOpenClawSubagentSession)).toEqual([true, true, false]);
   });
 
   it("keeps explicit non-default channel session keys", () => {

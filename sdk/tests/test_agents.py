@@ -1273,6 +1273,21 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
             return False
 
         def get(self, url, headers=None, params=None, follow_redirects=None):
+            if url.endswith("/deployments/agent-123/files") and params == {
+                "source": "pod",
+                "absolute_path": "/",
+            }:
+                return FakeResponse(
+                    json_data={
+                        "directories": [{"name": "home", "path": "/home/", "type": "directory"}],
+                        "files": [],
+                    }
+                )
+            if url.endswith("/deployments/agent-123/files") and params == {
+                "source": "pod",
+                "absolute_path": "/etc/hosts",
+            }:
+                return FakeResponse(content=b"127.0.0.1 localhost", headers={"content-type": "text/plain"})
             if url.endswith("/deployments/agent-123/files"):
                 assert params == {"source": "auto"}
                 return FakeResponse(json_data={"directories": [{"name": "dir", "type": "directory"}], "files": [{"name": "a.txt", "type": "file"}]})
@@ -1314,8 +1329,14 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
             return FakeResponse(json_data={"status": "ok"})
 
         def delete(self, url, headers=None, params=None):
-            assert url.endswith("/deployments/agent-123/files/workspace/a.txt")
-            assert params is None
+            assert url.endswith((
+                "/deployments/agent-123/files/workspace/a.txt",
+                "/deployments/agent-123/files/workspace/backup.txt",
+            ))
+            if url.endswith("/backup.txt"):
+                assert params == {"source": "s3"}
+            else:
+                assert params is None
             return FakeResponse(json_data={"status": "ok"})
 
     with patch("hypercli.agents.httpx.Client", FakeClient):
@@ -1323,15 +1344,23 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
 
         entries = agents_client.files_list(agent, "workspace")
         hidden_entries = agents_client.files_list(agent, ".openclaw")
+        root_entries = agents_client.files_list(agent, "/", source="pod")
         assert entries == [{"name": "dir", "type": "directory"}, {"name": "a.txt", "type": "file"}]
         assert hidden_entries == [{"name": "workspace", "type": "directory"}, {"name": "openclaw.json", "type": "file"}]
+        assert root_entries == [{"name": "home", "path": "/home/", "type": "directory"}]
         assert agents_client.file_read(agent, "workspace/a.txt") == "hello"
         assert agents_client.file_read_bytes_with_metadata(agent, "workspace/a.txt") == {
             "content": b"hello",
             "mime_type": "text/plain",
         }
+        assert agents_client.file_read(agent, "/etc/hosts", source="pod") == "127.0.0.1 localhost"
         assert agents_client.file_write_bytes(agent, "workspace/a.txt", b"payload") == {"status": "ok"}
         assert agents_client.file_delete(agent, "workspace/a.txt") == {"status": "ok"}
+        assert agents_client.file_delete(
+            agent,
+            "workspace/backup.txt",
+            source="s3",
+        ) == {"status": "ok"}
         assert agents_client.upload_profile_image("agent-123", b"png") == {
             "id": "agent-123",
             "avatar_url": "https://cdn.example.test/prod/user-456/agent-123.png",
@@ -1339,6 +1368,12 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
         }
         with pytest.raises(ValueError, match=r"Path is a directory: \.openclaw"):
             agents_client.file_read(agent, ".openclaw")
+        with pytest.raises(ValueError, match="source='pod'"):
+            agents_client.files_list(agent, "/")
+        with pytest.raises(ValueError, match="browse-only"):
+            agents_client.file_write(agent, "/etc/hosts", "blocked", destination="pod")
+        with pytest.raises(ValueError, match="browse-only"):
+            agents_client.file_delete(agent, "/etc/hosts")
 
 
 def test_agent_file_write_rejects_content_above_sdk_limit(agents_client):

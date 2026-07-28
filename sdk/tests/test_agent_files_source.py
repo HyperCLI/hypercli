@@ -163,6 +163,31 @@ def test_absolute_paths_rejected_for_backup_and_gateway():
         agent.file_read("/etc/hosts", "gateway")
 
 
+def test_absolute_pod_paths_are_browse_only():
+    agent, _, deployments = make_agent()
+    with pytest.raises(ValueError, match="browse-only"):
+        agent.file_write("/etc/hosts", "blocked", "agent")
+    with pytest.raises(ValueError, match="browse-only"):
+        agent.file_delete("/etc/hosts", source="agent")
+    with pytest.raises(ValueError, match="not writable"):
+        agent.file_write("../outside.txt", "blocked", "agent")
+    with pytest.raises(ValueError, match="not writable"):
+        agent.file_delete("safe/../../outside.txt", source="agent")
+    deployments.file_write.assert_not_called()
+    deployments.file_delete.assert_not_called()
+
+
+def test_backup_delete_routes_only_to_s3():
+    agent, _, deployments = make_agent()
+    agent.file_delete("archive.txt", source="backup")
+    deployments.file_delete.assert_called_once_with(
+        agent,
+        ".openclaw/workspace/archive.txt",
+        recursive=False,
+        source="s3",
+    )
+
+
 # --- deprecated aliases still work ---
 def test_pod_s3_aliases_still_map_to_agent_backup():
     agent, _, deployments = make_agent()
@@ -190,7 +215,10 @@ def test_non_gateway_sources_delegate_to_backend_deployments():
     )
     agent.file_delete("logs/out.txt")
     deployments.file_delete.assert_called_once_with(
-        agent, ".openclaw/workspace/logs/out.txt", False
+        agent,
+        ".openclaw/workspace/logs/out.txt",
+        recursive=False,
+        source="auto",
     )
     assert gateway_client.files_list_calls == []
     assert gateway_client.file_get_calls == []

@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, Home } from "lucide-react";
+import { ChevronRight, FolderRoot } from "lucide-react";
 import { motion } from "framer-motion";
 import { TooltipHint } from "../components/ui/tooltip";
 
@@ -22,7 +22,7 @@ export function FileBreadcrumbs({ path, onNavigate }: FileBreadcrumbsProps) {
           onClick={() => onNavigate("")}
           className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
         >
-          <Home className="w-3 h-3" />
+          <FolderRoot className="w-3 h-3" />
         </motion.button>
       </TooltipHint>
 

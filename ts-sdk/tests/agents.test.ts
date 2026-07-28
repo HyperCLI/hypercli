@@ -214,12 +214,39 @@ describe('Agents SDK', () => {
         pod_id: 'pod-789',
         pod_name: 'pod-789',
         state: 'SYNC_FAILED',
+        last_error: 'workspace sync failed',
+        updated_at: '2026-07-27T12:00:00Z',
       }),
     } as unknown as HTTPClient;
 
     const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
 
-    await expect(deployments.waitRunning('agent-123', 100, 0)).rejects.toThrow('SYNC_FAILED');
+    await expect(deployments.waitRunning('agent-123', 100, 0)).rejects.toThrow(
+      'Agent entered SYNC_FAILED while waiting for RUNNING, lastError="workspace sync failed", updatedAt=2026-07-27T12:00:00.000Z',
+    );
+  });
+
+  it('includes the latest lifecycle diagnostics when waitRunning times out', async () => {
+    vi.useFakeTimers();
+    const http = {
+      get: vi.fn().mockResolvedValue({
+        id: 'agent-123',
+        user_id: 'user-456',
+        pod_id: 'pod-789',
+        pod_name: 'pod-789',
+        state: 'RESTORING',
+        last_error: 'restore init container is still waiting',
+        updated_at: '2026-07-27T12:00:00Z',
+      }),
+    } as unknown as HTTPClient;
+
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+
+    const assertion = expect(deployments.waitRunning('agent-123', 1_000, 100)).rejects.toThrow(
+      'Timed out waiting for agent agent-123 to reach RUNNING (last=RESTORING, lastError="restore init container is still waiting", updatedAt=2026-07-27T12:00:00.000Z)',
+    );
+    await vi.advanceTimersByTimeAsync(1_000);
+    await assertion;
   });
 
   it('hydrates only meta.ui on agent responses', async () => {

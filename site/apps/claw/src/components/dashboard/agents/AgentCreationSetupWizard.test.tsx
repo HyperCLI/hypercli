@@ -171,19 +171,19 @@ describe("AgentCreationSetupWizard", () => {
     expect(screen.getAllByText("Pro")).toHaveLength(3);
   });
 
-  it("defaults the custom image input from the configured launch image", async () => {
+  it("uses a generic custom image placeholder", async () => {
     renderLaunchableWizard();
     openAdvancedSettings();
 
     const imageInput = screen.getByRole("textbox", { name: "Custom agent image" }) as HTMLInputElement;
 
     expect(imageInput).toHaveValue("");
-    expect(imageInput).toHaveAttribute("placeholder", "ghcr.io/hypercli/hypercli-openclaw:pro-latest");
+    expect(imageInput).toHaveAttribute("placeholder", "ghcr.io/example/openclaw:latest");
 
     fireEvent.click(screen.getByLabelText(/Desktop browser/i));
 
     await waitFor(() => {
-      expect(imageInput).toHaveAttribute("placeholder", "ghcr.io/hypercli/hypercli-openclaw:pro-latest");
+      expect(imageInput).toHaveAttribute("placeholder", "ghcr.io/example/openclaw:latest");
     });
   });
 

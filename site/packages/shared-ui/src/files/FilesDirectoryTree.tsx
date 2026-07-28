@@ -25,7 +25,19 @@ interface FilesDirectoryTreeProps {
 // ── Helpers ──
 
 function normalizeTreePath(path: string): string {
-  return path.replace(/^\/+/, "").replace(/\/+$/, "");
+  const replaced = path.trim().replace(/\\/g, "/");
+  const absolute = replaced.startsWith("/");
+  const normalized = replaced.split("/").filter(Boolean).join("/");
+  return absolute ? (normalized ? `/${normalized}` : "/") : normalized;
+}
+
+function parentTreePath(path: string): string | null {
+  const normalized = normalizeTreePath(path);
+  if (!normalized || normalized === "/") return null;
+  const separatorIndex = normalized.lastIndexOf("/");
+  if (separatorIndex < 0) return null;
+  if (separatorIndex === 0) return "/";
+  return normalized.slice(0, separatorIndex);
 }
 
 function buildTree(entries: FileEntry[]): TreeNode[] {
@@ -40,7 +52,7 @@ function buildTree(entries: FileEntry[]): TreeNode[] {
 
   for (const entry of sorted) {
     const path = normalizeTreePath(entry.path);
-    const segments = path.split("/").filter(Boolean);
+    const parentPath = parentTreePath(path);
     const node: TreeNode = {
       ...entry,
       name: entry.name,
@@ -49,10 +61,9 @@ function buildTree(entries: FileEntry[]): TreeNode[] {
       children: entry.type === "directory" ? [] : undefined,
     };
 
-    if (segments.length <= 1) {
+    if (!parentPath || parentPath === "/") {
       root.push(node);
     } else {
-      const parentPath = segments.slice(0, -1).join("/");
       const parent = dirMap.get(parentPath);
       if (parent?.children) {
         parent.children.push(node);

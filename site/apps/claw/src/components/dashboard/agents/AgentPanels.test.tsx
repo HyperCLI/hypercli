@@ -12,7 +12,7 @@ const clipboardMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("./FirstAgentSetupWizard", () => ({
-  FirstAgentSetupWizard: ({ onCreateAgent }: {
+  FirstAgentSetupWizard: ({ onCreateAgent, onClose }: {
     onCreateAgent: (params: {
       name: string;
       iconIndex: number;
@@ -20,9 +20,11 @@ vi.mock("./FirstAgentSetupWizard", () => ({
       files: [];
       enableDesktop: boolean;
     }) => Promise<string | null>;
+    onClose?: () => void;
   }) => (
     <div>
       <div>First agent setup wizard</div>
+      {onClose ? <button type="button" onClick={onClose}>Close agent creation</button> : null}
       <button
         type="button"
         onClick={() => { void onCreateAgent({
@@ -222,7 +224,6 @@ function createAgentListProps(overrides: Partial<ComponentProps<typeof AgentList
     setError: vi.fn(),
     sidebarCreatorSignal: 0,
     setPendingAgentDelete: vi.fn(),
-    updateAgentDisplayName: vi.fn(),
     ...overrides,
   };
 }
@@ -703,8 +704,18 @@ describe("AgentList", () => {
     renderAgentList({ sidebarCollapsed: false, sidebarCreatorSignal: 1 });
 
     expect(screen.getByText("First agent setup wizard")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Close launch agent" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close agent creation" }));
     await waitFor(() => expect(screen.queryByText("First agent setup wizard")).not.toBeInTheDocument());
+  });
+
+  it("closes the agent launcher when an agent is selected", async () => {
+    const props = renderAgentList({ sidebarCreatorSignal: 1 });
+
+    expect(await screen.findByText("First agent setup wizard")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /select test agent/i }));
+
+    await waitFor(() => expect(screen.queryByText("First agent setup wizard")).not.toBeInTheDocument());
+    expect(props.setSelectedAgentId).toHaveBeenCalledWith("agent-1");
   });
 
   it("aligns the expanded launch action with reorderable agent rows", () => {
@@ -750,31 +761,20 @@ describe("AgentList", () => {
     expect(screen.queryByText(/rapid-forge-engine/)).not.toBeInTheDocument();
   });
 
-  it("routes an inline roster rename through the display-name callback", async () => {
+  it("does not expose display-name editing from the agent roster", () => {
     const displayAgent: Agent = {
       ...agent,
       name: "rapid-forge-engine",
       displayName: "Marketing",
       managed: false,
     };
-    const updateAgentDisplayName = vi.fn(async () => undefined);
-    const fetchAgents = vi.fn();
     renderAgentList({
       sidebarCollapsed: false,
       agents: [displayAgent],
       syntheticThreads: [agentThread(displayAgent)],
-      updateAgentDisplayName,
-      fetchAgents,
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Rename agent" }));
-    const input = screen.getByRole("textbox");
-    expect(input).toHaveValue("Marketing");
-    fireEvent.change(input, { target: { value: "Growth" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-
-    await waitFor(() => expect(updateAgentDisplayName).toHaveBeenCalledWith(displayAgent.id, "Growth"));
-    expect(fetchAgents).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Rename agent" })).not.toBeInTheDocument();
   });
 
   it("shows the launch agent button in the collapsed rail", () => {

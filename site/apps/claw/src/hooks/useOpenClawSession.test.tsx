@@ -23,6 +23,11 @@ function buildGateway(initialState: TestGatewayConnectionState = "connected") {
     close: ReturnType<typeof vi.fn>;
   }> = [];
   let connectionState = initialState;
+  const sessionsReset = vi.fn(async (sessionKey: string, _reason?: "new" | "reset"): Promise<string> => sessionKey);
+  const sessionsCreate = vi.fn(async (params: { key?: string }) => {
+    const key = params.key ?? "dashboard:test";
+    return { ok: true as const, key: await sessionsReset(key, "new") };
+  });
   const gateway = {
     get state() {
       return connectionState;
@@ -65,8 +70,10 @@ function buildGateway(initialState: TestGatewayConnectionState = "connected") {
     sessionsPreview: vi.fn(async (_sessionKey: string, _limit?: number): Promise<unknown[]> => []),
     agentsList: vi.fn(async (): Promise<Array<Record<string, unknown>>> => [{ id: "agent-1" }]),
     sessionsList: vi.fn(async (): Promise<unknown[]> => []),
+    sessionsSubscribe: vi.fn(async () => true),
     sessionsPatch: vi.fn(async (_patch: Record<string, unknown>): Promise<Record<string, unknown>> => ({ ok: true })),
-    sessionsReset: vi.fn(async (sessionKey: string, _reason?: "new" | "reset"): Promise<string> => sessionKey),
+    sessionsReset,
+    sessionsCreate,
     cronList: vi.fn(async (): Promise<unknown[]> => []),
     cronAdd: vi.fn(async () => ({ id: "new-cron-job" })),
     cronRemove: vi.fn(async (): Promise<void> => undefined),
@@ -2644,7 +2651,7 @@ describe("useOpenClawSession", () => {
       newSessionKey = await result.current.createSession();
     });
 
-    expect(newSessionKey).toMatch(/^session-/);
+    expect(newSessionKey).toMatch(/^dashboard:/);
     expect(gateway.sessionsReset).toHaveBeenCalledWith(newSessionKey, "new");
     expect(result.current.sessions).toEqual(expect.arrayContaining([
       expect.objectContaining({ key: newSessionKey, title: "New Session" }),
@@ -2829,7 +2836,7 @@ describe("useOpenClawSession", () => {
     ] as any);
     gateway.chatHistory.mockResolvedValue([]);
     const release = deferred<void>();
-    const reset = deferred<void>();
+    const reset = deferred<string>();
     gateway.sessionsReset.mockReturnValue(reset.promise);
     gateway.chatSend.mockImplementation((async function* () {
       await release.promise;
@@ -2866,7 +2873,7 @@ describe("useOpenClawSession", () => {
       newSessionKey = await result.current.createSession();
     });
 
-    expect(newSessionKey).toMatch(/^session-/);
+    expect(newSessionKey).toMatch(/^dashboard:/);
     expect(gateway.sessionsReset).toHaveBeenCalledWith(newSessionKey, "new");
     expect(result.current.activeSessionKey).toBe("session-alpha");
     expect(result.current.activeSessionSending).toBe(true);
@@ -3117,6 +3124,92 @@ describe("useOpenClawSession", () => {
     expect(result.current.messages).toEqual([
       expect.objectContaining({ role: "user", content: "beta start" }),
     ]);
+    unmount();
+  });
+
+  it("recovers every conversation after concurrent SDK streams are interrupted", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([
+      { key: "session-alpha", title: "Alpha" },
+      { key: "session-beta", title: "Beta" },
+    ] as any);
+    let recoveryReady = false;
+    gateway.chatHistory.mockImplementation((async (sessionKey: string) => {
+      if (!recoveryReady) return [];
+      return sessionKey === "session-alpha"
+        ? [
+            { role: "user", content: "alpha start" },
+            { role: "assistant", content: "Alpha recovered reply" },
+          ]
+        : [
+            { role: "user", content: "beta start" },
+            { role: "assistant", content: "Beta recovered reply" },
+          ];
+    }) as any);
+    const alphaStream = deferred<void>();
+    const betaStream = deferred<void>();
+    gateway.chatSend.mockImplementation((async function* (_message: string, sessionKey: string) {
+      await (sessionKey === "session-alpha" ? alphaStream.promise : betaStream.promise);
+      yield { type: "done" as const, data: {} };
+    }) as any);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, rerender, unmount } = renderHookWithClient(
+      ({ sessionKey }: { sessionKey: string }) => useOpenClawSession(agent as any, true, sessionKey),
+      { initialProps: { sessionKey: "session-alpha" } },
+    );
+
+    await waitFor(() => expect(result.current.activeSessionCanSend).toBe(true));
+    act(() => result.current.setInput("alpha start"));
+    let alphaSend!: Promise<void>;
+    act(() => {
+      alphaSend = result.current.sendMessage();
+    });
+    await waitFor(() => expect(result.current.thinkingSessionKeys).toEqual(["session-alpha"]));
+
+    rerender({ sessionKey: "session-beta" });
+    await waitFor(() => expect(result.current.activeSessionCanSend).toBe(true));
+    act(() => result.current.setInput("beta start"));
+    let betaSend!: Promise<void>;
+    act(() => {
+      betaSend = result.current.sendMessage();
+    });
+    await waitFor(() => expect(result.current.thinkingSessionKeys).toEqual([
+      "session-alpha",
+      "session-beta",
+    ]));
+
+    recoveryReady = true;
+    const interruption = Object.assign(new Error("stream correlation was interrupted"), {
+      code: "GATEWAY_CHAT_STREAM_INTERRUPTED",
+      reason: "ambiguous-event",
+    });
+    await act(async () => {
+      alphaStream.reject(interruption);
+      betaStream.reject(interruption);
+      await Promise.all([alphaSend, betaSend]);
+    });
+
+    await waitFor(() => expect(result.current.thinkingSessionKeys).toEqual([]));
+    await waitFor(() => expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "beta start" }),
+      expect.objectContaining({ role: "assistant", content: "Beta recovered reply" }),
+    ]));
+    expect(result.current.messages.some((message) => message.content.startsWith("Error:"))).toBe(false);
+
+    rerender({ sessionKey: "session-alpha" });
+    await waitFor(() => expect(result.current.historyPhase).toBe("ready"));
+    await waitFor(() => expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "alpha start" }),
+      expect.objectContaining({ role: "assistant", content: "Alpha recovered reply" }),
+    ]));
+    expect(result.current.activeSessionCanSend).toBe(true);
+    expect(result.current.messages.some((message) => message.content.startsWith("Error:"))).toBe(false);
     unmount();
   });
 
@@ -3484,6 +3577,31 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
+  it("does not expose or persist OpenClaw subagent sessions", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([
+      { key: "main", title: "Main", updatedAt: 20 },
+      { key: "agent:main:subagent:research", spawnedBy: "main", label: "Research task", updatedAt: 30 },
+      { key: "agent:copilot:acp:opaque-child", spawnedBy: "main", label: "ACP task", updatedAt: 40 },
+    ]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+
+    expect(result.current.sessions.map((session) => session.key)).toEqual(["main"]);
+    const cached = JSON.parse(window.localStorage.getItem("openclaw.sessions.v1:deploy-123") ?? "{}");
+    expect(cached.sessions).toEqual([expect.objectContaining({ key: "main" })]);
+    expect(JSON.stringify(cached)).not.toMatch(/subagent|opaque-child/);
+    unmount();
+  });
+
   it("does not promote stale unclaimed generated sessions to main", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
@@ -3678,7 +3796,7 @@ describe("useOpenClawSession", () => {
       newSessionKey = await result.current.createSession();
     });
 
-    expect(newSessionKey).toMatch(/^session-/);
+    expect(newSessionKey).toMatch(/^dashboard:/);
     expect(gateway.sessionsReset).toHaveBeenCalledWith(newSessionKey, "new");
     expect(gateway.chatSend).not.toHaveBeenCalled();
     expect(result.current.creatingSessionKeys).toContain(newSessionKey);
@@ -3933,16 +4051,18 @@ describe("useOpenClawSession", () => {
     await Promise.resolve();
     expect(settled).toBe(false);
 
-    reset.resolve(undefined);
+    const requestedSessionKey = gateway.sessionsReset.mock.calls[0]?.[0];
+    expect(requestedSessionKey).toMatch(/^dashboard:/);
+    reset.resolve(requestedSessionKey ?? "");
     let sessionKey = "";
     await act(async () => { sessionKey = await creation; });
     expect(settled).toBe(true);
-    expect(sessionKey).toMatch(/^session-/);
+    expect(sessionKey).toMatch(/^dashboard:/);
     expect(gateway.chatSend).toHaveBeenCalledWith("Test draft", sessionKey, undefined);
     unmount();
   });
 
-  it("transitions a new session through provisional and durable titles", async () => {
+  it("adopts native dashboard titles without running a hidden agent turn", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
     const replyDone = deferred<void>();
@@ -3955,22 +4075,13 @@ describe("useOpenClawSession", () => {
     gateway.sessionsList.mockImplementation(async () => createdSessionKey
       ? [{
           key: `agent:default:${createdSessionKey}`,
-          ...(durableLabel ? { label: durableLabel } : {}),
+          ...(durableLabel ? { displayName: durableLabel } : {}),
         }]
       : [{ key: "main", title: "Main" }]);
     gateway.chatSend.mockImplementation(async function* () {
       yield { type: "content" as const, text: "The weather skill is ready to test." };
       await replyDone.promise;
       yield { type: "done" as const };
-    });
-    gateway.runEphemeralChat.mockResolvedValue('```json\n{"title":"Weather Planning"}\n```');
-    gateway.sessionsPatch.mockImplementation(async (patch) => {
-      durableLabel = String(patch.label ?? "");
-      return {
-        ok: true,
-        key: `agent:default:${createdSessionKey}`,
-        entry: { label: durableLabel },
-      };
     });
     const agent = {
       id: "deploy-123",
@@ -3988,6 +4099,10 @@ describe("useOpenClawSession", () => {
     await act(async () => {
       sessionKey = await result.current.createSession({ waitForCreation: true });
     });
+    expect(gateway.sessionsSubscribe).toHaveBeenCalledOnce();
+    expect(gateway.sessionsSubscribe.mock.invocationCallOrder[0])
+      .toBeLessThan(gateway.sessionsCreate.mock.invocationCallOrder[0] ?? 0);
+    expect(gateway.sessionsCreate).toHaveBeenCalledWith({ key: sessionKey });
     expect(result.current.sessions).toEqual([
       expect.objectContaining({ title: "New Session" }),
     ]);
@@ -4002,7 +4117,7 @@ describe("useOpenClawSession", () => {
     });
     await waitFor(() => expect(gateway.chatSend).toHaveBeenCalled());
     await waitFor(() => expect(result.current.sessions).toEqual([
-      expect.objectContaining({ title: "Test the weather skill safely." }),
+      expect.objectContaining({ title: "New Session" }),
     ]));
     expect(gateway.runEphemeralChat).not.toHaveBeenCalled();
 
@@ -4010,18 +4125,15 @@ describe("useOpenClawSession", () => {
       replyDone.resolve();
       await firstSend;
     });
-    await waitFor(() => expect(gateway.runEphemeralChat).toHaveBeenCalledOnce());
-    await waitFor(() => expect(gateway.sessionsPatch).toHaveBeenCalledWith({
-      key: `agent:default:${sessionKey}`,
-      label: "Weather Planning",
-    }));
-    const [prompt, generationOptions] = gateway.runEphemeralChat.mock.calls[0] ?? [];
-    expect(prompt).toContain(JSON.stringify("Test the weather skill safely."));
-    expect(prompt).toContain(JSON.stringify("The weather skill is ready to test."));
-    expect(generationOptions).toEqual(expect.objectContaining({
-      timeoutMs: 120_000,
-      maxResponseChars: 1_024,
-      signal: expect.any(AbortSignal),
+    expect(gateway.runEphemeralChat).not.toHaveBeenCalled();
+    expect(gateway.sessionsPatch).not.toHaveBeenCalled();
+    durableLabel = "Weather Planning";
+    act(() => gateway.emit({
+      event: "sessions.changed",
+      payload: {
+        sessionKey: `agent:default:${sessionKey}`,
+        reason: "chat.title",
+      },
     }));
     await waitFor(() => expect(result.current.sessions).toEqual([
       expect.objectContaining({ title: "Weather Planning" }),
@@ -4033,16 +4145,15 @@ describe("useOpenClawSession", () => {
     await act(async () => {
       await result.current.sendMessage();
     });
-    expect(gateway.runEphemeralChat).toHaveBeenCalledOnce();
-    expect(gateway.sessionsPatch).toHaveBeenCalledOnce();
+    expect(gateway.runEphemeralChat).not.toHaveBeenCalled();
+    expect(gateway.sessionsPatch).not.toHaveBeenCalled();
     unmount();
   });
 
-  it("uses refreshed history and the reset result when lifecycle completion has no streamed text", async () => {
+  it("does not launch title generation from refreshed assistant history", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
     let createdSessionKey = "";
-    let durableLabel = "";
     gateway.sessionsReset.mockImplementation(async (sessionKey, reason) => {
       if (reason === "new") {
         createdSessionKey = sessionKey;
@@ -4051,7 +4162,7 @@ describe("useOpenClawSession", () => {
       return sessionKey;
     });
     gateway.sessionsList.mockImplementation(async () => createdSessionKey
-      ? [{ key: createdSessionKey, ...(durableLabel ? { label: durableLabel } : {}) }]
+      ? [{ key: createdSessionKey }]
       : [{ key: "main", title: "Main" }]);
     gateway.chatHistory.mockImplementation(async (sessionKey) => (
       createdSessionKey && sessionKey.includes(createdSessionKey)
@@ -4070,15 +4181,6 @@ describe("useOpenClawSession", () => {
         },
       };
     });
-    gateway.runEphemeralChat.mockResolvedValue("Release Review");
-    gateway.sessionsPatch.mockImplementation(async (patch) => {
-      durableLabel = String(patch.label ?? "");
-      return {
-        ok: true,
-        key: `agent:default:${createdSessionKey}`,
-        entry: { label: durableLabel },
-      };
-    });
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
@@ -4088,27 +4190,22 @@ describe("useOpenClawSession", () => {
     const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
     await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
 
-    let sessionKey = "";
     await act(async () => {
-      sessionKey = await result.current.createSession({
+      await result.current.createSession({
         initialMessage: "Summarize the release",
         waitForCreation: true,
       });
     });
 
-    await waitFor(() => expect(gateway.sessionsPatch).toHaveBeenCalledWith({
-      key: `agent:default:${sessionKey}`,
-      label: "Release Review",
-    }));
-    const [prompt] = gateway.runEphemeralChat.mock.calls[0] ?? [];
-    expect(prompt).toContain(JSON.stringify("The release is ready for review."));
+    expect(gateway.runEphemeralChat).not.toHaveBeenCalled();
+    expect(gateway.sessionsPatch).not.toHaveBeenCalled();
     await waitFor(() => expect(result.current.sessions).toEqual([
-      expect.objectContaining({ title: "Release Review" }),
+      expect.objectContaining({ title: "New Session" }),
     ]));
     unmount();
   });
 
-  it("keeps the generated title locally when durable persistence fails", async () => {
+  it("does not copy the first message into the title when native generation is unavailable", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
     let createdSessionKey = "";
@@ -4139,22 +4236,19 @@ describe("useOpenClawSession", () => {
       sessionKey = await result.current.createSession({ initialMessage: "Launch the project", waitForCreation: true });
     });
 
-    await waitFor(() => expect(gateway.sessionsPatch).toHaveBeenCalledWith({
-      key: `agent:default:${sessionKey}`,
-      label: "Project Launch",
-    }));
+    expect(gateway.runEphemeralChat).not.toHaveBeenCalled();
+    expect(gateway.sessionsPatch).not.toHaveBeenCalled();
     await waitFor(() => expect(result.current.sessions).toEqual([
-      expect.objectContaining({ title: "Project Launch" }),
+      expect.objectContaining({ title: "New Session" }),
     ]));
     expect(JSON.parse(window.localStorage.getItem("openclaw.sessionTitles.v1:deploy-123") ?? "{}"))
-      .toEqual({ [sessionKey]: "Project Launch" });
+      .toEqual({ [sessionKey]: "New Session" });
     unmount();
   });
 
-  it("keeps a manual rename when automatic title generation finishes late", async () => {
+  it("keeps manual renames independent from hidden generation", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
-    const generatedTitle = deferred<string>();
     let createdSessionKey = "";
     let durableLabel = "";
     gateway.sessionsReset.mockImplementation(async (sessionKey, reason) => {
@@ -4171,7 +4265,6 @@ describe("useOpenClawSession", () => {
       yield { type: "content" as const, text: "A complete assistant response." };
       yield { type: "done" as const };
     });
-    gateway.runEphemeralChat.mockReturnValue(generatedTitle.promise);
     gateway.sessionsPatch.mockImplementation(async (patch) => {
       durableLabel = String(patch.label ?? "");
       return {
@@ -4193,9 +4286,9 @@ describe("useOpenClawSession", () => {
     await act(async () => {
       sessionKey = await result.current.createSession({ initialMessage: "First question", waitForCreation: true });
     });
-    await waitFor(() => expect(gateway.runEphemeralChat).toHaveBeenCalledOnce());
+    expect(gateway.runEphemeralChat).not.toHaveBeenCalled();
     await waitFor(() => expect(result.current.sessions).toEqual([
-      expect.objectContaining({ title: "First question" }),
+      expect.objectContaining({ title: "New Session" }),
     ]));
 
     await act(async () => {
@@ -4207,19 +4300,78 @@ describe("useOpenClawSession", () => {
       label: "Manual Conversation Name",
     });
 
-    await act(async () => {
-      generatedTitle.resolve(JSON.stringify({ title: "Late Generated Conversation Name" }));
-      await generatedTitle.promise;
-      await Promise.resolve();
-    });
+    const sessionCallsBeforeTitleEvent = gateway.sessionsList.mock.calls.length;
+    act(() => gateway.emit({
+      event: "sessions.changed",
+      payload: {
+        sessionKey: `agent:default:${sessionKey}`,
+        reason: "chat.title",
+      },
+    }));
     expect(gateway.sessionsPatch).toHaveBeenCalledOnce();
+    await waitFor(() => expect(gateway.sessionsList.mock.calls.length).toBeGreaterThan(sessionCallsBeforeTitleEvent));
     await waitFor(() => expect(result.current.sessions).toEqual([
       expect.objectContaining({ title: "Manual Conversation Name" }),
     ]));
     unmount();
   });
 
-  it("uses a provisional title and does not retry after an invalid generated response", async () => {
+  it("does not let a title refresh started before a manual rename overwrite it", async () => {
+    const gateway = buildGateway();
+    const sessionKey = "dashboard:019789ab-cdef-4abc-8def-0123456789ab";
+    const canonicalKey = `agent:default:${sessionKey}`;
+    let durableLabel = "";
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([{ key: canonicalKey, displayName: "Generated Conversation" }]);
+    gateway.sessionsPatch.mockImplementation(async (patch) => {
+      durableLabel = String(patch.label ?? "");
+      return { ok: true, key: canonicalKey, entry: { label: durableLabel } };
+    });
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, sessionKey));
+    await waitFor(() => expect(result.current.sessions).toEqual([
+      expect.objectContaining({ title: "Generated Conversation" }),
+    ]));
+
+    const sessionCallsBeforeTitleEvent = gateway.sessionsList.mock.calls.length;
+    const staleTitleRefresh = deferred<unknown[]>();
+    gateway.sessionsList
+      .mockReturnValueOnce(staleTitleRefresh.promise)
+      .mockImplementation(async () => [{ key: canonicalKey, label: durableLabel }]);
+    act(() => gateway.emit({
+      event: "sessions.changed",
+      payload: { sessionKey: canonicalKey, reason: "chat.title" },
+    }));
+    await waitFor(() => expect(gateway.sessionsList.mock.calls.length).toBeGreaterThan(sessionCallsBeforeTitleEvent));
+
+    await act(async () => {
+      await result.current.renameSession(sessionKey, "Manual Conversation Name");
+    });
+    expect(result.current.sessions).toEqual([
+      expect.objectContaining({ title: "Manual Conversation Name" }),
+    ]);
+
+    await act(async () => {
+      staleTitleRefresh.resolve([{ key: canonicalKey, displayName: "Late Generated Conversation" }]);
+      await staleTitleRefresh.promise;
+      await Promise.resolve();
+    });
+    expect(result.current.sessions).toEqual([
+      expect.objectContaining({ title: "Manual Conversation Name" }),
+    ]);
+    await waitFor(() => expect(gateway.sessionsList.mock.calls.length).toBeGreaterThan(sessionCallsBeforeTitleEvent + 1));
+    await waitFor(() => expect(result.current.sessions).toEqual([
+      expect.objectContaining({ title: "Manual Conversation Name" }),
+    ]));
+    unmount();
+  });
+
+  it("never retries malformed hidden title responses because it does not request them", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
     let createdSessionKey = "";
@@ -4263,7 +4415,7 @@ describe("useOpenClawSession", () => {
     await act(async () => {
       sessionKey = await result.current.createSession({ initialMessage: "First question", waitForCreation: true });
     });
-    await waitFor(() => expect(gateway.runEphemeralChat).toHaveBeenCalledOnce());
+    expect(gateway.runEphemeralChat).not.toHaveBeenCalled();
     await act(async () => {
       await Promise.resolve();
     });
@@ -4275,14 +4427,10 @@ describe("useOpenClawSession", () => {
     await act(async () => {
       await result.current.sendMessage();
     });
-    expect(gateway.runEphemeralChat).toHaveBeenCalledOnce();
-    expect(gateway.sessionsPatch).toHaveBeenCalledOnce();
-    expect(gateway.sessionsPatch).toHaveBeenCalledWith({
-      key: `agent:default:${sessionKey}`,
-      label: "First question",
-    });
+    expect(gateway.runEphemeralChat).not.toHaveBeenCalled();
+    expect(gateway.sessionsPatch).not.toHaveBeenCalled();
     expect(result.current.sessions).toEqual([
-      expect.objectContaining({ title: "First question" }),
+      expect.objectContaining({ title: "New Session" }),
     ]);
     unmount();
   });
@@ -4308,7 +4456,7 @@ describe("useOpenClawSession", () => {
       newSessionKey = await result.current.createSession();
     });
 
-    expect(newSessionKey).toMatch(/^session-/);
+    expect(newSessionKey).toMatch(/^dashboard:/);
     expect(result.current.sessions).toEqual(expect.arrayContaining([
       expect.objectContaining({ key: newSessionKey, title: "New Session" }),
     ]));
@@ -4627,6 +4775,7 @@ describe("useOpenClawSession", () => {
       await result.current.renameSession("session-alpha", "Renamed");
     });
 
+    gateway.sessionsList.mockResolvedValue([{ key: "session-alpha", displayName: "Generated Conversation" }]);
     await act(async () => {
       await result.current.refreshSessions();
     });

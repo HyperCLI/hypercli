@@ -67,6 +67,16 @@ describe("MarkdownContent", () => {
     expect(screen.getByRole("link", { name: "Open docs" })).toHaveAttribute("target", "_blank");
   });
 
+  it("preserves single line breaks in streamed and settled chat text", () => {
+    const content = "First line\nSecond line\nThird line";
+    const { container, rerender } = render(<MarkdownContent content={content} isStreaming />);
+
+    expect(container.querySelectorAll("p br")).toHaveLength(2);
+
+    rerender(<MarkdownContent content={content} />);
+    expect(container.querySelectorAll("p br")).toHaveLength(2);
+  });
+
   it("renders interactive task lists without clipped list markers", () => {
     const content = [
       "Tasks:",

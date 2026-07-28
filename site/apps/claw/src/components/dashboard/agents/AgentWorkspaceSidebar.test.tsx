@@ -814,7 +814,7 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.queryByText(/^main$/)).not.toBeInTheDocument();
   });
 
-  it("hides unresolved placeholder sessions before the session list is fetched", () => {
+  it("shows a loader instead of unresolved placeholders before sessions are fetched", () => {
     const onSelectSession = vi.fn();
     renderAgentWorkspaceSidebar({
       sessions: [],
@@ -823,7 +823,8 @@ describe("AgentWorkspaceSidebar", () => {
       onSelectSession,
     });
 
-    expect(screen.queryByText("Sessions")).not.toBeInTheDocument();
+    expect(screen.getByText("Sessions")).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Loading sessions" })).not.toHaveTextContent("Sessions are loading.");
     expect(screen.queryByRole("button", { name: "Main Session" })).not.toBeInTheDocument();
     expect(onSelectSession).not.toHaveBeenCalled();
   });
@@ -838,7 +839,8 @@ describe("AgentWorkspaceSidebar", () => {
     const newSessionButtons = screen.getAllByRole("button", { name: "New Session" });
     expect(newSessionButtons).toHaveLength(1);
     expect(newSessionButtons[0]).not.toHaveAttribute("aria-current", "page");
-    expect(screen.queryByText("Sessions")).not.toBeInTheDocument();
+    expect(screen.getByText("Sessions")).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Loading sessions" })).toBeInTheDocument();
   });
 
   it("reveals a stored session title without flashing its placeholder", () => {
@@ -849,6 +851,7 @@ describe("AgentWorkspaceSidebar", () => {
     });
     const { rerender } = renderWithClient(<AgentWorkspaceSidebar {...initialProps} />);
 
+    expect(screen.getByRole("status", { name: "Loading sessions" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New Session", current: "page" })).not.toBeInTheDocument();
 
     rerender(<AgentWorkspaceSidebar
@@ -867,6 +870,7 @@ describe("AgentWorkspaceSidebar", () => {
     />);
 
     expect(screen.getByRole("button", { name: "Release planning" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("status", { name: "Loading sessions" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New Session", current: "page" })).not.toBeInTheDocument();
   });
 
@@ -915,7 +919,7 @@ describe("AgentWorkspaceSidebar", () => {
     expect(row.querySelector('[data-session-title="Release Rollout"]')).toBeInTheDocument();
   });
 
-  it("shows cached session rows disabled before fresh sessions are fetched", () => {
+  it("shows a loader instead of cached rows before fresh sessions are fetched", () => {
     const onSelectSession = vi.fn();
     renderAgentWorkspaceSidebar({
       sessions: [{
@@ -933,10 +937,8 @@ describe("AgentWorkspaceSidebar", () => {
       onSelectSession,
     });
 
-    const project = screen.getByRole("button", { name: "Cached session" });
-    expect(project).toBeDisabled();
-    expect(screen.getAllByText("Sessions are loading.").length).toBeGreaterThan(0);
-    fireEvent.click(project);
+    expect(screen.getByRole("status", { name: "Loading sessions" })).not.toHaveTextContent("Sessions are loading.");
+    expect(screen.queryByRole("button", { name: "Cached session" })).not.toBeInTheDocument();
     expect(onSelectSession).not.toHaveBeenCalled();
   });
 
@@ -1156,6 +1158,41 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.queryByRole("button", { name: "Session options for Working session" })).not.toBeInTheDocument();
   });
 
+  it("does not render OpenClaw subagent sessions", () => {
+    const selectedSubagentKey = "agent:copilot:acp:opaque-child";
+    renderAgentWorkspaceSidebar({
+      sessions: [
+        {
+          key: "agent:main:subagent:research",
+          clientMode: "openclaw",
+          clientDisplayName: "Research task",
+          createdAt: 1,
+          lastMessageAt: 30,
+          title: "Research task",
+          messageCount: 1,
+          raw: {},
+        },
+        {
+          key: selectedSubagentKey,
+          spawnedBy: "agent:main:main",
+          clientMode: "openclaw",
+          clientDisplayName: "ACP task",
+          createdAt: 1,
+          lastMessageAt: 20,
+          title: "ACP task",
+          messageCount: 1,
+          raw: {},
+        },
+      ],
+      selectedSessionKey: selectedSubagentKey,
+    });
+
+    expect(screen.getByRole("button", { name: "Main Session" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Research task" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "ACP task" })).not.toBeInTheDocument();
+    expect(screen.queryByText(selectedSubagentKey)).not.toBeInTheDocument();
+  });
+
   it("renames a recent session from the session menu modal", async () => {
     const onRenameSession = vi.fn(async () => undefined);
     renderAgentWorkspaceSidebar({
@@ -1305,8 +1342,11 @@ describe("AgentWorkspaceSidebar", () => {
       tokenLimit: 5_000,
     });
 
-    expect(screen.getByText("Tokens today")).toBeInTheDocument();
-    expect(screen.getByText("1.2K / 5K")).toBeInTheDocument();
+    const usageLabel = screen.getByText("Tokens today");
+    const usageValue = screen.getByText("1.2K / 5K");
+    expect(usageLabel).toHaveClass("shrink-0", "whitespace-nowrap");
+    expect(usageValue).toHaveClass("shrink-0", "whitespace-nowrap", "tabular-nums");
+    expect(usageLabel.parentElement).toHaveClass("gap-1.5", "text-[11px]", "leading-none");
     expect(screen.getByRole("button", { name: /upgrade/i })).toBeInTheDocument();
     expect(screen.queryByText("7-day free trial on every plan")).not.toBeInTheDocument();
     expect(screen.queryByText("Purchased plans")).not.toBeInTheDocument();

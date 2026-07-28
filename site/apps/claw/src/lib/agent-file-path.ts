@@ -9,6 +9,23 @@ export function normalizeAgentFilePath(path: string): string {
     .replace(/^\.\//, "");
 }
 
+export function normalizeAgentBrowserFilePath(path: string): string {
+  const replaced = path.trim().replace(/\\/g, "/");
+  const absolute = replaced.startsWith("/");
+  const segments: string[] = [];
+  for (const segment of replaced.replace(/^\.\//, "").split("/")) {
+    if (!segment || segment === ".") continue;
+    if (segment === "..") {
+      if (segments.length > 0 && segments[segments.length - 1] !== "..") segments.pop();
+      else if (!absolute) segments.push(segment);
+      continue;
+    }
+    segments.push(segment);
+  }
+  const normalized = segments.join("/");
+  return absolute ? (normalized ? `/${normalized}` : "/") : normalized;
+}
+
 export function normalizeOpenClawWorkspaceFilePath(path: string): string {
   const normalized = normalizeAgentFilePath(path);
   const workspacePrefix = normalizeAgentFilePath(OPENCLAW_WORKSPACE_PREFIX);

@@ -62,9 +62,10 @@ _UNSET = object()
 # The three file-access paths for an OpenClaw agent, each with its own root —
 # the SDK owns the roots so a workspace-relative path (e.g. "AGENTS.md") hits the
 # same file on all three:
-# - `agent`  — the files API on the agent's live pod filesystem. Full access: a
-#              workspace-relative path resolves under the workspace, and an
-#              absolute `/…` path reaches anywhere on the pod. (wire `source=pod`)
+# - `agent`  — the files API on the agent's live pod filesystem. A
+#              workspace-relative path resolves under the workspace, while an
+#              absolute `/…` path can be listed/read anywhere on the pod.
+#              Absolute paths are browse-only. (wire `source=pod`)
 # - `backup` — the S3 backup of the sync root (`/home/node`); served when the pod
 #              is stopped. Scoped to the sync root. (wire `source=s3`)
 # - `gateway`— the operator-WebSocket `agents.files.*` RPC; scoped to the
@@ -110,7 +111,7 @@ def resolve_backend_file_path(path: str, source: str) -> str:
     """
     Resolve a caller path to the deployment HTTP files path (sync-root relative).
     Workspace-relative by default (prefixed with the workspace); an absolute `/…`
-    path is full-fs and only valid for the `agent` source.
+    path is read-only full-fs and only valid for the `agent` source.
     """
     if path.startswith("/"):
         if source not in _FULL_FS_FILE_SOURCES:
@@ -122,6 +123,18 @@ def resolve_backend_file_path(path: str, source: str) -> str:
         return path  # full-fs path, passed through to source=pod
     rel = strip_rel_prefix(path)
     return f"{OPENCLAW_WORKSPACE_PREFIX}/{rel}" if rel else OPENCLAW_WORKSPACE_PREFIX
+
+
+def require_writable_backend_file_path(path: str) -> None:
+    if path.startswith("/"):
+        raise ValueError(
+            "absolute pod paths are browse-only; writes and deletes must stay within the sync root."
+        )
+    if ".." in path.replace("\\", "/").split("/"):
+        raise ValueError(
+            "paths containing '..' are not writable; "
+            "writes and deletes must stay within the sync root."
+        )
 
 
 def resolve_gateway_file_name(path: str) -> str:
@@ -159,8 +172,8 @@ class AgentFiles:
     ONE client wrapping all three agent file-access paths behind a single `source`
     switch (`agent` | `backup` | `gateway`, plus `auto`). The SDK owns the roots,
     so a workspace-relative path is the same file on every source; `agent` also
-    takes absolute `/…` paths for full-fs access. The underlying APIs are left
-    as-is — this only wraps them.
+    takes absolute `/…` paths for read-only full-filesystem browsing. The
+    underlying APIs are left as-is — this only wraps them.
     """
 
     def __init__(
@@ -233,6 +246,7 @@ class AgentFiles:
 
     def write_bytes(self, path: str, content: bytes, source: str = "auto") -> dict:
         if source not in _GATEWAY_FILE_SOURCES:
+            require_writable_backend_file_path(path)
             return self._deployments.file_write_bytes(
                 self._agent,
                 resolve_backend_file_path(path, source),
@@ -243,6 +257,7 @@ class AgentFiles:
 
     def write(self, path: str, content: str, source: str = "auto") -> dict:
         if source not in _GATEWAY_FILE_SOURCES:
+            require_writable_backend_file_path(path)
             return self._deployments.file_write(
                 self._agent,
                 resolve_backend_file_path(path, source),
@@ -265,8 +280,12 @@ class AgentFiles:
             raise ValueError(
                 "delete is not supported over the gateway file source; use the agent/backup source."
             )
+        require_writable_backend_file_path(path)
         return self._deployments.file_delete(
-            self._agent, resolve_backend_file_path(path, source), recursive
+            self._agent,
+            resolve_backend_file_path(path, source),
+            recursive=recursive,
+            source=to_wire_file_source(source),
         )
 
 
@@ -2638,13 +2657,23 @@ class Deployments:
     def files_list(self, pod: Agent | str, path: str = "", source: str = "auto") -> list[dict]:
         """List files on an agent via the backend file API."""
         agent_id = self._agent_id_for_target(pod)
-        with httpx.Client(timeout=AGENT_FILE_OPERATION_TIMEOUT_SECONDS) as client:
-            resp = client.get(
+        params = {"source": source}
+        if path.startswith("/"):
+            if source != "pod":
+                raise ValueError("absolute paths require source='pod'.")
+            url = f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files"
+            params["absolute_path"] = path
+        else:
+            url = (
                 f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(path)}"
                 if path
-                else f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files",
+                else f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files"
+            )
+        with httpx.Client(timeout=AGENT_FILE_OPERATION_TIMEOUT_SECONDS) as client:
+            resp = client.get(
+                url,
                 headers=self._file_headers(),
-                params={"source": source},
+                params=params,
             )
         if resp.status_code >= 400:
             raise APIError(resp.status_code, resp.text)
@@ -2654,11 +2683,19 @@ class Deployments:
     def file_read_bytes_with_metadata(self, pod: Agent | str, path: str, source: str = "auto") -> dict[str, Any]:
         """Read a file from an agent via the backend file API."""
         agent_id = self._agent_id_for_target(pod)
+        params = {"source": source}
+        if path.startswith("/"):
+            if source != "pod":
+                raise ValueError("absolute paths require source='pod'.")
+            url = f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files"
+            params["absolute_path"] = path
+        else:
+            url = f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(path)}"
         with httpx.Client(timeout=AGENT_FILE_OPERATION_TIMEOUT_SECONDS) as client:
             resp = client.get(
-                f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(path)}",
+                url,
                 headers=self._file_headers(),
-                params={"source": source},
+                params=params,
             )
         if resp.status_code >= 400:
             raise APIError(resp.status_code, resp.text)
@@ -2682,6 +2719,7 @@ class Deployments:
 
     def file_write_bytes(self, pod: Agent | str, path: str, content: bytes, destination: str = "auto") -> dict:
         """Write raw bytes to an agent via the backend file API."""
+        require_writable_backend_file_path(path)
         if len(content) > AGENT_FILE_MAX_BYTES:
             raise ValueError(f"Agent file writes are limited to {AGENT_FILE_MAX_BYTES // 1024 // 1024} MiB")
         agent_id = self._agent_id_for_target(pod)
@@ -2700,14 +2738,24 @@ class Deployments:
         """Write a UTF-8 text file to an agent."""
         return self.file_write_bytes(pod, path, content.encode(), destination=destination)
 
-    def file_delete(self, pod: Agent | str, path: str, recursive: bool = False) -> dict:
+    def file_delete(
+        self,
+        pod: Agent | str,
+        path: str,
+        recursive: bool = False,
+        source: str = "auto",
+    ) -> dict:
         """Delete a file or directory from an agent."""
+        require_writable_backend_file_path(path)
         agent_id = self._agent_id_for_target(pod)
         with httpx.Client(timeout=10) as client:
             resp = client.delete(
                 f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(path)}",
                 headers=self._file_headers(),
-                params={"recursive": "true"} if recursive else None,
+                params={
+                    **({"recursive": "true"} if recursive else {}),
+                    **({"source": source} if source != "auto" else {}),
+                } or None,
             )
         if resp.status_code >= 400:
             raise APIError(resp.status_code, resp.text)

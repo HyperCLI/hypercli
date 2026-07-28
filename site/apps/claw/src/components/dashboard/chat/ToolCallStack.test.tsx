@@ -19,15 +19,15 @@ afterEach(() => {
 });
 
 describe("ToolCallStack", () => {
-  it("only stacks tool calls after the threshold", () => {
-    expect(shouldStackToolCalls(toolCalls.slice(0, 3))).toBe(false);
-    expect(shouldStackToolCalls(toolCalls)).toBe(true);
+  it("stacks tool calls at the threshold", () => {
+    expect(shouldStackToolCalls(toolCalls.slice(0, 2))).toBe(false);
+    expect(shouldStackToolCalls(toolCalls.slice(0, 3))).toBe(true);
   });
 
-  it("collapses more than three tool calls by default", () => {
-    render(<ToolCallStack toolCalls={toolCalls} themeVariant="off" />);
+  it("collapses three tool calls by default", () => {
+    render(<ToolCallStack toolCalls={toolCalls.slice(0, 3)} themeVariant="off" />);
 
-    const stackButton = screen.getByRole("button", { name: /4 tool calls/i });
+    const stackButton = screen.getByRole("button", { name: /3 tool calls/i });
     expect(stackButton).toHaveAttribute("aria-expanded", "false");
     expect(stackButton).toHaveAttribute("aria-controls");
     expect(screen.queryByText("Four")).toBeNull();
@@ -36,7 +36,7 @@ describe("ToolCallStack", () => {
 
     expect(stackButton).toHaveAttribute("aria-expanded", "true");
     expect(document.getElementById(stackButton.getAttribute("aria-controls") ?? "")).not.toBeNull();
-    expect(screen.getByText("Four")).toBeInTheDocument();
+    expect(screen.getByText("Three")).toBeInTheDocument();
   });
 
   it("counts empty tool results as completed", () => {

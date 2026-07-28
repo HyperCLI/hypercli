@@ -16,6 +16,10 @@ interface AgentChatGatewayRequest {
   params?: { sessionKey?: string; key?: string; reason?: string; [key: string]: unknown };
 }
 
+interface MockAgentChatOptions {
+  deferParallelReplies?: boolean;
+}
+
 function json(body: unknown) {
   return {
     status: 200,
@@ -24,7 +28,10 @@ function json(body: unknown) {
   };
 }
 
-async function mockAgentChat(page: Page): Promise<{ requests: AgentChatGatewayRequest[] }> {
+async function mockAgentChat(
+  page: Page,
+  options: MockAgentChatOptions = {},
+): Promise<{ requests: AgentChatGatewayRequest[] }> {
   const tracker = { requests: [] as AgentChatGatewayRequest[] };
   await page.exposeFunction("__recordAgentChatGatewayRequest", (request: AgentChatGatewayRequest) => {
     tracker.requests.push(request);
@@ -40,7 +47,7 @@ async function mockAgentChat(page: Page): Promise<{ requests: AgentChatGatewayRe
     },
   ]);
 
-  await page.addInitScript(({ token, secondarySessionKey, rosterCollapsedStorageKey }) => {
+  await page.addInitScript(({ token, secondarySessionKey, rosterCollapsedStorageKey, deferParallelReplies }) => {
     window.localStorage.setItem("claw_auth_token", token);
     window.localStorage.setItem("app_auth_token", token);
     window.localStorage.setItem(rosterCollapsedStorageKey, "true");
@@ -52,6 +59,12 @@ async function mockAgentChat(page: Page): Promise<{ requests: AgentChatGatewayRe
     };
     (window as Window & { __agentChatNavigationGatewayCalls?: typeof gatewayCalls }).__agentChatNavigationGatewayCalls = gatewayCalls;
     const NativeWebSocket = window.WebSocket;
+    const historyBySession = new Map<string, Array<{ role: string; content: string }>>();
+    const pendingChats: Array<{
+      sessionKey: string;
+      messages: Array<{ role: string; content: string }>;
+      emitTerminalGap: () => void;
+    }> = [];
 
     class MockWebSocket {
       static readonly CONNECTING = 0;
@@ -83,7 +96,7 @@ async function mockAgentChat(page: Page): Promise<{ requests: AgentChatGatewayRe
         const message = JSON.parse(data) as {
           id: string;
           method: string;
-          params?: { sessionKey?: string };
+          params?: { sessionKey?: string; message?: string };
         };
         const secondaryAgent = this.url.includes("agent-2");
         gatewayCalls.methods.push(message.method);
@@ -120,26 +133,59 @@ async function mockAgentChat(page: Page): Promise<{ requests: AgentChatGatewayRe
 
         if (message.method === "chat.history") {
           const isSecondaryFocus = secondaryAgent && message.params?.sessionKey === secondarySessionKey;
+          const recoveredMessages = historyBySession.get(message.params?.sessionKey ?? "main");
           this.respond(message.id, {
-            messages: isSecondaryFocus
-              ? [{ role: "assistant", content: "Secondary focus history restored" }]
-              : [],
+            messages: recoveredMessages ?? (
+              isSecondaryFocus
+                ? [{ role: "assistant", content: "Secondary focus history restored" }]
+                : []
+            ),
           });
           return;
         }
 
         if (message.method === "chat.send") {
           const runId = `agent-chat-navigation-${message.id}`;
+          const sessionKey = message.params?.sessionKey ?? "main";
           this.respond(message.id, { runId });
+          if (deferParallelReplies) {
+            const prompt = message.params?.message ?? "";
+            const reply = `Parallel reply for ${sessionKey}`;
+            pendingChats.push({
+              sessionKey,
+              messages: [
+                ...(secondaryAgent && sessionKey === secondarySessionKey
+                  ? [{ role: "assistant", content: "Secondary focus history restored" }]
+                  : []),
+                { role: "user", content: prompt },
+                { role: "assistant", content: reply },
+              ],
+              emitTerminalGap: () => {
+                this.emit({
+                  type: "event",
+                  event: "chat.content",
+                  seq: 1,
+                  payload: { runId, sessionKey, text: reply },
+                });
+                this.emit({
+                  type: "event",
+                  event: "chat.done",
+                  seq: 3,
+                  payload: { runId, sessionKey },
+                });
+              },
+            });
+            return;
+          }
           this.emit({
             type: "event",
             event: "chat.content",
-            payload: { runId, sessionKey: message.params?.sessionKey, text: "Private reply" },
+            payload: { runId, sessionKey, text: "Private reply" },
           });
           this.emit({
             type: "event",
             event: "chat.done",
-            payload: { runId, sessionKey: message.params?.sessionKey },
+            payload: { runId, sessionKey },
           });
           return;
         }
@@ -189,6 +235,13 @@ async function mockAgentChat(page: Page): Promise<{ requests: AgentChatGatewayRe
       }
     }
 
+    (window as Window & { __releaseAgentChatParallelReplies?: () => void })
+      .__releaseAgentChatParallelReplies = () => {
+        const chats = pendingChats.splice(0);
+        for (const chat of chats) historyBySession.set(chat.sessionKey, chat.messages);
+        chats.at(-1)?.emitTerminalGap();
+      };
+
     Object.defineProperty(window, "WebSocket", {
       configurable: true,
       writable: true,
@@ -204,6 +257,7 @@ async function mockAgentChat(page: Page): Promise<{ requests: AgentChatGatewayRe
     token: TEST_JWT,
     secondarySessionKey: SECONDARY_SESSION_KEY,
     rosterCollapsedStorageKey: AGENT_ROSTER_COLLAPSED_STORAGE_KEY,
+    deferParallelReplies: options.deferParallelReplies === true,
   });
 
   await page.route(/\/workspaces(?:\/.*)?$/, async (route) => {
@@ -364,6 +418,58 @@ test("refresh restores the selected agent and non-main chat session", async ({ p
   })).toEqual({ agentId: "agent-2", session: SECONDARY_SESSION_KEY });
   await expect(page.getByRole("button", { name: "Secondary Focus", exact: true })).toHaveAttribute("aria-current", "page");
   await expect(page.getByText("Secondary focus history restored")).toBeVisible();
+});
+
+test("parallel conversations recover after an interrupted gateway event sequence", async ({ page }) => {
+  await mockAgentChat(page, { deferParallelReplies: true });
+  await page.goto("/dashboard/agents?agentId=agent-1", { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Select Secondary Agent" }).click();
+  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+
+  const mainSession = page.getByRole("button", { name: "Main Session", exact: true });
+  const secondarySession = page.getByRole("button", { name: "Secondary Focus", exact: true });
+  const archivedSession = page.getByRole("button", { name: "Archived Focus", exact: true });
+  const composer = page.locator("textarea").first();
+  const send = page.getByRole("button", { name: "Send message" });
+  await expect(mainSession).toBeEnabled();
+  await expect(composer).toBeVisible();
+
+  await composer.fill("main parallel request");
+  await send.click();
+  await expect(page.getByText("main parallel request", { exact: true })).toBeVisible();
+  await expect(mainSession).toHaveAttribute("aria-busy", "true");
+
+  await secondarySession.click();
+  await expect(secondarySession).toHaveAttribute("aria-current", "page");
+  await composer.fill("secondary parallel request");
+  await send.click();
+  await expect(page.getByText("secondary parallel request", { exact: true })).toBeVisible();
+  await expect(secondarySession).toHaveAttribute("aria-busy", "true");
+
+  await archivedSession.click();
+  await expect(archivedSession).toHaveAttribute("aria-current", "page");
+  await composer.fill("archived parallel request");
+  await send.click();
+  await expect(page.getByText("archived parallel request", { exact: true })).toBeVisible();
+  await expect(archivedSession).toHaveAttribute("aria-busy", "true");
+
+  await page.evaluate(() => {
+    (window as Window & { __releaseAgentChatParallelReplies?: () => void })
+      .__releaseAgentChatParallelReplies?.();
+  });
+
+  for (const [session, reply] of [
+    [archivedSession, `Parallel reply for ${ARCHIVED_SESSION_KEY}`],
+    [secondarySession, `Parallel reply for ${SECONDARY_SESSION_KEY}`],
+    [mainSession, "Parallel reply for main"],
+  ] as const) {
+    await session.click();
+    await expect(session).toHaveAttribute("aria-current", "page");
+    await expect(session).not.toHaveAttribute("aria-busy", "true");
+    await expect(page.getByText(reply, { exact: true })).toBeVisible();
+    await expect(page.getByText("Loading conversation...", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Could not load this conversation", { exact: true })).toHaveCount(0);
+  }
 });
 
 test("dashboard views preserve the agent controller across navigation history", async ({ page }) => {

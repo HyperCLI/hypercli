@@ -15,6 +15,7 @@ import type { SlotInventory } from "@/lib/format";
 import type { AgentCreationSetupCreateParams } from "@/components/dashboard/agents/AgentCreationSetupWizard";
 import { TooltipHint } from "@/components/ClawTooltip";
 import { agentDisplayLabel } from "@/components/dashboard/agents/agentViewModel";
+import { AgentDisplayNameEditor } from "@/components/dashboard/agents/AgentDisplayNameEditor";
 
 interface AgentMainPanelProps {
   isDesktopViewport: boolean;
@@ -47,6 +48,7 @@ interface AgentMainPanelProps {
   launcherContent?: React.ReactNode;
   persistentPanelContent?: React.ReactNode;
   headerAction?: React.ReactNode;
+  onUpdateAgentDisplayName?: (agentId: string, displayName: string) => Promise<void> | void;
   onCreate: () => void;
   onCreateAgent?: (params: AgentCreationSetupCreateParams) => Promise<string | null>;
   budget?: {
@@ -99,6 +101,7 @@ export function AgentMainPanel({
   launcherContent,
   persistentPanelContent,
   headerAction,
+  onUpdateAgentDisplayName,
   onCreate,
   onCreateAgent,
   budget,
@@ -419,7 +422,7 @@ export function AgentMainPanel({
       ) : (
         <>
           {isDesktopViewport && (
-            <div className="grid h-14 min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,auto)_minmax(0,1fr)] items-center gap-3 border-b border-border px-4">
+            <div className="relative z-20 grid h-14 min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,auto)_minmax(0,1fr)] items-center gap-3 border-b border-border bg-background px-4">
               <div className="relative z-10 flex min-w-0 items-center gap-2">
                 {showMobileListButton && (
                   <button
@@ -465,12 +468,15 @@ export function AgentMainPanel({
                 </div>
               </div>
 
-              <div className="pointer-events-none z-0 flex w-[min(42vw,420px)] min-w-0 flex-col items-center justify-center px-2 text-center">
-                <p className="max-w-full truncate text-sm font-medium text-foreground">
-                  {selectedAgentDisplayName}
-                </p>
+              <div className="z-0 flex w-[min(42vw,420px)] min-w-0 flex-col items-center justify-center px-2 text-center">
+                <AgentDisplayNameEditor
+                  key={selectedAgent.id}
+                  agent={selectedAgent}
+                  onUpdate={onUpdateAgentDisplayName}
+                  className="w-full"
+                />
                 {!chatConnected && (
-                  <p className="max-w-full truncate text-xs text-text-muted">
+                  <p className="max-w-full truncate text-center text-xs text-text-muted">
                     {chatConnecting ? "Preparing chat" : selectedAgent.state === "RUNNING" ? "Gateway disconnected" : selectedAgent.state}
                   </p>
                 )}

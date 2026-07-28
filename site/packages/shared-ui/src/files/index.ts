@@ -6,6 +6,8 @@ export type {
   AgentFilesPanelProps,
   AgentFilesPanelSource,
   AgentFilesPanelSourceDisabledReasons,
+  AgentFilesPanelSourcePathScope,
+  AgentFilesPanelSourcePaths,
 } from "./AgentFilesPanel";
 export { FilesDrawer } from "./FilesDrawer";
 export type { FilesDrawerProps } from "./FilesDrawer";

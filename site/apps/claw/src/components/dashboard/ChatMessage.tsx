@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Brain, ChevronRight, Download, FileImage, FolderOpen, Loader2, Paperclip, RefreshCw, Square } from "lucide-react";
 import { AnimatePresence, motion, type HTMLMotionProps } from "framer-motion";
-import type { ChatMessage as ChatMessageType, ChatPendingFile } from "@/lib/openclaw-chat";
+import {
+  isOpenClawEmptyReplyFailureText,
+  OPENCLAW_EMPTY_REPLY_NOTICE,
+  type ChatMessage as ChatMessageType,
+  type ChatPendingFile,
+} from "@/lib/openclaw-chat";
 import { getStoredToken } from "@/lib/api";
 import { createAgentClient } from "@/lib/agent-client";
 import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
@@ -859,7 +864,7 @@ const TOOL_PENDING_TIMEOUT_MS = 45_000;
 const TOOL_CALL_STACK_THRESHOLD = 3;
 
 function shouldStackToolCalls(toolCalls: ChatMessageType["toolCalls"]): boolean {
-  return (toolCalls?.length ?? 0) > TOOL_CALL_STACK_THRESHOLD;
+  return (toolCalls?.length ?? 0) >= TOOL_CALL_STACK_THRESHOLD;
 }
 
 function ToolCallDisclosure({
@@ -1060,7 +1065,7 @@ export function ChatMessageBubble({
   retryingFailedReply = false,
 }: ChatMessageProps) {
   const [toolsOpen, setToolsOpen] = useState<Record<number, boolean>>({});
-  const [stackToolCalls] = useState(() => shouldStackToolCalls(message.toolCalls));
+  const stackToolCalls = shouldStackToolCalls(message.toolCalls);
   const messageFiles = uniqueChatFiles([
     ...(message.files ?? []),
     ...(message.role === "assistant" ? deriveToolWrittenFiles(message.toolCalls) : []),
@@ -1082,13 +1087,19 @@ export function ChatMessageBubble({
 
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
+  const isIncompleteReply = isOpenClawEmptyReplyFailureText(message.content);
 
   if (isSystem) {
     const isStoppedNotice = /^reply stopped$/i.test(message.content.trim());
+    const isNeutralNotice = isStoppedNotice || isIncompleteReply;
     return (
       <div className="flex min-w-0 max-w-full justify-center">
-        <div className={`max-w-[85%] break-words rounded-lg border px-4 py-2 text-sm [overflow-wrap:anywhere] ${isStoppedNotice ? "border-border bg-surface-low/70 text-text-muted" : "border-destructive/20 bg-destructive/10 text-destructive"}`}>
-          {message.content}
+        <div
+          role={isIncompleteReply ? "status" : undefined}
+          aria-label={isIncompleteReply ? "Incomplete reply" : undefined}
+          className={`max-w-[85%] break-words rounded-lg border px-4 py-2 text-sm [overflow-wrap:anywhere] ${isNeutralNotice ? "border-border bg-surface-low/70 text-text-muted" : "border-destructive/20 bg-destructive/10 text-destructive"}`}
+        >
+          {isIncompleteReply ? OPENCLAW_EMPTY_REPLY_NOTICE : message.content}
           {onRetryFailedReply ? (
             <div>
               <FailedReplyRetryButton
@@ -1121,7 +1132,11 @@ export function ChatMessageBubble({
       }
     }
   }
-  const rawEffectiveContent = contentIsJson ? "" : message.content;
+  const rawEffectiveContent = contentIsJson
+    ? ""
+    : isIncompleteReply
+      ? OPENCLAW_EMPTY_REPLY_NOTICE
+      : message.content;
   const effectiveContent = !isUser && inlineAudioFile
     ? stripInlineAudioReplyContent(rawEffectiveContent, inlineAudioFile)
     : rawEffectiveContent;
@@ -1553,7 +1568,15 @@ export function ChatMessageBubble({
         {/* Content */}
         {(displayContent || showStreamingDot) && (
           <div className={`relative w-full min-w-0 max-w-full ${showStreamingDot ? "pb-5" : ""}`}>
-            {contentDirectoryListing ? (
+            {isIncompleteReply ? (
+              <div
+                role="status"
+                aria-label="Incomplete reply"
+                className="w-fit max-w-full rounded-lg border border-warning/25 bg-warning/10 px-3 py-2 text-sm leading-6 text-text-secondary"
+              >
+                {displayContent}
+              </div>
+            ) : contentDirectoryListing ? (
               <DirectoryVisualization
                 title="Directory"
                 rootPath={contentDirectoryListing.rootPath}
@@ -1614,10 +1637,19 @@ export function ChatMessageBubble({
   );
 }
 
-export function ChatThinkingIndicator({ variant = "off" }: { variant?: FeatureVariant } = {}) {
+export function ChatThinkingIndicator({
+  variant = "off",
+  label = "Thinking",
+}: {
+  variant?: FeatureVariant;
+  label?: string;
+} = {}) {
   void variant; // accepted for future style options
   return (
     <motion.div
+      role="status"
+      aria-label={label}
+      aria-live="polite"
       className="flex justify-start"
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
@@ -1639,7 +1671,7 @@ export function ChatThinkingIndicator({ variant = "off" }: { variant?: FeatureVa
         >
           <Brain className="w-4 h-4 text-primary" />
         </motion.div>
-        <span className="text-xs font-medium text-text-secondary">Thinking</span>
+        <span className="text-xs font-medium text-text-secondary">{label}</span>
         <span className="flex items-center gap-1">
           <motion.span
             className="w-1.5 h-1.5 rounded-full bg-primary"

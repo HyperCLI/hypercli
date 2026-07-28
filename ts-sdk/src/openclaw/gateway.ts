@@ -24,6 +24,7 @@ export type GatewayProtocolErrorCode =
   | "INVALID_FRAME"
   | "INVALID_EVENT"
   | "INVALID_RESPONSE"
+  | "AMBIGUOUS_CHAT_STREAM_EVENT"
   | "DUPLICATE_SEQUENCE"
   | "OUT_OF_ORDER_SEQUENCE";
 
@@ -133,6 +134,30 @@ export interface ChatEvent {
   data?: Record<string, any>;
 }
 
+export class GatewayChatStreamInterruptedError extends Error {
+  static readonly code = "GATEWAY_CHAT_STREAM_INTERRUPTED" as const;
+
+  readonly code = GatewayChatStreamInterruptedError.code;
+  readonly reason: "sequence-gap" | "ambiguous-event";
+  readonly expectedSequence?: number;
+  readonly receivedSequence?: number;
+
+  constructor(
+    reason: "sequence-gap" | "ambiguous-event",
+    sequence?: { expected: number; received: number },
+  ) {
+    super(
+      reason === "sequence-gap" && sequence
+        ? `Gateway chat stream interrupted by a sequence gap (expected ${sequence.expected}, received ${sequence.received})`
+        : "Gateway chat stream interrupted by an event without run or session identity",
+    );
+    this.name = "GatewayChatStreamInterruptedError";
+    this.reason = reason;
+    this.expectedSequence = sequence?.expected;
+    this.receivedSequence = sequence?.received;
+  }
+}
+
 export interface GatewayAbortSignal {
   readonly aborted: boolean;
   addEventListener(type: "abort", listener: () => void, options?: { once?: boolean }): void;
@@ -179,6 +204,27 @@ export interface GatewaySessionPatch {
   model?: string;
   thinkingLevel?: string;
   [key: string]: unknown;
+}
+
+export interface GatewaySessionCreateParams {
+  key?: string;
+  agentId?: string;
+  label?: string;
+  model?: string;
+  parentSessionKey?: string;
+  fork?: boolean;
+  emitCommandHooks?: boolean;
+  task?: string;
+  message?: string;
+  worktree?: boolean;
+}
+
+export interface GatewaySessionCreateResult extends Record<string, unknown> {
+  ok: true;
+  key: string;
+  sessionId?: string;
+  entry?: Record<string, unknown>;
+  runStarted?: boolean;
 }
 
 export interface GatewaySessionsListResult extends Record<string, any> {
@@ -1058,6 +1104,11 @@ export type GatewayConnectionStateHandler = (state: GatewayConnectionState) => v
 
 type InternalGatewayEventHandler = (event: GatewayEvent) => boolean;
 
+type InternalChatStreamState = {
+  close: (error: Error) => void;
+  terminalEvent: GatewayEvent | null;
+};
+
 export type GatewayClientRequestOptions = {
   expectFinal?: boolean;
   timeoutMs?: number | null;
@@ -1805,6 +1856,7 @@ function reconcileStreamContent(
     const text = snapshot.slice(previousText.length);
     return text ? { text, nextText: snapshot, replace: false } : null;
   }
+  if (previousText.startsWith(snapshot)) return null;
   return { text: snapshot, nextText: snapshot, replace: true };
 }
 
@@ -1955,6 +2007,18 @@ function isChatStreamGatewayEvent(event: GatewayEvent): boolean {
   const payload = asRecord(event.payload) ?? {};
   const stream = typeof payload.stream === "string" ? payload.stream.toLowerCase() : "";
   return stream === "tool" || stream === "lifecycle";
+}
+
+function isTerminalChatStreamGatewayEvent(event: GatewayEvent): boolean {
+  if (event.event === "chat.done" || event.event === "chat.error") return true;
+  const payload = asRecord(event.payload) ?? {};
+  if (event.event === "agent" && String(payload.stream ?? "").toLowerCase() === "lifecycle") {
+    const phase = String(asRecord(payload.data)?.phase ?? "").toLowerCase();
+    return phase === "end" || phase === "error";
+  }
+  if (event.event !== "chat") return false;
+  const state = String(payload.state ?? "").toLowerCase();
+  return state === "final" || state === "error" || state === "aborted";
 }
 
 function splitConfigPath(path: string): string[] {
@@ -2698,6 +2762,8 @@ export class GatewayClient {
   private eventHandlers = new Set<GatewayEventHandler>();
   private internalEventHandlers = new Set<InternalGatewayEventHandler>();
   private internalStreamCloseHandlers = new Set<(error: Error) => void>();
+  private activeNormalChatStreams = new Set<InternalChatStreamState>();
+  private activeStrictChatStreams = new Set<InternalChatStreamState>();
   private activeEphemeralSessionKeys = new Map<string, number | null>();
   private suppressedEphemeralRunIds = new Map<string, number>();
   private pendingEphemeralChatAcks = 0;
@@ -2941,6 +3007,31 @@ export class GatewayClient {
         // Stream close handlers are isolated from the socket lifecycle.
       }
     }
+  }
+
+  private interruptNormalChatStreams(error: GatewayChatStreamInterruptedError): void {
+    for (const stream of [...this.activeNormalChatStreams]) stream.close(error);
+  }
+
+  private handleForwardSequenceGap(
+    info: { expected: number; received: number },
+    receivedEvent: GatewayEvent,
+  ): void {
+    try {
+      this.onGap?.(info);
+    } catch {
+      // Gap callbacks are observational and must not affect the socket.
+    }
+    queueMicrotask(() => {
+      const error = new GatewayChatStreamInterruptedError("sequence-gap", info);
+      const streams = new Set([
+        ...this.activeNormalChatStreams,
+        ...this.activeStrictChatStreams,
+      ]);
+      for (const stream of streams) {
+        if (stream.terminalEvent !== receivedEvent) stream.close(error);
+      }
+    });
   }
 
   private reportProtocolError(info: GatewayProtocolErrorInfo): void {
@@ -3445,6 +3536,7 @@ export class GatewayClient {
         return;
       }
 
+      let sequenceGap: { expected: number; received: number } | null = null;
       if (typeof gatewayEvent.seq === "number") {
         if (this.lastSeq !== null) {
           if (gatewayEvent.seq === this.lastSeq) {
@@ -3466,14 +3558,31 @@ export class GatewayClient {
             return;
           }
           if (gatewayEvent.seq > this.lastSeq + 1) {
-            try {
-              this.onGap?.({ expected: this.lastSeq + 1, received: gatewayEvent.seq });
-            } catch {
-              // Gap callbacks are observational and must not affect the socket.
-            }
+            sequenceGap = { expected: this.lastSeq + 1, received: gatewayEvent.seq };
           }
         }
         this.lastSeq = gatewayEvent.seq;
+      }
+
+      const payload = asRecord(gatewayEvent.payload) ?? {};
+      const identity = chatEventIdentity(payload);
+      if (
+        isChatStreamGatewayEvent(gatewayEvent) &&
+        !identity.runId &&
+        !identity.sessionKey &&
+        this.activeNormalChatStreams.size > 1
+      ) {
+        this.reportProtocolError({
+          code: "AMBIGUOUS_CHAT_STREAM_EVENT",
+          message: "chat stream event without run or session identity was discarded",
+          frameType: "event",
+          event: gatewayEvent.event,
+        });
+        this.interruptNormalChatStreams(
+          new GatewayChatStreamInterruptedError("ambiguous-event"),
+        );
+        if (sequenceGap) this.handleForwardSequenceGap(sequenceGap, gatewayEvent);
+        return;
       }
 
       let handledInternally = false;
@@ -3485,6 +3594,7 @@ export class GatewayClient {
         }
       }
       this.publishPublicEvent(gatewayEvent, handledInternally);
+      if (sequenceGap) this.handleForwardSequenceGap(sequenceGap, gatewayEvent);
       return;
     }
 
@@ -3963,6 +4073,15 @@ export class GatewayClient {
     return res?.previews?.[0]?.items ?? [];
   }
 
+  async sessionsSubscribe(): Promise<boolean> {
+    const result = await this.rpc("sessions.subscribe", {});
+    return result?.subscribed === true;
+  }
+
+  async sessionsCreate(params: GatewaySessionCreateParams = {}): Promise<GatewaySessionCreateResult> {
+    return await this.rpc("sessions.create", params);
+  }
+
   async sessionsPatch(patch: GatewaySessionPatch): Promise<Record<string, any>> {
     return await this.rpc("sessions.patch", patch);
   }
@@ -4280,6 +4399,7 @@ export class GatewayClient {
     const streamClosed = new Promise<Error>((resolve) => {
       resolveStreamClose = resolve;
     });
+    let streamState: InternalChatStreamState | null = null;
     const wakeWaiter = () => {
       const waiter = resolveWait;
       resolveWait = null;
@@ -4290,6 +4410,10 @@ export class GatewayClient {
       streamCloseError = error;
       this.internalEventHandlers.delete(handler);
       this.internalStreamCloseHandlers.delete(closeHandler);
+      if (streamState) {
+        this.activeNormalChatStreams.delete(streamState);
+        this.activeStrictChatStreams.delete(streamState);
+      }
       resolveStreamClose?.(error);
       wakeWaiter();
     };
@@ -4303,12 +4427,13 @@ export class GatewayClient {
     const handler: InternalGatewayEventHandler = (evt) => {
       if (!isChatStreamGatewayEvent(evt)) return false;
       const payload = asRecord(evt.payload) ?? {};
-      const payloadRunId = typeof payload.runId === "string" ? payload.runId.trim() : "";
-      const payloadSessionKey = chatPayloadSessionKey(payload)?.trim() ?? "";
+      const identity = chatEventIdentity(payload);
+      const payloadRunId = identity.runId?.trim() ?? "";
+      const payloadSessionKey = identity.sessionKey?.trim() ?? "";
+      if (payloadSessionKey && !sameSessionKey(payloadSessionKey, sessionKey)) return false;
+      if (payloadRunId && correlationReady && !acceptedRunIds.has(payloadRunId)) return false;
       if (options.strictCorrelation) {
         if (!payloadRunId && !payloadSessionKey) return false;
-        if (payloadSessionKey && !sameSessionKey(payloadSessionKey, sessionKey)) return false;
-        if (payloadRunId && correlationReady && !acceptedRunIds.has(payloadRunId)) return false;
         if (
           options.ephemeralSession &&
           !correlationReady &&
@@ -4320,9 +4445,13 @@ export class GatewayClient {
         }
       }
       queuedEvents.push(evt);
+      if (correlationReady && isTerminalChatStreamGatewayEvent(evt) && streamState) {
+        streamState.terminalEvent = evt;
+      }
       wakeWaiter();
       return options.strictCorrelation === true;
     };
+    streamState = { close: closeHandler, terminalEvent: null };
 
     try {
       if (options.captureHistoryBaseline) {
@@ -4346,6 +4475,11 @@ export class GatewayClient {
       }
       this.internalEventHandlers.add(handler);
       this.internalStreamCloseHandlers.add(closeHandler);
+      if (options.strictCorrelation) {
+        this.activeStrictChatStreams.add(streamState);
+      } else {
+        this.activeNormalChatStreams.add(streamState);
+      }
       const params: Record<string, any> = {
         message,
         deliver: false,
@@ -4354,42 +4488,69 @@ export class GatewayClient {
       };
       if (normalizedAttachments) params.attachments = normalizedAttachments;
 
-      const ack = await this.rpc("chat.send", params, DEFAULT_AGENT_TIMEOUT);
+      const ack = await stopOnStreamClose(
+        this.rpc("chat.send", params, DEFAULT_AGENT_TIMEOUT),
+      );
       const serverRunId = typeof ack?.runId === "string" ? ack.runId.trim() : "";
       if (serverRunId) {
         acceptedRunIds.add(serverRunId);
         if (options.ephemeralSession) this.suppressEphemeralRunId(serverRunId);
       }
       correlationReady = true;
-      if (options.strictCorrelation && queuedEvents.length > 0) {
+      if (queuedEvents.length > 0) {
         for (let index = queuedEvents.length - 1; index >= 0; index -= 1) {
           const payload = asRecord(queuedEvents[index]?.payload) ?? {};
-          const queuedRunId = typeof payload.runId === "string" ? payload.runId.trim() : "";
-          const queuedSessionKey = chatPayloadSessionKey(payload)?.trim() ?? "";
+          const identity = chatEventIdentity(payload);
+          const queuedRunId = identity.runId?.trim() ?? "";
+          const queuedSessionKey = identity.sessionKey?.trim() ?? "";
           const mismatchedSession = Boolean(queuedSessionKey && !sameSessionKey(queuedSessionKey, sessionKey));
-          const unacceptedRunOnlyEvent = Boolean(!queuedSessionKey && queuedRunId && !acceptedRunIds.has(queuedRunId));
-          if (mismatchedSession || unacceptedRunOnlyEvent) {
+          const unacceptedRun = Boolean(queuedRunId && !acceptedRunIds.has(queuedRunId));
+          if (mismatchedSession || unacceptedRun) {
             queuedEvents.splice(index, 1);
           }
         }
+        streamState.terminalEvent =
+          [...queuedEvents].reverse().find(isTerminalChatStreamGatewayEvent) ?? null;
       }
       if (acknowledgementPending) {
         acknowledgementPending = false;
         this.finishEphemeralChatAcknowledgement(Boolean(serverRunId));
       }
 
-      const waitForHistoryText = async (timeoutMs = 10_000): Promise<string> => {
-        const historyDeadline = Date.now() + Math.min(timeoutMs, DEFAULT_AGENT_TIMEOUT);
-        while (true) {
-          const historyText = latestHistoryAssistantText(
+      const readLatestHistoryText = async (): Promise<string> => {
+        try {
+          return latestHistoryAssistantText(
             await stopOnStreamClose(this.chatHistory(sessionKey, 20)),
             acceptedRunIds,
             historyBaseline,
-          );
+          ) ?? "";
+        } catch (error) {
+          if (streamCloseError) throw error;
+          return "";
+        }
+      };
+      const waitForHistoryText = async (timeoutMs = 10_000): Promise<string> => {
+        const historyDeadline = Date.now() + Math.min(timeoutMs, DEFAULT_AGENT_TIMEOUT);
+        while (true) {
+          const historyText = await readLatestHistoryText();
           if (historyText) return historyText;
           if (Date.now() >= historyDeadline) return "";
           await stopOnStreamClose(new Promise<void>((resolve) => setTimeout(resolve, 500)));
         }
+      };
+      const reconcileHistoryAfterToolActivity = async (streamedText: string): Promise<string> => {
+        let historyText = await readLatestHistoryText();
+        if (!historyText || historyText !== streamedText) return historyText;
+
+        const historyDeadline = Date.now() + 1_500;
+        while (Date.now() < historyDeadline) {
+          await stopOnStreamClose(new Promise<void>((resolve) => setTimeout(resolve, 500)));
+          const nextHistoryText = await readLatestHistoryText();
+          if (!nextHistoryText) continue;
+          historyText = nextHistoryText;
+          if (historyText !== streamedText) break;
+        }
+        return historyText;
       };
 
       let deadline = Date.now() + DEFAULT_AGENT_TIMEOUT;
@@ -4416,8 +4577,9 @@ export class GatewayClient {
 
         const evt = queuedEvents.shift()!;
         const payload = asRecord(evt.payload) ?? {};
-        const payloadRunId = typeof payload.runId === "string" ? payload.runId.trim() : "";
-        const payloadSessionKey = chatPayloadSessionKey(payload)?.trim() ?? "";
+        const routingIdentity = chatEventIdentity(payload);
+        const payloadRunId = routingIdentity.runId?.trim() ?? "";
+        const payloadSessionKey = routingIdentity.sessionKey?.trim() ?? "";
         if (payloadRunId && !acceptedRunIds.has(payloadRunId)) {
           continue;
         }
@@ -4480,15 +4642,14 @@ export class GatewayClient {
             const hasNonTextActivity =
               Boolean(lastThinkingText) || seenToolCallIds.size > 0 || seenToolResultIds.size > 0;
             const historyText =
-              hasNonTextActivity
-                ? ""
+              emittedDisplayText && hasNonTextActivity
+                ? await reconcileHistoryAfterToolActivity(emittedDisplayText)
                 : emittedDisplayText
-                ? latestHistoryAssistantText(
-                    await stopOnStreamClose(this.chatHistory(sessionKey, 20)),
-                    acceptedRunIds,
-                    historyBaseline,
-                  )
-                : await waitForHistoryText();
+                  ? await readLatestHistoryText()
+                  : hasNonTextActivity
+                    ? ""
+                    : await waitForHistoryText();
+            if (queuedEvents.length > 0) continue;
             if (historyText) {
               const update = reconcileStreamContent(emittedDisplayText, historyText);
               if (update) {
@@ -4548,20 +4709,22 @@ export class GatewayClient {
         if (evt.event === "chat.done") {
           const hasNonTextActivity =
             Boolean(lastThinkingText) || seenToolCallIds.size > 0 || seenToolResultIds.size > 0;
-          if (!emittedDisplayText && !hasNonTextActivity) {
-            const historyText = await waitForHistoryText();
-            if (historyText) {
-              const update = reconcileStreamContent(emittedDisplayText, historyText);
-              if (update) {
-                emittedDisplayText = update.nextText;
-                yield {
-                  type: "content",
-                  text: update.text,
-                  ...(update.replace ? { replace: true } : {}),
-                  ...identity,
-                  data: payload,
-                };
-              }
+          const historyText = emittedDisplayText && hasNonTextActivity
+            ? await reconcileHistoryAfterToolActivity(emittedDisplayText)
+            : !emittedDisplayText && !hasNonTextActivity
+              ? await waitForHistoryText()
+              : "";
+          if (historyText) {
+            const update = reconcileStreamContent(emittedDisplayText, historyText);
+            if (update) {
+              emittedDisplayText = update.nextText;
+              yield {
+                type: "content",
+                text: update.text,
+                ...(update.replace ? { replace: true } : {}),
+                ...identity,
+                data: payload,
+              };
             }
           }
           yield { type: "done", ...identity, data: payload };
@@ -4717,6 +4880,8 @@ export class GatewayClient {
       if (acknowledgementPending) this.finishEphemeralChatAcknowledgement(false);
       this.internalEventHandlers.delete(handler);
       this.internalStreamCloseHandlers.delete(closeHandler);
+      this.activeNormalChatStreams.delete(streamState);
+      this.activeStrictChatStreams.delete(streamState);
     }
   }
 

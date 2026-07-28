@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { handleOpenClawChatStreamEvent, handleOpenClawSessionEvent, hydrateOpenClawSession, refreshOpenClawChatMessages } from "./openclaw-session";
-import type { ChatMessage } from "./openclaw-chat";
+import { OPENCLAW_EMPTY_REPLY_NOTICE, type ChatMessage } from "./openclaw-chat";
 import { resolveOpenClawSessionKey } from "./openclaw-session-key";
 
 const THINKING_LEAK_SENTINEL = "DO_NOT_RENDER_THINKING_SENTINEL";
 const TOOL_ARG_LEAK_SENTINEL = "DO_NOT_RENDER_TOOL_ARG_SENTINEL";
 const TOOL_RESULT_LEAK_SENTINEL = "DO_NOT_RENDER_TOOL_RESULT_SENTINEL";
+const EMPTY_REPLY_FAILURE_TEXT = "I finished the turn, but it did not produce a visible reply. Please try again, or start a new session if this keeps happening.";
 const WORKSPACE_PATH_DUMP = [
   "/home/node/.openclaw/workspace",
   "/home/node/.openclaw/workspace/.openclaw",
@@ -940,6 +941,28 @@ describe("openclaw session keys", () => {
     expect(messages).toEqual([]);
   });
 
+  it("requests a fresh session list when OpenClaw publishes a native title", () => {
+    const refreshSessions = vi.fn();
+
+    handleOpenClawSessionEvent({
+      gatewayEvent: {
+        event: "sessions.changed",
+        payload: {
+          sessionKey: "agent:default:dashboard:019789ab-cdef-4abc-8def-0123456789ab",
+          reason: "chat.title",
+        },
+      } as any,
+      setMessages: vi.fn(),
+      setSending: vi.fn(),
+      setSessions: vi.fn(),
+      refreshSessions,
+      appendActivity: vi.fn(),
+      activeSessionKey: "agent:default:dashboard:019789ab-cdef-4abc-8def-0123456789ab",
+    });
+
+    expect(refreshSessions).toHaveBeenCalledWith({ fresh: true });
+  });
+
   it("keeps Telegram channel events out of the active main project", () => {
     let messages: ChatMessage[] = [];
     const setMessages = vi.fn((value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
@@ -1057,6 +1080,63 @@ describe("openclaw session keys", () => {
     expect(setSending).toHaveBeenCalledWith(false);
     expect(messages).toEqual([]);
     expect(appendActivity).toHaveBeenCalledWith({ type: "system", action: "Assistant reply stopped" });
+  });
+
+  it("replaces partial output with a graceful notice when a turn has no visible reply", () => {
+    let messages: ChatMessage[] = [
+      { role: "user", content: "Write the document", clientTurnId: "turn-1" },
+      {
+        role: "assistant",
+        content: "HE",
+        renderId: "assistant-1",
+        clientTurnId: "turn-1",
+        toolCalls: [{ id: "tool-1", name: "Write", args: "document.md", result: "path provided" }],
+      },
+    ];
+    const setMessages = vi.fn((value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+      messages = typeof value === "function" ? value(messages) : value;
+    });
+    const setSending = vi.fn();
+    const appendActivity = vi.fn();
+
+    handleOpenClawChatStreamEvent({
+      chatEvent: { type: "error", text: EMPTY_REPLY_FAILURE_TEXT },
+      setMessages,
+      setSending,
+      appendActivity,
+      assistantRenderId: "assistant-1",
+      clientTurnId: "turn-1",
+    });
+
+    expect(messages).toHaveLength(2);
+    expect(messages[1]).toEqual(expect.objectContaining({
+      role: "assistant",
+      content: OPENCLAW_EMPTY_REPLY_NOTICE,
+      renderId: "assistant-1",
+      clientTurnId: "turn-1",
+      toolCalls: [expect.objectContaining({ name: "Write", result: "path provided" })],
+    }));
+    expect(messages.some((message) => message.role === "system")).toBe(false);
+    expect(setSending).toHaveBeenCalledWith(false);
+    expect(appendActivity).toHaveBeenCalledWith({ type: "error", action: "Error", detail: EMPTY_REPLY_FAILURE_TEXT });
+  });
+
+  it("keeps unrelated stream errors as explicit system errors", () => {
+    let messages: ChatMessage[] = [];
+    const setMessages = vi.fn((value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+      messages = typeof value === "function" ? value(messages) : value;
+    });
+
+    handleOpenClawChatStreamEvent({
+      chatEvent: { type: "error", text: "Model backend unavailable" },
+      setMessages,
+      setSending: vi.fn(),
+      appendActivity: vi.fn(),
+    });
+
+    expect(messages).toEqual([
+      expect.objectContaining({ role: "system", content: "Error: Model backend unavailable" }),
+    ]);
   });
 
   it("shows passive agent tool start events with alternate tool field names", () => {

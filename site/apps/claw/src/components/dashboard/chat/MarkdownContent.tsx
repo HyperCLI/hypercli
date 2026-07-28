@@ -887,6 +887,30 @@ function applyCodeMetaToAst(node: unknown): void {
   for (const child of children) applyCodeMetaToAst(child);
 }
 
+function applyChatSoftBreaksToAst(node: unknown): void {
+  if (!isRecord(node)) return;
+  if (["code", "inlineCode", "html", "math", "inlineMath"].includes(String(node.type))) return;
+  const children = Array.isArray(node.children) ? node.children : null;
+  if (!children) return;
+
+  for (let index = 0; index < children.length; index += 1) {
+    const child = children[index];
+    if (!isRecord(child)) continue;
+    if (child.type === "text" && typeof child.value === "string" && child.value.includes("\n")) {
+      const lines = child.value.split("\n");
+      const nextNodes: Array<Record<string, unknown>> = [];
+      lines.forEach((line, lineIndex) => {
+        if (line) nextNodes.push({ type: "text", value: line });
+        if (lineIndex < lines.length - 1) nextNodes.push({ type: "break" });
+      });
+      children.splice(index, 1, ...nextNodes);
+      index += nextNodes.length - 1;
+      continue;
+    }
+    applyChatSoftBreaksToAst(child);
+  }
+}
+
 function nodeSourceText(node: Record<string, unknown>, source: string): string | null {
   const position = isRecord(node.position) ? node.position : null;
   const start = isRecord(position?.start) && typeof position.start.offset === "number" ? position.start.offset : null;
@@ -976,6 +1000,10 @@ function remarkWorkspaceFileLinks() {
   return (tree: unknown) => applyWorkspaceFileLinksToAst(tree);
 }
 
+function remarkChatSoftBreaks() {
+  return (tree: unknown) => applyChatSoftBreaksToAst(tree);
+}
+
 function markdownRemarkPlugins(abbreviations: MarkdownAbbreviation[], linkWorkspaceFiles: boolean, source: string): NonNullable<Parameters<typeof Markdown>[0]["remarkPlugins"]> {
   return [
     remarkGfm,
@@ -986,6 +1014,7 @@ function markdownRemarkPlugins(abbreviations: MarkdownAbbreviation[], linkWorksp
     remarkCodeMeta,
     remarkAbbreviations(abbreviations),
     ...(linkWorkspaceFiles ? [remarkWorkspaceFileLinks] : []),
+    remarkChatSoftBreaks,
   ];
 }
 

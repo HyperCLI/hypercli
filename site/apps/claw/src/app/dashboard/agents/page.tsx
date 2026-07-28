@@ -137,7 +137,7 @@ import {
   fallbackOpenClawSessionDisplayName,
   sameOpenClawSelectableSessionKey,
 } from "@/lib/openclaw-session-sdk-surface";
-import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
+import { normalizeAgentBrowserFilePath, normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import {
   type AgentStatusChipModel,
   type CenterPanel,
@@ -166,6 +166,7 @@ import { AgentLogsController, type AgentLogsControllerHandle } from "@/component
 import { AgentShellController, type AgentShellControllerHandle } from "@/components/dashboard/agents/AgentShellController";
 import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
 import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
+import { AgentDisplayNameEditor } from "@/components/dashboard/agents/AgentDisplayNameEditor";
 import { AgentPrivateChatControl } from "@/components/dashboard/agents/AgentPrivateChatControl";
 import { AgentWorkspaceSidebar, WorkspaceCreationDialog } from "@/components/dashboard/agents/AgentWorkspaceSidebar";
 import { AgentGatewaySessionProvider, asAgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
@@ -792,7 +793,7 @@ function UpgradePlanCatalogModal({
 }
 
 function normalizeAgentFilePath(path: string): string {
-  return normalizeOpenClawWorkspaceFilePath(path);
+  return normalizeAgentBrowserFilePath(path);
 }
 
 function stringFileMetadata(value: unknown): string | undefined {
@@ -1102,6 +1103,7 @@ function AgentsPageContent() {
   const selectedAgentIdRef = useRef<string | null>(null);
   const endTemporaryChatBeforeSelectionRef = useRef<() => Promise<void>>(async () => undefined);
   const agentSelectionOperationRef = useRef(0);
+  const sessionSelectionOperationRef = useRef(0);
   const chatAsyncOperationRef = useRef(0);
   const discardChatAudioRef = useRef<() => void>(() => undefined);
   const chatUploadsInFlightRef = useRef(0);
@@ -2430,8 +2432,9 @@ function AgentsPageContent() {
     replaceAgentChatRoute(agentId, sessionKey, clearRoutedPanel, pushRoute);
   }, [replaceAgentChatRoute, selectedAgentId, selectedSessionKeysByAgent]);
   const selectAgentFromRoster = useCallback((agentId: string) => {
+    setAgentLauncherOpen(false);
     void selectAgent(agentId, Boolean(dashboardView), Boolean(dashboardView));
-  }, [dashboardView, selectAgent]);
+  }, [dashboardView, selectAgent, setAgentLauncherOpen]);
   const activeConnectionStatus = useMemo(() => {
     if (mainTab === "files") {
       return selectedAgentId ? "connected" as const : null;
@@ -2525,8 +2528,8 @@ function AgentsPageContent() {
     const agentId = selectedAgentId;
     if (!agentId) throw new Error("No agent selected");
 
-    const normalizedFromPath = normalizeAgentFilePath(fromPath);
-    const normalizedSafePath = normalizeAgentFilePath(safeCandidatePath);
+    const normalizedFromPath = normalizeOpenClawWorkspaceFilePath(fromPath);
+    const normalizedSafePath = normalizeOpenClawWorkspaceFilePath(safeCandidatePath);
     if (
       !normalizedFromPath.startsWith(`${OPENCLAW_WORKSPACE_PREFIX}/`) ||
       !normalizedSafePath.startsWith(`${OPENCLAW_WORKSPACE_PREFIX}/`)
@@ -2538,7 +2541,7 @@ function AgentsPageContent() {
     options?.signal.throwIfAborted();
     await agentClient.fileWriteBytes(agentId, normalizedSafePath, content, "s3");
     try {
-      await agentClient.fileDelete(agentId, normalizedFromPath);
+      await agentClient.fileDelete(agentId, normalizedFromPath, { source: "s3" });
     } catch {}
     return normalizedSafePath;
   }, [selectedAgentId]);
@@ -2557,6 +2560,15 @@ function AgentsPageContent() {
 
     const agentClient = await getAgentClient();
     const readSource = agentFileSourceForState(selectedAgentState, backendSourceFromPanel(source));
+    const canUseWorkspaceRecovery = !normalizedPath.startsWith("/")
+      || normalizedPath === OPENCLAW_WORKSPACE_DIR
+      || normalizedPath.startsWith(`${OPENCLAW_WORKSPACE_DIR}/`);
+    if (!canUseWorkspaceRecovery) {
+      const content = await readAgentFileWithSourceFallback(readSource, (fallbackSource) => (
+        agentClient.fileRead(agentId, normalizedPath, fallbackSource)
+      ));
+      return { content, path: normalizedPath, renamed: false };
+    }
     return readAgentFileWithRecovery({
       path: normalizedPath,
       read: (targetPath) => readAgentFileWithSourceFallback(readSource, (fallbackSource) => (
@@ -2586,6 +2598,15 @@ function AgentsPageContent() {
 
     const agentClient = await getAgentClient();
     const readSource = agentFileSourceForState(selectedAgentState, backendSourceFromPanel(source));
+    const canUseWorkspaceRecovery = !normalizedPath.startsWith("/")
+      || normalizedPath === OPENCLAW_WORKSPACE_DIR
+      || normalizedPath.startsWith(`${OPENCLAW_WORKSPACE_DIR}/`);
+    if (!canUseWorkspaceRecovery) {
+      const result = await readAgentFileWithSourceFallback(readSource, (fallbackSource) => (
+        agentClient.fileReadBytesWithMetadata(agentId, normalizedPath, fallbackSource, options)
+      ));
+      return { ...result, content: result.content, path: normalizedPath, renamed: false };
+    }
     const recovered = await readAgentFileWithRecovery({
       path: normalizedPath,
       read: (targetPath) => readAgentFileWithSourceFallback(readSource, (fallbackSource) => (
@@ -2672,10 +2693,20 @@ function AgentsPageContent() {
     );
   }, [getAgentClient, selectedAgentId, selectedAgentState]);
 
-  const deleteAgentFile = useCallback(async (path: string, options?: { recursive?: boolean }) => {
+  const deleteAgentFile = useCallback(async (
+    path: string,
+    options?: { recursive?: boolean },
+    source: AgentFilePanelSource = "auto",
+  ) => {
     if (!selectedAgentId) return;
+    if (source === "gateway") {
+      throw new Error("Delete is not available for Gateway files.");
+    }
     const agentClient = await getAgentClient();
-    await agentClient.fileDelete(selectedAgentId, normalizeAgentFilePath(path), options);
+    await agentClient.fileDelete(selectedAgentId, normalizeAgentFilePath(path), {
+      ...options,
+      source: backendSourceFromPanel(source),
+    });
     await refreshChatFileReferences().catch(() => undefined);
   }, [getAgentClient, refreshChatFileReferences, selectedAgentId]);
 
@@ -4123,12 +4154,19 @@ function AgentsPageContent() {
   };
   const openChatTab = () => showChatTab(false);
   const selectSession = async (sessionKey: string) => {
-    if (!selectedAgentId) return;
+    const targetAgentId = selectedAgentId;
+    if (!targetAgentId) return;
+    const selectionOperation = sessionSelectionOperationRef.current + 1;
+    sessionSelectionOperationRef.current = selectionOperation;
     if (chat.temporaryChatState !== "inactive") {
       await endTemporaryChatBeforeSelectionRef.current();
     }
-    setSelectedSessionKeysByAgent((prev) => ({ ...prev, [selectedAgentId]: sessionKey }));
-    replaceAgentChatRoute(selectedAgentId, sessionKey, true, Boolean(dashboardView));
+    if (
+      sessionSelectionOperationRef.current !== selectionOperation ||
+      selectedAgentIdRef.current !== targetAgentId
+    ) return;
+    setSelectedSessionKeysByAgent((prev) => ({ ...prev, [targetAgentId]: sessionKey }));
+    replaceAgentChatRoute(targetAgentId, sessionKey, true, Boolean(dashboardView));
     showChatTab(true);
   };
   const renameSession = async (sessionKey: string, title: string) => {
@@ -4531,7 +4569,6 @@ function AgentsPageContent() {
           onOpenAccountSettings={openAccountSettings}
           accountSettingsActive={dashboardView === "settings"}
           embeddedInNavigation
-          updateAgentDisplayName={updateAgentDisplayName}
         />
 
         <AgentWorkspaceSidebar
@@ -4596,7 +4633,7 @@ function AgentsPageContent() {
       {/* Mobile header and shared desktop-style navigation. */}
       {!isDesktopViewport && (
         <Sheet open={mobileNavigationOpen} onOpenChange={setMobileNavigationOpen}>
-          <header className="flex h-[calc(3.5rem+env(safe-area-inset-top))] shrink-0 items-center justify-between border-b border-border px-3 pt-[env(safe-area-inset-top)]">
+          <header className="relative z-20 grid h-[calc(3.5rem+env(safe-area-inset-top))] shrink-0 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center border-b border-border bg-background px-3 pt-[env(safe-area-inset-top)]">
             <Link
               href="/"
               aria-label="HyperCLI home"
@@ -4604,6 +4641,16 @@ function AgentsPageContent() {
             >
               <HyperCLILogoMark className="h-6 w-6" />
             </Link>
+            {selectedAgent && !dashboardView ? (
+              <AgentDisplayNameEditor
+                key={selectedAgent.id}
+                agent={selectedAgent}
+                onUpdate={updateAgentDisplayName}
+                className="w-full px-1"
+              />
+            ) : (
+              <span aria-hidden="true" />
+            )}
             <SheetTrigger asChild>
               <button
                 ref={mobileNavigationTriggerRef}
@@ -4876,7 +4923,6 @@ function AgentsPageContent() {
             onOpenAccountSettings={openAccountSettings}
             accountSettingsActive={dashboardView === "settings"}
             embeddedInNavigation
-            updateAgentDisplayName={updateAgentDisplayName}
           />
 
           <AgentWorkspaceSidebar
@@ -4951,6 +4997,7 @@ function AgentsPageContent() {
           skillsPanelActive={mainTab === "skills"}
           stoppedTabLabel={stoppedTabLabel[selectedCenterPanel]}
           headerAction={renderPrivateChatControl()}
+          onUpdateAgentDisplayName={updateAgentDisplayName}
           launcherContent={agentLauncherOpen ? (
             <div
               aria-hidden={agentLauncherSuspended || undefined}

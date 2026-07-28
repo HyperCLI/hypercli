@@ -2433,7 +2433,6 @@ interface AgentListProps {
   setError: (value: string | null) => void;
   sidebarCreatorSignal: number;
   setPendingAgentDelete: (value: { id: string; name: string } | null) => void;
-  updateAgentDisplayName: (agentId: string, displayName: string) => Promise<void>;
   accountInitial?: string;
   onLogin?: () => void;
   onOpenSettings?: () => void;
@@ -2508,7 +2507,6 @@ export function AgentList({
   setError,
   sidebarCreatorSignal,
   setPendingAgentDelete,
-  updateAgentDisplayName,
   accountInitial,
   onLogin,
   onOpenSettings,
@@ -2674,6 +2672,12 @@ export function AgentList({
     return createdId;
   }, [createAgentFromLauncher, onCreateAgent]);
 
+  const selectRosterAgent = React.useCallback((agentId: string) => {
+    setShowAgentLauncher(false);
+    setSelectedAgentId(agentId);
+    setMobileShowChat(true);
+  }, [setMobileShowChat, setSelectedAgentId]);
+
   if (!isDesktopViewport && !renderMobileNavigation) return null;
 
   const navigationVisible = isDesktopViewport || renderMobileNavigation;
@@ -2752,8 +2756,7 @@ export function AgentList({
                   const agentButton = (
                     <button
                       onClick={() => {
-                        setSelectedAgentId(a.id);
-                        setMobileShowChat(true);
+                        selectRosterAgent(a.id);
                         setSidebarCollapsed(false);
                       }}
                       aria-label={`Select ${agentName}`}
@@ -3006,12 +3009,10 @@ export function AgentList({
               onReorderAgents={setVisibleAgentOrder}
               agentCardDataById={mergedAgentCardDataById}
               onSelectThread={(threadId) => {
-                setSelectedAgentId(threadId);
-                setMobileShowChat(true);
+                selectRosterAgent(threadId);
               }}
               onStartAgentChat={(agent) => {
-                setSelectedAgentId(agent.id);
-                setMobileShowChat(true);
+                selectRosterAgent(agent.id);
               }}
               onCreateAgent={createAgentAndCloseLauncher}
               onOpenAgentLauncher={openAgentLauncher}
@@ -3035,15 +3036,6 @@ export function AgentList({
               onDeleteThread={(threadId) => {
                 const a = agents.find((x) => x.id === threadId);
                 if (a) setPendingAgentDelete({ id: a.id, name: agentDisplayLabel(a) });
-              }}
-              onRenameThread={async (threadId, title) => {
-                const a = agents.find((x) => x.id === threadId);
-                if (!a) return;
-                try {
-                  await updateAgentDisplayName(a.id, title);
-                } catch (e) {
-                  setError(e instanceof Error ? e.message : String(e));
-                }
               }}
               onCollapse={navigationVisible ? () => setSidebarCollapsed(true) : undefined}
             />
@@ -3069,14 +3061,6 @@ export function AgentList({
                 transition={{ type: "spring", stiffness: 420, damping: 34 }}
                 className="relative h-[min(700px,calc(100dvh-1rem))] w-[calc(100vw-1rem)] max-w-[660px] sm:h-[min(700px,calc(100dvh-2rem))] sm:w-[calc(100vw-2rem)] sm:max-w-[660px]"
               >
-                <button
-                  type="button"
-                  aria-label="Close launch agent"
-                  onClick={() => setShowAgentLauncher(false)}
-                  className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-background/70 text-text-muted backdrop-blur transition-colors hover:bg-surface-low hover:text-foreground"
-                >
-                  <X className="h-4 w-4" />
-                </button>
                 <AgentCreationSetupWizard
                   size="inline"
                   onClose={() => setShowAgentLauncher(false)}

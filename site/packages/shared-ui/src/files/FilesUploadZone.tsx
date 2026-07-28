@@ -346,7 +346,10 @@ async function readFileAsBytes(file: File): Promise<Uint8Array> {
 
 function joinUploadPath(currentPath: string, relativePath: string): string {
   const normalizedRelativePath = normalizeDroppedRelativePath(relativePath);
-  return currentPath ? `${currentPath}/${normalizedRelativePath}` : normalizedRelativePath;
+  if (!currentPath) return normalizedRelativePath;
+  return currentPath === "/"
+    ? `/${normalizedRelativePath}`
+    : `${currentPath.replace(/\/+$/, "")}/${normalizedRelativePath}`;
 }
 
 export function normalizeDroppedRelativePath(path: string): string {

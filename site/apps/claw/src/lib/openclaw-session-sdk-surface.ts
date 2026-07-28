@@ -19,6 +19,7 @@ export interface OpenClawSessionRecord {
   title: string;
   messageCount: number;
   sourceChannelId?: string;
+  spawnedBy?: string;
   readOnly?: boolean;
   readOnlyReason?: string;
   ephemeral?: boolean;
@@ -32,7 +33,7 @@ export interface OpenClawThinkingLevelOption {
 
 export const OPENCLAW_DEFAULT_SESSION_KEY = "main";
 export const OPENCLAW_NEW_SESSION_TITLE = "New Session";
-const GENERATED_OPENCLAW_SESSION_KEY = /^session-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|local-[a-z0-9-]+)$/i;
+const GENERATED_OPENCLAW_SESSION_KEY = /^(?:session-|dashboard:)(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|local-[a-z0-9-]+)$/i;
 const EPHEMERAL_OPENCLAW_SESSION_KEY = /^session-hypercli-ephemeral-[0-9a-f-]+$/i;
 const INTERNAL_OPENCLAW_SESSION_LABEL_PATTERNS = [
   /^Hyper Agent Web\b/i,
@@ -352,6 +353,16 @@ export function isEphemeralOpenClawSessionName(value: string | null | undefined)
   return EPHEMERAL_OPENCLAW_SESSION_KEY.test(unscopedOpenClawSessionKey(value));
 }
 
+export function isOpenClawSubagentSessionKey(value: string | null | undefined): boolean {
+  return unscopedOpenClawSessionKey(value).toLowerCase().startsWith("subagent:");
+}
+
+export function isOpenClawSubagentSession(
+  session: Pick<OpenClawSessionRecord, "key"> & Partial<Pick<OpenClawSessionRecord, "spawnedBy">>,
+): boolean {
+  return isOpenClawSubagentSessionKey(session.key) || Boolean(session.spawnedBy?.trim());
+}
+
 function isInternalOpenClawSessionDisplayName(value: string): boolean {
   return INTERNAL_OPENCLAW_SESSION_LABEL_PATTERNS.some((pattern) => pattern.test(value));
 }
@@ -365,6 +376,30 @@ export function normalizeOpenClawSessionDisplayName(value: unknown, sessionKey?:
   if (sessionKey && label === sessionKey && unscopedOpenClawSessionKey(sessionKey) === OPENCLAW_DEFAULT_SESSION_KEY) return null;
   if (sessionKey && label === sessionKey && (isGeneratedOpenClawSessionName(sessionKey) || isEphemeralOpenClawSessionName(sessionKey))) return null;
   return label;
+}
+
+export function normalizeOpenClawGeneratedSessionTitle(value: unknown, sessionKey: string): string | null {
+  const raw = nonEmptyString(value);
+  if (!raw || raw.length > 60 || /[\r\n]/.test(raw)) return null;
+  if (/^(?:```|[\[{#>*])/.test(raw) || /^(?:sure\b|here(?:'s| is)\b|the (?:session )?title is\b)/i.test(raw)) {
+    return null;
+  }
+  if (/(?:\bAKIA[0-9A-Z]{16}\b|\b(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{12,}\b|\bgh[pousr]_[A-Za-z0-9]{20,}\b|\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b|-----BEGIN [A-Z ]*PRIVATE KEY-----)/.test(raw)) {
+    return null;
+  }
+  const title = normalizeOpenClawSessionDisplayName(raw, sessionKey);
+  return title && title !== OPENCLAW_NEW_SESSION_TITLE ? title : null;
+}
+
+function firstNormalizedOpenClawSessionDisplayName(
+  sessionKey: string,
+  ...values: unknown[]
+): string | null {
+  for (const value of values) {
+    const normalized = normalizeOpenClawSessionDisplayName(value, sessionKey);
+    if (normalized) return normalized;
+  }
+  return null;
 }
 
 export function fallbackOpenClawSessionDisplayName(sessionKey: string): string {
@@ -481,6 +516,7 @@ export function normalizeOpenClawSession(session: unknown): OpenClawSessionRecor
   const rawKey = sessionKeyFromRecord(session);
   const explicitGatewaySessionKey = firstNonEmptyString(session.gatewaySessionKey, session.gateway_session_key);
   const sourceChannelId = sessionSourceChannelId(session);
+  const spawnedBy = firstNonEmptyString(session.spawnedBy, session.spawned_by);
   const derivedChannelSessionKey = channelSessionKeyFromMetadata(session, sourceChannelId);
   const key = shouldUseDerivedChannelSessionKey(rawKey, derivedChannelSessionKey)
     ? derivedChannelSessionKey
@@ -495,18 +531,26 @@ export function normalizeOpenClawSession(session: unknown): OpenClawSessionRecor
   const lastMessageAt = finiteTimestamp(
     session.lastMessageAt ?? session.last_message_at ?? session.updatedAt ?? session.updated_at,
   ) ?? createdAt;
-  const title = normalizeOpenClawSessionDisplayName(
-    firstNonEmptyString(session.label, session.title, session.name),
+  const gatewayDisplayName = unscopedOpenClawSessionKey(key).startsWith("dashboard:")
+    ? [session.displayName, session.display_name]
+        .map((value) => normalizeOpenClawGeneratedSessionTitle(value, key))
+        .find((value) => value !== null) ?? null
+    : firstNormalizedOpenClawSessionDisplayName(key, session.displayName, session.display_name);
+  const title = firstNormalizedOpenClawSessionDisplayName(
     key,
+    session.label,
+    gatewayDisplayName,
+    session.title,
+    session.name,
   ) ?? "";
   const clientMode = firstNonEmptyString(session.clientMode, session.client_mode, session.mode, session.client) ?? "unknown";
-  const rawClientDisplayName = normalizeOpenClawSessionDisplayName(firstNonEmptyString(
+  const rawClientDisplayName = firstNormalizedOpenClawSessionDisplayName(
+    key,
     session.clientDisplayName,
     session.client_display_name,
-    session.displayName,
-    session.display_name,
+    gatewayDisplayName,
     title,
-  ), key);
+  );
   const clientDisplayName = rawClientDisplayName ?? (title || fallbackOpenClawSessionDisplayName(key));
   const messageCount = Number(session.messageCount ?? session.message_count ?? 0);
   const modelProvider = firstNonEmptyString(session.modelProvider, session.model_provider, session.provider);
@@ -537,6 +581,7 @@ export function normalizeOpenClawSession(session: unknown): OpenClawSessionRecor
     title,
     messageCount: Number.isFinite(messageCount) ? Math.max(0, messageCount) : 0,
     ...(sourceChannelId ? { sourceChannelId } : {}),
+    ...(spawnedBy ? { spawnedBy } : {}),
     ...(readOnly ? { readOnly: true, readOnlyReason: openClawSessionReadOnlyReason(sourceChannelId) } : {}),
     raw: session,
   };
@@ -564,6 +609,10 @@ export function applyOpenClawSessionTitleMap(
     const title = openClawSessionTitleMapKeys(session.key)
       .map((key) => normalizeOpenClawSessionDisplayName(titleMap[key], session.key))
       .find((value) => value !== null);
+    const nativeDisplayName = [session.raw.displayName, session.raw.display_name]
+      .map((value) => normalizeOpenClawGeneratedSessionTitle(value, session.key))
+      .find((value) => value !== null) ?? null;
+    if (nativeDisplayName && title === OPENCLAW_NEW_SESSION_TITLE) return session;
     return title ? { ...session, title, clientDisplayName: title } : session;
   });
 }
@@ -625,8 +674,19 @@ export async function deleteOpenClawSession(
 }
 
 export async function createOpenClawSession(
-  gateway: Pick<GatewayClient, "sessionsReset">,
+  gateway: Pick<GatewayClient, "sessionsReset"> & Partial<Pick<GatewayClient, "sessionsCreate" | "sessionsSubscribe">>,
   sessionKey: string,
 ): Promise<string> {
+  if (typeof gateway.sessionsCreate === "function" && typeof gateway.sessionsSubscribe === "function") {
+    try {
+      await gateway.sessionsSubscribe();
+      const result = await gateway.sessionsCreate({ key: sessionKey });
+      if (typeof result.key === "string" && result.key.trim()) return result.key.trim();
+      throw new Error("Gateway protocol error: sessions.create returned no session key");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error ?? "");
+      if (!/unknown method|method not found|not implemented|unsupported/i.test(message)) throw error;
+    }
+  }
   return await gateway.sessionsReset(sessionKey, "new");
 }

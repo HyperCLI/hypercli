@@ -1,8 +1,25 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeOpenClawMediaDisplayPath, normalizeOpenClawMediaFilePath, normalizeOpenClawWorkspaceFilePath } from "./agent-file-path";
+import {
+  normalizeAgentBrowserFilePath,
+  normalizeOpenClawMediaDisplayPath,
+  normalizeOpenClawMediaFilePath,
+  normalizeOpenClawWorkspaceFilePath,
+} from "./agent-file-path";
 
 describe("normalizeOpenClawWorkspaceFilePath", () => {
+  it("preserves absolute browser paths including filesystem root", () => {
+    expect(normalizeAgentBrowserFilePath("/")).toBe("/");
+    expect(normalizeAgentBrowserFilePath("/home/node/.openclaw/")).toBe("/home/node/.openclaw");
+    expect(normalizeAgentBrowserFilePath(".openclaw/workspace/")).toBe(".openclaw/workspace");
+  });
+
+  it("canonicalizes parent segments without escaping an absolute root", () => {
+    expect(normalizeAgentBrowserFilePath("/home/node/../../etc/hosts")).toBe("/etc/hosts");
+    expect(normalizeAgentBrowserFilePath("/../../etc/hosts")).toBe("/etc/hosts");
+    expect(normalizeAgentBrowserFilePath("notes/drafts/../todo.md")).toBe("notes/todo.md");
+  });
+
   it("maps absolute OpenClaw workspace paths to the dashboard workspace root", () => {
     expect(normalizeOpenClawWorkspaceFilePath("/home/node/.openclaw/workspace/report.md")).toBe(".openclaw/workspace/report.md");
   });

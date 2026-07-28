@@ -16,6 +16,7 @@ import {
   Settings2,
   Shield,
   Sparkles,
+  X,
   Zap,
 } from "lucide-react";
 import type { SlotInventory } from "@/lib/format";
@@ -1069,7 +1070,11 @@ export function FirstAgentSetupWizard({
           "relative flex-shrink-0 border-b border-border",
           largePresentation ? "px-5 py-4 sm:px-8 sm:py-7" : "px-5 py-3 sm:px-6",
         )}>
-          <div className={cx("min-w-0", currentStep === "plan" && "sm:pr-[190px]")}>
+          <div className={cx(
+            "min-w-0",
+            onClose && (largePresentation ? "pr-16" : "pr-10"),
+            currentStep === "plan" && (onClose ? "sm:pr-[240px]" : "sm:pr-[190px]"),
+          )}>
             <h2 className={cx(
               "font-medium leading-tight text-foreground",
               largePresentation ? "text-[24px] sm:text-[36px]" : "text-[20px] sm:text-[22px]",
@@ -1082,7 +1087,9 @@ export function FirstAgentSetupWizard({
           {currentStep === "plan" && (
             <div className={cx(
               "mt-4 flex items-center justify-end gap-2 sm:absolute sm:mt-0",
-              largePresentation ? "sm:right-8 sm:top-7" : "sm:right-6 sm:top-4 lg:right-7",
+              largePresentation
+                ? onClose ? "sm:right-[88px] sm:top-7" : "sm:right-8 sm:top-7"
+                : onClose ? "sm:right-[60px] sm:top-4" : "sm:right-6 sm:top-4 lg:right-7",
             )}>
               <button
                 type="button"
@@ -1096,6 +1103,19 @@ export function FirstAgentSetupWizard({
               </button>
             </div>
           )}
+          {onClose ? (
+            <button
+              type="button"
+              aria-label="Close agent creation"
+              onClick={onClose}
+              className={cx(
+                "absolute z-10 flex items-center justify-center rounded-full border border-border bg-background/70 text-text-muted backdrop-blur transition-colors hover:bg-surface-low hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-selection-accent/45",
+                largePresentation ? "right-8 top-7 h-12 w-12" : "right-4 top-3 h-8 w-8 sm:right-5",
+              )}
+            >
+              <X className={largePresentation ? "h-5 w-5" : "h-4 w-4"} />
+            </button>
+          ) : null}
         </header>
 
         {currentStep === "identity" && (
@@ -1199,7 +1219,7 @@ export function FirstAgentSetupWizard({
                             setEnableCustomImage(Boolean(nextImage.trim()));
                           }}
                           aria-label="Custom agent image"
-                          placeholder={defaultCustomImage || "ghcr.io/example/openclaw:latest"}
+                          placeholder="ghcr.io/example/openclaw:latest"
                           spellCheck={false}
                           className={cx(
                             "w-full border border-border bg-background font-mono text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-border-strong",

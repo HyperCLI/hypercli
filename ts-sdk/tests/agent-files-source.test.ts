@@ -83,6 +83,26 @@ describe('AgentFiles — one client, three sources', () => {
     await expect(agent.fileRead('/etc/hosts', 'gateway')).rejects.toThrow(/absolute paths are not valid for the 'gateway'/i);
   });
 
+  it('keeps absolute pod paths browse-only', async () => {
+    const { agent, deployments } = makeAgent();
+    await expect(agent.fileWrite('/etc/hosts', 'blocked', 'agent')).rejects.toThrow(/browse-only/i);
+    await expect(agent.fileDelete('/etc/hosts', { source: 'agent' })).rejects.toThrow(/browse-only/i);
+    await expect(agent.fileWrite('../outside.txt', 'blocked', 'agent')).rejects.toThrow(/not writable/i);
+    await expect(agent.fileDelete('safe/../../outside.txt', { source: 'agent' })).rejects.toThrow(/not writable/i);
+    expect(deployments.fileWrite).not.toHaveBeenCalled();
+    expect(deployments.fileDelete).not.toHaveBeenCalled();
+  });
+
+  it('routes Backup deletes only to the S3 source', async () => {
+    const { agent, deployments } = makeAgent();
+    await agent.fileDelete('archive.txt', { source: 'backup' });
+    expect(deployments.fileDelete).toHaveBeenCalledWith(
+      agent,
+      '.openclaw/workspace/archive.txt',
+      { recursive: undefined, source: 's3' },
+    );
+  });
+
   // --- deprecated aliases still work ---
   it('pod/s3 aliases still map to agent/backup', async () => {
     const { agent, deployments } = makeAgent();

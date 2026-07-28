@@ -2,7 +2,12 @@ import { webcrypto } from "node:crypto";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { GatewayClient, NodeServer, normalizeGatewayChatMessage } from "../src/openclaw/gateway.js";
+import {
+  GatewayChatStreamInterruptedError,
+  GatewayClient,
+  NodeServer,
+  normalizeGatewayChatMessage,
+} from "../src/openclaw/gateway.js";
 
 const STORAGE_KEY = "openclaw.device.auth.v1";
 const URL_SCOPE_KEY = "wss://openclaw-agent.example|operator";
@@ -694,6 +699,40 @@ describe("GatewayClient", () => {
     expect(result).toEqual({ ok: true, key: "agent:main:main" });
   });
 
+  it("sends sessions.create with the typed creation payload", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const response = {
+      ok: true as const,
+      key: "agent:main:dashboard:019789ab-cdef-4abc-8def-0123456789ab",
+      sessionId: "session-id-1",
+    };
+    const rpc = vi.spyOn(client, "rpc").mockResolvedValue(response);
+
+    await expect(client.sessionsCreate({
+      key: "dashboard:019789ab-cdef-4abc-8def-0123456789ab",
+      model: "openai/gpt-5.2",
+    })).resolves.toBe(response);
+
+    expect(rpc).toHaveBeenCalledWith("sessions.create", {
+      key: "dashboard:019789ab-cdef-4abc-8def-0123456789ab",
+      model: "openai/gpt-5.2",
+    });
+  });
+
+  it("subscribes to session change events", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const rpc = vi.spyOn(client, "rpc").mockResolvedValue({ subscribed: true });
+
+    await expect(client.sessionsSubscribe()).resolves.toBe(true);
+    expect(rpc).toHaveBeenCalledWith("sessions.subscribe", {});
+  });
+
   it("patches Slack relay runtime config", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",
@@ -1376,6 +1415,188 @@ describe("GatewayClient", () => {
     expect(events.filter((event) => event.type === "content").map((event) => event.text).join("")).toBe("SMOKE_OK");
   });
 
+  it("routes three concurrent normal chat streams by session and accepted run", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client as any, "rpc").mockImplementation(async (method: string, params: Record<string, any>) => {
+      if (method === "chat.send") return { runId: `${params.message}-run` };
+      throw new Error(`unexpected RPC ${method}`);
+    });
+    const first = { message: "first", sessionKey: "conversation-a", response: "first response" };
+    const second = { message: "second", sessionKey: "conversation-a", response: "second response" };
+    const third = { message: "third", sessionKey: "conversation-b", response: "third response" };
+    const conversations = [first, second, third];
+    const completions = conversations.map(({ message, sessionKey }) => (async () => {
+      const events = [];
+      for await (const event of client.chatSend(message, sessionKey)) events.push(event);
+      return events;
+    })());
+
+    await flushMicrotasks();
+    expect((client as any).activeNormalChatStreams.size).toBe(3);
+    for (const conversation of [second, third, first]) {
+      (client as any).handleMessage(JSON.stringify({
+        type: "event",
+        event: "chat.content",
+        payload: {
+          runId: `${conversation.message}-run`,
+          sessionKey: conversation.sessionKey,
+          text: conversation.response,
+        },
+      }));
+    }
+    for (const conversation of [third, first, second]) {
+      (client as any).handleMessage(JSON.stringify({
+        type: "event",
+        event: "chat.done",
+        payload: {
+          runId: `${conversation.message}-run`,
+          sessionKey: conversation.sessionKey,
+        },
+      }));
+    }
+
+    const results = await Promise.all(completions);
+    expect(results.map((events) => events.filter(({ type }) => type === "content").map(({ text }) => text))).toEqual(
+      conversations.map(({ response }) => [response]),
+    );
+    expect(results.map((events) => events.map(({ type }) => type))).toEqual([
+      ["content", "done"],
+      ["content", "done"],
+      ["content", "done"],
+    ]);
+    expect((client as any).activeNormalChatStreams.size).toBe(0);
+    expect((client as any).internalEventHandlers.size).toBe(0);
+    expect((client as any).internalStreamCloseHandlers.size).toBe(0);
+  });
+
+  it("interrupts concurrent normal streams instead of fanning out an identity-less event", async () => {
+    const protocolErrors: string[] = [];
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+      onProtocolError: (info) => protocolErrors.push(info.code),
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client as any, "rpc").mockImplementation(async (method: string, params: Record<string, any>) => {
+      if (method === "chat.send") return { runId: `${params.message}-run` };
+      throw new Error(`unexpected RPC ${method}`);
+    });
+    const publicEvents: string[] = [];
+    client.onEvent((event) => publicEvents.push(event.event));
+    const first = client.chatSend("first", "conversation-a");
+    const second = client.chatSend("second", "conversation-b");
+    const firstEvent = first.next();
+    const secondEvent = second.next();
+    await flushMicrotasks();
+
+    expect((client as any).activeNormalChatStreams.size).toBe(2);
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.content",
+      payload: { text: "ambiguous" },
+    }));
+
+    const errors = await Promise.all([
+      firstEvent.then(() => null, (error) => error),
+      secondEvent.then(() => null, (error) => error),
+    ]);
+    for (const error of errors) {
+      expect(error).toBeInstanceOf(GatewayChatStreamInterruptedError);
+      expect(error).toMatchObject({
+        code: "GATEWAY_CHAT_STREAM_INTERRUPTED",
+        reason: "ambiguous-event",
+      });
+    }
+    expect(protocolErrors).toEqual(["AMBIGUOUS_CHAT_STREAM_EVENT"]);
+    expect(publicEvents).toEqual([]);
+    expect((client as any).activeNormalChatStreams.size).toBe(0);
+    expect((client as any).activeStrictChatStreams.size).toBe(0);
+    expect((client as any).internalEventHandlers.size).toBe(0);
+    expect((client as any).internalStreamCloseHandlers.size).toBe(0);
+  });
+
+  it("delivers a post-gap terminal frame before interrupting remaining streams", async () => {
+    const gaps: Array<{ expected: number; received: number }> = [];
+    const order: string[] = [];
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+      onGap: (info) => {
+        gaps.push(info);
+        order.push("gap");
+      },
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client as any, "rpc").mockImplementation(async (method: string, params: Record<string, any>) => {
+      if (method === "chat.send") return { runId: `${params.message}-run` };
+      throw new Error(`unexpected RPC ${method}`);
+    });
+    client.onEvent((event) => {
+      if (event.seq === 3) order.push("event");
+    });
+    const completedStream = (async () => {
+      const events = [];
+      for await (const event of client.chatSend("completed", "conversation-a")) events.push(event);
+      return events;
+    })();
+    const interruptedStream = client.chatSend("interrupted", "conversation-b");
+    const interruptedEvent = interruptedStream.next();
+    await flushMicrotasks();
+
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.content",
+      seq: 1,
+      payload: {
+        runId: "completed-run",
+        sessionKey: "conversation-a",
+        text: "complete response",
+      },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.done",
+      seq: 3,
+      payload: {
+        runId: "completed-run",
+        sessionKey: "conversation-a",
+      },
+    }));
+
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    const interruption = await Promise.race([
+      interruptedEvent.then(() => null, (error) => error),
+      new Promise<"timeout">((resolve) => {
+        timeout = setTimeout(() => resolve("timeout"), 250);
+      }),
+    ]);
+    if (timeout) clearTimeout(timeout);
+    expect(interruption).toBeInstanceOf(GatewayChatStreamInterruptedError);
+    expect(interruption).toMatchObject({
+      code: "GATEWAY_CHAT_STREAM_INTERRUPTED",
+      reason: "sequence-gap",
+      expectedSequence: 2,
+      receivedSequence: 3,
+    });
+    await expect(completedStream).resolves.toMatchObject([
+      { type: "content", text: "complete response" },
+      { type: "done" },
+    ]);
+    expect(order).toEqual(["event", "gap"]);
+    expect(gaps).toEqual([{ expected: 2, received: 3 }]);
+    expect((client as any).activeNormalChatStreams.size).toBe(0);
+    expect((client as any).activeStrictChatStreams.size).toBe(0);
+    expect((client as any).internalEventHandlers.size).toBe(0);
+    expect((client as any).internalStreamCloseHandlers.size).toBe(0);
+  });
+
   it("chatSend marks explicit replacements and divergent cumulative snapshot corrections", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",
@@ -1443,6 +1664,59 @@ describe("GatewayClient", () => {
     )).toBe("final answer");
   });
 
+  it("does not truncate streamed content to a stale lifecycle history prefix", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    const complete = "Let me check the available channels. Telegram, Slack, and Discord are ready.";
+    vi.spyOn(client as any, "rpc").mockImplementation(async (method: string) => {
+      if (method === "chat.send") return { runId: "stale-history-run" };
+      if (method === "chat.history") {
+        return {
+          messages: [{
+            role: "assistant",
+            runId: "stale-history-run",
+            content: "Let me check the available channels.",
+          }],
+        };
+      }
+      throw new Error(`unexpected RPC ${method}`);
+    });
+
+    const streamPromise = (async () => {
+      const events = [];
+      for await (const event of client.chatSend("Check channels", "main")) events.push(event);
+      return events;
+    })();
+
+    await flushMicrotasks();
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.content",
+      payload: { runId: "stale-history-run", sessionKey: "main", text: complete },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "agent",
+      payload: {
+        runId: "stale-history-run",
+        sessionKey: "main",
+        stream: "lifecycle",
+        data: { phase: "end" },
+      },
+    }));
+
+    const events = await streamPromise;
+    expect(events.filter((event) => event.type === "content").reduce(
+      (text, event) => event.replace === true ? event.text ?? "" : text + (event.text ?? ""),
+      "",
+    )).toBe(complete);
+    expect(events.at(-1)?.type).toBe("done");
+  });
+
   it("does not duplicate chat.content when lifecycle history contains the same text", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",
@@ -1494,6 +1768,72 @@ describe("GatewayClient", () => {
     ]);
     expect(rpc.mock.calls.filter(([method]) => method === "chat.history")).toHaveLength(1);
   });
+
+  it.each(["chat.done", "lifecycle end"] as const)(
+    "reconciles partial streamed text after tool activity on %s",
+    async (terminalEvent) => {
+      const client = new GatewayClient({
+        url: "wss://openclaw-agent.example",
+        gatewayToken: "gw-token",
+      });
+      (client as any).connected = true;
+      (client as any).ws = { readyState: MockWebSocket.OPEN };
+      const partial = "Let me check which channel plugins are available:";
+      const complete = `${partial}\n\nTelegram, Slack, and Discord are ready to configure.`;
+      vi.spyOn(client as any, "rpc").mockImplementation(async (method: string) => {
+        if (method === "chat.send") return { runId: "tool-reconcile-run" };
+        if (method === "chat.history") {
+          return {
+            messages: [{
+              role: "assistant",
+              runId: "tool-reconcile-run",
+              content: complete,
+            }],
+          };
+        }
+        throw new Error(`unexpected RPC ${method}`);
+      });
+
+      const streamPromise = (async () => {
+        const events = [];
+        for await (const event of client.chatSend("Check channels", "main")) events.push(event);
+        return events;
+      })();
+
+      await flushMicrotasks();
+      (client as any).handleMessage(JSON.stringify({
+        type: "event",
+        event: "chat.content",
+        payload: { runId: "tool-reconcile-run", sessionKey: "main", text: partial },
+      }));
+      (client as any).handleMessage(JSON.stringify({
+        type: "event",
+        event: "chat.tool_call",
+        payload: { runId: "tool-reconcile-run", sessionKey: "main", toolCallId: "tool-1", name: "channels_status", args: {} },
+      }));
+      (client as any).handleMessage(JSON.stringify(terminalEvent === "chat.done" ? {
+        type: "event",
+        event: "chat.done",
+        payload: { runId: "tool-reconcile-run", sessionKey: "main" },
+      } : {
+        type: "event",
+        event: "agent",
+        payload: {
+          runId: "tool-reconcile-run",
+          sessionKey: "main",
+          stream: "lifecycle",
+          data: { phase: "end" },
+        },
+      }));
+
+      const events = await streamPromise;
+      expect(events.filter((event) => event.type === "content").reduce(
+        (text, event) => event.replace === true ? event.text ?? "" : text + (event.text ?? ""),
+        "",
+      )).toBe(complete);
+      expect(events.at(-1)?.type).toBe("done");
+    },
+  );
 
   it("does not reuse a prior runless assistant as textless-terminal fallback", async () => {
     vi.useFakeTimers();

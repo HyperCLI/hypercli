@@ -573,9 +573,10 @@ export interface AgentFileReadBytesResult {
  * The three file-access paths for an OpenClaw agent, each with its own root —
  * the SDK owns the roots so a workspace-relative path (e.g. `"AGENTS.md"`) hits
  * the same file on all three:
- * - `agent`  — the files API on the agent's live pod filesystem. Full access:
- *              a workspace-relative path resolves under the workspace, and an
- *              absolute `/…` path reaches anywhere on the pod. (wire `source=pod`)
+ * - `agent`  — the files API on the agent's live pod filesystem. A
+ *              workspace-relative path resolves under the workspace, while an
+ *              absolute `/…` path can be listed/read anywhere on the pod.
+ *              Absolute paths are browse-only. (wire `source=pod`)
  * - `backup` — the S3 backup of the sync root (`/home/node`); served when the
  *              pod is stopped. Scoped to the sync root. (wire `source=s3`)
  * - `gateway`— the operator-WebSocket `agents.files.*` RPC; scoped to the
@@ -615,7 +616,7 @@ const FULL_FS_FILE_SOURCES = new Set<OpenClawFileSource>(['agent', 'pod']);
 /**
  * Resolve a caller path to the deployment HTTP files path (sync-root relative).
  * Workspace-relative by default (prefixed with the workspace); an absolute `/…`
- * path is full-fs and only valid for the `agent` source.
+ * path is read-only full-fs and only valid for the `agent` source.
  */
 function resolveBackendFilePath(path: string, source: AgentFileBackendSource): string {
   if (path.startsWith('/')) {
@@ -629,6 +630,15 @@ function resolveBackendFilePath(path: string, source: AgentFileBackendSource): s
   }
   const rel = stripRelPrefix(path);
   return rel ? `${OPENCLAW_WORKSPACE_PREFIX}/${rel}` : OPENCLAW_WORKSPACE_PREFIX;
+}
+
+function assertWritableBackendFilePath(path: string): void {
+  if (path.startsWith('/')) {
+    throw new Error('absolute pod paths are browse-only; writes and deletes must stay within the sync root.');
+  }
+  if (path.replace(/\\/g, '/').split('/').includes('..')) {
+    throw new Error("paths containing '..' are not writable; writes and deletes must stay within the sync root.");
+  }
 }
 
 /** Strip leading `./` segments and slashes without eating a dotfile's dot. */
@@ -666,8 +676,8 @@ export interface AgentFilesGatewayHooks {
  * ONE client wrapping all three agent file-access paths behind a single `source`
  * switch (`agent` | `backup` | `gateway`, plus `auto`). The SDK owns the roots,
  * so a workspace-relative path is the same file on every source; `agent` also
- * takes absolute `/…` paths for full-fs access. The underlying APIs are left
- * as-is — this only wraps them.
+ * takes absolute `/…` paths for read-only full-filesystem browsing. The
+ * underlying APIs are left as-is — this only wraps them.
  */
 export class AgentFiles {
   constructor(
@@ -741,6 +751,7 @@ export class AgentFiles {
 
   async writeBytes(path: string, content: Uint8Array | ArrayBuffer | string, source: OpenClawFileSource = 'auto'): Promise<Record<string, any>> {
     if (!GATEWAY_FILE_SOURCES.has(source)) {
+      assertWritableBackendFilePath(path);
       return this.deployments.fileWriteBytes(this.agent, resolveBackendFilePath(path, source as AgentFileBackendSource), content, toWireFileSource(source as AgentFileBackendSource));
     }
     return this.write(path, coerceToUtf8String(content), source);
@@ -748,6 +759,7 @@ export class AgentFiles {
 
   async write(path: string, content: string, source: OpenClawFileSource = 'auto'): Promise<Record<string, any>> {
     if (!GATEWAY_FILE_SOURCES.has(source)) {
+      assertWritableBackendFilePath(path);
       return this.deployments.fileWrite(this.agent, resolveBackendFilePath(path, source as AgentFileBackendSource), content, toWireFileSource(source as AgentFileBackendSource));
     }
     const gw = this.requireGateway();
@@ -765,7 +777,11 @@ export class AgentFiles {
     if (GATEWAY_FILE_SOURCES.has(source)) {
       throw new Error('delete is not supported over the gateway file source; use the agent/backup source.');
     }
-    return this.deployments.fileDelete(this.agent, resolveBackendFilePath(path, source as AgentFileBackendSource), { recursive: options.recursive });
+    assertWritableBackendFilePath(path);
+    return this.deployments.fileDelete(this.agent, resolveBackendFilePath(path, source as AgentFileBackendSource), {
+      recursive: options.recursive,
+      source: toWireFileSource(source as AgentFileBackendSource),
+    });
   }
 }
 
@@ -1135,6 +1151,22 @@ function encodeFilePath(path: string): string {
     .filter(Boolean)
     .map((part) => encodeURIComponent(part))
     .join('/');
+}
+
+function deploymentFileReadRequest(
+  path: string,
+  source: 'auto' | 'pod' | 's3',
+): { suffix: string; params: URLSearchParams } {
+  const params = new URLSearchParams({ source });
+  if (path.startsWith('/')) {
+    if (source !== 'pod') {
+      throw new Error("absolute paths require source='pod'.");
+    }
+    params.set('absolute_path', path);
+    return { suffix: '', params };
+  }
+  const encodedPath = encodeFilePath(path);
+  return { suffix: encodedPath ? `/${encodedPath}` : '', params };
 }
 
 function decodeUtf8(content: Uint8Array): string {
@@ -3002,18 +3034,31 @@ export class Deployments {
     const agentId = await this.resolveAgentId(agentIdOrName);
     const deadline = Date.now() + timeoutMs;
     let lastState = '';
+    let lastAgent: Agent | null = null;
+    const diagnostics = (agent: Agent | null): string => {
+      if (!agent) return '';
+      const details: string[] = [];
+      if (agent.lastError) details.push(`lastError=${JSON.stringify(agent.lastError)}`);
+      if (agent.updatedAt && !Number.isNaN(agent.updatedAt.getTime())) {
+        details.push(`updatedAt=${agent.updatedAt.toISOString()}`);
+      }
+      return details.length ? `, ${details.join(', ')}` : '';
+    };
     while (Date.now() < deadline) {
       const agent = await this.get(agentId);
+      lastAgent = agent;
       lastState = String(agent.state || '');
       if (lastState.toLowerCase() === 'running') {
         return agent;
       }
       if (['failed', 'error', 'restore_failed', 'sync_failed'].includes(lastState.toLowerCase())) {
-        throw new Error(`Agent entered ${lastState} while waiting for RUNNING`);
+        throw new Error(`Agent entered ${lastState} while waiting for RUNNING${diagnostics(agent)}`);
       }
       await sleep(pollIntervalMs);
     }
-    throw new Error(`Timed out waiting for agent ${agentId} to reach RUNNING (last=${lastState})`);
+    throw new Error(
+      `Timed out waiting for agent ${agentId} to reach RUNNING (last=${lastState || 'unknown'}${diagnostics(lastAgent)})`,
+    );
   }
 
   async start(agentIdOrName: string, options: StartAgentOptions = {}): Promise<Agent> {
@@ -3193,9 +3238,7 @@ export class Deployments {
   }
 
   async filesList(target: Agent | string, path: string = '', source: 'auto' | 'pod' | 's3' = 'auto'): Promise<AgentFileEntry[]> {
-    const encodedPath = encodeFilePath(path);
-    const suffix = encodedPath ? `/${encodedPath}` : '';
-    const params = new URLSearchParams({ source });
+    const { suffix, params } = deploymentFileReadRequest(path, source);
     const agentId = await this.agentIdFor(target);
     const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${agentId}/files${suffix}?${params.toString()}`);
     const payload = (await response.json()) as AgentDirectoryListing;
@@ -3208,10 +3251,9 @@ export class Deployments {
     source: 'auto' | 'pod' | 's3' = 'auto',
     options?: AgentFileReadOptions,
   ): Promise<AgentFileReadBytesResult> {
-    const encodedPath = encodeFilePath(path);
-    const params = new URLSearchParams({ source });
+    const { suffix, params } = deploymentFileReadRequest(path, source);
     const agentId = await this.agentIdFor(target);
-    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${agentId}/files/${encodedPath}?${params.toString()}`, {
+    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${agentId}/files${suffix}?${params.toString()}`, {
       redirect: 'follow',
       signal: options?.signal,
     });
@@ -3256,6 +3298,7 @@ export class Deployments {
     content: Uint8Array | ArrayBuffer | string,
     destination: 'auto' | 'pod' | 's3' = 'auto',
   ): Promise<Record<string, any>> {
+    assertWritableBackendFilePath(path);
     const encodedPath = encodeFilePath(path);
     const params = new URLSearchParams({ destination });
     const bytes = toUint8Array(content);
@@ -3278,11 +3321,13 @@ export class Deployments {
   async fileDelete(
     target: Agent | string,
     path: string,
-    options: { recursive?: boolean } = {},
+    options: { recursive?: boolean; source?: 'auto' | 'pod' | 's3' } = {},
   ): Promise<Record<string, any>> {
+    assertWritableBackendFilePath(path);
     const encodedPath = encodeFilePath(path);
     const params = new URLSearchParams();
     if (options.recursive) params.set('recursive', 'true');
+    if (options.source && options.source !== 'auto') params.set('source', options.source);
     const suffix = params.toString() ? `?${params.toString()}` : '';
     const agentId = await this.agentIdFor(target);
     const response = await this.fetchRaw(

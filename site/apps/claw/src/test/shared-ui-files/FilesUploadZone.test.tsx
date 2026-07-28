@@ -34,6 +34,18 @@ describe("FilesUploadZone", () => {
     expect(Array.from(content)).toEqual(Array.from(bytes));
   });
 
+  it("joins uploads at filesystem root without a double slash", async () => {
+    const onUpload = vi.fn(async () => undefined);
+    const file = new File(["hello"], "hello.txt", { type: "text/plain" });
+    const { container } = render(<FilesUploadZone currentPath="/" onUpload={onUpload} />);
+
+    fireEvent.change(container.querySelector('input[type="file"]') as HTMLInputElement, {
+      target: { files: [file] },
+    });
+
+    await waitFor(() => expect(onUpload).toHaveBeenCalledWith("/hello.txt", expect.any(Uint8Array)));
+  });
+
   it("traverses dropped folders instead of trying to read the directory as a file", async () => {
     const onUpload = vi.fn(async () => undefined);
     const onCreateDirectory = vi.fn(async () => undefined);

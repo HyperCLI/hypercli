@@ -10,7 +10,7 @@ env:
 jobs:
   playwright-agents:
     runs-on: self-hosted
-    timeout-minutes: 45
+    timeout-minutes: 60
     concurrency:
       group: hypercli-frontend-privy-e2e
       cancel-in-progress: false
@@ -54,6 +54,7 @@ jobs:
           rm -rf "${ARTIFACTS_DIR}"
           mkdir -p "${ARTIFACTS_DIR}"
           docker run --rm --init \
+            -e CI=true \
             -e TEST_HOSTNAME \
             -e BACKEND_API_KEY \
             -e AGENTS_BACKEND_API_KEY \

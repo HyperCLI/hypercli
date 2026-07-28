@@ -46,6 +46,8 @@ export interface ChatMessage {
   timestamp?: number;
 }
 
+export const OPENCLAW_EMPTY_REPLY_NOTICE = "The agent finished without a final response. Review any completed actions above before retrying.";
+
 let fallbackRenderIdCounter = 0;
 
 export function createChatRenderId(scope = "message"): string {
@@ -140,6 +142,30 @@ function isBinaryOmittedText(text: string | undefined): boolean {
 function sanitizeChatDisplayText(text: string): string {
   const decoded = maybeDecodeMojibake(text);
   return looksLikeBinaryDisplayText(decoded) ? BINARY_CONTENT_OMITTED_MESSAGE : decoded;
+}
+
+const OPENCLAW_EMPTY_REPLY_FAILURE_MARKERS = [
+  "i finished the turn, but it did not produce a visible reply. please try again, or start a new session if this keeps happening.",
+  "interactive agent run completed without a visible reply",
+  "interactive follow-up completed without a visible reply",
+  "completion agent did not produce a visible reply",
+];
+
+export function isOpenClawEmptyReplyFailureText(text: string): boolean {
+  const normalized = text.trim().replace(/\s+/g, " ").toLowerCase();
+  if (!normalized) return false;
+  if (normalized === OPENCLAW_EMPTY_REPLY_NOTICE.toLowerCase()) return true;
+
+  return OPENCLAW_EMPTY_REPLY_FAILURE_MARKERS.some((marker) => {
+    const markerIndex = normalized.indexOf(marker);
+    if (markerIndex < 0) return false;
+    const prefix = normalized.slice(0, markerIndex).trim().replace(/^⚠️\s*/u, "");
+    return !prefix || /^(?:(?:[a-z]{1,4})?error:|assistant response failed:)$/.test(prefix);
+  });
+}
+
+function normalizeOpenClawEmptyReplyText(text: string): string {
+  return isOpenClawEmptyReplyFailureText(text) ? OPENCLAW_EMPTY_REPLY_NOTICE : text;
 }
 
 function normalizeChatRole(role: string): ChatMessage["role"] {
@@ -731,6 +757,9 @@ function isAbortedHistoryMessage(message: unknown): boolean {
 function normalizeHistoryErrorContent(message: unknown): string | null {
   const payload = readHistoryErrorPayload(message);
   if (!payload) return null;
+  if (isOpenClawEmptyReplyFailureText(payload.message || payload.raw)) {
+    return OPENCLAW_EMPTY_REPLY_NOTICE;
+  }
   const firstLine = (payload.message || payload.raw).split("\n").map((line) => line.trim()).find(Boolean) ?? "";
   if (/context overflow|prompt too large|context length|maximum context/i.test(firstLine)) {
     return "The conversation is too large for the current model. Start a new session or compact the context, then retry.";
@@ -814,7 +843,11 @@ function normalizeHistoryMessage(message: unknown): ChatMessage | null {
   if (role === "user" && isCronUserControlMessage(rawSanitizedContent)) {
     return null;
   }
-  const content = role === "assistant" ? stripInternalAssistantContent(rawSanitizedContent) : rawSanitizedContent;
+  const content = role === "user"
+    ? rawSanitizedContent
+    : normalizeOpenClawEmptyReplyText(
+      role === "assistant" ? stripInternalAssistantContent(rawSanitizedContent) : rawSanitizedContent,
+    );
   if (isInternalHeartbeatControlPromptText(content)) {
     return null;
   }
@@ -971,7 +1004,7 @@ function mergeAssistantMessage(
       : cleanCurrent.content;
   const mergedContent = !options.replaceContent && isBinaryOmittedText(cleanCurrent.content) && incoming.content
     ? cleanCurrent.content
-    : sanitizeChatDisplayText(rawMergedContent);
+    : normalizeOpenClawEmptyReplyText(sanitizeChatDisplayText(rawMergedContent));
   const mergedMediaUrls = [
     ...(cleanCurrent.mediaUrls ?? []),
     ...((incoming.mediaUrls ?? []).filter((url) => !(cleanCurrent.mediaUrls ?? []).includes(url))),
@@ -998,7 +1031,9 @@ function mergeAssistantMessage(
 
 function sanitizeAssistantMessage(message: ChatMessage): ChatMessage {
   const rawContent = sanitizeChatDisplayText(message.content);
-  const content = message.role === "assistant" ? stripInternalAssistantContent(rawContent) : rawContent;
+  const content = message.role === "assistant"
+    ? normalizeOpenClawEmptyReplyText(stripInternalAssistantContent(rawContent))
+    : normalizeOpenClawEmptyReplyText(rawContent);
   const toolCalls = message.toolCalls?.map((toolCall) => {
     const result = toolCall.result !== undefined ? sanitizeChatDisplayText(toolCall.result) : undefined;
     return {

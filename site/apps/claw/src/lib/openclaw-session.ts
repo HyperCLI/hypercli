@@ -14,10 +14,12 @@ import {
 import {
   type ChatMessage,
   type WorkspaceFile,
+  isOpenClawEmptyReplyFailureText,
   isInternalHeartbeatMessage,
   normalizeHistoryMessage,
   normalizeLiveToolCall,
   normalizeLiveToolResult,
+  OPENCLAW_EMPTY_REPLY_NOTICE,
   sanitizeChatDisplayText,
   upsertAssistantMessage,
 } from "@/lib/openclaw-chat";
@@ -51,7 +53,7 @@ interface SessionEventContext {
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
   setSending: Dispatch<SetStateAction<boolean>>;
   setSessions: (sessions: OpenClawSessionRecord[]) => void;
-  refreshSessions: () => void | Promise<unknown>;
+  refreshSessions: (options?: { fresh?: boolean }) => void | Promise<unknown>;
   appendActivity: (entry: { type: ActivityKind; action: string; detail?: string; id?: string; timestamp?: number }) => void;
   activeSessionKey: string;
   suppressChatStreamEvents?: boolean;
@@ -117,6 +119,35 @@ function identifiedAssistantMessage(
     ...(renderId ? { renderId } : {}),
     ...(clientTurnId ? { clientTurnId } : {}),
   };
+}
+
+function applyChatErrorMessage({
+  setMessages,
+  message,
+  identity,
+  assistantRenderId,
+  clientTurnId,
+}: {
+  setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
+  message: string;
+  identity: ChatMessageIdentity;
+  assistantRenderId?: string;
+  clientTurnId?: string;
+}): void {
+  if (isOpenClawEmptyReplyFailureText(message)) {
+    setMessages((prev) => upsertAssistantMessage(
+      prev,
+      identifiedAssistantMessage(
+        { role: "assistant", content: OPENCLAW_EMPTY_REPLY_NOTICE, timestamp: Date.now() },
+        identity,
+        assistantRenderId,
+        clientTurnId,
+      ),
+      { replaceContent: true },
+    ));
+    return;
+  }
+  setMessages((prev) => [...prev, { role: "system", content: `Error: ${message}`, timestamp: Date.now() }]);
 }
 
 function normalizeAbortSignal(value: unknown): string {
@@ -208,7 +239,7 @@ export function handleOpenClawChatStreamEvent({
       return;
     }
     setSending(false);
-    setMessages((prev) => [...prev, { role: "system", content: `Error: ${message}`, timestamp: Date.now() }]);
+    applyChatErrorMessage({ setMessages, message, identity, assistantRenderId, clientTurnId });
     appendActivity({ type: "error", action: "Error", detail: message });
   }
 }
@@ -308,6 +339,8 @@ export function handleOpenClawSessionEvent({
   } else if (event === "chat.done") {
     setSending(false);
     void refreshSessions();
+  } else if (event === "sessions.changed") {
+    void refreshSessions({ fresh: true });
   } else if (event === "sessions.updated") {
     const list = (payload as Record<string, unknown>).sessions;
     if (Array.isArray(list)) setSessions(normalizeOpenClawSessions(list));
@@ -319,7 +352,7 @@ export function handleOpenClawSessionEvent({
       return;
     }
     setSending(false);
-    setMessages((prev) => [...prev, { role: "system", content: `Error: ${message}`, timestamp: Date.now() }]);
+    applyChatErrorMessage({ setMessages, message, identity });
   }
 
   const isActivityKind = (v: unknown): v is ActivityKind => v === "message" || v === "tool" || v === "connection" || v === "skill" || v === "cron" || v === "error" || v === "system";

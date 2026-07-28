@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { getStoredToken } from "@/lib/api";
 import { createAgentClient } from "@/lib/agent-client";
-import { normalizeHistoryMessage } from "@/lib/openclaw-chat";
+import { normalizeHistoryMessage, OPENCLAW_EMPTY_REPLY_NOTICE } from "@/lib/openclaw-chat";
 import { ChatMessageBubble } from "./ChatMessage";
 
 function expectBoundedMediaRead(readFileBytes: unknown, path: string) {
@@ -184,6 +184,27 @@ describe("ChatMessageBubble", () => {
       "bg-destructive/10",
       "text-destructive",
     );
+  });
+
+  it("renders empty-reply failures as a neutral retryable notice", () => {
+    const onRetryFailedReply = vi.fn();
+    render(
+      <ChatMessageBubble
+        message={{
+          role: "assistant",
+          content: "HEError: I finished the turn, but it did not produce a visible reply. Please try again, or start a new session if this keeps happening.",
+        }}
+        onRetryFailedReply={onRetryFailedReply}
+      />,
+    );
+
+    const notice = screen.getByRole("status", { name: "Incomplete reply" });
+    expect(notice).toHaveTextContent(OPENCLAW_EMPTY_REPLY_NOTICE);
+    expect(notice).toHaveClass("border-warning/25", "bg-warning/10", "text-text-secondary");
+    expect(screen.queryByText(/HEError:/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry failed reply" }));
+    expect(onRetryFailedReply).toHaveBeenCalledTimes(1);
   });
 
   it("renders a generic hidden-reasoning badge without exposing raw thinking text", () => {
@@ -1542,7 +1563,7 @@ describe("ChatMessageBubble", () => {
     expect(screen.queryByText(/0\/4 done/)).not.toBeInTheDocument();
   });
 
-  it("keeps the initial tool presentation when more calls stream in", () => {
+  it("groups tool calls when the third call streams in", () => {
     const buildToolCalls = (count: number) => Array.from({ length: count }, (_, index) => ({
       id: `tool-${index}`,
       name: `tool-${index}`,
@@ -1550,15 +1571,30 @@ describe("ChatMessageBubble", () => {
     }));
     const { rerender } = render(
       <ChatMessageBubble
+        message={{ role: "assistant", content: "", toolCalls: buildToolCalls(1) }}
+        isStreaming
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /tool calls/i })).not.toBeInTheDocument();
+
+    rerender(
+      <ChatMessageBubble
+        message={{ role: "assistant", content: "", toolCalls: buildToolCalls(2) }}
+        isStreaming
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /tool calls/i })).not.toBeInTheDocument();
+
+    rerender(
+      <ChatMessageBubble
         message={{ role: "assistant", content: "", toolCalls: buildToolCalls(3) }}
         isStreaming
       />,
     );
 
-    const secondToolButton = screen.getByText("Tool 1").closest("button");
-    expect(secondToolButton).not.toBeNull();
-    fireEvent.click(secondToolButton!);
-    expect(secondToolButton).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: /3 tool calls/i })).toHaveAttribute("aria-expanded", "false");
 
     rerender(
       <ChatMessageBubble
@@ -1567,8 +1603,7 @@ describe("ChatMessageBubble", () => {
       />,
     );
 
-    expect(screen.queryByRole("button", { name: /4 tool calls/i })).not.toBeInTheDocument();
-    expect(screen.getByText("Tool 1").closest("button")).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: /4 tool calls/i })).toHaveAttribute("aria-expanded", "false");
   });
 
   it("renders stacked tool calls with duplicate gateway ids without key warnings", () => {

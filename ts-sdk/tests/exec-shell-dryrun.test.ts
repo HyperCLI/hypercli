@@ -1395,6 +1395,9 @@ describe('HyperClaw agents SDK', () => {
       if (url.endsWith('/deployments/agent-1/files/workspace/a.txt') && init?.method === 'DELETE') {
         return new Response(JSON.stringify({ status: 'ok', target: 'pod' }), { status: 200 });
       }
+      if (url.endsWith('/deployments/agent-1/files/workspace/backup.txt?source=s3') && init?.method === 'DELETE') {
+        return new Response(JSON.stringify({ status: 'ok', target: 's3' }), { status: 200 });
+      }
       if (url.endsWith('/deployments/agent-1/files/.openclaw?source=auto') && (!init || !init.method)) {
         return new Response(JSON.stringify({
           type: 'directory',
@@ -1405,6 +1408,17 @@ describe('HyperClaw agents SDK', () => {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
+      }
+      if (url.endsWith('/deployments/agent-1/files?source=pod&absolute_path=%2F') && (!init || !init.method)) {
+        return new Response(JSON.stringify({
+          type: 'directory',
+          prefix: '/',
+          directories: [{ name: 'home', path: '/home/', type: 'directory' }],
+          files: [],
+        }), { status: 200 });
+      }
+      if (url.endsWith('/deployments/agent-1/files?source=pod&absolute_path=%2Fetc%2Fhosts') && (!init || !init.method)) {
+        return new Response('127.0.0.1 localhost', { status: 200, headers: { 'Content-Type': 'text/plain' } });
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
@@ -1418,9 +1432,12 @@ describe('HyperClaw agents SDK', () => {
 
     const entries = await agents.filesList('agent-1', 'workspace');
     const hiddenEntries = await agents.filesList('agent-1', '.openclaw');
+    const rootEntries = await agents.filesList('agent-1', '/', 'pod');
     const content = await agents.fileRead('agent-1', 'workspace/a.txt');
+    const hostsContent = await agents.fileRead('agent-1', '/etc/hosts', 'pod');
     const writeResult = await agents.fileWrite('agent-1', 'workspace/a.txt', 'payload');
     const deleteResult = await agents.fileDelete('agent-1', 'workspace/a.txt');
+    const backupDeleteResult = await agents.fileDelete('agent-1', 'workspace/backup.txt', { source: 's3' });
 
     expect(entries).toEqual([
       { name: 'dir', path: 'workspace/dir/', type: 'directory' },
@@ -1430,12 +1447,20 @@ describe('HyperClaw agents SDK', () => {
       { name: 'workspace', path: '.openclaw/workspace/', type: 'directory' },
       { name: 'openclaw.json', path: '.openclaw/openclaw.json', type: 'file' },
     ]);
+    expect(rootEntries).toEqual([
+      { name: 'home', path: '/home/', type: 'directory' },
+    ]);
     expect(content).toBe('hello');
+    expect(hostsContent).toBe('127.0.0.1 localhost');
     expect(writeResult).toEqual({ status: 'ok', target: 'pod' });
     expect(deleteResult).toEqual({ status: 'ok', target: 'pod' });
+    expect(backupDeleteResult).toEqual({ status: 'ok', target: 's3' });
     await expect(agents.fileRead('agent-1', '.openclaw')).rejects.toThrow('Path is a directory: .openclaw');
     await expect(
       agents.fileWriteBytes('agent-1', 'workspace/too-large.bin', new Uint8Array(AGENT_FILE_MAX_BYTES + 1)),
     ).rejects.toThrow('250 MiB');
+    await expect(agents.filesList('agent-1', '/', 'auto')).rejects.toThrow("source='pod'");
+    await expect(agents.fileWrite('agent-1', '/etc/hosts', 'blocked', 'pod')).rejects.toThrow('browse-only');
+    await expect(agents.fileDelete('agent-1', '/etc/hosts')).rejects.toThrow('browse-only');
   });
 });

@@ -24,7 +24,7 @@ export const TOOL_CALL_STACK_THRESHOLD = 3;
 const TOOL_STACK_PENDING_TIMEOUT_MS = 45_000;
 
 export function shouldStackToolCalls(toolCalls: ToolCall[] | undefined): boolean {
-  return (toolCalls?.length ?? 0) > TOOL_CALL_STACK_THRESHOLD;
+  return (toolCalls?.length ?? 0) >= TOOL_CALL_STACK_THRESHOLD;
 }
 
 export function ToolCallStack({ toolCalls, themeVariant, agentId, isStreaming = false }: ToolCallStackProps) {

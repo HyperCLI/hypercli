@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   isInternalHeartbeatMessage,
+  isOpenClawEmptyReplyFailureText,
   normalizeHistoryMessage,
   normalizeLiveToolCall,
   normalizeLiveToolResult,
+  OPENCLAW_EMPTY_REPLY_NOTICE,
   upsertAssistantMessage,
   type ChatMessage,
 } from "./openclaw-chat";
@@ -13,6 +15,7 @@ const THINKING_LEAK_SENTINEL = "DO_NOT_RENDER_THINKING_SENTINEL";
 const TOOL_ARG_LEAK_SENTINEL = "DO_NOT_RENDER_TOOL_ARG_SENTINEL";
 const TOOL_RESULT_LEAK_SENTINEL = "DO_NOT_RENDER_TOOL_RESULT_SENTINEL";
 const EXECUTION_OUTPUT_LEAK_SENTINEL = "PROOF ANCHORS - $82,500/month equivalent through Anthropic.";
+const EMPTY_REPLY_FAILURE_TEXT = "I finished the turn, but it did not produce a visible reply. Please try again, or start a new session if this keeps happening.";
 const WORKSPACE_PATH_DUMP = [
   "/home/node/.openclaw/workspace",
   "/home/node/.openclaw/workspace/.openclaw",
@@ -889,6 +892,47 @@ describe("openclaw chat normalization", () => {
       role: "system",
       content: "The conversation is too large for the current model. Start a new session or compact the context, then retry.",
     });
+  });
+
+  it("normalizes empty interactive replies from visible and contentless history", () => {
+    const visibleFailure = normalizeHistoryMessage({
+      role: "assistant",
+      content: `HEError: ${EMPTY_REPLY_FAILURE_TEXT}`,
+      stopReason: "error",
+    });
+    const contentlessFailure = normalizeHistoryMessage({
+      role: "assistant",
+      content: [],
+      stopReason: "error",
+      errorMessage: EMPTY_REPLY_FAILURE_TEXT,
+    });
+
+    expect(visibleFailure).toEqual(expect.objectContaining({
+      role: "assistant",
+      content: OPENCLAW_EMPTY_REPLY_NOTICE,
+    }));
+    expect(contentlessFailure).toEqual(expect.objectContaining({
+      role: "system",
+      content: OPENCLAW_EMPTY_REPLY_NOTICE,
+    }));
+    expect(isOpenClawEmptyReplyFailureText(OPENCLAW_EMPTY_REPLY_NOTICE)).toBe(true);
+  });
+
+  it("normalizes an empty-reply failure assembled from stream chunks", () => {
+    const splitAt = Math.floor(EMPTY_REPLY_FAILURE_TEXT.length / 2);
+    let messages = upsertAssistantMessage([], {
+      role: "assistant",
+      content: EMPTY_REPLY_FAILURE_TEXT.slice(0, splitAt),
+    });
+
+    messages = upsertAssistantMessage(messages, {
+      role: "assistant",
+      content: EMPTY_REPLY_FAILURE_TEXT.slice(splitAt),
+    });
+
+    expect(messages).toEqual([
+      expect.objectContaining({ role: "assistant", content: OPENCLAW_EMPTY_REPLY_NOTICE }),
+    ]);
   });
 
   it("drops contentless aborted assistant history records", () => {

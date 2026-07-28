@@ -3,12 +3,14 @@
 import { startTransition, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  ArrowUp,
   ArrowUpDown,
   Eye,
   EyeOff,
   FileText,
   FolderPlus,
   FolderOpen,
+  Home,
   Loader2,
   Upload,
   WifiOff,
@@ -49,6 +51,12 @@ const MAX_INLINE_PREVIEW_BYTES = 64 * 1024 * 1024;
 export type AgentFilesPanelSource = "agent" | "backup" | "gateway";
 type AgentFilesWritableSource = Exclude<AgentFilesPanelSource, "gateway">;
 export type AgentFilesPanelSourceDisabledReasons = Partial<Record<AgentFilesPanelSource, string>>;
+export interface AgentFilesPanelSourcePathScope {
+  homePath: string;
+  rootPath: string;
+  writableRootPath?: string | null;
+}
+export type AgentFilesPanelSourcePaths = Partial<Record<AgentFilesPanelSource, AgentFilesPanelSourcePathScope>>;
 
 const SOURCE_MODE_OPTIONS: Array<{ key: AgentFilesPanelSource; label: string; title: string }> = [
   { key: "agent", label: "Agent", title: "Live agent pod filesystem" },
@@ -56,17 +64,26 @@ const SOURCE_MODE_OPTIONS: Array<{ key: AgentFilesPanelSource; label: string; ti
   { key: "gateway", label: "Gateway", title: "Name-addressed workspace files over the agent gateway" },
 ];
 const EMPTY_SOURCE_DISABLED_REASONS: AgentFilesPanelSourceDisabledReasons = {};
+const EMPTY_SOURCE_PATHS: AgentFilesPanelSourcePaths = {};
 
 const FILES_LISTING_CACHE_LIMIT = 80;
 const filesListingCache = new Map<string, FileEntry[]>();
 
 function normalizePanelPath(path: string): string {
-  return path
-    .trim()
-    .replace(/\\/g, "/")
-    .replace(/^\/+/, "")
-    .replace(/\/+$/, "")
-    .replace(/^\.\//, "");
+  const replaced = path.trim().replace(/\\/g, "/");
+  const absolute = replaced.startsWith("/");
+  const segments: string[] = [];
+  for (const segment of replaced.replace(/^\.\//, "").split("/")) {
+    if (!segment || segment === ".") continue;
+    if (segment === "..") {
+      if (segments.length > 0 && segments[segments.length - 1] !== "..") segments.pop();
+      else if (!absolute) segments.push(segment);
+      continue;
+    }
+    segments.push(segment);
+  }
+  const normalized = segments.join("/");
+  return absolute ? (normalized ? `/${normalized}` : "/") : normalized;
 }
 
 function filesListingCacheKey(
@@ -80,9 +97,66 @@ function filesListingCacheKey(
   return [normalizedAgentId, sourceMode, normalizePanelPath(rootPath), normalizePanelPath(path)].join("\n");
 }
 
-function sourceRootPath(source: AgentFilesPanelSource, workspaceRootPath: string): string {
-  if (source === "gateway") return workspaceRootPath;
-  return workspaceRootPath.split("/").filter(Boolean)[0] ?? "";
+function sourcePathScope(
+  source: AgentFilesPanelSource,
+  workspaceRootPath: string,
+  sourcePaths: AgentFilesPanelSourcePaths,
+): AgentFilesPanelSourcePathScope {
+  const configured = sourcePaths[source];
+  if (configured) {
+    const rootPath = normalizePanelPath(configured.rootPath);
+    return {
+      homePath: normalizePanelPath(configured.homePath),
+      rootPath,
+      writableRootPath: configured.writableRootPath === null
+        ? null
+        : normalizePanelPath(configured.writableRootPath ?? rootPath),
+    };
+  }
+  const rootPath = source === "gateway"
+    ? workspaceRootPath
+    : workspaceRootPath.split("/").filter(Boolean)[0] ?? "";
+  return {
+    homePath: rootPath,
+    rootPath,
+    writableRootPath: source === "gateway" ? null : rootPath,
+  };
+}
+
+function sourceValue<T>(source: AgentFilesPanelSource, agent: T, backup: T, gateway: T): T {
+  if (source === "agent") return agent;
+  if (source === "backup") return backup;
+  return gateway;
+}
+
+function joinPanelPath(basePath: string, childPath: string): string {
+  const normalizedBase = normalizePanelPath(basePath);
+  const normalizedChild = normalizePanelPath(childPath);
+  if (!normalizedBase) return normalizedChild;
+  if (!normalizedChild) return normalizedBase;
+  return normalizePanelPath(`${normalizedBase}/${normalizedChild}`);
+}
+
+function parentPanelPath(path: string, rootPath: string): string {
+  const normalizedPath = normalizePanelPath(path);
+  const normalizedRoot = normalizePanelPath(rootPath);
+  if (normalizedPath === normalizedRoot) return normalizedRoot;
+  const separatorIndex = normalizedPath.lastIndexOf("/");
+  const parentPath = separatorIndex < 0
+    ? ""
+    : separatorIndex === 0
+      ? "/"
+      : normalizedPath.slice(0, separatorIndex);
+  if (!normalizedRoot || normalizedRoot === "/") return parentPath || normalizedRoot;
+  return pathIsWithin(parentPath, normalizedRoot) ? parentPath : normalizedRoot;
+}
+
+function pathIsWithin(path: string, rootPath: string): boolean {
+  const normalizedPath = normalizePanelPath(path);
+  const normalizedRoot = normalizePanelPath(rootPath);
+  if (normalizedRoot === "/") return normalizedPath.startsWith("/");
+  if (!normalizedRoot) return !normalizedPath.startsWith("/");
+  return normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}/`);
 }
 
 function resolveAvailableSource(
@@ -115,6 +189,7 @@ function pathRelativeToRoot(path: string, rootPath: string): string {
   const normalizedRoot = normalizePanelPath(rootPath);
   if (!normalizedRoot) return normalizedPath;
   if (normalizedPath === normalizedRoot) return "";
+  if (normalizedRoot === "/" && normalizedPath.startsWith("/")) return normalizedPath.slice(1);
   return normalizedPath.startsWith(`${normalizedRoot}/`)
     ? normalizedPath.slice(normalizedRoot.length + 1)
     : normalizedPath;
@@ -124,7 +199,7 @@ function pathFromRoot(path: string, rootPath: string): string {
   const normalizedPath = normalizePanelPath(path);
   const normalizedRoot = normalizePanelPath(rootPath);
   if (!normalizedRoot) return normalizedPath;
-  return normalizedPath ? `${normalizedRoot}/${normalizedPath}` : normalizedRoot;
+  return normalizedPath ? joinPanelPath(normalizedRoot, normalizedPath) : normalizedRoot;
 }
 
 export interface AgentFileOpenResult<T extends string | Uint8Array> {
@@ -168,6 +243,7 @@ export interface AgentFilesPanelProps {
   agentId?: string | null;
   agentName?: string | null;
   rootPath?: string;
+  sourcePaths?: AgentFilesPanelSourcePaths;
   defaultSource?: AgentFilesPanelSource;
   sourceDisabledReasons?: AgentFilesPanelSourceDisabledReasons;
   showSourceTabs?: boolean;
@@ -184,7 +260,7 @@ export interface AgentFilesPanelProps {
   ) => Promise<AgentFileOpenResponse<Uint8Array>>;
   onDownloadFileBytes?: (path: string, source?: AgentFilesPanelSource) => Promise<AgentFileOpenResponse<Uint8Array>>;
   onSaveFile?: (path: string, content: string, source?: AgentFilesPanelSource) => Promise<void>;
-  onDeleteFile?: (path: string, options?: { recursive?: boolean }) => Promise<void>;
+  onDeleteFile?: (path: string, options?: { recursive?: boolean }, source?: AgentFilesPanelSource) => Promise<void>;
   onUploadFile?: (path: string, content: Uint8Array, source: AgentFilesWritableSource) => Promise<void>;
   onCreateDirectory?: (path: string, source: AgentFilesWritableSource) => Promise<void>;
   isReadOnlyFile?: (path: string) => boolean;
@@ -199,6 +275,7 @@ export function AgentFilesPanel({
   agentId,
   agentName,
   rootPath = "",
+  sourcePaths = EMPTY_SOURCE_PATHS,
   defaultSource = "agent",
   sourceDisabledReasons = EMPTY_SOURCE_DISABLED_REASONS,
   showSourceTabs = false,
@@ -223,11 +300,52 @@ export function AgentFilesPanel({
 }: AgentFilesPanelProps) {
   const normalizedRootPath = useMemo(() => normalizePanelPath(rootPath), [rootPath]);
   const initialSourceMode = resolveAvailableSource(defaultSource, sourceDisabledReasons);
+  const agentSourceScope = sourcePathScope("agent", normalizedRootPath, sourcePaths);
+  const backupSourceScope = sourcePathScope("backup", normalizedRootPath, sourcePaths);
+  const gatewaySourceScope = sourcePathScope("gateway", normalizedRootPath, sourcePaths);
+  const agentHomePath = agentSourceScope.homePath;
+  const backupHomePath = backupSourceScope.homePath;
+  const gatewayHomePath = gatewaySourceScope.homePath;
+  const agentRootPath = agentSourceScope.rootPath;
+  const backupRootPath = backupSourceScope.rootPath;
+  const gatewayRootPath = gatewaySourceScope.rootPath;
+  const agentWritableRootPath = agentSourceScope.writableRootPath ?? null;
+  const backupWritableRootPath = backupSourceScope.writableRootPath ?? null;
+  const gatewayWritableRootPath = gatewaySourceScope.writableRootPath ?? null;
+  const initialHomePath = sourceValue(
+    initialSourceMode,
+    agentHomePath,
+    backupHomePath,
+    gatewayHomePath,
+  );
+  const initialRootPath = sourceValue(
+    initialSourceMode,
+    agentRootPath,
+    backupRootPath,
+    gatewayRootPath,
+  );
   const [sourceMode, setSourceMode] = useState<AgentFilesPanelSource>(() => initialSourceMode);
   const isGatewaySource = sourceMode === "gateway";
-  const currentRootPath = sourceRootPath(sourceMode, normalizedRootPath);
+  const currentRootPath = sourceValue(
+    sourceMode,
+    agentRootPath,
+    backupRootPath,
+    gatewayRootPath,
+  );
+  const currentHomePath = sourceValue(
+    sourceMode,
+    agentHomePath,
+    backupHomePath,
+    gatewayHomePath,
+  );
+  const currentWritableRootPath = sourceValue(
+    sourceMode,
+    agentWritableRootPath,
+    backupWritableRootPath,
+    gatewayWritableRootPath,
+  );
   const [searchQuery, setSearchQuery] = useState("");
-  const [currentPath, setCurrentPath] = useState(() => sourceRootPath(initialSourceMode, normalizedRootPath));
+  const [currentPath, setCurrentPath] = useState(() => initialHomePath);
   const [showHidden, setShowHidden] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
@@ -240,8 +358,8 @@ export function AgentFilesPanel({
   const [files, setFiles] = useState<FileEntry[]>(() => (
     getCachedFiles(filesListingCacheKey(
       agentId,
-      sourceRootPath(initialSourceMode, normalizedRootPath),
-      sourceRootPath(initialSourceMode, normalizedRootPath),
+      initialRootPath,
+      initialHomePath,
       initialSourceMode,
     )) ?? []
   ));
@@ -258,21 +376,26 @@ export function AgentFilesPanel({
   const [previewUnavailableReason, setPreviewUnavailableReason] = useState<string | null>(null);
   const previewRequestIdRef = useRef(0);
   const previewAbortControllerRef = useRef<AbortController | null>(null);
+  const openedInitialPreviewKeyRef = useRef<string | null>(null);
   useEffect(() => () => {
     listRequestIdRef.current += 1;
     previewRequestIdRef.current += 1;
     viewRevisionRef.current += 1;
     previewAbortControllerRef.current?.abort();
   }, []);
-  const currentListingCacheKey = useMemo(
-    () => filesListingCacheKey(agentId, currentRootPath, currentPath, sourceMode),
-    [agentId, currentPath, currentRootPath, sourceMode],
-  );
+  const currentListingCacheKey = filesListingCacheKey(agentId, currentRootPath, currentPath, sourceMode);
   const currentSourceDisabledReason = sourceDisabledReasons[sourceMode] ?? null;
+  const currentPathWritable = !isGatewaySource
+    && currentWritableRootPath !== null
+    && pathIsWithin(currentPath, currentWritableRootPath);
   const backupComparisonDisabledReason = isGatewaySource
     ? null
     : sourceDisabledReasons.agent ?? sourceDisabledReasons.backup ?? null;
-  const backupComparisonAvailable = connected && showSourceTabs && !isGatewaySource && !backupComparisonDisabledReason;
+  const backupComparisonAvailable = connected
+    && showSourceTabs
+    && !isGatewaySource
+    && !backupComparisonDisabledReason
+    && pathIsWithin(currentPath, backupRootPath);
   const clearPreview = useCallback(() => {
     previewRequestIdRef.current += 1;
     previewAbortControllerRef.current?.abort();
@@ -283,18 +406,23 @@ export function AgentFilesPanel({
     setPreviewError(null);
     setPreviewUnavailableReason(null);
   }, []);
-  const resetSourceSelection = useCallback((nextSource: AgentFilesPanelSource) => {
+  function resetSourceSelection(nextSource: AgentFilesPanelSource) {
     viewRevisionRef.current += 1;
     setSourceMode(nextSource);
-    setCurrentPath(sourceRootPath(nextSource, normalizedRootPath));
+    setCurrentPath(sourceValue(
+      nextSource,
+      agentHomePath,
+      backupHomePath,
+      gatewayHomePath,
+    ));
     setSearchQuery("");
     setActionError(null);
     clearPreview();
     setShowUpload(false);
     setShowCreateFolder(false);
-  }, [clearPreview, normalizedRootPath]);
+  }
 
-  const loadFiles = useCallback(async () => {
+  async function loadFiles() {
     if (!connected || currentSourceDisabledReason) return;
     const cachedFiles = getCachedFiles(currentListingCacheKey);
     if (cachedFiles) setFiles(cachedFiles);
@@ -352,7 +480,10 @@ export function AgentFilesPanel({
         setListLoading(false);
       }
     }
-  }, [backupComparisonAvailable, backupComparisonDisabledReason, connected, currentListingCacheKey, currentPath, currentSourceDisabledReason, isGatewaySource, onListFiles, showSourceTabs, sourceMode]);
+  }
+
+  const resetSourceSelectionFromEffect = useEffectEvent(resetSourceSelection);
+  const loadFilesFromEffect = useEffectEvent(loadFiles);
 
   useEffect(() => {
     if (!sourceDisabledReasons[sourceMode]) return;
@@ -361,12 +492,12 @@ export function AgentFilesPanel({
     let cancelled = false;
     queueMicrotask(() => {
       if (cancelled) return;
-      resetSourceSelection(fallbackSource);
+      resetSourceSelectionFromEffect(fallbackSource);
     });
     return () => {
       cancelled = true;
     };
-  }, [defaultSource, resetSourceSelection, sourceDisabledReasons, sourceMode]);
+  }, [defaultSource, sourceDisabledReasons, sourceMode]);
 
   useEffect(() => {
     if (showSourceTabs) return;
@@ -375,12 +506,12 @@ export function AgentFilesPanel({
     let cancelled = false;
     queueMicrotask(() => {
       if (cancelled) return;
-      resetSourceSelection(fallbackSource);
+      resetSourceSelectionFromEffect(fallbackSource);
     });
     return () => {
       cancelled = true;
     };
-  }, [defaultSource, resetSourceSelection, showSourceTabs, sourceDisabledReasons, sourceMode]);
+  }, [defaultSource, showSourceTabs, sourceDisabledReasons, sourceMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -399,12 +530,12 @@ export function AgentFilesPanel({
       };
     }
     startTransition(() => {
-      if (!cancelled) void loadFiles();
+      if (!cancelled) void loadFilesFromEffect();
     });
     return () => {
       cancelled = true;
     };
-  }, [clearPreview, connected, loadFiles]);
+  }, [backupComparisonAvailable, clearPreview, connected, currentListingCacheKey, currentPath, currentSourceDisabledReason, onListFiles, showSourceTabs, sourceMode]);
 
   const fileCount = files.filter((file) => file.type === "file").length;
   const dirCount = files.filter((file) => file.type === "directory").length;
@@ -454,7 +585,7 @@ export function AgentFilesPanel({
               ? "no-results"
               : null;
 
-  const handleOpenFile = useCallback(async (entry: FileEntry) => {
+  async function handleOpenFile(entry: FileEntry) {
     previewAbortControllerRef.current?.abort();
     previewAbortControllerRef.current = null;
     const requestId = ++previewRequestIdRef.current;
@@ -544,7 +675,7 @@ export function AgentFilesPanel({
         setPreviewLoading(false);
       }
     }
-  }, [clearPreview, isGatewaySource, loadFiles, onOpenFile, onOpenFileBytes, sourceMode]);
+  }
 
   const normalizedInitialPreviewPath = useMemo(
     () => initialPreviewPath ? normalizePanelPath(initialPreviewPath) : "",
@@ -556,42 +687,47 @@ export function AgentFilesPanel({
   });
 
   useEffect(() => {
-    if (!connected || !normalizedInitialPreviewPath) return;
-    const relativePath = pathRelativeToRoot(normalizedInitialPreviewPath, normalizedRootPath);
-    const fullPath = pathFromRoot(relativePath, normalizedRootPath);
+    if (!connected || !normalizedInitialPreviewPath) {
+      openedInitialPreviewKeyRef.current = null;
+      return;
+    }
+    const previewKey = `${agentId ?? ""}\n${normalizedInitialPreviewPath}`;
+    if (openedInitialPreviewKeyRef.current === previewKey) return;
+    const fullPath = normalizedInitialPreviewPath.startsWith("/")
+      ? normalizedInitialPreviewPath
+      : pathFromRoot(pathRelativeToRoot(normalizedInitialPreviewPath, normalizedRootPath), normalizedRootPath);
     const nameParts = fullPath.split("/").filter(Boolean);
     const name = nameParts[nameParts.length - 1] ?? fullPath;
-    const parentPath = fullPath.includes("/")
-      ? fullPath.slice(0, fullPath.lastIndexOf("/"))
-      : normalizedRootPath;
+    const parentPath = parentPanelPath(fullPath, initialRootPath);
     let cancelled = false;
     queueMicrotask(() => {
-      if (cancelled) return;
+      if (cancelled || openedInitialPreviewKeyRef.current === previewKey) return;
+      openedInitialPreviewKeyRef.current = previewKey;
       viewRevisionRef.current += 1;
-      setCurrentPath(parentPath || normalizedRootPath);
+      setCurrentPath(parentPath || initialHomePath);
       openInitialPreview({ name, path: fullPath, type: "file" });
     });
     return () => {
       cancelled = true;
     };
-  }, [connected, normalizedInitialPreviewPath, normalizedRootPath]);
+  }, [agentId, connected, initialHomePath, initialRootPath, normalizedInitialPreviewPath, normalizedRootPath]);
 
-  const handleSaveFile = useCallback(async (path: string, content: string) => {
+  async function handleSaveFile(path: string, content: string) {
     if (!onSaveFile) return;
     const previewRequestId = previewRequestIdRef.current;
     const viewRevision = viewRevisionRef.current;
     await onSaveFile(path, content, sourceMode);
     if (previewRequestId === previewRequestIdRef.current) setPreviewContent(content);
     if (viewRevision === viewRevisionRef.current) void loadFiles();
-  }, [loadFiles, onSaveFile, sourceMode]);
+  }
 
-  const handleDeleteFile = useCallback(async (entry: FileEntry) => {
+  async function handleDeleteFile(entry: FileEntry) {
     if (!onDeleteFile) return;
     const previewRequestId = previewRequestIdRef.current;
     const viewRevision = viewRevisionRef.current;
     setActionError(null);
     try {
-      await onDeleteFile(entry.path, entry.type === "directory" ? { recursive: true } : undefined);
+      await onDeleteFile(entry.path, entry.type === "directory" ? { recursive: true } : undefined, sourceMode);
       if (previewRequestId === previewRequestIdRef.current && previewEntry?.path === entry.path) {
         clearPreview();
       }
@@ -602,30 +738,30 @@ export function AgentFilesPanel({
         setActionError(`Could not delete ${entry.name}: ${detail}`);
       }
     }
-  }, [clearPreview, loadFiles, onDeleteFile, previewEntry]);
+  }
 
-  const handleUploadFile = useCallback(async (path: string, content: Uint8Array) => {
+  async function handleUploadFile(path: string, content: Uint8Array) {
     if (!onUploadFile || sourceMode === "gateway") return;
     const viewRevision = viewRevisionRef.current;
     await onUploadFile(path, content, sourceMode);
     if (viewRevision === viewRevisionRef.current) await loadFiles();
-  }, [loadFiles, onUploadFile, sourceMode]);
+  }
 
-  const handleUploadDirectory = useCallback(async (path: string) => {
+  async function handleUploadDirectory(path: string) {
     if (!onCreateDirectory || sourceMode === "gateway") return;
     const viewRevision = viewRevisionRef.current;
     await onCreateDirectory(path, sourceMode);
     if (viewRevision === viewRevisionRef.current) await loadFiles();
-  }, [loadFiles, onCreateDirectory, sourceMode]);
+  }
 
-  const validateNewFolderName = useCallback((name: string): string | null => {
+  function validateNewFolderName(name: string): string | null {
     if (!name.trim()) return "Folder name is required.";
     if (name === "." || name === "..") return "Use a real folder name.";
     if (/[\\/]/.test(name)) return "Create one folder at a time.";
     return null;
-  }, []);
+  }
 
-  const handleCreateDirectory = useCallback(async () => {
+  async function handleCreateDirectory() {
     if (!onCreateDirectory || sourceMode === "gateway") return;
     const trimmedName = newFolderName.trim();
     const validationError = validateNewFolderName(trimmedName);
@@ -634,7 +770,7 @@ export function AgentFilesPanel({
       return;
     }
 
-    const targetPath = currentPath ? `${currentPath}/${trimmedName}` : trimmedName;
+    const targetPath = joinPanelPath(currentPath, trimmedName);
     const viewRevision = viewRevisionRef.current;
     setCreatingFolder(true);
     setNewFolderError(null);
@@ -652,9 +788,9 @@ export function AgentFilesPanel({
     } finally {
       setCreatingFolder(false);
     }
-  }, [currentPath, loadFiles, newFolderName, onCreateDirectory, sourceMode, validateNewFolderName]);
+  }
 
-  const handleDownloadFile = useCallback(async (entry: FileEntry) => {
+  async function handleDownloadFile(entry: FileEntry) {
     if (!onDownloadFileBytes || entry.type === "directory") return;
     const fileType = resolveFileType(entry);
     if (isGatewaySource && fileType.readMode === "bytes") return;
@@ -675,25 +811,43 @@ export function AgentFilesPanel({
         setActionError(`Could not download ${entry.name}: ${detail}`);
       }
     }
-  }, [downloadBytes, isGatewaySource, loadFiles, onDownloadFileBytes, sourceMode]);
+  }
 
-  const handleCopyPath = useCallback((entry: FileEntry) => {
+  function handleCopyPath(entry: FileEntry) {
     void copyText(entry.path);
-  }, [copyText]);
+  }
 
-  const handleNavigate = useCallback((path: string) => {
+  function handleNavigate(path: string) {
     viewRevisionRef.current += 1;
     setCurrentPath(pathFromRoot(path, currentRootPath));
     clearPreview();
-  }, [clearPreview, currentRootPath]);
+    setShowUpload(false);
+    setShowCreateFolder(false);
+  }
 
-  const handleSourceModeChange = useCallback((mode: AgentFilesPanelSource) => {
+  function handleNavigateHome() {
+    viewRevisionRef.current += 1;
+    setCurrentPath(currentHomePath);
+    clearPreview();
+    setShowUpload(false);
+    setShowCreateFolder(false);
+  }
+
+  function handleNavigateUp() {
+    viewRevisionRef.current += 1;
+    setCurrentPath((path) => parentPanelPath(path, currentRootPath));
+    clearPreview();
+    setShowUpload(false);
+    setShowCreateFolder(false);
+  }
+
+  function handleSourceModeChange(mode: AgentFilesPanelSource) {
     if (mode === sourceMode) return;
     if (sourceDisabledReasons[mode]) return;
     resetSourceSelection(mode);
-  }, [resetSourceSelection, sourceDisabledReasons, sourceMode]);
+  }
 
-  const toggleSort = useCallback((key: FileSortKey) => {
+  function toggleSort(key: FileSortKey) {
     if (sortKey === key) {
       setSortDir((dir) => (dir === "asc" ? "desc" : "asc"));
     } else {
@@ -701,9 +855,16 @@ export function AgentFilesPanel({
       setSortDir("asc");
     }
     setSortMenuOpen(false);
-  }, [sortKey]);
+  }
 
   const breadcrumbPath = pathRelativeToRoot(currentPath, currentRootPath);
+  const canNavigateUp = normalizePanelPath(currentPath) !== normalizePanelPath(currentRootPath);
+  const previewWritable = previewEntry !== null
+    && (isGatewaySource || (
+      currentWritableRootPath !== null
+      && pathIsWithin(previewEntry.path, currentWritableRootPath)
+    ));
+  const previewBrowseOnly = previewEntry !== null && !isGatewaySource && !previewWritable;
   const filePreview = previewEntry ? (
     <FilePreview
       key={previewEntry.path}
@@ -712,11 +873,13 @@ export function AgentFilesPanel({
       loading={previewLoading}
       error={previewError}
       unavailableReason={previewUnavailableReason}
-      readOnly={!isGatewaySource && isReadOnlyFile(previewEntry.path)}
-      readOnlyLabel={readOnlyLabel}
-      readOnlyDescription={readOnlyDescription}
+      readOnly={!previewWritable || (!isGatewaySource && isReadOnlyFile(previewEntry.path))}
+      readOnlyLabel={previewBrowseOnly ? "Browse-only" : readOnlyLabel}
+      readOnlyDescription={previewBrowseOnly
+        ? "Files outside the writable workspace can be previewed and downloaded, but not changed here."
+        : readOnlyDescription}
       onClose={clearPreview}
-      onSave={onSaveFile ? handleSaveFile : undefined}
+      onSave={onSaveFile && previewWritable ? handleSaveFile : undefined}
       onDownload={onDownloadFileBytes && !(isGatewaySource && shouldReadFileAsBytes(previewEntry)) ? handleDownloadFile : undefined}
       renderMarkdown={renderMarkdown}
       copyText={copyText}
@@ -776,7 +939,14 @@ export function AgentFilesPanel({
         )}
 
         {onCreateDirectory && (
-          <TooltipHint label={isGatewaySource ? "Folders are not available for gateway files" : "New folder"} disabled={!currentSourceAvailable || isGatewaySource}>
+          <TooltipHint
+            label={isGatewaySource
+              ? "Folders are not available for gateway files"
+              : currentPathWritable
+                ? "New folder"
+                : "This location is browse-only"}
+            disabled={!currentSourceAvailable || !currentPathWritable}
+          >
             <button
               type="button"
               onClick={() => {
@@ -784,7 +954,7 @@ export function AgentFilesPanel({
                 setShowUpload(false);
                 setNewFolderError(null);
               }}
-              disabled={!currentSourceAvailable || isGatewaySource}
+              disabled={!currentSourceAvailable || !currentPathWritable}
               className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                 showCreateFolder ? "bg-selection-accent/10 text-selection-accent" : "text-text-muted hover:bg-surface-low hover:text-foreground"
               }`}
@@ -796,7 +966,14 @@ export function AgentFilesPanel({
         )}
 
         {onUploadFile && (
-          <TooltipHint label={isGatewaySource ? "Uploads are not available for gateway files" : "Upload files"} disabled={!currentSourceAvailable || isGatewaySource}>
+          <TooltipHint
+            label={isGatewaySource
+              ? "Uploads are not available for gateway files"
+              : currentPathWritable
+                ? "Upload files"
+                : "This location is browse-only"}
+            disabled={!currentSourceAvailable || !currentPathWritable}
+          >
             <button
               type="button"
               aria-label="Upload files"
@@ -804,7 +981,7 @@ export function AgentFilesPanel({
                 setShowUpload((open) => !open);
                 setShowCreateFolder(false);
               }}
-              disabled={!currentSourceAvailable || isGatewaySource}
+              disabled={!currentSourceAvailable || !currentPathWritable}
               className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                 showUpload ? "bg-selection-accent/10 text-selection-accent" : "text-text-muted hover:bg-surface-low hover:text-foreground"
               }`}
@@ -883,7 +1060,7 @@ export function AgentFilesPanel({
       )}
 
       <AnimatePresence>
-        {showCreateFolder && currentSourceAvailable && !isGatewaySource && onCreateDirectory && (
+        {showCreateFolder && currentSourceAvailable && currentPathWritable && onCreateDirectory && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
@@ -941,7 +1118,7 @@ export function AgentFilesPanel({
       </AnimatePresence>
 
       <AnimatePresence>
-        {onUploadFile && showUpload && currentSourceAvailable && !isGatewaySource && (
+        {onUploadFile && showUpload && currentSourceAvailable && currentPathWritable && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
@@ -976,7 +1153,32 @@ export function AgentFilesPanel({
               resultCount={searchResultCount}
               totalCount={files.length}
             />
-            <FileBreadcrumbs path={breadcrumbPath} onNavigate={handleNavigate} />
+            <div className="flex min-w-0 items-center gap-1">
+              <TooltipHint label="Home">
+                <button
+                  type="button"
+                  aria-label="Home"
+                  onClick={handleNavigateHome}
+                  className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+                >
+                  <Home className="h-3 w-3" />
+                </button>
+              </TooltipHint>
+              <TooltipHint label={canNavigateUp ? "Up one folder" : "Already at the top folder"} disabled={!canNavigateUp}>
+                <button
+                  type="button"
+                  aria-label="Up one folder"
+                  onClick={handleNavigateUp}
+                  disabled={!canNavigateUp}
+                  className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-text-muted transition-colors hover:bg-surface-low hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"
+                >
+                  <ArrowUp className="h-3 w-3" />
+                </button>
+              </TooltipHint>
+              <div className="min-w-0 flex-1">
+                <FileBreadcrumbs path={breadcrumbPath} onNavigate={handleNavigate} />
+              </div>
+            </div>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
@@ -1014,7 +1216,7 @@ export function AgentFilesPanel({
                 showHidden={showHidden}
                 onOpenFile={handleOpenFile}
                 onOpenDirectory={handleOpenFile}
-                onDeleteFile={isGatewaySource || !currentSourceAvailable || !onDeleteFile ? undefined : handleDeleteFile}
+                onDeleteFile={!currentPathWritable || !currentSourceAvailable || !onDeleteFile ? undefined : handleDeleteFile}
                 onDownloadFile={onDownloadFileBytes ? handleDownloadFile : undefined}
                 canDownloadFile={(entry) => !(isGatewaySource && shouldReadFileAsBytes(entry))}
                 onCopyPath={handleCopyPath}

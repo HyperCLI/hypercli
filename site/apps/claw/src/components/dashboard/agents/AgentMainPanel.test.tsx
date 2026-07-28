@@ -1,5 +1,5 @@
 import type { ComponentProps } from "react";
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { buildSdkAgent } from "@/test/factories";
@@ -116,6 +116,36 @@ describe("AgentMainPanel", () => {
 
     expect(screen.getByText("research-pilot")).toBeInTheDocument();
     expect(screen.queryByText("research-agent")).not.toBeInTheDocument();
+  });
+
+  it("centers the chat header title and subtitle on the same axis", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "RUNNING" }));
+    renderAgentMainPanel({ selectedAgent, onUpdateAgentDisplayName: vi.fn() });
+
+    const title = screen.getByRole("button", { name: "Edit agent display name" });
+    expect(title).toHaveClass("grid", "place-items-center", "px-7");
+    expect(title.querySelector("svg")).toHaveClass("absolute", "right-2.5");
+    expect(screen.getByText("Gateway disconnected")).toHaveClass("text-center");
+  });
+
+  it("updates the display name from the agent header", async () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({
+      name: "research-agent",
+      displayName: "Research Pilot",
+      managed: false,
+    }));
+    const onUpdateAgentDisplayName = vi.fn(async () => undefined);
+
+    renderAgentMainPanel({ selectedAgent, onUpdateAgentDisplayName });
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit agent display name" }));
+    const input = screen.getByRole("textbox", { name: "Agent display name" });
+    expect(input).toHaveValue("Research Pilot");
+    fireEvent.change(input, { target: { value: "Growth" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save agent display name" }));
+
+    await waitFor(() => expect(onUpdateAgentDisplayName).toHaveBeenCalledWith(selectedAgent.id, "Growth"));
+    expect(screen.queryByRole("textbox", { name: "Agent display name" })).not.toBeInTheDocument();
   });
 
   it("waits for the first agent load before showing the empty state", () => {

@@ -118,6 +118,7 @@ import { AgentLogsPanel } from "@/components/dashboard/agents/AgentLogsPanel";
 import { AgentShellController, type AgentShellControllerHandle } from "@/components/dashboard/agents/AgentShellController";
 import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
 import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
+import { AgentDisplayNameEditor } from "@/components/dashboard/agents/AgentDisplayNameEditor";
 import { AgentGatewaySessionProvider, asAgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
 import { agentDisplayLabel, toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
@@ -1852,11 +1853,19 @@ export default function DevAgentSetupAgentsPage() {
       <div className="h-full min-h-0 w-full flex flex-col overflow-hidden">
       {/* Mobile header + menu (hidden on desktop) */}
       {!isDesktopViewport && (
-        <div className="relative flex items-center justify-between px-4 py-4 border-b border-border">
+        <div className="relative z-20 flex items-center justify-between gap-2 border-b border-border bg-background px-4 py-4">
           <div className="flex items-center gap-2">
             <HyperCLILogoLink className="h-[31px] w-[102px]" priority />
             <span className="text-text-muted font-medium">Agents</span>
           </div>
+          {selectedAgent ? (
+            <AgentDisplayNameEditor
+              key={selectedAgent.id}
+              agent={selectedAgent}
+              onUpdate={updateAgentDisplayName}
+              className="min-w-0 flex-1"
+            />
+          ) : null}
           <button
             onClick={() => setMobileAgentMenuOpen((open) => !open)}
             className="p-2 rounded-lg border border-border text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
@@ -2034,7 +2043,6 @@ export default function DevAgentSetupAgentsPage() {
           budget={budget}
           subscriptionSummary={subscriptionSummary}
           catalogPlans={catalogPlans}
-          updateAgentDisplayName={updateAgentDisplayName}
           showChannels={isTeamPlanActive}
         />
 
@@ -2048,6 +2056,7 @@ export default function DevAgentSetupAgentsPage() {
             activeConnectionStatus={activeConnectionStatus}
             chatConnected={chat.connected}
             chatConnecting={chat.connecting}
+            onUpdateAgentDisplayName={updateAgentDisplayName}
             startingId={startingId}
             recentlyStoppedIds={recentlyStoppedIds}
             selectedAgentLaunchBlocked={selectedAgentLaunchBlocked}

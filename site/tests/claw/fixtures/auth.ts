@@ -139,6 +139,9 @@ interface DeploymentRecord {
   state?: string | null;
   hostname?: string | null;
   routes?: Record<string, unknown> | null;
+  lastError?: string | null;
+  createdAt?: Date | string | null;
+  updatedAt?: Date | string | null;
 }
 
 interface DeploymentsClientLike {
@@ -390,6 +393,15 @@ async function getDeploymentsClient(token: string): Promise<DeploymentsClientLik
     agentsApiBaseUrl,
     getOptionalEnv("NEXT_PUBLIC_AGENTS_WS_URL") || undefined
   );
+}
+
+async function deleteDeployment(deployments: DeploymentsClientLike, agentId: string): Promise<void> {
+  try {
+    await deployments.delete(agentId);
+  } catch {
+    await deployments.stop(agentId).catch(() => {});
+    await deployments.delete(agentId);
+  }
 }
 
 async function ensureScreenshotDir(): Promise<void> {
@@ -1221,7 +1233,7 @@ export async function completeStripeCheckout(
     await captureStep(page, "console-05f-returned-to-local-app");
   }
 
-  return page.url();
+  return redirectedUrl;
 }
 
 async function fetchJsonWithApiKey<T>(path: string): Promise<T> {
@@ -1527,20 +1539,9 @@ export async function cleanupClawAgents(page: Page, timeout = 180_000): Promise<
   for (const agent of existingAgents) {
     const agentId = String(agent.id || "");
     if (!agentId) continue;
-    try {
-      await deployments.delete(agentId);
-    } catch {
-      try {
-        await deployments.stop(agentId);
-      } catch {
-        // Keep going; delete polling below will surface any stuck agents.
-      }
-      try {
-        await deployments.delete(agentId);
-      } catch {
-        // Ignore individual delete errors here; the poll below is the real gate.
-      }
-    }
+    await deleteDeployment(deployments, agentId).catch(() => {
+      // Ignore individual delete errors here; the poll below is the real gate.
+    });
   }
 
   await expect
@@ -1766,88 +1767,163 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
   const waitForCreatedAgent = async (clickCreate: () => Promise<void>): Promise<DeploymentRecord> => {
     const beforeAgents = await deployments.list();
     const beforeIds = new Set(beforeAgents.map((agent) => String(agent.id || "")).filter(Boolean));
-    await clickCreate();
-
     let created: DeploymentRecord | null = null;
-    await expect
-      .poll(
-        async () => {
-          const agents = await deployments.list();
-          created = agents.find((agent) => {
-            const agentId = String(agent.id || "");
-            return agentId && !beforeIds.has(agentId);
-          }) ?? null;
-          return created?.id ?? null;
+    let createResponseError: string | null = null;
+    const createResponseSettled = page
+      .waitForResponse(
+        (response) => {
+          return response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/agents/deployments");
         },
-        { timeout: 90_000, intervals: [1_000, 2_000, 5_000] }
+        { timeout: 90_000 }
       )
-      .not.toBeNull();
+      .then(async (response) => {
+        if (!response.ok()) {
+          throw new Error(`Agent create request failed with ${response.status()}`);
+        }
+        const responseAgent = (await response.json()) as DeploymentRecord;
+        if (!responseAgent.id) {
+          throw new Error("Agent create response did not include an id");
+        }
+        created = responseAgent;
+      })
+      .catch((error) => {
+        createResponseError = error instanceof Error ? error.message : String(error);
+      });
+    let launchSubmitted = false;
+    try {
+      await clickCreate();
+      launchSubmitted = true;
+      await expect
+        .poll(
+          async () => {
+            if (created?.id) return created.id;
+            const agents = await deployments.list();
+            const listedAgent = agents.find((agent) => {
+              const agentId = String(agent.id || "");
+              return agentId && !beforeIds.has(agentId);
+            });
+            if (listedAgent) created = listedAgent;
+            return created?.id ?? null;
+          },
+          { timeout: 90_000, intervals: [1_000, 2_000, 5_000] }
+        )
+        .not.toBeNull();
+    } catch (error) {
+      if (launchSubmitted) {
+        await createResponseSettled;
+      }
+      console.log(
+        `[agents-launch] creation failed ${JSON.stringify({
+          id: created?.id ?? null,
+          createResponseError,
+          error: error instanceof Error ? error.message : String(error),
+        })}`
+      );
+      if (created?.id) {
+        await deleteDeployment(deployments, created.id).catch(() => {});
+      }
+      throw error;
+    }
 
     expect(created).toBeTruthy();
     expect(created.id).toBeTruthy();
-    await captureStep(page, "agents-11-created");
+    console.log(`[agents-launch] created id=${created.id} state=${created.state ?? "unknown"}`);
 
-    const running = await deployments.waitRunning(created.id, timeout, 5_000);
-    expect(running.state).toBe("RUNNING");
-    await verifyDesktopAuthRoute(running);
-    await waitForGatewayRoute(running);
+    try {
+      await captureStep(page, "agents-11-created");
 
-    await page.goto(`/dashboard/agents?agentId=${encodeURIComponent(created.id)}`, { waitUntil: "domcontentloaded" });
-    await expect(page.getByText("Loading agents", { exact: true })).not.toBeVisible({ timeout: 90_000 });
-    await captureStep(page, "agents-11-created-opened");
+      const running = await deployments.waitRunning(created.id, timeout, 5_000);
+      expect(running.state).toBe("RUNNING");
+      await verifyDesktopAuthRoute(running);
+      await waitForGatewayRoute(running);
 
-    const composer = page.getByRole("textbox", { name: /Message agent/i });
-    const readyStatus = page.getByText("Ready", { exact: true });
-    const connectingStatus = page
-      .locator("main")
-      .getByText(
-        /Connecting|Preparing chat|Loading workspace|Fetching messages|Checking your workspace|Waiting for gateway|Gateway disconnected|runtime is up|Restoring files|Syncing shared knowledge|RESTORING|SYNCING/i
+      await page.goto(`/dashboard/agents?agentId=${encodeURIComponent(created.id)}`, { waitUntil: "domcontentloaded" });
+      await expect(page.getByText("Loading agents", { exact: true })).not.toBeVisible({ timeout: 90_000 });
+      await captureStep(page, "agents-11-created-opened");
+
+      const composer = page.getByRole("textbox", { name: /Message agent/i });
+      const readyStatus = page.getByText("Ready", { exact: true });
+      const connectingStatus = page
+        .locator("main")
+        .getByText(
+          /Connecting|Preparing chat|Loading workspace|Fetching messages|Checking your workspace|Waiting for gateway|Gateway disconnected|runtime is up|Restoring files|Syncing shared knowledge|RESTORING|SYNCING/i
+        );
+      const readinessStartedAt = Date.now();
+      let refreshedAgentRoute = false;
+      const refreshAgentRoute = async (): Promise<void> => {
+        refreshedAgentRoute = true;
+        await page.goto(`/dashboard/agents?agentId=${encodeURIComponent(created.id)}`, { waitUntil: "domcontentloaded" }).catch(() => {});
+      };
+      await expect
+        .poll(
+          async () => {
+            const visibleComposer = await findLastVisible(composer, 250);
+            const composerVisible = Boolean(visibleComposer);
+            const composerEnabled = visibleComposer ? await visibleComposer.isEnabled().catch(() => false) : false;
+            const readyVisible = await hasVisible(readyStatus);
+            if (composerVisible && composerEnabled && readyVisible) {
+              return "ready";
+            }
+
+            const loadingShellVisible = await page
+              .locator("main")
+              .getByText(/Checking your workspace before selecting an agent/i)
+              .first()
+              .isVisible()
+              .catch(() => false);
+            if (loadingShellVisible && !refreshedAgentRoute && Date.now() - readinessStartedAt > 60_000) {
+              await refreshAgentRoute();
+            }
+
+            const visibleWaiting = await findLastVisible(connectingStatus, 250);
+            const waitingText = visibleWaiting ? await visibleWaiting.textContent({ timeout: 500 }).catch(() => "") : "";
+            if (waitingText && !refreshedAgentRoute && Date.now() - readinessStartedAt > 60_000) {
+              await refreshAgentRoute();
+            }
+            return waitingText ? `waiting:${waitingText.trim()}` : "waiting";
+          },
+          { timeout: Math.max(timeout, 180_000), intervals: [1_000, 2_000, 5_000] }
+        )
+        .toBe("ready");
+      const visibleComposer = await findLastVisible(composer, 5_000);
+      expect(visibleComposer, "expected a visible message composer after gateway readiness").not.toBeNull();
+      await expect(visibleComposer!).toBeEnabled({ timeout: 5_000 });
+      expect(await hasVisible(readyStatus), "expected a visible Ready status after gateway readiness").toBe(true);
+      await expect(connectingStatus.first()).not.toBeVisible({ timeout: 5_000 });
+      await captureStep(page, "agents-12-gateway-connected");
+
+      return created;
+    } catch (error) {
+      let latest = created;
+      let inspectionError: string | null = null;
+      try {
+        latest = await deployments.get(created.id);
+      } catch (snapshotError) {
+        inspectionError = snapshotError instanceof Error ? snapshotError.message : String(snapshotError);
+      }
+      console.log(
+        `[agents-launch] readiness failed ${JSON.stringify({
+          id: created.id,
+          state: latest.state ?? "unknown",
+          lastError: latest.lastError ?? null,
+          createdAt: latest.createdAt ?? null,
+          updatedAt: latest.updatedAt ?? null,
+          hostname: latest.hostname ?? null,
+          inspectionError,
+          error: error instanceof Error ? error.message : String(error),
+        })}`
       );
-    const readinessStartedAt = Date.now();
-    let refreshedAgentRoute = false;
-    const refreshAgentRoute = async (): Promise<void> => {
-      refreshedAgentRoute = true;
-      await page.goto(`/dashboard/agents?agentId=${encodeURIComponent(created.id)}`, { waitUntil: "domcontentloaded" }).catch(() => {});
-    };
-    await expect
-      .poll(
-        async () => {
-          const visibleComposer = await findLastVisible(composer, 250);
-          const composerVisible = Boolean(visibleComposer);
-          const composerEnabled = visibleComposer ? await visibleComposer.isEnabled().catch(() => false) : false;
-          const readyVisible = await hasVisible(readyStatus);
-          if (composerVisible && composerEnabled && readyVisible) {
-            return "ready";
-          }
-
-          const loadingShellVisible = await page
-            .locator("main")
-            .getByText(/Checking your workspace before selecting an agent/i)
-            .first()
-            .isVisible()
-            .catch(() => false);
-          if (loadingShellVisible && !refreshedAgentRoute && Date.now() - readinessStartedAt > 60_000) {
-            await refreshAgentRoute();
-          }
-
-          const visibleWaiting = await findLastVisible(connectingStatus, 250);
-          const waitingText = visibleWaiting ? await visibleWaiting.textContent({ timeout: 500 }).catch(() => "") : "";
-          if (waitingText && !refreshedAgentRoute && Date.now() - readinessStartedAt > 60_000) {
-            await refreshAgentRoute();
-          }
-          return waitingText ? `waiting:${waitingText.trim()}` : "waiting";
-        },
-        { timeout: Math.max(timeout, 180_000), intervals: [1_000, 2_000, 5_000] }
-      )
-      .toBe("ready");
-    const visibleComposer = await findLastVisible(composer, 5_000);
-    expect(visibleComposer, "expected a visible message composer after gateway readiness").not.toBeNull();
-    await expect(visibleComposer!).toBeEnabled({ timeout: 5_000 });
-    expect(await hasVisible(readyStatus), "expected a visible Ready status after gateway readiness").toBe(true);
-    await expect(connectingStatus.first()).not.toBeVisible({ timeout: 5_000 });
-    await captureStep(page, "agents-12-gateway-connected");
-
-    return created;
+      await deleteDeployment(deployments, created.id)
+        .then(() => console.log(`[agents-launch] cleaned up failed agent id=${created.id}`))
+        .catch((cleanupError) => {
+          console.log(
+            `[agents-launch] failed-agent cleanup id=${created.id} error=${
+              cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+            }`
+          );
+        });
+      throw error;
+    }
   };
 
   const clickPlanLaunchButtonViaDom = async (timeoutMs = 30_000): Promise<boolean> => {
@@ -1955,16 +2031,7 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
 export async function deleteClawAgent(page: Page, agentId: string): Promise<void> {
   const token = await getClawAuthToken(page);
   const deployments = await getDeploymentsClient(token);
-  try {
-    await deployments.delete(agentId);
-  } catch {
-    try {
-      await deployments.stop(agentId);
-    } catch {
-      // Best effort cleanup only.
-    }
-    await deployments.delete(agentId);
-  }
+  await deleteDeployment(deployments, agentId);
 }
 
 async function stripeApiRequest<T>(
