@@ -69,8 +69,8 @@ function normalizeInitialPreviewPath(path: string): string {
 }
 
 function sourceReadPath(path: string, source: AgentFilesPanelSource): string {
-  if (source === "backup") return syncRelativePath(path);
-  return normalizeAgentBrowserFilePath(path);
+  if (source === "gateway") return normalizeAgentBrowserFilePath(path);
+  return syncRelativePath(path);
 }
 
 function sourceWritePath(path: string, source: AgentFilesPanelSource): string {
@@ -84,8 +84,28 @@ function displayPath(path: string, source: AgentFilesPanelSource): string {
     : absoluteSyncPath(path);
 }
 
-function displayEntry(entry: FileEntry, source: AgentFilesPanelSource): FileEntry {
-  return { ...entry, path: displayPath(entry.path, source) };
+function entryBackendPath(entry: FileEntry, parentPath: string | undefined, source: AgentFilesPanelSource): string {
+  const rawPath = typeof (entry as { path?: unknown }).path === "string" ? entry.path : entry.name;
+  const normalizedPath = normalizeAgentBrowserFilePath(rawPath);
+  if (source === "gateway" || normalizedPath.startsWith("/")) return normalizedPath;
+
+  const normalizedParent = normalizeAgentBrowserFilePath(parentPath ?? "");
+  if (
+    !normalizedParent ||
+    normalizedPath === normalizedParent ||
+    normalizedPath.startsWith(`${normalizedParent}/`)
+  ) {
+    return normalizedPath;
+  }
+  return normalizeAgentBrowserFilePath(`${normalizedParent}/${normalizedPath}`);
+}
+
+function displayEntry(
+  entry: FileEntry,
+  source: AgentFilesPanelSource,
+  parentPath?: string,
+): FileEntry {
+  return { ...entry, path: displayPath(entryBackendPath(entry, parentPath, source), source) };
 }
 
 function displayOpenResult<T extends string | Uint8Array>(
@@ -123,7 +143,7 @@ export function AgentFilesPanel({
     return {
       agent: {
         homePath,
-        rootPath: "/",
+        rootPath: OPENCLAW_SYNC_ROOT,
         writableRootPath: OPENCLAW_SYNC_ROOT,
       },
       backup: {
@@ -141,8 +161,9 @@ export function AgentFilesPanel({
   }, [normalizedRootPath, sourcePathsOverride]);
 
   const listFiles = useCallback(async (path?: string, source: AgentFilesPanelSource = "agent") => {
-    const entries = await onListFiles(path === undefined ? undefined : sourceReadPath(path, source), source);
-    return entries.map((entry) => displayEntry(entry, source));
+    const backendPath = path === undefined ? undefined : sourceReadPath(path, source);
+    const entries = await onListFiles(backendPath, source);
+    return entries.map((entry) => displayEntry(entry, source, backendPath));
   }, [onListFiles]);
 
   const openFile = useCallback(async (path: string, source: AgentFilesPanelSource = "agent") => (

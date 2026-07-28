@@ -56,7 +56,7 @@ async function expectTooltip(trigger: HTMLElement, content: RegExp) {
 }
 
 describe("AgentFilesPanel", () => {
-  it("opens absolute OpenClaw workspace preview paths from the workspace root", async () => {
+  it("opens absolute OpenClaw workspace previews through a sync-relative backend path", async () => {
     const onOpenFile = vi.fn(async () => "content");
 
     renderFilesPanel({
@@ -65,12 +65,12 @@ describe("AgentFilesPanel", () => {
     });
 
     await waitFor(() => {
-      expect(onOpenFile).toHaveBeenCalledWith("/home/node/.openclaw/workspace/report.md", "agent");
+      expect(onOpenFile).toHaveBeenCalledWith(".openclaw/workspace/report.md", "agent");
     });
     expect(onOpenFile).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps initial pod paths outside the workspace absolute", async () => {
+  it("rejects initial pod paths outside the synchronized filesystem", async () => {
     const onOpenFileBytes = vi.fn(async () => new TextEncoder().encode("content"));
 
     renderFilesPanel({
@@ -78,13 +78,8 @@ describe("AgentFilesPanel", () => {
       onOpenFileBytes,
     });
 
-    await waitFor(() => {
-      expect(onOpenFileBytes).toHaveBeenCalledWith(
-        "/etc/hosts",
-        "agent",
-        { maxBytes: 4 * 1024 * 1024, signal: expect.any(AbortSignal) },
-      );
-    });
+    expect(await screen.findByText("This location is browse-only.")).toBeInTheDocument();
+    expect(onOpenFileBytes).not.toHaveBeenCalled();
   });
 
   it("does not reopen an initial Agent preview after switching sources", async () => {
@@ -92,13 +87,13 @@ describe("AgentFilesPanel", () => {
     const onListFiles = vi.fn(async () => []);
 
     renderFilesPanel({
-      initialPreviewPath: "/etc/example.txt",
+      initialPreviewPath: "/home/node/.openclaw/workspace/example.txt",
       onListFiles,
       onOpenFile,
       showSourceTabs: true,
     });
 
-    await waitFor(() => expect(onOpenFile).toHaveBeenCalledWith("/etc/example.txt", "agent"));
+    await waitFor(() => expect(onOpenFile).toHaveBeenCalledWith(".openclaw/workspace/example.txt", "agent"));
     fireEvent.click(screen.getByRole("tab", { name: "Gateway" }));
     await waitFor(() => expect(onListFiles).toHaveBeenCalledWith(undefined, "gateway"));
     expect(onOpenFile).toHaveBeenCalledTimes(1);
@@ -119,10 +114,7 @@ describe("AgentFilesPanel", () => {
     const { rerender } = render(<AgentFilesPanel {...props} />);
 
     await waitFor(() => {
-      expect(onOpenFile).toHaveBeenCalledWith(
-        "/home/node/.openclaw/workspace/report.txt",
-        "agent",
-      );
+      expect(onOpenFile).toHaveBeenCalledWith(".openclaw/workspace/report.txt", "agent");
     });
     rerender(
       <AgentFilesPanel
@@ -148,7 +140,7 @@ describe("AgentFilesPanel", () => {
 
     await waitFor(() => {
       expect(onOpenFileBytes).toHaveBeenCalledWith(
-        "/home/node/.openclaw/workspace/865621.jpg",
+        ".openclaw/workspace/865621.jpg",
         "agent",
         { maxBytes: 64 * 1024 * 1024, signal: expect.any(AbortSignal) },
       );
@@ -168,7 +160,7 @@ describe("AgentFilesPanel", () => {
 
     await waitFor(() => {
       expect(onOpenFileBytes).toHaveBeenCalledWith(
-        "/home/node/.openclaw/workspace/archive.zip",
+        ".openclaw/workspace/archive.zip",
         "agent",
         { maxBytes: 64 * 1024 * 1024, signal: expect.any(AbortSignal) },
       );
@@ -188,7 +180,7 @@ describe("AgentFilesPanel", () => {
 
     await waitFor(() => {
       expect(onOpenFileBytes).toHaveBeenCalledWith(
-        "/home/node/.openclaw/workspace/book.epub",
+        ".openclaw/workspace/book.epub",
         "agent",
         { maxBytes: 64 * 1024 * 1024, signal: expect.any(AbortSignal) },
       );
@@ -212,7 +204,7 @@ describe("AgentFilesPanel", () => {
     await waitFor(() => expect(onOpenFileBytes).toHaveBeenCalled());
     expect(await screen.findByRole("textbox", { name: "notes.custom contents" })).toHaveValue("validated custom text");
     expect(onOpenFileBytes).toHaveBeenCalledWith(
-      "/home/node/.openclaw/workspace/notes.custom",
+      ".openclaw/workspace/notes.custom",
       "agent",
       { maxBytes: 4 * 1024 * 1024, signal: expect.any(AbortSignal) },
     );
@@ -276,7 +268,7 @@ describe("AgentFilesPanel", () => {
     renderFilesPanel({ onListFiles });
 
     await waitFor(() => {
-      expect(onListFiles).toHaveBeenCalledWith("/home/node/.openclaw", "agent");
+      expect(onListFiles).toHaveBeenCalledWith(".openclaw", "agent");
     });
     expect(onListFiles).not.toHaveBeenCalledWith(".openclaw", "backup");
     expect(screen.queryByRole("tablist", { name: /file source/i })).not.toBeInTheDocument();
@@ -290,14 +282,14 @@ describe("AgentFilesPanel", () => {
     renderFilesPanel({ onListFiles, showSourceTabs: true });
 
     await waitFor(() => {
-      expect(onListFiles).toHaveBeenCalledWith("/home/node/.openclaw", "agent");
+      expect(onListFiles).toHaveBeenCalledWith(".openclaw", "agent");
     });
     expect(await screen.findByText(".config")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Hide dotfiles" })).toBeInTheDocument();
   });
 
-  it("keeps Home at the OpenClaw directory while Root reaches the pod filesystem root", async () => {
-    const onListFiles = vi.fn(async (path?: string) => path === "/home/node/.openclaw"
+  it("keeps Home at the OpenClaw directory while Root reaches the synchronized filesystem root", async () => {
+    const onListFiles = vi.fn(async (path?: string) => path === ".openclaw"
       ? [{ name: "workspace", path: ".openclaw/workspace", type: "directory" as const }]
       : []);
 
@@ -305,38 +297,30 @@ describe("AgentFilesPanel", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "workspace" }));
     await waitFor(() => {
-      expect(onListFiles).toHaveBeenCalledWith("/home/node/.openclaw/workspace", "agent");
+      expect(onListFiles).toHaveBeenCalledWith(".openclaw/workspace", "agent");
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Root" }));
     await waitFor(() => {
-      expect(onListFiles).toHaveBeenLastCalledWith("/", "agent");
+      expect(onListFiles).toHaveBeenLastCalledWith("", "agent");
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
     await waitFor(() => {
-      expect(onListFiles).toHaveBeenLastCalledWith("/home/node/.openclaw", "agent");
+      expect(onListFiles).toHaveBeenLastCalledWith(".openclaw", "agent");
     });
   });
 
-  it("navigates up to filesystem root and makes paths above the sync root browse-only", async () => {
+  it("stops Agent navigation at the synchronized filesystem root", async () => {
     const onListFiles = vi.fn(async () => []);
     renderFilesPanel({ onListFiles, onCreateDirectory: vi.fn(async () => undefined) });
 
-    await waitFor(() => expect(onListFiles).toHaveBeenLastCalledWith("/home/node/.openclaw", "agent"));
+    await waitFor(() => expect(onListFiles).toHaveBeenLastCalledWith(".openclaw", "agent"));
     const upButton = screen.getByRole("button", { name: "Up one folder" });
 
     fireEvent.click(upButton);
-    await waitFor(() => expect(onListFiles).toHaveBeenLastCalledWith("/home/node", "agent"));
+    await waitFor(() => expect(onListFiles).toHaveBeenLastCalledWith("", "agent"));
     expect(screen.getByRole("button", { name: "New folder" })).toBeEnabled();
-
-    fireEvent.click(upButton);
-    await waitFor(() => expect(onListFiles).toHaveBeenLastCalledWith("/home", "agent"));
-    expect(screen.getByRole("button", { name: "New folder" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Upload files" })).toBeDisabled();
-
-    fireEvent.click(upButton);
-    await waitFor(() => expect(onListFiles).toHaveBeenLastCalledWith("/", "agent"));
     await waitFor(() => expect(screen.getByRole("button", { name: "Up one folder" })).toBeDisabled());
   });
 
@@ -352,15 +336,28 @@ describe("AgentFilesPanel", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Up one folder" })).toBeDisabled());
   });
 
-  it("preserves absolute directory entry paths when navigating outside Home", async () => {
-    const onListFiles = vi.fn(async (path?: string) => path === "/"
-      ? [{ name: "etc", path: "/etc/", type: "directory" as const }]
-      : []);
+  it("opens nested Agent directories with sync-relative backend paths", async () => {
+    const onListFiles = vi.fn(async (path?: string) => {
+      if (path === ".openclaw") {
+        return [{ name: "workspace", path: "workspace", type: "directory" as const }];
+      }
+      if (path === ".openclaw/workspace") {
+        return [{ name: "projects", path: "projects", type: "directory" as const }];
+      }
+      if (path === ".openclaw/workspace/projects") {
+        return [{ name: "demo", path: undefined as unknown as string, type: "directory" as const }];
+      }
+      return [];
+    });
     renderFilesPanel({ onListFiles });
 
-    fireEvent.click(screen.getByRole("button", { name: "Root" }));
-    fireEvent.click(await screen.findByRole("button", { name: "etc" }));
-    await waitFor(() => expect(onListFiles).toHaveBeenLastCalledWith("/etc", "agent"));
+    fireEvent.click(await screen.findByRole("button", { name: "workspace" }));
+    fireEvent.click(await screen.findByRole("button", { name: "projects" }));
+    fireEvent.click(await screen.findByRole("button", { name: "demo" }));
+
+    await waitFor(() => {
+      expect(onListFiles).toHaveBeenLastCalledWith(".openclaw/workspace/projects/demo", "agent");
+    });
   });
 
   it("keeps breadcrumbs available at the root, during search, and for Gateway files", async () => {
@@ -392,7 +389,7 @@ describe("AgentFilesPanel", () => {
     renderFilesPanel({ onListFiles, showSourceTabs: true });
 
     await waitFor(() => {
-      expect(onListFiles).toHaveBeenCalledWith("/home/node/.openclaw", "agent");
+      expect(onListFiles).toHaveBeenCalledWith(".openclaw", "agent");
     });
     onListFiles.mockClear();
 
@@ -410,7 +407,7 @@ describe("AgentFilesPanel", () => {
     renderFilesPanel({ onListFiles, showSourceTabs: true, onCreateDirectory: vi.fn(async () => undefined) });
 
     await waitFor(() => {
-      expect(onListFiles).toHaveBeenCalledWith("/home/node/.openclaw", "agent");
+      expect(onListFiles).toHaveBeenCalledWith(".openclaw", "agent");
     });
     onListFiles.mockClear();
 
@@ -612,7 +609,7 @@ describe("AgentFilesPanel", () => {
     renderFilesPanel({ onListFiles, showSourceTabs: true });
 
     await waitFor(() => {
-      expect(onListFiles).toHaveBeenCalledWith("/home/node/.openclaw", "agent");
+      expect(onListFiles).toHaveBeenCalledWith(".openclaw", "agent");
       expect(onListFiles).toHaveBeenCalledWith(".openclaw", "backup");
     });
     expect(screen.queryByText("Backup needs attention")).not.toBeInTheDocument();
@@ -640,7 +637,7 @@ describe("AgentFilesPanel", () => {
     expect(screen.queryByText("Backup comparison paused")).not.toBeInTheDocument();
     await expectTooltip(screen.getByRole("img", { name: "Backed up" }), /Backup copy modified: 2026-07-07T08:00:00Z[\s\S]*Start the agent to compare/);
     expect(onListFiles).toHaveBeenCalledWith(".openclaw", "backup");
-    expect(onListFiles).not.toHaveBeenCalledWith("/home/node/.openclaw", "agent");
+    expect(onListFiles).not.toHaveBeenCalledWith(".openclaw", "agent");
   });
 
   it("uses compact file-specific copy while loading the file list", () => {
@@ -704,7 +701,7 @@ describe("AgentFilesPanel", () => {
       expect(onCreateDirectory).toHaveBeenCalledWith(".openclaw/reports", "agent");
     });
     await waitFor(() => {
-      expect(onListFiles).toHaveBeenCalledWith("/home/node/.openclaw", "agent");
+      expect(onListFiles).toHaveBeenCalledWith(".openclaw", "agent");
     });
     expect(onListFiles).not.toHaveBeenCalledWith(".openclaw", "backup");
   });
@@ -714,7 +711,7 @@ describe("AgentFilesPanel", () => {
     const onListFiles = vi.fn(async () => []);
     renderFilesPanel({ onCreateDirectory, onListFiles, showSourceTabs: true });
 
-    await waitFor(() => expect(onListFiles).toHaveBeenCalledWith("/home/node/.openclaw", "agent"));
+    await waitFor(() => expect(onListFiles).toHaveBeenCalledWith(".openclaw", "agent"));
     fireEvent.click(screen.getByRole("tab", { name: "Backup" }));
     await waitFor(() => expect(onListFiles).toHaveBeenCalledWith(".openclaw", "backup"));
     fireEvent.click(screen.getByRole("button", { name: /new folder/i }));
@@ -731,7 +728,7 @@ describe("AgentFilesPanel", () => {
     const onListFiles = vi.fn(async () => []);
     renderFilesPanel({ onUploadFile, onListFiles, showSourceTabs: true });
 
-    await waitFor(() => expect(onListFiles).toHaveBeenCalledWith("/home/node/.openclaw", "agent"));
+    await waitFor(() => expect(onListFiles).toHaveBeenCalledWith(".openclaw", "agent"));
     fireEvent.click(screen.getByRole("tab", { name: "Backup" }));
     await waitFor(() => expect(onListFiles).toHaveBeenCalledWith(".openclaw", "backup"));
     fireEvent.click(screen.getByRole("button", { name: "Upload files" }));
