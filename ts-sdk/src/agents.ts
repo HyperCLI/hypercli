@@ -2503,7 +2503,7 @@ export class OpenClawAgent extends Agent {
     try {
       return await client.sendChat(
         message,
-        options.sessionKey ?? 'main',
+        options.sessionKey,
         options.agentId,
         options.attachments,
       );

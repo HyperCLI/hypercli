@@ -1808,12 +1808,12 @@ class GatewayClient:
     async def chat_send(
         self,
         message: str,
-        session_key: str | None = "main",
+        session_key: str | None = None,
         agent_id: str | None = None,
         attachments: list[dict[str, Any]] | None = None,
     ) -> AsyncIterator[ChatEvent]:
         idempotency_key = str(uuid.uuid4())
-        resolved_session_key = session_key or "main"
+        resolved_session_key = session_key or create_openclaw_sdk_session_key()
         params: dict[str, Any] = {
             "message": message,
             "deliver": False,

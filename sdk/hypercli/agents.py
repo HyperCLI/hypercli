@@ -27,6 +27,7 @@ import httpx
 
 from .config import get_agents_api_base_url, get_config_value
 from .http import HTTPClient, APIError
+from .openclaw.gateway import create_openclaw_sdk_session_key
 
 if TYPE_CHECKING:
     from .openclaw.gateway import ChatEvent, GatewayClient
@@ -1446,8 +1447,7 @@ class OpenClawAgent(Agent):
         **kwargs,
     ) -> dict:
         params: dict[str, Any] = {"message": message}
-        if session_key:
-            params["sessionKey"] = session_key
+        params["sessionKey"] = session_key or create_openclaw_sdk_session_key()
         if agent_id:
             params["agentId"] = agent_id
         if idempotency_key:

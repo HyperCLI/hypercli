@@ -4150,15 +4150,16 @@ export class GatewayClient {
 
   async sendChat(
     message: string,
-    sessionKey = "main",
+    sessionKey?: string,
     agentId?: string,
     attachments?: ChatAttachment[],
   ): Promise<any> {
+    const resolvedSessionKey = sessionKey?.trim() || createOpenClawSdkSessionKey();
     const normalizedAttachments = normalizeChatAttachments(attachments);
     const params: Record<string, any> = {
       message,
       deliver: false,
-      sessionKey,
+      sessionKey: resolvedSessionKey,
       idempotencyKey: makeId(),
     };
     if (agentId) params.agentId = agentId;

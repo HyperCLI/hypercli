@@ -681,9 +681,12 @@ async def test_chat_send_uses_history_fallback_when_done_has_no_content() -> Non
     client = GatewayClient(url="wss://openclaw-agent.example")
     client._connected = True
     server_run_id = "done-run-1"
+    sent_session_key = ""
 
     async def fake_call(method: str, params: dict | None = None, timeout: float | None = None):
+        nonlocal sent_session_key
         if method == "chat.send":
+            sent_session_key = str((params or {}).get("sessionKey") or "")
             return {"runId": server_run_id}
         if method == "chat.history":
             return {
@@ -700,12 +703,13 @@ async def test_chat_send_uses_history_fallback_when_done_has_no_content() -> Non
     client.call = fake_call  # type: ignore[method-assign]
 
     async def produce() -> None:
-        await asyncio.sleep(0)
+        while not sent_session_key:
+            await asyncio.sleep(0)
         client._event_queue.put_nowait(
             {
                 "type": "event",
                 "event": "chat.done",
-                "payload": {"runId": server_run_id, "sessionKey": "main"},
+                "payload": {"runId": server_run_id, "sessionKey": sent_session_key},
             }
         )
 
@@ -722,23 +726,27 @@ async def test_chat_send_streams_legacy_chat_events_and_treats_final_without_mes
     client = GatewayClient(url="wss://openclaw-agent.example")
     client._connected = True
     server_run_id = "legacy-run-1"
+    sent_session_key = ""
 
     async def fake_call(method: str, params: dict | None = None, timeout: float | None = None):
+        nonlocal sent_session_key
         if method == "chat.send":
+            sent_session_key = str((params or {}).get("sessionKey") or "")
             return {"runId": server_run_id}
         raise AssertionError(f"Unexpected RPC {method}")
 
     client.call = fake_call  # type: ignore[method-assign]
 
     async def produce() -> None:
-        await asyncio.sleep(0)
+        while not sent_session_key:
+            await asyncio.sleep(0)
         client._event_queue.put_nowait(
             {
                 "type": "event",
                 "event": "chat",
                 "payload": {
                     "runId": server_run_id,
-                    "sessionKey": "main",
+                    "sessionKey": sent_session_key,
                     "state": "delta",
                     "message": {"role": "assistant", "content": [{"type": "text", "text": "Hello"}]},
                 },
@@ -750,7 +758,7 @@ async def test_chat_send_streams_legacy_chat_events_and_treats_final_without_mes
                 "event": "chat",
                 "payload": {
                     "runId": server_run_id,
-                    "sessionKey": "main",
+                    "sessionKey": sent_session_key,
                     "state": "delta",
                     "message": {"role": "assistant", "content": [{"type": "text", "text": "Hello world"}]},
                 },
@@ -762,7 +770,7 @@ async def test_chat_send_streams_legacy_chat_events_and_treats_final_without_mes
                 "event": "chat",
                 "payload": {
                     "runId": server_run_id,
-                    "sessionKey": "main",
+                    "sessionKey": sent_session_key,
                     "state": "final",
                 },
             }
@@ -781,23 +789,27 @@ async def test_chat_send_streams_v4_chat_delta_text_without_message_snapshots() 
     client = GatewayClient(url="wss://openclaw-agent.example")
     client._connected = True
     server_run_id = "delta-text-run-1"
+    sent_session_key = ""
 
     async def fake_call(method: str, params: dict | None = None, timeout: float | None = None):
+        nonlocal sent_session_key
         if method == "chat.send":
+            sent_session_key = str((params or {}).get("sessionKey") or "")
             return {"runId": server_run_id}
         raise AssertionError(f"Unexpected RPC {method}")
 
     client.call = fake_call  # type: ignore[method-assign]
 
     async def produce() -> None:
-        await asyncio.sleep(0)
+        while not sent_session_key:
+            await asyncio.sleep(0)
         client._event_queue.put_nowait(
             {
                 "type": "event",
                 "event": "chat",
                 "payload": {
                     "runId": server_run_id,
-                    "sessionKey": "main",
+                    "sessionKey": sent_session_key,
                     "state": "delta",
                     "deltaText": "Hello ",
                 },
@@ -809,7 +821,7 @@ async def test_chat_send_streams_v4_chat_delta_text_without_message_snapshots() 
                 "event": "chat",
                 "payload": {
                     "runId": server_run_id,
-                    "sessionKey": "main",
+                    "sessionKey": sent_session_key,
                     "state": "delta",
                     "deltaText": "world",
                 },
@@ -821,7 +833,7 @@ async def test_chat_send_streams_v4_chat_delta_text_without_message_snapshots() 
                 "event": "chat",
                 "payload": {
                     "runId": server_run_id,
-                    "sessionKey": "main",
+                    "sessionKey": sent_session_key,
                     "state": "final",
                 },
             }
@@ -898,14 +910,16 @@ async def test_chat_send_forwards_attachments_in_chat_send_request() -> None:
     client.call = fake_call  # type: ignore[method-assign]
 
     async def produce() -> None:
-        await asyncio.sleep(0)
+        while "sessionKey" not in seen_params:
+            await asyncio.sleep(0)
+        sent_session_key = str(seen_params["sessionKey"])
         client._event_queue.put_nowait(
             {
                 "type": "event",
                 "event": "chat",
                 "payload": {
                     "runId": server_run_id,
-                    "sessionKey": "main",
+                    "sessionKey": sent_session_key,
                     "state": "final",
                     "message": {
                         "role": "assistant",
@@ -926,6 +940,7 @@ async def test_chat_send_forwards_attachments_in_chat_send_request() -> None:
     await producer
 
     assert seen_params["attachments"] == [{"type": "file", "path": "/tmp/file.txt"}]
+    assert str(seen_params["sessionKey"]).startswith("hcli:")
     assert [chunk.type for chunk in chunks] == ["content", "done"]
 
 
@@ -1159,9 +1174,12 @@ async def test_chat_send_uses_history_fallback_when_final_has_no_message_or_stre
     client = GatewayClient(url="wss://openclaw-agent.example")
     client._connected = True
     server_run_id = "legacy-run-2"
+    sent_session_key = ""
 
     async def fake_call(method: str, params: dict | None = None, timeout: float | None = None):
+        nonlocal sent_session_key
         if method == "chat.send":
+            sent_session_key = str((params or {}).get("sessionKey") or "")
             return {"runId": server_run_id}
         if method == "chat.history":
             return {
@@ -1179,14 +1197,15 @@ async def test_chat_send_uses_history_fallback_when_final_has_no_message_or_stre
     client.call = fake_call  # type: ignore[method-assign]
 
     async def produce() -> None:
-        await asyncio.sleep(0)
+        while not sent_session_key:
+            await asyncio.sleep(0)
         client._event_queue.put_nowait(
             {
                 "type": "event",
                 "event": "chat",
                 "payload": {
                     "runId": server_run_id,
-                    "sessionKey": "main",
+                    "sessionKey": sent_session_key,
                     "state": "final",
                 },
             }
@@ -1240,23 +1259,27 @@ async def test_chat_send_emits_thinking_and_tool_events_from_final_snapshot() ->
     client = GatewayClient(url="wss://openclaw-agent.example")
     client._connected = True
     server_run_id = "structured-run-1"
+    sent_session_key = ""
 
     async def fake_call(method: str, params: dict | None = None, timeout: float | None = None):
+        nonlocal sent_session_key
         if method == "chat.send":
+            sent_session_key = str((params or {}).get("sessionKey") or "")
             return {"runId": server_run_id}
         raise AssertionError(f"Unexpected RPC {method}")
 
     client.call = fake_call  # type: ignore[method-assign]
 
     async def produce() -> None:
-        await asyncio.sleep(0)
+        while not sent_session_key:
+            await asyncio.sleep(0)
         client._event_queue.put_nowait(
             {
                 "type": "event",
                 "event": "chat",
                 "payload": {
                     "runId": server_run_id,
-                    "sessionKey": "main",
+                    "sessionKey": sent_session_key,
                     "state": "final",
                     "message": {
                         "role": "assistant",
@@ -1303,23 +1326,27 @@ async def test_chat_send_emits_tool_events_from_agent_tool_stream() -> None:
     client = GatewayClient(url="wss://openclaw-agent.example")
     client._connected = True
     server_run_id = "agent-tool-stream-run"
+    sent_session_key = ""
 
     async def fake_call(method: str, params: dict | None = None, timeout: float | None = None):
+        nonlocal sent_session_key
         if method == "chat.send":
+            sent_session_key = str((params or {}).get("sessionKey") or "")
             return {"runId": server_run_id}
         raise AssertionError(f"Unexpected RPC {method}")
 
     client.call = fake_call  # type: ignore[method-assign]
 
     async def produce() -> None:
-        await asyncio.sleep(0)
+        while not sent_session_key:
+            await asyncio.sleep(0)
         client._event_queue.put_nowait(
             {
                 "type": "event",
                 "event": "agent",
                 "payload": {
                     "runId": server_run_id,
-                    "sessionKey": "main",
+                    "sessionKey": sent_session_key,
                     "stream": "tool",
                     "data": {
                         "phase": "start",
@@ -1336,7 +1363,7 @@ async def test_chat_send_emits_tool_events_from_agent_tool_stream() -> None:
                 "event": "agent",
                 "payload": {
                     "runId": server_run_id,
-                    "sessionKey": "main",
+                    "sessionKey": sent_session_key,
                     "stream": "tool",
                     "data": {
                         "phase": "result",
@@ -1354,7 +1381,7 @@ async def test_chat_send_emits_tool_events_from_agent_tool_stream() -> None:
                 "event": "chat.done",
                 "payload": {
                     "runId": server_run_id,
-                    "sessionKey": "main",
+                    "sessionKey": sent_session_key,
                 },
             }
         )
@@ -1382,9 +1409,12 @@ async def test_chat_send_uses_lifecycle_end_fallback_when_chat_final_is_missing(
     client = GatewayClient(url="wss://openclaw-agent.example")
     client._connected = True
     server_run_id = "lifecycle-end-1"
+    sent_session_key = ""
 
     async def fake_call(method: str, params: dict | None = None, timeout: float | None = None):
+        nonlocal sent_session_key
         if method == "chat.send":
+            sent_session_key = str((params or {}).get("sessionKey") or "")
             return {"runId": server_run_id}
         if method == "chat.history":
             return {
@@ -1401,14 +1431,15 @@ async def test_chat_send_uses_lifecycle_end_fallback_when_chat_final_is_missing(
     client.call = fake_call  # type: ignore[method-assign]
 
     async def produce() -> None:
-        await asyncio.sleep(0)
+        while not sent_session_key:
+            await asyncio.sleep(0)
         client._event_queue.put_nowait(
             {
                 "type": "event",
                 "event": "agent",
                 "payload": {
                     "runId": server_run_id,
-                    "sessionKey": "main",
+                    "sessionKey": sent_session_key,
                     "stream": "lifecycle",
                     "data": {"phase": "end"},
                 },
@@ -1428,23 +1459,27 @@ async def test_chat_send_uses_lifecycle_error_fallback_when_chat_error_is_missin
     client = GatewayClient(url="wss://openclaw-agent.example")
     client._connected = True
     server_run_id = "lifecycle-error-1"
+    sent_session_key = ""
 
     async def fake_call(method: str, params: dict | None = None, timeout: float | None = None):
+        nonlocal sent_session_key
         if method == "chat.send":
+            sent_session_key = str((params or {}).get("sessionKey") or "")
             return {"runId": server_run_id}
         raise AssertionError(f"Unexpected RPC {method}")
 
     client.call = fake_call  # type: ignore[method-assign]
 
     async def produce() -> None:
-        await asyncio.sleep(0)
+        while not sent_session_key:
+            await asyncio.sleep(0)
         client._event_queue.put_nowait(
             {
                 "type": "event",
                 "event": "agent",
                 "payload": {
                     "runId": server_run_id,
-                    "sessionKey": "main",
+                    "sessionKey": sent_session_key,
                     "stream": "lifecycle",
                     "data": {"phase": "error", "error": "boom"},
                 },

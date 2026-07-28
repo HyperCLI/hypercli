@@ -3301,6 +3301,28 @@ describe("GatewayClient", () => {
     expect(events.map((event) => event.type)).toEqual(["content", "done"]);
   });
 
+  it("sendChat creates an SDK session key when omitted", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    const rpcSpy = vi.spyOn(client as any, "rpc").mockResolvedValue({ runId: "generated-session-run" });
+
+    await expect(client.sendChat("hello")).resolves.toEqual({ runId: "generated-session-run" });
+
+    expect(rpcSpy).toHaveBeenCalledWith(
+      "chat.send",
+      expect.objectContaining({
+        message: "hello",
+        deliver: false,
+        sessionKey: expect.stringMatching(/^hcli:[0-9a-f-]+$/i),
+      }),
+      expect.any(Number),
+    );
+  });
+
   it("chatSend converts browser-style dataUrl attachments before sending", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",
