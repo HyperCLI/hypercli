@@ -313,6 +313,7 @@ describe('Agents SDK', () => {
             pod_id: 'pod-789',
             pod_name: 'clear-window-works',
             name: 'clear-window-works',
+            handle: 'coder',
             state: 'STOPPED',
           }],
         };
@@ -324,6 +325,7 @@ describe('Agents SDK', () => {
           pod_id: 'pod-789',
           pod_name: 'clear-window-works',
           name: 'clear-window-works',
+          handle: 'coder',
           state: 'STOPPED',
         };
       }
@@ -335,6 +337,7 @@ describe('Agents SDK', () => {
       pod_id: 'pod-789',
       pod_name: 'clear-window-works',
       name: 'clear-window-works',
+      handle: 'coder',
       state: 'STARTING',
     }));
     const http = { get, post } as unknown as HTTPClient;
@@ -351,6 +354,11 @@ describe('Agents SDK', () => {
         }),
       }),
     );
+
+    const handleResult = await deployments.get('coder');
+
+    expect(handleResult.id).toBe('11111111-1111-4111-8111-111111111111');
+    expect(get).not.toHaveBeenCalledWith('/deployments/coder');
   });
 
   it('searches the web through the Brave proxy', async () => {

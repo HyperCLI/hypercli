@@ -336,6 +336,10 @@ def test_agents_start_reuses_saved_launch_fields_as_top_level(monkeypatch):
     }
 
     class FakeDeployments:
+        def get(self, agent_ref):
+            assert agent_ref == agent_id
+            return SimpleNamespace(id=agent_id, launch_config=None, gateway_token=None)
+
         def start_openclaw(self, agent_id_arg, **kwargs):
             captured["agent_id"] = agent_id_arg
             captured.update(kwargs)
@@ -365,6 +369,118 @@ def test_agents_start_reuses_saved_launch_fields_as_top_level(monkeypatch):
     assert captured["sync_root"] == ".openclaw"
     assert captured["sync_enabled"] is True
     assert captured["gateway_token"] == "saved-gateway-token"
+
+
+def test_agents_start_by_name_reuses_canonical_saved_launch_fields(monkeypatch):
+    captured = {}
+    canonical_id = "11111111-1111-4111-8111-111111111111"
+    saved_state = {
+        canonical_id: {
+            "id": canonical_id,
+            "gateway_token": "saved-gateway-token",
+            "launch_config": {
+                "env": {"OPENCLAW_DESKTOP_ENABLED": "0", "SAVED": "1"},
+                "image": "git.nedos.co/hypercli/hypercli-openclaw:saved",
+            },
+        }
+    }
+
+    class FakeDeployments:
+        def get(self, agent_ref):
+            assert agent_ref == "clear-window-works"
+            return SimpleNamespace(id=canonical_id, launch_config=None, gateway_token=None)
+
+        def start_openclaw(self, agent_id_arg, **kwargs):
+            captured["agent_id"] = agent_id_arg
+            captured.update(kwargs)
+            return SimpleNamespace(id=agent_id_arg, pod_name="agent-pod", dry_run=True, vnc_url=None)
+
+    monkeypatch.setattr("hypercli_cli.agents._load_state", lambda: saved_state)
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
+
+    result = runner.invoke(app, ["agents", "start", "clear-window-works", "--dry-run"])
+
+    assert result.exit_code == 0
+    assert captured["agent_id"] == canonical_id
+    assert captured["env"]["SAVED"] == "1"
+    assert captured["image"] == "git.nedos.co/hypercli/hypercli-openclaw:saved"
+    assert captured["gateway_token"] == "saved-gateway-token"
+
+
+def test_agents_delete_by_name_removes_canonical_state(monkeypatch):
+    state = {"canonical-id": {"id": "canonical-id"}, "clear-window-works": {"id": "wrong"}}
+    saved = {}
+    deleted = {}
+
+    class FakeDeployments:
+        def resolve_agent_id(self, agent_ref):
+            assert agent_ref == "clear-window-works"
+            return "canonical-id"
+
+        def delete(self, agent_id):
+            deleted["agent_id"] = agent_id
+            return {"status": "deleted"}
+
+    monkeypatch.setattr("hypercli_cli.agents._load_state", lambda: dict(state))
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
+
+    class FakeStateFile:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return None
+
+        def write(self, payload):
+            saved["payload"] = saved.get("payload", "") + payload
+
+    monkeypatch.setattr(
+        "builtins.open",
+        lambda *args, **kwargs: FakeStateFile(),
+    )
+
+    result = runner.invoke(app, ["agents", "delete", "clear-window-works", "--force"])
+
+    assert result.exit_code == 0
+    assert deleted["agent_id"] == "canonical-id"
+    assert '"canonical-id"' not in saved["payload"]
+
+
+def test_agents_token_by_name_updates_canonical_state(monkeypatch):
+    state = {"canonical-id": {"id": "canonical-id", "jwt_token": "old"}}
+    saved = {}
+
+    class FakeDeployments:
+        def resolve_agent_id(self, agent_ref):
+            assert agent_ref == "clear-window-works"
+            return "canonical-id"
+
+        def refresh_token(self, agent_id):
+            assert agent_id == "canonical-id"
+            return {"token": "new-token", "expires_at": "later"}
+
+    monkeypatch.setattr("hypercli_cli.agents._load_state", lambda: dict(state))
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
+
+    class FakeStateFile:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return None
+
+        def write(self, payload):
+            saved["payload"] = saved.get("payload", "") + payload
+
+    monkeypatch.setattr(
+        "builtins.open",
+        lambda *args, **kwargs: FakeStateFile(),
+    )
+
+    result = runner.invoke(app, ["agents", "token", "clear-window-works"])
+
+    assert result.exit_code == 0
+    assert '"jwt_token": "new-token"' in saved["payload"]
 
 
 def test_agents_cp_reports_directory_path_error(monkeypatch, tmp_path):

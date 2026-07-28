@@ -231,7 +231,7 @@ def _get_pod_with_token(agent_id: str) -> Agent:
     agents = _get_deployments_client()
     pod = agents.get(resolved_agent_id)
     state = _load_state()
-    local = state.get(resolved_agent_id, {})
+    local = state.get(pod.id, {}) or state.get(resolved_agent_id, {})
     if not pod.jwt_token and local.get("jwt_token"):
         pod.jwt_token = local["jwt_token"]
     if isinstance(pod, OpenClawAgent) and not pod.gateway_token and local.get("gateway_token"):
@@ -745,7 +745,7 @@ def status(
 
 @app.command("start")
 def start(
-    agent_id: str = typer.Argument(..., help="Agent ID (or prefix)"),
+    agent_id: str = typer.Argument(..., help="Agent ID, unique name, handle, hostname, or prefix"),
     env: list[str] = typer.Option(None, "--env", "-e", help="Environment variable override (KEY=VALUE). Repeatable."),
     port: list[str] = typer.Option(None, "--port", help="Expose port as PORT or PORT:noauth. Repeatable."),
     command: str = typer.Option(None, "--command", help="Container args as a shell-style string"),
@@ -769,8 +769,19 @@ def start(
     """Start a previously stopped agent."""
     agent_id = _resolve_agent(agent_id)
     agents = _get_deployments_client()
+    try:
+        existing_pod = agents.get(agent_id)
+        agent_id = existing_pod.id
+    except Exception as e:
+        console.print(f"[red]❌ Failed to get agent: {e}[/red]")
+        raise typer.Exit(1)
     state = _load_state()
     local = state.get(agent_id, {})
+    if not local and getattr(existing_pod, "launch_config", None) is not None:
+        local = {
+            "gateway_token": getattr(existing_pod, "gateway_token", None),
+            "launch_config": existing_pod.launch_config,
+        }
     env_dict = _parse_env_vars(env)
     ports_list = _parse_ports(port)
     command_argv = _parse_argv_option(command, "--command")
@@ -840,7 +851,7 @@ def start(
 
 @app.command("stop")
 def stop(
-    agent_id: str = typer.Argument(..., help="Agent ID (or prefix)"),
+    agent_id: str = typer.Argument(..., help="Agent ID, unique name, handle, hostname, or prefix"),
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
 ):
     """Stop an agent (keeps DB record, destroys pod)."""
@@ -866,18 +877,22 @@ def stop(
 
 @app.command("delete")
 def delete(
-    agent_id: str = typer.Argument(..., help="Agent ID (or prefix)"),
+    agent_id: str = typer.Argument(..., help="Agent ID, unique name, handle, hostname, or prefix"),
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
 ):
     """Delete an agent entirely (pod + record)."""
     agent_id = _resolve_agent(agent_id)
+    agents = _get_deployments_client()
+    try:
+        agent_id = agents.resolve_agent_id(agent_id)
+    except Exception as e:
+        console.print(f"[red]❌ Failed to resolve agent: {e}[/red]")
+        raise typer.Exit(1)
 
     if not force:
         confirm = typer.confirm(f"Permanently delete agent {agent_id[:12]}?")
         if not confirm:
             raise typer.Exit(0)
-
-    agents = _get_deployments_client()
 
     try:
         agents.delete(agent_id)
@@ -891,7 +906,7 @@ def delete(
 
 @app.command("exec")
 def exec_cmd(
-    agent_id: str = typer.Argument(..., help="Agent ID, unique name, or prefix"),
+    agent_id: str = typer.Argument(..., help="Agent ID, unique name, handle, hostname, or prefix"),
     command: str = typer.Argument(..., help="Command to execute"),
     timeout: int = typer.Option(30, "--timeout", "-t", help="Command timeout (seconds)"),
 ):
@@ -960,7 +975,7 @@ def cp(
 
 @app.command("shell")
 def shell(
-    agent_id: str = typer.Argument(..., help="Agent ID (or prefix)"),
+    agent_id: str = typer.Argument(..., help="Agent ID, unique name, handle, hostname, or prefix"),
 ):
     """Open an interactive shell on an agent pod (WebSocket PTY).
 
@@ -1042,7 +1057,7 @@ def shell(
 
 @app.command("logs")
 def logs(
-    agent_id: str = typer.Argument(..., help="Agent ID (or prefix)"),
+    agent_id: str = typer.Argument(..., help="Agent ID, unique name, handle, hostname, or prefix"),
     lines: int = typer.Option(100, "-n", "--lines", help="Number of lines to show"),
     follow: bool = typer.Option(True, "-f/--no-follow", help="Follow log output"),
     ws: bool = typer.Option(False, "--ws", help="Use WebSocket instead of SSE (via backend)"),
@@ -1148,11 +1163,16 @@ def chat(
 
 @app.command("token")
 def token(
-    agent_id: str = typer.Argument(..., help="Agent ID (or prefix)"),
+    agent_id: str = typer.Argument(..., help="Agent ID, unique name, handle, hostname, or prefix"),
 ):
     """Refresh the JWT token for an agent."""
     agent_id = _resolve_agent(agent_id)
     agents = _get_deployments_client()
+    try:
+        agent_id = agents.resolve_agent_id(agent_id)
+    except Exception as e:
+        console.print(f"[red]❌ Failed to resolve agent: {e}[/red]")
+        raise typer.Exit(1)
 
     try:
         result = agents.refresh_token(agent_id)

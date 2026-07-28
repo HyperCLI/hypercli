@@ -19,6 +19,7 @@ def make_deployments(monkeypatch):
                 pod_id="pod-789",
                 pod_name="clear-window-works",
                 name="clear-window-works",
+                handle="coder",
                 state="STOPPED",
             )
         ],
@@ -32,6 +33,7 @@ def make_deployments(monkeypatch):
             pod_id="pod-789",
             pod_name="clear-window-works",
             name="clear-window-works",
+            handle="coder",
             state="STOPPED",
         ),
     )
@@ -44,7 +46,14 @@ def test_resolve_agent_id_accepts_unique_agent_name(monkeypatch):
     assert deployments.resolve_agent_id("clear-window-works") == "11111111-1111-4111-8111-111111111111"
 
 
-def test_get_accepts_unique_agent_name_without_uuid_route(monkeypatch):
+def test_resolve_agent_id_accepts_unique_agent_handle(monkeypatch):
+    deployments = make_deployments(monkeypatch)
+
+    assert deployments.resolve_agent_id("coder") == "11111111-1111-4111-8111-111111111111"
+
+
+@pytest.mark.parametrize("agent_ref", ["clear-window-works", "coder"])
+def test_get_accepts_unique_agent_name_or_handle_without_uuid_route(monkeypatch, agent_ref):
     deployments = make_deployments(monkeypatch)
     get_by_id_calls: list[str] = []
 
@@ -56,12 +65,13 @@ def test_get_accepts_unique_agent_name_without_uuid_route(monkeypatch):
             pod_id="pod-789",
             pod_name="clear-window-works",
             name="clear-window-works",
+            handle="coder",
             state="STOPPED",
         )
 
     monkeypatch.setattr(deployments, "_get_by_id", fake_get_by_id)
 
-    agent = deployments.get("clear-window-works")
+    agent = deployments.get(agent_ref)
 
     assert agent.id == "11111111-1111-4111-8111-111111111111"
     assert get_by_id_calls == ["11111111-1111-4111-8111-111111111111"]

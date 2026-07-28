@@ -2826,7 +2826,7 @@ export class Deployments {
 
     const matches: Agent[] = [];
     for (const agent of await this.list(requestOptions)) {
-      const values = [agent.id, agent.name, agent.podName, agent.hostname];
+      const values = [agent.id, agent.name, agent.handle, agent.podName, agent.hostname];
       if (values.some((value) => String(value || '') === raw)) {
         matches.push(agent);
         continue;
@@ -2978,10 +2978,13 @@ export class Deployments {
   async get(agentIdOrName: string, requestOptions: RequestOverrides = {}): Promise<Agent> {
     const raw = String(agentIdOrName || '').trim();
     if (!raw) throw new Error('agentIdOrName is required');
+    if (!isDirectAgentIdRef(raw)) {
+      return this.resolveAgent(raw, requestOptions);
+    }
     try {
       return await this.getById(raw, requestOptions);
     } catch (error) {
-      if (!(error instanceof APIError) || error.statusCode !== 404 || isUuidRef(raw)) {
+      if (!(error instanceof APIError) || ![404, 422].includes(error.statusCode) || isUuidRef(raw)) {
         throw error;
       }
       return this.resolveAgent(raw, requestOptions);
