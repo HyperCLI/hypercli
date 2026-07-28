@@ -219,7 +219,13 @@ class AgentFiles:
         ]
 
     def read_bytes(self, path: str, source: str = "auto") -> bytes:
-        return self.read_bytes_with_metadata(path, source).get("content", b"")
+        if source not in _GATEWAY_FILE_SOURCES:
+            return self._deployments.file_read_bytes(
+                self._agent,
+                resolve_backend_file_path(path, source),
+                source=to_wire_file_source(source),
+            )
+        return self.read(path, source).encode("utf-8")
 
     def read_bytes_with_metadata(self, path: str, source: str = "auto") -> dict[str, Any]:
         if source not in _GATEWAY_FILE_SOURCES:
