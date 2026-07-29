@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildDeterministicOpenClawBootstrapPack,
   buildOpenClawBootstrapGenerationMessages,
+  buildOpenClawBootstrapResponseFormat,
   createDefaultOpenClawBootstrapInputs,
   openClawBootstrapBackupPath,
   parseGeneratedOpenClawBootstrapPack,
@@ -59,9 +60,45 @@ describe("OpenClaw bootstrap pack", () => {
     expect(messages).toHaveLength(2);
     expect(messages[0].role).toBe("system");
     expect(messages[0].content).toContain("Never emit BOOTSTRAP.md");
+    expect(messages[0].content).toContain("under 1,200 characters");
     expect(messages[1].content).toContain('"agentName":"Cairn"');
     expect(messages[1].content).toContain('"userName":"Morgan"');
     expect(parseGeneratedOpenClawBootstrapPack(JSON.stringify({ files }), inputs)).toEqual(files);
+    expect(buildOpenClawBootstrapResponseFormat(inputs)).toMatchObject({
+      type: "json_schema",
+      json_schema: {
+        name: "openclaw_bootstrap_pack",
+        strict: true,
+        schema: {
+          properties: {
+            files: {
+              minItems: 3,
+              maxItems: 3,
+              items: {
+                properties: {
+                  name: { enum: ["AGENTS.md", "SOUL.md", "USER.md"] },
+                  content: { maxLength: 1_200 },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it("allows MEMORY.md in the response schema only when meaningful memory is requested", () => {
+    const format = buildOpenClawBootstrapResponseFormat({
+      includeMemory: true,
+      memoryNotes: "The deployment window is Tuesdays.",
+    });
+
+    expect(
+      ((format.json_schema.schema.properties as Record<string, any>).files.items.properties.name.enum),
+    ).toEqual(["AGENTS.md", "SOUL.md", "USER.md", "MEMORY.md"]);
+    expect(
+      ((format.json_schema.schema.properties as Record<string, any>).files.maxItems),
+    ).toBe(4);
   });
 
   it("rejects model output with retired files or an unrequested memory file", () => {

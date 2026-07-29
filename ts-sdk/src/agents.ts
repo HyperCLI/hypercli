@@ -186,6 +186,32 @@ export interface AgentProfileImageUploadResult {
   s3_key: string | null;
 }
 
+export interface BootstrapInferenceMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+export interface BootstrapInferenceResponseFormat {
+  type: 'text' | 'json_object' | 'json_schema';
+  json_schema?: {
+    name: string;
+    description?: string;
+    strict?: boolean;
+    schema: Record<string, unknown>;
+  };
+}
+
+export interface BootstrapInferenceResult {
+  model: string;
+  content: string;
+  finish_reason: string | null;
+  usage: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
+}
+
 export interface ListAgentsOptions extends RequestOverrides {
   state?: string | null;
   handle?: string | null;
@@ -2946,6 +2972,21 @@ export class Deployments {
 
   async budget(): Promise<Record<string, any>> {
     return this.agentHttp.get(`${DEPLOYMENTS_API_PREFIX}/budget`);
+  }
+
+  async bootstrapInference(
+    messages: BootstrapInferenceMessage[],
+    responseFormat: BootstrapInferenceResponseFormat = { type: 'json_object' },
+    requestOptions: RequestOverrides = {},
+  ): Promise<BootstrapInferenceResult> {
+    return this.agentHttp.post<BootstrapInferenceResult>(
+      '/bootstrap',
+      {
+        messages,
+        response_format: responseFormat,
+      },
+      requestOptions,
+    );
   }
 
   async metrics(agentIdOrName: string): Promise<Record<string, any>> {

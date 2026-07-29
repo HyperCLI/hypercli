@@ -104,6 +104,48 @@ describe('Agents SDK', () => {
     }, undefined);
   });
 
+  it('sends frontend-owned bootstrap prompts and response schemas to the JWT inference route', async () => {
+    const post = vi.fn().mockResolvedValue({
+      model: 'kimi-k2.6',
+      content: '{"files":[]}',
+      finish_reason: 'stop',
+      usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+    });
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'browser-jwt',
+      'https://api.test.hypercli.com/agents',
+    );
+    const responseFormat = {
+      type: 'json_schema' as const,
+      json_schema: {
+        name: 'openclaw_bootstrap_pack',
+        strict: true,
+        schema: {
+          type: 'object',
+          properties: { files: { type: 'array' } },
+        },
+      },
+    };
+
+    const result = await deployments.bootstrapInference(
+      [{ role: 'user', content: 'Generate the pack.' }],
+      responseFormat,
+      { timeout: 100_000, retries: 0 },
+    );
+
+    expect(post).toHaveBeenCalledWith(
+      '/bootstrap',
+      {
+        messages: [{ role: 'user', content: 'Generate the pack.' }],
+        response_format: responseFormat,
+      },
+      { timeout: 100_000, retries: 0 },
+    );
+    expect(result.model).toBe('kimi-k2.6');
+    expect(result.usage.total_tokens).toBe(30);
+  });
+
   it('keeps request overrides on deployments list', async () => {
     const http = {
       get: vi.fn().mockResolvedValue({ items: [] }),

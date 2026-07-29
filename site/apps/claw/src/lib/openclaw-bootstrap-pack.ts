@@ -43,11 +43,21 @@ export interface OpenClawBootstrapGenerationMessage {
   content: string;
 }
 
+export interface OpenClawBootstrapResponseFormat {
+  type: "json_schema";
+  json_schema: {
+    name: "openclaw_bootstrap_pack";
+    strict: true;
+    schema: Record<string, unknown>;
+  };
+}
+
 const ALLOWED_FILE_NAMES = new Set<OpenClawBootstrapFileName>([
   ...OPENCLAW_BOOTSTRAP_REQUIRED_FILES,
   ...OPENCLAW_BOOTSTRAP_OPTIONAL_FILES,
 ]);
 const MAX_FILE_CHARS = 20_000;
+export const OPENCLAW_GENERATED_FILE_MAX_CHARS = 1_200;
 
 function clean(value: unknown, maxLength = 2_000): string {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
@@ -225,7 +235,8 @@ export function buildOpenClawBootstrapGenerationMessages(
         "AGENTS.md covers mission, operating principles, escalation, trusted sources, tool notes, and memory hygiene.",
         "SOUL.md covers purpose, voice, and boundaries. USER.md contains only supplied user context and preferences.",
         "MEMORY.md, when requested, is concise curated durable context, never a transcript.",
-        "Keep every file practical Markdown under 20,000 characters.",
+        `Keep every file concise Markdown under ${OPENCLAW_GENERATED_FILE_MAX_CHARS.toLocaleString("en-US")} characters.`,
+        "Use short sections and bullets, preserve supplied facts, and do not explain the response.",
       ].join("\n"),
     },
     {
@@ -233,6 +244,49 @@ export function buildOpenClawBootstrapGenerationMessages(
       content: `Create the bootstrap pack from this structured data:\n${JSON.stringify(inputs)}`,
     },
   ];
+}
+
+export function buildOpenClawBootstrapResponseFormat(
+  rawInputs: Pick<OpenClawBootstrapInputs, "includeMemory" | "memoryNotes">,
+): OpenClawBootstrapResponseFormat {
+  const includeMemory = rawInputs.includeMemory && Boolean(rawInputs.memoryNotes.trim());
+  const fileNames: OpenClawBootstrapFileName[] = includeMemory
+    ? [...OPENCLAW_BOOTSTRAP_REQUIRED_FILES, "MEMORY.md"]
+    : [...OPENCLAW_BOOTSTRAP_REQUIRED_FILES];
+  return {
+    type: "json_schema",
+    json_schema: {
+      name: "openclaw_bootstrap_pack",
+      strict: true,
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["files"],
+        properties: {
+          files: {
+            type: "array",
+            minItems: fileNames.length,
+            maxItems: fileNames.length,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["name", "content"],
+              properties: {
+                name: {
+                  type: "string",
+                  enum: fileNames,
+                },
+                content: {
+                  type: "string",
+                  maxLength: OPENCLAW_GENERATED_FILE_MAX_CHARS,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
 }
 
 function parseGeneratedJson(raw: string): unknown {

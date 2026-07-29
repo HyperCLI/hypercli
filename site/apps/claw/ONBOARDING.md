@@ -36,9 +36,9 @@ Structured fields are deliberately kept separate from generated Markdown. Regene
 
 ## Model-assisted generation
 
-When a signed-in app token is available, the workspace step calls `POST /agents/bootstrap`. The browser sends an OpenAI-style `messages` array plus `{ "type": "json_object" }`; prompt construction remains in `src/lib/openclaw-bootstrap-pack.ts`, so onboarding copy can evolve with the frontend.
+When a signed-in app token is available, the workspace step calls `POST /agents/bootstrap`. The browser sends an OpenAI-style `messages` array plus a strict `json_schema` response format; prompt and schema construction remain in `src/lib/openclaw-bootstrap-pack.ts`, so onboarding copy can evolve with the frontend. The schema requests concise complete files rather than relying on an output-token cutoff.
 
-The endpoint accepts signed-in browser JWTs only, fixes the model to `kimi-k2.6`, and calls LiteLLM through the OpenAI Python client. Moonshot-compatible request settings are server-owned: temperature is `1`, and no output-token limit is sent. Dev and prod require separate `bootstrap_litellm_api_key` Pulumi secrets. The backend fails closed when the dedicated key is absent and never exposes it to the browser.
+The endpoint accepts signed-in browser JWTs only, fixes the model to `kimi-k2.6`, and calls LiteLLM through the OpenAI Python client. Moonshot-compatible request settings are server-owned: temperature is `1`, and neither `max_tokens` nor `max_completion_tokens` is sent. It makes one bounded attempt so a slow model response cannot turn into a second retry at the public gateway timeout. Dev and prod require separate `bootstrap_litellm_api_key` Pulumi secrets. The backend fails closed when the dedicated key is absent and never exposes it to the browser.
 
 The browser parses and validates the returned JSON with the same canonical filename, required-file, uniqueness, memory-selection, content, and size checks used by the deterministic path. If the endpoint or model is unavailable or its result is invalid, the existing deterministic pack remains in the editor and launch can continue.
 
