@@ -400,9 +400,14 @@ function finiteNumber(value: unknown, fallback = 0): number {
   return Number.isFinite(numeric) ? numeric : fallback;
 }
 
-function dailyTokenUsageTotal(usage: { history?: Array<{ totalTokens?: unknown }> } | null | undefined): number | null {
-  if (!Array.isArray(usage?.history)) return null;
-  return usage.history.reduce((total, entry) => total + finiteNumber(entry.totalTokens), 0);
+function agentTokenUsageMap(
+  usage: { agents?: Array<{ agentId?: unknown; totalTokens?: unknown }> } | null | undefined,
+): Record<string, number> | null {
+  if (!Array.isArray(usage?.agents)) return null;
+  return Object.fromEntries(usage.agents.flatMap((entry) => {
+    const agentId = typeof entry.agentId === "string" ? entry.agentId.trim() : "";
+    return agentId ? [[agentId, finiteNumber(entry.totalTokens)]] : [];
+  }));
 }
 
 function normalizeBundle(value: unknown): SlotBundle {
@@ -1075,7 +1080,7 @@ function AgentsPageContent() {
   const [subscriptionSummary, setSubscriptionSummary] = useState<HyperAgentSubscriptionSummary | null>(null);
   const [billingDataPrincipalId, setBillingDataPrincipalId] = useState<string | null>(null);
   const [billingDataError, setBillingDataError] = useState<string | null>(null);
-  const [tokenUsage, setTokenUsage] = useState<number | null>(null);
+  const [tokenUsageByAgent, setTokenUsageByAgent] = useState<Record<string, number> | null>(null);
   const [upgradeCatalogOpen, setUpgradeCatalogOpen] = useState(false);
   const [upgradeCatalogError, setUpgradeCatalogError] = useState<string | null>(null);
   const [upgradeCheckoutPlan, setUpgradeCheckoutPlan] = useState<UpgradeCheckoutPlan | null>(null);
@@ -1188,6 +1193,9 @@ function AgentsPageContent() {
 
   // Selection and tabs
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const tokenUsage = selectedAgentId && tokenUsageByAgent
+    ? tokenUsageByAgent[selectedAgentId] ?? 0
+    : null;
   const [selectedSessionKeysByAgent, setSelectedSessionKeysByAgent] = useState<Record<string, string>>(() => (
     requestedAgentId
       ? { [requestedAgentId]: requestedSessionKey ?? createOpenClawDashboardSessionKey() }
@@ -1337,7 +1345,7 @@ function AgentsPageContent() {
     setSubscriptionSummary(null);
     setBillingDataPrincipalId(null);
     setBillingDataError(null);
-    setTokenUsage(null);
+    setTokenUsageByAgent(null);
     setDeployments(null);
     setAgentsLoadError(null);
     setSelectedAgentId(null);
@@ -1502,9 +1510,9 @@ function AgentsPageContent() {
     tokenUsageRefreshInFlightRef.current = true;
     try {
       const hyperAgent = createHyperAgentClient(await getToken());
-      const dailyUsage = await hyperAgent.usageHistory(1);
+      const usage = await hyperAgent.agentUsage(1);
       if (generation === agentDataGenerationRef.current) {
-        setTokenUsage(dailyTokenUsageTotal(dailyUsage));
+        setTokenUsageByAgent(agentTokenUsageMap(usage));
       }
     } catch {
       // Keep the last displayed value on transient usage refresh failures.
@@ -1544,14 +1552,14 @@ function AgentsPageContent() {
         if (!isCurrentRequest()) return null;
         const hyperAgent = createHyperAgentClient(token);
         markDashboardPerformance("enrichment-start");
-        const [catalogData, currentPlan, summaryResult, dailyUsage, typeCatalogData] = await Promise.all([
+        const [catalogData, currentPlan, summaryResult, agentUsage, typeCatalogData] = await Promise.all([
           optionalDashboardData(hyperAgent.plans(), [] as HyperAgentPlan[]),
           optionalDashboardData(hyperAgent.currentPlan(), null),
           hyperAgent.subscriptionSummary().then(
             (value) => ({ status: "fulfilled" as const, value }),
             () => ({ status: "rejected" as const }),
           ),
-          optionalDashboardData(hyperAgent.usageHistory(1), null),
+          optionalDashboardData(hyperAgent.agentUsage(1), null),
           optionalDashboardData(hyperAgent.agentTypes(), null),
         ]);
         if (!isCurrentRequest()) return null;
@@ -1570,7 +1578,7 @@ function AgentsPageContent() {
         setSubscriptionSummary(summary);
         setBillingDataPrincipalId(billingReady ? principalId : null);
         setBillingDataError(billingReady ? null : "Billing data could not be loaded. Retry before checkout.");
-        setTokenUsage(dailyTokenUsageTotal(dailyUsage));
+        setTokenUsageByAgent(agentTokenUsageMap(agentUsage));
         markDashboardPerformance("enrichment-ready");
         measureDashboardPerformance("enrichment", "enrichment-start", "enrichment-ready");
         return { subscriptionSummary: summary, budget: nextBudget, billingReady };
@@ -1847,7 +1855,7 @@ function AgentsPageContent() {
       setSubscriptionSummary(null);
       setBillingDataPrincipalId(null);
       setBillingDataError(null);
-      setTokenUsage(null);
+      setTokenUsageByAgent(null);
       deploymentsRef.current = null;
       setDeployments(null);
       setAgentsLoadError(null);
@@ -4725,12 +4733,36 @@ function AgentsPageContent() {
         if (generation !== agentDataGenerationRef.current) throw new Error("Account changed during upload.");
         if (deletingAgentIdsRef.current.has(agentId)) throw new Error("Agent is being deleted.");
         const client = createAgentClient(token);
-        const upload = await client.uploadProfileImage(agentId, file, file.type || "image/png");
+        const external = selectedAgent?.id === agentId && selectedAgent.managed === false;
+        const upload = external
+          ? await client.uploadExternalAgentProfileImage(agentId, file, file.type || "image/png")
+          : await client.uploadProfileImage(agentId, file, file.type || "image/png");
+        if (!upload.avatar_url) throw new Error("Avatar upload returned no URL.");
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return upload.avatar_url;
-        const updatedAgent = await client.get(agentId);
+        const updatedAgent = external
+          ? await client.getExternalAgent(agentId)
+          : await client.get(agentId);
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return upload.avatar_url;
         applyAgentMutationResult(updatedAgent);
         return upload.avatar_url;
+      });
+    },
+    onDeleteAgentAvatar: async (agentId) => {
+      const generation = agentDataGenerationRef.current;
+      await runAgentMutation(agentId, async () => {
+        if (deletingAgentIdsRef.current.has(agentId)) throw new Error("Agent is being deleted.");
+        const token = await getToken();
+        if (generation !== agentDataGenerationRef.current) throw new Error("Account changed during avatar removal.");
+        const client = createAgentClient(token);
+        const external = selectedAgent?.id === agentId && selectedAgent.managed === false;
+        if (external) await client.deleteExternalAgentProfileImage(agentId);
+        else await client.deleteProfileImage(agentId);
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+        const updatedAgent = external
+          ? await client.getExternalAgent(agentId)
+          : await client.get(agentId);
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+        applyAgentMutationResult(updatedAgent);
       });
     },
     onUpdateAgentLaunchConfig: async (agentId, launchConfig) => {

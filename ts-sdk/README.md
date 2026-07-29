@@ -118,6 +118,16 @@ const agentWs = await client.agents.shellConnect(agentId);
 agentWs.close();
 ```
 
+### Account Avatar and Per-Agent Usage
+
+```typescript
+const currentAvatar = await client.user.getProfileImage();
+const updatedAvatar = await client.user.uploadProfileImage(imageBlob);
+await client.user.deleteProfileImage();
+
+const dailyByAgent = await client.agent.agentUsage(1);
+```
+
 ### OpenClaw Agents
 
 OpenClaw uses the generic deployment launch surface. `registryUrl`, `registryAuth`, `syncRoot`, and `syncEnabled` are generic deployment options; the OpenClaw helpers only add defaults such as routes, image, and `syncRoot=/home/node`.

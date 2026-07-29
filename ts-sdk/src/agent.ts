@@ -236,6 +236,26 @@ export interface HyperAgentKeyUsage {
   days: number;
 }
 
+export interface HyperAgentUsageMetrics {
+  totalTokens: number;
+  promptTokens: number;
+  completionTokens: number;
+  requests: number;
+}
+
+export interface HyperAgentAgentUsageEntry extends HyperAgentUsageMetrics {
+  agentId: string;
+  name: string;
+  managed: boolean;
+  avatarUrl: string | null;
+}
+
+export interface HyperAgentAgentUsage {
+  agents: HyperAgentAgentUsageEntry[];
+  unattributed: HyperAgentUsageMetrics;
+  days: number;
+}
+
 export interface HyperAgentTypePreset {
   id: string;
   name: string;
@@ -703,6 +723,29 @@ function hyperAgentKeyUsageFromDict(data: any): HyperAgentKeyUsage {
   };
 }
 
+function hyperAgentUsageMetricsFromDict(data: any): HyperAgentUsageMetrics {
+  return {
+    totalTokens: Number(data?.total_tokens || 0),
+    promptTokens: Number(data?.prompt_tokens || 0),
+    completionTokens: Number(data?.completion_tokens || 0),
+    requests: Number(data?.requests || 0),
+  };
+}
+
+function hyperAgentAgentUsageFromDict(data: any): HyperAgentAgentUsage {
+  return {
+    agents: (data?.agents || []).map((entry: any) => ({
+      agentId: String(entry?.agent_id || ''),
+      name: String(entry?.name || ''),
+      managed: Boolean(entry?.managed),
+      avatarUrl: entry?.avatar_url || null,
+      ...hyperAgentUsageMetricsFromDict(entry),
+    })),
+    unattributed: hyperAgentUsageMetricsFromDict(data?.unattributed),
+    days: Number(data?.days || 0),
+  };
+}
+
 function hyperAgentTypeCatalogFromDict(data: any): HyperAgentTypeCatalog {
   return {
     types: (data?.types || []).map((item: any) => ({
@@ -1141,6 +1184,10 @@ export class HyperAgent {
 
   async keyUsage(days: number = 7): Promise<HyperAgentKeyUsage> {
     return hyperAgentKeyUsageFromDict(await this.controlGet('/usage/keys', { days }));
+  }
+
+  async agentUsage(days: number = 1): Promise<HyperAgentAgentUsage> {
+    return hyperAgentAgentUsageFromDict(await this.controlGet('/usage/agents', { days }));
   }
 
   async agentTypes(): Promise<HyperAgentTypeCatalog> {

@@ -14,6 +14,7 @@ export interface RequestOptions {
   timeout?: number;
   signal?: AbortSignal;
   retryStatuses?: readonly number[];
+  rawBody?: boolean;
 }
 
 export type RequestOverrides = Pick<RequestOptions, 'retries' | 'backoff' | 'timeout' | 'signal' | 'retryStatuses'>;
@@ -49,6 +50,7 @@ async function requestWithRetryHandled<T>(
     timeout = 30000,
     signal,
     retryStatuses = [],
+    rawBody = false,
   } = options;
 
   // Build URL with query params
@@ -89,7 +91,7 @@ async function requestWithRetryHandled<T>(
       const response = await fetch(finalUrl, {
         method,
         headers,
-        body: body ? JSON.stringify(body) : undefined,
+        body: body === undefined ? undefined : rawBody ? body : JSON.stringify(body),
         signal: controller.signal,
       });
       responseReceived = true;
@@ -265,6 +267,29 @@ export class HTTPClient {
       signal: options.signal,
       retryStatuses: options.retryStatuses,
     }, handleBytesResponse);
+  }
+
+  async postRaw<T = any>(
+    path: string,
+    body: any,
+    contentType: string,
+    options: RequestOverrides = {},
+  ): Promise<T> {
+    return requestWithRetryHandled({
+      method: 'POST',
+      url: `${this.baseUrl}${path}`,
+      headers: {
+        'Authorization': `Bearer ${this.apiKey}`,
+        'Content-Type': contentType,
+      },
+      body,
+      rawBody: true,
+      timeout: options.timeout ?? this.timeout,
+      retries: options.retries,
+      backoff: options.backoff,
+      signal: options.signal,
+      retryStatuses: options.retryStatuses,
+    }, handleResponse<T>);
   }
 
   async patch<T = any>(path: string, body?: any): Promise<T> {

@@ -182,8 +182,8 @@ export interface AgentRelayKey {
 
 export interface AgentProfileImageUploadResult {
   id: string;
-  avatar_url: string;
-  s3_key: string;
+  avatar_url: string | null;
+  s3_key: string | null;
 }
 
 export interface ListAgentsOptions extends RequestOverrides {
@@ -1376,7 +1376,9 @@ export async function startSlackOAuth(options: SlackOAuthStartOptions): Promise<
     try {
       const payload = await response.json() as { detail?: unknown };
       if (typeof payload.detail === 'string' && payload.detail) detail = payload.detail;
-    } catch {}
+    } catch {
+      // Keep the HTTP status text when the error body is not JSON.
+    }
     throw new APIError(response.status, detail);
   }
   const payload = await response.json() as { authorize_url?: unknown; expires_at?: unknown };
@@ -1401,7 +1403,9 @@ export async function getSlackInstallStatus(options: SlackInstallStatusOptions):
     try {
       const payload = await response.json() as { detail?: unknown };
       if (typeof payload.detail === 'string' && payload.detail) detail = payload.detail;
-    } catch {}
+    } catch {
+      // Keep the HTTP status text when the error body is not JSON.
+    }
     throw new APIError(response.status, detail);
   }
   const payload = await response.json() as Record<string, unknown>;
@@ -1441,7 +1445,9 @@ export async function listSlackDirectoryConversations(
     try {
       const payload = await response.json() as { detail?: unknown };
       if (typeof payload.detail === 'string' && payload.detail) detail = payload.detail;
-    } catch {}
+    } catch {
+      // Keep the HTTP status text when the error body is not JSON.
+    }
     throw new APIError(response.status, detail);
   }
   const payload = await response.json() as Record<string, unknown>;
@@ -1474,7 +1480,9 @@ export async function listSlackDirectoryUsers(options: SlackDirectoryOptions): P
     try {
       const payload = await response.json() as { detail?: unknown };
       if (typeof payload.detail === 'string' && payload.detail) detail = payload.detail;
-    } catch {}
+    } catch {
+      // Keep the HTTP status text when the error body is not JSON.
+    }
     throw new APIError(response.status, detail);
   }
   const payload = await response.json() as Record<string, unknown>;
@@ -1509,7 +1517,9 @@ export async function attachSlackRelayAgent(options: AttachSlackRelayAgentOption
     try {
       const payload = await response.json() as { detail?: unknown };
       if (typeof payload.detail === 'string' && payload.detail) detail = payload.detail;
-    } catch {}
+    } catch {
+      // Keep the HTTP status text when the error body is not JSON.
+    }
     throw new APIError(response.status, detail);
   }
   const payload = await response.json() as Record<string, unknown>;
@@ -3016,6 +3026,40 @@ export class Deployments {
     return this.hydrateAgent(data);
   }
 
+  async getExternalAgent(externalAgentId: string): Promise<Agent> {
+    const data = await this.agentHttp.get<AgentHydrationData>(`/external-agents/${externalAgentId}`);
+    return this.hydrateAgent(data);
+  }
+
+  async uploadExternalAgentProfileImage(
+    externalAgentId: string,
+    content: Blob | ArrayBuffer | ArrayBufferView,
+    contentType?: string,
+  ): Promise<AgentProfileImageUploadResult> {
+    const headers = new Headers();
+    let body: any;
+    if (content instanceof Blob) {
+      body = content;
+      headers.set('Content-Type', contentType || content.type || 'image/png');
+    } else {
+      body = content;
+      headers.set('Content-Type', contentType || 'image/png');
+    }
+    const response = await this.fetchRaw(`/external-agents/${externalAgentId}/profile-image`, {
+      method: 'POST',
+      headers,
+      body,
+    });
+    return response.json() as Promise<AgentProfileImageUploadResult>;
+  }
+
+  async deleteExternalAgentProfileImage(externalAgentId: string): Promise<AgentProfileImageUploadResult> {
+    const response = await this.fetchRaw(`/external-agents/${externalAgentId}/profile-image`, {
+      method: 'DELETE',
+    });
+    return response.json() as Promise<AgentProfileImageUploadResult>;
+  }
+
   async rotateExternalAgentKey(agentIdOrName: string): Promise<Record<string, any>> {
     const agentId = await this.resolveAgentId(agentIdOrName);
     return this.agentHttp.post(`/external-agents/${agentId}/keys/rotate`);
@@ -3141,6 +3185,14 @@ export class Deployments {
       method: 'POST',
       headers,
       body,
+    });
+    return response.json() as Promise<AgentProfileImageUploadResult>;
+  }
+
+  async deleteProfileImage(agentId: string): Promise<AgentProfileImageUploadResult> {
+    const resolvedAgentId = await this.resolveAgentId(agentId);
+    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${resolvedAgentId}/profile-image`, {
+      method: 'DELETE',
     });
     return response.json() as Promise<AgentProfileImageUploadResult>;
   }

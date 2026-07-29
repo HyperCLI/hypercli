@@ -87,6 +87,9 @@ vi.mock("@hypercli/shared-ui", () => ({
 const sdkMocks = vi.hoisted(() => ({
   userGet: vi.fn(),
   userUpdate: vi.fn(),
+  userGetProfileImage: vi.fn(),
+  userUploadProfileImage: vi.fn(),
+  userDeleteProfileImage: vi.fn(),
 }));
 
 const agentClientMocks = vi.hoisted(() => ({
@@ -99,6 +102,9 @@ vi.mock("@hypercli.com/sdk/browser", () => ({
       user: {
         get: sdkMocks.userGet,
         update: sdkMocks.userUpdate,
+        getProfileImage: sdkMocks.userGetProfileImage,
+        uploadProfileImage: sdkMocks.userUploadProfileImage,
+        deleteProfileImage: sdkMocks.userDeleteProfileImage,
       },
     };
   }),
@@ -127,6 +133,21 @@ beforeEach(() => {
     name: "John Smith",
     isActive: true,
     createdAt: "2026-05-05T00:00:00Z",
+  });
+  sdkMocks.userGetProfileImage.mockResolvedValue({
+    id: "user-1234567890abcdef",
+    avatarUrl: null,
+    s3Key: null,
+  });
+  sdkMocks.userUploadProfileImage.mockResolvedValue({
+    id: "user-1234567890abcdef",
+    avatarUrl: "https://cdn.example.test/account.png",
+    s3Key: "prod/user-1234567890abcdef/user-1234567890abcdef.png",
+  });
+  sdkMocks.userDeleteProfileImage.mockResolvedValue({
+    id: "user-1234567890abcdef",
+    avatarUrl: null,
+    s3Key: null,
   });
   agentClientMocks.createAgentClient.mockReturnValue({ fileWriteBytes: vi.fn(async () => undefined) });
 });
@@ -1201,6 +1222,73 @@ describe("AgentSettingsPanel", () => {
       expect(sdkMocks.userUpdate).toHaveBeenCalledWith({ name: "Jane Smith" });
     });
     expect(screen.getByText("Profile updated.")).toBeInTheDocument();
+  });
+
+  it("loads and uploads the account profile avatar through the SDK", async () => {
+    const getToken = vi.fn(async () => "token");
+    sdkMocks.userGetProfileImage.mockResolvedValueOnce({
+      id: "user-1234567890abcdef",
+      avatarUrl: "https://cdn.example.test/current.png",
+      s3Key: "prod/user-1234567890abcdef/user-1234567890abcdef.png",
+    });
+    const { container } = renderAgentSettingsPanel({ getToken });
+
+    await waitFor(() => expect(sdkMocks.userGetProfileImage).toHaveBeenCalledOnce());
+    const input = container.querySelector<HTMLInputElement>('input[type="file"][accept*="image/webp"]');
+    expect(input).not.toBeNull();
+    const file = new File(["avatar"], "avatar.webp", { type: "image/webp" });
+    fireEvent.change(input!, { target: { files: [file] } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(sdkMocks.userUploadProfileImage).toHaveBeenCalledWith(file));
+    expect(screen.getByText("Profile updated.")).toBeInTheDocument();
+  });
+
+  it("removes the persisted account profile avatar through the SDK", async () => {
+    const getToken = vi.fn(async () => "token");
+    sdkMocks.userGetProfileImage.mockResolvedValueOnce({
+      id: "user-1234567890abcdef",
+      avatarUrl: "https://cdn.example.test/current.png",
+      s3Key: "prod/user-1234567890abcdef/user-1234567890abcdef.png",
+    });
+    renderAgentSettingsPanel({ getToken });
+
+    const remove = await screen.findByRole("button", { name: "Remove" });
+    fireEvent.click(remove);
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(sdkMocks.userDeleteProfileImage).toHaveBeenCalledOnce());
+    expect(screen.getByText("Profile updated.")).toBeInTheDocument();
+  });
+
+  it("uploads a managed agent avatar through the page callback", async () => {
+    const onUploadAgentAvatar = vi.fn(async () => "https://cdn.example.test/agent.png");
+    const { container } = renderAgentSettingsPanel({ onUploadAgentAvatar });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    const input = container.querySelector<HTMLInputElement>('input[type="file"][accept*="image/webp"]');
+    expect(input).not.toBeNull();
+    const file = new File(["avatar"], "agent.webp", { type: "image/webp" });
+    fireEvent.change(input!, { target: { files: [file] } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(onUploadAgentAvatar).toHaveBeenCalledWith("agent-1", file));
+    expect(screen.getByText("Agent settings updated.")).toBeInTheDocument();
+  });
+
+  it("removes a persisted managed agent avatar through the page callback", async () => {
+    const onDeleteAgentAvatar = vi.fn(async () => undefined);
+    renderAgentSettingsPanel({
+      agent: { ...agent, avatarUrl: "https://cdn.example.test/agent.png" },
+      onDeleteAgentAvatar,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(onDeleteAgentAvatar).toHaveBeenCalledWith("agent-1"));
+    expect(screen.getByText("Agent settings updated.")).toBeInTheDocument();
   });
 
   it("saves the managed agent name independently from its handle-backed display name", async () => {

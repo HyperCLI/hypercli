@@ -475,6 +475,7 @@ interface AgentSettingsPanelProps {
   onUpdateAgentProfile?: (agentId: string, profile: { name?: string; handle?: string | null }) => Promise<void>;
   onUpdateExternalAgentProfile?: (agentId: string, profile: { name?: string; displayName?: string | null; handle?: string | null }) => Promise<void>;
   onUploadAgentAvatar?: (agentId: string, file: File) => Promise<string>;
+  onDeleteAgentAvatar?: (agentId: string) => Promise<void>;
   onUpdateAgentLaunchConfig?: (agentId: string, launchConfig: Record<string, unknown>) => Promise<void>;
   onSaveOpenClawConfig?: (patch: Record<string, unknown>) => Promise<void>;
   showFileSourceTabs?: boolean;
@@ -986,7 +987,7 @@ function AgentGeneralSettingsContent({
                 <input
                   ref={avatarInputRef}
                   type="file"
-                  accept="image/png,image/jpeg"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
                   onChange={onAvatarSelect}
                   disabled={!avatarUpdatesEnabled}
                   className="hidden"
@@ -1250,9 +1251,9 @@ function AgentSectionSettingsContent({
                   className="hidden"
                 />
                 {agentAvatarPreview ? (
-                  <TooltipHint label={agentAvatarUploadPending ? "Cancel avatar replacement" : "Select a new avatar to replace the current image."} disabled={!agentAvatarUpdatesEnabled || !agentAvatarUploadPending}>
-                    <button type="button" onClick={onAgentAvatarRemove} disabled={!agentAvatarUpdatesEnabled || !agentAvatarUploadPending} className={`mt-3 ${SETTINGS_DANGER_BUTTON_CLASS}`}>
-                      Cancel
+                  <TooltipHint label={agentAvatarUploadPending ? "Cancel avatar replacement" : "Remove agent avatar"} disabled={!agentAvatarUpdatesEnabled}>
+                    <button type="button" onClick={onAgentAvatarRemove} disabled={!agentAvatarUpdatesEnabled} className={`mt-3 ${SETTINGS_DANGER_BUTTON_CLASS}`}>
+                      {agentAvatarUploadPending ? "Cancel" : "Remove"}
                     </button>
                   </TooltipHint>
                 ) : (
@@ -1647,6 +1648,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     onUpdateAgentProfile,
     onUpdateExternalAgentProfile,
     onUploadAgentAvatar,
+    onDeleteAgentAvatar,
     onUpdateAgentLaunchConfig,
     onSaveOpenClawConfig,
     showFileSourceTabs = false,
@@ -1664,6 +1666,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const [loadedProfileUser, setLoadedProfileUser] = React.useState<{ authUserId: string | null; userId: string } | null>(null);
   const [savedProfileAvatar, setSavedProfileAvatar] = React.useState<string | null>(() => profileAvatarFromUser(user));
   const [profileAvatar, setProfileAvatar] = React.useState<string | null>(() => profileAvatarFromUser(user));
+  const [profileAvatarFile, setProfileAvatarFile] = React.useState<File | null>(null);
   const [profileSaving, setProfileSaving] = React.useState(false);
   const [profileError, setProfileError] = React.useState<string | null>(null);
   const [profileSuccess, setProfileSuccess] = React.useState<string | null>(null);
@@ -1713,6 +1716,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     setProfileName(nextName);
     setSavedProfileAvatar(nextAvatar);
     setProfileAvatar(nextAvatar);
+    setProfileAvatarFile(null);
     setProfileError(null);
     setProfileSuccess(null);
   }, [user]);
@@ -1726,12 +1730,19 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
       try {
         const token = await getToken();
         const client = new BrowserHyperCLI({ apiUrl: AUTH_BASE_URL, token });
-        const profile = await client.user.get();
+        const [profile, profileImage] = await Promise.all([
+          client.user.get(),
+          client.user.getProfileImage().catch(() => null),
+        ]);
         if (!active) return;
         const nextName = profile.name ?? profileNameFromUser(user);
+        const nextAvatar = profileImage?.avatarUrl ?? profileAvatarFromUser(user);
         setLoadedProfileUser({ authUserId: user.id ?? null, userId: profile.userId });
         setSavedProfileName(nextName);
         setProfileName(nextName);
+        setSavedProfileAvatar(nextAvatar);
+        setProfileAvatar(nextAvatar);
+        setProfileAvatarFile(null);
       } catch (error) {
         if (!active) return;
         setProfileError(error instanceof Error ? error.message : "Failed to load profile.");
@@ -1812,14 +1823,17 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     [modelDraft, openclawConfig, openclawModels],
   );
 
-  const profileChanged = profileName !== savedProfileName;
+  const profileNameChanged = profileName !== savedProfileName;
+  const profileAvatarChanged = Boolean(profileAvatarFile) || profileAvatar !== savedProfileAvatar;
+  const profileChanged = profileNameChanged || profileAvatarChanged;
   const externalAgent = agent?.managed === false;
   const normalizedSavedAgentHandle = normalizeAgentHandle(savedAgentHandle);
   const normalizedAgentHandleDraft = normalizeAgentHandle(agentHandleDraft);
+  const agentAvatarChanged = Boolean(agentAvatarFile) || agentAvatarDraft !== savedAgentAvatar;
   const agentProfileChanged = agentNameDraft !== savedAgentName
     || agentDisplayNameDraft !== savedAgentDisplayName
     || normalizedAgentHandleDraft !== normalizedSavedAgentHandle
-    || Boolean(agentAvatarFile)
+    || agentAvatarChanged
     || archiveDraft !== savedArchiveDraft;
   const desktopChanged = desktopEnabledDraft !== savedDesktopEnabled;
   const workspacesSyncChanged = !workspacesSyncSettingsEqual(workspacesSyncDraft, savedWorkspacesSyncDraft);
@@ -1840,6 +1854,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const discardProfileChanges = React.useCallback(() => {
     setProfileName(savedProfileName);
     setProfileAvatar(savedProfileAvatar);
+    setProfileAvatarFile(null);
     setAgentNameDraft(savedAgentName);
     setAgentDisplayNameDraft(savedAgentDisplayName);
     setAgentHandleDraft(savedAgentHandle);
@@ -1923,6 +1938,10 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
       setAgentSettingsError("Agent avatar uploads are unavailable.");
       return;
     }
+    if (agentAvatarChanged && !agentAvatarFile && !agentAvatarDraft && !onDeleteAgentAvatar) {
+      setAgentSettingsError("Agent avatar removal is unavailable.");
+      return;
+    }
 
     if ((agentLaunchChanged || memoryIndexChanged) && !onUpdateAgentLaunchConfig) {
       setAgentSettingsError("Runtime launch updates are unavailable.");
@@ -1961,10 +1980,22 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         savingSection = "profile";
         const token = await getToken();
         const client = new BrowserHyperCLI({ apiUrl: AUTH_BASE_URL, token });
-        const updated = await client.user.update({ name: profileName.trim() });
-        const nextName = updated.name ?? profileName.trim();
-        setSavedProfileName(nextName);
-        setProfileName(nextName);
+        if (profileNameChanged) {
+          const updated = await client.user.update({ name: profileName.trim() });
+          const nextName = updated.name ?? profileName.trim();
+          setSavedProfileName(nextName);
+          setProfileName(nextName);
+        }
+        if (profileAvatarFile) {
+          const uploaded = await client.user.uploadProfileImage(profileAvatarFile);
+          setSavedProfileAvatar(uploaded.avatarUrl);
+          setProfileAvatar(uploaded.avatarUrl);
+          setProfileAvatarFile(null);
+        } else if (profileAvatarChanged && !profileAvatar) {
+          await client.user.deleteProfileImage();
+          setSavedProfileAvatar(null);
+          setProfileAvatar(null);
+        }
         setProfileSuccess("Profile updated.");
       }
 
@@ -2016,6 +2047,12 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         setSavedAgentAvatar(avatarUrl);
         setAgentAvatarFile(null);
         setAgentSettingsSuccess("Agent settings updated.");
+      } else if (agentAvatarChanged && !agentAvatarDraft && onDeleteAgentAvatar) {
+        savingSection = "agent";
+        await onDeleteAgentAvatar(agent.id);
+        setSavedAgentAvatar(null);
+        setAgentAvatarDraft(null);
+        setAgentSettingsSuccess("Agent settings updated.");
       }
 
       if (agentImageChanged && configuredChannelIds.length > 0 && onSaveOpenClawConfig) {
@@ -2056,7 +2093,6 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         setAgentSettingsSuccess("Agent settings updated.");
       }
 
-      setSavedProfileAvatar(profileAvatar);
       if (!agentAvatarFile) setSavedAgentAvatar(agentAvatarDraft);
       setSavedArchiveDraft(archiveDraft);
     } catch (error) {
@@ -2074,6 +2110,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     additionalEnvDraft,
     agentLaunchChanged,
     agentAvatarDraft,
+    agentAvatarChanged,
     agentAvatarFile,
     agentDisplayNameDraft,
     agentImageDraft,
@@ -2096,15 +2133,20 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     onUpdateAgentLaunchConfig,
     onUpdateAgentProfile,
     onUploadAgentAvatar,
+    onDeleteAgentAvatar,
     onSaveOpenClawConfig,
     profileAvatar,
+    profileAvatarChanged,
+    profileAvatarFile,
     profileChanged,
     profileName,
+    profileNameChanged,
     reportedChannelsReady,
     savedAdditionalEnvDraft,
     savedAgentDisplayName,
     savedAgentImage,
     savedAgentName,
+    savedProfileAvatar,
     workspacesSyncChanged,
     workspacesSyncDraft,
   ]);
@@ -2115,6 +2157,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     if (!file) return;
     const nextUrl = URL.createObjectURL(file);
     objectUrlsRef.current.push(nextUrl);
+    setProfileAvatarFile(file);
     setProfileAvatar(nextUrl);
   }, []);
 
@@ -2174,8 +2217,11 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             profileSuccess={profileSuccess}
             onProfileNameChange={setProfileName}
             onAvatarSelect={handleAvatarSelect}
-            onAvatarRemove={() => setProfileAvatar(null)}
-            avatarUpdatesEnabled={false}
+            onAvatarRemove={() => {
+              setProfileAvatarFile(null);
+              setProfileAvatar(null);
+            }}
+            avatarUpdatesEnabled={Boolean(getToken)}
             onLogout={onLogout}
             showSessionActions={isDesktopViewport}
           />
@@ -2191,8 +2237,12 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             onAgentHandleChange={setAgentHandleDraft}
             onAgentAvatarSelect={handleAgentAvatarSelect}
             onAgentAvatarRemove={() => {
-              setAgentAvatarFile(null);
-              setAgentAvatarDraft(savedAgentAvatar);
+              if (agentAvatarFile) {
+                setAgentAvatarFile(null);
+                setAgentAvatarDraft(savedAgentAvatar);
+              } else {
+                setAgentAvatarDraft(null);
+              }
             }}
             agentAvatarUploadPending={Boolean(agentAvatarFile)}
             agentImageDraft={agentImageDraft}

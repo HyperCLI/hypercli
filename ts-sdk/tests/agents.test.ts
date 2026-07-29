@@ -460,6 +460,87 @@ describe('Agents SDK', () => {
     expect(headers.get('Content-Type')).toBe('image/png');
   });
 
+  it('deletes profile images through the deployments API', async () => {
+    const fetchMock = vi.fn(async () => new Response(
+      JSON.stringify({
+        id: 'agent-123',
+        avatar_url: null,
+        s3_key: null,
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+    const http = { apiKey: 'hyper_api_test', get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() } as unknown as HTTPClient;
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+
+    await expect(deployments.deleteProfileImage('agent-123')).resolves.toEqual({
+      id: 'agent-123',
+      avatar_url: null,
+      s3_key: null,
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.test.hypercli.com/agents/deployments/agent-123/profile-image',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('gets, uploads, and deletes external-agent profile images through dedicated routes', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => new Response(
+      JSON.stringify({
+        id: 'external-123',
+        avatar_url: init?.method === 'DELETE'
+          ? null
+          : 'https://cdn.example.test/prod/user-456/external-123.png',
+        s3_key: init?.method === 'DELETE'
+          ? null
+          : 'prod/user-456/external-123.png',
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+    const http = {
+      apiKey: 'hyper_api_test',
+      get: vi.fn().mockResolvedValue({
+        id: 'external-123',
+        user_id: 'user-456',
+        state: 'active',
+        name: 'external-agent',
+        managed: false,
+        runtime: 'openclaw',
+      }),
+      post: vi.fn(),
+      patch: vi.fn(),
+      delete: vi.fn(),
+    } as unknown as HTTPClient;
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+    const file = new Blob(['png'], { type: 'image/png' });
+
+    const external = await deployments.getExternalAgent('external-123');
+    expect(http.get).toHaveBeenCalledWith('/external-agents/external-123');
+    expect(external.managed).toBe(false);
+
+    await expect(deployments.uploadExternalAgentProfileImage('external-123', file)).resolves.toEqual({
+      id: 'external-123',
+      avatar_url: 'https://cdn.example.test/prod/user-456/external-123.png',
+      s3_key: 'prod/user-456/external-123.png',
+    });
+    await expect(deployments.deleteExternalAgentProfileImage('external-123')).resolves.toEqual({
+      id: 'external-123',
+      avatar_url: null,
+      s3_key: null,
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://api.test.hypercli.com/agents/external-agents/external-123/profile-image',
+      expect.objectContaining({ method: 'POST', body: file }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://api.test.hypercli.com/agents/external-agents/external-123/profile-image',
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
   it('starts Slack OAuth through the relay REST endpoint', async () => {
     const fetchMock = vi.fn(async () => new Response(
       JSON.stringify({
