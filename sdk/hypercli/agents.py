@@ -1766,7 +1766,7 @@ class Deployments:
         messages: list[dict[str, str]],
         *,
         response_format: dict[str, Any] | None = None,
-        timeout: float = 100.0,
+        timeout: float = 330.0,
     ) -> dict:
         """Run the JWT-authenticated onboarding inference endpoint."""
         body = {
