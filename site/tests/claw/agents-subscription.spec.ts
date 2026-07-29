@@ -182,7 +182,9 @@ test.describe.serial("Agents subscription", () => {
       let afterPurchaseSummary: Awaited<ReturnType<typeof fetchClawSubscriptionSummary>> = null;
       let checkoutCompleted = false;
 
-      const proCard = page.locator(".glass-card").filter({ has: page.getByRole("heading", { name: "Pro" }) }).first();
+      const proCard = page.getByRole("article").filter({
+        has: page.getByRole("heading", { name: "Pro", exact: true }),
+      }).first();
       await expect(proCard.getByRole("heading", { name: "Pro" })).toBeVisible({ timeout: 20_000 });
       const subscribeButton = await waitForPlanCheckoutButton(page, proCard, { optional: beforeGrantedSlots > 0 });
       if (subscribeButton) {
