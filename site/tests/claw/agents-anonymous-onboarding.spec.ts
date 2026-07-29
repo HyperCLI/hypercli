@@ -70,6 +70,8 @@ test("gates the Free plan launch without opening the paid catalog", async ({ pag
   expect(identityGeometry.overflowY).toBe("auto");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByRole("heading", { name: "Set up the workspace" })).toBeVisible();
+  await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: "View plan" }).last().click();
 
   await expect(page.getByRole("heading", { name: "Sign in to launch your agent" })).toBeVisible();
@@ -106,6 +108,8 @@ test("uses the existing dashboard wizard and gates checkout for anonymous visito
   await expect(page.getByRole("heading", { name: "Choose capacity, then put your agent to work." })).toBeVisible();
   await page.getByRole("button", { name: "Create my agent" }).click();
   await expect(page.getByRole("heading", { name: "Create agent" })).toBeVisible();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByRole("heading", { name: "Set up the workspace" })).toBeVisible();
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("heading", { name: "Choose your plan" })).toBeVisible();
   await page.getByRole("button", { name: "View plan" }).last().click();

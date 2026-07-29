@@ -40,12 +40,25 @@ import {
   readFirstAgentSetupDraft,
   writeFirstAgentSetupDraft,
 } from "@/hooks/useFirstAgentSetupDraft";
+import {
+  buildDeterministicOpenClawBootstrapPack,
+  createOpenClawBootstrapDraft,
+  type OpenClawBootstrapDraft,
+  type OpenClawBootstrapFile,
+  type OpenClawBootstrapFileName,
+  type OpenClawBootstrapInputs,
+} from "@/lib/openclaw-bootstrap-pack";
 import { PlanComparisonModal } from "./PlanComparisonModal";
 import { SlotProvisioningStatus } from "./SlotProvisioningStatus";
+import { OpenClawBootstrapStep } from "./OpenClawBootstrapStep";
 import {
   createFirstAgentWizardState,
   firstAgentWizardReducer,
 } from "./first-agent-wizard-machine";
+import {
+  createOpenClawBootstrapGenerationState,
+  openClawBootstrapGenerationReducer,
+} from "./openclaw-bootstrap-generation-machine";
 
 export interface FirstAgentSetupCreateParams {
   name: string;
@@ -59,6 +72,10 @@ export interface FirstAgentSetupCreateParams {
 
 interface FirstAgentSetupWizardProps {
   onCreateAgent: (params: FirstAgentSetupCreateParams) => Promise<string | null>;
+  onGenerateBootstrap?: (
+    name: OpenClawBootstrapFileName,
+    inputs: OpenClawBootstrapInputs,
+  ) => Promise<OpenClawBootstrapFile>;
   onOpenPlanCatalog?: (planId?: string) => void | Promise<void>;
   onClose?: () => void;
   initialPlanId?: string | null;
@@ -77,7 +94,7 @@ interface FirstAgentSetupWizardProps {
   size?: "default" | "inline" | "large";
 }
 
-type WizardStepId = "identity" | "plan";
+type WizardStepId = "identity" | "workspace" | "plan";
 
 const EMPTY_SLOT_INVENTORY: SlotInventory = {};
 
@@ -100,13 +117,17 @@ const stepCopy: Record<WizardStepId, { title: string; subtitle: string }> = {
     title: "Create agent",
     subtitle: "Give it a name, a look, and a quick note on what it does. You can change anything later.",
   },
+  workspace: {
+    title: "Set up the workspace",
+    subtitle: "Shape the canonical instructions OpenClaw will read when this agent starts.",
+  },
   plan: {
     title: "Choose your plan",
     subtitle: "From a single text agent to a full AI workforce.",
   },
 };
 
-const steps: WizardStepId[] = ["identity", "plan"];
+const steps: WizardStepId[] = ["identity", "workspace", "plan"];
 const agentNameFirstWords = [
   "bright",
   "clear",
@@ -819,6 +840,7 @@ function LaunchCapacityFallback({
 
 export function FirstAgentSetupWizard({
   onCreateAgent,
+  onGenerateBootstrap,
   onOpenPlanCatalog,
   onClose,
   initialPlanId,
@@ -850,6 +872,16 @@ export function FirstAgentSetupWizard({
   const [enableCustomImage, setEnableCustomImage] = React.useState(restoredDraft?.enableCustomImage ?? false);
   const [customImage, setCustomImage] = React.useState(restoredDraft?.customImage ?? "");
   const [customImageEdited, setCustomImageEdited] = React.useState(Boolean(restoredDraft?.customImage));
+  const [bootstrapDraft, setBootstrapDraft] = React.useState<OpenClawBootstrapDraft>(() => (
+    createOpenClawBootstrapDraft(restoredDraft?.name ?? "Your agent")
+  ));
+  const [bootstrapGeneration, dispatchBootstrapGeneration] = React.useReducer(
+    openClawBootstrapGenerationReducer,
+    undefined,
+    createOpenClawBootstrapGenerationState,
+  );
+  const bootstrapGenerationRunRef = React.useRef(0);
+  const bootstrapInitialGenerationStartedRef = React.useRef(false);
   const slotInventory = budget?.slots ?? EMPTY_SLOT_INVENTORY;
   const planOptions = React.useMemo(
     () => buildLaunchPlanOptions(subscriptionSummary, slotInventory, catalogPlans, pendingSlotReleases),
@@ -896,6 +928,81 @@ export function FirstAgentSetupWizard({
   const agentUrl = agentUrlSlug(displayName);
   const defaultCustomImage = getOpenClawDefaultImage(enableDesktop);
   const effectiveCustomImage = customImageEdited ? customImage : defaultCustomImage;
+  const runBootstrapGeneration = React.useCallback(async (rawInputs: OpenClawBootstrapInputs) => {
+    const runId = bootstrapGenerationRunRef.current + 1;
+    bootstrapGenerationRunRef.current = runId;
+    const inputs = { ...rawInputs, agentName: displayName };
+    const fallbackFiles = buildDeterministicOpenClawBootstrapPack(inputs);
+    const names = fallbackFiles.map((file) => file.name);
+
+    setBootstrapDraft({
+      version: bootstrapDraft.version,
+      inputs,
+      files: fallbackFiles,
+      generationSource: "deterministic",
+    });
+    dispatchBootstrapGeneration({ type: "QUEUE", runId, names });
+
+    if (!onGenerateBootstrap) {
+      for (const name of names) {
+        dispatchBootstrapGeneration({ type: "FALL_BACK", runId, name });
+      }
+      return;
+    }
+
+    let completedCount = 0;
+    for (const name of names) {
+      if (bootstrapGenerationRunRef.current !== runId) return;
+      dispatchBootstrapGeneration({ type: "START", runId, name });
+      try {
+        const file = await onGenerateBootstrap(name, inputs);
+        if (bootstrapGenerationRunRef.current !== runId) return;
+        setBootstrapDraft((current) => ({
+          ...current,
+          files: current.files.map((candidate) => candidate.name === name ? file : candidate),
+          generationSource: "mixed",
+        }));
+        dispatchBootstrapGeneration({ type: "SUCCEED", runId, name });
+        completedCount += 1;
+      } catch (error) {
+        if (bootstrapGenerationRunRef.current !== runId) return;
+        dispatchBootstrapGeneration({
+          type: "FALL_BACK",
+          runId,
+          name,
+          error: error instanceof Error ? error.message : "Assisted generation failed.",
+        });
+      }
+    }
+
+    if (bootstrapGenerationRunRef.current !== runId) return;
+    setBootstrapDraft((current) => ({
+      ...current,
+      generationSource: completedCount === names.length
+        ? "model"
+        : completedCount > 0
+          ? "mixed"
+          : "deterministic",
+    }));
+  }, [bootstrapDraft.version, displayName, onGenerateBootstrap]);
+
+  const handleBootstrapDraftChange = React.useCallback((nextDraft: OpenClawBootstrapDraft) => {
+    const runId = bootstrapGenerationRunRef.current + 1;
+    bootstrapGenerationRunRef.current = runId;
+    setBootstrapDraft(nextDraft);
+    dispatchBootstrapGeneration({
+      type: "RESET_TO_FALLBACK",
+      runId,
+      names: nextDraft.files.map((file) => file.name),
+    });
+  }, []);
+
+  React.useEffect(() => {
+    if (currentStep !== "workspace" || bootstrapInitialGenerationStartedRef.current) return;
+    bootstrapInitialGenerationStartedRef.current = true;
+    void runBootstrapGeneration({ ...bootstrapDraft.inputs, agentName: displayName });
+  }, [bootstrapDraft.inputs, currentStep, displayName, runBootstrapGeneration]);
+
   const persistDraft = React.useCallback((plan: LaunchPlanOption | null = null) => {
     const retainedPlanId = selectedCatalogPlanId?.trim() || restoredDraft?.plan || initialPlanId?.trim() || null;
     writeFirstAgentSetupDraft({
@@ -942,7 +1049,11 @@ export function FirstAgentSetupWizard({
   React.useEffect(() => {
     if (!restoredDraft) return;
     const timeout = window.setTimeout(() => {
-      dispatchWizard({ type: "GO_TO_STEP", stepIndex: 1, maxStepIndex: steps.length - 1 });
+      dispatchWizard({
+        type: "GO_TO_STEP",
+        stepIndex: steps.indexOf("plan"),
+        maxStepIndex: steps.length - 1,
+      });
     }, 0);
     return () => window.clearTimeout(timeout);
   }, [restoredDraft]);
@@ -1018,7 +1129,9 @@ export function FirstAgentSetupWizard({
         name: displayName,
         iconIndex: selectedIconIndex,
         size: plan.size,
-        files: [],
+        files: bootstrapDraft.files.map((file) => (
+          new File([file.content], file.name, { type: "text/markdown" })
+        )),
         enableDesktop,
         enableMemoryIndex,
         customImage: selectedCustomImage,
@@ -1283,6 +1396,41 @@ export function FirstAgentSetupWizard({
           </>
         )}
 
+        {currentStep === "workspace" && (
+          <>
+            <div
+              data-slot="agent-setup-scroll-body"
+              className={cx(
+                "min-h-0 flex-1 overflow-y-auto",
+                largePresentation ? "px-5 py-5 sm:px-8 sm:py-7" : "px-5 py-4 sm:px-6",
+              )}
+            >
+              <OpenClawBootstrapStep
+                agentName={displayName}
+                draft={bootstrapDraft}
+                onChange={handleBootstrapDraftChange}
+                generation={bootstrapGeneration}
+                onRegenerate={() => {
+                  void runBootstrapGeneration(bootstrapDraft.inputs);
+                }}
+              />
+            </div>
+            <footer className={cx(
+              "relative flex flex-shrink-0 items-center justify-between gap-2 border-t border-border bg-surface-low",
+              largePresentation ? "h-[82px] px-5 sm:h-[104px] sm:px-8" : "h-[72px] px-5 sm:px-6",
+            )}>
+              <WizardButton large={largePresentation} variant="secondary" onClick={() => goToStep(0)}>
+                <ChevronLeft className="mr-2 h-4 w-4" />
+                Back
+              </WizardButton>
+              {largePresentation ? null : <WizardMomentum finalStep={false} />}
+              <WizardButton large={largePresentation} onClick={() => goToStep(2)}>
+                Continue
+              </WizardButton>
+            </footer>
+          </>
+        )}
+
         {currentStep === "plan" && (
           <>
             <div data-slot="agent-setup-scroll-body" className={cx("min-h-0 flex-1 overflow-y-auto", largePresentation ? "px-5 py-5 sm:px-8 sm:py-7" : "px-5 py-5 sm:px-6 lg:px-7")}>
@@ -1392,7 +1540,7 @@ export function FirstAgentSetupWizard({
             "relative flex flex-shrink-0 items-center gap-2 border-t border-border bg-surface-low",
             largePresentation ? "h-[82px] justify-between px-5 sm:h-[104px] sm:px-8" : "h-[72px] px-5 sm:px-6",
           )}>
-            <WizardButton large={largePresentation} variant="secondary" onClick={() => goToStep(0)}>
+            <WizardButton large={largePresentation} variant="secondary" onClick={() => goToStep(1)}>
               <ChevronLeft className="mr-2 h-4 w-4" />
               Back
             </WizardButton>

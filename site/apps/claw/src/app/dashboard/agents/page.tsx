@@ -113,6 +113,13 @@ import {
 } from "@/lib/openclaw-config";
 import { getOpenClawDefaultModel } from "@/lib/openclaw-models";
 import { buildOpenClawLaunchOptions } from "@/lib/openclaw-launch";
+import {
+  buildOpenClawBootstrapFileGenerationMessages,
+  buildOpenClawBootstrapFileResponseFormat,
+  parseGeneratedOpenClawBootstrapFile,
+  type OpenClawBootstrapFileName,
+  type OpenClawBootstrapInputs,
+} from "@/lib/openclaw-bootstrap-pack";
 import { displayNameForDashboard } from "@/lib/dashboard-greeting";
 import {
   clearStripeCheckoutReturnState,
@@ -203,7 +210,7 @@ import {
   syncDashboardSearchParams,
   type DashboardView,
 } from "@/lib/dashboard-route";
-import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
+import { stageAgentStarterFilesAndStart } from "@/lib/agent-starter-files";
 import { markDashboardPerformance, measureDashboardPerformance } from "@/lib/agent-dashboard-performance";
 import { normalizeCronJob } from "@/lib/cron-jobs";
 import {
@@ -400,9 +407,14 @@ function finiteNumber(value: unknown, fallback = 0): number {
   return Number.isFinite(numeric) ? numeric : fallback;
 }
 
-function dailyTokenUsageTotal(usage: { history?: Array<{ totalTokens?: unknown }> } | null | undefined): number | null {
-  if (!Array.isArray(usage?.history)) return null;
-  return usage.history.reduce((total, entry) => total + finiteNumber(entry.totalTokens), 0);
+function agentTokenUsageMap(
+  usage: { agents?: Array<{ agentId?: unknown; totalTokens?: unknown }> } | null | undefined,
+): Record<string, number> | null {
+  if (!Array.isArray(usage?.agents)) return null;
+  return Object.fromEntries(usage.agents.flatMap((entry) => {
+    const agentId = typeof entry.agentId === "string" ? entry.agentId.trim() : "";
+    return agentId ? [[agentId, finiteNumber(entry.totalTokens)]] : [];
+  }));
 }
 
 function normalizeBundle(value: unknown): SlotBundle {
@@ -1079,7 +1091,7 @@ function AgentsPageContent() {
   const [subscriptionSummary, setSubscriptionSummary] = useState<HyperAgentSubscriptionSummary | null>(null);
   const [billingDataPrincipalId, setBillingDataPrincipalId] = useState<string | null>(null);
   const [billingDataError, setBillingDataError] = useState<string | null>(null);
-  const [tokenUsage, setTokenUsage] = useState<number | null>(null);
+  const [tokenUsageByAgent, setTokenUsageByAgent] = useState<Record<string, number> | null>(null);
   const [upgradeCatalogOpen, setUpgradeCatalogOpen] = useState(false);
   const [upgradeCatalogError, setUpgradeCatalogError] = useState<string | null>(null);
   const [upgradeCheckoutPlan, setUpgradeCheckoutPlan] = useState<UpgradeCheckoutPlan | null>(null);
@@ -1192,6 +1204,9 @@ function AgentsPageContent() {
 
   // Selection and tabs
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const tokenUsage = selectedAgentId && tokenUsageByAgent
+    ? tokenUsageByAgent[selectedAgentId] ?? 0
+    : null;
   const [selectedSessionKeysByAgent, setSelectedSessionKeysByAgent] = useState<Record<string, string>>(() => (
     requestedAgentId
       ? { [requestedAgentId]: requestedSessionKey ?? createOpenClawDashboardSessionKey() }
@@ -1341,7 +1356,7 @@ function AgentsPageContent() {
     setSubscriptionSummary(null);
     setBillingDataPrincipalId(null);
     setBillingDataError(null);
-    setTokenUsage(null);
+    setTokenUsageByAgent(null);
     setDeployments(null);
     setAgentsLoadError(null);
     setSelectedAgentId(null);
@@ -1506,9 +1521,9 @@ function AgentsPageContent() {
     tokenUsageRefreshInFlightRef.current = true;
     try {
       const hyperAgent = createHyperAgentClient(await getToken());
-      const dailyUsage = await hyperAgent.usageHistory(1);
+      const usage = await hyperAgent.agentUsage(1);
       if (generation === agentDataGenerationRef.current) {
-        setTokenUsage(dailyTokenUsageTotal(dailyUsage));
+        setTokenUsageByAgent(agentTokenUsageMap(usage));
       }
     } catch {
       // Keep the last displayed value on transient usage refresh failures.
@@ -1548,14 +1563,14 @@ function AgentsPageContent() {
         if (!isCurrentRequest()) return null;
         const hyperAgent = createHyperAgentClient(token);
         markDashboardPerformance("enrichment-start");
-        const [catalogData, currentPlan, summaryResult, dailyUsage, typeCatalogData] = await Promise.all([
+        const [catalogData, currentPlan, summaryResult, agentUsage, typeCatalogData] = await Promise.all([
           optionalDashboardData(hyperAgent.plans(), [] as HyperAgentPlan[]),
           optionalDashboardData(hyperAgent.currentPlan(), null),
           hyperAgent.subscriptionSummary().then(
             (value) => ({ status: "fulfilled" as const, value }),
             () => ({ status: "rejected" as const }),
           ),
-          optionalDashboardData(hyperAgent.usageHistory(1), null),
+          optionalDashboardData(hyperAgent.agentUsage(1), null),
           optionalDashboardData(hyperAgent.agentTypes(), null),
         ]);
         if (!isCurrentRequest()) return null;
@@ -1574,7 +1589,7 @@ function AgentsPageContent() {
         setSubscriptionSummary(summary);
         setBillingDataPrincipalId(billingReady ? principalId : null);
         setBillingDataError(billingReady ? null : "Billing data could not be loaded. Retry before checkout.");
-        setTokenUsage(dailyTokenUsageTotal(dailyUsage));
+        setTokenUsageByAgent(agentTokenUsageMap(agentUsage));
         markDashboardPerformance("enrichment-ready");
         measureDashboardPerformance("enrichment", "enrichment-start", "enrichment-ready");
         return { subscriptionSummary: summary, budget: nextBudget, billingReady };
@@ -1851,7 +1866,7 @@ function AgentsPageContent() {
       setSubscriptionSummary(null);
       setBillingDataPrincipalId(null);
       setBillingDataError(null);
-      setTokenUsage(null);
+      setTokenUsageByAgent(null);
       deploymentsRef.current = null;
       setDeployments(null);
       setAgentsLoadError(null);
@@ -3254,6 +3269,22 @@ function AgentsPageContent() {
     }
   };
 
+  const generateOpenClawBootstrap = useCallback(async (
+    name: OpenClawBootstrapFileName,
+    inputs: OpenClawBootstrapInputs,
+  ) => {
+    const token = await getToken();
+    const result = await createAgentClient(token).bootstrapInference(
+      buildOpenClawBootstrapFileGenerationMessages(name, inputs),
+      buildOpenClawBootstrapFileResponseFormat(name),
+      { timeout: 330_000, retries: 0 },
+    );
+    if (result.finish_reason && result.finish_reason !== "stop") {
+      throw new Error(`${name} generation did not finish (${result.finish_reason}).`);
+    }
+    return parseGeneratedOpenClawBootstrapFile(result.content, name);
+  }, [getToken]);
+
   const handleCreateFirstAgent = useCallback(async ({ name, iconIndex, size, files, enableDesktop, enableMemoryIndex = false, customImage = null }: AgentCreationSetupCreateParams) => {
     if (!isAuthenticated) {
       requestAuthentication({ kind: "launch" });
@@ -3271,12 +3302,13 @@ function AgentsPageContent() {
       if (generation !== agentDataGenerationRef.current) return null;
       const created = await createOpenClawAgent(token, {
         name: name || undefined,
-        start: true,
+        start: files.length === 0,
         size,
         meta: { ui: { avatar: { icon_index: iconIndex } } },
         ...buildOpenClawLaunchOptions({
           desktopEnabled: enableDesktop,
           customImage,
+          skipBootstrap: files.length > 0,
           memoryIndex: enableMemoryIndex
             ? { onSessionStart: true, onSearch: true, watch: true, watchDebounceMs: 30000, intervalMinutes: 0 }
             : null,
@@ -3287,20 +3319,22 @@ function AgentsPageContent() {
         if (files.length > 0) {
           try {
             const agentClient = createAgentClient(token);
-            await uploadAgentStarterFiles({
+            await stageAgentStarterFilesAndStart({
               agentId: created.id,
               files,
               writeFileBytes: (agentId, path, content, destination) => (
                 agentClient.fileWriteBytes(agentId, path, content, destination)
               ),
+              startAgent: (agentId) => startOpenClawAgent(token, agentId),
             });
             if (generation !== agentDataGenerationRef.current) return null;
           } catch (uploadError) {
             if (generation !== agentDataGenerationRef.current) return null;
-            setError(uploadError instanceof Error
+            throw new Error(uploadError instanceof Error
               ? `Agent created, but starter files could not be uploaded: ${uploadError.message}`
               : "Agent created, but starter files could not be uploaded.");
           }
+          if (generation !== agentDataGenerationRef.current) return null;
         }
         try {
           await associateAgentWithSelectedWorkspace(created.id);
@@ -4729,12 +4763,36 @@ function AgentsPageContent() {
         if (generation !== agentDataGenerationRef.current) throw new Error("Account changed during upload.");
         if (deletingAgentIdsRef.current.has(agentId)) throw new Error("Agent is being deleted.");
         const client = createAgentClient(token);
-        const upload = await client.uploadProfileImage(agentId, file, file.type || "image/png");
+        const external = selectedAgent?.id === agentId && selectedAgent.managed === false;
+        const upload = external
+          ? await client.uploadExternalAgentProfileImage(agentId, file, file.type || "image/png")
+          : await client.uploadProfileImage(agentId, file, file.type || "image/png");
+        if (!upload.avatar_url) throw new Error("Avatar upload returned no URL.");
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return upload.avatar_url;
-        const updatedAgent = await client.get(agentId);
+        const updatedAgent = external
+          ? await client.getExternalAgent(agentId)
+          : await client.get(agentId);
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return upload.avatar_url;
         applyAgentMutationResult(updatedAgent);
         return upload.avatar_url;
+      });
+    },
+    onDeleteAgentAvatar: async (agentId) => {
+      const generation = agentDataGenerationRef.current;
+      await runAgentMutation(agentId, async () => {
+        if (deletingAgentIdsRef.current.has(agentId)) throw new Error("Agent is being deleted.");
+        const token = await getToken();
+        if (generation !== agentDataGenerationRef.current) throw new Error("Account changed during avatar removal.");
+        const client = createAgentClient(token);
+        const external = selectedAgent?.id === agentId && selectedAgent.managed === false;
+        if (external) await client.deleteExternalAgentProfileImage(agentId);
+        else await client.deleteProfileImage(agentId);
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+        const updatedAgent = external
+          ? await client.getExternalAgent(agentId)
+          : await client.get(agentId);
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+        applyAgentMutationResult(updatedAgent);
       });
     },
     onUpdateAgentLaunchConfig: async (agentId, launchConfig) => {
@@ -5217,6 +5275,7 @@ function AgentsPageContent() {
                 onOpenPlanCatalog={(planId) => {
                   return openUpgradeCatalog(planId);
                 }}
+                onGenerateBootstrap={generateOpenClawBootstrap}
                 onCreateAgent={createAgentFromLauncher}
               />
             </div>

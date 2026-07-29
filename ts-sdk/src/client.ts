@@ -129,7 +129,7 @@ export class HyperCLI {
     // API namespaces
     this.billing = new Billing(this._http);
     this.jobs = new Jobs(this._http);
-    this.user = new UserAPI(this._http);
+    this.user = new UserAPI(this._http, this._http, this._agentsHttp);
     this.instances = new Instances(this._http);
     this.renders = new Renders(this._http);
     this.files = new Files(this._http);

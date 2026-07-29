@@ -29,6 +29,10 @@ interface UploadAgentStarterFilesOptions {
   ) => Promise<unknown>;
 }
 
+interface StageAgentStarterFilesAndStartOptions extends UploadAgentStarterFilesOptions {
+  startAgent: (agentId: string) => Promise<unknown>;
+}
+
 function appendNameSuffix(name: string, suffix: number): string {
   const dotIndex = name.lastIndexOf(".");
   if (dotIndex <= 0 || dotIndex === name.length - 1) return `${name}-${suffix}`;
@@ -70,5 +74,20 @@ export async function uploadAgentStarterFiles({
     });
   }
 
+  return uploaded;
+}
+
+export async function stageAgentStarterFilesAndStart({
+  agentId,
+  files,
+  writeFileBytes,
+  startAgent,
+}: StageAgentStarterFilesAndStartOptions): Promise<UploadedAgentStarterFile[]> {
+  const uploaded = await uploadAgentStarterFiles({
+    agentId,
+    files,
+    writeFileBytes,
+  });
+  await startAgent(agentId);
   return uploaded;
 }

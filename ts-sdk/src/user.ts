@@ -44,6 +44,20 @@ export interface UpdateUserOptions {
   email?: string;
 }
 
+export interface UserProfileImage {
+  id: string;
+  avatarUrl: string | null;
+  s3Key: string | null;
+}
+
+function userProfileImageFromDict(data: any): UserProfileImage {
+  return {
+    id: String(data?.id || ''),
+    avatarUrl: data?.avatar_url || null,
+    s3Key: data?.s3_key || null,
+  };
+}
+
 function deriveExternalId(data: any): string | null {
   if (data.external_id) return data.external_id;
   if (data.privy_user_id) return data.privy_user_id;
@@ -103,7 +117,11 @@ export function isRuntimeAgent(auth: AuthMe): boolean {
 }
 
 export class UserAPI {
-  constructor(private http: HTTPClient, private authHttp: HTTPClient = http) {}
+  constructor(
+    private http: HTTPClient,
+    private authHttp: HTTPClient = http,
+    private profileHttp: HTTPClient = authHttp,
+  ) {}
 
   /**
    * Get current user info
@@ -127,5 +145,32 @@ export class UserAPI {
   async update(options: UpdateUserOptions): Promise<User> {
     const data = await this.http.patch('/api/user', options);
     return userFromDict(data);
+  }
+
+  async getProfileImage(): Promise<UserProfileImage> {
+    return userProfileImageFromDict(await this.profileHttp.get('/users/profile-image'));
+  }
+
+  async uploadProfileImage(
+    content: Blob | ArrayBuffer | ArrayBufferView,
+    contentType?: string,
+  ): Promise<UserProfileImage> {
+    let body: any;
+    let resolvedContentType = contentType || 'image/png';
+    if (content instanceof Blob) {
+      body = content;
+      resolvedContentType = contentType || content.type || resolvedContentType;
+    } else if (ArrayBuffer.isView(content)) {
+      body = content;
+    } else {
+      body = content;
+    }
+    return userProfileImageFromDict(
+      await this.profileHttp.postRaw('/users/profile-image', body, resolvedContentType),
+    );
+  }
+
+  async deleteProfileImage(): Promise<UserProfileImage> {
+    return userProfileImageFromDict(await this.profileHttp.delete('/users/profile-image'));
   }
 }

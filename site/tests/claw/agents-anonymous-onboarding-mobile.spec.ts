@@ -32,6 +32,8 @@ test("preserves the mobile dashboard wizard when sign-in is cancelled", async ({
   await page.getByRole("button", { name: "Skip tour" }).click();
   await expect(page.getByRole("heading", { name: "Create agent" })).toBeVisible();
   await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByRole("heading", { name: "Set up the workspace" })).toBeVisible();
+  await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: "View plan" }).last().click();
   await page.getByRole("button", { name: /Upgrade to Pro|Select plan/ }).click();
   await expect(page.getByRole("heading", { name: "Sign in to continue to checkout" })).toBeVisible();

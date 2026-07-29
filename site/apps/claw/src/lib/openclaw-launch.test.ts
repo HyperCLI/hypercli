@@ -39,6 +39,22 @@ describe("buildOpenClawLaunchOptions", () => {
     });
   });
 
+  it("sets the real OpenClaw skip-bootstrap config only for a preconfigured workspace", () => {
+    expect(buildOpenClawLaunchOptions({
+      desktopEnabled: false,
+      skipBootstrap: true,
+    })).toMatchObject({
+      config: {
+        agents: {
+          defaults: {
+            skipBootstrap: true,
+          },
+        },
+      },
+    });
+    expect(buildOpenClawLaunchOptions({ desktopEnabled: false })).not.toHaveProperty("config");
+  });
+
   it("uses a custom image override when provided", () => {
     expect(buildOpenClawLaunchOptions({
       desktopEnabled: true,

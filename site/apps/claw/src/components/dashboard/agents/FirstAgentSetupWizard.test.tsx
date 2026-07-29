@@ -1,10 +1,18 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { HyperAgentPlan } from "@hypercli.com/sdk/agent";
 import { renderWithClient } from "@/test/utils";
+import type {
+  OpenClawBootstrapFile,
+  OpenClawBootstrapFileName,
+} from "@/lib/openclaw-bootstrap-pack";
 
-import { FirstAgentSetupWizard, updateFirstAgentSetupDraftPlan } from "./FirstAgentSetupWizard";
+import {
+  FirstAgentSetupWizard,
+  updateFirstAgentSetupDraftPlan,
+  type FirstAgentSetupCreateParams,
+} from "./FirstAgentSetupWizard";
 
 const catalogPlans = [
   {
@@ -85,6 +93,7 @@ function getPlanFooterAction(name: string): HTMLElement {
 
 function goToPlanStep() {
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 }
 
 describe("FirstAgentSetupWizard", () => {
@@ -163,6 +172,56 @@ describe("FirstAgentSetupWizard", () => {
     expect(screen.getByText("Launch ready")).toBeInTheDocument();
     expect(screen.getByText("Choose its power")).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "Agent setup progress" })).toHaveAttribute("aria-valuenow", "92");
+  });
+
+  it("keeps per-file generation running when the user continues to the plan step", async () => {
+    const resolvers: Partial<Record<
+      OpenClawBootstrapFileName,
+      (file: OpenClawBootstrapFile) => void
+    >> = {};
+    const onGenerateBootstrap = vi.fn((name: OpenClawBootstrapFileName) => (
+      new Promise<OpenClawBootstrapFile>((resolve) => {
+        resolvers[name] = resolve;
+      })
+    ));
+
+    renderWithClient(
+      <FirstAgentSetupWizard
+        onCreateAgent={vi.fn(async () => null)}
+        onGenerateBootstrap={onGenerateBootstrap}
+        budget={null}
+        subscriptionSummary={null}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: "background-builder" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(onGenerateBootstrap).toHaveBeenCalledTimes(1));
+    expect(onGenerateBootstrap.mock.calls.map(([name]) => name)).toEqual([
+      "AGENTS.md",
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(screen.getByRole("heading", { name: "Choose your plan" })).toBeInTheDocument();
+
+    await act(async () => {
+      resolvers["AGENTS.md"]?.({
+        name: "AGENTS.md",
+        content: "# AGENTS.md\n\nGenerated while the plan step was open.",
+      });
+    });
+    await waitFor(() => expect(onGenerateBootstrap).toHaveBeenCalledTimes(2));
+    expect(onGenerateBootstrap.mock.calls[1]?.[0]).toBe("SOUL.md");
+
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => {
+      expect((screen.getByLabelText("AGENTS.md preview") as HTMLTextAreaElement).value)
+        .toContain("Generated while the plan step was open.");
+    });
+    expect(screen.getByText("AGENTS.md ready")).toBeInTheDocument();
+    expect(screen.getByText("Generating SOUL.md")).toBeInTheDocument();
+    expect(screen.getByText("USER.md queued")).toBeInTheDocument();
   });
 
   it("saves anonymous identity changes for a later launch", async () => {
@@ -396,6 +455,7 @@ describe("FirstAgentSetupWizard", () => {
     expect(await screen.findByRole("heading", { name: "Choose your plan" })).toBeInTheDocument();
     expect(screen.queryByText(/Reselect brief\.pdf/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByLabelText("Agent name")).toHaveValue("restored-agent");
     fireEvent.click(screen.getByText("Advanced").closest("summary")!);
     expect(screen.getByRole("button", { name: "Shield avatar" })).toHaveAttribute("aria-pressed", "true");
@@ -524,7 +584,7 @@ describe("FirstAgentSetupWizard", () => {
   });
 
   it("uses Pro launch state when the effective plan is a merged 5 AIU plan", async () => {
-    const onCreateAgent = vi.fn(async () => "agent-1");
+    const onCreateAgent = vi.fn(async (_params: FirstAgentSetupCreateParams) => "agent-1");
 
     renderWithClient(
       <FirstAgentSetupWizard
@@ -712,9 +772,10 @@ describe("FirstAgentSetupWizard", () => {
     expect(screen.getByText("1 Medium slot available")).toBeInTheDocument();
     fireEvent.click(getPlanCardAction("Launch agent"));
 
-    await waitFor(() =>
-      expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({ files: [], size: "medium" })),
-    );
+    await waitFor(() => expect(onCreateAgent).toHaveBeenCalled());
+    const createParams = onCreateAgent.mock.calls[0]?.[0];
+    expect(createParams).toEqual(expect.objectContaining({ size: "medium" }));
+    expect(createParams?.files.map((file) => file.name)).toEqual(["AGENTS.md", "SOUL.md", "USER.md"]);
     expect(onOpenPlanCatalog).not.toHaveBeenCalled();
   });
 

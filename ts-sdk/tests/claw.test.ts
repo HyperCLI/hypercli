@@ -23,6 +23,64 @@ describe('HyperAgent API', () => {
     expect(agent.controlBaseUrl).toBe('https://api.dev.hypercli.com/agents');
   });
 
+  it('returns token usage attributed by agent', async () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
+    const fetchMock = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      return new Response(JSON.stringify({
+        agents: [{
+          agent_id: 'agent-123',
+          name: 'Research',
+          managed: true,
+          avatar_url: null,
+          total_tokens: 120,
+          prompt_tokens: 70,
+          completion_tokens: 50,
+          requests: 3,
+        }],
+        unattributed: {
+          total_tokens: 4,
+          prompt_tokens: 2,
+          completion_tokens: 2,
+          requests: 1,
+        },
+        days: 1,
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    try {
+      await expect(agent.agentUsage(1)).resolves.toEqual({
+        agents: [{
+          agentId: 'agent-123',
+          name: 'Research',
+          managed: true,
+          avatarUrl: null,
+          totalTokens: 120,
+          promptTokens: 70,
+          completionTokens: 50,
+          requests: 3,
+        }],
+        unattributed: {
+          totalTokens: 4,
+          promptTokens: 2,
+          completionTokens: 2,
+          requests: 1,
+        },
+        days: 1,
+      });
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/usage/agents?days=1');
+    } finally {
+      globalThis.fetch = fetchMock;
+    }
+  });
+
   it.skip('should list models (requires HyperAgent API key)', async () => {
     const models = await client.agent.models();
     

@@ -72,13 +72,14 @@ export class BrowserHyperCLI {
     const agentsApiBaseUrl =
       options.agentsApiBaseUrl ||
       (options.agentDev ? getAgentsApiBaseUrl(true) : getAgentsApiBaseUrlFromProductBase(apiUrl));
+    const agentsHttp = new HTTPClient(agentsApiBaseUrl, options.agentApiKey ?? options.token, options.timeout);
     this.agent = new HyperAgent(
       this.http,
       options.agentApiKey ?? options.token,
       Boolean(options.agentDev),
       agentsApiBaseUrl,
     );
-    this.user = new UserAPI(this.http);
+    this.user = new UserAPI(this.http, this.http, agentsHttp);
     this.instances = new Instances(this.http);
     this.keys = new KeysAPI(this.http);
     this.voice = new VoiceAPI(this.http);

@@ -103,7 +103,7 @@ import { getEffectivePlanName, mergeLaunchSlotInventories } from "@/lib/plan-che
 import { createOpenClawDashboardSessionKey } from "@/lib/openclaw-session-key";
 import { displayOpenClawSessionName } from "@/lib/openclaw-session-sdk-surface";
 import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
-import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
+import { stageAgentStarterFilesAndStart } from "@/lib/agent-starter-files";
 import type { CenterPanel } from "@/components/dashboard/agents/page-helpers";
 import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner } from "@/components/dashboard/agents/AgentPanels";
 import type { AgentCreationSetupCreateParams } from "@/components/dashboard/agents/AgentCreationSetupWizard";
@@ -1232,12 +1232,13 @@ export default function DevAgentSetupAgentsPage() {
       if (generation !== agentDataGenerationRef.current) return null;
       const created = await createOpenClawAgent(token, {
         name: name || undefined,
-        start: true,
+        start: files.length === 0,
         size,
         meta: { ui: { avatar: { icon_index: iconIndex } } },
         ...buildOpenClawLaunchOptions({
           desktopEnabled: enableDesktop,
           customImage,
+          skipBootstrap: files.length > 0,
           memoryIndex: enableMemoryIndex
             ? { onSessionStart: true, onSearch: true, watch: true, watchDebounceMs: 30000, intervalMinutes: 0 }
             : null,
@@ -1248,20 +1249,22 @@ export default function DevAgentSetupAgentsPage() {
         if (files.length > 0) {
           try {
             const agentClient = createAgentClient(token);
-            await uploadAgentStarterFiles({
+            await stageAgentStarterFilesAndStart({
               agentId: created.id,
               files,
               writeFileBytes: (agentId, path, content, destination) => (
                 agentClient.fileWriteBytes(agentId, path, content, destination)
               ),
+              startAgent: (agentId) => startOpenClawAgent(token, agentId),
             });
             if (generation !== agentDataGenerationRef.current) return null;
           } catch (uploadError) {
             if (generation !== agentDataGenerationRef.current) return null;
-            setError(uploadError instanceof Error
+            throw new Error(uploadError instanceof Error
               ? `Agent created, but starter files could not be uploaded: ${uploadError.message}`
               : "Agent created, but starter files could not be uploaded.");
           }
+          if (generation !== agentDataGenerationRef.current) return null;
         }
         await fetchAgents();
         if (generation !== agentDataGenerationRef.current) return null;

@@ -92,6 +92,7 @@ export {
   type User,
   type AuthMe,
   type RuntimeIdentity,
+  type UserProfileImage,
 } from './user.js';
 
 // Keys API
@@ -148,6 +149,9 @@ export {
   type HyperAgentUsageHistory,
   type HyperAgentKeyUsageEntry,
   type HyperAgentKeyUsage,
+  type HyperAgentUsageMetrics,
+  type HyperAgentAgentUsageEntry,
+  type HyperAgentAgentUsage,
   type HyperAgentTypePreset,
   type HyperAgentTypePlan,
   type HyperAgentTypeCatalog,
@@ -203,6 +207,9 @@ export {
   type OpenClawMemoryIndexOptions,
   type AgentExecResult,
   type AgentTokenResponse,
+  type BootstrapInferenceMessage,
+  type BootstrapInferenceResponseFormat,
+  type BootstrapInferenceResult,
   type BrowserDesktopUrlOptions,
   type SlackOAuthStartOptions,
   type SlackOAuthStartResult,
