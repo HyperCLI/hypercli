@@ -1650,7 +1650,10 @@ describe("AgentSettingsPanel", () => {
     renderAgentSettingsPanel({ activeSection: "index", onSectionChange });
 
     expect(screen.getByRole("button", { name: "Index" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("heading", { name: "Memory index" })).toBeInTheDocument();
+    const heading = screen.getByRole("heading", { name: "Memory index" });
+    expect(heading).toBeInTheDocument();
+    expect(heading.parentElement?.parentElement).toHaveClass("overflow-x-hidden", "overflow-y-auto");
+    expect(screen.getByText("Memory search").parentElement?.parentElement).toHaveClass("min-h-0", "py-4");
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
     expect(onSectionChange).toHaveBeenCalledWith("agent");

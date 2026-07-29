@@ -835,19 +835,21 @@ function AgentProfileSettingsRow({
   description,
   children,
   minHeight = "min-h-[100px]",
+  compact = false,
 }: {
   label: string;
   description?: string;
   children: React.ReactNode;
   minHeight?: string;
+  compact?: boolean;
 }) {
   return (
-    <div className={`grid grid-cols-1 gap-2 py-5 lg:grid-cols-[260px_minmax(0,440px)] lg:items-start lg:justify-between lg:gap-4 lg:py-7 ${minHeight}`}>
+    <div className={`grid min-w-0 grid-cols-1 gap-2 lg:grid-cols-[260px_minmax(0,440px)] lg:items-start lg:justify-between lg:gap-4 ${compact ? "min-h-0 py-4" : `${minHeight} py-5 lg:py-7`}`}>
       <div>
         <p className="text-[14px] font-semibold leading-5 text-foreground">{label}</p>
         {description ? <p className="mt-1 text-[12px] text-text-muted">{description}</p> : null}
       </div>
-      <div className="w-full lg:max-w-[440px]">{children}</div>
+      <div className="w-full min-w-0 lg:max-w-[440px]">{children}</div>
     </div>
   );
 }
@@ -1476,7 +1478,7 @@ function AgentIndexSettingsContent({
   };
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-7 text-left sm:px-6 lg:px-8">
+    <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-7 text-left sm:px-6 lg:px-8">
       <div className="mx-auto w-full max-w-6xl">
         <h2 className="text-[20px] font-semibold leading-tight text-foreground">Memory index</h2>
         {(error || success) && (
@@ -1493,7 +1495,7 @@ function AgentIndexSettingsContent({
           </div>
         )}
         <section className="mt-4 divide-y divide-foreground border-b border-foreground md:mt-7">
-          <AgentProfileSettingsRow label="Memory search" description="Enable semantic search over indexed memory files.">
+          <AgentProfileSettingsRow compact label="Memory search" description="Enable semantic search over indexed memory files.">
             <label className="flex h-9 items-center gap-2 text-sm font-medium text-foreground">
               <input
                 type="checkbox"
@@ -1506,7 +1508,7 @@ function AgentIndexSettingsContent({
             </label>
           </AgentProfileSettingsRow>
 
-          <AgentProfileSettingsRow label="Session start" description="Refresh the index when a new agent session starts.">
+          <AgentProfileSettingsRow compact label="Session start" description="Refresh the index when a new agent session starts.">
             <label className="flex h-9 items-center gap-2 text-sm font-medium text-foreground">
               <input
                 type="checkbox"
@@ -1519,7 +1521,7 @@ function AgentIndexSettingsContent({
             </label>
           </AgentProfileSettingsRow>
 
-          <AgentProfileSettingsRow label="Search fallback" description="Let memory search trigger a sync when the index is missing or stale.">
+          <AgentProfileSettingsRow compact label="Search fallback" description="Let memory search trigger a sync when the index is missing or stale.">
             <label className="flex h-9 items-center gap-2 text-sm font-medium text-foreground">
               <input
                 type="checkbox"
@@ -1532,7 +1534,7 @@ function AgentIndexSettingsContent({
             </label>
           </AgentProfileSettingsRow>
 
-          <AgentProfileSettingsRow label="File watcher" description="Watch memory files and sync after writes settle.">
+          <AgentProfileSettingsRow compact label="File watcher" description="Watch memory files and sync after writes settle.">
             <label className="flex h-9 items-center gap-2 text-sm font-medium text-foreground">
               <input
                 type="checkbox"
@@ -1545,7 +1547,7 @@ function AgentIndexSettingsContent({
             </label>
           </AgentProfileSettingsRow>
 
-          <AgentProfileSettingsRow label="Watch debounce" description="Seconds of quiet time before watcher sync runs.">
+          <AgentProfileSettingsRow compact label="Watch debounce" description="Seconds of quiet time before watcher sync runs.">
             <input
               type="number"
               min={0}
@@ -1558,7 +1560,7 @@ function AgentIndexSettingsContent({
             />
           </AgentProfileSettingsRow>
 
-          <AgentProfileSettingsRow label="Interval sync" description="Periodic sync interval in minutes. Use 0 to disable.">
+          <AgentProfileSettingsRow compact label="Interval sync" description="Periodic sync interval in minutes. Use 0 to disable.">
             <input
               type="number"
               min={0}

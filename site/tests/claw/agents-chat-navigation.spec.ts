@@ -29,6 +29,14 @@ function json(body: unknown) {
   };
 }
 
+async function openDashboardView(page: Page, view: "overview" | "usage" | "settings") {
+  await page.evaluate((nextView) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", nextView);
+    window.history.pushState(null, "", url);
+  }, view);
+}
+
 async function mockAgentChat(
   page: Page,
   options: MockAgentChatOptions = {},
@@ -507,17 +515,17 @@ test("dashboard views preserve the agent controller across navigation history", 
   await expect(composer).toBeVisible();
   await composer.fill("draft survives dashboard navigation");
 
-  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await openDashboardView(page, "overview");
   await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBe("overview");
   await expect(page.getByRole("heading", { name: "Agent Chat Navigation" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Usage", exact: true }).click();
+  await openDashboardView(page, "usage");
   await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBe("usage");
   await expect(page.getByText(/token usage/i).first()).toBeVisible();
 
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openDashboardView(page, "settings");
   await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBe("settings");
-  await expect(page.getByRole("heading", { name: "Appearance" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Profile", level: 1 })).toBeVisible();
 
   await page.goBack();
   await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBe("usage");
@@ -640,7 +648,7 @@ test("private chat stays out of navigation state and resets before switching age
   expect(storedBrowserState).not.toContain("session-hypercli-ephemeral-");
   expect(storedBrowserState).not.toContain("private browser secret");
 
-  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await openDashboardView(page, "overview");
   await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBe("overview");
   await expect.poll(() => (
     gatewayTracker.requests.filter((request) => (

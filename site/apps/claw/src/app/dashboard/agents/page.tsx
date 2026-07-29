@@ -669,7 +669,7 @@ function UpgradePlanCatalogModal({
 
   return (
     <motion.div
-      className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -677,41 +677,45 @@ function UpgradePlanCatalogModal({
       onClick={onClose}
     >
       <motion.div
-        className="max-h-[min(720px,calc(100vh-2rem))] w-full max-w-[1040px] overflow-hidden rounded-[16px] border border-border bg-popover shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="add-capacity-dialog-title"
+        aria-describedby="add-capacity-dialog-description"
+        className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-[1040px] flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl"
         initial={{ opacity: 0, y: 10, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 10, scale: 0.98 }}
         transition={{ type: "spring", stiffness: 420, damping: 34 }}
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-[var(--selection-accent)]" />
-              <h2 className="text-[18px] font-semibold leading-tight text-foreground">Upgrade plan</h2>
+        <div className="flex flex-col gap-3 border-b border-border px-5 py-4 pr-12 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[rgb(var(--selection-accent-rgb)_/_0.24)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]">
+              <Sparkles className="h-4 w-4" aria-hidden="true" />
+            </span>
+            <div className="min-w-0 pt-0.5">
+              <h2 id="add-capacity-dialog-title" className="text-base font-semibold leading-5 text-foreground">Add capacity</h2>
+              <p id="add-capacity-dialog-description" className="mt-1 text-xs leading-4 text-text-muted">Choose a plan to add agent capacity.</p>
             </div>
-            <p className="mt-2 text-[13px] leading-snug text-text-muted">Choose a plan for checkout.</p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setComparisonOpen(true)}
-              className="inline-flex h-8 items-center justify-center rounded-[10px] border border-border bg-surface-high px-3 text-[13px] font-medium text-foreground transition-colors hover:border-border-strong hover:bg-surface-medium"
-            >
-              Compare plans
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-surface-high text-text-secondary transition-colors hover:bg-surface-medium hover:text-foreground"
-              aria-label="Close upgrade modal"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setComparisonOpen(true)}
+            className="ml-[52px] inline-flex h-8 w-fit shrink-0 items-center justify-center rounded-lg border border-border bg-surface-low px-3 text-xs font-medium text-foreground transition-colors hover:border-border-strong hover:bg-surface-high sm:ml-0 sm:mt-1"
+          >
+            Compare plans
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute right-4 top-4 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label="Close capacity dialog"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
         </div>
 
-        <div className="max-h-[calc(min(720px,100vh-2rem)-73px)] overflow-y-auto px-5 py-5">
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
           {loading ? (
             <div className="flex min-h-[220px] items-center justify-center">
               <Loader2 className="h-5 w-5 animate-spin text-text-muted" />

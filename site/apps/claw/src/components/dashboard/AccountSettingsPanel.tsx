@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, Loader2, MessageSquare, RefreshCw } from "lucide-react";
+import { CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 import { getSlackInstallStatus, type SlackInstallStatus } from "@hypercli.com/sdk/agents";
 import { Button, Card, ThemeSelector } from "@hypercli/shared-ui";
 
 import { TooltipHint } from "@/components/ClawTooltip";
+import { SlackIcon } from "@/components/dashboard/BrandIcons";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { SLACK_APP_HANDLE, SLACK_RELAY_BASE_URL } from "@/lib/api";
 
@@ -50,7 +51,7 @@ function SlackAccountSection({ getToken }: { getToken: () => Promise<string> }) 
             ) : connected ? (
               <CheckCircle2 className="h-5 w-5 text-[var(--selection-accent)]" />
             ) : (
-              <MessageSquare className="h-5 w-5 text-text-secondary" />
+              <SlackIcon className="h-5 w-5" />
             )}
           </div>
           <div className="min-w-0">
