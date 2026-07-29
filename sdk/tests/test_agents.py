@@ -1922,6 +1922,45 @@ def test_agents_api_error(agents_client):
         assert "Agent not found" in str(exc_info.value)
 
 
+def test_bootstrap_inference_uses_agents_api_and_caller_timeout(agents_client):
+    messages = [
+        {"role": "system", "content": "Return JSON."},
+        {"role": "user", "content": "Create the pack."},
+    ]
+
+    with patch("hypercli.agents.httpx.Client") as mock_client_class:
+        mock_client = MagicMock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "model": "kimi-k2.6",
+            "content": '{"files":[]}',
+            "finish_reason": "stop",
+            "usage": {"total_tokens": 10},
+        }
+        mock_client.post.return_value = mock_response
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client_class.return_value = mock_client
+
+        payload = agents_client.bootstrap_inference(
+            messages,
+            response_format={"type": "json_object"},
+            timeout=120.0,
+        )
+
+    mock_client_class.assert_called_once_with(timeout=120.0)
+    mock_client.post.assert_called_once_with(
+        f"{agents_client._api_base}/bootstrap",
+        headers=agents_client._headers,
+        json={
+            "messages": messages,
+            "response_format": {"type": "json_object"},
+        },
+    )
+    assert payload["model"] == "kimi-k2.6"
+
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_agents_integration_lifecycle():

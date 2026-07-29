@@ -1761,6 +1761,32 @@ class Deployments:
             raise APIError(resp.status_code, detail)
         return resp.json()
 
+    def bootstrap_inference(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        response_format: dict[str, str] | None = None,
+        timeout: float = 60.0,
+    ) -> dict:
+        """Run the JWT-authenticated onboarding inference endpoint."""
+        body = {
+            "messages": messages,
+            "response_format": response_format or {"type": "json_object"},
+        }
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.post(
+                f"{self._api_base}/bootstrap",
+                headers=self._headers,
+                json=body,
+            )
+        if resp.status_code >= 400:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            raise APIError(resp.status_code, detail)
+        return resp.json()
+
     def _patch(self, path: str, json: dict = None) -> Any:
         with httpx.Client(timeout=30) as client:
             resp = client.patch(f"{self._api_base}{path}", headers=self._headers, json=json)
