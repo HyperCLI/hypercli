@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Search, Check, Bot, User, UserPlus } from "lucide-react";
 import { agentAvatar } from "@/lib/avatar";
+import { ResourceImage } from "@/components/ResourceImage";
 import type { Participant } from "./AgentsChannelsSidebar";
 
 interface AddParticipantPanelProps {
@@ -123,7 +124,7 @@ export function AddParticipantPanel({
               </div>
               <AnimatePresence mode="popLayout">
                 {agents.map((participant) => {
-                  const avatar = agentAvatar(participant.name);
+                  const avatar = agentAvatar(participant.name, participant.meta, participant.avatarUrl);
                   const Icon = avatar.icon;
                   const justAdded = recentlyAdded.has(participant.id);
 
@@ -140,10 +141,14 @@ export function AddParticipantPanel({
                       className="w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-surface-low/50 transition-colors disabled:opacity-60"
                     >
                       <div
-                        className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
+                        className="relative w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden"
                         style={{ backgroundColor: avatar.bgColor }}
                       >
-                        <Icon className="w-3 h-3" style={{ color: avatar.fgColor }} />
+                        {avatar.imageUrl ? (
+                          <ResourceImage src={avatar.imageUrl} alt={`${participant.name} avatar`} fill sizes="24px" className="object-cover" />
+                        ) : (
+                          <Icon className="w-3 h-3" style={{ color: avatar.fgColor }} />
+                        )}
                       </div>
                       <div className="flex-1 min-w-0 text-left">
                         <span className="text-xs text-foreground truncate block">{participant.name}</span>

@@ -4,8 +4,7 @@ import Link from "next/link";
 import React from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, Reorder } from "framer-motion";
-import { ArrowLeft, ArrowRight, BarChart3, Blocks, Check, Codepen, Copy, FolderOpen, KeyRound, Loader2, LogOut, MessageSquare, PanelRight, Plus, Play, SlidersHorizontal, Sparkles, Square, X } from "lucide-react";
-import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
+import { ArrowLeft, ArrowRight, BarChart3, Blocks, Check, Codepen, Copy, FolderOpen, HardDrive, House, KeyRound, Loader2, LogOut, MessageSquare, PanelRight, Plus, Play, SlidersHorizontal, Sparkles, Square, UsersRound, X } from "lucide-react";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import type { AgentChannelSummary } from "@hypercli.com/sdk/channels";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
@@ -13,16 +12,16 @@ import { Button, Input, writeClipboardText } from "@hypercli/shared-ui";
 
 import type { Agent, JsonObject } from "@/app/dashboard/agents/types";
 import { isAgentFailureState, isAgentOffline, isAgentTransitionalState } from "@/app/dashboard/agents/types";
-import { AUTH_BASE_URL, SLACK_APP_HANDLE } from "@/lib/api";
+import { SLACK_APP_HANDLE } from "@/lib/api";
 import { asObject, getOpenClawUiHint, humanizeKey } from "@/lib/openclaw-config";
 import { Tooltip, TooltipContent, TooltipHint, TooltipTrigger } from "@/components/ClawTooltip";
 import { AgentCardTooltip, type AgentCardTooltipData } from "@/components/dashboard/modules/AgentCardModule";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
-import { AgentsChannelsSidebar, AgentsSidebarDashboardLinks, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
+import { AgentsChannelsSidebar, AgentsSidebarDashboardLinks, RosterNavigationItem, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
 import { FilePreview, type FileEntry } from "@hypercli/shared-ui/files";
 import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { ResourceImage } from "@/components/ResourceImage";
-import { createAgentClient } from "@/lib/agent-client";
+import { createAgentClient, createBrowserHyperCLIClient } from "@/lib/agent-client";
 import { stageAgentStarterFilesAndStart } from "@/lib/agent-starter-files";
 import { moveAgentInRosterOrder, useAgentRosterOrder } from "@/hooks/useAgentRosterOrder";
 import { useAgentRosterShowOffline } from "@/hooks/useAgentRosterShowOffline";
@@ -33,7 +32,7 @@ import {
   buildOpenClawWorkspacesSyncEnv,
   type OpenClawWorkspacesSyncOptions,
 } from "@/lib/openclaw-launch";
-import { agentAvatar } from "@/lib/avatar";
+import { agentAvatar, agentProfileImageUrl } from "@/lib/avatar";
 import { parseAgentCapacityError } from "@/lib/agent-tier";
 import type { WorkspaceFile } from "@/lib/openclaw-chat";
 import type { ActivityEntry } from "@/lib/openclaw-session";
@@ -459,6 +458,7 @@ interface AgentSettingsPanelProps {
     walletAddress?: string;
   } | null;
   getToken?: () => Promise<string>;
+  onProfileAvatarChange?: (avatarUrl: string | null) => void;
   onStartAgent?: () => void;
   onStopAgent?: () => void;
   onDeleteAgent?: () => void;
@@ -536,6 +536,34 @@ const SETTINGS_DANGER_BUTTON_CLASS =
   "inline-flex h-8 items-center justify-center rounded-lg border border-destructive/30 bg-background px-3 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60";
 const SETTINGS_FILLED_DANGER_BUTTON_CLASS =
   "inline-flex h-8 min-w-[96px] shrink-0 items-center justify-center rounded-lg border border-destructive/30 bg-destructive/15 px-3 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/25 disabled:cursor-not-allowed disabled:opacity-50";
+const PROFILE_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
+const PROFILE_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+
+function profileImageValidationError(file: File): string | null {
+  if (!PROFILE_IMAGE_TYPES.has(file.type)) {
+    return "Choose a PNG, JPEG, WebP, or GIF image.";
+  }
+  if (file.size === 0) return "Choose a non-empty image file.";
+  if (file.size > PROFILE_IMAGE_MAX_BYTES) return "Image must be 2MB or smaller.";
+  return null;
+}
+
+function errorStatusCode(error: unknown): number | null {
+  if (!error || typeof error !== "object") return null;
+  const statusCode = (error as { statusCode?: unknown }).statusCode;
+  return typeof statusCode === "number" ? statusCode : null;
+}
+
+function avatarMutationErrorMessage(error: unknown, target: "profile" | "agent"): string {
+  const subject = target === "profile" ? "Profile image" : "Agent image";
+  const statusCode = errorStatusCode(error);
+  if (statusCode === 404 || statusCode === 405) {
+    return `${subject} updates are not available in this environment.`;
+  }
+  if (statusCode === 413) return "Image must be 2MB or smaller.";
+  if (statusCode === 415) return "Choose a PNG, JPEG, WebP, or GIF image.";
+  return error instanceof Error ? error.message : `Failed to update ${subject.toLowerCase()}.`;
+}
 
 function profileNameFromUser(user: AgentSettingsPanelProps["user"]): string {
   return user?.fullName || user?.name || "";
@@ -573,11 +601,17 @@ function agentSettingsHandle(agent: Agent | null): string {
 
 function agentSettingsAvatar(agent: Agent | null): string | null {
   if (!agent) return null;
-  if (agent.avatarUrl) return agent.avatarUrl;
-  if (agent.displayIdentity?.avatar_url && typeof agent.displayIdentity.avatar_url === "string") {
-    return agent.displayIdentity.avatar_url;
-  }
-  return agentAvatar(agentDisplayLabel(agent), agent.meta).imageUrl ?? null;
+  return agentAvatar(agentDisplayLabel(agent), agent.meta, agentProfileImageUrl(agent)).imageUrl ?? null;
+}
+
+function agentSettingsAvatarFallback(agent: Agent | null): string | null {
+  if (!agent) return null;
+  const identityAvatar = agent.displayIdentity?.avatar_url;
+  return agentAvatar(
+    agentDisplayLabel(agent),
+    agent.meta,
+    typeof identityAvatar === "string" ? identityAvatar : null,
+  ).imageUrl ?? null;
 }
 
 function normalizeAgentHandle(value: string): string | null {
@@ -1041,6 +1075,9 @@ function AgentSectionSettingsContent({
   onAgentAvatarSelect,
   onAgentAvatarRemove,
   agentAvatarUploadPending,
+  agentAvatarCanRemove,
+  agentAvatarUploadEnabled,
+  agentAvatarRemoveEnabled,
   agentImageDraft,
   onAgentImageChange,
   additionalEnvDraft,
@@ -1079,6 +1116,9 @@ function AgentSectionSettingsContent({
   onAgentAvatarSelect: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onAgentAvatarRemove: () => void;
   agentAvatarUploadPending?: boolean;
+  agentAvatarCanRemove: boolean;
+  agentAvatarUploadEnabled: boolean;
+  agentAvatarRemoveEnabled: boolean;
   agentImageDraft: string;
   onAgentImageChange: (value: string) => void;
   additionalEnvDraft: string;
@@ -1107,7 +1147,6 @@ function AgentSectionSettingsContent({
   agentStartBlockedReason?: string | null;
 }) {
   const avatarInputRef = React.useRef<HTMLInputElement | null>(null);
-  const agentAvatarUpdatesEnabled = true;
   const externalAgent = agent.managed === false;
   const canStartAgent = agent.state === "STOPPED" || isAgentFailureState(agent.state);
   const canStopAgent = agent.state === "RUNNING";
@@ -1224,13 +1263,13 @@ function AgentSectionSettingsContent({
             minHeight="min-h-[144px]"
           >
             <div className="flex items-start gap-5">
-              <TooltipHint label={agentAvatarUpdatesEnabled ? "Upload agent avatar" : "Avatar uploads are coming soon."} disabled={!agentAvatarUpdatesEnabled}>
+              <TooltipHint label={agentAvatarUploadEnabled ? "Upload agent avatar" : "Agent avatar uploads are unavailable."} disabled={!agentAvatarUploadEnabled}>
                 <button
                   type="button"
                   onClick={() => {
-                    if (agentAvatarUpdatesEnabled) avatarInputRef.current?.click();
+                    if (agentAvatarUploadEnabled) avatarInputRef.current?.click();
                   }}
-                  disabled={!agentAvatarUpdatesEnabled}
+                  disabled={!agentAvatarUploadEnabled}
                   className="relative flex h-[64px] w-[64px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-high text-[13px] font-semibold text-text-muted"
                   aria-label="Upload agent avatar"
                 >
@@ -1243,24 +1282,24 @@ function AgentSectionSettingsContent({
               </TooltipHint>
               <div className="min-w-0">
                 <p className="text-[16px] font-semibold leading-5 text-foreground">Upload Image</p>
-                <p className="mt-1 text-[13px] font-semibold leading-5 text-text-muted">Min 300x430px, PNG or JPEG</p>
+                <p className="mt-1 text-[13px] font-semibold leading-5 text-text-muted">PNG, JPEG, WebP, or GIF up to 2MB</p>
                 <input
                   ref={avatarInputRef}
                   type="file"
                   accept="image/png,image/jpeg,image/webp,image/gif"
                   onChange={onAgentAvatarSelect}
-                  disabled={!agentAvatarUpdatesEnabled}
+                  disabled={!agentAvatarUploadEnabled}
                   className="hidden"
                 />
-                {agentAvatarPreview ? (
-                  <TooltipHint label={agentAvatarUploadPending ? "Cancel avatar replacement" : "Remove agent avatar"} disabled={!agentAvatarUpdatesEnabled}>
-                    <button type="button" onClick={onAgentAvatarRemove} disabled={!agentAvatarUpdatesEnabled} className={`mt-3 ${SETTINGS_DANGER_BUTTON_CLASS}`}>
+                {agentAvatarUploadPending || agentAvatarCanRemove ? (
+                  <TooltipHint label={agentAvatarUploadPending ? "Cancel avatar replacement" : agentAvatarRemoveEnabled ? "Remove agent avatar" : "Agent avatar removal is unavailable."} disabled={!agentAvatarUploadPending && !agentAvatarRemoveEnabled}>
+                    <button type="button" onClick={onAgentAvatarRemove} disabled={!agentAvatarUploadPending && !agentAvatarRemoveEnabled} className={`mt-3 ${SETTINGS_DANGER_BUTTON_CLASS}`}>
                       {agentAvatarUploadPending ? "Cancel" : "Remove"}
                     </button>
                   </TooltipHint>
                 ) : (
-                  <TooltipHint label={agentAvatarUpdatesEnabled ? "Upload agent avatar" : "Avatar uploads are coming soon."} disabled={!agentAvatarUpdatesEnabled}>
-                    <button type="button" onClick={() => avatarInputRef.current?.click()} disabled={!agentAvatarUpdatesEnabled} className={`mt-3 ${SETTINGS_SMALL_BUTTON_CLASS}`}>
+                  <TooltipHint label={agentAvatarUploadEnabled ? "Upload agent avatar" : "Agent avatar uploads are unavailable."} disabled={!agentAvatarUploadEnabled}>
+                    <button type="button" onClick={() => avatarInputRef.current?.click()} disabled={!agentAvatarUploadEnabled} className={`mt-3 ${SETTINGS_SMALL_BUTTON_CLASS}`}>
                       {agentAvatarUploadPending ? "Selected" : "Upload"}
                     </button>
                   </TooltipHint>
@@ -1634,6 +1673,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     showSectionNavigation = true,
     user,
     getToken,
+    onProfileAvatarChange,
     onStartAgent,
     onStopAgent,
     onDeleteAgent,
@@ -1681,6 +1721,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const [savedAgentAvatar, setSavedAgentAvatar] = React.useState<string | null>(() => agentSettingsAvatar(agent));
   const [agentAvatarDraft, setAgentAvatarDraft] = React.useState<string | null>(() => agentSettingsAvatar(agent));
   const [agentAvatarFile, setAgentAvatarFile] = React.useState<File | null>(null);
+  const [savedAgentAvatarRemovable, setSavedAgentAvatarRemovable] = React.useState(Boolean(agent?.avatarUrl));
   const [savedAgentImage, setSavedAgentImage] = React.useState(() => launchConfigImage(agent));
   const [agentImageDraft, setAgentImageDraft] = React.useState(() => launchConfigImage(agent));
   const [savedAdditionalEnvDraft, setSavedAdditionalEnvDraft] = React.useState(() => additionalEnvTextFromAgent(agent));
@@ -1731,7 +1772,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     const loadProfile = async () => {
       try {
         const token = await getToken();
-        const client = new BrowserHyperCLI({ apiUrl: AUTH_BASE_URL, token });
+        const client = createBrowserHyperCLIClient(token);
         const [profile, profileImage] = await Promise.all([
           client.user.get(),
           client.user.getProfileImage().catch(() => null),
@@ -1745,6 +1786,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         setSavedProfileAvatar(nextAvatar);
         setProfileAvatar(nextAvatar);
         setProfileAvatarFile(null);
+        onProfileAvatarChange?.(nextAvatar);
       } catch (error) {
         if (!active) return;
         setProfileError(error instanceof Error ? error.message : "Failed to load profile.");
@@ -1756,7 +1798,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     return () => {
       active = false;
     };
-  }, [getToken, user]);
+  }, [getToken, onProfileAvatarChange, user]);
 
   React.useEffect(() => {
     const nextAgentId = agent?.id ?? null;
@@ -1774,6 +1816,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     setSavedAgentHandle(nextHandle);
     setAgentAvatarDraft((current) => agentChanged || current === savedAgentAvatar ? nextAvatar : current);
     setSavedAgentAvatar(nextAvatar);
+    setSavedAgentAvatarRemovable(Boolean(agent?.avatarUrl));
     const nextImage = launchConfigImage(agent);
     const nextAdditionalEnv = additionalEnvTextFromAgent(agent);
     const nextDesktopEnabled = getDesktopEnabled(agent);
@@ -1977,11 +2020,12 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
 
     setProfileSaving(true);
     let savingSection: "profile" | "agent" | null = null;
+    let savingAvatar: "profile" | "agent" | null = null;
     try {
       if (profileChanged && getToken) {
         savingSection = "profile";
         const token = await getToken();
-        const client = new BrowserHyperCLI({ apiUrl: AUTH_BASE_URL, token });
+        const client = createBrowserHyperCLIClient(token);
         if (profileNameChanged) {
           const updated = await client.user.update({ name: profileName.trim() });
           const nextName = updated.name ?? profileName.trim();
@@ -1989,14 +2033,19 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
           setProfileName(nextName);
         }
         if (profileAvatarFile) {
+          savingAvatar = "profile";
           const uploaded = await client.user.uploadProfileImage(profileAvatarFile);
+          if (!uploaded.avatarUrl) throw new Error("Profile image upload returned no URL.");
           setSavedProfileAvatar(uploaded.avatarUrl);
           setProfileAvatar(uploaded.avatarUrl);
           setProfileAvatarFile(null);
+          onProfileAvatarChange?.(uploaded.avatarUrl ?? null);
         } else if (profileAvatarChanged && !profileAvatar) {
+          savingAvatar = "profile";
           await client.user.deleteProfileImage();
           setSavedProfileAvatar(null);
           setProfileAvatar(null);
+          onProfileAvatarChange?.(null);
         }
         setProfileSuccess("Profile updated.");
       }
@@ -2044,16 +2093,21 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
 
       if (agentAvatarFile && onUploadAgentAvatar) {
         savingSection = "agent";
+        savingAvatar = "agent";
         const avatarUrl = await onUploadAgentAvatar(agent.id, agentAvatarFile);
         setAgentAvatarDraft(avatarUrl);
         setSavedAgentAvatar(avatarUrl);
+        setSavedAgentAvatarRemovable(true);
         setAgentAvatarFile(null);
         setAgentSettingsSuccess("Agent settings updated.");
       } else if (agentAvatarChanged && !agentAvatarDraft && onDeleteAgentAvatar) {
         savingSection = "agent";
+        savingAvatar = "agent";
         await onDeleteAgentAvatar(agent.id);
-        setSavedAgentAvatar(null);
-        setAgentAvatarDraft(null);
+        const fallbackAvatar = agentSettingsAvatarFallback(agent);
+        setSavedAgentAvatar(fallbackAvatar);
+        setAgentAvatarDraft(fallbackAvatar);
+        setSavedAgentAvatarRemovable(false);
         setAgentSettingsSuccess("Agent settings updated.");
       }
 
@@ -2095,10 +2149,11 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         setAgentSettingsSuccess("Agent settings updated.");
       }
 
-      if (!agentAvatarFile) setSavedAgentAvatar(agentAvatarDraft);
       setSavedArchiveDraft(archiveDraft);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to save settings.";
+      const message = savingAvatar
+        ? avatarMutationErrorMessage(error, savingAvatar)
+        : error instanceof Error ? error.message : "Failed to save settings.";
       if (removeConfiguredChannels) setConfirmImageChange(false);
       if (savingSection === "agent") {
         setAgentSettingsError(message);
@@ -2157,20 +2212,36 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
+    const validationError = profileImageValidationError(file);
+    if (validationError) {
+      setProfileError(validationError);
+      setProfileSuccess(null);
+      return;
+    }
     const nextUrl = URL.createObjectURL(file);
     objectUrlsRef.current.push(nextUrl);
     setProfileAvatarFile(file);
     setProfileAvatar(nextUrl);
+    setProfileError(null);
+    setProfileSuccess(null);
   }, []);
 
   const handleAgentAvatarSelect = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
+    const validationError = profileImageValidationError(file);
+    if (validationError) {
+      setAgentSettingsError(validationError);
+      setAgentSettingsSuccess(null);
+      return;
+    }
     const nextUrl = URL.createObjectURL(file);
     objectUrlsRef.current.push(nextUrl);
     setAgentAvatarFile(file);
     setAgentAvatarDraft(nextUrl);
+    setAgentSettingsError(null);
+    setAgentSettingsSuccess(null);
   }, []);
 
   if (!agent) return null;
@@ -2247,6 +2318,9 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
               }
             }}
             agentAvatarUploadPending={Boolean(agentAvatarFile)}
+            agentAvatarCanRemove={savedAgentAvatarRemovable}
+            agentAvatarUploadEnabled={Boolean(onUploadAgentAvatar)}
+            agentAvatarRemoveEnabled={Boolean(onDeleteAgentAvatar)}
             agentImageDraft={agentImageDraft}
             onAgentImageChange={setAgentImageDraft}
             additionalEnvDraft={additionalEnvDraft}
@@ -2495,6 +2569,9 @@ interface AgentListProps {
   sidebarCreatorSignal: number;
   setPendingAgentDelete: (value: { id: string; name: string } | null) => void;
   accountInitial?: string;
+  accountAvatarUrl?: string | null;
+  accountName?: string | null;
+  accountEmail?: string | null;
   onLogin?: () => void;
   onLogout?: () => void | Promise<void>;
   budget?: {
@@ -2507,6 +2584,18 @@ interface AgentListProps {
   preferredPlanId?: string | null;
   onOpenAccountSettings?: () => void;
   accountSettingsActive?: boolean;
+  onOpenHome?: () => void;
+  homeActive?: boolean;
+  homeHref?: string;
+  onOpenSharedResources?: () => void;
+  sharedResourcesActive?: boolean;
+  sharedResourcesHref?: string;
+  onOpenMembers?: () => void;
+  membersActive?: boolean;
+  membersHref?: string;
+  onOpenUsage?: () => void;
+  usageActive?: boolean;
+  usageHref?: string;
   pendingSlotReleases?: Record<string, number>;
   embeddedInNavigation?: boolean;
   /**
@@ -2528,6 +2617,7 @@ function toAgentCardTooltipData(agent: Agent): AgentCardTooltipData {
     updatedAt: agent.updated_at,
     lastError: agent.last_error,
     meta: agent.meta,
+    avatarUrl: agentProfileImageUrl(agent),
   };
 }
 
@@ -2557,6 +2647,9 @@ export function AgentList({
   sidebarCreatorSignal,
   setPendingAgentDelete,
   accountInitial,
+  accountAvatarUrl,
+  accountName,
+  accountEmail,
   onLogin,
   onLogout,
   budget,
@@ -2566,6 +2659,18 @@ export function AgentList({
   preferredPlanId,
   onOpenAccountSettings,
   accountSettingsActive = false,
+  onOpenHome,
+  homeActive = false,
+  homeHref = DASHBOARD_VIEW_HREFS.overview,
+  onOpenSharedResources,
+  sharedResourcesActive = false,
+  sharedResourcesHref = "/dashboard/agents?section=knowledge",
+  onOpenMembers,
+  membersActive = false,
+  membersHref = "/dashboard/agents?section=members",
+  onOpenUsage,
+  usageActive = false,
+  usageHref = DASHBOARD_VIEW_HREFS.usage,
   pendingSlotReleases,
   embeddedInNavigation = false,
   showChannels = false,
@@ -2789,7 +2894,7 @@ export function AgentList({
                 >
                   {visibleAgents.map((a) => {
                   const agentName = agentDisplayLabel(a);
-                  const av = agentAvatar(agentName, a.meta);
+                  const av = agentAvatar(agentName, a.meta, agentProfileImageUrl(a));
                   const Icon = av.icon;
                   const selected = selectedAgentId === a.id;
                   const agentButton = (
@@ -2841,10 +2946,50 @@ export function AgentList({
               )}
                 </div>
               </div>
+              <div aria-hidden="true" className="agents-roster-rail-divider my-2 h-px w-8 shrink-0 bg-border/70" />
+              <div className="agents-roster-rail-home shrink-0">
+                <RosterNavigationItem
+                  compact
+                  label="Home"
+                  href={homeHref}
+                  active={homeActive}
+                  onOpen={onOpenHome}
+                  icon={House}
+                />
+              </div>
+              <div className="agents-roster-rail-administration flex shrink-0 flex-col items-center gap-2">
+                <RosterNavigationItem
+                  compact
+                  label="Shared resources"
+                  href={sharedResourcesHref}
+                  active={sharedResourcesActive}
+                  onOpen={onOpenSharedResources}
+                  icon={HardDrive}
+                />
+                <RosterNavigationItem
+                  compact
+                  label="Members"
+                  href={membersHref}
+                  active={membersActive}
+                  onOpen={onOpenMembers}
+                  icon={UsersRound}
+                />
+                <RosterNavigationItem
+                  compact
+                  label="Usage"
+                  href={usageHref}
+                  active={usageActive}
+                  onOpen={onOpenUsage}
+                  icon={BarChart3}
+                />
+              </div>
             </div>
             <AgentsSidebarDashboardLinks
               compact
               accountInitial={accountInitial}
+              accountAvatarUrl={accountAvatarUrl}
+              accountName={accountName}
+              accountEmail={accountEmail}
               onLogin={onLogin}
               onOpenSettings={onOpenAccountSettings}
               settingsActive={accountSettingsActive}
@@ -2873,6 +3018,7 @@ export function AgentList({
                 name: agentDisplayLabel(a),
                 type: "agent" as const,
                 meta: a.meta ?? null,
+                avatarUrl: agentProfileImageUrl(a),
               }))}
               offlineAgentCount={offlineAgentIds.size}
               showOfflineAgents={showOfflineAgents}
@@ -2891,7 +3037,22 @@ export function AgentList({
               rosterLoading={rosterLoading}
               onOpenAccountSettings={onOpenAccountSettings}
               accountSettingsActive={accountSettingsActive}
+              onOpenHome={onOpenHome}
+              homeActive={homeActive}
+              homeHref={homeHref}
+              onOpenSharedResources={onOpenSharedResources}
+              sharedResourcesActive={sharedResourcesActive}
+              sharedResourcesHref={sharedResourcesHref}
+              onOpenMembers={onOpenMembers}
+              membersActive={membersActive}
+              membersHref={membersHref}
+              onOpenUsage={onOpenUsage}
+              usageActive={usageActive}
+              usageHref={usageHref}
               accountInitial={accountInitial}
+              accountAvatarUrl={accountAvatarUrl}
+              accountName={accountName}
+              accountEmail={accountEmail}
               onLogin={onLogin}
               onLogout={onLogout}
               onDeleteThread={(threadId) => {

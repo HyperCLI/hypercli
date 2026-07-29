@@ -2807,7 +2807,7 @@ export class Deployments {
   private readonly apiKey: string;
   private readonly apiBase: string;
   private readonly agentsWsUrl: string;
-  private readonly agentHttp: Pick<HTTPClient, 'get' | 'post' | 'patch' | 'delete'>;
+  private readonly agentHttp: Pick<HTTPClient, 'get' | 'post' | 'postRaw' | 'patch' | 'delete'>;
 
   constructor(
     private readonly http: HTTPClient,
@@ -3077,28 +3077,16 @@ export class Deployments {
     content: Blob | ArrayBuffer | ArrayBufferView,
     contentType?: string,
   ): Promise<AgentProfileImageUploadResult> {
-    const headers = new Headers();
-    let body: any;
-    if (content instanceof Blob) {
-      body = content;
-      headers.set('Content-Type', contentType || content.type || 'image/png');
-    } else {
-      body = content;
-      headers.set('Content-Type', contentType || 'image/png');
-    }
-    const response = await this.fetchRaw(`/external-agents/${externalAgentId}/profile-image`, {
-      method: 'POST',
-      headers,
-      body,
-    });
-    return response.json() as Promise<AgentProfileImageUploadResult>;
+    const resolvedContentType = contentType || (content instanceof Blob ? content.type : '') || 'image/png';
+    return this.agentHttp.postRaw<AgentProfileImageUploadResult>(
+      `/external-agents/${externalAgentId}/profile-image`,
+      content,
+      resolvedContentType,
+    );
   }
 
   async deleteExternalAgentProfileImage(externalAgentId: string): Promise<AgentProfileImageUploadResult> {
-    const response = await this.fetchRaw(`/external-agents/${externalAgentId}/profile-image`, {
-      method: 'DELETE',
-    });
-    return response.json() as Promise<AgentProfileImageUploadResult>;
+    return this.agentHttp.delete<AgentProfileImageUploadResult>(`/external-agents/${externalAgentId}/profile-image`);
   }
 
   async rotateExternalAgentKey(agentIdOrName: string): Promise<Record<string, any>> {
@@ -3209,33 +3197,18 @@ export class Deployments {
     content: Blob | ArrayBuffer | ArrayBufferView,
     contentType?: string,
   ): Promise<AgentProfileImageUploadResult> {
-    const headers = new Headers();
-    let body: any;
-    if (content instanceof Blob) {
-      body = content;
-      headers.set('Content-Type', contentType || content.type || 'image/png');
-    } else if (ArrayBuffer.isView(content)) {
-      body = content;
-      headers.set('Content-Type', contentType || 'image/png');
-    } else {
-      body = content;
-      headers.set('Content-Type', contentType || 'image/png');
-    }
     const resolvedAgentId = await this.resolveAgentId(agentId);
-    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${resolvedAgentId}/profile-image`, {
-      method: 'POST',
-      headers,
-      body,
-    });
-    return response.json() as Promise<AgentProfileImageUploadResult>;
+    const resolvedContentType = contentType || (content instanceof Blob ? content.type : '') || 'image/png';
+    return this.agentHttp.postRaw<AgentProfileImageUploadResult>(
+      `${DEPLOYMENTS_API_PREFIX}/${resolvedAgentId}/profile-image`,
+      content,
+      resolvedContentType,
+    );
   }
 
   async deleteProfileImage(agentId: string): Promise<AgentProfileImageUploadResult> {
     const resolvedAgentId = await this.resolveAgentId(agentId);
-    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${resolvedAgentId}/profile-image`, {
-      method: 'DELETE',
-    });
-    return response.json() as Promise<AgentProfileImageUploadResult>;
+    return this.agentHttp.delete<AgentProfileImageUploadResult>(`${DEPLOYMENTS_API_PREFIX}/${resolvedAgentId}/profile-image`);
   }
 
   async resize(

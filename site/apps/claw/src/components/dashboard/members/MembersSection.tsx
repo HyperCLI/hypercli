@@ -9,7 +9,6 @@ import type {
   WorkspaceGrant,
   WorkspacesAPI,
 } from "@hypercli.com/sdk/workspaces";
-import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
 import {
   Badge,
   Card,
@@ -38,7 +37,7 @@ import {
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useWorkspace } from "@/components/dashboard/WorkspaceContext";
 import { TooltipHint } from "@/components/ClawTooltip";
-import { AUTH_BASE_URL } from "@/lib/api";
+import { createBrowserHyperCLIClient } from "@/lib/agent-client";
 
 type WorkspaceRole = "viewer" | "contributor" | "admin";
 type GrantSubjectType = "user" | "agent";
@@ -236,7 +235,7 @@ export function MembersSection({ compact = false, agents = [], agentsLoading = f
     void (async () => {
       try {
         const token = await getToken();
-        const client = new BrowserHyperCLI({ apiUrl: AUTH_BASE_URL, token });
+        const client = createBrowserHyperCLIClient(token);
         const [auth, profile] = await Promise.all([client.user.authMe(), client.user.get()]);
         if (!active) return;
         setLoadedUserProfile({

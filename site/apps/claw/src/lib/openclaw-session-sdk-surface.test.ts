@@ -10,6 +10,7 @@ import {
   normalizeOpenClawSessions,
   normalizeOpenClawThinkingLevels,
   openClawEventMatchesSession,
+  resolveOpenClawResumeSessionKey,
   sameOpenClawSelectableSessionKey,
   streamOpenClawChat,
 } from "./openclaw-session-sdk-surface";
@@ -201,6 +202,46 @@ describe("openclaw-session-sdk-surface", () => {
         sourceChannelId: "webchat",
       }),
     ]);
+  });
+
+  it("resumes the most recently active writable conversation, including legacy main history", () => {
+    const sessions = normalizeOpenClawSessions([
+      {
+        key: "agent:default:dashboard:019789ab-cdef-4abc-8def-0123456789ab",
+        displayName: "Older dashboard conversation",
+        updatedAt: 10,
+      },
+      {
+        key: "agent:default:main",
+        origin: { provider: "webchat", surface: "webchat" },
+        deliveryContext: { channel: "webchat" },
+        updatedAt: 20,
+      },
+      {
+        key: "agent:default:main",
+        origin: { provider: "telegram", from: "telegram:489595440" },
+        deliveryContext: { channel: "telegram", to: "telegram:489595440" },
+        updatedAt: 30,
+      },
+    ]);
+
+    expect(resolveOpenClawResumeSessionKey(sessions)).toBe("main");
+  });
+
+  it("does not resume archived, private, read-only, or subagent sessions", () => {
+    const sessions = normalizeOpenClawSessions([
+      { key: "dashboard:archived", updatedAt: 40, archived: true },
+      { key: "session-hypercli-ephemeral-019789ab-cdef-4abc-8def-0123456789ab", updatedAt: 30 },
+      {
+        key: "agent:default:main",
+        origin: { provider: "telegram", from: "telegram:489595440" },
+        deliveryContext: { channel: "telegram", to: "telegram:489595440" },
+        updatedAt: 20,
+      },
+      { key: "agent:default:subagent:worker", updatedAt: 10 },
+    ]);
+
+    expect(resolveOpenClawResumeSessionKey(sessions)).toBeNull();
   });
 
   it("normalizes the selected model and gateway-provided thinking levels", () => {

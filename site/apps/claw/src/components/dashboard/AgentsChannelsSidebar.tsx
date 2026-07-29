@@ -18,13 +18,12 @@ import {
   AlertTriangle,
   PenLine,
   PanelLeftClose,
-  Key,
-  CreditCard,
-  Settings,
-  LogOut,
-  LogIn,
   GripVertical,
   Loader2,
+  HardDrive,
+  BarChart3,
+  UsersRound,
+  House,
 } from "lucide-react";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import { Switch, ThemeSelector } from "@hypercli/shared-ui";
@@ -61,6 +60,7 @@ export interface Participant {
   name: string;
   type: "user" | "agent";
   meta?: AgentMeta | null;
+  avatarUrl?: string | null;
 }
 
 export interface ConversationThread {
@@ -84,18 +84,27 @@ function participantAgentMeta(
   return participant.meta ?? agentCardDataById?.[participant.id]?.meta ?? null;
 }
 
+function participantAgentAvatarUrl(
+  participant: Participant,
+  agentCardDataById?: Record<string, AgentCardTooltipData>,
+): string | null {
+  return participant.avatarUrl || agentCardDataById?.[participant.id]?.avatarUrl || null;
+}
+
 function AgentAvatarMark({
   name,
   meta,
+  avatarUrl,
   className,
   iconClassName,
 }: {
   name: string;
   meta?: AgentMeta | null;
+  avatarUrl?: string | null;
   className: string;
   iconClassName: string;
 }) {
-  const avatar = agentAvatar(name, meta);
+  const avatar = agentAvatar(name, meta, avatarUrl);
   const AvatarIcon = avatar.icon;
 
   return (
@@ -158,19 +167,34 @@ export interface AgentsChannelsSidebarProps {
   agentCreationDisabledReason?: string | null;
   /** Whether the selected Workspace roster is still loading. */
   rosterLoading?: boolean;
+  onOpenHome?: () => void;
+  homeActive?: boolean;
+  homeHref?: string;
+  onOpenSharedResources?: () => void;
+  sharedResourcesActive?: boolean;
+  sharedResourcesHref?: string;
+  onOpenMembers?: () => void;
+  membersActive?: boolean;
+  membersHref?: string;
+  onOpenUsage?: () => void;
+  usageActive?: boolean;
+  usageHref?: string;
   onOpenAccountSettings?: () => void;
   accountSettingsActive?: boolean;
   /** Increment to imperatively open the inline agent creator (e.g. from the main panel's empty state). */
   openAgentCreatorSignal?: number;
   accountInitial?: string;
+  accountAvatarUrl?: string | null;
+  accountName?: string | null;
+  accountEmail?: string | null;
   onLogin?: () => void;
   onLogout?: () => void | Promise<void>;
 }
 
 const ACCOUNT_LINKS = [
-  { label: "API Keys", href: `${DASHBOARD_VIEW_HREFS.settings}&settings=api-keys`, icon: Key },
-  { label: "Plans", href: `${DASHBOARD_VIEW_HREFS.settings}&settings=plans`, icon: CreditCard },
-  { label: "Billing", href: `${DASHBOARD_VIEW_HREFS.settings}&settings=billing`, icon: CreditCard },
+  { label: "API Keys", href: `${DASHBOARD_VIEW_HREFS.settings}&settings=api-keys` },
+  { label: "Plans", href: `${DASHBOARD_VIEW_HREFS.settings}&settings=plans` },
+  { label: "Billing", href: `${DASHBOARD_VIEW_HREFS.settings}&settings=billing` },
 ];
 
 function isDashboardLinkActive(pathname: string, href: string) {
@@ -384,7 +408,11 @@ function ParticipantAvatars({
             </div>
           );
         }
-        const avatar = agentAvatar(p.name, participantAgentMeta(p, agentCardDataById));
+        const avatar = agentAvatar(
+          p.name,
+          participantAgentMeta(p, agentCardDataById),
+          participantAgentAvatarUrl(p, agentCardDataById),
+        );
         const Icon = avatar.icon;
         return (
           <Tooltip key={p.id}>
@@ -746,6 +774,9 @@ export function AgentsSidebarDashboardLinks({
   compact = false,
   mobileMode = false,
   accountInitial = "?",
+  accountAvatarUrl,
+  accountName,
+  accountEmail,
   onLogin,
   onOpenSettings,
   settingsActive = false,
@@ -754,6 +785,9 @@ export function AgentsSidebarDashboardLinks({
   compact?: boolean;
   mobileMode?: boolean;
   accountInitial?: string;
+  accountAvatarUrl?: string | null;
+  accountName?: string | null;
+  accountEmail?: string | null;
   onLogin?: () => void;
   onOpenSettings?: () => void;
   settingsActive?: boolean;
@@ -788,7 +822,6 @@ export function AgentsSidebarDashboardLinks({
             role="menu"
           >
             {!onLogin && ACCOUNT_LINKS.map((item) => {
-              const Icon = item.icon;
               const active = !item.href.includes("?view=settings") && isDashboardLinkActive(pathname, item.href);
 
               return (
@@ -797,13 +830,12 @@ export function AgentsSidebarDashboardLinks({
                   href={item.href}
                   onClick={() => setOpen(false)}
                   role="menuitem"
-                  className={`flex items-center gap-2 px-3 text-left transition-colors ${
+                  className={`flex items-center px-3 text-left transition-colors ${
                     active
                       ? "bg-surface-low text-foreground"
                       : "text-text-secondary hover:bg-surface-low hover:text-foreground"
                   } ${mobileMode ? "py-2" : "py-1.5"}`}
                 >
-                  <Icon className={`${mobileMode ? "h-5 w-5" : "h-3.5 w-3.5"} flex-shrink-0`} />
                   <span className="text-[11px] font-medium">{item.label}</span>
                 </Link>
               );
@@ -818,13 +850,12 @@ export function AgentsSidebarDashboardLinks({
                     setOpen(false);
                     onOpenSettings();
                   }}
-                  className={`flex w-full items-center gap-2 px-3 text-left transition-colors ${
+                  className={`flex w-full items-center px-3 text-left transition-colors ${
                     settingsActive
                       ? "bg-surface-low text-foreground"
                       : "text-text-secondary hover:bg-surface-low hover:text-foreground"
                   } ${mobileMode ? "py-2" : "py-1.5"}`}
                 >
-                  <Settings className={`${mobileMode ? "h-5 w-5" : "h-3.5 w-3.5"} flex-shrink-0`} />
                   <span className="text-[11px] font-medium">Settings</span>
                 </button>
               ) : (
@@ -832,9 +863,8 @@ export function AgentsSidebarDashboardLinks({
                   href={DASHBOARD_VIEW_HREFS.settings}
                   role="menuitem"
                   onClick={() => setOpen(false)}
-                  className={`flex items-center gap-2 px-3 text-left text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground ${mobileMode ? "py-2" : "py-1.5"}`}
+                  className={`flex items-center px-3 text-left text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground ${mobileMode ? "py-2" : "py-1.5"}`}
                 >
-                  <Settings className={`${mobileMode ? "h-5 w-5" : "h-3.5 w-3.5"} flex-shrink-0`} />
                   <span className="text-[11px] font-medium">Settings</span>
                 </Link>
               )
@@ -847,13 +877,23 @@ export function AgentsSidebarDashboardLinks({
                   onLogin();
                 }}
                 role="menuitem"
-                className={`flex w-full items-center gap-2 px-3 text-left text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground ${mobileMode ? "py-2" : "py-1.5"}`}
+                className={`flex w-full items-center px-3 text-left text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground ${mobileMode ? "py-2" : "py-1.5"}`}
               >
-                <LogIn className={`${mobileMode ? "h-5 w-5" : "h-3.5 w-3.5"} flex-shrink-0`} />
                 <span className="text-[11px] font-medium">Sign in</span>
               </button>
             ) : null}
-            <ThemeSelector menu aria-label="Appearance theme" className="w-full [&>button]:px-2" />
+            <a
+              href="https://docs.hypercli.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className={`mt-1 flex items-center border-t border-border/70 px-3 text-left text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground ${
+                mobileMode ? "py-2" : "py-1.5"
+              }`}
+            >
+              <span className="text-[11px] font-medium">Documentation</span>
+            </a>
             {onLogout && (
               <button
                 type="button"
@@ -862,14 +902,14 @@ export function AgentsSidebarDashboardLinks({
                   void onLogout();
                 }}
                 role="menuitem"
-                className={`flex w-full items-center gap-2 border-t border-border/70 px-3 text-left text-destructive transition-colors hover:bg-destructive/10 ${
+                className={`flex w-full items-center border-t border-border/70 px-3 text-left text-destructive transition-colors hover:bg-destructive/10 ${
                   mobileMode ? "py-2" : "py-1.5"
                 }`}
               >
-                <LogOut className={`${mobileMode ? "h-5 w-5" : "h-3.5 w-3.5"} flex-shrink-0`} />
                 <span className="text-[11px] font-medium">Sign out</span>
               </button>
             )}
+            <ThemeSelector menu aria-label="Appearance theme" className="w-full [&>button]:px-2" />
           </motion.div>
         )}
       </AnimatePresence>
@@ -879,13 +919,13 @@ export function AgentsSidebarDashboardLinks({
           type="button"
           onClick={() => setOpen((value) => !value)}
           className={`flex items-center rounded-md transition-colors ${
-            compact
+              compact
               ? `h-8 w-8 justify-center ${
                   open
                     ? "bg-surface-low text-foreground"
                     : "text-text-muted hover:bg-surface-low hover:text-foreground"
                 }`
-              : `${mobileMode ? "h-10 rounded-lg px-3" : "h-8 px-2"} w-full justify-between text-left ${
+              : `${mobileMode ? "h-14 rounded-lg px-3" : "h-12 px-2"} w-full justify-between text-left ${
                   open
                     ? "bg-surface-low text-foreground"
                     : "text-text-muted hover:bg-surface-low hover:text-foreground"
@@ -895,13 +935,30 @@ export function AgentsSidebarDashboardLinks({
           aria-expanded={open}
           aria-haspopup="menu"
         >
-          <span className={`flex items-center ${compact ? "" : "min-w-0 gap-2"}`}>
-            <span className={`flex flex-shrink-0 items-center justify-center rounded-full bg-surface-high text-xs font-bold text-foreground ${
-              mobileMode && !compact ? "h-8 w-8" : "h-7 w-7"
+          <span className={`flex items-center ${compact ? "" : "min-w-0 flex-1 gap-2"}`}>
+            <span className={`relative flex flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-high text-xs font-bold text-foreground ${
+              !compact ? "h-8 w-8" : "h-7 w-7"
             }`}>
-              {initial}
+              {accountAvatarUrl ? (
+                <ResourceImage
+                  src={accountAvatarUrl}
+                  alt="Profile avatar"
+                  fill
+                  sizes={!compact ? "32px" : "28px"}
+                  className="object-cover"
+                />
+              ) : initial}
             </span>
-            {!compact && <span className="truncate text-[11px] font-medium">{onLogin ? "Sign in" : "Account"}</span>}
+            {!compact ? (
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[11px] font-medium text-foreground">
+                  {onLogin ? "Sign in" : accountName?.trim() || "Account"}
+                </span>
+                {!onLogin && accountEmail?.trim() ? (
+                  <span className="mt-0.5 block truncate text-[10px] text-text-muted">{accountEmail}</span>
+                ) : null}
+              </span>
+            ) : null}
           </span>
           {!compact && (
             <ChevronDown className={`${mobileMode ? "h-5 w-5" : "h-3.5 w-3.5"} flex-shrink-0 text-text-muted transition-transform ${open ? "rotate-180" : ""}`} />
@@ -1033,6 +1090,7 @@ interface AgentGroup {
   agentId: string;
   agentName: string;
   agentMeta?: AgentMeta | null;
+  agentAvatarUrl?: string | null;
   threads: ConversationThread[];
   totalUnread: number;
 }
@@ -1073,6 +1131,7 @@ function GroupedByAgent({
           agentId: primary.id,
           agentName: primary.name,
           agentMeta: participantAgentMeta(primary, agentCardDataById),
+          agentAvatarUrl: participantAgentAvatarUrl(primary, agentCardDataById),
           threads: [],
           totalUnread: 0,
         });
@@ -1105,7 +1164,7 @@ function GroupedByAgent({
     <div className="flex-1 overflow-y-auto">
       {agentGroups.map((group) => {
         const isCollapsed = collapsed.has(group.agentId);
-        const avatar = agentAvatar(group.agentName, group.agentMeta);
+        const avatar = agentAvatar(group.agentName, group.agentMeta, group.agentAvatarUrl);
         const Icon = avatar.icon;
 
         return (
@@ -1214,6 +1273,7 @@ interface NodePosition {
   name: string;
   type: "user" | "agent";
   meta?: AgentMeta | null;
+  avatarUrl?: string | null;
   x: number;
   y: number;
 }
@@ -1272,6 +1332,7 @@ export function ConversationGraphModule({
         name: p.name,
         type: p.type,
         meta: p.meta ?? null,
+        avatarUrl: p.avatarUrl ?? null,
         x: startX + i * spacing,
         y: 20,
       }));
@@ -1290,6 +1351,7 @@ export function ConversationGraphModule({
         name: p.name,
         type: p.type,
         meta: p.meta ?? null,
+        avatarUrl: p.avatarUrl ?? null,
         x: cx + rx * Math.cos(angle),
         y: cy + ry * Math.sin(angle),
       };
@@ -1392,7 +1454,7 @@ export function ConversationGraphModule({
                   </RosterTooltip>
                 );
               }
-              const avatar = agentAvatar(node.name, node.meta);
+              const avatar = agentAvatar(node.name, node.meta, node.avatarUrl);
               const Icon = avatar.icon;
               return (
                 <RosterTooltip key={node.id} label={node.name} side="bottom">
@@ -1588,7 +1650,7 @@ export function ConversationGraphModule({
             );
           }
 
-          const avatar = agentAvatar(node.name, node.meta);
+          const avatar = agentAvatar(node.name, node.meta, node.avatarUrl);
           const Icon = avatar.icon;
 
           return (
@@ -1869,6 +1931,70 @@ function HandoffWidget() {
 const AVAILABLE_AGENTS_LIST = MOCK_PARTICIPANTS.filter((p) => p.type === "agent");
 const AVAILABLE_USERS_LIST = MOCK_PARTICIPANTS.filter((p) => p.type === "user");
 
+export function RosterNavigationItem({
+  label,
+  href,
+  active,
+  onOpen,
+  icon: Icon,
+  compact = false,
+  mobileMode = false,
+}: {
+  label: string;
+  href: string;
+  active: boolean;
+  onOpen?: () => void;
+  icon: typeof UsersRound;
+  compact?: boolean;
+  mobileMode?: boolean;
+}) {
+  const className = compact
+    ? `flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+        active
+          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
+          : "text-text-muted hover:bg-surface-low hover:text-foreground"
+      }`
+    : `flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
+        mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
+      } ${
+        active
+          ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
+          : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
+      }`;
+  const content = compact ? (
+    <Icon className="h-4 w-4" />
+  ) : (
+    <>
+      <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
+        <Icon className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
+      </span>
+      <span className="font-medium">{label}</span>
+    </>
+  );
+  const item = onOpen ? (
+    <button
+      type="button"
+      aria-label={compact ? label : undefined}
+      aria-current={active ? "page" : undefined}
+      onClick={onOpen}
+      className={className}
+    >
+      {content}
+    </button>
+  ) : (
+    <Link
+      href={href}
+      aria-label={compact ? label : undefined}
+      aria-current={active ? "page" : undefined}
+      className={className}
+    >
+      {content}
+    </Link>
+  );
+
+  return compact ? <RosterTooltip label={label} side="right">{item}</RosterTooltip> : item;
+}
+
 function HandoffThreadView({
   threads,
   selectedThreadId,
@@ -1881,6 +2007,18 @@ function HandoffThreadView({
   onOpenAgentLauncher,
   agentCreationDisabledReason,
   rosterLoading = false,
+  onOpenHome,
+  homeActive = false,
+  homeHref = DASHBOARD_VIEW_HREFS.overview,
+  onOpenSharedResources,
+  sharedResourcesActive = false,
+  sharedResourcesHref = "/dashboard/agents?section=knowledge",
+  onOpenMembers,
+  membersActive = false,
+  membersHref = "/dashboard/agents?section=members",
+  onOpenUsage,
+  usageActive = false,
+  usageHref = DASHBOARD_VIEW_HREFS.usage,
   showChannels = true,
   availableAgents,
   offlineAgentCount = 0,
@@ -1908,6 +2046,18 @@ function HandoffThreadView({
   onOpenAgentLauncher?: () => void;
   agentCreationDisabledReason?: string | null;
   rosterLoading?: boolean;
+  onOpenHome?: () => void;
+  homeActive?: boolean;
+  homeHref?: string;
+  onOpenSharedResources?: () => void;
+  sharedResourcesActive?: boolean;
+  sharedResourcesHref?: string;
+  onOpenMembers?: () => void;
+  membersActive?: boolean;
+  membersHref?: string;
+  onOpenUsage?: () => void;
+  usageActive?: boolean;
+  usageHref?: string;
   showChannels?: boolean;
   availableAgents?: Participant[];
   offlineAgentCount?: number;
@@ -2173,6 +2323,47 @@ function HandoffThreadView({
         </AnimatePresence>
       </div>
 
+      <div className="agents-roster-home mt-1 shrink-0">
+        <RosterNavigationItem
+          label="Home"
+          href={homeHref}
+          active={homeActive}
+          onOpen={onOpenHome}
+          icon={House}
+          mobileMode={mobileMode}
+        />
+      </div>
+
+      <section className="agents-roster-administration mt-1 shrink-0" aria-label="Administration">
+        <div className={`${sectionHeadingInsetClass} ${mobileMode ? "text-sm" : "text-[13px]"} py-1.5`}>
+          <span className="font-medium text-text-secondary">Administration</span>
+        </div>
+        <RosterNavigationItem
+          label="Shared resources"
+          href={sharedResourcesHref}
+          active={sharedResourcesActive}
+          onOpen={onOpenSharedResources}
+          icon={HardDrive}
+          mobileMode={mobileMode}
+        />
+        <RosterNavigationItem
+          label="Members"
+          href={membersHref}
+          active={membersActive}
+          onOpen={onOpenMembers}
+          icon={UsersRound}
+          mobileMode={mobileMode}
+        />
+        <RosterNavigationItem
+          label="Usage"
+          href={usageHref}
+          active={usageActive}
+          onOpen={onOpenUsage}
+          icon={BarChart3}
+          mobileMode={mobileMode}
+        />
+      </section>
+
       {/* ── Channels section ── */}
       {showChannels && (<>
       <button
@@ -2276,10 +2467,25 @@ export function AgentsChannelsSidebar({
   onOpenAgentLauncher,
   agentCreationDisabledReason,
   rosterLoading = false,
+  onOpenHome,
+  homeActive,
+  homeHref,
+  onOpenSharedResources,
+  sharedResourcesActive,
+  sharedResourcesHref,
+  onOpenMembers,
+  membersActive,
+  membersHref,
+  onOpenUsage,
+  usageActive,
+  usageHref,
   onOpenAccountSettings,
   accountSettingsActive,
   openAgentCreatorSignal,
   accountInitial,
+  accountAvatarUrl,
+  accountName,
+  accountEmail,
   onLogin,
   onLogout,
 }: AgentsChannelsSidebarProps) {
@@ -2343,6 +2549,18 @@ export function AgentsChannelsSidebar({
           onOpenAgentLauncher={onOpenAgentLauncher}
           agentCreationDisabledReason={agentCreationDisabledReason}
           rosterLoading={rosterLoading}
+          onOpenHome={onOpenHome}
+          homeActive={homeActive}
+          homeHref={homeHref}
+          onOpenSharedResources={onOpenSharedResources}
+          sharedResourcesActive={sharedResourcesActive}
+          sharedResourcesHref={sharedResourcesHref}
+          onOpenMembers={onOpenMembers}
+          membersActive={membersActive}
+          membersHref={membersHref}
+          onOpenUsage={onOpenUsage}
+          usageActive={usageActive}
+          usageHref={usageHref}
           showChannels={showChannels}
           availableAgents={availableAgents}
           offlineAgentCount={offlineAgentCount}
@@ -2376,6 +2594,18 @@ export function AgentsChannelsSidebar({
           onOpenAgentLauncher={onOpenAgentLauncher}
           agentCreationDisabledReason={agentCreationDisabledReason}
           rosterLoading={rosterLoading}
+          onOpenHome={onOpenHome}
+          homeActive={homeActive}
+          homeHref={homeHref}
+          onOpenSharedResources={onOpenSharedResources}
+          sharedResourcesActive={sharedResourcesActive}
+          sharedResourcesHref={sharedResourcesHref}
+          onOpenMembers={onOpenMembers}
+          membersActive={membersActive}
+          membersHref={membersHref}
+          onOpenUsage={onOpenUsage}
+          usageActive={usageActive}
+          usageHref={usageHref}
           showChannels={showChannels}
           availableAgents={availableAgents}
           offlineAgentCount={offlineAgentCount}
@@ -2399,6 +2629,9 @@ export function AgentsChannelsSidebar({
       <AgentsSidebarDashboardLinks
         mobileMode={mobileMode}
         accountInitial={accountInitial}
+        accountAvatarUrl={accountAvatarUrl}
+        accountName={accountName}
+        accountEmail={accountEmail}
         onLogin={onLogin}
         onOpenSettings={onOpenAccountSettings}
         settingsActive={accountSettingsActive}

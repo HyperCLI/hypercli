@@ -56,6 +56,19 @@ describe("ChatMessageBubble", () => {
     document.body.style.overflow = "";
   });
 
+  it("renders the profile avatar for user messages", () => {
+    const profileAvatarUrl = "https://cdn.example.test/profile.png";
+    render(
+      <ChatMessageBubble
+        message={{ role: "user", content: "Hello" }}
+        nameVariant="v2"
+        userAvatarUrl={profileAvatarUrl}
+      />,
+    );
+
+    expect(screen.getByAltText("Profile avatar")).toHaveAttribute("src", profileAvatarUrl);
+  });
+
   it("renders hydrated history text without internal thinking or tool-call sentinels", () => {
     const message = normalizeHistoryMessage({
       role: "assistant",

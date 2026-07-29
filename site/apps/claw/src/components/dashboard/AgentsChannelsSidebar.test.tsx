@@ -42,6 +42,23 @@ vi.mock("@hypercli/shared-ui", () => ({
 import { AgentsChannelsSidebar, AgentsSidebarDashboardLinks } from "./AgentsChannelsSidebar";
 
 describe("AgentsSidebarDashboardLinks", () => {
+  it("uses the persisted profile avatar instead of the account initial", () => {
+    const avatarUrl = "https://cdn.example.test/profile.png";
+    render(
+      <AgentsSidebarDashboardLinks
+        accountInitial="J"
+        accountAvatarUrl={avatarUrl}
+        accountName="Jane Doe"
+        accountEmail="jane@example.com"
+      />,
+    );
+
+    const accountButton = screen.getByRole("button", { name: "Account links" });
+    expect(accountButton.querySelector("img")).toHaveAttribute("src", avatarUrl);
+    expect(accountButton).toHaveTextContent("Jane Doe");
+    expect(accountButton).toHaveTextContent("jane@example.com");
+  });
+
   it("omits navigation already available in the roster", () => {
     render(<AgentsSidebarDashboardLinks accountInitial="J" />);
 
@@ -49,10 +66,11 @@ describe("AgentsSidebarDashboardLinks", () => {
 
     expect(screen.queryByRole("menuitem", { name: /dashboard/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: /^agents$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("menuitem", { name: /shared knowledge/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /shared resources/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: /^members$/i })).not.toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /^settings$/i })).toHaveAttribute("href", "/dashboard/agents?view=settings");
-    expect(screen.getByRole("menuitem", { name: /api keys/i })).toHaveAttribute(
+    const apiKeys = screen.getByRole("menuitem", { name: /api keys/i });
+    expect(apiKeys).toHaveAttribute(
       "href",
       "/dashboard/agents?view=settings&settings=api-keys",
     );
@@ -64,11 +82,22 @@ describe("AgentsSidebarDashboardLinks", () => {
       "href",
       "/dashboard/agents?view=settings&settings=billing",
     );
+    const documentation = screen.getByRole("menuitem", { name: /documentation/i });
+    expect(documentation).toHaveAttribute("href", "https://docs.hypercli.com/");
+    expect(documentation).toHaveAttribute("target", "_blank");
+    expect(documentation).toHaveAttribute("rel", "noopener noreferrer");
+    expect(apiKeys.querySelector("svg")).toBeNull();
+    expect(screen.getByRole("menuitem", { name: /^settings$/i }).querySelector("svg")).toBeNull();
+    expect(documentation.querySelector("svg")).toBeNull();
     expect(document.querySelector(".agents-dashboard-links")).toHaveClass("bg-[var(--agent-roster-background)]");
   });
 
-  it("omits Administration navigation from the roster", () => {
+  it("renders shared Administration navigation in the roster", () => {
     const onOpenAccountSettings = vi.fn();
+    const onOpenHome = vi.fn();
+    const onOpenSharedResources = vi.fn();
+    const onOpenMembers = vi.fn();
+    const onOpenUsage = vi.fn();
     render(
       <AgentsChannelsSidebar
         variant="v3"
@@ -76,6 +105,11 @@ describe("AgentsSidebarDashboardLinks", () => {
         selectedThreadId={null}
         onSelectThread={vi.fn()}
         showChannels={false}
+        onOpenHome={onOpenHome}
+        onOpenSharedResources={onOpenSharedResources}
+        sharedResourcesActive
+        onOpenMembers={onOpenMembers}
+        onOpenUsage={onOpenUsage}
         onOpenAccountSettings={onOpenAccountSettings}
         accountSettingsActive
       />,
@@ -86,10 +120,24 @@ describe("AgentsSidebarDashboardLinks", () => {
 
     expect(rosterScroll).toHaveClass("flex-col", "overflow-hidden");
     expect(agentList).toHaveClass("shrink", "overflow-y-auto");
-    expect(screen.queryByRole("region", { name: "Administration" })).not.toBeInTheDocument();
-    expect(screen.queryByText("Administration")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Home" })).not.toBeInTheDocument();
+    const administration = screen.getByRole("region", { name: "Administration" });
+    expect(administration).toHaveTextContent("Administration");
+    expect(screen.getByRole("button", { name: "Shared resources" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Members" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Usage" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Home" })).toBeInTheDocument();
+    expect(administration).not.toHaveTextContent("Home");
+    expect(administration).not.toHaveTextContent("Settings");
     expect(onOpenAccountSettings).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    fireEvent.click(screen.getByRole("button", { name: "Shared resources" }));
+    fireEvent.click(screen.getByRole("button", { name: "Members" }));
+    fireEvent.click(screen.getByRole("button", { name: "Usage" }));
+    expect(onOpenHome).toHaveBeenCalledOnce();
+    expect(onOpenSharedResources).toHaveBeenCalledOnce();
+    expect(onOpenMembers).toHaveBeenCalledOnce();
+    expect(onOpenUsage).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByRole("button", { name: "Account links" }));
     const settings = screen.getByRole("menuitem", { name: "Settings" });
@@ -108,6 +156,40 @@ describe("AgentsSidebarDashboardLinks", () => {
 });
 
 describe("AgentsChannelsSidebar", () => {
+  it("renders the agent profile image in roster rows", () => {
+    render(
+      <AgentsChannelsSidebar
+        variant="v3"
+        threads={[{
+          id: "agent-1",
+          sessionKey: "main",
+          participants: [{
+            id: "agent-1",
+            name: "Primary Agent",
+            type: "agent",
+            avatarUrl: "https://cdn.example.test/agent.png",
+            meta: { ui: { avatar: { image: "https://cdn.example.test/meta.png" } } },
+          }],
+          kind: "user-agent",
+          lastMessage: "Connected",
+          lastMessageBy: "agent-1",
+          lastMessageAt: 1,
+          messageCount: 0,
+          unreadCount: 0,
+          isActive: true,
+        }]}
+        selectedThreadId="agent-1"
+        onSelectThread={vi.fn()}
+        showChannels={false}
+      />,
+    );
+
+    expect(screen.getByAltText("Primary Agent avatar")).toHaveAttribute(
+      "src",
+      "https://cdn.example.test/agent.png",
+    );
+  });
+
   it("disables launch controls when the selected Workspace is read-only", () => {
     const onOpenAgentLauncher = vi.fn();
     render(

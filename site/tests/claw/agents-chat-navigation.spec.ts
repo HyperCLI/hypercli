@@ -19,6 +19,7 @@ interface AgentChatGatewayRequest {
 
 interface MockAgentChatOptions {
   deferParallelReplies?: boolean;
+  legacyMainHistory?: boolean;
 }
 
 function json(body: unknown) {
@@ -56,7 +57,7 @@ async function mockAgentChat(
     },
   ]);
 
-  await page.addInitScript(({ token, secondarySessionKey, rosterCollapsedStorageKey, deferParallelReplies }) => {
+  await page.addInitScript(({ token, secondarySessionKey, rosterCollapsedStorageKey, deferParallelReplies, legacyMainHistory }) => {
     window.localStorage.setItem("claw_auth_token", token);
     window.localStorage.setItem("app_auth_token", token);
     window.localStorage.setItem(rosterCollapsedStorageKey, "true");
@@ -143,7 +144,14 @@ async function mockAgentChat(
                 ]
               : [
                   ...indexedDashboardSessions,
-                  { key: "main", title: "Main Session", updatedAt: 1 },
+                  legacyMainHistory
+                    ? {
+                        key: "agent:default:main",
+                        origin: { provider: "webchat", surface: "webchat" },
+                        deliveryContext: { channel: "webchat" },
+                        updatedAt: 4,
+                      }
+                    : { key: "main", title: "Main Session", updatedAt: 1 },
                   { key: "session-primary-focus", title: "Primary Focus", updatedAt: 2 },
                 ],
           });
@@ -155,11 +163,23 @@ async function mockAgentChat(
           const recoveredMessages = historyBySession.get(message.params?.sessionKey ?? "main");
           this.respond(message.id, {
             messages: recoveredMessages ?? (
-              isSecondaryFocus
-                ? [{ role: "assistant", content: "Secondary focus history restored" }]
-                : []
+              legacyMainHistory && message.params?.sessionKey === "agent:default:main"
+                ? [{ role: "assistant", content: "Legacy main conversation restored" }]
+                : isSecondaryFocus
+                  ? [{ role: "assistant", content: "Secondary focus history restored" }]
+                  : []
             ),
           });
+          return;
+        }
+
+        if (message.method === "sessions.subscribe") {
+          this.respond(message.id, true);
+          return;
+        }
+
+        if (message.method === "sessions.create") {
+          this.respond(message.id, { ok: true, key: message.params?.key });
           return;
         }
 
@@ -277,6 +297,7 @@ async function mockAgentChat(
     secondarySessionKey: SECONDARY_SESSION_KEY,
     rosterCollapsedStorageKey: AGENT_ROSTER_COLLAPSED_STORAGE_KEY,
     deferParallelReplies: options.deferParallelReplies === true,
+    legacyMainHistory: options.legacyMainHistory === true,
   });
 
   await page.route(/\/workspaces(?:\/.*)?$/, async (route) => {
@@ -401,6 +422,20 @@ async function expectSessionBefore(page: Page, firstName: string, secondName: st
   }).toBe(true);
 }
 
+test("a session-less agent route restores legacy history and canonicalizes the URL", async ({ page }) => {
+  await mockAgentChat(page, { legacyMainHistory: true });
+  await page.goto("/dashboard/agents?agentId=agent-1", { waitUntil: "domcontentloaded" });
+
+  await expect.poll(() => new URL(page.url()).searchParams.get("session")).toBe("main");
+  await expect(page.getByText("Legacy main conversation restored", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Previous conversation", exact: true })).toHaveAttribute("aria-current", "page");
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+
+  await expect.poll(() => new URL(page.url()).searchParams.get("session")).toBe("main");
+  await expect(page.getByText("Legacy main conversation restored", { exact: true })).toBeVisible();
+});
+
 test("refresh restores the selected agent and non-main chat session", async ({ page }) => {
   await mockAgentChat(page);
   await page.goto("/dashboard/agents?agentId=agent-1", { waitUntil: "domcontentloaded" });
@@ -450,8 +485,12 @@ test("parallel conversations recover after an interrupted gateway event sequence
   const composer = page.locator("textarea").first();
   const send = page.getByRole("button", { name: "Send message" });
   await expect(page.getByRole("button", { name: "Main Session", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Previous conversation", exact: true })).toBeVisible();
   await expect(secondarySession).toBeEnabled();
   await expect(composer).toBeVisible();
+
+  await page.getByRole("button", { name: "New Session", exact: true }).click();
+  await expect.poll(() => new URL(page.url()).searchParams.get("session")).toMatch(DASHBOARD_SESSION_KEY_PATTERN);
 
   await composer.fill("main parallel request");
   await send.click();
@@ -617,12 +656,13 @@ test("private chat stays out of navigation state and resets before switching age
 
   const startPrivateChat = page.getByRole("button", { name: "Start private chat" });
   await expect(startPrivateChat).toBeEnabled();
+  await expect.poll(() => new URL(page.url()).searchParams.get("session")).toBe("session-primary-focus");
   const requestsBeforePrivateChat = gatewayTracker.requests.length;
   await startPrivateChat.click();
 
   await expect(page.getByRole("button", { name: "End private chat" })).toBeVisible();
   await expect(page.getByText(/hidden from Sessions and is not stored in this browser/i)).toBeVisible();
-  await expect.poll(() => new URL(page.url()).searchParams.get("session")).toBeNull();
+  await expect.poll(() => new URL(page.url()).searchParams.get("session")).toBe("session-primary-focus");
   await expect.poll(() => (
     gatewayTracker.requests.slice(requestsBeforePrivateChat).find((request) => (
       request.method === "sessions.reset" &&

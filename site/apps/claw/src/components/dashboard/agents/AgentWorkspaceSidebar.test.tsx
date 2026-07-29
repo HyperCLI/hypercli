@@ -1278,7 +1278,9 @@ describe("AgentWorkspaceSidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Session options for What is an agent" }));
 
     fireEvent.click(screen.getByRole("button", { name: /rename/i }));
-    expect(screen.getByText("Rename session")).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: "Rename session" });
+    expect(dialog).toHaveClass("isolate", "bg-background");
+    expect(dialog.parentElement?.parentElement).toBe(document.body);
     const input = screen.getByDisplayValue("What is an agent");
     fireEvent.change(input, { target: { value: "Renamed chat" } });
     fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
@@ -1414,6 +1416,15 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.getByRole("button", { name: /upgrade/i })).toBeInTheDocument();
     expect(screen.queryByText("7-day free trial on every plan")).not.toBeInTheDocument();
     expect(screen.queryByText("Purchased plans")).not.toBeInTheDocument();
+  });
+
+  it("shows an unknown limit when the selected agent has no token entitlement", () => {
+    renderAgentWorkspaceSidebar({
+      tokenUsed: 1_200,
+      tokenLimit: null,
+    });
+
+    expect(screen.getByText("1.2K / --")).toBeInTheDocument();
   });
 
   it("offers a seven-day trial before registration", () => {

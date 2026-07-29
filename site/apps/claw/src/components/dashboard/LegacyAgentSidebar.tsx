@@ -8,7 +8,7 @@ import {
   Plus,
   RefreshCw,
 } from "lucide-react";
-import { agentAvatar, type AgentMeta } from "@/lib/avatar";
+import { agentAvatar, agentProfileImageUrl, type AgentMeta } from "@/lib/avatar";
 import { formatCpu, formatMemory, formatTokens } from "@/lib/format";
 import { ResourceImage } from "@/components/ResourceImage";
 import { TooltipHint } from "@/components/ClawTooltip";
@@ -23,6 +23,8 @@ interface SidebarAgent {
   cpu_millicores: number;
   memory_mib: number;
   last_error: string | null;
+  avatarUrl?: string | null;
+  displayIdentity?: unknown;
   meta?: AgentMeta | null;
 }
 
@@ -159,7 +161,7 @@ export function LegacyAgentSidebar({
             {agents.map((agent) => {
               const isSelected = selectedAgentId === agent.id;
               const isTransitioning = ["PENDING", "RESTORING", "SYNCING", "STARTING", "STOPPING"].includes(agent.state);
-              const avatar = agentAvatar(agent.name || agent.id, agent.meta);
+              const avatar = agentAvatar(agent.name || agent.id, agent.meta, agentProfileImageUrl(agent));
               const AvatarIcon = avatar.icon;
 
               if (sidebarCollapsed) {

@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import type { ConversationThread } from "./AgentsChannelsSidebar";
+import type { AgentMeta } from "@/lib/avatar";
 
 // ── Core types ──
 
@@ -94,6 +95,8 @@ export interface ModuleDefinition {
 
 export interface AgentViewProps {
   agentName?: string;
+  agentMeta?: AgentMeta | null;
+  agentAvatarUrl?: string | null;
   onConnectionSelect?: (connection: Connection) => void;
   className?: string;
   activeTab?: TabId;

@@ -23,7 +23,8 @@ import {
   X,
 } from "lucide-react";
 import type { AgentMeta } from "@/lib/avatar";
-import { agentAvatar } from "@/lib/avatar";
+import { agentAvatar, agentProfileImageUrl } from "@/lib/avatar";
+import { ResourceImage } from "@/components/ResourceImage";
 import { MarkdownContent } from "@/components/dashboard/chat/MarkdownContent";
 import { useWorkspace } from "@/components/dashboard/WorkspaceContext";
 import { downloadFileBytes } from "@/lib/download-file";
@@ -33,6 +34,8 @@ export type SharedKnowledgeAgent = {
   id: string;
   name?: string | null;
   displayName?: string | null;
+  avatarUrl?: string | null;
+  displayIdentity?: unknown;
   pod_name?: string | null;
   state?: string | null;
   meta?: AgentMeta | null;
@@ -223,7 +226,7 @@ function parseKeywords(value: string): string[] {
 
 function AgentChip({ agent, selected, disabled, onClick }: { agent: SharedKnowledgeAgent; selected?: boolean; disabled?: boolean; onClick?: () => void }) {
   const displayName = agentDisplayName(agent);
-  const avatar = agentAvatar(displayName, agent.meta);
+  const avatar = agentAvatar(displayName, agent.meta, agentProfileImageUrl(agent));
   const AvatarIcon = avatar.icon;
   const className = `inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] transition-colors ${
     selected
@@ -233,7 +236,16 @@ function AgentChip({ agent, selected, disabled, onClick }: { agent: SharedKnowle
   const content = (
     <>
       <span className={`h-1.5 w-1.5 rounded-full ${agentStateDotClass(agent.state)}`} aria-hidden="true" />
-      <AvatarIcon className="h-3 w-3" style={{ color: avatar.fgColor }} />
+      <span
+        className="relative flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden rounded-full"
+        style={{ backgroundColor: avatar.bgColor }}
+      >
+        {avatar.imageUrl ? (
+          <ResourceImage src={avatar.imageUrl} alt={`${displayName} avatar`} fill sizes="16px" className="object-cover" />
+        ) : (
+          <AvatarIcon className="h-2.5 w-2.5" style={{ color: avatar.fgColor }} />
+        )}
+      </span>
       <span>{displayName}</span>
       <span className="text-[10px] text-text-muted">{normalizeAgentState(agent.state)}</span>
       {selected && <Check className="h-3 w-3" />}

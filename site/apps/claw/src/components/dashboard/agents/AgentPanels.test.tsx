@@ -112,6 +112,15 @@ vi.mock("@hypercli.com/sdk/browser", () => ({
 
 vi.mock("@/lib/agent-client", () => ({
   createAgentClient: agentClientMocks.createAgentClient,
+  createBrowserHyperCLIClient: vi.fn(() => ({
+    user: {
+      get: sdkMocks.userGet,
+      update: sdkMocks.userUpdate,
+      getProfileImage: sdkMocks.userGetProfileImage,
+      uploadProfileImage: sdkMocks.userUploadProfileImage,
+      deleteProfileImage: sdkMocks.userDeleteProfileImage,
+    },
+  })),
 }));
 
 import { AgentList, AgentSettingsPanel, ErrorBanner, LaunchFirstAgentEmptyState } from "./AgentPanels";
@@ -470,6 +479,14 @@ describe("AgentList", () => {
     expect(props.setSidebarCollapsed).toHaveBeenCalledWith(false);
   });
 
+  it("renders the agent profile image in the collapsed roster", () => {
+    const profileImageUrl = "https://cdn.example.test/agent.png";
+    renderAgentList({ agents: [{ ...agent, avatarUrl: profileImageUrl }] });
+
+    const button = screen.getByRole("button", { name: "Select Test Agent" });
+    expect(button.querySelector("img")).toHaveAttribute("src", profileImageUrl);
+  });
+
   it("delegates mobile navigation launch requests without opening an out-of-sheet portal", () => {
     const onOpenAgentLauncher = vi.fn();
     renderAgentList({
@@ -531,22 +548,22 @@ describe("AgentList", () => {
     expect(document.querySelector(".agents-roster-header")).not.toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "Show offline agents" })).toHaveAttribute("aria-checked", "true");
     expect(screen.queryByRole("heading", { name: "Agents" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Home" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/dashboard/agents?view=overview");
     fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
     expect(props.setSidebarCollapsed).toHaveBeenCalledWith(true);
   });
 
-  it("omits Administration actions from the embedded collapsed rail", () => {
+  it("shows Administration actions in the embedded collapsed rail", () => {
     renderAgentList({ embeddedInNavigation: true });
 
     expect(document.querySelector(".agents-roster-header")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Expand agents sidebar" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Select Test Agent" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Home" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/dashboard/agents?view=overview");
     expect(screen.getByRole("button", { name: "Launch agent" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Shared Knowledge" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Members" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Usage" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Shared resources" })).toHaveAttribute("href", "/dashboard/agents?section=knowledge");
+    expect(screen.getByRole("link", { name: "Members" })).toHaveAttribute("href", "/dashboard/agents?section=members");
+    expect(screen.getByRole("link", { name: "Usage" })).toHaveAttribute("href", "/dashboard/agents?view=usage");
     fireEvent.click(screen.getByRole("button", { name: "Account links" }));
     expect(screen.getByRole("menuitem", { name: "Settings" })).toBeInTheDocument();
   });
@@ -567,10 +584,15 @@ describe("AgentList", () => {
     const myAgentsLabel = screen.getByText(/^My Agents\(\d+\)$/);
     expect(myAgentsLabel).toHaveClass("text-[13px]", "text-text-secondary");
     expect(myAgentsLabel).not.toHaveClass("uppercase");
-    expect(screen.queryByText("Administration")).not.toBeInTheDocument();
+    expect(screen.getByText("Administration")).toBeInTheDocument();
     expect(sectionHeader).toHaveClass("pl-5", "pr-3");
     expect(sectionHeader?.querySelector(".h-px")).not.toBeInTheDocument();
-    expect(document.querySelector(".agents-roster-administration")).not.toBeInTheDocument();
+    expect(document.querySelector(".agents-roster-administration")).toBeInTheDocument();
+    const agentList = document.querySelector(".agents-roster-agent-list");
+    const home = document.querySelector(".agents-roster-home");
+    const administration = document.querySelector(".agents-roster-administration");
+    expect(agentList?.nextElementSibling).toBe(home);
+    expect(home?.nextElementSibling).toBe(administration);
     expect(rosterHeader).not.toContainElement(search);
     expect(rosterHeader).not.toContainElement(collapse);
 
@@ -755,7 +777,7 @@ describe("AgentList", () => {
     expect(launch.children[1]).toHaveClass("h-7", "w-7", "rounded-full");
     expect(launch).toHaveTextContent("Create a new workspace");
     expect(document.querySelector(".agents-roster-section-header")).toHaveClass("pl-5", "pr-3");
-    expect(document.querySelector(".agents-roster-administration")).not.toBeInTheDocument();
+    expect(document.querySelector(".agents-roster-administration")).toBeInTheDocument();
     expect(document.querySelector(".agents-roster-expanded .agents-roster-header")).toHaveClass("bg-background");
     expect(document.querySelector(".agents-roster-expanded .agents-roster-scroll")).toHaveClass("bg-[var(--agent-roster-background)]");
   });
@@ -814,27 +836,46 @@ describe("AgentList", () => {
     expect(document.querySelector(".agents-roster-shell")).not.toContainElement(overlay);
   });
 
-  it("omits Administration actions from the collapsed rail", () => {
+  it("opens Administration actions from the collapsed rail", () => {
     const onOpenAccountSettings = vi.fn();
+    const onOpenHome = vi.fn();
+    const onOpenSharedResources = vi.fn();
+    const onOpenMembers = vi.fn();
+    const onOpenUsage = vi.fn();
     renderAgentList({
       onOpenAccountSettings,
       accountSettingsActive: true,
+      onOpenHome,
+      homeActive: true,
+      onOpenSharedResources,
+      sharedResourcesActive: true,
+      onOpenMembers,
+      onOpenUsage,
     });
 
     const dividers = document.querySelectorAll(".agents-roster-rail-divider");
 
-    expect(dividers).toHaveLength(1);
+    expect(dividers).toHaveLength(2);
     expect(dividers[0]).toHaveAttribute("aria-hidden", "true");
     expect(dividers[0]).toHaveClass("my-2");
     expect(document.querySelector(".agents-roster-rail .agents-roster-scroll")).toHaveClass("flex-col", "overflow-hidden");
     expect(document.querySelector(".agents-roster-rail-primary")).toHaveClass("shrink-0", "gap-2");
     expect(document.querySelector(".agents-roster-rail-agents")).toHaveClass("w-full", "shrink", "overflow-y-auto", "py-1");
-    expect(screen.queryByRole("button", { name: "Home" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Shared Knowledge" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Members" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Usage" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Home" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Shared resources" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Members" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Usage" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Settings" })).not.toBeInTheDocument();
     expect(onOpenAccountSettings).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    fireEvent.click(screen.getByRole("button", { name: "Shared resources" }));
+    fireEvent.click(screen.getByRole("button", { name: "Members" }));
+    fireEvent.click(screen.getByRole("button", { name: "Usage" }));
+    expect(onOpenHome).toHaveBeenCalledOnce();
+    expect(onOpenSharedResources).toHaveBeenCalledOnce();
+    expect(onOpenMembers).toHaveBeenCalledOnce();
+    expect(onOpenUsage).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByRole("button", { name: "Account links" }));
     const settings = screen.getByRole("menuitem", { name: "Settings" });
@@ -1226,12 +1267,13 @@ describe("AgentSettingsPanel", () => {
 
   it("loads and uploads the account profile avatar through the SDK", async () => {
     const getToken = vi.fn(async () => "token");
+    const onProfileAvatarChange = vi.fn();
     sdkMocks.userGetProfileImage.mockResolvedValueOnce({
       id: "user-1234567890abcdef",
       avatarUrl: "https://cdn.example.test/current.png",
       s3Key: "prod/user-1234567890abcdef/user-1234567890abcdef.png",
     });
-    const { container } = renderAgentSettingsPanel({ getToken });
+    const { container } = renderAgentSettingsPanel({ getToken, onProfileAvatarChange });
 
     await waitFor(() => expect(sdkMocks.userGetProfileImage).toHaveBeenCalledOnce());
     const input = container.querySelector<HTMLInputElement>('input[type="file"][accept*="image/webp"]');
@@ -1241,23 +1283,60 @@ describe("AgentSettingsPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => expect(sdkMocks.userUploadProfileImage).toHaveBeenCalledWith(file));
+    expect(onProfileAvatarChange).toHaveBeenLastCalledWith("https://cdn.example.test/account.png");
     expect(screen.getByText("Profile updated.")).toBeInTheDocument();
+  });
+
+  it("rejects account profile images larger than 2MB before upload", async () => {
+    const getToken = vi.fn(async () => "token");
+    const { container } = renderAgentSettingsPanel({ getToken });
+    await waitFor(() => expect(sdkMocks.userGetProfileImage).toHaveBeenCalledOnce());
+    const input = container.querySelector<HTMLInputElement>('input[type="file"][accept*="image/webp"]');
+    const file = new File(
+      [new Uint8Array(2 * 1024 * 1024 + 1)],
+      "avatar.webp",
+      { type: "image/webp" },
+    );
+
+    fireEvent.change(input!, { target: { files: [file] } });
+
+    expect(screen.getByText("Image must be 2MB or smaller.")).toBeInTheDocument();
+    expect(sdkMocks.userUploadProfileImage).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+  });
+
+  it("explains when account profile images are unavailable in the current environment", async () => {
+    const getToken = vi.fn(async () => "token");
+    sdkMocks.userUploadProfileImage.mockRejectedValueOnce(
+      Object.assign(new Error("API Error 404: Not Found"), { statusCode: 404 }),
+    );
+    const { container } = renderAgentSettingsPanel({ getToken });
+    await waitFor(() => expect(sdkMocks.userGetProfileImage).toHaveBeenCalledOnce());
+    const input = container.querySelector<HTMLInputElement>('input[type="file"][accept*="image/webp"]');
+    const file = new File(["avatar"], "avatar.webp", { type: "image/webp" });
+
+    fireEvent.change(input!, { target: { files: [file] } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(await screen.findByText("Profile image updates are not available in this environment.")).toBeInTheDocument();
   });
 
   it("removes the persisted account profile avatar through the SDK", async () => {
     const getToken = vi.fn(async () => "token");
+    const onProfileAvatarChange = vi.fn();
     sdkMocks.userGetProfileImage.mockResolvedValueOnce({
       id: "user-1234567890abcdef",
       avatarUrl: "https://cdn.example.test/current.png",
       s3Key: "prod/user-1234567890abcdef/user-1234567890abcdef.png",
     });
-    renderAgentSettingsPanel({ getToken });
+    renderAgentSettingsPanel({ getToken, onProfileAvatarChange });
 
     const remove = await screen.findByRole("button", { name: "Remove" });
     fireEvent.click(remove);
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => expect(sdkMocks.userDeleteProfileImage).toHaveBeenCalledOnce());
+    expect(onProfileAvatarChange).toHaveBeenLastCalledWith(null);
     expect(screen.getByText("Profile updated.")).toBeInTheDocument();
   });
 
@@ -1276,6 +1355,20 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByText("Agent settings updated.")).toBeInTheDocument();
   });
 
+  it("rejects unsupported agent avatar formats before upload", () => {
+    const onUploadAgentAvatar = vi.fn(async () => "https://cdn.example.test/agent.png");
+    const { container } = renderAgentSettingsPanel({ onUploadAgentAvatar });
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    const input = container.querySelector<HTMLInputElement>('input[type="file"][accept*="image/webp"]');
+    const file = new File(["svg"], "agent.svg", { type: "image/svg+xml" });
+
+    fireEvent.change(input!, { target: { files: [file] } });
+
+    expect(screen.getByText("Choose a PNG, JPEG, WebP, or GIF image.")).toBeInTheDocument();
+    expect(onUploadAgentAvatar).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+  });
+
   it("removes a persisted managed agent avatar through the page callback", async () => {
     const onDeleteAgentAvatar = vi.fn(async () => undefined);
     renderAgentSettingsPanel({
@@ -1289,6 +1382,41 @@ describe("AgentSettingsPanel", () => {
 
     await waitFor(() => expect(onDeleteAgentAvatar).toHaveBeenCalledWith("agent-1"));
     expect(screen.getByText("Agent settings updated.")).toBeInTheDocument();
+  });
+
+  it("does not offer removal for a metadata-only agent avatar", () => {
+    const onDeleteAgentAvatar = vi.fn(async () => undefined);
+    renderAgentSettingsPanel({
+      agent: {
+        ...agent,
+        avatarUrl: null,
+        meta: { ui: { avatar: { image: "https://cdn.example.test/fallback.png" } } },
+      },
+      onDeleteAgentAvatar,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+
+    expect(screen.queryByRole("button", { name: "Remove" })).not.toBeInTheDocument();
+    expect(onDeleteAgentAvatar).not.toHaveBeenCalled();
+  });
+
+  it("restores the metadata avatar after removing a profile image", async () => {
+    const onDeleteAgentAvatar = vi.fn(async () => undefined);
+    renderAgentSettingsPanel({
+      agent: {
+        ...agent,
+        avatarUrl: "https://cdn.example.test/profile.png",
+        meta: { ui: { avatar: { image: "https://cdn.example.test/fallback.png" } } },
+      },
+      onDeleteAgentAvatar,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(onDeleteAgentAvatar).toHaveBeenCalledWith("agent-1"));
+    expect(screen.getByAltText("Agent avatar")).toHaveAttribute("src", "https://cdn.example.test/fallback.png");
   });
 
   it("saves the managed agent name independently from its handle-backed display name", async () => {

@@ -3,8 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Check, Loader2, Volume2, Square } from "lucide-react";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
-import { PRODUCT_API_BASE_URL } from "@/lib/api";
+import { createBrowserHyperCLIClient } from "@/lib/agent-client";
 import { TooltipHint } from "@/components/ClawTooltip";
 
 const SPEAKERS = [
@@ -79,10 +78,7 @@ export function TtsPanel({ currentSpeaker, currentFormat, onSave, onClose }: Tts
 
     try {
       const token = await getToken();
-      const client = new BrowserHyperCLI({
-        apiUrl: PRODUCT_API_BASE_URL,
-        token,
-      });
+      const client = createBrowserHyperCLIClient(token);
       const bytes = await client.voice.tts({
         text: `Hi, my name is ${speakerLabel(voiceName)}. How can I help you today?`,
         voice: voiceName,

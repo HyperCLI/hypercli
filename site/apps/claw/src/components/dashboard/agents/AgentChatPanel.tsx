@@ -38,6 +38,7 @@ import {
   type AgentChatBootStatus,
 } from "@/components/dashboard/agents/chat-boot-stage";
 import { agentDisplayLabel } from "@/components/dashboard/agents/agentViewModel";
+import { agentProfileImageUrl } from "@/lib/avatar";
 
 export type { ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
 export type ChatPendingFileRemovalState = "removing" | "failed";
@@ -413,6 +414,7 @@ function useSettledChatBootStatus(agentId: string, nextStatus: AgentChatBootStat
 interface AgentChatPanelProps {
   chat: ChatSession;
   selectedAgent: Agent;
+  userAvatarUrl?: string | null;
   isSelectedRunning: boolean;
   chatDragActive: boolean;
   setChatDragActive: (active: boolean) => void;
@@ -457,6 +459,7 @@ interface AgentChatPanelProps {
 export function AgentChatPanel({
   chat,
   selectedAgent,
+  userAvatarUrl,
   isSelectedRunning,
   chatDragActive,
   setChatDragActive,
@@ -499,6 +502,7 @@ export function AgentChatPanel({
 }: AgentChatPanelProps) {
   const chatScrollContext = `${selectedAgent.id}\0${chat.activeSessionKey}`;
   const selectedAgentDisplayName = agentDisplayLabel(selectedAgent);
+  const selectedAgentAvatarUrl = agentProfileImageUrl(selectedAgent);
   const slashCommandMenuRef = React.useRef<AgentSlashCommandMenuHandle>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const slashFeedbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1143,6 +1147,8 @@ export function AgentChatPanel({
                     isStreaming={rowIsStreaming}
                     agentName={selectedAgentDisplayName}
                     agentMeta={selectedAgent.meta}
+                    agentAvatarUrl={selectedAgentAvatarUrl}
+                    userAvatarUrl={userAvatarUrl}
                     onReadFileBytesFromChat={onReadFileBytesFromChat ? stableReadFileBytesFromChat : undefined}
                     onReadGatewayMediaBytesFromChat={onReadGatewayMediaBytesFromChat ? stableReadGatewayMediaBytesFromChat : undefined}
                     onOpenFileFromChat={onOpenFileFromChat ? stableOpenFileFromChat : undefined}

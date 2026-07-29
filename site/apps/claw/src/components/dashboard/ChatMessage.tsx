@@ -447,6 +447,8 @@ interface ChatMessageProps {
   isStreaming?: boolean;
   agentName?: string;
   agentMeta?: AgentMeta | null;
+  agentAvatarUrl?: string | null;
+  userAvatarUrl?: string | null;
   senderName?: string;
   isGroupChat?: boolean;
   compactToolCalls?: boolean;
@@ -743,15 +745,17 @@ export function AuthImage({
 function AgentMessageAvatar({
   name,
   meta,
+  avatarUrl,
   sizeClass,
   iconClass,
 }: {
   name: string;
   meta?: AgentMeta | null;
+  avatarUrl?: string | null;
   sizeClass: string;
   iconClass: string;
 }) {
-  const avatar = agentAvatar(name, meta);
+  const avatar = agentAvatar(name, meta, avatarUrl);
   const AvatarIcon = avatar.icon;
 
   return (
@@ -766,6 +770,30 @@ function AgentMessageAvatar({
         />
       ) : (
         <AvatarIcon className={iconClass} style={{ color: avatar.fgColor }} />
+      )}
+    </div>
+  );
+}
+
+function UserMessageAvatar({
+  name,
+  avatarUrl,
+  sizeClass,
+  initialClass,
+  sizes,
+}: {
+  name: string;
+  avatarUrl?: string | null;
+  sizeClass: string;
+  initialClass: string;
+  sizes: string;
+}) {
+  return (
+    <div className={`relative ${sizeClass} rounded-full bg-surface-low flex items-center justify-center overflow-hidden`}>
+      {avatarUrl ? (
+        <ResourceImage src={avatarUrl} alt="Profile avatar" fill sizes={sizes} className="object-cover" />
+      ) : (
+        <span className={initialClass}>{name[0]?.toUpperCase() ?? "Y"}</span>
       )}
     </div>
   );
@@ -1054,6 +1082,8 @@ export function ChatMessageBubble({
   isStreaming = false,
   agentName,
   agentMeta,
+  agentAvatarUrl,
+  userAvatarUrl,
   senderName,
   isGroupChat = false,
   onReadFileBytesFromChat,
@@ -1224,15 +1254,20 @@ export function ChatMessageBubble({
       {showV2Name && (() => {
         if (isUser) {
           return (
-            <div className="mt-0.5 flex-shrink-0 w-7 h-7 rounded-full bg-surface-low flex items-center justify-center">
-              <span className="text-[10px] font-bold text-text-muted">{effectiveName[0]?.toUpperCase() ?? "Y"}</span>
-            </div>
+            <UserMessageAvatar
+              name={effectiveName}
+              avatarUrl={userAvatarUrl}
+              sizeClass="mt-0.5 flex-shrink-0 w-7 h-7"
+              initialClass="text-[10px] font-bold text-text-muted"
+              sizes="28px"
+            />
           );
         }
         return (
           <AgentMessageAvatar
             name={effectiveName}
             meta={agentMeta}
+            avatarUrl={agentAvatarUrl}
             sizeClass="mt-0.5 flex-shrink-0 w-7 h-7"
             iconClass="w-3.5 h-3.5"
           />
@@ -1246,16 +1281,20 @@ export function ChatMessageBubble({
           if (isUser) {
             return (
               <div className="mb-1 flex max-w-full items-center gap-1.5 min-w-0 flex-row-reverse">
-                <div className="w-5 h-5 rounded-full bg-surface-low flex items-center justify-center">
-                  <span className="text-[9px] font-bold text-text-muted">{effectiveName[0]?.toUpperCase() ?? "Y"}</span>
-                </div>
+                <UserMessageAvatar
+                  name={effectiveName}
+                  avatarUrl={userAvatarUrl}
+                  sizeClass="w-5 h-5"
+                  initialClass="text-[9px] font-bold text-text-muted"
+                  sizes="20px"
+                />
                 <span className="block min-w-0 max-w-full truncate text-[11px] text-text-muted">{effectiveName}</span>
               </div>
             );
           }
           return (
             <div className="mb-1 flex max-w-full min-w-0 items-center gap-1.5">
-              <AgentMessageAvatar name={effectiveName} meta={agentMeta} sizeClass="w-5 h-5" iconClass="w-3 h-3" />
+              <AgentMessageAvatar name={effectiveName} meta={agentMeta} avatarUrl={agentAvatarUrl} sizeClass="w-5 h-5" iconClass="w-3 h-3" />
               <span className="block min-w-0 max-w-full truncate text-[11px] text-text-muted">{effectiveName}</span>
             </div>
           );

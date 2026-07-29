@@ -21,6 +21,7 @@ import { formatBytes, formatUptime, relativeTime } from "../agentViewUtils";
 export interface AgentCardTooltipData {
   id: string;
   name: string;
+  avatarUrl?: string | null;
   state?: string | null;
   cpuMillicores?: number | null;
   memoryMib?: number | null;
@@ -93,7 +94,7 @@ export function AgentCardTooltip({ agentName, agent }: AgentCardTooltipProps) {
   const activity = agent?.activity?.filter((entry) => entry.detail || entry.action).slice(0, 3) ?? [];
   const files = agent?.files?.slice(0, 4) ?? [];
   const hasExpandedDetails = hasResourceData || allTools.length > 0 || files.length > 0 || Boolean(agent?.connections) || activity.length > 0;
-  const avatar = agentAvatar(name, agent?.meta);
+  const avatar = agentAvatar(name, agent?.meta, agent?.avatarUrl);
   const Icon = avatar.icon;
 
   return (
@@ -294,6 +295,8 @@ export function AgentCardTooltip({ agentName, agent }: AgentCardTooltipProps) {
 interface AgentCardModuleProps {
   variant: StyleVariant;
   agentName?: string;
+  agentMeta?: AgentMeta | null;
+  agentAvatarUrl?: string | null;
   agentStatus?: AgentStatus | null;
   config?: { model: string; systemPrompt?: string; tools: { name: string; enabled: boolean }[] } | null;
   connections?: { id: string; connected: boolean }[] | null;
@@ -315,6 +318,8 @@ interface AgentCardModuleProps {
 export function AgentCardModule({
   variant,
   agentName = "My Agent",
+  agentMeta,
+  agentAvatarUrl,
   agentStatus,
   config: configProp,
   connections: connectionsProp,
@@ -347,7 +352,7 @@ export function AgentCardModule({
   const isRunning = status.state === "RUNNING";
   const isStopped = status.state === "STOPPED" || (status.state as string) === "FAILED";
   const isTransitioning = !isRunning && !isStopped; // PENDING, STARTING, STOPPING
-  const avatar = agentAvatar(agentName);
+  const avatar = agentAvatar(agentName, agentMeta, agentAvatarUrl);
   const AvatarIcon = avatar.icon;
 
   const renderActionButton = () => {

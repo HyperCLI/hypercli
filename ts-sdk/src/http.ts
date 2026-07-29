@@ -346,6 +346,7 @@ export class HTTPClient {
       url,
       headers,
       body: formData as any,
+      rawBody: true,
       timeout: this.timeout,
     }, handleResponse<T>);
   }

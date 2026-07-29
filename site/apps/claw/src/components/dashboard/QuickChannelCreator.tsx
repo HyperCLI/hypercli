@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Hash, ChevronDown, Bot, User, Check } from "lucide-react";
 import { agentAvatar } from "@/lib/avatar";
+import { ResourceImage } from "@/components/ResourceImage";
 import type { Participant } from "./AgentsChannelsSidebar";
 
 // ── Types ──
@@ -74,7 +75,7 @@ function SingleSelect({
               available.map((p) => {
                 const isSelected = p.id === selectedId;
                 const isAgent = p.type === "agent";
-                const av = isAgent ? agentAvatar(p.name) : null;
+                const av = isAgent ? agentAvatar(p.name, p.meta, p.avatarUrl) : null;
                 const AvIcon = av?.icon;
 
                 return (
@@ -93,10 +94,14 @@ function SingleSelect({
                     </div>
                     {isAgent && av && AvIcon ? (
                       <div
-                        className="w-5 h-5 rounded flex items-center justify-center flex-shrink-0"
+                        className="relative w-5 h-5 rounded flex items-center justify-center flex-shrink-0 overflow-hidden"
                         style={{ backgroundColor: av.bgColor }}
                       >
-                        <AvIcon className="w-3 h-3" style={{ color: av.fgColor }} />
+                        {av.imageUrl ? (
+                          <ResourceImage src={av.imageUrl} alt={`${p.name} avatar`} fill sizes="20px" className="object-cover" />
+                        ) : (
+                          <AvIcon className="w-3 h-3" style={{ color: av.fgColor }} />
+                        )}
                       </div>
                     ) : (
                       <div className="w-5 h-5 rounded bg-surface-low flex items-center justify-center flex-shrink-0">

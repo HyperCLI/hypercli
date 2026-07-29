@@ -31,6 +31,8 @@ export interface ChatMessageProps {
   isStreaming?: boolean;
   agentName?: string;
   agentMeta?: AgentMeta | null;
+  agentAvatarUrl?: string | null;
+  userAvatarUrl?: string | null;
   senderName?: string;
   isGroupChat?: boolean;
 }

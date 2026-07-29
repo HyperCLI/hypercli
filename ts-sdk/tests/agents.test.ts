@@ -478,7 +478,7 @@ describe('Agents SDK', () => {
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     ));
     vi.stubGlobal('fetch', fetchMock);
-    const http = { apiKey: 'hyper_api_test', get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() } as unknown as HTTPClient;
+    const http = new HTTPClient('https://api.test.hypercli.com/agents', 'hyper_api_test');
     const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
     const file = new Blob(['png'], { type: 'image/png' });
 
@@ -512,7 +512,7 @@ describe('Agents SDK', () => {
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     ));
     vi.stubGlobal('fetch', fetchMock);
-    const http = { apiKey: 'hyper_api_test', get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() } as unknown as HTTPClient;
+    const http = new HTTPClient('https://api.test.hypercli.com/agents', 'hyper_api_test');
     const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
 
     await expect(deployments.deleteProfileImage('agent-123')).resolves.toEqual({
@@ -528,7 +528,14 @@ describe('Agents SDK', () => {
 
   it('gets, uploads, and deletes external-agent profile images through dedicated routes', async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => new Response(
-      JSON.stringify({
+      JSON.stringify(init?.method === 'GET' ? {
+        id: 'external-123',
+        user_id: 'user-456',
+        state: 'active',
+        name: 'external-agent',
+        managed: false,
+        runtime: 'openclaw',
+      } : {
         id: 'external-123',
         avatar_url: init?.method === 'DELETE'
           ? null
@@ -540,25 +547,16 @@ describe('Agents SDK', () => {
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     ));
     vi.stubGlobal('fetch', fetchMock);
-    const http = {
-      apiKey: 'hyper_api_test',
-      get: vi.fn().mockResolvedValue({
-        id: 'external-123',
-        user_id: 'user-456',
-        state: 'active',
-        name: 'external-agent',
-        managed: false,
-        runtime: 'openclaw',
-      }),
-      post: vi.fn(),
-      patch: vi.fn(),
-      delete: vi.fn(),
-    } as unknown as HTTPClient;
+    const http = new HTTPClient('https://api.test.hypercli.com/agents', 'hyper_api_test');
     const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
     const file = new Blob(['png'], { type: 'image/png' });
 
     const external = await deployments.getExternalAgent('external-123');
-    expect(http.get).toHaveBeenCalledWith('/external-agents/external-123');
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://api.test.hypercli.com/agents/external-agents/external-123',
+      expect.objectContaining({ method: 'GET' }),
+    );
     expect(external.managed).toBe(false);
 
     await expect(deployments.uploadExternalAgentProfileImage('external-123', file)).resolves.toEqual({
@@ -572,12 +570,12 @@ describe('Agents SDK', () => {
       s3_key: null,
     });
     expect(fetchMock).toHaveBeenNthCalledWith(
-      1,
+      2,
       'https://api.test.hypercli.com/agents/external-agents/external-123/profile-image',
       expect.objectContaining({ method: 'POST', body: file }),
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
+      3,
       'https://api.test.hypercli.com/agents/external-agents/external-123/profile-image',
       expect.objectContaining({ method: 'DELETE' }),
     );

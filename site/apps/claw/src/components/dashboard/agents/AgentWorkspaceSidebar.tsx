@@ -559,6 +559,7 @@ function RenameSessionDialog({
   const [value, setValue] = useState(title);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const titleId = React.useId();
 
   useEffect(() => {
     setValue(title);
@@ -566,7 +567,7 @@ function RenameSessionDialog({
     setSaving(false);
   }, [session?.key, title]);
 
-  if (!session) return null;
+  if (!session || typeof document === "undefined") return null;
 
   const trimmed = value.trim();
   const canSave = Boolean(trimmed) && trimmed !== title.trim() && !saving;
@@ -583,19 +584,22 @@ function RenameSessionDialog({
     }
   };
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm" onClick={saving ? undefined : onClose}>
       <motion.div
         initial={{ opacity: 0, scale: 0.96, y: 8 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ type: "spring", stiffness: 420, damping: 34 }}
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-md overflow-hidden rounded-xl border border-border bg-surface shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="isolate w-full max-w-md overflow-hidden rounded-xl border border-border bg-background shadow-2xl"
       >
         <div className="border-b border-border p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold leading-6 text-foreground">Rename session</h2>
+              <h2 id={titleId} className="text-lg font-semibold leading-6 text-foreground">Rename session</h2>
               <p className="mt-2 text-sm text-text-muted">Update this session&apos;s name</p>
             </div>
             <button
@@ -642,7 +646,8 @@ function RenameSessionDialog({
           </button>
         </div>
       </motion.div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

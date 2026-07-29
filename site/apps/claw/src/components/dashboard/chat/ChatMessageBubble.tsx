@@ -30,6 +30,8 @@ export function ChatMessageBubble({
   isStreaming = false,
   agentName,
   agentMeta,
+  agentAvatarUrl,
+  userAvatarUrl,
   senderName,
   isGroupChat = false,
 }: ChatMessageProps) {
@@ -92,19 +94,19 @@ export function ChatMessageBubble({
     >
       {/* v2 name: avatar circle to the left */}
       {showV2Name && (
-        <MessageName variant="v2" placement="avatar-left" isUser={isUser} effectiveName={effectiveName} agentMeta={agentMeta} />
+        <MessageName variant="v2" placement="avatar-left" isUser={isUser} effectiveName={effectiveName} agentMeta={agentMeta} agentAvatarUrl={agentAvatarUrl} userAvatarUrl={userAvatarUrl} />
       )}
 
       <div className={`flex min-w-0 flex-col ${messageColumnClass}`}>
 
         {/* v1 name: monogram above */}
         {showV1Name && (
-          <MessageName variant="v1" placement="above-bubble" isUser={isUser} effectiveName={effectiveName} agentMeta={agentMeta} />
+          <MessageName variant="v1" placement="above-bubble" isUser={isUser} effectiveName={effectiveName} agentMeta={agentMeta} agentAvatarUrl={agentAvatarUrl} userAvatarUrl={userAvatarUrl} />
         )}
 
         {/* v3 name: sparkle above */}
         {showV3Name && (
-          <MessageName variant="v3" placement="above-bubble" isUser={isUser} effectiveName={effectiveName} />
+          <MessageName variant="v3" placement="above-bubble" isUser={isUser} effectiveName={effectiveName} userAvatarUrl={userAvatarUrl} />
         )}
 
         {/* v2 name: text above when avatar present */}

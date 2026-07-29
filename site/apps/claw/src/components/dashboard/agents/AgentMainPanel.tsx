@@ -6,7 +6,7 @@ import { ArrowLeft, Gauge, PanelLeft, RefreshCw } from "lucide-react";
 import type { Agent } from "@/app/dashboard/agents/types";
 import { isAgentFailureState, isAgentTransitionalState } from "@/app/dashboard/agents/types";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
-import { agentAvatar } from "@/lib/avatar";
+import { agentAvatar, agentProfileImageUrl } from "@/lib/avatar";
 import { ResourceImage } from "@/components/ResourceImage";
 import { AgentEmptyState, AgentIntegrationsEmptyState, AgentSkillsEmptyState, LaunchFirstAgentEmptyState } from "@/components/dashboard/agents/AgentPanels";
 import { AgentLaunchPrompt, AgentLoadingState, AgentStatusChip, ConnectionStatusIndicator, type AgentStatusChipModel, type CenterPanel } from "@/components/dashboard/agents/page-helpers";
@@ -434,7 +434,11 @@ export function AgentMainPanel({
                   </button>
                 )}
                 {(() => {
-                  const avatar = agentAvatar(selectedAgentDisplayName, selectedAgent.meta);
+                  const avatar = agentAvatar(
+                    selectedAgentDisplayName,
+                    selectedAgent.meta,
+                    agentProfileImageUrl(selectedAgent),
+                  );
                   const AvatarIcon = avatar.icon;
                   return (
                     <div className="relative w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ backgroundColor: avatar.bgColor }}>

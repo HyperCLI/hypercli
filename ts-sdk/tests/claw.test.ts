@@ -248,6 +248,7 @@ describe('HyperAgent API', () => {
               provider: 'STRIPE',
               status: 'ACTIVE',
               expires_at: '2026-04-15T00:00:00Z',
+              tpd_limit: 1000000,
               agent_tier: 'large',
               slot_grants: { large: 1 },
               features: { voice: true },
@@ -276,6 +277,8 @@ describe('HyperAgent API', () => {
       expect(summary.entitlements.billingResetAt?.toISOString()).toBe('2026-04-15T00:00:00.000Z');
       expect(summary.entitlementItems ?? []).toHaveLength(1);
       expect(summary.entitlementItems?.[0]?.slotGrants).toEqual({ large: 1 });
+      expect(summary.entitlementItems?.[0]?.tpdLimit).toBe(1000000);
+      expect(summary.entitlementItems?.[0]?.activeAgentIds).toEqual(['agent-1']);
       expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/subscriptions/summary');
       expect((calls[0]?.init?.headers as Record<string, string>)?.Authorization).toBe('Bearer sk-hyper-test');
     } finally {

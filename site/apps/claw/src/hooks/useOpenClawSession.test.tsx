@@ -1947,7 +1947,47 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
-  it("streams chat through the gateway root session without deployment id params", async () => {
+  it("resumes the latest existing conversation before granting send authority", async () => {
+    const gateway = buildGateway();
+    gateway.sessionsList.mockResolvedValue([
+      {
+        key: "agent:default:dashboard:019789ab-cdef-4abc-8def-0123456789ab",
+        displayName: "Older conversation",
+        updatedAt: 10,
+      },
+      {
+        key: "agent:default:main",
+        origin: { provider: "webchat", surface: "webchat" },
+        deliveryContext: { channel: "webchat" },
+        updatedAt: 20,
+      },
+    ]);
+    gateway.chatHistory.mockImplementation(async (sessionKey: string) => (
+      sessionKey === "agent:default:main"
+        ? [{ role: "assistant", content: "Legacy conversation restored" }]
+        : []
+    ));
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+
+    await waitFor(() => expect(result.current.activeSessionSelectionResolved).toBe(true));
+    await waitFor(() => expect(result.current.activeSessionKey).toBe("main"));
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Legacy conversation restored" }),
+    ]);
+    expect(gateway.chatHistory).toHaveBeenLastCalledWith("agent:default:main", 200);
+    expect(gateway.chatSend).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("streams chat through a new dashboard session when no conversation exists", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
     const agent = {

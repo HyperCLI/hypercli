@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 
 import { useAgentAuth } from "@/hooks/useAgentAuth";
+import { useAccountProfileAvatar } from "@/hooks/useAccountProfileAvatar";
 import {
   AGENT_CLEANUP_START_MESSAGE,
   AGENT_STOP_CLEANUP_COOLDOWN_MS,
@@ -51,7 +52,7 @@ import { useOpenClawSession } from "@/hooks/useOpenClawSession";
 import { useAgentLogs } from "@/hooks/useAgentLogs";
 import type { ShellStatus } from "@/hooks/useAgentShell";
 import { useAgentShellActivation } from "@/hooks/useAgentShellActivation";
-import { agentAvatar } from "@/lib/avatar";
+import { agentProfileImageUrl } from "@/lib/avatar";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { IntegrationsDirectoryPanel } from "@/components/dashboard/integrations";
 import { SharedKnowledgePanel } from "@/components/dashboard/knowledge/SharedKnowledgePanel";
@@ -299,6 +300,14 @@ function removeSdkAgent(prev: SdkAgent[], agentId: string): SdkAgent[] {
 
 export default function DevAgentSetupAgentsPage() {
   const { getToken, user } = useAgentAuth();
+  const {
+    avatarUrl: accountAvatarUrl,
+    setAvatarUrl: setAccountAvatarUrl,
+  } = useAccountProfileAvatar({
+    enabled: Boolean(user?.id),
+    getToken,
+    userId: user?.id ?? null,
+  });
   const runAgentMutation = useMemo(() => createAgentMutationQueue(), []);
   const router = useRouter();
   const { setAgentMenu } = useDashboardMobileAgentMenu();
@@ -964,7 +973,13 @@ export default function DevAgentSetupAgentsPage() {
       sessionKey: sessionKeyForAgent(agent.id),
       participants: [
         { id: "user", name: "You", type: "user" as const },
-        { id: agent.id, name: agentDisplayLabel(agent), type: "agent" as const, meta: agent.meta ?? null },
+        {
+          id: agent.id,
+          name: agentDisplayLabel(agent),
+          type: "agent" as const,
+          meta: agent.meta ?? null,
+          avatarUrl: agentProfileImageUrl(agent),
+        },
       ],
       kind: "user-agent" as const,
       title: agentDisplayLabel(agent),
@@ -1986,7 +2001,13 @@ export default function DevAgentSetupAgentsPage() {
       <ChannelCreationWizard
         open={showChannelWizard}
         onClose={() => setShowChannelWizard(false)}
-        availableAgents={agents.map((a) => ({ id: a.id, name: a.name || a.id, type: "agent" as const }))}
+        availableAgents={agents.map((a) => ({
+          id: a.id,
+          name: agentDisplayLabel(a),
+          type: "agent" as const,
+          meta: a.meta ?? null,
+          avatarUrl: agentProfileImageUrl(a),
+        }))}
         availableUsers={MOCK_PARTICIPANTS.filter((p) => p.type === "user")}
         onCreate={async (channel) => {
           // TODO: raise an SDK/API requirement for channel creation. For now, log and close.
@@ -2052,6 +2073,7 @@ export default function DevAgentSetupAgentsPage() {
           sidebarCreatorSignal={sidebarCreatorSignal}
           setPendingAgentDelete={setPendingAgentDelete}
           accountInitial={accountInitial}
+          accountAvatarUrl={accountAvatarUrl}
           budget={budget}
           subscriptionSummary={subscriptionSummary}
           catalogPlans={catalogPlans}
@@ -2091,6 +2113,7 @@ export default function DevAgentSetupAgentsPage() {
               <AgentChatPanel
                 chat={gatewayChat}
                 selectedAgent={selectedAgent!}
+                userAvatarUrl={accountAvatarUrl}
                 isSelectedRunning={Boolean(isSelectedRunning)}
                 chatDragActive={chatDragActive}
                 setChatDragActive={setChatDragActive}
@@ -2242,6 +2265,7 @@ export default function DevAgentSetupAgentsPage() {
                 agent={selectedAgent}
                 user={user}
                 getToken={getToken}
+                onProfileAvatarChange={setAccountAvatarUrl}
                 onStartAgent={() => {
                   if (selectedAgent) void handleStart(selectedAgent.id);
                 }}

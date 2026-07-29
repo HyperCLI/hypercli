@@ -38,6 +38,7 @@ import { FilesDrawer } from "@hypercli/shared-ui/files";
 import { InChatUxKitDemo } from "@/components/dashboard/chat/InChatUxKit";
 import { MarkdownContent } from "@/components/dashboard/chat/MarkdownContent";
 import { TooltipHint } from "@/components/ClawTooltip";
+import { ResourceImage } from "@/components/ResourceImage";
 import type { ChatMessage } from "@/lib/openclaw-chat";
 import { agentAvatar } from "@/lib/avatar";
 
@@ -1713,12 +1714,16 @@ export default function DevChatPage() {
 
             if (!isGroup && agents.length === 1) {
               // 1:1 — single agent avatar
-              const av = agentAvatar(agents[0].name);
+              const av = agentAvatar(agents[0].name, agents[0].meta, agents[0].avatarUrl);
               const Icon = av.icon;
               return (
                 <div className="relative">
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: av.bgColor }}>
-                    <Icon className="w-4 h-4" style={{ color: av.fgColor }} />
+                  <div className="relative w-8 h-8 rounded-full flex items-center justify-center overflow-hidden" style={{ backgroundColor: av.bgColor }}>
+                    {av.imageUrl ? (
+                      <ResourceImage src={av.imageUrl} alt={`${agents[0].name} avatar`} fill sizes="32px" className="object-cover" />
+                    ) : (
+                      <Icon className="w-4 h-4" style={{ color: av.fgColor }} />
+                    )}
                   </div>
                   <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${selectedThread.isActive ? "bg-primary" : "bg-text-muted"}`} />
                 </div>
@@ -1730,12 +1735,12 @@ export default function DevChatPage() {
             return (
               <div className="relative flex items-center" style={{ width: 8 + shown.length * 22 }}>
                 {shown.map((agent, i) => {
-                  const av = agentAvatar(agent.name);
+                  const av = agentAvatar(agent.name, agent.meta, agent.avatarUrl);
                   const Icon = av.icon;
                   return (
                     <div
                       key={agent.id}
-                      className="rounded-full flex items-center justify-center border-2 border-background"
+                      className="relative rounded-full flex items-center justify-center overflow-hidden border-2 border-background"
                       style={{
                         width: 28,
                         height: 28,
@@ -1744,7 +1749,11 @@ export default function DevChatPage() {
                         zIndex: shown.length - i,
                       }}
                     >
-                      <Icon className="w-3.5 h-3.5" style={{ color: av.fgColor }} />
+                      {av.imageUrl ? (
+                        <ResourceImage src={av.imageUrl} alt={`${agent.name} avatar`} fill sizes="28px" className="object-cover" />
+                      ) : (
+                        <Icon className="w-3.5 h-3.5" style={{ color: av.fgColor }} />
+                      )}
                     </div>
                   );
                 })}
@@ -2133,7 +2142,7 @@ export default function DevChatPage() {
       {/* ── Delete Confirmation Dialog ── */}
       {pendingDeleteId && (() => {
         const thread = threads.find((t) => t.id === pendingDeleteId);
-        const agentNames = thread?.participants.filter((p) => p.type === "agent").map((p) => p.name) ?? [];
+        const agentParticipants = thread?.participants.filter((p) => p.type === "agent") ?? [];
         return (
           <>
             <div className="fixed inset-0 z-50 bg-black/50" onClick={() => setPendingDeleteId(null)} />
@@ -2144,16 +2153,23 @@ export default function DevChatPage() {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-foreground">Delete project?</p>
-                  <p className="text-[11px] text-text-muted">This will disconnect {agentNames.length} agent{agentNames.length !== 1 ? "s" : ""}</p>
+                  <p className="text-[11px] text-text-muted">This will disconnect {agentParticipants.length} agent{agentParticipants.length !== 1 ? "s" : ""}</p>
                 </div>
               </div>
               <div className="flex flex-wrap gap-1">
-                {agentNames.map((name) => {
-                  const av = agentAvatar(name);
+                {agentParticipants.map((agent) => {
+                  const av = agentAvatar(agent.name, agent.meta, agent.avatarUrl);
                   const Icon = av.icon;
                   return (
-                    <span key={name} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium" style={{ backgroundColor: `${av.bgColor}`, color: av.fgColor }}>
-                      <Icon className="w-3 h-3" />{name}
+                    <span key={agent.id} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium" style={{ backgroundColor: `${av.bgColor}`, color: av.fgColor }}>
+                      {av.imageUrl ? (
+                        <span className="relative h-3 w-3 overflow-hidden rounded-full">
+                          <ResourceImage src={av.imageUrl} alt={`${agent.name} avatar`} fill sizes="12px" className="object-cover" />
+                        </span>
+                      ) : (
+                        <Icon className="w-3 h-3" />
+                      )}
+                      {agent.name}
                     </span>
                   );
                 })}

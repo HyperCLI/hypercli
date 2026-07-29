@@ -21,6 +21,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { agentAvatar } from "@/lib/avatar";
+import { ResourceImage } from "@/components/ResourceImage";
 import { TooltipHint } from "@/components/ClawTooltip";
 import { ConversationGraphModule } from "./AgentsChannelsSidebar";
 import { AgentFocusModule } from "./modules/AgentFocusModule";
@@ -89,6 +90,8 @@ function threadKindLabel(kind: "user-agent" | "agent-agent" | "group"): string {
 
 export function AgentView({
   agentName = "Agent",
+  agentMeta,
+  agentAvatarUrl,
   onConnectionSelect,
   className,
   activeTab: controlledTab,
@@ -216,12 +219,12 @@ export function AgentView({
   const availableAgents = useMemo(() => {
     if (!conversationThreads) return [];
     const seen = new Set<string>();
-    const agents: { id: string; name: string }[] = [];
+    const agents: Array<Pick<NonNullable<ConversationThread["participants"]>[number], "id" | "name" | "meta" | "avatarUrl">> = [];
     for (const t of conversationThreads) {
       for (const p of t.participants) {
         if (p.type === "agent" && !seen.has(p.id)) {
           seen.add(p.id);
-          agents.push({ id: p.id, name: p.name });
+          agents.push({ id: p.id, name: p.name, meta: p.meta, avatarUrl: p.avatarUrl });
         }
       }
     }
@@ -692,6 +695,8 @@ export function AgentView({
               <AgentCardModule
                 variant={agentCardVariant}
                 agentName={agentName}
+                agentMeta={agentMeta}
+                agentAvatarUrl={agentAvatarUrl}
                 agentStatus={status}
                 config={agentConfigProp}
                 connections={agentConnectionsProp}
@@ -930,7 +935,7 @@ export function AgentView({
                   <p className="text-[9px] font-semibold text-text-secondary uppercase tracking-wider text-center">Available agents</p>
                   <div className="space-y-1 max-h-40 overflow-y-auto">
                     {availableAgents.map((agent, idx) => {
-                      const av = agentAvatar(agent.name);
+                      const av = agentAvatar(agent.name, agent.meta, agent.avatarUrl);
                       const AvIcon = av.icon;
                       const targetThread = conversationThreads?.find((t) =>
                         t.participants.some((p) => p.id === agent.id),
@@ -950,10 +955,14 @@ export function AgentView({
                         >
                           <motion.div
                             whileHover={{ scale: 1.1, rotate: 5 }}
-                            className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+                            className="relative w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden"
                             style={{ backgroundColor: av.bgColor }}
                           >
-                            <AvIcon className="w-3.5 h-3.5" style={{ color: av.fgColor }} />
+                            {av.imageUrl ? (
+                              <ResourceImage src={av.imageUrl} alt={`${agent.name} avatar`} fill sizes="28px" className="object-cover" />
+                            ) : (
+                              <AvIcon className="w-3.5 h-3.5" style={{ color: av.fgColor }} />
+                            )}
                           </motion.div>
                           <div className="flex-1 min-w-0">
                             <div className="text-[11px] font-medium text-foreground truncate">{agent.name}</div>

@@ -70,11 +70,33 @@ export interface AgentAvatarInfo {
   imageUrl?: string | null;
 }
 
+export function agentProfileImageUrl(agent: {
+  avatarUrl?: string | null;
+  displayIdentity?: unknown;
+} | null | undefined): string | null {
+  if (typeof agent?.avatarUrl === "string" && agent.avatarUrl.trim()) {
+    return agent.avatarUrl.trim();
+  }
+  if (!agent?.displayIdentity || typeof agent.displayIdentity !== "object") return null;
+
+  const identityAvatarUrl = (agent.displayIdentity as Record<string, unknown>).avatar_url;
+  return typeof identityAvatarUrl === "string" && identityAvatarUrl.trim()
+    ? identityAvatarUrl.trim()
+    : null;
+}
+
 /**
  * Deterministic avatar generation from agent name.
  * Returns an icon component + HSL color strings.
  */
-export function agentAvatar(name: string, meta?: AgentMeta | null): AgentAvatarInfo {
+export function agentAvatar(
+  name: string,
+  meta?: AgentMeta | null,
+  profileImageUrl?: string | null,
+): AgentAvatarInfo {
+  const preferredImage = typeof profileImageUrl === "string" && profileImageUrl.trim()
+    ? profileImageUrl.trim()
+    : null;
   const persistedAvatar = meta?.ui?.avatar;
   const persistedImage = typeof persistedAvatar?.image === "string" && persistedAvatar.image
     ? persistedAvatar.image
@@ -92,6 +114,6 @@ export function agentAvatar(name: string, meta?: AgentMeta | null): AgentAvatarI
     hue,
     bgColor: `hsl(${hue} 60% 20%)`,
     fgColor: `hsl(${hue} 70% 70%)`,
-    imageUrl: persistedImage,
+    imageUrl: preferredImage || persistedImage,
   };
 }

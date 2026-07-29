@@ -491,6 +491,28 @@ export function findOpenClawSelectableSession(
   return sessions.find((session) => sameOpenClawSelectableSessionKey(session.key, sessionKey)) ?? null;
 }
 
+export function resolveOpenClawResumeSessionKey(sessions: OpenClawSessionRecord[]): string | null {
+  let latestSession: OpenClawSessionRecord | null = null;
+  let latestActivity = 0;
+
+  for (const session of sessions) {
+    if (
+      session.readOnly ||
+      session.ephemeral ||
+      session.raw.archived === true ||
+      isEphemeralOpenClawSessionName(session.key) ||
+      isOpenClawSubagentSession(session)
+    ) continue;
+
+    const activity = Math.max(session.lastMessageAt, session.createdAt);
+    if (!Number.isFinite(activity) || activity <= latestActivity) continue;
+    latestSession = session;
+    latestActivity = activity;
+  }
+
+  return latestSession?.key ?? null;
+}
+
 export function openClawGatewaySessionKey(session: OpenClawSessionRecord | null | undefined): string | null {
   return nonEmptyString(session?.gatewaySessionKey) ?? nonEmptyString(session?.key);
 }

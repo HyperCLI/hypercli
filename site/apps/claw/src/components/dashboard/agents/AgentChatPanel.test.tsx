@@ -23,6 +23,7 @@ vi.mock("@/components/dashboard/ChatMessage", () => ({
     onRetryFailedReply?: () => void;
     retryFailedReplyDisabled?: boolean;
     retryingFailedReply?: boolean;
+    userAvatarUrl?: string | null;
   }) => {
     chatMessageBubbleMock(props);
     return props.onRetryFailedReply ? (
@@ -263,6 +264,18 @@ describe("AgentChatPanel", () => {
   afterEach(() => {
     vi.useRealTimers();
     chatMessageBubbleMock.mockClear();
+  });
+
+  it("passes the profile avatar to user chat messages", () => {
+    const profileAvatarUrl = "https://cdn.example.test/profile.png";
+    renderAgentChatPanel({
+      userAvatarUrl: profileAvatarUrl,
+      chat: buildChat({ messages: [{ role: "user", content: "Hello" }] }),
+    });
+
+    expect(chatMessageBubbleMock).toHaveBeenCalledWith(expect.objectContaining({
+      userAvatarUrl: profileAvatarUrl,
+    }));
   });
 
   it("keys production message rows by target and immutable render identity", () => {

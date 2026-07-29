@@ -8,6 +8,7 @@ import type { AgentViewProps } from "@/components/dashboard/agentViewTypes";
 import type { Agent } from "@/app/dashboard/agents/types";
 import { isAgentFailureState, isAgentTransitionalState } from "@/app/dashboard/agents/types";
 import { agentDisplayLabel } from "@/components/dashboard/agents/agentViewModel";
+import { agentProfileImageUrl } from "@/lib/avatar";
 
 interface AgentInspectorProps {
   isDesktopViewport: boolean;
@@ -17,7 +18,7 @@ interface AgentInspectorProps {
   isSelectedRunning: boolean;
   activeTab: AgentViewProps["activeTab"];
   onTabChange: NonNullable<AgentViewProps["onTabChange"]>;
-  viewProps: Omit<AgentViewProps, "agentName" | "activeTab" | "onTabChange" | "agentStatus">;
+  viewProps: Omit<AgentViewProps, "agentName" | "agentMeta" | "agentAvatarUrl" | "activeTab" | "onTabChange" | "agentStatus">;
 }
 
 function buildAgentStatus(selectedAgent: Agent, isSelectedRunning: boolean): AgentViewProps["agentStatus"] {
@@ -67,6 +68,8 @@ export function AgentInspector({
     <AgentView
       {...viewProps}
       agentName={agentDisplayLabel(selectedAgent)}
+      agentMeta={selectedAgent.meta}
+      agentAvatarUrl={agentProfileImageUrl(selectedAgent)}
       activeTab={activeTab}
       onTabChange={onTabChange}
       agentStatus={buildAgentStatus(selectedAgent, isSelectedRunning)}

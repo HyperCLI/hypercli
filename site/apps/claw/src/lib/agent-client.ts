@@ -1,10 +1,11 @@
 import { HyperAgent } from "@hypercli.com/sdk/agent";
+import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
 import type { OpenClawCreateAgentOptions, OpenClawStartAgentOptions } from "@hypercli.com/sdk/agents";
 import { Deployments, getSlackInstallStatus } from "@hypercli.com/sdk/agents";
 import { buildSlackRelayApiUrl, buildSlackRelayWebSocketUrl } from "@hypercli.com/sdk/channels";
 import { HTTPClient } from "@hypercli.com/sdk/http";
 import { WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
-import { API_BASE_URL, SLACK_RELAY_BASE_URL } from "./api";
+import { API_BASE_URL, PRODUCT_API_BASE_URL, SLACK_RELAY_BASE_URL } from "./api";
 
 interface AgentUiMeta {
   avatar?: {
@@ -355,6 +356,14 @@ export function createAgentClient(apiKey: string): Deployments {
   const resolvedApiBaseUrl = resolveAgentApiBaseUrl(API_BASE_URL);
   const http = new HTTPClient(resolvedApiBaseUrl, apiKey);
   return new Deployments(http, apiKey, resolvedApiBaseUrl, configuredAgentsWsUrl || undefined);
+}
+
+export function createBrowserHyperCLIClient(token: string): BrowserHyperCLI {
+  return new BrowserHyperCLI({
+    apiUrl: PRODUCT_API_BASE_URL,
+    agentsApiBaseUrl: API_BASE_URL,
+    token,
+  });
 }
 
 export function createHyperAgentClient(apiKey: string): HyperAgent {

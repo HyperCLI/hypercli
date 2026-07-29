@@ -23,6 +23,7 @@ import {
 
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useAgentRosterCollapsed } from "@/hooks/useAgentRosterCollapsed";
+import { useAccountProfileAvatar } from "@/hooks/useAccountProfileAvatar";
 import {
   AGENT_CLEANUP_START_MESSAGE,
   AGENT_STOP_CLEANUP_COOLDOWN_MS,
@@ -47,7 +48,7 @@ import { useAgentShellActivation } from "@/hooks/useAgentShellActivation";
 import { preloadAgentShellTerminalRuntime } from "@/lib/agent-shell-terminal-loader";
 import { clearOpenClawSessionPins, useOpenClawSessionPins } from "@/hooks/useOpenClawSessionPins";
 import { useAgentRosterOrder } from "@/hooks/useAgentRosterOrder";
-import { agentAvatar } from "@/lib/avatar";
+import { agentProfileImageUrl } from "@/lib/avatar";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import {
   SkillDraftTestBanner,
@@ -415,6 +416,17 @@ function agentTokenUsageMap(
     const agentId = typeof entry.agentId === "string" ? entry.agentId.trim() : "";
     return agentId ? [[agentId, finiteNumber(entry.totalTokens)]] : [];
   }));
+}
+
+function agentTokenLimit(
+  summary: HyperAgentSubscriptionSummary | null,
+  agentId: string | null,
+): number | null {
+  if (!agentId) return null;
+  const entitlement = summary?.entitlementItems.find((item) => item.activeAgentIds.includes(agentId));
+  return entitlement && Number.isFinite(entitlement.tpdLimit) && entitlement.tpdLimit > 0
+    ? entitlement.tpdLimit
+    : null;
 }
 
 function normalizeBundle(value: unknown): SlotBundle {
@@ -967,6 +979,14 @@ function AgentsPageContent() {
     login,
     logout,
   } = useAgentAuth();
+  const {
+    avatarUrl: accountAvatarUrl,
+    setAvatarUrl: setAccountAvatarUrl,
+  } = useAccountProfileAvatar({
+    enabled: isAuthenticated,
+    getToken,
+    userId: user?.id ?? null,
+  });
   useEffect(() => {
     markDashboardPerformance("page-mounted");
   }, []);
@@ -1207,9 +1227,10 @@ function AgentsPageContent() {
   const tokenUsage = selectedAgentId && tokenUsageByAgent
     ? tokenUsageByAgent[selectedAgentId] ?? 0
     : null;
+  const tokenLimit = agentTokenLimit(subscriptionSummary, selectedAgentId);
   const [selectedSessionKeysByAgent, setSelectedSessionKeysByAgent] = useState<Record<string, string>>(() => (
-    requestedAgentId
-      ? { [requestedAgentId]: requestedSessionKey ?? createOpenClawDashboardSessionKey() }
+    requestedAgentId && requestedSessionKey
+      ? { [requestedAgentId]: requestedSessionKey }
       : {}
   ));
   const generatedSessionKeysByAgentRef = useRef<Record<string, string>>({});
@@ -1413,11 +1434,7 @@ function AgentsPageContent() {
     }
 
     const normalizedSessionKey = sessionKey?.trim() || null;
-    if (
-      agentId &&
-      normalizedSessionKey &&
-      !sameOpenClawSelectableSessionKey(normalizedSessionKey, OPENCLAW_INTERNAL_SESSION_KEY)
-    ) {
+    if (agentId && normalizedSessionKey) {
       params.set("session", normalizedSessionKey);
     } else {
       params.delete("session");
@@ -2217,20 +2234,19 @@ function AgentsPageContent() {
     const selectionQueryKey = requestedAgentId
       ? JSON.stringify([requestedAgentId, requestedSessionKey])
       : null;
-    const requestedAgentSessionKey = requestedAgentId
-      ? requestedSessionKey ?? sessionKeyForAgent(requestedAgentId)
-      : null;
     const applyRequestedSession = () => {
-      if (!requestedAgentId || !requestedAgentSessionKey) {
+      if (!requestedAgentId) {
         appliedAgentSessionQueryRef.current = null;
         return;
       }
       appliedAgentSessionQueryRef.current = selectionQueryKey;
-      setSelectedSessionKeysByAgent((current) => (
-        current[requestedAgentId] === requestedAgentSessionKey
-          ? current
-          : { ...current, [requestedAgentId]: requestedAgentSessionKey }
-      ));
+      if (requestedSessionKey) {
+        setSelectedSessionKeysByAgent((current) => (
+          current[requestedAgentId] === requestedSessionKey
+            ? current
+            : { ...current, [requestedAgentId]: requestedSessionKey }
+        ));
+      }
       setMobileShowChat(true);
     };
 
@@ -2389,55 +2405,12 @@ function AgentsPageContent() {
     intent: shellIntentAgentId === selectedAgentId,
   });
 
-  const selectedSessionKey = selectedAgentId
-    ? selectedSessionKeysByAgent[selectedAgentId] ?? sessionKeyForAgent(selectedAgentId)
-    : sessionKeyForAgent(null);
-  const knowledgeSectionHref = useMemo(() => {
-    const params = new URLSearchParams({ section: "knowledge" });
-    if (selectedAgentId) {
-      params.set("agentId", selectedAgentId);
-      if (!sameOpenClawSelectableSessionKey(selectedSessionKey, OPENCLAW_INTERNAL_SESSION_KEY)) {
-        params.set("session", selectedSessionKey);
-      }
-    }
-    return `/dashboard/agents?${params.toString()}`;
-  }, [selectedAgentId, selectedSessionKey]);
-  const membersSectionHref = useMemo(() => {
-    const params = new URLSearchParams({ section: "members" });
-    if (selectedAgentId) {
-      params.set("agentId", selectedAgentId);
-      if (!sameOpenClawSelectableSessionKey(selectedSessionKey, OPENCLAW_INTERNAL_SESSION_KEY)) {
-        params.set("session", selectedSessionKey);
-      }
-    }
-    return `/dashboard/agents?${params.toString()}`;
-  }, [selectedAgentId, selectedSessionKey]);
-  const selectedSessionRouteValue = selectedAgentId
-    && !sameOpenClawSelectableSessionKey(selectedSessionKey, OPENCLAW_INTERNAL_SESSION_KEY)
-    ? selectedSessionKey
+  const routedSelectedSessionKey = selectedAgentId && requestedAgentId === selectedAgentId
+    ? requestedSessionKey
     : null;
-  const selectedAgentHref = useMemo(() => {
-    if (!selectedAgentId) return "/dashboard/agents";
-    const params = new URLSearchParams({ agentId: selectedAgentId });
-    if (selectedSessionRouteValue) params.set("session", selectedSessionRouteValue);
-    return `/dashboard/agents?${params.toString()}`;
-  }, [selectedAgentId, selectedSessionRouteValue]);
-  const dashboardViewHrefs = useMemo<Record<DashboardView, string>>(() => ({
-    overview: buildDashboardViewHref("overview", {
-      agentId: selectedAgentId,
-      session: selectedSessionRouteValue,
-    }),
-    usage: buildDashboardViewHref("usage", {
-      agentId: selectedAgentId,
-      session: selectedSessionRouteValue,
-    }),
-    settings: buildDashboardViewHref("settings", {
-      agentId: selectedAgentId,
-      session: selectedSessionRouteValue,
-    }),
-  }), [selectedAgentId, selectedSessionRouteValue]);
-  const skillDraftScope = useMemo(() => ({ ownerId: user?.email ?? "local", agentId: selectedAgentId ?? "unknown-agent" }), [selectedAgentId, user?.email]);
-  const activeSkillDraftTest = useSkillDraftTestSession(skillDraftScope, selectedSessionKey);
+  const selectedSessionRouteValue = selectedAgentId
+    ? routedSelectedSessionKey ?? selectedSessionKeysByAgent[selectedAgentId] ?? null
+    : null;
   const gatewayEnabled = isSelectedRunning && agentWorkspaceActivated;
   const openClawHydrationMode: OpenClawHydrationMode = !dashboardView &&
     mainTab === "chat" &&
@@ -2456,9 +2429,67 @@ function AgentsPageContent() {
   const chat = useOpenClawSession(
     selectedAgent && isSelectedRunning ? selectedOpenClawAgent : null,
     gatewayEnabled,
-    selectedSessionKey,
+    selectedSessionRouteValue,
     { hydrationMode: openClawHydrationMode },
   );
+  const selectedSessionKey = selectedSessionRouteValue ?? chat.activeSessionKey;
+  const canonicalSelectedSessionKey = selectedSessionRouteValue ?? (
+    chat.activeSessionSelectionResolved ? chat.activeSessionKey : null
+  );
+  useEffect(() => {
+    if (!selectedAgentId || !chat.activeSessionSelectionResolved) return;
+    const resolvedSessionKey = chat.activeSessionKey.trim();
+    if (!resolvedSessionKey) return;
+    const timeout = window.setTimeout(() => {
+      setSelectedSessionKeysByAgent((current) => (
+        current[selectedAgentId] === resolvedSessionKey
+          ? current
+          : { ...current, [selectedAgentId]: resolvedSessionKey }
+      ));
+      if (requestedAgentId === selectedAgentId && !requestedSessionKey) {
+        replaceAgentChatRoute(selectedAgentId, resolvedSessionKey);
+      }
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [chat.activeSessionKey, chat.activeSessionSelectionResolved, replaceAgentChatRoute, requestedAgentId, requestedSessionKey, selectedAgentId]);
+  const knowledgeSectionHref = useMemo(() => {
+    const params = new URLSearchParams({ section: "knowledge" });
+    if (selectedAgentId) {
+      params.set("agentId", selectedAgentId);
+      if (canonicalSelectedSessionKey) params.set("session", canonicalSelectedSessionKey);
+    }
+    return `/dashboard/agents?${params.toString()}`;
+  }, [canonicalSelectedSessionKey, selectedAgentId]);
+  const membersSectionHref = useMemo(() => {
+    const params = new URLSearchParams({ section: "members" });
+    if (selectedAgentId) {
+      params.set("agentId", selectedAgentId);
+      if (canonicalSelectedSessionKey) params.set("session", canonicalSelectedSessionKey);
+    }
+    return `/dashboard/agents?${params.toString()}`;
+  }, [canonicalSelectedSessionKey, selectedAgentId]);
+  const selectedAgentHref = useMemo(() => {
+    if (!selectedAgentId) return "/dashboard/agents";
+    const params = new URLSearchParams({ agentId: selectedAgentId });
+    if (canonicalSelectedSessionKey) params.set("session", canonicalSelectedSessionKey);
+    return `/dashboard/agents?${params.toString()}`;
+  }, [canonicalSelectedSessionKey, selectedAgentId]);
+  const dashboardViewHrefs = useMemo<Record<DashboardView, string>>(() => ({
+    overview: buildDashboardViewHref("overview", {
+      agentId: selectedAgentId,
+      session: selectedAgentId ? canonicalSelectedSessionKey : null,
+    }),
+    usage: buildDashboardViewHref("usage", {
+      agentId: selectedAgentId,
+      session: selectedAgentId ? canonicalSelectedSessionKey : null,
+    }),
+    settings: buildDashboardViewHref("settings", {
+      agentId: selectedAgentId,
+      session: selectedAgentId ? canonicalSelectedSessionKey : null,
+    }),
+  }), [canonicalSelectedSessionKey, selectedAgentId]);
+  const skillDraftScope = useMemo(() => ({ ownerId: user?.email ?? "local", agentId: selectedAgentId ?? "unknown-agent" }), [selectedAgentId, user?.email]);
+  const activeSkillDraftTest = useSkillDraftTestSession(skillDraftScope, selectedSessionKey);
   const gatewayChat = asAgentGatewaySession(chat);
   const activeChatTargetRef = useRef({ agentId: selectedAgentId, sessionKey: chat.activeSessionKey });
   useLayoutEffect(() => {
@@ -2492,10 +2523,10 @@ function AgentsPageContent() {
       await endTemporaryChatBeforeSelectionRef.current();
     }
     if (agentSelectionOperationRef.current !== selectionOperation) return;
-    const sessionKey = selectedSessionKeysByAgent[agentId] ?? sessionKeyForAgent(agentId);
+    const sessionKey = selectedSessionKeysByAgent[agentId] ?? null;
     setSelectedAgentId(agentId);
     replaceAgentChatRoute(agentId, sessionKey, clearRoutedPanel, pushRoute);
-  }, [replaceAgentChatRoute, selectedAgentId, selectedSessionKeysByAgent, sessionKeyForAgent]);
+  }, [replaceAgentChatRoute, selectedAgentId, selectedSessionKeysByAgent]);
   const selectAgentFromRoster = useCallback((agentId: string) => {
     setAgentLauncherOpen(false);
     void selectAgent(agentId, Boolean(dashboardView), Boolean(dashboardView));
@@ -2950,7 +2981,13 @@ function AgentsPageContent() {
         sessionKey: sessionKeyForAgent(agent.id),
         participants: [
           { id: "user", name: "You", type: "user" as const },
-          { id: agent.id, name: displayName, type: "agent" as const, meta: agent.meta ?? null },
+          {
+            id: agent.id,
+            name: displayName,
+            type: "agent" as const,
+            meta: agent.meta ?? null,
+            avatarUrl: agentProfileImageUrl(agent),
+          },
         ],
         kind: "user-agent" as const,
         title: displayName,
@@ -3022,20 +3059,32 @@ function AgentsPageContent() {
   // Derive AgentSession[] from chat.sessions
   const agentSessionsForView = useMemo(() => {
     if (!chat.sessions || chat.sessions.length === 0) return null;
-    return chat.sessions.filter((session) => (
-      SHOW_INTERNAL_MAIN_SESSION || !sameOpenClawSelectableSessionKey(session.key, OPENCLAW_INTERNAL_SESSION_KEY)
-    )).map((session) => {
+    return chat.sessions.filter((session) => {
+      if (SHOW_INTERNAL_MAIN_SESSION || !sameOpenClawSelectableSessionKey(session.key, OPENCLAW_INTERNAL_SESSION_KEY)) {
+        return true;
+      }
+      return !session.readOnly && (session.messageCount > 0 || session.lastMessageAt > 0);
+    }).map((session) => {
       const sourceChannelId = typeof session.sourceChannelId === "string" ? session.sourceChannelId : undefined;
+      const isLegacyMainSession = sameOpenClawSelectableSessionKey(session.key, OPENCLAW_INTERNAL_SESSION_KEY);
       return {
         key: session.key,
         clientMode: session.clientMode,
-        clientDisplayName: displayOpenClawSessionName(session),
+        clientDisplayName: isLegacyMainSession ? "Previous conversation" : displayOpenClawSessionName(session),
         createdAt: session.createdAt,
         lastMessageAt: session.lastMessageAt,
         ...(sourceChannelId ? { sourceChannelId } : {}),
       };
     });
   }, [chat.sessions]);
+  const showRecoverableMainSession = Boolean(agentSessionsForView?.some((session) => (
+    sameOpenClawSelectableSessionKey(session.key, OPENCLAW_INTERNAL_SESSION_KEY)
+  )));
+  const sidebarSessions = useMemo(() => chat.sessions.map((session) => (
+    sameOpenClawSelectableSessionKey(session.key, OPENCLAW_INTERNAL_SESSION_KEY)
+      ? { ...session, title: "Previous conversation", clientDisplayName: "Previous conversation" }
+      : session
+  )), [chat.sessions]);
 
   const scheduledSessionOptions = useMemo(() => {
     const options: Array<{ key: string; label: string }> = [];
@@ -3510,7 +3559,7 @@ function AgentsPageContent() {
       replaceAgentChatRoute(
         nextSelectedAgentId,
         nextSelectedAgentId
-          ? selectedSessionKeysByAgent[nextSelectedAgentId] ?? sessionKeyForAgent(nextSelectedAgentId)
+          ? selectedSessionKeysByAgent[nextSelectedAgentId] ?? null
           : null,
       );
       const refreshed = await fetchAgents({ force: true });
@@ -4383,6 +4432,18 @@ function AgentsPageContent() {
       router.push(href);
     })();
   };
+  const openSharedResources = () => {
+    if (!isAuthenticated) {
+      requestAuthentication({ kind: "navigate", href: knowledgeSectionHref, title: "Sign in to open shared resources" });
+      return;
+    }
+    closeMobileNavigation();
+    setOpenclawSettingsOpen(false);
+    setMobileShowChat(true);
+    selectMainTab("knowledge");
+    if (knowledgeSectionActive) return;
+    router.push(knowledgeSectionHref, { scroll: false });
+  };
   const openMembersTab = () => {
     if (!isAuthenticated) {
       requestAuthentication({ kind: "navigate", href: membersSectionHref, title: "Sign in to open Workspace members" });
@@ -4395,6 +4456,8 @@ function AgentsPageContent() {
     if (membersSectionActive) return;
     router.push(membersSectionHref, { scroll: false });
   };
+  const openDashboardUsage = () => openDashboardView("usage");
+  const openDashboardHome = () => openDashboardView("overview");
   const openAccountSettings = () => {
     setMobileSettingsMenuOpen(true);
     closeMobileNavigation();
@@ -4638,6 +4701,9 @@ function AgentsPageContent() {
             if (value) closeMobileNavigation();
           }}
           accountInitial={accountInitial}
+          accountAvatarUrl={accountAvatarUrl}
+          accountName={dashboardDisplayName}
+          accountEmail={user?.email ?? null}
           onLogin={!isAuthenticated ? () => requestAuthentication({ kind: "navigate", href: "/dashboard/agents", title: "Sign in to your account" }) : undefined}
           onLogout={isAuthenticated ? logout : undefined}
           budget={budget}
@@ -4649,6 +4715,18 @@ function AgentsPageContent() {
             closeMobileNavigation();
             return openUpgradeCatalog(planId);
           }}
+          onOpenHome={openDashboardHome}
+          homeActive={dashboardView === "overview"}
+          homeHref={dashboardViewHrefs.overview}
+          onOpenSharedResources={openSharedResources}
+          sharedResourcesActive={knowledgeSectionActive}
+          sharedResourcesHref={knowledgeSectionHref}
+          onOpenMembers={openMembersTab}
+          membersActive={membersSectionActive}
+          membersHref={membersSectionHref}
+          onOpenUsage={openDashboardUsage}
+          usageActive={dashboardView === "usage"}
+          usageHref={dashboardViewHrefs.usage}
           onOpenAccountSettings={openAccountSettings}
           embeddedInNavigation
         />
@@ -4658,7 +4736,7 @@ function AgentsPageContent() {
           activeTab={dashboardView ? null : openclawSettingsOpen && selectedAgent ? "openclaw" : mainTab}
           skillsActive={mainTab === "skills"}
           tokenUsed={tokenUsage}
-          tokenLimit={budget?.pooled_tpd ?? null}
+          tokenLimit={tokenLimit}
           isAuthenticated={isAuthenticated}
           disabled={workspaceSidebarDisabled}
           disabledReason={workspaceSidebarDisabledReason}
@@ -4672,8 +4750,9 @@ function AgentsPageContent() {
           footerAction={renderPrivateChatControl()}
           closeButtonRef={mobileNavigationCloseRef}
           onClose={closeMobileNavigation}
-          sessions={chat.sessions}
+          sessions={sidebarSessions}
           sessionsFetched={chat.sessionsFetched}
+          showInternalMainSession={showRecoverableMainSession}
           creatingSessionKeys={chat.creatingSessionKeys}
           thinkingSessionKeys={chat.thinkingSessionKeys}
           selectedSessionKey={selectedSessionKey}
@@ -4712,6 +4791,7 @@ function AgentsPageContent() {
     agent: selectedAgent,
     user,
     getToken,
+    onProfileAvatarChange: setAccountAvatarUrl,
     onStartAgent: () => {
       if (selectedAgent) void handleStart(selectedAgent.id);
     },
@@ -4759,21 +4839,28 @@ function AgentsPageContent() {
       const generation = agentDataGenerationRef.current;
       return runAgentMutation(agentId, async () => {
         if (deletingAgentIdsRef.current.has(agentId)) throw new Error("Agent is being deleted.");
+        const targetAgent = sdkAgents.find((agent) => agent.id === agentId);
+        if (!targetAgent) throw new Error("Agent is no longer available.");
         const token = await getToken();
         if (generation !== agentDataGenerationRef.current) throw new Error("Account changed during upload.");
         if (deletingAgentIdsRef.current.has(agentId)) throw new Error("Agent is being deleted.");
         const client = createAgentClient(token);
-        const external = selectedAgent?.id === agentId && selectedAgent.managed === false;
+        const external = targetAgent.managed === false;
         const upload = external
           ? await client.uploadExternalAgentProfileImage(agentId, file, file.type || "image/png")
           : await client.uploadProfileImage(agentId, file, file.type || "image/png");
         if (!upload.avatar_url) throw new Error("Avatar upload returned no URL.");
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return upload.avatar_url;
-        const updatedAgent = external
-          ? await client.getExternalAgent(agentId)
-          : await client.get(agentId);
-        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return upload.avatar_url;
-        applyAgentMutationResult(updatedAgent);
+        try {
+          const updatedAgent = external
+            ? await client.getExternalAgent(agentId)
+            : await client.get(agentId);
+          if (generation === agentDataGenerationRef.current && !deletingAgentIdsRef.current.has(agentId)) {
+            applyAgentMutationResult(updatedAgent);
+          }
+        } catch {
+          // The upload response is authoritative; roster reconciliation can happen on the next refresh.
+        }
         return upload.avatar_url;
       });
     },
@@ -4781,18 +4868,26 @@ function AgentsPageContent() {
       const generation = agentDataGenerationRef.current;
       await runAgentMutation(agentId, async () => {
         if (deletingAgentIdsRef.current.has(agentId)) throw new Error("Agent is being deleted.");
+        const targetAgent = sdkAgents.find((agent) => agent.id === agentId);
+        if (!targetAgent) throw new Error("Agent is no longer available.");
         const token = await getToken();
         if (generation !== agentDataGenerationRef.current) throw new Error("Account changed during avatar removal.");
+        if (deletingAgentIdsRef.current.has(agentId)) throw new Error("Agent is being deleted.");
         const client = createAgentClient(token);
-        const external = selectedAgent?.id === agentId && selectedAgent.managed === false;
+        const external = targetAgent.managed === false;
         if (external) await client.deleteExternalAgentProfileImage(agentId);
         else await client.deleteProfileImage(agentId);
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
-        const updatedAgent = external
-          ? await client.getExternalAgent(agentId)
-          : await client.get(agentId);
-        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
-        applyAgentMutationResult(updatedAgent);
+        try {
+          const updatedAgent = external
+            ? await client.getExternalAgent(agentId)
+            : await client.get(agentId);
+          if (generation === agentDataGenerationRef.current && !deletingAgentIdsRef.current.has(agentId)) {
+            applyAgentMutationResult(updatedAgent);
+          }
+        } catch {
+          // The delete already committed; roster reconciliation can happen on the next refresh.
+        }
       });
     },
     onUpdateAgentLaunchConfig: async (agentId, launchConfig) => {
@@ -5094,7 +5189,13 @@ function AgentsPageContent() {
       <ChannelCreationWizard
         open={showChannelWizard}
         onClose={() => setShowChannelWizard(false)}
-        availableAgents={agents.map((a) => ({ id: a.id, name: a.name || a.id, type: "agent" as const }))}
+        availableAgents={agents.map((a) => ({
+          id: a.id,
+          name: agentDisplayLabel(a),
+          type: "agent" as const,
+          meta: a.meta ?? null,
+          avatarUrl: agentProfileImageUrl(a),
+        }))}
         availableUsers={MOCK_PARTICIPANTS.filter((p) => p.type === "user")}
         onCreate={async (channel) => {
           // TODO: raise an SDK/API requirement for channel creation. For now, log and close.
@@ -5173,6 +5274,9 @@ function AgentsPageContent() {
             onOpenAgentLauncher={() => setAgentLauncherOpen(true)}
             setPendingAgentDelete={setPendingAgentDelete}
             accountInitial={accountInitial}
+            accountAvatarUrl={accountAvatarUrl}
+            accountName={dashboardDisplayName}
+            accountEmail={user?.email ?? null}
             onLogin={!isAuthenticated ? () => requestAuthentication({ kind: "navigate", href: "/dashboard/agents", title: "Sign in to your account" }) : undefined}
             onLogout={isAuthenticated ? logout : undefined}
             budget={budget}
@@ -5181,6 +5285,18 @@ function AgentsPageContent() {
             preferredPlanId={launcherPreferredPlanId}
             pendingSlotReleases={pendingSlotReleases}
             onOpenPlanCatalog={openUpgradeCatalog}
+            onOpenHome={openDashboardHome}
+            homeActive={dashboardView === "overview"}
+            homeHref={dashboardViewHrefs.overview}
+            onOpenSharedResources={openSharedResources}
+            sharedResourcesActive={knowledgeSectionActive}
+            sharedResourcesHref={knowledgeSectionHref}
+            onOpenMembers={openMembersTab}
+            membersActive={membersSectionActive}
+            membersHref={membersSectionHref}
+            onOpenUsage={openDashboardUsage}
+            usageActive={dashboardView === "usage"}
+            usageHref={dashboardViewHrefs.usage}
             onOpenAccountSettings={openAccountSettings}
             embeddedInNavigation
           />
@@ -5190,7 +5306,7 @@ function AgentsPageContent() {
             activeTab={dashboardView ? null : openclawSettingsOpen && selectedAgent ? "openclaw" : mainTab}
             skillsActive={mainTab === "skills"}
             tokenUsed={tokenUsage}
-            tokenLimit={budget?.pooled_tpd ?? null}
+            tokenLimit={tokenLimit}
             isAuthenticated={isAuthenticated}
             disabled={workspaceSidebarDisabled}
             disabledReason={workspaceSidebarDisabledReason}
@@ -5200,8 +5316,9 @@ function AgentsPageContent() {
             collapsed={!sidebarCollapsed}
             onCollapsedChange={(collapsed) => setSidebarCollapsed(!collapsed)}
             embeddedInNavigation
-            sessions={chat.sessions}
+            sessions={sidebarSessions}
             sessionsFetched={chat.sessionsFetched}
+            showInternalMainSession={showRecoverableMainSession}
             creatingSessionKeys={chat.creatingSessionKeys}
             thinkingSessionKeys={chat.thinkingSessionKeys}
             selectedSessionKey={selectedSessionKey}
@@ -5295,6 +5412,7 @@ function AgentsPageContent() {
             <AgentChatPanel
               chat={gatewayChat}
               selectedAgent={selectedAgent!}
+              userAvatarUrl={accountAvatarUrl}
               isSelectedRunning={Boolean(isSelectedRunning)}
               chatDragActive={chatDragActive}
               setChatDragActive={setChatDragActive}
