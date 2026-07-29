@@ -5,6 +5,7 @@ import { expect, test } from "@playwright/test";
 loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
 
 const TEST_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQxMDI0NDQ4MDB9.signature";
+const TEST_WORKSPACE_ID = "workspace-direct-entitlement";
 
 test("agents page launches from a direct entitlement without an active subscription", async ({ page }) => {
   let createBody: Record<string, unknown> | null = null;
@@ -24,6 +25,31 @@ test("agents page launches from a direct entitlement without an active subscript
   await page.addInitScript((token) => {
     window.localStorage.setItem("claw_auth_token", token);
   }, TEST_JWT);
+
+  await page.route(/\/workspaces(?:\/.*)?$/, async (route) => {
+    const pathName = new URL(route.request().url()).pathname;
+    const workspace = {
+      id: TEST_WORKSPACE_ID,
+      name: "Direct Entitlement",
+      slug: TEST_WORKSPACE_ID,
+      display_name: "Direct Entitlement",
+      role: "admin",
+    };
+
+    if (
+      pathName.endsWith(`/workspaces/${TEST_WORKSPACE_ID}/agents`)
+      || pathName.endsWith(`/workspaces/${TEST_WORKSPACE_ID}/grants`)
+    ) {
+      await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(pathName.endsWith(`/workspaces/${TEST_WORKSPACE_ID}`) ? workspace : [workspace]),
+    });
+  });
 
   await page.route("**/agents/**", async (route) => {
     const url = new URL(route.request().url());
@@ -166,7 +192,7 @@ test("agents page launches from a direct entitlement without an active subscript
 
   await page.goto("/dashboard/agents", { waitUntil: "domcontentloaded" });
 
-  await page.locator("main").getByRole("button", { name: /Create an agent/i }).last().click();
+  await page.getByRole("button", { name: "Skip tour" }).click();
   await page.locator("summary").filter({ hasText: /^Advanced$/i }).click();
   await page
     .locator("label")
@@ -174,6 +200,8 @@ test("agents page launches from a direct entitlement without an active subscript
     .locator("input[type='checkbox']")
     .first()
     .check();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByRole("heading", { name: "Set up the workspace" })).toBeVisible();
   await page.getByRole("button", { name: "Continue" }).click();
 
   await expect(page.getByRole("heading", { name: "Pro" })).toBeVisible();

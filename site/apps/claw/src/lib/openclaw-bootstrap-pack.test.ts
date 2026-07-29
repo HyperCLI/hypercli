@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildDeterministicOpenClawBootstrapPack,
+  buildOpenClawBootstrapFileGenerationMessages,
+  buildOpenClawBootstrapFileResponseFormat,
   buildOpenClawBootstrapGenerationMessages,
   buildOpenClawBootstrapResponseFormat,
   createDefaultOpenClawBootstrapInputs,
   openClawBootstrapBackupPath,
+  parseGeneratedOpenClawBootstrapFile,
   parseGeneratedOpenClawBootstrapPack,
   validateOpenClawBootstrapPack,
 } from "./openclaw-bootstrap-pack";
@@ -60,7 +63,7 @@ describe("OpenClaw bootstrap pack", () => {
     expect(messages).toHaveLength(2);
     expect(messages[0].role).toBe("system");
     expect(messages[0].content).toContain("Never emit BOOTSTRAP.md");
-    expect(messages[0].content).toContain("under 1,200 characters");
+    expect(messages[0].content).toContain("under 2,000 characters");
     expect(messages[1].content).toContain('"agentName":"Cairn"');
     expect(messages[1].content).toContain('"userName":"Morgan"');
     expect(parseGeneratedOpenClawBootstrapPack(JSON.stringify({ files }), inputs)).toEqual(files);
@@ -77,7 +80,7 @@ describe("OpenClaw bootstrap pack", () => {
               items: {
                 properties: {
                   name: { enum: ["AGENTS.md", "SOUL.md", "USER.md"] },
-                  content: { maxLength: 1_200 },
+                  content: { maxLength: 2_000 },
                 },
               },
             },
@@ -85,6 +88,38 @@ describe("OpenClaw bootstrap pack", () => {
         },
       },
     });
+  });
+
+  it("builds one length-scoped request and strict response schema per file", () => {
+    const inputs = createDefaultOpenClawBootstrapInputs("Cairn");
+    const messages = buildOpenClawBootstrapFileGenerationMessages("SOUL.md", inputs);
+    const format = buildOpenClawBootstrapFileResponseFormat("SOUL.md");
+    const content = "# SOUL.md\n\nBe direct, thoughtful, and honest.";
+
+    expect(messages[0].content).toContain("Generate only SOUL.md");
+    expect(messages[0].content).toContain("110-170 words");
+    expect(messages[0].content).toContain("650-1,100 characters");
+    expect(messages[0].content).toContain("never exceed 1,400 characters");
+    expect(format).toMatchObject({
+      json_schema: {
+        name: "openclaw_soul",
+        schema: {
+          required: ["name", "content"],
+          properties: {
+            name: { enum: ["SOUL.md"] },
+            content: { maxLength: 1_400 },
+          },
+        },
+      },
+    });
+    expect(parseGeneratedOpenClawBootstrapFile(
+      JSON.stringify({ name: "SOUL.md", content }),
+      "SOUL.md",
+    )).toEqual({ name: "SOUL.md", content });
+    expect(() => parseGeneratedOpenClawBootstrapFile(
+      JSON.stringify({ name: "USER.md", content }),
+      "SOUL.md",
+    )).toThrow("must be SOUL.md");
   });
 
   it("allows MEMORY.md in the response schema only when meaningful memory is requested", () => {

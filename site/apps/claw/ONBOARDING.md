@@ -19,8 +19,8 @@ These are exact workspace-root filenames recognized by the OpenClaw runtime. Too
 
 1. The user selects the agent's name and runtime features.
 2. The workspace step collects structured purpose, tone, user, timezone, work-context, response-style, tool, and optional memory fields.
-3. File generation is shown as a short per-file animation.
-4. The complete file pack remains in client-side wizard state while the user moves between onboarding steps. Every file has a raw editor/preview, and edited content is the content that will be staged.
+3. The browser queues one generation task per canonical file and processes them in order with one Kimi request active at a time. A client-side finite-state machine tracks each file as `queued`, `generating`, `ready`, or `fallback`; the UI reflects the real request state rather than a timer animation.
+4. Generation continues in the wizard while the user moves to the plan step. The complete pack, task state, and completed model results remain in client-side wizard state. Every file has a raw editor/preview, and edited content is the content that will be staged.
 5. The user chooses launch capacity.
 6. Claw creates the agent with `start: false` and OpenClaw's real `agents.defaults.skipBootstrap` option, because the workspace is already configured.
 7. Claw writes the canonical files to `.openclaw/workspace/` through the agent file API with the S3/backup destination.
@@ -36,11 +36,11 @@ Structured fields are deliberately kept separate from generated Markdown. Regene
 
 ## Model-assisted generation
 
-When a signed-in app token is available, the workspace step calls `POST /agents/bootstrap`. The browser sends an OpenAI-style `messages` array plus a strict `json_schema` response format; prompt and schema construction remain in `src/lib/openclaw-bootstrap-pack.ts`, so onboarding copy can evolve with the frontend. The schema requests concise complete files rather than relying on an output-token cutoff.
+When a signed-in app token is available, the workspace step calls `POST /agents/bootstrap` separately for each file. Each browser request sends an OpenAI-style `messages` array plus a file-specific strict `json_schema` response format; prompt and schema construction remain in `src/lib/openclaw-bootstrap-pack.ts`, so onboarding copy can evolve with the frontend. The system prompt gives each file an explicit approximate word/character range and the schema supplies a hard character ceiling. It does not rely on an output-token cutoff.
 
 The endpoint accepts signed-in browser JWTs only, fixes the model to `kimi-k2.6`, and calls LiteLLM through the OpenAI Python client. Moonshot-compatible request settings are server-owned: temperature is `1`, and neither `max_tokens` nor `max_completion_tokens` is sent. It makes one request with retries disabled and allows up to five minutes for Kimi to complete, avoiding both truncation and duplicate generations. Dev and prod require separate `bootstrap_litellm_api_key` Pulumi secrets. The backend fails closed when the dedicated key is absent and never exposes it to the browser.
 
-The browser parses and validates the returned JSON with the same canonical filename, required-file, uniqueness, memory-selection, content, and size checks used by the deterministic path. If the endpoint or model is unavailable or its result is invalid, the existing deterministic pack remains in the editor and launch can continue.
+The browser parses and validates each returned JSON object against the requested canonical filename and its content limit. Successful files replace their deterministic counterparts independently. A failed or incomplete task leaves that file's deterministic template in place, so one slow Kimi response cannot discard the other completed files or block launch. Editing structured inputs or raw Markdown invalidates the active generation run; late results from that superseded run are ignored.
 
 Do not forward a LiteLLM key to the browser, use an agent-access JWT for this endpoint, or make model availability a prerequisite for onboarding.
 

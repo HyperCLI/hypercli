@@ -1,21 +1,25 @@
 "use client";
 
 import React from "react";
-import { Check, FileText, LoaderCircle, RefreshCw } from "lucide-react";
+import { Check, Clock3, FileText, LoaderCircle, RefreshCw } from "lucide-react";
 import {
-  OPENCLAW_BOOTSTRAP_REQUIRED_FILES,
   buildDeterministicOpenClawBootstrapPack,
   createOpenClawBootstrapDraft,
   type OpenClawBootstrapDraft,
   type OpenClawBootstrapFileName,
   type OpenClawBootstrapInputs,
 } from "@/lib/openclaw-bootstrap-pack";
+import {
+  isOpenClawBootstrapGenerationActive,
+  type OpenClawBootstrapGenerationState,
+} from "./openclaw-bootstrap-generation-machine";
 
 interface OpenClawBootstrapStepProps {
   agentName: string;
   draft: OpenClawBootstrapDraft | null;
   onChange: (draft: OpenClawBootstrapDraft) => void;
-  onGenerate?: (inputs: OpenClawBootstrapInputs) => Promise<OpenClawBootstrapDraft["files"]>;
+  generation: OpenClawBootstrapGenerationState;
+  onRegenerate: () => void;
 }
 
 const FILE_LABELS: Record<OpenClawBootstrapFileName, string> = {
@@ -33,76 +37,17 @@ export function OpenClawBootstrapStep({
   agentName,
   draft,
   onChange,
-  onGenerate,
+  generation,
+  onRegenerate,
 }: OpenClawBootstrapStepProps) {
   const [activeFile, setActiveFile] = React.useState<OpenClawBootstrapFileName>("AGENTS.md");
-  const [generatingIndex, setGeneratingIndex] = React.useState(0);
-  const [generationPending, setGenerationPending] = React.useState(false);
-  const [usingFallback, setUsingFallback] = React.useState(false);
-  const initialGenerationStartedRef = React.useRef(false);
-  const generationRequestRef = React.useRef(0);
   const effectiveDraft = draft ?? newDraft(agentName);
-  const generationNames = effectiveDraft.inputs.includeMemory && effectiveDraft.inputs.memoryNotes.trim()
-    ? [...OPENCLAW_BOOTSTRAP_REQUIRED_FILES, "MEMORY.md" as const]
-    : [...OPENCLAW_BOOTSTRAP_REQUIRED_FILES];
-
-  React.useEffect(() => {
-    if (generatingIndex < 0) return;
-    const timeout = window.setTimeout(() => {
-      if (generatingIndex >= generationNames.length - 1) {
-        if (generationPending) return;
-        if (!draft) onChange(newDraft(agentName));
-        setGeneratingIndex(-1);
-      } else {
-        setGeneratingIndex((current) => current + 1);
-      }
-    }, 320);
-    return () => window.clearTimeout(timeout);
-  }, [agentName, draft, generatingIndex, generationNames.length, generationPending, onChange]);
-
-  const runAssistedGeneration = React.useCallback(async (rawInputs: OpenClawBootstrapInputs) => {
-    const requestId = generationRequestRef.current + 1;
-    generationRequestRef.current = requestId;
-    const inputs = { ...rawInputs, agentName };
-    const fallbackFiles = buildDeterministicOpenClawBootstrapPack(inputs);
-    setGeneratingIndex(0);
-    setGenerationPending(Boolean(onGenerate));
-    setUsingFallback(false);
-    onChange({
-      ...effectiveDraft,
-      inputs,
-      files: fallbackFiles,
-      generationSource: "deterministic",
-    });
-    if (!onGenerate) return;
-    try {
-      const files = await onGenerate(inputs);
-      if (generationRequestRef.current !== requestId) return;
-      onChange({
-        ...effectiveDraft,
-        inputs,
-        files,
-        generationSource: "model",
-      });
-    } catch {
-      if (generationRequestRef.current !== requestId) return;
-      setUsingFallback(true);
-    } finally {
-      if (generationRequestRef.current === requestId) setGenerationPending(false);
-    }
-  }, [agentName, effectiveDraft, onChange, onGenerate]);
-
-  React.useEffect(() => {
-    if (initialGenerationStartedRef.current) return;
-    initialGenerationStartedRef.current = true;
-    if (!onGenerate || effectiveDraft.generationSource === "model") return;
-    void runAssistedGeneration(effectiveDraft.inputs);
-  }, [effectiveDraft.generationSource, effectiveDraft.inputs, onGenerate, runAssistedGeneration]);
+  const generationNames = effectiveDraft.files.map((file) => file.name);
+  const generationActive = isOpenClawBootstrapGenerationActive(generation);
+  const usingFallback = generationNames.some((name) => generation.files[name]?.status === "fallback");
 
   React.useEffect(() => {
     if (!draft || draft.inputs.agentName === agentName) return;
-    generationRequestRef.current += 1;
-    setGenerationPending(false);
     onChange({
       ...draft,
       inputs: { ...draft.inputs, agentName },
@@ -112,16 +57,10 @@ export function OpenClawBootstrapStep({
   }, [agentName, draft, onChange]);
 
   const updateInputs = (patch: Partial<OpenClawBootstrapInputs>) => {
-    generationRequestRef.current += 1;
-    setGenerationPending(false);
     const inputs = { ...effectiveDraft.inputs, ...patch, agentName };
     const files = buildDeterministicOpenClawBootstrapPack(inputs);
     if (!files.some((file) => file.name === activeFile)) setActiveFile("AGENTS.md");
     onChange({ ...effectiveDraft, inputs, files, generationSource: "deterministic" });
-  };
-
-  const regenerate = () => {
-    void runAssistedGeneration(effectiveDraft.inputs);
   };
 
   const selectedFile = effectiveDraft.files.find((file) => file.name === activeFile)
@@ -137,7 +76,7 @@ export function OpenClawBootstrapStep({
           </p>
           {usingFallback ? (
             <p className="mt-2 text-[10px] leading-4 text-text-muted">
-              Assisted generation was unavailable, so this preview uses the deterministic template.
+              Files marked as templates remain valid deterministic fallbacks and can be regenerated or edited.
             </p>
           ) : null}
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -221,30 +160,48 @@ export function OpenClawBootstrapStep({
           </div>
           <button
             type="button"
-            onClick={regenerate}
+            onClick={onRegenerate}
             className="inline-flex h-8 items-center gap-1.5 rounded-[8px] border border-border bg-surface-high px-2.5 text-[11px] font-semibold text-foreground hover:border-border-strong"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${generatingIndex >= 0 ? "animate-spin" : ""}`} />
-            Regenerate
+            <RefreshCw className={`h-3.5 w-3.5 ${generationActive ? "animate-spin" : ""}`} />
+            {generationActive ? "Restart generation" : "Regenerate"}
           </button>
         </div>
 
         <div className="border-b border-border bg-surface-low px-3 py-2">
           <div className="grid gap-1.5 sm:grid-cols-2">
-            {generationNames.map((name, index) => {
-              const busy = generatingIndex === index;
-              const complete = generatingIndex < 0 || index < generatingIndex;
+            {generationNames.map((name) => {
+              const fileState = generation.files[name];
+              const status = fileState?.status ?? "idle";
+              const busy = status === "generating";
+              const queued = status === "queued";
+              const complete = status === "ready";
+              const fallback = status === "fallback";
               return (
-                <div key={name} className="flex items-center gap-2 rounded-[8px] px-2 py-1.5 text-[10px]">
+                <div
+                  key={name}
+                  title={fileState?.error}
+                  className="flex items-center gap-2 rounded-[8px] px-2 py-1.5 text-[10px]"
+                >
                   {busy ? (
                     <LoaderCircle className="h-3.5 w-3.5 animate-spin text-selection-accent" />
                   ) : complete ? (
                     <Check className="h-3.5 w-3.5 text-success" />
+                  ) : queued ? (
+                    <Clock3 className="h-3.5 w-3.5 text-selection-accent" />
                   ) : (
                     <FileText className="h-3.5 w-3.5 text-text-muted" />
                   )}
-                  <span className={busy ? "font-semibold text-foreground" : "text-text-muted"}>
-                    {busy ? `Generating ${name}` : name}
+                  <span className={busy || queued ? "font-semibold text-foreground" : "text-text-muted"}>
+                    {busy
+                      ? `Generating ${name}`
+                      : queued
+                        ? `${name} queued`
+                        : fallback
+                          ? `${name} ready from template`
+                          : complete
+                            ? `${name} ready`
+                            : name}
                   </span>
                 </div>
               );
@@ -275,8 +232,6 @@ export function OpenClawBootstrapStep({
             aria-label={`${selectedFile.name} preview`}
             value={selectedFile.content}
             onChange={(event) => {
-              generationRequestRef.current += 1;
-              setGenerationPending(false);
               const files = effectiveDraft.files.map((file) => (
                 file.name === selectedFile.name ? { ...file, content: event.target.value } : file
               ));

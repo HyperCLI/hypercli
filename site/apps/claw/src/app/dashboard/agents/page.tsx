@@ -114,9 +114,10 @@ import {
 import { getOpenClawDefaultModel } from "@/lib/openclaw-models";
 import { buildOpenClawLaunchOptions } from "@/lib/openclaw-launch";
 import {
-  buildOpenClawBootstrapGenerationMessages,
-  buildOpenClawBootstrapResponseFormat,
-  parseGeneratedOpenClawBootstrapPack,
+  buildOpenClawBootstrapFileGenerationMessages,
+  buildOpenClawBootstrapFileResponseFormat,
+  parseGeneratedOpenClawBootstrapFile,
+  type OpenClawBootstrapFileName,
   type OpenClawBootstrapInputs,
 } from "@/lib/openclaw-bootstrap-pack";
 import { displayNameForDashboard } from "@/lib/dashboard-greeting";
@@ -3264,17 +3265,20 @@ function AgentsPageContent() {
     }
   };
 
-  const generateOpenClawBootstrap = useCallback(async (inputs: OpenClawBootstrapInputs) => {
+  const generateOpenClawBootstrap = useCallback(async (
+    name: OpenClawBootstrapFileName,
+    inputs: OpenClawBootstrapInputs,
+  ) => {
     const token = await getToken();
     const result = await createAgentClient(token).bootstrapInference(
-      buildOpenClawBootstrapGenerationMessages(inputs),
-      buildOpenClawBootstrapResponseFormat(inputs),
+      buildOpenClawBootstrapFileGenerationMessages(name, inputs),
+      buildOpenClawBootstrapFileResponseFormat(name),
       { timeout: 330_000, retries: 0 },
     );
     if (result.finish_reason && result.finish_reason !== "stop") {
-      throw new Error(`Bootstrap generation did not finish (${result.finish_reason}).`);
+      throw new Error(`${name} generation did not finish (${result.finish_reason}).`);
     }
-    return parseGeneratedOpenClawBootstrapPack(result.content, inputs);
+    return parseGeneratedOpenClawBootstrapFile(result.content, name);
   }, [getToken]);
 
   const handleCreateFirstAgent = useCallback(async ({ name, iconIndex, size, files, enableDesktop, enableMemoryIndex = false, customImage = null }: AgentCreationSetupCreateParams) => {

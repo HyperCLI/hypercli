@@ -1,5 +1,5 @@
 import React from "react";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -7,18 +7,13 @@ import {
   buildDeterministicOpenClawBootstrapPack,
   createDefaultOpenClawBootstrapInputs,
   type OpenClawBootstrapDraft,
-  type OpenClawBootstrapFile,
 } from "@/lib/openclaw-bootstrap-pack";
-
+import type { OpenClawBootstrapGenerationState } from "./openclaw-bootstrap-generation-machine";
 import { OpenClawBootstrapStep } from "./OpenClawBootstrapStep";
 
 describe("OpenClawBootstrapStep", () => {
-  it("keeps edits made while assisted generation is pending", async () => {
-    let resolveGeneration!: (files: OpenClawBootstrapFile[]) => void;
-    const pendingGeneration = new Promise<OpenClawBootstrapFile[]>((resolve) => {
-      resolveGeneration = resolve;
-    });
-    const onGenerate = vi.fn(() => pendingGeneration);
+  it("renders real per-file FSM progress and keeps structured edits in the parent draft", () => {
+    const onRegenerate = vi.fn();
 
     function Harness() {
       const inputs = React.useMemo(() => createDefaultOpenClawBootstrapInputs("Tern"), []);
@@ -28,34 +23,42 @@ describe("OpenClawBootstrapStep", () => {
         files: buildDeterministicOpenClawBootstrapPack(inputs),
         generationSource: "deterministic",
       });
+      const generation: OpenClawBootstrapGenerationState = {
+        runId: 1,
+        files: {
+          "AGENTS.md": { status: "ready" },
+          "SOUL.md": { status: "generating" },
+          "USER.md": { status: "queued" },
+        },
+      };
       return (
         <OpenClawBootstrapStep
           agentName="Tern"
           draft={draft}
           onChange={setDraft}
-          onGenerate={onGenerate}
+          generation={generation}
+          onRegenerate={onRegenerate}
         />
       );
     }
 
     render(<Harness />);
-    await waitFor(() => expect(onGenerate).toHaveBeenCalledTimes(1));
+
+    expect(screen.getByText("AGENTS.md ready")).toBeInTheDocument();
+    expect(screen.getByText("Generating SOUL.md")).toBeInTheDocument();
+    expect(screen.getByText("USER.md queued")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Restart generation" })).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("What should it help with?"), {
       target: { value: "Investigate deployments without changing production." },
     });
 
-    const modelFiles = buildDeterministicOpenClawBootstrapPack(
-      createDefaultOpenClawBootstrapInputs("Tern"),
-    ).map((file) => (
-      file.name === "AGENTS.md" ? { ...file, content: "# AGENTS.md\n\nStale model result." } : file
-    ));
-    await act(async () => resolveGeneration(modelFiles));
-
     expect(screen.getByLabelText("What should it help with?"))
       .toHaveValue("Investigate deployments without changing production.");
-    const agentsPreview = screen.getByLabelText("AGENTS.md preview") as HTMLTextAreaElement;
-    expect(agentsPreview.value).toContain("Investigate deployments without changing production.");
-    expect(agentsPreview.value).not.toContain("Stale model result.");
+    expect((screen.getByLabelText("AGENTS.md preview") as HTMLTextAreaElement).value)
+      .toContain("Investigate deployments without changing production.");
+
+    fireEvent.click(screen.getByRole("button", { name: "Restart generation" }));
+    expect(onRegenerate).toHaveBeenCalledTimes(1);
   });
 });

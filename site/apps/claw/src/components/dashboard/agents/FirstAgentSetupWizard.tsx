@@ -41,8 +41,11 @@ import {
   writeFirstAgentSetupDraft,
 } from "@/hooks/useFirstAgentSetupDraft";
 import {
+  buildDeterministicOpenClawBootstrapPack,
   createOpenClawBootstrapDraft,
   type OpenClawBootstrapDraft,
+  type OpenClawBootstrapFile,
+  type OpenClawBootstrapFileName,
   type OpenClawBootstrapInputs,
 } from "@/lib/openclaw-bootstrap-pack";
 import { PlanComparisonModal } from "./PlanComparisonModal";
@@ -52,6 +55,10 @@ import {
   createFirstAgentWizardState,
   firstAgentWizardReducer,
 } from "./first-agent-wizard-machine";
+import {
+  createOpenClawBootstrapGenerationState,
+  openClawBootstrapGenerationReducer,
+} from "./openclaw-bootstrap-generation-machine";
 
 export interface FirstAgentSetupCreateParams {
   name: string;
@@ -65,7 +72,10 @@ export interface FirstAgentSetupCreateParams {
 
 interface FirstAgentSetupWizardProps {
   onCreateAgent: (params: FirstAgentSetupCreateParams) => Promise<string | null>;
-  onGenerateBootstrap?: (inputs: OpenClawBootstrapInputs) => Promise<OpenClawBootstrapDraft["files"]>;
+  onGenerateBootstrap?: (
+    name: OpenClawBootstrapFileName,
+    inputs: OpenClawBootstrapInputs,
+  ) => Promise<OpenClawBootstrapFile>;
   onOpenPlanCatalog?: (planId?: string) => void | Promise<void>;
   onClose?: () => void;
   initialPlanId?: string | null;
@@ -865,6 +875,13 @@ export function FirstAgentSetupWizard({
   const [bootstrapDraft, setBootstrapDraft] = React.useState<OpenClawBootstrapDraft>(() => (
     createOpenClawBootstrapDraft(restoredDraft?.name ?? "Your agent")
   ));
+  const [bootstrapGeneration, dispatchBootstrapGeneration] = React.useReducer(
+    openClawBootstrapGenerationReducer,
+    undefined,
+    createOpenClawBootstrapGenerationState,
+  );
+  const bootstrapGenerationRunRef = React.useRef(0);
+  const bootstrapInitialGenerationStartedRef = React.useRef(false);
   const slotInventory = budget?.slots ?? EMPTY_SLOT_INVENTORY;
   const planOptions = React.useMemo(
     () => buildLaunchPlanOptions(subscriptionSummary, slotInventory, catalogPlans, pendingSlotReleases),
@@ -911,6 +928,81 @@ export function FirstAgentSetupWizard({
   const agentUrl = agentUrlSlug(displayName);
   const defaultCustomImage = getOpenClawDefaultImage(enableDesktop);
   const effectiveCustomImage = customImageEdited ? customImage : defaultCustomImage;
+  const runBootstrapGeneration = React.useCallback(async (rawInputs: OpenClawBootstrapInputs) => {
+    const runId = bootstrapGenerationRunRef.current + 1;
+    bootstrapGenerationRunRef.current = runId;
+    const inputs = { ...rawInputs, agentName: displayName };
+    const fallbackFiles = buildDeterministicOpenClawBootstrapPack(inputs);
+    const names = fallbackFiles.map((file) => file.name);
+
+    setBootstrapDraft({
+      version: bootstrapDraft.version,
+      inputs,
+      files: fallbackFiles,
+      generationSource: "deterministic",
+    });
+    dispatchBootstrapGeneration({ type: "QUEUE", runId, names });
+
+    if (!onGenerateBootstrap) {
+      for (const name of names) {
+        dispatchBootstrapGeneration({ type: "FALL_BACK", runId, name });
+      }
+      return;
+    }
+
+    let completedCount = 0;
+    for (const name of names) {
+      if (bootstrapGenerationRunRef.current !== runId) return;
+      dispatchBootstrapGeneration({ type: "START", runId, name });
+      try {
+        const file = await onGenerateBootstrap(name, inputs);
+        if (bootstrapGenerationRunRef.current !== runId) return;
+        setBootstrapDraft((current) => ({
+          ...current,
+          files: current.files.map((candidate) => candidate.name === name ? file : candidate),
+          generationSource: "mixed",
+        }));
+        dispatchBootstrapGeneration({ type: "SUCCEED", runId, name });
+        completedCount += 1;
+      } catch (error) {
+        if (bootstrapGenerationRunRef.current !== runId) return;
+        dispatchBootstrapGeneration({
+          type: "FALL_BACK",
+          runId,
+          name,
+          error: error instanceof Error ? error.message : "Assisted generation failed.",
+        });
+      }
+    }
+
+    if (bootstrapGenerationRunRef.current !== runId) return;
+    setBootstrapDraft((current) => ({
+      ...current,
+      generationSource: completedCount === names.length
+        ? "model"
+        : completedCount > 0
+          ? "mixed"
+          : "deterministic",
+    }));
+  }, [bootstrapDraft.version, displayName, onGenerateBootstrap]);
+
+  const handleBootstrapDraftChange = React.useCallback((nextDraft: OpenClawBootstrapDraft) => {
+    const runId = bootstrapGenerationRunRef.current + 1;
+    bootstrapGenerationRunRef.current = runId;
+    setBootstrapDraft(nextDraft);
+    dispatchBootstrapGeneration({
+      type: "RESET_TO_FALLBACK",
+      runId,
+      names: nextDraft.files.map((file) => file.name),
+    });
+  }, []);
+
+  React.useEffect(() => {
+    if (currentStep !== "workspace" || bootstrapInitialGenerationStartedRef.current) return;
+    bootstrapInitialGenerationStartedRef.current = true;
+    void runBootstrapGeneration({ ...bootstrapDraft.inputs, agentName: displayName });
+  }, [bootstrapDraft.inputs, currentStep, displayName, runBootstrapGeneration]);
+
   const persistDraft = React.useCallback((plan: LaunchPlanOption | null = null) => {
     const retainedPlanId = selectedCatalogPlanId?.trim() || restoredDraft?.plan || initialPlanId?.trim() || null;
     writeFirstAgentSetupDraft({
@@ -1316,8 +1408,11 @@ export function FirstAgentSetupWizard({
               <OpenClawBootstrapStep
                 agentName={displayName}
                 draft={bootstrapDraft}
-                onChange={setBootstrapDraft}
-                onGenerate={onGenerateBootstrap}
+                onChange={handleBootstrapDraftChange}
+                generation={bootstrapGeneration}
+                onRegenerate={() => {
+                  void runBootstrapGeneration(bootstrapDraft.inputs);
+                }}
               />
             </div>
             <footer className={cx(

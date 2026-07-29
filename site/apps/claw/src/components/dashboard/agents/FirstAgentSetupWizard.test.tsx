@@ -1,8 +1,12 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { HyperAgentPlan } from "@hypercli.com/sdk/agent";
 import { renderWithClient } from "@/test/utils";
+import type {
+  OpenClawBootstrapFile,
+  OpenClawBootstrapFileName,
+} from "@/lib/openclaw-bootstrap-pack";
 
 import {
   FirstAgentSetupWizard,
@@ -168,6 +172,56 @@ describe("FirstAgentSetupWizard", () => {
     expect(screen.getByText("Launch ready")).toBeInTheDocument();
     expect(screen.getByText("Choose its power")).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "Agent setup progress" })).toHaveAttribute("aria-valuenow", "92");
+  });
+
+  it("keeps per-file generation running when the user continues to the plan step", async () => {
+    const resolvers: Partial<Record<
+      OpenClawBootstrapFileName,
+      (file: OpenClawBootstrapFile) => void
+    >> = {};
+    const onGenerateBootstrap = vi.fn((name: OpenClawBootstrapFileName) => (
+      new Promise<OpenClawBootstrapFile>((resolve) => {
+        resolvers[name] = resolve;
+      })
+    ));
+
+    renderWithClient(
+      <FirstAgentSetupWizard
+        onCreateAgent={vi.fn(async () => null)}
+        onGenerateBootstrap={onGenerateBootstrap}
+        budget={null}
+        subscriptionSummary={null}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: "background-builder" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(onGenerateBootstrap).toHaveBeenCalledTimes(1));
+    expect(onGenerateBootstrap.mock.calls.map(([name]) => name)).toEqual([
+      "AGENTS.md",
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(screen.getByRole("heading", { name: "Choose your plan" })).toBeInTheDocument();
+
+    await act(async () => {
+      resolvers["AGENTS.md"]?.({
+        name: "AGENTS.md",
+        content: "# AGENTS.md\n\nGenerated while the plan step was open.",
+      });
+    });
+    await waitFor(() => expect(onGenerateBootstrap).toHaveBeenCalledTimes(2));
+    expect(onGenerateBootstrap.mock.calls[1]?.[0]).toBe("SOUL.md");
+
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() => {
+      expect((screen.getByLabelText("AGENTS.md preview") as HTMLTextAreaElement).value)
+        .toContain("Generated while the plan step was open.");
+    });
+    expect(screen.getByText("AGENTS.md ready")).toBeInTheDocument();
+    expect(screen.getByText("Generating SOUL.md")).toBeInTheDocument();
+    expect(screen.getByText("USER.md queued")).toBeInTheDocument();
   });
 
   it("saves anonymous identity changes for a later launch", async () => {
