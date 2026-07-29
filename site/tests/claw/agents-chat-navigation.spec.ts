@@ -507,6 +507,7 @@ test("dashboard views preserve the agent controller across navigation history", 
   await expect(composer).toBeVisible();
   await composer.fill("draft survives dashboard navigation");
 
+  await page.getByRole("button", { name: "Advanced", exact: true }).click();
   await page.getByRole("button", { name: "Home", exact: true }).click();
   await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBe("overview");
   await expect(page.getByRole("heading", { name: "Agent Chat Navigation" })).toBeVisible();
