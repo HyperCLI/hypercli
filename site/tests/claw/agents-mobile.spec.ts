@@ -384,6 +384,18 @@ async function expectNoHorizontalOverflow(page: Page): Promise<void> {
         if (rect.left >= -tolerance && rect.right <= window.innerWidth + tolerance) {
           return [];
         }
+        let ancestor = element.parentElement;
+        while (ancestor) {
+          const ancestorStyle = window.getComputedStyle(ancestor);
+          const ancestorRect = ancestor.getBoundingClientRect();
+          if (
+            (ancestorStyle.overflowX === "hidden" || ancestorStyle.overflowX === "clip")
+            && (rect.left < ancestorRect.left || rect.right > ancestorRect.right)
+          ) {
+            return [];
+          }
+          ancestor = ancestor.parentElement;
+        }
         return [{
           tag: element.tagName.toLowerCase(),
           text: (element.textContent || "").trim().replace(/\s+/g, " ").slice(0, 80),
@@ -419,7 +431,7 @@ async function openMobileNavigation(page: Page): Promise<void> {
 
 async function openSettingsFromMobileNavigation(page: Page): Promise<void> {
   await openMobileNavigation(page);
-  await page.getByRole("button", { name: /^advanced$/i }).click();
+  await page.getByRole("button", { name: "Account links" }).click();
   await page.getByRole("menuitem", { name: /^settings$/i }).click();
 }
 
@@ -471,7 +483,7 @@ test.describe("Agents mobile layout", () => {
     await openSettingsFromMobileNavigation(page);
     await expectMobileNavigationClosed(page);
 
-    await expect(page.getByRole("heading", { name: "Settings" })).toHaveCount(1);
+    await expect(page.getByRole("complementary", { name: "Settings menu" })).toBeVisible();
     await expect(page.getByRole("navigation", { name: /settings sections/i })).toBeVisible();
     await expectNoHorizontalOverflow(page);
 
@@ -481,11 +493,17 @@ test.describe("Agents mobile layout", () => {
     await expectNoHorizontalOverflow(page);
 
     await page.goto("/dashboard/billing", { waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("heading", { name: "Invoices" })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("tablist", { name: "Billing sections" })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("heading", { name: "Active Bundles" })).toBeVisible();
+    await page.getByRole("button", { name: "Manage", exact: true }).click();
     await expect(page.getByText(/Pro Plan/i).first()).toBeVisible();
     await expect(page.getByText(/Stripe card on file/i).first()).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Invoices" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Adjust plan" })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+
+    await page.getByRole("tab", { name: "Invoices" }).click();
+    await expect(page.getByRole("tab", { name: "Invoices" })).toHaveAttribute("data-state", "active");
+    await expect(page.getByRole("columnheader", { name: "Due date" })).toBeVisible();
     await expectNoHorizontalOverflow(page);
   });
 
