@@ -1,26 +1,94 @@
 "use client";
 
 import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
-import { Check, Copy, Key, Pencil, Plus, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import Modal from "./Modal";
+import { Ban, CircleAlert, Ellipsis, KeyRound, ListFilter, Pencil, Plus, X } from "lucide-react";
+import { useCallback, useEffect, useId, useState } from "react";
+import { Alert, AlertDescription } from "./ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { Card } from "./ui/card";
+import { Checkbox } from "./ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { Separator } from "./ui/separator";
+import { Switch } from "./ui/switch";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
+import { ToggleGroup, ToggleGroupItem } from "./ui/toggle-group";
+import { cn } from "./ui/utils";
+import { EmptyState, LoadingState } from "./patterns/feedback";
+import { SlideOver } from "./patterns/slide-over";
 import { formatDateTime } from "../utils/datetime";
 
 const API_KEY_BASELINE_FAMILIES = [
   { key: "api", label: "API Keys", allowed: ["none", "self", "*"] },
   { key: "user", label: "Profile", allowed: ["none", "self", "*"] },
-  { key: "jobs", label: "Jobs", allowed: ["none", "self", "*"] },
-  { key: "renders", label: "Renders", allowed: ["none", "self", "*"] },
-  { key: "files", label: "Files", allowed: ["none", "self", "*"] },
   { key: "agents", label: "Agents", allowed: ["none", "self", "*"] },
+  { key: "flows", label: "Flows", allowed: ["none", "self", "*"] },
+  { key: "jobs", label: "Jobs", allowed: ["none", "self", "*"] },
+  { key: "files", label: "Files", allowed: ["none", "self", "*"] },
+  { key: "renders", label: "Renders", allowed: ["none", "self", "*"] },
   { key: "models", label: "Models", allowed: ["none", "*"] },
   { key: "voice", label: "Voice", allowed: ["none", "*"] },
-  { key: "flows", label: "Flows", allowed: ["none", "self", "*"] },
 ] as const;
 
 type FamilyKey = (typeof API_KEY_BASELINE_FAMILIES)[number]["key"];
 type BaselineValue = "none" | "self" | "*";
 type AccessPreset = "full" | "scoped";
+type ApiKeySourceFilter = "manual" | "agent" | "integration" | "system";
+type ApiKeyUsageFilter = "today" | "seven-days" | "thirty-days" | "never";
+type ApiKeyStatusFilter = "active" | "inactive" | "expired";
+type ApiKeyPermissionFilter = "full" | "scoped";
+
+const API_KEY_SOURCE_FILTERS: ReadonlyArray<{ value: ApiKeySourceFilter; label: string }> = [
+  { value: "manual", label: "Manual" },
+  { value: "agent", label: "Agent" },
+  { value: "integration", label: "Integration" },
+  { value: "system", label: "System" },
+];
+
+const API_KEY_USAGE_FILTERS: ReadonlyArray<{ value: ApiKeyUsageFilter; label: string }> = [
+  { value: "today", label: "Used today" },
+  { value: "seven-days", label: "Used in last 7 days" },
+  { value: "thirty-days", label: "Used in last 30 days" },
+  { value: "never", label: "Never used" },
+];
+
+const API_KEY_STATUS_FILTERS: ReadonlyArray<{ value: ApiKeyStatusFilter; label: string }> = [
+  { value: "active", label: "Active" },
+  { value: "inactive", label: "Inactive" },
+  { value: "expired", label: "Expired" },
+];
+
+const API_KEY_PERMISSION_FILTERS: ReadonlyArray<{ value: ApiKeyPermissionFilter; label: string }> = [
+  { value: "full", label: "Full access" },
+  { value: "scoped", label: "Scoped access" },
+];
+
+const API_KEY_SCOPE_GROUPS: ReadonlyArray<{ label: string; keys: readonly FamilyKey[] }> = [
+  { label: "Admin", keys: ["api", "user"] },
+  { label: "Automation", keys: ["agents", "flows", "jobs"] },
+  { label: "Assets", keys: ["files", "renders"] },
+  { label: "AI", keys: ["models", "voice"] },
+];
 
 const BASELINE_LABELS: Record<BaselineValue, string> = {
   none: "None",
@@ -29,6 +97,7 @@ const BASELINE_LABELS: Record<BaselineValue, string> = {
 };
 
 const FULL_ACCESS_TAG = "*:*";
+const API_KEY_FILTER_INITIAL_REFERENCE_TIME = Date.now();
 
 const SELECTOR_TAG_RE = /^[A-Za-z0-9_+-]+=[A-Za-z0-9_+-]+$/;
 const RESERVED_RESOURCE_SCOPE_RE = /^(resource|job|render|flow|file|agent):[A-Za-z0-9_.+/-]+$/;
@@ -47,6 +116,7 @@ export interface ApiKeysManagerProps {
   className?: string;
   cardClassName?: string;
   createButtonClassName?: string;
+  previewState?: "empty";
 }
 
 type ManagedApiKey = Awaited<ReturnType<BrowserHyperCLI["keys"]["get"]>>;
@@ -172,30 +242,84 @@ function buildTags(
   return [...tags, ...selectors];
 }
 
-function listBaselineTags(
-  baselines: Record<FamilyKey, BaselineValue>
-): Array<{ family: FamilyKey; tag: string }> {
-  return API_KEY_BASELINE_FAMILIES.flatMap(({ key }) =>
-    baselines[key] === "none"
-      ? []
-      : [{ family: key, tag: `${key}:${baselines[key]}` }]
-  );
-}
-
 function statusLabel(key: ManagedApiKey): string {
   return key.isActive ? "Active" : "Inactive";
+}
+
+function accessLabel(key: ManagedApiKey): string {
+  if (key.tags.includes(FULL_ACCESS_TAG)) return "Full access";
+  if (key.tags.length === 0) return "No access";
+  return `${key.tags.length} permission${key.tags.length === 1 ? "" : "s"}`;
+}
+
+function keyPreview(key: ManagedApiKey): string {
+  if (key.apiKeyPreview) return key.apiKeyPreview;
+  if (key.last4) return `••••••••••••${key.last4}`;
+  return key.keyId;
+}
+
+function keySource(key: ManagedApiKey): ApiKeySourceFilter {
+  const metadata = key as ManagedApiKey & {
+    source?: unknown;
+    keySource?: unknown;
+    createdVia?: unknown;
+  };
+  const candidate = [metadata.source, metadata.keySource, metadata.createdVia]
+    .find((value): value is string => typeof value === "string")
+    ?.trim()
+    .toLowerCase();
+  return API_KEY_SOURCE_FILTERS.some(({ value }) => value === candidate)
+    ? candidate as ApiKeySourceFilter
+    : "manual";
+}
+
+function keySourceLabel(key: ManagedApiKey): string {
+  const source = keySource(key);
+  return API_KEY_SOURCE_FILTERS.find(({ value }) => value === source)?.label ?? "Manual";
+}
+
+function keyIsExpired(key: ManagedApiKey, referenceTime: number): boolean {
+  if (!key.expiresAt) return false;
+  const expiresAt = new Date(key.expiresAt).getTime();
+  return Number.isFinite(expiresAt) && expiresAt <= referenceTime;
+}
+
+function keyLifecycleStatus(key: ManagedApiKey, referenceTime: number): ApiKeyStatusFilter {
+  if (keyIsExpired(key, referenceTime)) return "expired";
+  return key.isActive ? "active" : "inactive";
+}
+
+function keyMatchesUsage(key: ManagedApiKey, filter: ApiKeyUsageFilter, referenceTime: number): boolean {
+  if (filter === "never") return !key.lastUsedAt;
+  if (!key.lastUsedAt) return false;
+  const lastUsedAt = new Date(key.lastUsedAt).getTime();
+  if (!Number.isFinite(lastUsedAt)) return false;
+  if (filter === "today") {
+    const lastUsedDate = new Date(lastUsedAt);
+    const referenceDate = new Date(referenceTime);
+    return lastUsedDate.getFullYear() === referenceDate.getFullYear()
+      && lastUsedDate.getMonth() === referenceDate.getMonth()
+      && lastUsedDate.getDate() === referenceDate.getDate();
+  }
+  const elapsed = referenceTime - lastUsedAt;
+  const windowDays = filter === "seven-days" ? 7 : 30;
+  return elapsed >= 0 && elapsed <= windowDays * 24 * 60 * 60 * 1000;
+}
+
+function toggleFilterValue<T extends string>(current: T[], value: T, checked: boolean): T[] {
+  if (checked) return current.includes(value) ? current : [...current, value];
+  return current.filter((item) => item !== value);
 }
 
 export function ApiKeysManager({
   apiBaseUrl,
   getToken,
-  title = "API Keys",
-  description = "New keys start deny-by-default. Add only the baseline and selector tags you want to allow.",
-  emptyTitle = "No API keys yet",
-  emptyDescription = "Create your first key to start using the API.",
+  emptyTitle = "Connect HyperCLI to your tools",
+  emptyDescription = "API keys let apps, scripts, and integrations securely access HyperCLI. Create separate keys with scoped permissions for different use cases.",
   className,
-  cardClassName = "bg-surface-low border border-border rounded-lg overflow-hidden",
-  createButtonClassName = "bg-primary text-primary-foreground font-semibold py-2 px-6 rounded-lg hover:bg-primary-hover transition-colors cursor-pointer",
+  cardClassName = "overflow-hidden",
+  createButtonClassName,
+  previewState,
 }: ApiKeysManagerProps) {
   const [keys, setKeys] = useState<ManagedApiKey[]>([]);
   const [loading, setLoading] = useState(true);
@@ -203,8 +327,7 @@ export function ApiKeysManager({
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
-  const [accessPreset, setAccessPreset] = useState<AccessPreset>("scoped");
-  const [selectorInput, setSelectorInput] = useState("");
+  const [accessPreset, setAccessPreset] = useState<AccessPreset>("full");
   const [baselines, setBaselines] = useState<Record<FamilyKey, BaselineValue>>(DEFAULT_BASELINES);
   const [createdKey, setCreatedKey] = useState<ManagedApiKey | null>(null);
   const [copied, setCopied] = useState(false);
@@ -212,6 +335,21 @@ export function ApiKeysManager({
   const [editName, setEditName] = useState("");
   const [savingName, setSavingName] = useState(false);
   const [revokingKeyId, setRevokingKeyId] = useState<string | null>(null);
+  const [disableKeyId, setDisableKeyId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [filterReferenceTime, setFilterReferenceTime] = useState(API_KEY_FILTER_INITIAL_REFERENCE_TIME);
+  const [sourceFilters, setSourceFilters] = useState<ApiKeySourceFilter[]>([]);
+  const [usageFilters, setUsageFilters] = useState<ApiKeyUsageFilter[]>([]);
+  const [statusFilters, setStatusFilters] = useState<ApiKeyStatusFilter[]>([]);
+  const [permissionFilters, setPermissionFilters] = useState<ApiKeyPermissionFilter[]>([]);
+  const createFormId = useId();
+  const keyNameInputId = useId();
+  const scopedAccessId = useId();
+  const createdKeyInputId = useId();
+  const renameFormId = useId();
+  const renameInputId = useId();
+  const searchInputId = useId();
 
   const clientFactory = useCallback(async () => {
     const token = await getToken();
@@ -235,27 +373,30 @@ export function ApiKeysManager({
   }, [clientFactory]);
 
   useEffect(() => {
+    if (previewState === "empty") return;
     void fetchKeys();
-  }, [fetchKeys]);
-
-  const effectiveTags = useMemo(() => {
-    try {
-      return buildTags(accessPreset, baselines, selectorInput);
-    } catch {
-      return [];
-    }
-  }, [accessPreset, baselines, selectorInput]);
-
-  const selectedBaselineTags = useMemo(
-    () => listBaselineTags(baselines),
-    [baselines]
-  );
+  }, [fetchKeys, previewState]);
 
   const resetCreateState = () => {
     setNewKeyName("");
-    setAccessPreset("scoped");
-    setSelectorInput("");
+    setAccessPreset("full");
     setBaselines(DEFAULT_BASELINES);
+  };
+
+  const openCreate = () => {
+    setError(null);
+    setShowCreate(true);
+  };
+
+  const closeCreate = () => {
+    setShowCreate(false);
+    setError(null);
+    resetCreateState();
+  };
+
+  const closeCreatedKey = () => {
+    setCreatedKey(null);
+    setCopied(false);
   };
 
   const handleCreate = async () => {
@@ -266,7 +407,7 @@ export function ApiKeysManager({
 
     let tags: string[];
     try {
-      tags = buildTags(accessPreset, baselines, selectorInput);
+      tags = buildTags(accessPreset, baselines, "");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invalid tag configuration");
       return;
@@ -295,9 +436,6 @@ export function ApiKeysManager({
   };
 
   const handleDisable = async (keyId: string) => {
-    if (!window.confirm("Disable this API key? This cannot be undone.")) {
-      return;
-    }
     setRevokingKeyId(keyId);
     setError(null);
     try {
@@ -308,6 +446,7 @@ export function ApiKeysManager({
       setError(err instanceof Error ? err.message : "Failed to disable API key");
     } finally {
       setRevokingKeyId(null);
+      setDisableKeyId(null);
     }
   };
 
@@ -349,374 +488,544 @@ export function ApiKeysManager({
   };
 
   const createdKeySecret = createdKey?.apiKey?.trim() || null;
+  const showEmptyState = previewState === "empty" || (!loading && !error && keys.length === 0);
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+  const selectedFilterCount = sourceFilters.length + usageFilters.length + statusFilters.length + permissionFilters.length;
+  const visibleKeys = keys.filter((key) => {
+    const status = keyLifecycleStatus(key, filterReferenceTime);
+    const permission: ApiKeyPermissionFilter = key.tags.includes(FULL_ACCESS_TAG) ? "full" : "scoped";
+    const matchesSource = sourceFilters.length === 0 || sourceFilters.includes(keySource(key));
+    const matchesUsage = usageFilters.length === 0
+      || usageFilters.some((filter) => keyMatchesUsage(key, filter, filterReferenceTime));
+    const matchesStatus = statusFilters.length === 0 || statusFilters.includes(status);
+    const matchesPermission = permissionFilters.length === 0 || permissionFilters.includes(permission);
+    const matchesSearch = !normalizedSearch || [key.name, key.keyId, keyPreview(key), keySourceLabel(key), ...key.tags]
+      .some((value) => value.toLowerCase().includes(normalizedSearch));
+    return matchesSource && matchesUsage && matchesStatus && matchesPermission && matchesSearch;
+  });
+  const showKeysList = !loading && !showEmptyState && keys.length > 0;
 
   return (
     <div className={className}>
-      <div className="flex items-center justify-between mb-8 gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">{title}</h1>
-          {description ? (
-            <p className="text-sm text-muted-foreground mt-2">{description}</p>
-          ) : null}
-        </div>
-        <button onClick={() => setShowCreate(true)} className={createButtonClassName}>
-          <span className="inline-flex items-center gap-2">
-            <Plus className="w-4 h-4" />
-            Create Key
-          </span>
-        </button>
-      </div>
-
-      {error ? (
-        <div className="mb-4 rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
-        </div>
-      ) : null}
-
-      {createdKey ? (
-        <div className="mb-6 rounded-lg border border-warning/20 bg-warning/10 p-4">
-          <p className="text-sm font-medium text-foreground mb-2">
-            API key created. Copy it now, it will not be shown again.
-          </p>
-          <div className="mb-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-            <span className="rounded-full border border-border bg-background px-2 py-1">
-              {createdKey.keyId}
-            </span>
-            {createdKey.tags.map((tag) => (
-              <span
-                key={tag}
-                className="rounded-full border border-border bg-background px-2 py-1"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-          <div className="flex items-center gap-2">
-            {createdKeySecret ? (
-              <code className="flex-1 select-all break-all rounded-lg bg-background px-3 py-2 text-sm text-foreground">
-                {createdKeySecret}
-              </code>
-            ) : (
-              <div className="flex-1 rounded-lg border border-warning/30 bg-background px-3 py-2 text-sm text-warning">
-                The key was created, but the secret was not returned. Disable this key and create a new one.
-              </div>
-            )}
-            <button
-              onClick={() => createdKeySecret && handleCopy(createdKeySecret)}
-              disabled={!createdKeySecret}
-              aria-label="Copy API key"
-              className="rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-background disabled:cursor-not-allowed disabled:opacity-50"
+      {showKeysList ? (
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <Popover
+              open={filterOpen}
+              onOpenChange={(open) => {
+                setFilterOpen(open);
+                if (open) setFilterReferenceTime(Date.now());
+              }}
             >
-              {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-            </button>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  aria-label={`Filter API keys${selectedFilterCount > 0 ? `, ${selectedFilterCount} selected` : ""}`}
+                  className="h-9 rounded-xl bg-surface-low px-2.5"
+                >
+                  <ListFilter className="size-4" />
+                  {selectedFilterCount > 0 ? <span>({selectedFilterCount})</span> : null}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="start" sideOffset={8} className="w-64 overflow-hidden rounded-xl border-border bg-popover p-0">
+                <div className="flex items-center justify-between px-4 pb-2 pt-4">
+                  <h2 className="text-base font-medium text-foreground">Filter</h2>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Close filters"
+                    onClick={() => setFilterOpen(false)}
+                    className="size-7 rounded-lg text-text-muted"
+                  >
+                    <X className="size-4" />
+                  </Button>
+                </div>
+
+                <div className="max-h-[min(32rem,var(--radix-popover-content-available-height))] space-y-5 overflow-y-auto px-4 py-3">
+                  <fieldset className="space-y-2">
+                    <legend className="mb-2 text-xs text-text-muted">Source</legend>
+                    {API_KEY_SOURCE_FILTERS.map((option) => {
+                      const id = `${searchInputId}-source-${option.value}`;
+                      return (
+                        <div key={option.value} className="flex items-center gap-2">
+                          <Checkbox
+                            id={id}
+                            checked={sourceFilters.includes(option.value)}
+                            onCheckedChange={(checked) => setSourceFilters((current) => (
+                              toggleFilterValue(current, option.value, checked === true)
+                            ))}
+                          />
+                          <Label htmlFor={id} className="font-normal text-foreground">{option.label}</Label>
+                        </div>
+                      );
+                    })}
+                  </fieldset>
+
+                  <fieldset className="space-y-2">
+                    <legend className="mb-2 text-xs text-text-muted">Usage</legend>
+                    {API_KEY_USAGE_FILTERS.map((option) => {
+                      const id = `${searchInputId}-usage-${option.value}`;
+                      return (
+                        <div key={option.value} className="flex items-center gap-2">
+                          <Checkbox
+                            id={id}
+                            checked={usageFilters.includes(option.value)}
+                            onCheckedChange={(checked) => setUsageFilters((current) => (
+                              toggleFilterValue(current, option.value, checked === true)
+                            ))}
+                          />
+                          <Label htmlFor={id} className="font-normal text-foreground">{option.label}</Label>
+                        </div>
+                      );
+                    })}
+                  </fieldset>
+
+                  <fieldset className="space-y-2">
+                    <legend className="mb-2 text-xs text-text-muted">Status</legend>
+                    {API_KEY_STATUS_FILTERS.map((option) => {
+                      const id = `${searchInputId}-status-${option.value}`;
+                      return (
+                        <div key={option.value} className="flex items-center gap-2">
+                          <Checkbox
+                            id={id}
+                            checked={statusFilters.includes(option.value)}
+                            onCheckedChange={(checked) => setStatusFilters((current) => (
+                              toggleFilterValue(current, option.value, checked === true)
+                            ))}
+                          />
+                          <Label htmlFor={id} className="font-normal text-foreground">{option.label}</Label>
+                        </div>
+                      );
+                    })}
+                  </fieldset>
+
+                  <fieldset className="space-y-2">
+                    <legend className="mb-2 text-xs text-text-muted">Permissions</legend>
+                    {API_KEY_PERMISSION_FILTERS.map((option) => {
+                      const id = `${searchInputId}-permission-${option.value}`;
+                      return (
+                        <div key={option.value} className="flex items-center gap-2">
+                          <Checkbox
+                            id={id}
+                            checked={permissionFilters.includes(option.value)}
+                            onCheckedChange={(checked) => setPermissionFilters((current) => (
+                              toggleFilterValue(current, option.value, checked === true)
+                            ))}
+                          />
+                          <Label htmlFor={id} className="font-normal text-foreground">{option.label}</Label>
+                        </div>
+                      );
+                    })}
+                  </fieldset>
+                </div>
+
+                <Separator />
+                <div className="flex items-center justify-between bg-surface-low px-3 py-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={selectedFilterCount === 0}
+                    onClick={() => {
+                      setSourceFilters([]);
+                      setUsageFilters([]);
+                      setStatusFilters([]);
+                      setPermissionFilters([]);
+                    }}
+                  >
+                    Clear all
+                  </Button>
+                  <Button type="button" size="sm" onClick={() => setFilterOpen(false)}>Done</Button>
+                </div>
+              </PopoverContent>
+            </Popover>
+            <Label htmlFor={searchInputId} className="sr-only">Search API keys</Label>
+            <Input
+              id={searchInputId}
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search key..."
+              className="h-9 max-w-sm rounded-xl border-border bg-surface-low"
+            />
           </div>
+          <Button type="button" variant="outline" size="sm" onClick={openCreate} className={cn("shrink-0", createButtonClassName)}>
+            Create key
+            <Plus className="size-4" />
+          </Button>
         </div>
       ) : null}
 
-      <div className={cardClassName}>
-        {loading ? (
-          <div className="px-6 py-8 text-sm text-muted-foreground">Loading API keys...</div>
-        ) : keys.length === 0 ? (
-          <div className="px-6 py-12 text-center">
-            <Key className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
-            <p className="text-foreground">{emptyTitle}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{emptyDescription}</p>
-          </div>
+      {error
+        && previewState !== "empty"
+        && !showCreate
+        && editingKeyId === null
+        && createdKey === null
+        && disableKeyId === null ? (
+        <Alert variant="destructive" className="mb-4 rounded-xl border-destructive/25 bg-destructive/10">
+          <CircleAlert />
+          <AlertDescription className="text-destructive">{error}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      <Card className={cn(cardClassName, showKeysList && "bg-background")}>
+        {showEmptyState ? (
+          <EmptyState
+            icon={KeyRound}
+            title={emptyTitle}
+            description={emptyDescription}
+            actionLabel="Create API key"
+            actionIcon={Plus}
+            actionIconPosition="end"
+            onAction={openCreate}
+            presentation="prominent"
+          />
+        ) : loading ? (
+          <LoadingState title="Loading API keys" className="min-h-72 flex-1" />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-border">
-              <thead className="bg-background">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Key ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Preview</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tags</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Created</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Last Used</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border bg-surface-low">
-                {keys.map((key) => {
-                  const isEditing = editingKeyId === key.keyId;
-                  return (
-                    <tr key={key.keyId} className="hover:bg-surface-medium/50">
-                      <td className="px-6 py-4 text-sm font-mono text-muted-foreground">
-                        {key.keyId}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-foreground">
-                        {isEditing ? (
-                          <div className="flex items-center gap-2">
-                            <input
-                              value={editName}
-                              onChange={(event) => setEditName(event.target.value)}
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter") void handleRename(key.keyId);
-                                if (event.key === "Escape") {
-                                  setEditingKeyId(null);
-                                  setEditName("");
-                                }
-                              }}
-                              className="w-48 rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground"
-                              autoFocus
-                              disabled={savingName}
-                            />
-                            <button
-                              onClick={() => void handleRename(key.keyId)}
-                              className="text-foreground hover:text-primary disabled:opacity-50"
-                              disabled={savingName}
-                            >
-                              <Check className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => {
-                                setEditingKeyId(null);
-                                setEditName("");
-                              }}
-                              className="text-muted-foreground hover:text-foreground"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ) : (
-                          key.name
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-sm font-mono text-muted-foreground">
-                        {key.apiKeyPreview ?? key.last4 ?? "—"}
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex max-w-md flex-wrap gap-2">
-                          {key.tags.length > 0 ? key.tags.map((tag) => (
-                            <span
-                              key={tag}
-                              className="rounded-full border border-border bg-background px-2 py-1 text-xs text-muted-foreground"
-                            >
-                              {tag}
-                            </span>
-                          )) : <span className="text-sm text-muted-foreground">No tags</span>}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span
-                          className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${
-                            key.isActive
-                              ? "bg-success/10 text-success"
-                              : "bg-muted text-muted-foreground"
-                          }`}
-                        >
-                          {statusLabel(key)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-muted-foreground">
-                        {formatDateTime(key.createdAt)}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-muted-foreground">
-                        {formatDateTime(key.lastUsedAt)}
-                      </td>
-                      <td className="px-6 py-4 text-right text-sm">
-                        <div className="inline-flex items-center gap-3">
-                          <button
-                            onClick={() => {
+          <Table className="min-w-[980px]">
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="h-12 px-4 text-xs font-medium text-foreground">Key ID</TableHead>
+                <TableHead className="h-12 px-4 text-xs font-medium text-foreground">Name</TableHead>
+                <TableHead className="h-12 px-4 text-xs font-medium text-foreground">Source</TableHead>
+                <TableHead className="h-12 px-4 text-xs font-medium text-foreground">Access</TableHead>
+                <TableHead className="h-12 px-4 text-xs font-medium text-foreground">Status</TableHead>
+                <TableHead className="h-12 px-4 text-xs font-medium text-foreground">Created</TableHead>
+                <TableHead className="h-12 px-4 text-xs font-medium text-foreground">Last Used</TableHead>
+                <TableHead className="h-12 w-16 px-4 text-right">
+                  <span className="sr-only">Actions</span>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {visibleKeys.length > 0 ? visibleKeys.map((key) => {
+                const lifecycleStatus = keyLifecycleStatus(key, filterReferenceTime);
+                const lifecycleLabel = lifecycleStatus === "expired" ? "Expired" : statusLabel(key);
+                return (
+                  <TableRow key={key.keyId}>
+                    <TableCell className="max-w-52 truncate px-4 py-4 font-mono text-xs text-text-secondary">
+                      {keyPreview(key)}
+                    </TableCell>
+                    <TableCell className="px-4 py-4 text-sm text-foreground">{key.name}</TableCell>
+                    <TableCell className="px-4 py-4 text-sm text-text-secondary">{keySourceLabel(key)}</TableCell>
+                    <TableCell className="px-4 py-4">
+                      <Badge variant="outline" className="rounded-full bg-surface-low text-text-secondary">
+                        {accessLabel(key)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="px-4 py-4">
+                      <Badge
+                        variant={lifecycleStatus === "active" ? "active" : lifecycleStatus === "expired" ? "destructive" : "secondary"}
+                        className="rounded-full"
+                      >
+                        {lifecycleLabel}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="px-4 py-4 text-sm text-text-secondary">{formatDateTime(key.createdAt)}</TableCell>
+                    <TableCell className="px-4 py-4 text-sm text-text-secondary">{formatDateTime(key.lastUsedAt)}</TableCell>
+                    <TableCell className="px-4 py-4 text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            aria-label={`Actions for ${key.name}`}
+                            className="size-8 rounded-xl bg-surface-low"
+                          >
+                            <Ellipsis className="size-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="rounded-xl border-border">
+                          <DropdownMenuItem
+                            onSelect={() => {
+                              setError(null);
                               setEditingKeyId(key.keyId);
                               setEditName(key.name);
                             }}
-                            className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
                           >
-                            <Pencil className="w-3 h-3" />
+                            <Pencil />
                             Rename
-                          </button>
+                          </DropdownMenuItem>
                           {key.isActive ? (
-                            <button
-                              onClick={() => void handleDisable(key.keyId)}
-                              disabled={revokingKeyId === key.keyId}
-                              className="text-destructive hover:text-destructive/80 disabled:opacity-50"
-                            >
-                              Disable
-                            </button>
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                variant="destructive"
+                                disabled={revokingKeyId === key.keyId}
+                                onSelect={() => {
+                                  setError(null);
+                                  setDisableKeyId(key.keyId);
+                                }}
+                              >
+                                <Ban />
+                                Disable
+                              </DropdownMenuItem>
+                            </>
                           ) : null}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                );
+              }) : (
+                <TableRow className="hover:bg-transparent">
+                  <TableCell colSpan={8} className="h-24 px-4 text-center text-sm text-text-muted">
+                    No API keys match your search and filters.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
         )}
-      </div>
+      </Card>
 
-      <Modal
-        isOpen={showCreate}
-        onClose={() => {
-          setShowCreate(false);
-          resetCreateState();
-        }}
+      <SlideOver
+        open={showCreate}
+        onClose={closeCreate}
         title="Create API Key"
-        maxWidth="3xl"
+        icon={KeyRound}
+        className="sm:max-w-[400px]"
+        footer={(
+          <>
+            <Button type="button" variant="outline" size="sm" onClick={closeCreate} disabled={creating}>
+              Cancel
+            </Button>
+            <Button type="submit" size="sm" form={createFormId} disabled={creating}>
+              {creating ? "Creating..." : "Create Key"}
+            </Button>
+          </>
+        )}
       >
-        <div className="space-y-6">
-          <div>
-            <label className="mb-2 block text-sm font-medium text-foreground">Key Name</label>
-            <input
-              type="text"
+        <form
+          id={createFormId}
+          className="space-y-5"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleCreate();
+          }}
+        >
+          <div className="space-y-2">
+            <Label htmlFor={keyNameInputId} className="text-base text-foreground">Key Name</Label>
+            <Input
+              id={keyNameInputId}
               value={newKeyName}
               onChange={(event) => setNewKeyName(event.target.value)}
-              placeholder="e.g. frontend-prod"
-              className="w-full rounded-lg border border-border bg-surface-low px-4 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
+              placeholder="Enter key name"
+              autoComplete="off"
+              className="h-10 rounded-xl border-border bg-surface-low"
+              disabled={creating}
+              autoFocus
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-4 py-1">
+            <Label htmlFor={scopedAccessId} className="text-base text-foreground">Scoped Access</Label>
+            <Switch
+              id={scopedAccessId}
+              checked={accessPreset === "scoped"}
+              onCheckedChange={(checked) => setAccessPreset(checked ? "scoped" : "full")}
               disabled={creating}
             />
           </div>
 
-          <div>
-            <h3 className="mb-3 text-sm font-medium text-foreground">Access</h3>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <button
-                type="button"
-                onClick={() => setAccessPreset("full")}
-                className={`rounded-lg border p-4 text-left transition-colors ${
-                  accessPreset === "full"
-                    ? "border-primary bg-primary/10"
-                    : "border-border bg-surface-low hover:bg-background"
-                }`}
-                disabled={creating}
-              >
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <span className="text-sm font-medium text-foreground">Full access</span>
-                  <code className="rounded bg-background px-2 py-1 text-xs text-foreground">
-                    {FULL_ACCESS_TAG}
-                  </code>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Recommended default for most users and trusted internal apps.
-                </p>
-              </button>
-              <button
-                type="button"
-                onClick={() => setAccessPreset("scoped")}
-                className={`rounded-lg border p-4 text-left transition-colors ${
-                  accessPreset === "scoped"
-                    ? "border-primary bg-primary/10"
-                    : "border-border bg-surface-low hover:bg-background"
-                }`}
-                disabled={creating}
-              >
-                <div className="mb-2 text-sm font-medium text-foreground">Scoped access</div>
-                <p className="text-xs text-muted-foreground">
-                  Narrow access with family baselines like `jobs:self` plus selector tags like `team=dev`.
-                </p>
-              </button>
-            </div>
-          </div>
-
-          {accessPreset === "scoped" ? (
-            <>
-              <div>
-                <h3 className="mb-3 text-sm font-medium text-foreground">Family Baselines</h3>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {API_KEY_BASELINE_FAMILIES.map(({ key, label, allowed }) => (
-                    <label
-                      key={key}
-                      className="rounded-lg border border-border bg-surface-low p-3"
-                    >
-                      <span className="mb-2 block text-sm font-medium text-foreground">{label}</span>
-                      <select
-                        value={baselines[key]}
-                        onChange={(event) =>
-                          setBaselines((current) => ({
-                            ...current,
-                            [key]: event.target.value as BaselineValue,
-                          }))
-                        }
-                        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                        disabled={creating}
-                      >
-                        {allowed.map((value) => (
-                          <option key={value} value={value}>
-                            {BASELINE_LABELS[value]}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  ))}
-                </div>
-                <div className="mt-3 flex min-h-12 flex-wrap gap-2 rounded-lg border border-border bg-background p-3">
-                  {selectedBaselineTags.length > 0 ? (
-                    selectedBaselineTags.map(({ tag }) => (
-                      <span
-                        key={tag}
-                        className="rounded-full border border-border bg-surface-low px-2 py-1 text-xs text-muted-foreground"
-                      >
-                        {tag}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="text-sm text-muted-foreground">
-                      No family baselines selected yet.
-                    </span>
-                  )}
-                </div>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Reserved scopes use `:`, for example `agents:self`, `jobs:*`, or `agent:&lt;uuid&gt;`.
-                </p>
-              </div>
-
-              <div>
-                <label className="mb-2 block text-sm font-medium text-foreground">Selector Tags</label>
-                <textarea
-                  value={selectorInput}
-                  onChange={(event) => setSelectorInput(event.target.value)}
-                  placeholder={"team=dev\nproject=alpha"}
-                  className="min-h-28 w-full rounded-lg border border-border bg-surface-low px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
-                  disabled={creating}
-                />
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Use `key=value` for your own metadata tags. `:` is reserved for built-in scopes such as `agent:&lt;uuid&gt;`.
-                </p>
-              </div>
-            </>
+          {error ? (
+            <Alert variant="destructive" className="rounded-xl border-destructive/25 bg-destructive/10 px-4 py-4">
+              <CircleAlert />
+              <AlertDescription className="text-sm font-medium leading-5 text-destructive">{error}</AlertDescription>
+            </Alert>
           ) : null}
 
-          <div>
-            <h3 className="mb-2 text-sm font-medium text-foreground">Resulting Tags</h3>
-            <div className="flex min-h-16 flex-wrap gap-2 rounded-lg border border-border bg-background p-3">
-              {effectiveTags.length > 0 ? (
-                effectiveTags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="rounded-full border border-border bg-surface-low px-2 py-1 text-xs text-muted-foreground"
-                  >
-                    {tag}
-                  </span>
-                ))
-              ) : (
-                <span className="text-sm text-muted-foreground">No tags selected yet.</span>
-              )}
+          {accessPreset === "full" ? (
+            <Alert variant="destructive" className="rounded-xl border-destructive/25 bg-destructive/10 px-4 py-4">
+              <CircleAlert />
+              <AlertDescription className="text-sm font-medium leading-5 text-destructive">
+                This key can access everything your account can. Limit permissions to reduce risk if the key is exposed.
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <div className="space-y-7 pt-1">
+              {API_KEY_SCOPE_GROUPS.map((group) => (
+                <section key={group.label}>
+                  <h3 className="text-xs font-medium text-text-muted">{group.label}</h3>
+                  <div className="mt-2 space-y-1">
+                    {API_KEY_BASELINE_FAMILIES.filter(({ key }) => group.keys.includes(key)).map(({ key, label, allowed }) => (
+                      <div key={key} className="flex min-h-10 items-center justify-between gap-4">
+                        <span className="text-base text-foreground">{label}</span>
+                        <ToggleGroup
+                          type="single"
+                          value={baselines[key]}
+                          onValueChange={(value) => {
+                            if (!value) return;
+                            setBaselines((current) => ({ ...current, [key]: value as BaselineValue }));
+                          }}
+                          disabled={creating}
+                          aria-label={`${label} access`}
+                          className="rounded-xl bg-surface-high p-1"
+                        >
+                          {allowed.map((value) => (
+                            <ToggleGroupItem
+                              key={value}
+                              value={value}
+                              aria-label={`${label}: ${BASELINE_LABELS[value]}`}
+                              className="h-6 min-w-14 rounded-lg px-3 text-sm text-text-muted hover:bg-transparent hover:text-foreground data-[state=on]:border data-[state=on]:border-border-strong data-[state=on]:bg-surface-medium data-[state=on]:text-foreground"
+                            >
+                              {BASELINE_LABELS[value]}
+                            </ToggleGroupItem>
+                          ))}
+                        </ToggleGroup>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
+        </form>
+      </SlideOver>
+
+      <Dialog open={createdKey !== null} onOpenChange={(open) => !open && closeCreatedKey()}>
+        <DialogContent className="gap-0 overflow-hidden rounded-2xl border-border bg-card p-0 sm:max-w-lg">
+          <div className="px-4 pb-4 pt-5 sm:px-5 sm:pb-5">
+            <DialogHeader>
+              <DialogTitle className="text-2xl font-medium leading-tight text-foreground">API key created</DialogTitle>
+              <DialogDescription className="sr-only">
+                Copy this API key before closing the window.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="mt-6 space-y-5">
+              <div className="space-y-2">
+                <Label htmlFor={createdKeyInputId} className="text-base text-foreground">API key</Label>
+                <Input
+                  id={createdKeyInputId}
+                  value={createdKeySecret ?? ""}
+                  readOnly
+                  aria-invalid={!createdKeySecret}
+                  className="h-10 select-all rounded-xl border-border bg-surface-low text-base"
+                />
+                <p className="text-sm leading-5 text-text-muted">
+                  {createdKeySecret
+                    ? "Store this key somewhere secure. Treat it like a password."
+                    : "The key was created, but the secret was not returned."}
+                </p>
+              </div>
+
+              <Alert
+                variant={createdKeySecret ? "default" : "destructive"}
+                className="rounded-xl border-border bg-transparent px-4 py-4"
+              >
+                <CircleAlert />
+                <AlertDescription className="text-sm font-medium leading-5 text-foreground">
+                  {createdKeySecret
+                    ? "Copy your API key now. You won’t be able to view it again after closing this window."
+                    : "Disable this key and create a new one before continuing."}
+                </AlertDescription>
+              </Alert>
             </div>
           </div>
 
-          <div className="flex gap-3">
-            <button
-              onClick={() => void handleCreate()}
-              disabled={creating}
-              className="flex-1 rounded-lg bg-primary px-4 py-2 font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
+          <DialogFooter className="border-t border-border bg-surface-low px-4 py-4 sm:px-5">
+            <Button type="button" variant="outline" size="sm" onClick={closeCreatedKey}>Close</Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => createdKeySecret && void handleCopy(createdKeySecret)}
+              disabled={!createdKeySecret}
             >
-              {creating ? "Creating..." : "Create Key"}
-            </button>
-            <button
+              {copied ? "Copied" : "Copy API key"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={editingKeyId !== null}
+        onOpenChange={(open) => {
+          if (!open && !savingName) {
+            setEditingKeyId(null);
+            setEditName("");
+            setError(null);
+          }
+        }}
+      >
+        <DialogContent className="rounded-2xl border-border bg-card sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rename API key</DialogTitle>
+            <DialogDescription>Choose a name that identifies where this key is used.</DialogDescription>
+          </DialogHeader>
+          <form
+            id={renameFormId}
+            className="space-y-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (editingKeyId) void handleRename(editingKeyId);
+            }}
+          >
+            <Label htmlFor={renameInputId}>Key name</Label>
+            <Input
+              id={renameInputId}
+              value={editName}
+              onChange={(event) => setEditName(event.target.value)}
+              disabled={savingName}
+              autoFocus
+            />
+          </form>
+          {error ? (
+            <Alert variant="destructive" className="rounded-xl border-destructive/25 bg-destructive/10">
+              <CircleAlert />
+              <AlertDescription className="text-destructive">{error}</AlertDescription>
+            </Alert>
+          ) : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
               onClick={() => {
-                setShowCreate(false);
-                resetCreateState();
+                setEditingKeyId(null);
+                setEditName("");
+                setError(null);
               }}
-              disabled={creating}
-              className="flex-1 rounded-lg border border-border px-4 py-2 font-semibold text-foreground hover:bg-surface-low"
+              disabled={savingName}
             >
               Cancel
-            </button>
-          </div>
-        </div>
-      </Modal>
+            </Button>
+            <Button type="submit" form={renameFormId} disabled={savingName}>
+              {savingName ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={disableKeyId !== null}
+        onOpenChange={(open) => {
+          if (!open && !revokingKeyId) setDisableKeyId(null);
+        }}
+      >
+        <AlertDialogContent className="rounded-2xl border-border bg-card sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disable API key?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This key will stop working immediately and cannot be enabled again.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={Boolean(revokingKeyId)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => disableKeyId && void handleDisable(disableKeyId)}
+              disabled={Boolean(revokingKeyId)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {revokingKeyId ? "Disabling..." : "Disable key"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

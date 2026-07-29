@@ -3,6 +3,7 @@
 import type { ComponentType, ReactNode } from "react";
 import { motion } from "framer-motion";
 import { AlertCircle, CheckCircle2, Info, Loader2, RefreshCw, TriangleAlert } from "lucide-react";
+import { Button } from "../ui/button";
 import { cn } from "../ui/utils";
 
 export type NoticeTone = "neutral" | "success" | "warning" | "danger" | "accent";
@@ -56,8 +57,10 @@ export function EmptyState({
   actionLabel,
   onAction,
   actionIcon: ActionIcon = RefreshCw,
+  actionIconPosition = "start",
   footnote,
   tone = "neutral",
+  presentation = "compact",
   className,
 }: {
   icon: ComponentType<{ className?: string }>;
@@ -66,40 +69,68 @@ export function EmptyState({
   actionLabel?: ReactNode;
   onAction?: () => void;
   actionIcon?: ComponentType<{ className?: string }>;
+  actionIconPosition?: "start" | "end";
   footnote?: ReactNode;
   tone?: NoticeTone;
+  presentation?: "compact" | "prominent";
   className?: string;
 }) {
+  const prominent = presentation === "prominent";
   const iconClass = tone === "danger" ? "text-destructive" : tone === "accent" ? "text-[var(--selection-accent)]" : "text-text-muted/45";
 
   return (
     <motion.div
+      data-slot="empty-state"
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className={cn("flex flex-col items-center justify-center gap-3 px-6 py-12 text-center", className)}
+      className={cn(
+        prominent
+          ? "flex min-h-[28rem] flex-1 flex-col items-center justify-center px-6 py-16 text-center sm:px-10"
+          : "flex flex-col items-center justify-center gap-3 px-6 py-12 text-center",
+        className,
+      )}
     >
-      <motion.div initial={{ scale: 0.8 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 260, damping: 20, delay: 0.1 }}>
-        <Icon className={cn("h-8 w-8", iconClass)} />
+      <motion.div
+        initial={{ scale: 0.8 }}
+        animate={{ scale: 1 }}
+        transition={{ type: "spring", stiffness: 260, damping: 20, delay: 0.1 }}
+        className={prominent ? "flex size-10 items-center justify-center rounded-xl border border-border bg-surface-high" : undefined}
+      >
+        <Icon className={cn(prominent ? "size-4 text-foreground" : "h-8 w-8", !prominent && iconClass)} />
       </motion.div>
-      <div className="space-y-1">
-        <p className="text-sm font-medium text-foreground">{title}</p>
-        {description && <p className="max-w-[240px] text-[11px] leading-relaxed text-text-muted">{description}</p>}
+      <div className={prominent ? "mt-4 space-y-3" : "space-y-1"}>
+        {prominent ? (
+          <h2 className="text-balance text-2xl font-medium tracking-[-0.03em] text-foreground sm:text-3xl">{title}</h2>
+        ) : (
+          <p className="text-sm font-medium text-foreground">{title}</p>
+        )}
+        {description ? (
+          <p className={prominent ? "max-w-2xl text-sm leading-6 text-text-muted sm:text-base" : "max-w-[240px] text-[11px] leading-relaxed text-text-muted"}>
+            {description}
+          </p>
+        ) : null}
       </div>
       {footnote && <div className="mt-1 text-[11px] text-text-muted">{footnote}</div>}
       {actionLabel && onAction && (
-        <motion.button
+        <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.3 }}
-          whileHover={{ scale: 1.04 }}
-          whileTap={{ scale: 0.96 }}
-          onClick={onAction}
-          className="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:bg-surface-low"
+          className={prominent ? "mt-7" : "mt-1"}
         >
-          <ActionIcon className="h-3 w-3" />
-          {actionLabel}
-        </motion.button>
+          <Button
+            type="button"
+            variant={prominent ? "default" : "outline"}
+            size={prominent ? "lg" : "sm"}
+            onClick={onAction}
+            className={prominent ? "rounded-xl" : "h-auto rounded-lg px-3 py-1.5 text-[11px]"}
+          >
+            {actionIconPosition === "start" ? <ActionIcon className={prominent ? "size-4" : "size-3"} /> : null}
+            {actionLabel}
+            {actionIconPosition === "end" ? <ActionIcon className={prominent ? "size-4" : "size-3"} /> : null}
+          </Button>
+        </motion.div>
       )}
     </motion.div>
   );

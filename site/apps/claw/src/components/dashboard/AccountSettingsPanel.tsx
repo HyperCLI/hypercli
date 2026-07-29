@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { CheckCircle2, Loader2, MessageSquare, RefreshCw } from "lucide-react";
 import { getSlackInstallStatus, type SlackInstallStatus } from "@hypercli.com/sdk/agents";
-import { ThemeSelector } from "@hypercli/shared-ui";
+import { Button, Card, ThemeSelector } from "@hypercli/shared-ui";
 
 import { TooltipHint } from "@/components/ClawTooltip";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
@@ -41,8 +41,8 @@ function SlackAccountSection({ getToken }: { getToken: () => Promise<string> }) 
 
   const connected = status?.connected === true;
   return (
-    <section className="mb-5 rounded-[12px] border border-border bg-surface-low p-5">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <Card className="mb-5 gap-0 rounded-xl bg-surface-low p-5 text-left">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex min-w-0 gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-background">
             {loading ? (
@@ -64,32 +64,34 @@ function SlackAccountSection({ getToken }: { getToken: () => Promise<string> }) 
             {error ? <p role="alert" className="mt-2 text-sm text-destructive">{error}</p> : null}
           </div>
         </div>
-        <div className="flex shrink-0 flex-wrap gap-2">
-          <button
+        <div className="flex shrink-0 flex-wrap gap-2 lg:pt-0.5">
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             onClick={() => void refresh()}
             disabled={loading}
-            className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-semibold text-text-secondary transition-colors hover:bg-surface-high hover:text-foreground disabled:opacity-50"
+            className="h-9 rounded-lg text-xs font-semibold text-text-secondary hover:bg-surface-high hover:text-foreground"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             Refresh
-          </button>
-          <Link href="/slack/status" className="inline-flex h-9 items-center rounded-lg border border-border bg-background px-3 text-xs font-semibold text-text-secondary transition-colors hover:bg-surface-high hover:text-foreground">
-            Debug
-          </Link>
+          </Button>
+          <Button asChild variant="outline" size="sm" className="h-9 rounded-lg text-xs font-semibold text-text-secondary hover:bg-surface-high hover:text-foreground">
+            <Link href="/slack/status">Debug</Link>
+          </Button>
           {connected ? (
             <TooltipHint label="Disconnect from Slack workspace app settings." disabled>
-              <button type="button" disabled className="inline-flex h-9 items-center rounded-lg border border-border bg-background px-3 text-xs font-semibold text-text-secondary opacity-60">
+              <Button type="button" variant="outline" size="sm" disabled className="h-9 rounded-lg text-xs font-semibold text-text-secondary">
                 Disconnect Slack
-              </button>
+              </Button>
             </TooltipHint>
           ) : null}
-          <Link href="/slack/start" className="inline-flex h-9 items-center rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.45)] bg-[rgb(var(--selection-accent-rgb)_/_0.12)] px-3 text-xs font-semibold text-[var(--selection-accent)] transition-colors hover:bg-[rgb(var(--selection-accent-rgb)_/_0.18)]">
-            {connected ? "Reconnect Slack" : "Connect Slack"}
-          </Link>
+          <Button asChild size="sm" className="h-9 rounded-lg text-xs font-semibold">
+            <Link href="/slack/start">{connected ? "Reconnect Slack" : "Connect Slack"}</Link>
+          </Button>
         </div>
       </div>
-    </section>
+    </Card>
   );
 }
 
@@ -97,17 +99,17 @@ export default function AccountSettingsPanel() {
   const { getToken } = useAgentAuth();
 
   return (
-    <div className="h-full overflow-y-auto bg-background">
-      <div className="mx-auto w-full max-w-[1000px] px-4 py-8 sm:px-6 lg:px-0">
-        <section className="mb-5 rounded-xl border border-border bg-surface-low p-5">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
+    <div className="h-full overflow-y-auto bg-background px-4 py-7 sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-6xl">
+        <Card className="mb-5 gap-0 rounded-xl bg-surface-low p-5 text-left">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
               <h2 className="text-base font-semibold text-foreground">Appearance</h2>
               <p className="mt-1 text-sm text-text-muted">Choose how HyperCLI looks across all apps.</p>
             </div>
-            <ThemeSelector aria-label="Appearance theme" />
+            <ThemeSelector aria-label="Appearance theme" className="lg:mt-0.5" />
           </div>
-        </section>
+        </Card>
         <SlackAccountSection getToken={getToken} />
       </div>
     </div>

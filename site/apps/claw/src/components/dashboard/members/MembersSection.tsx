@@ -11,6 +11,8 @@ import type {
 } from "@hypercli.com/sdk/workspaces";
 import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
 import {
+  Badge,
+  Card,
   ConfirmDialog,
   Select,
   SelectContent,
@@ -148,9 +150,9 @@ function SummaryCard({
   accent?: boolean;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-border bg-surface-low/35 p-4">
+    <Card className="relative gap-0 overflow-hidden rounded-2xl bg-surface-low/35 p-4 text-left">
       <div className="relative flex items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">{label}</p>
           <p className={`mt-2 text-2xl font-semibold tracking-tight ${accent ? "text-[var(--selection-accent)]" : "text-foreground"}`}>{value}</p>
           <p className="mt-1 text-[11px] leading-relaxed text-text-muted">{detail}</p>
@@ -159,7 +161,7 @@ function SummaryCard({
           <Icon className="h-4 w-4" />
         </span>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -486,14 +488,14 @@ export function MembersSection({ compact = false, agents = [], agentsLoading = f
   if (compact) {
     return (
       <section className="flex min-h-[356px] flex-col overflow-hidden rounded-lg border border-border bg-surface-low">
-        <div className="flex min-h-[70px] items-center justify-between gap-3 border-b border-border px-5 py-3">
+        <div className="flex min-h-[70px] items-center justify-between gap-3 border-b border-border px-6 py-3 text-left">
           <div className="min-w-0">
             <h2 className="text-base font-semibold text-foreground">Members</h2>
             <p className="mt-0.5 truncate text-[11px] text-text-muted">{selectedWorkspace ? workspaceName(selectedWorkspace) : "Workspace access"}</p>
           </div>
           <Link href="/dashboard/agents?section=members" className="shrink-0 text-[11px] font-medium text-text-muted transition-colors hover:text-foreground">Manage</Link>
         </div>
-        <div className="flex flex-1 flex-col px-5 py-5">
+        <div className="flex flex-1 flex-col px-6 py-5 text-left">
           {loadingWorkspaces || loadingAccess ? (
             <div role="status" className="flex flex-1 items-center justify-center gap-2 text-[12px] text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading Workspace access</div>
           ) : visibleError ? (
@@ -529,7 +531,7 @@ export function MembersSection({ compact = false, agents = [], agentsLoading = f
   }
 
   return (
-    <section aria-labelledby="members-title" className="mx-auto w-full max-w-[1120px] space-y-6 pb-10">
+    <section aria-labelledby="members-title" className="mx-auto w-full max-w-6xl space-y-6 pb-10 text-left">
       <header className="flex items-start justify-between gap-4 border-b border-border pb-6">
         <div className="flex min-w-0 items-start gap-3.5">
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[rgb(var(--selection-accent-rgb)_/_0.24)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"><UsersRound className="h-5 w-5" /></span>
@@ -559,7 +561,7 @@ export function MembersSection({ compact = false, agents = [], agentsLoading = f
         <div role="status" className="rounded-2xl border border-dashed border-border px-5 py-12 text-center"><HardDrive className="mx-auto h-6 w-6 text-text-muted" /><p className="mt-3 text-[13px] font-medium text-foreground">No Workspaces available</p><p className="mt-1 text-[11px] text-text-muted">Create a Workspace from the sidebar to start managing shared access.</p></div>
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 lg:grid-cols-3">
             <SummaryCard label="People" value={loadingAccess || !hasFullDirectory ? "-" : String(activePeople)} detail={hasFullDirectory ? "Active direct user access" : "Available to Workspace admins"} icon={UsersRound} accent />
             <SummaryCard label="Agents" value={loadingAccess || !hasFullDirectory ? "-" : String(activeAgents)} detail={hasFullDirectory ? "Active direct agent access" : "Available to Workspace admins"} icon={Bot} />
             <SummaryCard label="Your role" value={selectedRole ? selectedRole[0]!.toUpperCase() + selectedRole.slice(1) : "Unknown"} detail={canManageAccess ? "Can manage Workspace access" : "Your current Workspace access"} icon={ShieldCheck} />
@@ -572,7 +574,7 @@ export function MembersSection({ compact = false, agents = [], agentsLoading = f
               <div className="border-b border-border px-5 py-4"><h2 className="text-[14px] font-semibold text-foreground">Your Workspace access</h2><p className="mt-0.5 text-[11px] text-text-muted">The full direct-access list is available to Workspace admins.</p></div>
               <div className="grid gap-4 px-4 py-4 sm:px-5 lg:grid-cols-[minmax(0,1.4fr)_130px_150px_110px] lg:items-center">
                 <div className="flex min-w-0 items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.28)] bg-[rgb(var(--selection-accent-rgb)_/_0.12)] text-[11px] font-semibold text-[var(--selection-accent)]">{accountInitials(currentAccountName, currentAccountEmail)}</span><span className="min-w-0"><span className="block truncate text-[13px] font-medium text-foreground">{currentAccountName}</span>{currentAccountEmail ? <span className="mt-1 block truncate text-[11px] text-text-muted">{currentAccountEmail}</span> : null}</span></div>
-                <div><span className="inline-flex items-center gap-1.5 rounded-full bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-2.5 py-1 text-[10px] font-medium text-[var(--selection-accent)]"><Check className="h-3 w-3" /> Active</span></div>
+                <div><Badge variant="active" className="rounded-full px-2.5 py-1 text-[10px]"><Check className="h-3 w-3" /> Active</Badge></div>
                 <div className="text-[12px] capitalize text-text-secondary">{selectedRole || "viewer"}</div>
                 <div className="text-[11px] text-text-muted">Current access</div>
               </div>
@@ -582,7 +584,7 @@ export function MembersSection({ compact = false, agents = [], agentsLoading = f
           ) : (
             <>
               {canManageAccess && accessOpen ? (
-                <div id="workspace-access-form" aria-labelledby="workspace-access-form-title" className="grid gap-3 rounded-2xl border border-border bg-surface-low/25 p-4 md:grid-cols-[130px_minmax(0,1fr)_150px_190px_auto] md:items-end">
+                <div id="workspace-access-form" aria-labelledby="workspace-access-form-title" className="grid gap-3 rounded-2xl border border-border bg-surface-low/25 p-4 xl:grid-cols-[130px_minmax(0,1fr)_150px_190px_auto] xl:items-end">
                   <span id="workspace-access-form-title" className="sr-only">Add Workspace access</span>
                   <div>
                     <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Type</span>
@@ -658,7 +660,7 @@ export function MembersSection({ compact = false, agents = [], agentsLoading = f
                           <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border ${entry.subjectType === "user" ? "border-[rgb(var(--selection-accent-rgb)_/_0.28)] bg-[rgb(var(--selection-accent-rgb)_/_0.12)] text-[var(--selection-accent)]" : "border-border bg-background/45 text-text-secondary"}`}>{entry.subjectType === "agent" ? <Bot className="h-4 w-4" /> : <span className="text-[10px] font-semibold">{accountInitials(label, entry.subjectId)}</span>}</span>
                           <span className="min-w-0"><span className="block truncate text-[13px] font-medium text-foreground">{label}</span><span className="mt-1 block truncate text-[11px] text-text-muted">{subjectSecondaryLabel(entry)}</span></span>
                         </div>
-                        <div role="cell"><span className="inline-flex items-center gap-1.5 rounded-full bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-2.5 py-1 text-[10px] font-medium text-[var(--selection-accent)]"><Check className="h-3 w-3" /> Active</span><span className="mt-1 block text-[10px] text-text-muted">{entry.grants.length} active {entry.grants.length === 1 ? "grant" : "grants"}</span></div>
+                        <div role="cell"><Badge variant="active" className="rounded-full px-2.5 py-1 text-[10px]"><Check className="h-3 w-3" /> Active</Badge><span className="mt-1 block text-[10px] text-text-muted">{entry.grants.length} active {entry.grants.length === 1 ? "grant" : "grants"}</span></div>
                         <div role="cell" className="text-[12px] capitalize text-text-secondary">{entry.role}</div>
                         <div role="cell"><button type="button" aria-label={`Remove ${label}`} onClick={() => setPendingRevokeEntry(entry)} disabled={busy} className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" /> Remove</button></div>
                       </div>
@@ -676,7 +678,7 @@ export function MembersSection({ compact = false, agents = [], agentsLoading = f
                       return (
                         <div key={grant.id} role="row" className="grid gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_120px_120px] sm:items-center">
                           <div role="cell" className="flex min-w-0 items-center gap-3"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-background/45 text-text-secondary">{grant.subjectType === "agent" ? <Bot className="h-4 w-4" /> : <UserRound className="h-4 w-4" />}</span><span className="min-w-0"><span className="block truncate text-[12px] font-medium text-foreground">{subjectLabel(grant)}</span><span className="mt-1 block truncate font-mono text-[10px] text-text-muted">{grant.subjectId}</span></span></div>
-                          <div role="cell"><span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-medium capitalize ${status === "expired" ? "bg-warning/10 text-warning" : "bg-surface-high text-text-muted"}`}><LockKeyhole className="h-3 w-3" />{status}</span></div>
+                          <div role="cell"><Badge variant="secondary" className={`rounded-full px-2.5 py-1 text-[10px] capitalize ${status === "expired" ? "bg-warning/10 text-warning" : "text-text-muted"}`}><LockKeyhole className="h-3 w-3" />{status}</Badge></div>
                           <div role="cell" className="text-[12px] capitalize text-text-secondary">{grant.role}</div>
                         </div>
                       );

@@ -353,6 +353,11 @@ describe("MembersSection", () => {
     expect(screen.getByText("External Scout")).toBeInTheDocument();
     expect(screen.getByText("@research-helper")).toBeInTheDocument();
     expect(screen.getByText("2 active grants")).toBeInTheDocument();
+    expect(screen.getAllByText("Active")[0]).toHaveClass(
+      "border-[rgb(var(--selection-accent-rgb)_/_0.3)]",
+      "bg-[rgb(var(--selection-accent-rgb)_/_0.1)]",
+      "text-[var(--selection-accent)]",
+    );
     expect(within(summaryValue("People")).getByText("2")).toBeInTheDocument();
     expect(within(summaryValue("Agents")).getByText("2")).toBeInTheDocument();
     expect(screen.queryByText("Owner")).not.toBeInTheDocument();

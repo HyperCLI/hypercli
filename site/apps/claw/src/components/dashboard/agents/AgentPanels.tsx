@@ -4,7 +4,7 @@ import Link from "next/link";
 import React from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, Reorder } from "framer-motion";
-import { ArrowLeft, ArrowRight, BarChart3, Blocks, Check, Codepen, Copy, FolderOpen, HardDrive, House, KeyRound, Loader2, LogOut, MessageSquare, PanelRight, Plus, Play, Settings, SlidersHorizontal, Sparkles, Square, UsersRound, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, BarChart3, Blocks, Check, Codepen, Copy, FolderOpen, KeyRound, Loader2, LogOut, MessageSquare, PanelRight, Plus, Play, SlidersHorizontal, Sparkles, Square, X } from "lucide-react";
 import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import type { AgentChannelSummary } from "@hypercli.com/sdk/channels";
@@ -345,7 +345,7 @@ export function OpenClawSettingsPanel({
 
   const editorContent = (
     <OpenClawErrorBoundary>
-      <div className={isDesktopViewport ? "mx-auto max-w-5xl space-y-4" : "mx-auto max-w-xl space-y-4"}>
+      <div className={isDesktopViewport ? "mx-auto w-full max-w-6xl space-y-4" : "mx-auto max-w-xl space-y-4"}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             {!isDesktopViewport && (
@@ -446,6 +446,9 @@ export function OpenClawSettingsPanel({
 
 interface AgentSettingsPanelProps {
   agent: Agent | null;
+  activeSection?: AgentSettingsSection;
+  onSectionChange?: (section: AgentSettingsSection) => void;
+  showSectionNavigation?: boolean;
   user?: {
     id?: string;
     email?: string;
@@ -479,7 +482,7 @@ interface AgentSettingsPanelProps {
   isDesktopViewport?: boolean;
 }
 
-type AgentSettingsSection = "general" | "agent" | "index" | "usage" | "team";
+export type AgentSettingsSection = "general" | "agent" | "index" | "usage" | "team";
 
 const AGENT_SETTINGS_SECTIONS: Array<{ id: AgentSettingsSection; label: string }> = [
   { id: "general", label: "General" },
@@ -839,12 +842,12 @@ function AgentProfileSettingsRow({
   minHeight?: string;
 }) {
   return (
-    <div className={`grid grid-cols-1 gap-2 py-5 md:grid-cols-[260px_minmax(0,440px)] md:items-start md:justify-between md:gap-4 md:py-7 ${minHeight}`}>
+    <div className={`grid grid-cols-1 gap-2 py-5 lg:grid-cols-[260px_minmax(0,440px)] lg:items-start lg:justify-between lg:gap-4 lg:py-7 ${minHeight}`}>
       <div>
         <p className="text-[14px] font-semibold leading-5 text-foreground">{label}</p>
         {description ? <p className="mt-1 text-[12px] text-text-muted">{description}</p> : null}
       </div>
-      <div className="w-full md:max-w-[440px]">{children}</div>
+      <div className="w-full lg:max-w-[440px]">{children}</div>
     </div>
   );
 }
@@ -895,9 +898,9 @@ function AgentGeneralSettingsContent({
   };
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-5 py-7 md:px-8">
-      <div className="mx-auto w-full max-w-[844px]">
-        <h2 className="text-[20px] font-semibold leading-none text-foreground">Profile</h2>
+    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-7 text-left sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-6xl">
+        <h2 className="text-[20px] font-semibold leading-tight text-foreground">Profile</h2>
         {(profileError || profileSuccess) && (
           <div className="mt-4">
             {profileError ? (
@@ -1121,8 +1124,8 @@ function AgentSectionSettingsContent({
           : "Lifecycle controls are unavailable";
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-5 py-7 md:px-8">
-      <div className="mx-auto w-full max-w-[844px]">
+    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-7 text-left sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-6xl">
         <div className="mb-7 flex min-h-[72px] items-center justify-between gap-4 rounded-[14px] border border-foreground px-3 py-3">
           <div className="min-w-0">
             <p className="text-[14px] font-semibold leading-5 text-foreground">Agent runtime</p>
@@ -1155,7 +1158,7 @@ function AgentSectionSettingsContent({
           )}
         </div>
 
-        <h2 className="text-[20px] font-semibold leading-none text-foreground">Agent Settings</h2>
+        <h2 className="text-[20px] font-semibold leading-tight text-foreground">Agent Settings</h2>
         {(agentSettingsError || agentSettingsSuccess) && (
           <div className="mt-4">
             {agentSettingsError ? (
@@ -1402,7 +1405,7 @@ function AgentSectionSettingsContent({
         </section>
 
         <section className="mt-8">
-          <h2 className="text-[20px] font-semibold leading-none text-foreground">Danger Zone</h2>
+          <h2 className="text-[20px] font-semibold leading-tight text-foreground">Danger Zone</h2>
           <div className="mt-7 flex min-h-[68px] items-center justify-between gap-4">
             <div className="min-w-0">
               <p className="text-[14px] font-semibold leading-5 text-foreground">Delete agent</p>
@@ -1435,16 +1438,14 @@ function AgentSettingsLinkButton({
   tone?: "default" | "danger";
 }) {
   return (
-    <Link
-      href={href}
-      className={`inline-flex h-8 shrink-0 items-center justify-center rounded-lg border px-3 text-xs font-medium transition-colors ${
-        tone === "danger"
-          ? "border-destructive/30 bg-background text-destructive hover:bg-destructive/10"
-          : "border-border bg-surface-low text-foreground hover:bg-surface-high"
-      }`}
+    <Button
+      asChild
+      variant="outline"
+      size="sm"
+      className={`rounded-lg text-xs ${tone === "danger" ? "border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive" : "bg-surface-low hover:bg-surface-high"}`}
     >
-      {children}
-    </Link>
+      <Link href={href}>{children}</Link>
+    </Button>
   );
 }
 
@@ -1475,9 +1476,9 @@ function AgentIndexSettingsContent({
   };
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-5 py-7 md:px-8">
-      <div className="mx-auto w-full max-w-[844px]">
-        <h2 className="text-[20px] font-semibold leading-none text-foreground">Index</h2>
+    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-7 text-left sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-6xl">
+        <h2 className="text-[20px] font-semibold leading-tight text-foreground">Memory index</h2>
         {(error || success) && (
           <div className="mt-4">
             {error ? (
@@ -1577,9 +1578,9 @@ function AgentIndexSettingsContent({
 
 function AgentUsageSettingsContent() {
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-5 py-7 md:px-8">
-      <div className="mx-auto w-full max-w-[844px]">
-        <h2 className="text-[20px] font-semibold leading-none text-foreground">Usage</h2>
+    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-7 text-left sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-6xl">
+        <h2 className="text-[20px] font-semibold leading-tight text-foreground">Usage</h2>
         <section className="mt-7 border-b border-foreground">
           <div className="grid gap-4 border-b border-foreground py-7 md:grid-cols-2">
             <Link
@@ -1625,6 +1626,9 @@ function AgentUsageSettingsContent() {
 export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const {
     agent,
+    activeSection: controlledActiveSection,
+    onSectionChange,
+    showSectionNavigation = true,
     user,
     getToken,
     onStartAgent,
@@ -1649,7 +1653,12 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     onShowFileSourceTabsChange,
     isDesktopViewport = true,
   } = props;
-  const [activeSettingsSection, setActiveSettingsSection] = React.useState<AgentSettingsSection>("general");
+  const [internalActiveSection, setInternalActiveSection] = React.useState<AgentSettingsSection>("general");
+  const activeSettingsSection = controlledActiveSection ?? internalActiveSection;
+  const selectSettingsSection = (section: AgentSettingsSection) => {
+    setInternalActiveSection(section);
+    onSectionChange?.(section);
+  };
   const [savedProfileName, setSavedProfileName] = React.useState(() => profileNameFromUser(user));
   const [profileName, setProfileName] = React.useState(() => profileNameFromUser(user));
   const [loadedProfileUser, setLoadedProfileUser] = React.useState<{ authUserId: string | null; userId: string } | null>(null);
@@ -2123,7 +2132,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
 
   return (
     <div className={`flex h-full min-h-0 bg-background ${isDesktopViewport ? "flex-row" : "flex-col"}`}>
-      {isDesktopViewport ? (
+      {showSectionNavigation && isDesktopViewport ? (
         <aside className="h-full w-[208px] shrink-0 border-r border-border px-4 py-5">
           <h2 className="text-[20px] font-semibold leading-none text-foreground">Settings</h2>
           <nav aria-label="Settings sections" className="mt-6 flex flex-col gap-1">
@@ -2133,27 +2142,27 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
                 <button
                   key={section.id}
                   type="button"
-                  onClick={() => setActiveSettingsSection(section.id)}
+                  onClick={() => selectSettingsSection(section.id)}
                   aria-current={active ? "page" : undefined}
-                  className={`h-8 w-full rounded-[7px] px-2.5 text-left text-[14px] font-medium transition-colors ${
+                  className={`flex h-8 min-w-0 w-full items-center rounded-[7px] px-2.5 text-left font-sans text-sm font-normal not-italic leading-5 text-sidebar-foreground transition-colors ${
                     active
-                      ? "bg-surface-low text-foreground"
-                      : "text-text-secondary hover:bg-surface-low/70 hover:text-foreground"
+                      ? "bg-surface-low"
+                      : "hover:bg-surface-low/70"
                   }`}
                 >
-                  {section.label}
+                  <span className="min-w-0 truncate">{section.label}</span>
                 </button>
               );
             })}
           </nav>
         </aside>
-      ) : (
+      ) : showSectionNavigation ? (
         <AgentSettingsMobileChrome
           activeSection={activeSettingsSection}
-          onSectionChange={(sectionId) => setActiveSettingsSection(sectionId as AgentSettingsSection)}
+          onSectionChange={(sectionId) => selectSettingsSection(sectionId as AgentSettingsSection)}
           sections={AGENT_SETTINGS_SECTIONS}
         />
-      )}
+      ) : null}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {activeSettingsSection === "general" ? (
           <AgentGeneralSettingsContent
@@ -2228,8 +2237,8 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         ) : (
           <div className="min-h-0 flex-1" aria-hidden />
         )}
-        <footer className="flex h-[54px] shrink-0 items-center justify-end border-t border-border px-5 md:h-[83px] md:px-8">
-          <div className="flex w-full max-w-[844px] justify-end gap-3">
+        <footer className="flex h-[54px] shrink-0 items-center border-t border-border px-4 sm:px-6 md:h-[83px] lg:px-8">
+          <div className="mx-auto flex w-full max-w-6xl justify-end gap-3">
             <button
               type="button"
               onClick={discardProfileChanges}
@@ -2435,8 +2444,6 @@ interface AgentListProps {
   setPendingAgentDelete: (value: { id: string; name: string } | null) => void;
   accountInitial?: string;
   onLogin?: () => void;
-  onOpenSettings?: () => void;
-  settingsActive?: boolean;
   onLogout?: () => void | Promise<void>;
   budget?: {
     slots: Record<string, { granted: number; used: number; available: number }>;
@@ -2446,17 +2453,7 @@ interface AgentListProps {
   catalogPlans?: HyperAgentPlan[] | null;
   onOpenPlanCatalog?: (planId?: string) => void | Promise<void>;
   preferredPlanId?: string | null;
-  homeActive?: boolean;
-  onOpenHome?: () => void;
-  onOpenUsage?: () => void;
   onOpenAccountSettings?: () => void;
-  onOpenKnowledge?: () => void;
-  knowledgeActive?: boolean;
-  knowledgeHref?: string;
-  onOpenMembers?: () => void;
-  membersActive?: boolean;
-  membersHref?: string;
-  usageActive?: boolean;
   accountSettingsActive?: boolean;
   pendingSlotReleases?: Record<string, number>;
   embeddedInNavigation?: boolean;
@@ -2509,25 +2506,13 @@ export function AgentList({
   setPendingAgentDelete,
   accountInitial,
   onLogin,
-  onOpenSettings,
-  settingsActive = false,
   onLogout,
   budget,
   subscriptionSummary,
   catalogPlans,
   onOpenPlanCatalog,
   preferredPlanId,
-  homeActive = false,
-  onOpenHome,
-  onOpenUsage,
   onOpenAccountSettings,
-  onOpenKnowledge,
-  knowledgeActive = false,
-  knowledgeHref,
-  onOpenMembers,
-  membersActive = false,
-  membersHref,
-  usageActive = false,
   accountSettingsActive = false,
   pendingSlotReleases,
   embeddedInNavigation = false,
@@ -2802,181 +2787,13 @@ export function AgentList({
               )}
                 </div>
               </div>
-              <div aria-hidden="true" className="agents-roster-rail-divider my-2 h-px w-8 shrink-0 bg-border/70" />
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  {onOpenHome ? (
-                    <button
-                      type="button"
-                      onClick={onOpenHome}
-                      aria-label="Home"
-                      aria-current={homeActive ? "page" : undefined}
-                      className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
-                        homeActive
-                          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
-                          : "text-text-muted hover:bg-surface-low hover:text-foreground"
-                      }`}
-                    >
-                      <House className="h-4 w-4" />
-                    </button>
-                  ) : (
-                    <Link
-                      href={DASHBOARD_VIEW_HREFS.overview}
-                      aria-label="Home"
-                      aria-current={homeActive ? "page" : undefined}
-                      className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
-                        homeActive
-                          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
-                          : "text-text-muted hover:bg-surface-low hover:text-foreground"
-                      }`}
-                    >
-                      <House className="h-4 w-4" />
-                    </Link>
-                  )}
-                </TooltipTrigger>
-                <TooltipContent side="right">Home</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  {onOpenKnowledge ? (
-                    <button
-                      type="button"
-                      onClick={onOpenKnowledge}
-                      aria-label="Shared Knowledge"
-                      aria-current={knowledgeActive ? "page" : undefined}
-                      className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
-                        knowledgeActive
-                          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
-                          : "text-text-muted hover:bg-surface-low hover:text-foreground"
-                      }`}
-                    >
-                      <HardDrive className="h-4 w-4" />
-                    </button>
-                  ) : (
-                    <Link
-                      href="/dashboard/agents?section=knowledge"
-                      aria-label="Shared Knowledge"
-                      aria-current={knowledgeActive ? "page" : undefined}
-                      className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
-                        knowledgeActive
-                          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
-                          : "text-text-muted hover:bg-surface-low hover:text-foreground"
-                      }`}
-                    >
-                      <HardDrive className="h-4 w-4" />
-                    </Link>
-                  )}
-                </TooltipTrigger>
-                <TooltipContent side="right">Shared Knowledge</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  {onOpenMembers ? (
-                    <button
-                      type="button"
-                      onClick={onOpenMembers}
-                      aria-label="Members"
-                      aria-current={membersActive ? "page" : undefined}
-                      className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
-                        membersActive
-                          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
-                          : "text-text-muted hover:bg-surface-low hover:text-foreground"
-                      }`}
-                    >
-                      <UsersRound className="h-4 w-4" />
-                    </button>
-                  ) : (
-                    <Link
-                      href={membersHref ?? "/dashboard/agents?section=members"}
-                      aria-label="Members"
-                      aria-current={membersActive ? "page" : undefined}
-                      className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
-                        membersActive
-                          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
-                          : "text-text-muted hover:bg-surface-low hover:text-foreground"
-                      }`}
-                    >
-                      <UsersRound className="h-4 w-4" />
-                    </Link>
-                  )}
-                </TooltipTrigger>
-                <TooltipContent side="right">Members</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  {onOpenUsage ? (
-                    <button
-                      type="button"
-                      onClick={onOpenUsage}
-                      aria-label="Usage"
-                      aria-current={usageActive ? "page" : undefined}
-                      className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
-                        usageActive
-                          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
-                          : "text-text-muted hover:bg-surface-low hover:text-foreground"
-                      }`}
-                    >
-                      <BarChart3 className="h-4 w-4" />
-                    </button>
-                  ) : (
-                    <Link
-                      href={DASHBOARD_VIEW_HREFS.usage}
-                      aria-label="Usage"
-                      aria-current={usageActive ? "page" : undefined}
-                      className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
-                        usageActive
-                          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
-                          : "text-text-muted hover:bg-surface-low hover:text-foreground"
-                      }`}
-                    >
-                      <BarChart3 className="h-4 w-4" />
-                    </Link>
-                  )}
-                </TooltipTrigger>
-                <TooltipContent side="right">Usage</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  {onOpenAccountSettings ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onOpenAccountSettings();
-                        setSidebarCollapsed(false);
-                      }}
-                      aria-label="Settings"
-                      aria-current={accountSettingsActive ? "page" : undefined}
-                      className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
-                        accountSettingsActive
-                          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
-                          : "text-text-muted hover:bg-surface-low hover:text-foreground"
-                      }`}
-                    >
-                      <Settings className="h-4 w-4" />
-                    </button>
-                  ) : (
-                    <Link
-                      href={DASHBOARD_VIEW_HREFS.settings}
-                      onClick={() => setSidebarCollapsed(false)}
-                      aria-label="Settings"
-                      aria-current={accountSettingsActive ? "page" : undefined}
-                      className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
-                        accountSettingsActive
-                          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
-                          : "text-text-muted hover:bg-surface-low hover:text-foreground"
-                      }`}
-                    >
-                      <Settings className="h-4 w-4" />
-                    </Link>
-                  )}
-                </TooltipTrigger>
-                <TooltipContent side="right">Settings</TooltipContent>
-              </Tooltip>
             </div>
             <AgentsSidebarDashboardLinks
               compact
               accountInitial={accountInitial}
               onLogin={onLogin}
+              onOpenSettings={onOpenAccountSettings}
+              settingsActive={accountSettingsActive}
               onLogout={onLogout}
             />
           </motion.div>
@@ -3018,16 +2835,6 @@ export function AgentList({
               onOpenAgentLauncher={openAgentLauncher}
               agentCreationDisabledReason={agentCreationDisabledReason}
               rosterLoading={rosterLoading}
-              onOpenHome={onOpenHome}
-              homeActive={homeActive}
-              onOpenKnowledge={onOpenKnowledge}
-              knowledgeActive={knowledgeActive}
-              knowledgeHref={knowledgeHref}
-              onOpenMembers={onOpenMembers}
-              membersActive={membersActive}
-              membersHref={membersHref}
-              onOpenUsage={onOpenUsage}
-              usageActive={usageActive}
               onOpenAccountSettings={onOpenAccountSettings}
               accountSettingsActive={accountSettingsActive}
               accountInitial={accountInitial}

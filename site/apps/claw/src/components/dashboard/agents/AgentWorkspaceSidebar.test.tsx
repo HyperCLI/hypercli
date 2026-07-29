@@ -139,7 +139,6 @@ function agentWorkspaceSidebarProps(overrides: Partial<ComponentProps<typeof Age
     onOpenLogs: vi.fn(),
     onOpenShell: vi.fn(),
     onOpenOpenClaw: vi.fn(),
-    onOpenSettings: vi.fn(),
     onUpgrade: vi.fn(),
     ...overrides,
   } satisfies ComponentProps<typeof AgentWorkspaceSidebar>;
@@ -293,8 +292,7 @@ describe("AgentWorkspaceSidebar", () => {
   });
 
   it("expands the collapsed workspace sidebar before rendering the Advanced menu", () => {
-    const onOpenSettings = vi.fn();
-    const props = agentWorkspaceSidebarProps({ onOpenSettings });
+    const props = agentWorkspaceSidebarProps();
     function Harness() {
       const [collapsed, setCollapsed] = useState(true);
       return <AgentWorkspaceSidebar {...props} collapsed={collapsed} onCollapsedChange={setCollapsed} />;
@@ -309,8 +307,9 @@ describe("AgentWorkspaceSidebar", () => {
     expect(document.querySelector(".agent-workspace-shell")).toHaveAttribute("data-collapsed", "false");
     const advancedMenu = document.querySelector<HTMLElement>(".agent-workspace-advanced [role='menu']");
     expect(advancedMenu).toHaveClass("bottom-full", "left-3", "right-3");
-    fireEvent.click(within(advancedMenu!).getByRole("menuitem", { name: "Settings" }));
-    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(within(advancedMenu!).queryByRole("menuitem", { name: "Settings" })).not.toBeInTheDocument();
+    fireEvent.click(within(advancedMenu!).getByRole("menuitem", { name: "OpenClaw Settings" }));
+    expect(props.onOpenOpenClaw).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the shared header visible while only the navigation body is collapsed", () => {
@@ -441,7 +440,6 @@ describe("AgentWorkspaceSidebar", () => {
         onOpenLogs={vi.fn()}
         onOpenShell={vi.fn()}
         onOpenOpenClaw={vi.fn()}
-        onOpenSettings={vi.fn()}
         onUpgrade={vi.fn()}
       />
     );
@@ -981,6 +979,34 @@ describe("AgentWorkspaceSidebar", () => {
     expect(onSelectSession).not.toHaveBeenCalled();
   });
 
+  it.each(["STOPPED", "FAILED"] as const)("does not keep sessions loading when the selected agent is %s", (state) => {
+    const onSelectSession = vi.fn();
+    renderAgentWorkspaceSidebar({
+      selectedAgent: { ...agent, state },
+      sessions: [{
+        key: "session-cached",
+        clientMode: "openclaw",
+        clientDisplayName: "Cached session",
+        createdAt: 1,
+        lastMessageAt: 20,
+        title: "Cached session",
+        messageCount: 2,
+        raw: {},
+      }],
+      sessionsFetched: false,
+      selectedSessionKey: "session-cached",
+      onSelectSession,
+    });
+
+    expect(screen.queryByRole("status", { name: "Loading sessions" })).not.toBeInTheDocument();
+    const cachedSession = screen.getByRole("button", { name: "Cached session" });
+    expect(cachedSession).toBeDisabled();
+    expect(screen.getAllByText("Agent must be running").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Sessions are loading.")).not.toBeInTheDocument();
+    fireEvent.click(cachedSession);
+    expect(onSelectSession).not.toHaveBeenCalled();
+  });
+
   it("keeps sessions disabled while the workspace is disabled", () => {
     const onSelectSession = vi.fn();
     renderAgentWorkspaceSidebar({
@@ -1330,7 +1356,6 @@ describe("AgentWorkspaceSidebar", () => {
     expect(props.onOpenIntegrations).not.toHaveBeenCalled();
     expect(props.onOpenSkills).not.toHaveBeenCalled();
     expect(props.onOpenScheduled).not.toHaveBeenCalled();
-    expect(props.onOpenSettings).not.toHaveBeenCalled();
     expect(props.onOpenOpenClaw).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: /settings/i })).not.toBeInTheDocument();
   });

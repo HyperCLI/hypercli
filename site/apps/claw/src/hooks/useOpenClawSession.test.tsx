@@ -5244,6 +5244,87 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
+  it("keeps an active partial reply until reconnect history contains the final response", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    const stream = controlledChatStream();
+    gateway.chatSend.mockReturnValue(stream.iterator);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+
+    await waitFor(() => expect(result.current.activeSessionCanSend).toBe(true));
+    act(() => result.current.setInput("Write a long report"));
+    let sendPromise!: Promise<void>;
+    act(() => {
+      sendPromise = result.current.sendMessage();
+    });
+    await waitFor(() => expect(gateway.chatSend).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      stream.emit({ type: "content", text: "Partial report", runId: "run-long" });
+    });
+    await waitFor(() => expect(result.current.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "assistant", content: "Partial report", runId: "run-long" }),
+    ])));
+
+    const historyCallsBeforeReconnect = gateway.chatHistory.mock.calls.length;
+    gateway.chatHistory.mockResolvedValue([
+      { role: "user", content: [{ type: "text", text: "Write a long report" }] },
+    ]);
+    act(() => {
+      gateway.emitConnectionState("disconnected");
+      gateway.emitConnectionState("connecting");
+    });
+    await waitFor(() => expect(result.current.status).toBe("connecting"));
+    expect(stream.returnIterator).toHaveBeenCalled();
+
+    act(() => gateway.emitConnectionState("connected"));
+    await waitFor(() => expect(gateway.chatHistory.mock.calls.length).toBeGreaterThan(historyCallsBeforeReconnect));
+    await waitFor(() => expect(result.current.historyPhase).toBe("ready"));
+    expect(result.current.activeSessionCanSend).toBe(true);
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Write a long report" }),
+      expect.objectContaining({ role: "assistant", content: "Partial report", runId: "run-long" }),
+    ]);
+
+    await act(async () => {
+      stream.emit({ type: "content", text: "Ignored stale continuation", runId: "run-long" });
+      stream.releaseReturn();
+      await sendPromise;
+    });
+    expect(result.current.messages.map((message) => message.content)).not.toContain("Ignored stale continuation");
+
+    const historyCallsBeforeCompletion = gateway.chatHistory.mock.calls.length;
+    gateway.chatHistory.mockResolvedValue([
+      { role: "user", content: [{ type: "text", text: "Write a long report" }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Partial report followed by the complete final response." }],
+        runId: "run-long",
+      },
+    ]);
+    act(() => {
+      gateway.emit({ event: "chat.done", payload: { sessionKey: "main", runId: "run-long" } });
+    });
+
+    await waitFor(() => expect(gateway.chatHistory.mock.calls.length).toBeGreaterThan(historyCallsBeforeCompletion));
+    await waitFor(() => expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Write a long report" }),
+      expect.objectContaining({
+        role: "assistant",
+        content: "Partial report followed by the complete final response.",
+        runId: "run-long",
+      }),
+    ]));
+    expect(result.current.sending).toBe(false);
+    unmount();
+  });
+
   it("keeps cached browser history when gateway history fails", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);

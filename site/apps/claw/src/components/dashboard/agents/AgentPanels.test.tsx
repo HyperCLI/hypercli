@@ -42,13 +42,15 @@ vi.mock("./FirstAgentSetupWizard", () => ({
 }));
 
 vi.mock("@hypercli/shared-ui", () => ({
-  Button: ({ children, ...props }: ComponentProps<"button">) => <button {...props}>{children}</button>,
+  Button: ({ children, asChild, ...props }: ComponentProps<"button"> & { asChild?: boolean }) => (
+    asChild ? <>{children}</> : <button {...props}>{children}</button>
+  ),
   HyperCLILogo: ({ className }: { className?: string }) => <div aria-hidden="true" className={className} />,
   Input: (props: ComponentProps<"input">) => <input {...props} />,
   Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipContent: ({ children }: { children: ReactNode }) => <>{children}</>,
-  ThemeToggle: () => <button type="button">Theme</button>,
+  ThemeSelector: () => <div>Theme</div>,
   Switch: ({ checked, onCheckedChange, "aria-label": ariaLabel }: {
     checked: boolean;
     onCheckedChange: (checked: boolean) => void;
@@ -508,24 +510,24 @@ describe("AgentList", () => {
     expect(document.querySelector(".agents-roster-header")).not.toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "Show offline agents" })).toHaveAttribute("aria-checked", "true");
     expect(screen.queryByRole("heading", { name: "Agents" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Home" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Home" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
     expect(props.setSidebarCollapsed).toHaveBeenCalledWith(true);
   });
 
-  it("keeps every compact action available in the embedded collapsed rail", () => {
+  it("omits Administration actions from the embedded collapsed rail", () => {
     renderAgentList({ embeddedInNavigation: true });
 
     expect(document.querySelector(".agents-roster-header")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Expand agents sidebar" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Select Test Agent" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Home" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Home" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Launch agent" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Shared Knowledge" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Members" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Usage" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Account links" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Shared Knowledge" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Members" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Usage" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Account links" }));
+    expect(screen.getByRole("menuitem", { name: "Settings" })).toBeInTheDocument();
   });
 
   it("places My Agents or search below the desktop roster actions", () => {
@@ -544,11 +546,10 @@ describe("AgentList", () => {
     const myAgentsLabel = screen.getByText(/^My Agents\(\d+\)$/);
     expect(myAgentsLabel).toHaveClass("text-[13px]", "text-text-secondary");
     expect(myAgentsLabel).not.toHaveClass("uppercase");
-    expect(screen.getByText("Administration")).toHaveClass("text-text-secondary");
+    expect(screen.queryByText("Administration")).not.toBeInTheDocument();
     expect(sectionHeader).toHaveClass("pl-5", "pr-3");
-    expect(document.querySelector(".agents-roster-administration > div")).toHaveClass("pl-5", "pr-3");
     expect(sectionHeader?.querySelector(".h-px")).not.toBeInTheDocument();
-    expect(document.querySelector(".agents-roster-administration .h-px")).not.toBeInTheDocument();
+    expect(document.querySelector(".agents-roster-administration")).not.toBeInTheDocument();
     expect(rosterHeader).not.toContainElement(search);
     expect(rosterHeader).not.toContainElement(collapse);
 
@@ -733,7 +734,7 @@ describe("AgentList", () => {
     expect(launch.children[1]).toHaveClass("h-7", "w-7", "rounded-full");
     expect(launch).toHaveTextContent("Create a new workspace");
     expect(document.querySelector(".agents-roster-section-header")).toHaveClass("pl-5", "pr-3");
-    expect(document.querySelector(".agents-roster-administration > div")).toHaveClass("pl-5", "pr-3");
+    expect(document.querySelector(".agents-roster-administration")).not.toBeInTheDocument();
     expect(document.querySelector(".agents-roster-expanded .agents-roster-header")).toHaveClass("bg-background");
     expect(document.querySelector(".agents-roster-expanded .agents-roster-scroll")).toHaveClass("bg-[var(--agent-roster-background)]");
   });
@@ -792,70 +793,46 @@ describe("AgentList", () => {
     expect(document.querySelector(".agents-roster-shell")).not.toContainElement(overlay);
   });
 
-  it("shows Home and Administration actions in the collapsed rail", () => {
-    const onOpenHome = vi.fn();
-    const onOpenKnowledge = vi.fn();
-    const onOpenMembers = vi.fn();
-    const onOpenUsage = vi.fn();
+  it("omits Administration actions from the collapsed rail", () => {
     const onOpenAccountSettings = vi.fn();
     renderAgentList({
-      onOpenHome,
-      onOpenKnowledge,
-      onOpenMembers,
-      onOpenUsage,
       onOpenAccountSettings,
-      homeActive: true,
-      knowledgeActive: true,
-      usageActive: true,
       accountSettingsActive: true,
     });
 
-    const home = screen.getByRole("button", { name: "Home" });
-    const sharedKnowledge = screen.getByRole("button", { name: "Shared Knowledge" });
-    const members = screen.getByRole("button", { name: "Members" });
-    const usage = screen.getByRole("button", { name: "Usage" });
-    const settings = screen.getByRole("button", { name: "Settings" });
     const dividers = document.querySelectorAll(".agents-roster-rail-divider");
 
-    expect(dividers).toHaveLength(2);
+    expect(dividers).toHaveLength(1);
     expect(dividers[0]).toHaveAttribute("aria-hidden", "true");
-    expect(dividers[1]).toHaveAttribute("aria-hidden", "true");
     expect(dividers[0]).toHaveClass("my-2");
-    expect(dividers[1]).toHaveClass("my-2");
-    expect(dividers[1].compareDocumentPosition(home) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
-    expect(home.compareDocumentPosition(sharedKnowledge) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(document.querySelector(".agents-roster-rail .agents-roster-scroll")).toHaveClass("flex-col", "overflow-hidden");
     expect(document.querySelector(".agents-roster-rail-primary")).toHaveClass("shrink-0", "gap-2");
     expect(document.querySelector(".agents-roster-rail-agents")).toHaveClass("w-full", "shrink", "overflow-y-auto", "py-1");
-    expect(home).toHaveAttribute("aria-current", "page");
-    expect(home).toHaveClass("text-[var(--selection-accent)]");
-    expect(sharedKnowledge).toHaveAttribute("aria-current", "page");
-    expect(sharedKnowledge).toHaveClass("text-[var(--selection-accent)]");
-    expect(usage).toHaveAttribute("aria-current", "page");
-    expect(usage).toHaveClass("text-[var(--selection-accent)]");
+    expect(screen.queryByRole("button", { name: "Home" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Shared Knowledge" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Members" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Usage" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Settings" })).not.toBeInTheDocument();
+    expect(onOpenAccountSettings).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Account links" }));
+    const settings = screen.getByRole("menuitem", { name: "Settings" });
     expect(settings).toHaveAttribute("aria-current", "page");
-    fireEvent.click(home);
-    fireEvent.click(sharedKnowledge);
-    fireEvent.click(members);
-    fireEvent.click(usage);
     fireEvent.click(settings);
-    expect(onOpenHome).toHaveBeenCalledOnce();
-    expect(onOpenKnowledge).toHaveBeenCalledOnce();
-    expect(onOpenMembers).toHaveBeenCalledOnce();
-    expect(onOpenUsage).toHaveBeenCalledOnce();
     expect(onOpenAccountSettings).toHaveBeenCalledOnce();
   });
 
-  it("opens account settings before expanding the collapsed agents sidebar", () => {
+  it("opens account settings from the collapsed account menu", () => {
     const operations: string[] = [];
     renderAgentList({
       onOpenAccountSettings: () => operations.push("settings"),
       setSidebarCollapsed: (collapsed) => operations.push(collapsed ? "collapse" : "expand"),
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Account links" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
 
-    expect(operations).toEqual(["settings", "expand"]);
+    expect(operations).toEqual(["settings"]);
   });
 
   it("shows stopped agents in the collapsed rail by default", () => {
@@ -1046,15 +1023,12 @@ describe("AgentList", () => {
     ]));
   });
 
-  it("links to user settings from Administration instead of the expanded account menu", () => {
-    const onOpenSettings = vi.fn();
-    renderAgentList({ sidebarCollapsed: false, onOpenSettings });
+  it("links to user settings from the expanded account menu", () => {
+    renderAgentList({ sidebarCollapsed: false });
 
-    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/dashboard/agents?view=settings");
-    expect(onOpenSettings).not.toHaveBeenCalled();
-
+    expect(screen.queryByRole("link", { name: "Settings" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /account/i }));
-    expect(screen.queryByRole("menuitem", { name: /^Settings$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /^Settings$/i })).toHaveAttribute("href", "/dashboard/agents?view=settings");
   });
 
   it("shows sign out as the last account menu option", () => {
@@ -1669,6 +1643,24 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByRole("heading", { name: "Usage" })).toBeInTheDocument();
     expect(screen.getByText("Usage dashboard")).toBeInTheDocument();
     expect(screen.getByText("API keys")).toBeInTheDocument();
+  });
+
+  it("supports opening a controlled settings section", () => {
+    const onSectionChange = vi.fn();
+    renderAgentSettingsPanel({ activeSection: "index", onSectionChange });
+
+    expect(screen.getByRole("button", { name: "Index" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("heading", { name: "Memory index" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    expect(onSectionChange).toHaveBeenCalledWith("agent");
+  });
+
+  it("hides its legacy section navigation when embedded", () => {
+    renderAgentSettingsPanel({ activeSection: "index", showSectionNavigation: false });
+
+    expect(screen.queryByRole("navigation", { name: "Settings sections" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Memory index" })).toBeInTheDocument();
   });
 
   it("saves memory index settings through an OpenClaw config patch and syncs launch env", async () => {

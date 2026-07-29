@@ -33,7 +33,7 @@ vi.mock("framer-motion", () => ({
 vi.mock("@hypercli/shared-ui", () => ({
   HyperCLILogo: ({ className }: { className?: string }) => <div aria-hidden="true" className={className} />,
   Switch: () => null,
-  ThemeToggle: () => <button type="button">Theme</button>,
+  ThemeSelector: () => <div>Theme</div>,
   Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipContent: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -51,18 +51,23 @@ describe("AgentsSidebarDashboardLinks", () => {
     expect(screen.queryByRole("menuitem", { name: /^agents$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: /shared knowledge/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: /^members$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("menuitem", { name: /^settings$/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: /api keys/i })).toHaveAttribute("href", "/keys");
-    expect(screen.getByRole("menuitem", { name: /plans/i })).toHaveAttribute("href", "/plans");
-    expect(screen.getByRole("menuitem", { name: /billing/i })).toHaveAttribute("href", "/dashboard/billing");
+    expect(screen.getByRole("menuitem", { name: /^settings$/i })).toHaveAttribute("href", "/dashboard/agents?view=settings");
+    expect(screen.getByRole("menuitem", { name: /api keys/i })).toHaveAttribute(
+      "href",
+      "/dashboard/agents?view=settings&settings=api-keys",
+    );
+    expect(screen.getByRole("menuitem", { name: /plans/i })).toHaveAttribute(
+      "href",
+      "/dashboard/agents?view=settings&settings=plans",
+    );
+    expect(screen.getByRole("menuitem", { name: /billing/i })).toHaveAttribute(
+      "href",
+      "/dashboard/agents?view=settings&settings=billing",
+    );
     expect(document.querySelector(".agents-dashboard-links")).toHaveClass("bg-[var(--agent-roster-background)]");
   });
 
-  it("places Home first under Administration", () => {
-    const onOpenHome = vi.fn();
-    const onOpenKnowledge = vi.fn();
-    const onOpenMembers = vi.fn();
-    const onOpenUsage = vi.fn();
+  it("omits Administration navigation from the roster", () => {
     const onOpenAccountSettings = vi.fn();
     render(
       <AgentsChannelsSidebar
@@ -71,57 +76,25 @@ describe("AgentsSidebarDashboardLinks", () => {
         selectedThreadId={null}
         onSelectThread={vi.fn()}
         showChannels={false}
-        onOpenHome={onOpenHome}
-        onOpenKnowledge={onOpenKnowledge}
-        onOpenMembers={onOpenMembers}
-        onOpenUsage={onOpenUsage}
         onOpenAccountSettings={onOpenAccountSettings}
-        knowledgeActive
-        usageActive
         accountSettingsActive
       />,
     );
 
-    const home = screen.getByRole("button", { name: "Home" });
-    const myAgents = screen.getByRole("heading", { name: /My Agents/ });
-    const sharedKnowledge = screen.getByRole("button", { name: "Shared Knowledge" });
-    const members = screen.getByRole("button", { name: "Members" });
-    const usage = screen.getByRole("button", { name: "Usage" });
-    const settings = screen.getByRole("button", { name: "Settings" });
-    const administration = screen.getByRole("region", { name: "Administration" });
     const rosterScroll = document.querySelector(".agents-roster-scroll");
     const agentList = document.querySelector(".agents-roster-agent-list");
 
-    expect(myAgents.compareDocumentPosition(administration) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
-    expect(administration).toContainElement(home);
-    expect(administration.children[1]).toBe(home);
-    expect(home.compareDocumentPosition(sharedKnowledge) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(rosterScroll).toHaveClass("flex-col", "overflow-hidden");
     expect(agentList).toHaveClass("shrink", "overflow-y-auto");
-    expect(administration).toHaveClass("shrink-0");
-    expect(administration).toContainElement(sharedKnowledge);
-    expect(administration).toContainElement(members);
-    expect(administration).toContainElement(usage);
-    expect(administration).toContainElement(settings);
-    expect(home.firstElementChild).toHaveClass("w-7");
-    expect(myAgents.firstElementChild).toHaveTextContent(/My Agents/);
-    expect(administration.firstElementChild).toHaveClass("pl-5", "pr-3");
-    expect(screen.queryByRole("button", { name: /My Agents/ })).not.toBeInTheDocument();
-    expect(sharedKnowledge.firstElementChild).toHaveClass("w-7");
-    expect(sharedKnowledge).toHaveAttribute("aria-current", "page");
-    expect(usage).toHaveAttribute("aria-current", "page");
-    expect(settings).toHaveAttribute("aria-current", "page");
-    expect(home).not.toHaveAttribute("aria-current");
+    expect(screen.queryByRole("region", { name: "Administration" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Administration")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Home" })).not.toBeInTheDocument();
+    expect(onOpenAccountSettings).not.toHaveBeenCalled();
 
-    fireEvent.click(home);
-    fireEvent.click(sharedKnowledge);
-    fireEvent.click(members);
-    fireEvent.click(usage);
+    fireEvent.click(screen.getByRole("button", { name: "Account links" }));
+    const settings = screen.getByRole("menuitem", { name: "Settings" });
+    expect(settings).toHaveAttribute("aria-current", "page");
     fireEvent.click(settings);
-    expect(onOpenHome).toHaveBeenCalledOnce();
-    expect(onOpenKnowledge).toHaveBeenCalledOnce();
-    expect(onOpenMembers).toHaveBeenCalledOnce();
-    expect(onOpenUsage).toHaveBeenCalledOnce();
     expect(onOpenAccountSettings).toHaveBeenCalledOnce();
   });
 
@@ -129,7 +102,7 @@ describe("AgentsSidebarDashboardLinks", () => {
     render(<AgentsSidebarDashboardLinks compact accountInitial="J" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Account links" }));
-    expect(screen.queryByRole("menuitem", { name: /^Settings$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /^Settings$/i })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /api keys/i })).toBeInTheDocument();
   });
 });

@@ -48,6 +48,8 @@ describe("AgentTerminalPanel", () => {
 
     expect(screen.getByText("Unable to load shell")).toBeInTheDocument();
     expect(screen.getByText("The terminal could not be loaded.")).toBeInTheDocument();
+    expect(screen.getByRole("alert", { name: /unable to load shell the terminal could not be loaded/i })).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /agent workspace loading/i })).not.toBeInTheDocument();
   });
 
   it("removes a hidden prewarmed terminal from keyboard navigation", () => {

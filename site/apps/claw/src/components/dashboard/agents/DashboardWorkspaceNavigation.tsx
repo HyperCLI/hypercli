@@ -43,7 +43,6 @@ export function DashboardWorkspaceNavigation({
       onOpenLogs={() => openAgentTab("logs")}
       onOpenShell={() => openAgentTab("shell")}
       onOpenOpenClaw={() => openAgentTab("openclaw")}
-      onOpenSettings={() => openAgentTab("settings")}
       onUpgrade={() => router.push("/plans")}
     />
   );

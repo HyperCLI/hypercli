@@ -3,14 +3,24 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
   HyperAgentCurrentPlan,
-  HyperAgentEntitlement,
   HyperAgentPlan,
   HyperAgentSubscription,
   HyperAgentSubscriptionSummary,
 } from "@hypercli.com/sdk/agent";
-import { Check } from "lucide-react";
+import {
+  BriefcaseBusiness,
+  Check,
+  ChevronDown,
+  CircleDot,
+  Code2,
+  MoreHorizontal,
+  Rocket,
+  Sparkles,
+  WalletCards,
+  X,
+} from "lucide-react";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { createHyperAgentClient } from "@/lib/agent-client";
+import { createAgentClient, createHyperAgentClient } from "@/lib/agent-client";
 import { isVisibleCurrentAgentPlan } from "@/lib/agent-plan-catalog";
 import { PlanCheckoutModal } from "@/components/PlanCheckoutModal";
 import { ActivateCodeModal } from "@/components/ActivateCodeModal";
@@ -20,7 +30,6 @@ import {
   clearPendingPlanCheckout,
   clearStripeCheckoutReturnState,
   getCheckoutReflectionStatus,
-  getEffectivePlanName,
   getLaunchSlotInventoryFromSummary,
   getGrantedLaunchSlotsByTier,
   getPlanOwnedCountFromSummary,
@@ -29,6 +38,7 @@ import {
   readStripeCheckoutReturnState,
 } from "@/lib/plan-checkout-state";
 import { bundleKey, CLAW_PRODUCTS, compactBundle, formatBundle, type SlotBundle } from "@/lib/subscriptions";
+import type { SdkAgent } from "@/types";
 
 interface DisplayProduct {
   id: string;
@@ -82,10 +92,6 @@ type CatalogPlan = HyperAgentPlan & {
 const FALLBACK_PRODUCTS_BY_ID = new Map(CLAW_PRODUCTS.map((product) => [product.id, product]));
 const CORE_PLAN_FETCH_TIMEOUT_MS = 15_000;
 const SUMMARY_PLAN_FETCH_TIMEOUT_MS = 4_000;
-
-function titleizeTier(value: string): string {
-  return value.replace(/-/g, " ").replace(/\b\w/g, (match) => match.toUpperCase());
-}
 
 function normalizeBundle(value: unknown): SlotBundle {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -199,11 +205,18 @@ function buildDisplayProducts(catalogPlans: HyperAgentPlan[]): DisplayProduct[] 
     });
 }
 
-function formatEntitlementDate(entitlement: HyperAgentEntitlement): string {
-  if (!entitlement.expiresAt) {
-    return "Expiry unavailable";
-  }
-  return `Expires ${entitlement.expiresAt.toLocaleDateString()}`;
+function formatShortDate(value: Date | null | undefined): string {
+  if (!value) return "Unavailable";
+  return value.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+function PlanIcon({ name, className = "h-5 w-5" }: { name: string; className?: string }) {
+  const normalized = name.toLowerCase();
+  if (normalized.includes("basic") || normalized.includes("free")) return <CircleDot className={className} />;
+  if (normalized.includes("plus")) return <BriefcaseBusiness className={className} />;
+  if (normalized.includes("pro")) return <Rocket className={className} />;
+  if (normalized.includes("team")) return <Sparkles className={className} />;
+  return <Code2 className={className} />;
 }
 
 export default function PlansPage() {
@@ -213,12 +226,13 @@ export default function PlansPage() {
   const [catalogPlans, setCatalogPlans] = useState<HyperAgentPlan[]>([]);
   const [currentPlan, setCurrentPlan] = useState<HyperAgentCurrentPlan | null>(null);
   const [summary, setSummary] = useState<HyperAgentSubscriptionSummary | null>(null);
+  const [agentsById, setAgentsById] = useState<Record<string, SdkAgent>>({});
+  const [expandedPlanIds, setExpandedPlanIds] = useState<Set<string>>(new Set());
   const [billingReadyPrincipalId, setBillingReadyPrincipalId] = useState<string | null>(null);
   const [billingError, setBillingError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [checkoutPlan, setCheckoutPlan] = useState<CheckoutPlan | null>(null);
   const [mutatingSubscriptionId, setMutatingSubscriptionId] = useState<string | null>(null);
-  const [subscriptionTargets, setSubscriptionTargets] = useState<Record<string, string>>({});
   const [subscriptionNotice, setSubscriptionNotice] = useState<string | null>(null);
   const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
@@ -240,6 +254,7 @@ export default function PlansPage() {
       setCatalogPlans([]);
       setCurrentPlan(null);
       setSummary(null);
+      setAgentsById({});
       setBillingReadyPrincipalId(null);
       setBillingError(null);
       setCheckoutPlan(null);
@@ -261,10 +276,11 @@ export default function PlansPage() {
       const token = await getTokenRef.current();
       if (!isCurrentRequest()) return null;
       const agentClient = createHyperAgentClient(token);
-      const [catalog, current, subscriptions] = await Promise.allSettled([
+      const [catalog, current, subscriptions, agents] = await Promise.allSettled([
         withTimeout(agentClient.plans(), CORE_PLAN_FETCH_TIMEOUT_MS, "Plan catalog request"),
         withTimeout(agentClient.currentPlan(), CORE_PLAN_FETCH_TIMEOUT_MS, "Current plan request"),
         withTimeout(agentClient.subscriptionSummary(), SUMMARY_PLAN_FETCH_TIMEOUT_MS, "Subscription summary request"),
+        withTimeout(createAgentClient(token).list(), CORE_PLAN_FETCH_TIMEOUT_MS, "Agent list request"),
       ]);
       const nextCatalogPlans = catalog.status === "fulfilled" ? catalog.value : [];
       const nextCurrentPlan = current.status === "fulfilled" ? current.value : null;
@@ -274,6 +290,11 @@ export default function PlansPage() {
       setCatalogError(catalog.status === "fulfilled" ? null : "Plan catalog is unavailable right now.");
       setCurrentPlan(nextCurrentPlan);
       setSummary(nextSummary);
+      setAgentsById(
+        agents.status === "fulfilled"
+          ? Object.fromEntries(agents.value.map((agent) => [agent.id, agent]))
+          : {},
+      );
       setBillingReadyPrincipalId(subscriptions.status === "fulfilled" ? principalId : null);
       setBillingError(subscriptions.status === "fulfilled" ? null : "Billing data could not be loaded. Retry before checkout.");
       return {
@@ -497,22 +518,16 @@ export default function PlansPage() {
   const displayProducts = useMemo(() => buildDisplayProducts(catalogPlans), [catalogPlans]);
   const billingReady = Boolean(user?.id && billingReadyPrincipalId === user.id);
   const launchSlotInventory = useMemo(() => getLaunchSlotInventoryFromSummary(summary), [summary]);
-  const effectivePlanName = useMemo(
-    () => getEffectivePlanName(summary, currentPlan, catalogPlans),
-    [catalogPlans, currentPlan, summary],
-  );
-  const paidProducts = useMemo(() => displayProducts.filter((product) => product.id !== "free"), [displayProducts]);
   const legacySubscriptions = useMemo(() => {
     const knownPlanIds = new Set(displayProducts.map((product) => product.id));
-    return (summary?.activeSubscriptions ?? []).filter((subscription) => !knownPlanIds.has(subscription.planId));
-  }, [displayProducts, summary?.activeSubscriptions]);
+    const byId = new Map<string, HyperAgentSubscription>();
+    for (const subscription of [...(summary?.activeSubscriptions ?? []), ...billingSubscriptions]) {
+      if (!knownPlanIds.has(subscription.planId)) byId.set(subscription.id, subscription);
+    }
+    return Array.from(byId.values());
+  }, [billingSubscriptions, displayProducts, summary?.activeSubscriptions]);
 
   const pooledTpd = summary?.entitlements?.pooledTpd ?? summary?.pooledTpd ?? currentPlan?.pooledTpd ?? 0;
-  const activeEntitlementCount =
-    summary?.entitlements?.activeEntitlementCount ??
-    summary?.activeEntitlementCount ??
-    summary?.activeSubscriptionCount ??
-    0;
   const billingResetAt = useMemo(() => {
     const explicit = summary?.entitlements?.billingResetAt ?? summary?.billingResetAt ?? null;
     if (explicit) return explicit;
@@ -522,6 +537,38 @@ export default function PlansPage() {
       .sort((a, b) => a.getTime() - b.getTime());
     return recurring[0] ?? null;
   }, [billingSubscriptions, summary?.activeSubscriptions, summary?.billingResetAt, summary?.entitlements?.billingResetAt]);
+
+  const slotTotals = useMemo(() => {
+    return slotInventoryEntries.reduce(
+      (totals, [, entry]) => ({ granted: totals.granted + entry.granted, used: totals.used + entry.used }),
+      { granted: 0, used: 0 },
+    );
+  }, [slotInventoryEntries]);
+
+  const monthlySpend = useMemo(() => {
+    const prices = new Map(displayProducts.map((product) => [product.id, product.price]));
+    return (summary?.activeSubscriptions ?? []).reduce((total, subscription) => {
+      if (subscription.provider.toLowerCase() !== "stripe") return total;
+      return total + (prices.get(subscription.planId) ?? 0) * Math.max(subscription.quantity || 1, 1);
+    }, 0);
+  }, [displayProducts, summary?.activeSubscriptions]);
+
+  const activeBundles = useMemo(() => {
+    const entitlementItems = summary?.entitlementItems ?? [];
+    return displayProducts
+      .map((product) => {
+        const subscriptions = (summary?.activeSubscriptions ?? []).filter((subscription) => subscription.planId === product.id);
+        const entitlements = entitlementItems.filter((entitlement) => entitlement.planId === product.id);
+        const ownedCount = Math.max(
+          ownedPlanCounts.get(product.id) ?? 0,
+          ownedBundles.get(bundleKey(product.bundle)) ?? 0,
+          entitlements.length,
+        );
+        const agentIds = Array.from(new Set(entitlements.flatMap((entitlement) => entitlement.activeAgentIds ?? [])));
+        return { product, subscriptions, entitlements, ownedCount, agentIds };
+      })
+      .filter((bundle) => bundle.ownedCount > 0);
+  }, [displayProducts, ownedBundles, ownedPlanCounts, summary?.activeSubscriptions, summary?.entitlementItems]);
 
   const handleCancelSubscription = async (subscription: HyperAgentSubscription) => {
     if (!subscription.canCancel || subscription.cancelAtPeriodEnd) return;
@@ -540,34 +587,6 @@ export default function PlansPage() {
       await refreshPlan();
     } catch (error) {
       setSubscriptionError(error instanceof Error ? error.message : "Failed to cancel subscription");
-    } finally {
-      setMutatingSubscriptionId(null);
-    }
-  };
-
-  const handleUpdateSubscription = async (subscription: HyperAgentSubscription) => {
-    const targetKey = subscriptionTargets[subscription.id] ?? bundleKey(bundleFromSubscription(subscription));
-    const targetProduct = paidProducts.find((product) => bundleKey(product.bundle) === targetKey);
-    if (!targetProduct) {
-      setSubscriptionError("Select a target bundle first");
-      return;
-    }
-
-    setSubscriptionNotice(null);
-    setSubscriptionError(null);
-    setMutatingSubscriptionId(subscription.id);
-    try {
-      const agentClient = createHyperAgentClient(await getToken());
-      const result = await agentClient.updateSubscription(subscription.id, {
-        bundle: compactBundle(targetProduct.bundle) as Record<string, number>,
-      });
-      if (!result.ok) {
-        throw new Error(result.message || "Failed to update subscription");
-      }
-      setSubscriptionNotice(result.message || "Subscription updated");
-      await refreshPlan();
-    } catch (error) {
-      setSubscriptionError(error instanceof Error ? error.message : "Failed to update subscription");
     } finally {
       setMutatingSubscriptionId(null);
     }
@@ -613,23 +632,31 @@ export default function PlansPage() {
   if (loading) {
     return (
       <div>
-        <div className="mb-8">
-          <Skeleton className="w-32 h-8 mb-2" />
-          <Skeleton className="w-64 h-5" />
+        <div className="grid gap-3 lg:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div key={index} className="min-h-24 rounded-xl border border-border bg-surface-low p-3">
+              <Skeleton className="mb-3 h-4 w-24" />
+              <Skeleton className="mb-1 h-6 w-16" />
+              <Skeleton className="h-3 w-28" />
+            </div>
+          ))}
         </div>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+
+        <div className="my-6 border-t border-border" />
+        <Skeleton className="mb-3 h-5 w-28" />
+        <div className="grid overflow-hidden rounded-xl border border-border md:grid-cols-2 xl:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="glass-card p-6">
-              <Skeleton className="w-20 h-5 mb-3" />
-              <Skeleton className="w-24 h-8 mb-2" />
-              <Skeleton className="w-full h-3 mb-1" />
-              <Skeleton className="w-3/4 h-3 mb-6" />
-              <div className="space-y-3 mb-8">
+            <div key={i} className="border-b border-border p-4 last:border-b-0 md:[&:nth-child(odd)]:border-r xl:border-b-0 xl:border-r xl:last:border-r-0">
+              <Skeleton className="mb-4 h-9 w-9 rounded-lg" />
+              <Skeleton className="mb-2 h-5 w-20" />
+              <Skeleton className="mb-3 h-3 w-3/4" />
+              <Skeleton className="mb-3 h-7 w-24" />
+              <Skeleton className="mb-4 h-10 w-full rounded-lg" />
+              <div className="space-y-2">
                 {Array.from({ length: 3 }).map((_, j) => (
-                  <Skeleton key={j} className="w-full h-4" />
+                  <Skeleton key={j} className="h-3 w-full" />
                 ))}
               </div>
-              <Skeleton className="w-full h-10 rounded-lg" />
             </div>
           ))}
         </div>
@@ -638,45 +665,19 @@ export default function PlansPage() {
   }
 
   return (
-    <div>
-      <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground mb-2">Plans</h1>
-          <p className="text-text-secondary">
-            Inference pools across all active entitlements. Agent capacity is tracked as exact-tier slots, so you can buy
-            another bundle whenever you need more agents.
-          </p>
-        </div>
-        <div className="w-full max-w-md glass-card p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-semibold text-foreground">Have a promo code?</p>
-              <p className="text-xs text-text-secondary">Redeem an activation code to add a plan-backed entitlement.</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setSubscriptionError(null);
-                setShowRedeemModal(true);
-              }}
-              className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium"
-            >
-              Activate a Code
-            </button>
-          </div>
-        </div>
-      </div>
+    <div className="text-left">
+      <h1 className="sr-only">Plans</h1>
 
       {checkoutSync && (
         <div
-          className={`glass-card p-4 mb-6 flex items-start justify-between gap-3 ${
+          className={`glass-card mb-4 flex items-start justify-between gap-3 p-3 ${
             checkoutSync.status === "pending" || checkoutSync.status === "cancelled"
               ? "border border-warning/30"
               : "border border-[rgb(var(--selection-accent-rgb)_/_0.24)]"
           }`}
         >
           <p
-            className={`text-sm ${
+            className={`text-xs ${
               checkoutSync.status === "pending" || checkoutSync.status === "cancelled"
                 ? "text-warning"
                 : "text-[var(--selection-accent)]"
@@ -689,7 +690,7 @@ export default function PlansPage() {
               <button
                 type="button"
                 onClick={() => { void refreshCheckoutEntitlements(); }}
-                className="text-sm font-medium text-foreground underline underline-offset-4 transition hover:text-[var(--selection-accent)]"
+                className="text-xs font-medium text-foreground underline underline-offset-4 transition hover:text-[var(--selection-accent)]"
               >
                 Refresh
               </button>
@@ -697,7 +698,7 @@ export default function PlansPage() {
             <button
               type="button"
               onClick={() => setCheckoutSync(null)}
-              className="text-sm text-text-muted transition hover:text-foreground"
+              className="text-xs text-text-muted transition hover:text-foreground"
             >
               Dismiss
             </button>
@@ -706,15 +707,15 @@ export default function PlansPage() {
       )}
 
       {billingError && (
-        <div className="glass-card mb-6 flex items-center justify-between gap-3 border border-destructive/30 p-4">
-          <p className="text-sm text-destructive">{billingError}</p>
+        <div className="glass-card mb-4 flex items-center justify-between gap-3 border border-destructive/30 p-3">
+          <p className="text-xs text-destructive">{billingError}</p>
           <button
             type="button"
             onClick={() => {
               setBillingError(null);
               void refreshPlan();
             }}
-            className="text-sm font-medium text-foreground underline underline-offset-4 transition hover:text-[var(--selection-accent)]"
+            className="text-xs font-medium text-foreground underline underline-offset-4 transition hover:text-[var(--selection-accent)]"
           >
             Retry
           </button>
@@ -722,166 +723,227 @@ export default function PlansPage() {
       )}
 
       {subscriptionNotice && (
-        <div className="glass-card p-4 mb-6 border border-[rgb(var(--selection-accent-rgb)_/_0.24)]">
-          <p className="text-sm text-[var(--selection-accent)]">{subscriptionNotice}</p>
+        <div className="glass-card mb-4 border border-[rgb(var(--selection-accent-rgb)_/_0.24)] p-3">
+          <p className="text-xs text-[var(--selection-accent)]">{subscriptionNotice}</p>
         </div>
       )}
 
       {subscriptionError && (
-        <div className="glass-card p-4 mb-6 border border-destructive/30">
-          <p className="text-sm text-destructive">{subscriptionError}</p>
+        <div className="glass-card mb-4 border border-destructive/30 p-3">
+          <p className="text-xs text-destructive">{subscriptionError}</p>
         </div>
       )}
 
       {catalogError && (
-        <div className="glass-card p-4 mb-6 border border-destructive/30">
-          <p className="text-sm text-destructive">{catalogError}</p>
+        <div className="glass-card mb-4 border border-destructive/30 p-3">
+          <p className="text-xs text-destructive">{catalogError}</p>
         </div>
       )}
 
       {(summary || currentPlan) && (
-        <div className="grid gap-4 md:grid-cols-4 mb-8">
-          <div className="glass-card p-5">
-            <p className="text-xs uppercase tracking-[0.18em] text-text-muted mb-2">Pooled Inference</p>
-            <p className="text-2xl font-semibold text-foreground">{formatTokens(pooledTpd)}</p>
-            <p className="text-sm text-text-secondary mt-1">tokens/day across all active entitlements</p>
+        <section aria-label="Plan summary" className="grid gap-3 lg:grid-cols-3">
+          <div className="relative min-h-24 rounded-xl border border-border bg-surface-low p-3">
+            <div className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-lg bg-surface-high text-text-muted">
+              <CircleDot className="h-4 w-4" />
+            </div>
+            <p className="pr-12 text-sm font-semibold text-foreground">Tokens</p>
+            <p className="mt-2 pr-12 text-[1.4rem] font-bold tracking-tight text-foreground">{formatTokens(pooledTpd)}</p>
+            <p className="mt-0.5 pr-12 text-xs text-text-muted">tokens/day</p>
           </div>
-          <div className="glass-card p-5">
-            <p className="text-xs uppercase tracking-[0.18em] text-text-muted mb-2">Active Entitlements</p>
-            <p className="text-2xl font-semibold text-foreground">{activeEntitlementCount}</p>
-            <p className="text-sm text-text-secondary mt-1">
-              {effectivePlanName ? `Current anchor: ${effectivePlanName}` : "No paid entitlements yet"}
+          <div className="relative min-h-24 rounded-xl border border-border bg-surface-low p-3">
+            <div className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-lg bg-surface-high text-text-muted">
+              <Code2 className="h-4 w-4" />
+            </div>
+            <p className="pr-12 text-sm font-semibold text-foreground">Agent capacity</p>
+            <p className="mt-2 pr-12 text-[1.4rem] font-bold tracking-tight text-foreground">{slotTotals.granted}</p>
+            <p className="mt-0.5 pr-12 text-xs text-text-muted">{slotTotals.used} of {slotTotals.granted} in use</p>
+          </div>
+          <div className="relative min-h-24 rounded-xl border border-border bg-surface-low p-3">
+            <div className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-lg bg-surface-high text-text-muted">
+              <WalletCards className="h-4 w-4" />
+            </div>
+            <p className="pr-12 text-sm font-semibold text-foreground">Monthly spend</p>
+            <p className="mt-2 pr-12 text-[1.4rem] font-bold tracking-tight text-foreground">${monthlySpend.toLocaleString()}</p>
+            <p className="mt-0.5 pr-12 text-xs text-text-muted">
+              {billingResetAt ? `Renews ${formatShortDate(billingResetAt)}` : "No recurring renewal"}
             </p>
           </div>
-          <div className="glass-card p-5">
-            <p className="text-xs uppercase tracking-[0.18em] text-text-muted mb-2">Billing Reset</p>
-            <p className="text-2xl font-semibold text-foreground">
-              {billingResetAt ? billingResetAt.toLocaleDateString() : "N/A"}
-            </p>
-            <p className="text-sm text-text-secondary mt-1">
-              {billingResetAt ? "Anchored to the earliest active recurring subscription." : "No recurring subscription anchor yet"}
-            </p>
-          </div>
-          <div className="glass-card p-5">
-            <p className="text-xs uppercase tracking-[0.18em] text-text-muted mb-2">Slot Inventory</p>
-            {slotInventoryEntries.length > 0 ? (
-              <div className="space-y-2">
-                {slotInventoryEntries.map(([tier, entry]) => (
-                  <div key={tier} className="flex items-center justify-between text-sm">
-                    <span className="text-text-secondary">{titleizeTier(tier)}</span>
-                    <span className="text-foreground">
-                      {entry.used} / {entry.granted} used
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-text-secondary">Buy your first agent bundle to unlock slots.</p>
-            )}
-          </div>
-        </div>
+        </section>
       )}
 
-      {billingSubscriptions.length > 0 && (
-        <div className="mb-8">
-          <div className="mb-4">
-            <h2 className="text-xl font-semibold text-foreground">Billing Subscriptions</h2>
-            <p className="text-sm text-text-secondary">
-              Recurring card subscriptions are managed here. Effective entitlements above already include every active
-              subscription and external grant.
-            </p>
+      <div className="my-6 border-t border-border" />
+
+      <section aria-labelledby="active-bundles-heading">
+        <h2 id="active-bundles-heading" className="mb-3 text-lg font-semibold tracking-tight text-foreground">Active Bundles</h2>
+        {activeBundles.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border px-4 py-6 text-xs text-text-secondary">
+            No active bundles yet. Choose a plan below to add agent capacity.
           </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            {billingSubscriptions.map((subscription) => {
-              const bundleLabel = formatBundle(bundleFromSubscription(subscription)) || "Custom";
-              const canManage = subscription.canCancel && subscription.provider.toLowerCase() === "stripe";
+        ) : (
+          <div className="space-y-3">
+            {activeBundles.map(({ product, subscriptions, entitlements, ownedCount, agentIds }) => {
+              const expanded = expandedPlanIds.has(product.id);
+              const renewal = subscriptions
+                .map((subscription) => subscription.expiresAt)
+                .filter((date): date is Date => Boolean(date))
+                .sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+              const panelId = `active-bundle-${product.id}`;
               return (
-                <div key={subscription.id} className="glass-card p-5">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-lg font-semibold text-foreground">{subscription.planName}</p>
-                      <p className="text-sm text-text-secondary mt-1">{bundleLabel}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs uppercase tracking-[0.18em] text-text-muted">{subscription.provider}</p>
-                      <p className="text-sm text-foreground mt-1">{subscription.status.toLowerCase()}</p>
-                    </div>
-                  </div>
-                  <div className="mt-4 space-y-2 text-sm text-text-secondary">
-                    <p>{formatSubscriptionDate(subscription)}</p>
-                    <p>
-                      {subscription.cancelAtPeriodEnd
-                        ? "Cancellation scheduled at period end."
-                        : canManage
-                          ? "Self-serve cancellation is available from the web."
-                          : "This entitlement is read-only here."}
-                    </p>
-                  </div>
-                  <div className="mt-4 flex items-center justify-between gap-3">
-                    <span className="text-xs text-text-muted">{subscription.id}</span>
-                    {canManage && !subscription.cancelAtPeriodEnd ? (
-                      <button
-                        type="button"
-                        onClick={() => void handleCancelSubscription(subscription)}
-                        disabled={mutatingSubscriptionId === subscription.id}
-                        className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
-                      >
-                        {mutatingSubscriptionId === subscription.id ? "Cancelling..." : "Cancel at Period End"}
-                      </button>
-                    ) : (
-                      <span className="text-xs text-text-muted">
-                        {subscription.cancelAtPeriodEnd ? "Pending cancellation" : "No self-serve changes"}
+                <article key={product.id} className="overflow-hidden rounded-xl border border-border bg-surface-low">
+                  <button
+                    type="button"
+                    aria-label={`${expanded ? "Collapse" : "Expand"} ${product.name} bundle`}
+                    aria-expanded={expanded}
+                    aria-controls={panelId}
+                    onClick={() => setExpandedPlanIds((current) => {
+                      const next = new Set(current);
+                      if (next.has(product.id)) next.delete(product.id);
+                      else next.add(product.id);
+                      return next;
+                    })}
+                    className="flex w-full items-center gap-3 p-3 text-left transition-colors hover:bg-surface-high/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--selection-accent)]"
+                  >
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-high text-foreground">
+                      <PlanIcon name={product.name} className="h-4 w-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold text-foreground">{product.name}</span>
+                      <span className="mt-0.5 block text-xs text-text-muted">
+                        {formatTokens(product.limits.tpd)} tokens/day each · ${product.price}/mo each
+                        {renewal ? ` · renew ${formatShortDate(renewal)}` : ""}
                       </span>
-                    )}
-                  </div>
-                </div>
+                    </span>
+                    <ChevronDown className={`h-4 w-4 shrink-0 text-foreground transition-transform ${expanded ? "rotate-180" : ""}`} />
+                  </button>
+
+                  {expanded && (
+                    <div id={panelId} className="px-3 pb-3">
+                      <div className="overflow-x-auto">
+                        <div className="min-w-[620px]">
+                          <div className="grid grid-cols-[minmax(0,1.8fr)_1fr_1fr_40px] gap-3 border-b border-border px-2 py-2 text-xs font-semibold text-foreground">
+                            <span>Agent Name</span><span>Started</span><span>Renews</span><span className="sr-only">Actions</span>
+                          </div>
+                          {agentIds.length > 0 ? agentIds.map((agentId) => {
+                            const agent = agentsById[agentId];
+                            const entitlement = entitlements.find((item) => item.activeAgentIds?.includes(agentId));
+                            return (
+                              <div key={agentId} className="grid grid-cols-[minmax(0,1.8fr)_1fr_1fr_40px] items-center gap-3 border-b border-border px-2 py-2 text-xs last:border-b-0">
+                                <span className="truncate font-medium text-foreground">{agent?.name || agent?.displayName || agentId}</span>
+                                <span className="text-text-secondary">{formatShortDate(agent?.createdAt ?? entitlement?.startsAt)}</span>
+                                <span className="text-text-secondary">{formatShortDate(entitlement?.expiresAt ?? renewal)}</span>
+                                <button
+                                  type="button"
+                                  aria-label={`Open ${agent?.name || agentId}`}
+                                  onClick={() => window.location.assign(`/dashboard/agents?agentId=${encodeURIComponent(agentId)}`)}
+                                  className="flex h-10 w-10 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface-high hover:text-foreground"
+                                >
+                                  <MoreHorizontal className="h-5 w-5" />
+                                </button>
+                              </div>
+                            );
+                          }) : (
+                            <div className="px-2 py-3 text-xs text-text-secondary">
+                              {ownedCount} available agent slot{ownedCount === 1 ? "" : "s"}. No agent is assigned yet.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {subscriptions.some((subscription) => subscription.canCancel || subscription.cancelAtPeriodEnd) && (
+                        <div className="mt-2 flex flex-wrap justify-end gap-2 border-t border-border pt-3">
+                          {subscriptions.filter((subscription) => subscription.canCancel || subscription.cancelAtPeriodEnd).map((subscription) => (
+                            subscription.cancelAtPeriodEnd ? (
+                              <span key={subscription.id} className="px-3 py-2 text-xs text-text-muted">Cancellation pending · {formatSubscriptionDate(subscription)}</span>
+                            ) : (
+                              <button
+                                key={subscription.id}
+                                type="button"
+                                onClick={() => void handleCancelSubscription(subscription)}
+                                disabled={mutatingSubscriptionId === subscription.id}
+                                className="btn-secondary rounded-lg px-3 py-2 text-xs font-medium disabled:opacity-50"
+                              >
+                                {mutatingSubscriptionId === subscription.id ? "Cancelling..." : "Cancel at Period End"}
+                              </button>
+                            )
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </article>
               );
             })}
           </div>
-        </div>
-      )}
+        )}
+      </section>
 
       {legacySubscriptions.length > 0 && (
-        <div className="mb-8">
-          <div className="mb-4">
-            <h2 className="text-xl font-semibold text-foreground">Legacy Active Plans</h2>
-            <p className="text-sm text-text-secondary">
+        <div className="mt-8">
+          <div className="mb-3">
+            <h2 className="text-[0.9375rem] font-semibold text-foreground">Legacy Active Plans</h2>
+            <p className="text-xs text-text-secondary">
               These subscriptions still contribute inference capacity, but they do not map to the current launchable slot catalog.
             </p>
           </div>
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-3 md:grid-cols-2">
             {legacySubscriptions.map((subscription) => (
-              <div key={subscription.id} className="glass-card p-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-lg font-semibold text-foreground">{subscription.planName || subscription.planId}</p>
-                    <p className="text-sm text-text-secondary mt-1">Inference only legacy entitlement</p>
+              <div key={subscription.id} className="glass-card p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-foreground">{subscription.planName || subscription.planId}</p>
+                    <p className="mt-1 text-xs text-text-secondary">Inference only legacy entitlement</p>
                   </div>
                   <div className="text-right">
                     <p className="text-xs uppercase tracking-[0.18em] text-text-muted">{subscription.provider}</p>
-                    <p className="text-sm text-foreground mt-1">{subscription.status.toLowerCase()}</p>
+                    <p className="mt-1 text-xs text-foreground">{subscription.status.toLowerCase()}</p>
                   </div>
                 </div>
-                <div className="mt-4 space-y-2 text-sm text-text-secondary">
+                <div className="mt-3 space-y-2 text-xs text-text-secondary">
                   <p>{formatSubscriptionDate(subscription)}</p>
                   <p>
                     TPM {formatTokens(subscription.planTpmLimit)} · RPM {formatTokens(subscription.planRpmLimit)} · TPD{" "}
                     {formatTokens(subscription.planTpd)}
                   </p>
                 </div>
-                <div className="mt-4 text-xs text-text-muted">{subscription.id}</div>
+                <div className="mt-4 break-all font-mono text-xs text-text-muted">{subscription.id}</div>
+                {subscription.canCancel && !subscription.cancelAtPeriodEnd && (
+                  <button
+                    type="button"
+                    onClick={() => void handleCancelSubscription(subscription)}
+                    disabled={mutatingSubscriptionId === subscription.id}
+                    className="btn-secondary mt-3 rounded-lg px-3 py-2 text-xs font-medium disabled:opacity-50"
+                  >
+                    {mutatingSubscriptionId === subscription.id ? "Cancelling..." : "Cancel at Period End"}
+                  </button>
+                )}
               </div>
             ))}
           </div>
         </div>
       )}
 
+      <div className="my-6 border-t border-border" />
+
+      <section aria-labelledby="add-capacity-heading">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 id="add-capacity-heading" className="text-lg font-semibold tracking-tight text-foreground">Add capacity</h2>
+          <button
+            type="button"
+            onClick={() => {
+              setSubscriptionError(null);
+              setShowRedeemModal(true);
+            }}
+            className="btn-secondary rounded-lg px-3 py-2 text-xs font-medium"
+          >
+            Activate a code
+          </button>
+        </div>
+
       {displayProducts.length === 0 ? (
-        <div className="glass-card p-6">
-          <p className="text-sm text-text-secondary">No plans are available from the plan catalog right now.</p>
+        <div className="glass-card p-4">
+          <p className="text-xs text-text-secondary">No plans are available from the plan catalog right now.</p>
         </div>
       ) : (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid overflow-hidden rounded-xl border border-border md:grid-cols-2 xl:grid-cols-4">
           {displayProducts.map((product) => {
             const productBundleKey = bundleKey(product.bundle);
             const ownedByBundle = productBundleKey === "{}" ? 0 : (ownedBundles.get(productBundleKey) ?? 0);
@@ -894,41 +956,26 @@ export default function PlansPage() {
             const waitingForLaunchEntitlement = ownedCount > 0 && hasCheckoutBundle && !hasGrantedLaunchSlots;
 
             return (
-              <div key={product.id} className="glass-card p-6 flex flex-col">
-                {waitingForLaunchEntitlement ? (
-                  <div className="text-xs font-semibold text-warning bg-warning/10 px-3 py-1 rounded-full self-start mb-4">
-                    Payment active, waiting for entitlement
-                  </div>
-                ) : ownedCount > 0 ? (
-                  <div className="text-xs font-semibold text-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-3 py-1 rounded-full self-start mb-4">
-                    You own {ownedCount}
-                  </div>
-                ) : product.highlighted ? (
-                  <div className="text-xs font-semibold text-foreground bg-surface-high px-3 py-1 rounded-full self-start mb-4">
-                    Popular
-                  </div>
-                ) : null}
-
-                <h3 className="text-lg font-semibold text-foreground">{product.name}</h3>
-                <div className="mt-2 mb-1">
-                  <span className="text-3xl font-bold text-foreground">${product.price}</span>
-                  <span className="text-text-muted text-sm">/month</span>
+              <article key={product.id} className={`flex min-w-0 flex-col border-b border-border p-4 last:border-b-0 md:[&:nth-child(odd)]:border-r xl:border-b-0 xl:border-r xl:last:border-r-0 ${product.highlighted ? "bg-surface-low" : "bg-background"}`}>
+                <div className="mb-4 flex h-9 items-center justify-between gap-3">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-surface-high text-foreground">
+                    <PlanIcon name={product.name} className="h-4 w-4" />
+                  </span>
+                  {waitingForLaunchEntitlement ? (
+                    <span className="rounded-full bg-warning/10 px-3 py-1 text-xs font-semibold text-warning">Provisioning</span>
+                  ) : product.highlighted ? (
+                    <span className="rounded-full bg-[var(--selection-accent-soft)] px-3 py-1 text-xs font-semibold text-[var(--selection-accent)]">Most Popular</span>
+                  ) : null}
                 </div>
-                <p className="text-sm text-text-tertiary mb-1">{formatTokens(product.limits.tpd ?? 0)} tokens/day</p>
-                <p className="text-xs text-text-muted mb-2">
-                  Up to {formatTokens(product.limits.burstTpm)} TPM burst &middot; {formatTokens(product.limits.rpm)} RPM
-                </p>
-                {product.subtitle && <p className="text-xs text-text-muted mb-2">{product.subtitle}</p>}
-                {product.slotBundle && <p className="text-xs text-text-muted mb-6">{product.slotBundle}</p>}
 
-                <ul className="space-y-3 mb-8 flex-1">
-                  {(product.features ?? []).map((feature) => (
-                    <li key={feature} className="flex items-start gap-2 text-sm text-text-secondary">
-                      <Check className="w-4 h-4 text-text-secondary flex-shrink-0 mt-0.5" />
-                      <span>{feature}</span>
-                    </li>
-                  ))}
-                </ul>
+                <h3 className="text-lg font-semibold tracking-tight text-foreground">{product.name}</h3>
+                <p className="mt-1 h-8 line-clamp-2 text-xs leading-4 text-text-secondary" title={`${formatTokens(product.limits.tpd ?? 0)} tokens/day${product.slotBundle ? ` · ${product.slotBundle}` : ""}`}>
+                  {formatTokens(product.limits.tpd ?? 0)} tokens/day{product.slotBundle ? ` · ${product.slotBundle}` : ""}
+                </p>
+                <div className="mb-3 mt-3 flex min-h-8 items-baseline gap-1.5">
+                  <span className="text-[1.6875rem] font-bold tracking-tight text-foreground">${product.price}</span>
+                  <span className="text-xs text-text-muted">/ month{product.id === "free" ? "" : " per bundle"}</span>
+                </div>
 
                 <button
                   onClick={() => {
@@ -947,15 +994,26 @@ export default function PlansPage() {
                     });
                   }}
                   disabled={product.id === "free" || !billingReady}
-                  className="w-full py-2.5 rounded-lg text-sm font-medium btn-secondary flex items-center justify-center gap-2 disabled:opacity-50"
+                  className={`mb-4 flex min-h-10 w-full items-center justify-center rounded-lg px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${product.highlighted ? "bg-[var(--selection-accent)] text-[var(--selection-accent-foreground)] hover:brightness-95" : "btn-secondary"}`}
                 >
-                  {product.id === "free" ? "Included" : !billingReady ? "Billing unavailable" : waitingForLaunchEntitlement ? "Refresh billing" : ownedCount > 0 ? "Add Another" : "Purchase"}
+                  {product.id === "free" ? "Included" : !billingReady ? "Billing unavailable" : waitingForLaunchEntitlement ? "Refresh billing" : ownedCount > 0 ? "Add another" : "Purchase"}
                 </button>
-              </div>
+
+                <p className="mb-2 text-xs text-text-muted">{product.subtitle || (product.features.length > 0 ? "Includes:" : "Plan details")}</p>
+                <ul className="flex-1 space-y-2">
+                  {(product.features ?? []).map((feature) => (
+                    <li key={feature} className={`flex items-start gap-2 text-xs ${/^no\s/i.test(feature) ? "text-text-muted" : "text-foreground"}`}>
+                      {/^no\s/i.test(feature) ? <X className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" /> : <Check className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" />}
+                      <span>{feature}</span>
+                    </li>
+                  ))}
+                </ul>
+              </article>
             );
           })}
         </div>
       )}
+      </section>
 
       {checkoutPlan && (
         <PlanCheckoutModal

@@ -2049,11 +2049,6 @@ export default function DevAgentSetupAgentsPage() {
           sidebarCreatorSignal={sidebarCreatorSignal}
           setPendingAgentDelete={setPendingAgentDelete}
           accountInitial={accountInitial}
-          onOpenSettings={() => {
-            setMainTab("settings");
-            setMobileShowChat(true);
-          }}
-          settingsActive={mainTab === "settings"}
           budget={budget}
           subscriptionSummary={subscriptionSummary}
           catalogPlans={catalogPlans}

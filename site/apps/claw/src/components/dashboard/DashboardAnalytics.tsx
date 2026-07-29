@@ -13,6 +13,16 @@ import {
 } from "lucide-react";
 import { BRAND_ICONS } from "@/components/dashboard/BrandIcons";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ClawTooltip";
+import {
+  Badge,
+  Card,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@hypercli/shared-ui";
 
 export type DashboardTimeRange = "24h" | "7d" | "30d";
 
@@ -239,8 +249,8 @@ export function DashboardMetricCard({
   accent?: boolean;
 }) {
   const className = compact
-    ? "group relative block min-h-[108px] rounded-xl border border-border bg-surface-low/35 p-4 transition-colors hover:border-border-strong hover:bg-surface-low/55"
-    : "relative block min-h-[116px] rounded-lg border border-border bg-surface-low p-4";
+    ? "group relative block min-h-[108px] rounded-xl border border-border bg-surface-low/35 p-4 text-left transition-colors hover:border-border-strong hover:bg-surface-low/55"
+    : "relative block min-h-[116px] rounded-lg border border-border bg-surface-low p-4 text-left";
   const content = compact ? (
     <>
       <div className="flex items-center gap-2">
@@ -308,10 +318,12 @@ export function TokenUsagePanel({
     : undefined;
 
   return (
-    <section className="rounded-lg border border-border bg-surface-low">
-      <div className="flex h-[70px] items-center justify-between border-b border-border px-6">
-        <h2 className="text-base font-semibold text-foreground">Token usage</h2>
-        <span className="text-sm text-text-muted">{periodLabel}</span>
+    <Card className="gap-0 rounded-lg bg-surface-low">
+      <div className="flex min-h-[70px] items-center border-b border-border px-6 text-left">
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold text-foreground">Token usage</h2>
+          <p className="mt-0.5 truncate text-[11px] text-text-muted">{periodLabel}</p>
+        </div>
       </div>
 
       {!hasData ? (
@@ -421,7 +433,7 @@ export function TokenUsagePanel({
           </div>
         </div>
       )}
-    </section>
+    </Card>
   );
 }
 
@@ -436,7 +448,7 @@ export function IntegrationUsagePanel({
   const maxTokens = Math.max(...visibleIntegrations.map((integration) => integration.totalTokens), 1);
 
   return (
-    <section className="rounded-lg border border-border bg-surface-low">
+    <Card className="gap-0 rounded-lg bg-surface-low">
       <div className="flex h-[70px] items-center justify-between border-b border-border px-6">
         <h2 className="text-base font-semibold text-foreground">Usage by Integration</h2>
         <span className="text-sm text-text-muted">{periodLabel}</span>
@@ -473,7 +485,7 @@ export function IntegrationUsagePanel({
           </div>
         </div>
       )}
-    </section>
+    </Card>
   );
 }
 
@@ -485,43 +497,43 @@ export function AgentUsageTable({
   const hasRows = rows.length > 0;
 
   return (
-    <section className="rounded-lg border border-border bg-surface-low p-4">
+    <Card className="gap-0 rounded-lg bg-surface-low p-4 text-left">
       <h2 className="mb-5 text-base font-semibold text-foreground">Agent usage table</h2>
       {!hasRows ? (
         <EmptyPanelState />
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-border">
-          <table className="w-full min-w-[760px] border-collapse text-left text-sm">
-            <thead>
-              <tr className="border-b border-border text-foreground">
-                <th className="px-3 py-3 font-semibold">Agent</th>
-                <th className="px-3 py-3 font-semibold">Status</th>
-                <th className="px-3 py-3 font-semibold">Integrations</th>
-                <th className="px-3 py-3 font-semibold">Requests</th>
-                <th className="px-3 py-3 font-semibold">Tokens</th>
-                <th className="px-3 py-3 font-semibold">Last activity</th>
-              </tr>
-            </thead>
-            <tbody>
+        <div className="overflow-hidden rounded-lg border border-border">
+          <Table className="min-w-[760px] border-collapse text-left text-sm">
+            <TableHeader>
+              <TableRow className="text-foreground hover:bg-transparent">
+                <TableHead className="h-auto px-3 py-3 font-semibold">Agent</TableHead>
+                <TableHead className="h-auto px-3 py-3 font-semibold">Status</TableHead>
+                <TableHead className="h-auto px-3 py-3 text-right font-semibold">Integrations</TableHead>
+                <TableHead className="h-auto px-3 py-3 text-right font-semibold">Requests</TableHead>
+                <TableHead className="h-auto px-3 py-3 text-right font-semibold">Tokens</TableHead>
+                <TableHead className="h-auto px-3 py-3 font-semibold">Last activity</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {rows.map((row) => (
-                <tr key={row.id} className="text-foreground">
-                  <td className="px-3 py-4">{row.name}</td>
-                  <td className="px-3 py-4">
-                    <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${statusClassName(row.status)}`}>
+                <TableRow key={row.id} className="text-foreground">
+                  <TableCell className="px-3 py-4">{row.name}</TableCell>
+                  <TableCell className="px-3 py-4">
+                    <Badge variant="secondary" className={`rounded-full px-2 py-0.5 text-xs ${statusClassName(row.status)}`}>
                       {row.status === "RUNNING" ? "Active" : row.status}
-                    </span>
-                  </td>
-                  <td className="px-3 py-4 tabular-nums">{formatNumber(row.integrations)}</td>
-                  <td className="px-3 py-4 tabular-nums">{formatNumber(row.requests)}</td>
-                  <td className="px-3 py-4 tabular-nums">{formatDashboardTokens(row.tokens)}</td>
-                  <td className="px-3 py-4">{row.lastActivity ?? "---"}</td>
-                </tr>
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="px-3 py-4 text-right tabular-nums">{formatNumber(row.integrations)}</TableCell>
+                  <TableCell className="px-3 py-4 text-right tabular-nums">{formatNumber(row.requests)}</TableCell>
+                  <TableCell className="px-3 py-4 text-right tabular-nums">{formatDashboardTokens(row.tokens)}</TableCell>
+                  <TableCell className="px-3 py-4">{row.lastActivity ?? "---"}</TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
-    </section>
+    </Card>
   );
 }
 

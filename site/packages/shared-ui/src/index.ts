@@ -349,7 +349,7 @@ export { ApiKeysManager } from "./components/ApiKeysManager";
 export { InvoiceList } from "./invoices/InvoiceList";
 export { InvoiceDetailCard } from "./invoices/InvoiceDetailCard";
 export { InvoiceSummaryCard } from "./invoices/InvoiceSummaryCard";
-export { InvoiceStatusBadge } from "./invoices/InvoiceStatusBadge";
+export { InvoiceStatusBadge, type InvoiceStatusBadgeProps } from "./invoices/InvoiceStatusBadge";
 export { ReceiptList } from "./invoices/ReceiptList";
 export { ReceiptDetailCard } from "./invoices/ReceiptDetailCard";
 export { PrintActions } from "./invoices/PrintActions";

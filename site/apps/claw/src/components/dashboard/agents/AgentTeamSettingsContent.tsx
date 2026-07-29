@@ -11,7 +11,7 @@ const TEAM_SETTINGS_LINK_CLASS =
 export function AgentTeamSettingsContent() {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-5 py-7 md:px-8">
-      <div className="mx-auto w-full max-w-[844px]">
+      <div className="mx-auto w-full max-w-6xl">
         <h2 className="text-[20px] font-semibold leading-none text-foreground">Team</h2>
         <section className="mt-7 border-b border-foreground">
           <div className="flex min-h-[100px] items-center justify-between gap-4 border-b border-foreground py-7">

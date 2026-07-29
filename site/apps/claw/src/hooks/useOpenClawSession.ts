@@ -795,6 +795,7 @@ export function useOpenClawSession(
   const [abortingTarget, setAbortingTarget] = useState<ChatHistoryTarget | null>(null);
   const [retrySignal, setRetrySignal] = useState(0);
   const activeChatSendTargetsRef = useRef<Set<string>>(new Set());
+  const reconnectPendingChatTargetsRef = useRef<Set<string>>(new Set());
   const activeChatStreamsRef = useRef<Map<string, ActiveChatStreamEntry>>(new Map());
   const messagesRef = useRef<ChatMessage[]>([]);
   const liveChatHistoryByTargetRef = useRef<Map<string, ChatMessage[]>>(new Map());
@@ -1005,10 +1006,12 @@ export function useOpenClawSession(
     ) {
       optimisticChatHistoryTargetsRef.current.delete(targetKey);
       connectionLiveHistoryTargetsRef.current.delete(targetKey);
+      reconnectPendingChatTargetsRef.current.delete(targetKey);
     }
     if (action.type === "clear" || (action.type === "replace" && action.messages.length === 0)) {
       optimisticChatHistoryTargetsRef.current.delete(targetKey);
       connectionLiveHistoryTargetsRef.current.delete(targetKey);
+      reconnectPendingChatTargetsRef.current.delete(targetKey);
     }
     const dispatchTargetsActiveHistory = sameChatHistoryTarget(chatHistoryTargetRef.current, dispatchTarget);
     if (!dispatchTargetsActiveHistory || hydrationModeRef.current === "sessions") {
@@ -1216,6 +1219,7 @@ export function useOpenClawSession(
     createdSessionGatewayKeysRef.current.clear();
     deferredComposerSendTargetsRef.current.clear();
     chatHistoryRecoveryTargetsRef.current.clear();
+    reconnectPendingChatTargetsRef.current.clear();
     publishChatSendAuthorities();
     sessionTitleMapRef.current = titleMap;
   }, [agentId, publishChatSendAuthorities]);
@@ -1425,6 +1429,14 @@ export function useOpenClawSession(
         const applyState = (nextState: GatewayConnectionState) => {
           if (!active) return;
           if (appliedConnectionState === nextState) return;
+          if (appliedConnectionState === "connected" && nextState !== "connected") {
+            for (const targetKey of activeChatSendTargetsRef.current) {
+              const target = chatHistoryTargetFromKey(targetKey);
+              const stream = activeChatStreams.get(targetKey);
+              if (!target || stream?.abortRequested || isEphemeralOpenClawSessionName(target.sessionKey)) continue;
+              reconnectPendingChatTargetsRef.current.add(targetKey);
+            }
+          }
           appliedConnectionState = nextState;
           gatewayLifecycleRevisionRef.current += 1;
           connectionLiveHistoryTargets.clear();
@@ -2283,7 +2295,8 @@ export function useOpenClawSession(
           chatHistoryMutationRevisionsRef.current.get(targetKey) ?? 0
         ) === historyMutationRevision;
         const hydratedSessionReadOnly = hydrated.activeSessionRecord?.readOnly === true;
-        const preserveLocalSessionHistory = hydratedSessionReadOnly || activeSessionIsEphemeral;
+        const preserveReconnectPendingHistory = reconnectPendingChatTargetsRef.current.has(targetKey);
+        const preserveLocalSessionHistory = hydratedSessionReadOnly || activeSessionIsEphemeral || preserveReconnectPendingHistory;
         const targetHasUnconfirmedLiveState = (
           optimisticChatHistoryTargetsRef.current.has(targetKey) ||
           connectionLiveHistoryTargetsRef.current.has(targetKey)
@@ -2303,7 +2316,9 @@ export function useOpenClawSession(
         ) {
           if (preserveLocalSessionHistory) {
             dispatchChatHistory({ type: "merge-history-refresh", messages: hydrated.messages }, target);
-            historyApplied = true;
+            historyApplied = preserveReconnectPendingHistory
+              ? grantChatSendAuthority(target, gateway, hydrated.gatewaySessionKey)
+              : true;
           } else if (!chatHistoryRecoveryTargetsRef.current.has(targetKey)) {
             replaceChatHistoryFromGateway(target, hydrated.messages);
             historyApplied = grantChatSendAuthority(target, gateway, hydrated.gatewaySessionKey);
@@ -3255,6 +3270,7 @@ export function useOpenClawSession(
     if (streamEntry) requestChatStreamCancellation(streamEntry);
     if (!streamEntry || activeChatStreamsRef.current.get(targetKey)?.token === streamEntry.token) {
       activeChatSendTargetsRef.current.delete(targetKey);
+      reconnectPendingChatTargetsRef.current.delete(targetKey);
       activeChatStreamsRef.current.delete(targetKey);
       clearSendingForTarget(target);
       clearAbortingForTarget(target, streamEntry?.token);
@@ -3531,6 +3547,7 @@ export function useOpenClawSession(
       ...liveChatHistoryByTargetRef.current.keys(),
       ...composerDraftsByTargetRef.current.keys(),
       ...activeChatStreamsRef.current.keys(),
+      ...reconnectPendingChatTargetsRef.current.keys(),
     ]);
     const equivalentTargets = Array.from(candidateTargetKeys)
       .map(chatHistoryTargetFromKey)
@@ -3561,6 +3578,7 @@ export function useOpenClawSession(
       liveChatHistoryByTargetRef.current.delete(targetKey);
       composerDraftsByTargetRef.current.delete(targetKey);
       activeChatSendTargetsRef.current.delete(targetKey);
+      reconnectPendingChatTargetsRef.current.delete(targetKey);
       activeChatStreamsRef.current.delete(targetKey);
       clearSendingForTarget(equivalentTarget);
       clearAbortingForTarget(equivalentTarget);

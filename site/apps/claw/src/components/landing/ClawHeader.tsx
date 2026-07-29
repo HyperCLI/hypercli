@@ -5,8 +5,7 @@ import { useRouter } from "next/navigation";
 import { Menu, X, LogOut, Key, CreditCard, Settings } from "lucide-react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import { PrivyLoginModal, ThemeToggle } from "@hypercli/shared-ui";
-import { TooltipHint } from "@/components/ClawTooltip";
+import { PrivyLoginModal, ThemeSelector } from "@hypercli/shared-ui";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { AUTH_BASE_URL } from "@/lib/api";
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
@@ -174,7 +173,7 @@ export function ClawHeader() {
                             Settings
                           </Link>
 
-                          <ThemeToggle showLabel title="" role="menuitem" className="w-full justify-start px-3" />
+                          <ThemeSelector aria-label="Appearance theme" className="w-full" />
 
                           <button
                             onClick={() => {
@@ -193,9 +192,7 @@ export function ClawHeader() {
                 </div>
               ) : (
                 <>
-                  <TooltipHint label="Switch color mode">
-                    <ThemeToggle title="" />
-                  </TooltipHint>
+                  <ThemeSelector />
                   <button
                     onClick={openLoginModal}
                     className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium"
@@ -244,7 +241,7 @@ export function ClawHeader() {
                 ))}
               </nav>
               <div className="mt-4 flex flex-col gap-2">
-                <ThemeToggle showLabel title="" className="w-full justify-start px-4 py-2" />
+                <ThemeSelector className="w-full" />
                 {showAuthenticatedNav ? (
                   <>
                     <button

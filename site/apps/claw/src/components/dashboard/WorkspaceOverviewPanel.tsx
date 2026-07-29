@@ -148,19 +148,15 @@ export function WorkspaceOverviewPanel({
   }, [accountAgents.length, activeIntegrationCount, hasUsageData, totals.requests, totals.tokens, workspaceAgents]);
 
   return (
-    <div className="h-full overflow-y-auto bg-background text-foreground">
-      <div className="mx-auto w-full max-w-[1200px] px-4 py-8 sm:px-6 lg:px-8">
+    <div className="h-full overflow-y-auto bg-background px-4 py-7 text-left text-foreground sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-6xl">
         <header className="mb-7 flex flex-col gap-5 border-b border-border pb-6 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex min-w-0 items-center gap-4">
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[rgb(var(--selection-accent-rgb)_/_0.24)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-base font-semibold text-[var(--selection-accent)]">
+          <div className="flex min-w-0 items-center gap-3.5">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[rgb(var(--selection-accent-rgb)_/_0.24)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-base font-semibold text-[var(--selection-accent)]">
               {workspaceInitial.toUpperCase()}
             </span>
             <div className="min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">Workspace overview</p>
-              <h1 className="mt-1 truncate text-[22px] font-semibold leading-tight tracking-tight text-foreground">{workspaceName}</h1>
-              <p className="mt-1 text-[12px] text-text-muted">
-                {memberCount ?? "-"} {memberCount === 1 ? "member" : "members"} · {workspaceAgentsLoading ? "-" : workspaceAgents.length} {workspaceAgents.length === 1 ? "agent" : "agents"}
-              </p>
+              <h1 className="truncate text-[22px] font-semibold leading-tight tracking-tight text-foreground">{workspaceName}</h1>
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">

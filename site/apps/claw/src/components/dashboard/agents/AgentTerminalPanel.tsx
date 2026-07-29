@@ -37,12 +37,14 @@ export const AgentTerminalPanel = React.memo(function AgentTerminalPanel({ statu
   const bootStatus = ready ? null : getAgentGatewayPanelBootStatus({
     connected: false,
     connecting,
+    error: terminalError,
     loadingTitle: "Loading shell",
     loadingDetail: "Preparing the terminal session.",
     connectingTitle: loadingTitle,
     connectingDetail: loadingDetail,
     waitingTitle: loadingTitle,
     waitingDetail: loadingDetail,
+    errorTitle: "Unable to load shell",
   });
 
   return (

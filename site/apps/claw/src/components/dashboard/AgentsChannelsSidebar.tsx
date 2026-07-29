@@ -24,13 +24,10 @@ import {
   LogOut,
   LogIn,
   GripVertical,
-  HardDrive,
-  House,
-  BarChart3,
   Loader2,
 } from "lucide-react";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
-import { Switch, ThemeToggle } from "@hypercli/shared-ui";
+import { Switch, ThemeSelector } from "@hypercli/shared-ui";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ClawTooltip";
 import { ResourceImage } from "@/components/ResourceImage";
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
@@ -38,7 +35,7 @@ import { AgentCardTooltip, type AgentCardTooltipData } from "./modules/AgentCard
 import { QuickAgentCreator } from "./QuickAgentCreator";
 import { QuickChannelCreator } from "./QuickChannelCreator";
 import type { AgentCreationSetupCreateParams } from "./agents/AgentCreationSetupWizard";
-import { ACCOUNT_PAGE_HREFS, DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
+import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
 
 function RosterTooltip({
   label,
@@ -161,19 +158,6 @@ export interface AgentsChannelsSidebarProps {
   agentCreationDisabledReason?: string | null;
   /** Whether the selected Workspace roster is still loading. */
   rosterLoading?: boolean;
-  /** Navigate to dashboard home, optionally performing caller-owned cleanup first. */
-  onOpenHome?: () => void;
-  homeActive?: boolean;
-  /** Navigate to shared knowledge, optionally performing caller-owned cleanup first. */
-  onOpenKnowledge?: () => void;
-  knowledgeActive?: boolean;
-  knowledgeHref?: string;
-  /** Navigate to workspace members, optionally performing caller-owned cleanup first. */
-  onOpenMembers?: () => void;
-  membersActive?: boolean;
-  membersHref?: string;
-  onOpenUsage?: () => void;
-  usageActive?: boolean;
   onOpenAccountSettings?: () => void;
   accountSettingsActive?: boolean;
   /** Increment to imperatively open the inline agent creator (e.g. from the main panel's empty state). */
@@ -184,9 +168,9 @@ export interface AgentsChannelsSidebarProps {
 }
 
 const ACCOUNT_LINKS = [
-  { label: "API Keys", href: ACCOUNT_PAGE_HREFS.apiKeys, icon: Key },
-  { label: "Plans", href: ACCOUNT_PAGE_HREFS.plans, icon: CreditCard },
-  { label: "Billing", href: ACCOUNT_PAGE_HREFS.billing, icon: CreditCard },
+  { label: "API Keys", href: `${DASHBOARD_VIEW_HREFS.settings}&settings=api-keys`, icon: Key },
+  { label: "Plans", href: `${DASHBOARD_VIEW_HREFS.settings}&settings=plans`, icon: CreditCard },
+  { label: "Billing", href: `${DASHBOARD_VIEW_HREFS.settings}&settings=billing`, icon: CreditCard },
 ];
 
 function isDashboardLinkActive(pathname: string, href: string) {
@@ -763,12 +747,16 @@ export function AgentsSidebarDashboardLinks({
   mobileMode = false,
   accountInitial = "?",
   onLogin,
+  onOpenSettings,
+  settingsActive = false,
   onLogout,
 }: {
   compact?: boolean;
   mobileMode?: boolean;
   accountInitial?: string;
   onLogin?: () => void;
+  onOpenSettings?: () => void;
+  settingsActive?: boolean;
   onLogout?: () => void | Promise<void>;
 }) {
   const pathname = usePathname() ?? "";
@@ -801,7 +789,7 @@ export function AgentsSidebarDashboardLinks({
           >
             {!onLogin && ACCOUNT_LINKS.map((item) => {
               const Icon = item.icon;
-              const active = isDashboardLinkActive(pathname, item.href);
+              const active = !item.href.includes("?view=settings") && isDashboardLinkActive(pathname, item.href);
 
               return (
                 <Link
@@ -820,6 +808,37 @@ export function AgentsSidebarDashboardLinks({
                 </Link>
               );
             })}
+            {!onLogin ? (
+              onOpenSettings ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  aria-current={settingsActive ? "page" : undefined}
+                  onClick={() => {
+                    setOpen(false);
+                    onOpenSettings();
+                  }}
+                  className={`flex w-full items-center gap-2 px-3 text-left transition-colors ${
+                    settingsActive
+                      ? "bg-surface-low text-foreground"
+                      : "text-text-secondary hover:bg-surface-low hover:text-foreground"
+                  } ${mobileMode ? "py-2" : "py-1.5"}`}
+                >
+                  <Settings className={`${mobileMode ? "h-5 w-5" : "h-3.5 w-3.5"} flex-shrink-0`} />
+                  <span className="text-[11px] font-medium">Settings</span>
+                </button>
+              ) : (
+                <Link
+                  href={DASHBOARD_VIEW_HREFS.settings}
+                  role="menuitem"
+                  onClick={() => setOpen(false)}
+                  className={`flex items-center gap-2 px-3 text-left text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground ${mobileMode ? "py-2" : "py-1.5"}`}
+                >
+                  <Settings className={`${mobileMode ? "h-5 w-5" : "h-3.5 w-3.5"} flex-shrink-0`} />
+                  <span className="text-[11px] font-medium">Settings</span>
+                </Link>
+              )
+            ) : null}
             {onLogin ? (
               <button
                 type="button"
@@ -834,12 +853,7 @@ export function AgentsSidebarDashboardLinks({
                 <span className="text-[11px] font-medium">Sign in</span>
               </button>
             ) : null}
-            <ThemeToggle
-              showLabel
-              title=""
-              role="menuitem"
-              className={`w-full justify-start rounded-none px-3 text-[11px] ${mobileMode ? "h-10" : "h-8"}`}
-            />
+            <ThemeSelector menu aria-label="Appearance theme" className="w-full [&>button]:px-2" />
             {onLogout && (
               <button
                 type="button"
@@ -1867,18 +1881,6 @@ function HandoffThreadView({
   onOpenAgentLauncher,
   agentCreationDisabledReason,
   rosterLoading = false,
-  onOpenHome,
-  homeActive,
-  onOpenKnowledge,
-  knowledgeActive = false,
-  knowledgeHref = "/dashboard/agents?section=knowledge",
-  onOpenMembers,
-  membersActive = false,
-  membersHref = "/dashboard/agents?section=members",
-  onOpenUsage,
-  usageActive,
-  onOpenAccountSettings,
-  accountSettingsActive,
   showChannels = true,
   availableAgents,
   offlineAgentCount = 0,
@@ -1906,18 +1908,6 @@ function HandoffThreadView({
   onOpenAgentLauncher?: () => void;
   agentCreationDisabledReason?: string | null;
   rosterLoading?: boolean;
-  onOpenHome?: () => void;
-  homeActive?: boolean;
-  onOpenKnowledge?: () => void;
-  knowledgeActive?: boolean;
-  knowledgeHref?: string;
-  onOpenMembers?: () => void;
-  membersActive?: boolean;
-  membersHref?: string;
-  onOpenUsage?: () => void;
-  usageActive?: boolean;
-  onOpenAccountSettings?: () => void;
-  accountSettingsActive?: boolean;
   showChannels?: boolean;
   availableAgents?: Participant[];
   offlineAgentCount?: number;
@@ -1934,10 +1924,6 @@ function HandoffThreadView({
   mobileMode?: boolean;
   embeddedInNavigation?: boolean;
 }) {
-  const pathname = usePathname() || "";
-  const homeIsActive = homeActive ?? isDashboardLinkActive(pathname, "/dashboard");
-  const usageIsActive = usageActive ?? pathname === "/usage";
-  const accountSettingsIsActive = accountSettingsActive ?? isDashboardLinkActive(pathname, "/dashboard/settings");
   const channelAgents = availableAgents ?? AVAILABLE_AGENTS_LIST;
   const [showAgentCreator, setShowAgentCreator] = useState(false);
   const [showChannelCreator, setShowChannelCreator] = useState(false);
@@ -2187,192 +2173,6 @@ function HandoffThreadView({
         </AnimatePresence>
       </div>
 
-      <section className="agents-roster-administration mt-1 shrink-0" aria-label="Administration">
-        <div className={`${sectionHeadingInsetClass} ${mobileMode ? "text-sm" : "text-[13px]"} py-1.5`}>
-          <span className="font-medium text-text-secondary">Administration</span>
-        </div>
-        {onOpenHome ? (
-          <button
-            type="button"
-            aria-current={homeIsActive ? "page" : undefined}
-            onClick={onOpenHome}
-            className={`agents-roster-home flex w-full shrink-0 items-center gap-0 border-l-2 text-left transition-colors ${
-              mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
-            } ${
-              homeIsActive
-                ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
-                : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
-            }`}
-          >
-            <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
-              <House className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
-            </span>
-            <span className="font-medium">Home</span>
-          </button>
-        ) : (
-          <Link
-            href={DASHBOARD_VIEW_HREFS.overview}
-            aria-current={homeIsActive ? "page" : undefined}
-            className={`agents-roster-home flex w-full shrink-0 items-center gap-0 border-l-2 text-left transition-colors ${
-            mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
-          } ${
-            homeIsActive
-              ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
-              : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
-          }`}
-          >
-            <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
-              <House className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
-            </span>
-            <span className="font-medium">Home</span>
-          </Link>
-        )}
-        {onOpenKnowledge ? (
-          <button
-            type="button"
-            aria-current={knowledgeActive ? "page" : undefined}
-            onClick={onOpenKnowledge}
-            className={`flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
-              mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
-            } ${
-              knowledgeActive
-                ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
-                : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
-            }`}
-          >
-            <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
-              <HardDrive className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
-            </span>
-            <span className="font-medium">Shared Knowledge</span>
-          </button>
-        ) : (
-          <Link
-            href={knowledgeHref}
-            aria-current={knowledgeActive ? "page" : undefined}
-            className={`flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
-              mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
-            } ${
-              knowledgeActive
-                ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
-                : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
-            }`}
-          >
-            <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
-              <HardDrive className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
-            </span>
-            <span className="font-medium">Shared Knowledge</span>
-          </Link>
-        )}
-        {onOpenMembers ? (
-          <button
-            type="button"
-            aria-current={membersActive ? "page" : undefined}
-            onClick={onOpenMembers}
-            className={`flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
-              mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
-            } ${
-              membersActive
-                ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
-                : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
-            }`}
-          >
-            <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
-              <Users className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
-            </span>
-            <span className="font-medium">Members</span>
-          </button>
-        ) : (
-          <Link
-            href={membersHref}
-            aria-current={membersActive ? "page" : undefined}
-            className={`flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
-              mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
-            } ${
-              membersActive
-                ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
-                : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
-            }`}
-          >
-            <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
-              <Users className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
-            </span>
-            <span className="font-medium">Members</span>
-          </Link>
-        )}
-        {onOpenUsage ? (
-          <button
-            type="button"
-            onClick={onOpenUsage}
-            aria-current={usageIsActive ? "page" : undefined}
-            className={`flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
-              mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
-            } ${
-              usageIsActive
-                ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
-                : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
-            }`}
-          >
-            <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
-              <BarChart3 className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
-            </span>
-            <span className="font-medium">Usage</span>
-          </button>
-        ) : (
-          <Link
-            href={DASHBOARD_VIEW_HREFS.usage}
-            aria-current={usageIsActive ? "page" : undefined}
-            className={`flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
-              mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
-            } ${
-              usageIsActive
-                ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
-                : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
-            }`}
-          >
-            <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
-              <BarChart3 className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
-            </span>
-            <span className="font-medium">Usage</span>
-          </Link>
-        )}
-        {onOpenAccountSettings ? (
-          <button
-            type="button"
-            onClick={onOpenAccountSettings}
-            aria-current={accountSettingsIsActive ? "page" : undefined}
-            className={`flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
-              mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
-            } ${
-              accountSettingsIsActive
-                ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
-                : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
-            }`}
-          >
-            <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
-              <Settings className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
-            </span>
-            <span className="font-medium">Settings</span>
-          </button>
-        ) : (
-          <Link
-            href={DASHBOARD_VIEW_HREFS.settings}
-            aria-current={accountSettingsIsActive ? "page" : undefined}
-            className={`flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
-              mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
-            } ${
-              accountSettingsIsActive
-                ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
-                : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
-            }`}
-          >
-            <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
-              <Settings className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
-            </span>
-            <span className="font-medium">Settings</span>
-          </Link>
-        )}
-      </section>
-
       {/* ── Channels section ── */}
       {showChannels && (<>
       <button
@@ -2476,16 +2276,6 @@ export function AgentsChannelsSidebar({
   onOpenAgentLauncher,
   agentCreationDisabledReason,
   rosterLoading = false,
-  onOpenHome,
-  homeActive,
-  onOpenKnowledge,
-  knowledgeActive = false,
-  knowledgeHref,
-  onOpenMembers,
-  membersActive = false,
-  membersHref,
-  onOpenUsage,
-  usageActive,
   onOpenAccountSettings,
   accountSettingsActive,
   openAgentCreatorSignal,
@@ -2553,18 +2343,6 @@ export function AgentsChannelsSidebar({
           onOpenAgentLauncher={onOpenAgentLauncher}
           agentCreationDisabledReason={agentCreationDisabledReason}
           rosterLoading={rosterLoading}
-          onOpenHome={onOpenHome}
-          homeActive={homeActive}
-          onOpenKnowledge={onOpenKnowledge}
-          knowledgeActive={knowledgeActive}
-          knowledgeHref={knowledgeHref}
-          onOpenMembers={onOpenMembers}
-          membersActive={membersActive}
-          membersHref={membersHref}
-          onOpenUsage={onOpenUsage}
-          usageActive={usageActive}
-          onOpenAccountSettings={onOpenAccountSettings}
-          accountSettingsActive={accountSettingsActive}
           showChannels={showChannels}
           availableAgents={availableAgents}
           offlineAgentCount={offlineAgentCount}
@@ -2598,18 +2376,6 @@ export function AgentsChannelsSidebar({
           onOpenAgentLauncher={onOpenAgentLauncher}
           agentCreationDisabledReason={agentCreationDisabledReason}
           rosterLoading={rosterLoading}
-          onOpenHome={onOpenHome}
-          homeActive={homeActive}
-          onOpenKnowledge={onOpenKnowledge}
-          knowledgeActive={knowledgeActive}
-          knowledgeHref={knowledgeHref}
-          onOpenMembers={onOpenMembers}
-          membersActive={membersActive}
-          membersHref={membersHref}
-          onOpenUsage={onOpenUsage}
-          usageActive={usageActive}
-          onOpenAccountSettings={onOpenAccountSettings}
-          accountSettingsActive={accountSettingsActive}
           showChannels={showChannels}
           availableAgents={availableAgents}
           offlineAgentCount={offlineAgentCount}
@@ -2634,6 +2400,8 @@ export function AgentsChannelsSidebar({
         mobileMode={mobileMode}
         accountInitial={accountInitial}
         onLogin={onLogin}
+        onOpenSettings={onOpenAccountSettings}
+        settingsActive={accountSettingsActive}
         onLogout={onLogout}
       />
     </div>

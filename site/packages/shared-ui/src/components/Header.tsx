@@ -7,7 +7,7 @@ import { useTurnkey } from "@turnkey/react-wallet-kit";
 import ContactModal from "./ContactModal";
 import { HyperCLILogo } from "./HyperCLILogo";
 import { PrivyLoginModal } from "./PrivyLogin";
-import { ThemeToggle } from "./ThemeToggle";
+import { ThemeSelector } from "./ThemeSelector";
 import { useAuth } from "../providers/AuthProvider";
 import { clearLocalAuthTokens, cookieUtils, markAuthLogout } from "../utils/cookies";
 import { NAV_URLS } from "../utils/navigation";
@@ -296,7 +296,7 @@ export default function Header() {
                       <div className="border-b border-border px-3 py-2">
                         <p className="truncate text-sm font-medium">{userInfo?.email || "HyperCLI account"}</p>
                       </div>
-                      <ThemeToggle showLabel role="menuitem" className="mt-1 w-full justify-start px-3" />
+                      <ThemeSelector menu aria-label="Appearance theme" className="mt-1 w-full" />
                       <button
                         type="button"
                         role="menuitem"
@@ -311,7 +311,7 @@ export default function Header() {
                 </div>
               ) : (
                 <>
-                  <ThemeToggle />
+                  <ThemeSelector />
                   <button
                     onClick={openLoginModal}
                     className="px-5 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary-hover transition-colors font-medium"
@@ -439,7 +439,7 @@ export default function Header() {
             >
               Contact
             </button>
-            <ThemeToggle showLabel className="w-full justify-start px-3 py-2 text-base" />
+            <ThemeSelector className="w-full" />
             <div className="border-t border-border-medium mt-4 pt-4">
               {isAuthenticated ? (
                 <button

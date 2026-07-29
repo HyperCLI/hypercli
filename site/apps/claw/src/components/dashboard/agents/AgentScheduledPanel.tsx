@@ -4,6 +4,7 @@ import React from "react";
 import { CalendarClock, ChevronDown, ChevronLeft, Clock, Loader2, Pencil, Play, Plus, RefreshCw, Trash2 } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
+import { getAgentGatewayPanelBootStatus } from "@/components/dashboard/agents/chat-boot-stage";
 import { TabLoadingState } from "@/components/dashboard/agents/page-helpers";
 import type { CronJob } from "@/components/dashboard/agentViewTypes";
 import { buildCronJobInput, type CronJobInput } from "@/lib/cron-jobs";
@@ -612,10 +613,22 @@ export function AgentScheduledPanel({
   }
 
   if (!connected) {
+    const bootStatus = getAgentGatewayPanelBootStatus({
+      connected,
+      connecting: connecting || hydrating,
+      error,
+      loadingTitle: "Loading scheduled work",
+      loadingDetail: "Opening the agent schedule manager.",
+      connectingTitle: "Loading scheduled work",
+      connectingDetail: "Opening the agent schedule manager.",
+      waitingDetail: "Scheduled work loads after the gateway is reachable.",
+      errorTitle: "Could not load scheduled work",
+    });
     return (
       <TabLoadingState
-        label={connecting || hydrating ? "Loading scheduled work" : "Waiting for gateway"}
-        detail={connecting || hydrating ? "Opening the agent schedule manager." : error ?? "Scheduled work loads after the gateway is reachable."}
+        label={bootStatus?.title ?? "Waiting for gateway"}
+        detail={bootStatus?.detail}
+        bootStatus={bootStatus ?? undefined}
       />
     );
   }

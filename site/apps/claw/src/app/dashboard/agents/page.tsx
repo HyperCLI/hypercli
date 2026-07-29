@@ -145,7 +145,7 @@ import {
   type AgentStatusChipModel,
   type CenterPanel,
 } from "@/components/dashboard/agents/page-helpers";
-import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner } from "@/components/dashboard/agents/AgentPanels";
+import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner, type AgentSettingsSection } from "@/components/dashboard/agents/AgentPanels";
 import {
   AgentChatPanel,
   normalizeChatFileDropItems,
@@ -173,6 +173,12 @@ import { AgentDisplayNameEditor } from "@/components/dashboard/agents/AgentDispl
 import { AgentPrivateChatControl } from "@/components/dashboard/agents/AgentPrivateChatControl";
 import { AgentWorkspaceSidebar, WorkspaceCreationDialog } from "@/components/dashboard/agents/AgentWorkspaceSidebar";
 import { AgentGatewaySessionProvider, asAgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
+import {
+  SettingsMenu,
+  SettingsSectionHeader,
+  resolveSettingsSectionId,
+  type SettingsSectionId,
+} from "@/components/dashboard/settings/SettingsMenu";
 import {
   useWorkspace,
   workspaceAgentCreationDisabledReason,
@@ -287,6 +293,18 @@ const WorkspaceUsagePanel = dynamic(
 );
 const AccountSettingsPanel = dynamic(
   () => import("@/components/dashboard/AccountSettingsPanel"),
+  { loading: DeferredDashboardPanel },
+);
+const ApiKeysSettingsPanel = dynamic(
+  () => import("@/app/dashboard/keys/page"),
+  { loading: DeferredDashboardPanel },
+);
+const ProfileBillingSection = dynamic(
+  () => import("@/components/billing/ProfileBillingSection").then((module) => module.ProfileBillingSection),
+  { loading: DeferredDashboardPanel },
+);
+const PlansPage = dynamic(
+  () => import("@/components/plans/PlansPage"),
   { loading: DeferredDashboardPanel },
 );
 const OpenClawSettingsDrawer = dynamic(
@@ -965,6 +983,10 @@ function AgentsPageContent() {
   const requestedTab = searchParams.get("tab")?.trim() || null;
   const requestedView = searchParams.get("view")?.trim() || null;
   const dashboardView = isAuthenticated ? resolveDashboardView(requestedView) : null;
+  const accountSettingsSection = resolveSettingsSectionId(searchParams.get("settings")) ?? "profile";
+  const settingsAgentConfigurationActive = dashboardView === "settings" && (
+    accountSettingsSection === "agent" || accountSettingsSection === "memory-index"
+  );
   const requestedAgentTab = resolveAgentRouteTab(requestedTab);
   const requestedCenterTab: MainTab | null = requestedAgentTab === "openclaw" ? "chat" : requestedAgentTab;
   const knowledgeSectionActive = isAuthenticated && requestedSection === "knowledge";
@@ -1004,13 +1026,13 @@ function AgentsPageContent() {
     if (typeof window === "undefined") return true;
     return window.matchMedia(AGENTS_DESKTOP_MEDIA_QUERY).matches;
   });
-  const [agentWorkspaceActivated, setAgentWorkspaceActivated] = useState(() => !dashboardView);
+  const [agentWorkspaceActivated, setAgentWorkspaceActivated] = useState(() => !dashboardView || settingsAgentConfigurationActive);
 
   useEffect(() => {
-    if (dashboardView) return;
+    if (dashboardView && !settingsAgentConfigurationActive) return;
     const timeout = window.setTimeout(() => setAgentWorkspaceActivated(true), 0);
     return () => window.clearTimeout(timeout);
-  }, [dashboardView]);
+  }, [dashboardView, settingsAgentConfigurationActive]);
 
   useEffect(() => {
     if (!requestedView || dashboardView) return;
@@ -1028,6 +1050,7 @@ function AgentsPageContent() {
       "session",
       "integration",
       "section",
+      "settings",
       "tab",
       "view",
       "slack_oauth_ok",
@@ -1246,6 +1269,7 @@ function AgentsPageContent() {
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   const [mobileRosterCollapsed, setMobileRosterCollapsed] = useState(true);
+  const [mobileSettingsMenuOpen, setMobileSettingsMenuOpen] = useState(() => !searchParams.has("settings"));
   const [agentOnboardingOverlay, setAgentOnboardingOverlay] = useState<AgentOnboardingOverlay>(null);
   const agentTourOpen = agentOnboardingOverlay === "tour";
   const agentLauncherOpen = agentOnboardingOverlay === "launcher";
@@ -1381,6 +1405,7 @@ function AgentsPageContent() {
     }
     if (clearRoutedPanel) {
       params.delete("section");
+      params.delete("settings");
       params.delete("tab");
       params.delete("view");
     }
@@ -1434,6 +1459,7 @@ function AgentsPageContent() {
 
   // Settings panel state
   const [settingsName, setSettingsName] = useState("");
+  const [agentSettingsSection, setAgentSettingsSection] = useState<AgentSettingsSection>("general");
   const [, setAgentClusterUnavailable] = useState(false);
   const [savingName, setSavingName] = useState(false);
   const [openclawSettingsOpen, setOpenclawSettingsOpen] = useState(false);
@@ -1908,6 +1934,7 @@ function AgentsPageContent() {
 
   useEffect(() => {
     if (authLoading || !isAuthenticated) return;
+    if (dashboardView === "settings" && accountSettingsSection === "plans") return;
     if (checkoutReturnHandledRef.current) return;
     const checkoutReturn = readStripeCheckoutReturnState();
     if (!checkoutReturn) return;
@@ -1995,13 +2022,14 @@ function AgentsPageContent() {
     return () => {
       active = false;
     };
-  }, [authLoading, billingDataError, billingDataPrincipalId, isAuthenticated, refreshAgentEnrichment, user?.id]);
+  }, [accountSettingsSection, authLoading, billingDataError, billingDataPrincipalId, dashboardView, isAuthenticated, refreshAgentEnrichment, user?.id]);
 
   useEffect(() => {
     const principalId = user?.id ?? null;
     if (
       authLoading ||
       !isAuthenticated ||
+      (dashboardView === "settings" && accountSettingsSection === "plans") ||
       !principalId ||
       billingDataPrincipalId !== principalId ||
       readStripeCheckoutReturnState()
@@ -2014,7 +2042,7 @@ function AgentsPageContent() {
       setResumeAgentLauncher(true);
     }
     dispatchBillingReflection({ type: "REFLECTION_RECEIVED", pending, reflectionStatus });
-  }, [authLoading, billingDataPrincipalId, isAuthenticated, subscriptionSummary, user?.id]);
+  }, [accountSettingsSection, authLoading, billingDataPrincipalId, dashboardView, isAuthenticated, subscriptionSummary, user?.id]);
 
   useEffect(() => {
     if (!resumeAgentLauncher || authLoading || !isAuthenticated || agentsLoading) return;
@@ -2404,7 +2432,7 @@ function AgentsPageContent() {
     mainTab === "settings" ||
     mainTab === "openclaw" ||
     openclawSettingsOpen
-    ) ? "full" : "sessions";
+    ) ? "full" : settingsAgentConfigurationActive ? "full" : "sessions";
 
   const chat = useOpenClawSession(
     selectedAgent && isSelectedRunning ? selectedOpenClawAgent : null,
@@ -4155,7 +4183,8 @@ function AgentsPageContent() {
     if (tab !== "chat") params.set("tab", tab);
     router.push(`/dashboard/agents?${params.toString()}`, { scroll: false });
   };
-  const openAgentSettingsTab = () => {
+  const openAgentSettingsTab = (section: AgentSettingsSection = "general") => {
+    setAgentSettingsSection(section);
     openAgentSurfaceRoute("settings");
     setOpenclawSettingsOpen(false);
     selectMainTab("settings");
@@ -4316,18 +4345,6 @@ function AgentsPageContent() {
       router.push(href);
     })();
   };
-  const openKnowledgeTab = () => {
-    if (!isAuthenticated) {
-      requestAuthentication({ kind: "navigate", href: knowledgeSectionHref, title: "Sign in to open shared knowledge" });
-      return;
-    }
-    closeMobileNavigation();
-    setOpenclawSettingsOpen(false);
-    setMobileShowChat(true);
-    selectMainTab("knowledge");
-    if (knowledgeSectionActive) return;
-    router.push(knowledgeSectionHref, { scroll: false });
-  };
   const openMembersTab = () => {
     if (!isAuthenticated) {
       requestAuthentication({ kind: "navigate", href: membersSectionHref, title: "Sign in to open Workspace members" });
@@ -4340,11 +4357,30 @@ function AgentsPageContent() {
     if (membersSectionActive) return;
     router.push(membersSectionHref, { scroll: false });
   };
-  const openDashboardHome = () => {
-    openDashboardView("overview");
+  const openAccountSettings = () => {
+    setMobileSettingsMenuOpen(true);
+    closeMobileNavigation();
+    setOpenclawSettingsOpen(false);
+    if (!isAuthenticated) {
+      requestAuthentication({
+        kind: "navigate",
+        href: `${dashboardViewHrefs.settings}&settings=profile`,
+        title: "Sign in to open settings",
+      });
+      return;
+    }
+    router.push(`${dashboardViewHrefs.settings}&settings=profile`, { scroll: false });
   };
-  const openDashboardUsage = () => openDashboardView("usage");
-  const openAccountSettings = () => openDashboardView("settings");
+  const selectAccountSettingsSection = (section: SettingsSectionId) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("view", "settings");
+    params.set("settings", section);
+    params.delete("section");
+    params.delete("tab");
+    params.delete("open");
+    syncDashboardSearchParams(params, true);
+    setMobileSettingsMenuOpen(false);
+  };
   const openScheduledTab = (draftCommand?: unknown) => {
     if (!SCHEDULED_SECTION_ENABLED) return;
     openAgentSurfaceRoute("scheduled");
@@ -4565,8 +4601,6 @@ function AgentsPageContent() {
           }}
           accountInitial={accountInitial}
           onLogin={!isAuthenticated ? () => requestAuthentication({ kind: "navigate", href: "/dashboard/agents", title: "Sign in to your account" }) : undefined}
-          onOpenSettings={openAgentSettingsTab}
-          settingsActive={mainTab === "settings"}
           onLogout={isAuthenticated ? logout : undefined}
           budget={budget}
           subscriptionSummary={subscriptionSummary}
@@ -4577,18 +4611,7 @@ function AgentsPageContent() {
             closeMobileNavigation();
             return openUpgradeCatalog(planId);
           }}
-          onOpenHome={openDashboardHome}
-          homeActive={dashboardView === "overview"}
-          onOpenKnowledge={openKnowledgeTab}
-          knowledgeActive={knowledgeSectionActive}
-          knowledgeHref={knowledgeSectionHref}
-          onOpenMembers={openMembersTab}
-          membersActive={membersSectionActive}
-          membersHref={membersSectionHref}
-          onOpenUsage={openDashboardUsage}
-          usageActive={dashboardView === "usage"}
           onOpenAccountSettings={openAccountSettings}
-          accountSettingsActive={dashboardView === "settings"}
           embeddedInNavigation
         />
 
@@ -4633,7 +4656,6 @@ function AgentsPageContent() {
           onShellIntent={prepareShell}
           onShellIntentEnd={cancelShellIntent}
           onOpenOpenClaw={openOpenClawSettings}
-          onOpenSettings={openAgentSettingsTab}
           onUpgrade={() => {
             closeMobileNavigation();
             void openUpgradeCatalog();
@@ -4648,11 +4670,173 @@ function AgentsPageContent() {
     </div>
   );
 
+  const agentSettingsSharedProps: Omit<React.ComponentProps<typeof AgentSettingsPanel>, "activeSection" | "onSectionChange" | "showSectionNavigation"> = {
+    agent: selectedAgent,
+    user,
+    getToken,
+    onStartAgent: () => {
+      if (selectedAgent) void handleStart(selectedAgent.id);
+    },
+    onStopAgent: () => {
+      if (selectedAgent) void handleStop(selectedAgent.id);
+    },
+    onDeleteAgent: () => {
+      if (selectedAgent) {
+        setPendingAgentDelete({ id: selectedAgent.id, name: agentDisplayLabel(selectedAgent) });
+      }
+    },
+    onLogout: logout,
+    agentStarting: selectedAgentStarting,
+    agentStopping: Boolean(selectedAgent && stoppingId === selectedAgent.id),
+    agentDeleting: Boolean(selectedAgent && deletingId === selectedAgent.id),
+    agentStartBlocked: selectedAgentLaunchBlocked,
+    agentStartBlockedReason: selectedAgentStartBlockedTitle,
+    openclawConfig: chat.config,
+    openclawModels: chat.models,
+    reportedChannels: chat.reportedChannels,
+    reportedChannelsReady: chat.reportedChannelsReady,
+    onUpdateAgentProfile: async (agentId, profile) => {
+      const generation = agentDataGenerationRef.current;
+      const updatedAgent = await runAgentMutation(agentId, async () => {
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+        const token = await getToken();
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+        return createAgentClient(token).update(agentId, profile);
+      });
+      if (!updatedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+      applyAgentMutationResult(updatedAgent);
+    },
+    onUpdateExternalAgentProfile: async (agentId, profile) => {
+      const generation = agentDataGenerationRef.current;
+      const updatedAgent = await runAgentMutation(agentId, async () => {
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+        const token = await getToken();
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+        return createAgentClient(token).updateExternalAgent(agentId, profile);
+      });
+      if (!updatedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+      applyAgentMutationResult(updatedAgent);
+    },
+    onUploadAgentAvatar: async (agentId, file) => {
+      const generation = agentDataGenerationRef.current;
+      return runAgentMutation(agentId, async () => {
+        if (deletingAgentIdsRef.current.has(agentId)) throw new Error("Agent is being deleted.");
+        const token = await getToken();
+        if (generation !== agentDataGenerationRef.current) throw new Error("Account changed during upload.");
+        if (deletingAgentIdsRef.current.has(agentId)) throw new Error("Agent is being deleted.");
+        const client = createAgentClient(token);
+        const upload = await client.uploadProfileImage(agentId, file, file.type || "image/png");
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return upload.avatar_url;
+        const updatedAgent = await client.get(agentId);
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return upload.avatar_url;
+        applyAgentMutationResult(updatedAgent);
+        return upload.avatar_url;
+      });
+    },
+    onUpdateAgentLaunchConfig: async (agentId, launchConfig) => {
+      const generation = agentDataGenerationRef.current;
+      const updatedAgent = await runAgentMutation(agentId, async () => {
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+        const token = await getToken();
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+        return createAgentClient(token).update(agentId, { launchConfig });
+      });
+      if (!updatedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+      applyAgentMutationResult(updatedAgent);
+    },
+    onSaveOpenClawConfig: async (patch) => {
+      await chat.saveConfig(patch);
+      completeJourneyForEvent("rules-confirmed");
+    },
+    showFileSourceTabs,
+    onShowFileSourceTabsChange: handleShowFileSourceTabsChange,
+    isDesktopViewport,
+  };
+
+  const renderAgentSettingsPanel = (
+    activeSection: AgentSettingsSection,
+    showSectionNavigation: boolean,
+    onSectionChange?: (section: AgentSettingsSection) => void,
+  ) => selectedAgent ? (
+    <AgentSettingsPanel
+      key={selectedAgent.id}
+      {...agentSettingsSharedProps}
+      activeSection={activeSection}
+      onSectionChange={onSectionChange}
+      showSectionNavigation={showSectionNavigation}
+    />
+  ) : (
+    <div className="flex h-full items-center justify-center bg-background px-6 text-center">
+      <div>
+        <h1 className="text-lg font-semibold text-foreground">Select an agent</h1>
+        <p className="mt-2 text-sm text-text-muted">Choose or create an agent before opening these settings.</p>
+      </div>
+    </div>
+  );
+
+  const settingsMembersHref = `${dashboardViewHrefs.settings}&settings=members`;
+  const showMobileSettingsMenu = mobileSettingsMenuOpen || !searchParams.has("settings");
+  const settingsSectionContent = accountSettingsSection === "preferences" ? (
+    <AccountSettingsPanel />
+  ) : accountSettingsSection === "workspace" ? (
+    <WorkspaceOverviewPanel
+      accountAgents={accountAgents}
+      workspaceAgents={workspaceAgents}
+      agentsLoading={agentsLoading}
+      workspaceAgentsLoading={agentsLoading || isAgentRosterLoading}
+      agentCreationDisabledReason={agentCreationBlockedReason}
+      agentsHref={selectedAgentHref}
+      knowledgeHref={knowledgeSectionHref}
+      membersHref={settingsMembersHref}
+      onOpenMembers={() => selectAccountSettingsSection("members")}
+      onOpenAgentLauncher={() => {
+        if (openAgentCreationFlow()) openAgentSurfaceRoute("chat");
+      }}
+    />
+  ) : accountSettingsSection === "members" ? (
+    <div className="h-full min-h-0 overflow-y-auto bg-background px-4 py-7 sm:px-6 lg:px-8">
+      <MembersSection agents={accountAgents} agentsLoading={agentsLoading} />
+    </div>
+  ) : accountSettingsSection === "api-keys" ? (
+    <div className="h-full min-h-0 overflow-y-auto bg-background px-4 py-7 sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-6xl">
+        <ApiKeysSettingsPanel />
+      </div>
+    </div>
+  ) : accountSettingsSection === "billing" ? (
+    <div className="h-full min-h-0 overflow-y-auto bg-background px-4 py-7 sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-6xl">
+        <ProfileBillingSection getToken={getToken} />
+      </div>
+    </div>
+  ) : accountSettingsSection === "plans" ? (
+    <div className="h-full min-h-0 overflow-y-auto bg-background px-4 py-7 sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-6xl">
+        <PlansPage />
+      </div>
+    </div>
+  ) : accountSettingsSection === "agent" ? (
+    renderAgentSettingsPanel("agent", false)
+  ) : accountSettingsSection === "memory-index" ? (
+    renderAgentSettingsPanel("index", false)
+  ) : (
+    renderAgentSettingsPanel("general", false)
+  );
+  const settingsContent = (
+    <div className="flex h-full min-h-0 flex-col bg-background">
+      <SettingsSectionHeader
+        activeSection={accountSettingsSection}
+        onBackToSettings={!isDesktopViewport ? () => setMobileSettingsMenuOpen(true) : undefined}
+      />
+      <div className="min-h-0 flex-1 overflow-hidden">{settingsSectionContent}</div>
+    </div>
+  );
+
   return (
     <AgentGatewaySessionProvider session={gatewayChat}>
       <div className="h-full min-h-0 w-full flex flex-col overflow-hidden">
       {/* Mobile header and shared desktop-style navigation. */}
-      {!isDesktopViewport && (
+      {!isDesktopViewport && dashboardView !== "settings" && (
         <Sheet open={mobileNavigationOpen} onOpenChange={setMobileNavigationOpen}>
           <header className="relative z-20 grid h-[calc(3.5rem+env(safe-area-inset-top))] shrink-0 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center border-b border-border bg-background px-3 pt-[env(safe-area-inset-top)]">
             <Link
@@ -4889,7 +5073,13 @@ function AgentsPageContent() {
 
       {/* Main layout: AgentList + AgentMainPanel + AgentInspector */}
       <div className="flex flex-1 min-h-0">
-        {isDesktopViewport ? (
+        {isDesktopViewport && (dashboardView === "settings" ? (
+          <SettingsMenu
+            activeSection={accountSettingsSection}
+            backHref={selectedAgentHref}
+            onSectionChange={selectAccountSettingsSection}
+          />
+        ) : (
         <div
           className="agent-desktop-navigation relative flex h-full min-h-0 w-64 shrink-0 flex-col pt-14"
           data-roster-collapsed={sidebarCollapsed}
@@ -4922,8 +5112,6 @@ function AgentsPageContent() {
             setPendingAgentDelete={setPendingAgentDelete}
             accountInitial={accountInitial}
             onLogin={!isAuthenticated ? () => requestAuthentication({ kind: "navigate", href: "/dashboard/agents", title: "Sign in to your account" }) : undefined}
-            onOpenSettings={openAgentSettingsTab}
-            settingsActive={mainTab === "settings"}
             onLogout={isAuthenticated ? logout : undefined}
             budget={budget}
             subscriptionSummary={subscriptionSummary}
@@ -4931,18 +5119,7 @@ function AgentsPageContent() {
             preferredPlanId={launcherPreferredPlanId}
             pendingSlotReleases={pendingSlotReleases}
             onOpenPlanCatalog={openUpgradeCatalog}
-            onOpenHome={openDashboardHome}
-            homeActive={dashboardView === "overview"}
-            onOpenKnowledge={openKnowledgeTab}
-            knowledgeActive={knowledgeSectionActive}
-            knowledgeHref={knowledgeSectionHref}
-            onOpenMembers={openMembersTab}
-            membersActive={membersSectionActive}
-            membersHref={membersSectionHref}
-            onOpenUsage={openDashboardUsage}
-            usageActive={dashboardView === "usage"}
             onOpenAccountSettings={openAccountSettings}
-            accountSettingsActive={dashboardView === "settings"}
             embeddedInNavigation
           />
 
@@ -4983,14 +5160,13 @@ function AgentsPageContent() {
             onShellIntent={prepareShell}
             onShellIntentEnd={cancelShellIntent}
             onOpenOpenClaw={openOpenClawSettings}
-            onOpenSettings={openAgentSettingsTab}
             onUpgrade={() => { void openUpgradeCatalog(); }}
             onStartTrial={() => { openAgentCreationFlow(); }}
           />
           <div aria-hidden="true" className="pointer-events-none absolute -top-2 bottom-0 right-0 z-[60] w-px bg-border" />
           </div>
         </div>
-        ) : null}
+        ))}
 
           <div className={dashboardView ? "hidden" : "contents"}>
           <AgentMainPanel
@@ -5272,89 +5448,7 @@ function AgentsPageContent() {
               initialCommand={scheduledInitialCommand?.command ?? null}
             />
           ) : mainTab === "settings" ? (
-            <AgentSettingsPanel
-              key={selectedAgent?.id ?? "no-agent"}
-              agent={selectedAgent}
-              user={user}
-              getToken={getToken}
-              onStartAgent={() => {
-                if (selectedAgent) void handleStart(selectedAgent.id);
-              }}
-              onStopAgent={() => {
-                if (selectedAgent) void handleStop(selectedAgent.id);
-              }}
-              onDeleteAgent={() => {
-                if (selectedAgent) {
-                  setPendingAgentDelete({ id: selectedAgent.id, name: agentDisplayLabel(selectedAgent) });
-                }
-              }}
-              onLogout={logout}
-              agentStarting={selectedAgentStarting}
-              agentStopping={Boolean(selectedAgent && stoppingId === selectedAgent.id)}
-              agentDeleting={Boolean(selectedAgent && deletingId === selectedAgent.id)}
-              agentStartBlocked={selectedAgentLaunchBlocked}
-              agentStartBlockedReason={selectedAgentStartBlockedTitle}
-              openclawConfig={chat.config}
-              openclawModels={chat.models}
-              reportedChannels={chat.reportedChannels}
-              reportedChannelsReady={chat.reportedChannelsReady}
-              onUpdateAgentProfile={async (agentId, profile) => {
-                const generation = agentDataGenerationRef.current;
-                const updatedAgent = await runAgentMutation(agentId, async () => {
-                  if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
-                  const token = await getToken();
-                  if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
-                  return createAgentClient(token).update(agentId, profile);
-                });
-                if (!updatedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
-                applyAgentMutationResult(updatedAgent);
-              }}
-              onUpdateExternalAgentProfile={async (agentId, profile) => {
-                const generation = agentDataGenerationRef.current;
-                const updatedAgent = await runAgentMutation(agentId, async () => {
-                  if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
-                  const token = await getToken();
-                  if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
-                  return createAgentClient(token).updateExternalAgent(agentId, profile);
-                });
-                if (!updatedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
-                applyAgentMutationResult(updatedAgent);
-              }}
-              onUploadAgentAvatar={async (agentId, file) => {
-                const generation = agentDataGenerationRef.current;
-                return runAgentMutation(agentId, async () => {
-                  if (deletingAgentIdsRef.current.has(agentId)) throw new Error("Agent is being deleted.");
-                  const token = await getToken();
-                  if (generation !== agentDataGenerationRef.current) throw new Error("Account changed during upload.");
-                  if (deletingAgentIdsRef.current.has(agentId)) throw new Error("Agent is being deleted.");
-                  const client = createAgentClient(token);
-                  const upload = await client.uploadProfileImage(agentId, file, file.type || "image/png");
-                  if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return upload.avatar_url;
-                  const updatedAgent = await client.get(agentId);
-                  if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return upload.avatar_url;
-                  applyAgentMutationResult(updatedAgent);
-                  return upload.avatar_url;
-                });
-              }}
-              onUpdateAgentLaunchConfig={async (agentId, launchConfig) => {
-                const generation = agentDataGenerationRef.current;
-                const updatedAgent = await runAgentMutation(agentId, async () => {
-                  if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
-                  const token = await getToken();
-                  if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
-                  return createAgentClient(token).update(agentId, { launchConfig });
-                });
-                if (!updatedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
-                applyAgentMutationResult(updatedAgent);
-              }}
-              onSaveOpenClawConfig={async (patch) => {
-                await chat.saveConfig(patch);
-                completeJourneyForEvent("rules-confirmed");
-              }}
-              showFileSourceTabs={showFileSourceTabs}
-              onShowFileSourceTabsChange={handleShowFileSourceTabsChange}
-              isDesktopViewport={isDesktopViewport}
-            />
+            dashboardView ? null : renderAgentSettingsPanel(agentSettingsSection, true, setAgentSettingsSection)
           ) : mainTab === "logs" ? (
             <AgentLogsController
               ref={logsControllerRef}
@@ -5457,8 +5551,20 @@ function AgentsPageContent() {
                 workspaceAgents={workspaceAgents}
                 rosterError={agentRosterError}
               />
+            ) : isDesktopViewport ? (
+              settingsContent
             ) : (
-              <AccountSettingsPanel />
+              <div className="h-full min-h-0 bg-background">
+                <div className={showMobileSettingsMenu ? "h-full" : "hidden"}>
+                  <SettingsMenu
+                    activeSection={accountSettingsSection}
+                    backHref={selectedAgentHref}
+                    onSectionChange={selectAccountSettingsSection}
+                    className="w-full border-r-0"
+                  />
+                </div>
+                <div className={showMobileSettingsMenu ? "hidden" : "h-full min-h-0"}>{settingsContent}</div>
+              </div>
             )}
           </div>
         ) : null}

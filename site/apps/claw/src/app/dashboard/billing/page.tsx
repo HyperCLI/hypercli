@@ -7,7 +7,7 @@ export default function BillingPage() {
   const { getToken } = useAgentAuth();
 
   return (
-    <div className="mx-auto w-full max-w-[1000px]">
+    <div className="mx-auto w-full max-w-6xl">
       <ProfileBillingSection getToken={getToken} />
     </div>
   );

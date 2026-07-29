@@ -13,11 +13,16 @@ const mocks = vi.hoisted(() => {
     updateSubscription: vi.fn(),
     redeemGrantCode: vi.fn(),
   };
+  const agentClient = {
+    list: vi.fn(),
+  };
 
   return {
     getToken: vi.fn(),
     unstableTokenGetter: false,
     createHyperAgentClient: vi.fn(() => hyperAgent),
+    createAgentClient: vi.fn(() => agentClient),
+    agentClient,
     hyperAgent,
   };
 });
@@ -30,6 +35,7 @@ vi.mock("@/hooks/useAgentAuth", () => ({
 }));
 
 vi.mock("@/lib/agent-client", () => ({
+  createAgentClient: mocks.createAgentClient,
   createHyperAgentClient: mocks.createHyperAgentClient,
 }));
 
@@ -88,6 +94,7 @@ describe("PlansPage", () => {
       slotInventory: {},
     });
     mocks.hyperAgent.subscriptionSummary.mockResolvedValue(buildSummary());
+    mocks.agentClient.list.mockResolvedValue([]);
     mocks.hyperAgent.cancelSubscription.mockResolvedValue({ ok: true, message: "Cancellation scheduled" });
   });
 
@@ -246,8 +253,8 @@ describe("PlansPage", () => {
 
     renderWithClient(<PlansPage />);
 
-    expect(await screen.findByRole("heading", { name: "Catalog Medium" })).toBeVisible();
-    expect(screen.getByText("1x Medium")).toBeVisible();
+    const heading = await screen.findByRole("heading", { name: "Catalog Medium" });
+    expect(heading.nextElementSibling).toHaveTextContent("1x Medium");
 
     fireEvent.click(screen.getByRole("button", { name: /purchase/i }));
     expect(screen.getByRole("dialog")).toHaveTextContent('Checkout catalog-medium with bundle {"medium":1}');
@@ -295,8 +302,8 @@ describe("PlansPage", () => {
     renderWithClient(<PlansPage />);
 
     expect(await screen.findByRole("heading", { name: "Catalog Pro" })).toBeVisible();
-    expect(screen.getByText("Payment active, waiting for entitlement")).toBeVisible();
-    expect(screen.getByText("Current anchor: Catalog Pro")).toBeVisible();
+    expect(screen.getByText("Provisioning")).toBeVisible();
+    expect(screen.getByText("Agent capacity")).toBeVisible();
     expect(screen.getByRole("button", { name: /refresh billing/i })).toBeVisible();
   });
 
@@ -347,8 +354,75 @@ describe("PlansPage", () => {
     renderWithClient(<PlansPage />);
 
     expect(await screen.findByRole("heading", { name: "Catalog Pro" })).toBeVisible();
-    expect(screen.getByText("You own 1")).toBeVisible();
     expect(screen.getByRole("button", { name: /add another/i })).toBeVisible();
+  });
+
+  it("expands an active bundle with attributed agent details", async () => {
+    mocks.hyperAgent.plans.mockResolvedValue([{
+      id: "pro",
+      name: "Pro",
+      price: 79,
+      priceUsd: 79,
+      features: [],
+      models: [],
+      highlighted: true,
+      limits: { tpd: 250_000_000, tpm: 0, burstTpm: 500_000, rpm: 500 },
+      tpmLimit: 0,
+      rpmLimit: 500,
+      bundle: { large: 1 },
+    }]);
+    const subscription = {
+      id: "sub-pro",
+      userId: "user-1",
+      planId: "pro",
+      planName: "Pro",
+      provider: "stripe",
+      status: "active",
+      quantity: 1,
+      expiresAt: new Date("2026-08-28T00:00:00.000Z"),
+      updatedAt: null,
+      stripeSubscriptionId: "stripe-sub",
+      cancelAtPeriodEnd: false,
+      canCancel: true,
+      isCurrent: true,
+      meta: null,
+      planTpmLimit: 0,
+      planRpmLimit: 500,
+      planTpd: 250_000_000,
+      planAgentTier: "large",
+      slotGrants: { large: 1 },
+    };
+    mocks.hyperAgent.subscriptionSummary.mockResolvedValue(buildSummary({
+      pooledTpd: 250_000_000,
+      slotInventory: { large: { granted: 1, used: 1, available: 0 } },
+      activeSubscriptions: [subscription],
+      subscriptions: [subscription],
+      entitlementItems: [{
+        id: "ent-pro",
+        planId: "pro",
+        subscriptionId: "sub-pro",
+        startsAt: new Date("2026-02-14T00:00:00.000Z"),
+        expiresAt: new Date("2026-08-28T00:00:00.000Z"),
+        activeAgentIds: ["agent-1"],
+      }],
+    }));
+    mocks.agentClient.list.mockResolvedValue([{
+      id: "agent-1",
+      name: "Creative Performance Agent",
+      createdAt: new Date("2026-02-14T00:00:00.000Z"),
+    }]);
+
+    renderWithClient(<PlansPage />);
+
+    const bundleToggle = await screen.findByRole("button", { name: "Expand Pro bundle" });
+    expect(bundleToggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(bundleToggle);
+
+    expect(bundleToggle).toHaveAttribute("aria-expanded", "true");
+    expect(bundleToggle).toHaveAccessibleName("Collapse Pro bundle");
+    expect(screen.getByText("Creative Performance Agent")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Open Creative Performance Agent" })).toBeVisible();
+    expect(screen.getByRole("button", { name: /cancel at period end/i })).toBeVisible();
   });
 
   it("redeems activation codes without requesting extension by default", async () => {

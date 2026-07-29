@@ -183,7 +183,7 @@ function OpenClawSectionEditor({
 
   return (
     <OpenClawErrorBoundary>
-      <div className={isDesktopViewport ? "mx-auto max-w-5xl space-y-4" : "mx-auto max-w-xl space-y-4"}>
+      <div className={isDesktopViewport ? "mx-auto w-full max-w-6xl space-y-4" : "mx-auto max-w-xl space-y-4"}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             {!isDesktopViewport && (

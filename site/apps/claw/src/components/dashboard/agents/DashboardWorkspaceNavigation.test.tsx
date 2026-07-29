@@ -21,7 +21,6 @@ vi.mock("./AgentWorkspaceSidebar", () => ({
         <button type="button" onClick={() => (props.onOpenIntegrations as () => void)()}>Integrations</button>
         <button type="button" onClick={() => (props.onOpenSkills as () => void)()}>Skills</button>
         <button type="button" onClick={() => (props.onOpenOpenClaw as () => void)()}>OpenClaw Settings</button>
-        <button type="button" onClick={() => (props.onOpenSettings as () => void)()}>Settings</button>
         <button type="button" onClick={() => (props.onUpgrade as () => void)()}>Upgrade</button>
       </aside>
     );
@@ -107,7 +106,6 @@ describe("DashboardWorkspaceNavigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Integrations" }));
     fireEvent.click(screen.getByRole("button", { name: "Skills" }));
     fireEvent.click(screen.getByRole("button", { name: "OpenClaw Settings" }));
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     fireEvent.click(screen.getByRole("button", { name: "Upgrade" }));
 
     expect(mocks.push.mock.calls.map(([href]) => href)).toEqual([
@@ -115,7 +113,6 @@ describe("DashboardWorkspaceNavigation", () => {
       "/dashboard/agents?agentId=agent-1&tab=integrations",
       "/dashboard/agents?agentId=agent-1&tab=skills",
       "/dashboard/agents?agentId=agent-1&tab=openclaw",
-      "/dashboard/agents?agentId=agent-1&tab=settings",
       "/plans",
     ]);
   });

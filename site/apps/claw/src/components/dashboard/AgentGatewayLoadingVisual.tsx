@@ -103,7 +103,9 @@ export function AgentGatewayLoadingVisual({
 }) {
   return (
     <div className={`flex max-h-full min-h-0 flex-col items-center justify-center gap-5 text-center ${className}`}>
-      <AgentGatewayLoadingAnimation animationClassName={animationClassName} showCodePhase={showCodePhase} />
+      {status === "loading" ? (
+        <AgentGatewayLoadingAnimation animationClassName={animationClassName} showCodePhase={showCodePhase} />
+      ) : null}
       <AgentGatewayLoadingStatus
         title={title}
         detail={detail}

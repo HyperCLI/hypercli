@@ -36,6 +36,13 @@ describe("AgentScheduledPanel", () => {
     expect(onStartAgent).toHaveBeenCalledTimes(1);
   });
 
+  it("renders a disconnected gateway error without a loading animation", () => {
+    renderPanel({ connected: false, error: "Gateway handshake failed" });
+
+    expect(screen.getByRole("alert", { name: /could not load scheduled work gateway handshake failed/i })).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /agent workspace loading/i })).not.toBeInTheDocument();
+  });
+
   it("creates a recurring cron job from the prototype-style plain English form", async () => {
     const onCreate = vi.fn(async () => undefined);
     renderPanel({ onCreate });

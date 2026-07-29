@@ -35,6 +35,8 @@ const billingMocks = vi.hoisted(() => {
     payments: vi.fn(),
     billingProfile: vi.fn(),
     subscriptionSummary: vi.fn(),
+    usageHistory: vi.fn(),
+    redeemGrantCode: vi.fn(),
     updateBillingProfile: vi.fn(),
     cancelSubscription: vi.fn(),
   };
@@ -131,7 +133,10 @@ vi.mock("@/components/billing/stripe-billing-portal", () => ({
   openBillingPortalUrl: billingMocks.openBillingPortalUrl,
 }));
 
-vi.mock("@hypercli/shared-ui", () => ({
+vi.mock("@hypercli/shared-ui", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@hypercli/shared-ui")>();
+  return {
+  ...actual,
   Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipContent: () => null,
@@ -182,7 +187,8 @@ vi.mock("@hypercli/shared-ui", () => ({
       ))}
     </section>
   ),
-}));
+  };
+});
 
 import AccountSettingsPanel from "./AccountSettingsPanel";
 import { ProfileBillingSection } from "@/components/billing/ProfileBillingSection";
@@ -196,7 +202,11 @@ function buildSubscriptionSummary() {
     pooledTpmLimit: 4000,
     pooledRpmLimit: 120,
     pooledTpd: 50000,
-    slotInventory: {},
+    slotInventory: {
+      small: { granted: 1, used: 1, available: 0 },
+      medium: { granted: 1, used: 1, available: 0 },
+      large: { granted: 2, used: 2, available: 0 },
+    },
     billingResetAt,
     activeSubscriptionCount: 1,
     activeEntitlementCount: 1,
@@ -205,7 +215,11 @@ function buildSubscriptionSummary() {
       pooledTpmLimit: 4000,
       pooledRpmLimit: 120,
       pooledTpd: 50000,
-      slotInventory: {},
+      slotInventory: {
+        small: { granted: 1, used: 1, available: 0 },
+        medium: { granted: 1, used: 1, available: 0 },
+        large: { granted: 2, used: 2, available: 0 },
+      },
       activeEntitlementCount: 1,
       billingResetAt,
     },
@@ -327,6 +341,19 @@ function setupBillingMocks() {
     },
   });
   billingMocks.hyperAgent.subscriptionSummary.mockResolvedValue(buildSubscriptionSummary());
+  billingMocks.hyperAgent.usageHistory.mockResolvedValue({
+    history: [{ date: "2026-04-20", totalTokens: 12_500, promptTokens: 10_000, completionTokens: 2_500, requests: 8 }],
+    days: 1,
+  });
+  billingMocks.hyperAgent.redeemGrantCode.mockResolvedValue({
+    grant: { id: "grant-1", code: "promo-123" },
+    entitlement: {
+      id: "ent-promo",
+      planId: "pro",
+      planName: "Pro Plan",
+      expiresAt: new Date("2026-06-21T12:00:00Z"),
+    },
+  });
   billingMocks.hyperAgent.cancelSubscription.mockResolvedValue({ ok: true, message: "Cancellation scheduled" });
 }
 
@@ -381,9 +408,33 @@ describe("AccountSettingsPanel", () => {
 
     render(<ProfileBillingSection getToken={authMocks.getToken} />);
 
-    expect((await screen.findAllByText(/Pro Plan/)).length).toBeGreaterThan(0);
-    expect(screen.getByText(/auto renew on May 21, 2026/i)).toBeInTheDocument();
-    expect(screen.getByText(/Agent: Research Agent/i)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Active Bundles" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Renews May 21, 2026")).toBeInTheDocument();
+    expect(screen.getByText(/12\.5K/)).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Daily token pool usage" })).toHaveAttribute("aria-valuemax", "50000");
+
+    await user.click(screen.getByRole("button", { name: "Agents this cycle" }));
+    expect(screen.getByText("Basic")).toBeInTheDocument();
+    expect(screen.getByText("Plus")).toBeInTheDocument();
+    expect(screen.getByText("Pro")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Invoices" }));
+    expect(screen.getByRole("columnheader", { name: "Due date" })).toBeInTheDocument();
+    const upcomingStatus = screen.getAllByText("Upcoming")[0];
+    expect(upcomingStatus).toHaveClass("h-6", "items-center", "justify-center", "px-2.5", "py-0", "leading-none");
+    const completedStatus = screen.getAllByText("Completed")[0];
+    expect(completedStatus).toHaveClass("h-6", "items-center", "justify-center", "px-2.5", "py-0", "leading-none");
+    expect(completedStatus).toHaveClass(
+      "bg-[var(--selection-accent-soft)]",
+      "text-[var(--selection-accent)]",
+      "border-[var(--selection-accent-border)]",
+    );
+    expect(screen.getAllByText(/Agent: Research Agent/i).length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("tab", { name: "Overview" }));
+    await user.click(screen.getByRole("button", { name: "Manage" }));
+    expect(screen.getAllByText(/Pro Plan/).length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: "Adjust plan" })).toHaveAttribute("href", "/adjust-plan");
     expect(screen.getByText("Keeps access until May 21, 2026.")).toBeInTheDocument();
 
@@ -412,8 +463,24 @@ describe("AccountSettingsPanel", () => {
 
     render(<ProfileBillingSection getToken={authMocks.getToken} />);
 
+    expect(await screen.findByRole("heading", { name: "Active Bundles" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Manage" }));
     expect((await screen.findAllByText("USDC wallet payments")).length).toBeGreaterThan(0);
     expect(screen.getByText("No card settings")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /manage card/i })).not.toBeInTheDocument();
+  });
+
+  it("redeems a promo code from billing without extending an existing entitlement", async () => {
+    const user = userEvent.setup();
+    render(<ProfileBillingSection getToken={authMocks.getToken} />);
+
+    await screen.findByRole("heading", { name: "Active Bundles" });
+    await user.click(screen.getByRole("button", { name: "Redeem code" }));
+    await user.type(screen.getByLabelText("Activation code"), " promo-123 ");
+    await user.click(screen.getByRole("button", { name: "Activate Code" }));
+
+    await waitFor(() => expect(billingMocks.hyperAgent.redeemGrantCode).toHaveBeenCalledWith("promo-123"));
+    expect(billingMocks.hyperAgent.redeemGrantCode).not.toHaveBeenCalledWith("promo-123", expect.anything());
+    expect(await screen.findByText(/Code activated\. Pro Plan is now active/i)).toBeInTheDocument();
   });
 });

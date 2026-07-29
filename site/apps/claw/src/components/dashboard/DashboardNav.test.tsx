@@ -22,7 +22,7 @@ vi.mock("@/components/HyperCLILogoLink", () => ({
 }));
 
 vi.mock("@hypercli/shared-ui", () => ({
-  ThemeToggle: ({ showLabel }: { showLabel?: boolean }) => <button type="button">{showLabel ? "Theme" : ""}</button>,
+  ThemeSelector: () => <div>Theme</div>,
 }));
 
 vi.mock("framer-motion", () => ({

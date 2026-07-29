@@ -10,6 +10,7 @@ import {
   Check,
   ChevronUp,
   ChevronsUpDown,
+  Code2,
   Codepen,
   Command,
   FolderOpen,
@@ -22,7 +23,6 @@ import {
   Pin,
   PinOff,
   Plus,
-  Settings,
   Sparkles,
   SlidersHorizontal,
   TerminalSquare,
@@ -103,7 +103,6 @@ interface AgentWorkspaceSidebarProps {
   onShellIntent?: () => void;
   onShellIntentEnd?: () => void;
   onOpenOpenClaw: () => void;
-  onOpenSettings: () => void;
   onUpgrade: () => void;
   onStartTrial?: () => void;
   renderMobile?: boolean;
@@ -1145,7 +1144,6 @@ export function AgentWorkspaceSidebar({
   onShellIntent,
   onShellIntentEnd,
   onOpenOpenClaw,
-  onOpenSettings,
   onUpgrade,
   onStartTrial,
   renderMobile = false,
@@ -1203,9 +1201,20 @@ export function AgentWorkspaceSidebar({
     : `${tokensUsed == null ? emptyUsageLabel : formatTokens(tokensUsed)} / --`;
   const onUsageAction = isAuthenticated ? onUpgrade : onStartTrial ?? onUpgrade;
   const hasSelectedAgent = Boolean(selectedAgent);
-  const sessionsLoading = Array.isArray(sessions) && !sessionsFetched;
-  const sessionsInteractive = hasSelectedAgent && sessionsFetched && !disabled;
-  const sessionsDisabledReason = disabled ? disabledReason : sessionsFetched ? undefined : sessionsUnavailableReason;
+  const agentState: AgentState | undefined = selectedAgent?.state;
+  const noSelectedAgent = !selectedAgent;
+  const agentNotRunning = agentState !== "RUNNING";
+  const stoppedReason = "Agent must be running";
+  const emptyStateReason = "Select or create an agent first.";
+  const sessionsLoading = hasSelectedAgent && !agentNotRunning && Array.isArray(sessions) && !sessionsFetched;
+  const sessionsInteractive = hasSelectedAgent && !agentNotRunning && sessionsFetched && !disabled;
+  const sessionsDisabledReason = disabled
+    ? disabledReason
+    : agentNotRunning
+      ? stoppedReason
+      : sessionsFetched
+        ? undefined
+        : sessionsUnavailableReason;
   const sortedSessions = useMemo(() => {
     if (!hasSelectedAgent) return [];
     const sourceSessions = sessions ?? [];
@@ -1237,11 +1246,6 @@ export function AgentWorkspaceSidebar({
   }, [pinnedSessionKeys, selectedSessionKey, showAllRecent, sortedSessions, titledSessions]);
   const hiddenSessionCount = Math.max(0, titledSessions.length - visibleSessions.length);
   const renameTargetTitle = renameTarget ? sessionTitle(renameTarget) : "";
-  const agentState: AgentState | undefined = selectedAgent?.state;
-  const noSelectedAgent = !selectedAgent;
-  const agentNotRunning = agentState !== "RUNNING";
-  const stoppedReason = "Agent must be running";
-  const emptyStateReason = "Select or create an agent first.";
 
   const disabledItemProps = disabled
     ? { disabled: true, disabledReason }
@@ -1337,7 +1341,6 @@ export function AgentWorkspaceSidebar({
     { id: "logs", label: "Logs", icon: TerminalSquare, active: activeTab === "logs", onClick: onOpenLogs, ...advancedDisabled },
     { id: "shell", label: "Shell", icon: TerminalSquare, active: activeTab === "shell", onClick: onOpenShell, ...advancedDisabled },
     { id: "openclaw", label: "OpenClaw Settings", icon: SlidersHorizontal, active: activeTab === "openclaw", onClick: onOpenOpenClaw, ...(disabled || noSelectedAgent ? { disabled: true, disabledReason: advancedDropdownDisabledReason } : {}) },
-    { id: "settings", label: "Settings", icon: Settings, active: activeTab === "settings", onClick: onOpenSettings, ...(disabled || noSelectedAgent ? { disabled: true, disabledReason: advancedDropdownDisabledReason } : {}) },
   ];
   const advancedActive = advancedItems.some((item) => item.active);
   const prepareShell = () => {
@@ -1599,7 +1602,7 @@ export function AgentWorkspaceSidebar({
                         : "text-text-secondary hover:bg-surface-low/60 hover:text-foreground"
                   }`}
                 >
-                  <Settings className="h-4 w-4" />
+                  <Code2 className="h-4 w-4" />
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right">{advancedDropdownDisabled ? advancedDropdownDisabledReason : "Advanced"}</TooltipContent>
@@ -1622,7 +1625,7 @@ export function AgentWorkspaceSidebar({
             }`}
           >
             <span className={`inline-flex items-center ${renderMobile ? "gap-3.5" : "gap-3"}`}>
-              <Settings className={renderMobile ? "h-5 w-5" : "h-4 w-4"} />
+              <Code2 className={renderMobile ? "h-5 w-5" : "h-4 w-4"} />
               Advanced
             </span>
             <ChevronUp className={`${renderMobile ? "h-5 w-5" : "h-4 w-4"} transition-transform ${advancedItemsOpen ? "rotate-180" : ""}`} />

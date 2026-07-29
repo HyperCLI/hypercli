@@ -24,7 +24,7 @@ import {
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
-import { ThemeToggle } from "@hypercli/shared-ui";
+import { ThemeSelector } from "@hypercli/shared-ui";
 import { ACCOUNT_PAGE_HREFS, DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
 
 const dropdownNavItems = [
@@ -78,7 +78,6 @@ export function DashboardNav() {
     { key: "files", label: "Files", icon: HardDrive },
     { key: "workspace", label: "Workspace", icon: FolderOpen },
     { key: "integrations", label: "Integrations", icon: Plug },
-    { key: "settings", label: "Settings", icon: Settings },
   ];
 
   return (
@@ -143,7 +142,7 @@ export function DashboardNav() {
                       Settings
                     </Link>
 
-                    <ThemeToggle showLabel title="" role="menuitem" className="w-full justify-start px-3" />
+                    <ThemeSelector aria-label="Appearance theme" className="w-full" />
 
                     <button
                       onClick={() => {
@@ -257,7 +256,7 @@ export function DashboardNav() {
                   </div>
                 )}
 
-                <ThemeToggle showLabel title="" className="mb-2 w-full justify-start px-2" />
+                <ThemeSelector className="mb-2 w-full" />
                 <button
                   onClick={() => {
                     setMobileMenuOpen(false);
