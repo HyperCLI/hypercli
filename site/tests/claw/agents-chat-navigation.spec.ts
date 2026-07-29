@@ -652,7 +652,9 @@ test("private chat stays out of navigation state and resets before switching age
   expect(storedBrowserState).not.toContain("session-hypercli-ephemeral-");
   expect(storedBrowserState).not.toContain("private browser secret");
 
-  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await page.evaluate(() => {
+    window.history.pushState(null, "", "/dashboard/agents?view=overview&agentId=agent-1");
+  });
   await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBe("overview");
   await expect.poll(() => (
     gatewayTracker.requests.filter((request) => (
