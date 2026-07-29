@@ -20,7 +20,7 @@ export type OpenClawWorkspacesSyncOptions = {
   workspace?: string | null;
 };
 
-type OpenClawLaunchOptions = Pick<OpenClawCreateAgentOptions & OpenClawStartAgentOptions, "image" | "env" | "openClawRoutes"> & {
+type OpenClawLaunchOptions = Pick<OpenClawCreateAgentOptions & OpenClawStartAgentOptions, "image" | "env" | "config" | "openClawRoutes"> & {
   memoryIndex: OpenClawMemoryIndexOptions | null;
   workspacesSync: OpenClawWorkspacesSyncOptions | boolean | null;
 };
@@ -133,11 +133,13 @@ export function buildOpenClawLaunchOptions({
   customImage,
   memoryIndex,
   workspacesSync,
+  skipBootstrap = false,
 }: {
   desktopEnabled: boolean;
   customImage?: string | null;
   memoryIndex?: OpenClawMemoryIndexOptions | null;
   workspacesSync?: OpenClawWorkspacesSyncOptions | boolean | null;
+  skipBootstrap?: boolean;
 }): OpenClawLaunchOptions {
   const baseImage = envValue(OPENCLAW_IMAGE_ENV);
   const proImage = envValue(OPENCLAW_PRO_IMAGE_ENV);
@@ -151,6 +153,17 @@ export function buildOpenClawLaunchOptions({
 
   return {
     image,
+    ...(skipBootstrap
+      ? {
+          config: {
+            agents: {
+              defaults: {
+                skipBootstrap: true,
+              },
+            },
+          },
+        }
+      : {}),
     env: {
       ...(hyperApiBase ? { HYPER_API_BASE: hyperApiBase } : {}),
       ...buildOpenClawWorkspacesSyncEnv(workspacesSync ?? null),

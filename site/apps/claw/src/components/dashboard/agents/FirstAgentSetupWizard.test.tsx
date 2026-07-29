@@ -4,7 +4,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { HyperAgentPlan } from "@hypercli.com/sdk/agent";
 import { renderWithClient } from "@/test/utils";
 
-import { FirstAgentSetupWizard, updateFirstAgentSetupDraftPlan } from "./FirstAgentSetupWizard";
+import {
+  FirstAgentSetupWizard,
+  updateFirstAgentSetupDraftPlan,
+  type FirstAgentSetupCreateParams,
+} from "./FirstAgentSetupWizard";
 
 const catalogPlans = [
   {
@@ -84,6 +88,7 @@ function getPlanFooterAction(name: string): HTMLElement {
 }
 
 function goToPlanStep() {
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 }
 
@@ -396,6 +401,7 @@ describe("FirstAgentSetupWizard", () => {
     expect(await screen.findByRole("heading", { name: "Choose your plan" })).toBeInTheDocument();
     expect(screen.queryByText(/Reselect brief\.pdf/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByLabelText("Agent name")).toHaveValue("restored-agent");
     fireEvent.click(screen.getByText("Advanced").closest("summary")!);
     expect(screen.getByRole("button", { name: "Shield avatar" })).toHaveAttribute("aria-pressed", "true");
@@ -524,7 +530,7 @@ describe("FirstAgentSetupWizard", () => {
   });
 
   it("uses Pro launch state when the effective plan is a merged 5 AIU plan", async () => {
-    const onCreateAgent = vi.fn(async () => "agent-1");
+    const onCreateAgent = vi.fn(async (_params: FirstAgentSetupCreateParams) => "agent-1");
 
     renderWithClient(
       <FirstAgentSetupWizard
@@ -712,9 +718,10 @@ describe("FirstAgentSetupWizard", () => {
     expect(screen.getByText("1 Medium slot available")).toBeInTheDocument();
     fireEvent.click(getPlanCardAction("Launch agent"));
 
-    await waitFor(() =>
-      expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({ files: [], size: "medium" })),
-    );
+    await waitFor(() => expect(onCreateAgent).toHaveBeenCalled());
+    const createParams = onCreateAgent.mock.calls[0]?.[0];
+    expect(createParams).toEqual(expect.objectContaining({ size: "medium" }));
+    expect(createParams?.files.map((file) => file.name)).toEqual(["AGENTS.md", "SOUL.md", "USER.md"]);
     expect(onOpenPlanCatalog).not.toHaveBeenCalled();
   });
 

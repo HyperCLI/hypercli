@@ -26,8 +26,6 @@ describe("OpenClawBootstrapStep", () => {
         version: OPENCLAW_BOOTSTRAP_PACK_VERSION,
         inputs,
         files: buildDeterministicOpenClawBootstrapPack(inputs),
-        pendingAgentId: null,
-        filesStaged: false,
         generationSource: "deterministic",
       });
       return (

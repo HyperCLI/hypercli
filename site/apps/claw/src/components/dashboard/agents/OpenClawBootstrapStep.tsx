@@ -3,10 +3,9 @@
 import React from "react";
 import { Check, FileText, LoaderCircle, RefreshCw } from "lucide-react";
 import {
-  OPENCLAW_BOOTSTRAP_PACK_VERSION,
   OPENCLAW_BOOTSTRAP_REQUIRED_FILES,
   buildDeterministicOpenClawBootstrapPack,
-  createDefaultOpenClawBootstrapInputs,
+  createOpenClawBootstrapDraft,
   type OpenClawBootstrapDraft,
   type OpenClawBootstrapFileName,
   type OpenClawBootstrapInputs,
@@ -27,15 +26,7 @@ const FILE_LABELS: Record<OpenClawBootstrapFileName, string> = {
 };
 
 function newDraft(agentName: string, inputs?: Partial<OpenClawBootstrapInputs>): OpenClawBootstrapDraft {
-  const normalizedInputs = { ...createDefaultOpenClawBootstrapInputs(agentName), ...inputs, agentName };
-  return {
-    version: OPENCLAW_BOOTSTRAP_PACK_VERSION,
-    inputs: normalizedInputs,
-    files: buildDeterministicOpenClawBootstrapPack(normalizedInputs),
-    pendingAgentId: null,
-    filesStaged: false,
-    generationSource: "deterministic",
-  };
+  return createOpenClawBootstrapDraft(agentName, inputs);
 }
 
 export function OpenClawBootstrapStep({
@@ -81,8 +72,6 @@ export function OpenClawBootstrapStep({
       ...effectiveDraft,
       inputs,
       files: fallbackFiles,
-      pendingAgentId: null,
-      filesStaged: false,
       generationSource: "deterministic",
     });
     if (!onGenerate) return;
@@ -93,8 +82,6 @@ export function OpenClawBootstrapStep({
         ...effectiveDraft,
         inputs,
         files,
-        pendingAgentId: null,
-        filesStaged: false,
         generationSource: "model",
       });
     } catch {
@@ -141,7 +128,7 @@ export function OpenClawBootstrapStep({
     ?? effectiveDraft.files[0];
 
   return (
-    <div className="grid min-h-0 gap-4 lg:grid-cols-[minmax(280px,0.9fr)_minmax(360px,1.1fr)]">
+    <div className="grid min-h-0 gap-4 md:grid-cols-[minmax(240px,0.9fr)_minmax(300px,1.1fr)]">
       <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
         <div className="rounded-[14px] border border-border bg-surface-high p-4">
           <p className="text-[13px] font-semibold text-foreground">Shape the agent</p>

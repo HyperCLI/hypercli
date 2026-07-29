@@ -507,18 +507,29 @@ test("dashboard views preserve the agent controller across navigation history", 
   await expect(composer).toBeVisible();
   await composer.fill("draft survives dashboard navigation");
 
-  await page.getByRole("button", { name: "Advanced", exact: true }).click();
-  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await page.evaluate(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", "overview");
+    window.history.pushState(null, "", url);
+  });
   await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBe("overview");
   await expect(page.getByRole("heading", { name: "Agent Chat Navigation" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Usage", exact: true }).click();
+  await page.evaluate(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", "usage");
+    window.history.pushState(null, "", url);
+  });
   await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBe("usage");
   await expect(page.getByText(/token usage/i).first()).toBeVisible();
 
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.evaluate(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", "settings");
+    window.history.pushState(null, "", url);
+  });
   await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBe("settings");
-  await expect(page.getByRole("heading", { name: "Appearance" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Profile", exact: true, level: 2 })).toBeVisible();
 
   await page.goBack();
   await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBe("usage");

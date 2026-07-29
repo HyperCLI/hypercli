@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { uniqueStarterFileName, uploadAgentStarterFiles, type AgentStarterFile } from "./agent-starter-files";
+import {
+  stageAgentStarterFilesAndStart,
+  uniqueStarterFileName,
+  uploadAgentStarterFiles,
+  type AgentStarterFile,
+} from "./agent-starter-files";
 
 function starterFile(name: string, content: string, type = "text/plain"): AgentStarterFile {
   return {
@@ -48,5 +53,32 @@ describe("agent starter files", () => {
       expect.anything(),
       "s3",
     );
+  });
+
+  it("stages every canonical file to S3 before starting the agent", async () => {
+    const events: string[] = [];
+    const files = [
+      starterFile("AGENTS.md", "# AGENTS.md"),
+      starterFile("SOUL.md", "# SOUL.md"),
+      starterFile("USER.md", "# USER.md"),
+    ];
+
+    await stageAgentStarterFilesAndStart({
+      agentId: "agent-1",
+      files,
+      writeFileBytes: async (_agentId, path, _content, destination) => {
+        events.push(`write:${destination}:${path}`);
+      },
+      startAgent: async (agentId) => {
+        events.push(`start:${agentId}`);
+      },
+    });
+
+    expect(events).toEqual([
+      "write:s3:.openclaw/workspace/AGENTS.md",
+      "write:s3:.openclaw/workspace/SOUL.md",
+      "write:s3:.openclaw/workspace/USER.md",
+      "start:agent-1",
+    ]);
   });
 });

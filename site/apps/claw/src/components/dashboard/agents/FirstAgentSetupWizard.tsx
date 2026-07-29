@@ -40,8 +40,14 @@ import {
   readFirstAgentSetupDraft,
   writeFirstAgentSetupDraft,
 } from "@/hooks/useFirstAgentSetupDraft";
+import {
+  createOpenClawBootstrapDraft,
+  type OpenClawBootstrapDraft,
+  type OpenClawBootstrapInputs,
+} from "@/lib/openclaw-bootstrap-pack";
 import { PlanComparisonModal } from "./PlanComparisonModal";
 import { SlotProvisioningStatus } from "./SlotProvisioningStatus";
+import { OpenClawBootstrapStep } from "./OpenClawBootstrapStep";
 import {
   createFirstAgentWizardState,
   firstAgentWizardReducer,
@@ -59,6 +65,7 @@ export interface FirstAgentSetupCreateParams {
 
 interface FirstAgentSetupWizardProps {
   onCreateAgent: (params: FirstAgentSetupCreateParams) => Promise<string | null>;
+  onGenerateBootstrap?: (inputs: OpenClawBootstrapInputs) => Promise<OpenClawBootstrapDraft["files"]>;
   onOpenPlanCatalog?: (planId?: string) => void | Promise<void>;
   onClose?: () => void;
   initialPlanId?: string | null;
@@ -77,7 +84,7 @@ interface FirstAgentSetupWizardProps {
   size?: "default" | "inline" | "large";
 }
 
-type WizardStepId = "identity" | "plan";
+type WizardStepId = "identity" | "workspace" | "plan";
 
 const EMPTY_SLOT_INVENTORY: SlotInventory = {};
 
@@ -100,13 +107,17 @@ const stepCopy: Record<WizardStepId, { title: string; subtitle: string }> = {
     title: "Create agent",
     subtitle: "Give it a name, a look, and a quick note on what it does. You can change anything later.",
   },
+  workspace: {
+    title: "Set up the workspace",
+    subtitle: "Shape the canonical instructions OpenClaw will read when this agent starts.",
+  },
   plan: {
     title: "Choose your plan",
     subtitle: "From a single text agent to a full AI workforce.",
   },
 };
 
-const steps: WizardStepId[] = ["identity", "plan"];
+const steps: WizardStepId[] = ["identity", "workspace", "plan"];
 const agentNameFirstWords = [
   "bright",
   "clear",
@@ -819,6 +830,7 @@ function LaunchCapacityFallback({
 
 export function FirstAgentSetupWizard({
   onCreateAgent,
+  onGenerateBootstrap,
   onOpenPlanCatalog,
   onClose,
   initialPlanId,
@@ -850,6 +862,9 @@ export function FirstAgentSetupWizard({
   const [enableCustomImage, setEnableCustomImage] = React.useState(restoredDraft?.enableCustomImage ?? false);
   const [customImage, setCustomImage] = React.useState(restoredDraft?.customImage ?? "");
   const [customImageEdited, setCustomImageEdited] = React.useState(Boolean(restoredDraft?.customImage));
+  const [bootstrapDraft, setBootstrapDraft] = React.useState<OpenClawBootstrapDraft>(() => (
+    createOpenClawBootstrapDraft(restoredDraft?.name ?? "Your agent")
+  ));
   const slotInventory = budget?.slots ?? EMPTY_SLOT_INVENTORY;
   const planOptions = React.useMemo(
     () => buildLaunchPlanOptions(subscriptionSummary, slotInventory, catalogPlans, pendingSlotReleases),
@@ -942,7 +957,11 @@ export function FirstAgentSetupWizard({
   React.useEffect(() => {
     if (!restoredDraft) return;
     const timeout = window.setTimeout(() => {
-      dispatchWizard({ type: "GO_TO_STEP", stepIndex: 1, maxStepIndex: steps.length - 1 });
+      dispatchWizard({
+        type: "GO_TO_STEP",
+        stepIndex: steps.indexOf("plan"),
+        maxStepIndex: steps.length - 1,
+      });
     }, 0);
     return () => window.clearTimeout(timeout);
   }, [restoredDraft]);
@@ -1018,7 +1037,9 @@ export function FirstAgentSetupWizard({
         name: displayName,
         iconIndex: selectedIconIndex,
         size: plan.size,
-        files: [],
+        files: bootstrapDraft.files.map((file) => (
+          new File([file.content], file.name, { type: "text/markdown" })
+        )),
         enableDesktop,
         enableMemoryIndex,
         customImage: selectedCustomImage,
@@ -1283,6 +1304,38 @@ export function FirstAgentSetupWizard({
           </>
         )}
 
+        {currentStep === "workspace" && (
+          <>
+            <div
+              data-slot="agent-setup-scroll-body"
+              className={cx(
+                "min-h-0 flex-1 overflow-y-auto",
+                largePresentation ? "px-5 py-5 sm:px-8 sm:py-7" : "px-5 py-4 sm:px-6",
+              )}
+            >
+              <OpenClawBootstrapStep
+                agentName={displayName}
+                draft={bootstrapDraft}
+                onChange={setBootstrapDraft}
+                onGenerate={onGenerateBootstrap}
+              />
+            </div>
+            <footer className={cx(
+              "relative flex flex-shrink-0 items-center justify-between gap-2 border-t border-border bg-surface-low",
+              largePresentation ? "h-[82px] px-5 sm:h-[104px] sm:px-8" : "h-[72px] px-5 sm:px-6",
+            )}>
+              <WizardButton large={largePresentation} variant="secondary" onClick={() => goToStep(0)}>
+                <ChevronLeft className="mr-2 h-4 w-4" />
+                Back
+              </WizardButton>
+              {largePresentation ? null : <WizardMomentum finalStep={false} />}
+              <WizardButton large={largePresentation} onClick={() => goToStep(2)}>
+                Continue
+              </WizardButton>
+            </footer>
+          </>
+        )}
+
         {currentStep === "plan" && (
           <>
             <div data-slot="agent-setup-scroll-body" className={cx("min-h-0 flex-1 overflow-y-auto", largePresentation ? "px-5 py-5 sm:px-8 sm:py-7" : "px-5 py-5 sm:px-6 lg:px-7")}>
@@ -1392,7 +1445,7 @@ export function FirstAgentSetupWizard({
             "relative flex flex-shrink-0 items-center gap-2 border-t border-border bg-surface-low",
             largePresentation ? "h-[82px] justify-between px-5 sm:h-[104px] sm:px-8" : "h-[72px] px-5 sm:px-6",
           )}>
-            <WizardButton large={largePresentation} variant="secondary" onClick={() => goToStep(0)}>
+            <WizardButton large={largePresentation} variant="secondary" onClick={() => goToStep(1)}>
               <ChevronLeft className="mr-2 h-4 w-4" />
               Back
             </WizardButton>

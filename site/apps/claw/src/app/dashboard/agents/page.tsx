@@ -113,6 +113,12 @@ import {
 } from "@/lib/openclaw-config";
 import { getOpenClawDefaultModel } from "@/lib/openclaw-models";
 import { buildOpenClawLaunchOptions } from "@/lib/openclaw-launch";
+import {
+  buildOpenClawBootstrapGenerationMessages,
+  buildOpenClawBootstrapResponseFormat,
+  parseGeneratedOpenClawBootstrapPack,
+  type OpenClawBootstrapInputs,
+} from "@/lib/openclaw-bootstrap-pack";
 import { displayNameForDashboard } from "@/lib/dashboard-greeting";
 import {
   clearStripeCheckoutReturnState,
@@ -203,7 +209,7 @@ import {
   syncDashboardSearchParams,
   type DashboardView,
 } from "@/lib/dashboard-route";
-import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
+import { stageAgentStarterFilesAndStart } from "@/lib/agent-starter-files";
 import { markDashboardPerformance, measureDashboardPerformance } from "@/lib/agent-dashboard-performance";
 import { normalizeCronJob } from "@/lib/cron-jobs";
 import {
@@ -3258,6 +3264,19 @@ function AgentsPageContent() {
     }
   };
 
+  const generateOpenClawBootstrap = useCallback(async (inputs: OpenClawBootstrapInputs) => {
+    const token = await getToken();
+    const result = await createAgentClient(token).bootstrapInference(
+      buildOpenClawBootstrapGenerationMessages(inputs),
+      buildOpenClawBootstrapResponseFormat(inputs),
+      { timeout: 330_000, retries: 0 },
+    );
+    if (result.finish_reason && result.finish_reason !== "stop") {
+      throw new Error(`Bootstrap generation did not finish (${result.finish_reason}).`);
+    }
+    return parseGeneratedOpenClawBootstrapPack(result.content, inputs);
+  }, [getToken]);
+
   const handleCreateFirstAgent = useCallback(async ({ name, iconIndex, size, files, enableDesktop, enableMemoryIndex = false, customImage = null }: AgentCreationSetupCreateParams) => {
     if (!isAuthenticated) {
       requestAuthentication({ kind: "launch" });
@@ -3275,12 +3294,13 @@ function AgentsPageContent() {
       if (generation !== agentDataGenerationRef.current) return null;
       const created = await createOpenClawAgent(token, {
         name: name || undefined,
-        start: true,
+        start: files.length === 0,
         size,
         meta: { ui: { avatar: { icon_index: iconIndex } } },
         ...buildOpenClawLaunchOptions({
           desktopEnabled: enableDesktop,
           customImage,
+          skipBootstrap: files.length > 0,
           memoryIndex: enableMemoryIndex
             ? { onSessionStart: true, onSearch: true, watch: true, watchDebounceMs: 30000, intervalMinutes: 0 }
             : null,
@@ -3291,20 +3311,22 @@ function AgentsPageContent() {
         if (files.length > 0) {
           try {
             const agentClient = createAgentClient(token);
-            await uploadAgentStarterFiles({
+            await stageAgentStarterFilesAndStart({
               agentId: created.id,
               files,
               writeFileBytes: (agentId, path, content, destination) => (
                 agentClient.fileWriteBytes(agentId, path, content, destination)
               ),
+              startAgent: (agentId) => startOpenClawAgent(token, agentId),
             });
             if (generation !== agentDataGenerationRef.current) return null;
           } catch (uploadError) {
             if (generation !== agentDataGenerationRef.current) return null;
-            setError(uploadError instanceof Error
+            throw new Error(uploadError instanceof Error
               ? `Agent created, but starter files could not be uploaded: ${uploadError.message}`
               : "Agent created, but starter files could not be uploaded.");
           }
+          if (generation !== agentDataGenerationRef.current) return null;
         }
         try {
           await associateAgentWithSelectedWorkspace(created.id);
@@ -5245,6 +5267,7 @@ function AgentsPageContent() {
                 onOpenPlanCatalog={(planId) => {
                   return openUpgradeCatalog(planId);
                 }}
+                onGenerateBootstrap={generateOpenClawBootstrap}
                 onCreateAgent={createAgentFromLauncher}
               />
             </div>

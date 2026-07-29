@@ -23,7 +23,7 @@ import { FilePreview, type FileEntry } from "@hypercli/shared-ui/files";
 import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { ResourceImage } from "@/components/ResourceImage";
 import { createAgentClient } from "@/lib/agent-client";
-import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
+import { stageAgentStarterFilesAndStart } from "@/lib/agent-starter-files";
 import { moveAgentInRosterOrder, useAgentRosterOrder } from "@/hooks/useAgentRosterOrder";
 import { useAgentRosterShowOffline } from "@/hooks/useAgentRosterShowOffline";
 import { CollapsedAgentReorderItem } from "@/components/dashboard/agents/CollapsedAgentReorderItem";
@@ -2645,12 +2645,13 @@ export function AgentList({
       const token = await getToken();
       const created = await createOpenClawAgent(token, {
         name: name || undefined,
-        start: true,
+        start: files.length === 0,
         size,
         meta: { ui: { avatar: { icon_index: iconIndex } } },
         ...buildOpenClawLaunchOptions({
           desktopEnabled: enableDesktop,
           customImage,
+          skipBootstrap: files.length > 0,
           memoryIndex: enableMemoryIndex
             ? { onSessionStart: true, onSearch: true, watch: true, watchDebounceMs: 30000, intervalMinutes: 0 }
             : null,
@@ -2661,15 +2662,16 @@ export function AgentList({
         if (files.length > 0) {
           try {
             const agentClient = createAgentClient(token);
-            await uploadAgentStarterFiles({
+            await stageAgentStarterFilesAndStart({
               agentId: createdId,
               files,
               writeFileBytes: (agentId, path, content, destination) => (
                 agentClient.fileWriteBytes(agentId, path, content, destination)
               ),
+              startAgent: (agentId) => agentClient.startOpenClaw(agentId),
             });
           } catch (uploadError) {
-            setError(uploadError instanceof Error
+            throw new Error(uploadError instanceof Error
               ? `Agent created, but starter files could not be uploaded: ${uploadError.message}`
               : "Agent created, but starter files could not be uploaded.");
           }

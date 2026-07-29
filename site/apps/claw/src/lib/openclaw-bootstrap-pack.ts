@@ -33,8 +33,6 @@ export interface OpenClawBootstrapDraft {
   version: typeof OPENCLAW_BOOTSTRAP_PACK_VERSION;
   inputs: OpenClawBootstrapInputs;
   files: OpenClawBootstrapFile[];
-  pendingAgentId: string | null;
-  filesStaged: boolean;
   generationSource?: "deterministic" | "model";
 }
 
@@ -82,6 +80,22 @@ export function createDefaultOpenClawBootstrapInputs(agentName = "Your agent"): 
     toolsNotes: "",
     includeMemory: false,
     memoryNotes: "",
+  };
+}
+
+export function createOpenClawBootstrapDraft(
+  agentName: string,
+  inputs?: Partial<OpenClawBootstrapInputs>,
+): OpenClawBootstrapDraft {
+  const normalizedInputs = normalizeOpenClawBootstrapInputs(
+    { ...inputs, agentName },
+    agentName,
+  );
+  return {
+    version: OPENCLAW_BOOTSTRAP_PACK_VERSION,
+    inputs: normalizedInputs,
+    files: buildDeterministicOpenClawBootstrapPack(normalizedInputs),
+    generationSource: "deterministic",
   };
 }
 
@@ -388,8 +402,6 @@ export function parseOpenClawBootstrapDraft(value: unknown): OpenClawBootstrapDr
       version: OPENCLAW_BOOTSTRAP_PACK_VERSION,
       inputs,
       files,
-      pendingAgentId: clean(raw.pendingAgentId, 100) || null,
-      filesStaged: Boolean(raw.filesStaged),
       generationSource: raw.generationSource === "model" ? "model" : "deterministic",
     };
   } catch {
