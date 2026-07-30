@@ -88,7 +88,7 @@ jobs:
             --target "${{ matrix.target }}" \
             -p buzz-backend-hypercli
           "target/${{ matrix.target }}/release/${{ matrix.executable }}" <<<'{"op":"info","request_id":"release-smoke"}' \
-            | python3 -c 'import json,sys; value=json.load(sys.stdin); assert value["ok"] is True; assert value["request_id"] == "release-smoke"'
+            | python3 -c 'import json,sys; value=json.load(sys.stdin); assert value["ok"] is True; assert value["name"] == "HyperCLI"'
 
       - name: Package unsigned native binary
         working-directory: rs-sdk
