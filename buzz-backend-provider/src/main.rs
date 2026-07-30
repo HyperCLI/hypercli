@@ -1,14 +1,15 @@
 use std::io::{Read, Write};
 
 use buzz_backend_hypercli::{
-    deploy, map_config_error, provider_info, ErrorResponse, ProviderRequest,
+    deploy_with_dry_run, map_config_error, provider_info, stop, ErrorResponse, ProviderRequest,
 };
 use hypercli_sdk::{discover_client_config, HyperCliClient};
 
 const MAX_REQUEST_BYTES: u64 = 1_048_576;
 
 fn main() {
-    let response = run().unwrap_or_else(|error| {
+    let dry_run = std::env::args().skip(1).any(|arg| arg == "--dry-run");
+    let response = run(dry_run).unwrap_or_else(|error| {
         serde_json::to_value(ErrorResponse {
             ok: false,
             error: &error.to_string(),
@@ -22,7 +23,7 @@ fn main() {
     }
 }
 
-fn run() -> Result<serde_json::Value, buzz_backend_hypercli::ProviderError> {
+fn run(dry_run: bool) -> Result<serde_json::Value, buzz_backend_hypercli::ProviderError> {
     let mut bytes = Vec::new();
     std::io::stdin()
         .lock()
@@ -50,8 +51,24 @@ fn run() -> Result<serde_json::Value, buzz_backend_hypercli::ProviderError> {
             let config = discover_client_config().map_err(map_config_error)?;
             let client =
                 HyperCliClient::new(config).map_err(buzz_backend_hypercli::map_client_error)?;
-            serde_json::to_value(deploy(&client, *agent, provider_config)?)
-                .map_err(|_| buzz_backend_hypercli::ProviderError::HyperCli)
+            serde_json::to_value(deploy_with_dry_run(
+                &client,
+                *agent,
+                provider_config,
+                dry_run,
+            )?)
+            .map_err(|_| buzz_backend_hypercli::ProviderError::ResponseEncoding)
+        }
+        ProviderRequest::Stop {
+            request_id,
+            agent_id,
+        } => {
+            let _ = request_id;
+            let config = discover_client_config().map_err(map_config_error)?;
+            let client =
+                HyperCliClient::new(config).map_err(buzz_backend_hypercli::map_client_error)?;
+            serde_json::to_value(stop(&client, agent_id)?)
+                .map_err(|_| buzz_backend_hypercli::ProviderError::ResponseEncoding)
         }
     }
 }

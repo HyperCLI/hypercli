@@ -58,7 +58,10 @@ It also supports unapplied grant codes:
 ## Repo Layout
 
 - `sdk/` Python SDK (`hypercli-sdk`)
+- `rs-sdk/` Rust SDK (`hypercli-sdk`)
+- `ts-sdk/` TypeScript SDK
 - `cli/` CLI (`hypercli-cli`)
+- `buzz-backend-provider/` native Buzz backend provider
 - `docs/` Mintlify docs source
 - `site/` web properties
 

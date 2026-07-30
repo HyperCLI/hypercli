@@ -206,10 +206,47 @@ async def test_agents_logs_stream_ws_uses_agents_ws_url(monkeypatch):
     lines = []
     async for line in agents.logs_stream_ws("agent-1", tail_lines=400):
         lines.append(line)
-        break
 
     assert captured["url"] == "wss://api.agents.dev.hypercli.com/ws/logs/agent-1?jwt=jwt-logs&container=reef&tail_lines=400"
-    assert lines == ['{"event":"log","log":"hello"}']
+    assert lines == ["hello"]
+
+
+@pytest.mark.asyncio
+async def test_agents_logs_stream_ws_stops_after_history_when_not_following(monkeypatch):
+    agents = Deployments(DummyHTTP(), api_key="sk-hyper-test")
+    monkeypatch.setattr(
+        agents,
+        "logs_token",
+        lambda agent_id: {"jwt": "jwt-logs"},
+    )
+
+    class FakeWS:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def __aiter__(self):
+            async def _iter():
+                yield '{"event":"log","log":"first"}'
+                yield '{"event":"history_end"}'
+                yield '{"event":"log","log":"live"}'
+
+            return _iter()
+
+    monkeypatch.setattr("websockets.connect", lambda url: FakeWS())
+
+    lines = [
+        line
+        async for line in agents.logs_stream_ws(
+            "agent-1",
+            tail_lines=10,
+            follow=False,
+        )
+    ]
+
+    assert lines == ["first"]
 
 
 def test_agents_detect_shell_prefers_bash(monkeypatch):

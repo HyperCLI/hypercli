@@ -58,6 +58,7 @@ from .logs import LogStream, stream_logs, fetch_logs
 from .agents import (
     Agent,
     AgentFileSource,
+    BuzzLaunchConfig,
     ClaudeCodeAgent,
     CodingAgent,
     CodexAgent,
@@ -209,6 +210,7 @@ __all__ = [
     "Deployments",
     "Agent",
     "AgentFileSource",
+    "BuzzLaunchConfig",
     "CodingAgent",
     "OpenCodeAgent",
     "CodexAgent",

@@ -13,6 +13,9 @@ on:
       - "sdk/**"
       - "cli/**"
       - "rs-sdk/**"
+      - "buzz-backend-provider/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
   workflow_dispatch:
 
 jobs:

@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use hypercli_sdk::{
-    AgentSize, CreateDeploymentRequest, Deployment, HyperCliClient, HyperCliError, ManagedRuntime,
-    StartDeploymentRequest,
+    AgentSize, BuzzLaunchConfig, BuzzLaunchError, CreateDeploymentRequest, Deployment,
+    HyperCliClient, HyperCliError, ManagedRuntime, StartDeploymentRequest,
 };
 use nostr::Keys;
 use reqwest::StatusCode;
@@ -15,6 +16,8 @@ const DEFAULT_CODEX_IMAGE: &str = "ghcr.io/hypercli/hypercli-codex:latest";
 const DEFAULT_CLAUDE_CODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-claude-code:latest";
 const DEFAULT_GOOSE_IMAGE: &str = "ghcr.io/hypercli/hypercli-goose:latest";
 const DEFAULT_KIMI_CODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-kimi-code:latest";
+#[cfg(test)]
+const BUZZ_DEV_MCP_COMMAND: &str = "/usr/local/bin/buzz-dev-mcp";
 
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "lowercase")]
@@ -27,6 +30,10 @@ pub enum ProviderRequest {
         agent: Box<BuzzAgentPayload>,
         #[serde(default)]
         provider_config: Value,
+    },
+    Stop {
+        request_id: String,
+        agent_id: String,
     },
 }
 
@@ -101,6 +108,39 @@ impl CodingRuntime {
             Self::KimiCode => DEFAULT_KIMI_CODE_IMAGE,
         }
     }
+
+    #[cfg(test)]
+    fn harness_command(self) -> &'static str {
+        match self {
+            Self::Opencode => "/usr/local/bin/opencode",
+            Self::Codex => "/usr/local/bin/codex-acp",
+            Self::ClaudeCode => "/usr/local/bin/claude-agent-acp",
+            Self::Goose => "/usr/local/bin/goose",
+            Self::KimiCode => "/usr/local/bin/kimi",
+        }
+    }
+
+    #[cfg(test)]
+    fn harness_args(self) -> &'static str {
+        match self {
+            Self::Opencode | Self::Goose | Self::KimiCode => "acp",
+            Self::Codex | Self::ClaudeCode => "",
+        }
+    }
+
+    fn matches_buzz_command(self, command: &str) -> bool {
+        let command = Path::new(command.trim())
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default();
+        match self {
+            Self::Opencode => command == "opencode",
+            Self::Codex => command == "codex-acp",
+            Self::ClaudeCode => matches!(command, "claude-agent-acp" | "claude-code-acp"),
+            Self::Goose => command == "goose",
+            Self::KimiCode => matches!(command, "kimi" | "kimi-code"),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -121,7 +161,7 @@ fn default_runtime() -> CodingRuntime {
 }
 
 fn default_size() -> AgentSize {
-    AgentSize::Small
+    AgentSize::Large
 }
 
 #[derive(Serialize)]
@@ -135,6 +175,11 @@ pub struct ProviderInfoResponse {
 
 #[derive(Serialize)]
 pub struct DeployResponse {
+    pub agent_id: String,
+}
+
+#[derive(Serialize)]
+pub struct StopResponse {
     pub agent_id: String,
 }
 
@@ -158,10 +203,20 @@ pub enum ProviderError {
     MissingRelayUrl,
     #[error("agent parallelism must be between 1 and 32")]
     InvalidParallelism,
+    #[error("HyperCLI coding agents require size large")]
+    InvalidCodingAgentSize,
+    #[error("Buzz harness does not match the selected HyperCLI runtime")]
+    AgentRuntimeMismatch,
+    #[error("Buzz launch configuration is invalid: {0}")]
+    BuzzLaunch(#[from] BuzzLaunchError),
     #[error("HyperCLI authentication is not configured")]
     MissingHyperCliAuthentication,
-    #[error("HyperCLI deployment request failed")]
-    HyperCli,
+    #[error("HyperCLI deployment request failed: {0}")]
+    HyperCli(#[source] HyperCliError),
+    #[error("HyperCLI deployment lookup did not find the conflicting agent")]
+    MissingConflictingDeployment,
+    #[error("provider response could not be encoded")]
+    ResponseEncoding,
     #[error("idempotent deployment lookup returned multiple agents")]
     AmbiguousDeployment,
     #[error("existing deployment runtime does not match the requested runtime")]
@@ -188,8 +243,9 @@ pub fn provider_info() -> ProviderInfoResponse {
                 "size": {
                     "type": "string",
                     "title": "Size",
-                    "description": "small, medium, or large",
-                    "default": "small"
+                    "description": "Required HyperCLI coding-agent tier",
+                    "enum": ["large"],
+                    "default": "large"
                 },
                 "image": {
                     "type": "string",
@@ -213,12 +269,22 @@ pub fn deploy(
     agent: BuzzAgentPayload,
     provider_config: Value,
 ) -> Result<DeployResponse, ProviderError> {
+    deploy_with_dry_run(client, agent, provider_config, false)
+}
+
+pub fn deploy_with_dry_run(
+    client: &HyperCliClient,
+    agent: BuzzAgentPayload,
+    provider_config: Value,
+    dry_run: bool,
+) -> Result<DeployResponse, ProviderError> {
     validate_provider_config(&provider_config)?;
     let options: ProviderOptions = serde_json::from_value(provider_config)
         .map_err(|_| ProviderError::UnsupportedProviderConfig)?;
     let public_key = derive_agent_pubkey(&agent.private_key_nsec)?;
     let handle = deterministic_handle(&public_key);
-    let request = build_launch_request(agent, &public_key, &handle, options)?;
+    let mut request = build_launch_request(agent, &public_key, &handle, options)?;
+    request.dry_run = dry_run;
 
     if let Some(existing) = find_existing(client, &handle, request.runtime)? {
         let deployment = restart_if_stopped(client, existing, &request)?;
@@ -234,14 +300,23 @@ pub fn deploy(
         Err(error) if error.status() == Some(StatusCode::CONFLICT) => {
             // Close the list-before-create race without inventing a separate
             // provider database. The user-scoped handle is deterministic.
-            let existing =
-                find_existing(client, &handle, request.runtime)?.ok_or(ProviderError::HyperCli)?;
+            let existing = find_existing(client, &handle, request.runtime)?
+                .ok_or(ProviderError::MissingConflictingDeployment)?;
             Ok(DeployResponse {
                 agent_id: existing.id,
             })
         }
-        Err(_) => Err(ProviderError::HyperCli),
+        Err(error) => Err(ProviderError::HyperCli(error)),
     }
+}
+
+pub fn stop(client: &HyperCliClient, agent_id: String) -> Result<StopResponse, ProviderError> {
+    let deployment = client
+        .stop_deployment(&agent_id)
+        .map_err(ProviderError::HyperCli)?;
+    Ok(StopResponse {
+        agent_id: deployment.id,
+    })
 }
 
 fn find_existing(
@@ -251,7 +326,7 @@ fn find_existing(
 ) -> Result<Option<Deployment>, ProviderError> {
     let mut deployments = client
         .list_deployments_by_handle(handle)
-        .map_err(|_| ProviderError::HyperCli)?;
+        .map_err(ProviderError::HyperCli)?;
     if deployments.len() > 1 {
         return Err(ProviderError::AmbiguousDeployment);
     }
@@ -287,7 +362,7 @@ fn restart_if_stopped(
     };
     client
         .start_deployment(&deployment.id, &start)
-        .map_err(|_| ProviderError::HyperCli)
+        .map_err(ProviderError::HyperCli)
 }
 
 fn build_launch_request(
@@ -302,76 +377,47 @@ fn build_launch_request(
     if !(1..=32).contains(&agent.parallelism) {
         return Err(ProviderError::InvalidParallelism);
     }
+    if options.size != AgentSize::Large {
+        return Err(ProviderError::InvalidCodingAgentSize);
+    }
 
     let runtime = options.runtime;
+    if !runtime.matches_buzz_command(&agent.agent_command) {
+        return Err(ProviderError::AgentRuntimeMismatch);
+    }
+    let display_name = agent.name.trim().to_owned();
     let mut request = CreateDeploymentRequest::new(runtime.managed());
-    request.name = Some(format!("buzz-{}", &public_key[..12]));
+    request.name = Some(deployment_name(&display_name, public_key));
     request.handle = Some(handle.to_owned());
     request.size = Some(options.size);
     request.image = options
         .image
         .filter(|image| !image.trim().is_empty())
         .or_else(|| Some(runtime.default_image().to_owned()));
-    request.command = vec!["/usr/local/bin/buzz-acp".to_owned()];
-    request.sync_root = Some("/home/node".to_owned());
-    request.sync_enabled = Some(true);
-    request.sync_uid = Some(1000);
-    request.sync_gid = Some(1000);
     request.tags = vec![format!("buzz_agent={public_key}")];
 
     let mut env = agent.env_vars;
     for reserved in [
-        "BUZZ_PRIVATE_KEY",
-        "NOSTR_PRIVATE_KEY",
-        "BUZZ_RELAY_URL",
-        "BUZZ_AUTH_TAG",
-        "BUZZ_ACP_AGENT_OWNER",
-        "BUZZ_ACP_SYSTEM_PROMPT",
-        "BUZZ_ACP_MODEL",
-        "BUZZ_ACP_IDLE_TIMEOUT",
-        "BUZZ_ACP_MAX_TURN_DURATION",
-        "BUZZ_ACP_AGENTS",
-        "BUZZ_ACP_RESPOND_TO",
-        "BUZZ_ACP_RESPOND_TO_ALLOWLIST",
+        "HYPER_WORKSPACES_BOOT_SYNC",
+        "HYPER_WORKSPACES_DIR",
+        "HYPER_WORKSPACES_SYNC_READY_ONLY",
+        "HYPER_WORKSPACES_SYNC_WORKSPACE",
     ] {
         env.remove(reserved);
     }
-    env.insert(
-        "BUZZ_PRIVATE_KEY".to_owned(),
-        agent.private_key_nsec.clone(),
-    );
-    env.insert("NOSTR_PRIVATE_KEY".to_owned(), agent.private_key_nsec);
-    env.insert("BUZZ_RELAY_URL".to_owned(), agent.relay_url);
-    if let Some(auth_tag) = agent.auth_tag.filter(|value| !value.is_empty()) {
-        env.insert("BUZZ_AUTH_TAG".to_owned(), auth_tag);
-    }
-    if let Some(prompt) = agent.system_prompt.filter(|value| !value.is_empty()) {
-        env.insert("BUZZ_ACP_SYSTEM_PROMPT".to_owned(), prompt);
-    }
-    if let Some(model) = agent.model.filter(|value| !value.is_empty()) {
-        env.insert("BUZZ_ACP_MODEL".to_owned(), model);
-    }
-    if let Some(idle) = agent.idle_timeout_seconds {
-        env.insert("BUZZ_ACP_IDLE_TIMEOUT".to_owned(), idle.to_string());
-    }
-    if let Some(maximum) = agent.max_turn_duration_seconds {
-        env.insert("BUZZ_ACP_MAX_TURN_DURATION".to_owned(), maximum.to_string());
-    }
-    env.insert("BUZZ_ACP_AGENTS".to_owned(), agent.parallelism.to_string());
-    env.insert(
-        "BUZZ_ACP_MULTIPLE_EVENT_HANDLING".to_owned(),
-        "steer".to_owned(),
-    );
-    env.insert("BUZZ_ACP_DEDUP".to_owned(), "queue".to_owned());
-    if let Some(respond_to) = agent.respond_to.filter(|value| !value.is_empty()) {
-        env.insert("BUZZ_ACP_RESPOND_TO".to_owned(), respond_to);
-    }
-    if !agent.respond_to_allowlist.is_empty() {
-        env.insert(
-            "BUZZ_ACP_RESPOND_TO_ALLOWLIST".to_owned(),
-            agent.respond_to_allowlist.join(","),
-        );
-    }
+    request.env = env;
+    let mut buzz = BuzzLaunchConfig::new(agent.private_key_nsec, agent.relay_url);
+    buzz.auth_tag = agent.auth_tag;
+    buzz.system_prompt = agent.system_prompt;
+    buzz.model = agent.model;
+    buzz.idle_timeout_seconds = agent.idle_timeout_seconds;
+    buzz.max_turn_duration_seconds = agent.max_turn_duration_seconds;
+    buzz.parallelism = agent.parallelism;
+    buzz.respond_to = agent.respond_to;
+    buzz.respond_to_allowlist = agent.respond_to_allowlist;
+    buzz.apply_to(&mut request, Some(&display_name))?;
+
+    let env = &mut request.env;
     env.insert("HYPER_WORKSPACES_BOOT_SYNC".to_owned(), "1".to_owned());
     env.insert(
         "HYPER_WORKSPACES_DIR".to_owned(),
@@ -384,7 +430,6 @@ fn build_launch_request(
     if let Some(workspace) = options.workspace.filter(|value| !value.trim().is_empty()) {
         env.insert("HYPER_WORKSPACES_SYNC_WORKSPACE".to_owned(), workspace);
     }
-    request.env = env;
     Ok(request)
 }
 
@@ -397,6 +442,43 @@ pub fn deterministic_handle(public_key: &str) -> String {
     // Backend handles are capped at 64 bytes. Forty-eight hex characters keep
     // 192 bits of the Nostr identity and leave a readable provider prefix.
     format!("buzz-{}", &public_key[..public_key.len().min(48)])
+}
+
+pub fn deployment_name(display_name: &str, public_key: &str) -> String {
+    const SUFFIX_LEN: usize = 8;
+    const MAX_NAME_LEN: usize = 32;
+
+    let mut base = String::with_capacity(display_name.len());
+    let mut previous_hyphen = false;
+    for character in display_name.chars().flat_map(char::to_lowercase) {
+        if character.is_ascii_lowercase() || character.is_ascii_digit() {
+            base.push(character);
+            previous_hyphen = false;
+        } else if !base.is_empty() && !previous_hyphen {
+            base.push('-');
+            previous_hyphen = true;
+        }
+    }
+    while base.ends_with('-') {
+        base.pop();
+    }
+    if !base
+        .chars()
+        .next()
+        .is_some_and(|character| character.is_ascii_lowercase())
+    {
+        base.insert_str(0, "buzz-");
+    }
+    let suffix = &public_key[..public_key.len().min(SUFFIX_LEN)];
+    let max_base_len = MAX_NAME_LEN - suffix.len() - 1;
+    base.truncate(max_base_len);
+    while base.ends_with('-') {
+        base.pop();
+    }
+    if base.len() < 2 {
+        base = "buzz".to_owned();
+    }
+    format!("{base}-{suffix}")
 }
 
 pub fn validate_provider_config(value: &Value) -> Result<(), ProviderError> {
@@ -462,8 +544,8 @@ pub fn map_config_error(_: hypercli_sdk::ConfigError) -> ProviderError {
     ProviderError::MissingHyperCliAuthentication
 }
 
-pub fn map_client_error(_: HyperCliError) -> ProviderError {
-    ProviderError::HyperCli
+pub fn map_client_error(error: HyperCliError) -> ProviderError {
+    ProviderError::HyperCli(error)
 }
 
 #[cfg(test)]
@@ -500,10 +582,22 @@ mod tests {
         }
     }
 
+    fn test_agent_for(runtime: CodingRuntime) -> BuzzAgentPayload {
+        let mut agent = test_agent();
+        agent.agent_command = runtime.harness_command().to_owned();
+        agent.agent_args = if runtime.harness_args().is_empty() {
+            Vec::new()
+        } else {
+            vec![runtime.harness_args().to_owned()]
+        };
+        agent
+    }
+
     fn client(server: &Server) -> HyperCliClient {
         HyperCliClient::new(ClientConfig {
             api_base: Url::parse(&format!("{}/agents", server.url())).unwrap(),
             api_key: SecretString::from("test-credential"),
+            trace_file: None,
         })
         .unwrap()
     }
@@ -519,6 +613,25 @@ mod tests {
     }
 
     #[test]
+    fn deployment_name_uses_sanitized_buzz_name_and_stable_identity_suffix() {
+        assert_eq!(deployment_name("Fizz4", TEST_PUBLIC_HEX), "fizz4-79be667e");
+        assert_eq!(
+            deployment_name("  42 / Very Long Agent Name With Spaces  ", TEST_PUBLIC_HEX),
+            "buzz-42-very-long-agent-79be667e"
+        );
+        assert_eq!(deployment_name("___", TEST_PUBLIC_HEX), "buzz-79be667e");
+    }
+
+    #[test]
+    fn client_status_is_preserved_in_provider_error() {
+        let error = map_client_error(HyperCliError::Status(StatusCode::UNPROCESSABLE_ENTITY));
+        assert_eq!(
+            error.to_string(),
+            "HyperCLI deployment request failed: HyperCLI returned HTTP 422 Unprocessable Entity"
+        );
+    }
+
+    #[test]
     fn rejects_secret_looking_provider_config_fields() {
         for key in ["api_key", "apiKey", "accessTOKEN", "client-secret"] {
             let config = Value::Object(serde_json::Map::from_iter([(
@@ -528,7 +641,7 @@ mod tests {
             assert!(validate_provider_config(&config).is_err(), "accepted {key}");
         }
         assert!(validate_provider_config(
-            &serde_json::json!({"runtime":"opencode","size":"small"})
+            &serde_json::json!({"runtime":"opencode","size":"large"})
         )
         .is_ok());
     }
@@ -548,12 +661,12 @@ mod tests {
             ),
         ] {
             let request = build_launch_request(
-                test_agent(),
+                test_agent_for(runtime),
                 TEST_PUBLIC_HEX,
                 "buzz-runtime-test",
                 ProviderOptions {
                     runtime,
-                    size: AgentSize::Small,
+                    size: AgentSize::Large,
                     image: None,
                     workspace: None,
                 },
@@ -562,6 +675,120 @@ mod tests {
             assert_eq!(request.runtime, managed);
             assert_eq!(request.image.as_deref(), Some(image));
         }
+    }
+
+    #[test]
+    fn runtime_contract_is_explicit_and_reserved_launch_env_cannot_override_it() {
+        for (runtime, command, args, mcp) in [
+            (
+                CodingRuntime::Opencode,
+                "/usr/local/bin/opencode",
+                "acp",
+                BUZZ_DEV_MCP_COMMAND,
+            ),
+            (
+                CodingRuntime::Codex,
+                "/usr/local/bin/codex-acp",
+                "",
+                BUZZ_DEV_MCP_COMMAND,
+            ),
+            (
+                CodingRuntime::ClaudeCode,
+                "/usr/local/bin/claude-agent-acp",
+                "",
+                "",
+            ),
+            (CodingRuntime::Goose, "/usr/local/bin/goose", "acp", ""),
+            (CodingRuntime::KimiCode, "/usr/local/bin/kimi", "acp", ""),
+        ] {
+            let mut agent = test_agent_for(runtime);
+            agent.name = "Fizz 4".to_owned();
+            agent.env_vars.extend([
+                ("BUZZ_ACP_AGENT_COMMAND".to_owned(), "/tmp/evil".to_owned()),
+                ("BUZZ_ACP_AGENT_ARGS".to_owned(), "wrong".to_owned()),
+                (
+                    "BUZZ_ACP_MCP_COMMAND".to_owned(),
+                    "/tmp/evil-mcp".to_owned(),
+                ),
+                ("BUZZ_ACP_LAZY_POOL".to_owned(), "false".to_owned()),
+                ("BUZZ_ACP_RELAY_OBSERVER".to_owned(), "false".to_owned()),
+                ("BUZZ_ACP_SESSION_TITLE".to_owned(), "Wrong".to_owned()),
+                (
+                    "BUZZ_ACP_MULTIPLE_EVENT_HANDLING".to_owned(),
+                    "queue".to_owned(),
+                ),
+                ("BUZZ_ACP_DEDUP".to_owned(), "drop".to_owned()),
+                (
+                    "HYPER_WORKSPACES_DIR".to_owned(),
+                    "/tmp/not-allowed".to_owned(),
+                ),
+            ]);
+            let request = build_launch_request(
+                agent,
+                TEST_PUBLIC_HEX,
+                "buzz-runtime-test",
+                ProviderOptions {
+                    runtime,
+                    size: AgentSize::Large,
+                    image: None,
+                    workspace: None,
+                },
+            )
+            .unwrap();
+
+            assert_eq!(request.name.as_deref(), Some("fizz-4-79be667e"));
+            assert_eq!(request.command, ["/usr/local/bin/buzz-acp"]);
+            assert_eq!(request.env["BUZZ_ACP_AGENT_COMMAND"], command);
+            assert_eq!(request.env["BUZZ_ACP_AGENT_ARGS"], args);
+            assert_eq!(request.env["BUZZ_ACP_MCP_COMMAND"], mcp);
+            assert_eq!(request.env["BUZZ_ACP_LAZY_POOL"], "true");
+            assert_eq!(request.env["BUZZ_ACP_RELAY_OBSERVER"], "true");
+            assert_eq!(request.env["BUZZ_ACP_SESSION_TITLE"], "Fizz 4");
+            assert_eq!(request.env["BUZZ_ACP_MULTIPLE_EVENT_HANDLING"], "steer");
+            assert_eq!(request.env["BUZZ_ACP_DEDUP"], "queue");
+            assert_eq!(request.env["HYPER_WORKSPACES_DIR"], "/home/node/workspaces");
+            assert_eq!(
+                request.env["RUST_LOG"],
+                "info,pool::prompt=info,acp::stream=info"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_buzz_harness_that_does_not_match_selected_runtime() {
+        let result = build_launch_request(
+            test_agent(),
+            TEST_PUBLIC_HEX,
+            "buzz-runtime-test",
+            ProviderOptions {
+                runtime: CodingRuntime::Codex,
+                size: AgentSize::Large,
+                image: None,
+                workspace: None,
+            },
+        );
+        assert!(matches!(result, Err(ProviderError::AgentRuntimeMismatch)));
+    }
+
+    #[test]
+    fn preserves_explicit_rust_log_filter() {
+        let mut agent = test_agent();
+        agent
+            .env_vars
+            .insert("RUST_LOG".to_owned(), "warn,pool::prompt=debug".to_owned());
+        let request = build_launch_request(
+            agent,
+            TEST_PUBLIC_HEX,
+            "buzz-runtime-test",
+            ProviderOptions {
+                runtime: CodingRuntime::Opencode,
+                size: AgentSize::Large,
+                image: None,
+                workspace: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(request.env["RUST_LOG"], "warn,pool::prompt=debug");
     }
 
     #[test]
@@ -589,6 +816,12 @@ mod tests {
                         "BUZZ_PRIVATE_KEY": TEST_SECRET_HEX,
                         "NOSTR_PRIVATE_KEY": TEST_SECRET_HEX,
                         "BUZZ_AUTH_TAG": "[\"auth\",\"tag\"]",
+                        "BUZZ_ACP_AGENT_COMMAND": "/usr/local/bin/opencode",
+                        "BUZZ_ACP_AGENT_ARGS": "acp",
+                        "BUZZ_ACP_MCP_COMMAND": "/usr/local/bin/buzz-dev-mcp",
+                        "BUZZ_ACP_LAZY_POOL": "true",
+                        "BUZZ_ACP_RELAY_OBSERVER": "true",
+                        "BUZZ_ACP_SESSION_TITLE": "Fizz",
                         "MODEL_API_KEY": "model-secret"
                     }
                 })
@@ -610,7 +843,7 @@ mod tests {
         let response = deploy(
             &client(&server),
             test_agent(),
-            serde_json::json!({"runtime":"opencode","size":"small"}),
+            serde_json::json!({"runtime":"opencode","size":"large"}),
         )
         .unwrap();
         assert_eq!(response.agent_id, "deployment-1");
@@ -648,5 +881,28 @@ mod tests {
         .unwrap();
         assert_eq!(response.agent_id, "existing");
         lookup.assert();
+    }
+
+    #[test]
+    fn stop_returns_the_stopped_deployment_id() {
+        let mut server = Server::new();
+        let stop_request = server
+            .mock("POST", "/agents/deployments/deployment-1/stop")
+            .match_header("authorization", "Bearer test-credential")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id": "deployment-1",
+                    "runtime": "opencode",
+                    "state": "stopped"
+                })
+                .to_string(),
+            )
+            .create();
+
+        let response = stop(&client(&server), "deployment-1".to_owned()).unwrap();
+        assert_eq!(response.agent_id, "deployment-1");
+        stop_request.assert();
     }
 }

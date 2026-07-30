@@ -47,6 +47,7 @@ describe('coding agents', () => {
     expect(post).toHaveBeenCalledWith('/deployments', {
       start: true,
       runtime,
+      size: 'large',
       image,
       routes: {},
       sync_root: '/home/node',
@@ -88,7 +89,63 @@ describe('coding agents', () => {
     await expect(deployments.createCodex({
       buzzEnabled: true,
       command: ['sleep', 'infinity'],
-    })).rejects.toThrow('buzzEnabled cannot be combined');
+    })).rejects.toThrow('Buzz launch cannot be combined');
+  });
+
+  it('renders typed Buzz launch settings with canonical OpenCode defaults', async () => {
+    const post = vi.fn().mockResolvedValue(response('opencode'));
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await deployments.createOpenCode({
+      name: 'Fizz4',
+      env: {
+        BUZZ_RELAY_URL: 'wss://attacker.invalid',
+        BUZZ_ACP_AGENT_COMMAND: '/tmp/not-opencode',
+        RUST_LOG: 'debug',
+        HYPER_API_KEY: 'inference-key',
+      },
+      buzz: {
+        privateKeyNsec: 'nsec1test',
+        relayUrl: 'wss://buzz.example.test',
+        model: 'hypercli/kimi-k2.6-anthropic',
+        parallelism: 3,
+      },
+    });
+
+    expect(post.mock.calls[0][1]).toMatchObject({
+      size: 'large',
+      routes: {},
+      command: ['/usr/local/bin/buzz-acp'],
+      env: {
+        BUZZ_RELAY_URL: 'wss://buzz.example.test',
+        BUZZ_ACP_AGENT_COMMAND: '/usr/local/bin/opencode',
+        BUZZ_ACP_AGENT_ARGS: 'acp',
+        BUZZ_ACP_MCP_COMMAND: '/usr/local/bin/buzz-dev-mcp',
+        BUZZ_ACP_SESSION_TITLE: 'Fizz4',
+        BUZZ_ACP_MODEL: 'hypercli/kimi-k2.6-anthropic',
+        BUZZ_ACP_AGENTS: '3',
+        BUZZ_ACP_LAZY_POOL: 'true',
+        BUZZ_ACP_RELAY_OBSERVER: 'true',
+        RUST_LOG: 'debug',
+        HYPER_API_KEY: 'inference-key',
+      },
+    });
+  });
+
+  it('rejects coding-agent sizes that cannot run the pro runtime', async () => {
+    const deployments = new Deployments(
+      { post: vi.fn() } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await expect(deployments.createOpenCode({ size: 'small' })).rejects.toThrow(
+      "coding agents require size='large'",
+    );
   });
 
   it('hydrates coding runtimes returned by get', async () => {

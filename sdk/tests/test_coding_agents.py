@@ -6,6 +6,7 @@ from unittest.mock import Mock
 import pytest
 
 from hypercli import (
+    BuzzLaunchConfig,
     ClaudeCodeAgent as ExportedClaudeCodeAgent,
     CodexAgent as ExportedCodexAgent,
     GooseAgent as ExportedGooseAgent,
@@ -89,6 +90,7 @@ def test_create_coding_agent_contract(method_name, runtime, image, agent_type):
 
     assert isinstance(agent, agent_type)
     assert posted["runtime"] == runtime
+    assert posted["size"] == "large"
     assert posted["image"] == image
     assert posted["routes"] == {}
     assert posted["sync_root"] == "/home/node"
@@ -150,11 +152,59 @@ def test_coding_agent_buzz_mode_only_changes_container_args_and_preserves_creden
 def test_coding_agent_buzz_mode_rejects_ambiguous_command_override():
     deployments = Deployments(_HTTP())
 
-    with pytest.raises(ValueError, match="buzz_enabled"):
+    with pytest.raises(ValueError, match="Buzz launch"):
         deployments.create_codex(
             buzz_enabled=True,
             command=["sleep", "infinity"],
         )
+
+
+def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
+    deployments = Deployments(_HTTP())
+    posted: dict = {}
+
+    def fake_post(_path, json=None):
+        posted.update(json or {})
+        return _agent_payload("opencode")
+
+    deployments._post = fake_post
+    deployments.create_opencode(
+        name="Fizz4",
+        env={
+            "BUZZ_RELAY_URL": "wss://attacker.invalid",
+            "BUZZ_ACP_AGENT_COMMAND": "/tmp/not-opencode",
+            "RUST_LOG": "debug",
+            "HYPER_API_KEY": "inference-key",
+        },
+        buzz=BuzzLaunchConfig(
+            private_key_nsec="nsec1test",
+            relay_url="wss://buzz.example.test",
+            model="hypercli/kimi-k2.6-anthropic",
+            parallelism=3,
+        ),
+    )
+
+    assert posted["size"] == "large"
+    assert posted["routes"] == {}
+    assert posted["command"] == ["/usr/local/bin/buzz-acp"]
+    assert posted["env"]["BUZZ_RELAY_URL"] == "wss://buzz.example.test"
+    assert posted["env"]["BUZZ_ACP_AGENT_COMMAND"] == "/usr/local/bin/opencode"
+    assert posted["env"]["BUZZ_ACP_AGENT_ARGS"] == "acp"
+    assert posted["env"]["BUZZ_ACP_MCP_COMMAND"] == "/usr/local/bin/buzz-dev-mcp"
+    assert posted["env"]["BUZZ_ACP_SESSION_TITLE"] == "Fizz4"
+    assert posted["env"]["BUZZ_ACP_MODEL"] == "hypercli/kimi-k2.6-anthropic"
+    assert posted["env"]["BUZZ_ACP_AGENTS"] == "3"
+    assert posted["env"]["BUZZ_ACP_LAZY_POOL"] == "true"
+    assert posted["env"]["BUZZ_ACP_RELAY_OBSERVER"] == "true"
+    assert posted["env"]["RUST_LOG"] == "debug"
+    assert posted["env"]["HYPER_API_KEY"] == "inference-key"
+
+
+def test_coding_agent_rejects_non_large_size():
+    deployments = Deployments(_HTTP())
+
+    with pytest.raises(ValueError, match="require size='large'"):
+        deployments.create_opencode(size="small")
 
 
 def test_goose_uses_injected_runtime_key_and_has_no_destructive_logout():

@@ -157,10 +157,15 @@ Anthropic-native `kimi-k2.6-anthropic` route; Kimi Code uses Moonshot's
 upstream login and service.
 
 ```typescript
-const agent = await client.deployments.createCodex({
+const agent = await client.deployments.createOpenCode({
   name: 'buzz-ci',
-  buzzEnabled: true, // command: ['/usr/local/bin/buzz-acp']
-  env: { CODEX_API_KEY: process.env.CODEX_API_KEY! },
+  env: { HYPER_API_KEY: process.env.HYPER_API_KEY! },
+  buzz: {
+    privateKeyNsec: agentNsec,
+    relayUrl,
+    authTag: ownerSignedAuthTag,
+    parallelism: 1,
+  },
   workspacesSync: { workspace: 'buzz' },
 });
 
@@ -174,8 +179,10 @@ await agent.auth.logout();
 
 The corresponding helpers are `createOpenCode(...)`, `createCodex(...)`,
 `createClaudeCode(...)`, `createGoose(...)`, and `createKimiCode(...)`. Set
-`buzzEnabled: true` only when the image contains `/usr/local/bin/buzz-acp`; it
-is mutually exclusive with an explicit `command`.
+the typed `buzz` object to derive the canonical child command, arguments, MCP
+command, lazy pool, relay observer, and Buzz-owned environment. `buzzEnabled`
+remains as a deprecated raw-environment compatibility path. Both forms are
+mutually exclusive with an explicit `command`.
 
 ### OpenClaw Gateway Chat Attachments
 

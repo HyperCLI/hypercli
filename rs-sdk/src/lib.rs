@@ -13,5 +13,6 @@ pub use config::{
     ConfigError,
 };
 pub use types::{
-    AgentSize, CreateDeploymentRequest, Deployment, ManagedRuntime, StartDeploymentRequest,
+    AgentSize, BuzzLaunchConfig, BuzzLaunchError, CreateDeploymentRequest, Deployment,
+    ManagedRuntime, StartDeploymentRequest,
 };

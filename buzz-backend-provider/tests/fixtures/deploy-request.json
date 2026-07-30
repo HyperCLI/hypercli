@@ -22,6 +22,6 @@
   },
   "provider_config": {
     "runtime": "opencode",
-    "size": "small"
+    "size": "large"
   }
 }

@@ -154,25 +154,28 @@ the command line. Runtime credentials and state live under the persistent
 `/home/node` sync root.
 
 The images default to a long-lived direct shell/exec container. A Buzz provider
-attaches one to a community by selecting `buzz_enabled=True` and injecting the
-Desktop-generated agent credentials:
+attaches one to a community with the typed launch contract:
 
 ```python
+from hypercli import BuzzLaunchConfig
+
 agent = client.deployments.create_opencode(
     name="buzz-opencode",
-    buzz_enabled=True,
-    env={
-        "BUZZ_PRIVATE_KEY": agent_nsec,
-        "NOSTR_PRIVATE_KEY": agent_nsec,
-        "BUZZ_RELAY_URL": relay_url,
-        "BUZZ_AUTH_TAG": owner_signed_auth_tag,
-    },
+    env={"HYPER_API_KEY": inference_key},
+    buzz=BuzzLaunchConfig(
+        private_key_nsec=agent_nsec,
+        relay_url=relay_url,
+        auth_tag=owner_signed_auth_tag,
+        parallelism=1,
+    ),
 )
 ```
 
-This changes only the container arguments to `/usr/local/bin/buzz-acp`; the
-image entrypoint remains `tini`. Credential validity and alternate Buzz
-authorization arrangements are validated by Buzz, not by SDK shell logic.
+The SDK selects `/usr/local/bin/buzz-acp`, the runtime-specific child ACP
+command and arguments, the hosted Buzz MCP command, lazy pool creation, relay
+observation, and persistent `/home/node` settings. Buzz-reserved environment
+keys are rendered from the typed object after caller environment values.
+`buzz_enabled=True` remains as a deprecated raw-environment compatibility path.
 
 ## OpenClaw Node Egress
 

@@ -12,6 +12,7 @@ const MAX_CREDENTIAL_FILE_BYTES: u64 = 64 * 1024;
 pub struct ClientConfig {
     pub api_base: Url,
     pub api_key: SecretString,
+    pub trace_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Error)]
@@ -77,10 +78,16 @@ pub fn discover_client_config_from(
         file_config.get("HYPERCLI_API_URL"),
     ])
     .unwrap_or(DEFAULT_AGENTS_API_BASE);
+    let trace_file = first_nonempty([
+        env.get("HYPER_HTTP_TRACE_FILE"),
+        file_config.get("HYPER_HTTP_TRACE_FILE"),
+    ])
+    .map(PathBuf::from);
 
     Ok(ClientConfig {
         api_base: normalize_agents_api_base(configured_base)?,
         api_key: SecretString::from(api_key),
+        trace_file,
     })
 }
 
@@ -196,6 +203,7 @@ mod tests {
         let config = discover_client_config_from(&env, Some(temp.path())).unwrap();
         assert_eq!(config.api_key.expose_secret(), "env-key");
         assert_eq!(config.api_base.as_str(), "http://env.test/base/agents");
+        assert_eq!(config.trace_file, None);
     }
 
     #[test]
@@ -207,6 +215,24 @@ mod tests {
 
         let config = discover_client_config_from(&BTreeMap::new(), Some(temp.path())).unwrap();
         assert_eq!(config.api_key.expose_secret(), "legacy-key");
+    }
+
+    #[test]
+    fn discovers_http_trace_file_from_config() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join(".hypercli");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("config"),
+            "HYPER_API_KEY=file-key\nHYPER_HTTP_TRACE_FILE=/tmp/hypercli-trace.jsonl\n",
+        )
+        .unwrap();
+
+        let config = discover_client_config_from(&BTreeMap::new(), Some(temp.path())).unwrap();
+        assert_eq!(
+            config.trace_file,
+            Some(PathBuf::from("/tmp/hypercli-trace.jsonl"))
+        );
     }
 
     #[test]

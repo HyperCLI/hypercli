@@ -1059,8 +1059,17 @@ def shell(
 def logs(
     agent_id: str = typer.Argument(..., help="Agent ID, unique name, handle, hostname, or prefix"),
     lines: int = typer.Option(100, "-n", "--lines", help="Number of lines to show"),
-    follow: bool = typer.Option(True, "-f/--no-follow", help="Follow log output"),
-    ws: bool = typer.Option(False, "--ws", help="Use WebSocket instead of SSE (via backend)"),
+    follow: bool = typer.Option(
+        True,
+        "--follow/--no-follow",
+        "-f",
+        help="Follow log output",
+    ),
+    ws: bool = typer.Option(
+        True,
+        "--ws/--executor",
+        help="Use the backend WebSocket (default) or the legacy public executor route",
+    ),
 ):
     """Stream logs from an agent pod."""
     agent_id = _resolve_agent(agent_id)
@@ -1072,8 +1081,12 @@ def logs(
 
         async def _stream_ws():
             try:
-                async for line in agents.logs_stream_ws(agent_id, tail_lines=lines):
-                    console.print(line)
+                async for line in agents.logs_stream_ws(
+                    agent_id,
+                    tail_lines=lines,
+                    follow=follow,
+                ):
+                    console.print(line, markup=False, highlight=False, soft_wrap=True)
             except KeyboardInterrupt:
                 pass
             except Exception as e:

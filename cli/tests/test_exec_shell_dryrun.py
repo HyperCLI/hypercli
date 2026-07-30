@@ -175,6 +175,70 @@ def test_agent_shell_command(monkeypatch):
     assert called["agent_id"] == "agent-xyz"
 
 
+def test_agents_logs_defaults_to_websocket_and_forwards_no_follow(monkeypatch):
+    called = {}
+
+    class FakeDeployments:
+        async def logs_stream_ws(self, agent_id, tail_lines=100, follow=True):
+            called.update(
+                agent_id=agent_id,
+                tail_lines=tail_lines,
+                follow=follow,
+            )
+            yield "decoded [log] line"
+
+    monkeypatch.setattr("hypercli_cli.agents._resolve_agent", lambda _agent_id: "resolved-agent")
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
+    monkeypatch.setattr(
+        "hypercli_cli.agents._get_pod_with_token",
+        lambda _agent_id: (_ for _ in ()).throw(AssertionError("legacy executor selected")),
+    )
+
+    result = runner.invoke(
+        app,
+        ["agents", "logs", "fizz4", "--no-follow", "--lines", "7"],
+    )
+
+    assert result.exit_code == 0
+    assert result.stdout == "decoded [log] line\n"
+    assert called == {
+        "agent_id": "resolved-agent",
+        "tail_lines": 7,
+        "follow": False,
+    }
+
+
+def test_agents_logs_executor_selects_legacy_stream(monkeypatch):
+    called = {}
+    pod = SimpleNamespace(id="resolved-agent")
+
+    class FakeDeployments:
+        def logs_stream(self, selected_pod, lines=100, follow=True):
+            called.update(
+                pod=selected_pod,
+                lines=lines,
+                follow=follow,
+            )
+            yield "legacy line"
+
+    monkeypatch.setattr("hypercli_cli.agents._resolve_agent", lambda _agent_id: "resolved-agent")
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
+    monkeypatch.setattr("hypercli_cli.agents._get_pod_with_token", lambda _agent_id: pod)
+
+    result = runner.invoke(
+        app,
+        ["agents", "logs", "fizz4", "--executor", "--no-follow", "-n", "3"],
+    )
+
+    assert result.exit_code == 0
+    assert "legacy line" in result.stdout
+    assert called == {
+        "pod": pod,
+        "lines": 3,
+        "follow": False,
+    }
+
+
 def test_agents_create_disables_desktop_by_default(monkeypatch):
     captured = {}
 

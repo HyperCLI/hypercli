@@ -77,6 +77,121 @@ ManagedAgentRuntime = Literal[
     "goose",
     "kimi-code",
 ]
+CodingAgentRuntime = Literal["opencode", "codex", "claude-code", "goose", "kimi-code"]
+
+_BUZZ_RUNTIME_COMMANDS: dict[CodingAgentRuntime, tuple[str, list[str], str]] = {
+    "opencode": ("/usr/local/bin/opencode", ["acp"], "/usr/local/bin/buzz-dev-mcp"),
+    "codex": ("/usr/local/bin/codex-acp", [], "/usr/local/bin/buzz-dev-mcp"),
+    "claude-code": ("/usr/local/bin/claude-agent-acp", [], ""),
+    "goose": ("/usr/local/bin/goose", ["acp"], ""),
+    "kimi-code": ("/usr/local/bin/kimi", ["acp"], ""),
+}
+DEFAULT_BUZZ_RUST_LOG = "info,pool::prompt=info,acp::stream=info"
+BUZZ_RESERVED_ENV_KEYS = frozenset({
+    "BUZZ_PRIVATE_KEY",
+    "NOSTR_PRIVATE_KEY",
+    "BUZZ_AUTH_TAG",
+    "BUZZ_API_TOKEN",
+    "BUZZ_ACP_PRIVATE_KEY",
+    "BUZZ_ACP_API_TOKEN",
+    "BUZZ_RELAY_URL",
+    "BUZZ_ACP_AGENT_OWNER",
+    "BUZZ_ACP_AGENT_COMMAND",
+    "BUZZ_ACP_AGENT_ARGS",
+    "BUZZ_ACP_MCP_COMMAND",
+    "BUZZ_ACP_LAZY_POOL",
+    "BUZZ_ACP_RELAY_OBSERVER",
+    "BUZZ_ACP_SESSION_TITLE",
+    "BUZZ_ACP_SYSTEM_PROMPT",
+    "BUZZ_ACP_MODEL",
+    "BUZZ_ACP_IDLE_TIMEOUT",
+    "BUZZ_ACP_MAX_TURN_DURATION",
+    "BUZZ_ACP_AGENTS",
+    "BUZZ_ACP_RESPOND_TO",
+    "BUZZ_ACP_RESPOND_TO_ALLOWLIST",
+    "BUZZ_ACP_MULTIPLE_EVENT_HANDLING",
+    "BUZZ_ACP_DEDUP",
+    "BUZZ_ACP_SETUP_PAYLOAD",
+    "BUZZ_MANAGED_AGENT",
+    "BUZZ_MANAGED_AGENT_START_NONCE",
+})
+
+
+@dataclass(repr=False)
+class BuzzLaunchConfig:
+    """Typed Buzz ACP launch settings for a hosted coding runtime.
+
+    The private key is intentionally excluded from ``repr``. Buzz-owned
+    environment variables are rendered last so a generic ``env`` mapping
+    cannot replace identity or harness configuration.
+    """
+
+    private_key_nsec: str
+    relay_url: str
+    auth_tag: str | None = None
+    system_prompt: str | None = None
+    model: str | None = None
+    idle_timeout_seconds: int | None = None
+    max_turn_duration_seconds: int | None = None
+    parallelism: int = 1
+    respond_to: str | None = None
+    respond_to_allowlist: list[str] = field(default_factory=list)
+    session_title: str | None = None
+    rust_log: str | None = None
+
+    def environment(
+        self,
+        runtime: CodingAgentRuntime,
+        *,
+        default_session_title: str | None = None,
+    ) -> dict[str, str]:
+        if not self.private_key_nsec.strip():
+            raise ValueError("buzz.private_key_nsec is required")
+        if not self.relay_url.strip():
+            raise ValueError("buzz.relay_url is required")
+        if not 1 <= self.parallelism <= 32:
+            raise ValueError("buzz.parallelism must be between 1 and 32")
+
+        default_command, default_args, default_mcp = _BUZZ_RUNTIME_COMMANDS[runtime]
+        env = {
+            "BUZZ_PRIVATE_KEY": self.private_key_nsec,
+            "NOSTR_PRIVATE_KEY": self.private_key_nsec,
+            "BUZZ_RELAY_URL": self.relay_url,
+            "BUZZ_ACP_AGENT_COMMAND": default_command,
+            "BUZZ_ACP_AGENT_ARGS": ",".join(default_args),
+            "BUZZ_ACP_MCP_COMMAND": default_mcp,
+            "BUZZ_ACP_LAZY_POOL": "true",
+            "BUZZ_ACP_RELAY_OBSERVER": "true",
+            "BUZZ_ACP_AGENTS": str(self.parallelism),
+            "BUZZ_ACP_MULTIPLE_EVENT_HANDLING": "steer",
+            "BUZZ_ACP_DEDUP": "queue",
+        }
+        optional = {
+            "BUZZ_AUTH_TAG": self.auth_tag,
+            "BUZZ_ACP_SESSION_TITLE": self.session_title or default_session_title,
+            "BUZZ_ACP_SYSTEM_PROMPT": self.system_prompt,
+            "BUZZ_ACP_MODEL": self.model,
+            "BUZZ_ACP_IDLE_TIMEOUT": (
+                str(self.idle_timeout_seconds)
+                if self.idle_timeout_seconds is not None
+                else None
+            ),
+            "BUZZ_ACP_MAX_TURN_DURATION": (
+                str(self.max_turn_duration_seconds)
+                if self.max_turn_duration_seconds is not None
+                else None
+            ),
+            "BUZZ_ACP_RESPOND_TO": self.respond_to,
+            "BUZZ_ACP_RESPOND_TO_ALLOWLIST": (
+                ",".join(self.respond_to_allowlist)
+                if self.respond_to_allowlist
+                else None
+            ),
+        }
+        env.update({key: value for key, value in optional.items() if value})
+        if self.rust_log:
+            env["RUST_LOG"] = self.rust_log
+        return env
 
 # The three file-access paths for an OpenClaw agent, each with its own root —
 # the SDK owns the roots so a workspace-relative path (e.g. "AGENTS.md") hits the
@@ -1505,8 +1620,18 @@ class Agent:
     def logs_stream(self, lines: int = 100, follow: bool = True):
         return self._require_deployments().logs_stream(self, lines=lines, follow=follow)
 
-    async def logs_stream_ws(self, tail_lines: int = 100, container: str = "reef") -> AsyncIterator[str]:
-        async for line in self._require_deployments().logs_stream_ws(self.id, tail_lines=tail_lines, container=container):
+    async def logs_stream_ws(
+        self,
+        tail_lines: int = 100,
+        container: str = "reef",
+        follow: bool = True,
+    ) -> AsyncIterator[str]:
+        async for line in self._require_deployments().logs_stream_ws(
+            self.id,
+            tail_lines=tail_lines,
+            container=container,
+            follow=follow,
+        ):
             yield line
 
     async def shell_connect(self, shell: str | None = None):
@@ -2573,7 +2698,7 @@ class Deployments:
     def _create_coding_agent(
         self,
         *,
-        runtime: Literal["opencode", "codex", "claude-code", "goose", "kimi-code"],
+        runtime: CodingAgentRuntime,
         default_image: str,
         name: str | None = None,
         handle: str | None = None,
@@ -2597,25 +2722,39 @@ class Deployments:
         start: bool = True,
         workspaces_sync: dict | bool | None = None,
         buzz_enabled: bool = False,
+        buzz: BuzzLaunchConfig | None = None,
     ) -> Agent:
-        if buzz_enabled and command is not None:
-            raise ValueError("buzz_enabled cannot be combined with an explicit command")
+        if buzz_enabled and buzz is not None:
+            raise ValueError("buzz_enabled cannot be combined with buzz")
+        if (buzz_enabled or buzz is not None) and command is not None:
+            raise ValueError("Buzz launch cannot be combined with an explicit command")
+        if size not in (None, "large"):
+            raise ValueError("coding agents require size='large'")
         effective_env = {
             "HYPER_API_BASE": _product_api_base_from_agents_api_base(self._api_base),
             **build_openclaw_workspaces_sync_env(workspaces_sync),
             **dict(env or {}),
         }
+        if buzz is not None:
+            for key in BUZZ_RESERVED_ENV_KEYS:
+                effective_env.pop(key, None)
+            effective_env.update(buzz.environment(runtime, default_session_title=name))
+            effective_env.setdefault("RUST_LOG", DEFAULT_BUZZ_RUST_LOG)
         return self.create(
             name=name,
             handle=handle,
-            size=size,
+            size="large",
             runtime=runtime,
             config=config,
             tags=tags,
             env=effective_env,
             ports=ports,
             routes={} if routes is None else routes,
-            command=["/usr/local/bin/buzz-acp"] if buzz_enabled else command,
+            command=(
+                ["/usr/local/bin/buzz-acp"]
+                if buzz_enabled or buzz is not None
+                else command
+            ),
             entrypoint=entrypoint,
             image=image or default_image,
             sync_root=sync_root if sync_root is not None else DEFAULT_CODING_AGENT_SYNC_ROOT,
@@ -3472,7 +3611,13 @@ class Deployments:
     # WebSocket API (via HyperClaw backend)
     # -----------------------------------------------------------------------
 
-    async def logs_stream_ws(self, agent_id: str, tail_lines: int = 100, container: str = "reef") -> AsyncIterator[str]:
+    async def logs_stream_ws(
+        self,
+        agent_id: str,
+        tail_lines: int = 100,
+        container: str = "reef",
+        follow: bool = True,
+    ) -> AsyncIterator[str]:
         """Stream logs via backend WebSocket.
 
         Connects to the HyperClaw backend WebSocket endpoint which proxies
@@ -3482,6 +3627,7 @@ class Deployments:
             agent_id: Agent UUID.
             tail_lines: Number of historical lines to fetch first.
             container: Container name (default: reef).
+            follow: Keep streaming after buffered history.
 
         Yields:
             Log lines as they arrive.
@@ -3502,7 +3648,20 @@ class Deployments:
 
         async with websockets.connect(url) as ws:
             async for msg in ws:
-                yield msg
+                try:
+                    payload = json.loads(msg)
+                except (TypeError, json.JSONDecodeError):
+                    yield str(msg)
+                    continue
+                if not isinstance(payload, dict):
+                    continue
+                event = payload.get("event")
+                if event == "log":
+                    yield str(payload.get("log") or "")
+                elif event == "history_end" and not follow:
+                    return
+                elif event == "error":
+                    raise RuntimeError(str(payload.get("detail") or "Log stream failed"))
 
     async def shell_connect(self, agent_id: str, shell: str | None = None, dry_run: bool = False):
         """Connect to agent shell via backend WebSocket proxy.

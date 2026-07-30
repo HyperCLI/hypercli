@@ -62,10 +62,10 @@ jobs:
             exit 1
           fi
           SOURCE_VERSION="$(
-            python3 -c 'import tomllib; print(tomllib.load(open("rs-sdk/Cargo.toml", "rb"))["workspace"]["package"]["version"])'
+            python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])'
           )"
           if [[ "${SOURCE_VERSION}" != "${{ inputs.version }}" ]]; then
-            echo "Input version ${{ inputs.version }} does not match rs-sdk source version ${SOURCE_VERSION}" >&2
+            echo "Input version ${{ inputs.version }} does not match provider source version ${SOURCE_VERSION}" >&2
             exit 1
           fi
           test "$(git status --porcelain)" = ""
@@ -77,7 +77,6 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Build and test native provider
-        working-directory: rs-sdk
         shell: bash
         run: |
           set -euo pipefail
@@ -91,7 +90,6 @@ jobs:
             | python3 -c 'import json,sys; value=json.load(sys.stdin); assert value["ok"] is True; assert value["name"] == "HyperCLI"'
 
       - name: Package unsigned native binary
-        working-directory: rs-sdk
         shell: bash
         run: |
           set -euo pipefail
@@ -113,8 +111,8 @@ jobs:
         with:
           name: ${{ matrix.archive }}
           path: |
-            rs-sdk/${{ matrix.archive }}-${{ inputs.version }}.tar.gz
-            rs-sdk/${{ matrix.archive }}-${{ inputs.version }}.tar.gz.sha256
+            ${{ matrix.archive }}-${{ inputs.version }}.tar.gz
+            ${{ matrix.archive }}-${{ inputs.version }}.tar.gz.sha256
           if-no-files-found: error
 
   release:

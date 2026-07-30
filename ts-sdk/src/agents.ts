@@ -62,6 +62,66 @@ export type ManagedAgentRuntime =
   | 'kimi-code';
 export type CodingAgentRuntime = Extract<ManagedAgentRuntime, 'opencode' | 'codex' | 'claude-code' | 'goose' | 'kimi-code'>;
 const CODING_AGENT_RUNTIMES = new Set<CodingAgentRuntime>(['opencode', 'codex', 'claude-code', 'goose', 'kimi-code']);
+const BUZZ_RUNTIME_COMMANDS: Record<CodingAgentRuntime, {
+  command: string;
+  args: string[];
+  mcpCommand: string;
+}> = {
+  opencode: {
+    command: '/usr/local/bin/opencode',
+    args: ['acp'],
+    mcpCommand: '/usr/local/bin/buzz-dev-mcp',
+  },
+  codex: {
+    command: '/usr/local/bin/codex-acp',
+    args: [],
+    mcpCommand: '/usr/local/bin/buzz-dev-mcp',
+  },
+  'claude-code': {
+    command: '/usr/local/bin/claude-agent-acp',
+    args: [],
+    mcpCommand: '',
+  },
+  goose: {
+    command: '/usr/local/bin/goose',
+    args: ['acp'],
+    mcpCommand: '',
+  },
+  'kimi-code': {
+    command: '/usr/local/bin/kimi',
+    args: ['acp'],
+    mcpCommand: '',
+  },
+};
+export const DEFAULT_BUZZ_RUST_LOG = 'info,pool::prompt=info,acp::stream=info';
+const BUZZ_RESERVED_ENV_KEYS = new Set([
+  'BUZZ_PRIVATE_KEY',
+  'NOSTR_PRIVATE_KEY',
+  'BUZZ_AUTH_TAG',
+  'BUZZ_API_TOKEN',
+  'BUZZ_ACP_PRIVATE_KEY',
+  'BUZZ_ACP_API_TOKEN',
+  'BUZZ_RELAY_URL',
+  'BUZZ_ACP_AGENT_OWNER',
+  'BUZZ_ACP_AGENT_COMMAND',
+  'BUZZ_ACP_AGENT_ARGS',
+  'BUZZ_ACP_MCP_COMMAND',
+  'BUZZ_ACP_LAZY_POOL',
+  'BUZZ_ACP_RELAY_OBSERVER',
+  'BUZZ_ACP_SESSION_TITLE',
+  'BUZZ_ACP_SYSTEM_PROMPT',
+  'BUZZ_ACP_MODEL',
+  'BUZZ_ACP_IDLE_TIMEOUT',
+  'BUZZ_ACP_MAX_TURN_DURATION',
+  'BUZZ_ACP_AGENTS',
+  'BUZZ_ACP_RESPOND_TO',
+  'BUZZ_ACP_RESPOND_TO_ALLOWLIST',
+  'BUZZ_ACP_MULTIPLE_EVENT_HANDLING',
+  'BUZZ_ACP_DEDUP',
+  'BUZZ_ACP_SETUP_PAYLOAD',
+  'BUZZ_MANAGED_AGENT',
+  'BUZZ_MANAGED_AGENT_START_NONCE',
+]);
 export const OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
   OPENCLAW_MEMORY_SEARCH_ENABLED: '1',
   OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START: '0',
@@ -575,8 +635,74 @@ export interface OpenClawStartAgentOptions extends StartAgentOptions {
 
 export interface CodingAgentCreateOptions extends Omit<CreateAgentOptions, 'runtime' | 'injectGatewayToken'> {
   workspacesSync?: OpenClawWorkspacesSyncOptions | boolean | null;
-  /** Launch Buzz's ACP adapter instead of the image's normal long-lived command. */
+  /** @deprecated Use the typed `buzz` launch contract. */
   buzzEnabled?: boolean;
+  /** Launch Buzz ACP with runtime-specific harness and MCP defaults. */
+  buzz?: BuzzLaunchConfig | null;
+}
+
+export interface BuzzLaunchConfig {
+  privateKeyNsec: string;
+  relayUrl: string;
+  authTag?: string | null;
+  systemPrompt?: string | null;
+  model?: string | null;
+  idleTimeoutSeconds?: number | null;
+  maxTurnDurationSeconds?: number | null;
+  parallelism?: number;
+  respondTo?: string | null;
+  respondToAllowlist?: string[];
+  sessionTitle?: string | null;
+  rustLog?: string;
+}
+
+function buildBuzzLaunchEnv(
+  runtime: CodingAgentRuntime,
+  buzz: BuzzLaunchConfig,
+  defaultSessionTitle?: string,
+): Record<string, string> {
+  if (!buzz.privateKeyNsec.trim()) throw new Error('buzz.privateKeyNsec is required');
+  if (!buzz.relayUrl.trim()) throw new Error('buzz.relayUrl is required');
+  const parallelism = buzz.parallelism ?? 1;
+  if (!Number.isInteger(parallelism) || parallelism < 1 || parallelism > 32) {
+    throw new Error('buzz.parallelism must be between 1 and 32');
+  }
+
+  const harness = BUZZ_RUNTIME_COMMANDS[runtime];
+  const env: Record<string, string> = {
+    BUZZ_PRIVATE_KEY: buzz.privateKeyNsec,
+    NOSTR_PRIVATE_KEY: buzz.privateKeyNsec,
+    BUZZ_RELAY_URL: buzz.relayUrl,
+    BUZZ_ACP_AGENT_COMMAND: harness.command,
+    BUZZ_ACP_AGENT_ARGS: harness.args.join(','),
+    BUZZ_ACP_MCP_COMMAND: harness.mcpCommand,
+    BUZZ_ACP_LAZY_POOL: 'true',
+    BUZZ_ACP_RELAY_OBSERVER: 'true',
+    BUZZ_ACP_AGENTS: String(parallelism),
+    BUZZ_ACP_MULTIPLE_EVENT_HANDLING: 'steer',
+    BUZZ_ACP_DEDUP: 'queue',
+  };
+  if (buzz.rustLog) env.RUST_LOG = buzz.rustLog;
+  const optional: Record<string, string | undefined | null> = {
+    BUZZ_AUTH_TAG: buzz.authTag,
+    BUZZ_ACP_SESSION_TITLE: buzz.sessionTitle || defaultSessionTitle,
+    BUZZ_ACP_SYSTEM_PROMPT: buzz.systemPrompt,
+    BUZZ_ACP_MODEL: buzz.model,
+    BUZZ_ACP_IDLE_TIMEOUT: buzz.idleTimeoutSeconds == null
+      ? undefined
+      : String(buzz.idleTimeoutSeconds),
+    BUZZ_ACP_MAX_TURN_DURATION: buzz.maxTurnDurationSeconds == null
+      ? undefined
+      : String(buzz.maxTurnDurationSeconds),
+    BUZZ_ACP_RESPOND_TO: buzz.respondTo,
+    BUZZ_ACP_RESPOND_TO_ALLOWLIST: buzz.respondToAllowlist?.length
+      ? buzz.respondToAllowlist.join(',')
+      : undefined,
+  };
+  for (const [key, value] of Object.entries(optional)) {
+    if (value) env[key] = value;
+  }
+  return env;
 }
 
 export interface RuntimeAuthMethod {
@@ -3408,21 +3534,39 @@ export class Deployments {
     defaultImage: string,
     options: CodingAgentCreateOptions,
   ): Promise<CodingAgent> {
-    if (options.buzzEnabled && options.command !== undefined && options.command !== null) {
-      throw new Error('buzzEnabled cannot be combined with an explicit command');
+    if (options.buzzEnabled && options.buzz) {
+      throw new Error('buzzEnabled cannot be combined with buzz');
+    }
+    if ((options.buzzEnabled || options.buzz) && options.command !== undefined && options.command !== null) {
+      throw new Error('Buzz launch cannot be combined with an explicit command');
+    }
+    if (options.size !== undefined && options.size !== 'large') {
+      throw new Error("coding agents require size='large'");
+    }
+    const effectiveEnv: Record<string, string> = {
+      HYPER_API_BASE: productApiBaseFromAgentsApiBase(this.apiBase),
+      ...buildOpenClawWorkspacesSyncEnv(options.workspacesSync ?? null),
+      ...(options.env ?? {}),
+    };
+    if (options.buzz) {
+      for (const key of BUZZ_RESERVED_ENV_KEYS) delete effectiveEnv[key];
+      Object.assign(
+        effectiveEnv,
+        buildBuzzLaunchEnv(runtime, options.buzz, options.name),
+      );
+      effectiveEnv.RUST_LOG ??= DEFAULT_BUZZ_RUST_LOG;
     }
     const effectiveOptions: CreateAgentOptions = {
       ...options,
       runtime,
+      size: 'large',
       injectGatewayToken: false,
-      env: {
-        HYPER_API_BASE: productApiBaseFromAgentsApiBase(this.apiBase),
-        ...buildOpenClawWorkspacesSyncEnv(options.workspacesSync ?? null),
-        ...(options.env ?? {}),
-      },
+      env: effectiveEnv,
       routes: options.routes ?? {},
       image: options.image ?? defaultImage,
-      command: options.buzzEnabled ? ['/usr/local/bin/buzz-acp'] : options.command,
+      command: options.buzzEnabled || options.buzz
+        ? ['/usr/local/bin/buzz-acp']
+        : options.command,
       syncRoot: options.syncRoot ?? DEFAULT_CODING_AGENT_SYNC_ROOT,
       syncEnabled: options.syncEnabled ?? true,
       syncUid: options.syncUid ?? 1000,
