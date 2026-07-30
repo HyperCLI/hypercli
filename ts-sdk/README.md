@@ -184,6 +184,25 @@ command, lazy pool, relay observer, and Buzz-owned environment. `buzzEnabled`
 remains as a deprecated raw-environment compatibility path. Both forms are
 mutually exclusive with an explicit `command`.
 
+Buzz launches require `size: 'large'`; ordinary coding-agent helpers preserve a
+caller-provided size or the backend default. Stock Buzz provider agents do not
+start on app launch and the current provider protocol has no stop callback.
+Editing a running agent does not replace its HyperCLI launch environment: stop
+the deployment through the authenticated HyperCLI API and deploy it again from
+Buzz to apply changes.
+
+Stock Buzz does not automatically publish ordinary ACP assistant text. A
+visible reply requires the agent to invoke the Buzz send command/tool. The
+five-runtime test coverage validates request rendering, not live launches;
+OpenCode is the hosted path exercised so far, including explicit outbound
+publishing.
+
+The agent nsec and caller environment become raw deployment environment values.
+The HyperClaw backend currently persists them in `Agent.launch_config`, and
+authenticated deployment read, environment, or exec surfaces may expose them.
+The default `RUST_LOG` filter disables `acp::stream` content logging; overriding
+it can expose generated text in container logs.
+
 ### OpenClaw Gateway Chat Attachments
 
 ```typescript

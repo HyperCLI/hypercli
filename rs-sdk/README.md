@@ -40,3 +40,22 @@ The renderer enforces the `large` tier, `/home/node` persistence with UID/GID
 1000, no public routes, lazy pool creation, relay observation, and canonical
 runtime launch values. The config does not implement `Debug` or `Serialize`
 because it owns the agent nsec.
+
+Stock Buzz currently invokes backend providers for `info` and `deploy`, not
+stop/undeploy. Provider-backed agents do not start automatically when Buzz
+launches, and editing an already-running agent does not update its HyperCLI
+launch environment in place. Stop the deployment through the authenticated
+HyperCLI API, then deploy it again from Buzz to apply changed settings.
+
+Stock Buzz also does not turn ordinary ACP assistant chunks into chat messages.
+The agent must explicitly invoke the Buzz send command/tool for a visible
+response. The five-runtime test matrix validates rendered request shapes only;
+the hosted path exercised end to end so far is OpenCode, where connection and
+explicit outbound publishing succeeded.
+
+The rendered nsec and caller environment are raw launch environment values.
+The HyperClaw backend currently persists them in `Agent.launch_config`, and
+authenticated deployment read, environment, or exec surfaces may expose them.
+Use this integration for sensitive credentials only with that limitation
+understood. The default Rust log filter disables `acp::stream` message-content
+logging; explicitly overriding it can expose generated text in container logs.

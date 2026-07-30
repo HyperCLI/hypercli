@@ -93,7 +93,7 @@ const BUZZ_RUNTIME_COMMANDS: Record<CodingAgentRuntime, {
     mcpCommand: '',
   },
 };
-export const DEFAULT_BUZZ_RUST_LOG = 'info,pool::prompt=info,acp::stream=info';
+export const DEFAULT_BUZZ_RUST_LOG = 'buzz_acp=info,pool::prompt=info,acp::stream=off';
 const BUZZ_RESERVED_ENV_KEYS = new Set([
   'BUZZ_PRIVATE_KEY',
   'NOSTR_PRIVATE_KEY',
@@ -3540,8 +3540,9 @@ export class Deployments {
     if ((options.buzzEnabled || options.buzz) && options.command !== undefined && options.command !== null) {
       throw new Error('Buzz launch cannot be combined with an explicit command');
     }
-    if (options.size !== undefined && options.size !== 'large') {
-      throw new Error("coding agents require size='large'");
+    const buzzLaunch = options.buzzEnabled || options.buzz !== undefined && options.buzz !== null;
+    if (buzzLaunch && options.size !== undefined && options.size !== 'large') {
+      throw new Error("Buzz coding agents require size='large'");
     }
     const effectiveEnv: Record<string, string> = {
       HYPER_API_BASE: productApiBaseFromAgentsApiBase(this.apiBase),
@@ -3554,12 +3555,14 @@ export class Deployments {
         effectiveEnv,
         buildBuzzLaunchEnv(runtime, options.buzz, options.name),
       );
+    }
+    if (buzzLaunch) {
       effectiveEnv.RUST_LOG ??= DEFAULT_BUZZ_RUST_LOG;
     }
     const effectiveOptions: CreateAgentOptions = {
       ...options,
       runtime,
-      size: 'large',
+      size: buzzLaunch ? 'large' : options.size,
       injectGatewayToken: false,
       env: effectiveEnv,
       routes: options.routes ?? {},

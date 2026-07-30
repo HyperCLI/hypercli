@@ -90,7 +90,7 @@ def test_create_coding_agent_contract(method_name, runtime, image, agent_type):
 
     assert isinstance(agent, agent_type)
     assert posted["runtime"] == runtime
-    assert posted["size"] == "large"
+    assert "size" not in posted
     assert posted["image"] == image
     assert posted["routes"] == {}
     assert posted["sync_root"] == "/home/node"
@@ -146,6 +146,10 @@ def test_coding_agent_buzz_mode_only_changes_container_args_and_preserves_creden
     assert "entrypoint" not in posted
     assert posted["env"]["BUZZ_PRIVATE_KEY"] == agent_nsec
     assert posted["env"]["NOSTR_PRIVATE_KEY"] == agent_nsec
+    assert (
+        posted["env"]["RUST_LOG"]
+        == "buzz_acp=info,pool::prompt=info,acp::stream=off"
+    )
     assert "OPENCLAW_GATEWAY_TOKEN" not in posted["env"]
 
 
@@ -200,11 +204,53 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
     assert posted["env"]["HYPER_API_KEY"] == "inference-key"
 
 
-def test_coding_agent_rejects_non_large_size():
+def test_typed_buzz_launch_uses_safe_default_acp_logging():
+    deployments = Deployments(_HTTP())
+    posted: dict = {}
+
+    def fake_post(_path, json=None):
+        posted.update(json or {})
+        return _agent_payload("opencode")
+
+    deployments._post = fake_post
+    deployments.create_opencode(
+        buzz=BuzzLaunchConfig(
+            private_key_nsec="nsec1test",
+            relay_url="wss://buzz.example.test",
+        ),
+    )
+
+    assert (
+        posted["env"]["RUST_LOG"]
+        == "buzz_acp=info,pool::prompt=info,acp::stream=off"
+    )
+
+
+def test_non_buzz_coding_agent_preserves_requested_size():
+    deployments = Deployments(_HTTP())
+    posted: dict = {}
+
+    def fake_post(_path, json=None):
+        posted.update(json or {})
+        return _agent_payload("opencode")
+
+    deployments._post = fake_post
+    deployments.create_opencode(size="small")
+
+    assert posted["size"] == "small"
+
+
+def test_buzz_coding_agent_rejects_non_large_size():
     deployments = Deployments(_HTTP())
 
     with pytest.raises(ValueError, match="require size='large'"):
-        deployments.create_opencode(size="small")
+        deployments.create_opencode(
+            size="small",
+            buzz=BuzzLaunchConfig(
+                private_key_nsec="nsec1test",
+                relay_url="wss://buzz.example.test",
+            ),
+        )
 
 
 def test_goose_uses_injected_runtime_key_and_has_no_destructive_logout():

@@ -7,6 +7,7 @@ import {
   DEFAULT_GOOSE_IMAGE,
   DEFAULT_KIMI_CODE_IMAGE,
   DEFAULT_OPENCODE_IMAGE,
+  DEFAULT_BUZZ_RUST_LOG,
   Deployments,
   GooseAgent,
   KimiCodeAgent,
@@ -47,7 +48,6 @@ describe('coding agents', () => {
     expect(post).toHaveBeenCalledWith('/deployments', {
       start: true,
       runtime,
-      size: 'large',
       image,
       routes: {},
       sync_root: '/home/node',
@@ -84,6 +84,7 @@ describe('coding agents', () => {
       env: {
         CODEX_API_KEY: 'test-key',
         HYPER_WORKSPACES_SYNC_WORKSPACE: 'buzz',
+        RUST_LOG: DEFAULT_BUZZ_RUST_LOG,
       },
     });
     await expect(deployments.createCodex({
@@ -136,15 +137,53 @@ describe('coding agents', () => {
     });
   });
 
-  it('rejects coding-agent sizes that cannot run the pro runtime', async () => {
+  it('uses a safe default ACP log filter for typed Buzz launches', async () => {
+    const post = vi.fn().mockResolvedValue(response('opencode'));
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await deployments.createOpenCode({
+      buzz: {
+        privateKeyNsec: 'nsec1test',
+        relayUrl: 'wss://buzz.example.test',
+      },
+    });
+
+    expect(post.mock.calls[0][1].env.RUST_LOG).toBe(DEFAULT_BUZZ_RUST_LOG);
+    expect(DEFAULT_BUZZ_RUST_LOG).toBe('buzz_acp=info,pool::prompt=info,acp::stream=off');
+  });
+
+  it('preserves the requested size for non-Buzz coding agents', async () => {
+    const post = vi.fn().mockResolvedValue(response('opencode'));
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await deployments.createOpenCode({ size: 'small' });
+
+    expect(post.mock.calls[0][1].size).toBe('small');
+  });
+
+  it('rejects Buzz coding-agent sizes that cannot run the pro runtime', async () => {
     const deployments = new Deployments(
       { post: vi.fn() } as unknown as HTTPClient,
       'hyper_api_test',
       'https://api.test.hypercli.com/agents',
     );
 
-    await expect(deployments.createOpenCode({ size: 'small' })).rejects.toThrow(
-      "coding agents require size='large'",
+    await expect(deployments.createOpenCode({
+      size: 'small',
+      buzz: {
+        privateKeyNsec: 'nsec1test',
+        relayUrl: 'wss://buzz.example.test',
+      },
+    })).rejects.toThrow(
+      "Buzz coding agents require size='large'",
     );
   });
 

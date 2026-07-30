@@ -1,0 +1,68 @@
+---
+title: Buzz Coding Agents
+description: Run stock Buzz coding-agent harnesses on HyperCLI
+---
+
+HyperCLI integrates with the unmodified Buzz desktop app through the
+`buzz-backend-hypercli` executable. Buzz discovers executables named
+`buzz-backend-*`; the provider calls the HyperCLI deployments API directly and
+does not shell out to the Python `hyper` CLI.
+
+## Requirements
+
+- A HyperCLI Agents API credential in `HYPER_AGENTS_API_KEY`,
+  `HYPER_API_KEY`, `HYPERCLI_API_KEY`, or `~/.hypercli/config`
+- `buzz-backend-hypercli` installed on the desktop app's `PATH`
+- HyperCLI's `large` tier for Buzz-backed coding runtimes
+- An inference credential or native login completed inside the hosted Reef pod
+
+The provider accepts OpenCode, Codex, Claude Code, Goose, and Kimi Code runtime
+shapes. It selects the hosted image and canonical ACP command for the runtime.
+An image override is optional. If you use one, pin an immutable trusted image:
+the runtime receives the agent nsec and caller environment.
+
+For hosted OpenCode with HyperCLI inference, pass `HYPER_API_KEY` in the agent
+environment and select the model in Buzz. Codex and Claude subscription login
+is interactive and is not performed by the one-shot backend-provider protocol;
+run the HyperCLI SDK's native login flow against the hosted pod instead.
+
+## Message behavior
+
+Stock Buzz connects the remote `buzz-acp` harness and delivers inbound
+conversation events to it. It does not automatically turn ordinary ACP
+assistant chunks into Buzz chat messages. The agent must explicitly invoke the
+Buzz send command/tool, such as `buzz messages send`, for a visible reply.
+
+The hosted path exercised end to end so far is OpenCode: the harness connected
+and explicit outbound publishing succeeded. The automated five-runtime matrix
+validates generated deployment request shapes; it does not launch every runtime
+or prove that each harness can complete inference.
+
+## Lifecycle behavior
+
+Stock Buzz currently invokes backend providers for `info` and `deploy`. It does
+not invoke a provider stop/undeploy operation.
+
+- Provider-backed agents do not start automatically when Buzz launches.
+- Buzz's shutdown control stops harness presence; it does not stop the remote
+  HyperCLI deployment.
+- Deploying an already-running agent is idempotent and does not update its
+  launch environment.
+- Agent edits are stored in Buzz. To apply launch changes, stop the deployment
+  through the authenticated HyperCLI API, then deploy the agent again from
+  Buzz.
+
+## Logs and secrets
+
+Set `HYPER_HTTP_TRACE_FILE` to capture redacted provider HTTP metadata. Request
+secrets and response bodies are omitted. The default container `RUST_LOG`
+filter retains harness lifecycle diagnostics while setting
+`acp::stream=off`; overriding that filter can expose generated message content
+in centralized container logs.
+
+Buzz supplies the provider with the agent nsec. The provider sends the nsec and
+caller environment as raw deployment environment values. The HyperClaw backend
+currently persists those values in `Agent.launch_config`, and authenticated
+deployment read, environment, or exec surfaces may expose them. Treat this
+integration as experimental for sensitive credentials until launch secrets use
+encrypted or external secret references.

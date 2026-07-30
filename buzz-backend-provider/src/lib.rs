@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
 use hypercli_sdk::{
@@ -30,10 +30,6 @@ pub enum ProviderRequest {
         agent: Box<BuzzAgentPayload>,
         #[serde(default)]
         provider_config: Value,
-    },
-    Stop {
-        request_id: String,
-        agent_id: String,
     },
 }
 
@@ -179,11 +175,6 @@ pub struct DeployResponse {
 }
 
 #[derive(Serialize)]
-pub struct StopResponse {
-    pub agent_id: String,
-}
-
-#[derive(Serialize)]
 pub struct ErrorResponse<'a> {
     pub ok: bool,
     pub error: &'a str,
@@ -203,6 +194,12 @@ pub enum ProviderError {
     MissingRelayUrl,
     #[error("agent parallelism must be between 1 and 32")]
     InvalidParallelism,
+    #[error("agent timeout configuration is invalid")]
+    InvalidTimeoutConfiguration,
+    #[error("agent respond_to mode is invalid")]
+    InvalidRespondTo,
+    #[error("agent respond_to allowlist is invalid")]
+    InvalidRespondToAllowlist,
     #[error("HyperCLI coding agents require size large")]
     InvalidCodingAgentSize,
     #[error("Buzz harness does not match the selected HyperCLI runtime")]
@@ -250,7 +247,7 @@ pub fn provider_info() -> ProviderInfoResponse {
                 "image": {
                     "type": "string",
                     "title": "Runtime image",
-                    "description": "Optional immutable runtime image override",
+                    "description": "Optional runtime image override; pin an immutable digest",
                     "default": ""
                 },
                 "workspace": {
@@ -286,6 +283,18 @@ pub fn deploy_with_dry_run(
     let mut request = build_launch_request(agent, &public_key, &handle, options)?;
     request.dry_run = dry_run;
 
+    // A dry-run validates the requested launch shape and must never enter the
+    // idempotent lookup/restart path. In particular, a stopped deployment with
+    // the same deterministic handle must not be restarted.
+    if dry_run {
+        return client
+            .create_deployment(&request)
+            .map(|deployment| DeployResponse {
+                agent_id: deployment.id,
+            })
+            .map_err(ProviderError::HyperCli);
+    }
+
     if let Some(existing) = find_existing(client, &handle, request.runtime)? {
         let deployment = restart_if_stopped(client, existing, &request)?;
         return Ok(DeployResponse {
@@ -308,15 +317,6 @@ pub fn deploy_with_dry_run(
         }
         Err(error) => Err(ProviderError::HyperCli(error)),
     }
-}
-
-pub fn stop(client: &HyperCliClient, agent_id: String) -> Result<StopResponse, ProviderError> {
-    let deployment = client
-        .stop_deployment(&agent_id)
-        .map_err(ProviderError::HyperCli)?;
-    Ok(StopResponse {
-        agent_id: deployment.id,
-    })
 }
 
 fn find_existing(
@@ -385,6 +385,15 @@ fn build_launch_request(
     if !runtime.matches_buzz_command(&agent.agent_command) {
         return Err(ProviderError::AgentRuntimeMismatch);
     }
+    let behavior = validate_behavior(&agent)?;
+    let goose_model = (runtime == CodingRuntime::Goose)
+        .then(|| nonempty(agent.model.as_deref()))
+        .flatten()
+        .map(str::to_owned);
+    let goose_provider = (runtime == CodingRuntime::Goose)
+        .then(|| nonempty(agent.provider.as_deref()))
+        .flatten()
+        .map(str::to_owned);
     let display_name = agent.name.trim().to_owned();
     let mut request = CreateDeploymentRequest::new(runtime.managed());
     request.name = Some(deployment_name(&display_name, public_key));
@@ -410,14 +419,20 @@ fn build_launch_request(
     buzz.auth_tag = agent.auth_tag;
     buzz.system_prompt = agent.system_prompt;
     buzz.model = agent.model;
-    buzz.idle_timeout_seconds = agent.idle_timeout_seconds;
-    buzz.max_turn_duration_seconds = agent.max_turn_duration_seconds;
+    buzz.idle_timeout_seconds = behavior.idle_timeout_seconds;
+    buzz.max_turn_duration_seconds = behavior.max_turn_duration_seconds;
     buzz.parallelism = agent.parallelism;
-    buzz.respond_to = agent.respond_to;
-    buzz.respond_to_allowlist = agent.respond_to_allowlist;
+    buzz.respond_to = behavior.respond_to;
+    buzz.respond_to_allowlist = behavior.respond_to_allowlist;
     buzz.apply_to(&mut request, Some(&display_name))?;
 
     let env = &mut request.env;
+    if let Some(model) = goose_model {
+        env.insert("GOOSE_MODEL".to_owned(), model);
+    }
+    if let Some(provider) = goose_provider {
+        env.insert("GOOSE_PROVIDER".to_owned(), provider);
+    }
     env.insert("HYPER_WORKSPACES_BOOT_SYNC".to_owned(), "1".to_owned());
     env.insert(
         "HYPER_WORKSPACES_DIR".to_owned(),
@@ -431,6 +446,74 @@ fn build_launch_request(
         env.insert("HYPER_WORKSPACES_SYNC_WORKSPACE".to_owned(), workspace);
     }
     Ok(request)
+}
+
+struct ValidatedBehavior {
+    idle_timeout_seconds: Option<u64>,
+    max_turn_duration_seconds: Option<u64>,
+    respond_to: Option<String>,
+    respond_to_allowlist: Vec<String>,
+}
+
+fn validate_behavior(agent: &BuzzAgentPayload) -> Result<ValidatedBehavior, ProviderError> {
+    const DEFAULT_IDLE_TIMEOUT_SECONDS: u64 = 900;
+    const DEFAULT_MAX_TURN_DURATION_SECONDS: u64 = 7200;
+    const MAX_TURN_DURATION_CEILING_SECONDS: u64 = 604_800;
+
+    let idle_timeout_seconds = agent
+        .idle_timeout_seconds
+        .or(agent.turn_timeout_seconds)
+        .map(|value| value.max(1));
+    let max_turn_duration_seconds =
+        agent
+            .max_turn_duration_seconds
+            .map(|value| if value == 0 { 60 } else { value });
+    let effective_idle = idle_timeout_seconds.unwrap_or(DEFAULT_IDLE_TIMEOUT_SECONDS);
+    let effective_max = max_turn_duration_seconds.unwrap_or(DEFAULT_MAX_TURN_DURATION_SECONDS);
+    if effective_max > MAX_TURN_DURATION_CEILING_SECONDS || effective_idle >= effective_max {
+        return Err(ProviderError::InvalidTimeoutConfiguration);
+    }
+
+    let respond_to = agent
+        .respond_to
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if respond_to
+        .is_some_and(|value| !matches!(value, "owner-only" | "allowlist" | "anyone" | "nobody"))
+    {
+        return Err(ProviderError::InvalidRespondTo);
+    }
+
+    let mut seen = HashSet::new();
+    let mut normalized_allowlist = Vec::with_capacity(agent.respond_to_allowlist.len());
+    for entry in &agent.respond_to_allowlist {
+        let entry = entry.trim();
+        if entry.len() != 64 || !entry.chars().all(|character| character.is_ascii_hexdigit()) {
+            return Err(ProviderError::InvalidRespondToAllowlist);
+        }
+        let entry = entry.to_ascii_lowercase();
+        if seen.insert(entry.clone()) {
+            normalized_allowlist.push(entry);
+        }
+    }
+    if respond_to == Some("allowlist") && normalized_allowlist.is_empty() {
+        return Err(ProviderError::InvalidRespondToAllowlist);
+    }
+    if respond_to != Some("allowlist") {
+        normalized_allowlist.clear();
+    }
+
+    Ok(ValidatedBehavior {
+        idle_timeout_seconds,
+        max_turn_duration_seconds,
+        respond_to: respond_to.map(str::to_owned),
+        respond_to_allowlist: normalized_allowlist,
+    })
+}
+
+fn nonempty(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
 }
 
 pub fn derive_agent_pubkey(private_key: &str) -> Result<String, ProviderError> {
@@ -678,6 +761,133 @@ mod tests {
     }
 
     #[test]
+    fn goose_structured_model_and_provider_override_user_environment() {
+        let mut agent = test_agent_for(CodingRuntime::Goose);
+        agent.model = Some("structured-model".to_owned());
+        agent.provider = Some("structured-provider".to_owned());
+        agent
+            .env_vars
+            .insert("GOOSE_MODEL".to_owned(), "stale-model".to_owned());
+        agent
+            .env_vars
+            .insert("GOOSE_PROVIDER".to_owned(), "stale-provider".to_owned());
+
+        let request = build_launch_request(
+            agent,
+            TEST_PUBLIC_HEX,
+            "buzz-runtime-test",
+            ProviderOptions {
+                runtime: CodingRuntime::Goose,
+                size: AgentSize::Large,
+                image: None,
+                workspace: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(request.env["GOOSE_MODEL"], "structured-model");
+        assert_eq!(request.env["GOOSE_PROVIDER"], "structured-provider");
+    }
+
+    #[test]
+    fn stock_behavior_fields_use_legacy_timeout_and_normalize_allowlist() {
+        let allowlisted = "A".repeat(64);
+        let mut agent = test_agent();
+        agent.turn_timeout_seconds = Some(320);
+        agent.idle_timeout_seconds = None;
+        agent.respond_to = Some("allowlist".to_owned());
+        agent.respond_to_allowlist =
+            vec![format!(" {allowlisted} "), allowlisted.to_ascii_lowercase()];
+
+        let request = build_launch_request(
+            agent,
+            TEST_PUBLIC_HEX,
+            "buzz-runtime-test",
+            ProviderOptions {
+                runtime: CodingRuntime::Opencode,
+                size: AgentSize::Large,
+                image: None,
+                workspace: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(request.env["BUZZ_ACP_IDLE_TIMEOUT"], "320");
+        assert_eq!(request.env["BUZZ_ACP_RESPOND_TO"], "allowlist");
+        assert_eq!(request.env["BUZZ_ACP_RESPOND_TO_ALLOWLIST"], "a".repeat(64));
+    }
+
+    #[test]
+    fn rejects_behavior_that_stock_buzz_cannot_launch() {
+        let options = || ProviderOptions {
+            runtime: CodingRuntime::Opencode,
+            size: AgentSize::Large,
+            image: None,
+            workspace: None,
+        };
+
+        let mut invalid_mode = test_agent();
+        invalid_mode.respond_to = Some("everybody".to_owned());
+        assert!(matches!(
+            build_launch_request(
+                invalid_mode,
+                TEST_PUBLIC_HEX,
+                "buzz-runtime-test",
+                options()
+            ),
+            Err(ProviderError::InvalidRespondTo)
+        ));
+
+        let mut nobody = test_agent();
+        nobody.respond_to = Some("nobody".to_owned());
+        nobody.respond_to_allowlist = vec!["a".repeat(64)];
+        let nobody_request =
+            build_launch_request(nobody, TEST_PUBLIC_HEX, "buzz-runtime-test", options()).unwrap();
+        assert_eq!(nobody_request.env["BUZZ_ACP_RESPOND_TO"], "nobody");
+        assert!(!nobody_request
+            .env
+            .contains_key("BUZZ_ACP_RESPOND_TO_ALLOWLIST"));
+
+        let mut empty_allowlist = test_agent();
+        empty_allowlist.respond_to = Some("allowlist".to_owned());
+        assert!(matches!(
+            build_launch_request(
+                empty_allowlist,
+                TEST_PUBLIC_HEX,
+                "buzz-runtime-test",
+                options()
+            ),
+            Err(ProviderError::InvalidRespondToAllowlist)
+        ));
+
+        let mut invalid_allowlist = test_agent();
+        invalid_allowlist.respond_to = Some("allowlist".to_owned());
+        invalid_allowlist.respond_to_allowlist = vec!["not-a-pubkey".to_owned()];
+        assert!(matches!(
+            build_launch_request(
+                invalid_allowlist,
+                TEST_PUBLIC_HEX,
+                "buzz-runtime-test",
+                options()
+            ),
+            Err(ProviderError::InvalidRespondToAllowlist)
+        ));
+
+        let mut invalid_timeout = test_agent();
+        invalid_timeout.idle_timeout_seconds = Some(900);
+        invalid_timeout.max_turn_duration_seconds = Some(900);
+        assert!(matches!(
+            build_launch_request(
+                invalid_timeout,
+                TEST_PUBLIC_HEX,
+                "buzz-runtime-test",
+                options()
+            ),
+            Err(ProviderError::InvalidTimeoutConfiguration)
+        ));
+    }
+
+    #[test]
     fn runtime_contract_is_explicit_and_reserved_launch_env_cannot_override_it() {
         for (runtime, command, args, mcp) in [
             (
@@ -749,7 +959,7 @@ mod tests {
             assert_eq!(request.env["HYPER_WORKSPACES_DIR"], "/home/node/workspaces");
             assert_eq!(
                 request.env["RUST_LOG"],
-                "info,pool::prompt=info,acp::stream=info"
+                "buzz_acp=info,pool::prompt=info,acp::stream=off"
             );
         }
     }
@@ -884,25 +1094,61 @@ mod tests {
     }
 
     #[test]
-    fn stop_returns_the_stopped_deployment_id() {
-        let mut server = Server::new();
-        let stop_request = server
-            .mock("POST", "/agents/deployments/deployment-1/stop")
-            .match_header("authorization", "Bearer test-credential")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(
-                serde_json::json!({
-                    "id": "deployment-1",
-                    "runtime": "opencode",
-                    "state": "stopped"
-                })
-                .to_string(),
-            )
-            .create();
+    fn dry_run_never_looks_up_or_restarts_an_existing_deployment() {
+        for state in ["running", "stopped"] {
+            let mut server = Server::new();
+            let handle = format!("buzz-{}", &TEST_PUBLIC_HEX[..48]);
+            let lookup = server
+                .mock("GET", "/agents/deployments")
+                .match_query(Matcher::UrlEncoded("handle".into(), handle.clone()))
+                .with_status(200)
+                .with_header("content-type", "application/json")
+                .with_body(
+                    serde_json::json!({
+                        "items": [{
+                            "id": "existing",
+                            "handle": handle,
+                            "runtime": "opencode",
+                            "state": state
+                        }]
+                    })
+                    .to_string(),
+                )
+                .expect(0)
+                .create();
+            let restart = server
+                .mock("POST", "/agents/deployments/existing/start")
+                .expect(0)
+                .create();
+            let create = server
+                .mock("POST", "/agents/deployments")
+                .match_body(Matcher::PartialJsonString(
+                    serde_json::json!({"dry_run": true}).to_string(),
+                ))
+                .with_status(200)
+                .with_header("content-type", "application/json")
+                .with_body(
+                    serde_json::json!({
+                        "id": format!("dry-run-{state}"),
+                        "runtime": "opencode",
+                        "state": "pending"
+                    })
+                    .to_string(),
+                )
+                .create();
 
-        let response = stop(&client(&server), "deployment-1".to_owned()).unwrap();
-        assert_eq!(response.agent_id, "deployment-1");
-        stop_request.assert();
+            let response = deploy_with_dry_run(
+                &client(&server),
+                test_agent(),
+                serde_json::json!({"runtime":"opencode"}),
+                true,
+            )
+            .unwrap();
+
+            assert_eq!(response.agent_id, format!("dry-run-{state}"));
+            lookup.assert();
+            restart.assert();
+            create.assert();
+        }
     }
 }

@@ -65,7 +65,7 @@ fn deploy_fixture_runs_the_provider_http_contract() {
                     "BUZZ_ACP_LAZY_POOL": "true",
                     "BUZZ_ACP_RELAY_OBSERVER": "true",
                     "BUZZ_ACP_SESSION_TITLE": "Fizz",
-                    "RUST_LOG": "info,pool::prompt=info,acp::stream=info"
+                    "RUST_LOG": "buzz_acp=info,pool::prompt=info,acp::stream=off"
                 }
             })
             .to_string(),
@@ -100,7 +100,7 @@ fn deploy_fixture_runs_the_provider_http_contract() {
 }
 
 #[test]
-fn dry_run_binary_covers_every_hosted_runtime_shape() {
+fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
     let handle = format!("buzz-{}", &TEST_PUBLIC_HEX[..48]);
     for (runtime, agent_command, image, child_command, child_args, mcp_command) in [
         (
@@ -147,14 +147,7 @@ fn dry_run_binary_covers_every_hosted_runtime_shape() {
         let mut server = Server::new();
         let trace_dir = tempfile::tempdir().unwrap();
         let trace_file = trace_dir.path().join(format!("{runtime}.jsonl"));
-        let lookup = server
-            .mock("GET", "/agents/deployments")
-            .match_query(Matcher::UrlEncoded("handle".into(), handle.clone()))
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(r#"{"items":[]}"#)
-            .create();
-        let expected = serde_json::json!({
+        let mut expected = serde_json::json!({
             "name": format!("fizz-{}", &TEST_PUBLIC_HEX[..8]),
             "handle": handle,
             "runtime": runtime,
@@ -176,10 +169,12 @@ fn dry_run_binary_covers_every_hosted_runtime_shape() {
                 "BUZZ_ACP_SESSION_TITLE": "Fizz",
                 "BUZZ_ACP_SYSTEM_PROMPT": "Build carefully",
                 "BUZZ_ACP_MODEL": "fixture-model",
-                "BUZZ_ACP_IDLE_TIMEOUT": "900",
+                "BUZZ_ACP_IDLE_TIMEOUT": "320",
                 "BUZZ_ACP_MAX_TURN_DURATION": "7200",
                 "BUZZ_ACP_AGENTS": "3",
-                "BUZZ_ACP_RESPOND_TO": "owner-only",
+                "BUZZ_ACP_RESPOND_TO": "allowlist",
+                "BUZZ_ACP_RESPOND_TO_ALLOWLIST":
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "BUZZ_ACP_MULTIPLE_EVENT_HANDLING": "steer",
                 "BUZZ_ACP_DEDUP": "queue",
                 "RUST_LOG": "debug",
@@ -197,6 +192,10 @@ fn dry_run_binary_covers_every_hosted_runtime_shape() {
             "start": true,
             "dry_run": true
         });
+        if runtime == "goose" {
+            expected["env"]["GOOSE_MODEL"] = serde_json::json!("fixture-model");
+            expected["env"]["GOOSE_PROVIDER"] = serde_json::json!("fixture-provider");
+        }
         let create = server
             .mock("POST", "/agents/deployments")
             .match_body(Matcher::JsonString(expected.to_string()))
@@ -228,10 +227,14 @@ fn dry_run_binary_covers_every_hosted_runtime_shape() {
                 },
                 "system_prompt": "Build carefully",
                 "model": "fixture-model",
-                "idle_timeout_seconds": 900,
+                "provider": "fixture-provider",
+                "turn_timeout_seconds": 320,
                 "max_turn_duration_seconds": 7200,
                 "parallelism": 3,
-                "respond_to": "owner-only",
+                "respond_to": "allowlist",
+                "respond_to_allowlist": [
+                    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+                ],
                 "env_vars": {
                     "MODEL_API_KEY": "fixture-model-credential",
                     "BUZZ_RELAY_URL": "wss://attacker.invalid",
@@ -272,7 +275,6 @@ fn dry_run_binary_covers_every_hosted_runtime_shape() {
         assert!(trace.contains(r#""MODEL_API_KEY":"<redacted>""#));
         assert!(!trace.contains("nsec1qqqq"));
         assert!(!trace.contains("fixture-model-credential"));
-        lookup.assert();
         create.assert();
     }
 }
@@ -290,44 +292,4 @@ fn malformed_request_returns_only_a_redacted_protocol_error() {
     let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(response["ok"], false);
     assert!(!String::from_utf8_lossy(&output.stdout).contains(secret));
-}
-
-#[test]
-fn stop_request_runs_the_provider_http_contract() {
-    let mut server = Server::new();
-    let stop = server
-        .mock("POST", "/agents/deployments/deployment-1/stop")
-        .match_header("authorization", "Bearer fixture-hypercli-credential")
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(
-            serde_json::json!({
-                "id": "deployment-1",
-                "runtime": "opencode",
-                "state": "stopped"
-            })
-            .to_string(),
-        )
-        .create();
-
-    let output = Command::cargo_bin("buzz-backend-hypercli")
-        .unwrap()
-        .env("HYPER_AGENTS_API_KEY", "fixture-hypercli-credential")
-        .env("AGENTS_API_BASE_URL", format!("{}/agents", server.url()))
-        .write_stdin(
-            serde_json::json!({
-                "op": "stop",
-                "request_id": "fixture-stop-1",
-                "agent_id": "deployment-1"
-            })
-            .to_string(),
-        )
-        .output()
-        .unwrap();
-
-    assert!(output.status.success());
-    assert!(output.stderr.is_empty());
-    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(response["agent_id"], "deployment-1");
-    stop.assert();
 }

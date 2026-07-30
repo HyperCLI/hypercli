@@ -25,7 +25,7 @@ pub enum AgentSize {
     Large,
 }
 
-const DEFAULT_BUZZ_RUST_LOG: &str = "info,pool::prompt=info,acp::stream=info";
+const DEFAULT_BUZZ_RUST_LOG: &str = "buzz_acp=info,pool::prompt=info,acp::stream=off";
 const BUZZ_RESERVED_ENV: &[&str] = &[
     "BUZZ_PRIVATE_KEY",
     "NOSTR_PRIVATE_KEY",
@@ -414,6 +414,19 @@ mod tests {
         assert_eq!(
             buzz.apply_to(&mut request, None),
             Err(BuzzLaunchError::UnsupportedRuntime)
+        );
+    }
+
+    #[test]
+    fn buzz_launch_disables_acp_content_logging_by_default() {
+        let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        let buzz = BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test");
+
+        buzz.apply_to(&mut request, None).unwrap();
+
+        assert_eq!(
+            request.env.get("RUST_LOG").map(String::as_str),
+            Some("buzz_acp=info,pool::prompt=info,acp::stream=off")
         );
     }
 }

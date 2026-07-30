@@ -86,7 +86,7 @@ _BUZZ_RUNTIME_COMMANDS: dict[CodingAgentRuntime, tuple[str, list[str], str]] = {
     "goose": ("/usr/local/bin/goose", ["acp"], ""),
     "kimi-code": ("/usr/local/bin/kimi", ["acp"], ""),
 }
-DEFAULT_BUZZ_RUST_LOG = "info,pool::prompt=info,acp::stream=info"
+DEFAULT_BUZZ_RUST_LOG = "buzz_acp=info,pool::prompt=info,acp::stream=off"
 BUZZ_RESERVED_ENV_KEYS = frozenset({
     "BUZZ_PRIVATE_KEY",
     "NOSTR_PRIVATE_KEY",
@@ -2728,8 +2728,9 @@ class Deployments:
             raise ValueError("buzz_enabled cannot be combined with buzz")
         if (buzz_enabled or buzz is not None) and command is not None:
             raise ValueError("Buzz launch cannot be combined with an explicit command")
-        if size not in (None, "large"):
-            raise ValueError("coding agents require size='large'")
+        buzz_launch = buzz_enabled or buzz is not None
+        if buzz_launch and size not in (None, "large"):
+            raise ValueError("Buzz coding agents require size='large'")
         effective_env = {
             "HYPER_API_BASE": _product_api_base_from_agents_api_base(self._api_base),
             **build_openclaw_workspaces_sync_env(workspaces_sync),
@@ -2739,11 +2740,12 @@ class Deployments:
             for key in BUZZ_RESERVED_ENV_KEYS:
                 effective_env.pop(key, None)
             effective_env.update(buzz.environment(runtime, default_session_title=name))
+        if buzz_launch:
             effective_env.setdefault("RUST_LOG", DEFAULT_BUZZ_RUST_LOG)
         return self.create(
             name=name,
             handle=handle,
-            size="large",
+            size="large" if buzz_launch else size,
             runtime=runtime,
             config=config,
             tags=tags,
