@@ -25,11 +25,12 @@ the declared Rust 1.95 toolchain. The provider package itself cannot pass
 crates.io; the executable is therefore distributed as a native release
 artifact instead of a crates.io package.
 
-`.github/workflows/release-buzz-provider.yml` builds unsigned Linux x86-64,
-macOS Intel, and macOS Apple Silicon archives from one exact git ref. It runs
-the native provider protocol smoke before assembling checksums. Public release
-publication is opt-in; these test artifacts are intentionally not represented
-as signed or notarized production binaries.
+`.github/workflows/release-buzz-provider.yml` builds unsigned Linux
+x86-64/aarch64 and macOS Intel/Apple Silicon archives from one exact git ref.
+It runs the native provider protocol smoke before assembling checksums. Public
+release publication is opt-in; these test artifacts are intentionally not
+represented as signed or notarized production binaries. The first published
+test build is the `buzz-provider-v0.1.0` GitHub release.
 
 ## Provider installation
 
@@ -61,7 +62,7 @@ or `HYPERCLI_API_URL`, with environment values preceding local config.
 
 Provider configuration is limited to flat, non-secret choices:
 
-- `runtime`: `opencode`, `codex`, or `claude-code`
+- `runtime`: `opencode`, `codex`, `claude-code`, `goose`, or `kimi-code`
 - `size`: `small`, `medium`, or `large`
 - `image`: optional image override
 - `workspace`: optional HyperCLI workspace ID
