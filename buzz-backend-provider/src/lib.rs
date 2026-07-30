@@ -13,8 +13,7 @@ use thiserror::Error;
 
 const DEFAULT_BUZZ_OPENCODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-opencode:latest";
 const DEFAULT_BUZZ_CODEX_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-codex:latest";
-const DEFAULT_BUZZ_CLAUDE_CODE_IMAGE: &str =
-    "ghcr.io/hypercli/hypercli-buzz-claude:latest";
+const DEFAULT_BUZZ_CLAUDE_CODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-claude:latest";
 const DEFAULT_BUZZ_GOOSE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-goose:latest";
 const DEFAULT_BUZZ_KIMI_CODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-kimi-code:latest";
 #[cfg(test)]
