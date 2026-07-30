@@ -5,8 +5,9 @@ description: Run stock Buzz coding-agent harnesses in isolated HyperCLI Reef pod
 
 <Warning>
 The HyperCLI provider is a development preview. The published v0.1.0 macOS
-artifacts are unsigned and predate the stock-protocol corrections in source
-commit `01fbaa84`. Do not use either build with production agent identities,
+artifacts are unsigned and predate the stock-protocol and one-shot launch
+corrections in source commit `0696a2f7`. Do not use either build with
+production agent identities,
 model credentials, or sensitive repositories.
 </Warning>
 
@@ -39,7 +40,7 @@ Current source builds require Rust 1.95:
 ```bash
 git clone https://github.com/HyperCLI/hypercli.git
 cd hypercli
-git checkout 01fbaa84eed0b72ff3521d991a8f37100089fdc8
+git checkout 0696a2f70137266098de63f3daad26e9125eb5bd
 
 cargo test --workspace --all-features --locked
 cargo build --release --locked -p buzz-backend-hypercli
@@ -63,8 +64,8 @@ The response should contain `"ok":true`, `"name":"HyperCLI"`, and a
 The historical
 [unsigned v0.1.0 release](https://github.com/HyperCLI/hypercli/releases/tag/buzz-provider-v0.1.0)
 contains Linux x86-64/ARM64 and macOS Intel/Apple-silicon archives plus
-checksums. Those binaries were built from `026fc466`, not `01fbaa84`, so they
-do not contain the latest stock-protocol corrections.
+checksums. Those binaries were built from `026fc466`, not `0696a2f7`, so they
+do not contain the latest stock-protocol or one-shot launch corrections.
 
 | v0.1.0 archive | SHA-256 |
 | --- | --- |
@@ -203,8 +204,18 @@ does not invoke provider stop, undeploy, status, logs, or delete operations.
   settings.
 - Desktop's Shutdown action sends a best-effort owner-authored,
   agent-mentioned `!shutdown` channel message. It fails without a shared
-  channel. If delivered and accepted, `buzz-acp` exits, but Desktop receives no
-  acknowledgement and does not stop or release the HyperCLI deployment.
+  channel. New provider launches set `restart: false`; with a backend and
+  Lagoon version that support that launch field, an accepted shutdown lets the
+  pod terminate, reports the deployment stopped, and releases its slot. Desktop
+  still receives no provider acknowledgement and retains its local deployed
+  record.
+- Existing deployments created before `restart: false` was supported retain
+  their saved restart policy. Their `buzz-acp` process may be relaunched by
+  Kubernetes after shutdown until the deployment is recreated with the new
+  launch shape.
+- Desktop Stop and Delete actions do not invoke the provider. A local delete
+  can therefore leave remote infrastructure running if shutdown was not
+  delivered first.
 - Apply launch changes by stopping the deployment through authenticated
   HyperCLI lifecycle tooling, then deploying it again from Buzz.
 
@@ -237,8 +248,8 @@ provider contract.
 Current automated coverage includes:
 
 - native Rust workspace and one-shot provider protocol tests;
-- a five-runtime matrix of representative generated request shapes and
-  redacted traces;
+- exact sanitized stock `info` and `deploy` request/response fixtures;
+- a five-runtime dry-run matrix of representative generated request shapes;
 - five deployed image/runtime sanity gates;
 - OpenCode and Goose inference/tool-use coverage;
 - a provider → HyperCLI → Lagoon deployment smoke using a dedicated Pro test
