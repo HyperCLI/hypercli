@@ -285,7 +285,7 @@ def test_agent_stop_alias_stops_by_name(monkeypatch):
                 pod_id="pod-1",
                 pod_name="clear-window-works",
                 name="clear-window-works",
-                state="STOPPED",
+                state="STOPPING",
             )
 
     monkeypatch.setattr(agent_mod, "_get_deployments_client", lambda dev=False: _FakeDeployments())
@@ -297,4 +297,50 @@ def test_agent_stop_alias_stops_by_name(monkeypatch):
         ("get", "clear-window-works"),
         ("stop", "11111111-1111-4111-8111-111111111111"),
     ]
+    assert "Agent stopping" in result.output
+    assert "State: STOPPING" in result.output
+
+
+def test_agent_stop_waits_for_cleanup_before_reporting_stopped(monkeypatch):
+    calls: list[tuple[str, object]] = []
+
+    class _FakeDeployments:
+        def get(self, agent):
+            calls.append(("get", agent))
+            state = "RUNNING" if len(calls) == 1 else "STOPPED"
+            return Agent(
+                id="11111111-1111-4111-8111-111111111111",
+                user_id="user-1",
+                pod_id="pod-1" if state == "RUNNING" else "",
+                pod_name="clear-window-works",
+                name="clear-window-works",
+                state=state,
+            )
+
+        def stop(self, agent_id):
+            calls.append(("stop", agent_id))
+            return Agent(
+                id=agent_id,
+                user_id="user-1",
+                pod_id="pod-1",
+                pod_name="clear-window-works",
+                name="clear-window-works",
+                state="STOPPING",
+            )
+
+    monkeypatch.setattr(agent_mod, "_get_deployments_client", lambda dev=False: _FakeDeployments())
+    monkeypatch.setattr(agent_mod.time, "sleep", lambda _seconds: None)
+
+    result = runner.invoke(
+        app,
+        ["agent", "stop", "clear-window-works", "--force", "--wait"],
+    )
+
+    assert result.exit_code == 0
+    assert calls == [
+        ("get", "clear-window-works"),
+        ("stop", "11111111-1111-4111-8111-111111111111"),
+        ("get", "11111111-1111-4111-8111-111111111111"),
+    ]
     assert "Agent stopped" in result.output
+    assert "State: STOPPED" in result.output

@@ -1150,6 +1150,39 @@ mod tests {
     }
 
     #[test]
+    fn deploy_does_not_restart_agent_while_backend_cleanup_is_stopping() {
+        let mut server = Server::new();
+        let handle = format!("buzz-{}", &TEST_PUBLIC_HEX[..48]);
+        let lookup = server
+            .mock("GET", "/agents/deployments")
+            .match_query(Matcher::UrlEncoded("handle".into(), handle.clone()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "items": [{
+                        "id":"existing",
+                        "handle":handle,
+                        "runtime":"opencode",
+                        "state":"stopping"
+                    }]
+                })
+                .to_string(),
+            )
+            .create();
+
+        let response = deploy(
+            &client(&server),
+            test_agent(),
+            serde_json::json!({"runtime":"opencode"}),
+        )
+        .unwrap();
+
+        assert_eq!(response.agent_id, "existing");
+        lookup.assert();
+    }
+
+    #[test]
     fn dry_run_never_looks_up_or_restarts_an_existing_deployment() {
         for state in ["running", "stopped"] {
             let mut server = Server::new();

@@ -29,6 +29,15 @@ export function agentDisplayLabel(agent: Pick<Agent, "id" | "name" | "handle" | 
     : agent.handle?.trim() || canonicalName;
 }
 
+export function didAnyAgentFinishStopping(
+  previous: ReadonlyMap<string, AgentState>,
+  current: ReadonlyArray<Pick<Agent, "id" | "state">>,
+): boolean {
+  return current.some((agent) => (
+    previous.get(agent.id) === "STOPPING" && agent.state === "STOPPED"
+  ));
+}
+
 export function toAgentViewModel(agent: SdkAgent): Agent {
   const managed = agent.managed ?? null;
   const canonicalName = agent.name?.trim() || agent.podName?.trim() || agent.id;
@@ -42,6 +51,8 @@ export function toAgentViewModel(agent: SdkAgent): Agent {
     avatarUrl: agent.avatarUrl ?? null,
     displayIdentity: agent.displayIdentity ?? null,
     managed,
+    runtime: agent.runtime ?? null,
+    gatewayId: agent.gatewayId ?? null,
     user_id: agent.userId,
     pod_id: agent.podId || null,
     pod_name: agent.podName || null,

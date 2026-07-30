@@ -115,6 +115,31 @@ describe('Agents SDK', () => {
     }, undefined);
   });
 
+  it('preserves the transitional stopping state returned by stop', async () => {
+    const http = {
+      get: vi.fn().mockResolvedValue({
+        id: 'agent-123',
+        user_id: 'user-456',
+        pod_id: 'pod-789',
+        pod_name: 'pod-789',
+        state: 'running',
+      }),
+      post: vi.fn().mockResolvedValue({
+        id: 'agent-123',
+        user_id: 'user-456',
+        pod_id: 'pod-789',
+        pod_name: 'pod-789',
+        state: 'stopping',
+      }),
+    } as unknown as HTTPClient;
+
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+    const agent = await deployments.stop('agent-123');
+
+    expect(agent.state).toBe('stopping');
+    expect(http.post).toHaveBeenCalledWith('/deployments/agent-123/stop');
+  });
+
   it('sends frontend-owned bootstrap prompts and response schemas to the JWT inference route', async () => {
     const post = vi.fn().mockResolvedValue({
       model: 'kimi-k2.6',

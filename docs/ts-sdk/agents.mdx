@@ -264,6 +264,10 @@ await client.deployments.delete(agent.id);
 await client.deployments.waitRunning(agent.id, 300_000, 5_000);
 ```
 
+`stop()` returns the accepted lifecycle state, normally `stopping`. Cleanup is
+asynchronous: fetch the deployment until it becomes `stopped` before
+restarting it or treating its slot as available.
+
 ## `Agent`
 
 Important fields:

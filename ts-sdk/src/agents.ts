@@ -3892,6 +3892,13 @@ export class Deployments {
     return this.update(agentId, options);
   }
 
+  /**
+   * Request an agent stop.
+   *
+   * The returned agent remains `STOPPING` while runtime cleanup is in
+   * progress. Fetch it again until it becomes `STOPPED` before treating its
+   * deployment slot as released.
+   */
   async stop(agentIdOrName: string): Promise<Agent> {
     const agentId = await this.resolveAgentId(agentIdOrName);
     const data = await this.agentHttp.post<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}/stop`);

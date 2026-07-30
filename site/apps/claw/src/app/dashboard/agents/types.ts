@@ -37,6 +37,8 @@ export interface Agent {
   avatarUrl?: string | null;
   displayIdentity?: Record<string, unknown> | null;
   managed?: boolean | null;
+  runtime?: string | null;
+  gatewayId?: string | null;
   user_id: string;
   pod_id: string | null;
   pod_name: string | null;

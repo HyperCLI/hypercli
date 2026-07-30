@@ -517,6 +517,22 @@ def wait_agent(
     console.print(f"  Shell:    {'via hyper agents shell' if not pod.shell_url else pod.shell_url}")
 
 
+def _agent_state_style(state: object) -> str:
+    normalized_state = str(state or "").lower()
+    return {
+        "running": "green",
+        "pending": "yellow",
+        "restoring": "yellow",
+        "syncing": "yellow",
+        "starting": "yellow",
+        "stopping": "yellow",
+        "stopped": "dim",
+        "failed": "red",
+        "restore_failed": "red",
+        "sync_failed": "red",
+    }.get(normalized_state, "white")
+
+
 @app.command("list")
 def list_agents(
     json_output: bool = typer.Option(False, "--json", help="JSON output"),
@@ -561,7 +577,7 @@ def list_agents(
     table.add_column("Created")
 
     for pod in pods:
-        style = {"running": "green", "pending": "yellow", "starting": "yellow"}.get(pod.state, "red")
+        style = _agent_state_style(pod.state)
         created = pod.created_at.strftime("%Y-%m-%d %H:%M") if pod.created_at else ""
         size_str = f"{pod.cpu}c/{pod.memory}G" if pod.cpu else ""
         row = [
@@ -853,6 +869,8 @@ def start(
 def stop(
     agent_id: str = typer.Argument(..., help="Agent ID, unique name, handle, hostname, or prefix"),
     force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
+    wait: bool = typer.Option(False, "--wait", help="Wait for cleanup to finish and state to become STOPPED"),
+    timeout: float = typer.Option(900.0, "--timeout", min=1.0, help="Wait timeout in seconds"),
 ):
     """Stop an agent (keeps DB record, destroys pod)."""
     agent_id = _resolve_agent(agent_id)
@@ -866,13 +884,27 @@ def stop(
 
     try:
         pod = agents.stop(agent_id)
+        if wait:
+            deadline = time.monotonic() + timeout
+            while str(pod.state or "").lower() != "stopped":
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        f"Timed out waiting for agent {agent_id} to reach STOPPED "
+                        f"(last={pod.state})"
+                    )
+                time.sleep(min(5.0, max(deadline - time.monotonic(), 0.0)))
+                pod = agents.get(agent_id)
     except Exception as e:
         console.print(f"[red]❌ Failed to stop agent: {e}[/red]")
         raise typer.Exit(1)
 
     _save_pod_state(pod)
-    console.print(f"[green]✅ Agent stopped[/green]")
-    console.print(f"Restart with: [bold]hyper agents start {agent_id[:8]}[/bold]")
+    if str(pod.state or "").lower() == "stopped":
+        console.print("[green]✅ Agent stopped[/green]")
+        console.print(f"Restart with: [bold]hyper agents start {agent_id[:8]}[/bold]")
+    else:
+        console.print("[yellow]✓ Agent stopping; runtime cleanup is still in progress.[/yellow]")
+        console.print(f"Wait for completion: [bold]hyper agents stop {agent_id[:8]} --force --wait[/bold]")
 
 
 @app.command("delete")

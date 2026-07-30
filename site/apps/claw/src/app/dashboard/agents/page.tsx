@@ -199,11 +199,12 @@ import { useJourney } from "@/components/dashboard/journey/useJourney";
 import { getAgentGatewayPanelBootStatus } from "@/components/dashboard/agents/chat-boot-stage";
 import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { PlanCheckoutModal } from "@/components/PlanCheckoutModal";
-import { agentDisplayLabel, toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
+import { agentDisplayLabel, didAnyAgentFinishStopping, toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 import { CLAW_PRODUCTS, compactBundle, formatBundle, subscriptionSlotBundle, type SlotBundle } from "@/lib/subscriptions";
 import { createAudioMediaRecorder } from "@/lib/audio-recorder";
 import { downloadFileBytes } from "@/lib/download-file";
 import { resolveAgentRouteTab, type AgentRouteTab } from "@/lib/agent-workspace-route";
+import { agentPrimarySurface } from "@/lib/agent-runtime-surface";
 import {
   ACCOUNT_PAGE_HREFS,
   buildDashboardViewHref,
@@ -2183,9 +2184,10 @@ function AgentsPageContent() {
     setUpgradeCheckoutPlan(checkoutPlan);
   }, [fetchAgents, isAuthenticated, requestAuthentication]);
 
-  // Detect STARTING→RUNNING for burst
+  // Detect lifecycle completions for UI effects and released-slot enrichment.
   useEffect(() => {
     const prev = prevStatesRef.current;
+    const cleanupFinished = didAnyAgentFinishStopping(prev, agents);
     for (const agent of agents) {
       const prevState = prev.get(agent.id);
       if (prevState && isAgentTransitionalState(prevState) && agent.state === "RUNNING") {
@@ -2195,7 +2197,10 @@ function AgentsPageContent() {
     const next = new Map<string, AgentState>();
     for (const agent of agents) next.set(agent.id, agent.state);
     prevStatesRef.current = next;
-  }, [agents]);
+    if (cleanupFinished) {
+      void refreshAgentEnrichment({ force: true });
+    }
+  }, [agents, refreshAgentEnrichment]);
 
   const selectedSdkAgent = useMemo(
     () => (selectedAgentId
@@ -2404,6 +2409,38 @@ function AgentsPageContent() {
     activeTab: mainTab,
     intent: shellIntentAgentId === selectedAgentId,
   });
+  const selectedAgentPrimarySurface = agentPrimarySurface(selectedAgent?.runtime);
+
+  useEffect(() => {
+    if (
+      selectedAgentPrimarySurface !== "shell" ||
+      !selectedAgentId ||
+      !isSelectedRunning ||
+      mainTab !== "chat"
+    ) return;
+
+    const timeout = window.setTimeout(() => {
+      prepareShell();
+      setOpenclawSettingsOpen(false);
+      setMainTab("shell");
+      setMobileShowChat(true);
+
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("agentId", selectedAgentId);
+      params.set("tab", "shell");
+      params.delete("session");
+      router.replace(`/dashboard/agents?${params.toString()}`, { scroll: false });
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [
+    isSelectedRunning,
+    mainTab,
+    prepareShell,
+    router,
+    searchParams,
+    selectedAgentId,
+    selectedAgentPrimarySurface,
+  ]);
 
   const routedSelectedSessionKey = selectedAgentId && requestedAgentId === selectedAgentId
     ? requestedSessionKey
@@ -2411,7 +2448,7 @@ function AgentsPageContent() {
   const selectedSessionRouteValue = selectedAgentId
     ? routedSelectedSessionKey ?? selectedSessionKeysByAgent[selectedAgentId] ?? null
     : null;
-  const gatewayEnabled = isSelectedRunning && agentWorkspaceActivated;
+  const gatewayEnabled = selectedAgentPrimarySurface === "chat" && isSelectedRunning && agentWorkspaceActivated;
   const openClawHydrationMode: OpenClawHydrationMode = !dashboardView &&
     mainTab === "chat" &&
     !openclawSettingsOpen

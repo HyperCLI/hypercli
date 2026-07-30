@@ -4,6 +4,7 @@ from typer.testing import CliRunner
 
 from hypercli.agents import AGENT_FILE_MAX_BYTES, DEFAULT_OPENCLAW_PRO_IMAGE
 from hypercli_cli.cli import app
+from hypercli_cli import agents as agents_module
 
 
 runner = CliRunner()
@@ -589,3 +590,53 @@ def test_agents_web_search_command(monkeypatch):
 
     assert result.exit_code == 0
     assert '"HyperCLI"' in result.stdout
+
+
+def test_agents_stop_reports_cleanup_in_progress(monkeypatch):
+    class FakeDeployments:
+        def stop(self, agent_id):
+            assert agent_id == "agent-123"
+            return SimpleNamespace(id=agent_id, state="stopping")
+
+    monkeypatch.setattr(agents_module, "_resolve_agent", lambda _agent: "agent-123")
+    monkeypatch.setattr(agents_module, "_get_deployments_client", lambda: FakeDeployments())
+    monkeypatch.setattr(agents_module, "_save_pod_state", lambda _pod: None)
+
+    result = runner.invoke(app, ["agents", "stop", "agent-123", "--force"])
+
+    assert result.exit_code == 0
+    assert "Agent stopping" in result.output
+    assert "Agent stopped" not in result.output
+
+
+def test_agents_stop_waits_for_stopped(monkeypatch):
+    calls: list[str] = []
+
+    class FakeDeployments:
+        def stop(self, agent_id):
+            calls.append(f"stop:{agent_id}")
+            return SimpleNamespace(id=agent_id, state="stopping")
+
+        def get(self, agent_id):
+            calls.append(f"get:{agent_id}")
+            return SimpleNamespace(id=agent_id, state="stopped")
+
+    monkeypatch.setattr(agents_module, "_resolve_agent", lambda _agent: "agent-123")
+    monkeypatch.setattr(agents_module, "_get_deployments_client", lambda: FakeDeployments())
+    monkeypatch.setattr(agents_module, "_save_pod_state", lambda _pod: None)
+    monkeypatch.setattr(agents_module.time, "sleep", lambda _seconds: None)
+
+    result = runner.invoke(
+        app,
+        ["agents", "stop", "agent-123", "--force", "--wait"],
+    )
+
+    assert result.exit_code == 0
+    assert calls == ["stop:agent-123", "get:agent-123"]
+    assert "Agent stopped" in result.output
+
+
+def test_agents_list_uses_transitional_and_terminal_state_colors():
+    assert agents_module._agent_state_style("STOPPING") == "yellow"
+    assert agents_module._agent_state_style("STOPPED") == "dim"
+    assert agents_module._agent_state_style("FAILED") == "red"

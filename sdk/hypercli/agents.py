@@ -3300,7 +3300,9 @@ class Deployments:
             agent_id: Agent UUID.
 
         Returns:
-            Agent in stopped state.
+            Agent in ``stopping`` state while runtime cleanup is in progress.
+            Poll ``get()`` until the state becomes ``stopped`` before treating
+            the deployment slot as released.
         """
         resolved_agent_id = self.resolve_agent_id(agent_id)
         data = self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/stop")

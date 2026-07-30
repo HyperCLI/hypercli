@@ -506,7 +506,7 @@ mod tests {
                 serde_json::json!({
                     "id": "deployment-1",
                     "runtime": "opencode",
-                    "state": "stopped"
+                    "state": "stopping"
                 })
                 .to_string(),
             )
@@ -514,7 +514,7 @@ mod tests {
 
         let stopped = client(&server).stop_deployment("deployment-1").unwrap();
         assert_eq!(stopped.id, "deployment-1");
-        assert_eq!(stopped.state, "stopped");
+        assert_eq!(stopped.state, "stopping");
         mock.assert();
     }
 

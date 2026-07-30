@@ -138,6 +138,20 @@ With `--default`, the generated OpenClaw config sets the primary coding model to
 
 Compatibility forwards into `hyper agents`.
 
+### `start` and `stop`
+
+Lifecycle aliases accept an agent ID or unique name:
+
+```bash
+hyper agent start <agent>
+hyper agent stop <agent>
+hyper agent stop <agent> --wait --timeout 900
+```
+
+An unwaited stop reports **Agent stopping** while runtime cleanup is in
+progress. Use `--wait` when the next action depends on the final `STOPPED`
+state and released deployment slot.
+
 ### `transcribe`
 
 Local faster-whisper transcription, no remote API required.

@@ -15,6 +15,7 @@ import {
   isRetryableFailedReply,
   scrollTranscriptToBottom,
 } from "./AgentChatPanel";
+import { agentLifecycleLabel } from "./AgentSlashCommandMenu";
 
 const chatMessageBubbleMock = vi.hoisted(() => vi.fn());
 
@@ -2563,6 +2564,27 @@ describe("AgentChatPanel", () => {
     });
 
     expect(screen.getAllByText("Agent is already running.")).toHaveLength(2);
+  });
+
+  it("does not present STOPPING as stopped or allow a restart during cleanup", async () => {
+    const onStartAgent = vi.fn();
+    renderAgentChatPanel({
+      chat: buildChat({ input: "/" }),
+      selectedAgent: buildAgent("STOPPING"),
+      isSelectedRunning: false,
+      slashCommandActions: { onStartAgent },
+    });
+
+    const startCommand = screen.getByRole("option", { name: /\/start/i });
+    expect(startCommand).toHaveAttribute("aria-disabled", "true");
+
+    await act(async () => {
+      fireEvent.click(startCommand);
+    });
+
+    expect(screen.getAllByText("Agent cleanup is still in progress.")).toHaveLength(2);
+    expect(onStartAgent).not.toHaveBeenCalled();
+    expect(agentLifecycleLabel("STOPPING", false)).toBe("stopping");
   });
 
   it("opens scheduled work from the slash command menu", async () => {

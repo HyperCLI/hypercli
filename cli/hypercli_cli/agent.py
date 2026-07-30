@@ -174,7 +174,8 @@ def _print_agent_lifecycle_result(action: str, agent: DeploymentAgent, *, json_o
         )
         return
     label = agent.name or agent.pod_name or agent.id
-    console.print(f"[green]✓[/green] Agent {action}: [bold]{label}[/bold]")
+    color = "yellow" if str(agent.state or "").lower() == "stopping" else "green"
+    console.print(f"[{color}]✓[/{color}] Agent {action}: [bold]{label}[/bold]")
     console.print(f"  ID:    {agent.id}")
     console.print(f"  State: {agent.state}")
     if agent.hostname:
@@ -706,7 +707,8 @@ def stop_agent(
     except Exception as exc:
         console.print(f"[red]❌ Failed to stop agent: {exc}[/red]")
         raise typer.Exit(1)
-    _print_agent_lifecycle_result("stopped", stopped, json_output=json_output)
+    action = "stopped" if str(stopped.state or "").lower() == "stopped" else "stopping"
+    _print_agent_lifecycle_result(action, stopped, json_output=json_output)
 
 
 @app.command("enable")

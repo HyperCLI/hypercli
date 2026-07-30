@@ -77,6 +77,7 @@ interface AgentSlashCommandMenuProps {
   chat: ChatSession;
   input: string;
   selectedAgentName: string;
+  selectedAgentState: string;
   isSelectedRunning: boolean;
   actions?: AgentSlashCommandActions;
   onFeedback?: (message: string) => void;
@@ -87,6 +88,7 @@ interface SlashCommandContext {
   args: string;
   actions: AgentSlashCommandActions;
   selectedAgentName: string;
+  selectedAgentState: string;
   isSelectedRunning: boolean;
   setStatus: (message: string) => void;
   showFeedback: (message: string) => void;
@@ -126,6 +128,18 @@ const PROMPTS = {
   handoff: "Create a concise handoff for another operator continuing this work.",
   diff: "Review workspace changes and summarize the diff.",
 };
+
+export function agentLifecycleLabel(state: string, isRunning: boolean): string {
+  if (isRunning) return "running";
+  const normalized = state.trim().toUpperCase();
+  if (normalized === "STOPPING") return "stopping";
+  if (normalized === "STARTING") return "starting";
+  if (normalized === "PENDING") return "pending";
+  if (normalized === "RESTORING") return "restoring files";
+  if (normalized === "SYNCING") return "syncing shared knowledge";
+  if (normalized === "FAILED" || normalized.endsWith("_FAILED")) return "failed";
+  return "stopped";
+}
 function slashInput(input: string): string | null {
   const trimmedStart = input.trimStart();
   if (!trimmedStart.startsWith("/") || trimmedStart.startsWith("//")) return null;
@@ -378,9 +392,15 @@ function buildSlashCommands(): SlashCommand[] {
       category: "Agent",
       mode: "confirm",
       Icon: Play,
-      isEnabled: ({ isSelectedRunning, actions }) => (
-        isSelectedRunning ? "Agent is already running." : actions.onStartAgent ? true : "Start action is unavailable here."
-      ),
+      isEnabled: ({ isSelectedRunning, selectedAgentState, actions }) => {
+        if (isSelectedRunning) return "Agent is already running.";
+        const normalized = selectedAgentState.trim().toUpperCase();
+        if (normalized === "STOPPING") return "Agent cleanup is still in progress.";
+        if (!["STOPPED", "FAILED", "RESTORE_FAILED", "SYNC_FAILED"].includes(normalized)) {
+          return `Agent is ${agentLifecycleLabel(selectedAgentState, false)}.`;
+        }
+        return actions.onStartAgent ? true : "Start action is unavailable here.";
+      },
       confirm: ({ selectedAgentName }) => ({
         title: "Start agent",
         message: `Start ${selectedAgentName}?`,
@@ -411,9 +431,9 @@ function buildSlashCommands(): SlashCommand[] {
       category: "Agent",
       mode: "ui",
       Icon: Activity,
-      run: ({ chat, selectedAgentName, isSelectedRunning, setStatus }) => {
+      run: ({ chat, selectedAgentName, selectedAgentState, isSelectedRunning, setStatus }) => {
         setStatus(
-          `${selectedAgentName}: ${isSelectedRunning ? "running" : "stopped"} · gateway ${chat.connected ? "ready" : chat.connecting ? "connecting" : "offline"} · ${chat.sessions.length} sessions · ${chat.files.length} files · ${chat.cronJobs.length} scheduled`,
+          `${selectedAgentName}: ${agentLifecycleLabel(selectedAgentState, isSelectedRunning)} · gateway ${chat.connected ? "ready" : chat.connecting ? "connecting" : "offline"} · ${chat.sessions.length} sessions · ${chat.files.length} files · ${chat.cronJobs.length} scheduled`,
         );
       },
     },
@@ -425,9 +445,15 @@ function buildSlashCommands(): SlashCommand[] {
       category: "Agent",
       mode: "confirm",
       Icon: Settings,
-      isEnabled: ({ isSelectedRunning, actions }) => (
-        isSelectedRunning ? "Stop the agent before renaming it." : actions.onRenameAgent ? true : "Rename action is unavailable here."
-      ),
+      isEnabled: ({ isSelectedRunning, selectedAgentState, actions }) => {
+        if (isSelectedRunning) return "Stop the agent before renaming it.";
+        if (selectedAgentState.trim().toUpperCase() === "STOPPING") {
+          return "Wait for agent cleanup to finish before renaming it.";
+        }
+        return selectedAgentState.trim().toUpperCase() === "STOPPED"
+          ? actions.onRenameAgent ? true : "Rename action is unavailable here."
+          : "The agent must be stopped before renaming it.";
+      },
       confirm: (ctx) => ctx.args ? ({
         title: "Rename agent",
         message: `Rename ${ctx.selectedAgentName} to "${ctx.args}"?`,
@@ -990,6 +1016,7 @@ export const AgentSlashCommandMenu = forwardRef<AgentSlashCommandMenuHandle, Age
     chat,
     input,
     selectedAgentName,
+    selectedAgentState,
     isSelectedRunning,
     actions = {},
     onFeedback,
@@ -1070,11 +1097,12 @@ export const AgentSlashCommandMenu = forwardRef<AgentSlashCommandMenuHandle, Age
       args: commandArgs,
       actions,
       selectedAgentName,
+      selectedAgentState,
       isSelectedRunning,
       setStatus,
       showFeedback,
       close,
-    }), [actions, chat, close, isSelectedRunning, selectedAgentName, showFeedback]);
+    }), [actions, chat, close, isSelectedRunning, selectedAgentName, selectedAgentState, showFeedback]);
 
     const disabledReason = React.useCallback((command: SlashCommand): string | null => {
       if (command.requiresRunningAgent && !isSelectedRunning) return "Start the agent first.";

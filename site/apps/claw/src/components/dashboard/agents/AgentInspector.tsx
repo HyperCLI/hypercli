@@ -21,7 +21,7 @@ interface AgentInspectorProps {
   viewProps: Omit<AgentViewProps, "agentName" | "agentMeta" | "agentAvatarUrl" | "activeTab" | "onTabChange" | "agentStatus">;
 }
 
-function buildAgentStatus(selectedAgent: Agent, isSelectedRunning: boolean): AgentViewProps["agentStatus"] {
+export function buildAgentStatus(selectedAgent: Agent, isSelectedRunning: boolean): AgentViewProps["agentStatus"] {
   if (isSelectedRunning) {
     return {
       state: selectedAgent.state as "RUNNING",
@@ -34,6 +34,15 @@ function buildAgentStatus(selectedAgent: Agent, isSelectedRunning: boolean): Age
   if (selectedAgent.state === "STOPPED") {
     return {
       state: "STOPPED",
+      uptime: 0,
+      cpu: 0,
+      memory: { used: 0, total: selectedAgent.memory_mib },
+    };
+  }
+
+  if (selectedAgent.state === "STOPPING") {
+    return {
+      state: "STOPPING",
       uptime: 0,
       cpu: 0,
       memory: { used: 0, total: selectedAgent.memory_mib },

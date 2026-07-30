@@ -1628,6 +1628,7 @@ export function AgentChatPanel({
                       chat={chat}
                       input={chat.input}
                       selectedAgentName={selectedAgentDisplayName}
+                      selectedAgentState={selectedAgent.state}
                       isSelectedRunning={isSelectedRunning}
                       actions={commandActions}
                       onFeedback={handleSlashCommandFeedback}

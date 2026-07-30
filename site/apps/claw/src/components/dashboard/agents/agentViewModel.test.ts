@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { isAgentOffline } from "@/app/dashboard/agents/types";
 import { buildSdkAgent } from "@/test/factories";
-import { agentDisplayLabel, normalizeAgentState, toAgentViewModel } from "./agentViewModel";
+import { agentDisplayLabel, didAnyAgentFinishStopping, normalizeAgentState, toAgentViewModel } from "./agentViewModel";
 
 describe("agentViewModel", () => {
   it("maps legacy ERROR agent state to FAILED", () => {
@@ -34,6 +34,38 @@ describe("agentViewModel", () => {
     };
 
     expect(toAgentViewModel(buildSdkAgent({ launchConfig })).launchConfig).toEqual(launchConfig);
+  });
+
+  it("preserves runtime and gateway identity for surface selection", () => {
+    const codingAgent = toAgentViewModel(buildSdkAgent({
+      runtime: "opencode",
+      gatewayId: null,
+    }));
+    const gatewayAgent = toAgentViewModel(buildSdkAgent({
+      runtime: "openclaw",
+      gatewayId: "gateway-1",
+    }));
+
+    expect(codingAgent.runtime).toBe("opencode");
+    expect(codingAgent.gatewayId).toBeNull();
+    expect(gatewayAgent.runtime).toBe("openclaw");
+    expect(gatewayAgent.gatewayId).toBe("gateway-1");
+  });
+
+  it("detects STOPPING to STOPPED completion for slot enrichment refresh", () => {
+    const previous = new Map([
+      ["agent-1", "STOPPING" as const],
+      ["agent-2", "RUNNING" as const],
+    ]);
+
+    expect(didAnyAgentFinishStopping(previous, [
+      { id: "agent-1", state: "STOPPED" },
+      { id: "agent-2", state: "RUNNING" },
+    ])).toBe(true);
+    expect(didAnyAgentFinishStopping(previous, [
+      { id: "agent-1", state: "STOPPING" },
+      { id: "agent-2", state: "RUNNING" },
+    ])).toBe(false);
   });
 
   it("preserves distinct names and explicit management provenance", () => {

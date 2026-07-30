@@ -56,18 +56,21 @@ Current auth split:
 Agents move through these states:
 
 ```
-create → pending → starting → running → stopped → deleted
+create → pending → starting → running → stopping → stopped → deleted
 ```
 
-| State      | Description                                    |
-|------------|------------------------------------------------|
-| `pending`  | Created in DB, waiting for pod scheduling      |
-| `starting` | Pod scheduled, containers initializing         |
-| `running`  | All containers healthy, endpoints accessible   |
-| `stopped`  | Pod torn down, DB record preserved             |
-| `deleted`  | Fully removed (pod + DB record)                |
+| State      | Description                                                   |
+|------------|---------------------------------------------------------------|
+| `pending`  | Created in DB, waiting for pod scheduling                     |
+| `starting` | Pod scheduled, containers initializing                        |
+| `running`  | All containers healthy, endpoints accessible                  |
+| `stopping` | Runtime and namespace cleanup accepted but still in progress   |
+| `stopped`  | Cleanup confirmed, DB record preserved, deployment slot freed  |
+| `deleted`  | Fully removed (pod + DB record)                               |
 
-Stopped agents retain their configuration and can be restarted. Deleted agents are gone permanently.
+Do not treat `stopping` as stopped: its namespace can still exist and its
+deployment slot remains occupied. Stopped agents retain their configuration
+and can be restarted. Deleted agents are gone permanently.
 
 ## Health Monitoring
 

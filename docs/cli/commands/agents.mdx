@@ -108,7 +108,13 @@ hyper agents start <agent_id> --index-on-search --index-interval-minutes 120
 
 ```bash
 hyper agents stop <agent_id>
+hyper agents stop <agent_id> --wait --timeout 900
 ```
+
+Without `--wait`, a successful request normally reports **Agent stopping**:
+Lagoon has accepted cleanup, but the runtime namespace and deployment slot may
+still be active. `--wait` polls until cleanup is confirmed and the backend
+reports `STOPPED`.
 
 ### `delete`
 

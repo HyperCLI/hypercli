@@ -206,9 +206,10 @@ does not invoke provider stop, undeploy, status, logs, or delete operations.
   agent-mentioned `!shutdown` channel message. It fails without a shared
   channel. New provider launches set `restart: false`; with a backend and
   Lagoon version that support that launch field, an accepted shutdown lets the
-  pod terminate, reports the deployment stopped, and releases its slot. Desktop
-  still receives no provider acknowledgement and retains its local deployed
-  record.
+  pod terminate. The backend reports `stopping` while Lagoon removes the
+  runtime namespace, then reports `stopped` and releases the slot only after
+  cleanup is confirmed. Desktop still receives no provider acknowledgement
+  and retains its local deployed record.
 - Existing deployments created before `restart: false` was supported retain
   their saved restart policy. Their `buzz-acp` process may be relaunched by
   Kubernetes after shutdown until the deployment is recreated with the new
