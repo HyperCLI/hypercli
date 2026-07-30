@@ -43,7 +43,7 @@ fn deploy_fixture_runs_the_provider_http_contract() {
         .match_query(Matcher::UrlEncoded("handle".into(), handle.clone()))
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body("[]")
+        .with_body(r#"{"items":[]}"#)
         .create();
     let create = server
         .mock("POST", "/agents/deployments")

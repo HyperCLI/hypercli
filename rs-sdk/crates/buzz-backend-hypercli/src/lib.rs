@@ -533,7 +533,7 @@ mod tests {
             .match_query(Matcher::UrlEncoded("handle".into(), handle.clone()))
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body("[]")
+            .with_body(r#"{"items":[]}"#)
             .create();
         let create = server
             .mock("POST", "/agents/deployments")
@@ -588,12 +588,14 @@ mod tests {
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(
-                serde_json::json!([{
-                    "id":"existing",
-                    "handle":handle,
-                    "runtime":"opencode",
-                    "state":"running"
-                }])
+                serde_json::json!({
+                    "items": [{
+                        "id":"existing",
+                        "handle":handle,
+                        "runtime":"opencode",
+                        "state":"running"
+                    }]
+                })
                 .to_string(),
             )
             .create();

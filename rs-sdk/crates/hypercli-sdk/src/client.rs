@@ -1,6 +1,7 @@
 use reqwest::blocking::Client as HttpClient;
 use reqwest::StatusCode;
 use secrecy::ExposeSecret;
+use serde::Deserialize;
 use thiserror::Error;
 use url::Url;
 
@@ -63,7 +64,8 @@ impl HyperCliClient {
             .query(&[("handle", handle)])
             .send()
             .map_err(|_| HyperCliError::Transport)?;
-        decode_json(response)
+        let page: DeploymentPage = decode_json(response)?;
+        Ok(page.items)
     }
 
     pub fn create_deployment(
@@ -94,6 +96,11 @@ impl HyperCliClient {
             .map_err(|_| HyperCliError::Transport)?;
         decode_json(response)
     }
+}
+
+#[derive(Deserialize)]
+struct DeploymentPage {
+    items: Vec<Deployment>,
 }
 
 fn decode_json<T: serde::de::DeserializeOwned>(
@@ -174,12 +181,18 @@ mod tests {
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(
-                serde_json::json!([{
-                    "id": "deployment-1",
-                    "handle": "buzz-abc123",
-                    "runtime": "opencode",
-                    "state": "running"
-                }])
+                serde_json::json!({
+                    "items": [{
+                        "id": "deployment-1",
+                        "handle": "buzz-abc123",
+                        "runtime": "opencode",
+                        "state": "running"
+                    }],
+                    "total_agents": 1,
+                    "max_agents_per_account": 4,
+                    "slots": [],
+                    "pooled_tpd": {}
+                })
                 .to_string(),
             )
             .create();
