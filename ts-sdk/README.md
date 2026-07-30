@@ -184,18 +184,25 @@ command, lazy pool, relay observer, and Buzz-owned environment. `buzzEnabled`
 remains as a deprecated raw-environment compatibility path. Both forms are
 mutually exclusive with an explicit `command`.
 
+The typed `buzz` renderer writes timeout and response-policy values but does not
+duplicate the stock Desktop provider's validation; invalid combinations are
+rejected later by `buzz-acp`. The Desktop provider also maps structured Goose
+model/provider fields to `GOOSE_MODEL`/`GOOSE_PROVIDER`; direct TypeScript SDK
+callers must set any Goose-specific environment themselves.
+
 Buzz launches require `size: 'large'`; ordinary coding-agent helpers preserve a
 caller-provided size or the backend default. Stock Buzz provider agents do not
 start on app launch and the current provider protocol has no stop callback.
 Editing a running agent does not replace its HyperCLI launch environment: stop
 the deployment through the authenticated HyperCLI API and deploy it again from
-Buzz to apply changes.
+Buzz to apply changes. Desktop's best-effort `!shutdown` chat control may exit
+the harness, but it does not stop or release the HyperCLI deployment.
 
-Stock Buzz does not automatically publish ordinary ACP assistant text. A
-visible reply requires the agent to invoke the Buzz send command/tool. The
-five-runtime test coverage validates request rendering, not live launches;
-OpenCode is the hosted path exercised so far, including explicit outbound
-publishing.
+Stock Buzz expects ACP NDJSON. It skips non-JSON child stdout, and
+`agent_message_chunk` is activity telemetry rather than a channel reply. There
+is no plaintext fallback; a visible reply requires the agent to invoke the Buzz
+send command/tool. The five-runtime SDK coverage validates request rendering,
+not live launches.
 
 The agent nsec and caller environment become raw deployment environment values.
 The HyperClaw backend currently persists them in `Agent.launch_config`, and

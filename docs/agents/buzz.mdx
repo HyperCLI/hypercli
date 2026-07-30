@@ -1,68 +1,276 @@
 ---
-title: Buzz Coding Agents
-description: Run stock Buzz coding-agent harnesses on HyperCLI
+title: Buzz Desktop
+description: Run stock Buzz coding-agent harnesses in isolated HyperCLI Reef pods
 ---
 
-HyperCLI integrates with the unmodified Buzz desktop app through the
-`buzz-backend-hypercli` executable. Buzz discovers executables named
-`buzz-backend-*`; the provider calls the HyperCLI deployments API directly and
-does not shell out to the Python `hyper` CLI.
+<Warning>
+The HyperCLI provider is a development preview. The published v0.1.0 macOS
+artifacts are unsigned and predate the stock-protocol corrections in source
+commit `01fbaa84`. Do not use either build with production agent identities,
+model credentials, or sensitive repositories.
+</Warning>
 
-## Requirements
+## What the integration does
 
-- A HyperCLI Agents API credential in `HYPER_AGENTS_API_KEY`,
-  `HYPER_API_KEY`, `HYPERCLI_API_KEY`, or `~/.hypercli/config`
-- `buzz-backend-hypercli` installed on the desktop app's `PATH`
-- HyperCLI's `large` tier for Buzz-backed coding runtimes
-- An inference credential or native login completed inside the hosted Reef pod
+Stock Buzz Desktop discovers the external `buzz-backend-hypercli` executable;
+no custom Desktop build is required. A Desktop-created agent can then run in an
+isolated HyperCLI Reef pod instead of on the Mac running Buzz:
 
-The provider accepts OpenCode, Codex, Claude Code, Goose, and Kimi Code runtime
-shapes. It selects the hosted image and canonical ACP command for the runtime.
-An image override is optional. If you use one, pin an immutable trusted image:
-the runtime receives the agent nsec and caller environment.
+1. Buzz creates the agent keypair and owner authorization.
+2. Desktop invokes the provider with one JSON request.
+3. The provider uses the local HyperCLI credential to create or find a Reef
+   deployment.
+4. `/usr/local/bin/buzz-acp` connects outbound to the Buzz relay.
+5. The selected coding runtime communicates with `buzz-acp` over ACP on stdio.
 
-For hosted OpenCode with HyperCLI inference, pass `HYPER_API_KEY` in the agent
-environment and select the model in Buzz. Codex and Claude subscription login
-is interactive and is not performed by the one-shot backend-provider protocol;
-run the HyperCLI SDK's native login flow against the hosted pod instead.
+The human owner's Buzz private key remains in Desktop. The generated agent
+private key, owner authorization tag, and merged runtime environment pass
+through the provider to HyperCLI.
+
+Supported runtime shapes are OpenCode, Codex, Claude Code, Goose, and Kimi
+Code. The current provider requires the HyperCLI `large` tier for Buzz-backed
+launches. Ordinary, non-Buzz coding-agent SDK launches retain their normal size
+choice.
+
+## Install the provider
+
+Current source builds require Rust 1.95:
+
+```bash
+git clone https://github.com/HyperCLI/hypercli.git
+cd hypercli
+git checkout 01fbaa84eed0b72ff3521d991a8f37100089fdc8
+
+cargo test --workspace --all-features --locked
+cargo build --release --locked -p buzz-backend-hypercli
+
+mkdir -p "${HOME}/.local/bin"
+install -m 0755 \
+  target/release/buzz-backend-hypercli \
+  "${HOME}/.local/bin/buzz-backend-hypercli"
+```
+
+Confirm the exact executable that Buzz will discover:
+
+```bash
+echo '{"op":"info","request_id":"install-check"}' \
+  | "${HOME}/.local/bin/buzz-backend-hypercli"
+```
+
+The response should contain `"ok":true`, `"name":"HyperCLI"`, and a
+`config_schema`.
+
+The historical
+[unsigned v0.1.0 release](https://github.com/HyperCLI/hypercli/releases/tag/buzz-provider-v0.1.0)
+contains Linux x86-64/ARM64 and macOS Intel/Apple-silicon archives plus
+checksums. Those binaries were built from `026fc466`, not `01fbaa84`, so they
+do not contain the latest stock-protocol corrections.
+
+| v0.1.0 archive | SHA-256 |
+| --- | --- |
+| `buzz-backend-hypercli-linux-x86_64-0.1.0.tar.gz` | `904b746104e203c6f6f180eb859594e369783f93f524a4434ae6b62ad07fadbf` |
+| `buzz-backend-hypercli-linux-aarch64-0.1.0.tar.gz` | `b7aacc8a56493e4da35d76a21e591d87df0b010a81cea23739452ff8291e87b8` |
+| `buzz-backend-hypercli-macos-x86_64-0.1.0.tar.gz` | `0c5a463769db42ef362f969705ebd6a57b00a065f88c603ba4eae88d399f0db2` |
+| `buzz-backend-hypercli-macos-aarch64-0.1.0.tar.gz` | `b37e5291ee743fc1ccbbd18227e7b5f1dcf8fb411503d468a416b92c1ed3ea61` |
+
+The table hashes the archives, not their small sibling `.sha256` files. The
+release also contains a combined `SHA256SUMS`.
+
+### macOS Gatekeeper
+
+The v0.1.0 macOS artifacts are not signed or notarized. After verifying the
+downloaded archive's checksum, run the direct `info` check above. If macOS
+blocks it, use **System Settings → Privacy & Security → Open Anyway**, then
+confirm the prompt.
+
+Do not disable Gatekeeper globally. Signed and notarized distribution remains
+a production requirement.
+
+## Find HyperCLI in Buzz Desktop
+
+Buzz scans its executable directory, its process `PATH`, and
+`~/.local/bin` for executable filenames beginning with `buzz-backend-`. The
+filename `buzz-backend-hypercli` produces the provider ID `hypercli`.
+
+In Buzz Desktop v0.5.2, **Settings → Agents** is not the creation screen:
+
+1. From **Settings → Agents**, click **Back to app**.
+2. Open **Agents** in the main sidebar if it is not already selected.
+3. Activate the icon-only plus card with accessible label **New agent**.
+4. Click **Create agent**.
+5. In the **Create agent** dialog, find **Run on** near the bottom, before
+   **Advanced**.
+6. Choose `hypercli`. The local option is labelled **This computer**.
+
+**Run on** appears only when Desktop discovers at least one external provider.
+Discovery is cached for 30 seconds, and an already-open dialog does not refetch
+merely because the cache expires. After installing the helper, close the
+dialog, wait at least 30 seconds, and reopen it, or restart Desktop.
+
+Discovery only finds the executable. Selecting `hypercli` then runs its `info`
+probe with a 10-second timeout. Gatekeeper, an architecture mismatch, or a
+broken binary can therefore make the ID appear while its configuration fails
+to load. An identically named executable in the app directory or earlier in
+`PATH` can also shadow `~/.local/bin`.
+
+The v0.5.2 source paths for this flow are
+`desktop/src/features/settings/ui/SettingsView.tsx`,
+`desktop/src/features/agents/ui/UnifiedAgentsSection.tsx`,
+`desktop/src/features/agents/ui/AgentDialog.tsx`,
+`desktop/src/features/agents/ui/WhereToRunSection.tsx`,
+`desktop/src-tauri/src/managed_agents/discovery.rs`, and
+`desktop/src-tauri/src/commands/agent_providers.rs`.
+
+## Authenticate HyperCLI
+
+The provider calls the managed-agents HTTP API directly; it does not shell out
+to the Python `hyper` CLI. Authenticate the local CLI first, then verify the
+account:
+
+```bash
+hyper agent login
+hyper me
+hyper agents list
+```
+
+The provider resolves credentials in this order:
+
+1. `HYPER_AGENTS_API_KEY`
+2. `HYPER_API_KEY`
+3. `HYPERCLI_API_KEY`
+4. the same keys in `~/.hypercli/config`
+5. the legacy `key` in `~/.hypercli/agent-key.json`
+
+The agents API base uses `AGENTS_API_BASE_URL`, `HYPER_API_BASE`, or
+`HYPERCLI_API_URL`. HyperCLI credentials do not belong in the Buzz provider
+form: both Buzz and the provider reject secret-looking configuration fields.
+
+## Configure the hosted runtime
+
+Buzz renders the provider's `info.config_schema`. Stock v0.5.2 renders provider
+properties as text inputs; it does not turn JSON Schema `enum` values into
+select controls. Enter the values exactly.
+
+| Field | Accepted value | Default | Purpose |
+| --- | --- | --- | --- |
+| `runtime` | `opencode`, `codex`, `claude-code`, `goose`, or `kimi-code` | `opencode` | Runtime/image family |
+| `size` | `large` | `large` | Required Buzz coding-agent tier |
+| `image` | Trusted image reference | Runtime default | Optional advanced image override |
+| `workspace` | HyperCLI workspace ID | Empty | Optional workspace projected under `/home/node/workspaces` |
+
+Default runtime mapping:
+
+| Runtime | Image | ACP child |
+| --- | --- | --- |
+| OpenCode | `ghcr.io/hypercli/hypercli-opencode:latest` | `opencode acp` |
+| Codex | `ghcr.io/hypercli/hypercli-codex:latest` | `codex-acp` |
+| Claude Code | `ghcr.io/hypercli/hypercli-claude-code:latest` | `claude-agent-acp` |
+| Goose | `ghcr.io/hypercli/hypercli-goose:latest` | `goose acp` |
+| Kimi Code | `ghcr.io/hypercli/hypercli-kimi-code:latest` | `kimi acp` |
+
+The provider owns the identity, relay, ACP command, response policy, and timeout
+environment. It validates stock Buzz's `turn_timeout_seconds`,
+`idle_timeout_seconds`, `max_turn_duration_seconds`, `respond_to`, and
+allowlist values before creating the deployment. For Goose, the selected
+provider and model are mapped into Goose's runtime environment.
+
+Image overrides receive the generated agent identity and runtime environment.
+Use only a trusted immutable image reference.
 
 ## Message behavior
 
-Stock Buzz connects the remote `buzz-acp` harness and delivers inbound
-conversation events to it. It does not automatically turn ordinary ACP
-assistant chunks into Buzz chat messages. The agent must explicitly invoke the
-Buzz send command/tool, such as `buzz messages send`, for a visible reply.
+Stock Buzz delivers inbound conversation events to the remote `buzz-acp`
+harness, but ordinary ACP assistant chunks are activity telemetry—not channel
+messages. Non-JSON child output is skipped; there is no plaintext fallback. A
+runtime must explicitly invoke the Buzz send command/tool, such as
+`buzz messages send`, for the response to appear in chat.
 
-The hosted path exercised end to end so far is OpenCode: the harness connected
-and explicit outbound publishing succeeded. The automated five-runtime matrix
-validates generated deployment request shapes; it does not launch every runtime
-or prove that each harness can complete inference.
+The hosted OpenCode path has connected successfully and explicitly published a
+message. That does not mean arbitrary ACP text is automatically forwarded.
+The default `RUST_LOG` filter sets `acp::stream=off` to keep generated content
+out of centralized container logs. Overriding that filter can expose message
+content.
 
 ## Lifecycle behavior
 
-Stock Buzz currently invokes backend providers for `info` and `deploy`. It does
-not invoke a provider stop/undeploy operation.
+Stock Buzz v0.5.2 invokes backend providers for `info` and `deploy` only. It
+does not invoke provider stop, undeploy, status, logs, or delete operations.
 
-- Provider-backed agents do not start automatically when Buzz launches.
-- Buzz's shutdown control stops harness presence; it does not stop the remote
-  HyperCLI deployment.
-- Deploying an already-running agent is idempotent and does not update its
-  launch environment.
-- Agent edits are stored in Buzz. To apply launch changes, stop the deployment
-  through the authenticated HyperCLI API, then deploy the agent again from
-  Buzz.
+- Provider-backed agents do not start automatically when Desktop launches.
+- Repeating deploy for a running deployment returns the existing deployment ID
+  without replacing its launch environment.
+- Repeating deploy for a stopped deployment starts it with the current launch
+  settings.
+- Desktop's Shutdown action sends a best-effort owner-authored,
+  agent-mentioned `!shutdown` channel message. It fails without a shared
+  channel. If delivered and accepted, `buzz-acp` exits, but Desktop receives no
+  acknowledgement and does not stop or release the HyperCLI deployment.
+- Apply launch changes by stopping the deployment through authenticated
+  HyperCLI lifecycle tooling, then deploying it again from Buzz.
 
-## Logs and secrets
+The provider's `--dry-run` flag is development-only instrumentation, not part
+of the stock Buzz protocol. It skips lookup and restart logic and sends one
+backend create-validation request with `dry_run: true`; it relies on that API
+honoring its non-mutating dry-run contract.
 
-Set `HYPER_HTTP_TRACE_FILE` to capture redacted provider HTTP metadata. Request
-secrets and response bodies are omitted. The default container `RUST_LOG`
-filter retains harness lifecycle diagnostics while setting
-`acp::stream=off`; overriding that filter can expose generated message content
-in centralized container logs.
+## Ownership modes
 
-Buzz supplies the provider with the agent nsec. The provider sends the nsec and
-caller environment as raw deployment environment values. The HyperClaw backend
-currently persists those values in `Agent.launch_config`, and authenticated
-deployment read, environment, or exec surfaces may expose them. Treat this
-integration as experimental for sensitive credentials until launch secrets use
-encrypted or external secret references.
+### Desktop-owned agents
+
+This is the implemented provider path. Desktop creates the identity and local
+managed-agent record, then stores the returned HyperCLI deployment ID. The
+agent appears in the local **Agents** view on the Desktop that created it.
+
+Importing the same human owner identity on another Desktop does not reconstruct
+that local managed-agent record.
+
+### Hosted, preprovisioned community agents
+
+HyperCLI can separately provision a community, channels, agent identities, and
+Reef deployments. Those agents can participate in channels, but stock Desktop
+does not adopt them into the user's local **Agents** inventory. HyperCLI remains
+their lifecycle authority. Remote discovery/adoption requires a future upstream
+provider contract.
+
+## Test boundaries
+
+Current automated coverage includes:
+
+- native Rust workspace and one-shot provider protocol tests;
+- a five-runtime matrix of representative generated request shapes and
+  redacted traces;
+- five deployed image/runtime sanity gates;
+- OpenCode and Goose inference/tool-use coverage;
+- a provider → HyperCLI → Lagoon deployment smoke using a dedicated Pro test
+  identity and a full-SHA-tagged OpenCode candidate.
+
+The backend workflow pins the provider source through `HYPERCLI_REF` and builds
+the root Cargo workspace. The provider smoke checks deployment, environment,
+workspace ownership, passwordless sudo, and idempotent retry.
+
+It handcrafts the provider request; it does not start the official Buzz Desktop
+binary, send a relay prompt, or prove a Desktop-visible tool response. A real
+Desktop → relay → `buzz-acp` → runtime → explicit send-tool E2E remains a
+production acceptance requirement.
+
+## Security boundaries
+
+The provider receives the agent nsec and merged runtime environment and sends
+them as raw deployment environment values. The backend currently persists
+those values in `Agent.launch_config`; authenticated deployment reads,
+environment access, or exec access may expose them.
+
+Additional preview limitations:
+
+- unsigned and unnotarized provider distribution;
+- mutable default `latest` image references;
+- broad development credential rather than a narrow deploy-only capability;
+- passwordless sudo in coding images;
+- unrestricted runtime egress;
+- automatic ACP permission approval;
+- no stock-provider lifecycle callback for remote shutdown or cleanup.
+
+Production requires encrypted or external launch-secret references, redacted
+read APIs, restricted env/exec access, narrow and revocable credentials,
+immutable promoted images, signed/notarized binaries, and orphan/lifecycle
+reconciliation.

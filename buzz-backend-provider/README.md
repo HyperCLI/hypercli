@@ -19,17 +19,20 @@ install -m 0755 \
   ~/.local/bin/buzz-backend-hypercli
 ```
 
-Pass `--dry-run` while exercising the one-shot provider protocol to forward a
-HyperCLI dry-run create request without allocating a runtime:
+Pass `--dry-run` while exercising the provider manually. Stock Buzz never
+supplies this argument. The provider sends one create-validation request with
+`dry_run: true` and skips deterministic-handle lookup and restart logic:
 
 ```bash
 buzz-backend-hypercli --dry-run < tests/fixtures/deploy-request.json
 ```
 
-Coding runtimes require the HyperCLI `large` tier. Provider configuration
-selects a runtime, permits an optional immutable image override, and can name
-an optional workspace. The provider rejects secret-looking provider config;
-Buzz supplies the agent identity separately in the deploy request.
+Buzz-backed coding-runtime launches require the HyperCLI `large` tier.
+Ordinary non-Buzz coding-agent helpers preserve a caller-selected size or omit
+it so the backend chooses its default. Provider configuration selects a
+runtime, permits an optional immutable image override, and can name an optional
+workspace. The provider rejects secret-looking provider config; Buzz supplies
+the agent identity separately in the deploy request.
 
 Image immutability is currently an operator responsibility. The provider does
 not yet enforce a registry allowlist or digest-only reference, and the selected
@@ -58,7 +61,9 @@ Info request:
 {"op":"info","request_id":"probe-1"}
 ```
 
-Deploy requests include the Buzz agent payload and provider config:
+Deploy requests include the Buzz agent payload and provider config. This
+example is abbreviated; stock v0.5.2 also emits model/provider, timeout,
+parallelism, response-policy, allowlist, prompt, and authorization fields:
 
 ```json
 {
@@ -88,22 +93,30 @@ stop it through the authenticated HyperCLI deployment API before asking Buzz
 to deploy it again with changed settings. It emits exactly one JSON response
 and writes no protocol diagnostics to stderr.
 
-Stock Buzz currently calls backend providers for `info` and `deploy` only. It
-does not send an undeploy/stop operation. The Buzz shutdown control stops the
-harness presence but does not stop the remote HyperCLI deployment. Buzz also
-disables start-on-app-launch for provider-backed agents. Edits are stored by
-Buzz, but a running HyperCLI deployment keeps its existing launch environment
-until it is stopped out of band and deployed again.
+Stock v0.5.2 sends `idle_timeout_seconds`, legacy
+`turn_timeout_seconds`, `max_turn_duration_seconds`, `respond_to`, and
+`respond_to_allowlist`. The provider validates their relationships and allowed
+values before deployment. For Goose only, non-empty structured Buzz `model` and
+`provider` values become `GOOSE_MODEL` and `GOOSE_PROVIDER`.
+
+Stock Buzz Desktop v0.5.2 invokes backend providers only for `info` and
+`deploy`; there is no provider stop or undeploy request. Desktop's Shutdown
+action sends a best-effort owner-authored, agent-mentioned `!shutdown` channel
+message. Without a shared channel it errors. If delivered and accepted, stock
+`buzz-acp` exits, but Desktop receives no acknowledgement and does not stop or
+reconcile the HyperCLI deployment. Use authenticated HyperCLI lifecycle APIs
+for infrastructure stop/delete.
 
 ## Stock Buzz compatibility
 
-The provider and SDK matrix tests validate generated request shapes for
+The provider and SDK matrix tests validate representative generated shapes for
 OpenCode, Codex, Claude Code, Goose, and Kimi Code. They do not launch those
 runtimes or prove an end-to-end conversational reply. The hosted path has been
 exercised with stock Buzz and OpenCode: the harness connected and an explicit
-`buzz messages send` published successfully. Stock Buzz does not automatically
-forward ordinary ACP assistant text to chat, so a visible response requires the
-agent to invoke the Buzz send command/tool.
+`buzz messages send` published successfully. Stock Buzz expects ACP NDJSON;
+non-JSON child output is skipped, and `agent_message_chunk` is activity
+telemetry rather than a channel publication. There is no plaintext fallback. A
+visible response requires the agent to invoke the Buzz send command/tool.
 
 Interactive Codex and Claude login is not part of the one-shot provider
 protocol. Hosted OpenCode can infer through its injected provider configuration
