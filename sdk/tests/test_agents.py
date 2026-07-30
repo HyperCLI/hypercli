@@ -1332,9 +1332,12 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
                         "s3_key": "prod/user-456/agent-123.png",
                     }
                 )
-            assert url.endswith("/deployments/agent-123/files/workspace/a.txt")
+            assert url.endswith((
+                "/deployments/agent-123/files/workspace/a.txt",
+                "/deployments/agent-123/files/AGENTS.md",
+            ))
             assert params == {"destination": "auto"}
-            assert content == b"payload"
+            assert content in {b"payload", b"instructions"}
             return FakeResponse(json_data={"status": "ok"})
 
         def delete(self, url, headers=None, params=None):
@@ -1364,6 +1367,9 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
         }
         assert agents_client.file_read(agent, "/etc/hosts", source="pod") == "127.0.0.1 localhost"
         assert agents_client.file_write_bytes(agent, "workspace/a.txt", b"payload") == {"status": "ok"}
+        assert agents_client.file_write_bytes(
+            agent, "/home/node/AGENTS.md", b"instructions"
+        ) == {"status": "ok"}
         assert agents_client.file_delete(agent, "workspace/a.txt") == {"status": "ok"}
         assert agents_client.file_delete(
             agent,
@@ -1379,9 +1385,9 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
             agents_client.file_read(agent, ".openclaw")
         with pytest.raises(ValueError, match="source='pod'"):
             agents_client.files_list(agent, "/")
-        with pytest.raises(ValueError, match="browse-only"):
+        with pytest.raises(ValueError, match="sync root"):
             agents_client.file_write(agent, "/etc/hosts", "blocked", destination="pod")
-        with pytest.raises(ValueError, match="browse-only"):
+        with pytest.raises(ValueError, match="sync root"):
             agents_client.file_delete(agent, "/etc/hosts")
 
 

@@ -795,7 +795,7 @@ export interface AgentFileReadBytesResult {
  * - `agent`  — the files API on the agent's live pod filesystem. A
  *              workspace-relative path resolves under the workspace, while an
  *              absolute `/…` path can be listed/read anywhere on the pod.
- *              Absolute paths are browse-only. (wire `source=pod`)
+ *              Writes under the sync root are supported. (wire `source=pod`)
  * - `backup` — the S3 backup of the sync root (`/home/node`); served when the
  *              pod is stopped. Scoped to the sync root. (wire `source=s3`)
  * - `gateway`— the operator-WebSocket `agents.files.*` RPC; scoped to the
@@ -851,13 +851,30 @@ function resolveBackendFilePath(path: string, source: AgentFileBackendSource): s
   return rel ? `${OPENCLAW_WORKSPACE_PREFIX}/${rel}` : OPENCLAW_WORKSPACE_PREFIX;
 }
 
-function assertWritableBackendFilePath(path: string): void {
-  if (path.startsWith('/')) {
-    throw new Error('absolute pod paths are browse-only; writes and deletes must stay within the sync root.');
+function normalizeWritableBackendFilePath(path: string): string {
+  const normalized = path.replace(/\\/g, '/');
+  if (normalized.startsWith('/')) {
+    const parts = normalized.split('/');
+    const resolved: string[] = [];
+    for (const part of parts) {
+      if (!part || part === '.') continue;
+      if (part === '..') {
+        resolved.pop();
+        continue;
+      }
+      resolved.push(part);
+    }
+    const absolute = `/${resolved.join('/')}`;
+    const prefix = `${OPENCLAW_SYNC_ROOT}/`;
+    if (!absolute.startsWith(prefix)) {
+      throw new Error(`absolute write paths must stay within the sync root (${OPENCLAW_SYNC_ROOT}).`);
+    }
+    return absolute.slice(prefix.length);
   }
-  if (path.replace(/\\/g, '/').split('/').includes('..')) {
+  if (normalized.split('/').includes('..')) {
     throw new Error("paths containing '..' are not writable; writes and deletes must stay within the sync root.");
   }
+  return stripRelPrefix(normalized);
 }
 
 /** Strip leading `./` segments and slashes without eating a dotfile's dot. */
@@ -970,16 +987,22 @@ export class AgentFiles {
 
   async writeBytes(path: string, content: Uint8Array | ArrayBuffer | string, source: OpenClawFileSource = 'auto'): Promise<Record<string, any>> {
     if (!GATEWAY_FILE_SOURCES.has(source)) {
-      assertWritableBackendFilePath(path);
-      return this.deployments.fileWriteBytes(this.agent, resolveBackendFilePath(path, source as AgentFileBackendSource), content, toWireFileSource(source as AgentFileBackendSource));
+      const writablePath = normalizeWritableBackendFilePath(path);
+      const resolvedPath = path.startsWith('/')
+        ? writablePath
+        : resolveBackendFilePath(writablePath, source as AgentFileBackendSource);
+      return this.deployments.fileWriteBytes(this.agent, resolvedPath, content, toWireFileSource(source as AgentFileBackendSource));
     }
     return this.write(path, coerceToUtf8String(content), source);
   }
 
   async write(path: string, content: string, source: OpenClawFileSource = 'auto'): Promise<Record<string, any>> {
     if (!GATEWAY_FILE_SOURCES.has(source)) {
-      assertWritableBackendFilePath(path);
-      return this.deployments.fileWrite(this.agent, resolveBackendFilePath(path, source as AgentFileBackendSource), content, toWireFileSource(source as AgentFileBackendSource));
+      const writablePath = normalizeWritableBackendFilePath(path);
+      const resolvedPath = path.startsWith('/')
+        ? writablePath
+        : resolveBackendFilePath(writablePath, source as AgentFileBackendSource);
+      return this.deployments.fileWrite(this.agent, resolvedPath, content, toWireFileSource(source as AgentFileBackendSource));
     }
     const gw = this.requireGateway();
     const name = resolveGatewayFileName(path);
@@ -996,8 +1019,11 @@ export class AgentFiles {
     if (GATEWAY_FILE_SOURCES.has(source)) {
       throw new Error('delete is not supported over the gateway file source; use the agent/backup source.');
     }
-    assertWritableBackendFilePath(path);
-    return this.deployments.fileDelete(this.agent, resolveBackendFilePath(path, source as AgentFileBackendSource), {
+    const writablePath = normalizeWritableBackendFilePath(path);
+    const resolvedPath = path.startsWith('/')
+      ? writablePath
+      : resolveBackendFilePath(writablePath, source as AgentFileBackendSource);
+    return this.deployments.fileDelete(this.agent, resolvedPath, {
       recursive: options.recursive,
       source: toWireFileSource(source as AgentFileBackendSource),
     });
@@ -4015,7 +4041,7 @@ export class Deployments {
     content: Uint8Array | ArrayBuffer | string,
     destination: 'auto' | 'pod' | 's3' = 'auto',
   ): Promise<Record<string, any>> {
-    assertWritableBackendFilePath(path);
+    path = normalizeWritableBackendFilePath(path);
     const encodedPath = encodeFilePath(path);
     const params = new URLSearchParams({ destination });
     const bytes = toUint8Array(content);
@@ -4040,7 +4066,7 @@ export class Deployments {
     path: string,
     options: { recursive?: boolean; source?: 'auto' | 'pod' | 's3' } = {},
   ): Promise<Record<string, any>> {
-    assertWritableBackendFilePath(path);
+    path = normalizeWritableBackendFilePath(path);
     const encodedPath = encodeFilePath(path);
     const params = new URLSearchParams();
     if (options.recursive) params.set('recursive', 'true');

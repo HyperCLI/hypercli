@@ -83,10 +83,23 @@ describe('AgentFiles — one client, three sources', () => {
     await expect(agent.fileRead('/etc/hosts', 'gateway')).rejects.toThrow(/absolute paths are not valid for the 'gateway'/i);
   });
 
-  it('keeps absolute pod paths browse-only', async () => {
+  it('writes absolute paths within the sync root', async () => {
     const { agent, deployments } = makeAgent();
-    await expect(agent.fileWrite('/etc/hosts', 'blocked', 'agent')).rejects.toThrow(/browse-only/i);
-    await expect(agent.fileDelete('/etc/hosts', { source: 'agent' })).rejects.toThrow(/browse-only/i);
+    await agent.fileWrite('/home/node/AGENTS.md', 'instructions', 'agent');
+    await agent.fileDelete('/home/node/AGENTS.md', { source: 'agent' });
+    expect(deployments.fileWrite).toHaveBeenCalledWith(agent, 'AGENTS.md', 'instructions', 'pod');
+    expect(deployments.fileDelete).toHaveBeenCalledWith(
+      agent,
+      'AGENTS.md',
+      { recursive: undefined, source: 'pod' },
+    );
+  });
+
+  it('rejects absolute pod writes outside the sync root', async () => {
+    const { agent, deployments } = makeAgent();
+    await expect(agent.fileWrite('/etc/hosts', 'blocked', 'agent')).rejects.toThrow(/sync root/i);
+    await expect(agent.fileDelete('/etc/hosts', { source: 'agent' })).rejects.toThrow(/sync root/i);
+    await expect(agent.fileWrite('/home/node/../outside.txt', 'blocked', 'agent')).rejects.toThrow(/sync root/i);
     await expect(agent.fileWrite('../outside.txt', 'blocked', 'agent')).rejects.toThrow(/not writable/i);
     await expect(agent.fileDelete('safe/../../outside.txt', { source: 'agent' })).rejects.toThrow(/not writable/i);
     expect(deployments.fileWrite).not.toHaveBeenCalled();

@@ -15,6 +15,7 @@ import copy
 import json
 import mimetypes
 import os
+import posixpath
 import re
 import secrets
 import shlex
@@ -216,7 +217,7 @@ class BuzzLaunchConfig:
 # - `agent`  — the files API on the agent's live pod filesystem. A
 #              workspace-relative path resolves under the workspace, while an
 #              absolute `/…` path can be listed/read anywhere on the pod.
-#              Absolute paths are browse-only. (wire `source=pod`)
+#              Writes under the sync root are supported. (wire `source=pod`)
 # - `backup` — the S3 backup of the sync root (`/home/node`); served when the pod
 #              is stopped. Scoped to the sync root. (wire `source=s3`)
 # - `gateway`— the operator-WebSocket `agents.files.*` RPC; scoped to the
@@ -276,16 +277,23 @@ def resolve_backend_file_path(path: str, source: str) -> str:
     return f"{OPENCLAW_WORKSPACE_PREFIX}/{rel}" if rel else OPENCLAW_WORKSPACE_PREFIX
 
 
-def require_writable_backend_file_path(path: str) -> None:
-    if path.startswith("/"):
-        raise ValueError(
-            "absolute pod paths are browse-only; writes and deletes must stay within the sync root."
-        )
-    if ".." in path.replace("\\", "/").split("/"):
+def normalize_writable_backend_file_path(path: str) -> str:
+    """Return a sync-root-relative path accepted by the backend files API."""
+    normalized = path.replace("\\", "/")
+    if normalized.startswith("/"):
+        normalized = posixpath.normpath(normalized)
+        prefix = f"{OPENCLAW_SYNC_ROOT}/"
+        if not normalized.startswith(prefix):
+            raise ValueError(
+                f"absolute write paths must stay within the sync root ({OPENCLAW_SYNC_ROOT})."
+            )
+        return normalized[len(prefix):]
+    if ".." in normalized.split("/"):
         raise ValueError(
             "paths containing '..' are not writable; "
             "writes and deletes must stay within the sync root."
         )
+    return strip_rel_prefix(normalized)
 
 
 def resolve_gateway_file_name(path: str) -> str:
@@ -403,10 +411,15 @@ class AgentFiles:
 
     def write_bytes(self, path: str, content: bytes, source: str = "auto") -> dict:
         if source not in _GATEWAY_FILE_SOURCES:
-            require_writable_backend_file_path(path)
+            writable_path = normalize_writable_backend_file_path(path)
+            resolved_path = (
+                writable_path
+                if path.startswith("/")
+                else resolve_backend_file_path(writable_path, source)
+            )
             return self._deployments.file_write_bytes(
                 self._agent,
-                resolve_backend_file_path(path, source),
+                resolved_path,
                 content,
                 destination=to_wire_file_source(source),
             )
@@ -414,10 +427,15 @@ class AgentFiles:
 
     def write(self, path: str, content: str, source: str = "auto") -> dict:
         if source not in _GATEWAY_FILE_SOURCES:
-            require_writable_backend_file_path(path)
+            writable_path = normalize_writable_backend_file_path(path)
+            resolved_path = (
+                writable_path
+                if path.startswith("/")
+                else resolve_backend_file_path(writable_path, source)
+            )
             return self._deployments.file_write(
                 self._agent,
-                resolve_backend_file_path(path, source),
+                resolved_path,
                 content,
                 destination=to_wire_file_source(source),
             )
@@ -437,10 +455,15 @@ class AgentFiles:
             raise ValueError(
                 "delete is not supported over the gateway file source; use the agent/backup source."
             )
-        require_writable_backend_file_path(path)
+        writable_path = normalize_writable_backend_file_path(path)
+        resolved_path = (
+            writable_path
+            if path.startswith("/")
+            else resolve_backend_file_path(writable_path, source)
+        )
         return self._deployments.file_delete(
             self._agent,
-            resolve_backend_file_path(path, source),
+            resolved_path,
             recursive=recursive,
             source=to_wire_file_source(source),
         )
@@ -3517,7 +3540,7 @@ class Deployments:
 
     def file_write_bytes(self, pod: Agent | str, path: str, content: bytes, destination: str = "auto") -> dict:
         """Write raw bytes to an agent via the backend file API."""
-        require_writable_backend_file_path(path)
+        path = normalize_writable_backend_file_path(path)
         if len(content) > AGENT_FILE_MAX_BYTES:
             raise ValueError(f"Agent file writes are limited to {AGENT_FILE_MAX_BYTES // 1024 // 1024} MiB")
         agent_id = self._agent_id_for_target(pod)
@@ -3544,7 +3567,7 @@ class Deployments:
         source: str = "auto",
     ) -> dict:
         """Delete a file or directory from an agent."""
-        require_writable_backend_file_path(path)
+        path = normalize_writable_backend_file_path(path)
         agent_id = self._agent_id_for_target(pod)
         with httpx.Client(timeout=10) as client:
             resp = client.delete(

@@ -3,7 +3,8 @@
 One AgentFiles client wraps all three access paths behind a `source` switch. The
 SDK owns the roots: workspace-relative paths are prefixed with
 `.openclaw/workspace/` for the backend (agent/backup); `agent` also takes
-absolute `/…` paths for full-fs; gateway is name-addressed within the workspace.
+absolute `/…` paths for full-fs; absolute paths under `/home/node` are writable;
+gateway is name-addressed within the workspace.
 """
 from __future__ import annotations
 
@@ -163,12 +164,26 @@ def test_absolute_paths_rejected_for_backup_and_gateway():
         agent.file_read("/etc/hosts", "gateway")
 
 
-def test_absolute_pod_paths_are_browse_only():
+def test_absolute_paths_within_sync_root_are_writable():
     agent, _, deployments = make_agent()
-    with pytest.raises(ValueError, match="browse-only"):
+    agent.file_write("/home/node/AGENTS.md", "instructions", "agent")
+    agent.file_delete("/home/node/AGENTS.md", source="agent")
+    deployments.file_write.assert_called_once_with(
+        agent, "AGENTS.md", "instructions", destination="pod"
+    )
+    deployments.file_delete.assert_called_once_with(
+        agent, "AGENTS.md", recursive=False, source="pod"
+    )
+
+
+def test_absolute_pod_writes_outside_sync_root_are_rejected():
+    agent, _, deployments = make_agent()
+    with pytest.raises(ValueError, match="sync root"):
         agent.file_write("/etc/hosts", "blocked", "agent")
-    with pytest.raises(ValueError, match="browse-only"):
+    with pytest.raises(ValueError, match="sync root"):
         agent.file_delete("/etc/hosts", source="agent")
+    with pytest.raises(ValueError, match="sync root"):
+        agent.file_write("/home/node/../outside.txt", "blocked", "agent")
     with pytest.raises(ValueError, match="not writable"):
         agent.file_write("../outside.txt", "blocked", "agent")
     with pytest.raises(ValueError, match="not writable"):

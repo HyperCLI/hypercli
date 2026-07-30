@@ -1392,6 +1392,10 @@ describe('HyperClaw agents SDK', () => {
         expect(init.body).toBeInstanceOf(Uint8Array);
         return new Response(JSON.stringify({ status: 'ok', target: 'pod' }), { status: 200 });
       }
+      if (url.endsWith('/deployments/agent-1/files/AGENTS.md?destination=pod') && init?.method === 'POST') {
+        expect(init.body).toBeInstanceOf(Uint8Array);
+        return new Response(JSON.stringify({ status: 'ok', target: 'pod' }), { status: 200 });
+      }
       if (url.endsWith('/deployments/agent-1/files/workspace/a.txt') && init?.method === 'DELETE') {
         return new Response(JSON.stringify({ status: 'ok', target: 'pod' }), { status: 200 });
       }
@@ -1436,6 +1440,12 @@ describe('HyperClaw agents SDK', () => {
     const content = await agents.fileRead('agent-1', 'workspace/a.txt');
     const hostsContent = await agents.fileRead('agent-1', '/etc/hosts', 'pod');
     const writeResult = await agents.fileWrite('agent-1', 'workspace/a.txt', 'payload');
+    const syncRootWriteResult = await agents.fileWrite(
+      'agent-1',
+      '/home/node/AGENTS.md',
+      'instructions',
+      'pod',
+    );
     const deleteResult = await agents.fileDelete('agent-1', 'workspace/a.txt');
     const backupDeleteResult = await agents.fileDelete('agent-1', 'workspace/backup.txt', { source: 's3' });
 
@@ -1453,6 +1463,7 @@ describe('HyperClaw agents SDK', () => {
     expect(content).toBe('hello');
     expect(hostsContent).toBe('127.0.0.1 localhost');
     expect(writeResult).toEqual({ status: 'ok', target: 'pod' });
+    expect(syncRootWriteResult).toEqual({ status: 'ok', target: 'pod' });
     expect(deleteResult).toEqual({ status: 'ok', target: 'pod' });
     expect(backupDeleteResult).toEqual({ status: 'ok', target: 's3' });
     await expect(agents.fileRead('agent-1', '.openclaw')).rejects.toThrow('Path is a directory: .openclaw');
@@ -1460,7 +1471,7 @@ describe('HyperClaw agents SDK', () => {
       agents.fileWriteBytes('agent-1', 'workspace/too-large.bin', new Uint8Array(AGENT_FILE_MAX_BYTES + 1)),
     ).rejects.toThrow('250 MiB');
     await expect(agents.filesList('agent-1', '/', 'auto')).rejects.toThrow("source='pod'");
-    await expect(agents.fileWrite('agent-1', '/etc/hosts', 'blocked', 'pod')).rejects.toThrow('browse-only');
-    await expect(agents.fileDelete('agent-1', '/etc/hosts')).rejects.toThrow('browse-only');
+    await expect(agents.fileWrite('agent-1', '/etc/hosts', 'blocked', 'pod')).rejects.toThrow('sync root');
+    await expect(agents.fileDelete('agent-1', '/etc/hosts')).rejects.toThrow('sync root');
   });
 });
