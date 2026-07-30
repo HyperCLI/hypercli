@@ -149,6 +149,7 @@ fn deploy_fixture_returns_control_plane_acceptance_for_a_pending_agent() {
                 "handle": handle,
                 "name": format!("fixture-agent-{}", &TEST_PUBLIC_HEX[..8]),
                 "runtime": "opencode",
+                "image": "ghcr.io/hypercli/hypercli-buzz-opencode:latest",
                 "command": ["/usr/local/bin/buzz-acp"],
                 "restart": false,
                 "env": {
@@ -204,7 +205,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
         (
             "opencode",
             "opencode",
-            "ghcr.io/hypercli/hypercli-opencode:latest",
+            "ghcr.io/hypercli/hypercli-buzz-opencode:latest",
             "/usr/local/bin/opencode",
             "acp",
             "/usr/local/bin/buzz-dev-mcp",
@@ -212,7 +213,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
         (
             "codex",
             "codex-acp",
-            "ghcr.io/hypercli/hypercli-codex:latest",
+            "ghcr.io/hypercli/hypercli-buzz-codex:latest",
             "/usr/local/bin/codex-acp",
             "",
             "/usr/local/bin/buzz-dev-mcp",
@@ -220,7 +221,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
         (
             "claude-code",
             "claude-agent-acp",
-            "ghcr.io/hypercli/hypercli-claude-code:latest",
+            "ghcr.io/hypercli/hypercli-buzz-claude:latest",
             "/usr/local/bin/claude-agent-acp",
             "",
             "",
@@ -228,7 +229,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
         (
             "goose",
             "goose",
-            "ghcr.io/hypercli/hypercli-goose:latest",
+            "ghcr.io/hypercli/hypercli-buzz-goose:latest",
             "/usr/local/bin/goose",
             "acp",
             "",
@@ -236,7 +237,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
         (
             "kimi-code",
             "kimi",
-            "ghcr.io/hypercli/hypercli-kimi-code:latest",
+            "ghcr.io/hypercli/hypercli-buzz-kimi-code:latest",
             "/usr/local/bin/kimi",
             "acp",
             "",

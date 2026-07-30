@@ -9,6 +9,8 @@ from hypercli import (
     BuzzLaunchConfig,
     ClaudeCodeAgent as ExportedClaudeCodeAgent,
     CodexAgent as ExportedCodexAgent,
+    DEFAULT_BUZZ_CODING_AGENT_IMAGES as ExportedBuzzImageCatalog,
+    DEFAULT_CODING_AGENT_IMAGES as ExportedImageCatalog,
     GooseAgent as ExportedGooseAgent,
     KimiCodeAgent as ExportedKimiCodeAgent,
     OpenCodeAgent as ExportedOpenCodeAgent,
@@ -16,7 +18,14 @@ from hypercli import (
 from hypercli.agents import (
     ClaudeCodeAgent,
     CodexAgent,
+    DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
+    DEFAULT_BUZZ_CODING_AGENT_IMAGES,
+    DEFAULT_BUZZ_CODEX_IMAGE,
+    DEFAULT_BUZZ_GOOSE_IMAGE,
+    DEFAULT_BUZZ_KIMI_CODE_IMAGE,
+    DEFAULT_BUZZ_OPENCODE_IMAGE,
     DEFAULT_CLAUDE_CODE_IMAGE,
+    DEFAULT_CODING_AGENT_IMAGES,
     DEFAULT_CODEX_IMAGE,
     DEFAULT_GOOSE_IMAGE,
     DEFAULT_KIMI_CODE_IMAGE,
@@ -41,6 +50,28 @@ def test_coding_agent_types_are_exported_from_sdk_root():
     assert ExportedClaudeCodeAgent is ClaudeCodeAgent
     assert ExportedGooseAgent is GooseAgent
     assert ExportedKimiCodeAgent is KimiCodeAgent
+    assert ExportedImageCatalog is DEFAULT_CODING_AGENT_IMAGES
+    assert ExportedBuzzImageCatalog is DEFAULT_BUZZ_CODING_AGENT_IMAGES
+
+
+def test_generic_and_buzz_image_catalogs_are_explicit_and_disjoint():
+    assert DEFAULT_CODING_AGENT_IMAGES == {
+        "opencode": DEFAULT_OPENCODE_IMAGE,
+        "codex": DEFAULT_CODEX_IMAGE,
+        "claude-code": DEFAULT_CLAUDE_CODE_IMAGE,
+        "goose": DEFAULT_GOOSE_IMAGE,
+        "kimi-code": DEFAULT_KIMI_CODE_IMAGE,
+    }
+    assert DEFAULT_BUZZ_CODING_AGENT_IMAGES == {
+        "opencode": DEFAULT_BUZZ_OPENCODE_IMAGE,
+        "codex": DEFAULT_BUZZ_CODEX_IMAGE,
+        "claude-code": DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
+        "goose": DEFAULT_BUZZ_GOOSE_IMAGE,
+        "kimi-code": DEFAULT_BUZZ_KIMI_CODE_IMAGE,
+    }
+    assert set(DEFAULT_CODING_AGENT_IMAGES.values()).isdisjoint(
+        DEFAULT_BUZZ_CODING_AGENT_IMAGES.values()
+    )
 
 
 def _agent_payload(runtime: str) -> dict:
@@ -105,6 +136,59 @@ def test_create_coding_agent_contract(method_name, runtime, image, agent_type):
     }
 
 
+@pytest.mark.parametrize(
+    ("method_name", "runtime", "buzz_image"),
+    [
+        ("create_opencode", "opencode", DEFAULT_BUZZ_OPENCODE_IMAGE),
+        ("create_codex", "codex", DEFAULT_BUZZ_CODEX_IMAGE),
+        (
+            "create_claude_code",
+            "claude-code",
+            DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
+        ),
+        ("create_goose", "goose", DEFAULT_BUZZ_GOOSE_IMAGE),
+        ("create_kimi_code", "kimi-code", DEFAULT_BUZZ_KIMI_CODE_IMAGE),
+    ],
+)
+def test_buzz_coding_agent_uses_specialized_default_image(
+    method_name,
+    runtime,
+    buzz_image,
+):
+    deployments = Deployments(_HTTP())
+    posted: dict = {}
+
+    def fake_post(_path, json=None):
+        posted.update(json or {})
+        return _agent_payload(runtime)
+
+    deployments._post = fake_post
+    getattr(deployments, method_name)(buzz_enabled=True)
+
+    assert posted["image"] == buzz_image
+    assert posted["command"] == ["/usr/local/bin/buzz-acp"]
+
+
+def test_typed_buzz_launch_honors_explicit_image_override():
+    deployments = Deployments(_HTTP())
+    posted: dict = {}
+
+    def fake_post(_path, json=None):
+        posted.update(json or {})
+        return _agent_payload("opencode")
+
+    deployments._post = fake_post
+    deployments.create_opencode(
+        image="registry.example.test/custom-buzz-opencode:immutable",
+        buzz=BuzzLaunchConfig(
+            private_key_nsec="nsec1test",
+            relay_url="wss://buzz.example.test",
+        ),
+    )
+
+    assert posted["image"] == "registry.example.test/custom-buzz-opencode:immutable"
+
+
 def test_runtime_hydration_uses_explicit_backend_discriminator():
     deployments = Deployments(_HTTP())
 
@@ -143,6 +227,7 @@ def test_coding_agent_buzz_mode_only_changes_container_args_and_preserves_creden
     )
 
     assert posted["command"] == ["/usr/local/bin/buzz-acp"]
+    assert posted["image"] == DEFAULT_BUZZ_OPENCODE_IMAGE
     assert posted["restart"] is False
     assert "entrypoint" not in posted
     assert posted["env"]["BUZZ_PRIVATE_KEY"] == agent_nsec
@@ -190,6 +275,7 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
     )
 
     assert posted["size"] == "large"
+    assert posted["image"] == DEFAULT_BUZZ_OPENCODE_IMAGE
     assert posted["routes"] == {}
     assert posted["command"] == ["/usr/local/bin/buzz-acp"]
     assert posted["restart"] is False

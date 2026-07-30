@@ -2,7 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   ClaudeCodeAgent,
   CodexAgent,
+  DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
+  DEFAULT_BUZZ_CODING_AGENT_IMAGES,
+  DEFAULT_BUZZ_CODEX_IMAGE,
+  DEFAULT_BUZZ_GOOSE_IMAGE,
+  DEFAULT_BUZZ_KIMI_CODE_IMAGE,
+  DEFAULT_BUZZ_OPENCODE_IMAGE,
   DEFAULT_CLAUDE_CODE_IMAGE,
+  DEFAULT_CODING_AGENT_IMAGES,
   DEFAULT_CODEX_IMAGE,
   DEFAULT_GOOSE_IMAGE,
   DEFAULT_KIMI_CODE_IMAGE,
@@ -27,6 +34,27 @@ function response(runtime: 'opencode' | 'codex' | 'claude-code' | 'goose' | 'kim
 }
 
 describe('coding agents', () => {
+  it('publishes explicit, disjoint generic and Buzz image catalogs', () => {
+    expect(DEFAULT_CODING_AGENT_IMAGES).toEqual({
+      opencode: DEFAULT_OPENCODE_IMAGE,
+      codex: DEFAULT_CODEX_IMAGE,
+      'claude-code': DEFAULT_CLAUDE_CODE_IMAGE,
+      goose: DEFAULT_GOOSE_IMAGE,
+      'kimi-code': DEFAULT_KIMI_CODE_IMAGE,
+    });
+    expect(DEFAULT_BUZZ_CODING_AGENT_IMAGES).toEqual({
+      opencode: DEFAULT_BUZZ_OPENCODE_IMAGE,
+      codex: DEFAULT_BUZZ_CODEX_IMAGE,
+      'claude-code': DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
+      goose: DEFAULT_BUZZ_GOOSE_IMAGE,
+      'kimi-code': DEFAULT_BUZZ_KIMI_CODE_IMAGE,
+    });
+    expect(new Set([
+      ...Object.values(DEFAULT_CODING_AGENT_IMAGES),
+      ...Object.values(DEFAULT_BUZZ_CODING_AGENT_IMAGES),
+    ]).size).toBe(10);
+  });
+
   it.each([
     ['createOpenCode', 'opencode', DEFAULT_OPENCODE_IMAGE, OpenCodeAgent],
     ['createCodex', 'codex', DEFAULT_CODEX_IMAGE, CodexAgent],
@@ -80,6 +108,7 @@ describe('coding agents', () => {
 
     expect(post.mock.calls[0][1]).toMatchObject({
       runtime: 'codex',
+      image: DEFAULT_BUZZ_CODEX_IMAGE,
       command: ['/usr/local/bin/buzz-acp'],
       restart: false,
       env: {
@@ -92,6 +121,50 @@ describe('coding agents', () => {
       buzzEnabled: true,
       command: ['sleep', 'infinity'],
     })).rejects.toThrow('Buzz launch cannot be combined');
+  });
+
+  it.each([
+    ['createOpenCode', 'opencode', DEFAULT_BUZZ_OPENCODE_IMAGE],
+    ['createCodex', 'codex', DEFAULT_BUZZ_CODEX_IMAGE],
+    ['createClaudeCode', 'claude-code', DEFAULT_BUZZ_CLAUDE_CODE_IMAGE],
+    ['createGoose', 'goose', DEFAULT_BUZZ_GOOSE_IMAGE],
+    ['createKimiCode', 'kimi-code', DEFAULT_BUZZ_KIMI_CODE_IMAGE],
+  ] as const)('uses the specialized Buzz image for %s', async (helper, runtime, image) => {
+    const post = vi.fn().mockResolvedValue(response(runtime));
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await deployments[helper]({ buzzEnabled: true });
+
+    expect(post.mock.calls[0][1]).toMatchObject({
+      runtime,
+      image,
+      command: ['/usr/local/bin/buzz-acp'],
+    });
+  });
+
+  it('honors an explicit image override for a typed Buzz launch', async () => {
+    const post = vi.fn().mockResolvedValue(response('opencode'));
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await deployments.createOpenCode({
+      image: 'registry.example.test/custom-buzz-opencode:immutable',
+      buzz: {
+        privateKeyNsec: 'nsec1test',
+        relayUrl: 'wss://buzz.example.test',
+      },
+    });
+
+    expect(post.mock.calls[0][1].image).toBe(
+      'registry.example.test/custom-buzz-opencode:immutable',
+    );
   });
 
   it('renders typed Buzz launch settings with canonical OpenCode defaults', async () => {
@@ -120,6 +193,7 @@ describe('coding agents', () => {
 
     expect(post.mock.calls[0][1]).toMatchObject({
       size: 'large',
+      image: DEFAULT_BUZZ_OPENCODE_IMAGE,
       routes: {},
       command: ['/usr/local/bin/buzz-acp'],
       restart: false,

@@ -47,6 +47,11 @@ DEFAULT_CODEX_IMAGE = "ghcr.io/hypercli/hypercli-codex:latest"
 DEFAULT_CLAUDE_CODE_IMAGE = "ghcr.io/hypercli/hypercli-claude-code:latest"
 DEFAULT_GOOSE_IMAGE = "ghcr.io/hypercli/hypercli-goose:latest"
 DEFAULT_KIMI_CODE_IMAGE = "ghcr.io/hypercli/hypercli-kimi-code:latest"
+DEFAULT_BUZZ_OPENCODE_IMAGE = "ghcr.io/hypercli/hypercli-buzz-opencode:latest"
+DEFAULT_BUZZ_CODEX_IMAGE = "ghcr.io/hypercli/hypercli-buzz-codex:latest"
+DEFAULT_BUZZ_CLAUDE_CODE_IMAGE = "ghcr.io/hypercli/hypercli-buzz-claude:latest"
+DEFAULT_BUZZ_GOOSE_IMAGE = "ghcr.io/hypercli/hypercli-buzz-goose:latest"
+DEFAULT_BUZZ_KIMI_CODE_IMAGE = "ghcr.io/hypercli/hypercli-buzz-kimi-code:latest"
 OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
     "OPENCLAW_MEMORY_SEARCH_ENABLED": "1",
     "OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START": "0",
@@ -95,6 +100,21 @@ ManagedAgentRuntime = Literal[
     "kimi-code",
 ]
 CodingAgentRuntime = Literal["opencode", "codex", "claude-code", "goose", "kimi-code"]
+
+DEFAULT_CODING_AGENT_IMAGES: dict[CodingAgentRuntime, str] = {
+    "opencode": DEFAULT_OPENCODE_IMAGE,
+    "codex": DEFAULT_CODEX_IMAGE,
+    "claude-code": DEFAULT_CLAUDE_CODE_IMAGE,
+    "goose": DEFAULT_GOOSE_IMAGE,
+    "kimi-code": DEFAULT_KIMI_CODE_IMAGE,
+}
+DEFAULT_BUZZ_CODING_AGENT_IMAGES: dict[CodingAgentRuntime, str] = {
+    "opencode": DEFAULT_BUZZ_OPENCODE_IMAGE,
+    "codex": DEFAULT_BUZZ_CODEX_IMAGE,
+    "claude-code": DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
+    "goose": DEFAULT_BUZZ_GOOSE_IMAGE,
+    "kimi-code": DEFAULT_BUZZ_KIMI_CODE_IMAGE,
+}
 
 _BUZZ_RUNTIME_COMMANDS: dict[CodingAgentRuntime, tuple[str, list[str], str]] = {
     "opencode": ("/usr/local/bin/opencode", ["acp"], "/usr/local/bin/buzz-dev-mcp"),
@@ -2744,7 +2764,6 @@ class Deployments:
         self,
         *,
         runtime: CodingAgentRuntime,
-        default_image: str,
         name: str | None = None,
         handle: str | None = None,
         size: str | None = None,
@@ -2807,7 +2826,11 @@ class Deployments:
                 else command
             ),
             entrypoint=entrypoint,
-            image=image or default_image,
+            image=image or (
+                DEFAULT_BUZZ_CODING_AGENT_IMAGES[runtime]
+                if buzz_launch
+                else DEFAULT_CODING_AGENT_IMAGES[runtime]
+            ),
             sync_root=sync_root if sync_root is not None else DEFAULT_CODING_AGENT_SYNC_ROOT,
             sync_enabled=True if sync_enabled is None else sync_enabled,
             sync_uid=1000 if sync_uid is None else sync_uid,
@@ -2824,7 +2847,6 @@ class Deployments:
         """Create a hosted OpenCode ACP runtime with workspace boot sync."""
         return self._create_coding_agent(
             runtime="opencode",
-            default_image=DEFAULT_OPENCODE_IMAGE,
             **kwargs,
         )  # type: ignore[return-value]
 
@@ -2832,7 +2854,6 @@ class Deployments:
         """Create a hosted Codex ACP runtime with workspace boot sync."""
         return self._create_coding_agent(
             runtime="codex",
-            default_image=DEFAULT_CODEX_IMAGE,
             **kwargs,
         )  # type: ignore[return-value]
 
@@ -2840,7 +2861,6 @@ class Deployments:
         """Create a hosted Claude Code ACP runtime with workspace boot sync."""
         return self._create_coding_agent(
             runtime="claude-code",
-            default_image=DEFAULT_CLAUDE_CODE_IMAGE,
             **kwargs,
         )  # type: ignore[return-value]
 
@@ -2848,7 +2868,6 @@ class Deployments:
         """Create a hosted Goose native ACP runtime with workspace boot sync."""
         return self._create_coding_agent(
             runtime="goose",
-            default_image=DEFAULT_GOOSE_IMAGE,
             **kwargs,
         )  # type: ignore[return-value]
 
@@ -2856,7 +2875,6 @@ class Deployments:
         """Create a hosted Kimi Code ACP runtime using Moonshot upstream."""
         return self._create_coding_agent(
             runtime="kimi-code",
-            default_image=DEFAULT_KIMI_CODE_IMAGE,
             **kwargs,
         )  # type: ignore[return-value]
 

@@ -126,12 +126,11 @@ Automatic memory indexing is off by default. Opt in with `memory_index={"on_sess
 
 ## Hosted Coding Agents
 
-OpenCode, Codex, Claude Code, Goose, and Kimi Code use canonical Reef images
-with Buzz ACP as a private stdio harness. They have no public runtime port:
-lifecycle, exec, shell, workspace sync, and authentication all use the existing
-authenticated deployment APIs. OpenCode and Goose default to HyperCLI's
-Anthropic-native `kimi-k2.6-anthropic` route. Kimi Code keeps Moonshot's
-upstream device login and service.
+OpenCode, Codex, Claude Code, Goose, and Kimi Code use canonical Reef images.
+They have no public runtime port: lifecycle, exec, shell, workspace sync, and
+authentication all use the existing authenticated deployment APIs. OpenCode
+and Goose default to HyperCLI's Anthropic-native `kimi-k2.6-anthropic` route.
+Kimi Code keeps Moonshot's upstream device login and service.
 
 ```python
 agent = client.deployments.create_opencode(name="opencode")
@@ -176,6 +175,11 @@ command and arguments, the hosted Buzz MCP command, lazy pool creation, relay
 observation, and persistent `/home/node` settings. Buzz-reserved environment
 keys are rendered from the typed object after caller environment values.
 `buzz_enabled=True` remains as a deprecated raw-environment compatibility path.
+Typed and compatibility Buzz launches select the matching `hypercli-buzz`
+image family (`opencode`, `codex`, `claude`, `goose`, or `kimi-code`) by
+default. Ordinary coding-agent helpers without Buzz keep the generic
+`ghcr.io/hypercli/hypercli-<runtime>:latest` default. An explicit `image=`
+continues to override either default.
 
 Direct `BuzzLaunchConfig` renders timeout and response-policy values but does
 not duplicate the stock Desktop provider's validation; invalid combinations

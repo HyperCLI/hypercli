@@ -4,6 +4,11 @@
 deployments. Executable integrations belong in their own top-level packages;
 the Buzz provider lives in `../buzz-backend-provider/`.
 
+The Rust SDK does not choose runtime images. Generic callers set
+`CreateDeploymentRequest.image` themselves, while the Buzz provider owns its
+dedicated `hypercli-buzz-*` default catalog. This keeps reusable launch
+rendering separate from provider image policy.
+
 The repository root is the Cargo workspace. Run Rust gates from there:
 
 ```bash

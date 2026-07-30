@@ -163,11 +163,16 @@ Default runtime mapping:
 
 | Runtime | Image | ACP child |
 | --- | --- | --- |
-| OpenCode | `ghcr.io/hypercli/hypercli-opencode:latest` | `opencode acp` |
-| Codex | `ghcr.io/hypercli/hypercli-codex:latest` | `codex-acp` |
-| Claude Code | `ghcr.io/hypercli/hypercli-claude-code:latest` | `claude-agent-acp` |
-| Goose | `ghcr.io/hypercli/hypercli-goose:latest` | `goose acp` |
-| Kimi Code | `ghcr.io/hypercli/hypercli-kimi-code:latest` | `kimi acp` |
+| OpenCode | `ghcr.io/hypercli/hypercli-buzz-opencode:latest` | `opencode acp` |
+| Codex | `ghcr.io/hypercli/hypercli-buzz-codex:latest` | `codex-acp` |
+| Claude Code | `ghcr.io/hypercli/hypercli-buzz-claude:latest` | `claude-agent-acp` |
+| Goose | `ghcr.io/hypercli/hypercli-buzz-goose:latest` | `goose acp` |
+| Kimi Code | `ghcr.io/hypercli/hypercli-buzz-kimi-code:latest` | `kimi acp` |
+
+These Buzz-specific images contain the hosted Buzz harness. Direct,
+non-Buzz SDK launches keep using the generic `hypercli-opencode`,
+`hypercli-codex`, `hypercli-claude-code`, `hypercli-goose`, and
+`hypercli-kimi-code` image families.
 
 The provider owns the identity, relay, ACP command, response policy, and timeout
 environment. It validates stock Buzz's `turn_timeout_seconds`,

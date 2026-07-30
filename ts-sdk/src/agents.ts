@@ -50,6 +50,11 @@ export const DEFAULT_CODEX_IMAGE = 'ghcr.io/hypercli/hypercli-codex:latest';
 export const DEFAULT_CLAUDE_CODE_IMAGE = 'ghcr.io/hypercli/hypercli-claude-code:latest';
 export const DEFAULT_GOOSE_IMAGE = 'ghcr.io/hypercli/hypercli-goose:latest';
 export const DEFAULT_KIMI_CODE_IMAGE = 'ghcr.io/hypercli/hypercli-kimi-code:latest';
+export const DEFAULT_BUZZ_OPENCODE_IMAGE = 'ghcr.io/hypercli/hypercli-buzz-opencode:latest';
+export const DEFAULT_BUZZ_CODEX_IMAGE = 'ghcr.io/hypercli/hypercli-buzz-codex:latest';
+export const DEFAULT_BUZZ_CLAUDE_CODE_IMAGE = 'ghcr.io/hypercli/hypercli-buzz-claude:latest';
+export const DEFAULT_BUZZ_GOOSE_IMAGE = 'ghcr.io/hypercli/hypercli-buzz-goose:latest';
+export const DEFAULT_BUZZ_KIMI_CODE_IMAGE = 'ghcr.io/hypercli/hypercli-buzz-kimi-code:latest';
 export const DEFAULT_CODING_AGENT_SYNC_ROOT = '/home/node';
 export type ManagedAgentRuntime =
   | 'generic'
@@ -61,6 +66,20 @@ export type ManagedAgentRuntime =
   | 'goose'
   | 'kimi-code';
 export type CodingAgentRuntime = Extract<ManagedAgentRuntime, 'opencode' | 'codex' | 'claude-code' | 'goose' | 'kimi-code'>;
+export const DEFAULT_CODING_AGENT_IMAGES: Readonly<Record<CodingAgentRuntime, string>> = {
+  opencode: DEFAULT_OPENCODE_IMAGE,
+  codex: DEFAULT_CODEX_IMAGE,
+  'claude-code': DEFAULT_CLAUDE_CODE_IMAGE,
+  goose: DEFAULT_GOOSE_IMAGE,
+  'kimi-code': DEFAULT_KIMI_CODE_IMAGE,
+};
+export const DEFAULT_BUZZ_CODING_AGENT_IMAGES: Readonly<Record<CodingAgentRuntime, string>> = {
+  opencode: DEFAULT_BUZZ_OPENCODE_IMAGE,
+  codex: DEFAULT_BUZZ_CODEX_IMAGE,
+  'claude-code': DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
+  goose: DEFAULT_BUZZ_GOOSE_IMAGE,
+  'kimi-code': DEFAULT_BUZZ_KIMI_CODE_IMAGE,
+};
 const CODING_AGENT_RUNTIMES = new Set<CodingAgentRuntime>(['opencode', 'codex', 'claude-code', 'goose', 'kimi-code']);
 const BUZZ_RUNTIME_COMMANDS: Record<CodingAgentRuntime, {
   command: string;
@@ -3574,7 +3593,6 @@ export class Deployments {
 
   private async createCodingAgent(
     runtime: CodingAgentRuntime,
-    defaultImage: string,
     options: CodingAgentCreateOptions,
   ): Promise<CodingAgent> {
     if (options.buzzEnabled && options.buzz) {
@@ -3609,7 +3627,11 @@ export class Deployments {
       injectGatewayToken: false,
       env: effectiveEnv,
       routes: options.routes ?? {},
-      image: options.image ?? defaultImage,
+      image: options.image ?? (
+        buzzLaunch
+          ? DEFAULT_BUZZ_CODING_AGENT_IMAGES[runtime]
+          : DEFAULT_CODING_AGENT_IMAGES[runtime]
+      ),
       command: options.buzzEnabled || options.buzz
         ? ['/usr/local/bin/buzz-acp']
         : options.command,
@@ -3625,23 +3647,23 @@ export class Deployments {
   }
 
   async createOpenCode(options: CodingAgentCreateOptions = {}): Promise<OpenCodeAgent> {
-    return await this.createCodingAgent('opencode', DEFAULT_OPENCODE_IMAGE, options) as OpenCodeAgent;
+    return await this.createCodingAgent('opencode', options) as OpenCodeAgent;
   }
 
   async createCodex(options: CodingAgentCreateOptions = {}): Promise<CodexAgent> {
-    return await this.createCodingAgent('codex', DEFAULT_CODEX_IMAGE, options) as CodexAgent;
+    return await this.createCodingAgent('codex', options) as CodexAgent;
   }
 
   async createClaudeCode(options: CodingAgentCreateOptions = {}): Promise<ClaudeCodeAgent> {
-    return await this.createCodingAgent('claude-code', DEFAULT_CLAUDE_CODE_IMAGE, options) as ClaudeCodeAgent;
+    return await this.createCodingAgent('claude-code', options) as ClaudeCodeAgent;
   }
 
   async createGoose(options: CodingAgentCreateOptions = {}): Promise<GooseAgent> {
-    return await this.createCodingAgent('goose', DEFAULT_GOOSE_IMAGE, options) as GooseAgent;
+    return await this.createCodingAgent('goose', options) as GooseAgent;
   }
 
   async createKimiCode(options: CodingAgentCreateOptions = {}): Promise<KimiCodeAgent> {
-    return await this.createCodingAgent('kimi-code', DEFAULT_KIMI_CODE_IMAGE, options) as KimiCodeAgent;
+    return await this.createCodingAgent('kimi-code', options) as KimiCodeAgent;
   }
 
   async budget(): Promise<Record<string, any>> {

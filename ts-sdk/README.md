@@ -183,6 +183,11 @@ the typed `buzz` object to derive the canonical child command, arguments, MCP
 command, lazy pool, relay observer, and Buzz-owned environment. `buzzEnabled`
 remains as a deprecated raw-environment compatibility path. Both forms are
 mutually exclusive with an explicit `command`.
+Typed and compatibility Buzz launches select the matching `hypercli-buzz`
+image family (`opencode`, `codex`, `claude`, `goose`, or `kimi-code`) by
+default. Ordinary coding-agent helpers without Buzz keep the generic
+`ghcr.io/hypercli/hypercli-<runtime>:latest` default. An explicit `image`
+continues to override either default.
 
 The typed `buzz` renderer writes timeout and response-policy values but does not
 duplicate the stock Desktop provider's validation; invalid combinations are

@@ -11,11 +11,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
-const DEFAULT_OPENCODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-opencode:latest";
-const DEFAULT_CODEX_IMAGE: &str = "ghcr.io/hypercli/hypercli-codex:latest";
-const DEFAULT_CLAUDE_CODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-claude-code:latest";
-const DEFAULT_GOOSE_IMAGE: &str = "ghcr.io/hypercli/hypercli-goose:latest";
-const DEFAULT_KIMI_CODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-kimi-code:latest";
+const DEFAULT_BUZZ_OPENCODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-opencode:latest";
+const DEFAULT_BUZZ_CODEX_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-codex:latest";
+const DEFAULT_BUZZ_CLAUDE_CODE_IMAGE: &str =
+    "ghcr.io/hypercli/hypercli-buzz-claude:latest";
+const DEFAULT_BUZZ_GOOSE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-goose:latest";
+const DEFAULT_BUZZ_KIMI_CODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-kimi-code:latest";
 #[cfg(test)]
 const BUZZ_DEV_MCP_COMMAND: &str = "/usr/local/bin/buzz-dev-mcp";
 
@@ -97,11 +98,11 @@ impl CodingRuntime {
 
     fn default_image(self) -> &'static str {
         match self {
-            Self::Opencode => DEFAULT_OPENCODE_IMAGE,
-            Self::Codex => DEFAULT_CODEX_IMAGE,
-            Self::ClaudeCode => DEFAULT_CLAUDE_CODE_IMAGE,
-            Self::Goose => DEFAULT_GOOSE_IMAGE,
-            Self::KimiCode => DEFAULT_KIMI_CODE_IMAGE,
+            Self::Opencode => DEFAULT_BUZZ_OPENCODE_IMAGE,
+            Self::Codex => DEFAULT_BUZZ_CODEX_IMAGE,
+            Self::ClaudeCode => DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
+            Self::Goose => DEFAULT_BUZZ_GOOSE_IMAGE,
+            Self::KimiCode => DEFAULT_BUZZ_KIMI_CODE_IMAGE,
         }
     }
 
@@ -731,17 +732,32 @@ mod tests {
     }
 
     #[test]
-    fn goose_and_kimi_code_use_distinct_canonical_images() {
+    fn runtime_catalog_uses_distinct_buzz_images() {
         for (runtime, managed, image) in [
+            (
+                CodingRuntime::Opencode,
+                ManagedRuntime::Opencode,
+                DEFAULT_BUZZ_OPENCODE_IMAGE,
+            ),
+            (
+                CodingRuntime::Codex,
+                ManagedRuntime::Codex,
+                DEFAULT_BUZZ_CODEX_IMAGE,
+            ),
+            (
+                CodingRuntime::ClaudeCode,
+                ManagedRuntime::ClaudeCode,
+                DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
+            ),
             (
                 CodingRuntime::Goose,
                 ManagedRuntime::Goose,
-                DEFAULT_GOOSE_IMAGE,
+                DEFAULT_BUZZ_GOOSE_IMAGE,
             ),
             (
                 CodingRuntime::KimiCode,
                 ManagedRuntime::KimiCode,
-                DEFAULT_KIMI_CODE_IMAGE,
+                DEFAULT_BUZZ_KIMI_CODE_IMAGE,
             ),
         ] {
             let request = build_launch_request(

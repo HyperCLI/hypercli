@@ -121,6 +121,14 @@ non-JSON child output is skipped, and `agent_message_chunk` is activity
 telemetry rather than a channel publication. There is no plaintext fallback. A
 visible response requires the agent to invoke the Buzz send command/tool.
 
+The provider owns the default hosted image catalog because every provider
+deployment is a Buzz launch. Its defaults are the dedicated
+`hypercli-buzz-opencode`, `hypercli-buzz-codex`, `hypercli-buzz-claude`,
+`hypercli-buzz-goose`, and `hypercli-buzz-kimi-code` families. The reusable
+Rust SDK deliberately has no image catalog; it renders launch behavior onto a
+caller-supplied deployment request, leaving image policy to the provider or
+application.
+
 Interactive Codex and Claude login is not part of the one-shot provider
 protocol. Hosted OpenCode can infer through its injected provider configuration
 and environment.
