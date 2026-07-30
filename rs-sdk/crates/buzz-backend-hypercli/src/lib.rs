@@ -13,6 +13,8 @@ use thiserror::Error;
 const DEFAULT_OPENCODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-opencode:latest";
 const DEFAULT_CODEX_IMAGE: &str = "ghcr.io/hypercli/hypercli-codex:latest";
 const DEFAULT_CLAUDE_CODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-claude-code:latest";
+const DEFAULT_GOOSE_IMAGE: &str = "ghcr.io/hypercli/hypercli-goose:latest";
+const DEFAULT_KIMI_CODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-kimi-code:latest";
 
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "lowercase")]
@@ -75,6 +77,8 @@ pub enum CodingRuntime {
     Opencode,
     Codex,
     ClaudeCode,
+    Goose,
+    KimiCode,
 }
 
 impl CodingRuntime {
@@ -83,6 +87,8 @@ impl CodingRuntime {
             Self::Opencode => ManagedRuntime::Opencode,
             Self::Codex => ManagedRuntime::Codex,
             Self::ClaudeCode => ManagedRuntime::ClaudeCode,
+            Self::Goose => ManagedRuntime::Goose,
+            Self::KimiCode => ManagedRuntime::KimiCode,
         }
     }
 
@@ -91,6 +97,8 @@ impl CodingRuntime {
             Self::Opencode => DEFAULT_OPENCODE_IMAGE,
             Self::Codex => DEFAULT_CODEX_IMAGE,
             Self::ClaudeCode => DEFAULT_CLAUDE_CODE_IMAGE,
+            Self::Goose => DEFAULT_GOOSE_IMAGE,
+            Self::KimiCode => DEFAULT_KIMI_CODE_IMAGE,
         }
     }
 }
@@ -173,7 +181,8 @@ pub fn provider_info() -> ProviderInfoResponse {
                 "runtime": {
                     "type": "string",
                     "title": "Runtime",
-                    "description": "opencode, codex, or claude-code",
+                    "description": "opencode, codex, claude-code, goose, or kimi-code",
+                    "enum": ["opencode", "codex", "claude-code", "goose", "kimi-code"],
                     "default": "opencode"
                 },
                 "size": {
@@ -522,6 +531,37 @@ mod tests {
             &serde_json::json!({"runtime":"opencode","size":"small"})
         )
         .is_ok());
+    }
+
+    #[test]
+    fn goose_and_kimi_code_use_distinct_canonical_images() {
+        for (runtime, managed, image) in [
+            (
+                CodingRuntime::Goose,
+                ManagedRuntime::Goose,
+                DEFAULT_GOOSE_IMAGE,
+            ),
+            (
+                CodingRuntime::KimiCode,
+                ManagedRuntime::KimiCode,
+                DEFAULT_KIMI_CODE_IMAGE,
+            ),
+        ] {
+            let request = build_launch_request(
+                test_agent(),
+                TEST_PUBLIC_HEX,
+                "buzz-runtime-test",
+                ProviderOptions {
+                    runtime,
+                    size: AgentSize::Small,
+                    image: None,
+                    workspace: None,
+                },
+            )
+            .unwrap();
+            assert_eq!(request.runtime, managed);
+            assert_eq!(request.image.as_deref(), Some(image));
+        }
     }
 
     #[test]

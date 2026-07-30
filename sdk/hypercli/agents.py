@@ -44,6 +44,8 @@ DEFAULT_OPENCLAW_PRO_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-latest"
 DEFAULT_OPENCODE_IMAGE = "ghcr.io/hypercli/hypercli-opencode:latest"
 DEFAULT_CODEX_IMAGE = "ghcr.io/hypercli/hypercli-codex:latest"
 DEFAULT_CLAUDE_CODE_IMAGE = "ghcr.io/hypercli/hypercli-claude-code:latest"
+DEFAULT_GOOSE_IMAGE = "ghcr.io/hypercli/hypercli-goose:latest"
+DEFAULT_KIMI_CODE_IMAGE = "ghcr.io/hypercli/hypercli-kimi-code:latest"
 OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
     "OPENCLAW_MEMORY_SEARCH_ENABLED": "1",
     "OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START": "0",
@@ -72,6 +74,8 @@ ManagedAgentRuntime = Literal[
     "opencode",
     "codex",
     "claude-code",
+    "goose",
+    "kimi-code",
 ]
 
 # The three file-access paths for an OpenClaw agent, each with its own root —
@@ -1021,7 +1025,15 @@ class RuntimeAuthClient:
     _COMMANDS: dict[str, dict[str, Any]] = {
         "opencode": {
             "agent": ("opencode", "acp"),
-            "status": ("opencode", "auth", "list"),
+            "status": (
+                "buzz-acp",
+                "models",
+                "--agent-command",
+                "opencode",
+                "--agent-args",
+                "acp",
+                "--json",
+            ),
             "logout": ("opencode", "auth", "logout"),
         },
         "codex": {
@@ -1062,6 +1074,32 @@ class RuntimeAuthClient:
                     command=("claude", "auth", "login", "--sso"),
                 ),
             ),
+        },
+        "goose": {
+            "agent": ("goose", "acp"),
+            "status": (
+                "buzz-acp",
+                "models",
+                "--agent-command",
+                "goose",
+                "--agent-args",
+                "acp",
+                "--json",
+            ),
+            "logout": None,
+        },
+        "kimi-code": {
+            "agent": ("kimi", "acp"),
+            "status": (
+                "buzz-acp",
+                "models",
+                "--agent-command",
+                "kimi",
+                "--agent-args",
+                "acp",
+                "--json",
+            ),
+            "logout": None,
         },
     }
 
@@ -1231,7 +1269,14 @@ class RuntimeAuthClient:
         )
 
     def logout(self, provider: str | None = None) -> RuntimeAuthStatus:
-        command = list(self._config["logout"])
+        logout_command = self._config["logout"]
+        if logout_command is None:
+            if self.runtime == "goose":
+                reason = "uses its injected deployment credential"
+            else:
+                reason = "does not expose a noninteractive logout command"
+            raise RuntimeError(f"{self.runtime} {reason} and cannot log out")
+        command = list(logout_command)
         if self.runtime == "opencode" and provider:
             command.append(provider)
         result = self._exec(tuple(command))
@@ -1490,6 +1535,16 @@ class CodexAgent(CodingAgent):
 @dataclass
 class ClaudeCodeAgent(CodingAgent):
     """Claude Code runtime hosted behind the Claude ACP adapter."""
+
+
+@dataclass
+class GooseAgent(CodingAgent):
+    """Goose native ACP runtime using the hosted Anthropic-compatible route."""
+
+
+@dataclass
+class KimiCodeAgent(CodingAgent):
+    """Kimi Code native ACP runtime using Moonshot's upstream authentication."""
 
 
 @dataclass
@@ -2151,6 +2206,10 @@ class Deployments:
             agent = CodexAgent.from_dict(data)
         elif runtime == "claude-code":
             agent = ClaudeCodeAgent.from_dict(data)
+        elif runtime == "goose":
+            agent = GooseAgent.from_dict(data)
+        elif runtime == "kimi-code":
+            agent = KimiCodeAgent.from_dict(data)
         elif runtime == "openclaw-pro" or _is_openclaw_pro_agent_data(data):
             agent = OpenClawProAgent.from_dict(data)
         elif runtime == "openclaw" or _is_openclaw_agent_data(data):
@@ -2357,7 +2416,8 @@ class Deployments:
             registry_auth=registry_auth,
             gateway_token=gateway_token,
             heartbeat=heartbeat,
-            inject_gateway_token=runtime not in {"opencode", "codex", "claude-code"},
+            inject_gateway_token=runtime
+            not in {"opencode", "codex", "claude-code", "goose", "kimi-code"},
         )
         body: dict = {**launch_payload, "start": start}
         if dry_run:
@@ -2513,7 +2573,7 @@ class Deployments:
     def _create_coding_agent(
         self,
         *,
-        runtime: Literal["opencode", "codex", "claude-code"],
+        runtime: Literal["opencode", "codex", "claude-code", "goose", "kimi-code"],
         default_image: str,
         name: str | None = None,
         handle: str | None = None,
@@ -2590,6 +2650,22 @@ class Deployments:
         return self._create_coding_agent(
             runtime="claude-code",
             default_image=DEFAULT_CLAUDE_CODE_IMAGE,
+            **kwargs,
+        )  # type: ignore[return-value]
+
+    def create_goose(self, **kwargs: Any) -> GooseAgent:
+        """Create a hosted Goose native ACP runtime with workspace boot sync."""
+        return self._create_coding_agent(
+            runtime="goose",
+            default_image=DEFAULT_GOOSE_IMAGE,
+            **kwargs,
+        )  # type: ignore[return-value]
+
+    def create_kimi_code(self, **kwargs: Any) -> KimiCodeAgent:
+        """Create a hosted Kimi Code ACP runtime using Moonshot upstream."""
+        return self._create_coding_agent(
+            runtime="kimi-code",
+            default_image=DEFAULT_KIMI_CODE_IMAGE,
             **kwargs,
         )  # type: ignore[return-value]
 

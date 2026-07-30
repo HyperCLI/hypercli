@@ -126,15 +126,19 @@ Automatic memory indexing is off by default. Opt in with `memory_index={"on_sess
 
 ## Hosted Coding Agents
 
-OpenCode, Codex, and Claude Code use canonical Reef images with Buzz ACP as a
-private stdio harness. They have no public runtime port: lifecycle, exec, shell,
-workspace sync, and authentication all use the existing authenticated
-deployment APIs.
+OpenCode, Codex, Claude Code, Goose, and Kimi Code use canonical Reef images
+with Buzz ACP as a private stdio harness. They have no public runtime port:
+lifecycle, exec, shell, workspace sync, and authentication all use the existing
+authenticated deployment APIs. OpenCode and Goose default to HyperCLI's
+Anthropic-native `kimi-k2.6-anthropic` route. Kimi Code keeps Moonshot's
+upstream device login and service.
 
 ```python
 agent = client.deployments.create_opencode(name="opencode")
 codex = client.deployments.create_codex(name="codex")
 claude = client.deployments.create_claude_code(name="claude")
+goose = client.deployments.create_goose(name="goose")
+kimi = client.deployments.create_kimi_code(name="kimi")
 
 methods = codex.auth.methods()
 status = codex.auth.status()

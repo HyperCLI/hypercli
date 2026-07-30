@@ -149,7 +149,12 @@ Automatic memory indexing is off by default. Opt in with `memoryIndex: { onSessi
 
 ### Managed Coding Agents and Buzz ACP
 
-OpenCode, Codex, and Claude Code use explicit managed runtime discriminators while retaining the standard HyperCLI launch behavior: API-base env injection, workspace boot sync, and persistent `/home/node` storage. They do not receive an OpenClaw gateway token.
+OpenCode, Codex, Claude Code, Goose, and Kimi Code use explicit managed runtime
+discriminators while retaining the standard HyperCLI launch behavior: API-base
+env injection, workspace boot sync, and persistent `/home/node` storage. They
+do not receive an OpenClaw gateway token. OpenCode and Goose default to the
+Anthropic-native `kimi-k2.6-anthropic` route; Kimi Code uses Moonshot's
+upstream login and service.
 
 ```typescript
 const agent = await client.deployments.createCodex({
@@ -167,7 +172,10 @@ const authenticated = await login.wait();
 await agent.auth.logout();
 ```
 
-The corresponding helpers are `createOpenCode(...)`, `createCodex(...)`, and `createClaudeCode(...)`. Set `buzzEnabled: true` only when the image contains `/usr/local/bin/buzz-acp`; it is mutually exclusive with an explicit `command`.
+The corresponding helpers are `createOpenCode(...)`, `createCodex(...)`,
+`createClaudeCode(...)`, `createGoose(...)`, and `createKimiCode(...)`. Set
+`buzzEnabled: true` only when the image contains `/usr/local/bin/buzz-acp`; it
+is mutually exclusive with an explicit `command`.
 
 ### OpenClaw Gateway Chat Attachments
 

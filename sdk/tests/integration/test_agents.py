@@ -4,10 +4,19 @@ import uuid
 
 import pytest
 
-from hypercli import ClaudeCodeAgent, CodexAgent, HyperCLI, OpenCodeAgent
+from hypercli import (
+    ClaudeCodeAgent,
+    CodexAgent,
+    GooseAgent,
+    HyperCLI,
+    KimiCodeAgent,
+    OpenCodeAgent,
+)
 from hypercli.agents import (
     DEFAULT_CLAUDE_CODE_IMAGE,
     DEFAULT_CODEX_IMAGE,
+    DEFAULT_GOOSE_IMAGE,
+    DEFAULT_KIMI_CODE_IMAGE,
     DEFAULT_OPENCODE_IMAGE,
 )
 from hypercli.http import APIError
@@ -81,6 +90,13 @@ def test_list_agents_requires_agent_key(client, test_agent_api_key: str):
             "claude-code",
             DEFAULT_CLAUDE_CODE_IMAGE,
             ClaudeCodeAgent,
+        ),
+        ("create_goose", "goose", DEFAULT_GOOSE_IMAGE, GooseAgent),
+        (
+            "create_kimi_code",
+            "kimi-code",
+            DEFAULT_KIMI_CODE_IMAGE,
+            KimiCodeAgent,
         ),
     ],
 )

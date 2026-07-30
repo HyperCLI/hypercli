@@ -8,6 +8,8 @@ import pytest
 from hypercli import (
     ClaudeCodeAgent as ExportedClaudeCodeAgent,
     CodexAgent as ExportedCodexAgent,
+    GooseAgent as ExportedGooseAgent,
+    KimiCodeAgent as ExportedKimiCodeAgent,
     OpenCodeAgent as ExportedOpenCodeAgent,
 )
 from hypercli.agents import (
@@ -15,9 +17,13 @@ from hypercli.agents import (
     CodexAgent,
     DEFAULT_CLAUDE_CODE_IMAGE,
     DEFAULT_CODEX_IMAGE,
+    DEFAULT_GOOSE_IMAGE,
+    DEFAULT_KIMI_CODE_IMAGE,
     DEFAULT_OPENCODE_IMAGE,
     Deployments,
     ExecResult,
+    GooseAgent,
+    KimiCodeAgent,
     OpenCodeAgent,
     RuntimeAuthClient,
     RuntimeAuthMethod,
@@ -32,6 +38,8 @@ def test_coding_agent_types_are_exported_from_sdk_root():
     assert ExportedOpenCodeAgent is OpenCodeAgent
     assert ExportedCodexAgent is CodexAgent
     assert ExportedClaudeCodeAgent is ClaudeCodeAgent
+    assert ExportedGooseAgent is GooseAgent
+    assert ExportedKimiCodeAgent is KimiCodeAgent
 
 
 def _agent_payload(runtime: str) -> dict:
@@ -55,6 +63,13 @@ def _agent_payload(runtime: str) -> dict:
             "claude-code",
             DEFAULT_CLAUDE_CODE_IMAGE,
             ClaudeCodeAgent,
+        ),
+        ("create_goose", "goose", DEFAULT_GOOSE_IMAGE, GooseAgent),
+        (
+            "create_kimi_code",
+            "kimi-code",
+            DEFAULT_KIMI_CODE_IMAGE,
+            KimiCodeAgent,
         ),
     ],
 )
@@ -97,6 +112,11 @@ def test_runtime_hydration_uses_explicit_backend_discriminator():
         deployments._hydrate_agent(_agent_payload("claude-code")),
         ClaudeCodeAgent,
     )
+    assert isinstance(deployments._hydrate_agent(_agent_payload("goose")), GooseAgent)
+    assert isinstance(
+        deployments._hydrate_agent(_agent_payload("kimi-code")),
+        KimiCodeAgent,
+    )
 
 
 def test_coding_agent_buzz_mode_only_changes_container_args_and_preserves_credentials():
@@ -135,6 +155,14 @@ def test_coding_agent_buzz_mode_rejects_ambiguous_command_override():
             buzz_enabled=True,
             command=["sleep", "infinity"],
         )
+
+
+def test_goose_uses_injected_runtime_key_and_has_no_destructive_logout():
+    agent = GooseAgent.from_dict(_agent_payload("goose"))
+    agent._deployments = Mock()
+
+    with pytest.raises(RuntimeError, match="injected deployment credential"):
+        agent.auth.logout()
 
 
 def test_codex_auth_methods_merge_acp_and_native_device_login():

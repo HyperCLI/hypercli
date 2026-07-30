@@ -48,6 +48,8 @@ export const DEFAULT_OPENCLAW_PRO_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:pr
 export const DEFAULT_OPENCODE_IMAGE = 'ghcr.io/hypercli/hypercli-opencode:latest';
 export const DEFAULT_CODEX_IMAGE = 'ghcr.io/hypercli/hypercli-codex:latest';
 export const DEFAULT_CLAUDE_CODE_IMAGE = 'ghcr.io/hypercli/hypercli-claude-code:latest';
+export const DEFAULT_GOOSE_IMAGE = 'ghcr.io/hypercli/hypercli-goose:latest';
+export const DEFAULT_KIMI_CODE_IMAGE = 'ghcr.io/hypercli/hypercli-kimi-code:latest';
 export const DEFAULT_CODING_AGENT_SYNC_ROOT = '/home/node';
 export type ManagedAgentRuntime =
   | 'generic'
@@ -55,9 +57,11 @@ export type ManagedAgentRuntime =
   | 'openclaw-pro'
   | 'opencode'
   | 'codex'
-  | 'claude-code';
-export type CodingAgentRuntime = Extract<ManagedAgentRuntime, 'opencode' | 'codex' | 'claude-code'>;
-const CODING_AGENT_RUNTIMES = new Set<CodingAgentRuntime>(['opencode', 'codex', 'claude-code']);
+  | 'claude-code'
+  | 'goose'
+  | 'kimi-code';
+export type CodingAgentRuntime = Extract<ManagedAgentRuntime, 'opencode' | 'codex' | 'claude-code' | 'goose' | 'kimi-code'>;
+const CODING_AGENT_RUNTIMES = new Set<CodingAgentRuntime>(['opencode', 'codex', 'claude-code', 'goose', 'kimi-code']);
 export const OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
   OPENCLAW_MEMORY_SEARCH_ENABLED: '1',
   OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START: '0',
@@ -1958,14 +1962,14 @@ export class Agent {
 type RuntimeAuthConfig = {
   agentCommand: string[];
   statusCommand: string[];
-  logoutCommand: string[];
+  logoutCommand: string[] | null;
   nativeMethods: RuntimeAuthMethod[];
 };
 
 const RUNTIME_AUTH_CONFIG: Record<CodingAgentRuntime, RuntimeAuthConfig> = {
   opencode: {
     agentCommand: ['opencode', 'acp'],
-    statusCommand: ['opencode', 'auth', 'list'],
+    statusCommand: ['buzz-acp', 'models', '--agent-command', 'opencode', '--agent-args', 'acp', '--json'],
     logoutCommand: ['opencode', 'auth', 'logout'],
     nativeMethods: [],
   },
@@ -1991,6 +1995,18 @@ const RUNTIME_AUTH_CONFIG: Record<CodingAgentRuntime, RuntimeAuthConfig> = {
       { id: 'console', name: 'Anthropic Console', description: '', kind: 'native', command: ['claude', 'auth', 'login', '--console'], metadata: {} },
       { id: 'sso', name: 'Enterprise SSO', description: '', kind: 'native', command: ['claude', 'auth', 'login', '--sso'], metadata: {} },
     ],
+  },
+  goose: {
+    agentCommand: ['goose', 'acp'],
+    statusCommand: ['buzz-acp', 'models', '--agent-command', 'goose', '--agent-args', 'acp', '--json'],
+    logoutCommand: null,
+    nativeMethods: [],
+  },
+  'kimi-code': {
+    agentCommand: ['kimi', 'acp'],
+    statusCommand: ['buzz-acp', 'models', '--agent-command', 'kimi', '--agent-args', 'acp', '--json'],
+    logoutCommand: null,
+    nativeMethods: [],
   },
 };
 
@@ -2243,6 +2259,12 @@ export class RuntimeAuthClient {
   }
 
   async logout(provider?: string): Promise<RuntimeAuthStatus> {
+    if (this.config.logoutCommand === null) {
+      const reason = this.agent.runtime === 'goose'
+        ? 'uses its injected deployment credential'
+        : 'does not expose a noninteractive logout command';
+      throw new Error(`${this.agent.runtime} ${reason} and cannot log out`);
+    }
     const command = [...this.config.logoutCommand];
     if (this.agent.runtime === 'opencode' && provider) command.push(provider);
     const result = await this.agent.exec(commandString(command));
@@ -2279,6 +2301,20 @@ export class ClaudeCodeAgent extends CodingAgent {
   declare public readonly runtime: 'claude-code';
   static override fromDict(data: AgentHydrationData): ClaudeCodeAgent {
     return new ClaudeCodeAgent(agentStateFromDict(data));
+  }
+}
+
+export class GooseAgent extends CodingAgent {
+  declare public readonly runtime: 'goose';
+  static override fromDict(data: AgentHydrationData): GooseAgent {
+    return new GooseAgent(agentStateFromDict(data));
+  }
+}
+
+export class KimiCodeAgent extends CodingAgent {
+  declare public readonly runtime: 'kimi-code';
+  static override fromDict(data: AgentHydrationData): KimiCodeAgent {
+    return new KimiCodeAgent(agentStateFromDict(data));
   }
 }
 
@@ -3221,6 +3257,10 @@ export class Deployments {
       agent = CodexAgent.fromDict(data);
     } else if (data.runtime === 'claude-code') {
       agent = ClaudeCodeAgent.fromDict(data);
+    } else if (data.runtime === 'goose') {
+      agent = GooseAgent.fromDict(data);
+    } else if (data.runtime === 'kimi-code') {
+      agent = KimiCodeAgent.fromDict(data);
     } else if (data.runtime === 'openclaw-pro' || isOpenClawProHydrationData(data)) {
       agent = OpenClawProAgent.fromDict(data);
     } else if (isOpenClawHydrationData(data)) {
@@ -3401,6 +3441,14 @@ export class Deployments {
 
   async createClaudeCode(options: CodingAgentCreateOptions = {}): Promise<ClaudeCodeAgent> {
     return await this.createCodingAgent('claude-code', DEFAULT_CLAUDE_CODE_IMAGE, options) as ClaudeCodeAgent;
+  }
+
+  async createGoose(options: CodingAgentCreateOptions = {}): Promise<GooseAgent> {
+    return await this.createCodingAgent('goose', DEFAULT_GOOSE_IMAGE, options) as GooseAgent;
+  }
+
+  async createKimiCode(options: CodingAgentCreateOptions = {}): Promise<KimiCodeAgent> {
+    return await this.createCodingAgent('kimi-code', DEFAULT_KIMI_CODE_IMAGE, options) as KimiCodeAgent;
   }
 
   async budget(): Promise<Record<string, any>> {

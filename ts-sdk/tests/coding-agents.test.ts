@@ -4,13 +4,17 @@ import {
   CodexAgent,
   DEFAULT_CLAUDE_CODE_IMAGE,
   DEFAULT_CODEX_IMAGE,
+  DEFAULT_GOOSE_IMAGE,
+  DEFAULT_KIMI_CODE_IMAGE,
   DEFAULT_OPENCODE_IMAGE,
   Deployments,
+  GooseAgent,
+  KimiCodeAgent,
   OpenCodeAgent,
 } from '../src/agents.js';
 import type { HTTPClient } from '../src/http.js';
 
-function response(runtime: 'opencode' | 'codex' | 'claude-code') {
+function response(runtime: 'opencode' | 'codex' | 'claude-code' | 'goose' | 'kimi-code') {
   return {
     id: `${runtime}-1`,
     user_id: 'user-1',
@@ -26,6 +30,8 @@ describe('coding agents', () => {
     ['createOpenCode', 'opencode', DEFAULT_OPENCODE_IMAGE, OpenCodeAgent],
     ['createCodex', 'codex', DEFAULT_CODEX_IMAGE, CodexAgent],
     ['createClaudeCode', 'claude-code', DEFAULT_CLAUDE_CODE_IMAGE, ClaudeCodeAgent],
+    ['createGoose', 'goose', DEFAULT_GOOSE_IMAGE, GooseAgent],
+    ['createKimiCode', 'kimi-code', DEFAULT_KIMI_CODE_IMAGE, KimiCodeAgent],
   ] as const)('creates %s with the managed runtime contract', async (helper, runtime, image, AgentClass) => {
     const post = vi.fn().mockResolvedValue(response(runtime));
     const deployments = new Deployments(
@@ -119,6 +125,12 @@ describe('coding agents', () => {
     ]));
   });
 
+  it('does not pretend managed Goose credentials have a vendor logout', async () => {
+    const goose = GooseAgent.fromDict(response('goose'));
+
+    await expect(goose.auth.logout()).rejects.toThrow('injected deployment credential');
+  });
+
   it('normalizes Claude JSON and generic unauthenticated status output', async () => {
     const claude = ClaudeCodeAgent.fromDict(response('claude-code'));
     vi.spyOn(claude, 'exec').mockResolvedValue({
@@ -147,7 +159,7 @@ describe('coding agents', () => {
     await expect(agent.auth.logout('anthropic')).resolves.toMatchObject({ authenticated: false });
     expect(exec.mock.calls.map(([command]) => command)).toEqual([
       "'opencode' 'auth' 'logout' 'anthropic'",
-      "'opencode' 'auth' 'list'",
+      "'buzz-acp' 'models' '--agent-command' 'opencode' '--agent-args' 'acp' '--json'",
     ]);
   });
 

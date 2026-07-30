@@ -12,6 +12,8 @@ pub enum ManagedRuntime {
     Opencode,
     Codex,
     ClaudeCode,
+    Goose,
+    KimiCode,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

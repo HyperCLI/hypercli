@@ -10,7 +10,11 @@ import {
   CodexAgent,
   DEFAULT_CLAUDE_CODE_IMAGE,
   DEFAULT_CODEX_IMAGE,
+  DEFAULT_GOOSE_IMAGE,
+  DEFAULT_KIMI_CODE_IMAGE,
   DEFAULT_OPENCODE_IMAGE,
+  GooseAgent,
+  KimiCodeAgent,
   OpenCodeAgent,
 } from "../../src/agents.js";
 
@@ -34,6 +38,8 @@ describe("TS SDK integration: agents", () => {
     ["createOpenCode", "opencode", DEFAULT_OPENCODE_IMAGE, OpenCodeAgent],
     ["createCodex", "codex", DEFAULT_CODEX_IMAGE, CodexAgent],
     ["createClaudeCode", "claude-code", DEFAULT_CLAUDE_CODE_IMAGE, ClaudeCodeAgent],
+    ["createGoose", "goose", DEFAULT_GOOSE_IMAGE, GooseAgent],
+    ["createKimiCode", "kimi-code", DEFAULT_KIMI_CODE_IMAGE, KimiCodeAgent],
   ] as const)(
     "validates the %s hosted runtime through the live dry-run API",
     async (method, runtime, image, AgentClass) => {
