@@ -790,6 +790,7 @@ def test_build_agent_launch_includes_command_and_entrypoint():
         command=["echo", "hello"],
         entrypoint=["/bin/sh", "-c"],
         routes={"web": {"port": 80, "prefix": ""}},
+        restart=False,
         gateway_token="gw-token",
     )
 
@@ -799,6 +800,13 @@ def test_build_agent_launch_includes_command_and_entrypoint():
     assert launch["command"] == ["echo", "hello"]
     assert launch["entrypoint"] == ["/bin/sh", "-c"]
     assert launch["routes"] == {"web": {"port": 80, "prefix": ""}}
+    assert launch["restart"] is False
+
+
+def test_build_agent_launch_omits_unspecified_restart():
+    launch, _gateway_token = _build_agent_launch({}, inject_gateway_token=False)
+
+    assert "restart" not in launch
 
 
 def test_build_agent_launch_merges_heartbeat_defaults():
@@ -1599,6 +1607,7 @@ def test_agents_start_preserves_generic_launch_fields(agents_client):
             sync_enabled=True,
             sync_uid=2000,
             sync_gid=2001,
+            restart=False,
         )
 
         assert isinstance(agent, Agent)
@@ -1610,12 +1619,18 @@ def test_agents_start_preserves_generic_launch_fields(agents_client):
         assert posted_json["sync_enabled"] is True
         assert posted_json["sync_uid"] == 2000
         assert posted_json["sync_gid"] == 2001
+        assert posted_json["restart"] is False
 
 
 def test_build_agent_launch_rejects_nested_launch_fields():
     with pytest.raises(ValueError, match="Launch settings must be top-level fields"):
         _build_agent_launch(
             {"env": {"FOO": "bar"}},
+        )
+
+    with pytest.raises(ValueError, match="Launch settings must be top-level fields"):
+        _build_agent_launch(
+            {"restart": False},
         )
 
 
@@ -1972,7 +1987,7 @@ async def test_agents_integration_lifecycle():
     from hypercli.http import HTTPClient
     import time
 
-    http = HTTPClient(api_base="https://api.dev.hypercli.com", api_key=api_key)
+    http = HTTPClient(base_url="https://api.dev.hypercli.com", api_key=api_key)
     agents = Deployments(http, api_key=api_key, api_base="https://api.dev.hypercli.com")
 
     agent = agents.create(name="test-integration", size="small", start=True)

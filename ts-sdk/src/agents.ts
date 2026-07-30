@@ -135,7 +135,21 @@ export const OPENCLAW_WORKSPACES_SYNC_ENV_DEFAULTS = {
   HYPER_WORKSPACES_DIR: '/home/node/workspaces',
   HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
 } as const;
-const LAUNCH_CONFIG_KEYS = new Set(['image', 'env', 'routes', 'ports', 'command', 'entrypoint', 'sync_root', 'sync_enabled', 'sync_uid', 'sync_gid', 'registry_url', 'registry_auth']);
+const LAUNCH_CONFIG_KEYS = new Set([
+  'image',
+  'env',
+  'routes',
+  'ports',
+  'command',
+  'entrypoint',
+  'sync_root',
+  'sync_enabled',
+  'sync_uid',
+  'sync_gid',
+  'registry_url',
+  'registry_auth',
+  'restart',
+]);
 const DEFAULT_OPENCLAW_SYNC_ROOT = '/home/node';
 export const AGENT_FILE_MAX_BYTES = 250 * 1024 * 1024;
 export const AGENT_FILE_TRANSFER_CHUNK_BYTES = 64 * 1024;
@@ -438,6 +452,7 @@ export interface BuildAgentConfigOptions {
   syncGid?: number | null;
   registryUrl?: string | null;
   registryAuth?: RegistryAuth | null;
+  restart?: boolean | null;
   gatewayToken?: string | null;
   heartbeat?: OpenClawHeartbeatConfig | null;
   /** Disable to avoid automatically locking browser control UI access to globalThis.location.origin. */
@@ -654,6 +669,7 @@ export interface BuzzLaunchConfig {
   respondToAllowlist?: string[];
   sessionTitle?: string | null;
   rustLog?: string;
+  restart?: boolean;
 }
 
 function buildBuzzLaunchEnv(
@@ -1548,6 +1564,7 @@ export function buildAgentConfig(
   if (options.syncGid !== undefined && options.syncGid !== null) prepared.sync_gid = options.syncGid;
   if (options.registryUrl !== undefined && options.registryUrl !== null) prepared.registry_url = options.registryUrl;
   if (options.registryAuth !== undefined && options.registryAuth !== null) prepared.registry_auth = options.registryAuth;
+  if (options.restart !== undefined && options.restart !== null) prepared.restart = options.restart;
 
   return { config: prepared, gatewayToken };
 }
@@ -3574,6 +3591,9 @@ export class Deployments {
       syncEnabled: options.syncEnabled ?? true,
       syncUid: options.syncUid ?? 1000,
       syncGid: options.syncGid ?? 1000,
+      restart: buzzLaunch
+        ? options.restart ?? options.buzz?.restart ?? false
+        : options.restart,
     };
     return await this.create(effectiveOptions) as CodingAgent;
   }

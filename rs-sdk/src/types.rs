@@ -74,6 +74,7 @@ pub struct BuzzLaunchConfig {
     pub respond_to_allowlist: Vec<String>,
     pub session_title: Option<String>,
     pub rust_log: Option<String>,
+    pub restart: bool,
 }
 
 impl BuzzLaunchConfig {
@@ -91,6 +92,7 @@ impl BuzzLaunchConfig {
             respond_to_allowlist: Vec::new(),
             session_title: None,
             rust_log: None,
+            restart: false,
         }
     }
 
@@ -132,6 +134,7 @@ impl BuzzLaunchConfig {
         request.sync_enabled = Some(true);
         request.sync_uid = Some(1000);
         request.sync_gid = Some(1000);
+        request.restart = Some(self.restart);
         for key in BUZZ_RESERVED_ENV {
             request.env.remove(*key);
         }
@@ -270,6 +273,8 @@ pub struct CreateDeploymentRequest {
     pub sync_uid: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_gid: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restart: Option<bool>,
     #[serde(default = "default_true")]
     pub start: bool,
     #[serde(default)]
@@ -294,6 +299,7 @@ impl CreateDeploymentRequest {
             sync_enabled: None,
             sync_uid: None,
             sync_gid: None,
+            restart: None,
             start: true,
             dry_run: false,
         }
@@ -326,6 +332,8 @@ pub struct StartDeploymentRequest {
     pub sync_uid: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_gid: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restart: Option<bool>,
     #[serde(default)]
     pub dry_run: bool,
 }
@@ -373,6 +381,7 @@ mod tests {
 
         assert_eq!(request.size, Some(AgentSize::Large));
         assert_eq!(request.command, vec!["/usr/local/bin/buzz-acp"]);
+        assert_eq!(request.restart, Some(false));
         assert!(request.routes.is_empty());
         assert_eq!(
             request.env.get("BUZZ_RELAY_URL").map(String::as_str),
@@ -427,6 +436,25 @@ mod tests {
         assert_eq!(
             request.env.get("RUST_LOG").map(String::as_str),
             Some("buzz_acp=info,pool::prompt=info,acp::stream=off")
+        );
+    }
+
+    #[test]
+    fn generic_launch_omits_restart_but_buzz_serializes_false() {
+        let generic = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        let generic_json = serde_json::to_value(&generic).unwrap();
+        assert!(generic_json.get("restart").is_none());
+        let generic_start = StartDeploymentRequest::default();
+        let generic_start_json = serde_json::to_value(&generic_start).unwrap();
+        assert!(generic_start_json.get("restart").is_none());
+
+        let mut buzz_request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
+            .apply_to(&mut buzz_request, None)
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(&buzz_request).unwrap()["restart"],
+            false
         );
     }
 }

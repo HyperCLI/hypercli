@@ -143,6 +143,7 @@ def test_coding_agent_buzz_mode_only_changes_container_args_and_preserves_creden
     )
 
     assert posted["command"] == ["/usr/local/bin/buzz-acp"]
+    assert posted["restart"] is False
     assert "entrypoint" not in posted
     assert posted["env"]["BUZZ_PRIVATE_KEY"] == agent_nsec
     assert posted["env"]["NOSTR_PRIVATE_KEY"] == agent_nsec
@@ -191,6 +192,7 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
     assert posted["size"] == "large"
     assert posted["routes"] == {}
     assert posted["command"] == ["/usr/local/bin/buzz-acp"]
+    assert posted["restart"] is False
     assert posted["env"]["BUZZ_RELAY_URL"] == "wss://buzz.example.test"
     assert posted["env"]["BUZZ_ACP_AGENT_COMMAND"] == "/usr/local/bin/opencode"
     assert posted["env"]["BUZZ_ACP_AGENT_ARGS"] == "acp"
@@ -224,6 +226,27 @@ def test_typed_buzz_launch_uses_safe_default_acp_logging():
         posted["env"]["RUST_LOG"]
         == "buzz_acp=info,pool::prompt=info,acp::stream=off"
     )
+    assert posted["restart"] is False
+
+
+def test_typed_buzz_launch_can_opt_back_into_restart():
+    deployments = Deployments(_HTTP())
+    posted: dict = {}
+
+    def fake_post(_path, json=None):
+        posted.update(json or {})
+        return _agent_payload("opencode")
+
+    deployments._post = fake_post
+    deployments.create_opencode(
+        buzz=BuzzLaunchConfig(
+            private_key_nsec="nsec1test",
+            relay_url="wss://buzz.example.test",
+            restart=True,
+        ),
+    )
+
+    assert posted["restart"] is True
 
 
 def test_non_buzz_coding_agent_preserves_requested_size():

@@ -81,6 +81,7 @@ describe('coding agents', () => {
     expect(post.mock.calls[0][1]).toMatchObject({
       runtime: 'codex',
       command: ['/usr/local/bin/buzz-acp'],
+      restart: false,
       env: {
         CODEX_API_KEY: 'test-key',
         HYPER_WORKSPACES_SYNC_WORKSPACE: 'buzz',
@@ -121,6 +122,7 @@ describe('coding agents', () => {
       size: 'large',
       routes: {},
       command: ['/usr/local/bin/buzz-acp'],
+      restart: false,
       env: {
         BUZZ_RELAY_URL: 'wss://buzz.example.test',
         BUZZ_ACP_AGENT_COMMAND: '/usr/local/bin/opencode',
@@ -153,7 +155,27 @@ describe('coding agents', () => {
     });
 
     expect(post.mock.calls[0][1].env.RUST_LOG).toBe(DEFAULT_BUZZ_RUST_LOG);
+    expect(post.mock.calls[0][1].restart).toBe(false);
     expect(DEFAULT_BUZZ_RUST_LOG).toBe('buzz_acp=info,pool::prompt=info,acp::stream=off');
+  });
+
+  it('allows typed Buzz launches to opt back into restart', async () => {
+    const post = vi.fn().mockResolvedValue(response('opencode'));
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await deployments.createOpenCode({
+      buzz: {
+        privateKeyNsec: 'nsec1test',
+        relayUrl: 'wss://buzz.example.test',
+        restart: true,
+      },
+    });
+
+    expect(post.mock.calls[0][1].restart).toBe(true);
   });
 
   it('preserves the requested size for non-Buzz coding agents', async () => {

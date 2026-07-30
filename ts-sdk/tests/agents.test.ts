@@ -62,6 +62,17 @@ describe('Agents SDK', () => {
     });
   });
 
+  it('preserves an explicit false restart setting and omits an unspecified one', () => {
+    const omitted = buildAgentConfig({}, { injectGatewayToken: false }).config;
+    const disabled = buildAgentConfig({}, {
+      injectGatewayToken: false,
+      restart: false,
+    }).config;
+
+    expect(omitted).not.toHaveProperty('restart');
+    expect(disabled.restart).toBe(false);
+  });
+
   it('hydrates tags on agent responses', async () => {
     const http = {
       get: vi.fn().mockResolvedValue({
@@ -385,12 +396,13 @@ describe('Agents SDK', () => {
     const http = { get, post } as unknown as HTTPClient;
     const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
 
-    const result = await deployments.start('clear-window-works');
+    const result = await deployments.start('clear-window-works', { restart: false });
 
     expect(result.id).toBe('11111111-1111-4111-8111-111111111111');
     expect(post).toHaveBeenCalledWith(
       '/deployments/11111111-1111-4111-8111-111111111111/start',
       expect.objectContaining({
+        restart: false,
         env: expect.objectContaining({
           OPENCLAW_GATEWAY_TOKEN: expect.any(String),
         }),

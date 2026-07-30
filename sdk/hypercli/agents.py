@@ -59,7 +59,23 @@ OPENCLAW_WORKSPACES_ENV_DEFAULTS = {
     "HYPER_WORKSPACES_DIR": "/home/node/workspaces",
     "HYPER_WORKSPACES_SYNC_READY_ONLY": "1",
 }
-LAUNCH_CONFIG_KEYS = frozenset({"image", "env", "routes", "ports", "command", "entrypoint", "sync_root", "sync_enabled", "sync_uid", "sync_gid", "registry_url", "registry_auth"})
+LAUNCH_CONFIG_KEYS = frozenset(
+    {
+        "image",
+        "env",
+        "routes",
+        "ports",
+        "command",
+        "entrypoint",
+        "sync_root",
+        "sync_enabled",
+        "sync_uid",
+        "sync_gid",
+        "registry_url",
+        "registry_auth",
+        "restart",
+    }
+)
 DEFAULT_OPENCLAW_SYNC_ROOT = "/home/node"
 DEFAULT_CODING_AGENT_SYNC_ROOT = "/home/node"
 AGENT_FILE_MAX_BYTES = 250 * 1024 * 1024
@@ -138,6 +154,7 @@ class BuzzLaunchConfig:
     respond_to_allowlist: list[str] = field(default_factory=list)
     session_title: str | None = None
     rust_log: str | None = None
+    restart: bool = False
 
     def environment(
         self,
@@ -670,6 +687,7 @@ def _build_agent_launch(
     sync_gid: int | None = None,
     registry_url: str | None = None,
     registry_auth: dict | None = None,
+    restart: bool | None = None,
     gateway_token: str | None = None,
     heartbeat: dict | None = None,
     inject_gateway_token: bool = True,
@@ -729,6 +747,8 @@ def _build_agent_launch(
         launch["registry_url"] = registry_url
     if registry_auth is not None:
         launch["registry_auth"] = registry_auth
+    if restart is not None:
+        launch["restart"] = restart
 
     return launch, effective_gateway_token
 
@@ -2506,6 +2526,7 @@ class Deployments:
         sync_gid: int = None,
         registry_url: str = None,
         registry_auth: dict = None,
+        restart: bool = None,
         gateway_token: str = None,
         heartbeat: dict = None,
         meta_ui: dict = None,
@@ -2539,6 +2560,7 @@ class Deployments:
             sync_gid=sync_gid,
             registry_url=registry_url,
             registry_auth=registry_auth,
+            restart=restart,
             gateway_token=gateway_token,
             heartbeat=heartbeat,
             inject_gateway_token=runtime
@@ -2717,6 +2739,7 @@ class Deployments:
         sync_gid: int | None = None,
         registry_url: str | None = None,
         registry_auth: dict | None = None,
+        restart: bool | None = None,
         meta_ui: dict | None = None,
         dry_run: bool = False,
         start: bool = True,
@@ -2742,6 +2765,9 @@ class Deployments:
             effective_env.update(buzz.environment(runtime, default_session_title=name))
         if buzz_launch:
             effective_env.setdefault("RUST_LOG", DEFAULT_BUZZ_RUST_LOG)
+        effective_restart = restart
+        if effective_restart is None and buzz_launch:
+            effective_restart = buzz.restart if buzz is not None else False
         return self.create(
             name=name,
             handle=handle,
@@ -2765,6 +2791,7 @@ class Deployments:
             sync_gid=1000 if sync_gid is None else sync_gid,
             registry_url=registry_url,
             registry_auth=registry_auth,
+            restart=effective_restart,
             meta_ui=meta_ui,
             dry_run=dry_run,
             start=start,
@@ -3059,6 +3086,7 @@ class Deployments:
         sync_gid: int = None,
         registry_url: str = None,
         registry_auth: dict = None,
+        restart: bool = None,
         gateway_token: str = None,
         heartbeat: dict = None,
         dry_run: bool = False,
@@ -3085,6 +3113,7 @@ class Deployments:
             sync_gid=sync_gid,
             registry_url=registry_url,
             registry_auth=registry_auth,
+            restart=restart,
             gateway_token=gateway_token,
             heartbeat=heartbeat,
         )

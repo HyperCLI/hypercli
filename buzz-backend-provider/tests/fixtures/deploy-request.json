@@ -1,27 +1,28 @@
 {
   "op": "deploy",
-  "request_id": "fixture-deploy-1",
+  "request_id": "fixture-deploy-00000000-0000-0000-0000-000000000000",
   "agent": {
-    "name": "Fizz",
-    "relay_url": "wss://buzz.example.com",
+    "name": "Fixture Agent",
+    "relay_url": "wss://buzz.example.invalid",
     "private_key_nsec": "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsmhltgl",
     "auth_tag": "[\"auth\",\"fixture\"]",
     "agent_command": "opencode",
-    "agent_args": ["acp"],
-    "system_prompt": "Build carefully",
-    "model": "fixture-model",
-    "provider": "fixture-provider",
-    "idle_timeout_seconds": 900,
-    "max_turn_duration_seconds": 7200,
-    "parallelism": 1,
+    "agent_args": [],
+    "system_prompt": null,
+    "model": null,
+    "provider": null,
+    "turn_timeout_seconds": 320,
+    "idle_timeout_seconds": null,
+    "max_turn_duration_seconds": null,
+    "parallelism": 10,
     "respond_to": "owner-only",
     "respond_to_allowlist": [],
-    "env_vars": {
-      "MODEL_API_KEY": "fixture-model-credential"
-    }
+    "env_vars": {}
   },
   "provider_config": {
+    "image": "",
     "runtime": "opencode",
-    "size": "large"
+    "size": "large",
+    "workspace": ""
   }
 }

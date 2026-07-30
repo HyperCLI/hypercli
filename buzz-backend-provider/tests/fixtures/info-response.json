@@ -1,0 +1,46 @@
+{
+  "ok": true,
+  "name": "HyperCLI",
+  "version": "0.1.0",
+  "description": "Run Buzz coding agents in isolated HyperCLI Reef pods",
+  "config_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "runtime": {
+        "type": "string",
+        "title": "Runtime",
+        "description": "opencode, codex, claude-code, goose, or kimi-code",
+        "enum": [
+          "opencode",
+          "codex",
+          "claude-code",
+          "goose",
+          "kimi-code"
+        ],
+        "default": "opencode"
+      },
+      "size": {
+        "type": "string",
+        "title": "Size",
+        "description": "Required HyperCLI coding-agent tier",
+        "enum": [
+          "large"
+        ],
+        "default": "large"
+      },
+      "image": {
+        "type": "string",
+        "title": "Runtime image",
+        "description": "Optional runtime image override; pin an immutable digest",
+        "default": ""
+      },
+      "workspace": {
+        "type": "string",
+        "title": "Workspace",
+        "description": "Optional HyperCLI workspace ID to sync",
+        "default": ""
+      }
+    }
+  }
+}

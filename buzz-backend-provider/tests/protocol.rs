@@ -5,8 +5,19 @@ use buzz_backend_hypercli::{derive_agent_pubkey, ProviderRequest};
 use mockito::{Matcher, Server};
 
 const INFO_FIXTURE: &str = include_str!("fixtures/info-request.json");
+const INFO_RESPONSE_FIXTURE: &str = include_str!("fixtures/info-response.json");
 const DEPLOY_FIXTURE: &str = include_str!("fixtures/deploy-request.json");
+const DEPLOY_RESPONSE_FIXTURE: &str = include_str!("fixtures/deploy-response.json");
 const TEST_PUBLIC_HEX: &str = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+
+fn assert_stock_stdout(output: std::process::Output) -> serde_json::Value {
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.ends_with('\n'));
+    assert_eq!(stdout.lines().count(), 1);
+    serde_json::from_str(stdout.trim_end()).unwrap()
+}
 
 #[test]
 fn info_fixture_is_a_one_shot_json_exchange() {
@@ -15,12 +26,95 @@ fn info_fixture_is_a_one_shot_json_exchange() {
         .write_stdin(INFO_FIXTURE)
         .output()
         .unwrap();
-    assert!(output.status.success());
-    assert!(output.stderr.is_empty());
-    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(response["ok"], true);
-    assert_eq!(response["name"], "HyperCLI");
-    assert_eq!(response["config_schema"]["additionalProperties"], false);
+    let response = assert_stock_stdout(output);
+    let expected: serde_json::Value = serde_json::from_str(INFO_RESPONSE_FIXTURE).unwrap();
+    assert_eq!(response, expected);
+    assert_eq!(
+        response["config_schema"]["properties"]["runtime"]["enum"],
+        serde_json::json!(["opencode", "codex", "claude-code", "goose", "kimi-code"])
+    );
+    assert_eq!(
+        response["config_schema"]["properties"]["size"]["enum"],
+        serde_json::json!(["large"])
+    );
+}
+
+#[test]
+fn info_probe_is_repeatable_without_authentication_or_network_access() {
+    let expected: serde_json::Value = serde_json::from_str(INFO_RESPONSE_FIXTURE).unwrap();
+    for _ in 0..8 {
+        let output = Command::cargo_bin("buzz-backend-hypercli")
+            .unwrap()
+            .env_remove("HYPER_AGENTS_API_KEY")
+            .env_remove("HYPER_API_KEY")
+            .write_stdin(INFO_FIXTURE)
+            .output()
+            .unwrap();
+        assert_eq!(assert_stock_stdout(output), expected);
+    }
+}
+
+#[test]
+fn captured_deploy_fixture_preserves_stock_buzz_field_shape() {
+    let request: serde_json::Value = serde_json::from_str(DEPLOY_FIXTURE).unwrap();
+    assert_eq!(
+        request
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>(),
+        ["agent", "op", "provider_config", "request_id"]
+    );
+    assert_eq!(
+        request["agent"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>(),
+        [
+            "agent_args",
+            "agent_command",
+            "auth_tag",
+            "env_vars",
+            "idle_timeout_seconds",
+            "max_turn_duration_seconds",
+            "model",
+            "name",
+            "parallelism",
+            "private_key_nsec",
+            "provider",
+            "relay_url",
+            "respond_to",
+            "respond_to_allowlist",
+            "system_prompt",
+            "turn_timeout_seconds",
+        ]
+    );
+    assert_eq!(request["agent"]["agent_args"], serde_json::json!([]));
+    assert_eq!(
+        request["agent"]["idle_timeout_seconds"],
+        serde_json::Value::Null
+    );
+    assert_eq!(
+        request["agent"]["max_turn_duration_seconds"],
+        serde_json::Value::Null
+    );
+    assert_eq!(request["agent"]["model"], serde_json::Value::Null);
+    assert_eq!(request["agent"]["provider"], serde_json::Value::Null);
+    assert_eq!(request["agent"]["system_prompt"], serde_json::Value::Null);
+    assert_eq!(request["agent"]["parallelism"], 10);
+    assert_eq!(request["agent"]["turn_timeout_seconds"], 320);
+    assert_eq!(
+        request["provider_config"],
+        serde_json::json!({
+            "image": "",
+            "runtime": "opencode",
+            "size": "large",
+            "workspace": ""
+        })
+    );
 }
 
 #[test]
@@ -36,7 +130,7 @@ fn deploy_fixture_contains_a_derivable_nsec_identity() {
 }
 
 #[test]
-fn deploy_fixture_runs_the_provider_http_contract() {
+fn deploy_fixture_returns_control_plane_acceptance_for_a_pending_agent() {
     let mut server = Server::new();
     let handle = format!("buzz-{}", &TEST_PUBLIC_HEX[..48]);
     let lookup = server
@@ -53,18 +147,22 @@ fn deploy_fixture_runs_the_provider_http_contract() {
         .match_body(Matcher::PartialJsonString(
             serde_json::json!({
                 "handle": handle,
-                "name": format!("fizz-{}", &TEST_PUBLIC_HEX[..8]),
+                "name": format!("fixture-agent-{}", &TEST_PUBLIC_HEX[..8]),
                 "runtime": "opencode",
                 "command": ["/usr/local/bin/buzz-acp"],
+                "restart": false,
                 "env": {
-                    "BUZZ_RELAY_URL": "wss://buzz.example.com",
+                    "BUZZ_RELAY_URL": "wss://buzz.example.invalid",
                     "BUZZ_PRIVATE_KEY": "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsmhltgl",
                     "BUZZ_ACP_AGENT_COMMAND": "/usr/local/bin/opencode",
                     "BUZZ_ACP_AGENT_ARGS": "acp",
                     "BUZZ_ACP_MCP_COMMAND": "/usr/local/bin/buzz-dev-mcp",
                     "BUZZ_ACP_LAZY_POOL": "true",
                     "BUZZ_ACP_RELAY_OBSERVER": "true",
-                    "BUZZ_ACP_SESSION_TITLE": "Fizz",
+                    "BUZZ_ACP_SESSION_TITLE": "Fixture Agent",
+                    "BUZZ_ACP_IDLE_TIMEOUT": "320",
+                    "BUZZ_ACP_AGENTS": "10",
+                    "BUZZ_ACP_RESPOND_TO": "owner-only",
                     "RUST_LOG": "buzz_acp=info,pool::prompt=info,acp::stream=off"
                 }
             })
@@ -90,11 +188,11 @@ fn deploy_fixture_runs_the_provider_http_contract() {
         .write_stdin(DEPLOY_FIXTURE)
         .output()
         .unwrap();
-    assert!(output.status.success());
-    assert!(output.stderr.is_empty());
-    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(response["agent_id"], "fixture-deployment");
-    assert!(response.get("ok").is_none());
+    let response = assert_stock_stdout(output);
+    let expected: serde_json::Value = serde_json::from_str(DEPLOY_RESPONSE_FIXTURE).unwrap();
+    assert_eq!(response, expected);
+    // Stock Buzz marks the agent "deployed" as soon as this ID is returned.
+    // A pending backend response does not mean buzz-acp or its worker pool is ready.
     lookup.assert();
     create.assert();
 }
@@ -189,6 +287,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
             "sync_enabled": true,
             "sync_uid": 1000,
             "sync_gid": 1000,
+            "restart": false,
             "start": true,
             "dry_run": true
         });

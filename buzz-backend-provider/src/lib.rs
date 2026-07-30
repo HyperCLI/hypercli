@@ -358,6 +358,7 @@ fn restart_if_stopped(
         sync_enabled: create.sync_enabled,
         sync_uid: create.sync_uid,
         sync_gid: create.sync_gid,
+        restart: create.restart,
         dry_run: false,
     };
     client
@@ -1020,6 +1021,7 @@ mod tests {
                     "handle": handle,
                     "runtime": "opencode",
                     "command": ["/usr/local/bin/buzz-acp"],
+                    "restart": false,
                     "tags": [format!("buzz_agent={TEST_PUBLIC_HEX}")],
                     "env": {
                         "BUZZ_RELAY_URL": "wss://buzz.example.com",
@@ -1059,6 +1061,60 @@ mod tests {
         assert_eq!(response.agent_id, "deployment-1");
         lookup.assert();
         create.assert();
+    }
+
+    #[test]
+    fn deploy_restarts_stopped_agent_with_buzz_restart_policy() {
+        let mut server = Server::new();
+        let handle = format!("buzz-{}", &TEST_PUBLIC_HEX[..48]);
+        let lookup = server
+            .mock("GET", "/agents/deployments")
+            .match_query(Matcher::UrlEncoded("handle".into(), handle.clone()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "items": [{
+                        "id":"existing",
+                        "handle":handle,
+                        "runtime":"opencode",
+                        "state":"stopped"
+                    }]
+                })
+                .to_string(),
+            )
+            .create();
+        let restart = server
+            .mock("POST", "/agents/deployments/existing/start")
+            .match_body(Matcher::PartialJsonString(
+                serde_json::json!({
+                    "restart": false,
+                    "command": ["/usr/local/bin/buzz-acp"]
+                })
+                .to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id":"existing",
+                    "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
+                    "runtime":"opencode",
+                    "state":"pending"
+                })
+                .to_string(),
+            )
+            .create();
+
+        let response = deploy(
+            &client(&server),
+            test_agent(),
+            serde_json::json!({"runtime":"opencode"}),
+        )
+        .unwrap();
+        assert_eq!(response.agent_id, "existing");
+        lookup.assert();
+        restart.assert();
     }
 
     #[test]

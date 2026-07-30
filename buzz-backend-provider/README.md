@@ -32,7 +32,10 @@ Ordinary non-Buzz coding-agent helpers preserve a caller-selected size or omit
 it so the backend chooses its default. Provider configuration selects a
 runtime, permits an optional immutable image override, and can name an optional
 workspace. The provider rejects secret-looking provider config; Buzz supplies
-the agent identity separately in the deploy request.
+the agent identity separately in the deploy request. Buzz launches explicitly
+set `restart: false`, including when the provider starts an existing stopped
+deployment, so an accepted `!shutdown` does not automatically relaunch
+`buzz-acp`.
 
 Image immutability is currently an operator responsibility. The provider does
 not yet enforce a registry allowlist or digest-only reference, and the selected

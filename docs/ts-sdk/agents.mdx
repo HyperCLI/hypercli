@@ -149,13 +149,18 @@ Create/start options:
 - `routes`
 - `command`
 - `entrypoint`
+- `restart`
 - `image`
 - `registryUrl`
 - `registryAuth`
 - `gatewayToken`
 - `dryRun`
 
-`registryUrl`, `registryAuth`, `syncRoot`, and `syncEnabled` are generic launch options. They belong to the base deployment contract, not to OpenClaw specifically.
+`registryUrl`, `registryAuth`, `syncRoot`, `syncEnabled`, and `restart` are
+generic launch options. They belong to the base deployment contract, not to
+OpenClaw specifically. Omit `restart` to preserve the platform default, or set
+`restart: false` for a one-shot process that should leave the deployment
+stopped after its main container exits.
 
 ## OpenClaw Presets
 

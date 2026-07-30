@@ -38,7 +38,9 @@ buzz.apply_to(&mut request, Some("Fizz"))?;
 
 `BuzzLaunchConfig::apply_to` enforces the `large` tier, `/home/node`
 persistence with UID/GID 1000, no public routes, lazy pool creation, relay
-observation, and canonical runtime launch values. Raw non-Buzz
+observation, `restart: false`, and canonical runtime launch values. The
+restart policy lets an accepted Buzz `!shutdown` leave the coding process
+stopped instead of having the runtime automatically restart it. Raw non-Buzz
 `CreateDeploymentRequest` sizing remains caller-selected. The config does not
 implement `Debug` or `Serialize` because it owns the agent nsec.
 
