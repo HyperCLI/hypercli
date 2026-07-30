@@ -5,6 +5,14 @@ import {
 } from "./helpers.js";
 import { HyperCLI } from "../../src/client.js";
 import { APIError } from "../../src/errors.js";
+import {
+  ClaudeCodeAgent,
+  CodexAgent,
+  DEFAULT_CLAUDE_CODE_IMAGE,
+  DEFAULT_CODEX_IMAGE,
+  DEFAULT_OPENCODE_IMAGE,
+  OpenCodeAgent,
+} from "../../src/agents.js";
 
 describe("TS SDK integration: agents", () => {
   if (!process.env.TEST_AGENT_API_KEY) {
@@ -21,6 +29,39 @@ describe("TS SDK integration: agents", () => {
 
     expect(Array.isArray(result)).toBe(true);
   });
+
+  agentsIt.each([
+    ["createOpenCode", "opencode", DEFAULT_OPENCODE_IMAGE, OpenCodeAgent],
+    ["createCodex", "codex", DEFAULT_CODEX_IMAGE, CodexAgent],
+    ["createClaudeCode", "claude-code", DEFAULT_CLAUDE_CODE_IMAGE, ClaudeCodeAgent],
+  ] as const)(
+    "validates the %s hosted runtime through the live dry-run API",
+    async (method, runtime, image, AgentClass) => {
+      const client = createIntegrationClient();
+      const preview = await client.deployments[method]({
+        name: `ts-${runtime}-dry-${Math.random().toString(16).slice(2, 10)}`,
+        start: false,
+        dryRun: true,
+        workspacesSync: true,
+      });
+
+      expect(preview).toBeInstanceOf(AgentClass);
+      expect(preview.runtime).toBe(runtime);
+      expect(preview.dryRun).toBe(true);
+      expect(preview.launchConfig).toMatchObject({
+        image,
+        routes: {},
+        sync_root: "/home/node",
+        sync_enabled: true,
+        sync_uid: 1000,
+        sync_gid: 1000,
+        env: {
+          HYPER_WORKSPACES_BOOT_SYNC: "1",
+        },
+      });
+      expect(preview.launchConfig?.env).not.toHaveProperty("OPENCLAW_GATEWAY_TOKEN");
+    },
+  );
 
   agentsIt("creates an exact-agent child key that only sees one agent", async () => {
     const client = createIntegrationClient();

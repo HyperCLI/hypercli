@@ -124,6 +124,52 @@ Use `create_openclaw_pro(...)` for the desktop/browser image. It enables noVNC t
 
 Automatic memory indexing is off by default. Opt in with `memory_index={"on_session_start": True, "on_search": True, "watch": True, "watch_debounce_ms": 30000, "interval_minutes": 0}`.
 
+## Hosted Coding Agents
+
+OpenCode, Codex, and Claude Code use canonical Reef images with Buzz ACP as a
+private stdio harness. They have no public runtime port: lifecycle, exec, shell,
+workspace sync, and authentication all use the existing authenticated
+deployment APIs.
+
+```python
+agent = client.deployments.create_opencode(name="opencode")
+codex = client.deployments.create_codex(name="codex")
+claude = client.deployments.create_claude_code(name="claude")
+
+methods = codex.auth.methods()
+status = codex.auth.status()
+
+async with await codex.auth.login("device") as login:
+    print(login.verification_url, login.user_code)
+    await login.wait()
+```
+
+The login helper opens a short-lived, agent-bound shell WebSocket and runs the
+runtime's native login command inside the Reef pod. It never puts an API key on
+the command line. Runtime credentials and state live under the persistent
+`/home/node` sync root.
+
+The images default to a long-lived direct shell/exec container. A Buzz provider
+attaches one to a community by selecting `buzz_enabled=True` and injecting the
+Desktop-generated agent credentials:
+
+```python
+agent = client.deployments.create_opencode(
+    name="buzz-opencode",
+    buzz_enabled=True,
+    env={
+        "BUZZ_PRIVATE_KEY": agent_nsec,
+        "NOSTR_PRIVATE_KEY": agent_nsec,
+        "BUZZ_RELAY_URL": relay_url,
+        "BUZZ_AUTH_TAG": owner_signed_auth_tag,
+    },
+)
+```
+
+This changes only the container arguments to `/usr/local/bin/buzz-acp`; the
+image entrypoint remains `tini`. Credential validity and alternate Buzz
+authorization arrangements are validated by Buzz, not by SDK shell logic.
+
 ## OpenClaw Node Egress
 
 The Python SDK includes an experimental reference implementation for user-owned

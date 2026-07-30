@@ -920,6 +920,7 @@ def test_create_openclaw_pro_defaults_desktop_image_env_and_routes(agents_client
         agent = agents_client.create_openclaw_pro(name="test-agent")
 
         posted_json = mock_client.post.call_args[1]["json"]
+        assert posted_json["runtime"] == "openclaw-pro"
         assert posted_json["image"] == DEFAULT_OPENCLAW_PRO_IMAGE
         assert posted_json["env"]["HYPER_API_BASE"] == "https://api.test.hypercli.com"
         assert posted_json["env"]["HYPER_WORKSPACES_BOOT_SYNC"] == "1"

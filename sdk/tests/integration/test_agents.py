@@ -4,7 +4,12 @@ import uuid
 
 import pytest
 
-from hypercli import HyperCLI
+from hypercli import ClaudeCodeAgent, CodexAgent, HyperCLI, OpenCodeAgent
+from hypercli.agents import (
+    DEFAULT_CLAUDE_CODE_IMAGE,
+    DEFAULT_CODEX_IMAGE,
+    DEFAULT_OPENCODE_IMAGE,
+)
 from hypercli.http import APIError
 
 
@@ -64,6 +69,52 @@ def test_list_agents_requires_agent_key(client, test_agent_api_key: str):
 
     result = client.deployments.list()
     assert isinstance(result, list)
+
+
+@pytest.mark.parametrize(
+    ("create_method", "runtime", "image", "agent_type"),
+    [
+        ("create_opencode", "opencode", DEFAULT_OPENCODE_IMAGE, OpenCodeAgent),
+        ("create_codex", "codex", DEFAULT_CODEX_IMAGE, CodexAgent),
+        (
+            "create_claude_code",
+            "claude-code",
+            DEFAULT_CLAUDE_CODE_IMAGE,
+            ClaudeCodeAgent,
+        ),
+    ],
+)
+def test_coding_runtime_create_dry_run_contract(
+    client,
+    test_agent_api_key: str,
+    create_method: str,
+    runtime: str,
+    image: str,
+    agent_type: type,
+):
+    if not test_agent_api_key:
+        pytest.skip(
+            "TEST_AGENT_API_KEY not set; the deployments and agent APIs do not accept the account-level TEST_API_KEY"
+        )
+
+    preview = getattr(client.deployments, create_method)(
+        name=f"sdk-{runtime}-dry-{uuid.uuid4().hex[:8]}",
+        start=False,
+        dry_run=True,
+        workspaces_sync=True,
+    )
+
+    assert isinstance(preview, agent_type)
+    assert preview.runtime == runtime
+    assert getattr(preview, "dry_run", False) is True
+    assert preview.launch_config["image"] == image
+    assert preview.launch_config["sync_root"] == "/home/node"
+    assert preview.launch_config["sync_enabled"] is True
+    assert preview.launch_config["sync_uid"] == 1000
+    assert preview.launch_config["sync_gid"] == 1000
+    assert preview.launch_config["routes"] == {}
+    assert preview.launch_config["env"]["HYPER_WORKSPACES_BOOT_SYNC"] == "1"
+    assert "OPENCLAW_GATEWAY_TOKEN" not in preview.launch_config["env"]
 
 
 def test_exact_agent_child_key_is_scoped_to_one_agent(client, test_api_base: str, test_agent_api_key: str):

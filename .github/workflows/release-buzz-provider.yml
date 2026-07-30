@@ -1,0 +1,171 @@
+name: Release Buzz Provider
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Provider version (SemVer, for example 0.1.0)"
+        required: true
+        type: string
+      ref:
+        description: "Exact HyperCLI git ref to build"
+        required: true
+        default: main
+        type: string
+      publish_release:
+        description: "Create the public GitHub Release after all native builds pass"
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: release-buzz-provider-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build unsigned provider (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            executable: buzz-backend-hypercli
+            archive: buzz-backend-hypercli-linux-x86_64
+          - runner: macos-latest
+            target: x86_64-apple-darwin
+            executable: buzz-backend-hypercli
+            archive: buzz-backend-hypercli-macos-x86_64
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            executable: buzz-backend-hypercli
+            archive: buzz-backend-hypercli-macos-aarch64
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Validate release input and source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${{ inputs.version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Provider version must be stable SemVer" >&2
+            exit 1
+          fi
+          SOURCE_VERSION="$(
+            python3 -c 'import tomllib; print(tomllib.load(open("rs-sdk/Cargo.toml", "rb"))["workspace"]["package"]["version"])'
+          )"
+          if [[ "${SOURCE_VERSION}" != "${{ inputs.version }}" ]]; then
+            echo "Input version ${{ inputs.version }} does not match rs-sdk source version ${SOURCE_VERSION}" >&2
+            exit 1
+          fi
+          test "$(git status --porcelain)" = ""
+          echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
+          targets: ${{ matrix.target }}
+
+      - name: Build and test native provider
+        working-directory: rs-sdk
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --workspace --all-features --locked
+          cargo build \
+            --locked \
+            --release \
+            --target "${{ matrix.target }}" \
+            -p buzz-backend-hypercli
+          "target/${{ matrix.target }}/release/${{ matrix.executable }}" <<<'{"op":"info","request_id":"release-smoke"}' \
+            | python3 -c 'import json,sys; value=json.load(sys.stdin); assert value["ok"] is True; assert value["request_id"] == "release-smoke"'
+
+      - name: Package unsigned native binary
+        working-directory: rs-sdk
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE="${{ matrix.archive }}-${{ inputs.version }}.tar.gz"
+          STAGE="$(mktemp -d)"
+          install -m 0755 \
+            "target/${{ matrix.target }}/release/${{ matrix.executable }}" \
+            "${STAGE}/buzz-backend-hypercli"
+          {
+            echo "version=${{ inputs.version }}"
+            echo "source_sha=${SOURCE_SHA}"
+            echo "target=${{ matrix.target }}"
+            echo "signing=unsigned"
+          } > "${STAGE}/BUILD-INFO"
+          tar -C "${STAGE}" -czf "${ARCHIVE}" buzz-backend-hypercli BUILD-INFO
+          shasum -a 256 "${ARCHIVE}" > "${ARCHIVE}.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive }}
+          path: |
+            rs-sdk/${{ matrix.archive }}-${{ inputs.version }}.tar.gz
+            rs-sdk/${{ matrix.archive }}-${{ inputs.version }}.tar.gz.sha256
+          if-no-files-found: error
+
+  release:
+    name: Assemble unsigned provider release
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: buzz-backend-hypercli-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify artifact set and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find dist -maxdepth 1 -name '*.tar.gz' | wc -l)" -eq 3
+          (
+            cd dist
+            sha256sum --check ./*.sha256
+            sha256sum ./*.tar.gz > SHA256SUMS
+          )
+
+      - name: Upload assembled release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: buzz-backend-hypercli-${{ inputs.version }}-unsigned
+          path: dist/
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: inputs.publish_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: buzz-provider-v${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_SHA="$(git rev-parse HEAD)"
+          git fetch origin main
+          git merge-base --is-ancestor "${SOURCE_SHA}" origin/main
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists" >&2
+            exit 1
+          fi
+          gh release create "${TAG}" \
+            --target "${SOURCE_SHA}" \
+            --title "Buzz HyperCLI provider ${{ inputs.version }} (unsigned)" \
+            --notes "Unsigned test binaries for Buzz Desktop. macOS testers must explicitly approve the downloaded binary in Gatekeeper. Production distribution remains blocked on signing/notarization and backend launch-secret encryption." \
+            dist/*

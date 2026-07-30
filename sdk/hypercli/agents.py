@@ -17,6 +17,7 @@ import mimetypes
 import os
 import re
 import secrets
+import shlex
 import time
 from typing import TYPE_CHECKING, Callable, Literal, Optional, Any, AsyncIterator
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
@@ -40,6 +41,9 @@ DEV_AGENTS_API_BASE = "https://api.dev.hypercli.com/agents"
 DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
 DEFAULT_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-latest"
 DEFAULT_OPENCLAW_PRO_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-latest"
+DEFAULT_OPENCODE_IMAGE = "git.nedos.co/hypercli/hypercli-opencode:latest"
+DEFAULT_CODEX_IMAGE = "git.nedos.co/hypercli/hypercli-codex:latest"
+DEFAULT_CLAUDE_CODE_IMAGE = "git.nedos.co/hypercli/hypercli-claude-code:latest"
 OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
     "OPENCLAW_MEMORY_SEARCH_ENABLED": "1",
     "OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START": "0",
@@ -55,10 +59,20 @@ OPENCLAW_WORKSPACES_ENV_DEFAULTS = {
 }
 LAUNCH_CONFIG_KEYS = frozenset({"image", "env", "routes", "ports", "command", "entrypoint", "sync_root", "sync_enabled", "sync_uid", "sync_gid", "registry_url", "registry_auth"})
 DEFAULT_OPENCLAW_SYNC_ROOT = "/home/node"
+DEFAULT_CODING_AGENT_SYNC_ROOT = "/home/node"
 AGENT_FILE_MAX_BYTES = 250 * 1024 * 1024
 AGENT_FILE_TRANSFER_CHUNK_BYTES = 64 * 1024
 AGENT_FILE_OPERATION_TIMEOUT_SECONDS = 300
 _UNSET = object()
+
+ManagedAgentRuntime = Literal[
+    "generic",
+    "openclaw",
+    "openclaw-pro",
+    "opencode",
+    "codex",
+    "claude-code",
+]
 
 # The three file-access paths for an OpenClaw agent, each with its own root —
 # the SDK owns the roots so a workspace-relative path (e.g. "AGENTS.md") hits the
@@ -539,7 +553,8 @@ def _build_agent_launch(
     registry_auth: dict | None = None,
     gateway_token: str | None = None,
     heartbeat: dict | None = None,
-) -> tuple[dict, str]:
+    inject_gateway_token: bool = True,
+) -> tuple[dict, str | None]:
     prepared_config = copy.deepcopy(config or {})
     nested_launch_keys = sorted(LAUNCH_CONFIG_KEYS.intersection(prepared_config.keys()))
     if nested_launch_keys:
@@ -559,10 +574,14 @@ def _build_agent_launch(
     if env:
         env_map.update(env)
 
-    effective_gateway_token = gateway_token or str(env_map.get("OPENCLAW_GATEWAY_TOKEN") or "").strip()
-    if not effective_gateway_token:
-        effective_gateway_token = secrets.token_hex(32)
-    env_map["OPENCLAW_GATEWAY_TOKEN"] = effective_gateway_token
+    effective_gateway_token: str | None = None
+    if inject_gateway_token:
+        effective_gateway_token = (
+            gateway_token or str(env_map.get("OPENCLAW_GATEWAY_TOKEN") or "").strip()
+        )
+        if not effective_gateway_token:
+            effective_gateway_token = secrets.token_hex(32)
+        env_map["OPENCLAW_GATEWAY_TOKEN"] = effective_gateway_token
 
     launch: dict[str, Any] = {}
     if prepared_config:
@@ -846,6 +865,384 @@ def _is_openclaw_pro_agent_data(data: dict) -> bool:
     return "hypercli-openclaw:pro" in image or image.endswith("-pro")
 
 
+_ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
+_AUTH_URL_RE = re.compile(r"https?://[^\s<>\"']+")
+_AUTH_CODE_RE = re.compile(
+    r"(?i)(?:user|device|verification|one[- ]time)?\s*code\s*(?:is|:)?\s*([A-Z0-9][A-Z0-9-]{3,})"
+)
+
+
+def _clean_terminal_output(value: str) -> str:
+    return _ANSI_ESCAPE_RE.sub("", str(value or "")).replace("\r", "")
+
+
+@dataclass(frozen=True)
+class RuntimeAuthMethod:
+    """Authentication method advertised by a hosted coding runtime."""
+
+    id: str
+    name: str
+    description: str = ""
+    kind: str = "native"
+    command: tuple[str, ...] = ()
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class RuntimeAuthStatus:
+    """Normalized authentication status for a hosted coding runtime."""
+
+    authenticated: bool
+    provider: str | None = None
+    account: str | None = None
+    method: str | None = None
+    detail: dict[str, Any] = field(default_factory=dict)
+
+
+class RuntimeLoginSession:
+    """Live, JWT-authenticated PTY session for browser/device login."""
+
+    def __init__(self, auth: "RuntimeAuthClient", websocket: Any, command: tuple[str, ...]):
+        self._auth = auth
+        self._websocket = websocket
+        self.command = command
+        self.verification_url: str | None = None
+        self.user_code: str | None = None
+        self.instructions: str = ""
+        self.interactive_required = False
+        self.output = ""
+        self.exit_code: int | None = None
+        self._ready = asyncio.Event()
+        self._completed = asyncio.Event()
+        self._marker = f"__HYPERCLI_AUTH_EXIT_{secrets.token_hex(8)}__"
+        self._reader_task: asyncio.Task | None = None
+
+    @classmethod
+    async def start(
+        cls,
+        auth: "RuntimeAuthClient",
+        command: tuple[str, ...],
+        *,
+        challenge_timeout: float = 45.0,
+    ) -> "RuntimeLoginSession":
+        websocket = await auth.agent.shell_connect()
+        session = cls(auth, websocket, command)
+        session._reader_task = asyncio.create_task(session._read_loop())
+        shell_command = shlex.join(command)
+        wrapped = (
+            f"{shell_command}; _hypercli_auth_rc=$?; "
+            f"printf '\\n{session._marker}=%s\\n' \"$_hypercli_auth_rc\"\n"
+        )
+        await websocket.send(wrapped)
+        try:
+            await asyncio.wait_for(session._ready.wait(), timeout=challenge_timeout)
+        except asyncio.TimeoutError:
+            await session.cancel()
+            raise TimeoutError(
+                f"Timed out waiting for {auth.runtime} login instructions"
+            ) from None
+        return session
+
+    def _consume(self, value: str) -> None:
+        text = _clean_terminal_output(value)
+        self.output += text
+        marker_match = re.search(re.escape(self._marker) + r"=(\d+)", self.output)
+        if marker_match:
+            self.exit_code = int(marker_match.group(1))
+            self._completed.set()
+            self._ready.set()
+        if self.verification_url is None:
+            urls = _AUTH_URL_RE.findall(text)
+            if urls:
+                self.verification_url = urls[0].rstrip(".,);]")
+        if self.user_code is None:
+            code_match = _AUTH_CODE_RE.search(text)
+            if code_match:
+                self.user_code = code_match.group(1)
+        lowered = text.lower()
+        if any(token in lowered for token in ("select", "choose", "provider", "login method")):
+            self.interactive_required = True
+        if self.verification_url or self.user_code or self.interactive_required:
+            self.instructions = self.output.replace(self._marker, "").strip()
+            self._ready.set()
+
+    async def _read_loop(self) -> None:
+        try:
+            async for message in self._websocket:
+                self._consume(str(message))
+                if self._completed.is_set():
+                    break
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self.output += f"\n[login stream closed: {exc}]"
+        finally:
+            self._completed.set()
+            self._ready.set()
+
+    async def send(self, text: str) -> None:
+        await self._websocket.send(text if text.endswith("\n") else f"{text}\n")
+
+    async def wait(self, timeout: float = 600.0) -> RuntimeAuthStatus:
+        try:
+            await asyncio.wait_for(self._completed.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            raise TimeoutError(f"Timed out waiting for {self._auth.runtime} login") from None
+        if self.exit_code not in {None, 0}:
+            raise RuntimeError(
+                f"{self._auth.runtime} login exited with status {self.exit_code}"
+            )
+        return await asyncio.to_thread(self._auth.status)
+
+    async def cancel(self) -> None:
+        try:
+            await self._websocket.send("\x03")
+        except Exception:
+            pass
+        if self._reader_task and not self._reader_task.done():
+            self._reader_task.cancel()
+        try:
+            await self._websocket.close()
+        except Exception:
+            pass
+        self._completed.set()
+        self._ready.set()
+
+    async def __aenter__(self) -> "RuntimeLoginSession":
+        return self
+
+    async def __aexit__(self, _exc_type, _exc, _tb) -> None:
+        await self.cancel()
+
+
+class RuntimeAuthClient:
+    """Runtime-specific authentication over the existing protected exec/shell API."""
+
+    _COMMANDS: dict[str, dict[str, Any]] = {
+        "opencode": {
+            "agent": ("opencode", "acp"),
+            "status": ("opencode", "auth", "list"),
+            "logout": ("opencode", "auth", "logout"),
+        },
+        "codex": {
+            "agent": ("codex-acp",),
+            "status": ("codex", "login", "status"),
+            "logout": ("codex", "logout"),
+            "native_methods": (
+                RuntimeAuthMethod(
+                    id="device",
+                    name="ChatGPT device login",
+                    description="Open a verification URL and enter the displayed device code.",
+                    kind="device",
+                    command=("codex", "login", "--device-auth"),
+                ),
+            ),
+        },
+        "claude-code": {
+            "agent": ("claude-agent-acp",),
+            "status": ("claude", "auth", "status", "--json"),
+            "logout": ("claude", "auth", "logout"),
+            "native_methods": (
+                RuntimeAuthMethod(
+                    id="claude-ai",
+                    name="Claude subscription",
+                    kind="browser",
+                    command=("claude", "auth", "login", "--claudeai"),
+                ),
+                RuntimeAuthMethod(
+                    id="console",
+                    name="Anthropic Console",
+                    kind="browser",
+                    command=("claude", "auth", "login", "--console"),
+                ),
+                RuntimeAuthMethod(
+                    id="sso",
+                    name="Claude SSO",
+                    kind="browser",
+                    command=("claude", "auth", "login", "--sso"),
+                ),
+            ),
+        },
+    }
+
+    def __init__(self, agent: "CodingAgent"):
+        self.agent = agent
+        self.runtime = str(agent.runtime or "")
+        if self.runtime not in self._COMMANDS:
+            raise ValueError(f"Unsupported coding-agent runtime: {self.runtime}")
+
+    @property
+    def _config(self) -> dict[str, Any]:
+        return self._COMMANDS[self.runtime]
+
+    def _exec(self, command: tuple[str, ...], *, timeout: int = 30) -> "ExecResult":
+        return self.agent.exec(shlex.join(command), timeout=timeout)
+
+    def methods(self) -> list[RuntimeAuthMethod]:
+        agent_command = tuple(self._config["agent"])
+        argv = ["buzz-acp", "auth-methods", "--agent-command", agent_command[0]]
+        if len(agent_command) > 1:
+            argv.extend(["--agent-args", ",".join(agent_command[1:])])
+        argv.append("--json")
+        discovered: list[RuntimeAuthMethod] = []
+        result = self._exec(tuple(argv))
+        if result.exit_code == 0:
+            try:
+                payload = json.loads(result.stdout or "{}")
+            except json.JSONDecodeError:
+                payload = {}
+            for item in payload.get("methods", []):
+                if not isinstance(item, dict):
+                    continue
+                raw_metadata = item.get("_meta")
+                metadata = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
+                terminal = metadata.get("terminal-auth")
+                command: tuple[str, ...] = ()
+                if isinstance(terminal, dict) and terminal.get("command"):
+                    raw_command = terminal["command"]
+                    if isinstance(raw_command, list):
+                        command = tuple(str(value) for value in raw_command)
+                    else:
+                        command = (
+                            str(raw_command),
+                            *(str(value) for value in (terminal.get("args") or [])),
+                        )
+                    if item.get("id") == "claude-login":
+                        command = (*command, "auth", "login")
+                elif item.get("command"):
+                    raw_command = item["command"]
+                    if isinstance(raw_command, list):
+                        command = tuple(str(value) for value in raw_command)
+                    else:
+                        command = (
+                            str(raw_command),
+                            *(str(value) for value in (item.get("args") or [])),
+                        )
+                discovered.append(
+                    RuntimeAuthMethod(
+                        id=str(item.get("id") or ""),
+                        name=str(item.get("name") or item.get("id") or ""),
+                        description=str(item.get("description") or ""),
+                        kind=str(item.get("type") or ("terminal" if command else "acp")),
+                        command=command,
+                        metadata=metadata,
+                    )
+                )
+        by_id = {method.id: method for method in discovered if method.id}
+        for method in self._config.get("native_methods", ()):
+            by_id.setdefault(method.id, method)
+        if self.runtime == "opencode":
+            by_id.setdefault(
+                "provider",
+                RuntimeAuthMethod(
+                    id="provider",
+                    name="Provider login",
+                    description="Choose an OpenCode provider and login method interactively.",
+                    kind="interactive",
+                    command=("opencode", "auth", "login"),
+                ),
+            )
+        return list(by_id.values())
+
+    def status(self) -> RuntimeAuthStatus:
+        result = self._exec(tuple(self._config["status"]))
+        raw = _clean_terminal_output((result.stdout or "") + (result.stderr or "")).strip()
+        detail: dict[str, Any] = {"exit_code": result.exit_code, "output": raw}
+        if self.runtime == "claude-code":
+            try:
+                parsed = json.loads(result.stdout or "{}")
+            except json.JSONDecodeError:
+                parsed = {}
+            if isinstance(parsed, dict):
+                detail.update(parsed)
+                auth_method = parsed.get("loginMethod") or parsed.get("authMethod")
+                authenticated = bool(
+                    parsed.get("loggedIn")
+                    or parsed.get("authenticated")
+                    or (auth_method and str(auth_method).lower() != "none")
+                )
+                return RuntimeAuthStatus(
+                    authenticated=authenticated,
+                    provider=(
+                        parsed.get("subscriptionType")
+                        or parsed.get("provider")
+                        or parsed.get("apiProvider")
+                    ),
+                    account=parsed.get("email"),
+                    method=auth_method,
+                    detail=detail,
+                )
+        lowered = raw.lower()
+        authenticated = result.exit_code == 0 and not any(
+            token in lowered
+            for token in (
+                "not logged",
+                "not authenticated",
+                "unauthenticated",
+                "no credentials",
+                "0 credentials",
+            )
+        )
+        return RuntimeAuthStatus(authenticated=authenticated, detail=detail)
+
+    async def login(
+        self,
+        method: str | None = None,
+        *,
+        provider: str | None = None,
+        provider_method: str | None = None,
+        email: str | None = None,
+        challenge_timeout: float = 45.0,
+    ) -> RuntimeLoginSession:
+        methods = self.methods()
+        selected = next((candidate for candidate in methods if candidate.id == method), None)
+        if selected is None:
+            if method is not None:
+                raise ValueError(f"Unsupported {self.runtime} auth method: {method}")
+            selected = next((candidate for candidate in methods if candidate.command), None)
+            if selected is None:
+                selected = next(iter(methods), None)
+        if selected is None:
+            raise ValueError(f"{self.runtime} did not advertise a runnable login method")
+        if selected.command:
+            command = list(selected.command)
+        else:
+            agent_command = tuple(self._config["agent"])
+            command = [
+                "buzz-acp",
+                "authenticate",
+                "--agent-command",
+                agent_command[0],
+            ]
+            if len(agent_command) > 1:
+                command.extend(["--agent-args", ",".join(agent_command[1:])])
+            command.extend(["--method-id", selected.id])
+        if self.runtime == "opencode":
+            if provider:
+                command.extend(["--provider", provider])
+            if provider_method:
+                command.extend(["--method", provider_method])
+        elif self.runtime == "claude-code" and email:
+            command.extend(["--email", email])
+        return await RuntimeLoginSession.start(
+            self,
+            tuple(command),
+            challenge_timeout=challenge_timeout,
+        )
+
+    def logout(self, provider: str | None = None) -> RuntimeAuthStatus:
+        command = list(self._config["logout"])
+        if self.runtime == "opencode" and provider:
+            command.append(provider)
+        result = self._exec(tuple(command))
+        if result.exit_code != 0:
+            raise RuntimeError(
+                f"{self.runtime} logout failed: "
+                f"{_clean_terminal_output(result.stderr or result.stdout).strip()}"
+            )
+        return self.status()
+
+
 @dataclass
 class Agent:
     """Generic agent returned by the HyperClaw backend."""
@@ -1069,6 +1466,30 @@ class Agent:
 
     async def shell_connect(self, shell: str | None = None):
         return await self._require_deployments().shell_connect(self.id, shell=shell)
+
+
+@dataclass
+class CodingAgent(Agent):
+    """Canonical hosted coding runtime with native authentication helpers."""
+
+    @property
+    def auth(self) -> RuntimeAuthClient:
+        return RuntimeAuthClient(self)
+
+
+@dataclass
+class OpenCodeAgent(CodingAgent):
+    """OpenCode runtime hosted behind Buzz ACP."""
+
+
+@dataclass
+class CodexAgent(CodingAgent):
+    """Codex runtime hosted behind the Codex ACP adapter."""
+
+
+@dataclass
+class ClaudeCodeAgent(CodingAgent):
+    """Claude Code runtime hosted behind the Claude ACP adapter."""
 
 
 @dataclass
@@ -1723,9 +2144,16 @@ class Deployments:
         )
 
     def _hydrate_agent(self, data: dict) -> Agent:
-        if _is_openclaw_pro_agent_data(data):
+        runtime = str(data.get("runtime") or "").strip().lower()
+        if runtime == "opencode":
+            agent = OpenCodeAgent.from_dict(data)
+        elif runtime == "codex":
+            agent = CodexAgent.from_dict(data)
+        elif runtime == "claude-code":
+            agent = ClaudeCodeAgent.from_dict(data)
+        elif runtime == "openclaw-pro" or _is_openclaw_pro_agent_data(data):
             agent = OpenClawProAgent.from_dict(data)
-        elif _is_openclaw_agent_data(data):
+        elif runtime == "openclaw" or _is_openclaw_agent_data(data):
             agent = OpenClawAgent.from_dict(data)
         else:
             agent = Agent.from_dict(data)
@@ -1879,6 +2307,7 @@ class Deployments:
         name: str = None,
         handle: str = None,
         size: str = None,
+        runtime: ManagedAgentRuntime | None = None,
         config: dict = None,
         tags: list[str] = None,
         env: dict = None,
@@ -1928,6 +2357,7 @@ class Deployments:
             registry_auth=registry_auth,
             gateway_token=gateway_token,
             heartbeat=heartbeat,
+            inject_gateway_token=runtime not in {"opencode", "codex", "claude-code"},
         )
         body: dict = {**launch_payload, "start": start}
         if dry_run:
@@ -1938,6 +2368,8 @@ class Deployments:
             body["handle"] = handle
         if size:
             body["size"] = size
+        if runtime is not None:
+            body["runtime"] = runtime
         if meta_ui:
             body["meta"] = {"ui": copy.deepcopy(meta_ui)}
         if tags:
@@ -1979,6 +2411,7 @@ class Deployments:
         openclaw_route_options: dict | None = None,
         memory_index: dict | None = None,
         workspaces_sync: dict | bool | None = None,
+        runtime: ManagedAgentRuntime = "openclaw",
     ) -> Agent:
         effective_env = {
             "HYPER_API_BASE": _product_api_base_from_agents_api_base(self._api_base),
@@ -1990,6 +2423,7 @@ class Deployments:
             name=name,
             handle=handle,
             size=size,
+            runtime=runtime,
             config=config,
             tags=tags,
             env=effective_env,
@@ -2073,7 +2507,91 @@ class Deployments:
             openclaw_route_options=effective_route_options,
             memory_index=memory_index,
             workspaces_sync=workspaces_sync,
+            runtime="openclaw-pro",
         )
+
+    def _create_coding_agent(
+        self,
+        *,
+        runtime: Literal["opencode", "codex", "claude-code"],
+        default_image: str,
+        name: str | None = None,
+        handle: str | None = None,
+        size: str | None = None,
+        config: dict | None = None,
+        tags: list[str] | None = None,
+        env: dict | None = None,
+        ports: list | None = None,
+        routes: dict | None = None,
+        command: list[str] | None = None,
+        entrypoint: list[str] | None = None,
+        image: str | None = None,
+        sync_root: str | None = None,
+        sync_enabled: bool | None = None,
+        sync_uid: int | None = None,
+        sync_gid: int | None = None,
+        registry_url: str | None = None,
+        registry_auth: dict | None = None,
+        meta_ui: dict | None = None,
+        dry_run: bool = False,
+        start: bool = True,
+        workspaces_sync: dict | bool | None = None,
+        buzz_enabled: bool = False,
+    ) -> Agent:
+        if buzz_enabled and command is not None:
+            raise ValueError("buzz_enabled cannot be combined with an explicit command")
+        effective_env = {
+            "HYPER_API_BASE": _product_api_base_from_agents_api_base(self._api_base),
+            **build_openclaw_workspaces_sync_env(workspaces_sync),
+            **dict(env or {}),
+        }
+        return self.create(
+            name=name,
+            handle=handle,
+            size=size,
+            runtime=runtime,
+            config=config,
+            tags=tags,
+            env=effective_env,
+            ports=ports,
+            routes={} if routes is None else routes,
+            command=["/usr/local/bin/buzz-acp"] if buzz_enabled else command,
+            entrypoint=entrypoint,
+            image=image or default_image,
+            sync_root=sync_root if sync_root is not None else DEFAULT_CODING_AGENT_SYNC_ROOT,
+            sync_enabled=True if sync_enabled is None else sync_enabled,
+            sync_uid=1000 if sync_uid is None else sync_uid,
+            sync_gid=1000 if sync_gid is None else sync_gid,
+            registry_url=registry_url,
+            registry_auth=registry_auth,
+            meta_ui=meta_ui,
+            dry_run=dry_run,
+            start=start,
+        )
+
+    def create_opencode(self, **kwargs: Any) -> OpenCodeAgent:
+        """Create a hosted OpenCode ACP runtime with workspace boot sync."""
+        return self._create_coding_agent(
+            runtime="opencode",
+            default_image=DEFAULT_OPENCODE_IMAGE,
+            **kwargs,
+        )  # type: ignore[return-value]
+
+    def create_codex(self, **kwargs: Any) -> CodexAgent:
+        """Create a hosted Codex ACP runtime with workspace boot sync."""
+        return self._create_coding_agent(
+            runtime="codex",
+            default_image=DEFAULT_CODEX_IMAGE,
+            **kwargs,
+        )  # type: ignore[return-value]
+
+    def create_claude_code(self, **kwargs: Any) -> ClaudeCodeAgent:
+        """Create a hosted Claude Code ACP runtime with workspace boot sync."""
+        return self._create_coding_agent(
+            runtime="claude-code",
+            default_image=DEFAULT_CLAUDE_CODE_IMAGE,
+            **kwargs,
+        )  # type: ignore[return-value]
 
     def budget(self) -> dict:
         """Get the user's current agent resource budget and usage.

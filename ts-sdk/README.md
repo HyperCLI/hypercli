@@ -147,6 +147,28 @@ Use `createOpenClawPro(...)` for the desktop/browser image. It enables noVNC thr
 
 Automatic memory indexing is off by default. Opt in with `memoryIndex: { onSessionStart: true, onSearch: true, watch: true, watchDebounceMs: 30000, intervalMinutes: 0 }`.
 
+### Managed Coding Agents and Buzz ACP
+
+OpenCode, Codex, and Claude Code use explicit managed runtime discriminators while retaining the standard HyperCLI launch behavior: API-base env injection, workspace boot sync, and persistent `/home/node` storage. They do not receive an OpenClaw gateway token.
+
+```typescript
+const agent = await client.deployments.createCodex({
+  name: 'buzz-ci',
+  buzzEnabled: true, // command: ['/usr/local/bin/buzz-acp']
+  env: { CODEX_API_KEY: process.env.CODEX_API_KEY! },
+  workspacesSync: { workspace: 'buzz' },
+});
+
+const methods = await agent.auth.methods();
+const status = await agent.auth.status();
+const login = await agent.auth.login({ method: 'device' });
+// login.verificationUrl and login.userCode are populated from terminal output.
+const authenticated = await login.wait();
+await agent.auth.logout();
+```
+
+The corresponding helpers are `createOpenCode(...)`, `createCodex(...)`, and `createClaudeCode(...)`. Set `buzzEnabled: true` only when the image contains `/usr/local/bin/buzz-acp`; it is mutually exclusive with an explicit `command`.
+
 ### OpenClaw Gateway Chat Attachments
 
 ```typescript

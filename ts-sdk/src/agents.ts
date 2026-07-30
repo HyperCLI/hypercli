@@ -45,6 +45,19 @@ const AGENTS_WS_URL = 'wss://api.agents.hypercli.com/ws';
 const DEV_AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
 export const DEFAULT_OPENCLAW_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:pro-latest';
 export const DEFAULT_OPENCLAW_PRO_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:pro-latest';
+export const DEFAULT_OPENCODE_IMAGE = 'git.nedos.co/hypercli/hypercli-opencode:latest';
+export const DEFAULT_CODEX_IMAGE = 'git.nedos.co/hypercli/hypercli-codex:latest';
+export const DEFAULT_CLAUDE_CODE_IMAGE = 'git.nedos.co/hypercli/hypercli-claude-code:latest';
+export const DEFAULT_CODING_AGENT_SYNC_ROOT = '/home/node';
+export type ManagedAgentRuntime =
+  | 'generic'
+  | 'openclaw'
+  | 'openclaw-pro'
+  | 'opencode'
+  | 'codex'
+  | 'claude-code';
+export type CodingAgentRuntime = Extract<ManagedAgentRuntime, 'opencode' | 'codex' | 'claude-code'>;
+const CODING_AGENT_RUNTIMES = new Set<CodingAgentRuntime>(['opencode', 'codex', 'claude-code']);
 export const OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
   OPENCLAW_MEMORY_SEARCH_ENABLED: '1',
   OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START: '0',
@@ -365,6 +378,8 @@ export interface BuildAgentConfigOptions {
   heartbeat?: OpenClawHeartbeatConfig | null;
   /** Disable to avoid automatically locking browser control UI access to globalThis.location.origin. */
   controlUiOriginLock?: boolean | null;
+  /** Internal launch behavior; coding runtimes do not use the OpenClaw gateway. */
+  injectGatewayToken?: boolean;
 }
 
 export interface OpenClawRouteOptions {
@@ -505,6 +520,7 @@ export interface CreateAgentOptions extends BuildAgentConfigOptions {
   tags?: string[];
   dryRun?: boolean;
   start?: boolean;
+  runtime?: ManagedAgentRuntime;
 }
 
 export interface CreateExternalAgentOptions {
@@ -551,6 +567,37 @@ export interface OpenClawStartAgentOptions extends StartAgentOptions {
   heartbeat?: OpenClawHeartbeatConfig | null;
   memoryIndex?: OpenClawMemoryIndexOptions | null;
   workspacesSync?: OpenClawWorkspacesSyncOptions | boolean | null;
+}
+
+export interface CodingAgentCreateOptions extends Omit<CreateAgentOptions, 'runtime' | 'injectGatewayToken'> {
+  workspacesSync?: OpenClawWorkspacesSyncOptions | boolean | null;
+  /** Launch Buzz's ACP adapter instead of the image's normal long-lived command. */
+  buzzEnabled?: boolean;
+}
+
+export interface RuntimeAuthMethod {
+  id: string;
+  name: string;
+  description: string;
+  kind: string;
+  command: string[];
+  metadata: Record<string, unknown>;
+}
+
+export interface RuntimeAuthStatus {
+  authenticated: boolean;
+  provider?: string | null;
+  account?: string | null;
+  method?: string | null;
+  detail: Record<string, unknown>;
+}
+
+export interface RuntimeAuthLoginOptions {
+  method?: string;
+  provider?: string;
+  providerMethod?: string;
+  email?: string;
+  challengeTimeoutMs?: number;
 }
 
 export interface AgentExecOptions {
@@ -940,12 +987,17 @@ function sleep(ms: number): Promise<void> {
 }
 
 function isOpenClawHydrationData(data: AgentHydrationData): boolean {
+  if (data.runtime === 'openclaw' || data.runtime === 'openclaw-pro') return true;
   const routes = data.routes;
   if (routes && typeof routes === 'object' && !Array.isArray(routes) && routes.openclaw) {
     return true;
   }
   const launchRoutes = data.launch_config?.routes;
   return !!(launchRoutes && typeof launchRoutes === 'object' && !Array.isArray(launchRoutes) && launchRoutes.openclaw);
+}
+
+function isCodingAgentRuntime(runtime: unknown): runtime is CodingAgentRuntime {
+  return typeof runtime === 'string' && CODING_AGENT_RUNTIMES.has(runtime as CodingAgentRuntime);
 }
 
 function isTruthyEnv(value: unknown): boolean {
@@ -1336,16 +1388,19 @@ export function buildAgentConfig(
   }
   const env = { ...(options.env ?? {}) } as Record<string, string>;
 
-  let gatewayToken = options.gatewayToken?.trim() || env.OPENCLAW_GATEWAY_TOKEN?.trim() || '';
-  if (!gatewayToken) {
-    gatewayToken = randomHexToken(32);
-  }
+  let gatewayToken = '';
+  if (options.injectGatewayToken !== false) {
+    gatewayToken = options.gatewayToken?.trim() || env.OPENCLAW_GATEWAY_TOKEN?.trim() || '';
+    if (!gatewayToken) {
+      gatewayToken = randomHexToken(32);
+    }
 
-  env.OPENCLAW_GATEWAY_TOKEN = gatewayToken;
-  if (options.controlUiOriginLock !== false && !env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN?.trim()) {
-    const controlUiOrigin = defaultControlUiAllowedOrigin();
-    if (controlUiOrigin) {
-      env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN = controlUiOrigin;
+    env.OPENCLAW_GATEWAY_TOKEN = gatewayToken;
+    if (options.controlUiOriginLock !== false && !env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN?.trim()) {
+      const controlUiOrigin = defaultControlUiAllowedOrigin();
+      if (controlUiOrigin) {
+        env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN = controlUiOrigin;
+      }
     }
   }
 
@@ -1897,6 +1952,333 @@ export class Agent {
 
   async shellConnect(shell?: string, options?: AgentShellConnectOptions): Promise<WebSocket> {
     return this.requireDeployments().shellConnect(this.id, shell, options);
+  }
+}
+
+type RuntimeAuthConfig = {
+  agentCommand: string[];
+  statusCommand: string[];
+  logoutCommand: string[];
+  nativeMethods: RuntimeAuthMethod[];
+};
+
+const RUNTIME_AUTH_CONFIG: Record<CodingAgentRuntime, RuntimeAuthConfig> = {
+  opencode: {
+    agentCommand: ['opencode', 'acp'],
+    statusCommand: ['opencode', 'auth', 'list'],
+    logoutCommand: ['opencode', 'auth', 'logout'],
+    nativeMethods: [],
+  },
+  codex: {
+    agentCommand: ['codex-acp'],
+    statusCommand: ['codex', 'login', 'status'],
+    logoutCommand: ['codex', 'logout'],
+    nativeMethods: [{
+      id: 'device',
+      name: 'Device authentication',
+      description: 'Authenticate Codex with a device code.',
+      kind: 'native',
+      command: ['codex', 'login', '--device-auth'],
+      metadata: {},
+    }],
+  },
+  'claude-code': {
+    agentCommand: ['claude-agent-acp'],
+    statusCommand: ['claude', 'auth', 'status', '--json'],
+    logoutCommand: ['claude', 'auth', 'logout'],
+    nativeMethods: [
+      { id: 'claude-ai', name: 'Claude.ai', description: '', kind: 'native', command: ['claude', 'auth', 'login', '--claudeai'], metadata: {} },
+      { id: 'console', name: 'Anthropic Console', description: '', kind: 'native', command: ['claude', 'auth', 'login', '--console'], metadata: {} },
+      { id: 'sso', name: 'Enterprise SSO', description: '', kind: 'native', command: ['claude', 'auth', 'login', '--sso'], metadata: {} },
+    ],
+  },
+};
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
+function commandString(command: string[]): string {
+  return command.map(shellQuote).join(' ');
+}
+
+// Terminal control-sequence matching intentionally includes ESC and BEL.
+/* eslint-disable no-control-regex */
+const TERMINAL_ESCAPE_PATTERN = new RegExp(
+  '\\x1B(?:\\[[0-?]*[ -/]*[@-~]|\\][^\\x07]*(?:\\x07|\\x1B\\\\))',
+  'g',
+);
+/* eslint-enable no-control-regex */
+
+function stripTerminalCodes(value: string): string {
+  return value.replace(TERMINAL_ESCAPE_PATTERN, '').replace(/\r/g, '');
+}
+
+function authMethodFromPayload(value: unknown): RuntimeAuthMethod | null {
+  if (!isPlainRecord(value)) return null;
+  const id = typeof value.id === 'string' ? value.id : '';
+  if (!id) return null;
+  const metadata = isPlainRecord(value._meta) ? { ...value._meta } : {};
+  let command: string[] = [];
+  const terminal = isPlainRecord(metadata['terminal-auth']) ? metadata['terminal-auth'] : null;
+  const source = terminal ?? value;
+  if (Array.isArray(source.command) && source.command.every((part) => typeof part === 'string')) {
+    command = [...source.command];
+  } else if (typeof source.command === 'string') {
+    const args = Array.isArray(source.args) ? source.args.filter((part): part is string => typeof part === 'string') : [];
+    command = [source.command, ...args];
+  }
+  if (id === 'claude-login' && command.length > 0 && !command.includes('login')) {
+    command.push('auth', 'login');
+  }
+  return {
+    id,
+    name: typeof value.name === 'string' ? value.name : id,
+    description: typeof value.description === 'string' ? value.description : '',
+    kind: typeof value.kind === 'string' ? value.kind : 'acp',
+    command,
+    metadata,
+  };
+}
+
+async function websocketMessageText(data: unknown): Promise<string> {
+  if (typeof data === 'string') return data;
+  if (data instanceof ArrayBuffer) return decodeUtf8(new Uint8Array(data));
+  if (ArrayBuffer.isView(data)) return decodeUtf8(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+  if (typeof Blob !== 'undefined' && data instanceof Blob) return data.text();
+  return String(data ?? '');
+}
+
+export class RuntimeLoginSession {
+  public output = '';
+  public verificationUrl: string | null = null;
+  public userCode: string | null = null;
+  public interactiveRequired = false;
+  private exitCode: number | null = null;
+  private readonly marker: string;
+  private readonly completion: Promise<void>;
+  private readonly ready: Promise<void>;
+  private complete!: () => void;
+  private markReady!: () => void;
+
+  private constructor(
+    private readonly authClient: RuntimeAuthClient,
+    public readonly socket: WebSocket,
+    command: string[],
+  ) {
+    this.marker = `__HYPERCLI_AUTH_EXIT_${randomHexToken(12)}__=`;
+    this.completion = new Promise((resolve) => { this.complete = resolve; });
+    this.ready = new Promise((resolve) => { this.markReady = resolve; });
+    socket.onmessage = (event) => {
+      void websocketMessageText(event.data).then((chunk) => this.consume(chunk));
+    };
+    socket.onclose = () => {
+      this.markReady();
+      this.complete();
+    };
+    socket.send(`${commandString(command)}; _hypercli_auth_rc=$?; printf '\\n${this.marker}%s\\n' "$_hypercli_auth_rc"\n`);
+  }
+
+  static async start(
+    authClient: RuntimeAuthClient,
+    command: string[],
+    challengeTimeoutMs = 45_000,
+  ): Promise<RuntimeLoginSession> {
+    const socket = await authClient.agent.shellConnect();
+    const session = new RuntimeLoginSession(authClient, socket, command);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        session.ready,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Timed out waiting for runtime login instructions')), challengeTimeoutMs);
+        }),
+      ]);
+      return session;
+    } catch (error) {
+      session.cancel();
+      throw error;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  private consume(chunk: string): void {
+    this.output += stripTerminalCodes(chunk);
+    const markerIndex = this.output.lastIndexOf(this.marker);
+    if (markerIndex >= 0) {
+      const match = this.output.slice(markerIndex + this.marker.length).match(/^(-?\d+)/);
+      if (match) {
+        this.exitCode = Number(match[1]);
+        this.markReady();
+        this.complete();
+      }
+    }
+    this.verificationUrl ??= this.output.match(/https?:\/\/[^\s"'<>]+/)?.[0] ?? null;
+    this.userCode ??= this.output.match(/(?:user|device|verification|one[- ]time)?\s*code\s*(?:is|:)?\s*([A-Z0-9][A-Z0-9-]{3,})/i)?.[1] ?? null;
+    this.interactiveRequired ||= /\b(select|choose)\b.*\b(provider|login method)\b/i.test(this.output);
+    if (this.verificationUrl || this.userCode || this.interactiveRequired) this.markReady();
+  }
+
+  send(text: string): void {
+    this.socket.send(text.endsWith('\n') ? text : `${text}\n`);
+  }
+
+  async wait(timeoutMs = 600_000): Promise<RuntimeAuthStatus> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        this.completion,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Runtime authentication timed out')), timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    if (this.exitCode !== null && this.exitCode !== 0) {
+      throw new Error(`Runtime authentication failed (${this.exitCode}): ${this.output.trim()}`);
+    }
+    return this.authClient.status();
+  }
+
+  cancel(): void {
+    if (this.socket.readyState === WebSocket.OPEN) this.socket.send('\x03');
+    this.socket.close();
+  }
+}
+
+export class RuntimeAuthClient {
+  private readonly config: RuntimeAuthConfig;
+
+  constructor(public readonly agent: CodingAgent) {
+    this.config = RUNTIME_AUTH_CONFIG[agent.runtime];
+  }
+
+  async methods(): Promise<RuntimeAuthMethod[]> {
+    const [agentCommand, ...agentArgs] = this.config.agentCommand;
+    const command = ['buzz-acp', 'auth-methods', '--agent-command', agentCommand];
+    if (agentArgs.length) command.push('--agent-args', agentArgs.join(','));
+    command.push('--json');
+    const result = await this.agent.exec(commandString(command));
+    const discovered: RuntimeAuthMethod[] = [];
+    if (result.exitCode === 0) {
+      try {
+        const payload = JSON.parse(stripTerminalCodes(result.stdout)) as unknown;
+        const values = isPlainRecord(payload) && Array.isArray(payload.methods) ? payload.methods : [];
+        for (const value of values) {
+          const method = authMethodFromPayload(value);
+          if (method) discovered.push(method);
+        }
+      } catch {
+        // Native fallbacks still make authentication available.
+      }
+    }
+    if (this.agent.runtime === 'opencode' && discovered.length === 0) {
+      discovered.push({
+        id: 'provider',
+        name: 'Provider login',
+        description: '',
+        kind: 'native',
+        command: ['opencode', 'auth', 'login'],
+        metadata: {},
+      });
+    }
+    const seen = new Set(discovered.map((method) => method.id));
+    for (const method of this.config.nativeMethods) {
+      if (!seen.has(method.id)) discovered.push({ ...method, command: [...method.command], metadata: { ...method.metadata } });
+    }
+    return discovered;
+  }
+
+  async status(): Promise<RuntimeAuthStatus> {
+    const result = await this.agent.exec(commandString(this.config.statusCommand));
+    const output = stripTerminalCodes([result.stdout, result.stderr].filter(Boolean).join('\n')).trim();
+    const detail: Record<string, unknown> = { exitCode: result.exitCode, output };
+    if (this.agent.runtime === 'claude-code') {
+      try {
+        const payload = JSON.parse(stripTerminalCodes(result.stdout)) as Record<string, unknown>;
+        Object.assign(detail, payload);
+        const loginMethod = payload.loginMethod ?? payload.authMethod;
+        return {
+          authenticated: payload.loggedIn === true || payload.authenticated === true ||
+            (typeof loginMethod === 'string' && loginMethod.toLowerCase() !== 'none'),
+          provider: typeof (payload.subscriptionType ?? payload.provider ?? payload.apiProvider) === 'string'
+            ? String(payload.subscriptionType ?? payload.provider ?? payload.apiProvider) : null,
+          account: typeof payload.email === 'string' ? payload.email : null,
+          method: typeof loginMethod === 'string' ? loginMethod : null,
+          detail,
+        };
+      } catch {
+        // Fall through to the generic status parser.
+      }
+    }
+    const negative = /\b(not logged|not authenticated|unauthenticated|no credentials|0 credentials)\b/i.test(output);
+    return { authenticated: result.exitCode === 0 && !negative, detail };
+  }
+
+  async login(options: RuntimeAuthLoginOptions = {}): Promise<RuntimeLoginSession> {
+    const methods = await this.methods();
+    const method = options.method
+      ? methods.find((candidate) => candidate.id === options.method)
+      : methods.find((candidate) => candidate.command.length > 0) ?? methods[0];
+    if (!method) {
+      throw new Error(options.method
+        ? `Unknown authentication method: ${options.method}`
+        : 'No authentication methods are available');
+    }
+    let command = [...method.command];
+    if (!command.length) {
+      const [agentCommand, ...agentArgs] = this.config.agentCommand;
+      command = ['buzz-acp', 'authenticate', '--agent-command', agentCommand];
+      if (agentArgs.length) command.push('--agent-args', agentArgs.join(','));
+      command.push('--method-id', method.id);
+    }
+    if (this.agent.runtime === 'opencode') {
+      if (options.provider) command.push('--provider', options.provider);
+      if (options.providerMethod) command.push('--method', options.providerMethod);
+    }
+    if (this.agent.runtime === 'claude-code' && options.email) command.push('--email', options.email);
+    return RuntimeLoginSession.start(this, command, options.challengeTimeoutMs);
+  }
+
+  async logout(provider?: string): Promise<RuntimeAuthStatus> {
+    const command = [...this.config.logoutCommand];
+    if (this.agent.runtime === 'opencode' && provider) command.push(provider);
+    const result = await this.agent.exec(commandString(command));
+    if (result.exitCode !== 0) {
+      throw new Error(`Runtime logout failed (${result.exitCode}): ${stripTerminalCodes(result.stderr || result.stdout).trim()}`);
+    }
+    return this.status();
+  }
+}
+
+export class CodingAgent extends Agent {
+  declare public readonly runtime: CodingAgentRuntime;
+
+  get auth(): RuntimeAuthClient {
+    return new RuntimeAuthClient(this);
+  }
+}
+
+export class OpenCodeAgent extends CodingAgent {
+  declare public readonly runtime: 'opencode';
+  static override fromDict(data: AgentHydrationData): OpenCodeAgent {
+    return new OpenCodeAgent(agentStateFromDict(data));
+  }
+}
+
+export class CodexAgent extends CodingAgent {
+  declare public readonly runtime: 'codex';
+  static override fromDict(data: AgentHydrationData): CodexAgent {
+    return new CodexAgent(agentStateFromDict(data));
+  }
+}
+
+export class ClaudeCodeAgent extends CodingAgent {
+  declare public readonly runtime: 'claude-code';
+  static override fromDict(data: AgentHydrationData): ClaudeCodeAgent {
+    return new ClaudeCodeAgent(agentStateFromDict(data));
   }
 }
 
@@ -2833,7 +3215,13 @@ export class Deployments {
 
   private hydrateAgent(data: AgentHydrationData): Agent {
     let agent: Agent;
-    if (isOpenClawProHydrationData(data)) {
+    if (data.runtime === 'opencode') {
+      agent = OpenCodeAgent.fromDict(data);
+    } else if (data.runtime === 'codex') {
+      agent = CodexAgent.fromDict(data);
+    } else if (data.runtime === 'claude-code') {
+      agent = ClaudeCodeAgent.fromDict(data);
+    } else if (data.runtime === 'openclaw-pro' || isOpenClawProHydrationData(data)) {
       agent = OpenClawProAgent.fromDict(data);
     } else if (isOpenClawHydrationData(data)) {
       agent = OpenClawAgent.fromDict(data);
@@ -2924,7 +3312,10 @@ export class Deployments {
   }
 
   async create(options: CreateAgentOptions = {}): Promise<Agent> {
-    const { config, gatewayToken } = buildAgentConfig(options.config ?? {}, options);
+    const { config, gatewayToken } = buildAgentConfig(options.config ?? {}, {
+      ...options,
+      injectGatewayToken: options.injectGatewayToken ?? !isCodingAgentRuntime(options.runtime),
+    });
     const body: Record<string, any> = { ...config, start: options.start ?? true };
     if (options.dryRun) body.dry_run = true;
     if (options.name) body.name = options.name;
@@ -2932,6 +3323,7 @@ export class Deployments {
     if (options.size) body.size = options.size;
     if (options.meta?.ui) body.meta = { ui: structuredClone(options.meta.ui) };
     if (options.tags?.length) body.tags = [...options.tags];
+    if (options.runtime) body.runtime = options.runtime;
 
     const data = await this.agentHttp.post<AgentHydrationData>(DEPLOYMENTS_API_PREFIX, body);
     const agent = this.hydrateAgent(data);
@@ -2945,7 +3337,7 @@ export class Deployments {
   }
 
   async createOpenClaw(options: OpenClawCreateAgentOptions = {}): Promise<Agent> {
-    const effectiveOptions: CreateAgentOptions = { ...options };
+    const effectiveOptions: CreateAgentOptions = { ...options, runtime: options.runtime ?? 'openclaw' };
     effectiveOptions.env = {
       HYPER_API_BASE: productApiBaseFromAgentsApiBase(this.apiBase),
       ...buildOpenClawWorkspacesSyncEnv(options.workspacesSync ?? null),
@@ -2964,10 +3356,51 @@ export class Deployments {
   async createOpenClawPro(options: OpenClawCreateAgentOptions = {}): Promise<Agent> {
     return this.createOpenClaw({
       ...options,
+      runtime: 'openclaw-pro',
       env: { OPENCLAW_DESKTOP_ENABLED: '1', ...(options.env ?? {}) },
       image: defaultOpenClawProImage(options.image),
       openClawRoutes: { includeDesktop: true, ...(options.openClawRoutes ?? {}) },
     });
+  }
+
+  private async createCodingAgent(
+    runtime: CodingAgentRuntime,
+    defaultImage: string,
+    options: CodingAgentCreateOptions,
+  ): Promise<CodingAgent> {
+    if (options.buzzEnabled && options.command !== undefined && options.command !== null) {
+      throw new Error('buzzEnabled cannot be combined with an explicit command');
+    }
+    const effectiveOptions: CreateAgentOptions = {
+      ...options,
+      runtime,
+      injectGatewayToken: false,
+      env: {
+        HYPER_API_BASE: productApiBaseFromAgentsApiBase(this.apiBase),
+        ...buildOpenClawWorkspacesSyncEnv(options.workspacesSync ?? null),
+        ...(options.env ?? {}),
+      },
+      routes: options.routes ?? {},
+      image: options.image ?? defaultImage,
+      command: options.buzzEnabled ? ['/usr/local/bin/buzz-acp'] : options.command,
+      syncRoot: options.syncRoot ?? DEFAULT_CODING_AGENT_SYNC_ROOT,
+      syncEnabled: options.syncEnabled ?? true,
+      syncUid: options.syncUid ?? 1000,
+      syncGid: options.syncGid ?? 1000,
+    };
+    return await this.create(effectiveOptions) as CodingAgent;
+  }
+
+  async createOpenCode(options: CodingAgentCreateOptions = {}): Promise<OpenCodeAgent> {
+    return await this.createCodingAgent('opencode', DEFAULT_OPENCODE_IMAGE, options) as OpenCodeAgent;
+  }
+
+  async createCodex(options: CodingAgentCreateOptions = {}): Promise<CodexAgent> {
+    return await this.createCodingAgent('codex', DEFAULT_CODEX_IMAGE, options) as CodexAgent;
+  }
+
+  async createClaudeCode(options: CodingAgentCreateOptions = {}): Promise<ClaudeCodeAgent> {
+    return await this.createCodingAgent('claude-code', DEFAULT_CLAUDE_CODE_IMAGE, options) as ClaudeCodeAgent;
   }
 
   async budget(): Promise<Record<string, any>> {

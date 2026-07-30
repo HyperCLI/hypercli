@@ -12,6 +12,7 @@ on:
       - "ts-sdk/**"
       - "sdk/**"
       - "cli/**"
+      - "rs-sdk/**"
   workflow_dispatch:
 
 jobs:
