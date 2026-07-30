@@ -33,11 +33,15 @@ jobs:
             target: x86_64-unknown-linux-gnu
             executable: buzz-backend-hypercli
             archive: buzz-backend-hypercli-linux-x86_64
-          - runner: macos-latest
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            executable: buzz-backend-hypercli
+            archive: buzz-backend-hypercli-linux-aarch64
+          - runner: macos-15-intel
             target: x86_64-apple-darwin
             executable: buzz-backend-hypercli
             archive: buzz-backend-hypercli-macos-x86_64
-          - runner: macos-latest
+          - runner: macos-15
             target: aarch64-apple-darwin
             executable: buzz-backend-hypercli
             archive: buzz-backend-hypercli-macos-aarch64
@@ -135,7 +139,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(find dist -maxdepth 1 -name '*.tar.gz' | wc -l)" -eq 3
+          test "$(find dist -maxdepth 1 -name '*.tar.gz' | wc -l)" -eq 4
           (
             cd dist
             sha256sum --check ./*.sha256
