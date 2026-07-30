@@ -10,9 +10,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
-const DEFAULT_OPENCODE_IMAGE: &str = "git.nedos.co/hypercli/hypercli-opencode:latest";
-const DEFAULT_CODEX_IMAGE: &str = "git.nedos.co/hypercli/hypercli-codex:latest";
-const DEFAULT_CLAUDE_CODE_IMAGE: &str = "git.nedos.co/hypercli/hypercli-claude-code:latest";
+const DEFAULT_OPENCODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-opencode:latest";
+const DEFAULT_CODEX_IMAGE: &str = "ghcr.io/hypercli/hypercli-codex:latest";
+const DEFAULT_CLAUDE_CODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-claude-code:latest";
 
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "lowercase")]

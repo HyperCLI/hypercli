@@ -137,7 +137,7 @@ create-or-update operation. A repeated deploy cannot rotate credentials on an
 already-running pod. Provider protocol v1 also has no stop, delete, inspect, or
 adopt operation.
 
-Finally, the current default coding images are private Gitea references. A
-deployment succeeds only where Lagoon has the corresponding registry pull
-credentials, or when the provider's non-secret `image` option selects a
-pullable release image.
+The default coding images are public GHCR release references. CI first builds
+and tests immutable internal SHA images, then copies the same tested content to
+GHCR. A provider E2E must use the public full-SHA tag; the mutable `latest`
+defaults are only the user-facing convenience after promotion.

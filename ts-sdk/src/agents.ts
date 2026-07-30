@@ -45,9 +45,9 @@ const AGENTS_WS_URL = 'wss://api.agents.hypercli.com/ws';
 const DEV_AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
 export const DEFAULT_OPENCLAW_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:pro-latest';
 export const DEFAULT_OPENCLAW_PRO_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:pro-latest';
-export const DEFAULT_OPENCODE_IMAGE = 'git.nedos.co/hypercli/hypercli-opencode:latest';
-export const DEFAULT_CODEX_IMAGE = 'git.nedos.co/hypercli/hypercli-codex:latest';
-export const DEFAULT_CLAUDE_CODE_IMAGE = 'git.nedos.co/hypercli/hypercli-claude-code:latest';
+export const DEFAULT_OPENCODE_IMAGE = 'ghcr.io/hypercli/hypercli-opencode:latest';
+export const DEFAULT_CODEX_IMAGE = 'ghcr.io/hypercli/hypercli-codex:latest';
+export const DEFAULT_CLAUDE_CODE_IMAGE = 'ghcr.io/hypercli/hypercli-claude-code:latest';
 export const DEFAULT_CODING_AGENT_SYNC_ROOT = '/home/node';
 export type ManagedAgentRuntime =
   | 'generic'

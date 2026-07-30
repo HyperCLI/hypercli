@@ -41,9 +41,9 @@ DEV_AGENTS_API_BASE = "https://api.dev.hypercli.com/agents"
 DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
 DEFAULT_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-latest"
 DEFAULT_OPENCLAW_PRO_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-latest"
-DEFAULT_OPENCODE_IMAGE = "git.nedos.co/hypercli/hypercli-opencode:latest"
-DEFAULT_CODEX_IMAGE = "git.nedos.co/hypercli/hypercli-codex:latest"
-DEFAULT_CLAUDE_CODE_IMAGE = "git.nedos.co/hypercli/hypercli-claude-code:latest"
+DEFAULT_OPENCODE_IMAGE = "ghcr.io/hypercli/hypercli-opencode:latest"
+DEFAULT_CODEX_IMAGE = "ghcr.io/hypercli/hypercli-codex:latest"
+DEFAULT_CLAUDE_CODE_IMAGE = "ghcr.io/hypercli/hypercli-claude-code:latest"
 OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
     "OPENCLAW_MEMORY_SEARCH_ENABLED": "1",
     "OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START": "0",
