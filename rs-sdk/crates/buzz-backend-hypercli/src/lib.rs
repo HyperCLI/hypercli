@@ -308,7 +308,7 @@ fn build_launch_request(
     request.sync_enabled = Some(true);
     request.sync_uid = Some(1000);
     request.sync_gid = Some(1000);
-    request.tags = vec![format!("buzz-agent:{public_key}")];
+    request.tags = vec![format!("buzz_agent={public_key}")];
 
     let mut env = agent.env_vars;
     for reserved in [
@@ -543,6 +543,7 @@ mod tests {
                     "handle": handle,
                     "runtime": "opencode",
                     "command": ["/usr/local/bin/buzz-acp"],
+                    "tags": [format!("buzz_agent={TEST_PUBLIC_HEX}")],
                     "env": {
                         "BUZZ_RELAY_URL": "wss://buzz.example.com",
                         "BUZZ_PRIVATE_KEY": TEST_SECRET_HEX,
