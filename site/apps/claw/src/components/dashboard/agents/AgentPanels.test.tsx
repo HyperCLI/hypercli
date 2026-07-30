@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent } from "@/app/dashboard/agents/types";
 import { AGENT_ROSTER_ORDER_STORAGE_KEY } from "@/hooks/useAgentRosterOrder";
-import { writeFirstAgentSetupDraft } from "@/hooks/useFirstAgentSetupDraft";
 import { renderWithClient } from "@/test/utils";
 
 const clipboardMocks = vi.hoisted(() => ({
@@ -332,87 +331,6 @@ describe("LaunchFirstAgentEmptyState", () => {
     expect(screen.queryByText("First agent setup wizard")).not.toBeInTheDocument();
   });
 
-  it("shows the trial reassurance only when requested for a signed-out visitor", () => {
-    render(<LaunchFirstAgentEmptyState onCreate={vi.fn()} showTrialOffer />);
-
-    const createButton = screen.getByRole("button", { name: /^Create an agent/ });
-    const trialMessage = screen.getByText("Every plan starts with a 7-day free trial — nothing charged today.");
-    expect(trialMessage).toBeInTheDocument();
-    expect(createButton.compareDocumentPosition(trialMessage) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
-  });
-
-  it("keeps the anonymous launch card mounted when a saved draft appears", async () => {
-    const { container } = render(<LaunchFirstAgentEmptyState onCreate={vi.fn()} showTrialOffer />);
-    const launchCard = container.querySelector('[data-slot="anonymous-agent-launch-card"]');
-
-    expect(launchCard).not.toBeNull();
-    expect(screen.getByRole("progressbar", { name: "Agent setup progress" })).toHaveAttribute("aria-valuenow", "0");
-
-    act(() => writeFirstAgentSetupDraft({
-      name: "seamless-pilot",
-      description: "",
-      size: "small",
-      iconIndex: 3,
-      category: "General",
-      plan: "starter",
-      enableDesktop: false,
-      enableMemoryIndex: false,
-      enableCustomImage: false,
-      customImage: "",
-    }));
-
-    await screen.findByRole("heading", { name: "Your agent has a head start." });
-    expect(container.querySelector('[data-slot="anonymous-agent-launch-card"]')).toBe(launchCard);
-  });
-
-  it("replaces the anonymous create state with a saved agent launch", () => {
-    window.sessionStorage.setItem("hypercli-first-agent-draft", JSON.stringify({
-      source: "first-agent-setup",
-      name: "night-ops-pilot",
-      iconIndex: 11,
-      category: "Ops",
-      plan: "pro",
-      size: "large",
-      enableDesktop: true,
-      enableMemoryIndex: true,
-      enableCustomImage: false,
-      customImage: "",
-    }));
-    const onCreate = vi.fn();
-
-    render(<LaunchFirstAgentEmptyState onCreate={onCreate} showTrialOffer />);
-
-    expect(screen.getByRole("heading", { name: "Your agent has a head start." })).toHaveClass("whitespace-nowrap");
-    expect(screen.getByText("night-ops-pilot")).toBeInTheDocument();
-    expect(screen.getByText("night-ops-pilot.hypercli.com")).toBeInTheDocument();
-    expect(screen.getByText("Browser ready")).toBeInTheDocument();
-    expect(screen.getByText("Memory ready")).toBeInTheDocument();
-    expect(screen.getByRole("progressbar", { name: "Agent setup progress" })).toHaveAttribute("aria-valuenow", "2");
-    expect(screen.queryByText("Draft saved")).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Launch your first agent" })).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /finish the launch/i }));
-    expect(onCreate).toHaveBeenCalledOnce();
-  });
-
-  it("clears an anonymous draft before starting fresh", () => {
-    window.sessionStorage.setItem("hypercli-first-agent-draft", JSON.stringify({
-      source: "first-agent-setup",
-      name: "fresh-start-pilot",
-      iconIndex: 0,
-      category: "General",
-      plan: null,
-    }));
-    const onCreate = vi.fn();
-
-    render(<LaunchFirstAgentEmptyState onCreate={onCreate} showTrialOffer />);
-    expect(screen.getByRole("progressbar", { name: "Agent setup progress" })).toHaveAttribute("aria-valuenow", "1");
-    fireEvent.click(screen.getByRole("button", { name: "Start fresh" }));
-
-    expect(window.sessionStorage.getItem("hypercli-first-agent-draft")).toBeNull();
-    expect(onCreate).toHaveBeenCalledOnce();
-  });
-
   it("does not expose an anonymous draft in the authenticated empty state", () => {
     window.sessionStorage.setItem("hypercli-first-agent-draft", JSON.stringify({
       source: "first-agent-setup",
@@ -460,6 +378,24 @@ describe("LaunchFirstAgentEmptyState", () => {
 
     expect(screen.getByRole("button", { name: /^Create an agent/ })).toBeDisabled();
     expect(screen.getAllByText("Select a Workspace before launching an agent.").length).toBeGreaterThan(0);
+  });
+
+  it("welcomes users to an empty Workspace by name", () => {
+    render(
+      <LaunchFirstAgentEmptyState
+        onCreate={vi.fn()}
+        workspaceName="Personal Workspace"
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Welcome to your Personal Workspace" })).toBeInTheDocument();
+    expect(screen.queryByText("Workspace roster")).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Message agent" })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: "Message agent" })).toHaveAttribute(
+      "placeholder",
+      "Launch an agent to start chatting...",
+    );
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
   });
 });
 
@@ -549,6 +485,7 @@ describe("AgentList", () => {
     expect(screen.getByRole("switch", { name: "Show offline agents" })).toHaveAttribute("aria-checked", "true");
     expect(screen.queryByRole("heading", { name: "Agents" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/dashboard/agents?view=overview");
+    expect(screen.getByRole("link", { name: "Alt home" })).toHaveAttribute("href", "/dashboard/agents?view=alt-home");
     fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
     expect(props.setSidebarCollapsed).toHaveBeenCalledWith(true);
   });
@@ -560,8 +497,9 @@ describe("AgentList", () => {
     expect(screen.getByRole("button", { name: "Expand agents sidebar" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Select Test Agent" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/dashboard/agents?view=overview");
+    expect(screen.getByRole("link", { name: "Alt home" })).toHaveAttribute("href", "/dashboard/agents?view=alt-home");
     expect(screen.getByRole("button", { name: "Launch agent" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Shared resources" })).toHaveAttribute("href", "/dashboard/agents?section=knowledge");
+    expect(screen.getByRole("link", { name: "Shared" })).toHaveAttribute("href", "/dashboard/agents?section=knowledge");
     expect(screen.getByRole("link", { name: "Members" })).toHaveAttribute("href", "/dashboard/agents?section=members");
     expect(screen.getByRole("link", { name: "Usage" })).toHaveAttribute("href", "/dashboard/agents?view=usage");
     fireEvent.click(screen.getByRole("button", { name: "Account links" }));
@@ -828,10 +766,12 @@ describe("AgentList", () => {
     expect(screen.getByText("First agent setup wizard")).toBeInTheDocument();
     const overlay = screen.getByTestId("agent-launcher-overlay");
     expect(screen.getByTestId("agent-launcher-dialog")).toHaveClass(
-      "h-[min(700px,calc(100dvh-1rem))]",
+      "h-[min(712px,calc(100dvh-1rem))]",
       "w-[calc(100vw-1rem)]",
-      "max-w-[660px]",
+      "max-w-[1200px]",
+      "sm:h-[min(852px,calc(100dvh-1rem))]",
     );
+    expect(overlay).toHaveClass("p-2");
     expect(document.body).toContainElement(overlay);
     expect(document.querySelector(".agents-roster-shell")).not.toContainElement(overlay);
   });
@@ -839,6 +779,7 @@ describe("AgentList", () => {
   it("opens Administration actions from the collapsed rail", () => {
     const onOpenAccountSettings = vi.fn();
     const onOpenHome = vi.fn();
+    const onOpenAltHome = vi.fn();
     const onOpenSharedResources = vi.fn();
     const onOpenMembers = vi.fn();
     const onOpenUsage = vi.fn();
@@ -847,6 +788,7 @@ describe("AgentList", () => {
       accountSettingsActive: true,
       onOpenHome,
       homeActive: true,
+      onOpenAltHome,
       onOpenSharedResources,
       sharedResourcesActive: true,
       onOpenMembers,
@@ -862,17 +804,20 @@ describe("AgentList", () => {
     expect(document.querySelector(".agents-roster-rail-primary")).toHaveClass("shrink-0", "gap-2");
     expect(document.querySelector(".agents-roster-rail-agents")).toHaveClass("w-full", "shrink", "overflow-y-auto", "py-1");
     expect(screen.getByRole("button", { name: "Home" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("button", { name: "Shared resources" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Alt home" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Shared" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("button", { name: "Members" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Usage" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Settings" })).not.toBeInTheDocument();
     expect(onOpenAccountSettings).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
-    fireEvent.click(screen.getByRole("button", { name: "Shared resources" }));
+    fireEvent.click(screen.getByRole("button", { name: "Alt home" }));
+    fireEvent.click(screen.getByRole("button", { name: "Shared" }));
     fireEvent.click(screen.getByRole("button", { name: "Members" }));
     fireEvent.click(screen.getByRole("button", { name: "Usage" }));
     expect(onOpenHome).toHaveBeenCalledOnce();
+    expect(onOpenAltHome).toHaveBeenCalledOnce();
     expect(onOpenSharedResources).toHaveBeenCalledOnce();
     expect(onOpenMembers).toHaveBeenCalledOnce();
     expect(onOpenUsage).toHaveBeenCalledOnce();
@@ -1280,10 +1225,12 @@ describe("AgentSettingsPanel", () => {
     expect(input).not.toBeNull();
     const file = new File(["avatar"], "avatar.webp", { type: "image/webp" });
     fireEvent.change(input!, { target: { files: [file] } });
+    const localAvatarUrl = screen.getByAltText("Profile avatar").getAttribute("src");
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => expect(sdkMocks.userUploadProfileImage).toHaveBeenCalledWith(file));
-    expect(onProfileAvatarChange).toHaveBeenLastCalledWith("https://cdn.example.test/account.png");
+    expect(onProfileAvatarChange).toHaveBeenLastCalledWith("https://cdn.example.test/account.png", file);
+    expect(screen.getByAltText("Profile avatar")).toHaveAttribute("src", localAvatarUrl);
     expect(screen.getByText("Profile updated.")).toBeInTheDocument();
   });
 
@@ -1349,9 +1296,11 @@ describe("AgentSettingsPanel", () => {
     expect(input).not.toBeNull();
     const file = new File(["avatar"], "agent.webp", { type: "image/webp" });
     fireEvent.change(input!, { target: { files: [file] } });
+    const localAvatarUrl = screen.getByAltText("Agent avatar").getAttribute("src");
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => expect(onUploadAgentAvatar).toHaveBeenCalledWith("agent-1", file));
+    expect(screen.getByAltText("Agent avatar")).toHaveAttribute("src", localAvatarUrl);
     expect(screen.getByText("Agent settings updated.")).toBeInTheDocument();
   });
 

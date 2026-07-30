@@ -4,7 +4,7 @@ import React from "react";
 import type { Workspace, WorkspaceFile, WorkspaceGrant, WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
 import { FileRow } from "@hypercli/shared-ui/files";
 import type { FileEntry } from "@hypercli/shared-ui/files";
-import { ConfirmDialog } from "@hypercli/shared-ui";
+import { Button, ConfirmDialog, Input, Textarea } from "@hypercli/shared-ui";
 import {
   AlertCircle,
   Bot,
@@ -230,20 +230,19 @@ function AgentChip({ agent, selected, disabled, onClick }: { agent: SharedKnowle
   const AvatarIcon = avatar.icon;
   const className = `inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] transition-colors ${
     selected
-      ? "border-primary/45 bg-primary/10 text-primary"
+      ? "border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] text-[var(--selection-accent)]"
       : "border-border bg-background/45 text-text-secondary hover:border-border-strong hover:text-foreground"
   } ${disabled ? "cursor-not-allowed opacity-55" : ""}`;
   const content = (
     <>
       <span className={`h-1.5 w-1.5 rounded-full ${agentStateDotClass(agent.state)}`} aria-hidden="true" />
       <span
-        className="relative flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden rounded-full"
-        style={{ backgroundColor: avatar.bgColor }}
+        className="relative flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-surface-high text-text-secondary"
       >
         {avatar.imageUrl ? (
           <ResourceImage src={avatar.imageUrl} alt={`${displayName} avatar`} fill sizes="16px" className="object-cover" />
         ) : (
-          <AvatarIcon className="h-2.5 w-2.5" style={{ color: avatar.fgColor }} />
+          <AvatarIcon className="h-2.5 w-2.5" />
         )}
       </span>
       <span>{displayName}</span>
@@ -300,7 +299,7 @@ function NewKnowledgeBaseModal({
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
       <button type="button" aria-label="Close new shared knowledge" onClick={submitting ? undefined : onClose} className="absolute inset-0 cursor-default bg-background/75 backdrop-blur-sm" />
-      <section role="dialog" aria-modal="true" aria-labelledby="new-workspace-title" className="relative flex max-h-[92vh] w-full max-w-[520px] flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
+      <section role="dialog" aria-modal="true" aria-labelledby="new-workspace-title" className="elevation-shadow-strong relative flex max-h-[92vh] w-full max-w-[520px] flex-col overflow-hidden rounded-2xl border border-border bg-popover text-popover-foreground">
         <header className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
           <div className="flex items-start gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-surface-low text-text-secondary">
@@ -323,13 +322,13 @@ function NewKnowledgeBaseModal({
             </div>
             <label className="block">
               <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.22em] text-text-muted">Name</span>
-              <input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g., Team knowledge" className="h-10 w-full rounded-xl border border-border bg-surface-low/40 px-3 text-sm text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50" />
+              <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g., Team knowledge" className="h-10 rounded-xl border-border bg-input-background text-sm text-foreground placeholder:text-text-muted dark:bg-input-background" />
             </label>
 
             <div />
             <label className="block">
               <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.22em] text-text-muted">Description</span>
-              <textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={4} maxLength={280} placeholder="What should agents find here?" className="min-h-[98px] w-full resize-none rounded-xl border border-border bg-surface-low/40 px-3 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50" />
+              <Textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={4} maxLength={280} placeholder="What should agents find here?" className="min-h-[98px] rounded-xl border-border bg-input-background py-3 text-sm text-foreground placeholder:text-text-muted dark:bg-input-background" />
               <span className="mt-1 block text-right text-[11px] text-text-muted">{description.length} chars</span>
             </label>
           </div>
@@ -363,13 +362,13 @@ function NewKnowledgeBaseModal({
         </div>
 
         <footer className="flex shrink-0 justify-end gap-2 border-t border-border px-6 py-4">
-          <button type="button" onClick={onClose} disabled={submitting} className="h-9 rounded-xl border border-border px-4 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-45">
+          <Button type="button" variant="outline" onClick={onClose} disabled={submitting} className="h-9 rounded-xl border-border bg-transparent px-4 text-text-secondary hover:bg-surface-low hover:text-foreground dark:border-border dark:bg-transparent dark:hover:bg-surface-low">
             Cancel
-          </button>
-          <button type="button" onClick={() => void handleCreate()} disabled={!canCreate} className="inline-flex h-9 items-center gap-2 rounded-xl bg-foreground px-4 text-sm font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-45">
+          </Button>
+          <Button type="button" onClick={() => void handleCreate()} disabled={!canCreate} className="h-9 rounded-xl px-4 font-semibold">
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             {submitting ? "Creating..." : "Create shared knowledge"}
-          </button>
+          </Button>
         </footer>
       </section>
     </div>
@@ -400,7 +399,7 @@ function EditKnowledgeBaseModal({ base, onClose, onSave }: { base: KnowledgeBase
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
       <button type="button" aria-label="Close edit shared knowledge" onClick={saving ? undefined : onClose} className="absolute inset-0 cursor-default bg-background/75 backdrop-blur-sm" />
-      <section role="dialog" aria-modal="true" aria-labelledby="edit-workspace-title" className="relative flex max-h-[92vh] w-full max-w-[520px] flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
+      <section role="dialog" aria-modal="true" aria-labelledby="edit-workspace-title" className="elevation-shadow-strong relative flex max-h-[92vh] w-full max-w-[520px] flex-col overflow-hidden rounded-2xl border border-border bg-popover text-popover-foreground">
         <header className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
           <div className="flex items-start gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-surface-low text-text-secondary">
@@ -418,22 +417,22 @@ function EditKnowledgeBaseModal({ base, onClose, onSave }: { base: KnowledgeBase
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
           <label className="block">
             <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.22em] text-text-muted">Name</span>
-            <input value={name} onChange={(event) => setName(event.target.value)} className="h-10 w-full rounded-xl border border-border bg-surface-low/40 px-3 text-sm text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50" />
+            <Input value={name} onChange={(event) => setName(event.target.value)} className="h-10 rounded-xl border-border bg-input-background text-sm text-foreground dark:bg-input-background" />
           </label>
           <label className="mt-5 block">
             <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.22em] text-text-muted">Description</span>
-            <textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={4} maxLength={280} className="min-h-[98px] w-full resize-none rounded-xl border border-border bg-surface-low/40 px-3 py-3 text-sm text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50" />
+            <Textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={4} maxLength={280} className="min-h-[98px] rounded-xl border-border bg-input-background py-3 text-sm text-foreground dark:bg-input-background" />
           </label>
           {error && <p role="alert" className="mt-4 text-[12px] text-destructive">{error}</p>}
         </div>
         <footer className="flex shrink-0 justify-end gap-2 border-t border-border px-6 py-4">
-          <button type="button" onClick={onClose} disabled={saving} className="h-9 rounded-xl border border-border px-4 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-45">
+          <Button type="button" variant="outline" onClick={onClose} disabled={saving} className="h-9 rounded-xl border-border bg-transparent px-4 text-text-secondary hover:bg-surface-low hover:text-foreground dark:border-border dark:bg-transparent dark:hover:bg-surface-low">
             Cancel
-          </button>
-          <button type="button" onClick={() => void handleSave()} disabled={!canSave} className="inline-flex h-9 items-center gap-2 rounded-xl bg-foreground px-4 text-sm font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-45">
+          </Button>
+          <Button type="button" onClick={() => void handleSave()} disabled={!canSave} className="h-9 rounded-xl px-4 font-semibold">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {saving ? "Saving..." : "Save"}
-          </button>
+          </Button>
         </footer>
       </section>
     </div>
@@ -481,15 +480,15 @@ function FileMetadataForm({
         <div className="min-w-0 space-y-3">
           <label className="block">
             <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">Display Name</span>
-            <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} disabled={readOnly} className="h-9 w-full rounded-lg border border-border bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-primary/50 disabled:cursor-default disabled:opacity-70" />
+            <Input value={displayName} onChange={(event) => setDisplayName(event.target.value)} disabled={readOnly} className="h-9 rounded-lg border-border bg-input-background text-[13px] text-foreground dark:bg-input-background disabled:cursor-default disabled:opacity-70" />
           </label>
           <label className="block">
             <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">Keywords</span>
-            <input value={keywords} onChange={(event) => setKeywords(event.target.value)} disabled={readOnly} placeholder="pricing, retention, onboarding" className="h-9 w-full rounded-lg border border-border bg-background px-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50 disabled:cursor-default disabled:opacity-70" />
+            <Input value={keywords} onChange={(event) => setKeywords(event.target.value)} disabled={readOnly} placeholder="pricing, retention, onboarding" className="h-9 rounded-lg border-border bg-input-background text-[13px] text-foreground placeholder:text-text-muted dark:bg-input-background disabled:cursor-default disabled:opacity-70" />
           </label>
           <label className="block">
             <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">Summary</span>
-            <textarea value={summary} onChange={(event) => setSummary(event.target.value)} disabled={readOnly} rows={3} className="min-h-[76px] w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-[13px] text-foreground outline-none transition-colors focus:border-primary/50 disabled:cursor-default disabled:opacity-70" />
+            <Textarea value={summary} onChange={(event) => setSummary(event.target.value)} disabled={readOnly} rows={3} className="min-h-[76px] rounded-lg border-border bg-input-background text-[13px] text-foreground dark:bg-input-background disabled:cursor-default disabled:opacity-70" />
           </label>
           {error && <p className="text-[12px] text-destructive">{error}</p>}
         </div>
@@ -502,10 +501,10 @@ function FileMetadataForm({
           {readOnly ? (
             <p className="mt-4 text-[11px] leading-relaxed text-text-muted">Contributor access is required to edit metadata.</p>
           ) : (
-            <button type="button" onClick={() => void handleSave()} disabled={!canSave} className="mt-4 inline-flex h-8 w-full items-center justify-center gap-2 rounded-lg bg-foreground px-3 text-[12px] font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-45">
+            <Button type="button" size="sm" onClick={() => void handleSave()} disabled={!canSave} className="mt-4 h-8 w-full rounded-lg px-3 text-[12px] font-semibold">
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
               Save Metadata
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -641,7 +640,7 @@ function WorkspaceFilesView({
     >
       {dragOver && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-background/70 backdrop-blur-[1px]">
-          <div className="rounded-xl border border-primary/40 bg-background px-4 py-3 text-[13px] font-medium text-foreground shadow-xl">
+          <div className="elevation-shadow-medium rounded-xl border border-[var(--selection-accent-border)] bg-popover px-4 py-3 text-[13px] font-medium text-popover-foreground">
             {currentPath ? `Drop files to upload to ${currentPath}` : "Drop files here to upload"}
           </div>
         </div>
@@ -821,10 +820,10 @@ function KnowledgeBaseCard({
   const canAdminister = workspaceCanAdminister(base.workspace);
 
   return (
-    <article className="overflow-hidden rounded-2xl border border-border bg-background/70 transition-colors hover:border-border-strong">
+    <article className="overflow-hidden rounded-2xl border border-border bg-card text-card-foreground transition-colors hover:border-border-strong">
       <div className="grid w-full gap-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
         <div className="flex min-w-0 items-center gap-3 text-left">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-surface-low text-text-secondary shadow-[0_1px_0_rgba(255,255,255,0.04)_inset]">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-surface-low text-text-secondary">
             <HardDrive className="h-4 w-4" />
           </div>
           <div className="min-w-0 flex-1">
@@ -1330,7 +1329,7 @@ export function SharedKnowledgePanel({
 
   return (
     <div className="min-h-full bg-background text-foreground">
-      <div className="mx-auto w-full max-w-[1200px]">
+      <div className="mx-auto w-full max-w-6xl">
         <div className="mb-7 space-y-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
@@ -1338,22 +1337,22 @@ export function SharedKnowledgePanel({
               <p className="mt-1 text-[13px] leading-snug text-text-muted">Durable files and generated Markdown that agents can reference across conversations.</p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <button type="button" onClick={() => {
+              <Button type="button" variant="outline" size="icon" onClick={() => {
                 if (onWorkspacesChanged) void onWorkspacesChanged();
                 else void loadWorkspacesRef.current(debouncedQueryRef.current);
                 void refreshSelectedWorkspaceAgents();
-              }} disabled={!workspaces || !ready || loading} aria-label="Refresh shared knowledge" className="flex h-9 w-9 items-center justify-center rounded-xl border border-border text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-50">
+              }} disabled={!workspaces || !ready || loading} aria-label="Refresh shared knowledge" className="h-9 w-9 rounded-xl border-border bg-transparent text-text-secondary hover:bg-surface-low hover:text-foreground dark:border-border dark:bg-transparent dark:hover:bg-surface-low">
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              </button>
-              <button type="button" onClick={() => setCreateOpen(true)} disabled={!workspaces || !ready || agentsLoading} className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl bg-foreground px-4 text-sm font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-45">
+              </Button>
+              <Button type="button" onClick={() => setCreateOpen(true)} disabled={!workspaces || !ready || agentsLoading} className="h-9 shrink-0 rounded-xl px-4 font-semibold">
                 <Plus className="h-4 w-4" /> New shared knowledge
-              </button>
+              </Button>
             </div>
           </div>
           <label className="relative block">
             <span className="sr-only">Search shared knowledge</span>
             <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search names, files, and metadata..." className="h-10 w-full rounded-xl border border-border bg-surface-low/35 pl-10 pr-4 text-sm text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50" />
+            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search names, files, and metadata..." className="h-10 rounded-xl border-border bg-input-background pl-10 pr-4 text-sm text-foreground placeholder:text-text-muted dark:bg-input-background" />
           </label>
           {(error || loadError || (workspaces ? connectionError : null)) && (
             <div role="alert" className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-[12px] text-destructive">

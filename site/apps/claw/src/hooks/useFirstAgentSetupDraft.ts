@@ -1,6 +1,10 @@
 "use client";
 
 import { useMemo, useSyncExternalStore } from "react";
+import {
+  parseOpenClawBootstrapDraft,
+  type OpenClawBootstrapDraft,
+} from "@/lib/openclaw-bootstrap-pack";
 
 export const FIRST_AGENT_SETUP_DRAFT_KEY = "hypercli-first-agent-draft";
 
@@ -9,6 +13,9 @@ const HELP_CATEGORIES = new Set(["General", "Research", "Support", "Sales", "Ops
 
 export interface FirstAgentSetupDraft {
   source: "first-agent-setup";
+  setupId: string;
+  principalId: string | null;
+  workspaceId: string | null;
   name: string;
   description: string;
   size: string | null;
@@ -19,10 +26,14 @@ export interface FirstAgentSetupDraft {
   enableMemoryIndex: boolean;
   enableCustomImage: boolean;
   customImage: string;
+  bootstrapDraft: OpenClawBootstrapDraft | null;
   updatedAt: number;
 }
 
-export type FirstAgentSetupDraftInput = Omit<FirstAgentSetupDraft, "source" | "updatedAt">;
+export type FirstAgentSetupDraftInput = Omit<
+  FirstAgentSetupDraft,
+  "source" | "updatedAt" | "setupId" | "principalId" | "workspaceId" | "bootstrapDraft"
+> & Partial<Pick<FirstAgentSetupDraft, "setupId" | "principalId" | "workspaceId" | "bootstrapDraft">>;
 
 let fallbackRawDraft: string | null = null;
 let volatileStorage = false;
@@ -31,6 +42,13 @@ function normalizeOptionalString(value: unknown, maxLength: number): string | nu
   if (typeof value !== "string") return null;
   const normalized = value.trim().slice(0, maxLength);
   return normalized || null;
+}
+
+function createFirstAgentSetupId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `setup-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export function parseFirstAgentSetupDraft(raw: string | null): FirstAgentSetupDraft | null {
@@ -45,8 +63,12 @@ export function parseFirstAgentSetupDraft(raw: string | null): FirstAgentSetupDr
       ? value.category
       : "General";
     const updatedAt = Number(value.updatedAt);
+    const normalizedUpdatedAt = Number.isFinite(updatedAt) ? updatedAt : 0;
     return {
       source: "first-agent-setup",
+      setupId: normalizeOptionalString(value.setupId, 100) ?? `legacy-${normalizedUpdatedAt}-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+      principalId: normalizeOptionalString(value.principalId, 100),
+      workspaceId: normalizeOptionalString(value.workspaceId, 100),
       name,
       description: normalizeOptionalString(value.description, 300) ?? "",
       size: normalizeOptionalString(value.size, 40),
@@ -57,7 +79,8 @@ export function parseFirstAgentSetupDraft(raw: string | null): FirstAgentSetupDr
       enableMemoryIndex: Boolean(value.enableMemoryIndex),
       enableCustomImage: Boolean(value.enableCustomImage),
       customImage: normalizeOptionalString(value.customImage, 500) ?? "",
-      updatedAt: Number.isFinite(updatedAt) ? updatedAt : 0,
+      bootstrapDraft: parseOpenClawBootstrapDraft(value.bootstrapDraft),
+      updatedAt: normalizedUpdatedAt,
     };
   } catch {
     return null;
@@ -113,8 +136,13 @@ export function readFirstAgentSetupDraft(): FirstAgentSetupDraft | null {
 
 export function writeFirstAgentSetupDraft(input: FirstAgentSetupDraftInput): void {
   if (typeof window === "undefined") return;
+  const existing = readFirstAgentSetupDraft();
   const raw = JSON.stringify({
     ...input,
+    setupId: normalizeOptionalString(input.setupId, 100) ?? existing?.setupId ?? createFirstAgentSetupId(),
+    principalId: normalizeOptionalString(input.principalId, 100) ?? existing?.principalId ?? null,
+    workspaceId: normalizeOptionalString(input.workspaceId, 100) ?? existing?.workspaceId ?? null,
+    bootstrapDraft: input.bootstrapDraft ?? existing?.bootstrapDraft ?? null,
     source: "first-agent-setup",
     updatedAt: Date.now(),
   });
@@ -123,11 +151,15 @@ export function writeFirstAgentSetupDraft(input: FirstAgentSetupDraftInput): voi
   writeFirstAgentSetupDraftRaw(JSON.stringify(draft));
 }
 
-export function updateFirstAgentSetupDraftPlan(planId: string): void {
+export function updateFirstAgentSetupDraftPlan(planId: string, size?: string | null): void {
   const draft = readFirstAgentSetupDraft();
   const normalizedPlanId = planId.trim();
   if (!draft || !normalizedPlanId) return;
-  writeFirstAgentSetupDraft({ ...draft, plan: normalizedPlanId });
+  writeFirstAgentSetupDraft({
+    ...draft,
+    plan: normalizedPlanId,
+    size: normalizeOptionalString(size, 40) ?? draft.size,
+  });
 }
 
 export function clearFirstAgentSetupDraft(): void {

@@ -1,13 +1,14 @@
 export const DASHBOARD_AGENTS_PATH = "/dashboard/agents";
 
-export type DashboardView = "overview" | "usage" | "settings";
+export type DashboardView = "overview" | "alt-home" | "usage" | "settings";
 
 export type DashboardSearchParams = Record<string, string | string[] | undefined>;
 
-const DASHBOARD_VIEWS = new Set<DashboardView>(["overview", "usage", "settings"]);
+const DASHBOARD_VIEWS = new Set<DashboardView>(["overview", "alt-home", "usage", "settings"]);
 
 export const DASHBOARD_VIEW_HREFS: Record<DashboardView, string> = {
   overview: `${DASHBOARD_AGENTS_PATH}?view=overview`,
+  "alt-home": `${DASHBOARD_AGENTS_PATH}?view=alt-home`,
   usage: `${DASHBOARD_AGENTS_PATH}?view=usage`,
   settings: `${DASHBOARD_AGENTS_PATH}?view=settings`,
 };

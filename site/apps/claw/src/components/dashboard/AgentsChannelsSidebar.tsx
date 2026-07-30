@@ -21,6 +21,7 @@ import {
   GripVertical,
   Loader2,
   HardDrive,
+  LayoutDashboard,
   BarChart3,
   UsersRound,
   House,
@@ -170,6 +171,9 @@ export interface AgentsChannelsSidebarProps {
   onOpenHome?: () => void;
   homeActive?: boolean;
   homeHref?: string;
+  onOpenAltHome?: () => void;
+  altHomeActive?: boolean;
+  altHomeHref?: string;
   onOpenSharedResources?: () => void;
   sharedResourcesActive?: boolean;
   sharedResourcesHref?: string;
@@ -2010,6 +2014,9 @@ function HandoffThreadView({
   onOpenHome,
   homeActive = false,
   homeHref = DASHBOARD_VIEW_HREFS.overview,
+  onOpenAltHome,
+  altHomeActive = false,
+  altHomeHref = DASHBOARD_VIEW_HREFS["alt-home"],
   onOpenSharedResources,
   sharedResourcesActive = false,
   sharedResourcesHref = "/dashboard/agents?section=knowledge",
@@ -2049,6 +2056,9 @@ function HandoffThreadView({
   onOpenHome?: () => void;
   homeActive?: boolean;
   homeHref?: string;
+  onOpenAltHome?: () => void;
+  altHomeActive?: boolean;
+  altHomeHref?: string;
   onOpenSharedResources?: () => void;
   sharedResourcesActive?: boolean;
   sharedResourcesHref?: string;
@@ -2332,6 +2342,14 @@ function HandoffThreadView({
           icon={House}
           mobileMode={mobileMode}
         />
+        <RosterNavigationItem
+          label="Alt home"
+          href={altHomeHref}
+          active={altHomeActive}
+          onOpen={onOpenAltHome}
+          icon={LayoutDashboard}
+          mobileMode={mobileMode}
+        />
       </div>
 
       <section className="agents-roster-administration mt-1 shrink-0" aria-label="Administration">
@@ -2339,7 +2357,7 @@ function HandoffThreadView({
           <span className="font-medium text-text-secondary">Administration</span>
         </div>
         <RosterNavigationItem
-          label="Shared resources"
+          label="Shared"
           href={sharedResourcesHref}
           active={sharedResourcesActive}
           onOpen={onOpenSharedResources}
@@ -2470,6 +2488,9 @@ export function AgentsChannelsSidebar({
   onOpenHome,
   homeActive,
   homeHref,
+  onOpenAltHome,
+  altHomeActive,
+  altHomeHref,
   onOpenSharedResources,
   sharedResourcesActive,
   sharedResourcesHref,
@@ -2552,6 +2573,9 @@ export function AgentsChannelsSidebar({
           onOpenHome={onOpenHome}
           homeActive={homeActive}
           homeHref={homeHref}
+          onOpenAltHome={onOpenAltHome}
+          altHomeActive={altHomeActive}
+          altHomeHref={altHomeHref}
           onOpenSharedResources={onOpenSharedResources}
           sharedResourcesActive={sharedResourcesActive}
           sharedResourcesHref={sharedResourcesHref}
@@ -2597,6 +2621,9 @@ export function AgentsChannelsSidebar({
           onOpenHome={onOpenHome}
           homeActive={homeActive}
           homeHref={homeHref}
+          onOpenAltHome={onOpenAltHome}
+          altHomeActive={altHomeActive}
+          altHomeHref={altHomeHref}
           onOpenSharedResources={onOpenSharedResources}
           sharedResourcesActive={sharedResourcesActive}
           sharedResourcesHref={sharedResourcesHref}

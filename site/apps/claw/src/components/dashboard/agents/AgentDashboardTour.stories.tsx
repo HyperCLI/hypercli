@@ -29,7 +29,8 @@ function TourPreview() {
       <AgentDashboardTour
         open={open}
         onOpenChange={setOpen}
-        onStartCreating={() => setOpen(false)}
+        onSkipTour={() => setOpen(false)}
+        onCreateAccount={() => setOpen(false)}
       />
     </main>
   );

@@ -38,7 +38,7 @@ export function didAnyAgentFinishStopping(
   ));
 }
 
-export function toAgentViewModel(agent: SdkAgent): Agent {
+export function toAgentViewModel(agent: SdkAgent, avatarUrlOverride?: string | null): Agent {
   const managed = agent.managed ?? null;
   const canonicalName = agent.name?.trim() || agent.podName?.trim() || agent.id;
   return {
@@ -48,7 +48,7 @@ export function toAgentViewModel(agent: SdkAgent): Agent {
     displayName: managed === false
       ? agent.displayName?.trim() || canonicalName
       : agent.handle?.trim() || canonicalName,
-    avatarUrl: agent.avatarUrl ?? null,
+    avatarUrl: avatarUrlOverride === undefined ? agent.avatarUrl ?? null : avatarUrlOverride,
     displayIdentity: agent.displayIdentity ?? null,
     managed,
     runtime: agent.runtime ?? null,

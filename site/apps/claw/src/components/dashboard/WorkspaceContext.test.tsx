@@ -28,6 +28,18 @@ const discoveredWorkspace = {
   slug: "discovered-workspace",
 };
 
+const personalWorkspace = {
+  ...teamWorkspace,
+  id: "workspace-personal",
+  name: "Personal Workspace",
+  slug: "personal-workspace",
+};
+
+const replacementPersonalWorkspace = {
+  ...personalWorkspace,
+  id: "workspace-personal-replacement",
+};
+
 function workspaceAgent(agentId: string, workspaceId = teamWorkspace.id) {
   return {
     workspaceId,
@@ -47,6 +59,7 @@ const mocks = vi.hoisted(() => ({
   createWorkspacesClient: vi.fn(),
   client: {
     list: vi.fn(),
+    get: vi.fn(),
     listAgents: vi.fn(),
     listGrants: vi.fn(),
     create: vi.fn(),
@@ -93,6 +106,7 @@ function WorkspaceConsumer() {
     error,
     selectWorkspace,
     createWorkspace,
+    refreshWorkspaces,
     refreshSelectedWorkspaceAgents,
     associateAgentWithSelectedWorkspace,
   } = useWorkspace();
@@ -111,6 +125,7 @@ function WorkspaceConsumer() {
       <button type="button" onClick={() => selectWorkspace("workspace-product")}>Select product</button>
       <button type="button" onClick={() => selectWorkspace(discoveredWorkspace.id, discoveredWorkspace)}>Select discovered</button>
       <button type="button" onClick={() => { void createWorkspace({ name: "Product Operations" }).catch(() => undefined); }}>Create product</button>
+      <button type="button" onClick={() => { void refreshWorkspaces(); }}>Refresh Workspaces</button>
       <button type="button" onClick={() => { void refreshSelectedWorkspaceAgents(); }}>Refresh agents</button>
       <button
         type="button"
@@ -145,6 +160,7 @@ describe("WorkspaceProvider", () => {
     mocks.auth.user = { id: "user-1" };
     mocks.createWorkspacesClient.mockReturnValue(mocks.client);
     mocks.client.list.mockResolvedValue([teamWorkspace, productWorkspace]);
+    mocks.client.get.mockResolvedValue(personalWorkspace);
     mocks.client.listAgents.mockResolvedValue([]);
     mocks.client.listGrants.mockResolvedValue([]);
     mocks.client.create.mockResolvedValue(productWorkspace);
@@ -345,6 +361,75 @@ describe("WorkspaceProvider", () => {
     fireEvent.click(screen.getByRole("button", { name: "Select team" }));
     expect(screen.getByTestId("workspace-state")).toHaveTextContent("Team Knowledge");
     expect(window.localStorage.getItem("claw.selectedWorkspace.v1:user-1")).toBe("workspace-team");
+  });
+
+  it("creates and selects a Personal Workspace when the account has none", async () => {
+    mocks.client.list.mockResolvedValue([]);
+    mocks.client.create.mockResolvedValue({ ...personalWorkspace, role: null });
+
+    renderProvider();
+
+    await waitFor(() => expect(screen.getByTestId("workspace-state")).toHaveTextContent("Personal Workspace"));
+    expect(mocks.client.create).toHaveBeenCalledOnce();
+    expect(mocks.client.create).toHaveBeenCalledWith({ name: "Personal Workspace" });
+    expect(mocks.client.get).toHaveBeenCalledWith("workspace-personal");
+    expect(screen.getByTestId("workspace-count")).toHaveTextContent("1");
+    expect(window.localStorage.getItem("claw.selectedWorkspace.v1:user-1")).toBe("workspace-personal");
+    await waitFor(() => expect(mocks.client.listAgents).toHaveBeenCalledWith("workspace-personal"));
+  });
+
+  it("uses a concurrently created Workspace when Personal Workspace creation conflicts", async () => {
+    mocks.client.list
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([teamWorkspace, personalWorkspace]);
+    mocks.client.create.mockRejectedValue(Object.assign(new Error("Workspace already exists"), { statusCode: 409 }));
+
+    renderProvider();
+
+    await waitFor(() => expect(screen.getByTestId("workspace-state")).toHaveTextContent("Personal Workspace"));
+    expect(mocks.client.create).toHaveBeenCalledWith({ name: "Personal Workspace" });
+    expect(mocks.client.list).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("workspace-count")).toHaveTextContent("2");
+    expect(window.localStorage.getItem("claw.selectedWorkspace.v1:user-1")).toBe("workspace-personal");
+  });
+
+  it("waits for a stable principal before provisioning Personal Workspace", async () => {
+    mocks.auth.user = null;
+    mocks.client.list.mockResolvedValue([]);
+    mocks.client.create.mockResolvedValue({ ...personalWorkspace, role: null });
+
+    const view = renderProvider();
+    await act(async () => { await Promise.resolve(); });
+    expect(mocks.auth.getToken).not.toHaveBeenCalled();
+    expect(mocks.client.create).not.toHaveBeenCalled();
+
+    mocks.auth.user = { id: "user-1" };
+    view.rerender(
+      <WorkspaceProvider>
+        <WorkspaceConsumer />
+      </WorkspaceProvider>,
+    );
+
+    await waitFor(() => expect(mocks.client.create).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.getByTestId("workspace-state")).toHaveTextContent("Personal Workspace"));
+  });
+
+  it("provisions a replacement after the last Workspace is deleted", async () => {
+    mocks.client.list.mockResolvedValue([]);
+    mocks.client.create
+      .mockResolvedValueOnce({ ...personalWorkspace, role: null })
+      .mockResolvedValueOnce({ ...replacementPersonalWorkspace, role: null });
+    mocks.client.get.mockImplementation(async (workspaceId: string) => (
+      workspaceId === replacementPersonalWorkspace.id ? replacementPersonalWorkspace : personalWorkspace
+    ));
+
+    renderProvider();
+    await waitFor(() => expect(window.localStorage.getItem("claw.selectedWorkspace.v1:user-1")).toBe("workspace-personal"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh Workspaces" }));
+
+    await waitFor(() => expect(mocks.client.create).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(window.localStorage.getItem("claw.selectedWorkspace.v1:user-1")).toBe("workspace-personal-replacement"));
   });
 
   it("refreshes the catalog and selects a newly created Workspace", async () => {

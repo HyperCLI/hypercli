@@ -33,6 +33,10 @@ export interface PendingPlanCheckout {
   returnSessionId?: string;
   bundle?: SlotBundle;
   baselineGrantedSlots?: Record<string, number>;
+  flow?: "first-agent-setup";
+  setupId?: string;
+  workspaceId?: string;
+  agentSize?: string;
 }
 
 export interface StripeCheckoutReturnState {
@@ -79,6 +83,16 @@ export function readPendingPlanCheckout(expectedPrincipalId?: string | null): Pe
                 .filter(([, count]) => Number.isFinite(count)),
             ),
           }
+        : {}),
+      ...(parsed.flow === "first-agent-setup" ? { flow: parsed.flow } : {}),
+      ...(typeof parsed.setupId === "string" && parsed.setupId.trim()
+        ? { setupId: parsed.setupId.trim().slice(0, 100) }
+        : {}),
+      ...(typeof parsed.workspaceId === "string" && parsed.workspaceId.trim()
+        ? { workspaceId: parsed.workspaceId.trim().slice(0, 100) }
+        : {}),
+      ...(typeof parsed.agentSize === "string" && parsed.agentSize.trim()
+        ? { agentSize: parsed.agentSize.trim().slice(0, 40) }
         : {}),
     };
   } catch {

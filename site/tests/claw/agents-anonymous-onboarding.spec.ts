@@ -28,7 +28,7 @@ const planResponse = {
   }],
 };
 
-test("gates the Free plan launch without opening the paid catalog", async ({ page }) => {
+test("rotates agent sections and requires sign in before creation", async ({ page }) => {
   const forbiddenRequests: string[] = [];
   page.on("request", (request) => {
     if (!["fetch", "xhr"].includes(request.resourceType())) return;
@@ -51,35 +51,38 @@ test("gates the Free plan launch without opening the paid catalog", async ({ pag
   await expect(page.getByRole("heading", { name: "Build a teammate, not another chat window." })).toBeVisible();
   await expect(page.getByRole("dialog", { name: "Launch agent" })).toHaveCount(0);
   await page.getByRole("button", { name: "Skip tour" }).click();
-  await expect(page.getByRole("heading", { name: "Create agent" })).toBeVisible();
   await expect(page.getByRole("dialog", { name: "A quick tour of your agent workspace" })).toHaveCount(0);
-  const optionalSettings = page.locator("details").filter({ hasText: "Advanced" });
-  await expect(optionalSettings).not.toHaveAttribute("open", "");
-  await expect(page.getByText("What does it help with?")).toHaveCount(0);
-  await optionalSettings.locator("summary").click();
-  await expect(page.getByText("Desktop browser")).toBeVisible();
-  const identityBody = page
-    .getByRole("heading", { name: "Create agent" })
-    .locator("xpath=ancestor::section")
-    .locator('[data-slot="agent-setup-scroll-body"]');
-  const identityGeometry = await identityBody.evaluate((element) => ({
-    horizontalContentFits: element.scrollWidth <= element.clientWidth,
-    overflowY: getComputedStyle(element).overflowY,
-  }));
-  expect(identityGeometry.horizontalContentFits).toBe(true);
-  expect(identityGeometry.overflowY).toBe("auto");
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await page.getByRole("button", { name: "Continue" }).click();
-  await expect(page.getByRole("heading", { name: "Set up the workspace" })).toBeVisible();
-  await page.getByRole("button", { name: "Continue" }).click();
-  await page.getByRole("button", { name: "View plan" }).last().click();
+  await expect(page.getByRole("heading", { name: "Create agent" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: /Sign in to/ })).toHaveCount(0);
+  await expect(page.locator("[data-agent-launch-surface]")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Your business, one chat" })).toBeVisible();
+  await expect(page.locator(".agent-desktop-navigation")).toHaveAttribute("data-expanded-section", "workspace");
 
-  await expect(page.getByRole("heading", { name: "Sign in to launch your agent" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Upgrade plan" })).not.toBeVisible();
+  await expect(page.getByRole("heading", { name: "Your files, working for you" })).toBeVisible({ timeout: 12_000 });
+  await page.getByRole("button", { name: "Integrations", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Your stack, unified" })).toBeVisible();
+  await page.waitForTimeout(15_500);
+  await expect(page.getByRole("heading", { name: "Your stack, unified" })).toBeVisible();
+  await page.getByRole("button", { name: "Skills", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Your expertise, reusable" })).toBeVisible();
+  await page.getByRole("button", { name: "Scheduled", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Work that keeps moving" })).toBeVisible();
+  await page.getByRole("button", { name: "Desktop", exact: true }).click();
+  const desktopPreview = page.getByRole("heading", { name: "A browser built for action" }).locator("xpath=..");
+  await expect(desktopPreview).toBeVisible();
+  await desktopPreview.getByRole("button", { name: "Launch agent", exact: true }).click();
+  await expect(page.locator("#privy-modal-content")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Create agent", includeHidden: true })).toHaveCount(0);
+  await expect(page.locator("[data-agent-launch-surface]")).toHaveCount(0);
+  await page.locator("#privy-modal-content").getByRole("button", { name: "close modal" }).click();
+  await expect(page.locator("#privy-modal-content")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "A browser built for action" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Create agent" })).toHaveCount(0);
+  await expect(page.locator("[data-agent-launch-surface]")).toHaveCount(0);
   expect(forbiddenRequests).toEqual([]);
 });
 
-test("uses the existing dashboard wizard and gates checkout for anonymous visitors", async ({ page }) => {
+test("opens login and signup directly after completing the tour", async ({ page }) => {
   const forbiddenRequests: string[] = [];
   page.on("request", (request) => {
     if (!["fetch", "xhr"].includes(request.resourceType())) return;
@@ -106,21 +109,17 @@ test("uses the existing dashboard wizard and gates checkout for anonymous visito
   await expect(page.getByRole("heading", { name: "Start with a purpose. Add knowledge as you go." })).toBeVisible();
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("heading", { name: "Choose capacity, then put your agent to work." })).toBeVisible();
-  await page.getByRole("button", { name: "Create my agent" }).click();
-  await expect(page.getByRole("heading", { name: "Create agent" })).toBeVisible();
-  await page.getByRole("button", { name: "Continue" }).click();
-  await expect(page.getByRole("heading", { name: "Set up the workspace" })).toBeVisible();
-  await page.getByRole("button", { name: "Continue" }).click();
-  await expect(page.getByRole("heading", { name: "Choose your plan" })).toBeVisible();
-  await page.getByRole("button", { name: "View plan" }).last().click();
-  await expect(page.getByRole("heading", { name: "Upgrade plan" })).toBeVisible();
-  await page.getByRole("button", { name: /Upgrade to Pro|Select plan/ }).click();
-  await expect(page.getByRole("heading", { name: "Sign in to continue to checkout" })).toBeVisible();
+  await page.getByRole("button", { name: "Create my account" }).click();
+  await expect(page.locator("#privy-modal-content")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Create agent" })).toHaveCount(0);
+  await page.locator("#privy-modal-content").getByRole("button", { name: "close modal" }).click();
+  await expect(page.locator("#privy-modal-content")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Create agent" })).toHaveCount(0);
   await expect(page).toHaveURL(/\/dashboard\/agents/);
   expect(forbiddenRequests).toEqual([]);
 });
 
-test("keeps one launcher and its draft across viewport changes", async ({ page }) => {
+test("returns to the rotating preview when the tour is dismissed", async ({ page }) => {
   await page.route("**/*", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -133,17 +132,21 @@ test("keeps one launcher and its draft across viewport changes", async ({ page }
 
   await page.goto("/dashboard/agents?plan=pro");
   await expect(page.getByRole("heading", { name: "Build a teammate, not another chat window." })).toBeVisible();
-  await page.getByRole("button", { name: "Skip tour" }).click();
-  const nameInput = page.getByLabel("Agent name");
-  await nameInput.fill("viewport-pilot");
+  await page.getByRole("button", { name: "Close agent tour" }).click();
+  const chatPreview = page.getByRole("heading", { name: "Your business, one chat" }).locator("xpath=..");
+  await expect(chatPreview).toBeVisible();
+  await expect(page.locator("[data-agent-launch-surface]")).toHaveCount(0);
+  await chatPreview.getByRole("button", { name: "Launch agent" }).click();
+  await expect(page.locator("#privy-modal-content")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Create agent" })).toHaveCount(0);
 
   await page.setViewportSize({ width: 390, height: 844 });
 
-  await expect(page.getByRole("heading", { name: "Create agent" })).toHaveCount(1);
-  await expect(page.getByLabel("Agent name")).toHaveValue("viewport-pilot");
+  await expect(page.locator("#privy-modal-content")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Create agent" })).toHaveCount(0);
 });
 
-test("opens agent creation from the signed-out trial action", async ({ page }) => {
+test("routes trial and roster agent creation actions through authentication", async ({ page }) => {
   await page.route("**/*", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -156,27 +159,22 @@ test("opens agent creation from the signed-out trial action", async ({ page }) =
 
   await page.goto("/dashboard/agents");
   await page.getByRole("button", { name: "Close agent tour" }).click();
-  const launchSurface = page.locator("[data-agent-launch-surface]");
-  await expect(launchSurface).toHaveCount(1);
-  const initialSurfaceBox = await launchSurface.boundingBox();
-  expect(initialSurfaceBox).not.toBeNull();
   const startTrial = page.getByRole("button", { name: "Start free trial" });
   await expect(startTrial).toBeVisible();
   await startTrial.click();
 
-  await expect(page.getByRole("heading", { name: "Create agent" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Upgrade plan" })).not.toBeVisible();
-  await expect(launchSurface).toHaveCount(1);
-  await page.waitForTimeout(500);
-  const wizardSurfaceBox = await launchSurface.boundingBox();
-  expect(wizardSurfaceBox).not.toBeNull();
-  expect(Math.abs((wizardSurfaceBox?.width ?? 0) - (initialSurfaceBox?.width ?? 0))).toBeLessThan(1);
-  expect(Math.abs((wizardSurfaceBox?.height ?? 0) - (initialSurfaceBox?.height ?? 0))).toBeLessThan(1);
-  expect(Math.abs((wizardSurfaceBox?.x ?? 0) - (initialSurfaceBox?.x ?? 0))).toBeLessThan(1);
-  expect(Math.abs((wizardSurfaceBox?.y ?? 0) - (initialSurfaceBox?.y ?? 0))).toBeLessThan(1);
+  await expect(page.locator("#privy-modal-content")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Create agent" })).toHaveCount(0);
+  await page.locator("#privy-modal-content").getByRole("button", { name: "close modal" }).click();
+  await expect(page.locator("#privy-modal-content")).toHaveCount(0);
+
+  const roster = page.locator(".agents-roster-shell");
+  await roster.getByRole("button", { name: "Launch agent" }).click();
+  await expect(page.locator("#privy-modal-content")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Create agent" })).toHaveCount(0);
 });
 
-test("replaces first-time creation with a saved anonymous agent launch", async ({ page }) => {
+test("keeps a saved draft private until authentication", async ({ page }) => {
   await page.addInitScript(() => {
     window.sessionStorage.setItem("hypercli-first-agent-draft", JSON.stringify({
       source: "first-agent-setup",
@@ -203,11 +201,69 @@ test("replaces first-time creation with a saved anonymous agent launch", async (
 
   await page.goto("/dashboard/agents");
 
-  await expect(page.getByRole("heading", { name: "Your agent has a head start." })).toBeVisible();
-  await expect(page.getByText("night-ops-pilot.hypercli.com")).toBeVisible();
-  await expect(page.getByText("Browser ready")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Build a teammate, not another chat window." })).toHaveCount(0);
+  const chatPreview = page.getByRole("heading", { name: "Your business, one chat" }).locator("xpath=..");
+  await expect(chatPreview).toBeVisible();
+  await expect(page.locator("[data-agent-launch-surface]")).toHaveCount(0);
+  await expect(page.locator('[data-slot="saved-agent-draft-summary"]')).toHaveCount(0);
+  await expect(page.getByText("night-ops-pilot.hypercli.com")).toHaveCount(0);
+  await chatPreview.getByRole("button", { name: "Launch agent" }).click();
+  await expect(page.locator("#privy-modal-content")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Create agent" })).toHaveCount(0);
+  expect(await page.evaluate(() => window.sessionStorage.getItem("hypercli-first-agent-draft"))).toContain("night-ops-pilot");
+});
 
-  await page.getByRole("button", { name: /Finish the launch/i }).click();
-  await expect(page.getByRole("heading", { name: "Choose your plan" })).toBeVisible();
+test("routes New Workspace through authentication", async ({ page }) => {
+  await page.route("**/*", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    if (request.resourceType() === "fetch" && request.method() === "GET" && path.endsWith("/plans")) {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(planResponse) });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.goto("/dashboard/agents");
+  await page.getByRole("button", { name: "Close agent tour" }).click();
+  await page.locator(".agent-desktop-navigation").getByRole("button", { name: /Current workspace:/ }).click();
+  const newWorkspace = page.getByRole("menuitem", { name: /New Workspace/ });
+  await expect(newWorkspace).toBeEnabled();
+  await newWorkspace.click();
+
+  await expect(page.locator("#privy-modal-content")).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "New Workspace" })).toHaveCount(0);
+});
+
+test("keeps a saved anonymous draft while Skip tour opens the dashboard preview", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.sessionStorage.setItem("hypercli-first-agent-draft", JSON.stringify({
+      source: "first-agent-setup",
+      name: "saved-preview-pilot",
+      iconIndex: 11,
+      category: "Ops",
+      plan: "pro",
+      size: "large",
+      enableDesktop: true,
+      enableMemoryIndex: true,
+      enableCustomImage: false,
+      customImage: "",
+    }));
+  });
+  await page.route("**/*", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    if (request.resourceType() === "fetch" && request.method() === "GET" && path.endsWith("/plans")) {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(planResponse) });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.goto("/dashboard/agents?open=agent-launcher");
+  await page.getByRole("button", { name: "Skip tour" }).click();
+
+  await expect(page.getByRole("heading", { name: "Your business, one chat" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Your agent has a head start." })).toHaveCount(0);
+  await expect(page.locator("[data-agent-launch-surface]")).toHaveCount(0);
+  expect(await page.evaluate(() => window.sessionStorage.getItem("hypercli-first-agent-draft"))).toContain("saved-preview-pilot");
 });

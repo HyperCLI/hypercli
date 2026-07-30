@@ -579,7 +579,7 @@ export default function DevAgentSetupAgentsPage() {
   useEffect(() => { fetchAgents(); }, [fetchAgents]);
 
   const agents = useMemo(
-    () => agentDataPrincipalId === user?.id ? sdkAgents.map(toAgentViewModel) : [],
+    () => agentDataPrincipalId === user?.id ? sdkAgents.map((agent) => toAgentViewModel(agent)) : [],
     [agentDataPrincipalId, sdkAgents, user?.id],
   );
   const updateAgentCanonicalName = useCallback(async (agentId: string, name: string) => {

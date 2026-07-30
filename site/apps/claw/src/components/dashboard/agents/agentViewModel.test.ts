@@ -68,6 +68,14 @@ describe("agentViewModel", () => {
     ])).toBe(false);
   });
 
+  it("applies presentation avatar overrides without changing the SDK agent", () => {
+    const sdkAgent = buildSdkAgent({ avatarUrl: "https://cdn.example.test/original.png" });
+
+    expect(toAgentViewModel(sdkAgent, "blob:fresh-avatar").avatarUrl).toBe("blob:fresh-avatar");
+    expect(toAgentViewModel(sdkAgent, null).avatarUrl).toBeNull();
+    expect(sdkAgent.avatarUrl).toBe("https://cdn.example.test/original.png");
+  });
+
   it("preserves distinct names and explicit management provenance", () => {
     const mapped = toAgentViewModel(buildSdkAgent({
       name: "research-agent",

@@ -8,7 +8,7 @@ import { isAgentFailureState, isAgentTransitionalState } from "@/app/dashboard/a
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import { agentAvatar, agentProfileImageUrl } from "@/lib/avatar";
 import { ResourceImage } from "@/components/ResourceImage";
-import { AgentEmptyState, AgentIntegrationsEmptyState, AgentSkillsEmptyState, LaunchFirstAgentEmptyState } from "@/components/dashboard/agents/AgentPanels";
+import { AgentDesktopEmptyState, AgentEmptyState, AgentFilesEmptyState, AgentIntegrationsEmptyState, AgentScheduledEmptyState, AgentSkillsEmptyState, LaunchFirstAgentEmptyState } from "@/components/dashboard/agents/AgentPanels";
 import { AgentLaunchPrompt, AgentLoadingState, AgentStatusChip, ConnectionStatusIndicator, type AgentStatusChipModel, type CenterPanel } from "@/components/dashboard/agents/page-helpers";
 import type { ShellStatus } from "@/hooks/useAgentShell";
 import type { SlotInventory } from "@/lib/format";
@@ -22,6 +22,8 @@ interface AgentMainPanelProps {
   mobileShowChat: boolean;
   selectedAgent: Agent | null;
   isAuthenticated?: boolean;
+  showAgentlessSectionPreviews?: boolean;
+  showAgentlessDesktopPreview?: boolean;
   hasAgents?: boolean;
   loadingInitialAgents?: boolean;
   isSelectedRunning: boolean;
@@ -78,6 +80,8 @@ export function AgentMainPanel({
   mobileShowChat,
   selectedAgent,
   isAuthenticated = true,
+  showAgentlessSectionPreviews = false,
+  showAgentlessDesktopPreview = false,
   hasAgents = false,
   loadingInitialAgents = false,
   isSelectedRunning,
@@ -382,6 +386,46 @@ export function AgentMainPanel({
           {persistentPanelContent}
           <div className="relative z-20 flex min-h-0 flex-1 bg-background">{launcherContent}</div>
         </div>
+      ) : !selectedAgent && (!isAuthenticated || showAgentlessSectionPreviews) ? (
+        <div className="flex-1 min-h-0">
+          {showAgentlessDesktopPreview ? (
+            <AgentDesktopEmptyState
+              onCreate={onCreate}
+              onLaunchAction={onCreate}
+              launchLabel="Launch agent"
+            />
+          ) : currentPanel === "files" ? (
+            <AgentFilesEmptyState
+              onCreate={onCreate}
+              onLaunchAction={onCreate}
+              launchLabel="Launch agent"
+            />
+          ) : currentPanel === "integrations" ? (
+            <AgentIntegrationsEmptyState
+              onCreate={onCreate}
+              onLaunchAction={onCreate}
+              launchLabel="Launch agent"
+            />
+          ) : currentPanel === "skills" ? (
+            <AgentSkillsEmptyState
+              onCreate={onCreate}
+              onLaunchAction={onCreate}
+              launchLabel="Launch agent"
+            />
+          ) : currentPanel === "scheduled" ? (
+            <AgentScheduledEmptyState
+              onCreate={onCreate}
+              onLaunchAction={onCreate}
+              launchLabel="Launch agent"
+            />
+          ) : (
+            <AgentEmptyState
+              onCreate={onCreate}
+              onLaunchAction={onCreate}
+              launchLabel="Launch agent"
+            />
+          )}
+        </div>
       ) : !selectedAgent && (currentPanel === "knowledge" || currentPanel === "members") ? (
         <div className="flex-1 min-h-0">{panelContent}</div>
       ) : loadingInitialAgents && !selectedAgent ? (
@@ -417,7 +461,6 @@ export function AgentMainPanel({
           creationDisabledReason={creationDisabledReason}
           onCreateWorkspace={onCreateWorkspace}
           onOpenMembers={onOpenMembers}
-          showTrialOffer={!isAuthenticated}
         />
       ) : (
         <>

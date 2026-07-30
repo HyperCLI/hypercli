@@ -39,6 +39,7 @@ import {
 } from "@/components/dashboard/agents/chat-boot-stage";
 import { agentDisplayLabel } from "@/components/dashboard/agents/agentViewModel";
 import { agentProfileImageUrl } from "@/lib/avatar";
+import { AgentChatComposerShell } from "@/components/dashboard/agents/AgentChatComposerShell";
 
 export type { ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
 export type ChatPendingFileRemovalState = "removing" | "failed";
@@ -1464,9 +1465,8 @@ export function AgentChatPanel({
                   </TooltipHint>
                 </>
               ) : (
-                <div className="relative flex-1 min-w-0">
-                  <textarea
-                    ref={textareaRef}
+                <AgentChatComposerShell
+                    inputRef={textareaRef}
                     aria-label="Message agent"
                     value={chat.input}
                     onChange={(e) => {
@@ -1620,8 +1620,8 @@ export function AgentChatPanel({
                     rows={1}
                     placeholder={composerPlaceholder}
                     disabled={composerDisabled}
-                    className={`w-full resize-none bg-surface-low border border-border rounded-3xl pl-5 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden ${composerRightPadding} ${composerMinHeight}`}
-                  />
+                    inputClassName={`disabled:opacity-50 ${composerRightPadding} ${composerMinHeight}`}
+                  >
                   {slashMenuOpen ? (
                     <AgentSlashCommandMenu
                       ref={slashCommandMenuRef}
@@ -1792,7 +1792,7 @@ export function AgentChatPanel({
                       }
                     }}
                   />
-                </div>
+                </AgentChatComposerShell>
               )}
             </div>
           </div>

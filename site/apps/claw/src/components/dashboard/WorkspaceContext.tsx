@@ -21,6 +21,7 @@ import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { createWorkspacesClient } from "@/lib/agent-client";
 
 const WORKSPACE_SELECTION_STORAGE_PREFIX = "claw.selectedWorkspace.v1";
+const PERSONAL_WORKSPACE_NAME = "Personal Workspace";
 const EMPTY_WORKSPACES: Workspace[] = [];
 const EMPTY_AGENT_IDS: readonly string[] = [];
 
@@ -116,6 +117,19 @@ function describeWorkspaceError(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
+async function confirmPersonalWorkspace(client: WorkspacesAPI, candidate: Workspace): Promise<Workspace> {
+  try {
+    const confirmed = await client.get(candidate.id);
+    if (confirmed.role === "admin") return confirmed;
+  } catch {
+    // A catalog refresh below also handles delayed read-after-write visibility.
+  }
+  const listed = await client.list();
+  const confirmed = listed.find((workspace) => workspace.id === candidate.id);
+  if (confirmed?.role === "admin") return confirmed;
+  throw new Error("Personal Workspace was created, but admin access is not ready. Refresh Workspaces to retry.");
+}
+
 function workspaceErrorStatus(error: unknown): number | null {
   if (!error || typeof error !== "object" || !("statusCode" in error)) return null;
   return typeof error.statusCode === "number" ? error.statusCode : null;
@@ -189,10 +203,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   });
   const listRequestRef = useRef(0);
   const agentRosterRequestRef = useRef(0);
+  const personalWorkspaceCreationRef = useRef<{
+    principalId: string;
+    client: WorkspacesAPI;
+    promise: Promise<Workspace>;
+  } | null>(null);
 
   const connectionIsCurrent = connection.principalId === principalId && connection.tokenGetter === getToken;
-  const workspacesClient = !authLoading && isAuthenticated && connectionIsCurrent ? connection.client : null;
-  const connectionError = !authLoading && isAuthenticated && connectionIsCurrent ? connection.error : null;
+  const workspacesClient = !authLoading && isAuthenticated && principalId && connectionIsCurrent ? connection.client : null;
+  const connectionError = !authLoading && isAuthenticated && principalId && connectionIsCurrent ? connection.error : null;
   const catalogIsCurrent = Boolean(workspacesClient && catalog.client === workspacesClient);
   const workspaces = catalogIsCurrent ? catalog.workspaces : EMPTY_WORKSPACES;
   const selectedWorkspaceId = selection.principalId === principalId
@@ -228,7 +247,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    if (authLoading || !isAuthenticated) return () => { cancelled = true; };
+    if (authLoading || !isAuthenticated || !principalId) return () => { cancelled = true; };
 
     const timeout = window.setTimeout(() => {
       setConnection({ principalId, tokenGetter: getToken, client: null, error: null });
@@ -263,6 +282,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const refreshWorkspaces = useCallback(async (preferredWorkspaceId?: string | null) => {
     if (
       !workspacesClient
+      || !principalId
       || activeConnectionRef.current.client !== workspacesClient
       || activeConnectionRef.current.principalId !== principalId
     ) return false;
@@ -275,17 +295,55 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }));
 
     try {
-      const listed = await workspacesClient.list();
+      let selectionPreference = preferredWorkspaceId;
+      let listed = await workspacesClient.list();
       if (
         requestId !== listRequestRef.current
         || activeConnectionRef.current.client !== workspacesClient
         || activeConnectionRef.current.principalId !== principalId
       ) return false;
+      if (listed.length === 0 && !preferredWorkspaceId) {
+        const existingCreation = personalWorkspaceCreationRef.current;
+        const creationPromise = existingCreation?.principalId === principalId
+          && existingCreation.client === workspacesClient
+          ? existingCreation.promise
+          : workspacesClient
+              .create({ name: PERSONAL_WORKSPACE_NAME })
+              .then((created) => confirmPersonalWorkspace(workspacesClient, created));
+        personalWorkspaceCreationRef.current = {
+          principalId,
+          client: workspacesClient,
+          promise: creationPromise,
+        };
+        try {
+          listed = [await creationPromise];
+          selectionPreference = listed[0].id;
+        } catch (cause) {
+          if (workspaceErrorStatus(cause) !== 409) throw cause;
+          const recovered = await workspacesClient.list();
+          const personalWorkspace = recovered.find((workspace) => workspace.name === PERSONAL_WORKSPACE_NAME);
+          if (!personalWorkspace) throw cause;
+          const confirmed = personalWorkspace.role === "admin"
+            ? personalWorkspace
+            : await confirmPersonalWorkspace(workspacesClient, personalWorkspace);
+          listed = recovered.map((workspace) => workspace.id === confirmed.id ? confirmed : workspace);
+          selectionPreference = confirmed.id;
+        } finally {
+          if (personalWorkspaceCreationRef.current?.promise === creationPromise) {
+            personalWorkspaceCreationRef.current = null;
+          }
+        }
+        if (
+          requestId !== listRequestRef.current
+          || activeConnectionRef.current.client !== workspacesClient
+          || activeConnectionRef.current.principalId !== principalId
+        ) return false;
+      }
       setCatalog({ client: workspacesClient, workspaces: listed, loading: false, error: null });
       setSelection((current) => {
         const currentWorkspaceId = current.principalId === principalId ? current.workspaceId : null;
         const storedWorkspaceId = readStoredSelection(principalId);
-        const nextWorkspaceId = [preferredWorkspaceId, currentWorkspaceId, storedWorkspaceId]
+        const nextWorkspaceId = [selectionPreference, currentWorkspaceId, storedWorkspaceId]
           .find((workspaceId): workspaceId is string => Boolean(
             workspaceId && listed.some((workspace) => workspace.id === workspaceId),
           )) ?? listed[0]?.id ?? null;

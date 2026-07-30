@@ -20,7 +20,6 @@ vi.mock("@/components/dashboard/agents/AgentPanels", () => {
     creationDisabledReason?: string | null;
     onCreateWorkspace?: () => void;
     onOpenMembers?: () => void;
-    showTrialOffer?: boolean;
   };
   const emptyStateButton = (regionLabel: string, defaultButtonLabel: string) => {
     function EmptyStateButton({
@@ -34,13 +33,11 @@ vi.mock("@/components/dashboard/agents/AgentPanels", () => {
       creationDisabledReason,
       onCreateWorkspace,
       onOpenMembers,
-      showTrialOffer,
     }: EmptyStateMockProps) {
       const workspaceSetupRequired = Boolean(onCreateWorkspace);
       return (
         <section aria-label={regionLabel}>
-          {workspaceName ? <p>No agents in {workspaceName}</p> : null}
-          {showTrialOffer ? <p>Trial offer</p> : null}
+          {workspaceName ? <p>Welcome to your {workspaceName}</p> : null}
           <button
             type="button"
             onClick={onCreateWorkspace ?? onLaunchAction ?? onCreate}
@@ -58,9 +55,11 @@ vi.mock("@/components/dashboard/agents/AgentPanels", () => {
   };
 
   return {
+    AgentDesktopEmptyState: emptyStateButton("Desktop empty state", "Launch desktop agent"),
     AgentEmptyState: emptyStateButton("Chat empty state", "Create new agent"),
     AgentFilesEmptyState: emptyStateButton("Files empty state", "Launch files agent"),
     AgentIntegrationsEmptyState: emptyStateButton("Integrations empty state", "Launch integrations agent"),
+    AgentScheduledEmptyState: emptyStateButton("Scheduled empty state", "Launch scheduled agent"),
     AgentSkillsEmptyState: emptyStateButton("Skills empty state", "Launch skills agent"),
     LaunchFirstAgentEmptyState: emptyStateButton("First agent empty state", "Create an agent"),
   };
@@ -181,17 +180,61 @@ describe("AgentMainPanel", () => {
     expect(screen.queryByRole("region", { name: "First agent empty state" })).not.toBeInTheDocument();
   });
 
-  it("shows the first-agent trial offer only while signed out", () => {
+  it("shows the rotating chat preview by default while signed out", () => {
     const onCreate = vi.fn();
     renderAgentMainPanel({
       selectedAgent: null,
       isAuthenticated: false,
+      loadingInitialAgents: true,
       onCreate,
     });
 
-    expect(screen.getByText("Trial offer")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Create an agent" }));
+    const preview = screen.getByRole("region", { name: "Chat empty state" });
+    expect(screen.queryByRole("region", { name: "First agent empty state" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Loading agents")).not.toBeInTheDocument();
+    fireEvent.click(within(preview).getByRole("button", { name: "Launch agent" }));
     expect(onCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["chat", "Chat empty state"],
+    ["files", "Files empty state"],
+    ["integrations", "Integrations empty state"],
+    ["skills", "Skills empty state"],
+    ["scheduled", "Scheduled empty state"],
+  ] as const)("shows the requested agentless %s preview", (currentPanel, regionName) => {
+    const onCreate = vi.fn();
+    renderAgentMainPanel({
+      selectedAgent: null,
+      isAuthenticated: false,
+      showAgentlessSectionPreviews: true,
+      loadingInitialAgents: true,
+      currentPanel,
+      onCreate,
+    });
+
+    const preview = screen.getByRole("region", { name: regionName });
+    expect(screen.queryByRole("region", { name: "First agent empty state" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Loading agents")).not.toBeInTheDocument();
+    fireEvent.click(within(preview).getByRole("button", { name: "Launch agent" }));
+    expect(onCreate).toHaveBeenCalledOnce();
+  });
+
+  it("shows the requested agentless desktop preview", () => {
+    const onCreate = vi.fn();
+    renderAgentMainPanel({
+      selectedAgent: null,
+      isAuthenticated: false,
+      showAgentlessSectionPreviews: true,
+      showAgentlessDesktopPreview: true,
+      loadingInitialAgents: true,
+      onCreate,
+    });
+
+    const preview = screen.getByRole("region", { name: "Desktop empty state" });
+    expect(screen.queryByRole("region", { name: "First agent empty state" })).not.toBeInTheDocument();
+    fireEvent.click(within(preview).getByRole("button", { name: "Launch agent" }));
+    expect(onCreate).toHaveBeenCalledOnce();
   });
 
   it("offers Workspace creation before agent creation when no Workspace is available", () => {
@@ -220,7 +263,7 @@ describe("AgentMainPanel", () => {
       onOpenMembers,
     });
 
-    expect(screen.getByText("No agents in Product Operations")).toBeInTheDocument();
+    expect(screen.getByText("Welcome to your Product Operations")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add an existing agent in Members" }));
     expect(onOpenMembers).toHaveBeenCalledOnce();
   });

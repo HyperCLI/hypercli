@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { usePrivy } from "@privy-io/react-auth";
+import { useModalStatus, usePrivy } from "@privy-io/react-auth";
 import {
   clearAuthLogoutMarker,
   clearLocalAuthTokens,
@@ -27,6 +27,8 @@ export interface AuthContextType {
   user: AuthUser | null;
   flowState: AuthFlowState;
   error: string | null;
+  isAuthenticationModalOpen: boolean;
+  isIdentityAuthenticated: boolean;
   login: () => void;
   logout: () => Promise<void>;
   getToken: (signal?: AbortSignal) => Promise<string>;
@@ -365,6 +367,8 @@ function StoredSessionAuthProvider({
         user: isAuthenticated ? { id: "stored-session" } : null,
         flowState,
         error,
+        isAuthenticationModalOpen: false,
+        isIdentityAuthenticated: isAuthenticated,
         login,
         logout,
         getToken,
@@ -389,6 +393,7 @@ function PrivySessionAuthProvider({
     logout: privyLogout,
     getAccessToken,
   } = usePrivy();
+  const { isOpen: isAuthenticationModalOpen } = useModalStatus();
 
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -563,7 +568,18 @@ function PrivySessionAuthProvider({
 
   return (
     <AuthContext.Provider
-      value={{ isLoading, isAuthenticated, user, flowState, error, login, logout, getToken }}
+      value={{
+        isLoading,
+        isAuthenticated,
+        user,
+        flowState,
+        error,
+        isAuthenticationModalOpen,
+        isIdentityAuthenticated: authenticated,
+        login,
+        logout,
+        getToken,
+      }}
     >
       {children}
     </AuthContext.Provider>

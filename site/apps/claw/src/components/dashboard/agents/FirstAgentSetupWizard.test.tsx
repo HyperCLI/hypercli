@@ -115,7 +115,7 @@ describe("FirstAgentSetupWizard", () => {
     expect(view.container.querySelector("section")).toHaveClass("max-h-[910px]", "max-w-[1168px]");
   });
 
-  it("matches the saved-agent surface in the inline presentation", () => {
+  it("uses one normalized shell for the inline presentation", () => {
     const view = renderWithClient(
       <FirstAgentSetupWizard
         size="inline"
@@ -126,10 +126,36 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    expect(view.container.querySelector("section")).toHaveClass("h-[546px]", "sm:!h-[428px]", "max-w-[660px]");
+    expect(view.container.querySelector("section")).toHaveClass("h-full", "max-h-[680px]", "sm:max-h-[820px]", "max-w-[1168px]");
+    expect(view.container.querySelector("header")).toHaveClass("min-h-[82px]");
+    expect(view.container.querySelector("footer")).toHaveClass("h-[72px]");
   });
 
-  it("keeps agent customization optional on the identity step", async () => {
+  it("fills its parent without modal framing in the embedded presentation", () => {
+    const view = renderWithClient(
+      <FirstAgentSetupWizard
+        size="embedded"
+        onCreateAgent={vi.fn(async () => null)}
+        budget={null}
+        subscriptionSummary={null}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    const surface = view.container.querySelector("section");
+    expect(surface).toHaveAttribute("data-presentation", "embedded");
+    expect(surface).toHaveClass(
+      "h-full",
+      "max-h-none",
+      "max-w-none",
+      "rounded-none",
+      "border-0",
+      "shadow-none",
+    );
+    expect(surface?.parentElement).toHaveClass("p-0");
+  });
+
+  it("opens optional agent customization by default on the identity step", async () => {
     renderWithClient(
       <FirstAgentSetupWizard
         onCreateAgent={vi.fn(async () => null)}
@@ -148,12 +174,13 @@ describe("FirstAgentSetupWizard", () => {
       expect(screen.getByLabelText("Agent URL preview")).toHaveTextContent(/^[a-z]+-[a-z]+-[a-z]+$/);
     });
     const optionalSettings = screen.getByText("Advanced").closest("details");
-    expect(optionalSettings).not.toHaveAttribute("open");
-    fireEvent.click(optionalSettings!.querySelector("summary")!);
+    expect(optionalSettings?.parentElement).toHaveClass("grid", "min-h-full", "content-center");
     expect(optionalSettings).toHaveAttribute("open");
+    fireEvent.click(optionalSettings!.querySelector("summary")!);
+    expect(optionalSettings).not.toHaveAttribute("open");
   });
 
-  it("shows launch momentum across both setup steps", () => {
+  it("shows distinct launch momentum across every setup step", () => {
     renderWithClient(
       <FirstAgentSetupWizard
         onCreateAgent={vi.fn(async () => null)}
@@ -167,10 +194,16 @@ describe("FirstAgentSetupWizard", () => {
     expect(screen.getByText("Moments from launch")).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "Agent setup progress" })).toHaveAttribute("aria-valuenow", "48");
 
-    goToPlanStep();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
-    expect(screen.getByText("Launch ready")).toBeInTheDocument();
-    expect(screen.getByText("Choose its power")).toBeInTheDocument();
+    expect(screen.getByText("Looking good!")).toBeInTheDocument();
+    expect(screen.getByText("Now shape its workspace")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Agent setup progress" })).toHaveAttribute("aria-valuenow", "72");
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(screen.getByText("Almost there!")).toBeInTheDocument();
+    expect(screen.getByText("Choose the one that fits best")).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "Agent setup progress" })).toHaveAttribute("aria-valuenow", "92");
   });
 
@@ -216,12 +249,13 @@ describe("FirstAgentSetupWizard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     await waitFor(() => {
-      expect((screen.getByLabelText("AGENTS.md preview") as HTMLTextAreaElement).value)
-        .toContain("Generated while the plan step was open.");
+      expect(screen.getByText("Generated while the plan step was open.")).toBeInTheDocument();
     });
-    expect(screen.getByText("AGENTS.md ready")).toBeInTheDocument();
-    expect(screen.getByText("Generating SOUL.md")).toBeInTheDocument();
-    expect(screen.getByText("USER.md queued")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Preview" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Restart generation" })).toBeInTheDocument();
+    expect(screen.queryByText("AGENTS.md ready")).not.toBeInTheDocument();
+    expect(screen.queryByText("Generating SOUL.md")).not.toBeInTheDocument();
+    expect(screen.queryByText("USER.md queued")).not.toBeInTheDocument();
   });
 
   it("saves anonymous identity changes for a later launch", async () => {
@@ -410,6 +444,280 @@ describe("FirstAgentSetupWizard", () => {
     expect(onCreateAgent).not.toHaveBeenCalled();
   });
 
+  it("opens capacity directly from the workspace step when plan selection is skipped", async () => {
+    const onOpenPlanCatalog = vi.fn();
+    const onCreateAgent = vi.fn(async () => null);
+
+    renderWithClient(
+      <FirstAgentSetupWizard
+        skipPlanSelection
+        capacityReady
+        onCreateAgent={onCreateAgent}
+        onOpenPlanCatalog={onOpenPlanCatalog}
+        budget={null}
+        subscriptionSummary={null}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(screen.getByRole("heading", { name: "Set up the workspace" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next step" }));
+
+    await waitFor(() => expect(onOpenPlanCatalog).toHaveBeenCalledTimes(1));
+    expect(onOpenPlanCatalog.mock.calls[0]).toEqual([]);
+    expect(screen.queryByRole("heading", { name: "Choose your plan" })).not.toBeInTheDocument();
+    expect(onCreateAgent).not.toHaveBeenCalled();
+  });
+
+  it("embeds capacity selection in the creation surface instead of opening another modal", () => {
+    const onOpenPlanCatalog = vi.fn();
+    const view = renderWithClient(
+      <FirstAgentSetupWizard
+        skipPlanSelection
+        capacityReady
+        capacityContent={<div>Embedded capacity catalog</div>}
+        onCreateAgent={vi.fn(async () => null)}
+        onOpenPlanCatalog={onOpenPlanCatalog}
+        budget={null}
+        subscriptionSummary={null}
+        catalogPlans={catalogPlans}
+        size="inline"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next step" }));
+
+    expect(screen.getByRole("heading", { name: "Give it room to run" })).toBeInTheDocument();
+    expect(screen.getByText("Choose the capacity that fits the work ahead. You can scale it up anytime.")).toBeInTheDocument();
+    expect(screen.getByText("Embedded capacity catalog")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Agent setup progress" })).toHaveAttribute("aria-valuenow", "92");
+    expect(view.container.querySelector("section")).toHaveClass("h-full", "max-h-[680px]", "sm:max-h-[820px]", "max-w-[1168px]");
+    expect(screen.queryByRole("heading", { name: "Choose your plan" })).not.toBeInTheDocument();
+    expect(onOpenPlanCatalog).not.toHaveBeenCalled();
+  });
+
+  it("keeps purchase checkout in the same surface with its own progress state", () => {
+    const onBackFromCheckout = vi.fn();
+    const props = {
+      skipPlanSelection: true,
+      capacityReady: true,
+      capacityContent: <div>Embedded capacity catalog</div>,
+      onCreateAgent: vi.fn(async () => null),
+      onOpenPlanCatalog: vi.fn(),
+      onBackFromCheckout,
+      budget: null,
+      subscriptionSummary: null,
+      catalogPlans,
+      size: "inline" as const,
+    };
+    const view = renderWithClient(<FirstAgentSetupWizard {...props} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next step" }));
+    view.rerender(
+      <FirstAgentSetupWizard
+        {...props}
+        checkoutActive
+        checkoutContent={<div>Embedded purchase checkout</div>}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Make it official" })).toBeInTheDocument();
+    expect(screen.getByText("Choose how you'd like to pay. Your setup stays right here.")).toBeInTheDocument();
+    expect(screen.getByText("Embedded purchase checkout")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Compare plans" })).not.toBeInTheDocument();
+    expect(screen.getByText("One tiny thing...")).toBeInTheDocument();
+    expect(screen.getByText("Then it's ready to run")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Agent setup progress" })).toHaveAttribute("aria-valuenow", "98");
+
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(onBackFromCheckout).toHaveBeenCalledOnce();
+  });
+
+  it("locks checkout navigation while a payment is processing", () => {
+    const onBackFromCheckout = vi.fn();
+    const onClose = vi.fn();
+    const props = {
+      skipPlanSelection: true,
+      capacityReady: true,
+      capacityContent: <div>Embedded capacity catalog</div>,
+      checkoutContent: <div>Embedded purchase checkout</div>,
+      onCreateAgent: vi.fn(async () => null),
+      onOpenPlanCatalog: vi.fn(),
+      onBackFromCheckout,
+      onClose,
+      budget: null,
+      subscriptionSummary: null,
+      catalogPlans,
+      size: "inline" as const,
+    };
+    const view = renderWithClient(<FirstAgentSetupWizard {...props} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next step" }));
+    view.rerender(
+      <FirstAgentSetupWizard
+        {...props}
+        checkoutActive
+        checkoutProcessing
+      />,
+    );
+
+    const back = screen.getByRole("button", { name: "Back" });
+    const close = screen.getByRole("button", { name: "Close agent creation" });
+    expect(back).toBeDisabled();
+    expect(close).toBeDisabled();
+    fireEvent.click(back);
+    fireEvent.click(close);
+    expect(onBackFromCheckout).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("launches directly from the workspace step when capacity is available", async () => {
+    const onOpenPlanCatalog = vi.fn();
+    const onCreateAgent = vi.fn(async () => "agent-1");
+
+    renderWithClient(
+      <FirstAgentSetupWizard
+        skipPlanSelection
+        capacityReady
+        capacityContent={<div>Embedded capacity catalog</div>}
+        onCreateAgent={onCreateAgent}
+        onOpenPlanCatalog={onOpenPlanCatalog}
+        budget={{
+          slots: { medium: { granted: 1, used: 0, available: 1 } },
+          pooled_tpd: 250000,
+        }}
+        subscriptionSummary={{
+          effectivePlanId: "team-launch",
+          activeSubscriptions: [{
+            id: "sub-team",
+            planId: "team-launch",
+            planName: "Team Launch",
+            slotGrants: { medium: 1 },
+            quantity: 1,
+          }],
+        } as any}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Launch agent" }));
+
+    await waitFor(() => expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({ size: "medium" })));
+    expect(screen.queryByRole("heading", { name: "Choose your plan" })).not.toBeInTheDocument();
+    expect(onOpenPlanCatalog).not.toHaveBeenCalled();
+  });
+
+  it("keeps a saved draft inside the main setup shell before resuming", async () => {
+    window.sessionStorage.setItem("hypercli-first-agent-draft", JSON.stringify({
+      source: "first-agent-setup",
+      name: "resumed-agent",
+      iconIndex: 11,
+      category: "Ops",
+      plan: "team-launch",
+      enableDesktop: true,
+      enableMemoryIndex: true,
+      enableCustomImage: false,
+      customImage: "",
+    }));
+    const onStartFresh = vi.fn();
+    const view = renderWithClient(
+      <FirstAgentSetupWizard
+        size="inline"
+        saveDraftAsYouGo
+        skipPlanSelection
+        capacityReady={false}
+        capacityContent={<div>Embedded capacity catalog</div>}
+        onStartFresh={onStartFresh}
+        onCreateAgent={vi.fn(async () => null)}
+        onOpenPlanCatalog={vi.fn()}
+        budget={null}
+        subscriptionSummary={null}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Your agent has a head start." })).toBeInTheDocument();
+    expect(screen.getByText("resumed-agent.hypercli.com")).toBeInTheDocument();
+    expect(screen.getByText("Browser ready")).toBeInTheDocument();
+    expect(screen.getByText("Memory ready")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Agent setup progress" })).toHaveAttribute(
+      "aria-valuetext",
+      "Setup saved. Ready when you are.",
+    );
+    expect(view.container.querySelectorAll("[data-agent-launch-surface]")).toHaveLength(1);
+    expect(view.container.querySelector('[data-slot="saved-agent-draft-summary"]')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Start fresh" }));
+    expect(onStartFresh).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue setup" }));
+    expect(await screen.findByRole("heading", { name: "Set up the workspace" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Checking capacity..." })).toBeDisabled();
+  });
+
+  it("opens capacity for a resumed draft once billing data is ready", async () => {
+    window.sessionStorage.setItem("hypercli-first-agent-draft", JSON.stringify({
+      source: "first-agent-setup",
+      name: "resumed-agent",
+      iconIndex: 0,
+      category: "General",
+      plan: "team-launch",
+      starterFiles: [],
+    }));
+    const onOpenPlanCatalog = vi.fn();
+    const props = {
+      skipPlanSelection: true,
+      capacityContent: <div>Embedded capacity catalog</div>,
+      onCreateAgent: vi.fn(async () => null),
+      onOpenPlanCatalog,
+      budget: null,
+      subscriptionSummary: null,
+      catalogPlans,
+    };
+    const view = renderWithClient(<FirstAgentSetupWizard {...props} capacityReady={false} />);
+
+    expect(await screen.findByRole("heading", { name: "Set up the workspace" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Checking capacity..." })).toBeDisabled();
+    expect(onOpenPlanCatalog).not.toHaveBeenCalled();
+
+    view.rerender(<FirstAgentSetupWizard {...props} capacityReady />);
+
+    expect(await screen.findByRole("heading", { name: "Give it room to run" })).toBeInTheDocument();
+    expect(screen.getByText("Embedded capacity catalog")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Choose your plan" })).not.toBeInTheDocument();
+    expect(onOpenPlanCatalog).not.toHaveBeenCalled();
+  });
+
+  it("offers a billing retry instead of leaving capacity loading indefinitely", () => {
+    const onRetryCapacity = vi.fn();
+    renderWithClient(
+      <FirstAgentSetupWizard
+        skipPlanSelection
+        capacityReady={false}
+        capacityError="Billing data could not be loaded. Retry before checkout."
+        onRetryCapacity={onRetryCapacity}
+        capacityContent={<div>Embedded capacity catalog</div>}
+        onCreateAgent={vi.fn(async () => null)}
+        onOpenPlanCatalog={vi.fn()}
+        budget={null}
+        subscriptionSummary={null}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Billing data could not be loaded");
+    expect(screen.getByRole("button", { name: "Capacity unavailable" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Retry billing data" }));
+    expect(onRetryCapacity).toHaveBeenCalledOnce();
+  });
+
   it("applies a valid preferred plan from the dashboard route", async () => {
     const onOpenPlanCatalog = vi.fn();
     renderWithClient(
@@ -457,7 +765,7 @@ describe("FirstAgentSetupWizard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByLabelText("Agent name")).toHaveValue("restored-agent");
-    fireEvent.click(screen.getByText("Advanced").closest("summary")!);
+    expect(screen.getByText("Advanced").closest("details")).toHaveAttribute("open");
     expect(screen.getByRole("button", { name: "Shield avatar" })).toHaveAttribute("aria-pressed", "true");
   });
 

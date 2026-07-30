@@ -44,6 +44,36 @@ describe("plan checkout state", () => {
     expect(readPendingPlanCheckout("user-2")?.planId).toBe("starter");
   });
 
+  it("round-trips first-agent launch correlation without applying it to generic checkout", () => {
+    writePendingPlanCheckout({
+      principalId: "user-1",
+      planId: "pro",
+      planName: "Pro",
+      ownedCount: 0,
+      startedAt: 1,
+      flow: "first-agent-setup",
+      setupId: "setup-1",
+      workspaceId: "workspace-1",
+      agentSize: "large",
+    });
+
+    expect(readPendingPlanCheckout("user-1")).toMatchObject({
+      flow: "first-agent-setup",
+      setupId: "setup-1",
+      workspaceId: "workspace-1",
+      agentSize: "large",
+    });
+
+    writePendingPlanCheckout({
+      principalId: "user-2",
+      planId: "pro",
+      planName: "Pro",
+      ownedCount: 0,
+      startedAt: 1,
+    });
+    expect(readPendingPlanCheckout("user-2")).not.toHaveProperty("flow");
+  });
+
   it("requires Stripe's returned session id before accepting success", () => {
     window.history.replaceState(null, "", "/plans?checkout=success");
     expect(readStripeCheckoutReturnState()).toBeNull();

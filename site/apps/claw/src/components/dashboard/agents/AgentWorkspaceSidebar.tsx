@@ -89,6 +89,8 @@ interface AgentWorkspaceSidebarProps {
   isAuthenticated?: boolean;
   disabled?: boolean;
   disabledReason?: string;
+  allowAgentlessFeaturePreviews?: boolean;
+  desktopPreviewActive?: boolean;
   scheduledDisabled?: boolean;
   scheduledDisabledReason?: string;
   isDesktopViewport: boolean;
@@ -98,11 +100,13 @@ interface AgentWorkspaceSidebarProps {
   onOpenSkills: () => void;
   onOpenScheduled: () => void;
   onOpenDesktop?: (agent: Agent) => Promise<void> | void;
+  onOpenDesktopPreview?: () => void;
   onOpenLogs: () => void;
   onOpenShell: () => void;
   onShellIntent?: () => void;
   onShellIntentEnd?: () => void;
   onOpenOpenClaw: () => void;
+  onCreateWorkspace?: () => void;
   onUpgrade: () => void;
   onStartTrial?: () => void;
   renderMobile?: boolean;
@@ -163,19 +167,17 @@ function WorkspaceButton({
       : navigationMode
         ? "h-9 w-full gap-3 px-3 text-left"
         : "h-7 w-full gap-2 px-2 text-left";
-  const iconClassName = `${mobileMode && !collapsed ? "h-5 w-5" : "h-4 w-4"} shrink-0 ${item.busy ? "animate-spin" : ""}`;
+  const iconClassName = `${mobileMode && !collapsed ? "h-5 w-5" : "h-4 w-4"} shrink-0 ${item.busy ? "animate-spin" : ""} ${item.active && !disabled ? "text-[var(--selection-accent)]" : ""}`;
   const roundedClassName = "rounded-full";
   const activate = () => {
     item.onClick();
     if (collapsed) onExpand?.();
   };
-  const buttonClassName = `flex ${buttonSizeClass} items-center ${roundedClassName} text-sm transition-colors ${
+  const buttonClassName = `flex ${buttonSizeClass} items-center ${roundedClassName} text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)] ${
     disabled
       ? `${item.busy ? "cursor-wait" : "cursor-not-allowed"} text-text-muted/45`
       : item.active
-        ? mobileMode
-          ? "border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
-          : "bg-surface-low text-foreground"
+        ? "bg-[rgb(var(--selection-accent-rgb)_/_0.12)] text-[var(--selection-accent)] ring-1 ring-inset ring-[rgb(var(--selection-accent-rgb)_/_0.28)]"
         : `${mobileMode ? "border border-transparent" : ""} text-text-secondary hover:bg-surface-low/60 hover:text-foreground`
   }`;
 
@@ -190,6 +192,7 @@ function WorkspaceButton({
             aria-label={item.label}
             aria-disabled={disabled}
             aria-busy={item.busy || undefined}
+            aria-current={item.active ? "page" : undefined}
             className={buttonClassName}
           >
             <Icon className={iconClassName} />
@@ -206,6 +209,7 @@ function WorkspaceButton({
       disabled={disabled}
       aria-disabled={disabled}
       aria-busy={item.busy || undefined}
+      aria-current={item.active ? "page" : undefined}
       className={buttonClassName}
     >
       <Icon className={iconClassName} />
@@ -1021,7 +1025,13 @@ export function WorkspaceCreationDialog({
   );
 }
 
-function WorkspacePicker({ sharedHeader = false }: { sharedHeader?: boolean }) {
+function WorkspacePicker({
+  sharedHeader = false,
+  onCreateWorkspace,
+}: {
+  sharedHeader?: boolean;
+  onCreateWorkspace?: () => void;
+}) {
   const {
     principalId,
     workspacesClient,
@@ -1067,7 +1077,7 @@ function WorkspacePicker({ sharedHeader = false }: { sharedHeader?: boolean }) {
             <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-text-muted" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" sideOffset={8} className="w-[280px] rounded-xl border-border bg-popover p-2 shadow-2xl">
+        <DropdownMenuContent align="end" sideOffset={8} className="z-[80] w-[280px] rounded-xl border-border bg-popover p-2 shadow-2xl">
           <DropdownMenuLabel className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">
             Workspaces
           </DropdownMenuLabel>
@@ -1104,8 +1114,14 @@ function WorkspacePicker({ sharedHeader = false }: { sharedHeader?: boolean }) {
           })}
           <DropdownMenuSeparator className="my-1.5 bg-border" />
           <DropdownMenuItem
-            disabled={!workspacesClient}
-            onSelect={() => setCreateWorkspaceScope(workspaceScope)}
+            disabled={!workspacesClient && !onCreateWorkspace}
+            onSelect={() => {
+              if (!workspacesClient) {
+                onCreateWorkspace?.();
+                return;
+              }
+              setCreateWorkspaceScope(workspaceScope);
+            }}
             className="flex items-center gap-3 rounded-lg px-2 py-2.5 text-text-secondary focus:bg-surface-low focus:text-foreground"
           >
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-low">
@@ -1119,7 +1135,7 @@ function WorkspacePicker({ sharedHeader = false }: { sharedHeader?: boolean }) {
         </DropdownMenuContent>
       </DropdownMenu>
       <WorkspaceCreationDialog
-        open={createWorkspaceScope === workspaceScope}
+        open={Boolean(workspacesClient && createWorkspaceScope === workspaceScope)}
         onOpenChange={(open) => setCreateWorkspaceScope(open ? workspaceScope : null)}
       />
     </>
@@ -1135,6 +1151,8 @@ export function AgentWorkspaceSidebar({
   isAuthenticated = true,
   disabled = false,
   disabledReason = "Workspace is loading",
+  allowAgentlessFeaturePreviews = false,
+  desktopPreviewActive = false,
   scheduledDisabled = false,
   scheduledDisabledReason = "Scheduled workflows are not available yet.",
   isDesktopViewport,
@@ -1144,11 +1162,13 @@ export function AgentWorkspaceSidebar({
   onOpenSkills,
   onOpenScheduled,
   onOpenDesktop,
+  onOpenDesktopPreview,
   onOpenLogs,
   onOpenShell,
   onShellIntent,
   onShellIntentEnd,
   onOpenOpenClaw,
+  onCreateWorkspace,
   onUpgrade,
   onStartTrial,
   renderMobile = false,
@@ -1257,6 +1277,9 @@ export function AgentWorkspaceSidebar({
     : noSelectedAgent
       ? { disabled: true, disabledReason: emptyStateReason }
       : {};
+  const previewableItemProps = noSelectedAgent && allowAgentlessFeaturePreviews && !disabled
+    ? {}
+    : disabledItemProps;
   const newSessionDisabledReason = disabled
     ? disabledReason
     : noSelectedAgent
@@ -1270,18 +1293,23 @@ export function AgentWorkspaceSidebar({
             : onCreateSession
               ? undefined
               : "New sessions are unavailable.";
-  const desktopVisible = showDesktop && Boolean(selectedAgent?.hasDesktop);
+  const agentlessDesktopPreview = noSelectedAgent && allowAgentlessFeaturePreviews;
+  const desktopVisible = showDesktop && (Boolean(selectedAgent?.hasDesktop) || agentlessDesktopPreview);
   const openDesktopDisabledReason = disabled
     ? disabledReason
-    : noSelectedAgent
-      ? emptyStateReason
-      : agentNotRunning
-        ? stoppedReason
-        : !selectedAgent?.hostname
-          ? "Desktop hostname is not ready."
-          : onOpenDesktop
-            ? undefined
-            : "Desktop is unavailable.";
+    : agentlessDesktopPreview
+      ? onOpenDesktopPreview
+        ? undefined
+        : "Desktop preview is unavailable."
+        : noSelectedAgent
+          ? emptyStateReason
+          : agentNotRunning
+            ? stoppedReason
+            : !selectedAgent?.hostname
+              ? "Desktop hostname is not ready."
+              : onOpenDesktop
+                ? undefined
+                : "Desktop is unavailable.";
   const createNewSession = async () => {
     if (newSessionDisabledReason || !onCreateSession) return;
     setCreatingSession(true);
@@ -1307,27 +1335,29 @@ export function AgentWorkspaceSidebar({
       icon: FolderOpen,
       active: activeTab === "files",
       onClick: () => onOpenFiles(),
-      ...disabledItemProps,
+      ...previewableItemProps,
     },
-    { id: "integrations", label: "Integrations", icon: Blocks, active: activeTab === "integrations" && !skillsActive, onClick: onOpenIntegrations, ...disabledItemProps },
-    { id: "skills", label: "Skills", icon: Codepen, active: activeTab === "skills" || skillsActive, onClick: onOpenSkills, ...disabledItemProps },
+    { id: "integrations", label: "Integrations", icon: Blocks, active: activeTab === "integrations" && !skillsActive, onClick: onOpenIntegrations, ...previewableItemProps },
+    { id: "skills", label: "Skills", icon: Codepen, active: activeTab === "skills" || skillsActive, onClick: onOpenSkills, ...previewableItemProps },
     {
       id: "scheduled",
       label: "Scheduled",
       icon: CalendarClock,
       active: activeTab === "scheduled",
       onClick: onOpenScheduled,
-      ...(scheduledDisabled ? { disabled: true, disabledReason: scheduledDisabledReason } : disabledItemProps),
+      ...(scheduledDisabled ? { disabled: true, disabledReason: scheduledDisabledReason } : previewableItemProps),
     },
     ...(desktopVisible ? [{
       id: "desktop",
       label: openingDesktop ? "Opening Desktop" : "Desktop",
       icon: openingDesktop ? Loader2 : Monitor,
+      active: desktopPreviewActive,
       busy: openingDesktop,
       disabled: Boolean(openDesktopDisabledReason),
       disabledReason: openDesktopDisabledReason,
       onClick: () => {
         if (selectedAgent && onOpenDesktop) void onOpenDesktop(selectedAgent);
+        else onOpenDesktopPreview?.();
       },
     } satisfies WorkspaceItem] : []),
   ];
@@ -1406,7 +1436,7 @@ export function AgentWorkspaceSidebar({
           >
             <HyperCLILogoMark className="h-6 w-6" />
           </Link>
-          <WorkspacePicker sharedHeader />
+          <WorkspacePicker sharedHeader onCreateWorkspace={onCreateWorkspace} />
           {onClose ? (
             <button
               ref={closeButtonRef}
@@ -1425,7 +1455,7 @@ export function AgentWorkspaceSidebar({
             isCollapsed ? "justify-center px-0" : "gap-2 px-4"
           }`}
         >
-          {!isCollapsed ? <WorkspacePicker /> : null}
+          {!isCollapsed ? <WorkspacePicker onCreateWorkspace={onCreateWorkspace} /> : null}
           {onClose ? (
             <button
               type="button"

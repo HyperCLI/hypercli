@@ -8,6 +8,7 @@ import {
 } from "../../../../packages/shared-ui/src/auth/AuthProvider";
 
 vi.mock("@privy-io/react-auth", () => ({
+  useModalStatus: () => ({ isOpen: false }),
   usePrivy: () => ({
     ready: true,
     authenticated: false,

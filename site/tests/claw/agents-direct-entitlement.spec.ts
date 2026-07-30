@@ -192,8 +192,29 @@ test("agents page launches from a direct entitlement without an active subscript
 
   await page.goto("/dashboard/agents", { waitUntil: "domcontentloaded" });
 
-  await page.getByRole("button", { name: "Skip tour" }).click();
-  await page.locator("summary").filter({ hasText: /^Advanced$/i }).click();
+  const emptyWorkspaceComposer = page.getByRole("textbox", { name: "Message agent" });
+  await expect(emptyWorkspaceComposer).toBeVisible();
+  await expect(emptyWorkspaceComposer).toBeDisabled();
+  await expect(emptyWorkspaceComposer).toHaveAttribute("placeholder", "Launch an agent to start chatting...");
+  await expect(page.getByRole("button", { name: "Send message" })).toBeDisabled();
+  const welcomePanelBox = await page.locator('[data-slot="first-agent-empty-state"]').boundingBox();
+  expect(welcomePanelBox).not.toBeNull();
+
+  await page.goto("/dashboard/agents?open=agent-launcher", { waitUntil: "domcontentloaded" });
+
+  await expect(page.getByRole("dialog", { name: "A quick tour of your agent workspace" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Create agent" })).toBeVisible();
+  await expect(page.locator(".agent-desktop-navigation")).toHaveAttribute("data-expanded-section", "agents");
+  const launcherBox = await page.locator("[data-agent-launch-surface]").boundingBox();
+  expect(launcherBox).not.toBeNull();
+  expect(Math.abs(launcherBox!.x - welcomePanelBox!.x)).toBeLessThan(1);
+  expect(Math.abs(launcherBox!.y - welcomePanelBox!.y)).toBeLessThan(1);
+  expect(Math.abs(launcherBox!.width - welcomePanelBox!.width)).toBeLessThan(1);
+  expect(Math.abs(launcherBox!.height - welcomePanelBox!.height)).toBeLessThan(1);
+  const advancedSettings = page.locator("details", {
+    has: page.locator("summary").filter({ hasText: /^Advanced$/i }),
+  }).first();
+  await expect(advancedSettings).toHaveAttribute("open", "");
   await page
     .locator("label")
     .filter({ hasText: /Desktop browser/i })
@@ -201,13 +222,47 @@ test("agents page launches from a direct entitlement without an active subscript
     .first()
     .check();
   await page.getByRole("button", { name: "Continue" }).click();
-  await expect(page.getByRole("heading", { name: "Set up the workspace" })).toBeVisible();
-  await page.getByRole("button", { name: "Continue" }).click();
+  const workspaceStep = page.getByRole("region", { name: "Set up the workspace" });
+  await expect(workspaceStep).toBeVisible();
+  await expect(workspaceStep.getByRole("heading", { name: "Shape the agent" })).toBeVisible();
+  await expect(workspaceStep.getByRole("heading", { name: "Generated workspace files" })).toBeVisible();
+  await expect(workspaceStep.getByText("AGENTS.md ready")).toHaveCount(0);
+  await expect(workspaceStep.getByRole("button", { name: "Preview" })).toHaveAttribute("aria-pressed", "true");
+  await workspaceStep.getByRole("button", { name: "Raw" }).click();
+  await expect(workspaceStep.getByLabel("AGENTS.md contents")).toBeVisible();
+  await workspaceStep.getByRole("button", { name: "Preview" }).click();
+  const workspaceBody = workspaceStep.locator('[data-slot="agent-setup-scroll-body"]');
+  const workspaceOverflow = await workspaceBody.evaluate((element) => ({
+    horizontal: element.scrollWidth - element.clientWidth,
+    vertical: element.scrollHeight - element.clientHeight,
+  }));
+  expect(workspaceOverflow.horizontal).toBeLessThanOrEqual(0);
+  expect(workspaceOverflow.vertical).toBeLessThanOrEqual(2);
 
-  await expect(page.getByRole("heading", { name: "Pro" })).toBeVisible();
-  await expect(page.getByText("Uses your active direct entitlement")).toBeVisible();
-  await expect(page.getByText("1 Large slot available")).toBeVisible();
-  await page.locator("footer").getByRole("button", { name: "Launch agent" }).click();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect.poll(async () => {
+    const expandedLauncherBox = await page.locator("[data-agent-launch-surface]").boundingBox();
+    return expandedLauncherBox?.height ?? 0;
+  }).toBeGreaterThan(800);
+  await expect.poll(() => workspaceBody.evaluate((element) => {
+    const layout = element.querySelector<HTMLElement>('[data-slot="openclaw-bootstrap-step"]');
+    if (!layout) return Number.POSITIVE_INFINITY;
+    const bodyBox = element.getBoundingClientRect();
+    const layoutBox = layout.getBoundingClientRect();
+    const panels = layout.querySelectorAll<HTMLElement>(":scope > section");
+    const panelHeightDifference = panels.length === 2
+      ? Math.abs(panels[0].getBoundingClientRect().height - panels[1].getBoundingClientRect().height)
+      : Number.POSITIVE_INFINITY;
+    const styles = window.getComputedStyle(element);
+    const expectedTop = bodyBox.top + Number.parseFloat(styles.paddingTop);
+    const expectedBottom = bodyBox.bottom - Number.parseFloat(styles.paddingBottom);
+    return Math.max(
+      Math.abs(layoutBox.top - expectedTop),
+      Math.abs(layoutBox.bottom - expectedBottom),
+      panelHeightDifference,
+    );
+  })).toBeLessThanOrEqual(2);
+  await workspaceStep.getByRole("button", { name: "Launch agent" }).click();
 
   await expect.poll(() => createBody?.size ?? null).toBe("large");
   expect(String(createBody?.image ?? "")).toMatch(/^ghcr\.io\/hypercli\/hypercli-openclaw:pro-/);

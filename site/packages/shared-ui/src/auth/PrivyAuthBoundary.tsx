@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, useSyncExternalStore } from "react";
 import { PrivyProvider } from "@privy-io/react-auth";
 import { AuthProvider, hasStoredSession } from "./AuthProvider";
 import { HYPERCLI_BRAND_ACCENT_HEX, HYPERCLI_LOGO_ICON_SRC } from "../components/HyperCLILogo";
@@ -30,6 +30,14 @@ function hasSeededPlaywrightSession(tokenStorageKey: string): boolean {
   );
 }
 
+function subscribeToSeededPlaywrightSession(): () => void {
+  return () => undefined;
+}
+
+function getServerSeededPlaywrightSession(): boolean {
+  return false;
+}
+
 export function PrivyAuthBoundary({
   appId,
   apiBaseUrl,
@@ -42,11 +50,16 @@ export function PrivyAuthBoundary({
 }: PrivyAuthBoundaryProps) {
   const { theme: productTheme } = useTheme();
   const privyTheme = theme ?? productTheme;
+  const seededPlaywrightSession = useSyncExternalStore(
+    subscribeToSeededPlaywrightSession,
+    () => hasSeededPlaywrightSession(tokenStorageKey),
+    getServerSeededPlaywrightSession,
+  );
   if (!isValidPrivyAppId(appId)) {
     throw new Error("PrivyAuthBoundary requires a valid appId");
   }
 
-  if (hasSeededPlaywrightSession(tokenStorageKey)) {
+  if (seededPlaywrightSession) {
     return (
       <AuthProvider apiBaseUrl={apiBaseUrl} tokenStorageKey={tokenStorageKey} privyEnabled={false}>
         {children}

@@ -66,7 +66,7 @@ describe("AgentsSidebarDashboardLinks", () => {
 
     expect(screen.queryByRole("menuitem", { name: /dashboard/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: /^agents$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("menuitem", { name: /shared resources/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /^shared$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: /^members$/i })).not.toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /^settings$/i })).toHaveAttribute("href", "/dashboard/agents?view=settings");
     const apiKeys = screen.getByRole("menuitem", { name: /api keys/i });
@@ -95,6 +95,7 @@ describe("AgentsSidebarDashboardLinks", () => {
   it("renders shared Administration navigation in the roster", () => {
     const onOpenAccountSettings = vi.fn();
     const onOpenHome = vi.fn();
+    const onOpenAltHome = vi.fn();
     const onOpenSharedResources = vi.fn();
     const onOpenMembers = vi.fn();
     const onOpenUsage = vi.fn();
@@ -106,6 +107,7 @@ describe("AgentsSidebarDashboardLinks", () => {
         onSelectThread={vi.fn()}
         showChannels={false}
         onOpenHome={onOpenHome}
+        onOpenAltHome={onOpenAltHome}
         onOpenSharedResources={onOpenSharedResources}
         sharedResourcesActive
         onOpenMembers={onOpenMembers}
@@ -122,19 +124,23 @@ describe("AgentsSidebarDashboardLinks", () => {
     expect(agentList).toHaveClass("shrink", "overflow-y-auto");
     const administration = screen.getByRole("region", { name: "Administration" });
     expect(administration).toHaveTextContent("Administration");
-    expect(screen.getByRole("button", { name: "Shared resources" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Shared" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("button", { name: "Members" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Usage" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Home" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Alt home" })).toBeInTheDocument();
+    expect(document.querySelector(".agents-roster-home")).toHaveTextContent("HomeAlt home");
     expect(administration).not.toHaveTextContent("Home");
     expect(administration).not.toHaveTextContent("Settings");
     expect(onOpenAccountSettings).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
-    fireEvent.click(screen.getByRole("button", { name: "Shared resources" }));
+    fireEvent.click(screen.getByRole("button", { name: "Alt home" }));
+    fireEvent.click(screen.getByRole("button", { name: "Shared" }));
     fireEvent.click(screen.getByRole("button", { name: "Members" }));
     fireEvent.click(screen.getByRole("button", { name: "Usage" }));
     expect(onOpenHome).toHaveBeenCalledOnce();
+    expect(onOpenAltHome).toHaveBeenCalledOnce();
     expect(onOpenSharedResources).toHaveBeenCalledOnce();
     expect(onOpenMembers).toHaveBeenCalledOnce();
     expect(onOpenUsage).toHaveBeenCalledOnce();

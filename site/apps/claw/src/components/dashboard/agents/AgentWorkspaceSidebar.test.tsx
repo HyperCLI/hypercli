@@ -136,6 +136,7 @@ function agentWorkspaceSidebarProps(overrides: Partial<ComponentProps<typeof Age
     onOpenSkills: vi.fn(),
     onOpenScheduled: vi.fn(),
     onOpenDesktop: vi.fn(),
+    onOpenDesktopPreview: vi.fn(),
     onOpenLogs: vi.fn(),
     onOpenShell: vi.fn(),
     onOpenOpenClaw: vi.fn(),
@@ -257,6 +258,24 @@ describe("AgentWorkspaceSidebar", () => {
 
     expect(screen.getByRole("button", { name: "Current workspace: No Workspace" })).toHaveTextContent("No Workspace");
     expect(screen.getByText("No Workspaces available.")).toBeInTheDocument();
+  });
+
+  it("routes signed-out Workspace creation through authentication", () => {
+    mocks.workspaceContext.principalId = null;
+    mocks.workspaceContext.workspacesClient = null;
+    mocks.workspaceContext.workspaces = [];
+    mocks.workspaceContext.selectedWorkspace = null;
+    mocks.workspaceContext.selectedWorkspaceId = null;
+    const onCreateWorkspace = vi.fn();
+
+    renderAgentWorkspaceSidebar({ isAuthenticated: false, onCreateWorkspace });
+
+    const createWorkspace = screen.getByRole("menuitem", { name: /New Workspace/ });
+    expect(createWorkspace).toBeEnabled();
+    fireEvent.click(createWorkspace);
+
+    expect(onCreateWorkspace).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("dialog", { name: "New Workspace" })).not.toBeInTheDocument();
   });
 
   it("forces the desktop workspace sidebar expanded without a collapse control", () => {
@@ -1322,6 +1341,21 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.queryByText("Workspace")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /advanced/i })).not.toBeInTheDocument();
   });
+
+  it("marks the selected agent section with the accent treatment", () => {
+    renderAgentWorkspaceSidebar({ activeTab: "files" });
+
+    const files = screen.getByRole("button", { name: "Files" });
+    expect(files).toHaveAttribute("aria-current", "page");
+    expect(files).toHaveClass(
+      "bg-[rgb(var(--selection-accent-rgb)_/_0.12)]",
+      "ring-[rgb(var(--selection-accent-rgb)_/_0.28)]",
+    );
+    const integrations = screen.getByRole("button", { name: "Integrations" });
+    expect(integrations).not.toHaveAttribute("aria-current");
+    expect(integrations).not.toHaveClass("ring-1", "bg-[rgb(var(--selection-accent-rgb)_/_0.12)]");
+  });
+
   it("disables the scheduled section when it is not enabled", () => {
     const props = renderAgentWorkspaceSidebar({
       scheduledDisabled: true,
@@ -1360,6 +1394,48 @@ describe("AgentWorkspaceSidebar", () => {
     expect(props.onOpenScheduled).not.toHaveBeenCalled();
     expect(props.onOpenOpenClaw).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: /settings/i })).not.toBeInTheDocument();
+  });
+
+  it("enables safe feature previews while keeping live agent controls disabled", () => {
+    const props = renderAgentWorkspaceSidebar({
+      selectedAgent: null,
+      allowAgentlessFeaturePreviews: true,
+    });
+
+    expect(screen.getByRole("button", { name: /new session/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /files/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /integrations/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /skills/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /scheduled/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Desktop" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /advanced/i })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: /files/i }));
+    fireEvent.click(screen.getByRole("button", { name: /integrations/i }));
+    fireEvent.click(screen.getByRole("button", { name: /skills/i }));
+    fireEvent.click(screen.getByRole("button", { name: /scheduled/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Desktop" }));
+    expect(props.onOpenFiles).toHaveBeenCalledOnce();
+    expect(props.onOpenIntegrations).toHaveBeenCalledOnce();
+    expect(props.onOpenSkills).toHaveBeenCalledOnce();
+    expect(props.onOpenScheduled).toHaveBeenCalledOnce();
+    expect(props.onOpenDesktopPreview).toHaveBeenCalledOnce();
+    expect(props.onCreateSession).not.toHaveBeenCalled();
+  });
+
+  it("keeps agentless previews disabled while the workspace itself is disabled", () => {
+    renderAgentWorkspaceSidebar({
+      selectedAgent: null,
+      allowAgentlessFeaturePreviews: true,
+      disabled: true,
+      disabledReason: "Workspace is loading.",
+    });
+
+    expect(screen.getByRole("button", { name: /files/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /integrations/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /skills/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /scheduled/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Desktop" })).toBeDisabled();
   });
 
   it("keeps workspace sections enabled for a selected stopped agent", () => {

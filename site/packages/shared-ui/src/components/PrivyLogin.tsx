@@ -191,8 +191,23 @@ export function PrivyLoginModal({
 }: PrivyLoginModalProps) {
   if (!isOpen) return null;
 
+  return <OpenPrivyLoginModal onClose={onClose} onSuccess={onSuccess} {...panelProps} />;
+}
+
+function OpenPrivyLoginModal({
+  onClose,
+  onSuccess,
+  ...panelProps
+}: Omit<PrivyLoginModalProps, "isOpen">) {
+  const { isModalOpen: isPrivyModalOpen } = usePrivy();
+
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+    <div
+      inert={isPrivyModalOpen}
+      className={`fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 ${
+        isPrivyModalOpen ? "invisible pointer-events-none" : ""
+      }`}
+    >
       <div className="bg-surface-low border border-border-medium rounded-2xl shadow-2xl p-8 max-w-md w-full relative">
         <button
           onClick={onClose}

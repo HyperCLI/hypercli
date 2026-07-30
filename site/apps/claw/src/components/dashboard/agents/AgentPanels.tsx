@@ -4,7 +4,7 @@ import Link from "next/link";
 import React from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, Reorder } from "framer-motion";
-import { ArrowLeft, ArrowRight, BarChart3, Blocks, Check, Codepen, Copy, FolderOpen, HardDrive, House, KeyRound, Loader2, LogOut, MessageSquare, PanelRight, Plus, Play, SlidersHorizontal, Sparkles, Square, UsersRound, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, BarChart3, Blocks, CalendarClock, Check, Codepen, Copy, FolderOpen, HardDrive, House, KeyRound, LayoutDashboard, Loader2, LogOut, MessageSquare, Monitor, PanelRight, Plus, Play, Send, SlidersHorizontal, Sparkles, Square, UsersRound, X } from "lucide-react";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import type { AgentChannelSummary } from "@hypercli.com/sdk/channels";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
@@ -49,8 +49,7 @@ import { AgentTeamSettingsContent } from "./AgentTeamSettingsContent";
 import { getAgentGatewayPanelBootStatus } from "./chat-boot-stage";
 import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
 import { agentDisplayLabel } from "./agentViewModel";
-import { AnonymousAgentLaunchState } from "./AnonymousAgentDraftResume";
-import { clearFirstAgentSetupDraft, useFirstAgentSetupDraft } from "@/hooks/useFirstAgentSetupDraft";
+import { AgentChatComposerShell } from "./AgentChatComposerShell";
 
 interface SessionLike {
   connected: boolean;
@@ -458,7 +457,7 @@ interface AgentSettingsPanelProps {
     walletAddress?: string;
   } | null;
   getToken?: () => Promise<string>;
-  onProfileAvatarChange?: (avatarUrl: string | null) => void;
+  onProfileAvatarChange?: (avatarUrl: string | null, file?: File) => void;
   onStartAgent?: () => void;
   onStopAgent?: () => void;
   onDeleteAgent?: () => void;
@@ -1740,8 +1739,14 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const [agentSettingsSuccess, setAgentSettingsSuccess] = React.useState<string | null>(null);
   const [confirmImageChange, setConfirmImageChange] = React.useState(false);
   const objectUrlsRef = React.useRef<string[]>([]);
+  const profileLoadRequestRef = React.useRef(0);
+  const profileAvatarMutationUserIdRef = React.useRef<string | null>(null);
+  const profileAuthUserIdRef = React.useRef(user?.id ?? null);
   const syncedAgentSettingsIdRef = React.useRef(agent?.id ?? null);
+  const syncedAgentAvatarRef = React.useRef(agentSettingsAvatar(agent));
   const authUserId = user?.id ?? null;
+  const authProfileName = profileNameFromUser(user);
+  const authProfileAvatar = profileAvatarFromUser(user);
   const profileUserId = loadedProfileUser?.authUserId === authUserId
     ? loadedProfileUser.userId
     : profileUserIdFromUser(user);
@@ -1753,21 +1758,26 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   }, [agentSettingsError]);
 
   React.useEffect(() => {
-    const nextName = profileNameFromUser(user);
-    const nextAvatar = profileAvatarFromUser(user);
-    setSavedProfileName(nextName);
-    setProfileName(nextName);
-    setSavedProfileAvatar(nextAvatar);
-    setProfileAvatar(nextAvatar);
-    setProfileAvatarFile(null);
+    const userChanged = profileAuthUserIdRef.current !== authUserId;
+    profileAuthUserIdRef.current = authUserId;
+    if (userChanged) profileAvatarMutationUserIdRef.current = null;
+    profileLoadRequestRef.current += 1;
+    setSavedProfileName(authProfileName);
+    setProfileName(authProfileName);
+    if (profileAvatarMutationUserIdRef.current !== authUserId) {
+      setSavedProfileAvatar(authProfileAvatar);
+      setProfileAvatar(authProfileAvatar);
+      setProfileAvatarFile(null);
+    }
     setProfileError(null);
     setProfileSuccess(null);
-  }, [user]);
+  }, [authProfileAvatar, authProfileName, authUserId]);
 
   React.useEffect(() => {
-    if (!getToken || !user) return;
+    if (!getToken || !authUserId) return;
 
     let active = true;
+    const requestId = ++profileLoadRequestRef.current;
 
     const loadProfile = async () => {
       try {
@@ -1775,18 +1785,19 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         const client = createBrowserHyperCLIClient(token);
         const [profile, profileImage] = await Promise.all([
           client.user.get(),
-          client.user.getProfileImage().catch(() => null),
+          client.user.getProfileImage().catch(() => undefined),
         ]);
-        if (!active) return;
-        const nextName = profile.name ?? profileNameFromUser(user);
-        const nextAvatar = profileImage?.avatarUrl ?? profileAvatarFromUser(user);
-        setLoadedProfileUser({ authUserId: user.id ?? null, userId: profile.userId });
+        if (!active || requestId !== profileLoadRequestRef.current) return;
+        const nextName = profile.name ?? authProfileName;
+        setLoadedProfileUser({ authUserId, userId: profile.userId });
         setSavedProfileName(nextName);
         setProfileName(nextName);
-        setSavedProfileAvatar(nextAvatar);
-        setProfileAvatar(nextAvatar);
-        setProfileAvatarFile(null);
-        onProfileAvatarChange?.(nextAvatar);
+        if (profileImage && profileAvatarMutationUserIdRef.current !== authUserId) {
+          const nextAvatar = profileImage.avatarUrl ?? null;
+          setSavedProfileAvatar(nextAvatar);
+          setProfileAvatar(nextAvatar);
+          setProfileAvatarFile(null);
+        }
       } catch (error) {
         if (!active) return;
         setProfileError(error instanceof Error ? error.message : "Failed to load profile.");
@@ -1798,7 +1809,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     return () => {
       active = false;
     };
-  }, [getToken, onProfileAvatarChange, user]);
+  }, [authProfileName, authUserId, getToken]);
 
   React.useEffect(() => {
     const nextAgentId = agent?.id ?? null;
@@ -1808,15 +1819,19 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     const nextDisplayName = agentSettingsDisplayName(agent);
     const nextHandle = agentSettingsHandle(agent);
     const nextAvatar = agentSettingsAvatar(agent);
+    const agentAvatarPropChanged = agentChanged || syncedAgentAvatarRef.current !== nextAvatar;
+    syncedAgentAvatarRef.current = nextAvatar;
     setAgentNameDraft((current) => agentChanged || current === savedAgentName ? nextName : current);
     setSavedAgentName(nextName);
     setAgentDisplayNameDraft((current) => agentChanged || current === savedAgentDisplayName ? nextDisplayName : current);
     setSavedAgentDisplayName(nextDisplayName);
     setAgentHandleDraft((current) => agentChanged || current === savedAgentHandle ? nextHandle : current);
     setSavedAgentHandle(nextHandle);
-    setAgentAvatarDraft((current) => agentChanged || current === savedAgentAvatar ? nextAvatar : current);
-    setSavedAgentAvatar(nextAvatar);
-    setSavedAgentAvatarRemovable(Boolean(agent?.avatarUrl));
+    if (agentAvatarPropChanged) {
+      setAgentAvatarDraft((current) => agentChanged || current === savedAgentAvatar ? nextAvatar : current);
+      setSavedAgentAvatar(nextAvatar);
+      setSavedAgentAvatarRemovable(Boolean(agent?.avatarUrl));
+    }
     const nextImage = launchConfigImage(agent);
     const nextAdditionalEnv = additionalEnvTextFromAgent(agent);
     const nextDesktopEnabled = getDesktopEnabled(agent);
@@ -2024,6 +2039,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     try {
       if (profileChanged && getToken) {
         savingSection = "profile";
+        profileLoadRequestRef.current += 1;
         const token = await getToken();
         const client = createBrowserHyperCLIClient(token);
         if (profileNameChanged) {
@@ -2034,12 +2050,14 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         }
         if (profileAvatarFile) {
           savingAvatar = "profile";
-          const uploaded = await client.user.uploadProfileImage(profileAvatarFile);
+          const selectedFile = profileAvatarFile;
+          const localAvatarUrl = profileAvatar;
+          const uploaded = await client.user.uploadProfileImage(selectedFile);
           if (!uploaded.avatarUrl) throw new Error("Profile image upload returned no URL.");
-          setSavedProfileAvatar(uploaded.avatarUrl);
-          setProfileAvatar(uploaded.avatarUrl);
+          setSavedProfileAvatar(localAvatarUrl ?? uploaded.avatarUrl);
+          setProfileAvatar(localAvatarUrl ?? uploaded.avatarUrl);
           setProfileAvatarFile(null);
-          onProfileAvatarChange?.(uploaded.avatarUrl ?? null);
+          onProfileAvatarChange?.(uploaded.avatarUrl, selectedFile);
         } else if (profileAvatarChanged && !profileAvatar) {
           savingAvatar = "profile";
           await client.user.deleteProfileImage();
@@ -2094,9 +2112,11 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
       if (agentAvatarFile && onUploadAgentAvatar) {
         savingSection = "agent";
         savingAvatar = "agent";
-        const avatarUrl = await onUploadAgentAvatar(agent.id, agentAvatarFile);
-        setAgentAvatarDraft(avatarUrl);
-        setSavedAgentAvatar(avatarUrl);
+        const selectedFile = agentAvatarFile;
+        const localAvatarUrl = agentAvatarDraft;
+        const avatarUrl = await onUploadAgentAvatar(agent.id, selectedFile);
+        setAgentAvatarDraft(localAvatarUrl ?? avatarUrl);
+        setSavedAgentAvatar(localAvatarUrl ?? avatarUrl);
         setSavedAgentAvatarRemovable(true);
         setAgentAvatarFile(null);
         setAgentSettingsSuccess("Agent settings updated.");
@@ -2189,6 +2209,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     onUpdateExternalAgentProfile,
     onUpdateAgentLaunchConfig,
     onUpdateAgentProfile,
+    onProfileAvatarChange,
     onUploadAgentAvatar,
     onDeleteAgentAvatar,
     onSaveOpenClawConfig,
@@ -2220,11 +2241,13 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     }
     const nextUrl = URL.createObjectURL(file);
     objectUrlsRef.current.push(nextUrl);
+    profileLoadRequestRef.current += 1;
+    profileAvatarMutationUserIdRef.current = authUserId;
     setProfileAvatarFile(file);
     setProfileAvatar(nextUrl);
     setProfileError(null);
     setProfileSuccess(null);
-  }, []);
+  }, [authUserId]);
 
   const handleAgentAvatarSelect = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -2291,6 +2314,8 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             onProfileNameChange={setProfileName}
             onAvatarSelect={handleAvatarSelect}
             onAvatarRemove={() => {
+              profileLoadRequestRef.current += 1;
+              profileAvatarMutationUserIdRef.current = authUserId;
               setProfileAvatarFile(null);
               setProfileAvatar(null);
             }}
@@ -2587,6 +2612,9 @@ interface AgentListProps {
   onOpenHome?: () => void;
   homeActive?: boolean;
   homeHref?: string;
+  onOpenAltHome?: () => void;
+  altHomeActive?: boolean;
+  altHomeHref?: string;
   onOpenSharedResources?: () => void;
   sharedResourcesActive?: boolean;
   sharedResourcesHref?: string;
@@ -2662,6 +2690,9 @@ export function AgentList({
   onOpenHome,
   homeActive = false,
   homeHref = DASHBOARD_VIEW_HREFS.overview,
+  onOpenAltHome,
+  altHomeActive = false,
+  altHomeHref = DASHBOARD_VIEW_HREFS["alt-home"],
   onOpenSharedResources,
   sharedResourcesActive = false,
   sharedResourcesHref = "/dashboard/agents?section=knowledge",
@@ -2947,7 +2978,7 @@ export function AgentList({
                 </div>
               </div>
               <div aria-hidden="true" className="agents-roster-rail-divider my-2 h-px w-8 shrink-0 bg-border/70" />
-              <div className="agents-roster-rail-home shrink-0">
+              <div className="agents-roster-rail-home flex shrink-0 flex-col items-center gap-2">
                 <RosterNavigationItem
                   compact
                   label="Home"
@@ -2956,11 +2987,19 @@ export function AgentList({
                   onOpen={onOpenHome}
                   icon={House}
                 />
+                <RosterNavigationItem
+                  compact
+                  label="Alt home"
+                  href={altHomeHref}
+                  active={altHomeActive}
+                  onOpen={onOpenAltHome}
+                  icon={LayoutDashboard}
+                />
               </div>
               <div className="agents-roster-rail-administration flex shrink-0 flex-col items-center gap-2">
                 <RosterNavigationItem
                   compact
-                  label="Shared resources"
+                  label="Shared"
                   href={sharedResourcesHref}
                   active={sharedResourcesActive}
                   onOpen={onOpenSharedResources}
@@ -3040,6 +3079,9 @@ export function AgentList({
               onOpenHome={onOpenHome}
               homeActive={homeActive}
               homeHref={homeHref}
+              onOpenAltHome={onOpenAltHome}
+              altHomeActive={altHomeActive}
+              altHomeHref={altHomeHref}
               onOpenSharedResources={onOpenSharedResources}
               sharedResourcesActive={sharedResourcesActive}
               sharedResourcesHref={sharedResourcesHref}
@@ -3069,7 +3111,7 @@ export function AgentList({
             <motion.div
               data-testid="agent-launcher-overlay"
               aria-hidden={agentLauncherSuspended || undefined}
-              className={`fixed inset-0 z-[80] flex items-center justify-center bg-background/70 p-3 backdrop-blur-sm sm:p-5 ${agentLauncherSuspended ? "invisible pointer-events-none" : ""}`}
+              className={`fixed inset-0 z-[80] flex items-center justify-center bg-background/70 p-2 backdrop-blur-sm ${agentLauncherSuspended ? "invisible pointer-events-none" : ""}`}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -3081,7 +3123,7 @@ export function AgentList({
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.98, y: 8 }}
                 transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                className="relative h-[min(700px,calc(100dvh-1rem))] w-[calc(100vw-1rem)] max-w-[660px] sm:h-[min(700px,calc(100dvh-2rem))] sm:w-[calc(100vw-2rem)] sm:max-w-[660px]"
+                className="relative h-[min(712px,calc(100dvh-1rem))] w-[calc(100vw-1rem)] max-w-[1200px] sm:h-[min(852px,calc(100dvh-1rem))] sm:max-w-[1200px]"
               >
                 <AgentCreationSetupWizard
                   size="inline"
@@ -3123,7 +3165,6 @@ type AgentEmptyStateProps = {
   creationDisabledReason?: string | null;
   onCreateWorkspace?: () => void;
   onOpenMembers?: () => void;
-  showTrialOffer?: boolean;
 };
 
 type AgentLaunchActionProps = {
@@ -3141,39 +3182,27 @@ export function LaunchFirstAgentEmptyState({
   creationDisabledReason,
   onCreateWorkspace,
   onOpenMembers,
-  showTrialOffer = false,
 }: AgentEmptyStateProps) {
   const workspaceScoped = Boolean(workspaceName);
   const workspaceSetupRequired = !workspaceScoped && Boolean(onCreateWorkspace);
-  const anonymousDraft = useFirstAgentSetupDraft();
-
-  if (showTrialOffer && !workspaceScoped) {
-    return (
-      <AnonymousAgentLaunchState
-        draft={anonymousDraft}
-        onResume={onCreate}
-        onStartFresh={() => {
-          clearFirstAgentSetupDraft();
-          onCreate();
-        }}
-      />
-    );
-  }
 
   return (
-    <div className="flex h-full min-h-0 flex-1 items-center justify-center bg-background px-5 py-8">
-      <div className="flex w-full max-w-[600px] flex-col items-center text-center">
-        <div className="mb-6 inline-flex h-5 items-center gap-1.5 rounded-full border border-foreground px-2.5 text-[11px] font-semibold leading-none text-foreground">
-          <Sparkles className="h-3 w-3" />
-          <span>{workspaceScoped ? "Workspace roster" : "Let's get started"}</span>
-        </div>
+    <div data-slot="first-agent-empty-state" className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
+      <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-5 py-8">
+        <div className="flex w-full max-w-[600px] flex-col items-center text-center">
+        {!workspaceScoped ? (
+          <div className="mb-6 inline-flex h-5 items-center gap-1.5 rounded-full border border-foreground px-2.5 text-[11px] font-semibold leading-none text-foreground">
+            <Sparkles className="h-3 w-3" />
+            <span>{"Let's get started"}</span>
+          </div>
+        ) : null}
 
         <h1 className={`font-semibold leading-none tracking-normal text-foreground ${
           workspaceScoped
             ? "text-[40px] sm:text-[52px]"
             : "whitespace-nowrap text-[clamp(1.75rem,7vw,3.625rem)]"
         }`}>
-          {workspaceScoped ? `No agents in ${workspaceName}` : "Launch your first agent"}
+          {workspaceScoped ? `Welcome to your ${workspaceName}` : "Launch your first agent"}
         </h1>
         <p className="mt-6 text-[16px] font-medium leading-6 text-text-muted">
           {workspaceScoped && hasAccountAgents
@@ -3218,12 +3247,6 @@ export function LaunchFirstAgentEmptyState({
             </span>
           </motion.button>
         </TooltipHint>
-        {showTrialOffer && !workspaceScoped ? (
-          <p className="mt-3 flex items-center justify-center gap-1.5 text-[12px] font-medium leading-5 text-text-muted sm:text-[13px]">
-            <Sparkles className="h-3 w-3 shrink-0" />
-            <span>Every plan starts with a 7-day free trial — nothing charged today.</span>
-          </p>
-        ) : null}
         {workspaceSetupRequired ? (
           <p className="mt-3 text-sm text-text-muted">One quick step, then you can launch your first agent.</p>
         ) : creationDisabledReason ? (
@@ -3238,7 +3261,31 @@ export function LaunchFirstAgentEmptyState({
             Add an existing agent in Members
           </button>
         ) : null}
+        </div>
       </div>
+      {workspaceScoped ? (
+        <div className="w-full shrink-0 px-3 pb-[max(0.625rem,env(safe-area-inset-bottom,0.625rem))] pt-2 md:p-3">
+          <div className="mx-auto flex w-full max-w-5xl min-w-0">
+            <AgentChatComposerShell
+              aria-label="Message agent"
+              placeholder="Launch an agent to start chatting..."
+              disabled
+              inputClassName="pr-14 disabled:cursor-not-allowed disabled:opacity-100"
+            >
+              <div className="absolute right-2 top-[calc(50%-3px)] -translate-y-1/2">
+                <button
+                  type="button"
+                  aria-label="Send message"
+                  disabled
+                  className="btn-primary flex h-8 w-8 items-center justify-center rounded-full disabled:opacity-40"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </AgentChatComposerShell>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -3529,6 +3576,60 @@ export function AgentSkillsEmptyState({
       launchBlocked={launchBlocked}
       launchBlockedReason={launchBlockedReason}
       onLaunch={onLaunchAction ?? (() => setShowWizard(true))}
+    />
+  );
+}
+
+export function AgentScheduledEmptyState({
+  onCreate,
+  launchLabel,
+  launching,
+  launchBlocked,
+  launchBlockedReason,
+  onLaunchAction,
+}: AgentEmptyStateProps & AgentLaunchActionProps) {
+  return (
+    <LaunchAgentCenteredEmptyStateContent
+      icon={CalendarClock}
+      title="Work that keeps moving"
+      description="Schedule recurring jobs and one-off tasks so your agent can keep projects moving without waiting for the next prompt."
+      examples={[
+        "Run recurring research, reporting, and follow-up work on a dependable schedule",
+        "Send each task to the right conversation with the context it needs",
+        "Review upcoming runs and adjust schedules as priorities change",
+      ]}
+      launchLabel={launchLabel}
+      launching={launching}
+      launchBlocked={launchBlocked}
+      launchBlockedReason={launchBlockedReason}
+      onLaunch={onLaunchAction ?? onCreate}
+    />
+  );
+}
+
+export function AgentDesktopEmptyState({
+  onCreate,
+  launchLabel,
+  launching,
+  launchBlocked,
+  launchBlockedReason,
+  onLaunchAction,
+}: AgentEmptyStateProps & AgentLaunchActionProps) {
+  return (
+    <LaunchAgentCenteredEmptyStateContent
+      icon={Monitor}
+      title="A browser built for action"
+      description="Give your agent a protected browser desktop for visual work that goes beyond APIs, files, and chat."
+      examples={[
+        "Navigate web apps and complete multi-step browser workflows",
+        "Work with visual tools, dashboards, and sites that require direct interaction",
+        "Keep browser activity isolated inside the agent's dedicated workspace",
+      ]}
+      launchLabel={launchLabel}
+      launching={launching}
+      launchBlocked={launchBlocked}
+      launchBlockedReason={launchBlockedReason}
+      onLaunch={onLaunchAction ?? onCreate}
     />
   );
 }

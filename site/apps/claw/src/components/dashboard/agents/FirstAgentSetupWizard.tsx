@@ -91,7 +91,19 @@ interface FirstAgentSetupWizardProps {
   enableCustomImageOption?: boolean;
   enforceProFeaturePlanRestrictions?: boolean;
   saveDraftAsYouGo?: boolean;
-  size?: "default" | "inline" | "large";
+  skipPlanSelection?: boolean;
+  capacityReady?: boolean;
+  capacityError?: string | null;
+  onRetryCapacity?: () => void;
+  capacityContent?: React.ReactNode;
+  checkoutActive?: boolean;
+  checkoutProcessing?: boolean;
+  checkoutContent?: React.ReactNode;
+  onBackFromCheckout?: () => void;
+  onStartFresh?: () => void;
+  draftPrincipalId?: string | null;
+  draftWorkspaceId?: string | null;
+  size?: "default" | "embedded" | "inline" | "large";
 }
 
 type WizardStepId = "identity" | "workspace" | "plan";
@@ -713,11 +725,27 @@ function WizardButton({
   );
 }
 
-function WizardMomentum({ finalStep }: { finalStep: boolean }) {
+function WizardMomentum({ stage }: { stage: "resume" | "identity" | "workspace" | "capacity" | "checkout" }) {
   const reducedMotion = useReducedMotion();
-  const progress = finalStep ? 92 : 48;
-  const status = finalStep ? "Launch ready" : "Taking shape";
-  const detail = finalStep ? "Choose its power" : "Moments from launch";
+  const progress = stage === "checkout" ? 98 : stage === "capacity" ? 92 : stage === "workspace" ? 72 : 48;
+  const status = stage === "checkout"
+    ? "One tiny thing..."
+    : stage === "capacity"
+      ? "Almost there!"
+      : stage === "workspace"
+        ? "Looking good!"
+        : stage === "resume"
+          ? "Setup saved"
+          : "Taking shape";
+  const detail = stage === "checkout"
+    ? "Then it's ready to run"
+    : stage === "capacity"
+      ? "Choose the one that fits best"
+      : stage === "workspace"
+        ? "Now shape its workspace"
+        : stage === "resume"
+          ? "Ready when you are"
+          : "Moments from launch";
 
   return (
     <div
@@ -727,21 +755,25 @@ function WizardMomentum({ finalStep }: { finalStep: boolean }) {
       aria-valuemax={100}
       aria-valuenow={progress}
       aria-valuetext={`${status}. ${detail}.`}
-      className="flex min-w-0 flex-1 flex-col items-center justify-center px-2 text-center"
+      className="flex min-w-0 flex-1 flex-col items-center justify-center px-1 text-center sm:px-2"
     >
       <div aria-hidden="true" className="absolute inset-x-0 top-0 h-[2px] overflow-hidden bg-border/70">
         <motion.div
-          initial={reducedMotion ? false : { width: finalStep ? "48%" : "0%" }}
+          initial={reducedMotion ? false : { width: stage === "checkout" ? "92%" : stage === "capacity" ? "72%" : stage === "workspace" ? "48%" : "0%" }}
           animate={{ width: `${progress}%` }}
           transition={reducedMotion ? { duration: 0 } : { duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
           className="h-full bg-[var(--selection-accent)] shadow-[0_0_14px_rgb(var(--selection-accent-rgb)_/_0.65)]"
         />
       </div>
-      <span className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-[0.14em] text-[var(--selection-accent)]">
-        <span className="h-1.5 w-1.5 rounded-full bg-current shadow-[0_0_8px_currentColor]" />
-        {status}
-      </span>
-      <span className="mt-0.5 truncate text-[10px] font-medium text-text-muted sm:text-[11px]">{detail}</span>
+      {stage !== "resume" ? (
+        <>
+          <span className="flex items-center gap-1.5 whitespace-nowrap text-[9px] font-bold uppercase tracking-[0.08em] text-[var(--selection-accent)] sm:tracking-[0.14em]">
+            <span className="h-1.5 w-1.5 rounded-full bg-current shadow-[0_0_8px_currentColor]" />
+            {status}
+          </span>
+          <span className="mt-0.5 truncate text-[10px] font-medium text-text-muted sm:text-[11px]">{detail}</span>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -853,16 +885,33 @@ export function FirstAgentSetupWizard({
   enableCustomImageOption = false,
   enforceProFeaturePlanRestrictions = false,
   saveDraftAsYouGo = false,
+  skipPlanSelection = false,
+  capacityReady = true,
+  capacityError = null,
+  onRetryCapacity,
+  capacityContent,
+  checkoutActive = false,
+  checkoutProcessing = false,
+  checkoutContent,
+  onBackFromCheckout,
+  onStartFresh,
+  draftPrincipalId = null,
+  draftWorkspaceId = null,
   size = "default",
 }: FirstAgentSetupWizardProps) {
   const [restoredDraft] = React.useState(() => {
     const draft = readFirstAgentSetupDraft();
     if (!draft) return null;
+    if (draft.principalId && draftPrincipalId && draft.principalId !== draftPrincipalId) return null;
+    if (draft.workspaceId && draftWorkspaceId && draft.workspaceId !== draftWorkspaceId) return null;
     const iconIndex = avatarOptions.some((option) => option.iconIndex === draft.iconIndex)
       ? draft.iconIndex
       : avatarOptions[0].iconIndex;
     return iconIndex === draft.iconIndex ? draft : { ...draft, iconIndex };
   });
+  const [draftResumeOpen, setDraftResumeOpen] = React.useState(() => (
+    Boolean(restoredDraft && onStartFresh)
+  ));
   const [defaultAgentName, setDefaultAgentName] = React.useState("");
   const [agentName, setAgentName] = React.useState(restoredDraft?.name ?? "");
   const [selectedCategory] = React.useState(restoredDraft?.category ?? "General");
@@ -872,8 +921,9 @@ export function FirstAgentSetupWizard({
   const [enableCustomImage, setEnableCustomImage] = React.useState(restoredDraft?.enableCustomImage ?? false);
   const [customImage, setCustomImage] = React.useState(restoredDraft?.customImage ?? "");
   const [customImageEdited, setCustomImageEdited] = React.useState(Boolean(restoredDraft?.customImage));
+  const [advancedOpen, setAdvancedOpen] = React.useState(true);
   const [bootstrapDraft, setBootstrapDraft] = React.useState<OpenClawBootstrapDraft>(() => (
-    createOpenClawBootstrapDraft(restoredDraft?.name ?? "Your agent")
+    restoredDraft?.bootstrapDraft ?? createOpenClawBootstrapDraft(restoredDraft?.name ?? "Your agent")
   ));
   const [bootstrapGeneration, dispatchBootstrapGeneration] = React.useReducer(
     openClawBootstrapGenerationReducer,
@@ -894,7 +944,9 @@ export function FirstAgentSetupWizard({
   );
   const { stepIndex, selectedPlanId, creating, createError } = wizardState;
   const [planComparisonOpen, setPlanComparisonOpen] = React.useState(false);
+  const [openingCapacity, setOpeningCapacity] = React.useState(false);
   const appliedInitialPlanIdRef = React.useRef<string | null>(null);
+  const resumedDraftCapacityHandledRef = React.useRef(false);
   const requiresProPlan = enforceProFeaturePlanRestrictions && (enableDesktop || enableMemoryIndex || enableCustomImage);
   const displayedPlanOptions = React.useMemo(() => {
     if (!requiresProPlan) return planOptions;
@@ -914,10 +966,37 @@ export function FirstAgentSetupWizard({
   }, [planOptions, requiresProPlan]);
 
   const currentStep = steps[stepIndex];
-  const currentCopy = stepCopy[currentStep];
   const largePresentation = size === "large";
+  const embeddedPresentation = size === "embedded";
   const inlinePresentation = size === "inline";
+  const widePresentation = embeddedPresentation || inlinePresentation || largePresentation;
   const selectedPlan = displayedPlanOptions.find((plan) => plan.id === selectedPlanId) ?? displayedPlanOptions[0];
+  const hasEmbeddedCapacityContent = Boolean(capacityContent);
+  const directCapacityFlow = skipPlanSelection && Boolean(hasEmbeddedCapacityContent || onOpenPlanCatalog);
+  const embeddedCapacityStep = currentStep === "plan" && directCapacityFlow && hasEmbeddedCapacityContent;
+  const embeddedCheckoutStep = embeddedCapacityStep && checkoutActive && Boolean(checkoutContent);
+  const currentCopy = draftResumeOpen && restoredDraft
+    ? {
+        title: "Your agent has a head start.",
+        subtitle: "Review what is saved, then continue setting it up without leaving this window.",
+      }
+    : embeddedCheckoutStep
+    ? { title: "Make it official", subtitle: "Choose how you'd like to pay. Your setup stays right here." }
+    : embeddedCapacityStep
+      ? { title: "Give it room to run", subtitle: "Choose the capacity that fits the work ahead. You can scale it up anytime." }
+      : stepCopy[currentStep];
+  const focusStage = draftResumeOpen
+    ? "resume"
+    : embeddedCheckoutStep
+      ? "checkout"
+      : embeddedCapacityStep
+        ? "capacity"
+        : currentStep;
+  const headingRef = React.useRef<HTMLHeadingElement>(null);
+  const previousFocusStageRef = React.useRef(focusStage);
+  const availableLaunchPlan = selectedPlan?.action === "launch" && !selectedPlan.disabled
+    ? selectedPlan
+    : displayedPlanOptions.find((plan) => plan.action === "launch" && !plan.disabled);
   const selectedPlanIsProvisioning = selectedPlan?.statusText === "Payment active, waiting for entitlement";
   const selectedPlanIsReleasing = selectedPlan?.statusText === "Slot being released";
   const selectedPlanStatusFeature = selectedPlanIsProvisioning || selectedPlanIsReleasing ? null : selectedPlan?.slotStatus;
@@ -926,6 +1005,13 @@ export function FirstAgentSetupWizard({
     : [];
   const displayName = agentName.trim() || defaultAgentName || "agent";
   const agentUrl = agentUrlSlug(displayName);
+  const ResumeAvatarIcon = avatarOptions.find((option) => option.iconIndex === restoredDraft?.iconIndex)?.icon ?? Bot;
+  const restoredCapabilities = restoredDraft
+    ? [
+        restoredDraft.enableDesktop ? "Browser ready" : null,
+        restoredDraft.enableMemoryIndex ? "Memory ready" : null,
+      ].filter((capability): capability is string => Boolean(capability))
+    : [];
   const defaultCustomImage = getOpenClawDefaultImage(enableDesktop);
   const effectiveCustomImage = customImageEdited ? customImage : defaultCustomImage;
   const runBootstrapGeneration = React.useCallback(async (rawInputs: OpenClawBootstrapInputs) => {
@@ -998,6 +1084,13 @@ export function FirstAgentSetupWizard({
   }, []);
 
   React.useEffect(() => {
+    if (previousFocusStageRef.current === focusStage) return;
+    previousFocusStageRef.current = focusStage;
+    const timeout = window.setTimeout(() => headingRef.current?.focus(), 0);
+    return () => window.clearTimeout(timeout);
+  }, [focusStage]);
+
+  React.useEffect(() => {
     if (currentStep !== "workspace" || bootstrapInitialGenerationStartedRef.current) return;
     bootstrapInitialGenerationStartedRef.current = true;
     void runBootstrapGeneration({ ...bootstrapDraft.inputs, agentName: displayName });
@@ -1016,9 +1109,15 @@ export function FirstAgentSetupWizard({
       enableMemoryIndex,
       enableCustomImage,
       customImage: enableCustomImage ? effectiveCustomImage.trim() : "",
+      principalId: draftPrincipalId,
+      workspaceId: draftWorkspaceId,
+      bootstrapDraft,
     });
   }, [
+    bootstrapDraft,
     displayName,
+    draftPrincipalId,
+    draftWorkspaceId,
     effectiveCustomImage,
     enableCustomImage,
     enableDesktop,
@@ -1031,6 +1130,32 @@ export function FirstAgentSetupWizard({
     selectedIconIndex,
   ]);
 
+  const openCapacityCatalog = React.useCallback(async () => {
+    if (openingCapacity) return;
+    dispatchWizard({ type: "CLEAR_ERROR" });
+    persistDraft(selectedPlan ?? null);
+    if (hasEmbeddedCapacityContent) {
+      dispatchWizard({
+        type: "GO_TO_STEP",
+        stepIndex: steps.indexOf("plan"),
+        maxStepIndex: steps.length - 1,
+      });
+      return;
+    }
+    if (!onOpenPlanCatalog) return;
+    setOpeningCapacity(true);
+    try {
+      await onOpenPlanCatalog();
+    } catch (error) {
+      dispatchWizard({
+        type: "CREATE_FAILED",
+        message: error instanceof Error ? error.message : "Plan catalog is unavailable right now.",
+      });
+    } finally {
+      setOpeningCapacity(false);
+    }
+  }, [hasEmbeddedCapacityContent, onOpenPlanCatalog, openingCapacity, persistDraft, selectedPlan]);
+
   React.useEffect(() => {
     const timeout = window.setTimeout(() => {
       const generatedName = generateAgentName();
@@ -1041,22 +1166,46 @@ export function FirstAgentSetupWizard({
   }, []);
 
   React.useEffect(() => {
-    if (!saveDraftAsYouGo || !agentName.trim()) return;
+    if (draftResumeOpen || !saveDraftAsYouGo || !agentName.trim()) return;
     const timeout = window.setTimeout(() => persistDraft(), 120);
     return () => window.clearTimeout(timeout);
-  }, [agentName, persistDraft, saveDraftAsYouGo]);
+  }, [agentName, draftResumeOpen, persistDraft, saveDraftAsYouGo]);
 
   React.useEffect(() => {
-    if (!restoredDraft) return;
+    if (draftResumeOpen || currentStep === "identity" || !agentName.trim()) return;
+    const timeout = window.setTimeout(() => persistDraft(selectedPlan ?? null), 120);
+    return () => window.clearTimeout(timeout);
+  }, [agentName, bootstrapDraft, currentStep, draftResumeOpen, persistDraft, selectedPlan]);
+
+  React.useEffect(() => {
+    if (!restoredDraft || draftResumeOpen) return;
     const timeout = window.setTimeout(() => {
       dispatchWizard({
         type: "GO_TO_STEP",
-        stepIndex: steps.indexOf("plan"),
+        stepIndex: steps.indexOf(directCapacityFlow ? "workspace" : "plan"),
         maxStepIndex: steps.length - 1,
       });
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, [restoredDraft]);
+  }, [directCapacityFlow, draftResumeOpen, restoredDraft]);
+
+  React.useEffect(() => {
+    if (
+      !restoredDraft ||
+      draftResumeOpen ||
+      !directCapacityFlow ||
+      !capacityReady ||
+      availableLaunchPlan ||
+      resumedDraftCapacityHandledRef.current
+    ) return;
+
+    const timeout = window.setTimeout(() => {
+      if (resumedDraftCapacityHandledRef.current) return;
+      resumedDraftCapacityHandledRef.current = true;
+      void openCapacityCatalog();
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [availableLaunchPlan, capacityReady, directCapacityFlow, draftResumeOpen, openCapacityCatalog, restoredDraft]);
 
   React.useEffect(() => {
     dispatchWizard({
@@ -1155,64 +1304,99 @@ export function FirstAgentSetupWizard({
     void saveDraftAndCreate(planId);
   };
 
+  const handleWorkspaceAction = () => {
+    if (!directCapacityFlow) {
+      goToStep(2);
+      return;
+    }
+    if (!capacityReady || creating || openingCapacity) return;
+    if (availableLaunchPlan) {
+      handlePlanAction(availableLaunchPlan.id);
+      return;
+    }
+    void openCapacityCatalog();
+  };
+
+  const workspaceActionLabel = !directCapacityFlow
+    ? "Continue"
+    : !capacityReady
+      ? capacityError ? "Capacity unavailable" : "Checking capacity..."
+      : creating
+        ? "Creating..."
+        : openingCapacity
+          ? "Opening capacity..."
+          : availableLaunchPlan
+            ? "Launch agent"
+            : "Next step";
+
   return (
     <div className={cx(
       "flex h-full min-h-0 flex-1 items-center justify-center overflow-hidden",
-      largePresentation ? "p-0" : inlinePresentation ? "px-4 py-6 sm:px-8" : "px-3 py-3 sm:px-4 sm:py-4",
+      largePresentation || embeddedPresentation ? "p-0" : inlinePresentation ? "px-4 py-6 sm:p-2" : "px-3 py-3 sm:px-4 sm:py-4",
     )}>
       <motion.section
         aria-labelledby="first-agent-setup-title"
-        data-agent-launch-surface={inlinePresentation || undefined}
-        initial={inlinePresentation ? false : { opacity: 0, y: 10 }}
-        animate={inlinePresentation ? { opacity: 1, y: 0, scale: 1 } : { opacity: 1, y: 0 }}
-        transition={{ duration: inlinePresentation ? 0 : 0.2 }}
+        data-agent-launch-surface={embeddedPresentation || inlinePresentation || undefined}
+        data-presentation={embeddedPresentation ? "embedded" : undefined}
+        initial={embeddedPresentation || inlinePresentation ? false : { opacity: 0, y: 10 }}
+        animate={embeddedPresentation || inlinePresentation ? { opacity: 1, y: 0, scale: 1 } : { opacity: 1, y: 0 }}
+        transition={{ duration: embeddedPresentation || inlinePresentation ? 0 : 0.2 }}
         className={cx(
           "relative flex min-h-0 w-full flex-col overflow-hidden border border-border text-foreground",
-          inlinePresentation
+          embeddedPresentation
+            ? "border-0 bg-background shadow-none"
+            : inlinePresentation
             ? "bg-surface-low shadow-[0_24px_80px_rgb(0_0_0_/_0.3)]"
             : "elevation-shadow-strong bg-background",
           largePresentation
             ? "h-full max-h-[910px] max-w-[1168px] rounded-[26px]"
+            : embeddedPresentation
+              ? "h-full max-h-none max-w-none rounded-none"
             : inlinePresentation
-              ? "h-[546px] max-w-[660px] rounded-[24px] sm:!h-[428px]"
+              ? "h-full max-h-[680px] max-w-[1168px] rounded-[24px] sm:max-h-[820px]"
               : "h-full max-h-[680px] max-w-[456px] rounded-[20px]",
         )}
       >
         {inlinePresentation ? <div aria-hidden="true" className="absolute inset-x-0 top-0 z-10 h-px bg-[linear-gradient(90deg,transparent,rgb(var(--selection-accent-rgb)_/_0.9),transparent)]" /> : null}
-        <header className={cx(
+        <header data-slot="agent-setup-header" className={cx(
           "relative flex-shrink-0 border-b border-border",
-          largePresentation ? "px-5 py-4 sm:px-8 sm:py-7" : "px-5 py-3 sm:px-6",
+          largePresentation ? "px-5 py-4 sm:px-8 sm:py-7" : "min-h-[82px] px-5 py-3 sm:px-6",
         )}>
           <div className={cx(
             "min-w-0",
             onClose && (largePresentation ? "pr-16" : "pr-10"),
-            currentStep === "plan" && (onClose ? "sm:pr-[240px]" : "sm:pr-[190px]"),
+            !draftResumeOpen && currentStep === "plan" && (
+              onClose ? "sm:pr-[240px]" : "sm:pr-[190px]"
+            ),
           )}>
-            <h2 className={cx(
+            <h2 ref={headingRef} tabIndex={-1} className={cx(
               "font-medium leading-tight text-foreground",
               largePresentation ? "text-[24px] sm:text-[36px]" : "text-[20px] sm:text-[22px]",
+              !draftResumeOpen && currentStep === "plan" && (onClose ? "pr-[92px] sm:pr-0" : "pr-[72px] sm:pr-0"),
             )} id="first-agent-setup-title">{currentCopy.title}</h2>
             <p className={cx(
               "text-text-muted",
               largePresentation ? "mt-2 text-[13px] leading-5 sm:mt-5 sm:text-[22px] sm:leading-7" : "mt-1 text-[12px] leading-5 sm:text-[13px]",
             )}>{currentCopy.subtitle}</p>
           </div>
-          {currentStep === "plan" && (
+          {!draftResumeOpen && currentStep === "plan" && !embeddedCheckoutStep && (
             <div className={cx(
-              "mt-4 flex items-center justify-end gap-2 sm:absolute sm:mt-0",
+              "absolute top-3 flex items-center justify-end gap-2",
               largePresentation
                 ? onClose ? "sm:right-[88px] sm:top-7" : "sm:right-8 sm:top-7"
-                : onClose ? "sm:right-[60px] sm:top-4" : "sm:right-6 sm:top-4 lg:right-7",
+                : onClose ? "right-[52px] sm:right-[60px] sm:top-4" : "right-4 sm:right-6 sm:top-4 lg:right-7",
             )}>
               <button
                 type="button"
+                aria-label="Compare plans"
                 onClick={() => setPlanComparisonOpen(true)}
                 className={cx(
                   "inline-flex shrink-0 items-center justify-center whitespace-nowrap border border-border bg-surface-low font-medium text-foreground transition-colors hover:border-border-strong hover:bg-surface-high",
-                  largePresentation ? "h-12 rounded-[13px] px-5 text-[16px]" : "h-9 rounded-[10px] px-3.5 text-[14px]",
+                  largePresentation ? "h-12 rounded-[13px] px-5 text-[16px]" : "h-8 rounded-[9px] px-2.5 text-[12px] sm:h-9 sm:rounded-[10px] sm:px-3.5 sm:text-[14px]",
                 )}
               >
-                Compare plans
+                <span className="max-sm:hidden">Compare plans</span>
+                <span className="sm:hidden">Compare</span>
               </button>
             </div>
           )}
@@ -1221,8 +1405,9 @@ export function FirstAgentSetupWizard({
               type="button"
               aria-label="Close agent creation"
               onClick={onClose}
+              disabled={checkoutProcessing}
               className={cx(
-                "absolute z-10 flex items-center justify-center rounded-full border border-border bg-background/70 text-text-muted backdrop-blur transition-colors hover:bg-surface-low hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-selection-accent/45",
+                "absolute z-10 flex items-center justify-center rounded-full border border-border bg-background/70 text-text-muted backdrop-blur transition-colors hover:bg-surface-low hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-selection-accent/45 disabled:cursor-wait disabled:opacity-45",
                 largePresentation ? "right-8 top-7 h-12 w-12" : "right-4 top-3 h-8 w-8 sm:right-5",
               )}
             >
@@ -1231,13 +1416,97 @@ export function FirstAgentSetupWizard({
           ) : null}
         </header>
 
-        {currentStep === "identity" && (
+        {draftResumeOpen && restoredDraft && onStartFresh && (
+          <>
+            <div
+              className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8 sm:py-8"
+              data-slot="agent-setup-scroll-body"
+            >
+              <div
+                data-slot="saved-agent-draft-summary"
+                className="mx-auto flex min-h-full w-full max-w-[760px] items-center"
+              >
+                <div className="grid w-full gap-7 sm:grid-cols-[minmax(0,1.12fr)_minmax(240px,0.88fr)] sm:items-center sm:gap-9">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-4">
+                      <span className="relative flex h-[76px] w-[76px] shrink-0 items-center justify-center rounded-[22px] border border-selection-accent/35 bg-selection-accent/10 text-selection-accent shadow-[0_14px_34px_rgb(0_0_0_/_0.28)]">
+                        <ResumeAvatarIcon className="h-8 w-8" aria-hidden="true" />
+                        <span className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full border-2 border-surface-low bg-selection-accent text-selection-accent-foreground">
+                          <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                        </span>
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-selection-accent">Saved agent</p>
+                        <h3 className="mt-1 truncate text-[24px] font-semibold leading-tight tracking-[-0.02em] text-foreground sm:text-[28px]">
+                          {restoredDraft.name}
+                        </h3>
+                        <p className="mt-1 truncate text-[12px] font-medium text-text-muted">
+                          {agentUrlSlug(restoredDraft.name)}.hypercli.com
+                        </p>
+                      </div>
+                    </div>
+
+                    <p className="mt-6 max-w-[52ch] text-[14px] leading-6 text-text-secondary">
+                      The choices below are already saved in this browser. Continue to review the workspace and choose any remaining capacity.
+                    </p>
+
+                    {restoredCapabilities.length > 0 ? (
+                      <div className="mt-5 flex flex-wrap gap-2">
+                        {restoredCapabilities.map((capability) => (
+                          <span key={capability} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background/65 px-2.5 py-1.5 text-[11px] font-semibold text-text-secondary">
+                            <Check className="h-3 w-3 text-selection-accent" aria-hidden="true" />
+                            {capability}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <dl className="grid grid-cols-2 gap-x-6 gap-y-5 border-t border-border pt-6 sm:grid-cols-1 sm:border-l sm:border-t-0 sm:py-1 sm:pl-8">
+                    <div>
+                      <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-text-muted">Identity</dt>
+                      <dd className="mt-1.5 flex items-center gap-2 text-[14px] font-semibold text-foreground">
+                        <Check className="h-3.5 w-3.5 text-selection-accent" aria-hidden="true" />
+                        Saved
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-text-muted">Purpose</dt>
+                      <dd className="mt-1.5 truncate text-[14px] font-semibold text-foreground">{restoredDraft.category}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-text-muted">Workspace</dt>
+                      <dd className="mt-1.5 text-[14px] font-semibold text-foreground">Review next</dd>
+                    </div>
+                    <div>
+                      <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-text-muted">Capacity</dt>
+                      <dd className="mt-1.5 text-[14px] font-semibold text-foreground">
+                        {restoredDraft.plan ? "Selection saved" : "Choose next"}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+              </div>
+            </div>
+
+            <footer data-slot="agent-setup-footer" className="relative flex h-[72px] flex-shrink-0 items-center justify-between gap-2 border-t border-border bg-surface-low px-5 sm:px-6">
+              <WizardButton variant="secondary" onClick={onStartFresh}>Start fresh</WizardButton>
+              <WizardMomentum stage="resume" />
+              <WizardButton onClick={() => setDraftResumeOpen(false)}>
+                Continue setup
+                <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+              </WizardButton>
+            </footer>
+          </>
+        )}
+
+        {!draftResumeOpen && currentStep === "identity" && (
           <>
             <div className={cx(
               "min-h-0 flex-1 overflow-y-auto",
               largePresentation ? "px-[clamp(1.25rem,2.7vw,2rem)] py-[clamp(1.25rem,4vw,3rem)]" : "px-5 py-4 sm:px-6",
             )} data-slot="agent-setup-scroll-body">
-              <div className="mx-auto w-full">
+              <div className={cx("mx-auto grid min-h-full w-full content-center", (embeddedPresentation || inlinePresentation) && "max-w-[660px]")}>
                 <label htmlFor="first-agent-name" className={cx(
                   "block font-semibold leading-none text-foreground",
                   largePresentation ? "mb-[clamp(0.75rem,1.7vw,1.25rem)] text-[clamp(0.9375rem,1.7vw,1.25rem)]" : "mb-1.5 text-[13px]",
@@ -1302,10 +1571,14 @@ export function FirstAgentSetupWizard({
                   </div>
                 </div>
 
-                <details className={cx(
-                  "group overflow-hidden border border-border bg-surface-high",
-                  largePresentation ? "mt-[clamp(2rem,3.4vw,2.5rem)] rounded-[18px]" : "mt-4 rounded-[11px]",
-                )}>
+                <details
+                  open={advancedOpen}
+                  onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
+                  className={cx(
+                    "group overflow-hidden border border-border bg-surface-high",
+                    largePresentation ? "mt-[clamp(2rem,3.4vw,2.5rem)] rounded-[18px]" : "mt-4 rounded-[11px]",
+                  )}
+                >
                   <summary className={cx(
                     "flex cursor-pointer list-none items-center outline-none transition-colors hover:bg-surface-low focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection-accent/40 [&::-webkit-details-marker]:hidden",
                     largePresentation ? "gap-[clamp(0.75rem,1.35vw,1rem)] px-[clamp(1.25rem,2vw,1.5rem)] py-[clamp(1.25rem,2vw,1.5rem)]" : "gap-2.5 px-3.5 py-3",
@@ -1381,13 +1654,13 @@ export function FirstAgentSetupWizard({
               </div>
             </div>
 
-            <footer className={cx(
+            <footer data-slot="agent-setup-footer" className={cx(
               "relative flex flex-shrink-0 items-center gap-2 border-t border-border bg-surface-low",
               onClose ? "justify-between" : "justify-end",
-              largePresentation ? "h-[clamp(5.125rem,10vw,7.375rem)] px-[clamp(1.25rem,2.7vw,2rem)]" : "h-[60px] px-5 sm:px-6",
+              largePresentation ? "h-[clamp(5.125rem,10vw,7.375rem)] px-[clamp(1.25rem,2.7vw,2rem)]" : "h-[72px] px-5 sm:px-6",
             )}>
               {onClose ? <WizardButton large={largePresentation} variant="secondary" onClick={onClose}>Cancel</WizardButton> : null}
-              {largePresentation ? null : <WizardMomentum finalStep={false} />}
+              {largePresentation ? null : <WizardMomentum stage="identity" />}
               <WizardButton onClick={() => {
                 if (saveDraftAsYouGo) persistDraft();
                 goToStep(1);
@@ -1396,26 +1669,47 @@ export function FirstAgentSetupWizard({
           </>
         )}
 
-        {currentStep === "workspace" && (
+        {!draftResumeOpen && currentStep === "workspace" && (
           <>
             <div
               data-slot="agent-setup-scroll-body"
               className={cx(
-                "min-h-0 flex-1 overflow-y-auto",
-                largePresentation ? "px-5 py-5 sm:px-8 sm:py-7" : "px-5 py-4 sm:px-6",
+                "min-h-0 flex-1 overflow-x-hidden overflow-y-auto",
+                largePresentation ? "px-5 py-5 sm:px-8 sm:py-7" : inlinePresentation ? "px-5 py-3 sm:px-6" : "px-5 py-4 sm:px-6",
               )}
             >
+              {createError && (
+                <LaunchCapacityFallback
+                  error={createError}
+                  onOpenPlanCatalog={hasEmbeddedCapacityContent ? openCapacityCatalog : onOpenPlanCatalog}
+                />
+              )}
+              {directCapacityFlow && capacityError ? (
+                <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-destructive/30 bg-destructive/10 px-3.5 py-3 text-sm text-destructive">
+                  <span>{capacityError}</span>
+                  {onRetryCapacity ? (
+                    <button
+                      type="button"
+                      onClick={onRetryCapacity}
+                      className="rounded-md border border-current/30 px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-destructive/10"
+                    >
+                      Retry billing data
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
               <OpenClawBootstrapStep
                 agentName={displayName}
                 draft={bootstrapDraft}
                 onChange={handleBootstrapDraftChange}
                 generation={bootstrapGeneration}
+                wide={widePresentation}
                 onRegenerate={() => {
                   void runBootstrapGeneration(bootstrapDraft.inputs);
                 }}
               />
             </div>
-            <footer className={cx(
+            <footer data-slot="agent-setup-footer" className={cx(
               "relative flex flex-shrink-0 items-center justify-between gap-2 border-t border-border bg-surface-low",
               largePresentation ? "h-[82px] px-5 sm:h-[104px] sm:px-8" : "h-[72px] px-5 sm:px-6",
             )}>
@@ -1423,15 +1717,50 @@ export function FirstAgentSetupWizard({
                 <ChevronLeft className="mr-2 h-4 w-4" />
                 Back
               </WizardButton>
-              {largePresentation ? null : <WizardMomentum finalStep={false} />}
-              <WizardButton large={largePresentation} onClick={() => goToStep(2)}>
-                Continue
+              {largePresentation ? null : <WizardMomentum stage="workspace" />}
+              <WizardButton
+                large={largePresentation}
+                disabled={directCapacityFlow && (!capacityReady || creating || openingCapacity)}
+                busy={directCapacityFlow && (creating || openingCapacity)}
+                onClick={handleWorkspaceAction}
+              >
+                {workspaceActionLabel}
               </WizardButton>
             </footer>
           </>
         )}
 
-        {currentStep === "plan" && (
+        {!draftResumeOpen && currentStep === "plan" && (embeddedCapacityStep ? (
+          <>
+            <div className="flex min-h-0 flex-1">
+              {embeddedCheckoutStep ? checkoutContent : capacityContent}
+            </div>
+            <footer data-slot="agent-setup-footer" className={cx(
+              "relative flex flex-shrink-0 items-center gap-2 border-t border-border bg-surface-low",
+              largePresentation ? "h-[82px] px-5 sm:h-[104px] sm:px-8" : "h-[72px] px-5 sm:px-6",
+            )}>
+              <div className="flex min-w-0 flex-1 justify-start">
+                <WizardButton
+                  large={largePresentation}
+                  variant="secondary"
+                  disabled={checkoutProcessing}
+                  onClick={() => {
+                    if (embeddedCheckoutStep && onBackFromCheckout) {
+                      onBackFromCheckout();
+                      return;
+                    }
+                    goToStep(1);
+                  }}
+                >
+                  <ChevronLeft className="mr-2 h-4 w-4" />
+                  Back
+                </WizardButton>
+              </div>
+              {largePresentation ? null : <WizardMomentum stage={embeddedCheckoutStep ? "checkout" : "capacity"} />}
+              <div aria-hidden="true" className="min-w-0 flex-1" />
+            </footer>
+          </>
+        ) : (
           <>
             <div data-slot="agent-setup-scroll-body" className={cx("min-h-0 flex-1 overflow-y-auto", largePresentation ? "px-5 py-5 sm:px-8 sm:py-7" : "px-5 py-5 sm:px-6 lg:px-7")}>
               {createError && <LaunchCapacityFallback error={createError} onOpenPlanCatalog={onOpenPlanCatalog} />}
@@ -1536,7 +1865,7 @@ export function FirstAgentSetupWizard({
                 </div>
               ) : null}
           </div>
-          <footer className={cx(
+          <footer data-slot="agent-setup-footer" className={cx(
             "relative flex flex-shrink-0 items-center gap-2 border-t border-border bg-surface-low",
             largePresentation ? "h-[82px] justify-between px-5 sm:h-[104px] sm:px-8" : "h-[72px] px-5 sm:px-6",
           )}>
@@ -1544,7 +1873,7 @@ export function FirstAgentSetupWizard({
               <ChevronLeft className="mr-2 h-4 w-4" />
               Back
             </WizardButton>
-            {largePresentation ? null : <WizardMomentum finalStep />}
+            {largePresentation ? null : <WizardMomentum stage="capacity" />}
             <WizardButton
               large={largePresentation}
               disabled={!selectedPlan || creating || Boolean(selectedPlan.disabled)}
@@ -1555,7 +1884,7 @@ export function FirstAgentSetupWizard({
             </WizardButton>
           </footer>
           </>
-        )}
+        ))}
       </motion.section>
       <PlanComparisonModal
         open={planComparisonOpen}

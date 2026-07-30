@@ -1945,9 +1945,11 @@ export async function launchClawAgentAndWaitForGateway(
   await expect(launcherEntryButton!, "expected the launch/create agent entry button to be enabled").toBeEnabled({ timeout: 30_000 });
   await launcherEntryButton!.click();
 
-  const optionalSettings = page.locator("summary").filter({ hasText: /^Advanced$/i }).first();
+  const optionalSettings = page.locator("details", {
+    has: page.locator("summary").filter({ hasText: /^Advanced$/i }),
+  }).first();
   await expect(optionalSettings).toBeVisible({ timeout: 30_000 });
-  await optionalSettings.click();
+  await expect(optionalSettings).toHaveAttribute("open", "");
 
   const desktopCheckbox = page
     .locator("label")

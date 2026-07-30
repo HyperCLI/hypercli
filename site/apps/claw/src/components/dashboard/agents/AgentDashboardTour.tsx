@@ -28,7 +28,8 @@ import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 export interface AgentDashboardTourProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onStartCreating: () => void;
+  onSkipTour: () => void;
+  onCreateAccount: () => void;
 }
 
 interface AgentTourStep {
@@ -356,7 +357,7 @@ function StepIllustration({ stepIndex, reducedMotion }: { stepIndex: number; red
   return <WorkspaceIllustration reducedMotion={reducedMotion} />;
 }
 
-export function AgentDashboardTour({ open, onOpenChange, onStartCreating }: AgentDashboardTourProps) {
+export function AgentDashboardTour({ open, onOpenChange, onSkipTour, onCreateAccount }: AgentDashboardTourProps) {
   const reducedMotion = useReducedMotion();
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [stepIndex, setStepIndex] = useState(0);
@@ -373,7 +374,7 @@ export function AgentDashboardTour({ open, onOpenChange, onStartCreating }: Agen
   function handleContinue() {
     if (lastStep) {
       setStepIndex(0);
-      onStartCreating();
+      onCreateAccount();
       return;
     }
     goToStep(stepIndex + 1);
@@ -381,7 +382,7 @@ export function AgentDashboardTour({ open, onOpenChange, onStartCreating }: Agen
 
   function handleSkip() {
     setStepIndex(0);
-    onStartCreating();
+    onSkipTour();
   }
 
   function handleOpenChange(nextOpen: boolean) {
@@ -423,7 +424,7 @@ export function AgentDashboardTour({ open, onOpenChange, onStartCreating }: Agen
         <div onKeyDown={handleKeyDown} className="contents">
           <div
             aria-hidden="true"
-            className="relative flex min-h-0 flex-col overflow-hidden border-b border-border bg-surface-low md:border-b-0 md:border-r"
+            className="pointer-events-none relative flex min-h-0 flex-col overflow-hidden border-b border-border bg-surface-low md:border-b-0 md:border-r"
             style={{
               backgroundImage: "radial-gradient(circle at 52% 48%, rgb(var(--selection-accent-rgb) / 0.16), transparent 34%), linear-gradient(color-mix(in srgb, var(--foreground) 4%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--foreground) 4%, transparent) 1px, transparent 1px)",
               backgroundSize: "auto, 28px 28px, 28px 28px",
@@ -524,7 +525,7 @@ export function AgentDashboardTour({ open, onOpenChange, onStartCreating }: Agen
                 ))}
               </div>
               <Button type="button" onClick={handleContinue} className="h-10 rounded-xl px-4 font-semibold sm:px-5">
-                {lastStep ? "Create my agent" : "Continue"}
+                {lastStep ? "Create my account" : "Continue"}
                 <ArrowRight className="h-4 w-4" />
               </Button>
             </footer>

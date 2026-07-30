@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import React, { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -68,8 +68,9 @@ import { ChannelCreationWizard } from "@/components/dashboard/ChannelCreationWiz
 import { getCategoryForPlugin, type DirectoryCategory } from "@/components/dashboard/directory/directory-utils";
 import { PlanComparisonModal } from "@/components/dashboard/agents/PlanComparisonModal";
 import { AgentCreationSetupWizard, type AgentCreationSetupCreateParams } from "@/components/dashboard/agents/AgentCreationSetupWizard";
+import { EmbeddedPlanCheckout } from "@/components/dashboard/agents/EmbeddedPlanCheckout";
 import { AgentDashboardTour } from "@/components/dashboard/agents/AgentDashboardTour";
-import { updateFirstAgentSetupDraftPlan, useFirstAgentSetupDraft } from "@/hooks/useFirstAgentSetupDraft";
+import { clearFirstAgentSetupDraft, updateFirstAgentSetupDraftPlan, useFirstAgentSetupDraft } from "@/hooks/useFirstAgentSetupDraft";
 import type { AgentFileEntry, SdkAgent } from "@/types";
 import {
   Dialog,
@@ -81,6 +82,8 @@ import {
   SheetContent,
   SheetTitle,
   SheetTrigger,
+  WorkspaceKnowledgeHome,
+  type WorkspaceKnowledgeHomeAgent,
 } from "@hypercli/shared-ui";
 import { inferFileMimeType, isAudioFileReference, isFileTypeReference, isImageFileReference, type FileEntry } from "@hypercli/shared-ui/files";
 import { buildBrowserDesktopUrl } from "@hypercli.com/sdk/agents";
@@ -117,6 +120,7 @@ import { buildOpenClawLaunchOptions } from "@/lib/openclaw-launch";
 import {
   buildOpenClawBootstrapFileGenerationMessages,
   buildOpenClawBootstrapFileResponseFormat,
+  createOpenClawBootstrapDraft,
   parseGeneratedOpenClawBootstrapFile,
   type OpenClawBootstrapFileName,
   type OpenClawBootstrapInputs,
@@ -133,6 +137,7 @@ import {
   mergeLaunchSlotInventories,
   readPendingPlanCheckout,
   readStripeCheckoutReturnState,
+  type PendingPlanCheckout,
 } from "@/lib/plan-checkout-state";
 import {
   billingReflectionReducer,
@@ -150,6 +155,7 @@ import {
 } from "@/lib/openclaw-session-sdk-surface";
 import { normalizeAgentBrowserFilePath, normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import {
+  AgentLoadingState,
   type AgentStatusChipModel,
   type CenterPanel,
 } from "@/components/dashboard/agents/page-helpers";
@@ -229,6 +235,7 @@ import { resolveWorkspaceAgentSelection } from "@/lib/workspace-agent-roster";
 
 type MainTab = AgentMainTab;
 type AgentOnboardingOverlay = "tour" | "launcher" | null;
+type AnonymousAgentPreviewSection = Extract<MainTab, "chat" | "files" | "integrations" | "skills" | "scheduled"> | "desktop";
 type AgentFileSource = "auto" | "pod" | "s3";
 /**
  * Sources requested by callers: the 3-way AgentFilesPanel selector (agent/backup/gateway)
@@ -250,6 +257,15 @@ const SCHEDULED_SECTION_DISABLED_REASON = "Scheduled workflows are not available
 const BILLING_MOCK_PARAM = "billingMock";
 const BILLING_MOCK_ACTIVE_NO_SLOT = "active-no-slot";
 const AGENTS_DESKTOP_MEDIA_QUERY = "(min-width: 640px)";
+const ANONYMOUS_AGENT_PREVIEW_ROTATION_MS = 10_000;
+const ANONYMOUS_AGENT_PREVIEW_SECTIONS: readonly AnonymousAgentPreviewSection[] = [
+  "chat",
+  "files",
+  "integrations",
+  "skills",
+  "scheduled",
+  "desktop",
+];
 const AGENT_LAUNCHER_OPEN_VALUES = new Set(["agent-launcher", "launcher", "launch-agent"]);
 const INTEGRATION_QUERY_IDS = new Set(["telegram", "discord", "slack", "whatsapp", "github"]);
 const TOKEN_USAGE_RECONCILE_DELAYS_MS = [2000, 5000] as const;
@@ -383,9 +399,10 @@ interface UpgradeCheckoutPlan {
 }
 
 type AgentAuthIntent =
-  | { kind: "checkout"; plan: UpgradeCheckoutPlan }
+  | { kind: "checkout"; plan: UpgradeCheckoutPlan; presentation?: "modal" | "embedded" }
   | { kind: "launch" }
-  | { kind: "navigate"; href: string; title: string };
+  | { kind: "workspace" }
+  | { kind: "navigate"; href: string };
 
 type CatalogPlan = HyperAgentPlan & {
   bundle?: Record<string, number> | null;
@@ -505,6 +522,26 @@ function toUpgradeCheckoutPlan(product: UpgradeDisplayProduct): UpgradeCheckoutP
 function primaryLaunchTier(bundle: SlotBundle): string | null {
   const tiers: Array<keyof Pick<SlotBundle, "large" | "medium" | "small">> = ["large", "medium", "small"];
   return tiers.find((tier) => Number(bundle[tier] || 0) > 0) ?? null;
+}
+
+function isFirstAgentSetupCheckout(
+  pending: PendingPlanCheckout | null,
+): pending is PendingPlanCheckout & { flow: "first-agent-setup"; setupId: string; agentSize: string } {
+  return pending?.flow === "first-agent-setup" && Boolean(pending.setupId && pending.agentSize);
+}
+
+function getCheckoutLaunchReflectionStatus(
+  summary: HyperAgentSubscriptionSummary | null,
+  pending: PendingPlanCheckout | null,
+  billingBudget: AgentBudget | null,
+) {
+  const reflectionStatus = getCheckoutReflectionStatus(summary, pending);
+  if (
+    reflectionStatus === "ready" &&
+    isFirstAgentSetupCheckout(pending) &&
+    Math.max(billingBudget?.slots?.[pending.agentSize]?.available ?? 0, 0) <= 0
+  ) return "waiting-entitlement" as const;
+  return reflectionStatus;
 }
 
 function describeUpgradeProduct(product: UpgradeDisplayProduct): string {
@@ -667,6 +704,126 @@ function slotReleaseLanded(
     Math.max(after.used ?? 0, 0) < Math.max(before.used ?? 0, 0);
 }
 
+function UpgradePlanCatalogContent({
+  products,
+  ownedCounts,
+  loading,
+  error,
+  onSelectPlan,
+  onOpenPlans,
+  embedded = false,
+}: {
+  products: UpgradeDisplayProduct[];
+  ownedCounts: Record<string, number>;
+  loading: boolean;
+  error: string | null;
+  onSelectPlan: (product: UpgradeDisplayProduct) => void;
+  onOpenPlans: () => void;
+  embedded?: boolean;
+}) {
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto p-5" data-slot="capacity-catalog-content">
+      {loading ? (
+        <div className="flex min-h-[220px] items-center justify-center">
+          <Loader2 className="h-5 w-5 animate-spin text-text-muted" />
+        </div>
+      ) : error ? (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+          <button
+            type="button"
+            onClick={onOpenPlans}
+            className="ml-3 font-semibold text-foreground underline underline-offset-4"
+          >
+            Open plans page
+          </button>
+        </div>
+      ) : products.length === 0 ? (
+        <div className="rounded-lg border border-border bg-surface-low/30 px-4 py-3 text-sm text-text-secondary">
+          No paid plans are available right now.
+          <button
+            type="button"
+            onClick={onOpenPlans}
+            className="ml-3 font-semibold text-foreground underline underline-offset-4"
+          >
+            Open plans page
+          </button>
+        </div>
+      ) : (
+        <div
+          data-slot={embedded ? "embedded-plan-card-grid" : undefined}
+          className={embedded
+            ? "flex min-h-full flex-wrap content-center justify-center gap-3"
+            : "grid gap-3 sm:grid-cols-2 xl:grid-cols-4"}
+        >
+          {products.map((product) => {
+            const ownedCount = ownedCounts[product.id] ?? 0;
+            const ProductIcon = product.highlighted ? Sparkles : Bot;
+            const featureRows = upgradeProductFeatures(product);
+            return (
+              <div
+                key={product.id}
+                data-slot={embedded ? "embedded-plan-card" : undefined}
+                className={`relative flex min-h-[302px] flex-col rounded-[8px] border border-border bg-surface-low p-4 text-left transition-colors hover:border-border-strong ${embedded ? "w-full max-w-[300px]" : ""}`}
+              >
+                {product.highlighted && (
+                  <span className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--selection-accent)] px-2.5 py-1 text-[12px] font-medium leading-none text-[var(--selection-accent-foreground)]">
+                    Most Popular
+                  </span>
+                )}
+
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-border bg-surface-high text-foreground">
+                    <ProductIcon className="h-4 w-4" />
+                  </span>
+                  <h3 className="truncate text-[18px] font-semibold leading-none text-foreground">{product.name}</h3>
+                  {ownedCount > 0 && (
+                    <span className="ml-auto shrink-0 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-2 py-0.5 text-[11px] font-medium text-[var(--selection-accent)]">
+                      You own {ownedCount}
+                    </span>
+                  )}
+                </div>
+
+                <p className="mt-5 min-h-[34px] text-[13px] leading-[1.35] text-text-muted">
+                  {describeUpgradeProduct(product)}
+                </p>
+
+                <div className="mt-3 flex min-h-[42px] items-center gap-2.5">
+                  <span className="text-[28px] font-bold leading-none text-foreground">${product.price}</span>
+                  <span className="max-w-[78px] text-[10px] font-semibold leading-[1.1] text-text-secondary">
+                    USD/month per agent
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => onSelectPlan(product)}
+                  className={`mt-3 flex h-8 w-full items-center justify-center rounded-[8px] px-3 text-[13px] font-medium leading-tight transition-colors ${
+                    product.highlighted
+                      ? "bg-[var(--button-primary)] text-[var(--button-primary-foreground)] hover:bg-[var(--button-primary-hover)]"
+                      : "border border-border bg-surface-high text-foreground hover:bg-surface-medium"
+                  }`}
+                >
+                  {ownedCount > 0 ? "Add another" : product.highlighted ? `Upgrade to ${product.name}` : "Select plan"}
+                </button>
+
+                <div className="mt-5 space-y-2.5">
+                  {featureRows.map((feature, featureIndex) => (
+                    <div key={`${product.id}-${featureIndex}-${feature}`} className="flex items-start gap-2.5 text-[13px] leading-tight text-text-secondary">
+                      <Check className="mt-px h-4 w-4 shrink-0 text-text-muted" />
+                      <span>{feature}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function UpgradePlanCatalogModal({
   open,
   products,
@@ -740,99 +897,14 @@ function UpgradePlanCatalogModal({
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          {loading ? (
-            <div className="flex min-h-[220px] items-center justify-center">
-              <Loader2 className="h-5 w-5 animate-spin text-text-muted" />
-            </div>
-          ) : error ? (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-              {error}
-              <button
-                type="button"
-                onClick={onOpenPlans}
-                className="ml-3 font-semibold text-foreground underline underline-offset-4"
-              >
-                Open plans page
-              </button>
-            </div>
-          ) : products.length === 0 ? (
-            <div className="rounded-lg border border-border bg-surface-low/30 px-4 py-3 text-sm text-text-secondary">
-              No paid plans are available right now.
-              <button
-                type="button"
-                onClick={onOpenPlans}
-                className="ml-3 font-semibold text-foreground underline underline-offset-4"
-              >
-                Open plans page
-              </button>
-            </div>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              {products.map((product) => {
-                const ownedCount = ownedCounts[product.id] ?? 0;
-                const ProductIcon = product.highlighted ? Sparkles : Bot;
-                const featureRows = upgradeProductFeatures(product);
-                return (
-                  <div
-                    key={product.id}
-                    className="relative flex min-h-[302px] flex-col rounded-[8px] border border-border bg-surface-low p-4 text-left transition-colors hover:border-border-strong"
-                  >
-                    {product.highlighted && (
-                      <span className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--selection-accent)] px-2.5 py-1 text-[12px] font-medium leading-none text-[var(--selection-accent-foreground)]">
-                        Most Popular
-                      </span>
-                    )}
-
-                    <div className="flex items-center gap-2.5">
-                      <span className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-border bg-surface-high text-foreground">
-                        <ProductIcon className="h-4 w-4" />
-                      </span>
-                      <h3 className="truncate text-[18px] font-semibold leading-none text-foreground">{product.name}</h3>
-                      {ownedCount > 0 && (
-                        <span className="ml-auto shrink-0 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-2 py-0.5 text-[11px] font-medium text-[var(--selection-accent)]">
-                          You own {ownedCount}
-                        </span>
-                      )}
-                    </div>
-
-                    <p className="mt-5 min-h-[34px] text-[13px] leading-[1.35] text-text-muted">
-                      {describeUpgradeProduct(product)}
-                    </p>
-
-                    <div className="mt-3 flex min-h-[42px] items-center gap-2.5">
-                      <span className="text-[28px] font-bold leading-none text-foreground">${product.price}</span>
-                      <span className="max-w-[78px] text-[10px] font-semibold leading-[1.1] text-text-secondary">
-                        USD/month per agent
-                      </span>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => onSelectPlan(product)}
-                      className={`mt-3 flex h-8 w-full items-center justify-center rounded-[8px] px-3 text-[13px] font-medium leading-tight transition-colors ${
-                        product.highlighted
-                          ? "bg-[var(--button-primary)] text-[var(--button-primary-foreground)] hover:bg-[var(--button-primary-hover)]"
-                          : "border border-border bg-surface-high text-foreground hover:bg-surface-medium"
-                      }`}
-                    >
-                      {ownedCount > 0 ? "Add another" : product.highlighted ? `Upgrade to ${product.name}` : "Select plan"}
-                    </button>
-
-                    <div className="mt-5 space-y-2.5">
-                      {featureRows.map((feature, featureIndex) => (
-                        <div key={`${product.id}-${featureIndex}-${feature}`} className="flex items-start gap-2.5 text-[13px] leading-tight text-text-secondary">
-                          <Check className="mt-px h-4 w-4 shrink-0 text-text-muted" />
-                          <span>{feature}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+        <UpgradePlanCatalogContent
+          products={products}
+          ownedCounts={ownedCounts}
+          loading={loading}
+          error={error}
+          onSelectPlan={onSelectPlan}
+          onOpenPlans={onOpenPlans}
+        />
         <PlanComparisonModal
           open={comparisonOpen}
           onClose={() => setComparisonOpen(false)}
@@ -976,6 +1048,9 @@ function AgentsPageContent() {
     getToken,
     isAuthenticated,
     isLoading: authLoading,
+    flowState: authFlowState,
+    isAuthenticationModalOpen,
+    isIdentityAuthenticated,
     user,
     login,
     logout,
@@ -1006,8 +1081,10 @@ function AgentsPageContent() {
     selectedWorkspaceAgentIds,
     isAgentRosterLoading,
     agentRosterError,
+    error: workspacesError,
     isLoading: workspacesLoading,
     associateAgentWithSelectedWorkspace,
+    selectWorkspace,
   } = useWorkspace();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1016,6 +1093,7 @@ function AgentsPageContent() {
   const requestedIntegrationId = searchParams.get("integration")?.trim() || null;
   const requestedOpen = searchParams.get("open")?.trim() || null;
   const requestedPlanId = searchParams.get("plan")?.trim() || null;
+  const stripeCheckoutRecoveryRequested = searchParams.get("checkout") === "success" && Boolean(searchParams.get("session_id")?.trim());
   const requestedSection = searchParams.get("section")?.trim() || null;
   const requestedTab = searchParams.get("tab")?.trim() || null;
   const requestedView = searchParams.get("view")?.trim() || null;
@@ -1038,9 +1116,9 @@ function AgentsPageContent() {
   const slackOAuthResult = slackOAuthOk === "true" ? "success" : slackOAuthOk === "false" ? "failure" : null;
   const queryKey = searchParams.toString();
   const shouldOpenAgentLauncherFromQuery = requestedOpen ? AGENT_LAUNCHER_OPEN_VALUES.has(requestedOpen) : false;
-  const shouldOpenAgentTourFromPageEntry = !requestedOpen && !requestedAgentId && !requestedSessionKey &&
+  const shouldOpenAgentTourFromPageEntry = !isAuthenticated && !requestedOpen && !requestedAgentId && !requestedSessionKey &&
     !requestedIntegrationId && !requestedSection && !requestedTab && !requestedView &&
-    !slackOAuthOk && !slackOAuthError && (isAuthenticated || !firstAgentSetupDraft);
+    !slackOAuthOk && !slackOAuthError && !firstAgentSetupDraft;
   const { setAgentMenu } = useDashboardMobileAgentMenu();
   const dashboardDisplayName = displayNameForDashboard(user);
   const suggestedJourneyUserName = dashboardDisplayName === "there" ? null : dashboardDisplayName;
@@ -1049,20 +1127,19 @@ function AgentsPageContent() {
     ? null
     : workspacesLoading
       ? "Workspaces are still loading."
+      : workspacesError
+        ? "Workspaces could not be loaded. Refresh before launching an agent."
       : workspaceAgentCreationDisabledReason(selectedWorkspace, agentRosterError);
   const agentCreationBlockedReason = isAuthenticated && isAgentRosterLoading
     ? "Agent roster is still loading."
     : agentCreationDisabledReason;
-  const shouldOfferWorkspaceCreation = isAuthenticated && !workspacesLoading && workspaces.length === 0 && Boolean(workspacesClient);
+  const shouldOfferWorkspaceCreation = isAuthenticated && !workspacesLoading && !workspacesError && workspaces.length === 0 && Boolean(workspacesClient);
   const journey = useJourney({ searchParams, searchKey: queryKey, storageScope: user?.email ?? null });
   const journeyChatCompletionRef = useRef<PendingJourneyChatCompletion | null>(null);
   const completeJourneyForEvent = journey.completeForEvent;
   const completeJourneyDay = journey.completeDay;
   const recordJourneyReceipt = journey.recordReceipt;
-  const [isDesktopViewport, setIsDesktopViewport] = useState(() => {
-    if (typeof window === "undefined") return true;
-    return window.matchMedia(AGENTS_DESKTOP_MEDIA_QUERY).matches;
-  });
+  const [isDesktopViewport, setIsDesktopViewport] = useState(true);
   const [agentWorkspaceActivated, setAgentWorkspaceActivated] = useState(() => !dashboardView || settingsAgentConfigurationActive);
 
   useEffect(() => {
@@ -1105,6 +1182,7 @@ function AgentsPageContent() {
 
   // Agent data
   const [sdkAgents, setSdkAgents] = useState<SdkAgent[]>([]);
+  const [agentAvatarOverrides, setAgentAvatarOverrides] = useState<Map<string, string | null>>(() => new Map());
   const [agentDataPrincipalId, setAgentDataPrincipalId] = useState<string | null>(null);
   const [budget, setBudget] = useState<AgentBudget | null>(null);
   const [catalogPlans, setCatalogPlans] = useState<HyperAgentPlan[]>([]);
@@ -1116,8 +1194,12 @@ function AgentsPageContent() {
   const [upgradeCatalogOpen, setUpgradeCatalogOpen] = useState(false);
   const [upgradeCatalogError, setUpgradeCatalogError] = useState<string | null>(null);
   const [upgradeCheckoutPlan, setUpgradeCheckoutPlan] = useState<UpgradeCheckoutPlan | null>(null);
+  const [embeddedCheckoutPlan, setEmbeddedCheckoutPlan] = useState<UpgradeCheckoutPlan | null>(null);
+  const [embeddedCheckoutProcessing, setEmbeddedCheckoutProcessing] = useState(false);
+  const [paidFirstAgentCheckout, setPaidFirstAgentCheckout] = useState<PendingPlanCheckout | null>(null);
+  const [checkoutReturnRecoveryActive, setCheckoutReturnRecoveryActive] = useState(stripeCheckoutRecoveryRequested);
   const [upgradeCatalogLoading, setUpgradeCatalogLoading] = useState(false);
-  const [authGateOpen, setAuthGateOpen] = useState(false);
+  const [checkoutRecoveryDialogOpen, setCheckoutRecoveryDialogOpen] = useState(false);
   const [pendingAuthIntent, setPendingAuthIntent] = useState<AgentAuthIntent | null>(null);
   const [billingReflectionState, dispatchBillingReflection] = useReducer(
     billingReflectionReducer,
@@ -1127,7 +1209,14 @@ function AgentsPageContent() {
     () => checkoutSyncBannerFromBillingState(billingReflectionState),
     [billingReflectionState],
   );
-  const agentLauncherSuspended = upgradeCatalogOpen || Boolean(upgradeCheckoutPlan) || authGateOpen;
+  const checkoutAuthRecoveryOpen = Boolean(
+    isAuthenticated &&
+    pendingAuthIntent?.kind === "checkout" &&
+    billingDataError &&
+    billingDataPrincipalId !== user?.id,
+  );
+  const checkoutRecoveryDialogVisible = checkoutRecoveryDialogOpen || checkoutAuthRecoveryOpen;
+  const agentLauncherSuspended = upgradeCatalogOpen || Boolean(upgradeCheckoutPlan) || checkoutRecoveryDialogVisible;
   const [deployments, setDeployments] = useState<Deployments | null>(null);
   const deploymentsRef = useRef<Deployments | null>(null);
   const [agentsLoading, setAgentsLoading] = useState(true);
@@ -1146,6 +1235,7 @@ function AgentsPageContent() {
   const checkoutReturnHandledRef = useRef(false);
   const agentDataGenerationRef = useRef(0);
   const agentMutationVersionsRef = useRef<Map<string, number>>(new Map());
+  const agentAvatarObjectUrlsRef = useRef<Map<string, string>>(new Map());
   const deletingAgentIdsRef = useRef<Set<string>>(new Set());
   const fetchAgentsRequestRef = useRef(0);
   const fetchBillingRequestRef = useRef(0);
@@ -1159,11 +1249,15 @@ function AgentsPageContent() {
     principalId: string;
     promise: Promise<FetchAgentsResult | null>;
   } | null>(null);
+  const pageActiveRef = useRef(true);
   const privatePrincipalRef = useRef<string | null>(isAuthenticated ? user?.id ?? null : null);
   const appliedAgentSessionQueryRef = useRef<string | null>(null);
   const appliedIntegrationQueryRef = useRef<string | null>(null);
   const appliedOpenQueryRef = useRef<string | null>(null);
   const appliedAgentTourEntryRef = useRef(false);
+  const authenticationModalObservedRef = useRef(false);
+  const embeddedCheckoutSelectionRequestRef = useRef(0);
+  const paidFirstAgentCreationAttemptsRef = useRef<Set<string>>(new Set());
   const selectedAgentIdRef = useRef<string | null>(null);
   const endTemporaryChatBeforeSelectionRef = useRef<() => Promise<void>>(async () => undefined);
   const agentSelectionOperationRef = useRef(0);
@@ -1175,13 +1269,51 @@ function AgentsPageContent() {
   const chatUploadIdleWaitersRef = useRef<Set<() => void>>(new Set());
   const retireChatUploadsRef = useRef<() => void>(() => undefined);
   const handleChatFileDropRef = useRef<(files: ChatFileDropInput) => Promise<void>>(async () => undefined);
-  const applyAgentMutationResult = useCallback((updatedAgent: SdkAgent) => {
+  const markAgentMutation = useCallback((agentId: string) => {
     agentMutationVersionsRef.current.set(
-      updatedAgent.id,
-      (agentMutationVersionsRef.current.get(updatedAgent.id) ?? 0) + 1,
+      agentId,
+      (agentMutationVersionsRef.current.get(agentId) ?? 0) + 1,
     );
-    setSdkAgents((current) => upsertSdkAgent(current, updatedAgent));
   }, []);
+  const applyAgentMutationResult = useCallback((updatedAgent: SdkAgent) => {
+    markAgentMutation(updatedAgent.id);
+    setSdkAgents((current) => upsertSdkAgent(current, updatedAgent));
+  }, [markAgentMutation]);
+  const revokeAgentAvatarObjectUrl = useCallback((agentId: string) => {
+    const objectUrl = agentAvatarObjectUrlsRef.current.get(agentId);
+    if (!objectUrl) return;
+    URL.revokeObjectURL(objectUrl);
+    agentAvatarObjectUrlsRef.current.delete(agentId);
+  }, []);
+  const setAgentAvatarOverride = useCallback((agentId: string, avatarUrl: string | null, file?: File) => {
+    markAgentMutation(agentId);
+    revokeAgentAvatarObjectUrl(agentId);
+    let displayUrl = avatarUrl;
+    if (file) {
+      displayUrl = URL.createObjectURL(file);
+      agentAvatarObjectUrlsRef.current.set(agentId, displayUrl);
+    }
+    setAgentAvatarOverrides((current) => {
+      const next = new Map(current);
+      next.set(agentId, displayUrl);
+      return next;
+    });
+  }, [markAgentMutation, revokeAgentAvatarObjectUrl]);
+  const removeAgentAvatarOverride = useCallback((agentId: string) => {
+    revokeAgentAvatarObjectUrl(agentId);
+    setAgentAvatarOverrides((current) => {
+      if (!current.has(agentId)) return current;
+      const next = new Map(current);
+      next.delete(agentId);
+      return next;
+    });
+  }, [revokeAgentAvatarObjectUrl]);
+  const clearAgentAvatarOverrides = useCallback(() => {
+    for (const agentId of agentAvatarObjectUrlsRef.current.keys()) {
+      revokeAgentAvatarObjectUrl(agentId);
+    }
+    setAgentAvatarOverrides(new Map());
+  }, [revokeAgentAvatarObjectUrl]);
   const waitForChatUploads = useCallback((retireAfterMs: number | null = CHAT_UPLOAD_DRAIN_WAIT_MS): Promise<void> => {
     if (chatUploadsInFlightRef.current === 0) return Promise.resolve();
     return new Promise((resolve) => {
@@ -1202,11 +1334,17 @@ function AgentsPageContent() {
   }, []);
 
   useEffect(() => {
+    pageActiveRef.current = true;
     return () => {
+      pageActiveRef.current = false;
       stoppedTimersRef.current.forEach((t) => clearTimeout(t));
       slotReleaseTimersRef.current.forEach((t) => clearTimeout(t));
       tokenUsageRefreshTimersRef.current.forEach((t) => clearTimeout(t));
       tokenUsageRefreshTimersRef.current = [];
+      for (const objectUrl of agentAvatarObjectUrlsRef.current.values()) {
+        URL.revokeObjectURL(objectUrl);
+      }
+      agentAvatarObjectUrlsRef.current.clear();
     };
   }, []);
 
@@ -1312,8 +1450,13 @@ function AgentsPageContent() {
   const [mobileRosterCollapsed, setMobileRosterCollapsed] = useState(true);
   const [mobileSettingsMenuOpen, setMobileSettingsMenuOpen] = useState(() => !searchParams.has("settings"));
   const [agentOnboardingOverlay, setAgentOnboardingOverlay] = useState<AgentOnboardingOverlay>(null);
-  const agentTourOpen = agentOnboardingOverlay === "tour";
+  const [anonymousDesktopPreviewOpen, setAnonymousDesktopPreviewOpen] = useState(false);
+  const [anonymousPreviewSelectionMade, setAnonymousPreviewSelectionMade] = useState(false);
+  const agentTourOpen = !isAuthenticated && agentOnboardingOverlay === "tour";
   const agentLauncherOpen = agentOnboardingOverlay === "launcher";
+  const anonymousAgentPreviewMode = !isAuthenticated;
+  const anonymousDesktopPreviewMode = anonymousAgentPreviewMode && anonymousDesktopPreviewOpen;
+  const agentLauncherReturnHrefRef = useRef<string | null>(null);
   const setAgentTourOpen = useCallback((open: boolean) => {
     setAgentOnboardingOverlay((current) => open ? "tour" : current === "tour" ? null : current);
   }, []);
@@ -1321,16 +1464,73 @@ function AgentsPageContent() {
     setAgentOnboardingOverlay((current) => open ? "launcher" : current === "launcher" ? null : current);
   }, []);
   const closeAgentCreationFlow = useCallback(() => {
+    agentLauncherReturnHrefRef.current = null;
+    embeddedCheckoutSelectionRequestRef.current += 1;
+    setEmbeddedCheckoutPlan(null);
+    setEmbeddedCheckoutProcessing(false);
+    setUpgradeCatalogLoading(false);
     setAgentLauncherOpen(false);
     window.setTimeout(() => mobileNavigationTriggerRef.current?.focus(), 0);
   }, [setAgentLauncherOpen]);
+  const closeAgentCreationFlowAndReturn = useCallback(() => {
+    const returnHref = agentLauncherReturnHrefRef.current;
+    closeAgentCreationFlow();
+    if (returnHref) router.replace(returnHref, { scroll: false });
+  }, [closeAgentCreationFlow, router]);
   const [launcherPreferredPlanId, setLauncherPreferredPlanId] = useState<string | null>(requestedPlanId);
   const [launcherSelectedCatalogPlanId, setLauncherSelectedCatalogPlanId] = useState<string | null>(null);
   const mobileNavigationTriggerRef = useRef<HTMLButtonElement>(null);
   const mobileNavigationCloseRef = useRef<HTMLButtonElement>(null);
   const [workspaceCreationOpen, setWorkspaceCreationOpen] = useState(false);
   const [resumeAgentLauncher, setResumeAgentLauncher] = useState(false);
+  const [agentLauncherGeneration, setAgentLauncherGeneration] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useAgentRosterCollapsed();
+  const [anonymousPreviewRosterCollapsed, setAnonymousPreviewRosterCollapsed] = useState(true);
+  const effectiveSidebarCollapsed = anonymousAgentPreviewMode
+    ? anonymousPreviewRosterCollapsed
+    : sidebarCollapsed;
+  const setEffectiveSidebarCollapsed = anonymousAgentPreviewMode
+    ? setAnonymousPreviewRosterCollapsed
+    : setSidebarCollapsed;
+  const rotateAnonymousAgentPreview = useEffectEvent(() => {
+    const currentSection: AnonymousAgentPreviewSection = anonymousDesktopPreviewOpen
+      ? "desktop"
+      : mainTab === "files" || mainTab === "integrations" || mainTab === "skills" || mainTab === "scheduled"
+        ? mainTab
+        : "chat";
+    const currentIndex = ANONYMOUS_AGENT_PREVIEW_SECTIONS.indexOf(currentSection);
+    const nextSection = ANONYMOUS_AGENT_PREVIEW_SECTIONS[(currentIndex + 1) % ANONYMOUS_AGENT_PREVIEW_SECTIONS.length];
+    setAnonymousDesktopPreviewOpen(nextSection === "desktop");
+    if (nextSection !== "desktop") selectMainTab(nextSection);
+    setMobileShowChat(true);
+  });
+  useEffect(() => {
+    if (!anonymousAgentPreviewMode || anonymousPreviewSelectionMade || agentTourOpen || agentLauncherOpen || isAuthenticationModalOpen) return;
+    const interval = window.setInterval(rotateAnonymousAgentPreview, ANONYMOUS_AGENT_PREVIEW_ROTATION_MS);
+    return () => window.clearInterval(interval);
+  }, [agentLauncherOpen, agentTourOpen, anonymousAgentPreviewMode, anonymousPreviewSelectionMade, isAuthenticationModalOpen]);
+  const requestAuthentication = useCallback((intent: AgentAuthIntent) => {
+    if (intent.kind === "launch" || intent.kind === "workspace" || intent.kind === "checkout") {
+      appliedAgentTourEntryRef.current = true;
+    }
+    setPendingAuthIntent(intent);
+    if (!isAuthenticationModalOpen) login();
+  }, [isAuthenticationModalOpen, login]);
+  useEffect(() => {
+    if (!pendingAuthIntent || isAuthenticated) {
+      authenticationModalObservedRef.current = false;
+      return;
+    }
+    if (isAuthenticationModalOpen) {
+      authenticationModalObservedRef.current = true;
+      return;
+    }
+    if (!authenticationModalObservedRef.current) return;
+    if (isIdentityAuthenticated && authFlowState !== "error") return;
+    authenticationModalObservedRef.current = false;
+    const timeout = window.setTimeout(() => setPendingAuthIntent(null), 0);
+    return () => window.clearTimeout(timeout);
+  }, [authFlowState, isAuthenticated, isAuthenticationModalOpen, isIdentityAuthenticated, pendingAuthIntent]);
   const showAgentCreationFlow = useCallback(() => {
     setMobileShowChat(true);
     setMobileNavigationOpen(false);
@@ -1338,26 +1538,62 @@ function AgentsPageContent() {
     return true;
   }, [setAgentLauncherOpen]);
   const openAgentCreationFlow = useCallback(() => {
+    if (!isAuthenticated) {
+      setMobileNavigationOpen(false);
+      requestAuthentication({ kind: "launch" });
+      return true;
+    }
+    if (shouldOfferWorkspaceCreation) {
+      setWorkspaceCreationOpen(true);
+      return true;
+    }
     if (agentCreationBlockedReason) {
       setError(agentCreationBlockedReason);
       return false;
     }
     return showAgentCreationFlow();
-  }, [agentCreationBlockedReason, showAgentCreationFlow]);
+  }, [agentCreationBlockedReason, isAuthenticated, requestAuthentication, shouldOfferWorkspaceCreation, showAgentCreationFlow]);
+  const openWorkspaceCreationFlow = useCallback(() => {
+    setMobileNavigationOpen(false);
+    if (!isAuthenticated) {
+      requestAuthentication({ kind: "workspace" });
+      return;
+    }
+    setWorkspaceCreationOpen(true);
+  }, [isAuthenticated, requestAuthentication]);
   const openAgentTourFlow = useCallback(() => {
+    if (isAuthenticated) return false;
+    embeddedCheckoutSelectionRequestRef.current += 1;
+    setEmbeddedCheckoutPlan(null);
+    setEmbeddedCheckoutProcessing(false);
+    setAnonymousDesktopPreviewOpen(false);
+    setAnonymousPreviewSelectionMade(false);
     setMobileShowChat(false);
     setMobileNavigationOpen(false);
     setAgentTourOpen(true);
     return true;
-  }, [setAgentTourOpen]);
+  }, [isAuthenticated, setAgentTourOpen]);
   const startAgentCreationFromTour = useCallback(() => {
     if (openAgentCreationFlow()) setAgentTourOpen(false);
   }, [openAgentCreationFlow, setAgentTourOpen]);
-
-  const requestAuthentication = useCallback((intent: AgentAuthIntent) => {
-    setPendingAuthIntent(intent);
-    setAuthGateOpen(true);
-  }, []);
+  const skipAgentTour = useCallback(() => {
+    setAgentOnboardingOverlay(null);
+    setMobileShowChat(true);
+    setMobileNavigationOpen(false);
+    if (!isAuthenticated) {
+      setAnonymousPreviewRosterCollapsed(true);
+      setMobileRosterCollapsed(true);
+      setAnonymousDesktopPreviewOpen(false);
+      setAnonymousPreviewSelectionMade(false);
+      selectMainTab("chat");
+    }
+  }, [isAuthenticated, selectMainTab]);
+  const createAccountFromTour = useCallback(() => {
+    startAgentCreationFromTour();
+  }, [startAgentCreationFromTour]);
+  const launchAgentFromPreview = useCallback(() => {
+    openAgentCreationFlow();
+  }, [openAgentCreationFlow]);
 
   useLayoutEffect(() => {
     agentDataGenerationRef.current += 1;
@@ -1371,6 +1607,9 @@ function AgentsPageContent() {
     const nextPrincipal = isAuthenticated ? user?.id ?? null : null;
     if (privatePrincipalRef.current === nextPrincipal) return;
     privatePrincipalRef.current = nextPrincipal;
+    setAnonymousDesktopPreviewOpen(false);
+    setAnonymousPreviewSelectionMade(false);
+    clearAgentAvatarOverrides();
     setSdkAgents([]);
     setAgentDataPrincipalId(null);
     setBudget(null);
@@ -1392,30 +1631,79 @@ function AgentsPageContent() {
     setTierSelection(null);
     setPendingAgentDelete(null);
     setUpgradeCheckoutPlan(null);
+    setEmbeddedCheckoutPlan(null);
+    setEmbeddedCheckoutProcessing(false);
+    embeddedCheckoutSelectionRequestRef.current += 1;
     setUpgradeCatalogOpen(false);
     setUpgradeCatalogLoading(false);
+    setWorkspaceCreationOpen(false);
+    setAgentOnboardingOverlay(null);
+    setCheckoutRecoveryDialogOpen(false);
+    if (!nextPrincipal) setPendingAuthIntent(null);
     setAgentsLoading(true);
     checkoutReturnHandledRef.current = false;
     dispatchBillingReflection({ type: "DISMISS" });
-  }, [isAuthenticated, user?.id]);
+  }, [clearAgentAvatarOverrides, isAuthenticated, user?.id]);
 
   useEffect(() => {
     if (!pendingAuthIntent || authLoading || !isAuthenticated) return;
+    if (pendingAuthIntent.kind === "launch" && (workspacesLoading || isAgentRosterLoading)) return;
+    if (pendingAuthIntent.kind === "workspace" && workspacesLoading) return;
     if (
       pendingAuthIntent.kind === "checkout" &&
       (!user?.id || billingDataPrincipalId !== user.id)
     ) return;
     const timeout = window.setTimeout(() => {
-      setAuthGateOpen(false);
+      const intent = pendingAuthIntent;
+      setCheckoutRecoveryDialogOpen(false);
       setPendingAuthIntent(null);
-      if (pendingAuthIntent.kind === "checkout") {
-        setUpgradeCheckoutPlan(pendingAuthIntent.plan);
-      } else if (pendingAuthIntent.kind === "navigate") {
-        router.push(pendingAuthIntent.href);
+      if (intent.kind === "checkout") {
+        if (intent.presentation === "embedded") {
+          showAgentCreationFlow();
+          setEmbeddedCheckoutPlan(intent.plan);
+        } else {
+          setUpgradeCheckoutPlan(intent.plan);
+        }
+      } else if (intent.kind === "launch") {
+        if (shouldOfferWorkspaceCreation) {
+          setWorkspaceCreationOpen(true);
+          return;
+        }
+        if (agentCreationBlockedReason) {
+          setError(agentCreationBlockedReason);
+          return;
+        }
+        showAgentCreationFlow();
+      } else if (intent.kind === "workspace") {
+        if (workspacesError) {
+          setError("Workspaces could not be loaded. Refresh before creating a Workspace.");
+          return;
+        }
+        if (!workspacesClient) {
+          setError("Workspace access is unavailable right now.");
+          return;
+        }
+        setWorkspaceCreationOpen(true);
+      } else if (intent.kind === "navigate") {
+        router.push(intent.href);
       }
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, [authLoading, billingDataPrincipalId, isAuthenticated, pendingAuthIntent, router, user?.id]);
+  }, [
+    agentCreationBlockedReason,
+    authLoading,
+    billingDataPrincipalId,
+    isAgentRosterLoading,
+    isAuthenticated,
+    pendingAuthIntent,
+    router,
+    shouldOfferWorkspaceCreation,
+    showAgentCreationFlow,
+    user?.id,
+    workspacesClient,
+    workspacesError,
+    workspacesLoading,
+  ]);
 
   useLayoutEffect(() => {
     selectedAgentIdRef.current = selectedAgentId;
@@ -1806,6 +2094,15 @@ function AgentsPageContent() {
     scheduleSlotReleaseRefresh(releaseId, tier, baseline);
   }, [scheduleSlotReleaseRefresh]);
 
+  const handleReflectedCheckout = useCallback((principalId: string, pending: PendingPlanCheckout | null) => {
+    if (isFirstAgentSetupCheckout(pending)) {
+      setPaidFirstAgentCheckout(pending);
+      return;
+    }
+    clearPendingPlanCheckout(principalId);
+    setResumeAgentLauncher(true);
+  }, []);
+
   const refreshCheckoutEntitlements = useCallback(async () => {
     const principalId = user?.id ?? null;
     if (!principalId) return;
@@ -1815,20 +2112,28 @@ function AgentsPageContent() {
       pending,
       message: `Refreshing ${pending?.planName ?? "your plan"} entitlements from billing...`,
     });
-    const refreshed = await refreshAgentEnrichment({ force: true });
-    const reflectionStatus = getCheckoutReflectionStatus(refreshed?.subscriptionSummary ?? null, pending);
+    let reflectionStatus = getCheckoutLaunchReflectionStatus(null, pending, null);
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const refreshed = await refreshAgentEnrichment({ force: true });
+      reflectionStatus = getCheckoutLaunchReflectionStatus(
+        refreshed?.subscriptionSummary ?? null,
+        pending,
+        refreshed?.budget ?? null,
+      );
+      if (reflectionStatus === "ready") break;
+      if (attempt < 5) await new Promise((resolve) => setTimeout(resolve, attempt < 2 ? 1500 : 3000));
+    }
 
     if (reflectionStatus === "ready") {
-      clearPendingPlanCheckout(principalId);
       clearStripeCheckoutReturnState();
-      setResumeAgentLauncher(true);
+      handleReflectedCheckout(principalId, pending);
     }
     dispatchBillingReflection({
       type: "REFLECTION_RECEIVED",
       pending,
       reflectionStatus,
     });
-  }, [refreshAgentEnrichment, user?.id]);
+  }, [handleReflectedCheckout, refreshAgentEnrichment, user?.id]);
 
   const openUpgradeCatalog = useCallback(async (preferredPlanId?: string) => {
     if (preferredPlanId === "free") {
@@ -1933,26 +2238,38 @@ function AgentsPageContent() {
       return;
     }
     if (appliedOpenQueryRef.current === requestedOpen) return;
+    if (authLoading) return;
+    if (isAuthenticated && (workspacesLoading || isAgentRosterLoading)) return;
 
-    appliedOpenQueryRef.current = requestedOpen;
-    appliedAgentTourEntryRef.current = true;
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("open");
-    const query = params.toString();
-    router.replace(`/dashboard/agents${query ? `?${query}` : ""}`, { scroll: false });
-    openAgentTourFlow();
+    const timeout = window.setTimeout(() => {
+      if (appliedOpenQueryRef.current === requestedOpen) return;
+      appliedOpenQueryRef.current = requestedOpen;
+      appliedAgentTourEntryRef.current = true;
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("open");
+      const query = params.toString();
+      router.replace(`/dashboard/agents${query ? `?${query}` : ""}`, { scroll: false });
+      if (isAuthenticated) openAgentCreationFlow();
+      else openAgentTourFlow();
+    }, 0);
+    return () => window.clearTimeout(timeout);
   }, [
+    authLoading,
+    isAgentRosterLoading,
+    isAuthenticated,
+    openAgentCreationFlow,
     openAgentTourFlow,
     requestedOpen,
     router,
     searchParams,
     shouldOpenAgentLauncherFromQuery,
+    workspacesLoading,
   ]);
 
   useEffect(() => {
     if (!shouldOpenAgentTourFromPageEntry || appliedAgentTourEntryRef.current) return;
     if (authLoading) return;
-    if (isAuthenticated && (agentsLoading || agentsLoadError || sdkAgents.length > 0)) return;
+    if (agentOnboardingOverlay || isAuthenticationModalOpen || pendingAuthIntent || workspaceCreationOpen) return;
     const timeout = window.setTimeout(() => {
       if (appliedAgentTourEntryRef.current) return;
       appliedAgentTourEntryRef.current = true;
@@ -1960,13 +2277,13 @@ function AgentsPageContent() {
     }, 0);
     return () => window.clearTimeout(timeout);
   }, [
-    agentsLoadError,
-    agentsLoading,
+    agentOnboardingOverlay,
     authLoading,
-    isAuthenticated,
+    isAuthenticationModalOpen,
     openAgentTourFlow,
-    sdkAgents.length,
+    pendingAuthIntent,
     shouldOpenAgentTourFromPageEntry,
+    workspaceCreationOpen,
   ]);
 
   useEffect(() => {
@@ -1981,7 +2298,8 @@ function AgentsPageContent() {
     if (!pending) {
       checkoutReturnHandledRef.current = true;
       clearStripeCheckoutReturnState();
-      return;
+      const timeout = window.setTimeout(() => setCheckoutReturnRecoveryActive(false), 0);
+      return () => window.clearTimeout(timeout);
     }
 
     if (checkoutReturn.status === "cancelled") {
@@ -2010,7 +2328,8 @@ function AgentsPageContent() {
     if (!pending) {
       checkoutReturnHandledRef.current = true;
       clearStripeCheckoutReturnState();
-      return;
+      const timeout = window.setTimeout(() => setCheckoutReturnRecoveryActive(false), 0);
+      return () => window.clearTimeout(timeout);
     }
     let active = true;
     const planLabel = pending?.planName ? `${pending.planName} plan` : "your plan";
@@ -2023,13 +2342,17 @@ function AgentsPageContent() {
     const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
     void (async () => {
-      let reflectionStatus = getCheckoutReflectionStatus(null, pending);
+      let reflectionStatus = getCheckoutLaunchReflectionStatus(null, pending, null);
 
       for (let attempt = 0; attempt < 6; attempt += 1) {
         const refreshed = await refreshAgentEnrichment({ force: true });
         if (!active) return;
 
-        reflectionStatus = getCheckoutReflectionStatus(refreshed?.subscriptionSummary ?? null, pending);
+        reflectionStatus = getCheckoutLaunchReflectionStatus(
+          refreshed?.subscriptionSummary ?? null,
+          pending,
+          refreshed?.budget ?? null,
+        );
         if (reflectionStatus === "ready") {
           break;
         }
@@ -2043,8 +2366,7 @@ function AgentsPageContent() {
       if (!active) return;
 
       if (reflectionStatus === "ready") {
-        clearPendingPlanCheckout(principalId);
-        setResumeAgentLauncher(true);
+        handleReflectedCheckout(principalId, pending);
       }
       dispatchBillingReflection({
         type: "REFLECTION_RECEIVED",
@@ -2059,7 +2381,7 @@ function AgentsPageContent() {
     return () => {
       active = false;
     };
-  }, [accountSettingsSection, authLoading, billingDataError, billingDataPrincipalId, dashboardView, isAuthenticated, refreshAgentEnrichment, user?.id]);
+  }, [accountSettingsSection, authLoading, billingDataError, billingDataPrincipalId, dashboardView, handleReflectedCheckout, isAuthenticated, refreshAgentEnrichment, user?.id]);
 
   useEffect(() => {
     const principalId = user?.id ?? null;
@@ -2073,18 +2395,20 @@ function AgentsPageContent() {
     ) return;
     const pending = readPendingPlanCheckout(principalId);
     if (!pending?.returnSessionId) return;
-    const reflectionStatus = getCheckoutReflectionStatus(subscriptionSummary, pending);
+    const reflectionStatus = getCheckoutLaunchReflectionStatus(subscriptionSummary, pending, budget);
     if (reflectionStatus === "ready") {
-      clearPendingPlanCheckout(principalId);
-      setResumeAgentLauncher(true);
+      const timeout = window.setTimeout(() => handleReflectedCheckout(principalId, pending), 0);
+      dispatchBillingReflection({ type: "REFLECTION_RECEIVED", pending, reflectionStatus });
+      return () => window.clearTimeout(timeout);
     }
     dispatchBillingReflection({ type: "REFLECTION_RECEIVED", pending, reflectionStatus });
-  }, [accountSettingsSection, authLoading, billingDataPrincipalId, dashboardView, isAuthenticated, subscriptionSummary, user?.id]);
+  }, [accountSettingsSection, authLoading, billingDataPrincipalId, budget, dashboardView, handleReflectedCheckout, isAuthenticated, subscriptionSummary, user?.id]);
 
   useEffect(() => {
     if (!resumeAgentLauncher || authLoading || !isAuthenticated || agentsLoading) return;
     const timeout = window.setTimeout(() => {
       showAgentCreationFlow();
+      setCheckoutReturnRecoveryActive(false);
       setResumeAgentLauncher(false);
     }, 0);
     return () => window.clearTimeout(timeout);
@@ -2098,9 +2422,12 @@ function AgentsPageContent() {
 
   const accountAgents = useMemo(
     () => agentDataPrincipalId === user?.id
-      ? sdkAgents.map(toAgentViewModel)
+      ? sdkAgents.map((agent) => toAgentViewModel(
+          agent,
+          agentAvatarOverrides.has(agent.id) ? agentAvatarOverrides.get(agent.id) : undefined,
+        ))
       : [],
-    [agentDataPrincipalId, sdkAgents, user?.id],
+    [agentAvatarOverrides, agentDataPrincipalId, sdkAgents, user?.id],
   );
   const selectedWorkspaceAgentIdSet = useMemo(
     () => new Set(selectedWorkspaceAgentIds),
@@ -2112,6 +2439,12 @@ function AgentsPageContent() {
       : accountAgents.filter((agent) => selectedWorkspaceAgentIdSet.has(agent.id)),
     [accountAgents, agentRosterError, isAgentRosterLoading, selectedWorkspaceAgentIdSet],
   );
+  const altHomeAgents = useMemo<WorkspaceKnowledgeHomeAgent[]>(() => accountAgents.map((agent) => ({
+    id: agent.id,
+    name: agentDisplayLabel(agent),
+    state: agent.state,
+    avatarUrl: agentProfileImageUrl(agent),
+  })), [accountAgents]);
   const agents = accountAgents;
   const updateAgentCanonicalName = useCallback(async (agentId: string, name: string) => {
     const generation = agentDataGenerationRef.current;
@@ -2157,16 +2490,33 @@ function AgentsPageContent() {
     () => countOwnedCheckoutPlan(subscriptionSummary, upgradeCheckoutPlan),
     [subscriptionSummary, upgradeCheckoutPlan],
   );
+  const embeddedCheckoutOwnedCount = useMemo(
+    () => countOwnedCheckoutPlan(subscriptionSummary, embeddedCheckoutPlan),
+    [embeddedCheckoutPlan, subscriptionSummary],
+  );
   const upgradeCheckoutBaselineGrantedSlots = useMemo(
     () => getGrantedLaunchSlotsByTier(subscriptionSummary),
     [subscriptionSummary],
   );
+  const embeddedFirstAgentSetup = (() => {
+    if (!embeddedCheckoutPlan || !firstAgentSetupDraft || !user?.id) return undefined;
+    const size = primaryLaunchTier(normalizeBundle(embeddedCheckoutPlan.bundle));
+    if (!size) return undefined;
+    if (firstAgentSetupDraft.principalId && firstAgentSetupDraft.principalId !== user.id) return undefined;
+    if (firstAgentSetupDraft.workspaceId && firstAgentSetupDraft.workspaceId !== selectedWorkspaceId) return undefined;
+    return {
+      setupId: firstAgentSetupDraft.setupId,
+      workspaceId: firstAgentSetupDraft.workspaceId ?? selectedWorkspaceId,
+      size,
+    };
+  })();
   const selectUpgradeProduct = useCallback(async (product: UpgradeDisplayProduct) => {
     const generation = agentDataGenerationRef.current;
     const checkoutPlan = toUpgradeCheckoutPlan(product);
+    setEmbeddedCheckoutPlan(null);
     setLauncherPreferredPlanId(product.id);
     setLauncherSelectedCatalogPlanId(product.id);
-    updateFirstAgentSetupDraftPlan(product.id);
+    updateFirstAgentSetupDraftPlan(product.id, primaryLaunchTier(product.bundle));
     setUpgradeCatalogOpen(false);
     if (!isAuthenticated) {
       requestAuthentication({ kind: "checkout", plan: checkoutPlan });
@@ -2182,6 +2532,37 @@ function AgentsPageContent() {
       return;
     }
     setUpgradeCheckoutPlan(checkoutPlan);
+  }, [fetchAgents, isAuthenticated, requestAuthentication]);
+
+  const selectEmbeddedUpgradeProduct = useCallback(async (product: UpgradeDisplayProduct) => {
+    const generation = agentDataGenerationRef.current;
+    const selectionRequestId = embeddedCheckoutSelectionRequestRef.current + 1;
+    embeddedCheckoutSelectionRequestRef.current = selectionRequestId;
+    const checkoutPlan = toUpgradeCheckoutPlan(product);
+    setUpgradeCheckoutPlan(null);
+    setPaidFirstAgentCheckout(null);
+    setEmbeddedCheckoutProcessing(false);
+    setUpgradeCatalogError(null);
+    setLauncherPreferredPlanId(product.id);
+    setLauncherSelectedCatalogPlanId(product.id);
+    updateFirstAgentSetupDraftPlan(product.id, primaryLaunchTier(product.bundle));
+    if (!isAuthenticated) {
+      requestAuthentication({ kind: "checkout", plan: checkoutPlan, presentation: "embedded" });
+      return;
+    }
+
+    setUpgradeCatalogLoading(true);
+    const refreshed = await fetchAgents({ force: true });
+    if (
+      generation !== agentDataGenerationRef.current ||
+      selectionRequestId !== embeddedCheckoutSelectionRequestRef.current
+    ) return;
+    setUpgradeCatalogLoading(false);
+    if (!refreshed?.billingReady) {
+      setUpgradeCatalogError("Billing data could not be refreshed. Try again before checkout.");
+      return;
+    }
+    setEmbeddedCheckoutPlan(checkoutPlan);
   }, [fetchAgents, isAuthenticated, requestAuthentication]);
 
   // Detect lifecycle completions for UI effects and released-slot enrichment.
@@ -2516,6 +2897,10 @@ function AgentsPageContent() {
       agentId: selectedAgentId,
       session: selectedAgentId ? canonicalSelectedSessionKey : null,
     }),
+    "alt-home": buildDashboardViewHref("alt-home", {
+      agentId: selectedAgentId,
+      session: selectedAgentId ? canonicalSelectedSessionKey : null,
+    }),
     usage: buildDashboardViewHref("usage", {
       agentId: selectedAgentId,
       session: selectedAgentId ? canonicalSelectedSessionKey : null,
@@ -2565,9 +2950,13 @@ function AgentsPageContent() {
     replaceAgentChatRoute(agentId, sessionKey, clearRoutedPanel, pushRoute);
   }, [replaceAgentChatRoute, selectedAgentId, selectedSessionKeysByAgent]);
   const selectAgentFromRoster = useCallback((agentId: string) => {
-    setAgentLauncherOpen(false);
+    if (embeddedCheckoutProcessing) {
+      setError("Finish the current checkout before switching agents.");
+      return;
+    }
+    closeAgentCreationFlow();
     void selectAgent(agentId, Boolean(dashboardView), Boolean(dashboardView));
-  }, [dashboardView, selectAgent, setAgentLauncherOpen]);
+  }, [closeAgentCreationFlow, dashboardView, embeddedCheckoutProcessing, selectAgent]);
   const activeConnectionStatus = useMemo(() => {
     if (mainTab === "files") {
       return selectedAgentId ? "connected" as const : null;
@@ -3468,6 +3857,108 @@ function AgentsPageContent() {
     shouldOfferWorkspaceCreation,
   ]);
 
+  useEffect(() => {
+    const pending = paidFirstAgentCheckout;
+    const principalId = user?.id ?? null;
+    if (!isFirstAgentSetupCheckout(pending) || !principalId || pending.principalId !== principalId) return;
+
+    const timeout = window.setTimeout(() => {
+      const draft = firstAgentSetupDraft;
+      if (!draft || draft.setupId !== pending.setupId || (draft.principalId && draft.principalId !== principalId)) {
+        setPaidFirstAgentCheckout(null);
+        setResumeAgentLauncher(true);
+        return;
+      }
+
+      if (pending.workspaceId && selectedWorkspaceId !== pending.workspaceId) {
+        const checkoutWorkspace = workspaces.find((workspace) => workspace.id === pending.workspaceId);
+        if (checkoutWorkspace) {
+          selectWorkspace(checkoutWorkspace.id, checkoutWorkspace);
+        } else if (!workspacesLoading) {
+          setPaidFirstAgentCheckout(null);
+          setError("The Workspace used for this agent setup is no longer available. Choose a Workspace to finish launching it.");
+          setResumeAgentLauncher(true);
+        }
+        return;
+      }
+
+      if (
+        authLoading ||
+        agentsLoading ||
+        workspacesLoading ||
+        billingDataPrincipalId !== principalId ||
+        agentCreationBlockedReason
+      ) return;
+
+      const existingAgent = accountAgents.find((agent) => agent.name === draft.name);
+      if (existingAgent) {
+        clearPendingPlanCheckout(principalId);
+        clearFirstAgentSetupDraft();
+        setPaidFirstAgentCheckout(null);
+        setEmbeddedCheckoutPlan(null);
+        setEmbeddedCheckoutProcessing(false);
+        agentLauncherReturnHrefRef.current = null;
+        setAgentLauncherOpen(false);
+        void selectAgent(existingAgent.id, true).finally(() => setCheckoutReturnRecoveryActive(false));
+        return;
+      }
+
+      if (Math.max(budget?.slots?.[pending.agentSize]?.available ?? 0, 0) <= 0) return;
+      const attemptKey = `${pending.setupId}:${pending.returnSessionId ?? pending.startedAt}`;
+      if (paidFirstAgentCreationAttemptsRef.current.has(attemptKey)) return;
+      paidFirstAgentCreationAttemptsRef.current.add(attemptKey);
+
+      const bootstrap = draft.bootstrapDraft ?? createOpenClawBootstrapDraft(draft.name);
+      void handleCreateFirstAgent({
+        name: draft.name,
+        iconIndex: draft.iconIndex,
+        size: pending.agentSize,
+        files: bootstrap.files.map((file) => new File([file.content], file.name, { type: "text/markdown" })),
+        enableDesktop: draft.enableDesktop,
+        enableMemoryIndex: draft.enableMemoryIndex,
+        customImage: draft.enableCustomImage ? draft.customImage || null : null,
+      }).then((createdId) => {
+        if (privatePrincipalRef.current !== principalId) return;
+        if (!createdId) {
+          setPaidFirstAgentCheckout(null);
+          setResumeAgentLauncher(true);
+          return;
+        }
+        clearPendingPlanCheckout(principalId);
+        clearFirstAgentSetupDraft();
+        setPaidFirstAgentCheckout(null);
+        setEmbeddedCheckoutPlan(null);
+        setEmbeddedCheckoutProcessing(false);
+        agentLauncherReturnHrefRef.current = null;
+        setAgentLauncherOpen(false);
+        setCheckoutReturnRecoveryActive(false);
+      }).catch(() => {
+        if (privatePrincipalRef.current !== principalId) return;
+        setPaidFirstAgentCheckout(null);
+        setResumeAgentLauncher(true);
+      });
+    }, 0);
+
+    return () => window.clearTimeout(timeout);
+  }, [
+    accountAgents,
+    agentCreationBlockedReason,
+    agentsLoading,
+    authLoading,
+    billingDataPrincipalId,
+    budget?.slots,
+    firstAgentSetupDraft,
+    handleCreateFirstAgent,
+    paidFirstAgentCheckout,
+    selectAgent,
+    selectedWorkspaceId,
+    selectWorkspace,
+    setAgentLauncherOpen,
+    user?.id,
+    workspaces,
+    workspacesLoading,
+  ]);
+
   const handleResizeAndStart = useCallback(async (agentId: string, tier: string) => {
     const generation = agentDataGenerationRef.current;
     setStartingId(agentId);
@@ -3510,7 +4001,7 @@ function AgentsPageContent() {
     ? "Wait a few seconds before starting this agent again."
     : selectedAgentStartGuidance?.message;
   const selectedAgentStarting = Boolean(selectedAgent && startingId === selectedAgent.id);
-  const workspaceSidebarDisabled = agentsLoading;
+  const workspaceSidebarDisabled = agentsLoading && !anonymousAgentPreviewMode;
   const workspaceSidebarDisabledReason = getWorkspaceSidebarDisabledReason({
     agentsLoading,
     connecting: chat.connecting,
@@ -3583,6 +4074,7 @@ function AgentsPageContent() {
       const replacementIndex = deletedIndex === -1 ? 0 : Math.min(deletedIndex, nextAgents.length - 1);
       const replacementAgentId = nextAgents[replacementIndex]?.id ?? null;
       setSdkAgents((current) => removeSdkAgent(current, agentId));
+      removeAgentAvatarOverride(agentId);
       setSelectedSessionKeysByAgent((current) => {
         if (!Object.prototype.hasOwnProperty.call(current, agentId)) return current;
         const next = { ...current };
@@ -4195,10 +4687,10 @@ function AgentsPageContent() {
   const journeyChatSurfaceVisible = journeyIntroVisibleInChat || journeyMissionCardVisibleInChat;
 
   useEffect(() => {
-    if (!SCHEDULED_SECTION_ENABLED && mainTab === "scheduled") {
+    if (!SCHEDULED_SECTION_ENABLED && !anonymousAgentPreviewMode && mainTab === "scheduled") {
       setMainTab("chat");
     }
-  }, [mainTab]);
+  }, [anonymousAgentPreviewMode, mainTab]);
 
   useEffect(() => {
     if (!selectedAgent && openclawSettingsOpen) {
@@ -4289,7 +4781,6 @@ function AgentsPageContent() {
       requestAuthentication({
         kind: "navigate",
         href: dashboardViewHrefs[view],
-        title: `Sign in to open ${view}`,
       });
       return;
     }
@@ -4307,6 +4798,15 @@ function AgentsPageContent() {
     if (tab !== "chat") params.set("tab", tab);
     router.push(`/dashboard/agents?${params.toString()}`, { scroll: false });
   };
+  const openAgentLauncherFromCurrentSection = () => {
+    const returnHref = dashboardView
+      ? `${window.location.pathname}${window.location.search}${window.location.hash}`
+      : null;
+    if (!openAgentCreationFlow()) return;
+    if (!dashboardView || !isAuthenticated || shouldOfferWorkspaceCreation) return;
+    agentLauncherReturnHrefRef.current = returnHref;
+    openAgentSurfaceRoute("chat");
+  };
   const openAgentSettingsTab = (section: AgentSettingsSection = "general") => {
     setAgentSettingsSection(section);
     openAgentSurfaceRoute("settings");
@@ -4316,6 +4816,7 @@ function AgentsPageContent() {
     closeMobileNavigation();
   };
   const showChatTab = (sectionRouteUpdated = false) => {
+    setAnonymousDesktopPreviewOpen(false);
     if (sectionRouteUpdated) setMainTab("chat");
     else {
       openAgentSurfaceRoute("chat");
@@ -4398,6 +4899,7 @@ function AgentsPageContent() {
     showChatTab(true);
   };
   const openFilesTab = (path?: string) => {
+    setAnonymousDesktopPreviewOpen(false);
     openAgentSurfaceRoute("files");
     const previewPath = typeof path === "string" ? path.trim() : "";
     setFilesPreviewPath(previewPath || null);
@@ -4414,6 +4916,7 @@ function AgentsPageContent() {
     downloadFileBytes(name, result.content, result.mimeType || file.type || inferFileMimeType(file));
   }, [readAgentFileBytesResult]);
   const openIntegrationsTab = () => {
+    setAnonymousDesktopPreviewOpen(false);
     openAgentSurfaceRoute("integrations");
     setRequestedSkillId(null);
     setDirectoryCategory(undefined);
@@ -4441,6 +4944,7 @@ function AgentsPageContent() {
     }
   };
   const openSkillsTab = (skillId?: string) => {
+    setAnonymousDesktopPreviewOpen(false);
     openAgentSurfaceRoute("skills");
     setRequestedSkillId(skillId?.trim() || null);
     setDirectoryCategory(undefined);
@@ -4471,7 +4975,7 @@ function AgentsPageContent() {
   };
   const openSharedResources = () => {
     if (!isAuthenticated) {
-      requestAuthentication({ kind: "navigate", href: knowledgeSectionHref, title: "Sign in to open shared resources" });
+      requestAuthentication({ kind: "navigate", href: knowledgeSectionHref });
       return;
     }
     closeMobileNavigation();
@@ -4481,9 +4985,16 @@ function AgentsPageContent() {
     if (knowledgeSectionActive) return;
     router.push(knowledgeSectionHref, { scroll: false });
   };
+  const openAltHomeKnowledge = (workspaceId?: string) => {
+    if (workspaceId) {
+      const targetWorkspace = workspaces.find((entry) => entry.id === workspaceId);
+      if (targetWorkspace) selectWorkspace(targetWorkspace.id, targetWorkspace);
+    }
+    openSharedResources();
+  };
   const openMembersTab = () => {
     if (!isAuthenticated) {
-      requestAuthentication({ kind: "navigate", href: membersSectionHref, title: "Sign in to open Workspace members" });
+      requestAuthentication({ kind: "navigate", href: membersSectionHref });
       return;
     }
     closeMobileNavigation();
@@ -4495,6 +5006,7 @@ function AgentsPageContent() {
   };
   const openDashboardUsage = () => openDashboardView("usage");
   const openDashboardHome = () => openDashboardView("overview");
+  const openDashboardAltHome = () => openDashboardView("alt-home");
   const openAccountSettings = () => {
     setMobileSettingsMenuOpen(true);
     closeMobileNavigation();
@@ -4503,7 +5015,6 @@ function AgentsPageContent() {
       requestAuthentication({
         kind: "navigate",
         href: `${dashboardViewHrefs.settings}&settings=profile`,
-        title: "Sign in to open settings",
       });
       return;
     }
@@ -4520,7 +5031,8 @@ function AgentsPageContent() {
     setMobileSettingsMenuOpen(false);
   };
   const openScheduledTab = (draftCommand?: unknown) => {
-    if (!SCHEDULED_SECTION_ENABLED) return;
+    if (!SCHEDULED_SECTION_ENABLED && !anonymousAgentPreviewMode) return;
+    setAnonymousDesktopPreviewOpen(false);
     openAgentSurfaceRoute("scheduled");
     const command = typeof draftCommand === "string" ? draftCommand.trim() : "";
     if (command) {
@@ -4534,6 +5046,36 @@ function AgentsPageContent() {
     setMobileShowChat(true);
     closeMobileNavigation();
     if (chat.connected) void chat.refreshCron().catch(() => undefined);
+  };
+  const openDesktopPreview = () => {
+    if (!anonymousAgentPreviewMode) return;
+    setAnonymousDesktopPreviewOpen(true);
+    setOpenclawSettingsOpen(false);
+    setMobileShowChat(true);
+    closeMobileNavigation();
+  };
+  const markAnonymousPreviewSelection = () => {
+    if (anonymousAgentPreviewMode) setAnonymousPreviewSelectionMade(true);
+  };
+  const openFilesFromNavigation = () => {
+    markAnonymousPreviewSelection();
+    openFilesTab();
+  };
+  const openIntegrationsFromNavigation = () => {
+    markAnonymousPreviewSelection();
+    openIntegrationsTab();
+  };
+  const openSkillsFromNavigation = () => {
+    markAnonymousPreviewSelection();
+    openSkillsTab();
+  };
+  const openScheduledFromNavigation = () => {
+    markAnonymousPreviewSelection();
+    openScheduledTab();
+  };
+  const openDesktopPreviewFromNavigation = () => {
+    markAnonymousPreviewSelection();
+    openDesktopPreview();
   };
   const openLogsTab = () => {
     openAgentSurfaceRoute("logs");
@@ -4597,6 +5139,14 @@ function AgentsPageContent() {
     try {
       const createdId = await handleCreateFirstAgent(params);
       if (createdId) {
+        const principalId = user?.id ?? null;
+        const pending = principalId ? readPendingPlanCheckout(principalId) : null;
+        if (principalId && isFirstAgentSetupCheckout(pending)) {
+          clearPendingPlanCheckout(principalId);
+          setPaidFirstAgentCheckout(null);
+        }
+        setCheckoutReturnRecoveryActive(false);
+        agentLauncherReturnHrefRef.current = null;
         setAgentLauncherOpen(false);
       }
       return createdId;
@@ -4730,7 +5280,7 @@ function AgentsPageContent() {
           sidebarCreatorSignal={0}
           onOpenAgentLauncher={() => {
             closeMobileNavigation();
-            setAgentLauncherOpen(true);
+            openAgentLauncherFromCurrentSection();
           }}
           agentLauncherSuspended={agentLauncherSuspended}
           setPendingAgentDelete={(value) => {
@@ -4741,7 +5291,7 @@ function AgentsPageContent() {
           accountAvatarUrl={accountAvatarUrl}
           accountName={dashboardDisplayName}
           accountEmail={user?.email ?? null}
-          onLogin={!isAuthenticated ? () => requestAuthentication({ kind: "navigate", href: "/dashboard/agents", title: "Sign in to your account" }) : undefined}
+          onLogin={!isAuthenticated ? () => requestAuthentication({ kind: "navigate", href: "/dashboard/agents" }) : undefined}
           onLogout={isAuthenticated ? logout : undefined}
           budget={budget}
           subscriptionSummary={subscriptionSummary}
@@ -4755,6 +5305,9 @@ function AgentsPageContent() {
           onOpenHome={openDashboardHome}
           homeActive={dashboardView === "overview"}
           homeHref={dashboardViewHrefs.overview}
+          onOpenAltHome={openDashboardAltHome}
+          altHomeActive={dashboardView === "alt-home"}
+          altHomeHref={dashboardViewHrefs["alt-home"]}
           onOpenSharedResources={openSharedResources}
           sharedResourcesActive={knowledgeSectionActive}
           sharedResourcesHref={knowledgeSectionHref}
@@ -4770,14 +5323,16 @@ function AgentsPageContent() {
 
         <AgentWorkspaceSidebar
           selectedAgent={selectedAgent}
-          activeTab={dashboardView ? null : openclawSettingsOpen && selectedAgent ? "openclaw" : mainTab}
-          skillsActive={mainTab === "skills"}
+          activeTab={anonymousDesktopPreviewMode ? null : dashboardView ? null : openclawSettingsOpen && selectedAgent ? "openclaw" : mainTab}
+          skillsActive={!anonymousDesktopPreviewMode && mainTab === "skills"}
           tokenUsed={tokenUsage}
           tokenLimit={tokenLimit}
           isAuthenticated={isAuthenticated}
           disabled={workspaceSidebarDisabled}
           disabledReason={workspaceSidebarDisabledReason}
-          scheduledDisabled={!SCHEDULED_SECTION_ENABLED}
+          allowAgentlessFeaturePreviews={anonymousAgentPreviewMode}
+          desktopPreviewActive={anonymousDesktopPreviewMode}
+          scheduledDisabled={!SCHEDULED_SECTION_ENABLED && !anonymousAgentPreviewMode}
           scheduledDisabledReason={SCHEDULED_SECTION_DISABLED_REASON}
           isDesktopViewport={false}
           renderMobile
@@ -4799,17 +5354,19 @@ function AgentsPageContent() {
           onRenameSession={renameSession}
           onDeleteSession={deleteSession}
           onCreateSession={createSession}
-          onOpenFiles={openFilesTab}
-          onOpenIntegrations={openIntegrationsTab}
-          onOpenSkills={openSkillsTab}
-          onOpenScheduled={openScheduledTab}
+          onOpenFiles={openFilesFromNavigation}
+          onOpenIntegrations={openIntegrationsFromNavigation}
+          onOpenSkills={openSkillsFromNavigation}
+          onOpenScheduled={openScheduledFromNavigation}
           onOpenDesktop={handleOpenDesktop}
+          onOpenDesktopPreview={openDesktopPreviewFromNavigation}
           openingDesktop={openingDesktopId === selectedAgent?.id}
           onOpenLogs={openLogsTab}
           onOpenShell={openShellTab}
           onShellIntent={prepareShell}
           onShellIntentEnd={cancelShellIntent}
           onOpenOpenClaw={openOpenClawSettings}
+          onCreateWorkspace={openWorkspaceCreationFlow}
           onUpgrade={() => {
             closeMobileNavigation();
             void openUpgradeCatalog();
@@ -4888,6 +5445,7 @@ function AgentsPageContent() {
           : await client.uploadProfileImage(agentId, file, file.type || "image/png");
         if (!upload.avatar_url) throw new Error("Avatar upload returned no URL.");
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return upload.avatar_url;
+        setAgentAvatarOverride(agentId, upload.avatar_url, file);
         try {
           const updatedAgent = external
             ? await client.getExternalAgent(agentId)
@@ -4915,6 +5473,7 @@ function AgentsPageContent() {
         if (external) await client.deleteExternalAgentProfileImage(agentId);
         else await client.deleteProfileImage(agentId);
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+        setAgentAvatarOverride(agentId, null);
         try {
           const updatedAgent = external
             ? await client.getExternalAgent(agentId)
@@ -4984,7 +5543,7 @@ function AgentsPageContent() {
       membersHref={settingsMembersHref}
       onOpenMembers={() => selectAccountSettingsSection("members")}
       onOpenAgentLauncher={() => {
-        if (openAgentCreationFlow()) openAgentSurfaceRoute("chat");
+        openAgentLauncherFromCurrentSection();
       }}
     />
   ) : accountSettingsSection === "members" ? (
@@ -5129,7 +5688,7 @@ function AgentsPageContent() {
             }}
             onOpenPlans={() => {
               if (isAuthenticated) leaveAgentsPage("/plans");
-              else requestAuthentication({ kind: "navigate", href: "/plans", title: "Sign in to open plans" });
+              else requestAuthentication({ kind: "navigate", href: "/plans" });
             }}
             onSelectPlan={selectUpgradeProduct}
           />
@@ -5153,34 +5712,22 @@ function AgentsPageContent() {
       )}
 
       <Dialog
-        open={authGateOpen}
+        open={checkoutRecoveryDialogVisible}
         onOpenChange={(open) => {
-          setAuthGateOpen(open);
+          setCheckoutRecoveryDialogOpen(open);
           if (!open) {
             setPendingAuthIntent(null);
           }
         }}
       >
         <DialogContent
-          closeLabel="Close sign in"
+          closeLabel="Close checkout preparation"
           overlayClassName="z-[10000] bg-background/80 backdrop-blur-sm"
           className="z-[10001] border-border bg-surface-low sm:max-w-md"
         >
           <DialogHeader>
-            <DialogTitle>
-              {isAuthenticated && pendingAuthIntent?.kind === "checkout"
-                ? "Preparing checkout"
-                : pendingAuthIntent?.kind === "checkout"
-                ? "Sign in to continue to checkout"
-                : pendingAuthIntent?.kind === "navigate"
-                  ? pendingAuthIntent.title
-                  : "Sign in to launch your agent"}
-            </DialogTitle>
-            <DialogDescription>
-              {isAuthenticated && pendingAuthIntent?.kind === "checkout"
-                ? "Checking your current plan before checkout."
-                : "Your agent setup stays open while your account is connected."}
-            </DialogDescription>
+            <DialogTitle>Preparing checkout</DialogTitle>
+            <DialogDescription>Checking your current plan before checkout.</DialogDescription>
           </DialogHeader>
           {authLoading ? (
             <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-text-secondary">
@@ -5193,6 +5740,7 @@ function AgentsPageContent() {
                 <button
                   type="button"
                   onClick={() => {
+                    setCheckoutRecoveryDialogOpen(true);
                     setBillingDataError(null);
                     setAgentsLoading(true);
                     void fetchAgents({ force: true });
@@ -5207,18 +5755,10 @@ function AgentsPageContent() {
                 <Loader2 className="h-4 w-4 animate-spin" /> Loading billing data
               </div>
             )
-          ) : isAuthenticated ? (
+          ) : (
             <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-text-secondary">
               <Loader2 className="h-4 w-4 animate-spin" /> Continuing
             </div>
-          ) : (
-            <button
-              type="button"
-              onClick={login}
-              className="w-full rounded-lg bg-[var(--button-primary)] px-6 py-3 font-medium text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)]"
-            >
-              Login with Privy
-            </button>
           )}
         </DialogContent>
       </Dialog>
@@ -5268,7 +5808,8 @@ function AgentsPageContent() {
       <AgentDashboardTour
         open={agentTourOpen}
         onOpenChange={setAgentTourOpen}
-        onStartCreating={startAgentCreationFromTour}
+        onSkipTour={skipAgentTour}
+        onCreateAccount={createAccountFromTour}
       />
 
       {/* Main layout: AgentList + AgentMainPanel + AgentInspector */}
@@ -5282,12 +5823,12 @@ function AgentsPageContent() {
         ) : (
         <div
           className="agent-desktop-navigation relative flex h-full min-h-0 w-64 shrink-0 flex-col pt-14"
-          data-roster-collapsed={sidebarCollapsed}
-          data-expanded-section={sidebarCollapsed ? "workspace" : "agents"}
+          data-roster-collapsed={effectiveSidebarCollapsed}
+          data-expanded-section={effectiveSidebarCollapsed ? "workspace" : "agents"}
         >
           <div className="agent-desktop-navigation-sections relative isolate mt-2 flex min-h-0 w-full flex-1">
           <AgentList
-            sidebarCollapsed={sidebarCollapsed}
+            sidebarCollapsed={effectiveSidebarCollapsed}
             isDesktopViewport={isDesktopViewport}
             mobileShowChat={mobileMainPanelVisible}
             agents={agents}
@@ -5296,7 +5837,7 @@ function AgentsPageContent() {
             selectedAgentId={selectedAgentId}
             setSelectedAgentId={selectAgentFromRoster}
             setMobileShowChat={setMobileShowChat}
-            setSidebarCollapsed={setSidebarCollapsed}
+            setSidebarCollapsed={setEffectiveSidebarCollapsed}
             syntheticThreads={syntheticThreads}
             agentCardDataById={agentCardDataById}
             getToken={getToken}
@@ -5308,13 +5849,15 @@ function AgentsPageContent() {
             fetchAgents={refreshAgentsForChildren}
             setError={setError}
             sidebarCreatorSignal={0}
-            onOpenAgentLauncher={() => setAgentLauncherOpen(true)}
+            onOpenAgentLauncher={() => {
+              openAgentLauncherFromCurrentSection();
+            }}
             setPendingAgentDelete={setPendingAgentDelete}
             accountInitial={accountInitial}
             accountAvatarUrl={accountAvatarUrl}
             accountName={dashboardDisplayName}
             accountEmail={user?.email ?? null}
-            onLogin={!isAuthenticated ? () => requestAuthentication({ kind: "navigate", href: "/dashboard/agents", title: "Sign in to your account" }) : undefined}
+            onLogin={!isAuthenticated ? () => requestAuthentication({ kind: "navigate", href: "/dashboard/agents" }) : undefined}
             onLogout={isAuthenticated ? logout : undefined}
             budget={budget}
             subscriptionSummary={subscriptionSummary}
@@ -5325,6 +5868,9 @@ function AgentsPageContent() {
             onOpenHome={openDashboardHome}
             homeActive={dashboardView === "overview"}
             homeHref={dashboardViewHrefs.overview}
+            onOpenAltHome={openDashboardAltHome}
+            altHomeActive={dashboardView === "alt-home"}
+            altHomeHref={dashboardViewHrefs["alt-home"]}
             onOpenSharedResources={openSharedResources}
             sharedResourcesActive={knowledgeSectionActive}
             sharedResourcesHref={knowledgeSectionHref}
@@ -5340,18 +5886,20 @@ function AgentsPageContent() {
 
           <AgentWorkspaceSidebar
             selectedAgent={selectedAgent}
-            activeTab={dashboardView ? null : openclawSettingsOpen && selectedAgent ? "openclaw" : mainTab}
-            skillsActive={mainTab === "skills"}
+            activeTab={anonymousDesktopPreviewMode ? null : dashboardView ? null : openclawSettingsOpen && selectedAgent ? "openclaw" : mainTab}
+            skillsActive={!anonymousDesktopPreviewMode && mainTab === "skills"}
             tokenUsed={tokenUsage}
             tokenLimit={tokenLimit}
             isAuthenticated={isAuthenticated}
             disabled={workspaceSidebarDisabled}
             disabledReason={workspaceSidebarDisabledReason}
-            scheduledDisabled={!SCHEDULED_SECTION_ENABLED}
+            allowAgentlessFeaturePreviews={anonymousAgentPreviewMode}
+            desktopPreviewActive={anonymousDesktopPreviewMode}
+            scheduledDisabled={!SCHEDULED_SECTION_ENABLED && !anonymousAgentPreviewMode}
             scheduledDisabledReason={SCHEDULED_SECTION_DISABLED_REASON}
             isDesktopViewport={isDesktopViewport}
-            collapsed={!sidebarCollapsed}
-            onCollapsedChange={(collapsed) => setSidebarCollapsed(!collapsed)}
+            collapsed={!effectiveSidebarCollapsed}
+            onCollapsedChange={(collapsed) => setEffectiveSidebarCollapsed(!collapsed)}
             embeddedInNavigation
             sessions={sidebarSessions}
             sessionsFetched={chat.sessionsFetched}
@@ -5365,17 +5913,19 @@ function AgentsPageContent() {
             onRenameSession={renameSession}
             onDeleteSession={deleteSession}
             onCreateSession={createSession}
-            onOpenFiles={openFilesTab}
-            onOpenIntegrations={openIntegrationsTab}
-            onOpenSkills={openSkillsTab}
-            onOpenScheduled={openScheduledTab}
+            onOpenFiles={openFilesFromNavigation}
+            onOpenIntegrations={openIntegrationsFromNavigation}
+            onOpenSkills={openSkillsFromNavigation}
+            onOpenScheduled={openScheduledFromNavigation}
             onOpenDesktop={handleOpenDesktop}
+            onOpenDesktopPreview={openDesktopPreviewFromNavigation}
             openingDesktop={openingDesktopId === selectedAgent?.id}
             onOpenLogs={openLogsTab}
             onOpenShell={openShellTab}
             onShellIntent={prepareShell}
             onShellIntentEnd={cancelShellIntent}
             onOpenOpenClaw={openOpenClawSettings}
+            onCreateWorkspace={openWorkspaceCreationFlow}
             onUpgrade={() => { void openUpgradeCatalog(); }}
             onStartTrial={() => { openAgentCreationFlow(); }}
           />
@@ -5390,6 +5940,8 @@ function AgentsPageContent() {
           mobileShowChat={mobileMainPanelVisible}
           selectedAgent={selectedAgent}
           isAuthenticated={isAuthenticated}
+          showAgentlessSectionPreviews={anonymousAgentPreviewMode}
+          showAgentlessDesktopPreview={anonymousDesktopPreviewMode}
           hasAgents={agents.length > 0}
           loadingInitialAgents={agentsLoading || isAgentRosterLoading}
           isSelectedRunning={Boolean(isSelectedRunning)}
@@ -5417,9 +5969,74 @@ function AgentsPageContent() {
               className={`flex min-h-0 flex-1 ${agentLauncherSuspended ? "invisible pointer-events-none" : ""}`}
             >
               <AgentCreationSetupWizard
-                size="inline"
+                key={agentLauncherGeneration}
+                size="embedded"
                 saveDraftAsYouGo={!isAuthenticated}
-                onClose={closeAgentCreationFlow}
+                skipPlanSelection
+                capacityReady={!agentsLoading && (!isAuthenticated || Boolean(user?.id && billingDataPrincipalId === user.id))}
+                capacityError={isAuthenticated ? billingDataError : null}
+                onRetryCapacity={() => {
+                  setBillingDataError(null);
+                  void refreshAgentEnrichment({ force: true });
+                }}
+                capacityContent={(
+                  <UpgradePlanCatalogContent
+                    embedded
+                    products={upgradeProducts}
+                    ownedCounts={upgradeOwnedCounts}
+                    loading={upgradeCatalogLoading}
+                    error={upgradeCatalogError ?? billingDataError}
+                    onSelectPlan={selectEmbeddedUpgradeProduct}
+                    onOpenPlans={() => {
+                      if (isAuthenticated) leaveAgentsPage("/plans");
+                      else requestAuthentication({ kind: "navigate", href: "/plans" });
+                    }}
+                  />
+                )}
+                checkoutActive={Boolean(embeddedCheckoutPlan)}
+                checkoutContent={embeddedCheckoutPlan ? (
+                  <EmbeddedPlanCheckout
+                    key={embeddedCheckoutPlan.id}
+                    plan={embeddedCheckoutPlan}
+                    ownedCount={embeddedCheckoutOwnedCount}
+                    baselineGrantedSlots={upgradeCheckoutBaselineGrantedSlots}
+                    principalId={user?.id ?? ""}
+                    isPrincipalCurrent={() => pageActiveRef.current && privatePrincipalRef.current === user?.id}
+                    getToken={getToken}
+                    onSuccess={() => { void refreshCheckoutEntitlements(); }}
+                    onComplete={() => {
+                      setEmbeddedCheckoutProcessing(false);
+                      setEmbeddedCheckoutPlan(null);
+                    }}
+                    onProcessingChange={setEmbeddedCheckoutProcessing}
+                    firstAgentSetup={embeddedFirstAgentSetup}
+                  />
+                ) : null}
+                checkoutProcessing={embeddedCheckoutProcessing}
+                onBackFromCheckout={() => {
+                  if (embeddedCheckoutProcessing) return;
+                  embeddedCheckoutSelectionRequestRef.current += 1;
+                  setEmbeddedCheckoutPlan(null);
+                }}
+                onStartFresh={() => {
+                  const principalId = user?.id ?? null;
+                  const pending = principalId ? readPendingPlanCheckout(principalId) : null;
+                  if (principalId && isFirstAgentSetupCheckout(pending)) {
+                    clearPendingPlanCheckout(principalId);
+                  }
+                  clearFirstAgentSetupDraft();
+                  setPaidFirstAgentCheckout(null);
+                  setCheckoutReturnRecoveryActive(false);
+                  embeddedCheckoutSelectionRequestRef.current += 1;
+                  setEmbeddedCheckoutPlan(null);
+                  setEmbeddedCheckoutProcessing(false);
+                  setLauncherSelectedCatalogPlanId(null);
+                  setAgentLauncherGeneration((generation) => generation + 1);
+                }}
+                onClose={() => {
+                  if (embeddedCheckoutProcessing) return;
+                  closeAgentCreationFlowAndReturn();
+                }}
                 initialPlanId={launcherPreferredPlanId}
                 selectedCatalogPlanId={launcherSelectedCatalogPlanId}
                 budget={budget}
@@ -5431,6 +6048,17 @@ function AgentsPageContent() {
                 }}
                 onGenerateBootstrap={generateOpenClawBootstrap}
                 onCreateAgent={createAgentFromLauncher}
+                draftPrincipalId={user?.id ?? null}
+                draftWorkspaceId={selectedWorkspaceId}
+              />
+            </div>
+          ) : checkoutReturnRecoveryActive ? (
+            <div data-slot="paid-first-agent-recovery" className="min-h-0 flex-1">
+              <AgentLoadingState
+                title="Preparing your agent"
+                detail={checkoutSync?.message ?? "Confirming your new capacity and restoring the setup you saved before payment."}
+                tone="loading"
+                stage="runtime"
               />
             </div>
           ) : null}
@@ -5677,7 +6305,7 @@ function AgentsPageContent() {
           ) : mainTab === "shell" ? (
             null
           ) : null}
-          onCreate={() => {
+          onCreate={anonymousAgentPreviewMode ? launchAgentFromPreview : () => {
             openAgentCreationFlow();
           }}
           onCreateAgent={handleCreateFirstAgent}
@@ -5690,7 +6318,7 @@ function AgentsPageContent() {
           workspaceName={selectedWorkspace ? workspaceDisplayName(selectedWorkspace) : null}
           hasAccountAgents={accountAgents.length > 0}
           creationDisabledReason={agentCreationBlockedReason}
-          onCreateWorkspace={shouldOfferWorkspaceCreation ? () => setWorkspaceCreationOpen(true) : undefined}
+          onCreateWorkspace={shouldOfferWorkspaceCreation ? openWorkspaceCreationFlow : undefined}
           onOpenMembers={openMembersTab}
           onShowList={() => setMobileShowChat(false)}
           showMobileListButton={false}
@@ -5760,8 +6388,26 @@ function AgentsPageContent() {
                 membersHref={membersSectionHref}
                 onOpenMembers={openMembersTab}
                 onOpenAgentLauncher={() => {
-                  if (openAgentCreationFlow()) openAgentSurfaceRoute("chat");
+                  openAgentLauncherFromCurrentSection();
                 }}
+              />
+            ) : dashboardView === "alt-home" ? (
+              <WorkspaceKnowledgeHome
+                workspace={selectedWorkspace}
+                workspaces={workspaces}
+                knowledgeClient={workspacesClient}
+                agents={altHomeAgents}
+                selectedWorkspaceAgentIds={selectedWorkspaceAgentIds}
+                agentsLoading={agentsLoading || isAgentRosterLoading}
+                agentsError={agentsLoadError || agentRosterError}
+                workspacesLoading={workspacesLoading}
+                workspacesError={workspacesError}
+                agentCreationDisabledReason={agentCreationBlockedReason}
+                onOpenMembers={openMembersTab}
+                onOpenAgentLauncher={() => {
+                  openAgentLauncherFromCurrentSection();
+                }}
+                onOpenKnowledge={openAltHomeKnowledge}
               />
             ) : dashboardView === "usage" ? (
               <WorkspaceUsagePanel

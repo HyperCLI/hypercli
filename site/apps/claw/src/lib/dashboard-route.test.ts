@@ -19,6 +19,7 @@ afterEach(() => {
 describe("dashboard routes", () => {
   it("resolves supported dashboard views", () => {
     expect(resolveDashboardView(" overview ")).toBe("overview");
+    expect(resolveDashboardView("alt-home")).toBe("alt-home");
     expect(resolveDashboardView("usage")).toBe("usage");
     expect(resolveDashboardView("settings")).toBe("settings");
     expect(resolveDashboardView("agents")).toBeNull();
@@ -27,6 +28,7 @@ describe("dashboard routes", () => {
 
   it("builds canonical view links with optional agent selection", () => {
     expect(DASHBOARD_VIEW_HREFS.overview).toBe("/dashboard/agents?view=overview");
+    expect(DASHBOARD_VIEW_HREFS["alt-home"]).toBe("/dashboard/agents?view=alt-home");
     expect(buildDashboardViewHref("usage", {
       agentId: "agent/one",
       session: "session focus",

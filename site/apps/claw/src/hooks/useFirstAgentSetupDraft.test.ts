@@ -1,0 +1,59 @@
+import { beforeEach, describe, expect, it } from "vitest";
+
+import { createOpenClawBootstrapDraft } from "@/lib/openclaw-bootstrap-pack";
+import {
+  readFirstAgentSetupDraft,
+  updateFirstAgentSetupDraftPlan,
+  writeFirstAgentSetupDraft,
+} from "./useFirstAgentSetupDraft";
+
+describe("first agent setup draft", () => {
+  beforeEach(() => {
+    window.sessionStorage.clear();
+  });
+
+  it("keeps a stable setup identity and full launch snapshot when the paid plan changes", () => {
+    const bootstrapDraft = createOpenClawBootstrapDraft("Tern");
+    bootstrapDraft.files[0] = {
+      ...bootstrapDraft.files[0],
+      content: "# Custom instructions\n\nKeep this exact setup.",
+    };
+
+    writeFirstAgentSetupDraft({
+      principalId: "user-1",
+      workspaceId: "workspace-1",
+      name: "Tern",
+      description: "Coordinates release work.",
+      size: "small",
+      iconIndex: 11,
+      category: "Ops",
+      plan: "basic",
+      enableDesktop: true,
+      enableMemoryIndex: true,
+      enableCustomImage: false,
+      customImage: "",
+      bootstrapDraft,
+    });
+
+    const initial = readFirstAgentSetupDraft();
+    expect(initial).toMatchObject({
+      principalId: "user-1",
+      workspaceId: "workspace-1",
+      size: "small",
+      plan: "basic",
+    });
+    expect(initial?.setupId).toBeTruthy();
+
+    updateFirstAgentSetupDraftPlan("pro", "large");
+
+    const updated = readFirstAgentSetupDraft();
+    expect(updated).toMatchObject({
+      setupId: initial?.setupId,
+      principalId: "user-1",
+      workspaceId: "workspace-1",
+      size: "large",
+      plan: "pro",
+    });
+    expect(updated?.bootstrapDraft?.files[0].content).toContain("Keep this exact setup.");
+  });
+});
