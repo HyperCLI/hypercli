@@ -248,6 +248,7 @@ if [[ ${desktop_status} -eq 0 ]]; then
     --project=mobile-chromium \
     --max-failures=1 \
     --workers=1 \
+    tests/claw/agents-anonymous-onboarding-mobile.spec.ts \
     tests/claw/agents-mobile.spec.ts
   mobile_status=$?
 fi

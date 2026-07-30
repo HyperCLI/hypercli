@@ -29,6 +29,8 @@ coverage
 .DS_Store
 .agents/
 .opencode/
+.github/
+docs/agent-display-names.md
 *.pem
 
 # IDE
