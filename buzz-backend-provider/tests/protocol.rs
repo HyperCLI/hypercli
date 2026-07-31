@@ -224,48 +224,17 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
 #[test]
 fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
     let handle = format!("buzz-{}", &TEST_PUBLIC_HEX[..48]);
-    for (runtime, agent_command, image, child_command, child_args, mcp_command) in [
-        (
-            "opencode",
-            "opencode",
-            "ghcr.io/hypercli/hypercli-buzz-opencode:latest",
-            "/usr/local/bin/opencode",
-            "acp",
-            "/usr/local/bin/buzz-dev-mcp",
-        ),
-        (
-            "codex",
-            "codex-acp",
-            "ghcr.io/hypercli/hypercli-buzz-codex:latest",
-            "/usr/local/bin/codex-acp",
-            "",
-            "/usr/local/bin/buzz-dev-mcp",
-        ),
-        (
-            "claude-code",
-            "claude-agent-acp",
-            "ghcr.io/hypercli/hypercli-buzz-claude:latest",
-            "/usr/local/bin/claude-agent-acp",
-            "",
-            "",
-        ),
-        (
-            "goose",
-            "goose",
-            "ghcr.io/hypercli/hypercli-buzz-goose:latest",
-            "/usr/local/bin/goose",
-            "acp",
-            "",
-        ),
-        (
-            "kimi-code",
-            "kimi",
-            "ghcr.io/hypercli/hypercli-buzz-kimi-code:latest",
-            "/usr/local/bin/kimi",
-            "acp",
-            "",
-        ),
-    ] {
+    let golden: serde_json::Value = serde_json::from_str(include_str!(
+        "../../tests/fixtures/buzz-launch-contract.json"
+    ))
+    .unwrap();
+    let common = &golden["common"];
+    for (runtime, contract) in golden["runtimes"].as_object().unwrap() {
+        let agent_command = contract["stock_agent_command"].as_str().unwrap();
+        let image = contract["image"].as_str().unwrap();
+        let child_command = contract["agent_command"].as_str().unwrap();
+        let child_args = contract["agent_args"].as_str().unwrap();
+        let mcp_command = contract["mcp_command"].as_str().unwrap();
         let mut server = Server::new();
         let trace_dir = tempfile::tempdir().unwrap();
         let trace_file = trace_dir.path().join(format!("{runtime}.jsonl"));
@@ -273,7 +242,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
             "name": format!("fizz-{}", &TEST_PUBLIC_HEX[..8]),
             "handle": handle,
             "runtime": runtime,
-            "size": "large",
+            "size": common["size"].clone(),
             "tags": [format!("buzz_agent={TEST_PUBLIC_HEX}")],
             "env": {
                 "MODEL_API_KEY": "fixture-model-credential",
@@ -305,22 +274,14 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
                 "HYPER_WORKSPACES_SYNC_READY_ONLY": "1",
                 "HYPER_WORKSPACES_SYNC_WORKSPACE": "fixture-workspace"
             },
-            "command": ["/usr/local/bin/buzz-acp"],
+            "command": common["command"].clone(),
             "image": image,
-            "sync_root": "/home/node",
-            "sync_enabled": true,
-            "sync_uid": 1000,
-            "sync_gid": 1000,
-            "restart": false,
-            "runtime_scopes": [
-                "agents:none",
-                "files:*",
-                "flows:*",
-                "models:*",
-                "voice:*",
-                "web:*",
-                "workspaces:*"
-            ],
+            "sync_root": common["sync_root"].clone(),
+            "sync_enabled": common["sync_enabled"].clone(),
+            "sync_uid": common["sync_uid"].clone(),
+            "sync_gid": common["sync_gid"].clone(),
+            "restart": common["restart"].clone(),
+            "runtime_scopes": golden["runtime_scopes"].clone(),
             "start": true,
             "dry_run": true
         });

@@ -20,7 +20,8 @@ one. It must never be used as a real agent identity.
 - Stock calls pass no command-line arguments.
 - Buzz writes one JSON object plus a newline to stdin and then closes stdin.
 - The provider writes one JSON object plus a newline to stdout.
-- Protocol logs must stay off stdout and stderr.
+- Stdout must contain only protocol JSON. Diagnostics may use stderr; the
+  HyperCLI provider remains silent on successful requests.
 - The provider currently supports only `info` and `deploy`.
 - `--dry-run` is a HyperCLI test extension, not a stock Buzz argument.
 
@@ -47,19 +48,25 @@ permanently `deployed`, independent of relay presence or HyperCLI state. Normal
 Play/redeploy becomes unreachable, and Save, Stop, and Delete do not invoke the
 provider.
 
-## Observed behavior
+## Historical observed behavior
 
-The live capture recorded 67 stock `info` calls and one `deploy` while creating
-one agent. The repeated probes occurred within four seconds after selecting
-HyperCLI. The create form probe effect updates the same draft object it depends
-on, so providers must keep `info` cheap and idempotent until Buzz fixes that
-loop.
+The observations below predate the provider's readiness polling and the hosted
+`restart=false` lifecycle hardening. They are retained as stock Buzz protocol
+evidence, not as a description of the current HyperCLI provider response or
+Kubernetes restart behavior.
 
-The provider returned the deployment ID at 16:52:28 UTC. Buzz immediately
+The live capture recorded repeated stock `info` calls and one `deploy` while
+creating one agent. The probes occurred rapidly after selecting HyperCLI. The
+create form probe effect updates the same draft object it depends on, so
+providers must keep `info` cheap and idempotent until Buzz fixes that loop.
+
+The historical provider returned the deployment ID at 16:52:28 UTC. Buzz immediately
 showed the agent as deployed, while `buzz-acp` connected to the relay at
 16:54:02 and its ten OpenCode workers became ready at 16:54:17. A provider
-deploy response therefore confirms control-plane acceptance, not harness
-readiness.
+that does not poll readiness can therefore confirm control-plane acceptance
+before harness readiness. The current HyperCLI provider waits for backend
+`RUNNING`, although lazy ACP worker initialization can still happen on the
+first turn.
 
 Opening or refreshing the main Agents screen, refreshing Settings > Agents,
 sending a message, and using Stop running agents produced no provider process
@@ -73,9 +80,11 @@ Profile-level Shutdown failed with `agent is not in any channel` even while the
 profile displayed channel memberships. Shutdown from the channel member
 controls did resolve the channel and delivered the signed shutdown command:
 `buzz-acp` announced offline and exited. HyperCLI remained `RUNNING`, however,
-and Kubernetes immediately restarted the container. Neither shutdown path
-invoked the provider. Buzz process shutdown is therefore not equivalent to
-provider infrastructure stop.
+and Kubernetes immediately restarted the container under its then-current
+restart policy. Neither shutdown path invoked the provider. Stock Buzz process
+shutdown is therefore not equivalent to provider infrastructure stop; current
+hosted Buzz launches use `restart=false` so backend terminal cleanup can
+finalize them as `STOPPED`.
 
 The Agents-page bulk Stop action selected two provider records and reported
 `2 of 2 stops failed`; it made no provider invocation and left the HyperCLI

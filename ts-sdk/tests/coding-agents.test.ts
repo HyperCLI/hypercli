@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import {
   ClaudeCodeAgent,
@@ -22,6 +23,20 @@ import {
   OpenCodeAgent,
 } from '../src/agents.js';
 import type { HTTPClient } from '../src/http.js';
+
+const buzzGolden = JSON.parse(readFileSync(
+  new URL('../../tests/fixtures/buzz-launch-contract.json', import.meta.url),
+  'utf8',
+)) as {
+  runtime_scopes: string[];
+  common: Record<string, unknown>;
+  runtimes: Record<string, {
+    image: string;
+    agent_command: string;
+    agent_args: string;
+    mcp_command: string;
+  }>;
+};
 
 function response(runtime: 'opencode' | 'codex' | 'claude-code' | 'goose' | 'kimi-code') {
   return {
@@ -159,6 +174,38 @@ describe('coding agents', () => {
       image,
       command: ['/usr/local/bin/buzz-acp'],
     });
+  });
+
+  it.each([
+    ['createOpenCode', 'opencode'],
+    ['createCodex', 'codex'],
+    ['createClaudeCode', 'claude-code'],
+    ['createGoose', 'goose'],
+    ['createKimiCode', 'kimi-code'],
+  ] as const)('matches the shared cross-language Buzz golden for %s', async (helper, runtime) => {
+    const post = vi.fn().mockResolvedValue(response(runtime));
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await deployments[helper]({
+      buzz: {
+        privateKeyNsec: 'nsec1test',
+        relayUrl: 'wss://buzz.example.test',
+      },
+    });
+
+    const payload = post.mock.calls[0][1];
+    const expectedRuntime = buzzGolden.runtimes[runtime];
+    expect(payload).toMatchObject(buzzGolden.common);
+    expect(payload.runtime).toBe(runtime);
+    expect(payload.runtime_scopes).toEqual(buzzGolden.runtime_scopes);
+    expect(payload.image).toBe(expectedRuntime.image);
+    expect(payload.env.BUZZ_ACP_AGENT_COMMAND).toBe(expectedRuntime.agent_command);
+    expect(payload.env.BUZZ_ACP_AGENT_ARGS).toBe(expectedRuntime.agent_args);
+    expect(payload.env.BUZZ_ACP_MCP_COMMAND).toBe(expectedRuntime.mcp_command);
   });
 
   it('honors an explicit image override for a typed Buzz launch', async () => {

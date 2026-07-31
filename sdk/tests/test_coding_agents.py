@@ -1,6 +1,8 @@
 """Contract tests for canonical hosted coding-agent runtimes."""
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -44,6 +46,11 @@ from hypercli.agents import (
 
 class _HTTP:
     api_key = "hyper_api_test"
+
+
+_BUZZ_GOLDEN = json.loads(
+    (Path(__file__).parents[2] / "tests/fixtures/buzz-launch-contract.json").read_text()
+)
 
 
 def test_coding_agent_types_are_exported_from_sdk_root():
@@ -185,6 +192,43 @@ def test_buzz_coding_agent_uses_specialized_default_image(
 
     assert posted["image"] == buzz_image
     assert posted["command"] == ["/usr/local/bin/buzz-acp"]
+
+
+@pytest.mark.parametrize(
+    ("method_name", "runtime"),
+    [
+        ("create_opencode", "opencode"),
+        ("create_codex", "codex"),
+        ("create_claude_code", "claude-code"),
+        ("create_goose", "goose"),
+        ("create_kimi_code", "kimi-code"),
+    ],
+)
+def test_typed_buzz_launch_matches_shared_cross_language_golden(method_name, runtime):
+    deployments = Deployments(_HTTP())
+    posted: dict = {}
+
+    def fake_post(_path, json=None):
+        posted.update(json or {})
+        return _agent_payload(runtime)
+
+    deployments._post = fake_post
+    getattr(deployments, method_name)(
+        buzz=BuzzLaunchConfig(
+            private_key_nsec="nsec1test",
+            relay_url="wss://buzz.example.test",
+        )
+    )
+
+    expected_runtime = _BUZZ_GOLDEN["runtimes"][runtime]
+    for key, value in _BUZZ_GOLDEN["common"].items():
+        assert posted[key] == value
+    assert posted["runtime"] == runtime
+    assert posted["runtime_scopes"] == _BUZZ_GOLDEN["runtime_scopes"]
+    assert posted["image"] == expected_runtime["image"]
+    assert posted["env"]["BUZZ_ACP_AGENT_COMMAND"] == expected_runtime["agent_command"]
+    assert posted["env"]["BUZZ_ACP_AGENT_ARGS"] == expected_runtime["agent_args"]
+    assert posted["env"]["BUZZ_ACP_MCP_COMMAND"] == expected_runtime["mcp_command"]
 
 
 def test_typed_buzz_launch_honors_explicit_image_override():

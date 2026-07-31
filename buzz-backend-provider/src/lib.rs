@@ -742,6 +742,7 @@ mod tests {
     use hypercli_sdk::ClientConfig;
     use mockito::{Matcher, Server};
     use secrecy::SecretString;
+    use std::sync::{Arc, Barrier};
     use url::Url;
 
     const TEST_SECRET_HEX: &str =
@@ -782,8 +783,12 @@ mod tests {
     }
 
     fn client(server: &Server) -> HyperCliClient {
+        client_for_url(&server.url())
+    }
+
+    fn client_for_url(server_url: &str) -> HyperCliClient {
         HyperCliClient::new(ClientConfig {
-            api_base: Url::parse(&format!("{}/agents", server.url())).unwrap(),
+            api_base: Url::parse(&format!("{server_url}/agents")).unwrap(),
             api_key: SecretString::from("test-credential"),
             trace_file: None,
         })
@@ -1227,9 +1232,24 @@ mod tests {
             .mock("POST", "/agents/deployments/existing/start")
             .match_body(Matcher::PartialJsonString(
                 serde_json::json!({
+                    "image": "ghcr.io/hypercli/hypercli-buzz-opencode:latest",
                     "restart": false,
                     "command": ["/usr/local/bin/buzz-acp"],
-                    "runtime_scopes": BUZZ_RUNTIME_SCOPES
+                    "sync_root": "/home/node",
+                    "sync_enabled": true,
+                    "sync_uid": 1000,
+                    "sync_gid": 1000,
+                    "runtime_scopes": BUZZ_RUNTIME_SCOPES,
+                    "env": {
+                        "BUZZ_PRIVATE_KEY": TEST_SECRET_HEX,
+                        "NOSTR_PRIVATE_KEY": TEST_SECRET_HEX,
+                        "BUZZ_RELAY_URL": "wss://buzz.example.com",
+                        "BUZZ_ACP_AGENT_COMMAND": "/usr/local/bin/opencode",
+                        "BUZZ_ACP_AGENT_ARGS": "acp",
+                        "BUZZ_ACP_MCP_COMMAND": "/usr/local/bin/buzz-dev-mcp",
+                        "HYPER_WORKSPACES_BOOT_SYNC": "1",
+                        "HYPER_WORKSPACES_DIR": "/home/node/workspaces"
+                    }
                 })
                 .to_string(),
             ))
@@ -1358,6 +1378,106 @@ mod tests {
         recovered_lookup.assert();
         conflicting_create.assert();
         restart.assert();
+        ready.assert();
+    }
+
+    #[test]
+    fn simultaneous_first_deploys_converge_on_one_deterministic_handle() {
+        let mut server = Server::new();
+        let server_url = server.url();
+        let handle = format!("buzz-{}", &TEST_PUBLIC_HEX[..48]);
+        let initial_lookups = server
+            .mock("GET", "/agents/deployments")
+            .match_query(Matcher::UrlEncoded("handle".into(), handle.clone()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"items":[]}"#)
+            .expect(2)
+            .create();
+        let recovered_lookup = server
+            .mock("GET", "/agents/deployments")
+            .match_query(Matcher::UrlEncoded("handle".into(), handle.clone()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "items": [{
+                        "id":"shared",
+                        "handle":handle,
+                        "runtime":"opencode",
+                        "state":"pending"
+                    }]
+                })
+                .to_string(),
+            )
+            .expect(1)
+            .create();
+        let winning_create = server
+            .mock("POST", "/agents/deployments")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id":"shared",
+                    "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
+                    "runtime":"opencode",
+                    "state":"pending"
+                })
+                .to_string(),
+            )
+            .expect(1)
+            .create();
+        let losing_create = server
+            .mock("POST", "/agents/deployments")
+            .with_status(409)
+            .expect(1)
+            .create();
+        let ready = server
+            .mock("GET", "/agents/deployments/shared")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id":"shared",
+                    "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
+                    "runtime":"opencode",
+                    "state":"running"
+                })
+                .to_string(),
+            )
+            .expect(2)
+            .create();
+
+        let barrier = Arc::new(Barrier::new(2));
+        let workers: Vec<_> = (0..2)
+            .map(|_| {
+                let barrier = Arc::clone(&barrier);
+                let server_url = server_url.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    deploy_with_readiness(
+                        &client_for_url(&server_url),
+                        test_agent(),
+                        serde_json::json!({"runtime":"opencode"}),
+                        false,
+                        Duration::from_secs(1),
+                        Duration::ZERO,
+                    )
+                })
+            })
+            .collect();
+        let responses: Vec<_> = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap().unwrap())
+            .collect();
+
+        assert!(responses
+            .iter()
+            .all(|response| response.agent_id == "shared"));
+        initial_lookups.assert();
+        recovered_lookup.assert();
+        winning_create.assert();
+        losing_create.assert();
         ready.assert();
     }
 
