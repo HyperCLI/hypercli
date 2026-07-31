@@ -7,6 +7,19 @@
 
 @source "../../../../packages/shared-ui/src/**/*.{ts,tsx}";
 
+/*
+  xterm focuses a transparent helper textarea and moves it with the active
+  caret. The shared global focus outline otherwise renders around that hidden
+  textarea because xterm's reset lives in the lower-priority vendor layer.
+*/
+.xterm .xterm-helper-textarea:focus,
+.xterm .xterm-helper-textarea:focus-visible {
+  border: 0;
+  box-shadow: none;
+  outline: none;
+  resize: none;
+}
+
 @layer base {
   :where(
     a[href]:not([aria-disabled="true"]),
