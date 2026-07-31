@@ -533,7 +533,7 @@ fn build_launch_request_for_runtime(
     buzz.respond_to = behavior.respond_to;
     buzz.respond_to_allowlist = behavior.respond_to_allowlist;
     buzz.display_name = Some(display_name.clone());
-    buzz.text_mentions = true;
+    buzz.text_mentions = supports_text_mentions(&display_name);
     buzz.apply_to(&mut request, Some(&display_name))?;
 
     let env = &mut request.env;
@@ -624,6 +624,14 @@ fn validate_behavior(agent: &BuzzAgentPayload) -> Result<ValidatedBehavior, Prov
 
 fn nonempty(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+fn supports_text_mentions(display_name: &str) -> bool {
+    let display_name = display_name.trim();
+    !display_name.is_empty()
+        && display_name.chars().count() <= 80
+        && !display_name.contains('@')
+        && !display_name.chars().any(char::is_control)
 }
 
 pub fn derive_agent_pubkey(private_key: &str) -> Result<String, ProviderError> {
@@ -785,6 +793,15 @@ mod tests {
             vec![runtime.harness_args().to_owned()]
         };
         agent
+    }
+
+    fn test_options() -> ProviderOptions {
+        ProviderOptions {
+            runtime: CodingRuntime::Opencode,
+            size: AgentSize::Large,
+            image: None,
+            workspace: None,
+        }
     }
 
     fn client(server: &Server) -> HyperCliClient {
@@ -1121,6 +1138,43 @@ mod tests {
                 "buzz_acp=info,pool::prompt=info,acp::stream=off"
             );
         }
+    }
+
+    #[test]
+    fn incompatible_display_names_disable_textual_mentions_without_blocking_launch() {
+        for name in [
+            "Agent@Home".to_owned(),
+            "Agent\nHome".to_owned(),
+            "x".repeat(81),
+        ] {
+            let mut agent = test_agent();
+            agent.name = name.clone();
+            agent
+                .env_vars
+                .insert("BUZZ_ACP_TEXT_MENTIONS".to_owned(), "true".to_owned());
+
+            let request =
+                build_launch_request(agent, TEST_PUBLIC_HEX, "buzz-runtime-test", test_options())
+                    .unwrap();
+
+            assert_eq!(
+                request.env.get("BUZZ_ACP_DISPLAY_NAME").map(String::as_str),
+                Some(name.as_str())
+            );
+            assert!(!request.env.contains_key("BUZZ_ACP_TEXT_MENTIONS"));
+        }
+    }
+
+    #[test]
+    fn textual_mentions_accept_eighty_character_display_names() {
+        let mut agent = test_agent();
+        agent.name = "x".repeat(80);
+
+        let request =
+            build_launch_request(agent, TEST_PUBLIC_HEX, "buzz-runtime-test", test_options())
+                .unwrap();
+
+        assert_eq!(request.env["BUZZ_ACP_TEXT_MENTIONS"], "true");
     }
 
     #[test]
