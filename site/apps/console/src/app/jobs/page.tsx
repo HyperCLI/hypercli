@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Header, Footer, formatDateTime, getBadgeClass, AlertDialog, getRegionName, getAuthBackendUrl, getAuthCookieToken, RegionDisplay } from "@hypercli/shared-ui";
 import { useRouter } from "next/navigation";
 import AmountDisplay from "../../components/AmountDisplay";
@@ -50,6 +50,9 @@ const JOB_FILTERS = [
   { value: 'all', label: 'All jobs' },
 ] as const;
 
+const ACTIVE_JOBS_REFRESH_INTERVAL_MS = 10_000;
+const ALL_JOBS_REFRESH_INTERVAL_MS = 30_000;
+
 export default function JobsPage() {
   const router = useRouter();
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -58,6 +61,7 @@ export default function JobsPage() {
   const [pageSize] = useState(20);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const [stateFilter, setStateFilter] = useState<(typeof JOB_FILTERS)[number]['value']>("running");
   const [sortColumn, setSortColumn] = useState<SortColumn>('created_at');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
@@ -76,21 +80,15 @@ export default function JobsPage() {
     message: "",
     type: "info",
   });
+  const jobsRequestRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    fetchJobs();
-  }, [stateFilter, currentPage]);
+  const fetchJobs = useCallback(async (silent = false) => {
+    // A filter/page/focus change supersedes an older request. Aborting it keeps
+    // a slow response from overwriting the newer view and prevents overlap.
+    jobsRequestRef.current?.abort();
+    const requestController = new AbortController();
+    jobsRequestRef.current = requestController;
 
-  // Auto-refresh jobs every 30 seconds (silent refresh)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetchJobs(true);
-    }, 30000);
-
-    return () => clearInterval(interval);
-  }, [stateFilter]);
-
-  const fetchJobs = async (silent = false) => {
     if (!silent) {
       setLoading(true);
       setError(null);
@@ -99,9 +97,10 @@ export default function JobsPage() {
       const authToken = getAuthCookieToken();
 
       if (!authToken) {
-        if (!silent) {
+        if (silent) {
+          setRefreshError('Live updates are paused while your session reconnects.');
+        } else {
           setError('No auth token found');
-          setLoading(false);
         }
         return;
       }
@@ -116,31 +115,109 @@ export default function JobsPage() {
         headers: {
           'Authorization': `Bearer ${authToken}`,
           'Content-Type': 'application/json'
-        }
+        },
+        cache: 'no-store',
+        signal: requestController.signal,
       });
 
       if (response.ok) {
         const jobsData = await response.json();
+        if (
+          requestController.signal.aborted
+          || jobsRequestRef.current !== requestController
+        ) {
+          return;
+        }
         // Handle both array (legacy) and paginated response
         setJobs(Array.isArray(jobsData) ? jobsData : jobsData.jobs || []);
         setTotalJobsCount(Array.isArray(jobsData) ? jobsData.length : jobsData.total_count || 0);
+        setRefreshError(null);
       } else if (response.status === 404) {
+        if (
+          requestController.signal.aborted
+          || jobsRequestRef.current !== requestController
+        ) {
+          return;
+        }
         setJobs([]);
-      } else if (!silent) {
-        const errorData = await response.json();
-        setError(errorData.detail || 'Failed to load jobs');
+        setTotalJobsCount(0);
+        setRefreshError(null);
+      } else {
+        const errorData = await response.json().catch(() => null);
+        if (
+          requestController.signal.aborted
+          || jobsRequestRef.current !== requestController
+        ) {
+          return;
+        }
+        const message = errorData?.detail || `Failed to load jobs (${response.status})`;
+        if (silent) {
+          console.warn('Background jobs refresh failed:', message);
+          setRefreshError('Live updates are temporarily unavailable. Retrying automatically.');
+        } else {
+          setError(message);
+        }
       }
     } catch (error) {
+      if (
+        requestController.signal.aborted
+        || jobsRequestRef.current !== requestController
+        || (error instanceof Error && error.name === 'AbortError')
+      ) {
+        return;
+      }
       console.error('Error fetching jobs:', error);
-      if (!silent) {
+      if (silent) {
+        setRefreshError('Live updates are temporarily unavailable. Retrying automatically.');
+      } else {
         setError(error instanceof Error ? error.message : 'Unknown error');
       }
     } finally {
-      if (!silent) {
+      if (jobsRequestRef.current === requestController) {
+        jobsRequestRef.current = null;
+      }
+      if (jobsRequestRef.current === null && !requestController.signal.aborted) {
         setLoading(false);
       }
     }
-  };
+  }, [currentPage, pageSize, stateFilter]);
+
+  useEffect(() => {
+    void fetchJobs();
+  }, [fetchJobs]);
+
+  useEffect(() => {
+    const refresh = () => {
+      void fetchJobs(true);
+    };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') {
+        refresh();
+      }
+    };
+    const intervalMs = stateFilter === 'running'
+      ? ACTIVE_JOBS_REFRESH_INTERVAL_MS
+      : ALL_JOBS_REFRESH_INTERVAL_MS;
+    const interval = window.setInterval(refresh, intervalMs);
+
+    window.addEventListener('focus', refresh);
+    window.addEventListener('pageshow', refresh);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('pageshow', refresh);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [fetchJobs, stateFilter]);
+
+  useEffect(() => {
+    return () => {
+      jobsRequestRef.current?.abort();
+      jobsRequestRef.current = null;
+    };
+  }, []);
 
   const handleCancelJob = async (jobId: string, jobState: string) => {
     // Different messages based on whether job has started (will be billed)
@@ -416,6 +493,18 @@ export default function JobsPage() {
 
           {loading && <div className="text-muted-foreground">Loading jobs...</div>}
           {error && <div className="text-error mb-4">Error: {error}</div>}
+          {!error && refreshError && (
+            <div className="mb-4 flex items-center justify-between gap-4 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-foreground" role="status">
+              <span>{refreshError}</span>
+              <button
+                type="button"
+                onClick={() => void fetchJobs(true)}
+                className="shrink-0 font-semibold text-primary hover:text-primary-hover"
+              >
+                Retry now
+              </button>
+            </div>
+          )}
 
           {!loading && !error && jobs.length === 0 && (
             <div className="bg-surface-low border border-border p-8 rounded-lg text-center">

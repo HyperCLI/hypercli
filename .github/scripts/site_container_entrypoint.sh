@@ -116,6 +116,9 @@ build_site() {
   local workspace="$2"
 
   echo "::group::Build ${name} (${workspace})"
+  if [[ "${workspace}" == "@hypercli/console" ]]; then
+    npm run test --workspace "${workspace}"
+  fi
   npm run build -- --filter="${workspace}"
   echo "::endgroup::"
 }

@@ -1,8 +1,17 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useCallback, useEffect, useState, useRef } from "react";
 import { Header, Footer, formatDateTime, getBadgeClass, cookieUtils, AlertDialog, Modal, getRegionName, getAuthBackendUrl, getAuthCookieToken, RegionDisplay } from "@hypercli/shared-ui";
 import { useRouter } from "next/navigation";
+import {
+  buildJobLogsWsUrl,
+  combineJobLogs,
+  getJobLogReconnectDelayMs,
+  JOB_LOG_RECONNECT_MAX_ATTEMPTS,
+  parseJobLogEvent,
+  reconcileJobLogSnapshots,
+  shouldStreamJobLogs,
+} from "../../lib/job-log-stream";
 
 interface Job {
   job_id: string;
@@ -70,11 +79,19 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const metricsIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const terminalRef = useRef<HTMLDivElement>(null);
-  const hasConnectedToWSRef = useRef<boolean>(false);
   const hasFetchedLogsRef = useRef<boolean>(false);
   const hasFetchedTokenRef = useRef<boolean>(false);
+  const logsRef = useRef("");
+  const liveLogsRef = useRef<string[]>([]);
   const logBufferRef = useRef<string[]>([]);
   const logFlushIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const wsReconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wsStableTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wsReconnectAttemptRef = useRef(0);
+  const shouldStreamLogsRef = useRef(false);
+  const activeJobKeyRef = useRef<string | null>(null);
+  const isUnmountingRef = useRef(false);
+  const connectWebSocketRef = useRef<(jobKey: string) => void>(() => undefined);
   const [alertDialog, setAlertDialog] = useState<{
     isOpen: boolean;
     title: string;
@@ -122,67 +139,6 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
     const config = typeInfo.configs.find(c => c.gpu_count === job.gpu_count);
     return config?.cpu_cores || null;
   }, [job, instanceTypes]);
-
-  // State machine: handle behavior based on job state
-  useEffect(() => {
-    if (!job) return;
-
-    const state = job.state;
-
-    // Only poll for queued/assigned states (waiting for job to start)
-    if (['queued', 'assigned'].includes(state)) {
-      startPolling();
-    } else {
-      stopPolling();
-    }
-
-    // Fetch job token only when job is running (container is ready)
-    if (state === 'running' && job.hostname && !hasFetchedTokenRef.current) {
-      hasFetchedTokenRef.current = true;
-      fetchJobToken(job.hostname);
-    }
-
-    // Handle state-specific behavior
-    if (state === 'assigned' && !hasConnectedToWSRef.current) {
-      // Try to connect to websocket
-      hasConnectedToWSRef.current = true;
-      connectWebSocket(job.job_key);
-    } else if (state === 'running') {
-      // Fetch logs then connect to websocket
-      if (!hasFetchedLogsRef.current) {
-        hasFetchedLogsRef.current = true;
-        fetchLogs(job.job_key).then(() => {
-          if (!hasConnectedToWSRef.current) {
-            hasConnectedToWSRef.current = true;
-            connectWebSocket(job.job_key);
-          }
-        });
-      }
-    } else if (['succeeded', 'terminated', 'failed'].includes(state)) {
-      // Just fetch logs
-      if (!hasFetchedLogsRef.current) {
-        hasFetchedLogsRef.current = true;
-        fetchLogs(job.job_key);
-      }
-    }
-
-    return () => {
-      stopPolling();
-    };
-  }, [job?.state, job?.job_key, job?.hostname]);
-
-  // Cleanup WebSocket on unmount
-  useEffect(() => {
-    return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-      }
-      if (logFlushIntervalRef.current) {
-        clearInterval(logFlushIntervalRef.current);
-      }
-      stopPolling();
-    };
-  }, []);
 
   // Auto-scroll terminal
   useEffect(() => {
@@ -238,9 +194,9 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
     }
   };
 
-  const getAuthToken = () => {
+  const getAuthToken = useCallback(() => {
     return getAuthCookieToken();
-  };
+  }, []);
 
   const fetchJob = async () => {
     setJobLoading(true);
@@ -257,7 +213,8 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
         headers: {
           'Authorization': `Bearer ${authToken}`,
           'Content-Type': 'application/json'
-        }
+        },
+        cache: 'no-store',
       });
 
       if (!response.ok) {
@@ -279,7 +236,7 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
     }
   };
 
-  const fetchJobToken = async (hostname: string) => {
+  const fetchJobToken = useCallback(async (hostname: string) => {
     try {
       const authToken = getAuthToken();
       if (!authToken) return;
@@ -288,7 +245,8 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
         headers: {
           'Authorization': `Bearer ${authToken}`,
           'Content-Type': 'application/json'
-        }
+        },
+        cache: 'no-store',
       });
 
       if (response.ok) {
@@ -307,9 +265,9 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
     } catch (err) {
       console.error('Error fetching job token:', err);
     }
-  };
+  }, [getAuthToken, jobId]);
 
-  const fetchLogs = async (jobKey: string): Promise<void> => {
+  const fetchLogs = useCallback(async (resetLiveLogs = false): Promise<void> => {
     try {
       const authToken = getAuthToken();
       if (!authToken) {
@@ -321,13 +279,26 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
         headers: {
           'Authorization': `Bearer ${authToken}`,
           'Content-Type': 'application/json'
-        }
+        },
+        cache: 'no-store',
       });
 
       if (response.ok) {
         const data = await response.json();
         const fetchedLogs = data.logs || '';
-        if (fetchedLogs) {
+        if (resetLiveLogs) {
+          const displayedLogs = combineJobLogs(
+            logsRef.current,
+            [...liveLogsRef.current, ...logBufferRef.current],
+          );
+          const reconciledLogs = reconcileJobLogSnapshots(displayedLogs, fetchedLogs);
+          logsRef.current = reconciledLogs;
+          liveLogsRef.current = [];
+          logBufferRef.current = [];
+          setLogs(reconciledLogs);
+          setLiveLogs([]);
+        } else {
+          logsRef.current = fetchedLogs;
           setLogs(fetchedLogs);
         }
       } else if (response.status !== 404) {
@@ -336,9 +307,9 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
     } catch (err) {
       console.error('Error fetching logs:', err);
     }
-  };
+  }, [getAuthToken, jobId]);
 
-  const startPolling = () => {
+  const startPolling = useCallback(() => {
     if (pollingIntervalRef.current) return;
 
     const poll = async () => {
@@ -350,7 +321,8 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
           headers: {
             'Authorization': `Bearer ${authToken}`,
             'Content-Type': 'application/json'
-          }
+          },
+          cache: 'no-store',
         });
 
         if (response.ok) {
@@ -364,41 +336,92 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
 
     pollingIntervalRef.current = setInterval(poll, 5000);
     poll(); // Initial poll
-  };
+  }, [getAuthToken, jobId]);
 
-  const stopPolling = () => {
+  const stopPolling = useCallback(() => {
     if (pollingIntervalRef.current) {
       clearInterval(pollingIntervalRef.current);
       pollingIntervalRef.current = null;
     }
-  };
+  }, []);
 
-  const flushLogBuffer = () => {
+  const flushLogBuffer = useCallback(() => {
     if (logBufferRef.current.length > 0) {
       const newLogs = logBufferRef.current;
       logBufferRef.current = [];
-      setLiveLogs(prev => [...prev, ...newLogs]);
+      setLiveLogs(prev => {
+        const nextLogs = [...prev, ...newLogs];
+        liveLogsRef.current = nextLogs;
+        return nextLogs;
+      });
     }
-  };
+  }, []);
 
-  const buildJobLogsWsUrl = (jobKey: string) => {
-    const rawBase = (process.env.NEXT_PUBLIC_WS_URL || '').trim().replace(/\/+$/, '');
-    if (!rawBase) return '';
+  const clearWebSocketTimers = useCallback(() => {
+    if (wsReconnectTimerRef.current) {
+      clearTimeout(wsReconnectTimerRef.current);
+      wsReconnectTimerRef.current = null;
+    }
+    if (wsStableTimerRef.current) {
+      clearTimeout(wsStableTimerRef.current);
+      wsStableTimerRef.current = null;
+    }
+  }, []);
 
-    const wsBase = rawBase
-      .replace(/^https:\/\//i, 'wss://')
-      .replace(/^http:\/\//i, 'ws://');
+  const scheduleWebSocketReconnect = useCallback((jobKey: string) => {
+    if (
+      isUnmountingRef.current
+      || !shouldStreamLogsRef.current
+      || activeJobKeyRef.current !== jobKey
+      || wsRef.current
+      || wsReconnectTimerRef.current
+    ) {
+      return;
+    }
 
-    if (wsBase.endsWith('/ws/logs')) return `${wsBase}/${jobKey}`;
-    if (wsBase.endsWith('/ws')) return `${wsBase}/logs/${jobKey}`;
-    if (wsBase.endsWith('/orchestra/ws')) return `${wsBase}/logs/${jobKey}`;
-    return `${wsBase}/ws/logs/${jobKey}`;
-  };
+    const attempt = wsReconnectAttemptRef.current;
+    if (attempt >= JOB_LOG_RECONNECT_MAX_ATTEMPTS) {
+      console.error(`Job log WebSocket stopped reconnecting after ${attempt} attempts`);
+      return;
+    }
 
-  const connectWebSocket = (jobKey: string) => {
-    if (wsRef.current) return;
+    wsReconnectAttemptRef.current = attempt + 1;
+    const delay = getJobLogReconnectDelayMs(attempt);
+    wsReconnectTimerRef.current = setTimeout(() => {
+      wsReconnectTimerRef.current = null;
+      if (
+        isUnmountingRef.current
+        || !shouldStreamLogsRef.current
+        || activeJobKeyRef.current !== jobKey
+      ) {
+        return;
+      }
 
-    const fullWsUrl = buildJobLogsWsUrl(jobKey);
+      // Fill everything missed while the socket was down before accepting a
+      // new live tail. A Director log_snapshot may immediately supersede this.
+      void fetchLogs(true).finally(() => {
+        if (
+          !isUnmountingRef.current
+          && shouldStreamLogsRef.current
+          && activeJobKeyRef.current === jobKey
+        ) {
+          connectWebSocketRef.current(jobKey);
+        }
+      });
+    }, delay);
+  }, [fetchLogs]);
+
+  const connectWebSocket = useCallback((jobKey: string) => {
+    if (
+      isUnmountingRef.current
+      || !shouldStreamLogsRef.current
+      || activeJobKeyRef.current !== jobKey
+      || wsRef.current
+    ) {
+      return;
+    }
+
+    const fullWsUrl = buildJobLogsWsUrl(process.env.NEXT_PUBLIC_WS_URL || '', jobKey);
     if (!fullWsUrl) {
       setWsStatus('disconnected');
       return;
@@ -411,7 +434,17 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
       wsRef.current = ws;
 
       ws.onopen = () => {
+        if (wsRef.current !== ws) return;
         setWsStatus('connected');
+        if (wsStableTimerRef.current) {
+          clearTimeout(wsStableTimerRef.current);
+        }
+        // Only reset the outage retry budget after a genuinely stable socket;
+        // an open/close loop must still hit the bound.
+        wsStableTimerRef.current = setTimeout(() => {
+          wsReconnectAttemptRef.current = 0;
+          wsStableTimerRef.current = null;
+        }, 30_000);
         // Start flushing log buffer every 100ms
         if (!logFlushIntervalRef.current) {
           logFlushIntervalRef.current = setInterval(flushLogBuffer, 100);
@@ -420,10 +453,17 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
 
       ws.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data);
-          if (data.event === 'log' && data.log) {
-            // Buffer logs instead of updating state immediately
-            logBufferRef.current.push(data.log.trimEnd());
+          const parsedEvent = parseJobLogEvent(event.data);
+          if (parsedEvent?.type === 'snapshot') {
+            // Snapshot replay is authoritative. It replaces the REST gap-fill
+            // and any pre-snapshot tail so the same lines are not duplicated.
+            logsRef.current = parsedEvent.logs;
+            liveLogsRef.current = [];
+            logBufferRef.current = [];
+            setLogs(parsedEvent.logs);
+            setLiveLogs([]);
+          } else if (parsedEvent?.type === 'log') {
+            logBufferRef.current.push(parsedEvent.log.trimEnd());
           }
         } catch (err) {
           console.error('Failed to parse WebSocket message:', err);
@@ -431,25 +471,196 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
       };
 
       ws.onerror = (error) => {
+        if (wsRef.current !== ws) return;
         console.error('WebSocket error:', error);
         setWsStatus('disconnected');
+        // Some browser/network combinations do not promptly follow `error`
+        // with `close`. Force the close path so the reconnect state machine
+        // cannot remain pinned to an unusable socket.
+        try {
+          ws.close();
+        } catch {
+          wsRef.current = null;
+          scheduleWebSocketReconnect(jobKey);
+        }
       };
 
       ws.onclose = () => {
-        setWsStatus('disconnected');
-        wsRef.current = null;
+        // An intentionally closed socket may report its close after a new job's
+        // socket is already active. It must not tear down the replacement.
+        if (wsRef.current && wsRef.current !== ws) {
+          return;
+        }
+        if (wsRef.current === ws) {
+          wsRef.current = null;
+        }
+        if (!isUnmountingRef.current) {
+          setWsStatus('disconnected');
+        }
+        if (wsStableTimerRef.current) {
+          clearTimeout(wsStableTimerRef.current);
+          wsStableTimerRef.current = null;
+        }
         // Flush any remaining logs and stop the interval
-        flushLogBuffer();
+        if (isUnmountingRef.current) {
+          logBufferRef.current = [];
+        } else {
+          flushLogBuffer();
+        }
         if (logFlushIntervalRef.current) {
           clearInterval(logFlushIntervalRef.current);
           logFlushIntervalRef.current = null;
         }
+        scheduleWebSocketReconnect(jobKey);
       };
     } catch (err) {
       console.error('Failed to connect WebSocket:', err);
       setWsStatus('disconnected');
+      wsRef.current = null;
+      scheduleWebSocketReconnect(jobKey);
     }
-  };
+  }, [flushLogBuffer, scheduleWebSocketReconnect]);
+
+  useEffect(() => {
+    connectWebSocketRef.current = connectWebSocket;
+  }, [connectWebSocket]);
+
+  const closeWebSocket = useCallback(() => {
+    clearWebSocketTimers();
+    wsReconnectAttemptRef.current = 0;
+
+    const ws = wsRef.current;
+    wsRef.current = null;
+    if (ws) {
+      ws.close();
+    }
+    if (logFlushIntervalRef.current) {
+      clearInterval(logFlushIntervalRef.current);
+      logFlushIntervalRef.current = null;
+    }
+    if (!isUnmountingRef.current) {
+      flushLogBuffer();
+      setWsStatus('disconnected');
+    } else {
+      logBufferRef.current = [];
+    }
+  }, [clearWebSocketTimers, flushLogBuffer]);
+
+  const jobState = job?.state;
+  const jobKey = job?.job_key;
+  const jobHostname = job?.hostname;
+
+  // State machine: poll startup state and maintain a recoverable live log tail.
+  useEffect(() => {
+    if (!jobState || !jobKey) return;
+
+    const jobKeyChanged = activeJobKeyRef.current !== null
+      && activeJobKeyRef.current !== jobKey;
+    if (jobKeyChanged) {
+      shouldStreamLogsRef.current = false;
+      closeWebSocket();
+      hasFetchedLogsRef.current = false;
+      hasFetchedTokenRef.current = false;
+      logsRef.current = "";
+      liveLogsRef.current = [];
+      logBufferRef.current = [];
+      setLogs("");
+      setLiveLogs([]);
+    }
+    activeJobKeyRef.current = jobKey;
+
+    if (['queued', 'assigned'].includes(jobState)) {
+      startPolling();
+    } else {
+      stopPolling();
+    }
+
+    if (jobState === 'running' && jobHostname && !hasFetchedTokenRef.current) {
+      hasFetchedTokenRef.current = true;
+      void fetchJobToken(jobHostname);
+    }
+
+    const streamLogs = shouldStreamJobLogs(jobState);
+    shouldStreamLogsRef.current = streamLogs;
+    if (streamLogs) {
+      const startLogStream = async () => {
+        if (!hasFetchedLogsRef.current) {
+          hasFetchedLogsRef.current = true;
+          await fetchLogs();
+        }
+        if (
+          shouldStreamLogsRef.current
+          && activeJobKeyRef.current === jobKey
+        ) {
+          connectWebSocketRef.current(jobKey);
+        }
+      };
+      void startLogStream();
+    } else {
+      closeWebSocket();
+      if (
+        ['succeeded', 'terminated', 'failed', 'canceled'].includes(jobState)
+        && !hasFetchedLogsRef.current
+      ) {
+        hasFetchedLogsRef.current = true;
+        void fetchLogs(true);
+      }
+    }
+
+    return stopPolling;
+  }, [
+    closeWebSocket,
+    fetchJobToken,
+    fetchLogs,
+    jobHostname,
+    jobKey,
+    jobState,
+    startPolling,
+    stopPolling,
+  ]);
+
+  // Browser suspension or a rollout can exhaust one reconnect burst. Returning
+  // to the tab starts a fresh bounded burst after one REST gap-fill.
+  useEffect(() => {
+    const resumeLogStream = () => {
+      const jobKey = activeJobKeyRef.current;
+      if (
+        !jobKey
+        || !shouldStreamLogsRef.current
+        || wsRef.current
+        || wsReconnectTimerRef.current
+      ) {
+        return;
+      }
+      wsReconnectAttemptRef.current = 0;
+      void fetchLogs(true).finally(() => connectWebSocketRef.current(jobKey));
+    };
+    const resumeWhenVisible = () => {
+      if (document.visibilityState === 'visible') {
+        resumeLogStream();
+      }
+    };
+
+    window.addEventListener('focus', resumeLogStream);
+    window.addEventListener('pageshow', resumeLogStream);
+    document.addEventListener('visibilitychange', resumeWhenVisible);
+    return () => {
+      window.removeEventListener('focus', resumeLogStream);
+      window.removeEventListener('pageshow', resumeLogStream);
+      document.removeEventListener('visibilitychange', resumeWhenVisible);
+    };
+  }, [fetchLogs]);
+
+  // Cleanup WebSocket and timers on unmount.
+  useEffect(() => {
+    isUnmountingRef.current = false;
+    return () => {
+      isUnmountingRef.current = true;
+      shouldStreamLogsRef.current = false;
+      closeWebSocket();
+      stopPolling();
+    };
+  }, [closeWebSocket, stopPolling]);
 
   const handleCancelJob = async () => {
     const isRunning = job?.state === 'running';
