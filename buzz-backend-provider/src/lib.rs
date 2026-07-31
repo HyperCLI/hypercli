@@ -532,6 +532,8 @@ fn build_launch_request_for_runtime(
     buzz.parallelism = agent.parallelism;
     buzz.respond_to = behavior.respond_to;
     buzz.respond_to_allowlist = behavior.respond_to_allowlist;
+    buzz.display_name = Some(display_name.clone());
+    buzz.text_mentions = true;
     buzz.apply_to(&mut request, Some(&display_name))?;
 
     let env = &mut request.env;
@@ -1070,6 +1072,8 @@ mod tests {
                 ),
                 ("BUZZ_ACP_LAZY_POOL".to_owned(), "false".to_owned()),
                 ("BUZZ_ACP_RELAY_OBSERVER".to_owned(), "false".to_owned()),
+                ("BUZZ_ACP_DISPLAY_NAME".to_owned(), "Wrong".to_owned()),
+                ("BUZZ_ACP_TEXT_MENTIONS".to_owned(), "false".to_owned()),
                 ("BUZZ_ACP_SESSION_TITLE".to_owned(), "Wrong".to_owned()),
                 (
                     "BUZZ_ACP_MULTIPLE_EVENT_HANDLING".to_owned(),
@@ -1106,6 +1110,8 @@ mod tests {
             assert_eq!(request.env["BUZZ_ACP_MCP_COMMAND"], mcp);
             assert_eq!(request.env["BUZZ_ACP_LAZY_POOL"], "true");
             assert_eq!(request.env["BUZZ_ACP_RELAY_OBSERVER"], "true");
+            assert_eq!(request.env["BUZZ_ACP_DISPLAY_NAME"], "Fizz 4");
+            assert_eq!(request.env["BUZZ_ACP_TEXT_MENTIONS"], "true");
             assert_eq!(request.env["BUZZ_ACP_SESSION_TITLE"], "Fizz 4");
             assert_eq!(request.env["BUZZ_ACP_MULTIPLE_EVENT_HANDLING"], "steer");
             assert_eq!(request.env["BUZZ_ACP_DEDUP"], "queue");

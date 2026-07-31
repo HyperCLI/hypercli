@@ -48,6 +48,8 @@ const BUZZ_RESERVED_ENV: &[&str] = &[
     "BUZZ_ACP_MCP_COMMAND",
     "BUZZ_ACP_LAZY_POOL",
     "BUZZ_ACP_RELAY_OBSERVER",
+    "BUZZ_ACP_DISPLAY_NAME",
+    "BUZZ_ACP_TEXT_MENTIONS",
     "BUZZ_ACP_SESSION_TITLE",
     "BUZZ_ACP_SYSTEM_PROMPT",
     "BUZZ_ACP_MODEL",
@@ -81,6 +83,8 @@ pub struct BuzzLaunchConfig {
     pub parallelism: u32,
     pub respond_to: Option<String>,
     pub respond_to_allowlist: Vec<String>,
+    pub display_name: Option<String>,
+    pub text_mentions: bool,
     pub session_title: Option<String>,
     pub rust_log: Option<String>,
     pub restart: bool,
@@ -99,6 +103,8 @@ impl BuzzLaunchConfig {
             parallelism: 1,
             respond_to: None,
             respond_to_allowlist: Vec::new(),
+            display_name: None,
+            text_mentions: false,
             session_title: None,
             rust_log: None,
             restart: false,
@@ -197,6 +203,16 @@ impl BuzzLaunchConfig {
         }
 
         insert_nonempty(&mut request.env, "BUZZ_AUTH_TAG", self.auth_tag.as_deref());
+        insert_nonempty(
+            &mut request.env,
+            "BUZZ_ACP_DISPLAY_NAME",
+            self.display_name.as_deref(),
+        );
+        if self.text_mentions {
+            request
+                .env
+                .insert("BUZZ_ACP_TEXT_MENTIONS".to_owned(), "true".to_owned());
+        }
         insert_nonempty(
             &mut request.env,
             "BUZZ_ACP_SESSION_TITLE",
@@ -390,11 +406,19 @@ mod tests {
         );
         request
             .env
+            .insert("BUZZ_ACP_DISPLAY_NAME".to_owned(), "Wrong".to_owned());
+        request
+            .env
+            .insert("BUZZ_ACP_TEXT_MENTIONS".to_owned(), "false".to_owned());
+        request
+            .env
             .insert("RUST_LOG".to_owned(), "debug".to_owned());
 
         let mut buzz = BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test");
         buzz.model = Some("hypercli/kimi-k2.6-anthropic".to_owned());
         buzz.parallelism = 3;
+        buzz.display_name = Some("Fizz4".to_owned());
+        buzz.text_mentions = true;
         buzz.apply_to(&mut request, Some("Fizz4")).unwrap();
 
         assert_eq!(request.size, Some(AgentSize::Large));
@@ -423,6 +447,17 @@ mod tests {
         assert_eq!(
             request.env.get("BUZZ_ACP_MCP_COMMAND").map(String::as_str),
             Some("/usr/local/bin/buzz-dev-mcp")
+        );
+        assert_eq!(
+            request.env.get("BUZZ_ACP_DISPLAY_NAME").map(String::as_str),
+            Some("Fizz4")
+        );
+        assert_eq!(
+            request
+                .env
+                .get("BUZZ_ACP_TEXT_MENTIONS")
+                .map(String::as_str),
+            Some("true")
         );
         assert_eq!(
             request
@@ -455,6 +490,8 @@ mod tests {
 
         buzz.apply_to(&mut request, None).unwrap();
 
+        assert!(!request.env.contains_key("BUZZ_ACP_DISPLAY_NAME"));
+        assert!(!request.env.contains_key("BUZZ_ACP_TEXT_MENTIONS"));
         assert_eq!(
             request.env.get("RUST_LOG").map(String::as_str),
             Some("buzz_acp=info,pool::prompt=info,acp::stream=off")
