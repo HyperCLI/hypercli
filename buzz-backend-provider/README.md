@@ -106,9 +106,11 @@ Stock Buzz Desktop v0.5.2 invokes backend providers only for `info` and
 `deploy`; there is no provider stop or undeploy request. Desktop's Shutdown
 action sends a best-effort owner-authored, agent-mentioned `!shutdown` channel
 message. Without a shared channel it errors. If delivered and accepted, stock
-`buzz-acp` exits, but Desktop receives no acknowledgement and does not stop or
-reconcile the HyperCLI deployment. Use authenticated HyperCLI lifecycle APIs
-for infrastructure stop/delete.
+`buzz-acp` exits. New provider launches set `restart: false`, so the hosted
+terminal-state observer can clean the namespace, mark the deployment
+`stopped`, and release its slot. Desktop receives no acknowledgement and does
+not reconcile its local deployed record. Use authenticated HyperCLI lifecycle
+APIs when reliable infrastructure stop/delete is required.
 
 ## Stock Buzz compatibility
 
@@ -128,6 +130,13 @@ deployment is a Buzz launch. Its defaults are the dedicated
 Rust SDK deliberately has no image catalog; it renders launch behavior onto a
 caller-supplied deployment request, leaving image policy to the provider or
 application.
+
+The provider keeps `sync_root=/home/node` for persistence and Files API access.
+`/home/node/workspaces` is reserved for HyperCLI Workspace projections. The
+Buzz-specialized image entrypoint reconciles the standard nest after mount and
+runs the harness from `/home/node/.buzz`; OpenCode and Codex use its canonical
+`AGENTS.md`, and Claude Code creates `CLAUDE.md -> AGENTS.md`.
+`base_prompt.md` remains compiled into `buzz-acp`.
 
 Interactive Codex and Claude login is not part of the one-shot provider
 protocol. Hosted OpenCode can infer through its injected provider configuration

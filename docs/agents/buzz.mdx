@@ -5,10 +5,10 @@ description: Run stock Buzz coding-agent harnesses in isolated HyperCLI Reef pod
 
 <Warning>
 The HyperCLI provider is a development preview. The published v0.1.0 macOS
-artifacts are unsigned and predate the stock-protocol and one-shot launch
-corrections in source commit `0696a2f7`. Do not use either build with
-production agent identities,
-model credentials, or sensitive repositories.
+artifacts are unsigned and predate the current stock-protocol, one-shot
+lifecycle, and Buzz-specialized image contracts. Do not use those artifacts
+with production agent identities, model credentials, or sensitive
+repositories.
 </Warning>
 
 ## What the integration does
@@ -40,7 +40,7 @@ Current source builds require Rust 1.95:
 ```bash
 git clone https://github.com/HyperCLI/hypercli.git
 cd hypercli
-git checkout 0696a2f70137266098de63f3daad26e9125eb5bd
+git checkout 5a9f27985fe12af807120a9421caaa2f4ad8bc5d
 
 cargo test --workspace --all-features --locked
 cargo build --release --locked -p buzz-backend-hypercli
@@ -64,8 +64,8 @@ The response should contain `"ok":true`, `"name":"HyperCLI"`, and a
 The historical
 [unsigned v0.1.0 release](https://github.com/HyperCLI/hypercli/releases/tag/buzz-provider-v0.1.0)
 contains Linux x86-64/ARM64 and macOS Intel/Apple-silicon archives plus
-checksums. Those binaries were built from `026fc466`, not `0696a2f7`, so they
-do not contain the latest stock-protocol or one-shot launch corrections.
+checksums. Those binaries were built from `026fc466`, not the current pinned
+source above, so they do not contain the current source contract.
 
 | v0.1.0 archive | SHA-256 |
 | --- | --- |
@@ -174,6 +174,25 @@ non-Buzz SDK launches keep using the generic `hypercli-opencode`,
 `hypercli-codex`, `hypercli-claude-code`, `hypercli-goose`, and
 `hypercli-kimi-code` image families.
 
+### Filesystem and instruction layout
+
+The persistence and workspace roots are intentionally different:
+
+- `/home/node` is the persistent `sync_root` used by the Files API and runtime
+  credentials.
+- `/home/node/workspaces` is reserved for HyperCLI Workspace projections.
+- `/home/node/.buzz` is the hosted Buzz nest and the working directory of the
+  `buzz-acp` process and coding runtime.
+
+Because the persistent `/home/node` mount hides files baked directly into the
+image's home directory, the image entrypoint reconciles the nest after mount.
+It creates the standard Buzz directories and skill links and seeds a canonical
+`AGENTS.md` only when that file is missing, preserving restored user content.
+OpenCode and Codex consume `AGENTS.md` directly. The Claude image additionally
+creates `CLAUDE.md -> AGENTS.md`, keeping one canonical instruction source.
+`base_prompt.md` remains compiled into `buzz-acp`; it is not copied into the
+image or nest.
+
 The provider owns the identity, relay, ACP command, response policy, and timeout
 environment. It validates stock Buzz's `turn_timeout_seconds`,
 `idle_timeout_seconds`, `max_turn_duration_seconds`, `respond_to`, and
@@ -224,6 +243,11 @@ does not invoke provider stop, undeploy, status, logs, or delete operations.
   delivered first.
 - Apply launch changes by stopping the deployment through authenticated
   HyperCLI lifecycle tooling, then deploying it again from Buzz.
+
+The important boundary is that stock Desktop never calls a provider lifecycle
+operation. The hosted terminal-state observer, not Desktop, performs the
+`stopping` → `stopped` transition and slot release after a terminal one-shot
+process exit.
 
 The provider's `--dry-run` flag is development-only instrumentation, not part
 of the stock Buzz protocol. It skips lookup and restart logic and sends one

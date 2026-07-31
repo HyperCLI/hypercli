@@ -177,6 +177,13 @@ const authenticated = await login.wait();
 await agent.auth.logout();
 ```
 
+Authentication is runtime-specific rather than one universal login protocol:
+OpenCode combines adapter discovery with its interactive provider login; Codex
+adds native device login; Claude Code exposes Claude.ai, Console, and SSO;
+Goose uses its injected deployment credential; and Kimi Code uses the
+upstream adapter's methods. Goose and Kimi Code do not expose a noninteractive
+logout command through this SDK surface.
+
 The corresponding helpers are `createOpenCode(...)`, `createCodex(...)`,
 `createClaudeCode(...)`, `createGoose(...)`, and `createKimiCode(...)`. Set
 the typed `buzz` object to derive the canonical child command, arguments, MCP
@@ -189,6 +196,13 @@ default. Ordinary coding-agent helpers without Buzz keep the generic
 `ghcr.io/hypercli/hypercli-<runtime>:latest` default. An explicit `image`
 continues to override either default.
 
+Buzz launches keep `/home/node` as the persistent Files API and credential
+root, reserve `/home/node/workspaces` for Workspace projections, and run
+`buzz-acp` from the specialized `/home/node/.buzz` nest. The image reconciles
+the nest after the home mount. OpenCode and Codex consume its canonical
+`AGENTS.md`; Claude Code receives `CLAUDE.md -> AGENTS.md`.
+`base_prompt.md` remains compiled into `buzz-acp`.
+
 The typed `buzz` renderer writes timeout and response-policy values but does not
 duplicate the stock Desktop provider's validation; invalid combinations are
 rejected later by `buzz-acp`. The Desktop provider also maps structured Goose
@@ -200,8 +214,11 @@ caller-provided size or the backend default. Stock Buzz provider agents do not
 start on app launch and the current provider protocol has no stop callback.
 Editing a running agent does not replace its HyperCLI launch environment: stop
 the deployment through the authenticated HyperCLI API and deploy it again from
-Buzz to apply changes. Desktop's best-effort `!shutdown` chat control may exit
-the harness, but it does not stop or release the HyperCLI deployment.
+Buzz to apply changes. A successfully delivered and accepted `!shutdown` can
+exit a new `restart: false` launch; the hosted terminal-state observer then
+reports `stopping`, cleans up the namespace, marks the deployment `stopped`,
+and releases its slot. Desktop receives no provider acknowledgement and keeps
+its local deployed record.
 
 Stock Buzz expects ACP NDJSON. It skips non-JSON child stdout, and
 `agent_message_chunk` is activity telemetry rather than a channel reply. There

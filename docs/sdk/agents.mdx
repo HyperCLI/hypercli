@@ -237,6 +237,100 @@ agent = client.deployments.create_openclaw(
 )
 ```
 
+### Hosted Coding Agents
+
+The SDK has typed launch helpers for five non-OpenClaw runtimes:
+
+| Runtime value | Python helper | Generic default image |
+| --- | --- | --- |
+| `opencode` | `create_opencode()` | `ghcr.io/hypercli/hypercli-opencode:latest` |
+| `codex` | `create_codex()` | `ghcr.io/hypercli/hypercli-codex:latest` |
+| `claude-code` | `create_claude_code()` | `ghcr.io/hypercli/hypercli-claude-code:latest` |
+| `goose` | `create_goose()` | `ghcr.io/hypercli/hypercli-goose:latest` |
+| `kimi-code` | `create_kimi_code()` | `ghcr.io/hypercli/hypercli-kimi-code:latest` |
+
+These runtimes have no OpenClaw gateway and no public route by default.
+Lifecycle, files, exec, shell, workspace sync, and interactive authentication
+use the authenticated deployment API:
+
+```python
+codex = client.deployments.create_codex(name="codex")
+methods = codex.auth.methods()
+status = codex.auth.status()
+
+async with await codex.auth.login("device") as login:
+    print(login.verification_url, login.user_code)
+    await login.wait()
+```
+
+Authentication remains runtime-specific:
+
+| Runtime | Current SDK behavior |
+| --- | --- |
+| OpenCode | Discovers adapter methods and exposes interactive provider login and logout |
+| Codex | Discovers adapter methods and adds native device login, status, and logout |
+| Claude Code | Discovers adapter methods and adds Claude.ai, Console, and SSO login, status, and logout |
+| Goose | Uses adapter discovery/status with the injected deployment credential; no noninteractive logout |
+| Kimi Code | Uses the upstream adapter's discovery/status and login methods; no noninteractive logout |
+
+OpenCode and Goose images default to HyperCLI's Anthropic-native
+`kimi-k2.6-anthropic` route. Kimi Code keeps Moonshot's upstream service and
+login flow. Login sessions use an agent-bound shell WebSocket and never put an
+API key on the command line; runtime credentials persist under `/home/node`.
+
+#### Typed Buzz launches
+
+Pass `BuzzLaunchConfig` to render the identity and canonical ACP launch:
+
+```python
+from hypercli import BuzzLaunchConfig
+
+agent = client.deployments.create_opencode(
+    name="buzz-opencode",
+    buzz=BuzzLaunchConfig(
+        private_key_nsec=agent_nsec,
+        relay_url=relay_url,
+        auth_tag=owner_signed_auth_tag,
+        model="hypercli/kimi-k2.6-anthropic",
+    ),
+)
+```
+
+A managed launch receives its agent-scoped inference credential from the
+platform as `HYPER_AGENTS_API_KEY`; callers should not copy an account API key
+into the runtime environment.
+
+A typed Buzz launch:
+
+- requires `size="large"` and sets `restart=False`;
+- clears public routes and selects `/usr/local/bin/buzz-acp`;
+- derives the selected runtime's ACP child command and Buzz MCP command;
+- selects the matching `ghcr.io/hypercli/hypercli-buzz-<runtime>:latest`
+  image, with Claude using `hypercli-buzz-claude`;
+- keeps `sync_root=/home/node` and reserves `/home/node/workspaces` for
+  Workspace projections;
+- runs from the image-managed `/home/node/.buzz` nest.
+
+The nest is reconciled after the persistent home mount. OpenCode and Codex
+consume its canonical `AGENTS.md`, while Claude Code receives
+`CLAUDE.md -> AGENTS.md`. `base_prompt.md` remains compiled into `buzz-acp`.
+An explicit `image=` overrides the default. `buzz_enabled=True` is the
+deprecated raw-environment compatibility path and cannot be combined with a
+typed `buzz` value or explicit `command`.
+
+The typed SDK renderer checks required identity fields and parallelism but does
+not duplicate every stock Desktop cross-field validation. The Desktop provider
+also maps structured Goose model/provider fields to
+`GOOSE_MODEL`/`GOOSE_PROVIDER`; direct SDK callers must set Goose-specific
+environment when needed.
+
+Stock Buzz invokes providers only for `info` and `deploy`. It has no provider
+stop callback. A successfully delivered and accepted `!shutdown` can exit a
+new one-shot launch; hosted cleanup reports `stopping`, then `stopped`, and
+releases the slot. Desktop receives no acknowledgement and retains its local
+deployed record. See [Buzz Desktop](/agents/buzz) for the full protocol,
+message-publishing, ownership, and security boundaries.
+
 ### Route Configuration
 
 Routes are passed as a plain dict. Outside the OpenClaw helper methods, the SDK does not inject route defaults.

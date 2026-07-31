@@ -152,6 +152,13 @@ runtime's native login command inside the Reef pod. It never puts an API key on
 the command line. Runtime credentials and state live under the persistent
 `/home/node` sync root.
 
+Authentication is runtime-specific rather than one universal login protocol:
+OpenCode combines adapter discovery with its interactive provider login; Codex
+adds native device login; Claude Code exposes Claude.ai, Console, and SSO;
+Goose uses its injected deployment credential; and Kimi Code uses the
+upstream adapter's methods. Goose and Kimi Code do not expose a noninteractive
+logout command through this SDK surface.
+
 The images default to a long-lived direct shell/exec container. A Buzz provider
 launches one for a Buzz-managed identity with the typed launch contract:
 
@@ -160,7 +167,6 @@ from hypercli import BuzzLaunchConfig
 
 agent = client.deployments.create_opencode(
     name="buzz-opencode",
-    env={"HYPER_API_KEY": inference_key},
     buzz=BuzzLaunchConfig(
         private_key_nsec=agent_nsec,
         relay_url=relay_url,
@@ -170,10 +176,18 @@ agent = client.deployments.create_opencode(
 )
 ```
 
+The managed platform injects an agent-scoped `HYPER_AGENTS_API_KEY` into the
+runtime. Do not copy an account API key into the launch environment.
+
 The SDK selects `/usr/local/bin/buzz-acp`, the runtime-specific child ACP
 command and arguments, the hosted Buzz MCP command, lazy pool creation, relay
-observation, and persistent `/home/node` settings. Buzz-reserved environment
-keys are rendered from the typed object after caller environment values.
+observation, and persistent `/home/node` settings. `/home/node/workspaces`
+remains reserved for Workspace projections; the specialized image reconciles
+the Buzz nest after the home mount and runs the harness from
+`/home/node/.buzz`. OpenCode and Codex read its canonical `AGENTS.md`, while
+Claude Code receives `CLAUDE.md -> AGENTS.md`. `base_prompt.md` stays compiled
+into `buzz-acp`. Buzz-reserved environment keys are rendered from the typed
+object after caller environment values.
 `buzz_enabled=True` remains as a deprecated raw-environment compatibility path.
 Typed and compatibility Buzz launches select the matching `hypercli-buzz`
 image family (`opencode`, `codex`, `claude`, `goose`, or `kimi-code`) by
@@ -192,8 +206,11 @@ caller-provided size or the backend default. Stock Buzz provider agents do not
 start on app launch and the current provider protocol has no stop callback.
 Editing a running agent does not replace its HyperCLI launch environment: stop
 the deployment through the authenticated HyperCLI API and deploy it again from
-Buzz to apply changes. Desktop's best-effort `!shutdown` chat control may exit
-the harness, but it does not stop or release the HyperCLI deployment.
+Buzz to apply changes. A successfully delivered and accepted `!shutdown` can
+exit a new `restart=False` launch; the hosted terminal-state observer then
+reports `stopping`, cleans up the namespace, marks the deployment `stopped`,
+and releases its slot. Desktop receives no provider acknowledgement and keeps
+its local deployed record.
 
 Stock Buzz expects ACP NDJSON. It skips non-JSON child stdout, and
 `agent_message_chunk` is activity telemetry rather than a channel reply. There

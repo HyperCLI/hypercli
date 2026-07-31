@@ -45,9 +45,19 @@ buzz.apply_to(&mut request, Some("Fizz"))?;
 persistence with UID/GID 1000, no public routes, lazy pool creation, relay
 observation, `restart: false`, and canonical runtime launch values. The
 restart policy lets an accepted Buzz `!shutdown` leave the coding process
-stopped instead of having the runtime automatically restart it. Raw non-Buzz
-`CreateDeploymentRequest` sizing remains caller-selected. The config does not
-implement `Debug` or `Serialize` because it owns the agent nsec.
+stopped instead of having the runtime automatically restart it. The hosted
+terminal-state observer then cleans the namespace, marks the deployment
+`stopped`, and releases its slot. Desktop receives no provider
+acknowledgement. Raw non-Buzz `CreateDeploymentRequest` sizing remains
+caller-selected. The config does not implement `Debug` or `Serialize` because
+it owns the agent nsec.
+
+`/home/node` remains the persistence and Files API root, and
+`/home/node/workspaces` remains reserved for Workspace projections. The
+Buzz-specialized images reconcile their nest after mount and run the harness
+from `/home/node/.buzz`. OpenCode and Codex consume its `AGENTS.md`; Claude
+Code receives `CLAUDE.md -> AGENTS.md`. `base_prompt.md` remains compiled into
+`buzz-acp`.
 
 The renderer writes timeout and response-policy values but does not perform the
 Desktop provider's cross-field validation. It has no structured Buzz provider
@@ -55,9 +65,10 @@ field, so direct Goose callers must supply `GOOSE_PROVIDER` when needed.
 
 Stock Buzz Desktop v0.5.2 invokes backend providers only for `info` and
 `deploy`; there is no provider stop or undeploy request. Desktop's best-effort
-`!shutdown` chat control may exit `buzz-acp`, but it does not stop or reconcile
-the HyperCLI deployment. Use authenticated HyperCLI lifecycle APIs for
-infrastructure stop/delete.
+`!shutdown` chat control can trigger the hosted one-shot terminal cleanup
+described above, but Desktop neither acknowledges nor reconciles that remote
+transition. Use authenticated HyperCLI lifecycle APIs when reliable
+infrastructure stop/delete is required.
 
 Stock Buzz expects ACP NDJSON. It skips non-JSON child stdout, and
 `agent_message_chunk` is activity telemetry rather than a channel reply. There

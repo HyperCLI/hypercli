@@ -216,7 +216,11 @@ If you add templates, update `scripts/templates.txt` and re-run the generator.
 - Build cache issues: run `npm run clean` from `site/`.
 
 ## SDK Releases
-- Use the `Publish SDKs` GitHub Actions workflow for npm/PyPI releases.
+- Use the `Publish SDKs` GitHub Actions workflow to publish
+  `@hypercli.com/sdk` to npm plus `hypercli-sdk` and `hypercli-cli` to PyPI.
+- The workflow does not publish the Rust crate or the Buzz provider binary.
+  `Release Buzz Provider` is a separate workflow and must not be run as part of
+  an SDK-only release.
 - Calver rule:
   - first release on a new date: `YYYY.M.D`
   - only use `YYYY.M.D-N` for additional same-day rereleases
