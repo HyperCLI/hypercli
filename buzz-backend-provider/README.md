@@ -14,11 +14,12 @@ Run from the repository root:
 ```bash
 cargo test -p buzz-backend-hypercli --all-features --locked
 cargo build --release -p buzz-backend-hypercli --locked
+mkdir -p ~/.local/bin ~/.local/libexec
 install -m 0755 \
   target/release/buzz-backend-hypercli \
-  ~/.local/bin/buzz-backend-hypercli
+  ~/.local/libexec/buzz-backend-hypercli
 for runtime in opencode codex claude goose kimi; do
-  ln -f ~/.local/bin/buzz-backend-hypercli \
+  ln -f ~/.local/libexec/buzz-backend-hypercli \
     ~/.local/bin/buzz-backend-hypercli-${runtime}
 done
 ```
@@ -35,14 +36,14 @@ Buzz-backed coding-runtime launches require the HyperCLI `large` tier.
 Ordinary non-Buzz coding-agent helpers preserve a caller-selected size or omit
 it so the backend chooses its default. The invoked provider filename selects
 the runtime: `hypercli-opencode`, `hypercli-codex`, `hypercli-claude`,
-`hypercli-goose`, or `hypercli-kimi`. The base `hypercli` name remains an
-OpenCode compatibility alias. These must be hardlinks rather than symlinks
-because Buzz resolves symlinks before invocation. Provider configuration only
-permits an optional immutable image override and workspace. The provider
-rejects secret-looking provider config; Buzz supplies the agent identity
-separately in the deploy request. Buzz launches explicitly set `restart:
-false`, including when the provider starts an existing stopped deployment, so
-an accepted `!shutdown` does not automatically relaunch `buzz-acp`.
+`hypercli-goose`, or `hypercli-kimi`. These must be hardlinks rather than
+symlinks because Buzz resolves symlinks before invocation. Provider
+configuration only permits an optional immutable image override and workspace.
+The provider rejects secret-looking provider config; Buzz supplies the agent
+identity separately in the deploy request. Buzz launches explicitly set
+`restart: false`, including when the provider starts an existing stopped
+deployment, so an accepted `!shutdown` does not automatically relaunch
+`buzz-acp`.
 
 Image immutability is currently an operator responsibility. The provider does
 not yet enforce a registry allowlist or digest-only reference, and the selected

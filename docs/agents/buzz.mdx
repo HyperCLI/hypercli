@@ -47,12 +47,12 @@ git checkout 5a9f27985fe12af807120a9421caaa2f4ad8bc5d
 cargo test --workspace --all-features --locked
 cargo build --release --locked -p buzz-backend-hypercli
 
-mkdir -p "${HOME}/.local/bin"
+mkdir -p "${HOME}/.local/bin" "${HOME}/.local/libexec"
 install -m 0755 \
   target/release/buzz-backend-hypercli \
-  "${HOME}/.local/bin/buzz-backend-hypercli"
+  "${HOME}/.local/libexec/buzz-backend-hypercli"
 for runtime in opencode codex claude goose kimi; do
-  ln -f "${HOME}/.local/bin/buzz-backend-hypercli" \
+  ln -f "${HOME}/.local/libexec/buzz-backend-hypercli" \
     "${HOME}/.local/bin/buzz-backend-hypercli-${runtime}"
 done
 ```
@@ -61,7 +61,7 @@ Confirm the exact executable that Buzz will discover:
 
 ```bash
 echo '{"op":"info","request_id":"install-check"}' \
-  | "${HOME}/.local/bin/buzz-backend-hypercli"
+  | "${HOME}/.local/bin/buzz-backend-hypercli-opencode"
 ```
 
 The response should contain `"ok":true`, `"name":"HyperCLI"`, and a
@@ -100,8 +100,7 @@ Buzz scans its executable directory, its process `PATH`, and
 `~/.local/bin` for executable filenames beginning with `buzz-backend-`. The
 filename suffix becomes the provider ID. The runtime-specific files above
 produce `hypercli-opencode`, `hypercli-codex`, `hypercli-claude`,
-`hypercli-goose`, and `hypercli-kimi`. The base `hypercli` ID remains an
-OpenCode compatibility entry.
+`hypercli-goose`, and `hypercli-kimi`.
 
 In Buzz Desktop v0.5.2, **Settings → Agents** is not the creation screen:
 
