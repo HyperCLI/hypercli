@@ -1,4 +1,5 @@
 use std::fs;
+use std::os::unix::process::CommandExt;
 
 use assert_cmd::Command;
 use buzz_backend_hypercli::{derive_agent_pubkey, ProviderRequest};
@@ -224,6 +225,11 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
     .unwrap();
     let common = &golden["common"];
     for (runtime, contract) in golden["runtimes"].as_object().unwrap() {
+        let provider_runtime = match runtime.as_str() {
+            "claude-code" => "claude",
+            "kimi-code" => "kimi",
+            runtime => runtime,
+        };
         let agent_command = contract["stock_agent_command"].as_str().unwrap();
         let image = contract["image"].as_str().unwrap();
         let child_command = contract["agent_command"].as_str().unwrap();
@@ -335,15 +341,17 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
             }
         });
 
-        let output = Command::cargo_bin("buzz-backend-hypercli")
-            .unwrap()
+        let binary = Command::cargo_bin("buzz-backend-hypercli").unwrap();
+        let mut process = std::process::Command::new(binary.get_program());
+        process.arg0(format!("buzz-backend-hypercli-{provider_runtime}"));
+        let mut command = Command::from_std(process);
+        command
             .arg("--dry-run")
             .env("HYPER_AGENTS_API_KEY", "fixture-hypercli-credential")
             .env("AGENTS_API_BASE_URL", format!("{}/agents", server.url()))
             .env("HYPER_HTTP_TRACE_FILE", &trace_file)
-            .write_stdin(request.to_string())
-            .output()
-            .unwrap();
+            .write_stdin(request.to_string());
+        let output = command.output().unwrap();
 
         assert!(
             output.status.success(),

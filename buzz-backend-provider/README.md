@@ -17,6 +17,10 @@ cargo build --release -p buzz-backend-hypercli --locked
 install -m 0755 \
   target/release/buzz-backend-hypercli \
   ~/.local/bin/buzz-backend-hypercli
+for runtime in opencode codex claude goose kimi; do
+  ln -f ~/.local/bin/buzz-backend-hypercli \
+    ~/.local/bin/buzz-backend-hypercli-${runtime}
+done
 ```
 
 Pass `--dry-run` while exercising the provider manually. Stock Buzz never
@@ -29,13 +33,16 @@ buzz-backend-hypercli --dry-run < tests/fixtures/deploy-request.json
 
 Buzz-backed coding-runtime launches require the HyperCLI `large` tier.
 Ordinary non-Buzz coding-agent helpers preserve a caller-selected size or omit
-it so the backend chooses its default. Provider configuration selects a
-runtime, permits an optional immutable image override, and can name an optional
-workspace. The provider rejects secret-looking provider config; Buzz supplies
-the agent identity separately in the deploy request. Buzz launches explicitly
-set `restart: false`, including when the provider starts an existing stopped
-deployment, so an accepted `!shutdown` does not automatically relaunch
-`buzz-acp`.
+it so the backend chooses its default. The invoked provider filename selects
+the runtime: `hypercli-opencode`, `hypercli-codex`, `hypercli-claude`,
+`hypercli-goose`, or `hypercli-kimi`. The base `hypercli` name remains an
+OpenCode compatibility alias. These must be hardlinks rather than symlinks
+because Buzz resolves symlinks before invocation. Provider configuration only
+permits an optional immutable image override and workspace. The provider
+rejects secret-looking provider config; Buzz supplies the agent identity
+separately in the deploy request. Buzz launches explicitly set `restart:
+false`, including when the provider starts an existing stopped deployment, so
+an accepted `!shutdown` does not automatically relaunch `buzz-acp`.
 
 Image immutability is currently an operator responsibility. The provider does
 not yet enforce a registry allowlist or digest-only reference, and the selected
@@ -81,8 +88,7 @@ parallelism, response-policy, allowlist, prompt, and authorization fields:
     "env_vars": {}
   },
   "provider_config": {
-    "runtime": "opencode",
-    "size": "large"
+    "workspace": "fixture-workspace"
   }
 }
 ```

@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashSet};
+use std::ffi::OsStr;
 use std::path::Path;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -132,28 +133,27 @@ impl CodingRuntime {
             Self::Codex | Self::ClaudeCode => "",
         }
     }
+}
 
-    fn from_buzz_command(command: &str) -> Option<Self> {
-        let command = Path::new(command.trim())
-            .file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or_default();
-        match command {
-            "opencode" => Some(Self::Opencode),
-            "codex" | "codex-acp" => Some(Self::Codex),
-            "claude" | "claude-agent-acp" | "claude-code-acp" => Some(Self::ClaudeCode),
-            "goose" => Some(Self::Goose),
-            "kimi" | "kimi-code" => Some(Self::KimiCode),
-            _ => None,
-        }
+pub fn runtime_from_provider_program(program: &OsStr) -> CodingRuntime {
+    let program = Path::new(program)
+        .file_name()
+        .and_then(OsStr::to_str)
+        .unwrap_or_default();
+    match program {
+        "buzz-backend-hypercli-codex" => CodingRuntime::Codex,
+        "buzz-backend-hypercli-claude" => CodingRuntime::ClaudeCode,
+        "buzz-backend-hypercli-goose" => CodingRuntime::Goose,
+        "buzz-backend-hypercli-kimi" => CodingRuntime::KimiCode,
+        _ => CodingRuntime::Opencode,
     }
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProviderOptions {
-    // Kept for compatibility with agents saved before runtime and size became
-    // harness-owned. New provider schemas no longer advertise either field.
+    // Kept for compatibility with agents saved before runtime became
+    // provider-filename-owned. New provider schemas advertise neither field.
     #[serde(default = "default_runtime")]
     runtime: CodingRuntime,
     #[serde(default = "default_size")]
@@ -212,8 +212,6 @@ pub enum ProviderError {
     InvalidRespondTo,
     #[error("agent respond_to allowlist is invalid")]
     InvalidRespondToAllowlist,
-    #[error("Buzz harness is not supported by the HyperCLI provider")]
-    UnsupportedAgentHarness,
     #[error("Buzz launch configuration is invalid: {0}")]
     BuzzLaunch(#[from] BuzzLaunchError),
     #[error("HyperCLI authentication is not configured")]
@@ -293,11 +291,22 @@ pub fn deploy_with_dry_run(
     provider_config: Value,
     dry_run: bool,
 ) -> Result<DeployResponse, ProviderError> {
+    deploy_with_dry_run_for_runtime(client, agent, provider_config, dry_run, None)
+}
+
+pub fn deploy_with_dry_run_for_runtime(
+    client: &HyperCliClient,
+    agent: BuzzAgentPayload,
+    provider_config: Value,
+    dry_run: bool,
+    runtime: Option<CodingRuntime>,
+) -> Result<DeployResponse, ProviderError> {
     deploy_with_readiness(
         client,
         agent,
         provider_config,
         dry_run,
+        runtime,
         DEPLOYMENT_READY_TIMEOUT,
         DEPLOYMENT_READY_POLL_INTERVAL,
     )
@@ -308,6 +317,7 @@ fn deploy_with_readiness(
     agent: BuzzAgentPayload,
     provider_config: Value,
     dry_run: bool,
+    runtime_override: Option<CodingRuntime>,
     readiness_timeout: Duration,
     poll_interval: Duration,
 ) -> Result<DeployResponse, ProviderError> {
@@ -316,7 +326,8 @@ fn deploy_with_readiness(
         .map_err(|_| ProviderError::UnsupportedProviderConfig)?;
     let public_key = derive_agent_pubkey(&agent.private_key_nsec)?;
     let handle = deterministic_handle(&public_key);
-    let mut request = build_launch_request(agent, &public_key, &handle, options)?;
+    let mut request =
+        build_launch_request_for_runtime(agent, &public_key, &handle, options, runtime_override)?;
     request.dry_run = dry_run;
 
     // A dry-run validates the requested launch shape and must never enter the
@@ -457,11 +468,22 @@ fn wait_until_running(
     }
 }
 
+#[cfg(test)]
 fn build_launch_request(
     agent: BuzzAgentPayload,
     public_key: &str,
     handle: &str,
     options: ProviderOptions,
+) -> Result<CreateDeploymentRequest, ProviderError> {
+    build_launch_request_for_runtime(agent, public_key, handle, options, None)
+}
+
+fn build_launch_request_for_runtime(
+    agent: BuzzAgentPayload,
+    public_key: &str,
+    handle: &str,
+    options: ProviderOptions,
+    runtime_override: Option<CodingRuntime>,
 ) -> Result<CreateDeploymentRequest, ProviderError> {
     if agent.relay_url.trim().is_empty() {
         return Err(ProviderError::MissingRelayUrl);
@@ -470,8 +492,7 @@ fn build_launch_request(
         return Err(ProviderError::InvalidParallelism);
     }
     let _legacy_provider_selection = (options.runtime, options.size);
-    let runtime = CodingRuntime::from_buzz_command(&agent.agent_command)
-        .ok_or(ProviderError::UnsupportedAgentHarness)?;
+    let runtime = runtime_override.unwrap_or(CodingRuntime::Opencode);
     let behavior = validate_behavior(&agent)?;
     let goose_model = (runtime == CodingRuntime::Goose)
         .then(|| nonempty(agent.model.as_deref()))
@@ -850,7 +871,7 @@ mod tests {
                 DEFAULT_BUZZ_KIMI_CODE_IMAGE,
             ),
         ] {
-            let request = build_launch_request(
+            let request = build_launch_request_for_runtime(
                 test_agent_for(runtime),
                 TEST_PUBLIC_HEX,
                 "buzz-runtime-test",
@@ -860,6 +881,7 @@ mod tests {
                     image: None,
                     workspace: None,
                 },
+                Some(runtime),
             )
             .unwrap();
             assert_eq!(request.runtime, managed);
@@ -868,22 +890,19 @@ mod tests {
     }
 
     #[test]
-    fn harness_aliases_resolve_to_canonical_runtimes() {
-        for (command, expected) in [
-            ("opencode", CodingRuntime::Opencode),
-            ("codex", CodingRuntime::Codex),
-            ("codex-acp", CodingRuntime::Codex),
-            ("claude", CodingRuntime::ClaudeCode),
-            ("claude-agent-acp", CodingRuntime::ClaudeCode),
-            ("claude-code-acp", CodingRuntime::ClaudeCode),
-            ("goose", CodingRuntime::Goose),
-            ("kimi", CodingRuntime::KimiCode),
-            ("kimi-code", CodingRuntime::KimiCode),
+    fn provider_program_names_resolve_to_canonical_runtimes() {
+        for (program, expected) in [
+            ("buzz-backend-hypercli", CodingRuntime::Opencode),
+            ("buzz-backend-hypercli-opencode", CodingRuntime::Opencode),
+            ("buzz-backend-hypercli-codex", CodingRuntime::Codex),
+            ("buzz-backend-hypercli-claude", CodingRuntime::ClaudeCode),
+            ("buzz-backend-hypercli-goose", CodingRuntime::Goose),
+            ("buzz-backend-hypercli-kimi", CodingRuntime::KimiCode),
         ] {
-            assert_eq!(CodingRuntime::from_buzz_command(command), Some(expected));
+            assert_eq!(runtime_from_provider_program(OsStr::new(program)), expected);
             assert_eq!(
-                CodingRuntime::from_buzz_command(&format!("/usr/local/bin/{command}")),
-                Some(expected)
+                runtime_from_provider_program(OsStr::new(&format!("/usr/local/bin/{program}"))),
+                expected
             );
         }
     }
@@ -900,7 +919,7 @@ mod tests {
             .env_vars
             .insert("GOOSE_PROVIDER".to_owned(), "stale-provider".to_owned());
 
-        let request = build_launch_request(
+        let request = build_launch_request_for_runtime(
             agent,
             TEST_PUBLIC_HEX,
             "buzz-runtime-test",
@@ -910,6 +929,7 @@ mod tests {
                 image: None,
                 workspace: None,
             },
+            Some(CodingRuntime::Goose),
         )
         .unwrap();
 
@@ -1061,7 +1081,7 @@ mod tests {
                     "/tmp/not-allowed".to_owned(),
                 ),
             ]);
-            let request = build_launch_request(
+            let request = build_launch_request_for_runtime(
                 agent,
                 TEST_PUBLIC_HEX,
                 "buzz-runtime-test",
@@ -1071,6 +1091,7 @@ mod tests {
                     image: None,
                     workspace: None,
                 },
+                Some(runtime),
             )
             .unwrap();
 
@@ -1097,8 +1118,8 @@ mod tests {
     }
 
     #[test]
-    fn harness_command_is_authoritative_over_legacy_runtime() {
-        let request = build_launch_request(
+    fn provider_runtime_is_authoritative_over_harness_and_legacy_config() {
+        let request = build_launch_request_for_runtime(
             test_agent(),
             TEST_PUBLIC_HEX,
             "buzz-runtime-test",
@@ -1108,31 +1129,11 @@ mod tests {
                 image: None,
                 workspace: None,
             },
+            Some(CodingRuntime::Codex),
         )
         .unwrap();
-        assert_eq!(request.runtime, ManagedRuntime::Opencode);
+        assert_eq!(request.runtime, ManagedRuntime::Codex);
         assert_eq!(request.size, Some(AgentSize::Large));
-    }
-
-    #[test]
-    fn rejects_unknown_buzz_harness() {
-        let mut agent = test_agent();
-        agent.agent_command = "unknown-acp".to_owned();
-        let result = build_launch_request(
-            agent,
-            TEST_PUBLIC_HEX,
-            "buzz-runtime-test",
-            ProviderOptions {
-                runtime: CodingRuntime::Opencode,
-                size: AgentSize::Large,
-                image: None,
-                workspace: None,
-            },
-        );
-        assert!(matches!(
-            result,
-            Err(ProviderError::UnsupportedAgentHarness)
-        ));
     }
 
     #[test]
@@ -1486,6 +1487,7 @@ mod tests {
                         test_agent(),
                         serde_json::json!({"runtime":"opencode"}),
                         false,
+                        None,
                         Duration::from_secs(1),
                         Duration::ZERO,
                     )

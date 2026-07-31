@@ -13,9 +13,11 @@ repositories.
 
 ## What the integration does
 
-Stock Buzz Desktop discovers the external `buzz-backend-hypercli` executable;
-no custom Desktop build is required. A Desktop-created agent can then run in an
-isolated HyperCLI Reef pod instead of on the Mac running Buzz:
+Stock Buzz Desktop discovers the external `buzz-backend-hypercli-*`
+executables; no custom Desktop build is required. They are hardlinks to one
+provider binary, with the filename selecting the hosted runtime. A
+Desktop-created agent can then run in an isolated HyperCLI Reef pod instead of
+on the Mac running Buzz:
 
 1. Buzz creates the agent keypair and owner authorization.
 2. Desktop invokes the provider with one JSON request.
@@ -49,6 +51,10 @@ mkdir -p "${HOME}/.local/bin"
 install -m 0755 \
   target/release/buzz-backend-hypercli \
   "${HOME}/.local/bin/buzz-backend-hypercli"
+for runtime in opencode codex claude goose kimi; do
+  ln -f "${HOME}/.local/bin/buzz-backend-hypercli" \
+    "${HOME}/.local/bin/buzz-backend-hypercli-${runtime}"
+done
 ```
 
 Confirm the exact executable that Buzz will discover:
@@ -59,7 +65,8 @@ echo '{"op":"info","request_id":"install-check"}' \
 ```
 
 The response should contain `"ok":true`, `"name":"HyperCLI"`, and a
-`config_schema`.
+`config_schema`. Use hardlinks, not symlinks: Buzz resolves symlinks before
+launch, while the provider uses its invoked filename to select the runtime.
 
 The historical
 [unsigned v0.1.0 release](https://github.com/HyperCLI/hypercli/releases/tag/buzz-provider-v0.1.0)
@@ -91,7 +98,10 @@ a production requirement.
 
 Buzz scans its executable directory, its process `PATH`, and
 `~/.local/bin` for executable filenames beginning with `buzz-backend-`. The
-filename `buzz-backend-hypercli` produces the provider ID `hypercli`.
+filename suffix becomes the provider ID. The runtime-specific files above
+produce `hypercli-opencode`, `hypercli-codex`, `hypercli-claude`,
+`hypercli-goose`, and `hypercli-kimi`. The base `hypercli` ID remains an
+OpenCode compatibility entry.
 
 In Buzz Desktop v0.5.2, **Settings → Agents** is not the creation screen:
 
@@ -101,7 +111,8 @@ In Buzz Desktop v0.5.2, **Settings → Agents** is not the creation screen:
 4. Click **Create agent**.
 5. In the **Create agent** dialog, find **Run on** near the bottom, before
    **Advanced**.
-6. Choose `hypercli`. The local option is labelled **This computer**.
+6. Choose the `hypercli-*` entry for the runtime you want. The local option is
+   labelled **This computer**.
 
 **Run on** appears only when Desktop discovers at least one external provider.
 Discovery is cached for 30 seconds, and an already-open dialog does not refetch
@@ -148,14 +159,12 @@ form: both Buzz and the provider reject secret-looking configuration fields.
 
 ## Configure the hosted runtime
 
-Buzz renders the provider's `info.config_schema`. Stock v0.5.2 renders provider
-properties as text inputs; it does not turn JSON Schema `enum` values into
-select controls. Enter the values exactly.
+Choose the runtime with **Run on**. The provider executable name is
+authoritative; Buzz's selected local harness and legacy saved provider fields
+cannot change it. Provider configuration contains only these advanced fields:
 
 | Field | Accepted value | Default | Purpose |
 | --- | --- | --- | --- |
-| `runtime` | `opencode`, `codex`, `claude-code`, `goose`, or `kimi-code` | `opencode` | Runtime/image family |
-| `size` | `large` | `large` | Required Buzz coding-agent tier |
 | `image` | Trusted image reference | Runtime default | Optional advanced image override |
 | `workspace` | HyperCLI workspace ID | Empty | Optional workspace projected under `/home/node/workspaces` |
 
