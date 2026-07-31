@@ -52,6 +52,15 @@ DEFAULT_BUZZ_CODEX_IMAGE = "ghcr.io/hypercli/hypercli-buzz-codex:latest"
 DEFAULT_BUZZ_CLAUDE_CODE_IMAGE = "ghcr.io/hypercli/hypercli-buzz-claude:latest"
 DEFAULT_BUZZ_GOOSE_IMAGE = "ghcr.io/hypercli/hypercli-buzz-goose:latest"
 DEFAULT_BUZZ_KIMI_CODE_IMAGE = "ghcr.io/hypercli/hypercli-buzz-kimi-code:latest"
+DEFAULT_AGENT_RUNTIME_SCOPES = [
+    "agents:none",
+    "files:*",
+    "flows:*",
+    "models:*",
+    "voice:*",
+    "web:*",
+    "workspaces:*",
+]
 OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
     "OPENCLAW_MEMORY_SEARCH_ENABLED": "1",
     "OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START": "0",
@@ -80,6 +89,7 @@ LAUNCH_CONFIG_KEYS = frozenset(
         "registry_url",
         "registry_auth",
         "restart",
+        "runtime_scopes",
     }
 )
 DEFAULT_OPENCLAW_SYNC_ROOT = "/home/node"
@@ -731,6 +741,7 @@ def _build_agent_launch(
     registry_url: str | None = None,
     registry_auth: dict | None = None,
     restart: bool | None = None,
+    runtime_scopes: list[str] | None = None,
     gateway_token: str | None = None,
     heartbeat: dict | None = None,
     inject_gateway_token: bool = True,
@@ -792,6 +803,8 @@ def _build_agent_launch(
         launch["registry_auth"] = registry_auth
     if restart is not None:
         launch["restart"] = restart
+    if runtime_scopes is not None:
+        launch["runtime_scopes"] = list(runtime_scopes)
 
     return launch, effective_gateway_token
 
@@ -2570,6 +2583,7 @@ class Deployments:
         registry_url: str = None,
         registry_auth: dict = None,
         restart: bool = None,
+        runtime_scopes: list[str] | None = None,
         gateway_token: str = None,
         heartbeat: dict = None,
         meta_ui: dict = None,
@@ -2604,6 +2618,7 @@ class Deployments:
             registry_url=registry_url,
             registry_auth=registry_auth,
             restart=restart,
+            runtime_scopes=runtime_scopes,
             gateway_token=gateway_token,
             heartbeat=heartbeat,
             inject_gateway_token=runtime
@@ -2652,6 +2667,7 @@ class Deployments:
         sync_gid: int = None,
         registry_url: str = None,
         registry_auth: dict = None,
+        runtime_scopes: list[str] | None = None,
         gateway_token: str = None,
         heartbeat: dict = None,
         meta_ui: dict = None,
@@ -2692,6 +2708,7 @@ class Deployments:
             sync_gid=sync_gid,
             registry_url=registry_url,
             registry_auth=registry_auth,
+            runtime_scopes=runtime_scopes,
             gateway_token=gateway_token,
             heartbeat=heartbeat,
             meta_ui=meta_ui,
@@ -2718,6 +2735,7 @@ class Deployments:
         sync_gid: int = None,
         registry_url: str = None,
         registry_auth: dict = None,
+        runtime_scopes: list[str] | None = None,
         gateway_token: str = None,
         heartbeat: dict = None,
         meta_ui: dict = None,
@@ -2748,6 +2766,11 @@ class Deployments:
             sync_gid=sync_gid,
             registry_url=registry_url,
             registry_auth=registry_auth,
+            runtime_scopes=(
+                list(DEFAULT_AGENT_RUNTIME_SCOPES)
+                if runtime_scopes is None
+                else runtime_scopes
+            ),
             gateway_token=gateway_token,
             heartbeat=heartbeat,
             meta_ui=meta_ui,
@@ -2782,6 +2805,7 @@ class Deployments:
         registry_url: str | None = None,
         registry_auth: dict | None = None,
         restart: bool | None = None,
+        runtime_scopes: list[str] | None = None,
         meta_ui: dict | None = None,
         dry_run: bool = False,
         start: bool = True,
@@ -2838,6 +2862,11 @@ class Deployments:
             registry_url=registry_url,
             registry_auth=registry_auth,
             restart=effective_restart,
+            runtime_scopes=(
+                list(DEFAULT_AGENT_RUNTIME_SCOPES)
+                if runtime_scopes is None
+                else runtime_scopes
+            ),
             meta_ui=meta_ui,
             dry_run=dry_run,
             start=start,
@@ -3128,6 +3157,7 @@ class Deployments:
         registry_url: str = None,
         registry_auth: dict = None,
         restart: bool = None,
+        runtime_scopes: list[str] | None = None,
         gateway_token: str = None,
         heartbeat: dict = None,
         dry_run: bool = False,
@@ -3155,6 +3185,7 @@ class Deployments:
             registry_url=registry_url,
             registry_auth=registry_auth,
             restart=restart,
+            runtime_scopes=runtime_scopes,
             gateway_token=gateway_token,
             heartbeat=heartbeat,
         )
@@ -3166,9 +3197,6 @@ class Deployments:
         agent = self._hydrate_agent(data)
         if isinstance(agent, OpenClawAgent):
             agent.gateway_token = effective_gateway_token
-        agent.launch_config = launch_payload
-        agent.command = list(launch_payload.get("command") or [])
-        agent.entrypoint = list(launch_payload.get("entrypoint") or [])
         return agent
 
     def start_openclaw(
@@ -3187,6 +3215,8 @@ class Deployments:
         sync_gid: int = None,
         registry_url: str = None,
         registry_auth: dict = None,
+        restart: bool | None = None,
+        runtime_scopes: list[str] | None = None,
         gateway_token: str = None,
         heartbeat: dict = None,
         dry_run: bool = False,
@@ -3220,6 +3250,8 @@ class Deployments:
             sync_gid=sync_gid,
             registry_url=registry_url,
             registry_auth=registry_auth,
+            restart=restart,
+            runtime_scopes=runtime_scopes,
             gateway_token=gateway_token,
             heartbeat=heartbeat,
             dry_run=dry_run,
@@ -3241,6 +3273,8 @@ class Deployments:
         sync_gid: int = None,
         registry_url: str = None,
         registry_auth: dict = None,
+        restart: bool | None = None,
+        runtime_scopes: list[str] | None = None,
         gateway_token: str = None,
         heartbeat: dict = None,
         dry_run: bool = False,
@@ -3266,6 +3300,12 @@ class Deployments:
             sync_gid=sync_gid,
             registry_url=registry_url,
             registry_auth=registry_auth,
+            restart=restart,
+            runtime_scopes=(
+                list(DEFAULT_AGENT_RUNTIME_SCOPES)
+                if runtime_scopes is None
+                else runtime_scopes
+            ),
             gateway_token=gateway_token,
             heartbeat=heartbeat,
             dry_run=dry_run,

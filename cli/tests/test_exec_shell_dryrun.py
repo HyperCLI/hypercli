@@ -394,6 +394,7 @@ def test_agents_start_reuses_saved_launch_fields_as_top_level(monkeypatch):
                 },
                 "image": "git.nedos.co/hypercli/hypercli-openclaw:untested",
                 "routes": {"openclaw": {"port": 4096, "auth": True, "prefix": ""}},
+                "restart": False,
                 "sync_root": ".openclaw",
                 "sync_enabled": True,
             },
@@ -431,6 +432,7 @@ def test_agents_start_reuses_saved_launch_fields_as_top_level(monkeypatch):
     assert captured["env"]["HYPER_WORKSPACES_SYNC_WORKSPACE"] == "docs"
     assert captured["image"] == "git.nedos.co/hypercli/hypercli-openclaw:untested"
     assert captured["routes"] == {"openclaw": {"port": 4096, "auth": True, "prefix": ""}}
+    assert captured["restart"] is False
     assert captured["sync_root"] == ".openclaw"
     assert captured["sync_enabled"] is True
     assert captured["gateway_token"] == "saved-gateway-token"

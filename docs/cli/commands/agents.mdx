@@ -96,6 +96,17 @@ hyper agents list --json
 hyper agents status <agent_id>
 ```
 
+### `metrics`
+
+Show the live CPU and memory usage reported by Kubernetes for each container in
+a running agent. The values use Kubernetes quantity units such as `m`, `n`,
+`Ki`, and `Mi`.
+
+```bash
+hyper agents metrics <agent_id>
+hyper agents metrics <agent_id> --json
+```
+
 ### `start`
 
 ```bash

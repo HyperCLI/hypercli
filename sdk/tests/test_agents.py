@@ -13,6 +13,7 @@ from hypercli.agents import (
     AGENT_FILE_OPERATION_TIMEOUT_SECONDS,
     AGENT_FILE_TRANSFER_CHUNK_BYTES,
     Agent,
+    DEFAULT_AGENT_RUNTIME_SCOPES,
     DEFAULT_OPENCLAW_IMAGE,
     DEFAULT_OPENCLAW_PRO_IMAGE,
     Deployments,
@@ -791,6 +792,7 @@ def test_build_agent_launch_includes_command_and_entrypoint():
         entrypoint=["/bin/sh", "-c"],
         routes={"web": {"port": 80, "prefix": ""}},
         restart=False,
+        runtime_scopes=["models:*", "workspaces:*"],
         gateway_token="gw-token",
     )
 
@@ -801,6 +803,7 @@ def test_build_agent_launch_includes_command_and_entrypoint():
     assert launch["entrypoint"] == ["/bin/sh", "-c"]
     assert launch["routes"] == {"web": {"port": 80, "prefix": ""}}
     assert launch["restart"] is False
+    assert launch["runtime_scopes"] == ["models:*", "workspaces:*"]
 
 
 def test_build_agent_launch_omits_unspecified_restart():
@@ -940,6 +943,7 @@ def test_create_openclaw_pro_defaults_desktop_image_env_and_routes(agents_client
             "openclaw": {"port": 18789, "auth": False, "prefix": ""},
             "desktop": {"port": 3000, "auth": True, "prefix": "desktop"},
         }
+        assert posted_json["runtime_scopes"] == DEFAULT_AGENT_RUNTIME_SCOPES
         assert isinstance(agent, OpenClawProAgent)
 
 
@@ -1229,6 +1233,61 @@ def test_start_openclaw_defaults_sync_root(agents_client):
         assert posted_json["sync_enabled"] is True
         assert posted_json["env"]["HYPER_API_BASE"] == "https://api.test.hypercli.com"
         assert "HOME" not in posted_json["env"]
+
+
+def test_start_openclaw_preserves_restart_policy(agents_client):
+    with patch("httpx.Client") as mock_client_class:
+        mock_client = MagicMock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "pod_id": "pod-789",
+            "pod_name": "test-pod",
+            "state": "starting",
+            "hostname": "buzz-test.hypercli.com",
+        }
+        mock_client.post.return_value = mock_response
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client_class.return_value = mock_client
+
+        agents_client.start_openclaw(
+            "agent-123",
+            image="ghcr.io/hypercli/hypercli-buzz-opencode:latest",
+            command=["/usr/local/bin/buzz-acp"],
+            routes={},
+            restart=False,
+            runtime_scopes=["models:*"],
+        )
+
+        posted_json = mock_client.post.call_args[1]["json"]
+        assert posted_json["image"] == "ghcr.io/hypercli/hypercli-buzz-opencode:latest"
+        assert posted_json["command"] == ["/usr/local/bin/buzz-acp"]
+        assert posted_json["routes"] == {}
+        assert posted_json["restart"] is False
+        assert posted_json["runtime_scopes"] == ["models:*"]
+
+
+def test_start_openclaw_pro_defaults_runtime_scopes(agents_client):
+    posted: dict = {}
+
+    def fake_post(_path, json=None):
+        posted.update(json or {})
+        return {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "user_id": "user-456",
+            "pod_id": "pod-789",
+            "pod_name": "test-pod",
+            "state": "starting",
+            "runtime": "openclaw-pro",
+        }
+
+    agents_client._post = fake_post
+    agents_client.start_openclaw_pro("11111111-1111-4111-8111-111111111111")
+
+    assert posted["runtime_scopes"] == DEFAULT_AGENT_RUNTIME_SCOPES
 
 
 def test_agents_get_returns_generic_agent_without_gateway_metadata(agents_client):
@@ -1626,6 +1685,46 @@ def test_agents_start_preserves_generic_launch_fields(agents_client):
         assert posted_json["sync_uid"] == 2000
         assert posted_json["sync_gid"] == 2001
         assert posted_json["restart"] is False
+
+
+def test_agents_start_retains_backend_hydrated_launch_config(agents_client):
+    with patch("httpx.Client") as mock_client_class, patch(
+        "hypercli.agents.secrets.token_hex",
+        return_value="unused-start-token",
+    ):
+        mock_client = MagicMock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "user_id": "user-456",
+            "pod_id": "pod-789",
+            "pod_name": "buzz-agent",
+            "state": "starting",
+            "runtime": "opencode",
+            "launch_config": {
+                "image": "ghcr.io/hypercli/hypercli-buzz-opencode:latest",
+                "command": ["/usr/local/bin/buzz-acp"],
+                "env": {"BUZZ_RELAY_URL": "wss://buzz.example.test"},
+                "restart": False,
+            },
+        }
+        mock_client.post.return_value = mock_response
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client_class.return_value = mock_client
+
+        agent = agents_client.start(
+            "11111111-1111-4111-8111-111111111111",
+            restart=False,
+        )
+
+        assert agent.launch_config == {
+            "image": "ghcr.io/hypercli/hypercli-buzz-opencode:latest",
+            "command": ["/usr/local/bin/buzz-acp"],
+            "env": {"BUZZ_RELAY_URL": "wss://buzz.example.test"},
+            "restart": False,
+        }
 
 
 def test_build_agent_launch_rejects_nested_launch_fields():

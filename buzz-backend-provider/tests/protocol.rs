@@ -130,7 +130,7 @@ fn deploy_fixture_contains_a_derivable_nsec_identity() {
 }
 
 #[test]
-fn deploy_fixture_returns_control_plane_acceptance_for_a_pending_agent() {
+fn deploy_fixture_waits_for_control_plane_readiness() {
     let mut server = Server::new();
     let handle = format!("buzz-{}", &TEST_PUBLIC_HEX[..48]);
     let lookup = server
@@ -152,6 +152,15 @@ fn deploy_fixture_returns_control_plane_acceptance_for_a_pending_agent() {
                 "image": "ghcr.io/hypercli/hypercli-buzz-opencode:latest",
                 "command": ["/usr/local/bin/buzz-acp"],
                 "restart": false,
+                "runtime_scopes": [
+                    "agents:none",
+                    "files:*",
+                    "flows:*",
+                    "models:*",
+                    "voice:*",
+                    "web:*",
+                    "workspaces:*"
+                ],
                 "env": {
                     "BUZZ_RELAY_URL": "wss://buzz.example.invalid",
                     "BUZZ_PRIVATE_KEY": "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsmhltgl",
@@ -181,6 +190,21 @@ fn deploy_fixture_returns_control_plane_acceptance_for_a_pending_agent() {
             .to_string(),
         )
         .create();
+    let ready = server
+        .mock("GET", "/agents/deployments/fixture-deployment")
+        .match_header("authorization", "Bearer fixture-hypercli-credential")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            serde_json::json!({
+                "id":"fixture-deployment",
+                "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
+                "runtime":"opencode",
+                "state":"running"
+            })
+            .to_string(),
+        )
+        .create();
 
     let output = Command::cargo_bin("buzz-backend-hypercli")
         .unwrap()
@@ -192,10 +216,9 @@ fn deploy_fixture_returns_control_plane_acceptance_for_a_pending_agent() {
     let response = assert_stock_stdout(output);
     let expected: serde_json::Value = serde_json::from_str(DEPLOY_RESPONSE_FIXTURE).unwrap();
     assert_eq!(response, expected);
-    // Stock Buzz marks the agent "deployed" as soon as this ID is returned.
-    // A pending backend response does not mean buzz-acp or its worker pool is ready.
     lookup.assert();
     create.assert();
+    ready.assert();
 }
 
 #[test]
@@ -289,6 +312,15 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
             "sync_uid": 1000,
             "sync_gid": 1000,
             "restart": false,
+            "runtime_scopes": [
+                "agents:none",
+                "files:*",
+                "flows:*",
+                "models:*",
+                "voice:*",
+                "web:*",
+                "workspaces:*"
+            ],
             "start": true,
             "dry_run": true
         });

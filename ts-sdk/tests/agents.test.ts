@@ -4,6 +4,7 @@ import {
   agentConfigHasDesktop,
   buildAgentConfig,
   buildBrowserDesktopUrl,
+  DEFAULT_AGENT_RUNTIME_SCOPES,
   Deployments,
   flattenLaunchConfig,
   launchConfigHasDesktop,
@@ -71,6 +72,15 @@ describe('Agents SDK', () => {
 
     expect(omitted).not.toHaveProperty('restart');
     expect(disabled.restart).toBe(false);
+  });
+
+  it('serializes runtime scopes as a top-level launch field', () => {
+    const { config } = buildAgentConfig({}, {
+      injectGatewayToken: false,
+      runtimeScopes: ['models:*', 'workspaces:*'],
+    });
+
+    expect(config.runtime_scopes).toEqual(['models:*', 'workspaces:*']);
   });
 
   it('hydrates tags on agent responses', async () => {
@@ -421,13 +431,17 @@ describe('Agents SDK', () => {
     const http = { get, post } as unknown as HTTPClient;
     const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
 
-    const result = await deployments.start('clear-window-works', { restart: false });
+    const result = await deployments.start('clear-window-works', {
+      restart: false,
+      runtimeScopes: ['models:*'],
+    });
 
     expect(result.id).toBe('11111111-1111-4111-8111-111111111111');
     expect(post).toHaveBeenCalledWith(
       '/deployments/11111111-1111-4111-8111-111111111111/start',
       expect.objectContaining({
         restart: false,
+        runtime_scopes: ['models:*'],
         env: expect.objectContaining({
           OPENCLAW_GATEWAY_TOKEN: expect.any(String),
         }),
@@ -438,6 +452,59 @@ describe('Agents SDK', () => {
 
     expect(handleResult.id).toBe('11111111-1111-4111-8111-111111111111');
     expect(get).not.toHaveBeenCalledWith('/deployments/coder');
+  });
+
+  it('starts OpenClaw Pro with default runtime scopes and honors overrides', async () => {
+    const post = vi.fn().mockResolvedValue({
+      id: 'agent-pro',
+      user_id: 'user-456',
+      pod_id: 'pod-pro',
+      pod_name: 'pro',
+      state: 'STARTING',
+      runtime: 'openclaw-pro',
+    });
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    const agentId = '11111111-1111-4111-8111-111111111111';
+    await deployments.startOpenClawPro(agentId);
+    await deployments.startOpenClawPro(agentId, { runtimeScopes: ['models:*'] });
+
+    expect(post.mock.calls[0][1].runtime_scopes).toEqual(DEFAULT_AGENT_RUNTIME_SCOPES);
+    expect(post.mock.calls[1][1].runtime_scopes).toEqual(['models:*']);
+  });
+
+  it('retains the backend-hydrated launch config after start', async () => {
+    const persistedLaunchConfig = {
+      image: 'ghcr.io/hypercli/hypercli-buzz-opencode:latest',
+      command: ['/usr/local/bin/buzz-acp'],
+      env: { BUZZ_RELAY_URL: 'wss://buzz.example.test' },
+      restart: false,
+    };
+    const post = vi.fn().mockResolvedValue({
+      id: '11111111-1111-4111-8111-111111111111',
+      user_id: 'user-456',
+      pod_id: 'pod-789',
+      pod_name: 'buzz-agent',
+      state: 'STARTING',
+      runtime: 'opencode',
+      launch_config: persistedLaunchConfig,
+    });
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    const result = await deployments.start(
+      '11111111-1111-4111-8111-111111111111',
+      { restart: false },
+    );
+
+    expect(result.launchConfig).toEqual(persistedLaunchConfig);
   });
 
   it('searches the web through the Brave proxy', async () => {

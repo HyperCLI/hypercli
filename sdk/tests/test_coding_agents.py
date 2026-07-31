@@ -9,6 +9,7 @@ from hypercli import (
     BuzzLaunchConfig,
     ClaudeCodeAgent as ExportedClaudeCodeAgent,
     CodexAgent as ExportedCodexAgent,
+    DEFAULT_AGENT_RUNTIME_SCOPES as ExportedRuntimeScopes,
     DEFAULT_BUZZ_CODING_AGENT_IMAGES as ExportedBuzzImageCatalog,
     DEFAULT_CODING_AGENT_IMAGES as ExportedImageCatalog,
     GooseAgent as ExportedGooseAgent,
@@ -18,6 +19,7 @@ from hypercli import (
 from hypercli.agents import (
     ClaudeCodeAgent,
     CodexAgent,
+    DEFAULT_AGENT_RUNTIME_SCOPES,
     DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
     DEFAULT_BUZZ_CODING_AGENT_IMAGES,
     DEFAULT_BUZZ_CODEX_IMAGE,
@@ -52,6 +54,7 @@ def test_coding_agent_types_are_exported_from_sdk_root():
     assert ExportedKimiCodeAgent is KimiCodeAgent
     assert ExportedImageCatalog is DEFAULT_CODING_AGENT_IMAGES
     assert ExportedBuzzImageCatalog is DEFAULT_BUZZ_CODING_AGENT_IMAGES
+    assert ExportedRuntimeScopes is DEFAULT_AGENT_RUNTIME_SCOPES
 
 
 def test_generic_and_buzz_image_catalogs_are_explicit_and_disjoint():
@@ -128,12 +131,27 @@ def test_create_coding_agent_contract(method_name, runtime, image, agent_type):
     assert posted["sync_enabled"] is True
     assert posted["sync_uid"] == 1000
     assert posted["sync_gid"] == 1000
+    assert posted["runtime_scopes"] == DEFAULT_AGENT_RUNTIME_SCOPES
     assert posted["env"] == {
         "HYPER_API_BASE": "https://api.test.hypercli.com",
         "HYPER_WORKSPACES_BOOT_SYNC": "1",
         "HYPER_WORKSPACES_DIR": "/home/node/workspaces",
         "HYPER_WORKSPACES_SYNC_READY_ONLY": "1",
     }
+
+
+def test_create_coding_agent_honors_runtime_scope_override():
+    deployments = Deployments(_HTTP())
+    posted: dict = {}
+
+    def fake_post(_path, json=None):
+        posted.update(json or {})
+        return _agent_payload("opencode")
+
+    deployments._post = fake_post
+    deployments.create_opencode(runtime_scopes=["models:*"])
+
+    assert posted["runtime_scopes"] == ["models:*"]
 
 
 @pytest.mark.parametrize(

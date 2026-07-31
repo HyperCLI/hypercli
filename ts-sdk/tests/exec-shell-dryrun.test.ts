@@ -6,6 +6,7 @@ import {
   AGENT_FILE_TRANSFER_CHUNK_BYTES,
   Agent,
   DEFAULT_OPENCLAW_IMAGE,
+  DEFAULT_AGENT_RUNTIME_SCOPES,
   DEFAULT_OPENCLAW_PRO_IMAGE,
   Deployments,
   OpenClawAgent,
@@ -218,6 +219,7 @@ describe('HyperClaw agents SDK', () => {
       image: DEFAULT_OPENCLAW_PRO_IMAGE,
       sync_root: '/home/node',
       sync_enabled: true,
+      runtime_scopes: DEFAULT_AGENT_RUNTIME_SCOPES,
       env: expect.objectContaining({
         HYPER_API_BASE: 'https://api.dev.hypercli.com',
         HYPER_WORKSPACES_BOOT_SYNC: '1',

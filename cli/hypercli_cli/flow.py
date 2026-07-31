@@ -44,13 +44,20 @@ def get_audio_duration(file_path: str) -> float | None:
 
 def resolve_input(client: HyperCLI, value: str, label: str = "file") -> tuple[str | None, str | None]:
     """Resolve an input to (url, file_id)."""
-    p = Path(value)
+    p = Path(value).expanduser()
     if p.is_file():
         with spinner(f"Uploading {label} {p.name}..."):
             f = client.files.upload(str(p))
         console.print(f"  [green]✓[/green] Uploaded {p.name} -> [dim]{f.id[:8]}[/dim]")
         return None, f.id
-    return value, None
+
+    parsed = urlparse(value)
+    if parsed.scheme in ("http", "https") and parsed.netloc:
+        return value, None
+
+    if p.exists():
+        raise typer.BadParameter(f"{label.capitalize()} path is not a file: {value}")
+    raise typer.BadParameter(f"{label.capitalize()} file not found: {value}")
 
 
 def _usd_to_atomic(amount_usd: float) -> int:

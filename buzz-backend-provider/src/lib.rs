@@ -1,6 +1,10 @@
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
+use std::thread;
+use std::time::{Duration, Instant};
 
+#[cfg(test)]
+use hypercli_sdk::BUZZ_RUNTIME_SCOPES;
 use hypercli_sdk::{
     AgentSize, BuzzLaunchConfig, BuzzLaunchError, CreateDeploymentRequest, Deployment,
     HyperCliClient, HyperCliError, ManagedRuntime, StartDeploymentRequest,
@@ -16,6 +20,11 @@ const DEFAULT_BUZZ_CODEX_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-codex:lat
 const DEFAULT_BUZZ_CLAUDE_CODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-claude:latest";
 const DEFAULT_BUZZ_GOOSE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-goose:latest";
 const DEFAULT_BUZZ_KIMI_CODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-kimi-code:latest";
+const DEPLOYMENT_READY_TIMEOUT: Duration = Duration::from_secs(300);
+#[cfg(not(test))]
+const DEPLOYMENT_READY_POLL_INTERVAL: Duration = Duration::from_secs(2);
+#[cfg(test)]
+const DEPLOYMENT_READY_POLL_INTERVAL: Duration = Duration::ZERO;
 #[cfg(test)]
 const BUZZ_DEV_MCP_COMMAND: &str = "/usr/local/bin/buzz-dev-mcp";
 
@@ -169,7 +178,7 @@ pub struct ProviderInfoResponse {
     pub config_schema: Value,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct DeployResponse {
     pub agent_id: String,
 }
@@ -218,6 +227,28 @@ pub enum ProviderError {
     AmbiguousDeployment,
     #[error("existing deployment runtime does not match the requested runtime")]
     RuntimeMismatch,
+    #[error("HyperCLI deployment {deployment_id} is still {state}; retry after cleanup completes")]
+    DeploymentBusy {
+        deployment_id: String,
+        state: String,
+    },
+    #[error("HyperCLI deployment {deployment_id} entered terminal state {state}")]
+    DeploymentTerminalState {
+        deployment_id: String,
+        state: String,
+    },
+    #[error("HyperCLI deployment {deployment_id} returned unexpected state {state}")]
+    UnexpectedDeploymentState {
+        deployment_id: String,
+        state: String,
+    },
+    #[error(
+        "timed out waiting for HyperCLI deployment {deployment_id} to run (last state: {state})"
+    )]
+    DeploymentReadinessTimeout {
+        deployment_id: String,
+        state: String,
+    },
 }
 
 pub fn provider_info() -> ProviderInfoResponse {
@@ -275,6 +306,24 @@ pub fn deploy_with_dry_run(
     provider_config: Value,
     dry_run: bool,
 ) -> Result<DeployResponse, ProviderError> {
+    deploy_with_readiness(
+        client,
+        agent,
+        provider_config,
+        dry_run,
+        DEPLOYMENT_READY_TIMEOUT,
+        DEPLOYMENT_READY_POLL_INTERVAL,
+    )
+}
+
+fn deploy_with_readiness(
+    client: &HyperCliClient,
+    agent: BuzzAgentPayload,
+    provider_config: Value,
+    dry_run: bool,
+    readiness_timeout: Duration,
+    poll_interval: Duration,
+) -> Result<DeployResponse, ProviderError> {
     validate_provider_config(&provider_config)?;
     let options: ProviderOptions = serde_json::from_value(provider_config)
         .map_err(|_| ProviderError::UnsupportedProviderConfig)?;
@@ -297,20 +346,27 @@ pub fn deploy_with_dry_run(
 
     if let Some(existing) = find_existing(client, &handle, request.runtime)? {
         let deployment = restart_if_stopped(client, existing, &request)?;
+        let deployment = wait_until_running(client, deployment, readiness_timeout, poll_interval)?;
         return Ok(DeployResponse {
             agent_id: deployment.id,
         });
     }
 
     match client.create_deployment(&request) {
-        Ok(deployment) => Ok(DeployResponse {
-            agent_id: deployment.id,
-        }),
+        Ok(deployment) => {
+            let deployment =
+                wait_until_running(client, deployment, readiness_timeout, poll_interval)?;
+            Ok(DeployResponse {
+                agent_id: deployment.id,
+            })
+        }
         Err(error) if error.status() == Some(StatusCode::CONFLICT) => {
             // Close the list-before-create race without inventing a separate
             // provider database. The user-scoped handle is deterministic.
             let existing = find_existing(client, &handle, request.runtime)?
                 .ok_or(ProviderError::MissingConflictingDeployment)?;
+            let existing = restart_if_stopped(client, existing, &request)?;
+            let existing = wait_until_running(client, existing, readiness_timeout, poll_interval)?;
             Ok(DeployResponse {
                 agent_id: existing.id,
             })
@@ -359,11 +415,59 @@ fn restart_if_stopped(
         sync_uid: create.sync_uid,
         sync_gid: create.sync_gid,
         restart: create.restart,
+        runtime_scopes: create.runtime_scopes.clone(),
         dry_run: false,
     };
     client
         .start_deployment(&deployment.id, &start)
         .map_err(ProviderError::HyperCli)
+}
+
+fn wait_until_running(
+    client: &HyperCliClient,
+    mut deployment: Deployment,
+    timeout: Duration,
+    poll_interval: Duration,
+) -> Result<Deployment, ProviderError> {
+    let started = Instant::now();
+    loop {
+        let state = deployment.state.trim().to_ascii_lowercase();
+        match state.as_str() {
+            "running" => return Ok(deployment),
+            "pending" | "restoring" | "syncing" | "starting" => {}
+            "stopping" => {
+                return Err(ProviderError::DeploymentBusy {
+                    deployment_id: deployment.id,
+                    state,
+                });
+            }
+            "restore_failed" | "sync_failed" | "failed" | "stopped" => {
+                return Err(ProviderError::DeploymentTerminalState {
+                    deployment_id: deployment.id,
+                    state,
+                });
+            }
+            _ => {
+                return Err(ProviderError::UnexpectedDeploymentState {
+                    deployment_id: deployment.id,
+                    state,
+                });
+            }
+        }
+
+        let elapsed = started.elapsed();
+        if elapsed >= timeout {
+            return Err(ProviderError::DeploymentReadinessTimeout {
+                deployment_id: deployment.id,
+                state,
+            });
+        }
+        let remaining = timeout.saturating_sub(elapsed);
+        thread::sleep(poll_interval.min(remaining));
+        deployment = client
+            .get_deployment(&deployment.id)
+            .map_err(ProviderError::HyperCli)?;
+    }
 }
 
 fn build_launch_request(
@@ -964,6 +1068,10 @@ mod tests {
 
             assert_eq!(request.name.as_deref(), Some("fizz-4-79be667e"));
             assert_eq!(request.command, ["/usr/local/bin/buzz-acp"]);
+            assert_eq!(
+                request.runtime_scopes,
+                BUZZ_RUNTIME_SCOPES.map(str::to_owned)
+            );
             assert_eq!(request.env["BUZZ_ACP_AGENT_COMMAND"], command);
             assert_eq!(request.env["BUZZ_ACP_AGENT_ARGS"], args);
             assert_eq!(request.env["BUZZ_ACP_MCP_COMMAND"], mcp);
@@ -1037,6 +1145,7 @@ mod tests {
                     "runtime": "opencode",
                     "command": ["/usr/local/bin/buzz-acp"],
                     "restart": false,
+                    "runtime_scopes": BUZZ_RUNTIME_SCOPES,
                     "tags": [format!("buzz_agent={TEST_PUBLIC_HEX}")],
                     "env": {
                         "BUZZ_RELAY_URL": "wss://buzz.example.com",
@@ -1066,6 +1175,20 @@ mod tests {
                 .to_string(),
             )
             .create();
+        let ready = server
+            .mock("GET", "/agents/deployments/deployment-1")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id":"deployment-1",
+                    "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
+                    "runtime":"opencode",
+                    "state":"running"
+                })
+                .to_string(),
+            )
+            .create();
 
         let response = deploy(
             &client(&server),
@@ -1076,6 +1199,7 @@ mod tests {
         assert_eq!(response.agent_id, "deployment-1");
         lookup.assert();
         create.assert();
+        ready.assert();
     }
 
     #[test]
@@ -1104,7 +1228,8 @@ mod tests {
             .match_body(Matcher::PartialJsonString(
                 serde_json::json!({
                     "restart": false,
-                    "command": ["/usr/local/bin/buzz-acp"]
+                    "command": ["/usr/local/bin/buzz-acp"],
+                    "runtime_scopes": BUZZ_RUNTIME_SCOPES
                 })
                 .to_string(),
             ))
@@ -1120,6 +1245,20 @@ mod tests {
                 .to_string(),
             )
             .create();
+        let ready = server
+            .mock("GET", "/agents/deployments/existing")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id":"existing",
+                    "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
+                    "runtime":"opencode",
+                    "state":"running"
+                })
+                .to_string(),
+            )
+            .create();
 
         let response = deploy(
             &client(&server),
@@ -1130,6 +1269,96 @@ mod tests {
         assert_eq!(response.agent_id, "existing");
         lookup.assert();
         restart.assert();
+        ready.assert();
+    }
+
+    #[test]
+    fn deploy_conflict_recovery_restarts_stopped_agent_without_creating_a_copy() {
+        let mut server = Server::new();
+        let handle = format!("buzz-{}", &TEST_PUBLIC_HEX[..48]);
+        let initial_lookup = server
+            .mock("GET", "/agents/deployments")
+            .match_query(Matcher::UrlEncoded("handle".into(), handle.clone()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"items":[]}"#)
+            .expect(1)
+            .create();
+        let recovered_lookup = server
+            .mock("GET", "/agents/deployments")
+            .match_query(Matcher::UrlEncoded("handle".into(), handle.clone()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "items": [{
+                        "id":"existing",
+                        "handle":handle,
+                        "runtime":"opencode",
+                        "state":"stopped"
+                    }]
+                })
+                .to_string(),
+            )
+            .expect(1)
+            .create();
+        let conflicting_create = server
+            .mock("POST", "/agents/deployments")
+            .with_status(409)
+            .expect(1)
+            .create();
+        let restart = server
+            .mock("POST", "/agents/deployments/existing/start")
+            .match_body(Matcher::PartialJsonString(
+                serde_json::json!({
+                    "restart": false,
+                    "command": ["/usr/local/bin/buzz-acp"],
+                    "runtime_scopes": BUZZ_RUNTIME_SCOPES
+                })
+                .to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id":"existing",
+                    "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
+                    "runtime":"opencode",
+                    "state":"pending"
+                })
+                .to_string(),
+            )
+            .expect(1)
+            .create();
+        let ready = server
+            .mock("GET", "/agents/deployments/existing")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id":"existing",
+                    "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
+                    "runtime":"opencode",
+                    "state":"running"
+                })
+                .to_string(),
+            )
+            .expect(1)
+            .create();
+
+        let response = deploy(
+            &client(&server),
+            test_agent(),
+            serde_json::json!({"runtime":"opencode"}),
+        )
+        .unwrap();
+
+        assert_eq!(response.agent_id, "existing");
+        initial_lookup.assert();
+        recovered_lookup.assert();
+        conflicting_create.assert();
+        restart.assert();
+        ready.assert();
     }
 
     #[test]
@@ -1153,6 +1382,10 @@ mod tests {
                 .to_string(),
             )
             .create();
+        let readiness_poll = server
+            .mock("GET", "/agents/deployments/existing")
+            .expect(0)
+            .create();
 
         let response = deploy(
             &client(&server),
@@ -1162,6 +1395,7 @@ mod tests {
         .unwrap();
         assert_eq!(response.agent_id, "existing");
         lookup.assert();
+        readiness_poll.assert();
     }
 
     #[test]
@@ -1186,6 +1420,67 @@ mod tests {
             )
             .create();
 
+        let error = deploy(
+            &client(&server),
+            test_agent(),
+            serde_json::json!({"runtime":"opencode"}),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ProviderError::DeploymentBusy {
+                deployment_id,
+                state
+            } if deployment_id == "existing" && state == "stopping"
+        ));
+        lookup.assert();
+    }
+
+    #[test]
+    fn deploy_waits_for_an_existing_booting_agent_without_restarting_it() {
+        let mut server = Server::new();
+        let handle = format!("buzz-{}", &TEST_PUBLIC_HEX[..48]);
+        let lookup = server
+            .mock("GET", "/agents/deployments")
+            .match_query(Matcher::UrlEncoded("handle".into(), handle.clone()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "items": [{
+                        "id":"existing",
+                        "handle":handle,
+                        "runtime":"opencode",
+                        "state":"restoring"
+                    }]
+                })
+                .to_string(),
+            )
+            .create();
+        let create = server
+            .mock("POST", "/agents/deployments")
+            .expect(0)
+            .create();
+        let restart = server
+            .mock("POST", "/agents/deployments/existing/start")
+            .expect(0)
+            .create();
+        let ready = server
+            .mock("GET", "/agents/deployments/existing")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id":"existing",
+                    "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
+                    "runtime":"opencode",
+                    "state":"running"
+                })
+                .to_string(),
+            )
+            .create();
+
         let response = deploy(
             &client(&server),
             test_agent(),
@@ -1195,6 +1490,137 @@ mod tests {
 
         assert_eq!(response.agent_id, "existing");
         lookup.assert();
+        create.assert();
+        restart.assert();
+        ready.assert();
+    }
+
+    #[test]
+    fn readiness_wait_accepts_every_booting_state_before_running() {
+        let mut server = Server::new();
+        let restoring = server
+            .mock("GET", "/agents/deployments/deployment-1")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"deployment-1","runtime":"opencode","state":"restoring"}"#)
+            .expect(1)
+            .create();
+        let syncing = server
+            .mock("GET", "/agents/deployments/deployment-1")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"deployment-1","runtime":"opencode","state":"syncing"}"#)
+            .expect(1)
+            .create();
+        let starting = server
+            .mock("GET", "/agents/deployments/deployment-1")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"deployment-1","runtime":"opencode","state":"starting"}"#)
+            .expect(1)
+            .create();
+        let running = server
+            .mock("GET", "/agents/deployments/deployment-1")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"deployment-1","runtime":"opencode","state":"running"}"#)
+            .expect(1)
+            .create();
+        let initial = Deployment {
+            id: "deployment-1".to_owned(),
+            name: String::new(),
+            handle: None,
+            runtime: Some(ManagedRuntime::Opencode),
+            state: "pending".to_owned(),
+            pod_id: None,
+            hostname: None,
+        };
+
+        let ready = wait_until_running(
+            &client(&server),
+            initial,
+            Duration::from_secs(1),
+            Duration::ZERO,
+        )
+        .unwrap();
+
+        assert_eq!(ready.state, "running");
+        restoring.assert();
+        syncing.assert();
+        starting.assert();
+        running.assert();
+    }
+
+    #[test]
+    fn readiness_wait_fails_immediately_for_terminal_states() {
+        for state in ["restore_failed", "sync_failed", "failed", "stopped"] {
+            let mut server = Server::new();
+            let poll = server
+                .mock("GET", "/agents/deployments/deployment-1")
+                .expect(0)
+                .create();
+            let deployment = Deployment {
+                id: "deployment-1".to_owned(),
+                name: String::new(),
+                handle: None,
+                runtime: Some(ManagedRuntime::Opencode),
+                state: state.to_owned(),
+                pod_id: None,
+                hostname: None,
+            };
+
+            let error = wait_until_running(
+                &client(&server),
+                deployment,
+                Duration::from_secs(1),
+                Duration::ZERO,
+            )
+            .unwrap_err();
+
+            assert!(matches!(
+                error,
+                ProviderError::DeploymentTerminalState {
+                    deployment_id,
+                    state: terminal_state
+                } if deployment_id == "deployment-1" && terminal_state == state
+            ));
+            poll.assert();
+        }
+    }
+
+    #[test]
+    fn readiness_timeout_reports_only_deployment_id_and_last_state() {
+        let mut server = Server::new();
+        let poll = server
+            .mock("GET", "/agents/deployments/deployment-1")
+            .expect(0)
+            .create();
+        let deployment = Deployment {
+            id: "deployment-1".to_owned(),
+            name: String::new(),
+            handle: None,
+            runtime: Some(ManagedRuntime::Opencode),
+            state: "starting".to_owned(),
+            pod_id: None,
+            hostname: None,
+        };
+
+        let error =
+            wait_until_running(&client(&server), deployment, Duration::ZERO, Duration::ZERO)
+                .unwrap_err();
+
+        assert!(matches!(
+            &error,
+            ProviderError::DeploymentReadinessTimeout {
+                deployment_id,
+                state
+            } if deployment_id == "deployment-1" && state == "starting"
+        ));
+        assert_eq!(
+            error.to_string(),
+            "timed out waiting for HyperCLI deployment deployment-1 to run (last state: starting)"
+        );
+        poll.assert();
     }
 
     #[test]
@@ -1222,6 +1648,13 @@ mod tests {
                 .create();
             let restart = server
                 .mock("POST", "/agents/deployments/existing/start")
+                .expect(0)
+                .create();
+            let readiness_poll = server
+                .mock(
+                    "GET",
+                    format!("/agents/deployments/dry-run-{state}").as_str(),
+                )
                 .expect(0)
                 .create();
             let create = server
@@ -1252,6 +1685,7 @@ mod tests {
             assert_eq!(response.agent_id, format!("dry-run-{state}"));
             lookup.assert();
             restart.assert();
+            readiness_poll.assert();
             create.assert();
         }
     }

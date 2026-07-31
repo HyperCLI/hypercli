@@ -26,6 +26,15 @@ pub enum AgentSize {
 }
 
 const DEFAULT_BUZZ_RUST_LOG: &str = "buzz_acp=info,pool::prompt=info,acp::stream=off";
+pub const BUZZ_RUNTIME_SCOPES: [&str; 7] = [
+    "agents:none",
+    "files:*",
+    "flows:*",
+    "models:*",
+    "voice:*",
+    "web:*",
+    "workspaces:*",
+];
 const BUZZ_RESERVED_ENV: &[&str] = &[
     "BUZZ_PRIVATE_KEY",
     "NOSTR_PRIVATE_KEY",
@@ -135,6 +144,10 @@ impl BuzzLaunchConfig {
         request.sync_uid = Some(1000);
         request.sync_gid = Some(1000);
         request.restart = Some(self.restart);
+        request.runtime_scopes = BUZZ_RUNTIME_SCOPES
+            .iter()
+            .map(|scope| (*scope).to_owned())
+            .collect();
         for key in BUZZ_RESERVED_ENV {
             request.env.remove(*key);
         }
@@ -275,6 +288,8 @@ pub struct CreateDeploymentRequest {
     pub sync_gid: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub restart: Option<bool>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub runtime_scopes: Vec<String>,
     #[serde(default = "default_true")]
     pub start: bool,
     #[serde(default)]
@@ -300,6 +315,7 @@ impl CreateDeploymentRequest {
             sync_uid: None,
             sync_gid: None,
             restart: None,
+            runtime_scopes: Vec::new(),
             start: true,
             dry_run: false,
         }
@@ -334,6 +350,8 @@ pub struct StartDeploymentRequest {
     pub sync_gid: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub restart: Option<bool>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub runtime_scopes: Vec<String>,
     #[serde(default)]
     pub dry_run: bool,
 }
@@ -382,6 +400,10 @@ mod tests {
         assert_eq!(request.size, Some(AgentSize::Large));
         assert_eq!(request.command, vec!["/usr/local/bin/buzz-acp"]);
         assert_eq!(request.restart, Some(false));
+        assert_eq!(
+            request.runtime_scopes,
+            BUZZ_RUNTIME_SCOPES.map(str::to_owned)
+        );
         assert!(request.routes.is_empty());
         assert_eq!(
             request.env.get("BUZZ_RELAY_URL").map(String::as_str),
@@ -455,6 +477,34 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&buzz_request).unwrap()["restart"],
             false
+        );
+    }
+
+    #[test]
+    fn runtime_scopes_are_omitted_by_default_and_serialize_when_set() {
+        let create = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        let create_json = serde_json::to_value(&create).unwrap();
+        assert!(create_json.get("runtime_scopes").is_none());
+
+        let start = StartDeploymentRequest::default();
+        let start_json = serde_json::to_value(&start).unwrap();
+        assert!(start_json.get("runtime_scopes").is_none());
+
+        let expected = BUZZ_RUNTIME_SCOPES.map(str::to_owned);
+        let mut create = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        create.runtime_scopes = expected.to_vec();
+        assert_eq!(
+            serde_json::to_value(&create).unwrap()["runtime_scopes"],
+            serde_json::json!(expected)
+        );
+
+        let start = StartDeploymentRequest {
+            runtime_scopes: expected.to_vec(),
+            ..Default::default()
+        };
+        assert_eq!(
+            serde_json::to_value(&start).unwrap()["runtime_scopes"],
+            serde_json::json!(expected)
         );
     }
 }

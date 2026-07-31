@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   ClaudeCodeAgent,
   CodexAgent,
+  DEFAULT_AGENT_RUNTIME_SCOPES,
   DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
   DEFAULT_BUZZ_CODING_AGENT_IMAGES,
   DEFAULT_BUZZ_CODEX_IMAGE,
@@ -82,6 +83,7 @@ describe('coding agents', () => {
       sync_enabled: true,
       sync_uid: 1000,
       sync_gid: 1000,
+      runtime_scopes: DEFAULT_AGENT_RUNTIME_SCOPES,
       env: {
         HYPER_API_BASE: 'https://api.test.hypercli.com',
         HYPER_WORKSPACES_BOOT_SYNC: '1',
@@ -90,6 +92,19 @@ describe('coding agents', () => {
       },
     });
     expect(post.mock.calls[0][1].env).not.toHaveProperty('OPENCLAW_GATEWAY_TOKEN');
+  });
+
+  it('honors a coding-agent runtime scope override', async () => {
+    const post = vi.fn().mockResolvedValue(response('opencode'));
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await deployments.createOpenCode({ runtimeScopes: ['models:*'] });
+
+    expect(post.mock.calls[0][1].runtime_scopes).toEqual(['models:*']);
   });
 
   it('launches Buzz ACP explicitly and retains caller environment injection', async () => {

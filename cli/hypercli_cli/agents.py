@@ -34,6 +34,7 @@ LAUNCH_FIELD_KEYS = {
     "ports",
     "registry_auth",
     "registry_url",
+    "restart",
     "routes",
     "sync_enabled",
     "sync_gid",
@@ -759,6 +760,66 @@ def status(
             console.print(f"\n[dim]Executor not reachable: {e}[/dim]")
 
 
+def _print_agent_metrics(data: dict) -> None:
+    pod_name = str(data.get("pod_name") or data.get("pod_id") or "")
+    timestamp = str(data.get("timestamp") or "")
+    title = "Agent Metrics"
+    if pod_name:
+        title = f"{title} — {pod_name}"
+
+    table = Table(title=title)
+    table.add_column("Container", style="cyan")
+    table.add_column("CPU Usage")
+    table.add_column("Memory Usage")
+
+    containers = data.get("containers")
+    if isinstance(containers, dict):
+        for container_name, raw_usage in containers.items():
+            usage = raw_usage if isinstance(raw_usage, dict) else {}
+            table.add_row(
+                str(container_name),
+                str(usage.get("cpu") or "0"),
+                str(usage.get("memory") or "0"),
+            )
+
+    if not table.rows:
+        console.print("[dim]No container metrics returned.[/dim]")
+        return
+
+    console.print()
+    console.print(table)
+    if timestamp:
+        console.print(f"[dim]Timestamp: {timestamp}[/dim]")
+
+
+@app.command("metrics")
+def metrics(
+    agent_id: str = typer.Argument(..., help="Agent ID, name, handle, hostname, or prefix"),
+    json_output: bool = typer.Option(False, "--json", help="JSON output"),
+):
+    """Get live CPU and memory usage for a running agent."""
+    agents = _get_deployments_client()
+    agent_id = _resolve_agent(agent_id)
+
+    try:
+        data = agents.metrics(agent_id)
+    except Exception as e:
+        console.print(f"[red]❌ Failed to get agent metrics: {e}[/red]")
+        raise typer.Exit(1)
+
+    if json_output:
+        console.print_json(json.dumps(data, indent=2, default=str))
+
+    metrics_error = data.get("error") if isinstance(data, dict) else "Invalid metrics response"
+    if metrics_error:
+        if not json_output:
+            console.print(f"[red]❌ Metrics unavailable: {metrics_error}[/red]")
+        raise typer.Exit(1)
+
+    if not json_output:
+        _print_agent_metrics(data)
+
+
 @app.command("start")
 def start(
     agent_id: str = typer.Argument(..., help="Agent ID, unique name, handle, hostname, or prefix"),
@@ -843,6 +904,7 @@ def start(
             image=effective_image,
             registry_url=effective_registry_url,
             registry_auth=effective_registry_auth,
+            restart=saved_launch_fields.get("restart"),
             sync_root=saved_launch_fields.get("sync_root"),
             sync_enabled=saved_launch_fields.get("sync_enabled"),
             sync_uid=effective_sync_uid,

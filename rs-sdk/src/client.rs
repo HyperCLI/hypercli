@@ -111,6 +111,47 @@ impl HyperCliClient {
         Ok(page.items)
     }
 
+    pub fn get_deployment(&self, deployment_id: &str) -> Result<Deployment, HyperCliError> {
+        let url = self.endpoint(&format!("deployments/{deployment_id}"));
+        let started = Instant::now();
+        let response = match self
+            .http
+            .get(&url)
+            .bearer_auth(self.api_key.expose_secret())
+            .send()
+        {
+            Ok(response) => response,
+            Err(error) => {
+                let error = HyperCliError::Transport(error.to_string());
+                self.trace_http(
+                    "get_deployment",
+                    "GET",
+                    &url,
+                    None,
+                    started,
+                    None,
+                    BTreeMap::new(),
+                    Err(&error),
+                );
+                return Err(error);
+            }
+        };
+        let status = response.status();
+        let headers = trace_headers(&response);
+        let result = decode_json(response);
+        self.trace_http(
+            "get_deployment",
+            "GET",
+            &url,
+            None,
+            started,
+            Some(status),
+            headers,
+            result.as_ref().map(|_| ()),
+        );
+        result
+    }
+
     pub fn create_deployment(
         &self,
         request: &CreateDeploymentRequest,
@@ -491,6 +532,69 @@ mod tests {
             .unwrap();
         assert_eq!(deployments.len(), 1);
         assert_eq!(deployments[0].id, "deployment-1");
+        mock.assert();
+    }
+
+    #[test]
+    fn get_fetches_one_deployment_by_id() {
+        let mut server = Server::new();
+        let mock = server
+            .mock("GET", "/agents/deployments/deployment-1")
+            .match_header("authorization", "Bearer test-credential")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id": "deployment-1",
+                    "handle": "buzz-abc123",
+                    "runtime": "opencode",
+                    "state": "restoring"
+                })
+                .to_string(),
+            )
+            .create();
+
+        let deployment = client(&server).get_deployment("deployment-1").unwrap();
+        assert_eq!(deployment.id, "deployment-1");
+        assert_eq!(deployment.state, "restoring");
+        mock.assert();
+    }
+
+    #[test]
+    fn get_trace_records_only_sanitized_request_metadata() {
+        let mut server = Server::new();
+        let temp = tempfile::tempdir().unwrap();
+        let trace_file = temp.path().join("logs/http.jsonl");
+        let mock = server
+            .mock("GET", "/agents/deployments/deployment-1")
+            .match_header("authorization", "Bearer test-credential")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_header("x-request-id", "request-123")
+            .with_body(
+                serde_json::json!({
+                    "id": "deployment-1",
+                    "runtime": "opencode",
+                    "state": "running"
+                })
+                .to_string(),
+            )
+            .create();
+        let client = HyperCliClient::new(ClientConfig {
+            api_base: Url::parse(&format!("{}/agents", server.url())).unwrap(),
+            api_key: SecretString::from("test-credential"),
+            trace_file: Some(trace_file.clone()),
+        })
+        .unwrap();
+
+        client.get_deployment("deployment-1").unwrap();
+
+        let trace = fs::read_to_string(trace_file).unwrap();
+        assert!(trace.contains(r#""operation":"get_deployment""#));
+        assert!(trace.contains(r#""method":"GET""#));
+        assert!(trace.contains(r#""status":200"#));
+        assert!(trace.contains(r#""x-request-id":"request-123""#));
+        assert!(!trace.contains("test-credential"));
         mock.assert();
     }
 

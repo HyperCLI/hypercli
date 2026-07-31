@@ -229,3 +229,95 @@ def test_flow_get_x402_uses_wallet_auth_context(monkeypatch):
     assert result.exit_code == 0
     assert captured["api_key"] == "wallet-jwt"
     assert "render-123" in result.stdout
+
+
+def test_image_to_image_uploads_relative_path(monkeypatch, tmp_path):
+    image_path = tmp_path / "input.png"
+    image_path.write_bytes(b"synthetic-image")
+    captured = {}
+
+    class FakeFiles:
+        def upload(self, file_path):
+            captured["uploaded_path"] = file_path
+            return SimpleNamespace(id="file-fixture")
+
+    class FakeRenders:
+        def create_flow(self, flow_type, **payload):
+            captured["flow_type"] = flow_type
+            captured["payload"] = payload
+            return SimpleNamespace(
+                render_id="render-fixture",
+                state="pending",
+                template=None,
+                result_url=None,
+            )
+
+    class FakeClient:
+        files = FakeFiles()
+        renders = FakeRenders()
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("hypercli_cli.flow.HyperCLI", lambda: FakeClient())
+
+    result = runner.invoke(
+        app,
+        ["flow", "image-to-image", "Restyle this", "--image", "./input.png"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["uploaded_path"] == "input.png"
+    assert captured["flow_type"] == "image-to-image"
+    assert captured["payload"]["file_ids"] == ["file-fixture"]
+    assert "image_urls" not in captured["payload"]
+
+
+def test_image_to_image_rejects_missing_local_path(monkeypatch, tmp_path):
+    class FakeClient:
+        pass
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("hypercli_cli.flow.HyperCLI", lambda: FakeClient())
+
+    result = runner.invoke(
+        app,
+        ["flow", "image-to-image", "Restyle this", "--image", "./missing.png"],
+    )
+
+    assert result.exit_code != 0
+    assert "Image file not found: ./missing.png" in result.output
+
+
+def test_image_to_image_accepts_http_url(monkeypatch):
+    captured = {}
+
+    class FakeRenders:
+        def create_flow(self, flow_type, **payload):
+            captured["flow_type"] = flow_type
+            captured["payload"] = payload
+            return SimpleNamespace(
+                render_id="render-fixture",
+                state="pending",
+                template=None,
+                result_url=None,
+            )
+
+    class FakeClient:
+        renders = FakeRenders()
+
+    monkeypatch.setattr("hypercli_cli.flow.HyperCLI", lambda: FakeClient())
+
+    result = runner.invoke(
+        app,
+        [
+            "flow",
+            "image-to-image",
+            "Restyle this",
+            "--image",
+            "https://example.invalid/input.png",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["flow_type"] == "image-to-image"
+    assert captured["payload"]["image_urls"] == ["https://example.invalid/input.png"]
+    assert "file_ids" not in captured["payload"]

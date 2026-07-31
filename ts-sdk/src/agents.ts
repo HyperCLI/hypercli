@@ -55,6 +55,15 @@ export const DEFAULT_BUZZ_CODEX_IMAGE = 'ghcr.io/hypercli/hypercli-buzz-codex:la
 export const DEFAULT_BUZZ_CLAUDE_CODE_IMAGE = 'ghcr.io/hypercli/hypercli-buzz-claude:latest';
 export const DEFAULT_BUZZ_GOOSE_IMAGE = 'ghcr.io/hypercli/hypercli-buzz-goose:latest';
 export const DEFAULT_BUZZ_KIMI_CODE_IMAGE = 'ghcr.io/hypercli/hypercli-buzz-kimi-code:latest';
+export const DEFAULT_AGENT_RUNTIME_SCOPES = Object.freeze([
+  'agents:none',
+  'files:*',
+  'flows:*',
+  'models:*',
+  'voice:*',
+  'web:*',
+  'workspaces:*',
+]) as readonly string[];
 export const DEFAULT_CODING_AGENT_SYNC_ROOT = '/home/node';
 export type ManagedAgentRuntime =
   | 'generic'
@@ -168,6 +177,7 @@ const LAUNCH_CONFIG_KEYS = new Set([
   'registry_url',
   'registry_auth',
   'restart',
+  'runtime_scopes',
 ]);
 const DEFAULT_OPENCLAW_SYNC_ROOT = '/home/node';
 export const AGENT_FILE_MAX_BYTES = 250 * 1024 * 1024;
@@ -472,6 +482,7 @@ export interface BuildAgentConfigOptions {
   registryUrl?: string | null;
   registryAuth?: RegistryAuth | null;
   restart?: boolean | null;
+  runtimeScopes?: readonly string[] | null;
   gatewayToken?: string | null;
   heartbeat?: OpenClawHeartbeatConfig | null;
   /** Disable to avoid automatically locking browser control UI access to globalThis.location.origin. */
@@ -1610,6 +1621,9 @@ export function buildAgentConfig(
   if (options.registryUrl !== undefined && options.registryUrl !== null) prepared.registry_url = options.registryUrl;
   if (options.registryAuth !== undefined && options.registryAuth !== null) prepared.registry_auth = options.registryAuth;
   if (options.restart !== undefined && options.restart !== null) prepared.restart = options.restart;
+  if (options.runtimeScopes !== undefined && options.runtimeScopes !== null) {
+    prepared.runtime_scopes = [...options.runtimeScopes];
+  }
 
   return { config: prepared, gatewayToken };
 }
@@ -3587,6 +3601,7 @@ export class Deployments {
       runtime: 'openclaw-pro',
       env: { OPENCLAW_DESKTOP_ENABLED: '1', ...(options.env ?? {}) },
       image: defaultOpenClawProImage(options.image),
+      runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
       openClawRoutes: { includeDesktop: true, ...(options.openClawRoutes ?? {}) },
     });
   }
@@ -3642,6 +3657,7 @@ export class Deployments {
       restart: buzzLaunch
         ? options.restart ?? options.buzz?.restart ?? false
         : options.restart,
+      runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
     };
     return await this.create(effectiveOptions) as CodingAgent;
   }
@@ -3843,9 +3859,6 @@ export class Deployments {
     if (agent instanceof OpenClawAgent) {
       agent.gatewayToken = gatewayToken;
     }
-    agent.launchConfig = config;
-    agent.command = [...(config.command ?? [])];
-    agent.entrypoint = [...(config.entrypoint ?? [])];
     return agent;
   }
 
@@ -3871,6 +3884,7 @@ export class Deployments {
       ...options,
       env: { OPENCLAW_DESKTOP_ENABLED: '1', ...(options.env ?? {}) },
       image: defaultOpenClawProImage(options.image),
+      runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
       openClawRoutes: { includeDesktop: true, ...(options.openClawRoutes ?? {}) },
     });
   }
