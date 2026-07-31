@@ -29,14 +29,8 @@ fn info_fixture_is_a_one_shot_json_exchange() {
     let response = assert_stock_stdout(output);
     let expected: serde_json::Value = serde_json::from_str(INFO_RESPONSE_FIXTURE).unwrap();
     assert_eq!(response, expected);
-    assert_eq!(
-        response["config_schema"]["properties"]["runtime"]["enum"],
-        serde_json::json!(["opencode", "codex", "claude-code", "goose", "kimi-code"])
-    );
-    assert_eq!(
-        response["config_schema"]["properties"]["size"]["enum"],
-        serde_json::json!(["large"])
-    );
+    assert!(response["config_schema"]["properties"]["runtime"].is_null());
+    assert!(response["config_schema"]["properties"]["size"].is_null());
 }
 
 #[test]
@@ -337,8 +331,6 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
                 }
             },
             "provider_config": {
-                "runtime": runtime,
-                "size": "large",
                 "workspace": "fixture-workspace"
             }
         });

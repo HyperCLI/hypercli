@@ -7,28 +7,6 @@
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "runtime": {
-        "type": "string",
-        "title": "Runtime",
-        "description": "opencode, codex, claude-code, goose, or kimi-code",
-        "enum": [
-          "opencode",
-          "codex",
-          "claude-code",
-          "goose",
-          "kimi-code"
-        ],
-        "default": "opencode"
-      },
-      "size": {
-        "type": "string",
-        "title": "Size",
-        "description": "Required HyperCLI coding-agent tier",
-        "enum": [
-          "large"
-        ],
-        "default": "large"
-      },
       "image": {
         "type": "string",
         "title": "Runtime image",

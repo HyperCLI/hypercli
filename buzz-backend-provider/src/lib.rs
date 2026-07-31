@@ -133,17 +133,18 @@ impl CodingRuntime {
         }
     }
 
-    fn matches_buzz_command(self, command: &str) -> bool {
+    fn from_buzz_command(command: &str) -> Option<Self> {
         let command = Path::new(command.trim())
             .file_name()
             .and_then(|value| value.to_str())
             .unwrap_or_default();
-        match self {
-            Self::Opencode => command == "opencode",
-            Self::Codex => command == "codex-acp",
-            Self::ClaudeCode => matches!(command, "claude-agent-acp" | "claude-code-acp"),
-            Self::Goose => command == "goose",
-            Self::KimiCode => matches!(command, "kimi" | "kimi-code"),
+        match command {
+            "opencode" => Some(Self::Opencode),
+            "codex" | "codex-acp" => Some(Self::Codex),
+            "claude" | "claude-agent-acp" | "claude-code-acp" => Some(Self::ClaudeCode),
+            "goose" => Some(Self::Goose),
+            "kimi" | "kimi-code" => Some(Self::KimiCode),
+            _ => None,
         }
     }
 }
@@ -151,6 +152,8 @@ impl CodingRuntime {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProviderOptions {
+    // Kept for compatibility with agents saved before runtime and size became
+    // harness-owned. New provider schemas no longer advertise either field.
     #[serde(default = "default_runtime")]
     runtime: CodingRuntime,
     #[serde(default = "default_size")]
@@ -209,10 +212,8 @@ pub enum ProviderError {
     InvalidRespondTo,
     #[error("agent respond_to allowlist is invalid")]
     InvalidRespondToAllowlist,
-    #[error("HyperCLI coding agents require size large")]
-    InvalidCodingAgentSize,
-    #[error("Buzz harness does not match the selected HyperCLI runtime")]
-    AgentRuntimeMismatch,
+    #[error("Buzz harness is not supported by the HyperCLI provider")]
+    UnsupportedAgentHarness,
     #[error("Buzz launch configuration is invalid: {0}")]
     BuzzLaunch(#[from] BuzzLaunchError),
     #[error("HyperCLI authentication is not configured")]
@@ -261,20 +262,6 @@ pub fn provider_info() -> ProviderInfoResponse {
             "type": "object",
             "additionalProperties": false,
             "properties": {
-                "runtime": {
-                    "type": "string",
-                    "title": "Runtime",
-                    "description": "opencode, codex, claude-code, goose, or kimi-code",
-                    "enum": ["opencode", "codex", "claude-code", "goose", "kimi-code"],
-                    "default": "opencode"
-                },
-                "size": {
-                    "type": "string",
-                    "title": "Size",
-                    "description": "Required HyperCLI coding-agent tier",
-                    "enum": ["large"],
-                    "default": "large"
-                },
                 "image": {
                     "type": "string",
                     "title": "Runtime image",
@@ -482,14 +469,9 @@ fn build_launch_request(
     if !(1..=32).contains(&agent.parallelism) {
         return Err(ProviderError::InvalidParallelism);
     }
-    if options.size != AgentSize::Large {
-        return Err(ProviderError::InvalidCodingAgentSize);
-    }
-
-    let runtime = options.runtime;
-    if !runtime.matches_buzz_command(&agent.agent_command) {
-        return Err(ProviderError::AgentRuntimeMismatch);
-    }
+    let _legacy_provider_selection = (options.runtime, options.size);
+    let runtime = CodingRuntime::from_buzz_command(&agent.agent_command)
+        .ok_or(ProviderError::UnsupportedAgentHarness)?;
     let behavior = validate_behavior(&agent)?;
     let goose_model = (runtime == CodingRuntime::Goose)
         .then(|| nonempty(agent.model.as_deref()))
@@ -503,7 +485,7 @@ fn build_launch_request(
     let mut request = CreateDeploymentRequest::new(runtime.managed());
     request.name = Some(deployment_name(&display_name, public_key));
     request.handle = Some(handle.to_owned());
-    request.size = Some(options.size);
+    request.size = Some(AgentSize::Large);
     request.image = options
         .image
         .filter(|image| !image.trim().is_empty())
@@ -886,6 +868,27 @@ mod tests {
     }
 
     #[test]
+    fn harness_aliases_resolve_to_canonical_runtimes() {
+        for (command, expected) in [
+            ("opencode", CodingRuntime::Opencode),
+            ("codex", CodingRuntime::Codex),
+            ("codex-acp", CodingRuntime::Codex),
+            ("claude", CodingRuntime::ClaudeCode),
+            ("claude-agent-acp", CodingRuntime::ClaudeCode),
+            ("claude-code-acp", CodingRuntime::ClaudeCode),
+            ("goose", CodingRuntime::Goose),
+            ("kimi", CodingRuntime::KimiCode),
+            ("kimi-code", CodingRuntime::KimiCode),
+        ] {
+            assert_eq!(CodingRuntime::from_buzz_command(command), Some(expected));
+            assert_eq!(
+                CodingRuntime::from_buzz_command(&format!("/usr/local/bin/{command}")),
+                Some(expected)
+            );
+        }
+    }
+
+    #[test]
     fn goose_structured_model_and_provider_override_user_environment() {
         let mut agent = test_agent_for(CodingRuntime::Goose);
         agent.model = Some("structured-model".to_owned());
@@ -1094,8 +1097,8 @@ mod tests {
     }
 
     #[test]
-    fn rejects_buzz_harness_that_does_not_match_selected_runtime() {
-        let result = build_launch_request(
+    fn harness_command_is_authoritative_over_legacy_runtime() {
+        let request = build_launch_request(
             test_agent(),
             TEST_PUBLIC_HEX,
             "buzz-runtime-test",
@@ -1105,8 +1108,31 @@ mod tests {
                 image: None,
                 workspace: None,
             },
+        )
+        .unwrap();
+        assert_eq!(request.runtime, ManagedRuntime::Opencode);
+        assert_eq!(request.size, Some(AgentSize::Large));
+    }
+
+    #[test]
+    fn rejects_unknown_buzz_harness() {
+        let mut agent = test_agent();
+        agent.agent_command = "unknown-acp".to_owned();
+        let result = build_launch_request(
+            agent,
+            TEST_PUBLIC_HEX,
+            "buzz-runtime-test",
+            ProviderOptions {
+                runtime: CodingRuntime::Opencode,
+                size: AgentSize::Large,
+                image: None,
+                workspace: None,
+            },
         );
-        assert!(matches!(result, Err(ProviderError::AgentRuntimeMismatch)));
+        assert!(matches!(
+            result,
+            Err(ProviderError::UnsupportedAgentHarness)
+        ));
     }
 
     #[test]
