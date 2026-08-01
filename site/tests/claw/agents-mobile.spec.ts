@@ -27,6 +27,9 @@ const mobileAgent = {
   created_at: "2026-05-18T00:00:00Z",
   updated_at: "2026-05-18T00:00:00Z",
   routes: {},
+  launch_config: {
+    sync_root: "/home/node",
+  },
   meta: {
     ui: {
       icon_index: 0,
