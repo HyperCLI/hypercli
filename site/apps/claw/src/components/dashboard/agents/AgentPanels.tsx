@@ -694,6 +694,14 @@ function additionalEnvTextFromAgent(agent: Agent | null): string {
     .join("\n");
 }
 
+function savedHyperEnvTextFromAgent(agent: Agent | null): string {
+  return Object.entries(launchConfigEnv(agent))
+    .filter(([key]) => key.startsWith("HYPER_"))
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}=${value}`)
+    .join("\n");
+}
+
 function parseAdditionalEnvText(value: string): Record<string, string> {
   const env: Record<string, string> = {};
   const lines = value.split(/\r?\n/);
@@ -1146,6 +1154,9 @@ function AgentSectionSettingsContent({
   agentStartBlockedReason?: string | null;
 }) {
   const avatarInputRef = React.useRef<HTMLInputElement | null>(null);
+  const [savedHyperEnvReveal, setSavedHyperEnvReveal] = React.useState({ agentId: agent.id, visible: false });
+  const showSavedHyperEnv = savedHyperEnvReveal.agentId === agent.id && savedHyperEnvReveal.visible;
+  const savedHyperEnvText = savedHyperEnvTextFromAgent(agent);
   const externalAgent = agent.managed === false;
   const canStartAgent = agent.state === "STOPPED" || isAgentFailureState(agent.state);
   const canStopAgent = agent.state === "RUNNING";
@@ -1372,14 +1383,39 @@ function AgentSectionSettingsContent({
           </AgentProfileSettingsRow>
 
           <AgentProfileSettingsRow label="Additional env" description="Extra runtime variables, one KEY=value per line.">
-            <textarea
-              value={additionalEnvDraft}
-              onChange={(event) => onAdditionalEnvChange(event.target.value)}
-              placeholder={"EXAMPLE_FLAG=1\nCUSTOM_ENDPOINT=https://example.com"}
-              aria-label="Additional env"
-              spellCheck={false}
-              className={SETTINGS_TEXTAREA_CLASS}
-            />
+            <div className="space-y-3">
+              <textarea
+                value={additionalEnvDraft}
+                onChange={(event) => onAdditionalEnvChange(event.target.value)}
+                placeholder={"EXAMPLE_FLAG=1\nCUSTOM_ENDPOINT=https://example.com"}
+                aria-label="Additional env"
+                spellCheck={false}
+                className={SETTINGS_TEXTAREA_CLASS}
+              />
+              <label className="flex items-center gap-2 text-sm font-medium text-destructive">
+                <input
+                  type="checkbox"
+                  checked={showSavedHyperEnv}
+                  onChange={(event) => setSavedHyperEnvReveal({ agentId: agent.id, visible: event.target.checked })}
+                  className={SETTINGS_CHECKBOX_CLASS}
+                />
+                Show saved HYPER_* variables (dangerous)
+              </label>
+              {showSavedHyperEnv ? (
+                <div className="space-y-2">
+                  <p className="text-xs text-destructive">
+                    Saved launch values may contain credentials. These values are read-only here and may differ from the live container environment.
+                  </p>
+                  <textarea
+                    value={savedHyperEnvText || "No saved HYPER_* variables."}
+                    readOnly
+                    aria-label="Saved HYPER environment variables"
+                    spellCheck={false}
+                    className={SETTINGS_TEXTAREA_CLASS}
+                  />
+                </div>
+              ) : null}
+            </div>
           </AgentProfileSettingsRow>
 
           <AgentProfileSettingsRow label="Default model" description="Model used by this agent.">
