@@ -1535,17 +1535,24 @@ describe("AgentSettingsPanel", () => {
 
     const showHyperEnv = screen.getByRole("checkbox", { name: "Show saved HYPER_* variables (dangerous)" });
     expect(showHyperEnv).not.toBeChecked();
-    expect(screen.queryByRole("textbox", { name: "Saved HYPER environment variables" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Managed HYPER environment variables" })).not.toBeInTheDocument();
     fireEvent.click(showHyperEnv);
-    const savedHyperEnv = screen.getByRole("textbox", { name: "Saved HYPER environment variables" });
-    expect(savedHyperEnv).toHaveAttribute("readonly");
+    const savedHyperEnv = screen.getByRole("textbox", { name: "Managed HYPER environment variables" });
+    expect(savedHyperEnv).not.toHaveAttribute("readonly");
     expect(savedHyperEnv).toHaveValue(
       "HYPER_API_BASE=https://api.hypercli.com\n"
-      + "HYPER_CUSTOM_FLAG=visible\n"
       + "HYPER_WORKSPACES_BOOT_SYNC=1\n"
       + "HYPER_WORKSPACES_DIR=/home/node/workspaces\n"
       + "HYPER_WORKSPACES_SYNC_READY_ONLY=1",
     );
+    fireEvent.change(savedHyperEnv, {
+      target: {
+        value: "HYPER_API_BASE=https://api.dev.hypercli.com\n"
+          + "HYPER_WORKSPACES_BOOT_SYNC=1\n"
+          + "HYPER_WORKSPACES_DIR=/home/node/workspaces\n"
+          + "HYPER_WORKSPACES_SYNC_READY_ONLY=1",
+      },
+    });
 
     fireEvent.change(screen.getByRole("textbox", { name: "Agent Docker image", hidden: true }), {
       target: { value: "ghcr.io/hypercli/hypercli-openclaw:custom" },
@@ -1561,7 +1568,7 @@ describe("AgentSettingsPanel", () => {
         env: {
           OPENCLAW_GATEWAY_TOKEN: "gateway-token",
           OPENCLAW_DESKTOP_ENABLED: "0",
-          HYPER_API_BASE: "https://api.hypercli.com",
+          HYPER_API_BASE: "https://api.dev.hypercli.com",
           HYPER_WORKSPACES_BOOT_SYNC: "1",
           HYPER_WORKSPACES_DIR: "/home/node/workspaces",
           HYPER_WORKSPACES_SYNC_READY_ONLY: "1",

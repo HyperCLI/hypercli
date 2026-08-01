@@ -694,12 +694,44 @@ function additionalEnvTextFromAgent(agent: Agent | null): string {
     .join("\n");
 }
 
-function savedHyperEnvTextFromAgent(agent: Agent | null): string {
+function managedHyperEnvTextFromAgent(agent: Agent | null): string {
   return Object.entries(launchConfigEnv(agent))
-    .filter(([key]) => key.startsWith("HYPER_"))
+    .filter(([key]) => key.startsWith("HYPER_") && isManagedLaunchEnvKey(key))
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, value]) => `${key}=${value}`)
     .join("\n");
+}
+
+function parseManagedHyperEnvText(value: string): Record<string, string> {
+  const env: Record<string, string> = {};
+  const lines = value.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index].trim();
+    if (!line || line.startsWith("#")) continue;
+    const separatorIndex = line.indexOf("=");
+    if (separatorIndex <= 0) {
+      throw new Error(`Managed HYPER env line ${index + 1} must use KEY=value.`);
+    }
+    const key = line.slice(0, separatorIndex).trim();
+    if (!key.startsWith("HYPER_") || !isManagedLaunchEnvKey(key)) {
+      throw new Error(`${key} is not an editable managed HYPER_* variable.`);
+    }
+    env[key] = line.slice(separatorIndex + 1);
+  }
+  return env;
+}
+
+function workspacesSyncSettingsFromManagedEnv(
+  managedHyperEnvText: string,
+  fallback: WorkspacesSyncSettings,
+): WorkspacesSyncSettings {
+  const env = parseManagedHyperEnvText(managedHyperEnvText);
+  return {
+    enabled: envBooleanFromString(env.HYPER_WORKSPACES_BOOT_SYNC, fallback.enabled),
+    outputDir: env.HYPER_WORKSPACES_DIR || fallback.outputDir,
+    readyOnly: envBooleanFromString(env.HYPER_WORKSPACES_SYNC_READY_ONLY, fallback.readyOnly),
+    workspace: (env.HYPER_WORKSPACES_SYNC_WORKSPACE ?? fallback.workspace.trim()) || "",
+  };
 }
 
 function parseAdditionalEnvText(value: string): Record<string, string> {
@@ -729,8 +761,10 @@ function buildUpdatedLaunchConfig(
   agent: Agent,
   image: string,
   additionalEnvText: string,
+  managedHyperEnvText: string,
   desktopEnabled: boolean,
   workspacesSync: WorkspacesSyncSettings,
+  workspacesSyncChanged: boolean,
   memoryIndex: MemoryIndexSettings | null = null,
 ): Record<string, unknown> {
   const launchConfig = launchConfigFromAgent(agent);
@@ -746,21 +780,28 @@ function buildUpdatedLaunchConfig(
   }
   launchConfig.routes = routes;
   const preservedEnv = Object.fromEntries(
-    Object.entries(launchConfigEnv(agent)).filter(([key]) => isManagedLaunchEnvKey(key)),
+    Object.entries(launchConfigEnv(agent)).filter(([key]) => (
+      isManagedLaunchEnvKey(key) && !(key.startsWith("HYPER_") && isManagedLaunchEnvKey(key))
+    )),
   );
+  const managedHyperEnv = parseManagedHyperEnvText(managedHyperEnvText);
+  const resolvedWorkspacesSync = workspacesSyncChanged
+    ? workspacesSync
+    : workspacesSyncSettingsFromManagedEnv(managedHyperEnvText, workspacesSync);
   const workspaceOptions: OpenClawWorkspacesSyncOptions = {
-    enabled: workspacesSync.enabled,
-    outputDir: workspacesSync.outputDir,
-    readyOnly: workspacesSync.readyOnly,
-    workspace: workspacesSync.workspace.trim() || null,
+    enabled: resolvedWorkspacesSync.enabled,
+    outputDir: resolvedWorkspacesSync.outputDir,
+    readyOnly: resolvedWorkspacesSync.readyOnly,
+    workspace: resolvedWorkspacesSync.workspace.trim() || null,
   };
   launchConfig.env = {
     ...preservedEnv,
     OPENCLAW_DESKTOP_ENABLED: desktopEnabled ? "1" : "0",
-    ...buildOpenClawWorkspacesSyncEnv(workspaceOptions),
     // Keep the injected indexing envs in line with the saved toggles; the
     // container entrypoint re-applies them to openclaw.json on every boot.
     ...(memoryIndex ? buildOpenClawMemoryIndexEnv(memoryIndex) : {}),
+    ...managedHyperEnv,
+    ...buildOpenClawWorkspacesSyncEnv(workspaceOptions),
     ...parseAdditionalEnvText(additionalEnvText),
   };
   launchConfig.workspacesSync = workspaceOptions;
@@ -1089,6 +1130,8 @@ function AgentSectionSettingsContent({
   onAgentImageChange,
   additionalEnvDraft,
   onAdditionalEnvChange,
+  managedHyperEnvDraft,
+  onManagedHyperEnvChange,
   desktopEnabled,
   onDesktopEnabledChange,
   workspacesSync,
@@ -1130,6 +1173,8 @@ function AgentSectionSettingsContent({
   onAgentImageChange: (value: string) => void;
   additionalEnvDraft: string;
   onAdditionalEnvChange: (value: string) => void;
+  managedHyperEnvDraft: string;
+  onManagedHyperEnvChange: (value: string) => void;
   desktopEnabled: boolean;
   onDesktopEnabledChange: (value: boolean) => void;
   workspacesSync: WorkspacesSyncSettings;
@@ -1156,7 +1201,6 @@ function AgentSectionSettingsContent({
   const avatarInputRef = React.useRef<HTMLInputElement | null>(null);
   const [savedHyperEnvReveal, setSavedHyperEnvReveal] = React.useState({ agentId: agent.id, visible: false });
   const showSavedHyperEnv = savedHyperEnvReveal.agentId === agent.id && savedHyperEnvReveal.visible;
-  const savedHyperEnvText = savedHyperEnvTextFromAgent(agent);
   const externalAgent = agent.managed === false;
   const canStartAgent = agent.state === "STOPPED" || isAgentFailureState(agent.state);
   const canStopAgent = agent.state === "RUNNING";
@@ -1404,12 +1448,13 @@ function AgentSectionSettingsContent({
               {showSavedHyperEnv ? (
                 <div className="space-y-2">
                   <p className="text-xs text-destructive">
-                    Saved launch values may contain credentials. These values are read-only here and may differ from the live container environment.
+                    Saved launch values may contain credentials. Changes apply on the next agent launch and may differ from the live container environment.
                   </p>
                   <textarea
-                    value={savedHyperEnvText || "No saved HYPER_* variables."}
-                    readOnly
-                    aria-label="Saved HYPER environment variables"
+                    value={managedHyperEnvDraft}
+                    onChange={(event) => onManagedHyperEnvChange(event.target.value)}
+                    placeholder="No saved managed HYPER_* variables."
+                    aria-label="Managed HYPER environment variables"
                     spellCheck={false}
                     className={SETTINGS_TEXTAREA_CLASS}
                   />
@@ -1761,6 +1806,8 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const [agentImageDraft, setAgentImageDraft] = React.useState(() => launchConfigImage(agent));
   const [savedAdditionalEnvDraft, setSavedAdditionalEnvDraft] = React.useState(() => additionalEnvTextFromAgent(agent));
   const [additionalEnvDraft, setAdditionalEnvDraft] = React.useState(() => additionalEnvTextFromAgent(agent));
+  const [savedManagedHyperEnvDraft, setSavedManagedHyperEnvDraft] = React.useState(() => managedHyperEnvTextFromAgent(agent));
+  const [managedHyperEnvDraft, setManagedHyperEnvDraft] = React.useState(() => managedHyperEnvTextFromAgent(agent));
   const [savedDesktopEnabled, setSavedDesktopEnabled] = React.useState(() => getDesktopEnabled(agent));
   const [desktopEnabledDraft, setDesktopEnabledDraft] = React.useState(() => getDesktopEnabled(agent));
   const [savedWorkspacesSyncDraft, setSavedWorkspacesSyncDraft] = React.useState(() => getWorkspacesSyncSettings(agent));
@@ -1870,12 +1917,15 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     }
     const nextImage = launchConfigImage(agent);
     const nextAdditionalEnv = additionalEnvTextFromAgent(agent);
+    const nextManagedHyperEnv = managedHyperEnvTextFromAgent(agent);
     const nextDesktopEnabled = getDesktopEnabled(agent);
     const nextWorkspacesSync = getWorkspacesSyncSettings(agent);
     setAgentImageDraft((current) => agentChanged || current === savedAgentImage ? nextImage : current);
     setSavedAgentImage(nextImage);
     setAdditionalEnvDraft((current) => agentChanged || current === savedAdditionalEnvDraft ? nextAdditionalEnv : current);
     setSavedAdditionalEnvDraft(nextAdditionalEnv);
+    setManagedHyperEnvDraft((current) => agentChanged || current === savedManagedHyperEnvDraft ? nextManagedHyperEnv : current);
+    setSavedManagedHyperEnvDraft(nextManagedHyperEnv);
     setDesktopEnabledDraft((current) => agentChanged || current === savedDesktopEnabled ? nextDesktopEnabled : current);
     setSavedDesktopEnabled(nextDesktopEnabled);
     setWorkspacesSyncDraft((current) => (
@@ -1894,7 +1944,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
       setAgentSettingsSuccess(null);
       setConfirmImageChange(false);
     }
-  }, [agent, savedAdditionalEnvDraft, savedAgentAvatar, savedAgentDisplayName, savedAgentHandle, savedAgentImage, savedAgentName, savedDesktopEnabled, savedWorkspacesSyncDraft]);
+  }, [agent, savedAdditionalEnvDraft, savedAgentAvatar, savedAgentDisplayName, savedAgentHandle, savedAgentImage, savedAgentName, savedDesktopEnabled, savedManagedHyperEnvDraft, savedWorkspacesSyncDraft]);
 
   React.useEffect(() => {
     const nextModel = getOpenClawDefaultModel(openclawConfig);
@@ -1935,6 +1985,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const workspacesSyncChanged = !workspacesSyncSettingsEqual(workspacesSyncDraft, savedWorkspacesSyncDraft);
   const agentLaunchChanged = agentImageDraft !== savedAgentImage
     || additionalEnvDraft !== savedAdditionalEnvDraft
+    || managedHyperEnvDraft !== savedManagedHyperEnvDraft
     || desktopChanged
     || workspacesSyncChanged;
   const modelChanged = modelDraft !== savedModelDraft;
@@ -1958,6 +2009,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     setAgentAvatarFile(null);
     setAgentImageDraft(savedAgentImage);
     setAdditionalEnvDraft(savedAdditionalEnvDraft);
+    setManagedHyperEnvDraft(savedManagedHyperEnvDraft);
     setDesktopEnabledDraft(savedDesktopEnabled);
     setWorkspacesSyncDraft(savedWorkspacesSyncDraft);
     setArchiveDraft(savedArchiveDraft);
@@ -1965,7 +2017,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     setMemoryIndexDraft(savedMemoryIndexDraft);
     setAgentSettingsError(null);
     setAgentSettingsSuccess(null);
-  }, [savedAdditionalEnvDraft, savedAgentAvatar, savedAgentDisplayName, savedAgentHandle, savedAgentImage, savedAgentName, savedArchiveDraft, savedDesktopEnabled, savedMemoryIndexDraft, savedModelDraft, savedProfileAvatar, savedProfileName, savedWorkspacesSyncDraft]);
+  }, [savedAdditionalEnvDraft, savedAgentAvatar, savedAgentDisplayName, savedAgentHandle, savedAgentImage, savedAgentName, savedArchiveDraft, savedDesktopEnabled, savedManagedHyperEnvDraft, savedMemoryIndexDraft, savedModelDraft, savedProfileAvatar, savedProfileName, savedWorkspacesSyncDraft]);
 
   const saveProfileChanges = React.useCallback(async (removeConfiguredChannels = false) => {
     setProfileError(null);
@@ -1997,6 +2049,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     const backendProfileChanged = agentNameChanged || agentHandleChanged || (externalAgent && agentDisplayNameChanged);
     const agentImageChanged = agentImageDraft !== savedAgentImage;
     const additionalEnvChanged = additionalEnvDraft !== savedAdditionalEnvDraft;
+    const managedHyperEnvChanged = managedHyperEnvDraft !== savedManagedHyperEnvDraft;
     const nextAgentImage = agentImageDraft.trim();
 
     if (agentNameChanged && !nextAgentName) {
@@ -2019,8 +2072,9 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     if (agentLaunchChanged) {
       try {
         parseAdditionalEnvText(additionalEnvDraft);
+        parseManagedHyperEnvText(managedHyperEnvDraft);
       } catch (error) {
-        setAgentSettingsError(error instanceof Error ? error.message : "Additional env is invalid.");
+        setAgentSettingsError(error instanceof Error ? error.message : "Environment variables are invalid.");
         return;
       }
     }
@@ -2172,21 +2226,28 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         await onSaveOpenClawConfig({ channels: null });
       }
 
-      if ((agentImageChanged || additionalEnvChanged || desktopChanged || workspacesSyncChanged || memoryIndexChanged) && onUpdateAgentLaunchConfig) {
+      if ((agentImageChanged || additionalEnvChanged || managedHyperEnvChanged || desktopChanged || workspacesSyncChanged || memoryIndexChanged) && onUpdateAgentLaunchConfig) {
         savingSection = "agent";
         await onUpdateAgentLaunchConfig(agent.id, buildUpdatedLaunchConfig(
           agent,
           nextAgentImage,
           additionalEnvDraft,
+          managedHyperEnvDraft,
           desktopEnabledDraft,
           workspacesSyncDraft,
+          workspacesSyncChanged,
           memoryIndexChanged ? memoryIndexDraft : null,
         ));
         setAgentImageDraft(nextAgentImage);
         setSavedAgentImage(nextAgentImage);
         setSavedAdditionalEnvDraft(additionalEnvDraft);
+        setSavedManagedHyperEnvDraft(managedHyperEnvDraft);
         setSavedDesktopEnabled(desktopEnabledDraft);
-        setSavedWorkspacesSyncDraft(workspacesSyncDraft);
+        const savedWorkspacesSync = workspacesSyncChanged
+          ? workspacesSyncDraft
+          : workspacesSyncSettingsFromManagedEnv(managedHyperEnvDraft, workspacesSyncDraft);
+        setWorkspacesSyncDraft(savedWorkspacesSync);
+        setSavedWorkspacesSyncDraft(savedWorkspacesSync);
         setAgentSettingsSuccess("Agent settings updated.");
         setConfirmImageChange(false);
       }
@@ -2238,6 +2299,8 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     hasSettingsChanges,
     memoryIndexChanged,
     memoryIndexDraft,
+    managedHyperEnvDraft,
+    savedManagedHyperEnvDraft,
     modelChanged,
     modelDraft,
     normalizedAgentHandleDraft,
@@ -2386,6 +2449,8 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             onAgentImageChange={setAgentImageDraft}
             additionalEnvDraft={additionalEnvDraft}
             onAdditionalEnvChange={setAdditionalEnvDraft}
+            managedHyperEnvDraft={managedHyperEnvDraft}
+            onManagedHyperEnvChange={setManagedHyperEnvDraft}
             desktopEnabled={desktopEnabledDraft}
             onDesktopEnabledChange={setDesktopEnabledDraft}
             workspacesSync={workspacesSyncDraft}
