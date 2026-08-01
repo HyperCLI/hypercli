@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  launchConfigSyncRoot,
   normalizeAgentBrowserFilePath,
   normalizeOpenClawMediaDisplayPath,
   normalizeOpenClawMediaFilePath,
@@ -8,6 +9,12 @@ import {
 } from "./agent-file-path";
 
 describe("normalizeOpenClawWorkspaceFilePath", () => {
+  it("takes the Files root directly from launch_config.sync_root", () => {
+    expect(launchConfigSyncRoot({ sync_root: "/configured/root/" })).toBe("/configured/root");
+    expect(launchConfigSyncRoot({ sync_root: ".openclaw/workspace" })).toBe("");
+    expect(launchConfigSyncRoot(null)).toBe("");
+  });
+
   it("preserves absolute browser paths including filesystem root", () => {
     expect(normalizeAgentBrowserFilePath("/")).toBe("/");
     expect(normalizeAgentBrowserFilePath("/home/node/.openclaw/")).toBe("/home/node/.openclaw");

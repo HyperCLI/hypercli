@@ -1,5 +1,12 @@
 import { OPENCLAW_WORKSPACE_DIR, OPENCLAW_WORKSPACE_PREFIX } from "@/lib/openclaw-config";
 
+export function launchConfigSyncRoot(launchConfig: unknown): string {
+  if (!launchConfig || typeof launchConfig !== "object" || Array.isArray(launchConfig)) return "";
+  const configured = (launchConfig as Record<string, unknown>).sync_root;
+  if (typeof configured !== "string" || !configured.trim().startsWith("/")) return "";
+  return normalizeAgentBrowserFilePath(configured);
+}
+
 export function normalizeAgentFilePath(path: string): string {
   return path
     .trim()

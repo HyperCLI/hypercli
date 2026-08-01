@@ -153,7 +153,11 @@ import {
   fallbackOpenClawSessionDisplayName,
   sameOpenClawSelectableSessionKey,
 } from "@/lib/openclaw-session-sdk-surface";
-import { normalizeAgentBrowserFilePath, normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
+import {
+  launchConfigSyncRoot,
+  normalizeAgentBrowserFilePath,
+  normalizeOpenClawWorkspaceFilePath,
+} from "@/lib/agent-file-path";
 import {
   AgentLoadingState,
   type AgentStatusChipModel,
@@ -2593,6 +2597,9 @@ function AgentsPageContent() {
     () => (selectedAgentId ? agents.find((agent) => agent.id === selectedAgentId) ?? null : null),
     [agents, selectedAgentId],
   );
+  const filesSyncRoot = useMemo(() => {
+    return launchConfigSyncRoot(selectedSdkAgent?.launchConfig);
+  }, [selectedSdkAgent]);
   useEffect(() => {
     if (workspacesLoading || agentsLoading) return;
 
@@ -6172,10 +6179,10 @@ function AgentsPageContent() {
             />
           ) : mainTab === "files" ? (
             <AgentFilesPanel
-              key={selectedAgent?.id ?? "no-agent"}
+              key={`${selectedAgent?.id ?? "no-agent"}:${filesSyncRoot}`}
               agentId={selectedAgentId}
               agentName={selectedAgent ? agentDisplayLabel(selectedAgent) : "Agent"}
-              rootPath={OPENCLAW_WORKSPACE_PREFIX}
+              rootPath={filesSyncRoot}
               defaultSource={filesDefaultSource}
               sourceDisabledReasons={filesSourceDisabledReasons}
               showSourceTabs={showFileSourceTabs}
