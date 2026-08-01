@@ -535,6 +535,7 @@ def _agent_state_style(state: object) -> str:
     }.get(normalized_state, "white")
 
 
+@app.command("ls")
 @app.command("list")
 def list_agents(
     json_output: bool = typer.Option(False, "--json", help="JSON output"),
