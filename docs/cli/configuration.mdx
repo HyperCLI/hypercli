@@ -11,12 +11,37 @@ hyper configure
 
 This writes the shared config file at `~/.hypercli/config`.
 
+## Verification Commands
+
+`hyper me` calls the authenticated product `/api/auth/me` endpoint and then
+attempts to add the current agent entitlement summary:
+
+```bash
+hyper me
+hyper me --output json
+```
+
+Use it to verify identity and key capabilities before a billed operation. Its
+output contains account identifiers and should not be pasted into public logs.
+
+`hyper status` queries compact model and cluster health through the agents API:
+
+```bash
+hyper status
+hyper status --output json
+```
+
+It is a health check, not an identity check. A successful `status` does not
+replace `me` when diagnosing which account a product credential resolves to.
+
 ## Environment Variables
 
 | Variable | Description |
 | --- | --- |
 | `HYPER_API_KEY` | Main HyperCLI API key |
+| `HYPERCLI_API_KEY` | Legacy alias for the main API key |
 | `HYPER_API_BASE` | Primary HyperCLI REST API base URL |
+| `HYPERCLI_API_URL` | Legacy alias for the primary REST API base URL |
 | `HYPER_AGENTS_API_KEY` | Agent-scoped API key used by `hyper agents` |
 | `HYPERCLI_WS_URL` | Primary HyperCLI WebSocket base URL |
 | `AGENTS_API_BASE_URL` | HyperCLI deployments API base URL |
@@ -116,7 +141,7 @@ Sanitized example with the HyperCLI-specific bits called out:
     "providers": {
       "hypercli": {
         "baseUrl": "https://api.agents.hypercli.com",
-        "apiKey": "hyper_api_I0Gr****Obui",
+        "apiKey": "<redacted>",
         "api": "anthropic-messages",
         "authHeader": true,
         "models": [
@@ -160,7 +185,7 @@ Sanitized example with the HyperCLI-specific bits called out:
         "model": "qwen3-embedding-4b",
         "remote": {
           "baseUrl": "https://api.agents.hypercli.com/v1",
-          "apiKey": "hyper_api_I0Gr****Obui"
+          "apiKey": "<redacted>"
         }
       }
     }
@@ -236,14 +261,102 @@ The CLI stores additional state in `~/.hypercli/`:
 
 ## Priority Rules
 
-The main CLI resolves configuration in this order:
+For product APIs, the SDK resolves credentials in this exact order:
 
-1. Explicit flags
-2. Environment variables
-3. `~/.hypercli/config`
+1. an explicit command `--key` or SDK `api_key` argument, where supported
+2. `HYPER_API_KEY` in the environment
+3. `HYPER_API_KEY` in `~/.hypercli/config`
+4. legacy `HYPERCLI_API_KEY` in the environment
+5. legacy `HYPERCLI_API_KEY` in `~/.hypercli/config`
 
-The `hyper agents` command group resolves agent auth in this order:
+The `hyper agents` group and most `hyper agent` account queries resolve agent
+credentials in this order:
 
-1. `HYPER_AGENTS_API_KEY`
-2. `HYPER_API_KEY`
-3. `~/.hypercli/agent-key.json`
+1. `HYPER_AGENTS_API_KEY` in the environment
+2. `HYPER_AGENTS_API_KEY` in `~/.hypercli/config`
+3. `HYPER_API_KEY` in the environment
+4. `HYPER_API_KEY` in `~/.hypercli/config`
+5. legacy `HYPERCLI_API_KEY` in the environment, then the config file
+6. legacy `~/.hypercli/agent-key.json`
+
+This ordering is per variable name. For example, a saved
+`HYPER_AGENTS_API_KEY` takes precedence over an environment
+`HYPER_API_KEY`. Remove or update the higher-priority value when replacing a
+credential; writing a new lower-priority value will not change the active key.
+
+`hyper config openclaw` and `hyper config opencode` are a special legacy path:
+without `--key`, they currently read `~/.hypercli/agent-key.json`. Pass
+`--key` explicitly when generating config from another credential, and avoid
+placing the literal key in shell history. Prefer `--placeholder-env` for files
+that should reference an environment variable.
+
+Other command-specific exceptions still exist:
+
+- `hyper voice`: explicit `--key`, canonical product/agent config resolution,
+  then a non-expired `agent-key.json`; its API base is explicit `--base-url`,
+  environment `HYPER_API_BASE`, environment `HYPERCLI_API_URL`, then production
+- `hyper agent embed`: explicit `--key`, environment `HYPER_API_KEY`, then
+  `agent-key.json`; it does not read the shared config file
+- `hyper agent models`: sends authentication only from environment
+  `HYPER_API_KEY`
+- `hyper agent status`: reads the legacy `agent-key.json` locally and does not
+  validate that key against the API
+
+Use each command's `--help` before assuming the common priority rules apply.
+
+## Diagnosing 401 Errors
+
+A `401` with a server detail such as `API key is inactive` is an authentication
+failure, not a flow or prompt failure. Repeating the render request will not
+repair it.
+
+1. Confirm the CLI version and resolved product API base without printing a
+   credential:
+
+```bash
+hyper --version
+python - <<'PY'
+from hypercli.config import get_api_url
+print(get_api_url())
+PY
+```
+
+2. Check which credential *names* are present. Do not print their values:
+
+```bash
+python - <<'PY'
+import os
+from hypercli.config import CONFIG_FILE
+
+names = ("HYPER_API_KEY", "HYPERCLI_API_KEY", "HYPER_AGENTS_API_KEY")
+print("environment:", [name for name in names if os.environ.get(name)])
+if CONFIG_FILE.exists():
+    configured = {
+        line.split("=", 1)[0].strip()
+        for line in CONFIG_FILE.read_text().splitlines()
+        if "=" in line and not line.lstrip().startswith("#")
+    }
+    print("config file:", [name for name in names if name in configured])
+else:
+    print("config file: absent")
+PY
+```
+
+3. Test the product identity once:
+
+```bash
+hyper me --output json
+```
+
+Do not paste successful `me` JSON into a public thread; it contains account
+identifiers. If the command fails, report the API base, the source variable or
+file name, HTTP status, and server detail. Never report the credential itself.
+
+4. Activate or replace the credential at its highest-priority source. Use
+`hyper configure` for `~/.hypercli/config`; update or unset an environment
+variable when it is the active source. Run `hyper me` once more before retrying
+the original operation.
+
+Do not switch to a wallet, another account, dev, or `--x402` as an automatic
+fallback. Besides changing billing identity, local flow inputs still require a
+normal product-authenticated upload.

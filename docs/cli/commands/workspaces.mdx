@@ -65,6 +65,25 @@ Use `--raw` for the original S3-backed file:
 hyper workspaces download team-knowledge projects/example/report.pdf --raw --output report.pdf
 ```
 
+Return a time-limited signed URL for the original instead of downloading it:
+
+```bash
+hyper workspaces download-url team-knowledge projects/example/report.pdf
+hyper workspaces download-url team-knowledge projects/example/report.pdf --output json
+```
+
+Signed URLs are credentials for the referenced object until they expire. Do not
+paste them into public logs.
+
+Queue Markdown projection regeneration after converter or source-processing
+changes:
+
+```bash
+hyper workspaces regenerate team-knowledge projects/example/report.pdf
+```
+
+Then use `wait-until-processed` before consuming the refreshed projection.
+
 ## Sync
 
 Sync one Workspace's Markdown projections:

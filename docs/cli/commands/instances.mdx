@@ -85,6 +85,17 @@ hyper instances regions
 # └──────┴────────────────────┴─────────────┘
 ```
 
+## Capacity
+
+Show real-time idle and launching counts by GPU type and region:
+
+```bash
+hyper instances capacity
+hyper instances capacity --gpu h100 --output json
+```
+
+Capacity is a point-in-time observation and does not reserve an instance.
+
 ## Launch Instance
 
 Launch a GPU instance with a Docker image:

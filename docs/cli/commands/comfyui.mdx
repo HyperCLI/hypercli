@@ -59,6 +59,34 @@ hyper comfyui show image_qwen_image_edit_2511
 hyper comfyui show video_wan2_2_14B_i2v --api | jq '.["97"]'
 ```
 
+## Runtime Management
+
+Inspect the current running ComfyUI job and probe its health:
+
+```bash
+hyper comfyui status
+```
+
+Download every image, GIF, and video found in the instance's prompt history:
+
+```bash
+hyper comfyui download --output-dir ./outputs
+hyper comfyui download --instance <job_id> --output-dir ./outputs
+```
+
+`download` discovers the current running job unless `--instance` selects a job
+ID, hostname, or IP. `--lb <port>` uses its HTTPS load balancer and `--auth`
+sends the job's bearer token. Downloaded outputs and prompt history can contain
+sensitive user content.
+
+Stop the currently discovered ComfyUI job:
+
+```bash
+hyper comfyui stop
+```
+
+`stop` cancels the GPU job; it is not a local UI shutdown.
+
 ## Run Workflow
 
 ```bash

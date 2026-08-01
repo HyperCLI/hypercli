@@ -6,7 +6,7 @@ HyperCLI is the SDK/CLI/docs workspace for:
 - GPU job orchestration against Orchestra (`/api/jobs`)
 - Media Flow APIs (`/api/flow/*`)
 - x402 pay-per-use launches (`/api/x402/job`, `/api/x402/flow/{flow_type}`)
-- HyperClaw checkout and agent setup (`hyper claw *`)
+- HyperCLI checkout and agent setup (`hyper agent *`, `hyper agents *`)
 
 ## Install
 
@@ -18,7 +18,7 @@ pip install hypercli-sdk hypercli-cli
 
 ```bash
 hyper configure
-export HYPERCLI_API_KEY=...
+export HYPER_API_KEY='your-api-key'
 ```
 
 ## Quick Commands
@@ -36,10 +36,10 @@ hyper flow text-to-image "a cinematic portrait"
 # Run pay-per-use x402 flow
 hyper flow text-to-image "a cinematic portrait" --x402
 
-# HyperClaw plan + config workflow
-hyper claw plans
-hyper claw subscribe basic
-hyper claw config env
+# HyperCLI plan + config workflow
+hyper agent plans
+hyper agent subscribe basic
+hyper config openclaw
 ```
 
 ## Agents Billing Notes
@@ -108,7 +108,8 @@ ffmpeg conversion errors.
 
 ## Current Notes
 
-- CLI `llm` command surface was removed; inference setup is documented through HyperClaw pages and `hyper claw config` output.
+- CLI `llm` supports one-shot chat and local-image inference; persistent agent
+  setup is available through `hyper config`.
 - Public flow pricing and metadata come from `GET /flows` and `GET /flows/{name}`.
 - Claw files UI should use `site/apps/claw/src/components/dashboard/files` and
   `AgentFilesPanel`; the old `dashboard/files-panel` duplicate was removed.

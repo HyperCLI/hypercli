@@ -19,26 +19,30 @@ pip install "hypercli-cli[stt]"
 
 ## Command Groups
 
-Platform:
+Every registered top-level command maps to one detailed reference:
 
-- `hyper me`
-- `hyper configure`
-- `hyper files`
-- `hyper instances`
-- `hyper jobs`
-- `hyper flow`
-- `hyper llm`
-- `hyper voice`
-- `hyper billing`
-- `hyper keys`
-- `hyper user`
-- `hyper wallet`
-- `hyper comfyui`
-
-HyperCLI:
-
-- `hyper agent`
-- `hyper agents`
+| Command | Purpose | Reference |
+| --- | --- | --- |
+| `hyper configure` | Save the product key and API base | [Configuration](/cli/configuration) |
+| `hyper me` | Resolve auth context and agent entitlement summary | [Configuration](/cli/configuration#diagnosing-401-errors) |
+| `hyper status` | Query compact model and cluster health | [Configuration](/cli/configuration) |
+| `hyper launch` | Alias for `hyper instances launch` | [instances](/cli/commands/instances) |
+| `hyper agents` | Managed agent lifecycle, access, gateway, and web search | [agents](/cli/commands/agents) |
+| `hyper agent` | Account, subscription, onboarding, and compatibility tools | [agent](/cli/commands/agent) |
+| `hyper config` | Generate OpenClaw and OpenCode provider config | [Configuration](/cli/configuration) |
+| `hyper billing` | Balance, transactions, and invoices | [billing](/cli/commands/billing) |
+| `hyper comfyui` | Run and manage ComfyUI workflow jobs | [comfyui](/cli/commands/comfyui) |
+| `hyper files` | Upload, inspect, and delete flow inputs | [files](/cli/commands/files) |
+| `hyper flow` | Submit and inspect simplified media flows | [flow](/cli/commands/flow) |
+| `hyper instances` | Discover capacity and launch GPU instances | [instances](/cli/commands/instances) |
+| `hyper keys` | Create, list, and disable API keys | [keys](/cli/commands/keys) |
+| `hyper jobs` | Inspect and operate GPU jobs | [jobs](/cli/commands/jobs) |
+| `hyper llm` | Direct chat and local-image inference | [llm](/cli/commands/llm) |
+| `hyper memory` | Prepare OpenClaw memory artifacts | [memory](/cli/commands/memory) |
+| `hyper user` | Show the current user account | [user](/cli/commands/user) |
+| `hyper voice` | TTS, voice cloning/design, and local transcription | [voice](/cli/commands/voice) |
+| `hyper wallet` | Local x402 wallet and wallet login | [wallet](/cli/commands/wallet) |
+| `hyper workspaces` | Shared knowledge, files, search, sync, and grants | [workspaces](/cli/commands/workspaces) |
 
 ## Split Between `hyper agent` And `hyper agents`
 

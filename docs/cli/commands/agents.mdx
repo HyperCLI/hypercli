@@ -18,6 +18,21 @@ It covers:
 - gateway config, files, sessions, cron
 - direct gateway chat
 
+## Command Inventory
+
+| Area | Commands |
+| --- | --- |
+| Read-only discovery | `budget`, `list`/`ls`, `status`, `metrics`, `web-search` |
+| Lifecycle | `create`, `wait`, `start`, `stop`, `delete` |
+| External runtimes | `external-create`, `external-rotate-key` |
+| Container access | `exec`, `cp`, `shell`, `logs`, `token` |
+| Compatibility chat | `chat` |
+| Gateway | `config`, `config-patch`, `models`, `files`, `sessions`, `cron`, `cron-add`, `cron-remove`, `cron-run`, `gateway-chat` |
+
+Run `hyper agents <command> --help` for the current flags. Lifecycle, file
+writes, exec/shell, config patches, cron mutations, token refreshes, and relay
+key operations change remote state or expose sensitive output.
+
 ## Global Options
 
 ```bash
@@ -90,6 +105,10 @@ hyper agents list
 hyper agents list --json
 ```
 
+The table is the safe default for resolving IDs, names, and states. JSON output
+includes each agent's complete `launch_config`, including its environment map.
+Treat it as secret-bearing output and do not paste it into tickets or chat.
+
 ### `status`
 
 ```bash
@@ -131,6 +150,56 @@ reports `STOPPED`.
 
 ```bash
 hyper agents delete <agent_id> --force
+```
+
+Delete removes the runtime and its record. Use `stop` when the intent is to
+preserve the record and synced state.
+
+## Safe Remote Inspection
+
+Start with bounded, read-only commands:
+
+```bash
+hyper agents list
+hyper agents status <agent_id>
+hyper agents metrics <agent_id>
+hyper agents logs <agent_id> --no-follow -n 100
+```
+
+Do not begin with a shell or broad environment dump. Logs and gateway config can
+still contain credentials or user content; summarize relevant fields and redact
+values before sharing. Avoid commands such as `env`, `printenv`, recursive home
+directory reads, or full config dumps unless the specific investigation
+requires them and the output remains private.
+
+For backend Kubernetes inspection, use read-only commands first and scope them
+to the relevant namespace, pod, and time window. Do not print pod specs,
+Secrets, ConfigMaps, or complete environment variables. `kubectl logs` can also
+contain credentials, so search for a narrow request ID, render ID, status code,
+or timestamp and redact before sharing. Never mutate or restart a workload as
+part of diagnosis without approval.
+
+Ask before using `exec`, `shell`, remote-destination `cp`, `config-patch`,
+`cron-add`, `cron-remove`, `cron-run`, `token`, `start`, `stop`, `delete`,
+`external-create`, or `external-rotate-key`.
+
+## External Agents And Search
+
+Register a customer-hosted runtime:
+
+```bash
+hyper agents external-create example-runtime
+hyper agents external-rotate-key <agent_id>
+```
+
+Both commands can print a relay key that is shown once. Capture it only in an
+approved secret store; do not paste the text or JSON output into chat.
+
+Search through the HyperCLI Brave proxy:
+
+```bash
+hyper agents web-search "release notes" --count 5
+hyper agents web-search "release notes" --json
 ```
 
 ## Exec, Copy, Shell, Logs
@@ -179,6 +248,9 @@ Refresh the current backend agent access token:
 hyper agents token <agent_id>
 ```
 
+The token value is stored in `~/.hypercli/agents.json`; the command prints only
+its expiry. Treat the state file as sensitive.
+
 ### `budget`
 
 Show current resource budget and usage:
@@ -201,8 +273,12 @@ hyper agents config <agent_id> --schema
 ### `config-patch`
 
 ```bash
-hyper agents config-patch <agent_id> '{"models":{"providers":{"openai":{"apiKey":"hyper_api_..."}}}}'
+hyper agents config-patch <agent_id> '<json-merge-patch>'
 ```
+
+`config-patch` merges the JSON patch and restarts the gateway. Do not place a
+literal API key in the shell command; use an existing runtime secret reference
+or another approved secret-delivery path.
 
 ### `models`
 
@@ -228,6 +304,14 @@ hyper agents sessions <agent_id>
 
 ```bash
 hyper agents cron <agent_id>
+```
+
+Mutating cron commands accept a job definition or ID:
+
+```bash
+hyper agents cron-add <agent_id> '{"name":"hourly-task","schedule":"0 * * * *","command":"run-task"}'
+hyper agents cron-run <agent_id> <job_id>
+hyper agents cron-remove <agent_id> <job_id>
 ```
 
 ### `gateway-chat`

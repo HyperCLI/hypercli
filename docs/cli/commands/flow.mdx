@@ -30,6 +30,11 @@ hyper flow image-to-image <prompt> --image <url-or-path>
 hyper flow first-last-frame-video <prompt> --start <url-or-path> --end <url-or-path>
 ```
 
+The CLI also retains hidden compatibility commands for `speaking-video`,
+`audio-to-text`, and flow-based `text-to-speech`. They do not appear in
+`hyper flow --help`; use `hyper voice` for current speech generation and local
+transcription workflows.
+
 ## Shared Options
 
 Most flow commands support combinations of:
@@ -44,7 +49,31 @@ Most flow commands support combinations of:
 
 ## Local Files
 
-When you pass a local path to an image or audio argument, the CLI uploads it automatically before creating the render.
+When you pass a local path to an image or audio argument, the CLI uploads it
+automatically and sends its file ID when creating the render:
+
+```bash
+hyper flow image-to-image "restyle as ink" --image ./source.png --output json
+hyper flow image-to-video "slow camera push" --image ./source.png --output json
+```
+
+Use a local path when the alternative is a private, expiring, or
+session-authenticated URL. For repeated runs, upload once and use the returned
+ID with the flow's `--file-id` option:
+
+```bash
+hyper files upload ./source.png
+hyper flow image-to-video "slow camera push" --file-id <file_id> --output json
+```
+
+The automatic upload uses the normal product API identity even when the final
+flow command has `--x402`. An inactive product key therefore fails before an
+x402 flow with a local input can be submitted.
+
+`image-to-image` accepts repeated `--image` paths/URLs or repeated `--file-id`
+values. Its help advertises a maximum of three, but the current CLI does not
+enforce that limit before submission. `first-last-frame-video` accepts
+`--start`/`--end` paths or the corresponding `--start-id`/`--end-id` values.
 
 ## x402 Usage
 
@@ -97,9 +126,37 @@ Download a completed flow result directly:
 hyper flow get <render_id> -o output.mp4
 ```
 
-Structured inspection is still available with:
+`get` assigns different meanings to its two output-related flags:
 
 ```bash
 hyper flow get <render_id> --format json
-hyper flow status <render_id> --format json
+hyper flow get <render_id> --output ./result.mp4
 ```
+
+- `--format`, `-f` selects `table|json` when inspecting metadata
+- `--output`, `-o` downloads the completed result to a file or directory
+- legacy `get -o json` and `get -o table` are interpreted as formats
+
+`status` uses `--output`, not `--format`:
+
+```bash
+hyper flow status <render_id> --output json
+hyper flow status <render_id> --watch
+```
+
+The interactive watcher renders a live table and does not emit structured JSON.
+For machine-readable polling, call `status --output json` repeatedly for the
+same render ID.
+
+## Submission And Terminal States
+
+Creation returns before rendering finishes. `pending` and `running` are
+successful submissions. Preserve the returned `render_id`; do not create a
+second render just because the first is not yet complete.
+
+- `completed`: inspect `result_url` or download with `flow get --output`
+- `failed`: inspect `flow get --format json` for the terminal error
+- `cancelled`: the render will not produce a result
+
+If creation itself returns `401`, fix the configured credential before retrying.
+See [Configuration](/cli/configuration#diagnosing-401-errors).

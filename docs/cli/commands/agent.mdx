@@ -14,6 +14,19 @@ Use it for:
 - local transcription
 - voice and embedding helpers
 
+## Command Inventory
+
+| Area | Commands |
+| --- | --- |
+| Onboarding and payment | `onboard`, `subscribe`, `login`, `activate-code` |
+| Account inspection | `status`, `plans`, `current-plan`, `subscriptions`, `subscription-summary`, `models` |
+| Lifecycle aliases | `start`, `stop`, `exec`, `shell` |
+| Integrations and config | `enable`, `openclaw-setup`, `config` |
+| Inference helpers | `voice`, `embed` |
+
+The `voice` and `embed` entries are nested command groups. Use
+`hyper agent voice --help` or `hyper agent embed --help` for their subcommands.
+
 ## Commands
 
 ### `onboard`
@@ -38,7 +51,9 @@ hyper agent subscribe pro 100 --dev
 
 ### `status`
 
-Show the saved HyperCLI key and current plan status.
+Show status from the legacy `~/.hypercli/agent-key.json` file. This command
+prints a long key prefix; do not paste its output into chat or logs. Prefer
+`hyper me` for an authenticated identity/capability check.
 
 ### `plans`
 
@@ -48,6 +63,33 @@ List plan IDs, price, and limits.
 hyper agent plans
 hyper agent plans --dev
 ```
+
+### `current-plan`, `subscriptions`, and `subscription-summary`
+
+Inspect the current effective plan, every entitlement/subscription item, or the
+pooled effective limits and slot inventory:
+
+```bash
+hyper agent current-plan
+hyper agent subscriptions
+hyper agent subscription-summary
+```
+
+Each supports `--json` and `--dev`. JSON can contain account, provider, and
+entitlement identifiers; treat it as private account data.
+
+### `activate-code`
+
+Redeem a grant code for the current account:
+
+```bash
+hyper agent activate-code <code>
+hyper agent activate-code <code> --extend-existing
+```
+
+By default redemption creates a new entitlement. `--extend-existing`
+explicitly extends the matching entitlement. Treat activation codes as secrets
+until redeemed.
 
 ### `models`
 
@@ -62,6 +104,18 @@ hyper agent models --json
 
 Wallet-based login that creates a user-bound HyperCLI API key and stores it locally.
 
+### `enable`
+
+Attach the hosted Slack relay to an agent:
+
+```bash
+hyper agent enable <agent>
+hyper agent enable <agent> --restart --wait
+```
+
+Without `--restart`, OpenClaw may need a later restart to read the persisted
+Slack configuration. This command changes remote integration state.
+
 ### `config`
 
 Generate config snippets for:
@@ -73,7 +127,7 @@ Generate config snippets for:
 ```bash
 hyper config openclaw --apply
 hyper config opencode --placeholder-env HYPER_AGENTS_API_KEY
-hyper config env
+hyper agent config env
 ```
 
 Without `--apply`, the command prints the generated JSON blob to stdout.
@@ -163,6 +217,16 @@ Voice generation helpers.
 ### `embed`
 
 Embedding helpers against HyperCLI.
+
+```bash
+hyper agent embed text "Document chunk"
+hyper agent embed text "Document chunk" --output ./embedding.json
+hyper agent embed test
+```
+
+`text --json` writes or prints the complete OpenAI-compatible response;
+otherwise `--output` writes only the embedding vector. `test` embeds two fixed
+sentences and reports dimensions, tokens, and cosine similarity.
 
 ## Files Written By `hyper agent`
 

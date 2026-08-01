@@ -38,11 +38,15 @@ hyper instances launch nvidia/cuda:12.6.3-base-ubuntu22.04 -g l4 -c "nvidia-smi"
 hyper flow text-to-image "a cinematic portrait"
 hyper flow text-to-image "a cinematic portrait" --x402
 
+# Direct inference and reusable uploads
+hyper llm chat "Summarize the current platform status"
+hyper files upload ./source.png
+
 # HyperCLI checkout/config
 hyper agent plans
 hyper agent subscribe basic
 hyper agent activate-code PROMO123
-hyper config env
+hyper agent config env
 hyper agent exec <agent_id> "ls -la"
 hyper agent shell <agent_id>
 hyper agents create --index-on-session-start --index-on-search --index-watch
@@ -50,5 +54,8 @@ hyper agents create --index-on-session-start --index-on-search --index-watch
 
 ## Notes
 
-- `hyper llm` command surface has been removed.
-- For inference setup, use HyperCLI (`hyper config ...`) and your agent/client's OpenAI-compatible configuration.
+- `hyper llm` provides one-shot chat and image inference. For persistent agent
+  configuration, use `hyper config ...` and the OpenAI/Anthropic-compatible
+  provider settings.
+- Use `hyper flow status <render_id> --output json` for structured status.
+  `hyper flow get` uses `--format` for metadata and `--output` for downloads.
