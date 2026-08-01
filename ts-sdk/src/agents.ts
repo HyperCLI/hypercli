@@ -2371,7 +2371,9 @@ export class RuntimeLoginSession {
   }
 
   cancel(): void {
-    if (this.socket.readyState === WebSocket.OPEN) this.socket.send('\x03');
+    // The SDK supports Node runtimes where the socket is supplied by `ws` and
+    // no global WebSocket constructor exists. OPEN is the protocol state 1.
+    if (this.socket.readyState === 1) this.socket.send('\x03');
     this.socket.close();
   }
 }

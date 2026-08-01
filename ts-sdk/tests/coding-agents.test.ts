@@ -478,6 +478,7 @@ describe('coding agents', () => {
   });
 
   it('cancels the shell when runtime authentication times out', async () => {
+    vi.stubGlobal('WebSocket', undefined);
     const agent = CodexAgent.fromDict(response('codex'));
     vi.spyOn(agent, 'exec').mockResolvedValue({ exitCode: 0, stdout: '{"methods":[]}', stderr: '' });
     const socket = {
@@ -500,5 +501,6 @@ describe('coding agents', () => {
     await expect(login.wait(1)).rejects.toThrow('Runtime authentication timed out');
     expect(socket.send).toHaveBeenCalledWith('\x03');
     expect(socket.close).toHaveBeenCalledOnce();
+    vi.unstubAllGlobals();
   });
 });
