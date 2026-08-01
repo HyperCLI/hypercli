@@ -1,0 +1,47 @@
+---
+title: Agent skills
+description: Canonical HyperCLI skills installed in managed coding-agent images.
+---
+
+HyperCLI publishes task-focused agent skills alongside the CLI source. Each
+skill is a concise operating guide for one command family; the command pages
+linked below remain the detailed CLI reference.
+
+## Managed-image discovery
+
+Managed coding-agent images install a pinned HyperCLI checkout at
+`/opt/hypercli`. The canonical skill bodies are available at
+`/opt/hypercli/skills/<name>/SKILL.md`.
+
+The image exposes those skills to supported harnesses through symlinks:
+
+- `$HOME/.buzz/.agents/skills/<name>` for agent skill discovery
+- `$HOME/.buzz/.claude/skills/<name>` as Claude compatibility aliases
+
+`$HOME/SKILLS.md` is a human-readable index, symlinked from
+`/opt/hypercli-buzz/SKILLS.md`. It helps agents and operators find the
+installed guides, but runtimes do not automatically load it as instructions.
+Open the relevant `SKILL.md` before using that command family.
+
+## Canonical catalog
+
+| Skill | Purpose | Command documentation | Canonical source |
+| --- | --- | --- | --- |
+| `hypercli` | Route common work to the domain skills and use the supported direct utilities for local-image analysis and text embeddings. | [CLI overview](/cli), [`hyper llm image`](/cli/commands/llm#image), [`hyper agent embed`](/cli/commands/agent#embed) | [`skills/hypercli/SKILL.md`](https://github.com/HyperCLI/hypercli/blob/main/skills/hypercli/SKILL.md) |
+| `hypercli-account` | Inspect users, billing, plans, subscriptions, entitlements, and API keys, and manage local wallets and account onboarding. | [`hyper billing`](/cli/commands/billing), [`hyper keys`](/cli/commands/keys), [`hyper user`](/cli/commands/user), [`hyper wallet`](/cli/commands/wallet), [`hyper agent`](/cli/commands/agent) | [`skills/hypercli-account/SKILL.md`](https://github.com/HyperCLI/hypercli/blob/main/skills/hypercli-account/SKILL.md) |
+| `hypercli-agents` | Create and administer managed or external agents, including lifecycle, access, logs, gateway operations, Slack, and troubleshooting. | [`hyper agents`](/cli/commands/agents), [`hyper agent`](/cli/commands/agent), [`hyper workspaces`](/cli/commands/workspaces) | [`skills/hypercli-agents/SKILL.md`](https://github.com/HyperCLI/hypercli/blob/main/skills/hypercli-agents/SKILL.md) |
+| `hypercli-auth` | Select, configure, and diagnose credentials for product APIs, agent APIs, and hosted coding runtimes. | [configuration and credential precedence](/cli/configuration), [`hyper keys`](/cli/commands/keys), [`hyper agent`](/cli/commands/agent) | [`skills/hypercli-auth/SKILL.md`](https://github.com/HyperCLI/hypercli/blob/main/skills/hypercli-auth/SKILL.md) |
+| `hypercli-compute` | Browse GPU inventory, launch instances, and inspect or control jobs, ports, load balancers, registries, and x402 launches. | [`hyper instances`](/cli/commands/instances), [`hyper jobs`](/cli/commands/jobs) | [`skills/hypercli-compute/SKILL.md`](https://github.com/HyperCLI/hypercli/blob/main/skills/hypercli-compute/SKILL.md) |
+| `hypercli-flows` | Create, monitor, cancel, and download managed image and video flows, including file uploads and explicit x402 checkout. | [`hyper flow`](/cli/commands/flow), [`hyper files`](/cli/commands/files), [`hyper wallet`](/cli/commands/wallet) | [`skills/hypercli-flows/SKILL.md`](https://github.com/HyperCLI/hypercli/blob/main/skills/hypercli-flows/SKILL.md) |
+| `hypercli-knowledge` | Upload flow inputs, manage durable shared workspaces, and convert local sources into OpenClaw memory. | [`hyper files`](/cli/commands/files), [`hyper workspaces`](/cli/commands/workspaces), [`hyper memory`](/cli/commands/memory) | [`skills/hypercli-knowledge/SKILL.md`](https://github.com/HyperCLI/hypercli/blob/main/skills/hypercli-knowledge/SKILL.md) |
+| `hypercli-voice` | Generate or stream speech, clone and design voices, and transcribe local audio. | [`hyper voice`](/cli/commands/voice) | [`skills/hypercli-voice/SKILL.md`](https://github.com/HyperCLI/hypercli/blob/main/skills/hypercli-voice/SKILL.md) |
+
+The core `hypercli` skill deliberately limits direct inference to
+`hyper llm image`, `hyper agent embed text`, and `hyper agent embed test`.
+Use the current harness for ordinary reasoning and `hypercli-flows` for managed
+image and video generation. Lower-level inference and workflow surfaces are
+outside the shipped skill set.
+
+The repository paths above are canonical. Image symlinks are discovery aids;
+do not maintain separate copies of a skill body in a runtime-specific
+directory.

@@ -6,6 +6,7 @@ import types
 from typer.testing import CliRunner
 
 from hypercli_cli.cli import app
+from hypercli_cli.llm import DEFAULT_IMAGE_PROMPT
 
 
 runner = CliRunner()
@@ -80,7 +81,7 @@ def test_pick_default_vision_model_prefers_kimi_vision():
     assert _pick_default_vision_model(payload) == "kimi-k2.6"
 
 
-def test_llm_image_sends_data_url_payload(tmp_path, monkeypatch):
+def test_llm_image_accepts_image_without_prompt_and_uses_default(tmp_path, monkeypatch):
     image_path = tmp_path / "fixture.jpg"
     image_bytes = b"synthetic-image-bytes"
     image_path.write_bytes(image_bytes)
@@ -114,8 +115,6 @@ def test_llm_image_sends_data_url_payload(tmp_path, monkeypatch):
             "llm",
             "image",
             str(image_path),
-            "--prompt",
-            "Describe the fixture.",
             "--no-stream",
         ],
     )
@@ -126,7 +125,7 @@ def test_llm_image_sends_data_url_payload(tmp_path, monkeypatch):
     assert captured["stream"] is False
     assert captured["messages"][0]["role"] == "user"
     content = captured["messages"][0]["content"]
-    assert content[0] == {"type": "text", "text": "Describe the fixture."}
+    assert content[0] == {"type": "text", "text": DEFAULT_IMAGE_PROMPT}
     assert content[1]["type"] == "image_url"
     assert content[1]["image_url"]["url"] == (
         "data:image/jpeg;base64," + base64.b64encode(image_bytes).decode("ascii")

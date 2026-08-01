@@ -1,9 +1,9 @@
 ---
 name: hypercli
 description: >
-  Operate HyperCLI product APIs and managed agents with the hyper CLI. Use for
-  credential diagnostics, inference, media flows, uploads, voice, GPU jobs,
-  workspaces, web search, agent lifecycle, logs, exec, shell, and gateway RPCs.
+  Operate HyperCLI product APIs and managed agents with the hyper CLI. Use as
+  the router for credentials, account, compute, flows, knowledge, voice, and
+  agent operations, or directly for local-image analysis and text embeddings.
 ---
 
 # HyperCLI
@@ -11,6 +11,25 @@ description: >
 Use the bundled `hyper` command. Run `hyper --help` and
 `hyper <group> --help` before guessing flags. Detailed references live under
 `/opt/hypercli/docs/cli/` in managed images.
+
+For credential resolution or coding-harness login, load the `hypercli-auth`
+skill. For media generation load `hypercli-flows`. For speech generation,
+cloning, or transcription load `hypercli-voice`.
+
+The current harness should handle ordinary reasoning and text generation.
+Three specialized inference utilities remain useful when the user asks for
+them:
+
+```bash
+hyper llm image ./input.png
+hyper agent embed text "text to embed"
+hyper agent embed test
+```
+
+`hyper llm image` defaults to a concise description; use `--prompt/-p` only
+when the user asks a specific question about the image. Use `hyper agent embed`
+for embedding work. Use the `hypercli-flows` skill for managed media generation
+so jobs are bounded and tracked.
 
 ## Authentication
 
@@ -30,31 +49,6 @@ If this returns `401` or says the key is inactive, stop. Do not retry, select
 another saved key, expose the key, or switch to `--x402` unless the user asks.
 Report the API base, credential source name, and server detail. See
 [configuration.mdx](/opt/hypercli/docs/cli/configuration.mdx#diagnosing-401-errors).
-
-## Media Flows
-
-Create one render and retain its ID. `pending` and `running` mean the submission
-succeeded; poll that ID instead of submitting duplicates.
-
-```bash
-hyper flow text-to-image "<prompt>" --output json
-hyper flow status <render-id> --output json
-hyper flow status <render-id> --watch
-hyper flow get <render-id> --output <path>
-```
-
-Local media paths upload automatically under the product identity:
-
-```bash
-hyper flow image-to-image "<prompt>" --image ./input.png --output json
-hyper flow image-to-video "<prompt>" --image ./input.png --output json
-```
-
-Do not substitute private or session-bound URLs for a readable local path.
-`--x402` does not bypass product authentication for local uploads. Report a
-terminal `failed` error and a completed result URL/download path. Read
-[flow.mdx](/opt/hypercli/docs/cli/commands/flow.mdx) for per-flow inputs and the
-important difference between `get --output` and `get --format`.
 
 ## Remote Agents
 
@@ -79,8 +73,10 @@ key rotation. Read [agents.mdx](/opt/hypercli/docs/cli/commands/agents.mdx).
 - `launch`, `instances`: `/opt/hypercli/docs/cli/commands/instances.mdx`
 - `agent`: `/opt/hypercli/docs/cli/commands/agent.mdx`
 - `agents`: `/opt/hypercli/docs/cli/commands/agents.mdx`
-- `billing`, `comfyui`, `files`, `flow`, `keys`, `jobs`, `llm`, `memory`,
-  `user`, `voice`, `wallet`, `workspaces`: matching
+- `hyper llm image`: `/opt/hypercli/docs/cli/commands/llm.mdx`
+- `hyper agent embed text/test`: `/opt/hypercli/docs/cli/commands/agent.mdx`
+- `billing`, `files`, `flow`, `keys`, `jobs`, `memory`, `user`, `voice`,
+  `wallet`, `workspaces`: matching
   `/opt/hypercli/docs/cli/commands/<group>.mdx`
 
 If `/opt/hypercli` is unavailable, rely on command help rather than inventing a

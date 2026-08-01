@@ -90,7 +90,9 @@ AGENTS_WS_URL=wss://api.agents.dev.hypercli.com/ws
 
 ### OpenClaw Base URL Rule
 
-`hyper config openclaw` uses the agents inference host derived from `AGENTS_API_BASE_URL`.
+`hyper config openclaw` resolves its inference host from explicit `--base-url`,
+then `HYPER_API_BASE`, then the selected production or development inference
+default. This legacy config command does not read `AGENTS_API_BASE_URL`.
 
 Important:
 

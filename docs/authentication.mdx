@@ -329,10 +329,10 @@ There are three ways to provide your API key:
 
 #### 1. Environment Variable (Recommended)
 
-Set the `HYPERCLI_API_KEY` environment variable:
+Set the canonical `HYPER_API_KEY` environment variable:
 
 ```bash
-export HYPERCLI_API_KEY=your_api_key_here
+export HYPER_API_KEY=your_api_key_here
 ```
 
 Add this to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.) to persist across sessions.
@@ -342,8 +342,8 @@ Add this to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.) to persist across
 Create a config file at `~/.hypercli/config`:
 
 ```bash
-mkdir -p ~/.c3
-echo "HYPERCLI_API_KEY=your_api_key_here" > ~/.hypercli/config
+mkdir -p ~/.hypercli
+echo "HYPER_API_KEY=your_api_key_here" > ~/.hypercli/config
 chmod 600 ~/.hypercli/config
 ```
 
@@ -415,25 +415,33 @@ curl -X GET "https://api.hypercli.com/api/jobs" \
 
 When multiple authentication methods are configured, the priority is:
 
-1. Environment variable (`HYPERCLI_API_KEY`)
-2. Config file (`~/.hypercli/config`)
-3. Direct parameter (SDK only)
+1. Explicit SDK `api_key=` parameter, where supported
+2. Environment `HYPER_API_KEY`
+3. `HYPER_API_KEY` in `~/.hypercli/config`
+4. Environment legacy `HYPERCLI_API_KEY`
+5. Legacy `HYPERCLI_API_KEY` in `~/.hypercli/config`
+
+Agent-scoped credentials have a separate order. See [CLI
+configuration](/cli/configuration#priority-rules) for
+`HYPER_AGENTS_API_KEY` precedence and command-specific exceptions.
 
 ### Config File Format
 
 The config file uses a simple key-value format:
 
 ```
-HYPERCLI_API_KEY=your_api_key
-HYPERCLI_API_URL=https://api.hypercli.com
+HYPER_API_KEY=your_api_key
+HYPER_API_BASE=https://api.hypercli.com
 ```
 
 Supported configuration options:
 
 | Key | Description | Default |
 |-----|-------------|---------|
-| `HYPERCLI_API_KEY` | Your API key | (required) |
-| `HYPERCLI_API_URL` | API base URL | `https://api.hypercli.com` |
+| `HYPER_API_KEY` | Main product API key | (required) |
+| `HYPER_API_BASE` | Product API base URL | `https://api.hypercli.com` |
+| `HYPERCLI_API_KEY` | Legacy product-key alias | - |
+| `HYPERCLI_API_URL` | Legacy product-base alias | - |
 
 ## Agent Route Authentication
 

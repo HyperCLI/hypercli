@@ -183,7 +183,8 @@
             "pages": [
               "cli/index",
               "cli/quickstart",
-              "cli/configuration"
+              "cli/configuration",
+              "cli/skills"
             ]
           },
           {
