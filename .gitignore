@@ -30,6 +30,8 @@ coverage
 .agents/
 .opencode/
 .github/
+/skills/
+/skills-lock.json
 docs/agent-display-names.md
 *.pem
 
