@@ -20,15 +20,22 @@ app = typer.Typer(help="Manage shared knowledge")
 console = Console()
 
 
+def _workspace_api_key() -> str | None:
+    # Managed agents receive a fresh runtime-scoped key in the environment.
+    # Prefer it over a product key that may have been restored from the agent's
+    # persistent ~/.hypercli/config.
+    return get_agent_api_key() or get_api_key()
+
+
 def _get_workspaces():
-    api_key = get_api_key() or get_agent_api_key()
-    return WorkspacesAPI(api_key)
+    return WorkspacesAPI(_workspace_api_key())
 
 
 def _resolve_auth_subject(user_id: str | None, agent_id: str | None) -> tuple[str | None, str | None]:
     if user_id or agent_id:
         return user_id, agent_id
-    auth_me = HyperCLI().user.auth_me()
+    api_key = _workspace_api_key()
+    auth_me = HyperCLI(api_key=api_key, agent_api_key=api_key).user.auth_me()
     runtime_agent_id = getattr(auth_me, "runtime_agent_id", None)
     if runtime_agent_id:
         return None, runtime_agent_id

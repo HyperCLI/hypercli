@@ -9,6 +9,53 @@ from hypercli_cli.cli import app
 runner = CliRunner()
 
 
+def _configure_stale_restored_key(monkeypatch, tmp_path: Path) -> None:
+    import hypercli.config as config_mod
+
+    config_path = tmp_path / ".hypercli" / "config"
+    config_path.parent.mkdir()
+    config_path.write_text("HYPER_API_KEY=hyper_api_stale_restored\n")
+    monkeypatch.setattr(config_mod, "CONFIG_FILE", config_path)
+    monkeypatch.delenv("HYPER_API_KEY", raising=False)
+    monkeypatch.delenv("HYPERCLI_API_KEY", raising=False)
+    monkeypatch.setenv("HYPER_AGENTS_API_KEY", "hyper_api_fresh_runtime")
+
+
+def test_workspaces_prefers_runtime_key_over_restored_product_key(monkeypatch, tmp_path):
+    import hypercli_cli.workspaces as workspaces_mod
+
+    _configure_stale_restored_key(monkeypatch, tmp_path)
+
+    assert workspaces_mod._get_workspaces().api_key == "hyper_api_fresh_runtime"
+
+
+def test_workspaces_auth_subject_prefers_runtime_key_over_restored_product_key(monkeypatch, tmp_path):
+    import hypercli_cli.workspaces as workspaces_mod
+
+    _configure_stale_restored_key(monkeypatch, tmp_path)
+    captured = {}
+
+    class _AuthMe:
+        runtime_agent_id = "agent-runtime"
+
+    class _User:
+        def auth_me(self):
+            return _AuthMe()
+
+    class _HyperCLI:
+        def __init__(self, *, api_key=None, agent_api_key=None):
+            captured.update({"api_key": api_key, "agent_api_key": agent_api_key})
+            self.user = _User()
+
+    monkeypatch.setattr(workspaces_mod, "HyperCLI", _HyperCLI)
+
+    assert workspaces_mod._resolve_auth_subject(None, None) == (None, "agent-runtime")
+    assert captured == {
+        "api_key": "hyper_api_fresh_runtime",
+        "agent_api_key": "hyper_api_fresh_runtime",
+    }
+
+
 class _FakeWorkspace:
     def __init__(self):
         self.id = "workspace-1"
@@ -412,7 +459,7 @@ def test_workspaces_sync_all_resolves_runtime_agent_from_auth_me(monkeypatch, tm
         user = _FakeUser()
 
     monkeypatch.setattr(workspaces_mod, "_get_workspaces", lambda: _FakeWorkspaces())
-    monkeypatch.setattr(workspaces_mod, "HyperCLI", lambda: _FakeHyperCLI())
+    monkeypatch.setattr(workspaces_mod, "HyperCLI", lambda **_kwargs: _FakeHyperCLI())
 
     result = runner.invoke(
         app,
