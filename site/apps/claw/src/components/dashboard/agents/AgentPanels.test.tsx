@@ -1128,6 +1128,42 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
   });
 
+  it.each(["RESTORE_FAILED", "SYNC_FAILED", "FAILED"] as const)(
+    "offers cleanup instead of restart for a bound %s runtime",
+    (state) => {
+      const onStartAgent = vi.fn();
+      const onStopAgent = vi.fn();
+      renderAgentSettingsPanel({
+        agent: { ...agent, state, pod_id: "failed-pod" },
+        onStartAgent,
+        onStopAgent,
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+
+      const cleanupButton = screen.getByRole("button", { name: "Clean up failed launch" });
+      expect(cleanupButton).toBeEnabled();
+      expect(screen.queryByRole("button", { name: "Start agent" })).not.toBeInTheDocument();
+      fireEvent.click(cleanupButton);
+      expect(onStopAgent).toHaveBeenCalledTimes(1);
+      expect(onStartAgent).not.toHaveBeenCalled();
+    },
+  );
+
+  it("allows restart for a failed runtime after cleanup clears its pod binding", () => {
+    const onStartAgent = vi.fn();
+    renderAgentSettingsPanel({
+      agent: { ...agent, state: "SYNC_FAILED", pod_id: null },
+      onStartAgent,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    expect(onStartAgent).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Clean up failed launch" })).not.toBeInTheDocument();
+  });
+
   it("opens the delete confirmation from agent settings", () => {
     const onDeleteAgent = vi.fn();
     renderAgentSettingsPanel({ onDeleteAgent });

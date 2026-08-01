@@ -1202,11 +1202,14 @@ function AgentSectionSettingsContent({
   const [savedHyperEnvReveal, setSavedHyperEnvReveal] = React.useState({ agentId: agent.id, visible: false });
   const showSavedHyperEnv = savedHyperEnvReveal.agentId === agent.id && savedHyperEnvReveal.visible;
   const externalAgent = agent.managed === false;
-  const canStartAgent = agent.state === "STOPPED" || isAgentFailureState(agent.state);
-  const canStopAgent = agent.state === "RUNNING";
+  const failedRuntimeNeedsCleanup = isAgentFailureState(agent.state) && Boolean(agent.pod_id);
+  const canStartAgent = agent.state === "STOPPED" || (isAgentFailureState(agent.state) && !agent.pod_id);
+  const canStopAgent = agent.state === "RUNNING" || failedRuntimeNeedsCleanup;
   const lifecycleBusy = Boolean(agentStarting || agentStopping || isAgentTransitionalState(agent.state));
   const lifecycleDescription = canStopAgent
-    ? "Pause compute and disconnect the gateway"
+    ? failedRuntimeNeedsCleanup
+      ? "Remove resources left behind by the failed launch"
+      : "Pause compute and disconnect the gateway"
     : canStartAgent
       ? (agentStartBlockedReason ?? "Start compute and reconnect the gateway")
       : agent.state === "RESTORING"
@@ -1230,12 +1233,12 @@ function AgentSectionSettingsContent({
           {canStopAgent ? (
             <button
               type="button"
-              aria-label="Stop agent"
+              aria-label={failedRuntimeNeedsCleanup ? "Clean up failed launch" : "Stop agent"}
               onClick={onStopAgent}
               disabled={!onStopAgent || lifecycleBusy}
               className={`${SETTINGS_SMALL_BUTTON_CLASS} shrink-0 gap-2`}
             >
-              {agentStopping ? "Stopping..." : "Stop agent"}
+              {agentStopping ? "Stopping..." : failedRuntimeNeedsCleanup ? "Clean up failed launch" : "Stop agent"}
               <Square className="h-3 w-3 fill-current" />
             </button>
           ) : (
