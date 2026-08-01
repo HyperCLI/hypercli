@@ -14,5 +14,6 @@ pub use config::{
 };
 pub use types::{
     AgentSize, BuzzLaunchConfig, BuzzLaunchError, CreateDeploymentRequest, Deployment,
-    ManagedRuntime, StartDeploymentRequest, BUZZ_RUNTIME_SCOPES,
+    ExecDeploymentRequest, ExecDeploymentResponse, ManagedRuntime, StartDeploymentRequest,
+    BUZZ_RUNTIME_SCOPES,
 };

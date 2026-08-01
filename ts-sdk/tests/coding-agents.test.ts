@@ -24,6 +24,18 @@ import {
 } from '../src/agents.js';
 import type { HTTPClient } from '../src/http.js';
 
+const CODEX_0146_DEVICE_AUTH_PROMPT = [
+  '\r\nWelcome to Codex [v\x1b[90m0.146.0\x1b[0m]\r\n',
+  "\x1b[90mOpenAI's command-line coding agent\x1b[0m\r\n\r\n",
+  'Follow these steps to sign in with ChatGPT using device code authorization:\r\n\r\n',
+  '1. Open this link in your browser and sign in to your account\r\n',
+  '   \x1b[94mhttps://auth.openai.com/codex/device\x1b[0m\r\n\r\n',
+  '2. Enter this one-time code \x1b[90m(expires in 15 minutes)\x1b[0m\r\n',
+  '   \x1b[94mABCD-EFGHJ\x1b[0m\r\n\r\n',
+  '\x1b[90mContinue only if you started this login in Codex. If a website or another ',
+  'person gave you this code, cancel.\x1b[0m\r\n\r\n',
+].join('');
+
 const buzzGolden = JSON.parse(readFileSync(
   new URL('../../tests/fixtures/buzz-launch-contract.json', import.meta.url),
   'utf8',
@@ -422,14 +434,61 @@ describe('coding agents', () => {
     vi.spyOn(agent, 'exec')
       .mockResolvedValueOnce({ exitCode: 0, stdout: '{"methods":[]}', stderr: '' })
       .mockResolvedValueOnce({ exitCode: 0, stdout: 'Logged in', stderr: '' });
+    let finishPrompt: (() => void) | undefined;
     const socket = {
       onmessage: null as ((event: { data: string }) => void) | null,
       onclose: null as (() => void) | null,
       send: vi.fn((value: string) => {
         const marker = value.match(/(__HYPERCLI_AUTH_EXIT_[a-f0-9]+__=)/)?.[1];
-        queueMicrotask(() => socket.onmessage?.({
-          data: `Open https://auth.example/device\nVerification code: ABCD-1234\n${marker}0\n`,
-        }));
+        const splitUrl = CODEX_0146_DEVICE_AUTH_PROMPT.indexOf('codex/device') + 'cod'.length;
+        const splitCode = CODEX_0146_DEVICE_AUTH_PROMPT.indexOf('ABCD-EFGHJ') + 'ABCD-'.length;
+        const chunks = [
+          '\x1b]0;codex login --device-auth',
+          `\x07${CODEX_0146_DEVICE_AUTH_PROMPT.slice(0, splitUrl)}`,
+          CODEX_0146_DEVICE_AUTH_PROMPT.slice(splitUrl, splitCode),
+        ];
+        for (const data of chunks) queueMicrotask(() => socket.onmessage?.({ data }));
+        finishPrompt = () => socket.onmessage?.({
+          data: `${CODEX_0146_DEVICE_AUTH_PROMPT.slice(splitCode)}${marker}0\n`,
+        });
+      }),
+      close: vi.fn(),
+      readyState: 1,
+    };
+    vi.spyOn(agent, 'shellConnect').mockResolvedValue(socket as unknown as WebSocket);
+
+    let challengeReady = false;
+    const loginPromise = agent.auth.login({ method: 'device', challengeTimeoutMs: 1000 })
+      .then((login) => {
+        challengeReady = true;
+        return login;
+      });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(challengeReady).toBe(false);
+    expect(finishPrompt).toBeTypeOf('function');
+    finishPrompt?.();
+    const login = await loginPromise;
+
+    expect(socket.send).toHaveBeenCalledWith(expect.stringContaining("'codex' 'login' '--device-auth'"));
+    expect(login.verificationUrl).toBe('https://auth.openai.com/codex/device');
+    expect(login.userCode).toBe('ABCD-EFGHJ');
+    expect(login.output).toContain('device code authorization');
+    expect(login.output).not.toContain('\x1b');
+    await expect(login.wait(1000)).resolves.toMatchObject({ authenticated: true });
+  });
+
+  it('cancels the shell when runtime authentication times out', async () => {
+    const agent = CodexAgent.fromDict(response('codex'));
+    vi.spyOn(agent, 'exec').mockResolvedValue({ exitCode: 0, stdout: '{"methods":[]}', stderr: '' });
+    const socket = {
+      onmessage: null as ((event: { data: string }) => void) | null,
+      onclose: null as (() => void) | null,
+      send: vi.fn((value: string) => {
+        if (value.includes('codex') && value.includes('--device-auth')) {
+          queueMicrotask(() => socket.onmessage?.({
+            data: 'Open https://auth.example/device and enter device code ABCD-EFGH\n',
+          }));
+        }
       }),
       close: vi.fn(),
       readyState: 1,
@@ -438,9 +497,8 @@ describe('coding agents', () => {
 
     const login = await agent.auth.login({ method: 'device', challengeTimeoutMs: 1000 });
 
-    expect(socket.send).toHaveBeenCalledWith(expect.stringContaining("'codex' 'login' '--device-auth'"));
-    expect(login.verificationUrl).toBe('https://auth.example/device');
-    expect(login.userCode).toBe('ABCD-1234');
-    await expect(login.wait(1000)).resolves.toMatchObject({ authenticated: true });
+    await expect(login.wait(1)).rejects.toThrow('Runtime authentication timed out');
+    expect(socket.send).toHaveBeenCalledWith('\x03');
+    expect(socket.close).toHaveBeenCalledOnce();
   });
 });

@@ -1061,9 +1061,12 @@ def _is_openclaw_pro_agent_data(data: dict) -> bool:
 
 
 _ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
-_AUTH_URL_RE = re.compile(r"https?://[^\s<>\"']+")
+_AUTH_URL_RE = re.compile(r"https?://[^\s<>\"']+(?=[\s<>\"'])")
 _AUTH_CODE_RE = re.compile(
-    r"(?i)(?:user|device|verification|one[- ]time)?\s*code\s*(?:is|:)?\s*([A-Z0-9][A-Z0-9-]{3,})"
+    r"(?i)\b(?:user|device|verification|one[- ]time)\s+code\b"
+    r"\s*(?:is|:)?\s*(?:\([^\r\n)]*\)\s*)*"
+    r"((?!authorization\b)[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?)"
+    r"(?=[\s.,;:)\]])"
 )
 
 
@@ -1097,14 +1100,23 @@ class RuntimeAuthStatus:
 class RuntimeLoginSession:
     """Live, JWT-authenticated PTY session for browser/device login."""
 
-    def __init__(self, auth: "RuntimeAuthClient", websocket: Any, command: tuple[str, ...]):
+    def __init__(
+        self,
+        auth: "RuntimeAuthClient",
+        websocket: Any,
+        command: tuple[str, ...],
+        *,
+        requires_device_challenge: bool = False,
+    ):
         self._auth = auth
         self._websocket = websocket
+        self._requires_device_challenge = requires_device_challenge
         self.command = command
         self.verification_url: str | None = None
         self.user_code: str | None = None
         self.instructions: str = ""
         self.interactive_required = False
+        self._raw_output = ""
         self.output = ""
         self.exit_code: int | None = None
         self._ready = asyncio.Event()
@@ -1119,9 +1131,15 @@ class RuntimeLoginSession:
         command: tuple[str, ...],
         *,
         challenge_timeout: float = 45.0,
+        requires_device_challenge: bool = False,
     ) -> "RuntimeLoginSession":
         websocket = await auth.agent.shell_connect()
-        session = cls(auth, websocket, command)
+        session = cls(
+            auth,
+            websocket,
+            command,
+            requires_device_challenge=requires_device_challenge,
+        )
         session._reader_task = asyncio.create_task(session._read_loop())
         shell_command = shlex.join(command)
         wrapped = (
@@ -1139,25 +1157,28 @@ class RuntimeLoginSession:
         return session
 
     def _consume(self, value: str) -> None:
-        text = _clean_terminal_output(value)
-        self.output += text
+        self._raw_output += str(value)
+        self.output = _clean_terminal_output(self._raw_output)
         marker_match = re.search(re.escape(self._marker) + r"=(\d+)", self.output)
         if marker_match:
             self.exit_code = int(marker_match.group(1))
             self._completed.set()
             self._ready.set()
         if self.verification_url is None:
-            urls = _AUTH_URL_RE.findall(text)
+            urls = _AUTH_URL_RE.findall(self.output)
             if urls:
                 self.verification_url = urls[0].rstrip(".,);]")
         if self.user_code is None:
-            code_match = _AUTH_CODE_RE.search(text)
+            code_match = _AUTH_CODE_RE.search(self.output)
             if code_match:
                 self.user_code = code_match.group(1)
-        lowered = text.lower()
+        lowered = self.output.lower()
         if any(token in lowered for token in ("select", "choose", "provider", "login method")):
             self.interactive_required = True
-        if self.verification_url or self.user_code or self.interactive_required:
+        challenge_ready = bool(self.verification_url and self.user_code)
+        if not self._requires_device_challenge:
+            challenge_ready = bool(self.verification_url or self.user_code)
+        if challenge_ready or self.interactive_required:
             self.instructions = self.output.replace(self._marker, "").strip()
             self._ready.set()
 
@@ -1182,6 +1203,7 @@ class RuntimeLoginSession:
         try:
             await asyncio.wait_for(self._completed.wait(), timeout=timeout)
         except asyncio.TimeoutError:
+            await self.cancel()
             raise TimeoutError(f"Timed out waiting for {self._auth.runtime} login") from None
         if self.exit_code not in {None, 0}:
             raise RuntimeError(
@@ -1457,6 +1479,11 @@ class RuntimeAuthClient:
             self,
             tuple(command),
             challenge_timeout=challenge_timeout,
+            requires_device_challenge=(
+                selected.kind == "device"
+                or selected.id == "device"
+                or any("device-auth" in part.lower() for part in command)
+            ),
         )
 
     def logout(self, provider: str | None = None) -> RuntimeAuthStatus:

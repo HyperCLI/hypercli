@@ -14,7 +14,10 @@ use serde_json::{json, Value};
 use thiserror::Error;
 use url::Url;
 
-use crate::{ClientConfig, CreateDeploymentRequest, Deployment, StartDeploymentRequest};
+use crate::{
+    ClientConfig, CreateDeploymentRequest, Deployment, ExecDeploymentRequest,
+    ExecDeploymentResponse, StartDeploymentRequest,
+};
 
 pub struct HyperCliClient {
     api_base: Url,
@@ -278,6 +281,52 @@ impl HyperCliClient {
             "POST",
             &url,
             None,
+            started,
+            Some(status),
+            headers,
+            result.as_ref().map(|_| ()),
+        );
+        result
+    }
+
+    pub fn exec_deployment(
+        &self,
+        deployment_id: &str,
+        request: &ExecDeploymentRequest,
+    ) -> Result<ExecDeploymentResponse, HyperCliError> {
+        let url = self.endpoint(&format!("deployments/{deployment_id}/exec"));
+        let started = Instant::now();
+        let response = match self
+            .http
+            .post(&url)
+            .bearer_auth(self.api_key.expose_secret())
+            .json(request)
+            .send()
+        {
+            Ok(response) => response,
+            Err(error) => {
+                let error = HyperCliError::Transport(error.to_string());
+                self.trace_http(
+                    "exec_deployment",
+                    "POST",
+                    &url,
+                    Some(&json!({"command": "<omitted>", "timeout": request.timeout, "dry_run": request.dry_run})),
+                    started,
+                    None,
+                    BTreeMap::new(),
+                    Err(&error),
+                );
+                return Err(error);
+            }
+        };
+        let status = response.status();
+        let headers = trace_headers(&response);
+        let result = decode_json(response);
+        self.trace_http(
+            "exec_deployment",
+            "POST",
+            &url,
+            Some(&json!({"command": "<omitted>", "timeout": request.timeout, "dry_run": request.dry_run})),
             started,
             Some(status),
             headers,
@@ -620,6 +669,81 @@ mod tests {
         assert_eq!(stopped.id, "deployment-1");
         assert_eq!(stopped.state, "stopping");
         mock.assert();
+    }
+
+    #[test]
+    fn exec_posts_typed_request_and_decodes_output() {
+        let mut server = Server::new();
+        let mock = server
+            .mock("POST", "/agents/deployments/deployment-1/exec")
+            .match_header("authorization", "Bearer test-credential")
+            .match_body(Matcher::JsonString(
+                serde_json::json!({
+                    "command": "/usr/local/bin/hypercli-buzz-onboard status",
+                    "timeout": 5,
+                    "dry_run": false
+                })
+                .to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "exit_code": 0,
+                    "stdout": "{\"phase\":\"ready\"}\n",
+                    "stderr": "",
+                    "dry_run": false
+                })
+                .to_string(),
+            )
+            .create();
+
+        let mut request = ExecDeploymentRequest::new("/usr/local/bin/hypercli-buzz-onboard status");
+        request.timeout = 5;
+        let response = client(&server)
+            .exec_deployment("deployment-1", &request)
+            .unwrap();
+
+        assert_eq!(response.exit_code, 0);
+        assert_eq!(response.stdout, "{\"phase\":\"ready\"}\n");
+        assert!(response.stderr.is_empty());
+        mock.assert();
+    }
+
+    #[test]
+    fn exec_trace_never_records_command_or_response_output() {
+        let mut server = Server::new();
+        let temp = tempfile::tempdir().unwrap();
+        let trace_file = temp.path().join("logs/http.jsonl");
+        let secret = "single-use-auth-code";
+        let _mock = server
+            .mock("POST", "/agents/deployments/deployment-1/exec")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "exit_code": 0,
+                    "stdout": secret,
+                    "stderr": "",
+                    "dry_run": false
+                })
+                .to_string(),
+            )
+            .create();
+        let client = HyperCliClient::new(ClientConfig {
+            api_base: Url::parse(&format!("{}/agents", server.url())).unwrap(),
+            api_key: SecretString::from("test-credential"),
+            trace_file: Some(trace_file.clone()),
+        })
+        .unwrap();
+        let request = ExecDeploymentRequest::new(format!("printf {secret}"));
+
+        client.exec_deployment("deployment-1", &request).unwrap();
+
+        let trace = fs::read_to_string(trace_file).unwrap();
+        assert!(trace.contains(r#""command":"<omitted>""#));
+        assert!(!trace.contains(secret));
+        assert!(!trace.contains("test-credential"));
     }
 
     #[test]

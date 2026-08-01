@@ -372,6 +372,38 @@ pub struct StartDeploymentRequest {
     pub dry_run: bool,
 }
 
+#[derive(Clone, Serialize)]
+pub struct ExecDeploymentRequest {
+    pub command: String,
+    #[serde(default = "default_exec_timeout")]
+    pub timeout: u32,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+impl ExecDeploymentRequest {
+    pub fn new(command: impl Into<String>) -> Self {
+        Self {
+            command: command.into(),
+            timeout: default_exec_timeout(),
+            dry_run: false,
+        }
+    }
+}
+
+fn default_exec_timeout() -> u32 {
+    30
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct ExecDeploymentResponse {
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct Deployment {
     pub id: String,

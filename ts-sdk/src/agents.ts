@@ -2272,6 +2272,7 @@ export class RuntimeLoginSession {
   public verificationUrl: string | null = null;
   public userCode: string | null = null;
   public interactiveRequired = false;
+  private rawOutput = '';
   private exitCode: number | null = null;
   private readonly marker: string;
   private readonly completion: Promise<void>;
@@ -2283,6 +2284,7 @@ export class RuntimeLoginSession {
     private readonly authClient: RuntimeAuthClient,
     public readonly socket: WebSocket,
     command: string[],
+    private readonly requiresDeviceChallenge: boolean,
   ) {
     this.marker = `__HYPERCLI_AUTH_EXIT_${randomHexToken(12)}__=`;
     this.completion = new Promise((resolve) => { this.complete = resolve; });
@@ -2301,9 +2303,10 @@ export class RuntimeLoginSession {
     authClient: RuntimeAuthClient,
     command: string[],
     challengeTimeoutMs = 45_000,
+    requiresDeviceChallenge = false,
   ): Promise<RuntimeLoginSession> {
     const socket = await authClient.agent.shellConnect();
-    const session = new RuntimeLoginSession(authClient, socket, command);
+    const session = new RuntimeLoginSession(authClient, socket, command, requiresDeviceChallenge);
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([
@@ -2322,7 +2325,8 @@ export class RuntimeLoginSession {
   }
 
   private consume(chunk: string): void {
-    this.output += stripTerminalCodes(chunk);
+    this.rawOutput += chunk;
+    this.output = stripTerminalCodes(this.rawOutput);
     const markerIndex = this.output.lastIndexOf(this.marker);
     if (markerIndex >= 0) {
       const match = this.output.slice(markerIndex + this.marker.length).match(/^(-?\d+)/);
@@ -2332,10 +2336,13 @@ export class RuntimeLoginSession {
         this.complete();
       }
     }
-    this.verificationUrl ??= this.output.match(/https?:\/\/[^\s"'<>]+/)?.[0] ?? null;
-    this.userCode ??= this.output.match(/(?:user|device|verification|one[- ]time)?\s*code\s*(?:is|:)?\s*([A-Z0-9][A-Z0-9-]{3,})/i)?.[1] ?? null;
+    this.verificationUrl ??= this.output.match(/https?:\/\/[^\s"'<>]+(?=[\s"'<>])/)?.[0] ?? null;
+    this.userCode ??= this.output.match(/\b(?:user|device|verification|one[- ]time)\s+code\b\s*(?:is|:)?\s*(?:\([^\r\n)]*\)\s*)*((?!authorization\b)[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?)(?=[\s.,;:)\]])/i)?.[1] ?? null;
     this.interactiveRequired ||= /\b(select|choose)\b.*\b(provider|login method)\b/i.test(this.output);
-    if (this.verificationUrl || this.userCode || this.interactiveRequired) this.markReady();
+    const challengeReady = this.requiresDeviceChallenge
+      ? Boolean(this.verificationUrl && this.userCode)
+      : Boolean(this.verificationUrl || this.userCode);
+    if (challengeReady || this.interactiveRequired) this.markReady();
   }
 
   send(text: string): void {
@@ -2351,6 +2358,9 @@ export class RuntimeLoginSession {
           timer = setTimeout(() => reject(new Error('Runtime authentication timed out')), timeoutMs);
         }),
       ]);
+    } catch (error) {
+      this.cancel();
+      throw error;
     } finally {
       if (timer) clearTimeout(timer);
     }
@@ -2457,7 +2467,15 @@ export class RuntimeAuthClient {
       if (options.providerMethod) command.push('--method', options.providerMethod);
     }
     if (this.agent.runtime === 'claude-code' && options.email) command.push('--email', options.email);
-    return RuntimeLoginSession.start(this, command, options.challengeTimeoutMs);
+    const requiresDeviceChallenge = method.kind === 'device'
+      || method.id === 'device'
+      || command.some((part) => part.toLowerCase().includes('device-auth'));
+    return RuntimeLoginSession.start(
+      this,
+      command,
+      options.challengeTimeoutMs,
+      requiresDeviceChallenge,
+    );
   }
 
   async logout(provider?: string): Promise<RuntimeAuthStatus> {

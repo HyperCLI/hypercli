@@ -1,6 +1,7 @@
 """Contract tests for canonical hosted coding-agent runtimes."""
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from unittest.mock import Mock
@@ -46,6 +47,19 @@ from hypercli.agents import (
 
 class _HTTP:
     api_key = "hyper_api_test"
+
+
+_CODEX_0146_DEVICE_AUTH_PROMPT = (
+    "\r\nWelcome to Codex [v\x1b[90m0.146.0\x1b[0m]\r\n"
+    "\x1b[90mOpenAI's command-line coding agent\x1b[0m\r\n\r\n"
+    "Follow these steps to sign in with ChatGPT using device code authorization:\r\n\r\n"
+    "1. Open this link in your browser and sign in to your account\r\n"
+    "   \x1b[94mhttps://auth.openai.com/codex/device\x1b[0m\r\n\r\n"
+    "2. Enter this one-time code \x1b[90m(expires in 15 minutes)\x1b[0m\r\n"
+    "   \x1b[94mABCD-EFGHJ\x1b[0m\r\n\r\n"
+    "\x1b[90mContinue only if you started this login in Codex. If a website or another "
+    "person gave you this code, cancel.\x1b[0m\r\n\r\n"
+)
 
 
 _BUZZ_GOLDEN = json.loads(
@@ -499,7 +513,7 @@ def test_claude_auth_methods_honor_adapter_terminal_metadata():
 @pytest.mark.asyncio
 async def test_adapter_owned_login_uses_buzz_acp_authenticate():
     socket = _LoginSocket(
-        messages=["Open https://auth.example/device and enter device code ACP-1234"]
+        messages=["Open https://auth.example/device and enter device code ACP-1234\n"]
     )
     deployments = Mock()
 
@@ -553,7 +567,8 @@ class _LoginSocket:
         self.closed = False
         self._messages = iter(
             messages
-            or ["Open https://auth.example/device and enter device code ABCD-EFGH"]
+            if messages is not None
+            else ["Open https://auth.example/device and enter device code ABCD-EFGH"]
         )
 
     def __aiter__(self):
@@ -574,7 +589,16 @@ class _LoginSocket:
 
 @pytest.mark.asyncio
 async def test_login_uses_existing_authenticated_shell_and_parses_device_challenge():
-    socket = _LoginSocket()
+    split_url = _CODEX_0146_DEVICE_AUTH_PROMPT.index("codex/device") + len("cod")
+    split_code = _CODEX_0146_DEVICE_AUTH_PROMPT.index("ABCD-EFGHJ") + len("ABCD-")
+    socket = _LoginSocket(
+        messages=[
+            "\x1b]0;codex login --device-auth",
+            "\x07" + _CODEX_0146_DEVICE_AUTH_PROMPT[:split_url],
+            _CODEX_0146_DEVICE_AUTH_PROMPT[split_url:split_code],
+            _CODEX_0146_DEVICE_AUTH_PROMPT[split_code:],
+        ]
+    )
     deployments = Mock()
     deployments.shell_connect = Mock(return_value=None)
 
@@ -590,17 +614,62 @@ async def test_login_uses_existing_authenticated_shell_and_parses_device_challen
         RuntimeAuthMethod(
             id="device",
             name="Device login",
+            kind="device",
             command=("codex", "login", "--device-auth"),
         )
     ]
 
     session = await auth.login("device")
 
-    assert session.verification_url == "https://auth.example/device"
-    assert session.user_code == "ABCD-EFGH"
+    assert session.verification_url == "https://auth.openai.com/codex/device"
+    assert session.user_code == "ABCD-EFGHJ"
+    assert "device code authorization" in session.instructions
+    assert "\x1b" not in session.output
     assert socket.sent[0].startswith("codex login --device-auth;")
     await session.cancel()
     assert socket.closed is True
+
+
+class _HangingLoginSocket(_LoginSocket):
+    def __init__(self):
+        super().__init__(["Open https://auth.example/device and enter device code ABCD-EFGH\n"])
+        self._block = asyncio.Event()
+
+    async def __anext__(self):
+        try:
+            return next(self._messages)
+        except StopIteration:
+            await self._block.wait()
+            raise StopAsyncIteration
+
+
+@pytest.mark.asyncio
+async def test_login_wait_timeout_cancels_shell_session():
+    socket = _HangingLoginSocket()
+    deployments = Mock()
+
+    async def shell_connect(_agent_id, shell=None):
+        return socket
+
+    deployments.shell_connect = shell_connect
+    agent = CodexAgent.from_dict(_agent_payload("codex"))
+    agent._deployments = deployments
+    auth = RuntimeAuthClient(agent)
+    auth.methods = lambda: [
+        RuntimeAuthMethod(
+            id="device",
+            name="Device login",
+            kind="device",
+            command=("codex", "login", "--device-auth"),
+        )
+    ]
+
+    session = await auth.login("device")
+
+    with pytest.raises(TimeoutError, match="Timed out waiting for codex login"):
+        await session.wait(timeout=0)
+    assert socket.closed is True
+    assert "\x03" in socket.sent
 
 
 def test_claude_status_parses_json_without_exposing_credentials():
