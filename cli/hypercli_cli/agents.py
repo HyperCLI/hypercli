@@ -15,7 +15,9 @@ from rich.table import Table
 from hypercli.agents import AGENT_FILE_MAX_BYTES, Agent, DEFAULT_OPENCLAW_IMAGE, DEFAULT_OPENCLAW_PRO_IMAGE, Deployments, OpenClawAgent, build_openclaw_memory_index_env
 from hypercli.config import get_agent_api_key as get_config_agent_api_key
 
-app = typer.Typer(help="Manage OpenClaw agent pods")
+app = typer.Typer(help="Manage agent deployments")
+routes_app = typer.Typer(help="Manage declarative agent routes", no_args_is_help=True)
+app.add_typer(routes_app, name="routes")
 console = Console()
 PROD_API_BASE = "https://api.hypercli.com"
 DEV_API_BASE = "https://api.dev.hypercli.com"
@@ -339,6 +341,104 @@ def _port_url(pod: Agent, port: dict) -> str:
 def _port_summary(port: dict) -> str:
     auth_text = "auth" if port.get("auth", True) else "noauth"
     return f"{port.get('port', '?')} ({auth_text})"
+
+
+def _routes_json_payload(state) -> dict:
+    return {
+        "agent_id": state.agent_id,
+        "routes": state.routes,
+        "route_statuses": state.route_statuses,
+    }
+
+
+def _print_routes(state, output_format: str) -> None:
+    if output_format not in {"table", "json"}:
+        raise typer.BadParameter("--output must be table or json")
+    if output_format == "json":
+        console.print_json(json.dumps(_routes_json_payload(state), indent=2, default=str))
+        return
+
+    table = Table(title=f"Agent routes — {state.agent_id}")
+    table.add_column("Name", style="cyan")
+    table.add_column("Port", justify="right")
+    table.add_column("Auth")
+    table.add_column("Prefix")
+    table.add_column("URL")
+    for name, route in sorted(state.routes.items()):
+        status = state.route_statuses.get(name) or {}
+        prefix = route.get("prefix")
+        table.add_row(
+            name,
+            str(route.get("port") or ""),
+            "yes" if route.get("auth", True) else "no",
+            "<root>" if prefix == "" else str(prefix or ""),
+            str(status.get("url") or ""),
+        )
+    console.print(table)
+
+
+@routes_app.command("list")
+def routes_list(
+    agent_id: str = typer.Argument(..., help="Agent ID, name, prefix, or self"),
+    output_format: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """List desired routes and their live status."""
+    agents = _get_deployments_client()
+    try:
+        state = agents.get_routes(_resolve_agent(agent_id))
+        _print_routes(state, output_format)
+    except typer.BadParameter:
+        raise
+    except Exception as e:
+        console.print(f"[red]❌ Failed to list routes: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@routes_app.command("add")
+def routes_add(
+    agent_id: str = typer.Argument(..., help="Agent ID, name, prefix, or self"),
+    name: str = typer.Argument(..., help="Stable route name"),
+    port: int = typer.Option(..., "--port", "-p", min=1, max=65535, help="Container port"),
+    auth: bool = typer.Option(True, "--auth/--no-auth", help="Require HyperCLI authentication"),
+    prefix: str = typer.Option(None, "--prefix", help="Hostname prefix; defaults to the route name"),
+    root: bool = typer.Option(False, "--root", help="Route the agent's root hostname"),
+    output_format: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """Create or replace exactly one named route."""
+    if root and prefix is not None:
+        raise typer.BadParameter("--prefix and --root are mutually exclusive")
+    route = {"port": port, "auth": auth}
+    if root:
+        route["prefix"] = ""
+    elif prefix is not None:
+        route["prefix"] = prefix
+    agents = _get_deployments_client()
+    try:
+        state = agents.set_route(_resolve_agent(agent_id), name, route)
+        _print_routes(state, output_format)
+    except typer.BadParameter:
+        raise
+    except Exception as e:
+        console.print(f"[red]❌ Failed to add route: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@routes_app.command("remove")
+def routes_remove(
+    agent_id: str = typer.Argument(..., help="Agent ID, name, prefix, or self"),
+    name: str = typer.Argument(..., help="Route name"),
+    output_format: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """Remove exactly one named route."""
+    agents = _get_deployments_client()
+    try:
+        state = agents.remove_route(_resolve_agent(agent_id), name)
+        _print_routes(state, output_format)
+    except typer.BadParameter:
+        raise
+    except Exception as e:
+        console.print(f"[red]❌ Failed to remove route: {e}[/red]")
+        raise typer.Exit(1)
 
 
 @app.command("budget")
@@ -847,7 +947,50 @@ def start(
 ):
     """Start a previously stopped agent."""
     agent_id = _resolve_agent(agent_id)
+    requested_agent_id = "self" if agent_id.strip().lower() == "self" else agent_id
     agents = _get_deployments_client()
+
+    if requested_agent_id == "self":
+        override_names = [
+            name
+            for name, value in {
+                "env": env or None,
+                "port": port or None,
+                "command": command,
+                "entrypoint": entrypoint,
+                "image": image,
+                "desktop": desktop,
+                "memory_search": memory_search,
+                "index_on_session_start": index_on_session_start,
+                "index_on_search": index_on_search,
+                "index_watch": index_watch,
+                "index_watch_debounce_ms": index_watch_debounce_ms,
+                "index_interval_minutes": index_interval_minutes,
+                "registry_url": registry_url,
+                "registry_username": registry_username,
+                "registry_password": registry_password,
+                "sync_uid": sync_uid,
+                "sync_gid": sync_gid,
+                "gateway_token": gateway_token,
+                "dry_run": True if dry_run else None,
+            }.items()
+            if value is not None
+        ]
+        if override_names:
+            console.print(
+                "[red]❌ start self uses the backend-stored launch configuration and "
+                f"does not accept launch overrides: {', '.join(override_names)}[/red]"
+            )
+            raise typer.Exit(1)
+        try:
+            pod = agents.start("self")
+        except Exception as e:
+            console.print(f"[red]❌ Failed to start agent: {e}[/red]")
+            raise typer.Exit(1)
+        _save_pod_state(pod)
+        console.print(f"[green]✓[/green] Agent starting: {pod.pod_name}")
+        return
+
     try:
         existing_pod = agents.get(agent_id)
         agent_id = existing_pod.id
@@ -896,7 +1039,7 @@ def start(
     try:
         start_func = agents.start_openclaw_pro if desktop_enabled else agents.start_openclaw
         pod = start_func(
-            agent_id,
+            requested_agent_id if requested_agent_id == "self" else agent_id,
             config=saved_openclaw_config,
             env=effective_env,
             ports=effective_ports,

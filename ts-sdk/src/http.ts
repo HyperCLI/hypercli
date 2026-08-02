@@ -302,6 +302,16 @@ export class HTTPClient {
     }, handleResponse<T>);
   }
 
+  async put<T = any>(path: string, body?: any): Promise<T> {
+    return requestWithRetryHandled({
+      method: 'PUT',
+      url: `${this.baseUrl}${path}`,
+      headers: this.headers,
+      body,
+      timeout: this.timeout,
+    }, handleResponse<T>);
+  }
+
   async delete<T = any>(path: string): Promise<T> {
     return requestWithRetryHandled({
       method: 'DELETE',

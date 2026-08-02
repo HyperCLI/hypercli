@@ -1,10 +1,9 @@
 ---
 name: hypercli-agents
 description: >
-  Create, inspect, start, stop, access, and administer managed or external
-  HyperCLI agents. Use for hyper agents lifecycle, logs, metrics, exec, shell,
-  copy, gateway chat/config/files/sessions/cron, web search, Slack enablement,
-  relay keys, and agent runtime troubleshooting.
+  Manage HyperCLI agents, dynamic HTTPS routes, and runtime-bound self
+  lifecycle. Use for create/start/stop, route reconciliation, logs, metrics,
+  exec, shell, gateway operations, Slack, relay keys, and troubleshooting.
 ---
 
 # HyperCLI Agents
@@ -27,6 +26,7 @@ and the `hypercli-voice` skill for voice commands.
 | --- | --- |
 | Discovery | `budget`, `list`, `ls`, `status`, `metrics`, `web-search` |
 | Lifecycle | `create`, `wait`, `start`, `stop`, `delete` |
+| Routes | `routes list`, `routes add`, `routes remove` |
 | External runtimes | `external-create`, `external-rotate-key` |
 | Container access | `exec`, `cp`, `shell`, `logs`, `token` |
 | Gateway reads | `config`, `models`, `files`, `sessions`, `cron` |
@@ -122,6 +122,31 @@ stop, force, or delete, and re-resolve the target immediately before acting.
 
 The `hyper agent start/stop` aliases additionally accept names/prefixes and can
 print JSON. Prefer `hyper agents` unless maintaining an existing script.
+
+## Dynamic routes
+
+Inspect before mutating, then change only one named route unless the user
+explicitly asks to replace the full declarative map:
+
+```bash
+hyper agents routes list <agent> --output table
+hyper agents routes add <agent> web --port 3000
+hyper agents routes add <agent> public -p 8080 --no-auth --prefix app
+hyper agents routes add <agent> root -p 3000 --root
+hyper agents routes remove <agent> web
+```
+
+Authentication defaults on. `--prefix` and `--root` are mutually exclusive.
+There can be at most ten routes. Check `hyper agents routes list` after a
+mutation when you need the resolved URL or current infrastructure status.
+
+Inside a managed runtime, literal `self` is reserved for status, start, stop,
+and route operations. Its authorization comes from the active runtime-key
+binding while the generic runtime scope stays `agents:none`. It is not valid
+for delete or key rotation. `start self` is lifecycle-only: it sends no launch
+overrides and reuses the backend-stored configuration. A process can request
+`hyper agents stop self --force`, but it cannot restart itself after its own
+pod is gone.
 
 ## External runtimes and relay keys
 

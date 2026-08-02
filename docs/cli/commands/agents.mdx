@@ -24,6 +24,7 @@ It covers:
 | --- | --- |
 | Read-only discovery | `budget`, `list`/`ls`, `status`, `metrics`, `web-search` |
 | Lifecycle | `create`, `wait`, `start`, `stop`, `delete` |
+| Routes | `routes list`, `routes add`, `routes remove` |
 | External runtimes | `external-create`, `external-rotate-key` |
 | Container access | `exec`, `cp`, `shell`, `logs`, `token` |
 | Compatibility chat | `chat` |
@@ -48,7 +49,44 @@ OpenClaw-backed agents use:
 - `desktop-<host>` = desktop when launched with the desktop/browser flavor
 - no default `shell-<host>` route
 
-Extra routes are user-provided via the `routes` dict at create/start time.
+Extra routes can be supplied at create/start time or reconciled dynamically on
+a running deployment. A deployment can have at most ten routes.
+
+## Dynamic Routes
+
+```bash
+hyper agents routes list <agent> --output table
+hyper agents routes add <agent> web --port 3000
+hyper agents routes add <agent> public --port 8080 --no-auth --prefix app
+hyper agents routes add <agent> root --port 3000 --root
+hyper agents routes remove <agent> web
+```
+
+`routes add` creates or replaces only the named route; it does not rewrite the
+other routes. Authentication is on by default. `--prefix NAME` publishes at a
+prefixed hostname, while `--root` selects the agent's root hostname. Those two
+flags are mutually exclusive. Use `--output table|json` for either human or
+machine output.
+
+Responses keep the reusable desired `routes` map separate from
+`route_statuses`, which contains resolved URLs and live infrastructure status.
+Route-limit and infrastructure errors come from the backend and are shown
+without replacing the rest of the route dictionary.
+
+Inside a managed runtime, the reserved target `self` selects the agent bound to
+the authenticated runtime key:
+
+```bash
+hyper agents status self
+hyper agents routes add self web -p 3000
+hyper agents stop self --force
+```
+
+`self` is accepted only for status, start, stop, and route operations. An
+in-pod process cannot call `start self` after its own pod has stopped; that form
+is intended for an out-of-band holder of a stable exact-agent key. `start self`
+always reuses the backend-stored launch configuration and rejects flags that
+would override it.
 
 ## Lifecycle
 
@@ -113,6 +151,7 @@ Treat it as secret-bearing output and do not paste it into tickets or chat.
 
 ```bash
 hyper agents status <agent_id>
+hyper agents status self
 ```
 
 ### `metrics`
@@ -130,14 +169,20 @@ hyper agents metrics <agent_id> --json
 
 ```bash
 hyper agents start <agent_id>
+hyper agents start self
 hyper agents start <agent_id> --desktop
 hyper agents start <agent_id> --index-on-search --index-interval-minutes 120
 ```
+
+`hyper agents start self` is a lifecycle-only operation: it sends no launch
+configuration. Image, environment, route, registry, sync, desktop, and dry-run
+overrides are rejected for that reserved target.
 
 ### `stop`
 
 ```bash
 hyper agents stop <agent_id>
+hyper agents stop self --force
 hyper agents stop <agent_id> --wait --timeout 900
 ```
 

@@ -61,6 +61,10 @@ hyper agents metrics <agent>
 hyper agents logs <agent> --no-follow -n 100
 ```
 
+For dynamic HTTPS routes or runtime-bound lifecycle operations, load the
+`hypercli-agents` skill. Its commands use `self` as the reserved current-agent
+target, for example `hyper agents routes list self`.
+
 Do not paste `agents list --json`: it includes `launch_config`, which can contain
 environment secrets. Treat config, session, file, log, exec, shell, token,
 external-key, and cron output as sensitive. Get approval before `exec`, `shell`,

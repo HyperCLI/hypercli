@@ -25,6 +25,25 @@ pub enum AgentSize {
     Large,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct RouteConfig {
+    pub port: u16,
+    #[serde(default = "default_true")]
+    pub auth: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<String>,
+}
+
+impl RouteConfig {
+    pub fn new(port: u16) -> Self {
+        Self {
+            port,
+            auth: true,
+            prefix: None,
+        }
+    }
+}
+
 const DEFAULT_BUZZ_RUST_LOG: &str = "buzz_acp=info,pool::prompt=info,acp::stream=off";
 pub const BUZZ_RUNTIME_SCOPES: [&str; 7] = [
     "agents:none",
@@ -287,7 +306,7 @@ pub struct CreateDeploymentRequest {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub routes: BTreeMap<String, Value>,
+    pub routes: BTreeMap<String, RouteConfig>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub command: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -349,7 +368,7 @@ pub struct StartDeploymentRequest {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub routes: BTreeMap<String, Value>,
+    pub routes: BTreeMap<String, RouteConfig>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub command: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -370,6 +389,38 @@ pub struct StartDeploymentRequest {
     pub runtime_scopes: Vec<String>,
     #[serde(default)]
     pub dry_run: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct DeploymentRoutes {
+    pub agent_id: String,
+    #[serde(default)]
+    pub routes: BTreeMap<String, RouteConfig>,
+    #[serde(default)]
+    pub route_statuses: BTreeMap<String, Value>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct SetDeploymentRoutesRequest {
+    pub routes: BTreeMap<String, RouteConfig>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct SetDeploymentRouteRequest {
+    pub port: u16,
+    pub auth: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<String>,
+}
+
+impl SetDeploymentRouteRequest {
+    pub fn new(route: RouteConfig) -> Self {
+        Self {
+            port: route.port,
+            auth: route.auth,
+            prefix: route.prefix,
+        }
+    }
 }
 
 #[derive(Clone, Serialize)]

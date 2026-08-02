@@ -448,8 +448,18 @@ export interface AgentRouteConfig {
   port: number;
   prefix?: string;
   auth?: boolean;
-  strip_prefix?: boolean;
-  [key: string]: any;
+}
+
+export interface AgentRoutesState {
+  agentId: string;
+  routes: Record<string, AgentRouteConfig>;
+  routeStatuses: Record<string, Record<string, unknown>>;
+}
+
+interface AgentRoutesHydrationData {
+  agent_id?: string;
+  routes?: Record<string, AgentRouteConfig> | null;
+  route_statuses?: Record<string, Record<string, unknown>> | null;
 }
 
 export type LaunchConfigFlatMap = Record<string, unknown>;
@@ -919,6 +929,18 @@ function isUuidRef(value: string): boolean {
 function isDirectAgentIdRef(value: string): boolean {
   const raw = value.trim();
   return isUuidRef(raw) || /^[0-9a-f]{6,}$/i.test(raw) || /^(agent|external)[-_:]/i.test(raw);
+}
+
+function isSelfAgentRef(value: string): boolean {
+  return value.trim().toLowerCase() === 'self';
+}
+
+function agentRoutesStateFromData(data: AgentRoutesHydrationData): AgentRoutesState {
+  return {
+    agentId: String(data.agent_id ?? ''),
+    routes: structuredClone(data.routes ?? {}),
+    routeStatuses: structuredClone(data.route_statuses ?? {}),
+  };
 }
 
 /** Strip a workspace prefix so gateway (name-addressed) sees the bare name. */
@@ -3447,7 +3469,7 @@ export class Deployments {
   private readonly apiKey: string;
   private readonly apiBase: string;
   private readonly agentsWsUrl: string;
-  private readonly agentHttp: Pick<HTTPClient, 'get' | 'post' | 'postRaw' | 'patch' | 'delete'>;
+  private readonly agentHttp: Pick<HTTPClient, 'get' | 'post' | 'postRaw' | 'put' | 'patch' | 'delete'>;
 
   constructor(
     private readonly http: HTTPClient,
@@ -3531,10 +3553,18 @@ export class Deployments {
     return this.getById(matches[0].id, requestOptions);
   }
 
-  async resolveAgentId(agentIdOrName: string, requestOptions: RequestOverrides = {}): Promise<string> {
+  async resolveAgentId(
+    agentIdOrName: string,
+    requestOptions: RequestOverrides = {},
+    allowSelf = false,
+  ): Promise<string> {
     const raw = String(agentIdOrName || '').trim();
     if (!raw) {
       throw new Error('agentIdOrName is required');
+    }
+    if (isSelfAgentRef(raw)) {
+      if (allowSelf) return 'self';
+      throw new Error('self is only supported for status, start, stop, and routes');
     }
     if (isDirectAgentIdRef(raw)) {
       return raw;
@@ -3761,6 +3791,9 @@ export class Deployments {
   async get(agentIdOrName: string, requestOptions: RequestOverrides = {}): Promise<Agent> {
     const raw = String(agentIdOrName || '').trim();
     if (!raw) throw new Error('agentIdOrName is required');
+    if (isSelfAgentRef(raw)) {
+      return this.getById('self', requestOptions);
+    }
     if (!isDirectAgentIdRef(raw)) {
       return this.resolveAgent(raw, requestOptions);
     }
@@ -3870,10 +3903,25 @@ export class Deployments {
   }
 
   async start(agentIdOrName: string, options: StartAgentOptions = {}): Promise<Agent> {
+    if (isSelfAgentRef(agentIdOrName)) {
+      const provided = Object.keys(options).filter(
+        (key) => options[key as keyof StartAgentOptions] !== undefined,
+      );
+      if (provided.length > 0) {
+        throw new Error(
+          `start self uses the backend-stored launch configuration and does not accept launch overrides: ${provided.join(', ')}`,
+        );
+      }
+      const data = await this.agentHttp.post<AgentHydrationData>(
+        `${DEPLOYMENTS_API_PREFIX}/self/start`,
+        {},
+      );
+      return this.hydrateAgent(data);
+    }
     const { config, gatewayToken } = buildAgentConfig(options.config ?? {}, options);
     const body: Record<string, any> = { ...config };
     if (options.dryRun) body.dry_run = true;
-    const agentId = await this.resolveAgentId(agentIdOrName);
+    const agentId = await this.resolveAgentId(agentIdOrName, {}, true);
     const data = await this.agentHttp.post<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}/start`, body);
     const agent = this.hydrateAgent(data);
     if (agent instanceof OpenClawAgent) {
@@ -3956,9 +4004,57 @@ export class Deployments {
    * deployment slot as released.
    */
   async stop(agentIdOrName: string): Promise<Agent> {
-    const agentId = await this.resolveAgentId(agentIdOrName);
+    const agentId = await this.resolveAgentId(agentIdOrName, {}, true);
     const data = await this.agentHttp.post<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}/stop`);
     return this.hydrateAgent(data);
+  }
+
+  async getRoutes(agentIdOrName: string): Promise<AgentRoutesState> {
+    const agentId = await this.resolveAgentId(agentIdOrName, {}, true);
+    const data = await this.agentHttp.get<AgentRoutesHydrationData>(
+      `${DEPLOYMENTS_API_PREFIX}/${agentId}/routes`,
+    );
+    return agentRoutesStateFromData(data);
+  }
+
+  async setRoutes(
+    agentIdOrName: string,
+    routes: Record<string, AgentRouteConfig>,
+  ): Promise<AgentRoutesState> {
+    const agentId = await this.resolveAgentId(agentIdOrName, {}, true);
+    const body: Record<string, unknown> = { routes: structuredClone(routes) };
+    const data = await this.agentHttp.put<AgentRoutesHydrationData>(
+      `${DEPLOYMENTS_API_PREFIX}/${agentId}/routes`,
+      body,
+    );
+    return agentRoutesStateFromData(data);
+  }
+
+  async setRoute(
+    agentIdOrName: string,
+    name: string,
+    route: AgentRouteConfig,
+  ): Promise<AgentRoutesState> {
+    const agentId = await this.resolveAgentId(agentIdOrName, {}, true);
+    const body: Record<string, unknown> = { port: route.port };
+    if (route.auth !== undefined) body.auth = route.auth;
+    if (route.prefix !== undefined) body.prefix = route.prefix;
+    const data = await this.agentHttp.put<AgentRoutesHydrationData>(
+      `${DEPLOYMENTS_API_PREFIX}/${agentId}/routes/${encodeURIComponent(name)}`,
+      body,
+    );
+    return agentRoutesStateFromData(data);
+  }
+
+  async removeRoute(
+    agentIdOrName: string,
+    name: string,
+  ): Promise<AgentRoutesState> {
+    const agentId = await this.resolveAgentId(agentIdOrName, {}, true);
+    const data = await this.agentHttp.delete<AgentRoutesHydrationData>(
+      `${DEPLOYMENTS_API_PREFIX}/${agentId}/routes/${encodeURIComponent(name)}`,
+    );
+    return agentRoutesStateFromData(data);
   }
 
   async delete(agentIdOrName: string): Promise<Record<string, any>> {

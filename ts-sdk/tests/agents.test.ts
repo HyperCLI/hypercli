@@ -150,6 +150,73 @@ describe('Agents SDK', () => {
     expect(http.post).toHaveBeenCalledWith('/deployments/agent-123/stop');
   });
 
+  it('passes self directly for status, lifecycle, and route operations', async () => {
+    const agentResponse = {
+      id: 'agent-123',
+      user_id: 'user-456',
+      pod_id: 'pod-789',
+      pod_name: 'pod-789',
+      state: 'running',
+    };
+    const routesResponse = {
+      agent_id: 'agent-123',
+      routes: { web: { port: 3000, auth: true, prefix: 'app' } },
+      route_statuses: { web: { url: 'https://app-agent.hypercli.app' } },
+    };
+    const http = {
+      get: vi.fn().mockImplementation(async (path: string) => (
+        path.endsWith('/routes') ? routesResponse : agentResponse
+      )),
+      post: vi.fn().mockResolvedValue(agentResponse),
+      put: vi.fn().mockResolvedValue(routesResponse),
+      delete: vi.fn().mockResolvedValue(routesResponse),
+    } as unknown as HTTPClient;
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+
+    expect((await deployments.get('self')).id).toBe('agent-123');
+    await deployments.start('self');
+    await deployments.stop('self');
+    const routes = await deployments.getRoutes('self');
+    await deployments.setRoutes('self', routes.routes);
+    await deployments.setRoute('self', 'web app', { port: 3000, auth: false, prefix: '' });
+    await deployments.removeRoute('self', 'web app');
+
+    expect(http.get).toHaveBeenCalledWith('/deployments/self');
+    expect(http.post).toHaveBeenCalledWith('/deployments/self/start', {});
+    expect(http.post).toHaveBeenCalledWith('/deployments/self/stop');
+    expect(http.get).toHaveBeenCalledWith('/deployments/self/routes');
+    expect(http.put).toHaveBeenCalledWith('/deployments/self/routes', {
+      routes: routesResponse.routes,
+    });
+    expect(http.put).toHaveBeenCalledWith('/deployments/self/routes/web%20app', {
+      port: 3000,
+      auth: false,
+      prefix: '',
+    });
+    expect(http.delete).toHaveBeenCalledWith(
+      '/deployments/self/routes/web%20app',
+    );
+    expect(routes).toEqual({
+      agentId: 'agent-123',
+      routes: routesResponse.routes,
+      routeStatuses: routesResponse.route_statuses,
+    });
+
+    await expect(
+      deployments.start('self', { image: 'ghcr.io/example/override:latest' }),
+    ).rejects.toThrow('backend-stored launch configuration');
+    await expect(deployments.startOpenClaw('self')).rejects.toThrow(
+      'backend-stored launch configuration',
+    );
+  });
+
+  it('rejects self for destructive operations outside the approved surface', async () => {
+    const deployments = new Deployments({} as HTTPClient, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+
+    await expect(deployments.delete('self')).rejects.toThrow('self is only supported');
+    await expect(deployments.createScopedKey('self')).rejects.toThrow('self is only supported');
+  });
+
   it('sends frontend-owned bootstrap prompts and response schemas to the JWT inference route', async () => {
     const post = vi.fn().mockResolvedValue({
       model: 'kimi-k2.6',

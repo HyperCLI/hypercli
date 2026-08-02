@@ -13,6 +13,7 @@ from hypercli.agents import (
     AGENT_FILE_OPERATION_TIMEOUT_SECONDS,
     AGENT_FILE_TRANSFER_CHUNK_BYTES,
     Agent,
+    AgentRoutes,
     DEFAULT_AGENT_RUNTIME_SCOPES,
     DEFAULT_OPENCLAW_IMAGE,
     DEFAULT_OPENCLAW_PRO_IMAGE,
@@ -47,6 +48,88 @@ def test_agent_from_dict_minimal():
     assert agent.routes == {}
     assert agent.ports == []
     assert agent.managed is None
+
+
+def _routes_response(**overrides):
+    response = {
+        "agent_id": "agent-123",
+        "routes": {"web": {"port": 3000, "auth": True, "prefix": "app"}},
+        "route_statuses": {"web": {"url": "https://app-agent.hypercli.app"}},
+    }
+    response.update(overrides)
+    return response
+
+
+def test_agent_routes_hydrates_declarative_and_status_fields():
+    state = AgentRoutes.from_dict(_routes_response())
+
+    assert state.agent_id == "agent-123"
+    assert state.routes == {"web": {"port": 3000, "auth": True, "prefix": "app"}}
+    assert state.route_statuses["web"]["url"] == "https://app-agent.hypercli.app"
+
+
+def test_routes_api_supports_declarative_and_named_updates_with_self_passthrough():
+    http = Mock(spec=HTTPClient)
+    deployments = Deployments(http, api_key="hyper_api_test", api_base="https://api.test.hypercli.com/agents")
+
+    with patch.object(deployments, "_get", return_value=_routes_response()) as get_request:
+        state = deployments.get_routes("self")
+    get_request.assert_called_once_with("/deployments/self/routes")
+    assert state.routes["web"]["port"] == 3000
+
+    with patch.object(deployments, "_put", return_value=_routes_response()) as put_request:
+        deployments.set_routes("self", {"web": {"port": 3000, "auth": True}})
+    put_request.assert_called_once_with(
+        "/deployments/self/routes",
+        {
+            "routes": {"web": {"port": 3000, "auth": True}},
+        },
+    )
+
+    with patch.object(deployments, "_put", return_value=_routes_response()) as put_request:
+        deployments.set_route(
+            "self", "web app", {"port": 3000, "auth": False, "prefix": ""}
+        )
+    put_request.assert_called_once_with(
+        "/deployments/self/routes/web%20app",
+        {"port": 3000, "auth": False, "prefix": ""},
+    )
+
+    with patch.object(deployments, "_delete", return_value=_routes_response()) as delete_request:
+        deployments.remove_route("self", "web app")
+    delete_request.assert_called_once_with("/deployments/self/routes/web%20app")
+
+
+def test_self_selector_is_limited_to_status_lifecycle_and_routes():
+    http = Mock(spec=HTTPClient)
+    deployments = Deployments(http, api_key="hyper_api_test", api_base="https://api.test.hypercli.com/agents")
+    response = {
+        "id": "agent-123",
+        "user_id": "user-456",
+        "pod_id": "pod-789",
+        "pod_name": "pod-789",
+        "state": "running",
+    }
+
+    with patch.object(deployments, "_get_by_id", return_value=Agent.from_dict(response)) as get_by_id:
+        assert deployments.get("self").id == "agent-123"
+    get_by_id.assert_called_once_with("self")
+
+    with patch.object(deployments, "_post", return_value=response) as post:
+        deployments.start("self")
+        deployments.stop("self")
+    assert post.call_args_list[0].args == ("/deployments/self/start",)
+    assert post.call_args_list[0].kwargs == {"json": {}}
+    assert post.call_args_list[1].args == ("/deployments/self/stop",)
+
+    with pytest.raises(ValueError, match="backend-stored launch configuration"):
+        deployments.start("self", image="ghcr.io/example/override:latest")
+
+    with pytest.raises(ValueError, match="backend-stored launch configuration"):
+        deployments.start_openclaw("self")
+
+    with pytest.raises(ValueError, match="only supported"):
+        deployments.delete("self")
 
 
 def test_agent_from_dict_hydrates_new_api_fields_without_image_url_fallback():

@@ -58,6 +58,8 @@ from .logs import LogStream, stream_logs, fetch_logs
 from .agents import (
     Agent,
     AgentFileSource,
+    AgentRouteConfig,
+    AgentRoutes,
     BuzzLaunchConfig,
     ClaudeCodeAgent,
     CodingAgent,
@@ -213,6 +215,8 @@ __all__ = [
     "Deployments",
     "Agent",
     "AgentFileSource",
+    "AgentRouteConfig",
+    "AgentRoutes",
     "BuzzLaunchConfig",
     "CodingAgent",
     "DEFAULT_AGENT_RUNTIME_SCOPES",

@@ -20,7 +20,7 @@ import re
 import secrets
 import shlex
 import time
-from typing import TYPE_CHECKING, Callable, Literal, Optional, Any, AsyncIterator
+from typing import TYPE_CHECKING, Callable, Literal, Optional, Any, AsyncIterator, NotRequired, TypedDict
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 from contextlib import asynccontextmanager
 from uuid import UUID
@@ -1050,6 +1050,11 @@ def _is_direct_agent_id_ref(value: str) -> bool:
     return bool(re.fullmatch(r"[0-9a-fA-F]{6,}", raw) or re.match(r"^(agent|external)[-_:]", raw, re.I))
 
 
+def _is_self_agent_ref(value: str) -> bool:
+    """Return whether *value* is the reserved authenticated-agent selector."""
+    return str(value or "").strip().lower() == "self"
+
+
 def _is_openclaw_pro_agent_data(data: dict) -> bool:
     launch_config = data.get("launch_config")
     if not isinstance(launch_config, dict):
@@ -1504,6 +1509,34 @@ class RuntimeAuthClient:
                 f"{_clean_terminal_output(result.stderr or result.stdout).strip()}"
             )
         return self.status()
+
+
+class AgentRouteConfig(TypedDict):
+    """Reusable desired configuration for one HTTPS route."""
+
+    port: int
+    auth: NotRequired[bool]
+    prefix: NotRequired[str]
+
+
+@dataclass(frozen=True)
+class AgentRoutes:
+    """Declarative routes and their live status for one agent."""
+
+    agent_id: str
+    routes: dict[str, AgentRouteConfig] = field(default_factory=dict)
+    route_statuses: dict[str, dict] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "AgentRoutes":
+        return cls(
+            agent_id=str(data.get("agent_id") or ""),
+            routes={str(name): dict(config) for name, config in (data.get("routes") or {}).items()},
+            route_statuses={
+                str(name): dict(status)
+                for name, status in (data.get("route_statuses") or {}).items()
+            },
+        )
 
 
 @dataclass
@@ -2513,6 +2546,17 @@ class Deployments:
             raise APIError(resp.status_code, detail)
         return resp.json()
 
+    def _put(self, path: str, json: dict = None) -> Any:
+        with httpx.Client(timeout=30) as client:
+            resp = client.put(f"{self._api_base}{path}", headers=self._headers, json=json)
+        if resp.status_code >= 400:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            raise APIError(resp.status_code, detail)
+        return resp.json()
+
     def _delete(self, path: str) -> Any:
         with httpx.Client(timeout=30) as client:
             resp = client.delete(f"{self._api_base}{path}", headers=self._headers)
@@ -2559,10 +2603,14 @@ class Deployments:
             raise ValueError(f"Agent reference is ambiguous: {raw} ({refs})")
         return self._get_by_id(matches[0].id)
 
-    def resolve_agent_id(self, agent_id_or_name: str) -> str:
+    def resolve_agent_id(self, agent_id_or_name: str, *, allow_self: bool = False) -> str:
         raw = str(agent_id_or_name or "").strip()
         if not raw:
             raise ValueError("agent_id_or_name is required")
+        if allow_self and _is_self_agent_ref(raw):
+            return "self"
+        if _is_self_agent_ref(raw):
+            raise ValueError("self is only supported for status, start, stop, and routes")
         if _is_direct_agent_id_ref(raw):
             return raw
         return self.resolve_agent(raw).id
@@ -2991,6 +3039,8 @@ class Deployments:
         raw = str(agent_id_or_name or "").strip()
         if not raw:
             raise ValueError("agent_id_or_name is required")
+        if _is_self_agent_ref(raw):
+            return self._get_by_id("self")
         if not _is_direct_agent_id_ref(raw):
             return self.resolve_agent(raw)
         try:
@@ -3197,6 +3247,37 @@ class Deployments:
         Returns:
             Agent with new pod details.
         """
+        if _is_self_agent_ref(agent_id):
+            overrides = {
+                "config": config,
+                "env": env,
+                "ports": ports,
+                "routes": routes,
+                "command": command,
+                "entrypoint": entrypoint,
+                "image": image,
+                "sync_root": sync_root,
+                "sync_enabled": sync_enabled,
+                "sync_uid": sync_uid,
+                "sync_gid": sync_gid,
+                "registry_url": registry_url,
+                "registry_auth": registry_auth,
+                "restart": restart,
+                "runtime_scopes": runtime_scopes,
+                "gateway_token": gateway_token,
+                "heartbeat": heartbeat,
+            }
+            provided = [name for name, value in overrides.items() if value is not None]
+            if dry_run:
+                provided.append("dry_run")
+            if provided:
+                raise ValueError(
+                    "start self uses the backend-stored launch configuration and does not "
+                    f"accept launch overrides: {', '.join(provided)}"
+                )
+            data = self._post(f"{AGENTS_API_PREFIX}/self/start", json={})
+            return self._hydrate_agent(data)
+
         launch_payload, effective_gateway_token = _build_agent_launch(
             config,
             env=env,
@@ -3219,7 +3300,7 @@ class Deployments:
         body: dict[str, Any] = dict(launch_payload)
         if dry_run:
             body["dry_run"] = True
-        resolved_agent_id = self.resolve_agent_id(agent_id)
+        resolved_agent_id = self.resolve_agent_id(agent_id, allow_self=True)
         data = self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/start", json=body)
         agent = self._hydrate_agent(data)
         if isinstance(agent, OpenClawAgent):
@@ -3389,9 +3470,55 @@ class Deployments:
             Poll ``get()`` until the state becomes ``stopped`` before treating
             the deployment slot as released.
         """
-        resolved_agent_id = self.resolve_agent_id(agent_id)
+        resolved_agent_id = self.resolve_agent_id(agent_id, allow_self=True)
         data = self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/stop")
         return self._hydrate_agent(data)
+
+    def get_routes(self, agent_id: str) -> AgentRoutes:
+        """Return the desired routes and live reconciliation state for an agent."""
+        resolved_agent_id = self.resolve_agent_id(agent_id, allow_self=True)
+        data = self._get(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/routes")
+        return AgentRoutes.from_dict(data)
+
+    def set_routes(
+        self,
+        agent_id: str,
+        routes: dict[str, AgentRouteConfig],
+    ) -> AgentRoutes:
+        """Atomically replace the complete declarative route map."""
+        resolved_agent_id = self.resolve_agent_id(agent_id, allow_self=True)
+        body: dict[str, Any] = {
+            "routes": {str(name): dict(config) for name, config in routes.items()},
+        }
+        data = self._put(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/routes", body)
+        return AgentRoutes.from_dict(data)
+
+    def set_route(
+        self,
+        agent_id: str,
+        name: str,
+        route: AgentRouteConfig,
+    ) -> AgentRoutes:
+        """Atomically create or replace one named route."""
+        resolved_agent_id = self.resolve_agent_id(agent_id, allow_self=True)
+        body = dict(route)
+        encoded_name = quote(str(name), safe="")
+        data = self._put(
+            f"{AGENTS_API_PREFIX}/{resolved_agent_id}/routes/{encoded_name}",
+            body,
+        )
+        return AgentRoutes.from_dict(data)
+
+    def remove_route(
+        self,
+        agent_id: str,
+        name: str,
+    ) -> AgentRoutes:
+        """Atomically remove one named route."""
+        resolved_agent_id = self.resolve_agent_id(agent_id, allow_self=True)
+        encoded_name = quote(str(name), safe="")
+        path = f"{AGENTS_API_PREFIX}/{resolved_agent_id}/routes/{encoded_name}"
+        return AgentRoutes.from_dict(self._delete(path))
 
     def delete(self, agent_id: str) -> dict:
         """Delete an agent entirely (pod + DB record).

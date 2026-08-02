@@ -134,6 +134,49 @@ agent = client.deployments.create(
 )
 ```
 
+Routes can also be reconciled without restarting the deployment. `set_routes`
+is the declarative full-map operation; `set_route` and `remove_route` mutate
+one name atomically:
+
+```python
+state = client.deployments.get_routes(agent.id)
+
+state = client.deployments.set_route(
+    agent.id,
+    "app",
+    {"prefix": "app", "port": 8080, "auth": True},
+)
+
+state = client.deployments.set_routes(
+    agent.id,
+    {
+        "app": {"prefix": "app", "port": 8080, "auth": True},
+        "public": {"prefix": "", "port": 3000, "auth": False},
+    },
+)
+
+client.deployments.remove_route(agent.id, "app")
+```
+
+The desired `routes` dictionary stays separate from `route_statuses`, which
+contains resolved URLs and live infrastructure status. This makes
+`get_routes()` followed by `set_routes(state.routes)` lossless. At most ten
+routes are allowed.
+
+Managed runtimes may use the reserved `self` selector for status, start, stop,
+and route operations. The backend authorizes that narrow whitelist from the
+active runtime-key binding; the generic runtime scope remains `agents:none`:
+
+```python
+client.deployments.get("self")
+client.deployments.set_route("self", "web", {"port": 3000, "auth": True})
+client.deployments.stop("self")
+```
+
+`start("self")` sends an empty body and reuses the backend-stored launch
+configuration; passing any launch option is rejected client-side. `self` is
+not accepted for delete or key rotation.
+
 This generic path does not inject any routes. Use `create_openclaw(...)` when you want the standard root gateway and `desktop` routes.
 
 Accepted create/start options:

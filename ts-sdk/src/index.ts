@@ -247,6 +247,7 @@ export {
   type AttachSlackRelayAgentResult,
   type AgentShellTokenResponse,
   type AgentRouteConfig,
+  type AgentRoutesState,
   type RegistryAuth,
   type BuildAgentConfigOptions,
   type ManagedAgentRuntime,

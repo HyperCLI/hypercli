@@ -136,6 +136,42 @@ const agent = await client.deployments.create({
 });
 ```
 
+Routes can also be reconciled without restarting the deployment. `setRoutes`
+replaces the complete declarative map; `setRoute` and `removeRoute` mutate one
+name atomically:
+
+```ts
+let state = await client.deployments.getRoutes(agent.id);
+
+state = await client.deployments.setRoute(
+  agent.id,
+  "app",
+  { prefix: "app", port: 8080, auth: true },
+);
+
+state = await client.deployments.setRoutes(
+  agent.id,
+  {
+    app: { prefix: "app", port: 8080, auth: true },
+    public: { prefix: "", port: 3000, auth: false },
+  },
+);
+
+await client.deployments.removeRoute(agent.id, "app");
+```
+
+Desired `routes` remain separate from `routeStatuses`, which holds resolved
+URLs and live infrastructure status. Therefore a
+`getRoutes()`/`setRoutes(state.routes)` round trip is lossless. At most ten
+routes are allowed.
+
+Managed runtimes can pass the reserved target `self` to `get`, `start`, `stop`,
+and route methods. The backend authorizes that narrow whitelist from the active
+runtime-key binding while the generic runtime scope remains `agents:none`.
+`start("self")` sends an empty body and reuses the backend-stored launch
+configuration; passing any launch option is rejected client-side. Delete and
+key rotation reject `self`.
+
 This generic path does not inject any routes. Use `createOpenClaw(...)` when you want the standard root gateway and `desktop` routes.
 
 Create/start options:

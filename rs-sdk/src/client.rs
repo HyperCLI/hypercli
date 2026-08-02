@@ -6,17 +6,19 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use reqwest::blocking::Client as HttpClient;
+use reqwest::blocking::{Client as HttpClient, RequestBuilder};
 use reqwest::StatusCode;
 use secrecy::ExposeSecret;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use thiserror::Error;
 use url::Url;
 
 use crate::{
-    ClientConfig, CreateDeploymentRequest, Deployment, ExecDeploymentRequest,
-    ExecDeploymentResponse, StartDeploymentRequest,
+    ClientConfig, CreateDeploymentRequest, Deployment, DeploymentRoutes, ExecDeploymentRequest,
+    ExecDeploymentResponse, SetDeploymentRouteRequest, SetDeploymentRoutesRequest,
+    StartDeploymentRequest,
 };
 
 pub struct HyperCliClient {
@@ -289,6 +291,82 @@ impl HyperCliClient {
         result
     }
 
+    pub fn get_deployment_routes(
+        &self,
+        deployment_id: &str,
+    ) -> Result<DeploymentRoutes, HyperCliError> {
+        let url = self.endpoint(&format!("deployments/{deployment_id}/routes"));
+        self.send_json(
+            "get_deployment_routes",
+            "GET",
+            &url,
+            None,
+            self.http
+                .get(&url)
+                .bearer_auth(self.api_key.expose_secret()),
+        )
+    }
+
+    pub fn set_deployment_routes(
+        &self,
+        deployment_id: &str,
+        request: &SetDeploymentRoutesRequest,
+    ) -> Result<DeploymentRoutes, HyperCliError> {
+        let url = self.endpoint(&format!("deployments/{deployment_id}/routes"));
+        self.send_json(
+            "set_deployment_routes",
+            "PUT",
+            &url,
+            serde_json::to_value(request).ok(),
+            self.http
+                .put(&url)
+                .bearer_auth(self.api_key.expose_secret())
+                .json(request),
+        )
+    }
+
+    pub fn set_deployment_route(
+        &self,
+        deployment_id: &str,
+        route_name: &str,
+        request: &SetDeploymentRouteRequest,
+    ) -> Result<DeploymentRoutes, HyperCliError> {
+        let encoded_name: String = url::form_urlencoded::byte_serialize(route_name.as_bytes())
+            .collect::<String>()
+            .replace('+', "%20");
+        let url = self.endpoint(&format!(
+            "deployments/{deployment_id}/routes/{encoded_name}"
+        ));
+        self.send_json(
+            "set_deployment_route",
+            "PUT",
+            &url,
+            serde_json::to_value(request).ok(),
+            self.http
+                .put(&url)
+                .bearer_auth(self.api_key.expose_secret())
+                .json(request),
+        )
+    }
+
+    pub fn remove_deployment_route(
+        &self,
+        deployment_id: &str,
+        route_name: &str,
+    ) -> Result<DeploymentRoutes, HyperCliError> {
+        let encoded_name: String = url::form_urlencoded::byte_serialize(route_name.as_bytes())
+            .collect::<String>()
+            .replace('+', "%20");
+        let url = self.endpoint(&format!(
+            "deployments/{deployment_id}/routes/{encoded_name}"
+        ));
+        let builder = self
+            .http
+            .delete(&url)
+            .bearer_auth(self.api_key.expose_secret());
+        self.send_json("remove_deployment_route", "DELETE", &url, None, builder)
+    }
+
     pub fn exec_deployment(
         &self,
         deployment_id: &str,
@@ -327,6 +405,48 @@ impl HyperCliClient {
             "POST",
             &url,
             Some(&json!({"command": "<omitted>", "timeout": request.timeout, "dry_run": request.dry_run})),
+            started,
+            Some(status),
+            headers,
+            result.as_ref().map(|_| ()),
+        );
+        result
+    }
+
+    fn send_json<T: DeserializeOwned>(
+        &self,
+        operation: &str,
+        method: &str,
+        url: &str,
+        request: Option<Value>,
+        builder: RequestBuilder,
+    ) -> Result<T, HyperCliError> {
+        let started = Instant::now();
+        let response = match builder.send() {
+            Ok(response) => response,
+            Err(error) => {
+                let error = HyperCliError::Transport(error.to_string());
+                self.trace_http(
+                    operation,
+                    method,
+                    url,
+                    request.as_ref(),
+                    started,
+                    None,
+                    BTreeMap::new(),
+                    Err(&error),
+                );
+                return Err(error);
+            }
+        };
+        let status = response.status();
+        let headers = trace_headers(&response);
+        let result = decode_json(response);
+        self.trace_http(
+            operation,
+            method,
+            url,
+            request.as_ref(),
             started,
             Some(status),
             headers,
@@ -669,6 +789,101 @@ mod tests {
         assert_eq!(stopped.id, "deployment-1");
         assert_eq!(stopped.state, "stopping");
         mock.assert();
+    }
+
+    #[test]
+    fn routes_support_self_and_declarative_replacement() {
+        let mut server = Server::new();
+        let response = serde_json::json!({
+            "agent_id": "deployment-1",
+            "routes": {"web": {"port": 3000, "auth": true, "prefix": "app"}},
+            "route_statuses": {"web": {"url": "https://app-agent.hypercli.app"}}
+        });
+        let get_mock = server
+            .mock("GET", "/agents/deployments/self/routes")
+            .match_header("authorization", "Bearer test-credential")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(response.to_string())
+            .create();
+        let put_mock = server
+            .mock("PUT", "/agents/deployments/self/routes")
+            .match_header("authorization", "Bearer test-credential")
+            .match_body(Matcher::JsonString(
+                serde_json::json!({
+                    "routes": {"web": {"port": 3000, "auth": true, "prefix": "app"}}
+                })
+                .to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(response.to_string())
+            .create();
+
+        let client = client(&server);
+        let current = client.get_deployment_routes("self").unwrap();
+        assert_eq!(current.routes["web"].port, 3000);
+
+        let mut routes = BTreeMap::new();
+        routes.insert(
+            "web".to_owned(),
+            crate::RouteConfig {
+                port: 3000,
+                auth: true,
+                prefix: Some("app".to_owned()),
+            },
+        );
+        let updated = client
+            .set_deployment_routes("self", &crate::SetDeploymentRoutesRequest { routes })
+            .unwrap();
+        assert_eq!(updated.agent_id, "deployment-1");
+        get_mock.assert();
+        put_mock.assert();
+    }
+
+    #[test]
+    fn named_route_mutations_encode_name() {
+        let mut server = Server::new();
+        let response = serde_json::json!({
+            "agent_id": "deployment-1",
+            "routes": {},
+            "route_statuses": {}
+        });
+        let put_mock = server
+            .mock("PUT", "/agents/deployments/self/routes/web%20app")
+            .match_header("authorization", "Bearer test-credential")
+            .match_body(Matcher::JsonString(
+                serde_json::json!({
+                    "port": 3000,
+                    "auth": false,
+                    "prefix": ""
+                })
+                .to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(response.to_string())
+            .create();
+        let delete_mock = server
+            .mock("DELETE", "/agents/deployments/self/routes/web%20app")
+            .match_header("authorization", "Bearer test-credential")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(response.to_string())
+            .create();
+
+        let client = client(&server);
+        let request = crate::SetDeploymentRouteRequest::new(crate::RouteConfig {
+            port: 3000,
+            auth: false,
+            prefix: Some(String::new()),
+        });
+        client
+            .set_deployment_route("self", "web app", &request)
+            .unwrap();
+        client.remove_deployment_route("self", "web app").unwrap();
+        put_mock.assert();
+        delete_mock.assert();
     }
 
     #[test]

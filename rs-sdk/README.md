@@ -25,6 +25,29 @@ mode-`0600` JSONL request traces. Trace payloads recursively redact
 secret-looking fields, omit authorization headers, and never record response
 bodies.
 
+## Dynamic routes
+
+The Rust client uses the same typed `RouteConfig` map for launch-time and live
+route configuration. Full-map updates are declarative; named updates are
+atomic and preserve every other route:
+
+```rust
+use std::collections::BTreeMap;
+use hypercli_sdk::{RouteConfig, SetDeploymentRoutesRequest};
+
+let mut routes = BTreeMap::new();
+routes.insert("web".into(), RouteConfig::new(3000));
+let updated = client.set_deployment_routes(
+    "self",
+    &SetDeploymentRoutesRequest { routes },
+)?;
+```
+
+`routes` contains only reusable desired configuration. Resolved URLs and live
+DNS state are returned separately in `route_statuses`. The reserved `self`
+selector is valid for get/status, start, stop, and route operations through an
+active runtime-key binding; the generic runtime scope remains `agents:none`.
+
 ## Buzz coding-agent launch
 
 `BuzzLaunchConfig` renders the private Buzz identity and behavior onto a typed
