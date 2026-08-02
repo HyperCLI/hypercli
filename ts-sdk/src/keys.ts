@@ -57,6 +57,26 @@ function firstString(...values: unknown[]): string | null {
   return null;
 }
 
+function firstTimestamp(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) continue;
+      const numeric = Number(trimmed);
+      if (!Number.isFinite(numeric)) return trimmed;
+      const milliseconds = Math.abs(numeric) < 1_000_000_000_000 ? numeric * 1000 : numeric;
+      const timestamp = new Date(milliseconds);
+      if (Number.isFinite(timestamp.getTime())) return timestamp.toISOString();
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      const milliseconds = Math.abs(value) < 1_000_000_000_000 ? value * 1000 : value;
+      const timestamp = new Date(milliseconds);
+      if (Number.isFinite(timestamp.getTime())) return timestamp.toISOString();
+    }
+  }
+  return null;
+}
+
 function apiKeyFromDict(data: any): ApiKey {
   const record = asRecord(data);
   return {
@@ -67,9 +87,9 @@ function apiKeyFromDict(data: any): ApiKey {
     apiKeyPreview: firstString(record.api_key_preview, record.apiKeyPreview, record.preview, record.masked_key, record.maskedKey),
     last4: firstString(record.last4, record.last_4),
     isActive: record.is_active === false || record.isActive === false || record.active === false ? false : true,
-    createdAt: firstString(record.created_at, record.createdAt) || '',
-    lastUsedAt: firstString(record.last_used_at, record.lastUsedAt),
-    expiresAt: firstString(record.expires_at, record.expiresAt),
+    createdAt: firstTimestamp(record.created_at, record.createdAt) || '',
+    lastUsedAt: firstTimestamp(record.last_used_at, record.lastUsedAt),
+    expiresAt: firstTimestamp(record.expires_at, record.expiresAt),
   };
 }
 

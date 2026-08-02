@@ -85,6 +85,28 @@ describe('Keys SDK', () => {
     expect(listed[0]?.tags).toEqual(['jobs:self']);
   });
 
+  it('normalizes numeric API key timestamps returned by the live API', async () => {
+    const http = {
+      get: vi.fn().mockResolvedValue([
+        {
+          key_id: 'key-live-shape',
+          name: 'Buzz',
+          tags: ['*:*'],
+          is_active: true,
+          created_at: 1785477645.683563,
+          last_used_at: 1785514386.193904,
+          expires_at: 1785542922365,
+        },
+      ]),
+    } as unknown as HTTPClient;
+
+    const [key] = await new KeysAPI(http).list();
+
+    expect(key?.createdAt).toBe('2026-07-31T06:00:45.683Z');
+    expect(key?.lastUsedAt).toBe('2026-07-31T16:13:06.193Z');
+    expect(key?.expiresAt).toBe('2026-08-01T00:08:42.365Z');
+  });
+
   it('gets and renames a key', async () => {
     const http = {
       get: vi.fn().mockResolvedValue({
