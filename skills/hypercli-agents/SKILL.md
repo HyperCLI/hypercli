@@ -27,7 +27,7 @@ and the `hypercli-voice` skill for voice commands.
 | Discovery | `budget`, `list`, `ls`, `status`, `metrics`, `web-search` |
 | Lifecycle | `create`, `wait`, `start`, `stop`, `delete` |
 | Routes | `routes list`, `routes add`, `routes remove` |
-| External runtimes | `external-create`, `external-rotate-key` |
+| Host-admin external runtime registration | `external-create`, `external-rotate-key` |
 | Container access | `exec`, `cp`, `shell`, `logs`, `token` |
 | Gateway reads | `config`, `models`, `files`, `sessions`, `cron` |
 | Gateway mutations | `config-patch`, `cron-add`, `cron-remove`, `cron-run` |
@@ -149,6 +149,11 @@ overrides and reuses the backend-stored configuration. A process can request
 pod is gone.
 
 ## External runtimes and relay keys
+
+These commands are for an operator registering a separately customer-hosted
+runtime. They are not launch options for a HyperCLI-managed agent and must not
+be suggested for starting, restarting, repairing, or configuring the current
+runtime. A managed runtime normally has `agents:none` and cannot use them.
 
 ```bash
 hyper agents external-create customer-runtime --runtime openclaw

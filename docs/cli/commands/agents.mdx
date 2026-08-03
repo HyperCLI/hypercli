@@ -230,6 +230,11 @@ Ask before using `exec`, `shell`, remote-destination `cp`, `config-patch`,
 
 ## External Agents And Search
 
+`external-create` and `external-rotate-key` are host-administrator operations
+for a separately customer-hosted runtime. They are not launch options for a
+HyperCLI-managed agent and should not be used to start, restart, repair, or
+configure the current runtime.
+
 Register a customer-hosted runtime:
 
 ```bash
