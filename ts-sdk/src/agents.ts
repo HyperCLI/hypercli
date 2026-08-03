@@ -139,6 +139,7 @@ const BUZZ_RESERVED_ENV_KEYS = new Set([
   'BUZZ_ACP_DISPLAY_NAME',
   'BUZZ_ACP_TEXT_MENTIONS',
   'BUZZ_ACP_REQUIRE_REPLY',
+  'CLAUDE_CODE_EXECUTABLE',
   'BUZZ_ACP_SESSION_TITLE',
   'BUZZ_ACP_SYSTEM_PROMPT',
   'BUZZ_ACP_MODEL',
@@ -743,6 +744,9 @@ function buildBuzzLaunchEnv(
     BUZZ_ACP_MULTIPLE_EVENT_HANDLING: 'steer',
     BUZZ_ACP_DEDUP: 'queue',
   };
+  if (runtime === 'claude-code') {
+    env.CLAUDE_CODE_EXECUTABLE = '/usr/local/bin/claude';
+  }
   if (buzz.rustLog) env.RUST_LOG = buzz.rustLog;
   const optional: Record<string, string | undefined | null> = {
     BUZZ_AUTH_TAG: buzz.authTag,

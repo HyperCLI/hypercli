@@ -70,6 +70,7 @@ const BUZZ_RESERVED_ENV: &[&str] = &[
     "BUZZ_ACP_DISPLAY_NAME",
     "BUZZ_ACP_TEXT_MENTIONS",
     "BUZZ_ACP_REQUIRE_REPLY",
+    "CLAUDE_CODE_EXECUTABLE",
     "BUZZ_ACP_SESSION_TITLE",
     "BUZZ_ACP_SYSTEM_PROMPT",
     "BUZZ_ACP_MODEL",
@@ -195,6 +196,12 @@ impl BuzzLaunchConfig {
         request
             .env
             .insert("BUZZ_ACP_MCP_COMMAND".to_owned(), mcp_command.to_owned());
+        if request.runtime == ManagedRuntime::ClaudeCode {
+            request.env.insert(
+                "CLAUDE_CODE_EXECUTABLE".to_owned(),
+                "/usr/local/bin/claude".to_owned(),
+            );
+        }
         request
             .env
             .insert("BUZZ_ACP_LAZY_POOL".to_owned(), "true".to_owned());
@@ -500,6 +507,10 @@ mod tests {
         request
             .env
             .insert("BUZZ_ACP_REQUIRE_REPLY".to_owned(), "false".to_owned());
+        request.env.insert(
+            "CLAUDE_CODE_EXECUTABLE".to_owned(),
+            "/host/bin/claude".to_owned(),
+        );
         request
             .env
             .insert("RUST_LOG".to_owned(), "debug".to_owned());
@@ -544,6 +555,7 @@ mod tests {
             Some("Fizz4")
         );
         assert_eq!(request.env["BUZZ_ACP_REQUIRE_REPLY"], "true");
+        assert!(!request.env.contains_key("CLAUDE_CODE_EXECUTABLE"));
         assert_eq!(
             request
                 .env
@@ -572,6 +584,23 @@ mod tests {
         assert_eq!(
             buzz.apply_to(&mut request, None),
             Err(BuzzLaunchError::UnsupportedRuntime)
+        );
+    }
+
+    #[test]
+    fn buzz_launch_rederives_claude_executable_inside_the_image() {
+        let mut request = CreateDeploymentRequest::new(ManagedRuntime::ClaudeCode);
+        request.env.insert(
+            "CLAUDE_CODE_EXECUTABLE".to_owned(),
+            "/host/bin/claude".to_owned(),
+        );
+        let buzz = BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test");
+
+        buzz.apply_to(&mut request, None).unwrap();
+
+        assert_eq!(
+            request.env["CLAUDE_CODE_EXECUTABLE"],
+            "/usr/local/bin/claude"
         );
     }
 

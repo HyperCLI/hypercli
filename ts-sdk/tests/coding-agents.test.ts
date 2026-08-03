@@ -218,6 +218,9 @@ describe('coding agents', () => {
     expect(payload.env.BUZZ_ACP_AGENT_COMMAND).toBe(expectedRuntime.agent_command);
     expect(payload.env.BUZZ_ACP_AGENT_ARGS).toBe(expectedRuntime.agent_args);
     expect(payload.env.BUZZ_ACP_MCP_COMMAND).toBe(expectedRuntime.mcp_command);
+    expect(payload.env.CLAUDE_CODE_EXECUTABLE ?? null).toBe(
+      expectedRuntime.claude_code_executable,
+    );
   });
 
   it('honors an explicit image override for a typed Buzz launch', async () => {
@@ -255,6 +258,7 @@ describe('coding agents', () => {
         BUZZ_RELAY_URL: 'wss://attacker.invalid',
         BUZZ_ACP_AGENT_COMMAND: '/tmp/not-opencode',
         BUZZ_ACP_REQUIRE_REPLY: 'false',
+        CLAUDE_CODE_EXECUTABLE: '/host/bin/claude',
         RUST_LOG: 'debug',
         HYPER_API_KEY: 'inference-key',
       },
@@ -288,6 +292,7 @@ describe('coding agents', () => {
         HYPER_API_KEY: 'inference-key',
       },
     });
+    expect(post.mock.calls[0][1].env.CLAUDE_CODE_EXECUTABLE).toBeUndefined();
   });
 
   it('uses a safe default ACP log filter for typed Buzz launches', async () => {

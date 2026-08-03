@@ -228,6 +228,8 @@ pub enum ProviderError {
     MissingRelayUrl,
     #[error("agent parallelism must be between 1 and 32")]
     InvalidParallelism,
+    #[error("Buzz launch arguments cannot contain commas")]
+    InvalidLaunchArguments,
     #[error("agent timeout configuration is invalid")]
     InvalidTimeoutConfiguration,
     #[error("agent respond_to mode is invalid")]
@@ -484,9 +486,6 @@ fn build_launch_request(
     if agent.relay_url.trim().is_empty() {
         return Err(ProviderError::MissingRelayUrl);
     }
-    if !(1..=32).contains(&agent.parallelism) {
-        return Err(ProviderError::InvalidParallelism);
-    }
     let _legacy_provider_selection = (options.runtime, options.size);
     let behavior = validate_behavior(&agent)?;
     let launch_command = match agent.launch.as_ref() {
@@ -571,6 +570,22 @@ fn build_launch_request(
         agent.agent_args.clone()
     };
 
+    if launch_args.iter().any(|argument| argument.contains(',')) {
+        return Err(ProviderError::InvalidLaunchArguments);
+    }
+    let parallelism = if agent.launch.is_some() {
+        env.get("BUZZ_ACP_AGENTS")
+            .map(String::as_str)
+            .unwrap_or("1")
+            .parse::<u32>()
+            .map_err(|_| ProviderError::InvalidParallelism)?
+    } else {
+        agent.parallelism
+    };
+    if !(1..=32).contains(&parallelism) {
+        return Err(ProviderError::InvalidParallelism);
+    }
+
     for key in env.keys() {
         if !is_posix_env_key(key) {
             return Err(ProviderError::InvalidEnvironmentKey);
@@ -623,6 +638,12 @@ fn build_launch_request(
         }
         .to_owned(),
     );
+    if runtime == CodingRuntime::ClaudeCode {
+        env.insert(
+            "CLAUDE_CODE_EXECUTABLE".to_owned(),
+            "/usr/local/bin/claude".to_owned(),
+        );
+    }
     if let Some(mode) = behavior.respond_to {
         env.insert("BUZZ_ACP_RESPOND_TO".to_owned(), mode);
     }
@@ -674,6 +695,7 @@ const AUTHORITATIVE_ENV_KEYS: &[&str] = &[
     "BUZZ_ACP_DISPLAY_NAME",
     "BUZZ_ACP_TEXT_MENTIONS",
     "BUZZ_ACP_REQUIRE_REPLY",
+    "CLAUDE_CODE_EXECUTABLE",
     "HYPER_WORKSPACES_BOOT_SYNC",
     "HYPER_WORKSPACES_DIR",
     "HYPER_WORKSPACES_SYNC_READY_ONLY",
@@ -1060,6 +1082,7 @@ mod tests {
                 command.to_owned(),
                 format!("/usr/local/bin/{command}"),
                 format!(r"C:\\Users\\tester\\.local\\bin\\{command}.exe"),
+                format!(r"C:\\Users\\tester\\.local\\bin\\{command}.Exe"),
                 format!(r"C:\\Users\\tester\\.local\\bin\\{command}.EXE"),
             ] {
                 assert_eq!(
@@ -1171,6 +1194,63 @@ mod tests {
         assert_eq!(request.env["BUZZ_ACP_AGENT_ARGS"], "acp,--profile,hosted");
         assert_eq!(request.env["BUZZ_ACP_MCP_COMMAND"], "");
         assert_eq!(request.env["HYPER_WORKSPACES_DIR"], "/home/node/workspaces");
+    }
+
+    #[test]
+    fn portable_launch_validates_resolved_parallelism_not_stale_legacy_value() {
+        let mut agent = test_agent();
+        agent.parallelism = 99;
+        agent.launch = Some(BuzzLaunchBlock {
+            command: Some("opencode".to_owned()),
+            args: vec!["acp".to_owned()],
+            policy_env: BTreeMap::from([("BUZZ_ACP_AGENTS".to_owned(), "4".to_owned())]),
+            env: BTreeMap::from([("BUZZ_ACP_AGENTS".to_owned(), "7".to_owned())]),
+            owner_pubkey: Some("a".repeat(64)),
+        });
+
+        let request =
+            build_launch_request(agent, TEST_PUBLIC_HEX, "buzz-runtime-test", test_options())
+                .unwrap();
+        assert_eq!(request.env["BUZZ_ACP_AGENTS"], "7");
+
+        for invalid in ["0", "33", "not-a-number"] {
+            let mut agent = test_agent();
+            agent.launch = Some(BuzzLaunchBlock {
+                command: Some("opencode".to_owned()),
+                args: vec!["acp".to_owned()],
+                policy_env: BTreeMap::new(),
+                env: BTreeMap::from([("BUZZ_ACP_AGENTS".to_owned(), invalid.to_owned())]),
+                owner_pubkey: Some("a".repeat(64)),
+            });
+            assert!(matches!(
+                build_launch_request(agent, TEST_PUBLIC_HEX, "buzz-runtime-test", test_options()),
+                Err(ProviderError::InvalidParallelism)
+            ));
+        }
+
+        let mut legacy = test_agent();
+        legacy.parallelism = 0;
+        assert!(matches!(
+            build_launch_request(legacy, TEST_PUBLIC_HEX, "buzz-runtime-test", test_options()),
+            Err(ProviderError::InvalidParallelism)
+        ));
+    }
+
+    #[test]
+    fn portable_launch_rejects_unrepresentable_comma_arguments() {
+        let mut agent = test_agent();
+        agent.launch = Some(BuzzLaunchBlock {
+            command: Some(r"C:\\host\\opencode.Exe".to_owned()),
+            args: vec!["acp".to_owned(), "value,split".to_owned()],
+            policy_env: BTreeMap::new(),
+            env: BTreeMap::new(),
+            owner_pubkey: Some("a".repeat(64)),
+        });
+
+        assert!(matches!(
+            build_launch_request(agent, TEST_PUBLIC_HEX, "buzz-runtime-test", test_options()),
+            Err(ProviderError::InvalidLaunchArguments)
+        ));
     }
 
     #[test]
@@ -1302,6 +1382,10 @@ mod tests {
                 ("BUZZ_ACP_DISPLAY_NAME".to_owned(), "Wrong".to_owned()),
                 ("BUZZ_ACP_TEXT_MENTIONS".to_owned(), "false".to_owned()),
                 ("BUZZ_ACP_REQUIRE_REPLY".to_owned(), "false".to_owned()),
+                (
+                    "cLaUdE_cOdE_eXeCuTaBlE".to_owned(),
+                    "/tmp/not-claude".to_owned(),
+                ),
                 ("BUZZ_ACP_SESSION_TITLE".to_owned(), "Wrong".to_owned()),
                 (
                     "BUZZ_ACP_MULTIPLE_EVENT_HANDLING".to_owned(),
@@ -1340,6 +1424,15 @@ mod tests {
             assert_eq!(request.env["BUZZ_ACP_DISPLAY_NAME"], "Fizz 4");
             assert_eq!(request.env["BUZZ_ACP_TEXT_MENTIONS"], "true");
             assert_eq!(request.env["BUZZ_ACP_REQUIRE_REPLY"], "true");
+            if runtime == CodingRuntime::ClaudeCode {
+                assert_eq!(
+                    request.env["CLAUDE_CODE_EXECUTABLE"],
+                    "/usr/local/bin/claude"
+                );
+            } else {
+                assert!(!request.env.contains_key("CLAUDE_CODE_EXECUTABLE"));
+            }
+            assert!(!request.env.contains_key("cLaUdE_cOdE_eXeCuTaBlE"));
             assert_eq!(request.env["BUZZ_ACP_SESSION_TITLE"], "Wrong");
             assert_eq!(request.env["BUZZ_ACP_MULTIPLE_EVENT_HANDLING"], "queue");
             assert_eq!(request.env["BUZZ_ACP_DEDUP"], "drop");

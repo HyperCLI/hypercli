@@ -151,6 +151,7 @@ BUZZ_RESERVED_ENV_KEYS = frozenset({
     "BUZZ_ACP_DISPLAY_NAME",
     "BUZZ_ACP_TEXT_MENTIONS",
     "BUZZ_ACP_REQUIRE_REPLY",
+    "CLAUDE_CODE_EXECUTABLE",
     "BUZZ_ACP_SESSION_TITLE",
     "BUZZ_ACP_SYSTEM_PROMPT",
     "BUZZ_ACP_MODEL",
@@ -219,6 +220,8 @@ class BuzzLaunchConfig:
             "BUZZ_ACP_MULTIPLE_EVENT_HANDLING": "steer",
             "BUZZ_ACP_DEDUP": "queue",
         }
+        if runtime == "claude-code":
+            env["CLAUDE_CODE_EXECUTABLE"] = "/usr/local/bin/claude"
         optional = {
             "BUZZ_AUTH_TAG": self.auth_tag,
             "BUZZ_ACP_DISPLAY_NAME": self.display_name,

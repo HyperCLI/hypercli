@@ -68,6 +68,16 @@ separately in the deploy request. Buzz launches explicitly set
 deployment, so an accepted `!shutdown` does not automatically relaunch
 `buzz-acp`.
 
+For portable launches, `launch.policy_env` is the default tier and
+`launch.env` wins over it; legacy top-level launch fields are ignored. The
+provider validates the resulting `BUZZ_ACP_AGENTS` value, rejects arguments
+that cannot survive Buzz ACP's comma-delimited transport, and rewrites
+host-resolved executables such as `CLAUDE_CODE_EXECUTABLE` to image-local
+paths. Hosted identity and workspace values are applied last. When Desktop
+supplies an authorization tag, it remains the authoritative owner proof;
+`launch.owner_pubkey` is the legacy fallback, matching local Tauri runtime
+behavior.
+
 Image immutability is currently an operator responsibility. The provider does
 not yet enforce a registry allowlist or digest-only reference, and the selected
 image receives the agent nsec and caller environment.

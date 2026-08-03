@@ -242,6 +242,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
         let child_command = contract["agent_command"].as_str().unwrap();
         let child_args = contract["agent_args"].as_str().unwrap();
         let mcp_command = contract["mcp_command"].as_str().unwrap();
+        let claude_code_executable = contract["claude_code_executable"].as_str();
         let mut server = Server::new();
         let trace_dir = tempfile::tempdir().unwrap();
         let trace_file = trace_dir.path().join(format!("{runtime}.jsonl"));
@@ -298,6 +299,9 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
         if runtime == "goose" {
             expected["env"]["GOOSE_MODEL"] = serde_json::json!("fixture-model");
             expected["env"]["GOOSE_PROVIDER"] = serde_json::json!("fixture-provider");
+        }
+        if let Some(executable) = claude_code_executable {
+            expected["env"]["CLAUDE_CODE_EXECUTABLE"] = serde_json::json!(executable);
         }
         let create = server
             .mock("POST", "/agents/deployments")
@@ -363,6 +367,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
                         "BUZZ_ACP_MODEL": "fixture-model",
                         "BUZZ_RELAY_URL": "wss://attacker.invalid",
                         "BUZZ_ACP_AGENT_COMMAND": "/tmp/not-the-harness",
+                        "cLaUdE_cOdE_eXeCuTaBlE": "/tmp/not-claude",
                         "BUZZ_ACP_SETUP_PAYLOAD": "forged",
                         "RUST_LOG": "debug"
                     },

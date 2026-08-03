@@ -243,6 +243,9 @@ def test_typed_buzz_launch_matches_shared_cross_language_golden(method_name, run
     assert posted["env"]["BUZZ_ACP_AGENT_COMMAND"] == expected_runtime["agent_command"]
     assert posted["env"]["BUZZ_ACP_AGENT_ARGS"] == expected_runtime["agent_args"]
     assert posted["env"]["BUZZ_ACP_MCP_COMMAND"] == expected_runtime["mcp_command"]
+    assert posted["env"].get("CLAUDE_CODE_EXECUTABLE") == expected_runtime[
+        "claude_code_executable"
+    ]
 
 
 def test_typed_buzz_launch_honors_explicit_image_override():
@@ -340,6 +343,7 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
             "BUZZ_RELAY_URL": "wss://attacker.invalid",
             "BUZZ_ACP_AGENT_COMMAND": "/tmp/not-opencode",
             "BUZZ_ACP_REQUIRE_REPLY": "false",
+            "CLAUDE_CODE_EXECUTABLE": "/host/bin/claude",
             "RUST_LOG": "debug",
             "HYPER_API_KEY": "inference-key",
         },
@@ -369,6 +373,7 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
     assert posted["env"]["BUZZ_ACP_REQUIRE_REPLY"] == "true"
     assert posted["env"]["RUST_LOG"] == "debug"
     assert posted["env"]["HYPER_API_KEY"] == "inference-key"
+    assert "CLAUDE_CODE_EXECUTABLE" not in posted["env"]
 
 
 def test_typed_buzz_launch_uses_safe_default_acp_logging():

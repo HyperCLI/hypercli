@@ -24,35 +24,40 @@
       "stock_agent_command": "opencode",
       "agent_command": "/usr/local/bin/opencode",
       "agent_args": "acp",
-      "mcp_command": ""
+      "mcp_command": "",
+      "claude_code_executable": null
     },
     "codex": {
       "image": "ghcr.io/hypercli/hypercli-buzz-codex:latest",
       "stock_agent_command": "codex-acp",
       "agent_command": "/usr/local/bin/codex-acp",
       "agent_args": "",
-      "mcp_command": "/usr/local/bin/buzz-dev-mcp"
+      "mcp_command": "/usr/local/bin/buzz-dev-mcp",
+      "claude_code_executable": null
     },
     "claude-code": {
       "image": "ghcr.io/hypercli/hypercli-buzz-claude:latest",
       "stock_agent_command": "claude-agent-acp",
       "agent_command": "/usr/local/bin/claude-agent-acp",
       "agent_args": "",
-      "mcp_command": ""
+      "mcp_command": "",
+      "claude_code_executable": "/usr/local/bin/claude"
     },
     "goose": {
       "image": "ghcr.io/hypercli/hypercli-buzz-goose:latest",
       "stock_agent_command": "goose",
       "agent_command": "/usr/local/bin/goose",
       "agent_args": "acp",
-      "mcp_command": ""
+      "mcp_command": "",
+      "claude_code_executable": null
     },
     "kimi-code": {
       "image": "ghcr.io/hypercli/hypercli-buzz-kimi-code:latest",
       "stock_agent_command": "kimi",
       "agent_command": "/usr/local/bin/kimi",
       "agent_args": "acp",
-      "mcp_command": ""
+      "mcp_command": "",
+      "claude_code_executable": null
     }
   }
 }
