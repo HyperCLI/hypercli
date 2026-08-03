@@ -735,6 +735,7 @@ function buildBuzzLaunchEnv(
     BUZZ_PRIVATE_KEY: buzz.privateKeyNsec,
     NOSTR_PRIVATE_KEY: buzz.privateKeyNsec,
     BUZZ_RELAY_URL: buzz.relayUrl,
+    BUZZ_MANAGED_AGENT_START_NONCE: randomHexToken(16),
     BUZZ_ACP_AGENT_COMMAND: harness.command,
     BUZZ_ACP_AGENT_ARGS: harness.args.join(','),
     BUZZ_ACP_MCP_COMMAND: harness.mcpCommand,

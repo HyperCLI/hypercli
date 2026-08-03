@@ -187,6 +187,10 @@ impl BuzzLaunchConfig {
             .env
             .insert("BUZZ_RELAY_URL".to_owned(), self.relay_url.clone());
         request.env.insert(
+            "BUZZ_MANAGED_AGENT_START_NONCE".to_owned(),
+            uuid::Uuid::new_v4().simple().to_string(),
+        );
+        request.env.insert(
             "BUZZ_ACP_AGENT_COMMAND".to_owned(),
             agent_command.to_owned(),
         );
@@ -487,6 +491,14 @@ pub struct Deployment {
 mod tests {
     use super::*;
 
+    fn buzz_nonce_rule() -> serde_json::Value {
+        let golden: serde_json::Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/buzz-launch-contract.json"
+        ))
+        .unwrap();
+        golden["dynamic_env"]["BUZZ_MANAGED_AGENT_START_NONCE"].clone()
+    }
+
     #[test]
     fn buzz_launch_owns_reserved_env_and_uses_opencode_defaults() {
         let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
@@ -510,6 +522,13 @@ mod tests {
         request.env.insert(
             "CLAUDE_CODE_EXECUTABLE".to_owned(),
             "/host/bin/claude".to_owned(),
+        );
+        request
+            .env
+            .insert("BUZZ_MANAGED_AGENT".to_owned(), "forged".to_owned());
+        request.env.insert(
+            "BUZZ_MANAGED_AGENT_START_NONCE".to_owned(),
+            "forged".to_owned(),
         );
         request
             .env
@@ -556,6 +575,24 @@ mod tests {
         );
         assert_eq!(request.env["BUZZ_ACP_REQUIRE_REPLY"], "true");
         assert!(!request.env.contains_key("CLAUDE_CODE_EXECUTABLE"));
+        assert!(!request.env.contains_key("BUZZ_MANAGED_AGENT"));
+        assert_eq!(
+            buzz_nonce_rule(),
+            serde_json::json!({
+                "format": "lowercase-hex",
+                "length": 32,
+                "fresh_per_launch": true
+            })
+        );
+        let start_nonce = &request.env["BUZZ_MANAGED_AGENT_START_NONCE"];
+        assert_eq!(
+            start_nonce.len(),
+            buzz_nonce_rule()["length"].as_u64().unwrap() as usize
+        );
+        assert!(start_nonce
+            .chars()
+            .all(|character| character.is_ascii_hexdigit()));
+        assert_ne!(start_nonce, "forged");
         assert_eq!(
             request
                 .env
@@ -573,6 +610,21 @@ mod tests {
         assert_eq!(
             request.env.get("RUST_LOG").map(String::as_str),
             Some("debug")
+        );
+    }
+
+    #[test]
+    fn each_buzz_launch_attempt_gets_a_fresh_start_nonce() {
+        let buzz = BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test");
+        let mut first = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        let mut second = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+
+        buzz.apply_to(&mut first, None).unwrap();
+        buzz.apply_to(&mut second, None).unwrap();
+
+        assert_ne!(
+            first.env["BUZZ_MANAGED_AGENT_START_NONCE"],
+            second.env["BUZZ_MANAGED_AGENT_START_NONCE"]
         );
     }
 

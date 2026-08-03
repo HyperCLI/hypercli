@@ -10,6 +10,12 @@ const DEPLOY_FIXTURE: &str = include_str!("fixtures/deploy-request.json");
 const DEPLOY_RESPONSE_FIXTURE: &str = include_str!("fixtures/deploy-response.json");
 const TEST_PUBLIC_HEX: &str = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
 
+fn expected_info_response() -> serde_json::Value {
+    let mut expected: serde_json::Value = serde_json::from_str(INFO_RESPONSE_FIXTURE).unwrap();
+    expected["version"] = serde_json::json!(env!("CARGO_PKG_VERSION"));
+    expected
+}
+
 fn assert_stock_stdout(output: std::process::Output) -> serde_json::Value {
     assert!(output.status.success());
     assert!(output.stderr.is_empty());
@@ -27,7 +33,7 @@ fn info_fixture_is_a_one_shot_json_exchange() {
         .output()
         .unwrap();
     let response = assert_stock_stdout(output);
-    let expected: serde_json::Value = serde_json::from_str(INFO_RESPONSE_FIXTURE).unwrap();
+    let expected = expected_info_response();
     assert_eq!(response, expected);
     assert_eq!(
         response["config_schema"]["properties"],
@@ -37,7 +43,7 @@ fn info_fixture_is_a_one_shot_json_exchange() {
 
 #[test]
 fn info_probe_is_repeatable_without_authentication_or_network_access() {
-    let expected: serde_json::Value = serde_json::from_str(INFO_RESPONSE_FIXTURE).unwrap();
+    let expected = expected_info_response();
     for _ in 0..8 {
         let output = Command::cargo_bin("buzz-backend-hypercli")
             .unwrap()
@@ -47,6 +53,21 @@ fn info_probe_is_repeatable_without_authentication_or_network_access() {
             .output()
             .unwrap();
         assert_eq!(assert_stock_stdout(output), expected);
+    }
+}
+
+#[test]
+fn built_info_probe_ignores_optional_request_metadata() {
+    for input in [
+        serde_json::json!({"op": "info"}),
+        serde_json::json!({"op": "info", "request_id": {"future": true}}),
+    ] {
+        let output = Command::cargo_bin("buzz-backend-hypercli")
+            .unwrap()
+            .write_stdin(input.to_string())
+            .output()
+            .unwrap();
+        assert_eq!(assert_stock_stdout(output), expected_info_response());
     }
 }
 
@@ -236,6 +257,10 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
     ))
     .unwrap();
     let common = &golden["common"];
+    let nonce_rule = &golden["dynamic_env"]["BUZZ_MANAGED_AGENT_START_NONCE"];
+    assert_eq!(nonce_rule["format"], "lowercase-hex");
+    assert_eq!(nonce_rule["fresh_per_launch"], true);
+    let nonce_length = nonce_rule["length"].as_u64().unwrap() as usize;
     for (runtime, contract) in golden["runtimes"].as_object().unwrap() {
         let agent_command = contract["stock_agent_command"].as_str().unwrap();
         let image = contract["image"].as_str().unwrap();
@@ -305,7 +330,12 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
         }
         let create = server
             .mock("POST", "/agents/deployments")
-            .match_body(Matcher::JsonString(expected.to_string()))
+            .match_body(Matcher::AllOf(vec![
+                Matcher::PartialJson(expected.clone()),
+                Matcher::Regex(format!(
+                    r#"\"BUZZ_MANAGED_AGENT_START_NONCE\":\"[0-9a-f]{{{nonce_length}}}\""#
+                )),
+            ]))
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(
@@ -319,7 +349,6 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
             .create();
         let mut request = serde_json::json!({
             "op": "deploy",
-            "request_id": format!("dry-run-{runtime}"),
             "agent": {
                 "name": "Fizz",
                 "relay_url": "wss://buzz.example.com",
@@ -403,6 +432,31 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
         let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(response["agent_id"], format!("dry-run-{runtime}"));
         let trace = fs::read_to_string(trace_file).unwrap();
+        let trace_event: serde_json::Value = trace
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .find(|event: &serde_json::Value| event["operation"] == "create_deployment")
+            .unwrap();
+        let mut traced_request = trace_event["request"].clone();
+        let nonce = traced_request["env"]["BUZZ_MANAGED_AGENT_START_NONCE"]
+            .as_str()
+            .unwrap();
+        assert_eq!(nonce.len(), nonce_length);
+        assert!(nonce.chars().all(|character| character.is_ascii_hexdigit()));
+        traced_request["env"]["BUZZ_MANAGED_AGENT_START_NONCE"] = serde_json::json!("<dynamic>");
+        expected["env"]["BUZZ_MANAGED_AGENT_START_NONCE"] = serde_json::json!("<dynamic>");
+        for key in [
+            "MODEL_API_KEY",
+            "BUZZ_PRIVATE_KEY",
+            "NOSTR_PRIVATE_KEY",
+            "BUZZ_AUTH_TAG",
+        ] {
+            expected["env"][key] = serde_json::json!("<redacted>");
+        }
+        assert_eq!(
+            traced_request, expected,
+            "{runtime}: full launch request drift"
+        );
         assert!(trace.contains(r#""operation":"create_deployment""#));
         assert!(trace.contains(r#""dry_run":true"#));
         assert!(trace.contains(&format!(r#""runtime":"{runtime}""#)));

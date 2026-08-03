@@ -37,17 +37,12 @@ fn run(dry_run: bool) -> Result<serde_json::Value, buzz_backend_hypercli::Provid
         .map_err(|_| buzz_backend_hypercli::ProviderError::InvalidRequest)?;
 
     match request {
-        ProviderRequest::Info { request_id } => {
-            let _ = request_id;
-            serde_json::to_value(provider_info())
-                .map_err(|_| buzz_backend_hypercli::ProviderError::InvalidRequest)
-        }
+        ProviderRequest::Info => serde_json::to_value(provider_info())
+            .map_err(|_| buzz_backend_hypercli::ProviderError::InvalidRequest),
         ProviderRequest::Deploy {
-            request_id,
             agent,
             provider_config,
         } => {
-            let _ = request_id;
             let config = discover_client_config().map_err(map_config_error)?;
             let client =
                 HyperCliClient::new(config).map_err(buzz_backend_hypercli::map_client_error)?;

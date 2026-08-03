@@ -23,7 +23,7 @@ import time
 from typing import TYPE_CHECKING, Callable, Literal, Optional, Any, AsyncIterator, NotRequired, TypedDict
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 from contextlib import asynccontextmanager
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 
@@ -211,6 +211,7 @@ class BuzzLaunchConfig:
             "BUZZ_PRIVATE_KEY": self.private_key_nsec,
             "NOSTR_PRIVATE_KEY": self.private_key_nsec,
             "BUZZ_RELAY_URL": self.relay_url,
+            "BUZZ_MANAGED_AGENT_START_NONCE": uuid4().hex,
             "BUZZ_ACP_AGENT_COMMAND": default_command,
             "BUZZ_ACP_AGENT_ARGS": ",".join(default_args),
             "BUZZ_ACP_MCP_COMMAND": default_mcp,

@@ -236,6 +236,9 @@ does not invoke provider stop, undeploy, status, logs, or delete operations.
   without replacing its launch environment.
 - Repeating deploy for a stopped deployment starts it with the current launch
   settings.
+- A `failed`, `restore_failed`, or `sync_failed` deployment is not restarted
+  through its uncleared runtime. Let no-restart cleanup reach `stopped`, or
+  stop it with authenticated HyperCLI lifecycle tooling, then deploy again.
 - Desktop's Shutdown action sends a best-effort owner-authored,
   agent-mentioned `!shutdown` channel message. It fails without a shared
   channel. New provider launches set `restart: false`; with a backend and

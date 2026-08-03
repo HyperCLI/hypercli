@@ -131,8 +131,11 @@ after a conflict. A deploy request restarts a stopped deployment with the
 request's current launch settings. A deploy request for an already-running
 deployment is idempotent and does not update its launch settings in place;
 stop it through the authenticated HyperCLI deployment API before asking Buzz
-to deploy it again with changed settings. It emits exactly one JSON response
-and writes no protocol diagnostics to stderr.
+to deploy it again with changed settings. For `failed`, `restore_failed`, or
+`sync_failed`, let the no-restart cleanup reach `stopped` (or stop the
+deployment with authenticated HyperCLI tooling), then deploy again; the
+provider never starts through an uncleared runtime. It emits exactly one JSON
+response and writes no protocol diagnostics to stderr.
 
 Stock v0.5.2 sends `idle_timeout_seconds`, legacy
 `turn_timeout_seconds`, `max_turn_duration_seconds`, `respond_to`, and

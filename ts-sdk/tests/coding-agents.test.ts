@@ -41,6 +41,11 @@ const buzzGolden = JSON.parse(readFileSync(
   'utf8',
 )) as {
   runtime_scopes: string[];
+  dynamic_env: Record<string, {
+    format: string;
+    length: number;
+    fresh_per_launch: boolean;
+  }>;
   common: Record<string, unknown>;
   runtimes: Record<string, {
     image: string;
@@ -258,6 +263,8 @@ describe('coding agents', () => {
         BUZZ_RELAY_URL: 'wss://attacker.invalid',
         BUZZ_ACP_AGENT_COMMAND: '/tmp/not-opencode',
         BUZZ_ACP_REQUIRE_REPLY: 'false',
+        BUZZ_MANAGED_AGENT: 'forged',
+        BUZZ_MANAGED_AGENT_START_NONCE: 'forged',
         CLAUDE_CODE_EXECUTABLE: '/host/bin/claude',
         RUST_LOG: 'debug',
         HYPER_API_KEY: 'inference-key',
@@ -293,6 +300,38 @@ describe('coding agents', () => {
       },
     });
     expect(post.mock.calls[0][1].env.CLAUDE_CODE_EXECUTABLE).toBeUndefined();
+    expect(post.mock.calls[0][1].env.BUZZ_MANAGED_AGENT).toBeUndefined();
+    expect(buzzGolden.dynamic_env.BUZZ_MANAGED_AGENT_START_NONCE).toEqual({
+      format: 'lowercase-hex',
+      length: 32,
+      fresh_per_launch: true,
+    });
+    expect(post.mock.calls[0][1].env.BUZZ_MANAGED_AGENT_START_NONCE).toMatch(
+      new RegExp(`^[0-9a-f]{${buzzGolden.dynamic_env.BUZZ_MANAGED_AGENT_START_NONCE.length}}$`),
+    );
+    expect(post.mock.calls[0][1].env.BUZZ_MANAGED_AGENT_START_NONCE).not.toBe('forged');
+  });
+
+  it('mints a fresh lifecycle nonce for each typed Buzz launch attempt', async () => {
+    const post = vi.fn().mockResolvedValue(response('opencode'));
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    const buzz = {
+      privateKeyNsec: 'nsec1test',
+      relayUrl: 'wss://buzz.example.test',
+    };
+
+    await deployments.createOpenCode({ buzz });
+    await deployments.createOpenCode({ buzz });
+
+    const first = post.mock.calls[0][1].env.BUZZ_MANAGED_AGENT_START_NONCE;
+    const second = post.mock.calls[1][1].env.BUZZ_MANAGED_AGENT_START_NONCE;
+    expect(first).toMatch(/^[0-9a-f]{32}$/);
+    expect(second).toMatch(/^[0-9a-f]{32}$/);
+    expect(first).not.toBe(second);
   });
 
   it('uses a safe default ACP log filter for typed Buzz launches', async () => {

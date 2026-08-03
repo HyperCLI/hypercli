@@ -28,11 +28,8 @@ const BUZZ_DEV_MCP_COMMAND: &str = "/usr/local/bin/buzz-dev-mcp";
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "lowercase")]
 pub enum ProviderRequest {
-    Info {
-        request_id: String,
-    },
+    Info,
     Deploy {
-        request_id: String,
         agent: Box<BuzzAgentPayload>,
         #[serde(default)]
         provider_config: Value,
@@ -610,6 +607,10 @@ fn build_launch_request(
         "BUZZ_RELAY_URL".to_owned(),
         agent.relay_url.trim().to_owned(),
     );
+    env.insert(
+        "BUZZ_MANAGED_AGENT_START_NONCE".to_owned(),
+        uuid::Uuid::new_v4().simple().to_string(),
+    );
     let auth_tag = nonempty(agent.auth_tag.as_deref());
     if let Some(auth_tag) = auth_tag {
         env.insert("BUZZ_AUTH_TAG".to_owned(), auth_tag.to_owned());
@@ -912,6 +913,14 @@ pub fn map_client_error(error: HyperCliError) -> ProviderError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn buzz_nonce_rule() -> serde_json::Value {
+        let golden: serde_json::Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/buzz-launch-contract.json"
+        ))
+        .unwrap();
+        golden["dynamic_env"]["BUZZ_MANAGED_AGENT_START_NONCE"].clone()
+    }
     use hypercli_sdk::ClientConfig;
     use mockito::{Matcher, Server};
     use secrecy::SecretString;
@@ -1005,6 +1014,29 @@ mod tests {
             error.to_string(),
             "HyperCLI deployment request failed: HyperCLI returned HTTP 422 Unprocessable Entity"
         );
+    }
+
+    #[test]
+    fn request_id_is_ignored_one_shot_metadata() {
+        let info: ProviderRequest = serde_json::from_value(serde_json::json!({
+            "op": "info",
+            "request_id": {"future": "metadata"}
+        }))
+        .unwrap();
+        assert!(matches!(info, ProviderRequest::Info));
+
+        let deploy: ProviderRequest = serde_json::from_value(serde_json::json!({
+            "op": "deploy",
+            "request_id": ["future", "metadata"],
+            "agent": {
+                "name": "Fizz",
+                "relay_url": "wss://relay.example",
+                "private_key_nsec": TEST_SECRET_HEX,
+                "agent_command": "opencode"
+            }
+        }))
+        .unwrap();
+        assert!(matches!(deploy, ProviderRequest::Deploy { .. }));
     }
 
     #[test]
@@ -1169,6 +1201,8 @@ mod tests {
                 ("BUZZ_ACP_MODEL".into(), "launch-model".into()),
                 ("BUZZ_PRIVATE_KEY".into(), "forged".into()),
                 ("buzz_auth_tag".into(), "mixed-case-forgery".into()),
+                ("BUZZ_MANAGED_AGENT".into(), "forged".into()),
+                ("BUZZ_MANAGED_AGENT_START_NONCE".into(), "forged".into()),
                 ("HYPER_WORKSPACES_DIR".into(), "/tmp/forged".into()),
             ]),
             owner_pubkey: Some("b".repeat(64)),
@@ -1186,6 +1220,24 @@ mod tests {
         assert_eq!(request.env["BUZZ_AUTH_TAG"], "[\"auth\",\"tag\"]");
         assert!(!request.env.contains_key("buzz_auth_tag"));
         assert!(!request.env.contains_key("BUZZ_ACP_AGENT_OWNER"));
+        assert!(!request.env.contains_key("BUZZ_MANAGED_AGENT"));
+        assert_eq!(
+            buzz_nonce_rule(),
+            serde_json::json!({
+                "format": "lowercase-hex",
+                "length": 32,
+                "fresh_per_launch": true
+            })
+        );
+        let start_nonce = &request.env["BUZZ_MANAGED_AGENT_START_NONCE"];
+        assert_eq!(
+            start_nonce.len(),
+            buzz_nonce_rule()["length"].as_u64().unwrap() as usize
+        );
+        assert!(start_nonce
+            .chars()
+            .all(|character| character.is_ascii_hexdigit()));
+        assert_ne!(start_nonce, "forged");
         assert!(!request.env.contains_key("LEGACY_ONLY"));
         assert_eq!(
             request.env["BUZZ_ACP_AGENT_COMMAND"],
@@ -1194,6 +1246,29 @@ mod tests {
         assert_eq!(request.env["BUZZ_ACP_AGENT_ARGS"], "acp,--profile,hosted");
         assert_eq!(request.env["BUZZ_ACP_MCP_COMMAND"], "");
         assert_eq!(request.env["HYPER_WORKSPACES_DIR"], "/home/node/workspaces");
+    }
+
+    #[test]
+    fn each_launch_attempt_gets_a_fresh_start_nonce() {
+        let first = build_launch_request(
+            test_agent(),
+            TEST_PUBLIC_HEX,
+            "buzz-runtime-test",
+            test_options(),
+        )
+        .unwrap();
+        let second = build_launch_request(
+            test_agent(),
+            TEST_PUBLIC_HEX,
+            "buzz-runtime-test",
+            test_options(),
+        )
+        .unwrap();
+
+        assert_ne!(
+            first.env["BUZZ_MANAGED_AGENT_START_NONCE"],
+            second.env["BUZZ_MANAGED_AGENT_START_NONCE"]
+        );
     }
 
     #[test]
