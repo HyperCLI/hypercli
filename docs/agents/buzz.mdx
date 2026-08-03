@@ -15,7 +15,8 @@ repositories.
 
 Stock Buzz Desktop discovers the external `buzz-backend-hypercli-*`
 executables; no custom Desktop build is required. They are hardlinks to one
-provider binary, with the filename selecting the hosted runtime. A
+provider binary, retained as discovery and saved-provider compatibility
+aliases. The resolved `launch.command` selects the hosted runtime. A
 Desktop-created agent can then run in an isolated HyperCLI Reef pod instead of
 on the Mac running Buzz:
 
@@ -42,7 +43,7 @@ Current source builds require Rust 1.95:
 ```bash
 git clone https://github.com/HyperCLI/hypercli.git
 cd hypercli
-git checkout 7e6de35bd0a6a8072685931c1f26dd0d8c926892
+git checkout bbf4843a0b819a97e2d2ef16829c1c42223365ca
 
 cargo test --workspace --all-features --locked
 cargo build --release --locked -p buzz-backend-hypercli
@@ -65,8 +66,9 @@ echo '{"op":"info","request_id":"install-check"}' \
 ```
 
 The response should contain `"ok":true`, `"name":"HyperCLI"`, and a
-`config_schema`. Use hardlinks, not symlinks: Buzz resolves symlinks before
-launch, while the provider uses its invoked filename to select the runtime.
+`config_schema`. Use hardlinks, not symlinks, because Buzz resolves symlinks
+before launch. Runtime-named files make the provider choices discoverable;
+they all expose the same protocol and consume the request's resolved launch.
 
 The historical
 [unsigned v0.1.0 release](https://github.com/HyperCLI/hypercli/releases/tag/buzz-provider-v0.1.0)
@@ -158,11 +160,14 @@ form: both Buzz and the provider reject secret-looking configuration fields.
 
 ## Configure the hosted runtime
 
-Choose the runtime with **Run on**. The provider executable name is
-authoritative; Buzz's selected local harness and legacy saved provider fields
-cannot change it. The provider exposes no editable launch fields. It selects the
-canonical runtime image and leaves workspace sync disabled for new agents.
-Previously saved image and workspace values remain accepted for compatibility.
+Choose a HyperCLI backend with **Run on** and select the coding harness in
+Buzz's agent configuration. Desktop stages every provider executable as
+`provider[.exe]`, so the authoritative `launch.command` selects the canonical
+runtime and image; legacy requests without a launch block fall back to
+`agent.agent_command`. Editable legacy runtime and size values cannot change
+that result. The provider always uses the backend-owned `large` tier and
+enables canonical `/home/node` workspace sync. Previously saved image and
+workspace overrides remain accepted for compatibility.
 
 Default runtime mapping:
 
