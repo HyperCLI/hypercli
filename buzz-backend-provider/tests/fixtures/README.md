@@ -1,15 +1,16 @@
 # Stock Buzz provider protocol fixtures
 
-These fixtures pin the one-process JSON protocol emitted by an unmodified
-Buzz Desktop build. They were derived from a local protocol trace on
-2026-07-30 and checked against Buzz commit
-`73589408db6fd96b87ac570935d414ecc4120f53`.
+These fixtures pin the one-process JSON protocol emitted by Buzz Desktop's
+portable provider producer. The deploy fixture's shape is copied from the
+shared producer/consumer fixture at
+`crates/buzz-backend-kubernetes/tests/fixtures/provider-wire/deploy-full-launch.request.json`
+in HyperCLI Buzz commit `145aa37f08d6a2044996f1b8f0fe5cb138833e40`, with public test identity,
+provider configuration, and collision canaries adapted for this provider.
 
-The raw trace is intentionally not committed. It contains the agent private
-key, relay authorization, user configuration, and environment values. The
-deploy fixture preserves field names, nesting, JSON types, nulls, empty
-strings, empty arrays, and defaults while replacing all identities and
-credentials with public test values.
+The fixture preserves the full `launch.command`, `launch.args`, `launch.env`,
+`launch.policy_env`, and `launch.owner_pubkey` shape. Legacy top-level fields
+remain because current Desktop intentionally sends them for bookkeeping; a
+provider executes `launch` whenever it is present.
 
 The `nsec` in `deploy-request.json` is deterministic test material for scalar
 one. It must never be used as a real agent identity.

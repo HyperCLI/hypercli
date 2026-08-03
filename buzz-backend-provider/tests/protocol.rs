@@ -1,5 +1,4 @@
 use std::fs;
-use std::os::unix::process::CommandExt;
 
 use assert_cmd::Command;
 use buzz_backend_hypercli::{derive_agent_pubkey, ProviderRequest};
@@ -76,6 +75,7 @@ fn captured_deploy_fixture_preserves_stock_buzz_field_shape() {
             "auth_tag",
             "env_vars",
             "idle_timeout_seconds",
+            "launch",
             "max_turn_duration_seconds",
             "model",
             "name",
@@ -103,14 +103,15 @@ fn captured_deploy_fixture_preserves_stock_buzz_field_shape() {
     assert_eq!(request["agent"]["system_prompt"], serde_json::Value::Null);
     assert_eq!(request["agent"]["parallelism"], 10);
     assert_eq!(request["agent"]["turn_timeout_seconds"], 320);
+    assert_eq!(request["provider_config"], serde_json::json!({}));
+    assert_eq!(request["agent"]["launch"]["command"], "goose");
     assert_eq!(
-        request["provider_config"],
-        serde_json::json!({
-            "image": "",
-            "runtime": "opencode",
-            "size": "large",
-            "workspace": ""
-        })
+        request["agent"]["launch"]["args"],
+        serde_json::json!(["acp"])
+    );
+    assert_eq!(
+        request["agent"]["launch"]["env"]["USER_KEY"],
+        "launch-value"
     );
 }
 
@@ -145,8 +146,8 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
             serde_json::json!({
                 "handle": handle,
                 "name": format!("fixture-agent-{}", &TEST_PUBLIC_HEX[..8]),
-                "runtime": "opencode",
-                "image": "ghcr.io/hypercli/hypercli-buzz-opencode:latest",
+                "runtime": "goose",
+                "image": "ghcr.io/hypercli/hypercli-buzz-goose:latest",
                 "command": ["/usr/local/bin/buzz-acp"],
                 "restart": false,
                 "runtime_scopes": [
@@ -161,7 +162,7 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
                 "env": {
                     "BUZZ_RELAY_URL": "wss://buzz.example.invalid",
                     "BUZZ_PRIVATE_KEY": "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsmhltgl",
-                    "BUZZ_ACP_AGENT_COMMAND": "/usr/local/bin/opencode",
+                    "BUZZ_ACP_AGENT_COMMAND": "/usr/local/bin/goose",
                     "BUZZ_ACP_AGENT_ARGS": "acp",
                     "BUZZ_ACP_MCP_COMMAND": "",
                     "BUZZ_ACP_LAZY_POOL": "true",
@@ -170,9 +171,15 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
                     "BUZZ_ACP_TEXT_MENTIONS": "true",
                     "BUZZ_ACP_REQUIRE_REPLY": "true",
                     "BUZZ_ACP_SESSION_TITLE": "Fixture Agent",
-                    "BUZZ_ACP_IDLE_TIMEOUT": "320",
+                    "BUZZ_ACP_MODEL": "launch-model-override",
                     "BUZZ_ACP_AGENTS": "10",
-                    "BUZZ_ACP_RESPOND_TO": "owner-only",
+                    "BUZZ_ACP_RESPOND_TO": "allowlist",
+                    "BUZZ_ACP_RESPOND_TO_ALLOWLIST":
+                        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "GOOSE_MODE": "auto",
+                    "GOOSE_MODEL": "fixture-model",
+                    "GOOSE_PROVIDER": "fixture-provider",
+                    "USER_KEY": "launch-value",
                     "RUST_LOG": "buzz_acp=info,pool::prompt=info,acp::stream=off"
                 }
             })
@@ -184,7 +191,7 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
             serde_json::json!({
                 "id":"fixture-deployment",
                 "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
-                "runtime":"opencode",
+                "runtime":"goose",
                 "state":"pending"
             })
             .to_string(),
@@ -199,7 +206,7 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
             serde_json::json!({
                 "id":"fixture-deployment",
                 "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
-                "runtime":"opencode",
+                "runtime":"goose",
                 "state":"running"
             })
             .to_string(),
@@ -230,11 +237,6 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
     .unwrap();
     let common = &golden["common"];
     for (runtime, contract) in golden["runtimes"].as_object().unwrap() {
-        let provider_runtime = match runtime.as_str() {
-            "claude-code" => "claude",
-            "kimi-code" => "kimi",
-            runtime => runtime,
-        };
         let agent_command = contract["stock_agent_command"].as_str().unwrap();
         let image = contract["image"].as_str().unwrap();
         let child_command = contract["agent_command"].as_str().unwrap();
@@ -311,7 +313,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
                 .to_string(),
             )
             .create();
-        let request = serde_json::json!({
+        let mut request = serde_json::json!({
             "op": "deploy",
             "request_id": format!("dry-run-{runtime}"),
             "agent": {
@@ -337,11 +339,35 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
                     "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
                 ],
                 "env_vars": {
-                    "MODEL_API_KEY": "fixture-model-credential",
-                    "BUZZ_RELAY_URL": "wss://attacker.invalid",
-                    "BUZZ_ACP_AGENT_COMMAND": "/tmp/not-the-harness",
-                    "BUZZ_ACP_SETUP_PAYLOAD": "forged",
-                    "RUST_LOG": "debug"
+                    "LEGACY_ONLY": "must-not-survive"
+                },
+                "launch": {
+                    "command": agent_command,
+                    "args": if child_args.is_empty() {
+                        Vec::<String>::new()
+                    } else {
+                        vec![child_args.to_owned()]
+                    },
+                    "policy_env": {
+                        "BUZZ_ACP_LAZY_POOL": "true",
+                        "BUZZ_ACP_RELAY_OBSERVER": "true",
+                        "BUZZ_ACP_SESSION_TITLE": "Fizz",
+                        "BUZZ_ACP_SYSTEM_PROMPT": "Build carefully",
+                        "BUZZ_ACP_MODEL": "policy-model",
+                        "BUZZ_ACP_IDLE_TIMEOUT": "320",
+                        "BUZZ_ACP_MAX_TURN_DURATION": "7200",
+                        "BUZZ_ACP_AGENTS": "3"
+                    },
+                    "env": {
+                        "MODEL_API_KEY": "fixture-model-credential",
+                        "BUZZ_ACP_MODEL": "fixture-model",
+                        "BUZZ_RELAY_URL": "wss://attacker.invalid",
+                        "BUZZ_ACP_AGENT_COMMAND": "/tmp/not-the-harness",
+                        "BUZZ_ACP_SETUP_PAYLOAD": "forged",
+                        "RUST_LOG": "debug"
+                    },
+                    "owner_pubkey":
+                        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 }
             },
             "provider_config": {
@@ -349,10 +375,13 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
             }
         });
 
-        let binary = Command::cargo_bin("buzz-backend-hypercli").unwrap();
-        let mut process = std::process::Command::new(binary.get_program());
-        process.arg0(format!("buzz-backend-hypercli-{provider_runtime}"));
-        let mut command = Command::from_std(process);
+        if runtime == "goose" {
+            request["agent"]["launch"]["env"]["GOOSE_MODEL"] = serde_json::json!("fixture-model");
+            request["agent"]["launch"]["env"]["GOOSE_PROVIDER"] =
+                serde_json::json!("fixture-provider");
+        }
+
+        let mut command = Command::cargo_bin("buzz-backend-hypercli").unwrap();
         command
             .arg("--dry-run")
             .env("HYPER_AGENTS_API_KEY", "fixture-hypercli-credential")

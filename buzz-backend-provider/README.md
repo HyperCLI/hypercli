@@ -56,15 +56,14 @@ buzz-backend-hypercli --dry-run < tests/fixtures/deploy-request.json
 
 Buzz-backed coding-runtime launches require the HyperCLI `large` tier.
 Ordinary non-Buzz coding-agent helpers preserve a caller-selected size or omit
-it so the backend chooses its default. The invoked provider filename selects
-the runtime: `hypercli-opencode`, `hypercli-codex`, `hypercli-claude`,
-`hypercli-goose`, or `hypercli-kimi`. These must be hardlinks rather than
-symlinks because Buzz resolves symlinks before invocation. The provider exposes
-no editable configuration in Buzz: it owns the canonical runtime image and does
-not enable workspace sync for new agents. It still accepts old saved image and
-workspace values for compatibility. The provider rejects secret-looking
-provider config; Buzz supplies the agent identity separately in the deploy
-request. Buzz launches explicitly set
+it so the backend chooses its default. The resolved `agent.launch.command`
+selects the canonical runtime and image; legacy requests without `launch` fall
+back to `agent.agent_command`. Runtime-named provider hardlinks remain only for
+saved-provider compatibility and discovery. The provider exposes no editable
+configuration in Buzz, enables the canonical `/home/node` workspace sync, and
+still accepts old saved image and workspace values for compatibility. It
+rejects secret-looking provider config; Buzz supplies the agent identity
+separately in the deploy request. Buzz launches explicitly set
 `restart: false`, including when the provider starts an existing stopped
 deployment, so an accepted `!shutdown` does not automatically relaunch
 `buzz-acp`.

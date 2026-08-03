@@ -394,7 +394,7 @@ def test_typed_buzz_launch_uses_safe_default_acp_logging():
     assert posted["restart"] is False
 
 
-def test_typed_buzz_launch_can_opt_back_into_restart():
+def test_typed_buzz_launch_forces_restart_false():
     deployments = Deployments(_HTTP())
     posted: dict = {}
 
@@ -404,14 +404,14 @@ def test_typed_buzz_launch_can_opt_back_into_restart():
 
     deployments._post = fake_post
     deployments.create_opencode(
+        restart=True,
         buzz=BuzzLaunchConfig(
             private_key_nsec="nsec1test",
             relay_url="wss://buzz.example.test",
-            restart=True,
         ),
     )
 
-    assert posted["restart"] is True
+    assert posted["restart"] is False
 
 
 def test_non_buzz_coding_agent_preserves_requested_size():

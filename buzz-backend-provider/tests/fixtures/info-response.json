@@ -2,6 +2,7 @@
   "ok": true,
   "name": "HyperCLI",
   "version": "0.1.0",
+  "protocol_version": 1,
   "description": "Run Buzz coding agents in isolated HyperCLI Reef pods",
   "config_schema": {
     "type": "object",

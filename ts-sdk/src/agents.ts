@@ -715,7 +715,6 @@ export interface BuzzLaunchConfig {
   requireReply?: boolean;
   sessionTitle?: string | null;
   rustLog?: string;
-  restart?: boolean;
 }
 
 function buildBuzzLaunchEnv(
@@ -3713,9 +3712,9 @@ export class Deployments {
       syncEnabled: options.syncEnabled ?? true,
       syncUid: options.syncUid ?? 1000,
       syncGid: options.syncGid ?? 1000,
-      restart: buzzLaunch
-        ? options.restart ?? options.buzz?.restart ?? false
-        : options.restart,
+      // Hosted Buzz shutdown is process-driven; generic launch options cannot
+      // opt it back into automatic restart.
+      restart: buzzLaunch ? false : options.restart,
       runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
     };
     return await this.create(effectiveOptions) as CodingAgent;

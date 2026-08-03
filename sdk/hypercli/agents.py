@@ -191,7 +191,6 @@ class BuzzLaunchConfig:
     require_reply: bool = False
     session_title: str | None = None
     rust_log: str | None = None
-    restart: bool = False
 
     def environment(
         self,
@@ -2917,9 +2916,9 @@ class Deployments:
             effective_env.update(buzz.environment(runtime, default_session_title=name))
         if buzz_launch:
             effective_env.setdefault("RUST_LOG", DEFAULT_BUZZ_RUST_LOG)
-        effective_restart = restart
-        if effective_restart is None and buzz_launch:
-            effective_restart = buzz.restart if buzz is not None else False
+        # Hosted Buzz shutdown is process-driven. Never let a generic coding
+        # launch override resurrect the adapter after `!shutdown`.
+        effective_restart = False if buzz_launch else restart
         return self.create(
             name=name,
             handle=handle,

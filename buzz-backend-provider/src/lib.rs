@@ -1,13 +1,10 @@
 use std::collections::{BTreeMap, HashSet};
-use std::ffi::OsStr;
 use std::thread;
 use std::time::{Duration, Instant};
 
-#[cfg(test)]
-use hypercli_sdk::BUZZ_RUNTIME_SCOPES;
 use hypercli_sdk::{
-    AgentSize, BuzzLaunchConfig, BuzzLaunchError, CreateDeploymentRequest, Deployment,
-    HyperCliClient, HyperCliError, ManagedRuntime, StartDeploymentRequest,
+    AgentSize, CreateDeploymentRequest, Deployment, HyperCliClient, HyperCliError, ManagedRuntime,
+    StartDeploymentRequest, BUZZ_RUNTIME_SCOPES,
 };
 use nostr::Keys;
 use reqwest::StatusCode;
@@ -77,6 +74,24 @@ pub struct BuzzAgentPayload {
     pub respond_to_allowlist: Vec<String>,
     #[serde(default)]
     pub env_vars: BTreeMap<String, String>,
+    #[serde(default)]
+    pub launch: Option<BuzzLaunchBlock>,
+}
+
+/// Desktop-resolved portable launch data. Legacy top-level launch fields are
+/// retained only for payloads from older Buzz versions.
+#[derive(Deserialize)]
+pub struct BuzzLaunchBlock {
+    #[serde(default)]
+    pub command: Option<String>,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    #[serde(default)]
+    pub policy_env: BTreeMap<String, String>,
+    #[serde(default)]
+    pub owner_pubkey: Option<String>,
 }
 
 fn default_parallelism() -> u32 {
@@ -114,7 +129,6 @@ impl CodingRuntime {
         }
     }
 
-    #[cfg(test)]
     fn harness_command(self) -> &'static str {
         match self {
             Self::Opencode => "/usr/local/bin/opencode",
@@ -134,28 +148,32 @@ impl CodingRuntime {
     }
 }
 
-pub fn runtime_from_provider_program(program: &OsStr) -> CodingRuntime {
-    let program = program.to_string_lossy();
-    let program = program.rsplit(['/', '\\']).next().unwrap_or_default();
-    let executable_stem = program
-        .get(program.len().saturating_sub(".exe".len())..)
-        .filter(|candidate| candidate.eq_ignore_ascii_case(".exe"))
-        .map(|_| &program[..program.len() - ".exe".len()])
-        .unwrap_or(program);
-    match executable_stem {
-        "buzz-backend-hypercli-codex" => CodingRuntime::Codex,
-        "buzz-backend-hypercli-claude" => CodingRuntime::ClaudeCode,
-        "buzz-backend-hypercli-goose" => CodingRuntime::Goose,
-        "buzz-backend-hypercli-kimi" => CodingRuntime::KimiCode,
-        _ => CodingRuntime::Opencode,
+fn runtime_from_agent_command(command: &str) -> Option<CodingRuntime> {
+    let command = command
+        .trim()
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or_default();
+    let command = command
+        .get(command.len().saturating_sub(".exe".len())..)
+        .filter(|suffix| suffix.eq_ignore_ascii_case(".exe"))
+        .map(|_| &command[..command.len() - ".exe".len()])
+        .unwrap_or(command);
+    match command.to_ascii_lowercase().as_str() {
+        "opencode" => Some(CodingRuntime::Opencode),
+        "codex-acp" => Some(CodingRuntime::Codex),
+        "claude-agent-acp" | "claude-code-acp" => Some(CodingRuntime::ClaudeCode),
+        "goose" => Some(CodingRuntime::Goose),
+        "kimi" => Some(CodingRuntime::KimiCode),
+        _ => None,
     }
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ProviderOptions {
-    // Kept for compatibility with agents saved before runtime became
-    // provider-filename-owned. New provider schemas advertise neither field.
+    // Kept for compatibility with saved provider configurations. Portable
+    // launch.command is authoritative when present.
     #[serde(default = "default_runtime")]
     runtime: CodingRuntime,
     #[serde(default = "default_size")]
@@ -179,12 +197,14 @@ pub struct ProviderInfoResponse {
     pub ok: bool,
     pub name: &'static str,
     pub version: &'static str,
+    pub protocol_version: u32,
     pub description: &'static str,
     pub config_schema: Value,
 }
 
 #[derive(Debug, Serialize)]
 pub struct DeployResponse {
+    pub ok: bool,
     pub agent_id: String,
 }
 
@@ -214,8 +234,14 @@ pub enum ProviderError {
     InvalidRespondTo,
     #[error("agent respond_to allowlist is invalid")]
     InvalidRespondToAllowlist,
-    #[error("Buzz launch configuration is invalid: {0}")]
-    BuzzLaunch(#[from] BuzzLaunchError),
+    #[error("Buzz launch command is unsupported")]
+    UnsupportedLaunchCommand,
+    #[error("Buzz launch environment contains an invalid variable name")]
+    InvalidEnvironmentKey,
+    #[error("BUZZ_ACP_NO_PRESENCE is not permitted for a hosted agent")]
+    PresenceSuppression,
+    #[error("Buzz launch has no authenticated owner")]
+    MissingOwner,
     #[error("HyperCLI authentication is not configured")]
     MissingHyperCliAuthentication,
     #[error("HyperCLI deployment request failed: {0}")]
@@ -257,6 +283,7 @@ pub fn provider_info() -> ProviderInfoResponse {
         ok: true,
         name: "HyperCLI",
         version: env!("CARGO_PKG_VERSION"),
+        protocol_version: 1,
         description: "Run Buzz coding agents in isolated HyperCLI Reef pods",
         config_schema: serde_json::json!({
             "type": "object",
@@ -280,22 +307,11 @@ pub fn deploy_with_dry_run(
     provider_config: Value,
     dry_run: bool,
 ) -> Result<DeployResponse, ProviderError> {
-    deploy_with_dry_run_for_runtime(client, agent, provider_config, dry_run, None)
-}
-
-pub fn deploy_with_dry_run_for_runtime(
-    client: &HyperCliClient,
-    agent: BuzzAgentPayload,
-    provider_config: Value,
-    dry_run: bool,
-    runtime: Option<CodingRuntime>,
-) -> Result<DeployResponse, ProviderError> {
     deploy_with_readiness(
         client,
         agent,
         provider_config,
         dry_run,
-        runtime,
         DEPLOYMENT_READY_TIMEOUT,
         DEPLOYMENT_READY_POLL_INTERVAL,
     )
@@ -306,7 +322,6 @@ fn deploy_with_readiness(
     agent: BuzzAgentPayload,
     provider_config: Value,
     dry_run: bool,
-    runtime_override: Option<CodingRuntime>,
     readiness_timeout: Duration,
     poll_interval: Duration,
 ) -> Result<DeployResponse, ProviderError> {
@@ -315,8 +330,7 @@ fn deploy_with_readiness(
         .map_err(|_| ProviderError::UnsupportedProviderConfig)?;
     let public_key = derive_agent_pubkey(&agent.private_key_nsec)?;
     let handle = deterministic_handle(&public_key);
-    let mut request =
-        build_launch_request_for_runtime(agent, &public_key, &handle, options, runtime_override)?;
+    let mut request = build_launch_request(agent, &public_key, &handle, options)?;
     request.dry_run = dry_run;
 
     // A dry-run validates the requested launch shape and must never enter the
@@ -326,6 +340,7 @@ fn deploy_with_readiness(
         return client
             .create_deployment(&request)
             .map(|deployment| DeployResponse {
+                ok: true,
                 agent_id: deployment.id,
             })
             .map_err(ProviderError::HyperCli);
@@ -335,6 +350,7 @@ fn deploy_with_readiness(
         let deployment = restart_if_stopped(client, existing, &request)?;
         let deployment = wait_until_running(client, deployment, readiness_timeout, poll_interval)?;
         return Ok(DeployResponse {
+            ok: true,
             agent_id: deployment.id,
         });
     }
@@ -344,6 +360,7 @@ fn deploy_with_readiness(
             let deployment =
                 wait_until_running(client, deployment, readiness_timeout, poll_interval)?;
             Ok(DeployResponse {
+                ok: true,
                 agent_id: deployment.id,
             })
         }
@@ -355,6 +372,7 @@ fn deploy_with_readiness(
             let existing = restart_if_stopped(client, existing, &request)?;
             let existing = wait_until_running(client, existing, readiness_timeout, poll_interval)?;
             Ok(DeployResponse {
+                ok: true,
                 agent_id: existing.id,
             })
         }
@@ -457,22 +475,11 @@ fn wait_until_running(
     }
 }
 
-#[cfg(test)]
 fn build_launch_request(
     agent: BuzzAgentPayload,
     public_key: &str,
     handle: &str,
     options: ProviderOptions,
-) -> Result<CreateDeploymentRequest, ProviderError> {
-    build_launch_request_for_runtime(agent, public_key, handle, options, None)
-}
-
-fn build_launch_request_for_runtime(
-    agent: BuzzAgentPayload,
-    public_key: &str,
-    handle: &str,
-    options: ProviderOptions,
-    runtime_override: Option<CodingRuntime>,
 ) -> Result<CreateDeploymentRequest, ProviderError> {
     if agent.relay_url.trim().is_empty() {
         return Err(ProviderError::MissingRelayUrl);
@@ -481,16 +488,16 @@ fn build_launch_request_for_runtime(
         return Err(ProviderError::InvalidParallelism);
     }
     let _legacy_provider_selection = (options.runtime, options.size);
-    let runtime = runtime_override.unwrap_or(CodingRuntime::Opencode);
     let behavior = validate_behavior(&agent)?;
-    let goose_model = (runtime == CodingRuntime::Goose)
-        .then(|| nonempty(agent.model.as_deref()))
-        .flatten()
-        .map(str::to_owned);
-    let goose_provider = (runtime == CodingRuntime::Goose)
-        .then(|| nonempty(agent.provider.as_deref()))
-        .flatten()
-        .map(str::to_owned);
+    let launch_command = match agent.launch.as_ref() {
+        Some(launch) => launch
+            .command
+            .as_deref()
+            .ok_or(ProviderError::UnsupportedLaunchCommand)?,
+        None => &agent.agent_command,
+    };
+    let runtime = runtime_from_agent_command(launch_command)
+        .ok_or(ProviderError::UnsupportedLaunchCommand)?;
     let display_name = agent.name.trim().to_owned();
     let mut request = CreateDeploymentRequest::new(runtime.managed());
     request.name = Some(deployment_name(&display_name, public_key));
@@ -502,37 +509,134 @@ fn build_launch_request_for_runtime(
         .or_else(|| Some(runtime.default_image().to_owned()));
     request.tags = vec![format!("buzz_agent={public_key}")];
 
-    let mut env = agent.env_vars;
-    for reserved in [
-        "HYPER_WORKSPACES_BOOT_SYNC",
-        "HYPER_WORKSPACES_DIR",
-        "HYPER_WORKSPACES_SYNC_READY_ONLY",
-        "HYPER_WORKSPACES_SYNC_WORKSPACE",
-    ] {
-        env.remove(reserved);
-    }
-    request.env = env;
-    let mut buzz = BuzzLaunchConfig::new(agent.private_key_nsec, agent.relay_url);
-    buzz.auth_tag = agent.auth_tag;
-    buzz.system_prompt = agent.system_prompt;
-    buzz.model = agent.model;
-    buzz.idle_timeout_seconds = behavior.idle_timeout_seconds;
-    buzz.max_turn_duration_seconds = behavior.max_turn_duration_seconds;
-    buzz.parallelism = agent.parallelism;
-    buzz.respond_to = behavior.respond_to;
-    buzz.respond_to_allowlist = behavior.respond_to_allowlist;
-    buzz.display_name = Some(display_name.clone());
-    buzz.text_mentions = supports_text_mentions(&display_name);
-    buzz.require_reply = true;
-    buzz.apply_to(&mut request, Some(&display_name))?;
+    request.command = vec!["/usr/local/bin/buzz-acp".to_owned()];
+    request.sync_root = Some("/home/node".to_owned());
+    request.sync_enabled = Some(true);
+    request.sync_uid = Some(1000);
+    request.sync_gid = Some(1000);
+    request.restart = Some(false);
+    request.runtime_scopes = BUZZ_RUNTIME_SCOPES.map(str::to_owned).to_vec();
 
-    let env = &mut request.env;
-    if let Some(model) = goose_model {
-        env.insert("GOOSE_MODEL".to_owned(), model);
+    // Local Desktop policy is a floor. The fully resolved descriptor env wins
+    // over it; legacy env_vars is used only when no launch block exists.
+    let mut env = BTreeMap::from([
+        (
+            "BUZZ_ACP_MULTIPLE_EVENT_HANDLING".to_owned(),
+            "steer".to_owned(),
+        ),
+        ("BUZZ_ACP_DEDUP".to_owned(), "queue".to_owned()),
+        (
+            "RUST_LOG".to_owned(),
+            "buzz_acp=info,pool::prompt=info,acp::stream=off".to_owned(),
+        ),
+    ]);
+    let launch_args = if let Some(launch) = agent.launch.as_ref() {
+        env.extend(launch.policy_env.clone());
+        env.extend(launch.env.clone());
+        launch.args.clone()
+    } else {
+        env.insert("BUZZ_ACP_LAZY_POOL".to_owned(), "true".to_owned());
+        env.insert("BUZZ_ACP_RELAY_OBSERVER".to_owned(), "true".to_owned());
+        env.insert("BUZZ_ACP_AGENTS".to_owned(), agent.parallelism.to_string());
+        let goose_model = if runtime == CodingRuntime::Goose {
+            env.insert("GOOSE_MODE".to_owned(), "auto".to_owned());
+            nonempty(agent.model.as_deref()).map(str::to_owned)
+        } else {
+            None
+        };
+        let goose_provider = (runtime == CodingRuntime::Goose)
+            .then(|| nonempty(agent.provider.as_deref()))
+            .flatten()
+            .map(str::to_owned);
+        insert_nonempty_env(
+            &mut env,
+            "BUZZ_ACP_SYSTEM_PROMPT",
+            agent.system_prompt.as_deref(),
+        );
+        insert_nonempty_env(&mut env, "BUZZ_ACP_MODEL", agent.model.as_deref());
+        if let Some(value) = behavior.idle_timeout_seconds {
+            env.insert("BUZZ_ACP_IDLE_TIMEOUT".to_owned(), value.to_string());
+        }
+        if let Some(value) = behavior.max_turn_duration_seconds {
+            env.insert("BUZZ_ACP_MAX_TURN_DURATION".to_owned(), value.to_string());
+        }
+        insert_nonempty_env(&mut env, "BUZZ_ACP_SESSION_TITLE", Some(&display_name));
+        env.extend(agent.env_vars.clone());
+        if let Some(model) = goose_model {
+            env.insert("GOOSE_MODEL".to_owned(), model);
+        }
+        if let Some(provider) = goose_provider {
+            env.insert("GOOSE_PROVIDER".to_owned(), provider);
+        }
+        agent.agent_args.clone()
+    };
+
+    for key in env.keys() {
+        if !is_posix_env_key(key) {
+            return Err(ProviderError::InvalidEnvironmentKey);
+        }
+        if key.eq_ignore_ascii_case("BUZZ_ACP_NO_PRESENCE") {
+            return Err(ProviderError::PresenceSuppression);
+        }
     }
-    if let Some(provider) = goose_provider {
-        env.insert("GOOSE_PROVIDER".to_owned(), provider);
+
+    // Desktop/provider-owned values clear both launch tiers before being set.
+    env.retain(|key, _| {
+        !AUTHORITATIVE_ENV_KEYS
+            .iter()
+            .any(|owned| key.eq_ignore_ascii_case(owned))
+    });
+    env.insert(
+        "BUZZ_PRIVATE_KEY".to_owned(),
+        agent.private_key_nsec.clone(),
+    );
+    env.insert("NOSTR_PRIVATE_KEY".to_owned(), agent.private_key_nsec);
+    env.insert(
+        "BUZZ_RELAY_URL".to_owned(),
+        agent.relay_url.trim().to_owned(),
+    );
+    let auth_tag = nonempty(agent.auth_tag.as_deref());
+    if let Some(auth_tag) = auth_tag {
+        env.insert("BUZZ_AUTH_TAG".to_owned(), auth_tag.to_owned());
+    } else if let Some(owner) = agent
+        .launch
+        .as_ref()
+        .and_then(|launch| launch.owner_pubkey.as_deref())
+        .and_then(|owner| nonempty(Some(owner)))
+    {
+        env.insert("BUZZ_ACP_AGENT_OWNER".to_owned(), owner.to_owned());
+    } else {
+        return Err(ProviderError::MissingOwner);
     }
+
+    env.insert(
+        "BUZZ_ACP_AGENT_COMMAND".to_owned(),
+        runtime.harness_command().to_owned(),
+    );
+    env.insert("BUZZ_ACP_AGENT_ARGS".to_owned(), launch_args.join(","));
+    env.insert(
+        "BUZZ_ACP_MCP_COMMAND".to_owned(),
+        if runtime == CodingRuntime::Codex {
+            "/usr/local/bin/buzz-dev-mcp"
+        } else {
+            ""
+        }
+        .to_owned(),
+    );
+    if let Some(mode) = behavior.respond_to {
+        env.insert("BUZZ_ACP_RESPOND_TO".to_owned(), mode);
+    }
+    if !behavior.respond_to_allowlist.is_empty() {
+        env.insert(
+            "BUZZ_ACP_RESPOND_TO_ALLOWLIST".to_owned(),
+            behavior.respond_to_allowlist.join(","),
+        );
+    }
+    env.insert("BUZZ_ACP_DISPLAY_NAME".to_owned(), display_name.clone());
+    if supports_text_mentions(&display_name) {
+        env.insert("BUZZ_ACP_TEXT_MENTIONS".to_owned(), "true".to_owned());
+    }
+    env.insert("BUZZ_ACP_REQUIRE_REPLY".to_owned(), "true".to_owned());
     env.insert("HYPER_WORKSPACES_BOOT_SYNC".to_owned(), "1".to_owned());
     env.insert(
         "HYPER_WORKSPACES_DIR".to_owned(),
@@ -545,7 +649,47 @@ fn build_launch_request_for_runtime(
     if let Some(workspace) = options.workspace.filter(|value| !value.trim().is_empty()) {
         env.insert("HYPER_WORKSPACES_SYNC_WORKSPACE".to_owned(), workspace);
     }
+    request.env = env;
     Ok(request)
+}
+
+const AUTHORITATIVE_ENV_KEYS: &[&str] = &[
+    "BUZZ_PRIVATE_KEY",
+    "NOSTR_PRIVATE_KEY",
+    "BUZZ_AUTH_TAG",
+    "BUZZ_API_TOKEN",
+    "BUZZ_ACP_PRIVATE_KEY",
+    "BUZZ_ACP_API_TOKEN",
+    "BUZZ_RELAY_URL",
+    "BUZZ_ACP_AGENT_OWNER",
+    "BUZZ_ACP_AGENT_COMMAND",
+    "BUZZ_ACP_AGENT_ARGS",
+    "BUZZ_ACP_MCP_COMMAND",
+    "BUZZ_ACP_RESPOND_TO",
+    "BUZZ_ACP_RESPOND_TO_ALLOWLIST",
+    "BUZZ_ACP_EXIT_AFTER_INACTIVITY",
+    "BUZZ_ACP_SETUP_PAYLOAD",
+    "BUZZ_MANAGED_AGENT",
+    "BUZZ_MANAGED_AGENT_START_NONCE",
+    "BUZZ_ACP_DISPLAY_NAME",
+    "BUZZ_ACP_TEXT_MENTIONS",
+    "BUZZ_ACP_REQUIRE_REPLY",
+    "HYPER_WORKSPACES_BOOT_SYNC",
+    "HYPER_WORKSPACES_DIR",
+    "HYPER_WORKSPACES_SYNC_READY_ONLY",
+    "HYPER_WORKSPACES_SYNC_WORKSPACE",
+];
+
+fn insert_nonempty_env(env: &mut BTreeMap<String, String>, key: &str, value: Option<&str>) {
+    if let Some(value) = nonempty(value) {
+        env.insert(key.to_owned(), value.to_owned());
+    }
+}
+
+fn is_posix_env_key(key: &str) -> bool {
+    let mut chars = key.chars();
+    matches!(chars.next(), Some(character) if character == '_' || character.is_ascii_alphabetic())
+        && chars.all(|character| character == '_' || character.is_ascii_alphanumeric())
 }
 
 struct ValidatedBehavior {
@@ -560,28 +704,32 @@ fn validate_behavior(agent: &BuzzAgentPayload) -> Result<ValidatedBehavior, Prov
     const DEFAULT_MAX_TURN_DURATION_SECONDS: u64 = 7200;
     const MAX_TURN_DURATION_CEILING_SECONDS: u64 = 604_800;
 
-    let idle_timeout_seconds = agent
-        .idle_timeout_seconds
-        .or(agent.turn_timeout_seconds)
-        .map(|value| value.max(1));
-    let max_turn_duration_seconds =
-        agent
+    let (idle_timeout_seconds, max_turn_duration_seconds) = if agent.launch.is_some() {
+        // The launch block already contains Desktop's resolved policy. Legacy
+        // top-level timeout fields are bookkeeping and must not revalidate it.
+        (None, None)
+    } else {
+        let idle = agent
+            .idle_timeout_seconds
+            .or(agent.turn_timeout_seconds)
+            .map(|value| value.max(1));
+        let max = agent
             .max_turn_duration_seconds
             .map(|value| if value == 0 { 60 } else { value });
-    let effective_idle = idle_timeout_seconds.unwrap_or(DEFAULT_IDLE_TIMEOUT_SECONDS);
-    let effective_max = max_turn_duration_seconds.unwrap_or(DEFAULT_MAX_TURN_DURATION_SECONDS);
-    if effective_max > MAX_TURN_DURATION_CEILING_SECONDS || effective_idle >= effective_max {
-        return Err(ProviderError::InvalidTimeoutConfiguration);
-    }
+        let effective_idle = idle.unwrap_or(DEFAULT_IDLE_TIMEOUT_SECONDS);
+        let effective_max = max.unwrap_or(DEFAULT_MAX_TURN_DURATION_SECONDS);
+        if effective_max > MAX_TURN_DURATION_CEILING_SECONDS || effective_idle >= effective_max {
+            return Err(ProviderError::InvalidTimeoutConfiguration);
+        }
+        (idle, max)
+    };
 
     let respond_to = agent
         .respond_to
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    if respond_to
-        .is_some_and(|value| !matches!(value, "owner-only" | "allowlist" | "anyone" | "nobody"))
-    {
+    if respond_to.is_some_and(|value| !matches!(value, "owner-only" | "allowlist" | "anyone")) {
         return Err(ProviderError::InvalidRespondTo);
     }
 
@@ -771,6 +919,7 @@ mod tests {
             respond_to: Some("owner-only".to_owned()),
             respond_to_allowlist: Vec::new(),
             env_vars: BTreeMap::from([("MODEL_API_KEY".to_owned(), "model-secret".to_owned())]),
+            launch: None,
         }
     }
 
@@ -880,7 +1029,7 @@ mod tests {
                 DEFAULT_BUZZ_KIMI_CODE_IMAGE,
             ),
         ] {
-            let request = build_launch_request_for_runtime(
+            let request = build_launch_request(
                 test_agent_for(runtime),
                 TEST_PUBLIC_HEX,
                 "buzz-runtime-test",
@@ -890,7 +1039,6 @@ mod tests {
                     image: None,
                     workspace: None,
                 },
-                Some(runtime),
             )
             .unwrap();
             assert_eq!(request.runtime, managed);
@@ -899,32 +1047,32 @@ mod tests {
     }
 
     #[test]
-    fn provider_program_names_resolve_to_canonical_runtimes() {
-        for (program, expected) in [
-            ("buzz-backend-hypercli", CodingRuntime::Opencode),
-            ("buzz-backend-hypercli-opencode", CodingRuntime::Opencode),
-            ("buzz-backend-hypercli-codex", CodingRuntime::Codex),
-            ("buzz-backend-hypercli-claude", CodingRuntime::ClaudeCode),
-            ("buzz-backend-hypercli-goose", CodingRuntime::Goose),
-            ("buzz-backend-hypercli-kimi", CodingRuntime::KimiCode),
+    fn portable_agent_command_names_resolve_to_canonical_runtimes() {
+        for (command, expected) in [
+            ("opencode", CodingRuntime::Opencode),
+            ("codex-acp", CodingRuntime::Codex),
+            ("claude-agent-acp", CodingRuntime::ClaudeCode),
+            ("claude-code-acp", CodingRuntime::ClaudeCode),
+            ("goose", CodingRuntime::Goose),
+            ("kimi", CodingRuntime::KimiCode),
         ] {
             for candidate in [
-                program.to_owned(),
-                format!("/usr/local/bin/{program}"),
-                format!(r"C:\\Users\\tester\\.local\\bin\\{program}.exe"),
-                format!("{program}.EXE"),
+                command.to_owned(),
+                format!("/usr/local/bin/{command}"),
+                format!(r"C:\\Users\\tester\\.local\\bin\\{command}.exe"),
+                format!(r"C:\\Users\\tester\\.local\\bin\\{command}.EXE"),
             ] {
                 assert_eq!(
-                    runtime_from_provider_program(OsStr::new(&candidate)),
-                    expected,
-                    "provider program {candidate:?} selected the wrong runtime"
+                    runtime_from_agent_command(&candidate),
+                    Some(expected),
+                    "agent command {candidate:?} selected the wrong runtime"
                 );
             }
         }
     }
 
     #[test]
-    fn goose_structured_model_and_provider_override_user_environment() {
+    fn goose_structured_model_and_provider_override_legacy_environment() {
         let mut agent = test_agent_for(CodingRuntime::Goose);
         agent.model = Some("structured-model".to_owned());
         agent.provider = Some("structured-provider".to_owned());
@@ -935,7 +1083,7 @@ mod tests {
             .env_vars
             .insert("GOOSE_PROVIDER".to_owned(), "stale-provider".to_owned());
 
-        let request = build_launch_request_for_runtime(
+        let request = build_launch_request(
             agent,
             TEST_PUBLIC_HEX,
             "buzz-runtime-test",
@@ -945,7 +1093,6 @@ mod tests {
                 image: None,
                 workspace: None,
             },
-            Some(CodingRuntime::Goose),
         )
         .unwrap();
 
@@ -982,6 +1129,74 @@ mod tests {
     }
 
     #[test]
+    fn portable_launch_uses_desktop_precedence_and_authoritative_security() {
+        let mut agent = test_agent();
+        agent
+            .env_vars
+            .insert("LEGACY_ONLY".into(), "ignored".into());
+        agent.launch = Some(BuzzLaunchBlock {
+            command: Some("/host/bin/goose".into()),
+            args: vec!["acp".into(), "--profile".into(), "hosted".into()],
+            policy_env: BTreeMap::from([
+                ("TIER".into(), "policy".into()),
+                ("BUZZ_ACP_MODEL".into(), "policy-model".into()),
+            ]),
+            env: BTreeMap::from([
+                ("TIER".into(), "launch".into()),
+                ("BUZZ_ACP_MODEL".into(), "launch-model".into()),
+                ("BUZZ_PRIVATE_KEY".into(), "forged".into()),
+                ("buzz_auth_tag".into(), "mixed-case-forgery".into()),
+                ("HYPER_WORKSPACES_DIR".into(), "/tmp/forged".into()),
+            ]),
+            owner_pubkey: Some("b".repeat(64)),
+        });
+
+        let request =
+            build_launch_request(agent, TEST_PUBLIC_HEX, "buzz-runtime-test", test_options())
+                .unwrap();
+
+        assert_eq!(request.runtime, ManagedRuntime::Goose);
+        assert_eq!(request.restart, Some(false));
+        assert_eq!(request.env["TIER"], "launch");
+        assert_eq!(request.env["BUZZ_ACP_MODEL"], "launch-model");
+        assert_eq!(request.env["BUZZ_PRIVATE_KEY"], TEST_SECRET_HEX);
+        assert_eq!(request.env["BUZZ_AUTH_TAG"], "[\"auth\",\"tag\"]");
+        assert!(!request.env.contains_key("buzz_auth_tag"));
+        assert!(!request.env.contains_key("BUZZ_ACP_AGENT_OWNER"));
+        assert!(!request.env.contains_key("LEGACY_ONLY"));
+        assert_eq!(
+            request.env["BUZZ_ACP_AGENT_COMMAND"],
+            "/usr/local/bin/goose"
+        );
+        assert_eq!(request.env["BUZZ_ACP_AGENT_ARGS"], "acp,--profile,hosted");
+        assert_eq!(request.env["BUZZ_ACP_MCP_COMMAND"], "");
+        assert_eq!(request.env["HYPER_WORKSPACES_DIR"], "/home/node/workspaces");
+    }
+
+    #[test]
+    fn portable_launch_uses_owner_only_as_legacy_auth_fallback() {
+        let mut agent = test_agent();
+        agent.auth_tag = None;
+        agent.launch = Some(BuzzLaunchBlock {
+            command: Some("codex-acp".into()),
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            policy_env: BTreeMap::new(),
+            owner_pubkey: Some("A".repeat(64)),
+        });
+        let request =
+            build_launch_request(agent, TEST_PUBLIC_HEX, "buzz-runtime-test", test_options())
+                .unwrap();
+        assert!(!request.env.contains_key("BUZZ_AUTH_TAG"));
+        assert_eq!(request.env["BUZZ_ACP_AGENT_OWNER"], "A".repeat(64));
+        assert_eq!(request.env["BUZZ_ACP_AGENT_ARGS"], "");
+        assert_eq!(
+            request.env["BUZZ_ACP_MCP_COMMAND"],
+            "/usr/local/bin/buzz-dev-mcp"
+        );
+    }
+
+    #[test]
     fn rejects_behavior_that_stock_buzz_cannot_launch() {
         let options = || ProviderOptions {
             runtime: CodingRuntime::Opencode,
@@ -1005,12 +1220,10 @@ mod tests {
         let mut nobody = test_agent();
         nobody.respond_to = Some("nobody".to_owned());
         nobody.respond_to_allowlist = vec!["a".repeat(64)];
-        let nobody_request =
-            build_launch_request(nobody, TEST_PUBLIC_HEX, "buzz-runtime-test", options()).unwrap();
-        assert_eq!(nobody_request.env["BUZZ_ACP_RESPOND_TO"], "nobody");
-        assert!(!nobody_request
-            .env
-            .contains_key("BUZZ_ACP_RESPOND_TO_ALLOWLIST"));
+        assert!(matches!(
+            build_launch_request(nobody, TEST_PUBLIC_HEX, "buzz-runtime-test", options()),
+            Err(ProviderError::InvalidRespondTo)
+        ));
 
         let mut empty_allowlist = test_agent();
         empty_allowlist.respond_to = Some("allowlist".to_owned());
@@ -1100,7 +1313,7 @@ mod tests {
                     "/tmp/not-allowed".to_owned(),
                 ),
             ]);
-            let request = build_launch_request_for_runtime(
+            let request = build_launch_request(
                 agent,
                 TEST_PUBLIC_HEX,
                 "buzz-runtime-test",
@@ -1110,7 +1323,6 @@ mod tests {
                     image: None,
                     workspace: None,
                 },
-                Some(runtime),
             )
             .unwrap();
 
@@ -1123,14 +1335,14 @@ mod tests {
             assert_eq!(request.env["BUZZ_ACP_AGENT_COMMAND"], command);
             assert_eq!(request.env["BUZZ_ACP_AGENT_ARGS"], args);
             assert_eq!(request.env["BUZZ_ACP_MCP_COMMAND"], mcp);
-            assert_eq!(request.env["BUZZ_ACP_LAZY_POOL"], "true");
-            assert_eq!(request.env["BUZZ_ACP_RELAY_OBSERVER"], "true");
+            assert_eq!(request.env["BUZZ_ACP_LAZY_POOL"], "false");
+            assert_eq!(request.env["BUZZ_ACP_RELAY_OBSERVER"], "false");
             assert_eq!(request.env["BUZZ_ACP_DISPLAY_NAME"], "Fizz 4");
             assert_eq!(request.env["BUZZ_ACP_TEXT_MENTIONS"], "true");
             assert_eq!(request.env["BUZZ_ACP_REQUIRE_REPLY"], "true");
-            assert_eq!(request.env["BUZZ_ACP_SESSION_TITLE"], "Fizz 4");
-            assert_eq!(request.env["BUZZ_ACP_MULTIPLE_EVENT_HANDLING"], "steer");
-            assert_eq!(request.env["BUZZ_ACP_DEDUP"], "queue");
+            assert_eq!(request.env["BUZZ_ACP_SESSION_TITLE"], "Wrong");
+            assert_eq!(request.env["BUZZ_ACP_MULTIPLE_EVENT_HANDLING"], "queue");
+            assert_eq!(request.env["BUZZ_ACP_DEDUP"], "drop");
             assert_eq!(request.env["HYPER_WORKSPACES_DIR"], "/home/node/workspaces");
             assert_eq!(
                 request.env["RUST_LOG"],
@@ -1177,9 +1389,17 @@ mod tests {
     }
 
     #[test]
-    fn provider_runtime_is_authoritative_over_harness_and_legacy_config() {
-        let request = build_launch_request_for_runtime(
-            test_agent(),
+    fn portable_launch_command_is_authoritative_over_legacy_config() {
+        let mut agent = test_agent();
+        agent.launch = Some(BuzzLaunchBlock {
+            command: Some("/host/path/codex-acp".to_owned()),
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            policy_env: BTreeMap::new(),
+            owner_pubkey: Some("a".repeat(64)),
+        });
+        let request = build_launch_request(
+            agent,
             TEST_PUBLIC_HEX,
             "buzz-runtime-test",
             ProviderOptions {
@@ -1188,11 +1408,27 @@ mod tests {
                 image: None,
                 workspace: None,
             },
-            Some(CodingRuntime::Codex),
         )
         .unwrap();
         assert_eq!(request.runtime, ManagedRuntime::Codex);
         assert_eq!(request.size, Some(AgentSize::Large));
+    }
+
+    #[test]
+    fn portable_launch_without_command_does_not_fall_back_to_legacy_command() {
+        let mut agent = test_agent();
+        agent.launch = Some(BuzzLaunchBlock {
+            command: None,
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            policy_env: BTreeMap::new(),
+            owner_pubkey: Some("a".repeat(64)),
+        });
+
+        assert!(matches!(
+            build_launch_request(agent, TEST_PUBLIC_HEX, "buzz-runtime-test", test_options()),
+            Err(ProviderError::UnsupportedLaunchCommand)
+        ));
     }
 
     #[test]
@@ -1297,6 +1533,17 @@ mod tests {
     fn deploy_restarts_stopped_agent_with_buzz_restart_policy() {
         let mut server = Server::new();
         let handle = format!("buzz-{}", &TEST_PUBLIC_HEX[..48]);
+        let mut portable_agent = test_agent();
+        portable_agent.launch = Some(BuzzLaunchBlock {
+            command: Some("opencode".into()),
+            args: vec!["acp".into()],
+            policy_env: BTreeMap::from([("PORTABLE_TIER".into(), "policy".into())]),
+            env: BTreeMap::from([
+                ("PORTABLE_TIER".into(), "launch".into()),
+                ("PORTABLE_ONLY".into(), "preserved".into()),
+            ]),
+            owner_pubkey: Some("b".repeat(64)),
+        });
         let lookup = server
             .mock("GET", "/agents/deployments")
             .match_query(Matcher::UrlEncoded("handle".into(), handle.clone()))
@@ -1333,6 +1580,8 @@ mod tests {
                         "BUZZ_ACP_AGENT_COMMAND": "/usr/local/bin/opencode",
                         "BUZZ_ACP_AGENT_ARGS": "acp",
                         "BUZZ_ACP_MCP_COMMAND": "",
+                        "PORTABLE_TIER": "launch",
+                        "PORTABLE_ONLY": "preserved",
                         "HYPER_WORKSPACES_BOOT_SYNC": "1",
                         "HYPER_WORKSPACES_DIR": "/home/node/workspaces"
                     }
@@ -1368,7 +1617,7 @@ mod tests {
 
         let response = deploy(
             &client(&server),
-            test_agent(),
+            portable_agent,
             serde_json::json!({"runtime":"opencode"}),
         )
         .unwrap();
@@ -1546,7 +1795,6 @@ mod tests {
                         test_agent(),
                         serde_json::json!({"runtime":"opencode"}),
                         false,
-                        None,
                         Duration::from_secs(1),
                         Duration::ZERO,
                     )

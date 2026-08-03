@@ -108,7 +108,6 @@ pub struct BuzzLaunchConfig {
     pub require_reply: bool,
     pub session_title: Option<String>,
     pub rust_log: Option<String>,
-    pub restart: bool,
 }
 
 impl BuzzLaunchConfig {
@@ -129,7 +128,6 @@ impl BuzzLaunchConfig {
             require_reply: false,
             session_title: None,
             rust_log: None,
-            restart: false,
         }
     }
 
@@ -167,7 +165,9 @@ impl BuzzLaunchConfig {
         request.sync_enabled = Some(true);
         request.sync_uid = Some(1000);
         request.sync_gid = Some(1000);
-        request.restart = Some(self.restart);
+        // Hosted Buzz shutdown is process-driven; automatic restart would
+        // resurrect an agent after its owner-signed `!shutdown` completes.
+        request.restart = Some(false);
         request.runtime_scopes = BUZZ_RUNTIME_SCOPES
             .iter()
             .map(|scope| (*scope).to_owned())
@@ -600,6 +600,7 @@ mod tests {
         assert!(generic_start_json.get("restart").is_none());
 
         let mut buzz_request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        buzz_request.restart = Some(true);
         BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
             .apply_to(&mut buzz_request, None)
             .unwrap();
@@ -607,6 +608,17 @@ mod tests {
             serde_json::to_value(&buzz_request).unwrap()["restart"],
             false
         );
+        let round_trip: CreateDeploymentRequest =
+            serde_json::from_value(serde_json::to_value(&buzz_request).unwrap()).unwrap();
+        assert_eq!(round_trip.restart, Some(false));
+
+        let start = StartDeploymentRequest {
+            restart: buzz_request.restart,
+            ..Default::default()
+        };
+        let start_round_trip: StartDeploymentRequest =
+            serde_json::from_value(serde_json::to_value(&start).unwrap()).unwrap();
+        assert_eq!(start_round_trip.restart, Some(false));
     }
 
     #[test]

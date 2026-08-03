@@ -6,7 +6,7 @@
     "relay_url": "wss://buzz.example.invalid",
     "private_key_nsec": "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsmhltgl",
     "auth_tag": "[\"auth\",\"fixture\"]",
-    "agent_command": "opencode",
+    "agent_command": "goose",
     "agent_args": [],
     "system_prompt": null,
     "model": null,
@@ -15,14 +15,34 @@
     "idle_timeout_seconds": null,
     "max_turn_duration_seconds": null,
     "parallelism": 10,
-    "respond_to": "owner-only",
-    "respond_to_allowlist": [],
-    "env_vars": {}
+    "respond_to": "allowlist",
+    "respond_to_allowlist": [
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ],
+    "env_vars": {
+      "USER_KEY": "legacy-value"
+    },
+    "launch": {
+      "command": "goose",
+      "args": ["acp"],
+      "env": {
+        "GOOSE_MODEL": "fixture-model",
+        "GOOSE_PROVIDER": "fixture-provider",
+        "USER_KEY": "launch-value",
+        "BUZZ_ACP_MODEL": "launch-model-override",
+        "BUZZ_PRIVATE_KEY": "lower-tier-forgery",
+        "buzz_auth_tag": "mixed-case-forgery"
+      },
+      "policy_env": {
+        "BUZZ_ACP_AGENTS": "10",
+        "BUZZ_ACP_LAZY_POOL": "true",
+        "BUZZ_ACP_MODEL": "fixture-model",
+        "BUZZ_ACP_RELAY_OBSERVER": "true",
+        "BUZZ_ACP_SESSION_TITLE": "Fixture Agent",
+        "GOOSE_MODE": "auto"
+      },
+      "owner_pubkey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
   },
-  "provider_config": {
-    "image": "",
-    "runtime": "opencode",
-    "size": "large",
-    "workspace": ""
-  }
+  "provider_config": {}
 }

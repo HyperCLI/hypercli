@@ -310,7 +310,7 @@ describe('coding agents', () => {
     expect(DEFAULT_BUZZ_RUST_LOG).toBe('buzz_acp=info,pool::prompt=info,acp::stream=off');
   });
 
-  it('allows typed Buzz launches to opt back into restart', async () => {
+  it('forces typed Buzz launches to keep restart disabled', async () => {
     const post = vi.fn().mockResolvedValue(response('opencode'));
     const deployments = new Deployments(
       { post } as unknown as HTTPClient,
@@ -319,14 +319,14 @@ describe('coding agents', () => {
     );
 
     await deployments.createOpenCode({
+      restart: true,
       buzz: {
         privateKeyNsec: 'nsec1test',
         relayUrl: 'wss://buzz.example.test',
-        restart: true,
       },
     });
 
-    expect(post.mock.calls[0][1].restart).toBe(true);
+    expect(post.mock.calls[0][1].restart).toBe(false);
   });
 
   it('preserves the requested size for non-Buzz coding agents', async () => {

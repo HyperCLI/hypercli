@@ -1,19 +1,15 @@
 use std::io::{Read, Write};
 
 use buzz_backend_hypercli::{
-    deploy_with_dry_run_for_runtime, map_config_error, provider_info,
-    runtime_from_provider_program, CodingRuntime, ErrorResponse, ProviderRequest,
+    deploy_with_dry_run, map_config_error, provider_info, ErrorResponse, ProviderRequest,
 };
 use hypercli_sdk::{discover_client_config, HyperCliClient};
 
 const MAX_REQUEST_BYTES: u64 = 1_048_576;
 
 fn main() {
-    let mut args = std::env::args_os();
-    let program = args.next().unwrap_or_default();
-    let runtime = runtime_from_provider_program(&program);
-    let dry_run = args.any(|arg| arg == "--dry-run");
-    let response = run(dry_run, runtime).unwrap_or_else(|error| {
+    let dry_run = std::env::args_os().skip(1).any(|arg| arg == "--dry-run");
+    let response = run(dry_run).unwrap_or_else(|error| {
         serde_json::to_value(ErrorResponse {
             ok: false,
             error: &error.to_string(),
@@ -27,10 +23,7 @@ fn main() {
     }
 }
 
-fn run(
-    dry_run: bool,
-    runtime: CodingRuntime,
-) -> Result<serde_json::Value, buzz_backend_hypercli::ProviderError> {
+fn run(dry_run: bool) -> Result<serde_json::Value, buzz_backend_hypercli::ProviderError> {
     let mut bytes = Vec::new();
     std::io::stdin()
         .lock()
@@ -58,12 +51,11 @@ fn run(
             let config = discover_client_config().map_err(map_config_error)?;
             let client =
                 HyperCliClient::new(config).map_err(buzz_backend_hypercli::map_client_error)?;
-            serde_json::to_value(deploy_with_dry_run_for_runtime(
+            serde_json::to_value(deploy_with_dry_run(
                 &client,
                 *agent,
                 provider_config,
                 dry_run,
-                Some(runtime),
             )?)
             .map_err(|_| buzz_backend_hypercli::ProviderError::ResponseEncoding)
         }
