@@ -6,19 +6,6 @@
   "config_schema": {
     "type": "object",
     "additionalProperties": false,
-    "properties": {
-      "image": {
-        "type": "string",
-        "title": "Runtime image",
-        "description": "Optional runtime image override; pin an immutable digest",
-        "default": ""
-      },
-      "workspace": {
-        "type": "string",
-        "title": "Workspace",
-        "description": "Optional HyperCLI workspace ID to sync",
-        "default": ""
-      }
-    }
+    "properties": {}
   }
 }

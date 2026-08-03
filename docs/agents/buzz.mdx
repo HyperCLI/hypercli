@@ -160,12 +160,9 @@ form: both Buzz and the provider reject secret-looking configuration fields.
 
 Choose the runtime with **Run on**. The provider executable name is
 authoritative; Buzz's selected local harness and legacy saved provider fields
-cannot change it. Provider configuration contains only these advanced fields:
-
-| Field | Accepted value | Default | Purpose |
-| --- | --- | --- | --- |
-| `image` | Trusted image reference | Runtime default | Optional advanced image override |
-| `workspace` | HyperCLI workspace ID | Empty | Optional workspace projected under `/home/node/workspaces` |
+cannot change it. The provider exposes no editable launch fields. It selects the
+canonical runtime image and leaves workspace sync disabled for new agents.
+Previously saved image and workspace values remain accepted for compatibility.
 
 Default runtime mapping:
 

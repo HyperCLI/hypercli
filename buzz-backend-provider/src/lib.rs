@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, HashSet};
 use std::ffi::OsStr;
-use std::path::Path;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -136,11 +135,14 @@ impl CodingRuntime {
 }
 
 pub fn runtime_from_provider_program(program: &OsStr) -> CodingRuntime {
-    let program = Path::new(program)
-        .file_name()
-        .and_then(OsStr::to_str)
-        .unwrap_or_default();
-    match program {
+    let program = program.to_string_lossy();
+    let program = program.rsplit(['/', '\\']).next().unwrap_or_default();
+    let executable_stem = program
+        .get(program.len().saturating_sub(".exe".len())..)
+        .filter(|candidate| candidate.eq_ignore_ascii_case(".exe"))
+        .map(|_| &program[..program.len() - ".exe".len()])
+        .unwrap_or(program);
+    match executable_stem {
         "buzz-backend-hypercli-codex" => CodingRuntime::Codex,
         "buzz-backend-hypercli-claude" => CodingRuntime::ClaudeCode,
         "buzz-backend-hypercli-goose" => CodingRuntime::Goose,
@@ -259,20 +261,7 @@ pub fn provider_info() -> ProviderInfoResponse {
         config_schema: serde_json::json!({
             "type": "object",
             "additionalProperties": false,
-            "properties": {
-                "image": {
-                    "type": "string",
-                    "title": "Runtime image",
-                    "description": "Optional runtime image override; pin an immutable digest",
-                    "default": ""
-                },
-                "workspace": {
-                    "type": "string",
-                    "title": "Workspace",
-                    "description": "Optional HyperCLI workspace ID to sync",
-                    "default": ""
-                }
-            }
+            "properties": {}
         }),
     }
 }
@@ -534,6 +523,7 @@ fn build_launch_request_for_runtime(
     buzz.respond_to_allowlist = behavior.respond_to_allowlist;
     buzz.display_name = Some(display_name.clone());
     buzz.text_mentions = supports_text_mentions(&display_name);
+    buzz.require_reply = true;
     buzz.apply_to(&mut request, Some(&display_name))?;
 
     let env = &mut request.env;
@@ -918,11 +908,18 @@ mod tests {
             ("buzz-backend-hypercli-goose", CodingRuntime::Goose),
             ("buzz-backend-hypercli-kimi", CodingRuntime::KimiCode),
         ] {
-            assert_eq!(runtime_from_provider_program(OsStr::new(program)), expected);
-            assert_eq!(
-                runtime_from_provider_program(OsStr::new(&format!("/usr/local/bin/{program}"))),
-                expected
-            );
+            for candidate in [
+                program.to_owned(),
+                format!("/usr/local/bin/{program}"),
+                format!(r"C:\\Users\\tester\\.local\\bin\\{program}.exe"),
+                format!("{program}.EXE"),
+            ] {
+                assert_eq!(
+                    runtime_from_provider_program(OsStr::new(&candidate)),
+                    expected,
+                    "provider program {candidate:?} selected the wrong runtime"
+                );
+            }
         }
     }
 
@@ -1061,7 +1058,7 @@ mod tests {
                 CodingRuntime::Opencode,
                 "/usr/local/bin/opencode",
                 "acp",
-                BUZZ_DEV_MCP_COMMAND,
+                "",
             ),
             (
                 CodingRuntime::Codex,
@@ -1091,6 +1088,7 @@ mod tests {
                 ("BUZZ_ACP_RELAY_OBSERVER".to_owned(), "false".to_owned()),
                 ("BUZZ_ACP_DISPLAY_NAME".to_owned(), "Wrong".to_owned()),
                 ("BUZZ_ACP_TEXT_MENTIONS".to_owned(), "false".to_owned()),
+                ("BUZZ_ACP_REQUIRE_REPLY".to_owned(), "false".to_owned()),
                 ("BUZZ_ACP_SESSION_TITLE".to_owned(), "Wrong".to_owned()),
                 (
                     "BUZZ_ACP_MULTIPLE_EVENT_HANDLING".to_owned(),
@@ -1129,6 +1127,7 @@ mod tests {
             assert_eq!(request.env["BUZZ_ACP_RELAY_OBSERVER"], "true");
             assert_eq!(request.env["BUZZ_ACP_DISPLAY_NAME"], "Fizz 4");
             assert_eq!(request.env["BUZZ_ACP_TEXT_MENTIONS"], "true");
+            assert_eq!(request.env["BUZZ_ACP_REQUIRE_REPLY"], "true");
             assert_eq!(request.env["BUZZ_ACP_SESSION_TITLE"], "Fizz 4");
             assert_eq!(request.env["BUZZ_ACP_MULTIPLE_EVENT_HANDLING"], "steer");
             assert_eq!(request.env["BUZZ_ACP_DEDUP"], "queue");
@@ -1246,7 +1245,7 @@ mod tests {
                         "BUZZ_AUTH_TAG": "[\"auth\",\"tag\"]",
                         "BUZZ_ACP_AGENT_COMMAND": "/usr/local/bin/opencode",
                         "BUZZ_ACP_AGENT_ARGS": "acp",
-                        "BUZZ_ACP_MCP_COMMAND": "/usr/local/bin/buzz-dev-mcp",
+                        "BUZZ_ACP_MCP_COMMAND": "",
                         "BUZZ_ACP_LAZY_POOL": "true",
                         "BUZZ_ACP_RELAY_OBSERVER": "true",
                         "BUZZ_ACP_SESSION_TITLE": "Fizz",
@@ -1333,7 +1332,7 @@ mod tests {
                         "BUZZ_RELAY_URL": "wss://buzz.example.com",
                         "BUZZ_ACP_AGENT_COMMAND": "/usr/local/bin/opencode",
                         "BUZZ_ACP_AGENT_ARGS": "acp",
-                        "BUZZ_ACP_MCP_COMMAND": "/usr/local/bin/buzz-dev-mcp",
+                        "BUZZ_ACP_MCP_COMMAND": "",
                         "HYPER_WORKSPACES_BOOT_SYNC": "1",
                         "HYPER_WORKSPACES_DIR": "/home/node/workspaces"
                     }

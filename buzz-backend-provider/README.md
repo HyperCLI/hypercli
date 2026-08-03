@@ -24,6 +24,28 @@ for runtime in opencode codex claude goose kimi; do
 done
 ```
 
+### Windows
+
+The Windows release archive contains one build copied under every runtime
+identity that Buzz exposes:
+
+```text
+buzz-backend-hypercli.exe
+buzz-backend-hypercli-opencode.exe
+buzz-backend-hypercli-codex.exe
+buzz-backend-hypercli-claude.exe
+buzz-backend-hypercli-goose.exe
+buzz-backend-hypercli-kimi.exe
+```
+
+Put the executables in `%USERPROFILE%\.local\bin`, then restart Buzz or use
+**Settings > Agents > Check again**. Buzz scans that directory explicitly, so
+it works even when the desktop process did not inherit a terminal `PATH`.
+Keeping all aliases beside the base executable makes each runtime appear as a
+separate `Run on` choice while retaining one implementation. The release
+workflow builds these files for `x86_64-pc-windows-msvc`; current artifacts are
+unsigned and intended for testing until Authenticode signing is configured.
+
 Pass `--dry-run` while exercising the provider manually. Stock Buzz never
 supplies this argument. The provider sends one create-validation request with
 `dry_run: true` and skips deterministic-handle lookup and restart logic:
@@ -37,10 +59,12 @@ Ordinary non-Buzz coding-agent helpers preserve a caller-selected size or omit
 it so the backend chooses its default. The invoked provider filename selects
 the runtime: `hypercli-opencode`, `hypercli-codex`, `hypercli-claude`,
 `hypercli-goose`, or `hypercli-kimi`. These must be hardlinks rather than
-symlinks because Buzz resolves symlinks before invocation. Provider
-configuration only permits an optional immutable image override and workspace.
-The provider rejects secret-looking provider config; Buzz supplies the agent
-identity separately in the deploy request. Buzz launches explicitly set
+symlinks because Buzz resolves symlinks before invocation. The provider exposes
+no editable configuration in Buzz: it owns the canonical runtime image and does
+not enable workspace sync for new agents. It still accepts old saved image and
+workspace values for compatibility. The provider rejects secret-looking
+provider config; Buzz supplies the agent identity separately in the deploy
+request. Buzz launches explicitly set
 `restart: false`, including when the provider starts an existing stopped
 deployment, so an accepted `!shutdown` does not automatically relaunch
 `buzz-acp`.
@@ -88,9 +112,7 @@ parallelism, response-policy, allowlist, prompt, and authorization fields:
     "agent_args": ["acp"],
     "env_vars": {}
   },
-  "provider_config": {
-    "workspace": "fixture-workspace"
-  }
+  "provider_config": {}
 }
 ```
 

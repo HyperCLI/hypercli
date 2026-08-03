@@ -339,6 +339,7 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
         env={
             "BUZZ_RELAY_URL": "wss://attacker.invalid",
             "BUZZ_ACP_AGENT_COMMAND": "/tmp/not-opencode",
+            "BUZZ_ACP_REQUIRE_REPLY": "false",
             "RUST_LOG": "debug",
             "HYPER_API_KEY": "inference-key",
         },
@@ -347,6 +348,7 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
             relay_url="wss://buzz.example.test",
             model="hypercli/kimi-k2.6-anthropic",
             parallelism=3,
+            require_reply=True,
         ),
     )
 
@@ -358,12 +360,13 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
     assert posted["env"]["BUZZ_RELAY_URL"] == "wss://buzz.example.test"
     assert posted["env"]["BUZZ_ACP_AGENT_COMMAND"] == "/usr/local/bin/opencode"
     assert posted["env"]["BUZZ_ACP_AGENT_ARGS"] == "acp"
-    assert posted["env"]["BUZZ_ACP_MCP_COMMAND"] == "/usr/local/bin/buzz-dev-mcp"
+    assert posted["env"]["BUZZ_ACP_MCP_COMMAND"] == ""
     assert posted["env"]["BUZZ_ACP_SESSION_TITLE"] == "Fizz4"
     assert posted["env"]["BUZZ_ACP_MODEL"] == "hypercli/kimi-k2.6-anthropic"
     assert posted["env"]["BUZZ_ACP_AGENTS"] == "3"
     assert posted["env"]["BUZZ_ACP_LAZY_POOL"] == "true"
     assert posted["env"]["BUZZ_ACP_RELAY_OBSERVER"] == "true"
+    assert posted["env"]["BUZZ_ACP_REQUIRE_REPLY"] == "true"
     assert posted["env"]["RUST_LOG"] == "debug"
     assert posted["env"]["HYPER_API_KEY"] == "inference-key"
 

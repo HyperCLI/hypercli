@@ -254,6 +254,7 @@ describe('coding agents', () => {
       env: {
         BUZZ_RELAY_URL: 'wss://attacker.invalid',
         BUZZ_ACP_AGENT_COMMAND: '/tmp/not-opencode',
+        BUZZ_ACP_REQUIRE_REPLY: 'false',
         RUST_LOG: 'debug',
         HYPER_API_KEY: 'inference-key',
       },
@@ -262,6 +263,7 @@ describe('coding agents', () => {
         relayUrl: 'wss://buzz.example.test',
         model: 'hypercli/kimi-k2.6-anthropic',
         parallelism: 3,
+        requireReply: true,
       },
     });
 
@@ -275,12 +277,13 @@ describe('coding agents', () => {
         BUZZ_RELAY_URL: 'wss://buzz.example.test',
         BUZZ_ACP_AGENT_COMMAND: '/usr/local/bin/opencode',
         BUZZ_ACP_AGENT_ARGS: 'acp',
-        BUZZ_ACP_MCP_COMMAND: '/usr/local/bin/buzz-dev-mcp',
+        BUZZ_ACP_MCP_COMMAND: '',
         BUZZ_ACP_SESSION_TITLE: 'Fizz4',
         BUZZ_ACP_MODEL: 'hypercli/kimi-k2.6-anthropic',
         BUZZ_ACP_AGENTS: '3',
         BUZZ_ACP_LAZY_POOL: 'true',
         BUZZ_ACP_RELAY_OBSERVER: 'true',
+        BUZZ_ACP_REQUIRE_REPLY: 'true',
         RUST_LOG: 'debug',
         HYPER_API_KEY: 'inference-key',
       },

@@ -31,7 +31,7 @@ one. It must never be used as a real agent identity.
 | --- | --- | --- |
 | Open Create agent or enumerate Run on choices | None | Scans for executable `buzz-backend-*` files. |
 | Select HyperCLI under Run on | `info` | Reads the provider schema and applies its defaults to the draft. |
-| Change Runtime, Size, Image, or Workspace | None | Updates the local create draft. |
+| Provider-specific configuration | None | The HyperCLI providers expose no editable launch fields. |
 | Create a provider agent with launch enabled | `deploy` | Persists the Buzz identity first, then stores the returned agent ID. |
 | Play an undeployed provider agent | `deploy` | Rebuilds the request from saved settings. |
 | Add or mention an undeployed provider agent | Conditional `deploy` | Calls Play first only while Buzz has no backend agent ID. |

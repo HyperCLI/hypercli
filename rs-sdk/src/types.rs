@@ -69,6 +69,7 @@ const BUZZ_RESERVED_ENV: &[&str] = &[
     "BUZZ_ACP_RELAY_OBSERVER",
     "BUZZ_ACP_DISPLAY_NAME",
     "BUZZ_ACP_TEXT_MENTIONS",
+    "BUZZ_ACP_REQUIRE_REPLY",
     "BUZZ_ACP_SESSION_TITLE",
     "BUZZ_ACP_SYSTEM_PROMPT",
     "BUZZ_ACP_MODEL",
@@ -104,6 +105,7 @@ pub struct BuzzLaunchConfig {
     pub respond_to_allowlist: Vec<String>,
     pub display_name: Option<String>,
     pub text_mentions: bool,
+    pub require_reply: bool,
     pub session_title: Option<String>,
     pub rust_log: Option<String>,
     pub restart: bool,
@@ -124,6 +126,7 @@ impl BuzzLaunchConfig {
             respond_to_allowlist: Vec::new(),
             display_name: None,
             text_mentions: false,
+            require_reply: false,
             session_title: None,
             rust_log: None,
             restart: false,
@@ -145,11 +148,7 @@ impl BuzzLaunchConfig {
             return Err(BuzzLaunchError::InvalidParallelism);
         }
         let (agent_command, agent_args, mcp_command) = match request.runtime {
-            ManagedRuntime::Opencode => (
-                "/usr/local/bin/opencode",
-                "acp",
-                "/usr/local/bin/buzz-dev-mcp",
-            ),
+            ManagedRuntime::Opencode => ("/usr/local/bin/opencode", "acp", ""),
             ManagedRuntime::Codex => (
                 "/usr/local/bin/codex-acp",
                 "",
@@ -231,6 +230,11 @@ impl BuzzLaunchConfig {
             request
                 .env
                 .insert("BUZZ_ACP_TEXT_MENTIONS".to_owned(), "true".to_owned());
+        }
+        if self.require_reply {
+            request
+                .env
+                .insert("BUZZ_ACP_REQUIRE_REPLY".to_owned(), "true".to_owned());
         }
         insert_nonempty(
             &mut request.env,
@@ -495,6 +499,9 @@ mod tests {
             .insert("BUZZ_ACP_TEXT_MENTIONS".to_owned(), "false".to_owned());
         request
             .env
+            .insert("BUZZ_ACP_REQUIRE_REPLY".to_owned(), "false".to_owned());
+        request
+            .env
             .insert("RUST_LOG".to_owned(), "debug".to_owned());
 
         let mut buzz = BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test");
@@ -502,6 +509,7 @@ mod tests {
         buzz.parallelism = 3;
         buzz.display_name = Some("Fizz4".to_owned());
         buzz.text_mentions = true;
+        buzz.require_reply = true;
         buzz.apply_to(&mut request, Some("Fizz4")).unwrap();
 
         assert_eq!(request.size, Some(AgentSize::Large));
@@ -529,12 +537,13 @@ mod tests {
         );
         assert_eq!(
             request.env.get("BUZZ_ACP_MCP_COMMAND").map(String::as_str),
-            Some("/usr/local/bin/buzz-dev-mcp")
+            Some("")
         );
         assert_eq!(
             request.env.get("BUZZ_ACP_DISPLAY_NAME").map(String::as_str),
             Some("Fizz4")
         );
+        assert_eq!(request.env["BUZZ_ACP_REQUIRE_REPLY"], "true");
         assert_eq!(
             request
                 .env

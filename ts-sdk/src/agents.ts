@@ -98,7 +98,7 @@ const BUZZ_RUNTIME_COMMANDS: Record<CodingAgentRuntime, {
   opencode: {
     command: '/usr/local/bin/opencode',
     args: ['acp'],
-    mcpCommand: '/usr/local/bin/buzz-dev-mcp',
+    mcpCommand: '',
   },
   codex: {
     command: '/usr/local/bin/codex-acp',
@@ -136,6 +136,9 @@ const BUZZ_RESERVED_ENV_KEYS = new Set([
   'BUZZ_ACP_MCP_COMMAND',
   'BUZZ_ACP_LAZY_POOL',
   'BUZZ_ACP_RELAY_OBSERVER',
+  'BUZZ_ACP_DISPLAY_NAME',
+  'BUZZ_ACP_TEXT_MENTIONS',
+  'BUZZ_ACP_REQUIRE_REPLY',
   'BUZZ_ACP_SESSION_TITLE',
   'BUZZ_ACP_SYSTEM_PROMPT',
   'BUZZ_ACP_MODEL',
@@ -707,6 +710,9 @@ export interface BuzzLaunchConfig {
   parallelism?: number;
   respondTo?: string | null;
   respondToAllowlist?: string[];
+  displayName?: string | null;
+  textMentions?: boolean;
+  requireReply?: boolean;
   sessionTitle?: string | null;
   rustLog?: string;
   restart?: boolean;
@@ -741,6 +747,7 @@ function buildBuzzLaunchEnv(
   if (buzz.rustLog) env.RUST_LOG = buzz.rustLog;
   const optional: Record<string, string | undefined | null> = {
     BUZZ_AUTH_TAG: buzz.authTag,
+    BUZZ_ACP_DISPLAY_NAME: buzz.displayName,
     BUZZ_ACP_SESSION_TITLE: buzz.sessionTitle || defaultSessionTitle,
     BUZZ_ACP_SYSTEM_PROMPT: buzz.systemPrompt,
     BUZZ_ACP_MODEL: buzz.model,
@@ -758,6 +765,8 @@ function buildBuzzLaunchEnv(
   for (const [key, value] of Object.entries(optional)) {
     if (value) env[key] = value;
   }
+  if (buzz.textMentions) env.BUZZ_ACP_TEXT_MENTIONS = 'true';
+  if (buzz.requireReply) env.BUZZ_ACP_REQUIRE_REPLY = 'true';
   return env;
 }
 

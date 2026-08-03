@@ -127,7 +127,7 @@ DEFAULT_BUZZ_CODING_AGENT_IMAGES: dict[CodingAgentRuntime, str] = {
 }
 
 _BUZZ_RUNTIME_COMMANDS: dict[CodingAgentRuntime, tuple[str, list[str], str]] = {
-    "opencode": ("/usr/local/bin/opencode", ["acp"], "/usr/local/bin/buzz-dev-mcp"),
+    "opencode": ("/usr/local/bin/opencode", ["acp"], ""),
     "codex": ("/usr/local/bin/codex-acp", [], "/usr/local/bin/buzz-dev-mcp"),
     "claude-code": ("/usr/local/bin/claude-agent-acp", [], ""),
     "goose": ("/usr/local/bin/goose", ["acp"], ""),
@@ -148,6 +148,9 @@ BUZZ_RESERVED_ENV_KEYS = frozenset({
     "BUZZ_ACP_MCP_COMMAND",
     "BUZZ_ACP_LAZY_POOL",
     "BUZZ_ACP_RELAY_OBSERVER",
+    "BUZZ_ACP_DISPLAY_NAME",
+    "BUZZ_ACP_TEXT_MENTIONS",
+    "BUZZ_ACP_REQUIRE_REPLY",
     "BUZZ_ACP_SESSION_TITLE",
     "BUZZ_ACP_SYSTEM_PROMPT",
     "BUZZ_ACP_MODEL",
@@ -183,6 +186,9 @@ class BuzzLaunchConfig:
     parallelism: int = 1
     respond_to: str | None = None
     respond_to_allowlist: list[str] = field(default_factory=list)
+    display_name: str | None = None
+    text_mentions: bool = False
+    require_reply: bool = False
     session_title: str | None = None
     rust_log: str | None = None
     restart: bool = False
@@ -216,6 +222,7 @@ class BuzzLaunchConfig:
         }
         optional = {
             "BUZZ_AUTH_TAG": self.auth_tag,
+            "BUZZ_ACP_DISPLAY_NAME": self.display_name,
             "BUZZ_ACP_SESSION_TITLE": self.session_title or default_session_title,
             "BUZZ_ACP_SYSTEM_PROMPT": self.system_prompt,
             "BUZZ_ACP_MODEL": self.model,
@@ -237,6 +244,10 @@ class BuzzLaunchConfig:
             ),
         }
         env.update({key: value for key, value in optional.items() if value})
+        if self.text_mentions:
+            env["BUZZ_ACP_TEXT_MENTIONS"] = "true"
+        if self.require_reply:
+            env["BUZZ_ACP_REQUIRE_REPLY"] = "true"
         if self.rust_log:
             env["RUST_LOG"] = self.rust_log
         return env

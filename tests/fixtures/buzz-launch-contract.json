@@ -24,7 +24,7 @@
       "stock_agent_command": "opencode",
       "agent_command": "/usr/local/bin/opencode",
       "agent_args": "acp",
-      "mcp_command": "/usr/local/bin/buzz-dev-mcp"
+      "mcp_command": ""
     },
     "codex": {
       "image": "ghcr.io/hypercli/hypercli-buzz-codex:latest",

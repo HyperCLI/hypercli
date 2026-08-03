@@ -30,8 +30,10 @@ fn info_fixture_is_a_one_shot_json_exchange() {
     let response = assert_stock_stdout(output);
     let expected: serde_json::Value = serde_json::from_str(INFO_RESPONSE_FIXTURE).unwrap();
     assert_eq!(response, expected);
-    assert!(response["config_schema"]["properties"]["runtime"].is_null());
-    assert!(response["config_schema"]["properties"]["size"].is_null());
+    assert_eq!(
+        response["config_schema"]["properties"],
+        serde_json::json!({})
+    );
 }
 
 #[test]
@@ -161,11 +163,12 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
                     "BUZZ_PRIVATE_KEY": "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsmhltgl",
                     "BUZZ_ACP_AGENT_COMMAND": "/usr/local/bin/opencode",
                     "BUZZ_ACP_AGENT_ARGS": "acp",
-                    "BUZZ_ACP_MCP_COMMAND": "/usr/local/bin/buzz-dev-mcp",
+                    "BUZZ_ACP_MCP_COMMAND": "",
                     "BUZZ_ACP_LAZY_POOL": "true",
                     "BUZZ_ACP_RELAY_OBSERVER": "true",
                     "BUZZ_ACP_DISPLAY_NAME": "Fixture Agent",
                     "BUZZ_ACP_TEXT_MENTIONS": "true",
+                    "BUZZ_ACP_REQUIRE_REPLY": "true",
                     "BUZZ_ACP_SESSION_TITLE": "Fixture Agent",
                     "BUZZ_ACP_IDLE_TIMEOUT": "320",
                     "BUZZ_ACP_AGENTS": "10",
@@ -261,6 +264,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
                 "BUZZ_ACP_RELAY_OBSERVER": "true",
                 "BUZZ_ACP_DISPLAY_NAME": "Fizz",
                 "BUZZ_ACP_TEXT_MENTIONS": "true",
+                "BUZZ_ACP_REQUIRE_REPLY": "true",
                 "BUZZ_ACP_SESSION_TITLE": "Fizz",
                 "BUZZ_ACP_SYSTEM_PROMPT": "Build carefully",
                 "BUZZ_ACP_MODEL": "fixture-model",

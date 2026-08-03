@@ -45,6 +45,10 @@ jobs:
             target: aarch64-apple-darwin
             executable: buzz-backend-hypercli
             archive: buzz-backend-hypercli-macos-aarch64
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            executable: buzz-backend-hypercli.exe
+            archive: buzz-backend-hypercli-windows-x86_64
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -95,16 +99,23 @@ jobs:
           set -euo pipefail
           ARCHIVE="${{ matrix.archive }}-${{ inputs.version }}.tar.gz"
           STAGE="$(mktemp -d)"
-          install -m 0755 \
-            "target/${{ matrix.target }}/release/${{ matrix.executable }}" \
-            "${STAGE}/buzz-backend-hypercli"
+          SOURCE="target/${{ matrix.target }}/release/${{ matrix.executable }}"
+          if [[ "${{ matrix.target }}" == *-windows-msvc ]]; then
+            for runtime in opencode codex claude goose kimi; do
+              cp "${SOURCE}" "${STAGE}/buzz-backend-hypercli-${runtime}.exe"
+            done
+            cp "${SOURCE}" "${STAGE}/buzz-backend-hypercli.exe"
+          else
+            install -m 0755 "${SOURCE}" "${STAGE}/buzz-backend-hypercli"
+          fi
+          cp buzz-backend-provider/README.md "${STAGE}/README.md"
           {
             echo "version=${{ inputs.version }}"
             echo "source_sha=${SOURCE_SHA}"
             echo "target=${{ matrix.target }}"
             echo "signing=unsigned"
           } > "${STAGE}/BUILD-INFO"
-          tar -C "${STAGE}" -czf "${ARCHIVE}" buzz-backend-hypercli BUILD-INFO
+          tar -C "${STAGE}" -czf "${ARCHIVE}" .
           shasum -a 256 "${ARCHIVE}" > "${ARCHIVE}.sha256"
 
       - uses: actions/upload-artifact@v4
@@ -137,7 +148,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(find dist -maxdepth 1 -name '*.tar.gz' | wc -l)" -eq 4
+          test "$(find dist -maxdepth 1 -name '*.tar.gz' | wc -l)" -eq 5
           (
             cd dist
             sha256sum --check ./*.sha256
