@@ -10,6 +10,7 @@ pub enum ManagedRuntime {
     Generic,
     Openclaw,
     OpenclawPro,
+    BuzzAgent,
     Opencode,
     Codex,
     ClaudeCode,
@@ -147,6 +148,11 @@ impl BuzzLaunchConfig {
             return Err(BuzzLaunchError::InvalidParallelism);
         }
         let (agent_command, agent_args, mcp_command) = match request.runtime {
+            ManagedRuntime::BuzzAgent => (
+                "/usr/local/bin/buzz-agent",
+                "",
+                "/usr/local/bin/buzz-dev-mcp",
+            ),
             ManagedRuntime::Opencode => ("/usr/local/bin/opencode", "acp", ""),
             ManagedRuntime::Codex => (
                 "/usr/local/bin/codex-acp",
@@ -626,6 +632,43 @@ mod tests {
             first.env["BUZZ_MANAGED_AGENT_START_NONCE"],
             second.env["BUZZ_MANAGED_AGENT_START_NONCE"]
         );
+    }
+
+    #[test]
+    fn every_buzz_runtime_matches_the_shared_launch_golden() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/buzz-launch-contract.json"
+        ))
+        .unwrap();
+        for (runtime_name, runtime) in [
+            ("buzz-agent", ManagedRuntime::BuzzAgent),
+            ("opencode", ManagedRuntime::Opencode),
+            ("codex", ManagedRuntime::Codex),
+            ("claude-code", ManagedRuntime::ClaudeCode),
+            ("goose", ManagedRuntime::Goose),
+            ("kimi-code", ManagedRuntime::KimiCode),
+        ] {
+            let contract = &golden["runtimes"][runtime_name];
+            let mut request = CreateDeploymentRequest::new(runtime);
+            BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
+                .apply_to(&mut request, None)
+                .unwrap();
+
+            assert_eq!(serde_json::to_value(runtime).unwrap(), runtime_name);
+            assert_eq!(
+                request.env["BUZZ_ACP_AGENT_COMMAND"],
+                contract["agent_command"]
+            );
+            assert_eq!(request.env["BUZZ_ACP_AGENT_ARGS"], contract["agent_args"]);
+            assert_eq!(request.env["BUZZ_ACP_MCP_COMMAND"], contract["mcp_command"]);
+            assert_eq!(
+                request
+                    .env
+                    .get("CLAUDE_CODE_EXECUTABLE")
+                    .map(String::as_str),
+                contract["claude_code_executable"].as_str()
+            );
+        }
     }
 
     #[test]

@@ -1,9 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  BuzzAgent,
   ClaudeCodeAgent,
   CodexAgent,
   DEFAULT_AGENT_RUNTIME_SCOPES,
+  DEFAULT_BUZZ_AGENT_IMAGE,
   DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
   DEFAULT_BUZZ_CODING_AGENT_IMAGES,
   DEFAULT_BUZZ_CODEX_IMAGE,
@@ -55,7 +57,7 @@ const buzzGolden = JSON.parse(readFileSync(
   }>;
 };
 
-function response(runtime: 'opencode' | 'codex' | 'claude-code' | 'goose' | 'kimi-code') {
+function response(runtime: 'buzz-agent' | 'opencode' | 'codex' | 'claude-code' | 'goose' | 'kimi-code') {
   return {
     id: `${runtime}-1`,
     user_id: 'user-1',
@@ -67,8 +69,9 @@ function response(runtime: 'opencode' | 'codex' | 'claude-code' | 'goose' | 'kim
 }
 
 describe('coding agents', () => {
-  it('publishes explicit, disjoint generic and Buzz image catalogs', () => {
+  it('publishes explicit generic and Buzz image catalogs', () => {
     expect(DEFAULT_CODING_AGENT_IMAGES).toEqual({
+      'buzz-agent': DEFAULT_BUZZ_AGENT_IMAGE,
       opencode: DEFAULT_OPENCODE_IMAGE,
       codex: DEFAULT_CODEX_IMAGE,
       'claude-code': DEFAULT_CLAUDE_CODE_IMAGE,
@@ -76,6 +79,7 @@ describe('coding agents', () => {
       'kimi-code': DEFAULT_KIMI_CODE_IMAGE,
     });
     expect(DEFAULT_BUZZ_CODING_AGENT_IMAGES).toEqual({
+      'buzz-agent': DEFAULT_BUZZ_AGENT_IMAGE,
       opencode: DEFAULT_BUZZ_OPENCODE_IMAGE,
       codex: DEFAULT_BUZZ_CODEX_IMAGE,
       'claude-code': DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
@@ -85,10 +89,11 @@ describe('coding agents', () => {
     expect(new Set([
       ...Object.values(DEFAULT_CODING_AGENT_IMAGES),
       ...Object.values(DEFAULT_BUZZ_CODING_AGENT_IMAGES),
-    ]).size).toBe(10);
+    ]).size).toBe(11);
   });
 
   it.each([
+    ['createBuzzAgent', 'buzz-agent', DEFAULT_BUZZ_AGENT_IMAGE, BuzzAgent],
     ['createOpenCode', 'opencode', DEFAULT_OPENCODE_IMAGE, OpenCodeAgent],
     ['createCodex', 'codex', DEFAULT_CODEX_IMAGE, CodexAgent],
     ['createClaudeCode', 'claude-code', DEFAULT_CLAUDE_CODE_IMAGE, ClaudeCodeAgent],
@@ -171,6 +176,7 @@ describe('coding agents', () => {
   });
 
   it.each([
+    ['createBuzzAgent', 'buzz-agent', DEFAULT_BUZZ_AGENT_IMAGE],
     ['createOpenCode', 'opencode', DEFAULT_BUZZ_OPENCODE_IMAGE],
     ['createCodex', 'codex', DEFAULT_BUZZ_CODEX_IMAGE],
     ['createClaudeCode', 'claude-code', DEFAULT_BUZZ_CLAUDE_CODE_IMAGE],
@@ -194,6 +200,7 @@ describe('coding agents', () => {
   });
 
   it.each([
+    ['createBuzzAgent', 'buzz-agent'],
     ['createOpenCode', 'opencode'],
     ['createCodex', 'codex'],
     ['createClaudeCode', 'claude-code'],
@@ -414,6 +421,18 @@ describe('coding agents', () => {
     );
 
     await expect(deployments.get(agentId)).resolves.toBeInstanceOf(ClaudeCodeAgent);
+  });
+
+  it('hydrates the native Buzz runtime returned by get', async () => {
+    const agentId = '11111111-1111-4111-8111-111111111111';
+    const get = vi.fn().mockResolvedValue({ ...response('buzz-agent'), id: agentId });
+    const deployments = new Deployments(
+      { get } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await expect(deployments.get(agentId)).resolves.toBeInstanceOf(BuzzAgent);
   });
 
   it('discovers Buzz ACP methods and merges native runtime methods', async () => {

@@ -50,6 +50,7 @@ export const DEFAULT_CODEX_IMAGE = 'ghcr.io/hypercli/hypercli-codex:latest';
 export const DEFAULT_CLAUDE_CODE_IMAGE = 'ghcr.io/hypercli/hypercli-claude-code:latest';
 export const DEFAULT_GOOSE_IMAGE = 'ghcr.io/hypercli/hypercli-goose:latest';
 export const DEFAULT_KIMI_CODE_IMAGE = 'ghcr.io/hypercli/hypercli-kimi-code:latest';
+export const DEFAULT_BUZZ_AGENT_IMAGE = 'ghcr.io/hypercli/hypercli-buzz-agent:latest';
 export const DEFAULT_BUZZ_OPENCODE_IMAGE = 'ghcr.io/hypercli/hypercli-buzz-opencode:latest';
 export const DEFAULT_BUZZ_CODEX_IMAGE = 'ghcr.io/hypercli/hypercli-buzz-codex:latest';
 export const DEFAULT_BUZZ_CLAUDE_CODE_IMAGE = 'ghcr.io/hypercli/hypercli-buzz-claude:latest';
@@ -69,13 +70,15 @@ export type ManagedAgentRuntime =
   | 'generic'
   | 'openclaw'
   | 'openclaw-pro'
+  | 'buzz-agent'
   | 'opencode'
   | 'codex'
   | 'claude-code'
   | 'goose'
   | 'kimi-code';
-export type CodingAgentRuntime = Extract<ManagedAgentRuntime, 'opencode' | 'codex' | 'claude-code' | 'goose' | 'kimi-code'>;
+export type CodingAgentRuntime = Extract<ManagedAgentRuntime, 'buzz-agent' | 'opencode' | 'codex' | 'claude-code' | 'goose' | 'kimi-code'>;
 export const DEFAULT_CODING_AGENT_IMAGES: Readonly<Record<CodingAgentRuntime, string>> = {
+  'buzz-agent': DEFAULT_BUZZ_AGENT_IMAGE,
   opencode: DEFAULT_OPENCODE_IMAGE,
   codex: DEFAULT_CODEX_IMAGE,
   'claude-code': DEFAULT_CLAUDE_CODE_IMAGE,
@@ -83,18 +86,24 @@ export const DEFAULT_CODING_AGENT_IMAGES: Readonly<Record<CodingAgentRuntime, st
   'kimi-code': DEFAULT_KIMI_CODE_IMAGE,
 };
 export const DEFAULT_BUZZ_CODING_AGENT_IMAGES: Readonly<Record<CodingAgentRuntime, string>> = {
+  'buzz-agent': DEFAULT_BUZZ_AGENT_IMAGE,
   opencode: DEFAULT_BUZZ_OPENCODE_IMAGE,
   codex: DEFAULT_BUZZ_CODEX_IMAGE,
   'claude-code': DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
   goose: DEFAULT_BUZZ_GOOSE_IMAGE,
   'kimi-code': DEFAULT_BUZZ_KIMI_CODE_IMAGE,
 };
-const CODING_AGENT_RUNTIMES = new Set<CodingAgentRuntime>(['opencode', 'codex', 'claude-code', 'goose', 'kimi-code']);
+const CODING_AGENT_RUNTIMES = new Set<CodingAgentRuntime>(['buzz-agent', 'opencode', 'codex', 'claude-code', 'goose', 'kimi-code']);
 const BUZZ_RUNTIME_COMMANDS: Record<CodingAgentRuntime, {
   command: string;
   args: string[];
   mcpCommand: string;
 }> = {
+  'buzz-agent': {
+    command: '/usr/local/bin/buzz-agent',
+    args: [],
+    mcpCommand: '/usr/local/bin/buzz-dev-mcp',
+  },
   opencode: {
     command: '/usr/local/bin/opencode',
     args: ['acp'],
@@ -2204,6 +2213,12 @@ type RuntimeAuthConfig = {
 };
 
 const RUNTIME_AUTH_CONFIG: Record<CodingAgentRuntime, RuntimeAuthConfig> = {
+  'buzz-agent': {
+    agentCommand: ['buzz-agent'],
+    statusCommand: ['buzz-acp', 'models', '--agent-command', 'buzz-agent', '--json'],
+    logoutCommand: null,
+    nativeMethods: [],
+  },
   opencode: {
     agentCommand: ['opencode', 'acp'],
     statusCommand: ['buzz-acp', 'models', '--agent-command', 'opencode', '--agent-args', 'acp', '--json'],
@@ -2537,6 +2552,13 @@ export class CodingAgent extends Agent {
 
   get auth(): RuntimeAuthClient {
     return new RuntimeAuthClient(this);
+  }
+}
+
+export class BuzzAgent extends CodingAgent {
+  declare public readonly runtime: 'buzz-agent';
+  static override fromDict(data: AgentHydrationData): BuzzAgent {
+    return new BuzzAgent(agentStateFromDict(data));
   }
 }
 
@@ -3508,7 +3530,9 @@ export class Deployments {
 
   private hydrateAgent(data: AgentHydrationData): Agent {
     let agent: Agent;
-    if (data.runtime === 'opencode') {
+    if (data.runtime === 'buzz-agent') {
+      agent = BuzzAgent.fromDict(data);
+    } else if (data.runtime === 'opencode') {
       agent = OpenCodeAgent.fromDict(data);
     } else if (data.runtime === 'codex') {
       agent = CodexAgent.fromDict(data);
@@ -3727,6 +3751,10 @@ export class Deployments {
 
   async createOpenCode(options: CodingAgentCreateOptions = {}): Promise<OpenCodeAgent> {
     return await this.createCodingAgent('opencode', options) as OpenCodeAgent;
+  }
+
+  async createBuzzAgent(options: CodingAgentCreateOptions = {}): Promise<BuzzAgent> {
+    return await this.createCodingAgent('buzz-agent', options) as BuzzAgent;
   }
 
   async createCodex(options: CodingAgentCreateOptions = {}): Promise<CodexAgent> {

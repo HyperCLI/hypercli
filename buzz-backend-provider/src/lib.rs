@@ -13,6 +13,7 @@ use serde_json::Value;
 use thiserror::Error;
 
 const DEFAULT_BUZZ_OPENCODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-opencode:latest";
+const DEFAULT_BUZZ_AGENT_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-agent:latest";
 const DEFAULT_BUZZ_CODEX_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-codex:latest";
 const DEFAULT_BUZZ_CLAUDE_CODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-claude:latest";
 const DEFAULT_BUZZ_GOOSE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-goose:latest";
@@ -98,6 +99,7 @@ fn default_parallelism() -> u32 {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum CodingRuntime {
+    BuzzAgent,
     Opencode,
     Codex,
     ClaudeCode,
@@ -108,6 +110,7 @@ pub enum CodingRuntime {
 impl CodingRuntime {
     fn managed(self) -> ManagedRuntime {
         match self {
+            Self::BuzzAgent => ManagedRuntime::BuzzAgent,
             Self::Opencode => ManagedRuntime::Opencode,
             Self::Codex => ManagedRuntime::Codex,
             Self::ClaudeCode => ManagedRuntime::ClaudeCode,
@@ -118,6 +121,7 @@ impl CodingRuntime {
 
     fn default_image(self) -> &'static str {
         match self {
+            Self::BuzzAgent => DEFAULT_BUZZ_AGENT_IMAGE,
             Self::Opencode => DEFAULT_BUZZ_OPENCODE_IMAGE,
             Self::Codex => DEFAULT_BUZZ_CODEX_IMAGE,
             Self::ClaudeCode => DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
@@ -128,6 +132,7 @@ impl CodingRuntime {
 
     fn harness_command(self) -> &'static str {
         match self {
+            Self::BuzzAgent => "/usr/local/bin/buzz-agent",
             Self::Opencode => "/usr/local/bin/opencode",
             Self::Codex => "/usr/local/bin/codex-acp",
             Self::ClaudeCode => "/usr/local/bin/claude-agent-acp",
@@ -139,6 +144,7 @@ impl CodingRuntime {
     #[cfg(test)]
     fn harness_args(self) -> &'static str {
         match self {
+            Self::BuzzAgent => "",
             Self::Opencode | Self::Goose | Self::KimiCode => "acp",
             Self::Codex | Self::ClaudeCode => "",
         }
@@ -157,6 +163,7 @@ fn runtime_from_agent_command(command: &str) -> Option<CodingRuntime> {
         .map(|_| &command[..command.len() - ".exe".len()])
         .unwrap_or(command);
     match command.to_ascii_lowercase().as_str() {
+        "buzz-agent" => Some(CodingRuntime::BuzzAgent),
         "opencode" => Some(CodingRuntime::Opencode),
         "codex-acp" => Some(CodingRuntime::Codex),
         "claude-agent-acp" | "claude-code-acp" => Some(CodingRuntime::ClaudeCode),
@@ -632,7 +639,7 @@ fn build_launch_request(
     env.insert("BUZZ_ACP_AGENT_ARGS".to_owned(), launch_args.join(","));
     env.insert(
         "BUZZ_ACP_MCP_COMMAND".to_owned(),
-        if runtime == CodingRuntime::Codex {
+        if matches!(runtime, CodingRuntime::BuzzAgent | CodingRuntime::Codex) {
             "/usr/local/bin/buzz-dev-mcp"
         } else {
             ""
@@ -1058,6 +1065,11 @@ mod tests {
     fn runtime_catalog_uses_distinct_buzz_images() {
         for (runtime, managed, image) in [
             (
+                CodingRuntime::BuzzAgent,
+                ManagedRuntime::BuzzAgent,
+                DEFAULT_BUZZ_AGENT_IMAGE,
+            ),
+            (
                 CodingRuntime::Opencode,
                 ManagedRuntime::Opencode,
                 DEFAULT_BUZZ_OPENCODE_IMAGE,
@@ -1103,6 +1115,7 @@ mod tests {
     #[test]
     fn portable_agent_command_names_resolve_to_canonical_runtimes() {
         for (command, expected) in [
+            ("buzz-agent", CodingRuntime::BuzzAgent),
             ("opencode", CodingRuntime::Opencode),
             ("codex-acp", CodingRuntime::Codex),
             ("claude-agent-acp", CodingRuntime::ClaudeCode),
@@ -1422,6 +1435,12 @@ mod tests {
     #[test]
     fn runtime_contract_is_explicit_and_reserved_launch_env_cannot_override_it() {
         for (runtime, command, args, mcp) in [
+            (
+                CodingRuntime::BuzzAgent,
+                "/usr/local/bin/buzz-agent",
+                "",
+                BUZZ_DEV_MCP_COMMAND,
+            ),
             (
                 CodingRuntime::Opencode,
                 "/usr/local/bin/opencode",

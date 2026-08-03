@@ -18,7 +18,7 @@ mkdir -p ~/.local/bin ~/.local/libexec
 install -m 0755 \
   target/release/buzz-backend-hypercli \
   ~/.local/libexec/buzz-backend-hypercli
-for runtime in opencode codex claude goose kimi; do
+for runtime in buzz-agent opencode codex claude goose kimi; do
   ln -f ~/.local/libexec/buzz-backend-hypercli \
     ~/.local/bin/buzz-backend-hypercli-${runtime}
 done
@@ -31,6 +31,7 @@ identity that Buzz exposes:
 
 ```text
 buzz-backend-hypercli.exe
+buzz-backend-hypercli-buzz-agent.exe
 buzz-backend-hypercli-opencode.exe
 buzz-backend-hypercli-codex.exe
 buzz-backend-hypercli-claude.exe
@@ -156,7 +157,7 @@ APIs when reliable infrastructure stop/delete is required.
 ## Stock Buzz compatibility
 
 The provider and SDK matrix tests validate representative generated shapes for
-OpenCode, Codex, Claude Code, Goose, and Kimi Code. They do not launch those
+native Buzz Agent, OpenCode, Codex, Claude Code, Goose, and Kimi Code. They do not launch those
 runtimes or prove an end-to-end conversational reply. The hosted path has been
 exercised with stock Buzz and OpenCode: the harness connected and an explicit
 `buzz messages send` published successfully. Stock Buzz expects ACP NDJSON;
@@ -165,7 +166,7 @@ telemetry rather than a channel publication. There is no plaintext fallback. A
 visible response requires the agent to invoke the Buzz send command/tool.
 
 The provider owns the default hosted image catalog because every provider
-deployment is a Buzz launch. Its defaults are the dedicated
+deployment is a Buzz launch. Its defaults are the dedicated `hypercli-buzz-agent`,
 `hypercli-buzz-opencode`, `hypercli-buzz-codex`, `hypercli-buzz-claude`,
 `hypercli-buzz-goose`, and `hypercli-buzz-kimi-code` families. The reusable
 Rust SDK deliberately has no image catalog; it renders launch behavior onto a

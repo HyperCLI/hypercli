@@ -94,7 +94,7 @@ jobs:
           STAGE="$(mktemp -d)"
           SOURCE="target/${{ matrix.target }}/release/${{ matrix.executable }}"
           if [[ "${{ matrix.target }}" == *-windows-msvc ]]; then
-            for runtime in opencode codex claude goose kimi; do
+            for runtime in buzz-agent opencode codex claude goose kimi; do
               cp "${SOURCE}" "${STAGE}/buzz-backend-hypercli-${runtime}.exe"
             done
             cp "${SOURCE}" "${STAGE}/buzz-backend-hypercli.exe"

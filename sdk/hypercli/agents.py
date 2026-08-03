@@ -47,6 +47,7 @@ DEFAULT_CODEX_IMAGE = "ghcr.io/hypercli/hypercli-codex:latest"
 DEFAULT_CLAUDE_CODE_IMAGE = "ghcr.io/hypercli/hypercli-claude-code:latest"
 DEFAULT_GOOSE_IMAGE = "ghcr.io/hypercli/hypercli-goose:latest"
 DEFAULT_KIMI_CODE_IMAGE = "ghcr.io/hypercli/hypercli-kimi-code:latest"
+DEFAULT_BUZZ_AGENT_IMAGE = "ghcr.io/hypercli/hypercli-buzz-agent:latest"
 DEFAULT_BUZZ_OPENCODE_IMAGE = "ghcr.io/hypercli/hypercli-buzz-opencode:latest"
 DEFAULT_BUZZ_CODEX_IMAGE = "ghcr.io/hypercli/hypercli-buzz-codex:latest"
 DEFAULT_BUZZ_CLAUDE_CODE_IMAGE = "ghcr.io/hypercli/hypercli-buzz-claude:latest"
@@ -103,15 +104,17 @@ ManagedAgentRuntime = Literal[
     "generic",
     "openclaw",
     "openclaw-pro",
+    "buzz-agent",
     "opencode",
     "codex",
     "claude-code",
     "goose",
     "kimi-code",
 ]
-CodingAgentRuntime = Literal["opencode", "codex", "claude-code", "goose", "kimi-code"]
+CodingAgentRuntime = Literal["buzz-agent", "opencode", "codex", "claude-code", "goose", "kimi-code"]
 
 DEFAULT_CODING_AGENT_IMAGES: dict[CodingAgentRuntime, str] = {
+    "buzz-agent": DEFAULT_BUZZ_AGENT_IMAGE,
     "opencode": DEFAULT_OPENCODE_IMAGE,
     "codex": DEFAULT_CODEX_IMAGE,
     "claude-code": DEFAULT_CLAUDE_CODE_IMAGE,
@@ -119,6 +122,7 @@ DEFAULT_CODING_AGENT_IMAGES: dict[CodingAgentRuntime, str] = {
     "kimi-code": DEFAULT_KIMI_CODE_IMAGE,
 }
 DEFAULT_BUZZ_CODING_AGENT_IMAGES: dict[CodingAgentRuntime, str] = {
+    "buzz-agent": DEFAULT_BUZZ_AGENT_IMAGE,
     "opencode": DEFAULT_BUZZ_OPENCODE_IMAGE,
     "codex": DEFAULT_BUZZ_CODEX_IMAGE,
     "claude-code": DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
@@ -127,6 +131,7 @@ DEFAULT_BUZZ_CODING_AGENT_IMAGES: dict[CodingAgentRuntime, str] = {
 }
 
 _BUZZ_RUNTIME_COMMANDS: dict[CodingAgentRuntime, tuple[str, list[str], str]] = {
+    "buzz-agent": ("/usr/local/bin/buzz-agent", [], "/usr/local/bin/buzz-dev-mcp"),
     "opencode": ("/usr/local/bin/opencode", ["acp"], ""),
     "codex": ("/usr/local/bin/codex-acp", [], "/usr/local/bin/buzz-dev-mcp"),
     "claude-code": ("/usr/local/bin/claude-agent-acp", [], ""),
@@ -1255,6 +1260,17 @@ class RuntimeAuthClient:
     """Runtime-specific authentication over the existing protected exec/shell API."""
 
     _COMMANDS: dict[str, dict[str, Any]] = {
+        "buzz-agent": {
+            "agent": ("buzz-agent",),
+            "status": (
+                "buzz-acp",
+                "models",
+                "--agent-command",
+                "buzz-agent",
+                "--json",
+            ),
+            "logout": None,
+        },
         "opencode": {
             "agent": ("opencode", "acp"),
             "status": (
@@ -1795,6 +1811,11 @@ class CodingAgent(Agent):
     @property
     def auth(self) -> RuntimeAuthClient:
         return RuntimeAuthClient(self)
+
+
+@dataclass
+class BuzzAgent(CodingAgent):
+    """Native Buzz ACP runtime with the bundled developer MCP tools."""
 
 
 @dataclass
@@ -2475,7 +2496,9 @@ class Deployments:
 
     def _hydrate_agent(self, data: dict) -> Agent:
         runtime = str(data.get("runtime") or "").strip().lower()
-        if runtime == "opencode":
+        if runtime == "buzz-agent":
+            agent = BuzzAgent.from_dict(data)
+        elif runtime == "opencode":
             agent = OpenCodeAgent.from_dict(data)
         elif runtime == "codex":
             agent = CodexAgent.from_dict(data)
@@ -2711,7 +2734,7 @@ class Deployments:
             gateway_token=gateway_token,
             heartbeat=heartbeat,
             inject_gateway_token=runtime
-            not in {"opencode", "codex", "claude-code", "goose", "kimi-code"},
+            not in {"buzz-agent", "opencode", "codex", "claude-code", "goose", "kimi-code"},
         )
         body: dict = {**launch_payload, "start": start}
         if dry_run:
@@ -2965,6 +2988,13 @@ class Deployments:
         """Create a hosted OpenCode ACP runtime with workspace boot sync."""
         return self._create_coding_agent(
             runtime="opencode",
+            **kwargs,
+        )  # type: ignore[return-value]
+
+    def create_buzz_agent(self, **kwargs: Any) -> BuzzAgent:
+        """Create the native Buzz ACP runtime with workspace boot sync."""
+        return self._create_coding_agent(
+            runtime="buzz-agent",
             **kwargs,
         )  # type: ignore[return-value]
 

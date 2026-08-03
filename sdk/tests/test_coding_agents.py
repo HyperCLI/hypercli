@@ -10,6 +10,7 @@ from unittest.mock import Mock
 import pytest
 
 from hypercli import (
+    BuzzAgent as ExportedBuzzAgent,
     BuzzLaunchConfig,
     ClaudeCodeAgent as ExportedClaudeCodeAgent,
     CodexAgent as ExportedCodexAgent,
@@ -21,9 +22,11 @@ from hypercli import (
     OpenCodeAgent as ExportedOpenCodeAgent,
 )
 from hypercli.agents import (
+    BuzzAgent,
     ClaudeCodeAgent,
     CodexAgent,
     DEFAULT_AGENT_RUNTIME_SCOPES,
+    DEFAULT_BUZZ_AGENT_IMAGE,
     DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
     DEFAULT_BUZZ_CODING_AGENT_IMAGES,
     DEFAULT_BUZZ_CODEX_IMAGE,
@@ -69,6 +72,7 @@ _BUZZ_GOLDEN = json.loads(
 
 
 def test_coding_agent_types_are_exported_from_sdk_root():
+    assert ExportedBuzzAgent is BuzzAgent
     assert ExportedOpenCodeAgent is OpenCodeAgent
     assert ExportedCodexAgent is CodexAgent
     assert ExportedClaudeCodeAgent is ClaudeCodeAgent
@@ -79,8 +83,9 @@ def test_coding_agent_types_are_exported_from_sdk_root():
     assert ExportedRuntimeScopes is DEFAULT_AGENT_RUNTIME_SCOPES
 
 
-def test_generic_and_buzz_image_catalogs_are_explicit_and_disjoint():
+def test_generic_and_buzz_image_catalogs_are_explicit():
     assert DEFAULT_CODING_AGENT_IMAGES == {
+        "buzz-agent": DEFAULT_BUZZ_AGENT_IMAGE,
         "opencode": DEFAULT_OPENCODE_IMAGE,
         "codex": DEFAULT_CODEX_IMAGE,
         "claude-code": DEFAULT_CLAUDE_CODE_IMAGE,
@@ -88,15 +93,16 @@ def test_generic_and_buzz_image_catalogs_are_explicit_and_disjoint():
         "kimi-code": DEFAULT_KIMI_CODE_IMAGE,
     }
     assert DEFAULT_BUZZ_CODING_AGENT_IMAGES == {
+        "buzz-agent": DEFAULT_BUZZ_AGENT_IMAGE,
         "opencode": DEFAULT_BUZZ_OPENCODE_IMAGE,
         "codex": DEFAULT_BUZZ_CODEX_IMAGE,
         "claude-code": DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
         "goose": DEFAULT_BUZZ_GOOSE_IMAGE,
         "kimi-code": DEFAULT_BUZZ_KIMI_CODE_IMAGE,
     }
-    assert set(DEFAULT_CODING_AGENT_IMAGES.values()).isdisjoint(
+    assert set(DEFAULT_CODING_AGENT_IMAGES.values()) & set(
         DEFAULT_BUZZ_CODING_AGENT_IMAGES.values()
-    )
+    ) == {DEFAULT_BUZZ_AGENT_IMAGE}
 
 
 def _agent_payload(runtime: str) -> dict:
@@ -113,6 +119,7 @@ def _agent_payload(runtime: str) -> dict:
 @pytest.mark.parametrize(
     ("method_name", "runtime", "image", "agent_type"),
     [
+        ("create_buzz_agent", "buzz-agent", DEFAULT_BUZZ_AGENT_IMAGE, BuzzAgent),
         ("create_opencode", "opencode", DEFAULT_OPENCODE_IMAGE, OpenCodeAgent),
         ("create_codex", "codex", DEFAULT_CODEX_IMAGE, CodexAgent),
         (
@@ -179,6 +186,7 @@ def test_create_coding_agent_honors_runtime_scope_override():
 @pytest.mark.parametrize(
     ("method_name", "runtime", "buzz_image"),
     [
+        ("create_buzz_agent", "buzz-agent", DEFAULT_BUZZ_AGENT_IMAGE),
         ("create_opencode", "opencode", DEFAULT_BUZZ_OPENCODE_IMAGE),
         ("create_codex", "codex", DEFAULT_BUZZ_CODEX_IMAGE),
         (
@@ -212,6 +220,7 @@ def test_buzz_coding_agent_uses_specialized_default_image(
 @pytest.mark.parametrize(
     ("method_name", "runtime"),
     [
+        ("create_buzz_agent", "buzz-agent"),
         ("create_opencode", "opencode"),
         ("create_codex", "codex"),
         ("create_claude_code", "claude-code"),
@@ -272,6 +281,7 @@ def test_typed_buzz_launch_honors_explicit_image_override():
 def test_runtime_hydration_uses_explicit_backend_discriminator():
     deployments = Deployments(_HTTP())
 
+    assert isinstance(deployments._hydrate_agent(_agent_payload("buzz-agent")), BuzzAgent)
     assert isinstance(deployments._hydrate_agent(_agent_payload("opencode")), OpenCodeAgent)
     assert isinstance(deployments._hydrate_agent(_agent_payload("codex")), CodexAgent)
     assert isinstance(

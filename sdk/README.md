@@ -126,13 +126,15 @@ Automatic memory indexing is off by default. Opt in with `memory_index={"on_sess
 
 ## Hosted Coding Agents
 
-OpenCode, Codex, Claude Code, Goose, and Kimi Code use canonical Reef images.
+Native Buzz Agent, OpenCode, Codex, Claude Code, Goose, and Kimi Code use
+canonical Reef images.
 They have no public runtime port: lifecycle, exec, shell, workspace sync, and
 authentication all use the existing authenticated deployment APIs. OpenCode
 and Goose default to HyperCLI's Anthropic-native `kimi-k2.6-anthropic` route.
 Kimi Code keeps Moonshot's upstream device login and service.
 
 ```python
+buzz_agent = client.deployments.create_buzz_agent(name="buzz-agent")
 agent = client.deployments.create_opencode(name="opencode")
 codex = client.deployments.create_codex(name="codex")
 claude = client.deployments.create_claude_code(name="claude")
@@ -152,8 +154,10 @@ runtime's native login command inside the Reef pod. It never puts an API key on
 the command line. Runtime credentials and state live under the persistent
 `/home/node` sync root.
 
-Authentication is runtime-specific rather than one universal login protocol:
-OpenCode combines adapter discovery with its interactive provider login; Codex
+Authentication is runtime-specific rather than one universal login protocol.
+Native Buzz Agent has no separate login step and uses its injected model and
+provider configuration. OpenCode combines adapter discovery with its
+interactive provider login; Codex
 adds native device login; Claude Code exposes Claude.ai, Console, and SSO;
 Goose uses its injected deployment credential; and Kimi Code uses the
 upstream adapter's methods. Goose and Kimi Code do not expose a noninteractive
@@ -190,9 +194,11 @@ into `buzz-acp`. Buzz-reserved environment keys are rendered from the typed
 object after caller environment values.
 `buzz_enabled=True` remains as a deprecated raw-environment compatibility path.
 Typed and compatibility Buzz launches select the matching `hypercli-buzz`
-image family (`opencode`, `codex`, `claude`, `goose`, or `kimi-code`) by
+image family (`buzz-agent`, `opencode`, `codex`, `claude`, `goose`, or
+`kimi-code`) by
 default. Ordinary coding-agent helpers without Buzz keep the generic
-`ghcr.io/hypercli/hypercli-<runtime>:latest` default. An explicit `image=`
+`ghcr.io/hypercli/hypercli-<runtime>:latest` default, except native Buzz Agent,
+whose runtime image is already `hypercli-buzz-agent`. An explicit `image=`
 continues to override either default.
 
 Direct `BuzzLaunchConfig` renders timeout and response-policy values but does
@@ -215,7 +221,7 @@ its local deployed record.
 Stock Buzz expects ACP NDJSON. It skips non-JSON child stdout, and
 `agent_message_chunk` is activity telemetry rather than a channel reply. There
 is no plaintext fallback; a visible reply requires the agent to invoke the Buzz
-send command/tool. The five-runtime SDK coverage validates request rendering,
+send command/tool. The six-runtime SDK coverage validates request rendering,
 not live launches.
 
 The agent nsec and caller environment become raw deployment environment values.

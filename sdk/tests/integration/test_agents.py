@@ -5,6 +5,7 @@ import uuid
 import pytest
 
 from hypercli import (
+    BuzzAgent,
     ClaudeCodeAgent,
     CodexAgent,
     GooseAgent,
@@ -13,6 +14,7 @@ from hypercli import (
     OpenCodeAgent,
 )
 from hypercli.agents import (
+    DEFAULT_BUZZ_AGENT_IMAGE,
     DEFAULT_CLAUDE_CODE_IMAGE,
     DEFAULT_CODEX_IMAGE,
     DEFAULT_GOOSE_IMAGE,
@@ -83,6 +85,7 @@ def test_list_agents_requires_agent_key(client, test_agent_api_key: str):
 @pytest.mark.parametrize(
     ("create_method", "runtime", "image", "agent_type"),
     [
+        ("create_buzz_agent", "buzz-agent", DEFAULT_BUZZ_AGENT_IMAGE, BuzzAgent),
         ("create_opencode", "opencode", DEFAULT_OPENCODE_IMAGE, OpenCodeAgent),
         ("create_codex", "codex", DEFAULT_CODEX_IMAGE, CodexAgent),
         (

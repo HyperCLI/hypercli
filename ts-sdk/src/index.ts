@@ -181,6 +181,7 @@ export {
 
 export {
   DEFAULT_AGENT_RUNTIME_SCOPES,
+  DEFAULT_BUZZ_AGENT_IMAGE,
   DEFAULT_OPENCODE_IMAGE,
   DEFAULT_CODEX_IMAGE,
   DEFAULT_CLAUDE_CODE_IMAGE,
@@ -200,6 +201,7 @@ export {
   Deployments,
   Agent,
   CodingAgent,
+  BuzzAgent,
   OpenCodeAgent,
   CodexAgent,
   ClaudeCodeAgent,

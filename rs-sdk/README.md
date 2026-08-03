@@ -96,7 +96,8 @@ infrastructure stop/delete is required.
 Stock Buzz expects ACP NDJSON. It skips non-JSON child stdout, and
 `agent_message_chunk` is activity telemetry rather than a channel reply. There
 is no plaintext fallback; a visible response requires the agent to invoke the
-Buzz send command/tool. The five-runtime SDK matrix validates representative
+Buzz send command/tool. The six-runtime SDK matrix, including native
+`buzz-agent`, validates representative
 rendered request shapes only.
 
 The rendered nsec and caller environment are raw launch environment values.

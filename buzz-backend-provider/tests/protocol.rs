@@ -252,6 +252,17 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
 #[test]
 fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
     let handle = format!("buzz-{}", &TEST_PUBLIC_HEX[..48]);
+    let staged_dir = tempfile::tempdir().unwrap();
+    let staged_provider = staged_dir.path().join(if cfg!(windows) {
+        "provider.exe"
+    } else {
+        "provider"
+    });
+    fs::copy(
+        assert_cmd::cargo::cargo_bin!("buzz-backend-hypercli"),
+        &staged_provider,
+    )
+    .unwrap();
     let golden: serde_json::Value = serde_json::from_str(include_str!(
         "../../tests/fixtures/buzz-launch-contract.json"
     ))
@@ -375,7 +386,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
                     "LEGACY_ONLY": "must-not-survive"
                 },
                 "launch": {
-                    "command": agent_command,
+                    "command": format!(r"C:\\Users\\tester\\.local\\bin\\{agent_command}.Exe"),
                     "args": if child_args.is_empty() {
                         Vec::<String>::new()
                     } else {
@@ -415,7 +426,10 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
                 serde_json::json!("fixture-provider");
         }
 
-        let mut command = Command::cargo_bin("buzz-backend-hypercli").unwrap();
+        // Buzz Desktop stages every selected provider under the generic
+        // `provider[.exe]` basename. Runtime selection must therefore remain
+        // entirely launch.command-driven for this real executable exchange.
+        let mut command = Command::new(&staged_provider);
         command
             .arg("--dry-run")
             .env("HYPER_AGENTS_API_KEY", "fixture-hypercli-credential")

@@ -26,6 +26,14 @@
     "sync_gid": 1000
   },
   "runtimes": {
+    "buzz-agent": {
+      "image": "ghcr.io/hypercli/hypercli-buzz-agent:latest",
+      "stock_agent_command": "buzz-agent",
+      "agent_command": "/usr/local/bin/buzz-agent",
+      "agent_args": "",
+      "mcp_command": "/usr/local/bin/buzz-dev-mcp",
+      "claude_code_executable": null
+    },
     "opencode": {
       "image": "ghcr.io/hypercli/hypercli-buzz-opencode:latest",
       "stock_agent_command": "opencode",
