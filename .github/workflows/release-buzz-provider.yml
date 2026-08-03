@@ -37,14 +37,7 @@ jobs:
             target: aarch64-unknown-linux-gnu
             executable: buzz-backend-hypercli
             archive: buzz-backend-hypercli-linux-aarch64
-          - runner: macos-15-intel
-            target: x86_64-apple-darwin
-            executable: buzz-backend-hypercli
-            archive: buzz-backend-hypercli-macos-x86_64
-          - runner: macos-15
-            target: aarch64-apple-darwin
-            executable: buzz-backend-hypercli
-            archive: buzz-backend-hypercli-macos-aarch64
+          # macOS binaries are deferred until signing/notarization is ready.
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
             executable: buzz-backend-hypercli.exe
@@ -148,7 +141,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(find dist -maxdepth 1 -name '*.tar.gz' | wc -l)" -eq 5
+          test "$(find dist -maxdepth 1 -name '*.tar.gz' | wc -l)" -eq 3
           (
             cd dist
             sha256sum --check ./*.sha256
@@ -180,5 +173,5 @@ jobs:
           gh release create "${TAG}" \
             --target "${SOURCE_SHA}" \
             --title "Buzz HyperCLI provider ${{ inputs.version }} (unsigned)" \
-            --notes "Unsigned test binaries for Buzz Desktop. macOS testers must explicitly approve the downloaded binary in Gatekeeper. Production distribution remains blocked on signing/notarization and backend launch-secret encryption." \
+            --notes "Unsigned test binaries for Buzz Desktop (Linux and Windows; macOS builds are deferred until signing/notarization is configured). Production distribution remains blocked on signing/notarization and backend launch-secret encryption." \
             dist/*
