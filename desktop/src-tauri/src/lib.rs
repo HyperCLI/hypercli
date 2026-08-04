@@ -145,16 +145,18 @@ fn save_api_key(api_key: String) -> Result<(), String> {
     write_api_key(&home_dir()?, api_key).map_err(|e| e.to_string())
 }
 
+/// Returns true when a key is still discoverable afterwards — i.e. the
+/// environment exports one that logout cannot (and should not) remove.
 #[tauri::command]
-fn logout() -> Result<(), String> {
-    remove_config_api_keys(&home_dir()?).map_err(|e| e.to_string())
+fn logout() -> Result<bool, String> {
+    remove_config_api_keys(&home_dir()?).map_err(|e| e.to_string())?;
+    let (still_has_key, _) = credential_state();
+    Ok(still_has_key)
 }
 
 /// Check the configured key against the API and report whether it carries
-/// the `agents:*` capability the Buzz provider needs. Blocking SDK call —
-/// `(async)` runs it off the main thread.
-#[tauri::command(async)]
-fn validate_key() -> Result<KeyValidation, String> {
+/// the `agents:*` capability the Buzz provider needs.
+fn validate_key_blocking() -> Result<KeyValidation, String> {
     let config = discover_client_config().map_err(|e| e.to_string())?;
     let client = HyperCliClient::new(config).map_err(|e| e.to_string())?;
     match client.auth_me() {
@@ -181,6 +183,15 @@ fn validate_key() -> Result<KeyValidation, String> {
     }
 }
 
+/// The SDK's HTTP client is blocking; it must not be created or dropped on
+/// the async runtime (tokio panics), so the work runs on a blocking thread.
+#[tauri::command]
+async fn validate_key() -> Result<KeyValidation, String> {
+    tauri::async_runtime::spawn_blocking(validate_key_blocking)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /// Human-readable key annotation, e.g. "macOS (Dmitrys-Mac-mini)".
 fn key_annotation() -> String {
     let os = match std::env::consts::OS {
@@ -194,8 +205,7 @@ fn key_annotation() -> String {
 
 /// Exchange a desktop-login session token for a durable, per-machine API
 /// key and persist it. The session token is never stored.
-#[tauri::command(async)]
-fn mint_api_key(session_token: String) -> Result<String, String> {
+fn mint_api_key_blocking(session_token: String) -> Result<String, String> {
     let name = key_annotation();
     let api_base =
         normalize_agents_api_base(DEFAULT_AGENTS_API_BASE).map_err(|e| e.to_string())?;
@@ -213,6 +223,13 @@ fn mint_api_key(session_token: String) -> Result<String, String> {
         .ok_or_else(|| "key created but response contained no key material".to_string())?;
     write_api_key(&home_dir()?, &api_key).map_err(|e| e.to_string())?;
     Ok(name)
+}
+
+#[tauri::command]
+async fn mint_api_key(session_token: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || mint_api_key_blocking(session_token))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

@@ -11,12 +11,29 @@ const TITLEBAR = 28;
 const appWindow = getCurrentWindow();
 const card = document.querySelector(".card");
 
+const MIN_HEIGHT = 240;
+
 function fitWindow() {
-  const height = Math.min(MAX_HEIGHT, card.offsetHeight + TITLEBAR);
+  const height = Math.min(
+    MAX_HEIGHT,
+    Math.max(MIN_HEIGHT, card.offsetHeight + TITLEBAR),
+  );
   appWindow.setSize(new LogicalSize(WINDOW_WIDTH, height)).catch(() => {});
 }
 
 new ResizeObserver(fitWindow).observe(card);
+
+// Footer: version + update state. Until the updater plugin ships with
+// release CI, "up to date" is the resting state.
+(async () => {
+  const line = document.getElementById("version-line");
+  try {
+    const version = await window.__TAURI__.app.getVersion();
+    line.textContent = `HyperCLI ${version} · your app is up to date`;
+  } catch {
+    line.textContent = "Your app is up to date";
+  }
+})();
 
 function setStatus(message, isError = false) {
   statusEl.textContent = message;
@@ -132,8 +149,15 @@ document.getElementById("key-form").addEventListener("submit", async (event) => 
 
 document.getElementById("logout-btn").addEventListener("click", async () => {
   try {
-    await invoke("logout");
-    setStatus("Logged out — API key removed from ~/.hypercli/config.");
+    const envKeyActive = await invoke("logout");
+    if (envKeyActive) {
+      setStatus(
+        "Config cleared, but your shell environment exports HYPER_API_KEY — unset it to fully log out.",
+        true,
+      );
+    } else {
+      setStatus("Logged out.");
+    }
     await refreshStatus();
   } catch (error) {
     setStatus(String(error), true);
@@ -143,7 +167,7 @@ document.getElementById("logout-btn").addEventListener("click", async () => {
 document.getElementById("install-btn").addEventListener("click", async () => {
   try {
     render(await invoke("install_providers"));
-    setStatus("");
+    setStatus("Providers installed — you can close the app.");
   } catch (error) {
     setStatus(String(error), true);
   }

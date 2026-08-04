@@ -183,6 +183,12 @@ button.link:hover {
 
 #footer {
   margin-top: 4px;
+  font-size: 11px;
+}
+
+#footer .hint {
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 #provider-list:empty {
