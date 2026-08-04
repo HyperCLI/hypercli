@@ -72,6 +72,7 @@ async function mockAgentChat(
     const gatewayCalls = {
       urls: [] as string[],
       closes: [] as Array<{ code?: number; reason?: string }>,
+      sockets: [] as Array<{ methods: string[]; closed: boolean }>,
       methods: [] as string[],
       requests: [] as AgentChatGatewayRequest[],
     };
@@ -98,9 +99,12 @@ async function mockAgentChat(
       public onmessage: ((event: { data: string }) => void) | null = null;
       public onerror: (() => void) | null = null;
       public onclose: ((event: { code?: number; reason?: string }) => void) | null = null;
+      private readonly tracker: { methods: string[]; closed: boolean };
 
       constructor(url: string) {
         this.url = url;
+        this.tracker = { methods: [], closed: false };
+        gatewayCalls.sockets.push(this.tracker);
         gatewayCalls.urls.push(url);
         window.setTimeout(() => {
           this.readyState = MockWebSocket.OPEN;
@@ -120,6 +124,7 @@ async function mockAgentChat(
           params?: AgentChatGatewayRequest["params"] & { message?: string };
         };
         const secondaryAgent = this.url.includes("agent-2");
+        this.tracker.methods.push(message.method);
         gatewayCalls.methods.push(message.method);
         const request = { method: message.method, params: message.params };
         gatewayCalls.requests.push(request);
@@ -286,6 +291,7 @@ async function mockAgentChat(
       }
 
       close(code?: number, reason?: string) {
+        this.tracker.closed = true;
         gatewayCalls.closes.push({ code, reason });
         this.readyState = MockWebSocket.CLOSED;
         window.setTimeout(() => this.onclose?.({ code, reason }), 0);
@@ -630,7 +636,7 @@ test("dashboard views preserve the agent controller across navigation history", 
 
   await openDashboardView(page, "overview");
   await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBe("overview");
-  await expect(page.getByRole("heading", { name: "Agent Chat Navigation" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Pick up where you left off" })).toBeVisible();
 
   await openDashboardView(page, "usage");
   await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBe("usage");
@@ -656,29 +662,37 @@ test("dashboard views preserve the agent controller across navigation history", 
   await page.goForward();
   await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBe("settings");
 
+  // Home opens short-lived operations-snapshot sockets. Only the persistent
+  // chat controller loads conversation history, so track that socket directly.
   await expect.poll(() => page.evaluate(() => {
     const calls = (window as Window & {
-      __agentChatNavigationGatewayCalls?: { urls: string[]; closes: unknown[] };
+      __agentChatNavigationGatewayCalls?: {
+        sockets: Array<{ methods: string[]; closed: boolean }>;
+      };
     }).__agentChatNavigationGatewayCalls;
-    return { connections: calls?.urls.length ?? 0, closes: calls?.closes.length ?? 0 };
-  })).toEqual({ connections: 1, closes: 0 });
+    const controllers = calls?.sockets.filter((socket) => socket.methods.includes("chat.history")) ?? [];
+    return {
+      controllerConnections: controllers.length,
+      controllerCloses: controllers.filter((socket) => socket.closed).length,
+    };
+  })).toEqual({ controllerConnections: 1, controllerCloses: 0 });
 });
 
-test("direct dashboard views defer the gateway until an agent is opened", async ({ page }) => {
+test("direct dashboard views defer the chat controller until an agent is opened", async ({ page }) => {
   await mockAgentChat(page);
   await page.goto("/dashboard/agents?view=overview&agentId=agent-1", { waitUntil: "domcontentloaded" });
 
-  await expect(page.getByRole("heading", { name: "Agent Chat Navigation" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Pick up where you left off" })).toBeVisible();
   expect(await page.evaluate(() => (
-    (window as Window & { __agentChatNavigationGatewayCalls?: { urls: string[] } })
-      .__agentChatNavigationGatewayCalls?.urls.length ?? 0
+    (window as Window & { __agentChatNavigationGatewayCalls?: { sockets: Array<{ methods: string[] }> } })
+      .__agentChatNavigationGatewayCalls?.sockets.filter((socket) => socket.methods.includes("chat.history")).length ?? 0
   ))).toBe(0);
 
   await page.getByRole("button", { name: "Select Primary Agent" }).click();
   await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBeNull();
   await expect.poll(() => page.evaluate(() => (
-    (window as Window & { __agentChatNavigationGatewayCalls?: { urls: string[] } })
-      .__agentChatNavigationGatewayCalls?.urls.length ?? 0
+    (window as Window & { __agentChatNavigationGatewayCalls?: { sockets: Array<{ methods: string[] }> } })
+      .__agentChatNavigationGatewayCalls?.sockets.filter((socket) => socket.methods.includes("chat.history")).length ?? 0
   ))).toBe(1);
 });
 

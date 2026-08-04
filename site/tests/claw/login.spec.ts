@@ -12,11 +12,9 @@ test("logs into Claw with Privy email OTP and stores a valid app JWT", async ({ 
   expectJwtShape(token);
 
   await expect(page.getByRole("button", { name: /^sign in$/i })).toHaveCount(0);
-  await expect(page).toHaveURL(/\/dashboard$/);
-  await expect(
-    page.getByRole("heading", { name: /welcome back, agent/i })
-  ).toBeVisible();
-  await expect(page.getByRole("link", { name: /api keys/i })).toBeVisible();
+  await expect(page).toHaveURL(/\/dashboard\/agents(?:[/?#]|$)/);
+  await expect(page.getByRole("button", { name: /^home$/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^knowledge hub$/i })).toBeVisible();
 
   await captureStep(page, "06-post-login-assertions");
 });
