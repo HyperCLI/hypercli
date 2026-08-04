@@ -554,8 +554,13 @@ pub struct ApiKey {
     pub api_key: Option<String>,
     #[serde(default)]
     pub is_active: bool,
+    /// Unix timestamps (fractional seconds).
     #[serde(default)]
-    pub created_at: String,
+    pub created_at: Option<f64>,
+    #[serde(default)]
+    pub expires_at: Option<f64>,
+    #[serde(default)]
+    pub last_used_at: Option<f64>,
 }
 
 #[cfg(test)]
