@@ -143,7 +143,7 @@ npx playwright test \
 ```
 
 `E2E_KEEP_ALIVE_ON_FAILURE=1` leaves the container and Next servers running.
-When `BACKEND_API_KEY` or `AGENTS_BACKEND_API_KEY` is present, Claw specs log in
+When `BACKEND_API_KEY` is present, Claw specs log in
 via the backend admin bootstrap instead of OTP; only `login.spec.ts` exercises
 the real Privy email OTP flow. Keep secrets in `.env.agents`. The E2E image contains a
 copied workspace, so rebuild after source edits or bind-mount the specific test

@@ -1,4 +1,4 @@
-name: playwright-agents
+name: playwright-privy
 
 on:
   workflow_call:
@@ -8,24 +8,24 @@ env:
   GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
 jobs:
-  playwright-agents:
+  playwright-privy:
     runs-on: self-hosted
     timeout-minutes: 60
     concurrency:
-      group: hypercli-frontend-e2e-agents
+      group: hypercli-frontend-e2e-privy
       cancel-in-progress: false
     defaults:
       run:
         shell: bash
     env:
       TEST_HOSTNAME: 127.0.0.1
-      BACKEND_API_KEY: ${{ secrets.BACKEND_API_KEY }}
       TEST_API_BASE_URL: https://api.dev.hypercli.com
       TEST_EMAIL: ${{ vars.TEST_EMAIL }}
-      TEST_AGENTS_API_BASE_URL: https://api.dev.hypercli.com/agents
-      TEST_STRIPE_AGENTS_SECRET_KEY: ${{ secrets.TEST_STRIPE_AGENTS_SECRET_KEY }}
+      TEST_IMAP_HOST: ${{ vars.TEST_IMAP_HOST }}
+      TEST_IMAP_USER: ${{ secrets.TEST_IMAP_USER }}
+      TEST_IMAP_PASS: ${{ secrets.TEST_IMAP_PASS }}
       NOTIFY_URL: ${{ vars.NOTIFY_URL }}
-      PLAYWRIGHT_ARTIFACTS_DIR: ${{ github.workspace }}/.e2e-artifacts/playwright-agents-${{ github.run_id }}-${{ github.run_attempt }}
+      PLAYWRIGHT_ARTIFACTS_DIR: ${{ github.workspace }}/.e2e-artifacts/playwright-privy-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,7 +37,7 @@ jobs:
       - name: Build E2E image
         id: build-e2e
         run: |
-          IMAGE_TAG="e2e-agents-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+          IMAGE_TAG="e2e-privy-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             .github/scripts/build_e2e_image.sh >> "$GITHUB_OUTPUT"
 
       - name: Run dockerized Playwright tests
@@ -52,24 +52,24 @@ jobs:
           docker run --rm --init \
             -e CI=true \
             -e TEST_HOSTNAME \
-            -e BACKEND_API_KEY \
             -e TEST_API_BASE_URL \
             -e TEST_EMAIL \
-            -e TEST_AGENTS_API_BASE_URL \
-            -e TEST_STRIPE_AGENTS_SECRET_KEY \
+            -e TEST_IMAP_HOST \
+            -e TEST_IMAP_USER \
+            -e TEST_IMAP_PASS \
             -e NOTIFY_URL \
             -e NOTIFY_API_KEY \
             -e GITHUB_RUN_URL \
             -e E2E_ARTIFACTS_DIR=/artifacts \
             -v "${ARTIFACTS_DIR}:/artifacts" \
             "${{ steps.build-e2e.outputs.e2e_image }}" \
-            bash -lc 'cd /workspace && ./.github/scripts/run_e2e_agents.sh'
+            bash -lc 'cd /workspace && ./.github/scripts/run_e2e_privy.sh'
 
       - name: Upload Playwright artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-agents-artifacts
+          name: playwright-privy-artifacts
           path: ${{ env.PLAYWRIGHT_ARTIFACTS_DIR }}
           if-no-files-found: ignore
 
@@ -80,14 +80,14 @@ jobs:
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
           E2E_STATUS: ${{ steps.e2e.outcome }}
         run: |
-          MESSAGE="Frontend playwright-agents passed"
+          MESSAGE="Frontend playwright-privy passed"
           python3 .github/scripts/ci_notify.py \
             --category frontend \
             --phase test \
             --status "${E2E_STATUS}" \
             --event "${{ github.event_name }}" \
             --message "${MESSAGE}" \
-            --workflow "playwright-agents" \
+            --workflow "playwright-privy" \
             --channel frontend \
             --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 

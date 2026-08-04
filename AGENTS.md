@@ -101,7 +101,7 @@ Notes:
   can take time to propagate through DNS; keep polling the real hostname with a
   bounded readiness wait and inspect the gateway/route state before changing
   test coverage.
-- When `BACKEND_API_KEY` or `AGENTS_BACKEND_API_KEY` is present, Claw specs use
+- When `BACKEND_API_KEY` is present, Claw specs use
   the backend admin login path instead of OTP. Only `login.spec.ts` forces the
   real Privy OTP flow, so the console and agents suites can run in parallel.
 - Keep secrets in `.env.agents` or CI secrets. Do not pass secret values with

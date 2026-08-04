@@ -23,9 +23,6 @@ jobs:
       ORCHESTRA_API_BASE_URL: https://api.dev.hypercli.com/api
       BACKEND_API_KEY: ${{ secrets.BACKEND_API_KEY }}
       TEST_EMAIL: ${{ vars.TEST_EMAIL }}
-      TEST_IMAP_HOST: ${{ vars.TEST_IMAP_HOST }}
-      TEST_IMAP_USER: ${{ vars.TEST_IMAP_USER }}
-      TEST_IMAP_PASS: ${{ secrets.TEST_IMAP_PASS }}
       NOTIFY_URL: ${{ vars.NOTIFY_URL }}
       PLAYWRIGHT_ARTIFACTS_DIR: ${{ github.workspace }}/.e2e-artifacts/playwright-console-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
@@ -81,9 +78,6 @@ jobs:
             -e TEST_API_BASE_URL \
             -e BACKEND_API_KEY \
             -e TEST_EMAIL \
-            -e TEST_IMAP_HOST \
-            -e TEST_IMAP_USER \
-            -e TEST_IMAP_PASS \
             -e NOTIFY_URL \
             -e NOTIFY_API_KEY \
             -e GITHUB_RUN_URL \

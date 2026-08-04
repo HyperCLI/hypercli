@@ -108,28 +108,10 @@ def _normalize_agents_api_base(raw: str, *, product_base: str) -> str:
 def _normalize_agents_admin_base(raw: str, *, product_base: str) -> str:
     base = (raw or "").strip().rstrip("/")
     if not base:
-        parsed = urlsplit(product_base if "://" in product_base else f"https://{product_base}")
-        host = parsed.netloc.lower()
-        if host in {"api.hypercli.com", "api.hyperclaw.app"}:
-            return "https://api.agents.hypercli.com"
-        if host in {"api.dev.hypercli.com", "api.dev.hyperclaw.app", "dev-api.hyperclaw.app"}:
-            return "https://api.agents.dev.hypercli.com"
-        return urlunsplit((parsed.scheme or "https", parsed.netloc, "", "", "")).rstrip("/")
-
-    parsed = urlsplit(base if "://" in base else f"https://{base}")
-    host = parsed.netloc.lower()
-    path = parsed.path.rstrip("/")
-    if host in {"api.hypercli.com", "api.hyperclaw.app"}:
-        host = "api.agents.hypercli.com"
-        path = ""
-    elif host in {"api.dev.hypercli.com", "api.dev.hyperclaw.app", "dev-api.hyperclaw.app"}:
-        host = "api.agents.dev.hypercli.com"
-        path = ""
-    elif path.endswith("/agents"):
-        path = path[:-7]
-    elif path.endswith("/api"):
-        path = path[:-4]
-    return urlunsplit((parsed.scheme or "https", host, path, "", "")).rstrip("/")
+        base = _normalize_agents_api_base("", product_base=product_base)
+    if base.endswith("/admin"):
+        base = base[: -len("/admin")]
+    return base
 
 
 def _headers(admin_key: str) -> dict[str, str]:
@@ -277,16 +259,14 @@ def bootstrap() -> BootstrapState:
         product_base=product_base,
     )
     agents_admin_base = _normalize_agents_admin_base(
-        os.getenv("HYPERCLAW_AGENTS_ADMIN_BASE") or os.getenv("AGENTS_ADMIN_BASE_URL") or "",
+        os.getenv("ADMIN_BACKEND_BASE") or "",
         product_base=product_base,
     )
 
     orchestra_admin_key = os.getenv("BACKEND_API_KEY", "").strip()
-    agents_admin_key = os.getenv("AGENTS_BACKEND_API_KEY", "").strip() or orchestra_admin_key
+    agents_admin_key = orchestra_admin_key
     if not orchestra_admin_key:
         raise RuntimeError("BACKEND_API_KEY is required")
-    if not agents_admin_key:
-        raise RuntimeError("AGENTS_BACKEND_API_KEY is required")
 
     generated_user_uuid = uuid.uuid4()
     suffix = generated_user_uuid.hex[:10]
@@ -437,10 +417,11 @@ def _print_github_env(state: BootstrapState, state_file: str) -> None:
         "TEST_AGENT_API_KEY": state.test_agent_api_key,
         "EXPECTED_TEST_EMAIL": state.email,
         "HYPERCLAW_AGENTS_API_BASE": state.agents_api_base,
-        "HYPERCLAW_AGENTS_ADMIN_BASE": state.agents_admin_base,
         "TEST_AGENTS_ADMIN_BASE": state.agents_admin_base,
         "BOOTSTRAP_STATE_FILE": state_file,
     }
+    for masked in ("TEST_API_KEY", "TEST_AGENT_API_KEY"):
+        print(f"::add-mask::{fields[masked]}")
     for key, value in fields.items():
         print(f"{key}<<EOF")
         print(value)

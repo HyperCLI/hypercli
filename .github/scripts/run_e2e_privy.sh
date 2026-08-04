@@ -1,0 +1,257 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SITE_ROOT="${REPO_ROOT}/site"
+CONSOLE_LOG="/tmp/hypercli-console-e2e.log"
+CLAW_LOG="/tmp/hypercli-claw-e2e.log"
+WORKSPACE_ROOT="${WORKSPACE_ROOT:-${REPO_ROOT}}"
+FAILURE_NOTIFIED=0
+export SITE_ROOT
+
+source "${REPO_ROOT}/.github/scripts/allocate_e2e_env.sh"
+
+cleanup() {
+  if [[ -n "${CONSOLE_PID:-}" ]]; then
+    kill "${CONSOLE_PID}" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${CLAW_PID:-}" ]]; then
+    kill "${CLAW_PID}" >/dev/null 2>&1 || true
+  fi
+}
+
+keep_alive_on_failure() {
+  [[ "${E2E_KEEP_ALIVE_ON_FAILURE:-}" == "1" || "${E2E_KEEP_ALIVE_ON_FAILURE:-}" == "true" ]]
+}
+
+on_exit() {
+  local status=$?
+  sync_artifacts
+  if [[ ${status} -ne 0 ]]; then
+    notify_failure_once || true
+  fi
+  if [[ ${status} -ne 0 ]] && keep_alive_on_failure; then
+    trap - EXIT
+    echo "E2E_KEEP_ALIVE_ON_FAILURE is set; leaving this container alive for debugging." >&2
+    echo "Console: ${TEST_CONSOLE_BASE_URL}" >&2
+    echo "Claw: ${TEST_BASE_URL}" >&2
+    echo "Run inside the container: cd ${SITE_ROOT} && npx playwright test --config tests/claw/playwright.config.ts tests/claw/agents-subscription.spec.ts" >&2
+    tail -f /dev/null
+  fi
+  cleanup
+  trap - EXIT
+  exit "${status}"
+}
+
+sync_artifacts() {
+  local dest="${E2E_ARTIFACTS_DIR:-}"
+  if [[ -z "${dest}" ]]; then
+    return 0
+  fi
+  mkdir -p "${dest}"
+  if [[ -d "${SITE_ROOT}/playwright-report" ]]; then
+    rm -rf "${dest}/playwright-report"
+    cp -r "${SITE_ROOT}/playwright-report" "${dest}/playwright-report"
+  fi
+  if [[ -d "${SITE_ROOT}/test-results" ]]; then
+    rm -rf "${dest}/test-results"
+    cp -r "${SITE_ROOT}/test-results" "${dest}/test-results"
+  fi
+}
+
+show_logs() {
+  if [[ -f "${CONSOLE_LOG}" ]]; then
+    echo "--- console log"
+    tail -n 200 "${CONSOLE_LOG}" || true
+  fi
+  if [[ -f "${CLAW_LOG}" ]]; then
+    echo "--- claw log"
+    tail -n 200 "${CLAW_LOG}" || true
+  fi
+}
+
+wait_for_url() {
+  local url="$1"
+  local label="$2"
+  local log_file="$3"
+  local pid="$4"
+
+  for _ in {1..90}; do
+    if ! kill -0 "${pid}" >/dev/null 2>&1; then
+      echo "${label} dev server exited before becoming ready" >&2
+      [[ -f "${log_file}" ]] && tail -n 200 "${log_file}" >&2 || true
+      return 1
+    fi
+
+    if curl -fsS "${url}" >/dev/null; then
+      return 0
+    fi
+    sleep 2
+  done
+
+  echo "${label} dev server did not become ready at ${url}" >&2
+  [[ -f "${log_file}" ]] && tail -n 200 "${log_file}" >&2 || true
+  return 1
+}
+
+notify_failure_artifact() {
+  python3 - <<'PY'
+import base64
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, "/workspace/notify")
+try:
+    from notify_client import notify  # type: ignore
+except ModuleNotFoundError:
+    raise SystemExit(0)
+
+notify_api_key = os.getenv("NOTIFY_API_KEY", "").strip()
+if not notify_api_key:
+    raise SystemExit(0)
+
+run_url = os.getenv("GITHUB_RUN_URL", "").strip()
+artifact_root = Path(os.getenv("E2E_ARTIFACTS_DIR", "")).resolve() if os.getenv("E2E_ARTIFACTS_DIR", "").strip() else None
+test_result_roots = [
+    Path(os.getenv("SITE_ROOT", ".")) / "test-results",
+]
+if artifact_root is not None:
+    test_result_roots.append(artifact_root / "test-results")
+console_log = Path("/tmp/hypercli-console-e2e.log")
+claw_log = Path("/tmp/hypercli-claw-e2e.log")
+
+def newest(pattern: str):
+    items = []
+    for root in test_result_roots:
+        if root.exists():
+            items.extend(path for path in root.rglob(pattern) if path.is_file())
+    if not items:
+        return None
+    return max(items, key=lambda path: path.stat().st_mtime)
+
+def convert_webm_to_mp4(webm: Path) -> Path | None:
+    mp4 = Path("/tmp") / f"{webm.parent.name}-{webm.stem}.mp4"
+    try:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(webm),
+                "-vf",
+                "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+                "-pix_fmt",
+                "yuv420p",
+                "-movflags",
+                "+faststart",
+                str(mp4),
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception as exc:
+        print(f"failed to convert Playwright video {webm} to mp4: {exc}", file=sys.stderr)
+        return None
+    return mp4 if mp4.exists() and mp4.stat().st_size > 0 else None
+
+artifact = None
+video = newest("*.webm")
+if video:
+    artifact = convert_webm_to_mp4(video)
+    if artifact is None:
+        artifact = video
+if artifact is None:
+    artifact = newest("*.png")
+
+lines = [
+    "<b>❌ Frontend Privy E2E Failed</b>",
+    "🧪 Suite: <code>playwright-privy</code>",
+    f"🔗 Run: {run_url or 'local docker run'}",
+]
+
+media = None
+media_filename = None
+if artifact is not None:
+    test_name = artifact.parent.name if artifact.parent.name != "test-results" else artifact.stem
+    lines.insert(2, f"🧩 Test: <code>{test_name}</code>")
+    media = base64.b64encode(artifact.read_bytes()).decode("ascii")
+    media_filename = artifact.name
+else:
+    log_lines = ["No Playwright video or screenshot was produced; failure happened before/during test startup."]
+    for label, path in [("console", console_log), ("claw", claw_log)]:
+        if path.exists():
+            log_lines.append(f"\n--- {label} log tail ---")
+            log_lines.extend(path.read_text(errors="replace").splitlines()[-120:])
+    log_text = "\n".join(log_lines).encode("utf-8")
+    media = base64.b64encode(log_text).decode("ascii")
+    media_filename = "playwright-privy-failure.txt"
+
+notify.send(
+    "frontend",
+    lines,
+    severity="error",
+    media=media,
+    media_filename=media_filename,
+)
+PY
+}
+
+notify_failure_once() {
+  if [[ "${FAILURE_NOTIFIED}" == "1" ]]; then
+    return 0
+  fi
+  FAILURE_NOTIFIED=1
+  notify_failure_artifact || true
+}
+
+trap on_exit EXIT
+
+cd "${SITE_ROOT}"
+./scripts/setup-local-env.sh
+if [[ -d "${WORKSPACE_ROOT}/ts-sdk" ]]; then
+  npm --prefix "${WORKSPACE_ROOT}/ts-sdk" run build
+fi
+npm run sdk:use-checkout
+rm -rf "${SITE_ROOT}/apps/console/.next" "${SITE_ROOT}/apps/claw/.next"
+npm run build --workspace @hypercli/console --workspace @hypercli/claw
+
+cd "${SITE_ROOT}/apps/console"
+PORT="${CONSOLE_PORT}" npm run start >"${CONSOLE_LOG}" 2>&1 &
+CONSOLE_PID=$!
+cd "${SITE_ROOT}/apps/claw"
+PORT="${CLAW_PORT}" npm run start >"${CLAW_LOG}" 2>&1 &
+CLAW_PID=$!
+
+cd "${SITE_ROOT}"
+
+wait_for_url "${TEST_CONSOLE_BASE_URL}" "Console" "${CONSOLE_LOG}" "${CONSOLE_PID}"
+wait_for_url "${TEST_BASE_URL}" "Claw" "${CLAW_LOG}" "${CLAW_PID}"
+
+set +e
+npx playwright test \
+  --config tests/claw/playwright.config.ts \
+  --project=chromium \
+  --max-failures=1 \
+  --workers=1 \
+  tests/claw/login.spec.ts
+desktop_status=$?
+
+mobile_status=0
+set -e
+
+status=0
+if [[ ${desktop_status} -ne 0 || ${mobile_status} -ne 0 ]]; then
+  status=1
+fi
+
+if [[ ${status} -ne 0 ]]; then
+  sync_artifacts
+  notify_failure_once || true
+  show_logs
+fi
+
+exit "${status}"

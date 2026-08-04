@@ -5,9 +5,9 @@ import { APIError } from "../../src/errors.js";
 
 export const TEST_API_KEY = process.env.TEST_API_KEY?.trim() || "";
 export const TEST_API_BASE =
-  process.env.TEST_API_BASE?.trim() || "https://api.hypercli.com";
+  process.env.TEST_API_BASE?.trim() || "https://api.dev.hypercli.com";
 export const TEST_AGENTS_ADMIN_BASE =
-  process.env.TEST_AGENTS_ADMIN_BASE?.trim() || "https://api.agents.hypercli.com";
+  process.env.TEST_AGENTS_ADMIN_BASE?.trim() || "https://api.dev.hypercli.com/agents";
 export const TEST_AGENT_API_KEY = process.env.TEST_AGENT_API_KEY?.trim() || "";
 export const TEST_BACKEND_API_KEY = process.env.TEST_BACKEND_API_KEY?.trim() || "";
 export const EXPECTED_TEST_EMAIL = process.env.EXPECTED_TEST_EMAIL?.trim() || "agent@nedos.io";

@@ -134,3 +134,12 @@ jobs:
     # authenticates via the backend admin bootstrap, so the suites run in parallel.
     uses: ./.github/workflows/e2e-agents.yml
     secrets: inherit
+
+  e2e-privy:
+    # The single real Privy email-OTP test (login.spec.ts). Owns the OTP inbox.
+    uses: ./.github/workflows/e2e-privy.yml
+    secrets: inherit
+
+  e2e-main:
+    uses: ./.github/workflows/e2e-main.yml
+    secrets: inherit
