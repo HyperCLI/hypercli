@@ -5,7 +5,7 @@ export default defineConfig({
   timeout: 60_000,
   retries: 0,
   use: {
-    baseURL: process.env.E2E_BASE_URL || "https://gilfoyle.dev.hypercli.com",
+    baseURL: process.env.E2E_BASE_URL || "https://dev.hypercli.com",
     headless: true,
     screenshot: "only-on-failure",
     video: "retain-on-failure",

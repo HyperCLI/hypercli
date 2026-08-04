@@ -42,8 +42,6 @@ const nextConfig: NextConfig = {
   // Only allow dev proxy origins in development; never in production builds.
   ...(process.env.NODE_ENV !== "production" && {
     allowedDevOrigins: [
-      "gilfoyle.hypercli.com",
-      "gilfoyle.dev.hypercli.com",
       "127.0.0.1",
       "localhost",
     ],

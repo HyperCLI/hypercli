@@ -1,7 +1,7 @@
 import { chromium } from 'playwright';
 
-const BASE_URL = 'https://gilfoyle.hypercli.com';
-const TEST_EMAIL = 'agent@nedos.io';
+const BASE_URL = process.env.DEBUG_LOGIN_BASE_URL || 'https://dev.hypercli.com';
+const TEST_EMAIL = process.env.DEBUG_LOGIN_EMAIL || 'agent@hypercli.com';
 
 async function debugLogin() {
   const browser = await chromium.launch({ headless: true });
