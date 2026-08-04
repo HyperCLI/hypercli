@@ -225,10 +225,18 @@ test("routes New Workspace through authentication", async ({ page }) => {
 
   await page.goto("/dashboard/agents");
   await page.getByRole("button", { name: "Close agent tour" }).click();
-  await page.locator(".agent-desktop-navigation").getByRole("button", { name: /Current workspace:/ }).click();
-  const newWorkspace = page.getByRole("menuitem", { name: /New Workspace/ });
-  await expect(newWorkspace).toBeEnabled();
-  await newWorkspace.click();
+  const navigation = page.locator(".agent-desktop-navigation");
+  const workspaceSelector = navigation.getByRole("button", { name: /Current workspace:/ });
+  if (await workspaceSelector.isVisible().catch(() => false)) {
+    await workspaceSelector.click();
+    const newWorkspace = page.getByRole("menuitem", { name: /New Workspace/ });
+    await expect(newWorkspace).toBeEnabled();
+    await newWorkspace.click();
+  } else {
+    const launchWorkspace = navigation.getByRole("button", { name: "Launch agent", exact: true }).first();
+    await expect(launchWorkspace).toBeEnabled();
+    await launchWorkspace.click();
+  }
 
   await expect(page.locator("#privy-modal-content")).toBeVisible();
   await expect(page.getByRole("dialog", { name: "New Workspace" })).toHaveCount(0);

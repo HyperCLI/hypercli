@@ -170,10 +170,19 @@ test("completes mobile previews and every dashboard authentication gate", async 
   await completeAuthenticationRoundTrip(page, "A browser built for action");
 
   navigation = await openMobileNavigation(page);
-  await navigation.getByRole("button", { name: /Current workspace:/ }).tap();
-  const newWorkspace = page.getByRole("menuitem", { name: /New Workspace/ });
-  await expect(newWorkspace).toBeEnabled();
-  await newWorkspace.tap();
+  const workspaceSelector = navigation.getByRole("button", { name: /Current workspace:/ });
+  if (await workspaceSelector.isVisible().catch(() => false)) {
+    await workspaceSelector.tap();
+    const newWorkspace = page.getByRole("menuitem", { name: /New Workspace/ });
+    await expect(newWorkspace).toBeEnabled();
+    await newWorkspace.tap();
+  } else {
+    // The current workspace-empty state routes creation through the navigation rail's
+    // launch action instead of rendering the legacy workspace selector.
+    const launchWorkspace = navigation.getByRole("button", { name: "Launch agent", exact: true }).first();
+    await expect(launchWorkspace).toBeEnabled();
+    await launchWorkspace.tap();
+  }
   await expect(navigation).toHaveCount(0);
   await expect(page.getByRole("dialog", { name: "New Workspace" })).toHaveCount(0);
   await completeAuthenticationRoundTrip(page, "A browser built for action");
