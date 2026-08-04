@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { HyperCLILogo, PrivyLoginPanel } from "@hypercli/shared-ui";
 import { useClawAuth } from "@/hooks/useClawAuth";
+import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
 
 export default function Home() {
   const router = useRouter();
@@ -11,7 +12,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      router.replace("/dashboard");
+      router.replace(DASHBOARD_VIEW_HREFS.overview);
     }
   }, [isLoading, isAuthenticated, router]);
 
@@ -26,7 +27,6 @@ export default function Home() {
             title="Welcome to HyperCLI Agents"
             description="Sign in to continue to your agents"
             tokenStorageKey="claw_auth_token"
-            onSuccess={() => router.replace("/dashboard")}
           />
         )}
       </div>

@@ -854,7 +854,7 @@ export function FirstAgentSetupWizard({
   const [agentNameError, setAgentNameError] = React.useState<string | null>(null);
   const agentNameErrorId = React.useId();
   const [selectedCategory] = React.useState(restoredDraft?.category ?? "General");
-  const [selectedIconIndex] = React.useState(() => restoredDraft?.iconIndex ?? randomAgentAvatarIconIndex());
+  const [selectedIconIndex, setSelectedIconIndex] = React.useState(() => restoredDraft?.iconIndex ?? randomAgentAvatarIconIndex());
   const [enableDesktop, setEnableDesktop] = React.useState(restoredDraft?.enableDesktop ?? false);
   const [enableMemoryIndex, setEnableMemoryIndex] = React.useState(restoredDraft?.enableMemoryIndex ?? false);
   const [enableCustomImage, setEnableCustomImage] = React.useState(restoredDraft?.enableCustomImage ?? false);
@@ -1039,14 +1039,14 @@ export function FirstAgentSetupWizard({
     void runBootstrapGeneration({ ...bootstrapDraft.inputs, agentName: workspaceAgentName });
   }, [bootstrapDraft.inputs, currentStep, runBootstrapGeneration, workspaceAgentName]);
 
-  const persistDraft = React.useCallback((plan: LaunchPlanOption | null = null) => {
+  const persistDraft = React.useCallback((plan: LaunchPlanOption | null = null, iconIndex = selectedIconIndex) => {
     const retainedPlanId = selectedCatalogPlanId?.trim() || restoredDraft?.plan || initialPlanId?.trim() || null;
     writeFirstAgentSetupDraft({
       name: deploymentName,
       displayName: agentName.trim(),
       description: `${workspaceAgentName} helps with ${selectedCategory.toLowerCase()} workflows.`,
       size: plan?.size ?? restoredDraft?.size ?? null,
-      iconIndex: selectedIconIndex,
+      iconIndex,
       category: selectedCategory,
       plan: plan?.catalogPlanId ?? plan?.id ?? retainedPlanId,
       enableDesktop,
@@ -1191,12 +1191,14 @@ export function FirstAgentSetupWizard({
       dispatchWizard({ type: "CREATE_FAILED", message: "Choose a Pro plan to use selected Pro features." });
       return;
     }
-    persistDraft(plan);
     const selectedCustomImage = enableCustomImage ? effectiveCustomImage.trim() : null;
     if (enableCustomImage && !selectedCustomImage) {
       dispatchWizard({ type: "CREATE_FAILED", message: "Custom image is required." });
       return;
     }
+    const creationIconIndex = randomAgentAvatarIconIndex();
+    setSelectedIconIndex(creationIconIndex);
+    persistDraft(plan, creationIconIndex);
     if (plan.action === "plans") {
       if (onOpenPlanCatalog) {
         try {
@@ -1224,7 +1226,7 @@ export function FirstAgentSetupWizard({
       const createdId = await onCreateAgent({
         name: deploymentName,
         handle: agentName.trim() ? managedAgentHandleFromDisplayName(agentName) : null,
-        iconIndex: selectedIconIndex,
+        iconIndex: creationIconIndex,
         size: plan.size,
         files: bootstrapDraft.files.map((file) => (
           new File([file.content], file.name, { type: "text/markdown" })

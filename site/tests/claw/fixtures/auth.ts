@@ -769,12 +769,12 @@ export async function loginWithPrivy(
   await expect
     .poll(async () => {
       const currentUrl = page.url();
-      if (!currentUrl.includes("/dashboard")) {
-        await logPrivyAuthState(page, "waiting-for-dashboard");
+      if (!/\/dashboard\/agents(?:[/?#]|$)/.test(currentUrl)) {
+        await logPrivyAuthState(page, "waiting-for-agents-dashboard");
       }
       return currentUrl;
     }, { timeout: PRIVY_AUTH_SETTLE_TIMEOUT_MS })
-    .toContain("/dashboard");
+    .toMatch(/\/dashboard\/agents(?:[/?#]|$)/);
 
   if (await privyModal.isVisible().catch(() => false)) {
     await page.keyboard.press("Escape").catch(() => { });
@@ -1370,22 +1370,7 @@ export async function waitForLocalStorageValue(
 }
 
 export async function getClawAuthToken(page: Page): Promise<string> {
-  // Post-login the live site may hard-navigate (SSO handoff between hosts),
-  // which destroys the execution context mid-evaluate. Wait for a stable
-  // context and retry through navigations.
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 10; attempt++) {
-    try {
-      await page.waitForLoadState("domcontentloaded");
-      const token = await page.evaluate(() => localStorage.getItem("claw_auth_token"));
-      if (token) return token;
-      lastError = new Error("claw_auth_token was not found in localStorage");
-    } catch (error) {
-      lastError = error;
-    }
-    await page.waitForTimeout(1_000);
-  }
-  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  return waitForLocalStorageValue(page, "claw_auth_token");
 }
 
 export async function fetchClawCurrentPlan(page: Page): Promise<HyperAgentCurrentPlan | null> {

@@ -1050,9 +1050,14 @@ describe("FirstAgentSetupWizard", () => {
     expect(onCreateAgent).not.toHaveBeenCalled();
   });
 
-  it("launches from the choose-plan card button with the selected entitlement", async () => {
+  it("assigns a fresh random icon when launching with the selected entitlement", async () => {
     const onOpenPlanCatalog = vi.fn();
     const onCreateAgent = vi.fn(async (_params: FirstAgentSetupCreateParams) => "agent-1");
+    const randomValues = [1, 0, 0, 14];
+    const getRandomValuesSpy = vi.spyOn(crypto, "getRandomValues").mockImplementation((array) => {
+      (array as Uint32Array)[0] = randomValues.shift() ?? 0;
+      return array;
+    });
 
     renderWithClient(
       <FirstAgentSetupWizard
@@ -1098,10 +1103,10 @@ describe("FirstAgentSetupWizard", () => {
       handle: "research-assistant",
       size: "medium",
     }));
-    expect(createParams?.iconIndex).toBeGreaterThanOrEqual(0);
-    expect(createParams?.iconIndex).toBeLessThan(16);
+    expect(createParams?.iconIndex).toBe(14);
     expect(createParams?.files.map((file) => file.name)).toEqual(["AGENTS.md", "SOUL.md", "USER.md"]);
     expect(onOpenPlanCatalog).not.toHaveBeenCalled();
+    getRandomValuesSpy.mockRestore();
   });
 
   it("launches from the selected plan footer action", async () => {
