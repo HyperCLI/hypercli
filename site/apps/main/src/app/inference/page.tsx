@@ -67,7 +67,7 @@ const FAQ_ITEMS: FAQItem[] = [
   },
   {
     q: "Why open models instead of a frontier lab API?",
-    a: "K3 beats closed frontier models on Terminal-Bench and blind frontend testing; K2.6 beat GPT-5.5 at coding. Open weights mean no vendor lock-in — the models that run your workload are public, so you can verify claims and always have an exit.",
+    a: "Kimi K2.6 beats GPT-5.5 at coding, and Pro gets the frontier K3. Open weights mean no vendor lock-in — the models that run your workload are public, so you can verify claims and always have an exit.",
   },
   {
     q: "API key vs. full agent — which should I pick?",
@@ -174,7 +174,7 @@ export default function InferencePage() {
               Same models, same flat rate. Start where you are.
             </p>
             <div className="grid gap-5 md:grid-cols-2">
-              <GlassCard className="p-7 sm:p-8">
+              <GlassCard className="flex flex-col p-7 sm:p-8">
                 <h3 className="mb-3.5 flex items-center gap-2.5 text-xl font-bold tracking-tight text-foreground">
                   <KeyRound className="h-5 w-5 text-primary" aria-hidden="true" />
                   Just the API
@@ -183,12 +183,12 @@ export default function InferencePage() {
                   You have an app. Point it here. No migration, no new SDK — your OpenAI or Anthropic code runs
                   unmodified.
                 </p>
-                <CodeSnippetCard label="terminal" code={CURL_SNIPPET} />
+                <CodeSnippetCard label="terminal" code={CURL_SNIPPET} className="flex flex-1 flex-col" preClassName="flex-1" />
                 <p className="mt-5 text-sm">
                   <GetStartedLink label="Get an API key →" className="font-semibold text-primary hover:underline" />
                 </p>
               </GlassCard>
-              <GlassCard highlighted className="p-7 sm:p-8">
+              <GlassCard highlighted className="flex flex-col p-7 sm:p-8">
                 <h3 className="mb-3.5 flex items-center gap-2.5 text-xl font-bold tracking-tight text-foreground">
                   <Bot className="h-5 w-5 text-primary" aria-hidden="true" />
                   The whole agent
@@ -197,7 +197,7 @@ export default function InferencePage() {
                   Same inference — plus a cloud machine that's always on, with browser, desktop, voice, media, memory,
                   and every channel. The models are the brain; this is the body.
                 </p>
-                <CodeSnippetCard label="terminal" code={AGENT_SNIPPET} />
+                <CodeSnippetCard label="terminal" code={AGENT_SNIPPET} className="flex flex-1 flex-col" preClassName="flex-1" />
                 <p className="mt-5 text-sm">
                   <Link href="/capabilities" className="font-semibold text-primary hover:underline">
                     See everything it can do →
@@ -210,11 +210,11 @@ export default function InferencePage() {
 
         {/* FAQ */}
         <section className="px-6 py-12">
-          <div className="mx-auto max-w-4xl rounded-3xl bg-surface-low px-8 py-16">
-            <h2 className="mb-10 text-center text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
+          <div className="mx-auto max-w-5xl rounded-3xl bg-surface-low px-8 py-16 sm:px-14">
+            <h2 className="mb-12 text-center text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
               Questions you <span className="text-primary">should be asking.</span>
             </h2>
-            <FAQBlock items={FAQ_ITEMS} className="mx-auto max-w-3xl" />
+            <FAQBlock items={FAQ_ITEMS} />
           </div>
         </section>
 

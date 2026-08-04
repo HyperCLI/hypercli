@@ -271,7 +271,7 @@
   --accent-pressed: #3157c7;
   --accent-subtle: #eef2ff;
   --button-primary: #4f7cff;
-  --button-primary-foreground: #10151f;
+  --button-primary-foreground: #ffffff;
   --button-primary-hover: #3d68e6;
   --button-hover-foreground: #ffffff;
   --button-primary-pressed: #3157c7;
@@ -386,7 +386,7 @@
   --accent-pressed: #4f7cff;
   --accent-subtle: rgba(93, 135, 255, 0.16);
   --button-primary: #4f7cff;
-  --button-primary-foreground: #10151f;
+  --button-primary-foreground: #ffffff;
   --button-primary-hover: #3d68e6;
   --button-hover-foreground: #ffffff;
   --button-primary-pressed: #3157c7;
@@ -830,14 +830,14 @@ img.emoji {
 
 .btn-secondary {
   background-color: transparent;
-  border: 1px solid var(--border-medium);
+  border: 1px solid var(--border);
   color: var(--foreground);
   transition: all 0.2s ease;
 }
 
 .btn-secondary:hover {
-  background-color: var(--surface-low);
-  border-color: var(--border-strong);
+  border-color: var(--accent-hover);
+  color: var(--accent-hover);
 }
 
 .card {
