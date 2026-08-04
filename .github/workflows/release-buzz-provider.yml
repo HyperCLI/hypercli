@@ -132,7 +132,9 @@ jobs:
             echo "signing=unsigned"
           } > "${STAGE}/BUILD-INFO"
           tar -C "${STAGE}" -czf "${ARCHIVE}" .
-          shasum -a 256 "${ARCHIVE}" > "${ARCHIVE}.sha256"
+          # sha256sum (coreutils) exists on all three runner OSes; perl's
+          # shasum vanished from windows-latest's git-bash.
+          sha256sum "${ARCHIVE}" > "${ARCHIVE}.sha256"
 
       - uses: actions/upload-artifact@v4
         with:
