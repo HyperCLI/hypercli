@@ -141,6 +141,36 @@ pub fn discover_client_config_from(
         },
     };
 
+    let trace_file = first_nonempty([
+        env.get("HYPER_HTTP_TRACE_FILE"),
+        file_config.get("HYPER_HTTP_TRACE_FILE"),
+    ])
+    .map(PathBuf::from);
+
+    Ok(ClientConfig {
+        api_base: discover_api_base(env, &file_config)?,
+        api_key: SecretString::from(api_key),
+        trace_file,
+    })
+}
+
+/// Resolve the agents API base URL from env and `<home>/.hypercli/config`
+/// without requiring a credential — for flows that authenticate with a
+/// short-lived token (e.g. the desktop app's key mint) but must still honor
+/// the caller's configured backend.
+pub fn discover_agents_api_base() -> Result<Url, ConfigError> {
+    let env: BTreeMap<String, String> = std::env::vars().collect();
+    let file_config = match dirs::home_dir() {
+        Some(home) => load_kv_file(&home.join(".hypercli").join("config"))?,
+        None => BTreeMap::new(),
+    };
+    discover_api_base(&env, &file_config)
+}
+
+fn discover_api_base(
+    env: &BTreeMap<String, String>,
+    file_config: &BTreeMap<String, String>,
+) -> Result<Url, ConfigError> {
     let configured_base = first_nonempty([
         env.get("AGENTS_API_BASE_URL"),
         file_config.get("AGENTS_API_BASE_URL"),
@@ -150,17 +180,7 @@ pub fn discover_client_config_from(
         file_config.get("HYPERCLI_API_URL"),
     ])
     .unwrap_or(DEFAULT_AGENTS_API_BASE);
-    let trace_file = first_nonempty([
-        env.get("HYPER_HTTP_TRACE_FILE"),
-        file_config.get("HYPER_HTTP_TRACE_FILE"),
-    ])
-    .map(PathBuf::from);
-
-    Ok(ClientConfig {
-        api_base: normalize_agents_api_base(configured_base)?,
-        api_key: SecretString::from(api_key),
-        trace_file,
-    })
+    normalize_agents_api_base(configured_base)
 }
 
 fn first_nonempty<'a>(values: impl IntoIterator<Item = Option<&'a String>>) -> Option<&'a str> {

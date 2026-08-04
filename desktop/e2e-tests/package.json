@@ -1,0 +1,10 @@
+{
+  "name": "hypercli-desktop-e2e-tests",
+  "private": true,
+  "scripts": {
+    "test": "node run-e2e.mjs"
+  },
+  "devDependencies": {
+    "webdriverio": "^9.21.0"
+  }
+}

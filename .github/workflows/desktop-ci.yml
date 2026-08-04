@@ -82,3 +82,82 @@ jobs:
           npm ci --no-fund --no-audit
           npx playwright install --with-deps chromium
           npm test
+
+  e2e-linux:
+    name: Linux e2e (real app, real backend)
+    runs-on: ubuntu-24.04
+    env:
+      # Admin-mint auth, same seam as the web e2e suites (e2e-tests.yml).
+      BACKEND_API_KEY: ${{ secrets.BACKEND_API_KEY }}
+      TEST_EMAIL: ${{ vars.TEST_EMAIL }}
+      TEST_API_BASE_URL: "https://api.dev.hypercli.com"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
+
+      - name: Install Tauri Linux system dependencies + WebDriver stack
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential libgtk-3-dev librsvg2-dev libssl-dev \
+            libwebkit2gtk-4.1-dev libxdo-dev pkg-config \
+            webkit2gtk-driver xvfb dbus-x11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            desktop/src-tauri
+            .
+
+      - name: Install Tauri CLI
+        shell: bash
+        run: npm install --global @tauri-apps/cli@2.11.4
+
+      - name: Install tauri-driver
+        shell: bash
+        run: cargo install tauri-driver --locked
+
+      - name: Build the real provider sidecar
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked -p buzz-backend-hypercli
+          mkdir -p desktop/src-tauri/binaries
+          cp target/debug/buzz-backend-hypercli \
+            desktop/src-tauri/binaries/buzz-backend-hypercli-x86_64-unknown-linux-gnu
+
+      - name: Build the desktop app (debug, no bundle)
+        # Debug keeps the job fast; the updater plugin is compiled out of
+        # debug builds anyway, which matches what the e2e asserts.
+        shell: bash
+        working-directory: desktop/src-tauri
+        run: tauri build --no-bundle --debug
+
+      - name: Install e2e dependencies
+        shell: bash
+        working-directory: desktop/e2e-tests
+        run: npm ci --no-fund --no-audit
+
+      - name: Run the e2e suite
+        # dbus session: the single-instance plugin forwards the deep link
+        # over D-Bus; xvfb: WebKitGTK needs a display.
+        shell: bash
+        working-directory: desktop/e2e-tests
+        run: dbus-run-session -- xvfb-run -a npm test
+
+      - name: Upload failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-e2e-linux-artifacts
+          path: desktop/e2e-tests/artifacts/
+          if-no-files-found: ignore
