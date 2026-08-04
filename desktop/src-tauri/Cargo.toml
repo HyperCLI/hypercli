@@ -1,0 +1,28 @@
+# Standalone workspace: keeps Tauri's GUI dependency tree out of the root
+# workspace so `cargo test --workspace` in the provider release stays lean.
+[workspace]
+
+[package]
+name = "hypercli-desktop"
+version = "0.1.0"
+description = "HyperCLI desktop companion: configures credentials and installs the Buzz provider"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/HyperCLI/hypercli"
+
+[lib]
+name = "hypercli_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-deep-link = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "6"
+gethostname = "0.5"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

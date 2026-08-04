@@ -14,15 +14,19 @@ import {
 import { HYPERCLI_LOGO_FULL_SRC } from "@hypercli/shared-ui";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 
-// Hard allowlist: the only redirect target this page will ever send a token
-// to is the Backseat Driver macOS app's custom-scheme callback. Anything
-// else in ?redirect_uri= is rejected outright (never an open redirect).
-const ALLOWED_REDIRECT_URI = "backseatdriver://auth";
+// Hard allowlist: the only redirect targets this page will ever send a token
+// to are our own desktop apps' custom-scheme callbacks. Anything else in
+// ?redirect_uri= is rejected outright (never an open redirect).
+const ALLOWED_REDIRECT_URIS = [
+  "backseatdriver://auth", // Backseat Driver macOS app
+  "hypercli://auth", // HyperCLI desktop companion (desktop/)
+] as const;
+const DEFAULT_REDIRECT_URI = ALLOWED_REDIRECT_URIS[0];
 
-function buildCallbackUrl(token: string): string {
+function buildCallbackUrl(redirectUri: string, token: string): string {
   // Token travels in the URL fragment (not the query) so it is never sent
   // to any server if the scheme is mishandled.
-  return `${ALLOWED_REDIRECT_URI}#token=${encodeURIComponent(token)}`;
+  return `${redirectUri}#token=${encodeURIComponent(token)}`;
 }
 
 type RedirectParamStatus = "checking" | "valid" | "invalid";
@@ -50,6 +54,7 @@ export default function DesktopLoginPage() {
   } = useAgentAuth();
 
   const [paramStatus, setParamStatus] = useState<RedirectParamStatus>("checking");
+  const [redirectUri, setRedirectUri] = useState<string>(DEFAULT_REDIRECT_URI);
   const [rejectedRedirectUri, setRejectedRedirectUri] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [tokenError, setTokenError] = useState<string | null>(null);
@@ -63,7 +68,10 @@ export default function DesktopLoginPage() {
   // allowed value; anything that is not an exact match is rejected.
   useEffect(() => {
     const raw = new URLSearchParams(window.location.search).get("redirect_uri");
-    if (raw === null || raw === ALLOWED_REDIRECT_URI) {
+    if (raw === null) {
+      setParamStatus("valid");
+    } else if ((ALLOWED_REDIRECT_URIS as readonly string[]).includes(raw)) {
+      setRedirectUri(raw);
       setParamStatus("valid");
     } else {
       setRejectedRedirectUri(raw);
@@ -79,9 +87,12 @@ export default function DesktopLoginPage() {
     login();
   }, [paramStatus, isLoading, isAuthenticated, flowState, login]);
 
-  const openApp = useCallback((jwt: string) => {
-    window.location.replace(buildCallbackUrl(jwt));
-  }, []);
+  const openApp = useCallback(
+    (jwt: string) => {
+      window.location.replace(buildCallbackUrl(redirectUri, jwt));
+    },
+    [redirectUri],
+  );
 
   const fetchTokenAndRedirect = useCallback(async () => {
     try {
@@ -122,8 +133,9 @@ export default function DesktopLoginPage() {
           <h1 className="text-base font-semibold">Invalid redirect address</h1>
         </div>
         <p className="mt-3 text-sm text-text-muted">
-          This sign-in page can only hand credentials to the Backseat Driver
-          app callback. The requested redirect address is not allowed:
+          This sign-in page can only hand credentials to known HyperCLI
+          desktop app callbacks. The requested redirect address is not
+          allowed:
         </p>
         <p className="mt-2 break-all rounded-md bg-surface-low px-3 py-2 font-mono text-xs text-text-secondary">
           {rejectedRedirectUri}

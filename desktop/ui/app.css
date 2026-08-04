@@ -1,0 +1,171 @@
+/* Tokens copied from site/packages/shared-ui/src/styles/claw.css.
+   Dark is the product default (:root block); light mirrors [data-theme="light"].
+   Keep values in sync with shared-ui — do not invent new ones. */
+:root {
+  color-scheme: dark;
+  --background: #0a0a0b;
+  --card: #141416;
+  --foreground: #fafafa;
+  --muted-foreground: #9e9ea3;
+  --text-muted: #7c7b82;
+  --primary: #63e452;
+  --primary-foreground: #0a0a0b;
+  --primary-hover: #75ef64;
+  --border: rgba(255, 255, 255, 0.18);
+  --input-background: #141416;
+  --error: #d05f5f;
+  --ring: rgba(99, 228, 82, 0.35);
+  --radius: 0.5rem;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --background: #f7f8f4;
+    --card: #ffffff;
+    --foreground: #0d1511;
+    --muted-foreground: #5d6d66;
+    --text-muted: #63716a;
+    --primary: #177a55;
+    --primary-foreground: #ffffff;
+    --primary-hover: #116543;
+    --border: rgba(13, 21, 17, 0.14);
+    --input-background: #ffffff;
+    --error: #ad3535;
+    --ring: rgba(23, 122, 85, 0.35);
+  }
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+body {
+  font-family: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  background: var(--background);
+  color: var(--foreground);
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  user-select: none;
+}
+
+.card {
+  width: 400px;
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 4px);
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.logo {
+  height: 26px;
+  align-self: flex-start;
+}
+
+h1 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.hint {
+  font-size: 12.5px;
+  color: var(--muted-foreground);
+  margin-top: 4px;
+}
+
+button {
+  font: inherit;
+  font-size: 13px;
+  padding: 9px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+button.primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+  font-weight: 600;
+}
+
+button.primary:hover {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+
+section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+form {
+  display: flex;
+  gap: 8px;
+}
+
+input {
+  flex: 1;
+  font: inherit;
+  font-size: 13px;
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--input-background);
+  color: var(--foreground);
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.divider::before,
+.divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+#provider-list {
+  list-style: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+#provider-list .ok::before {
+  content: "✓ ";
+  color: var(--primary);
+}
+
+#status {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  min-height: 16px;
+}
+
+#status.error {
+  color: var(--error);
+}

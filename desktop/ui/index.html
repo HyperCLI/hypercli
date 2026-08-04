@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HyperCLI</title>
+    <link rel="stylesheet" href="app.css" />
+  </head>
+  <body>
+    <main class="card">
+      <img src="logo.svg" alt="HyperCLI" class="logo" />
+
+      <section id="auth-section">
+        <h1>Connect your account</h1>
+        <p class="hint">Sign in with your browser, or paste an API key from the dashboard.</p>
+        <button id="login-btn" class="primary">Sign in with browser</button>
+        <div class="divider"><span>or</span></div>
+        <form id="key-form">
+          <input id="key-input" type="password" placeholder="hyper-..." autocomplete="off" />
+          <button type="submit">Save API key</button>
+        </form>
+      </section>
+
+      <section id="provider-section">
+        <h1>Buzz provider</h1>
+        <p class="hint" id="provider-hint">Install the HyperCLI backend so your agents appear in Buzz.</p>
+        <button id="install-btn" class="primary">Install providers</button>
+        <ul id="provider-list"></ul>
+      </section>
+
+      <p id="status" role="status"></p>
+    </main>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
