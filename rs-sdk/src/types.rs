@@ -575,7 +575,7 @@ where
     enum Raw {
         Num(f64),
         Str(String),
-        Other(serde_json::Value),
+        Other(serde::de::IgnoredAny),
     }
     Ok(match Option::<Raw>::deserialize(deserializer)? {
         Some(Raw::Num(value)) => Some(value),
