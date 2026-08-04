@@ -103,6 +103,7 @@ interface HyperAgentSubscription {
   status: string;
   expiresAt: Date | null;
   cancelAtPeriodEnd: boolean;
+  isCurrent: boolean;
   stripeSubscriptionId?: string | null;
   meta?: {
     checkout_session_id?: string | null;
@@ -1677,12 +1678,36 @@ export async function launchClawAgentAndWaitForGateway(
   ).not.toBeVisible({ timeout: 90_000 });
 
   const currentWorkspaceButton = page.getByRole("button", { name: /^Current workspace:/i }).first();
-  await expect(currentWorkspaceButton).toBeVisible({ timeout: 90_000 });
-  await expect
-    .poll(() => currentWorkspaceButton.getAttribute("aria-label"), { timeout: 90_000 })
-    .not.toBe("Current workspace: Loading Workspaces");
+  const workspaceEmptyStateLaunchButton = page
+    .locator("main")
+    .getByRole("button", { name: /^Launch an agent\b/i })
+    .first();
+  const dashboardMode = await expect
+    .poll(
+      async () => {
+        if (await currentWorkspaceButton.isVisible().catch(() => false)) return "workspace-selector";
+        if (await workspaceEmptyStateLaunchButton.isVisible().catch(() => false)) return "workspace-empty-state";
+        return "loading";
+      },
+      { timeout: 90_000, intervals: [250, 500, 1_000, 2_000] }
+    )
+    .not.toBe("loading")
+    .then(async () => {
+      if (await currentWorkspaceButton.isVisible().catch(() => false)) return "workspace-selector" as const;
+      return "workspace-empty-state" as const;
+    });
+  console.log(`[agents-dashboard] ready mode=${dashboardMode}`);
 
-  if ((await currentWorkspaceButton.getAttribute("aria-label")) === "Current workspace: No Workspace") {
+  if (dashboardMode === "workspace-selector") {
+    await expect
+      .poll(() => currentWorkspaceButton.getAttribute("aria-label"), { timeout: 90_000 })
+      .not.toBe("Current workspace: Loading Workspaces");
+  }
+
+  if (
+    dashboardMode === "workspace-selector" &&
+    (await currentWorkspaceButton.getAttribute("aria-label")) === "Current workspace: No Workspace"
+  ) {
     const workspaceName = `Agents E2E ${Date.now()}`;
     const createWorkspaceButton = page
       .locator("main")
@@ -1734,7 +1759,7 @@ export async function launchClawAgentAndWaitForGateway(
     let launchSubmitted = false;
     try {
       const directAgent = await clickCreate();
-      if (directAgent?.id) {
+      if (directAgent && directAgent.id) {
         created = directAgent;
       }
       launchSubmitted = true;
@@ -1895,6 +1920,7 @@ export async function launchClawAgentAndWaitForGateway(
     .last();
   const launcherEntryButton =
     await findLastVisible(createButton, 30_000) ??
+    await findLastVisible(workspaceEmptyStateLaunchButton, 30_000) ??
     await findLastVisible(launchAgentButton, 30_000) ??
     await findLastVisible(launchFirstAgentButton, 30_000);
   expect(launcherEntryButton, "expected a visible launch/create agent entry button").not.toBeNull();
@@ -1970,6 +1996,7 @@ export async function launchClawAgentAndWaitForGateway(
     }).catch(() => false);
   };
 
+  let mediumPlanSelected = false;
   for (let i = 0; i < 12; i += 1) {
     if (await wizardSurface.isVisible({ timeout: 500 }).catch(() => false)) {
       await captureStep(page, `agents-10-launch-flow-${i}`);
@@ -1979,6 +2006,23 @@ export async function launchClawAgentAndWaitForGateway(
     if (await continueButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
       await continueButton.click();
       continue;
+    }
+
+    const availablePlans = page.getByRole("group", { name: "Available plans", exact: true }).first();
+    if (!mediumPlanSelected && await availablePlans.isVisible({ timeout: 500 }).catch(() => false)) {
+      const teamPlan = availablePlans
+        .getByRole("button")
+        .filter({ has: page.getByRole("heading", { name: "Team", exact: true }) })
+        .first();
+      await expect(teamPlan, "expected Team launch capacity after Team checkout").toBeVisible({ timeout: 30_000 });
+      await teamPlan.click();
+      await expect(teamPlan).toHaveAttribute("aria-pressed", "true");
+      await expect(
+        wizardSurface.getByText(/3x Medium launch slots|Up to 3 medium agents/i).first(),
+        "expected Team to select medium launch capacity",
+      ).toBeVisible({ timeout: 30_000 });
+      mediumPlanSelected = true;
+      console.log("[agents-launch] selected Team medium capacity");
     }
 
     const wizardLaunchButton = wizardSurface.getByRole("button", { name: /^launch agent$/i }).last();

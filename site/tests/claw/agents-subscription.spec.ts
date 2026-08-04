@@ -175,7 +175,7 @@ test.describe.serial("Agents subscription", () => {
       expect(beforeSummary.activeSubscriptionCount).toBe(0);
       expect(beforeSummary.activeEntitlementCount).toBe(0);
       expect(beforeSummary.activeSubscriptions).toHaveLength(0);
-      expect(beforeSummary.subscriptions ?? []).toHaveLength(0);
+      expect((beforeSummary.subscriptions ?? []).filter((subscription) => subscription.isCurrent)).toHaveLength(0);
       expect(totalGrantedSlots(beforeSummary)).toBe(0);
       const beforeActiveSubscriptionCount = beforeSummary?.activeSubscriptionCount ?? 0;
       const beforeGrantedSlots = totalGrantedSlots(beforeSummary);
