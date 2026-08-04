@@ -37,7 +37,14 @@ jobs:
             target: aarch64-unknown-linux-gnu
             executable: buzz-backend-hypercli
             archive: buzz-backend-hypercli-linux-aarch64
-          # macOS binaries are deferred until signing/notarization is ready.
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            executable: buzz-backend-hypercli
+            archive: buzz-backend-hypercli-macos-x86_64
+          - runner: macos-15
+            target: aarch64-apple-darwin
+            executable: buzz-backend-hypercli
+            archive: buzz-backend-hypercli-macos-aarch64
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
             executable: buzz-backend-hypercli.exe
@@ -119,9 +126,81 @@ jobs:
             ${{ matrix.archive }}-${{ inputs.version }}.tar.gz.sha256
           if-no-files-found: error
 
-  release:
-    name: Assemble unsigned provider release
+  sign-macos:
+    name: Sign macOS binaries
     needs: build
+    runs-on: [self-hosted, Linux]
+    permissions:
+      contents: read
+    env:
+      PULUMI_STACK: ${{ secrets.PULUMI_APPLE_CERT_STACK }}
+      AWS_PROFILE: ${{ secrets.PULUMI_APPLE_AWS_PROFILE }}
+      PULUMI_CONFIG_PASSPHRASE_FILE: ${{ secrets.PULUMI_APPLE_PASSPHRASE_FILE }}
+    steps:
+      - name: Download unsigned macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: buzz-backend-hypercli-macos-*
+          path: unsigned
+          merge-multiple: true
+
+      - name: Sign and notarize
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${PULUMI_STACK}"
+          PULUMI="$HOME/.pulumi/bin/pulumi"
+          RCODESIGN="$HOME/.local/bin/rcodesign"
+          WORK="$(mktemp -d)"
+          trap 'rm -rf "$WORK"' EXIT
+          mkdir "$WORK/stack"
+          printf 'name: %s\nruntime: python\n' \
+            "$(cut -d/ -f2 <<<"$PULUMI_STACK")" > "$WORK/stack/Pulumi.yaml"
+          stack_output() {
+            (cd "$WORK/stack" && "$PULUMI" stack output "$1" \
+              -s "$PULUMI_STACK" --show-secrets 2>/dev/null)
+          }
+          stack_output developer-id-application-bundle-pem > "$WORK/signing.pem"
+          test -s "$WORK/signing.pem"
+          SIGNING="signed-unnotarized"
+          if stack_output asc-api-key-p8 > "$WORK/asc.p8" && test -s "$WORK/asc.p8"; then
+            "$RCODESIGN" encode-app-store-connect-api-key -o "$WORK/asc.json" \
+              "$(stack_output asc-issuer-id)" "$(stack_output asc-key-id)" \
+              "$WORK/asc.p8"
+            SIGNING="signed-notarized"
+          else
+            echo "notarization skipped: no ASC API key in stack outputs"
+          fi
+          rm -rf signed && mkdir signed
+          for ARCHIVE in unsigned/*.tar.gz; do
+            NAME="$(basename "$ARCHIVE" .tar.gz)"
+            STAGE="$WORK/stage-$NAME"
+            mkdir "$STAGE"
+            tar -C "$STAGE" -xzf "$ARCHIVE"
+            "$RCODESIGN" sign \
+              --pem-file "$WORK/signing.pem" \
+              --for-notarization \
+              "$STAGE/buzz-backend-hypercli"
+            if [[ "$SIGNING" == "signed-notarized" ]]; then
+              (cd "$STAGE" && zip -q "$WORK/$NAME.zip" buzz-backend-hypercli)
+              "$RCODESIGN" notary-submit --api-key-file "$WORK/asc.json" \
+                --wait "$WORK/$NAME.zip"
+            fi
+            sed -i "s/^signing=.*/signing=$SIGNING/" "$STAGE/BUILD-INFO"
+            tar -C "$STAGE" -czf "signed/$NAME.tar.gz" .
+            (cd signed && sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256")
+          done
+
+      - name: Upload signed macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-macos-bundle
+          path: signed/
+          if-no-files-found: error
+
+  release:
+    name: Assemble provider release
+    needs: [build, sign-macos]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -137,11 +216,25 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Overlay signed macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: signed-macos-bundle
+          path: dist-signed
+
+      - name: Replace unsigned macOS artifacts with signed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find dist-signed -maxdepth 1 -name '*.tar.gz' | wc -l)" -eq 2
+          cp -f dist-signed/* dist/
+          rm -rf dist-signed
+
       - name: Verify artifact set and checksums
         shell: bash
         run: |
           set -euo pipefail
-          test "$(find dist -maxdepth 1 -name '*.tar.gz' | wc -l)" -eq 3
+          test "$(find dist -maxdepth 1 -name '*.tar.gz' | wc -l)" -eq 5
           (
             cd dist
             sha256sum --check ./*.sha256
@@ -170,8 +263,20 @@ jobs:
             echo "Release ${TAG} already exists" >&2
             exit 1
           fi
+          SIGNING="$(tar -xzOf dist/buzz-backend-hypercli-macos-aarch64-${{ inputs.version }}.tar.gz BUILD-INFO | sed -n 's/^signing=//p')"
+          case "${SIGNING}" in
+            signed-notarized)
+              TITLE_SUFFIX=""
+              MAC_NOTE="macOS binaries are signed with Developer ID and notarized." ;;
+            signed-unnotarized)
+              TITLE_SUFFIX=" (unnotarized)"
+              MAC_NOTE="macOS binaries are signed with Developer ID but not yet notarized; Gatekeeper may require explicit approval." ;;
+            *)
+              TITLE_SUFFIX=" (unsigned)"
+              MAC_NOTE="macOS binaries are unsigned; testers must explicitly approve the downloaded binary in Gatekeeper." ;;
+          esac
           gh release create "${TAG}" \
             --target "${SOURCE_SHA}" \
-            --title "Buzz HyperCLI provider ${{ inputs.version }} (unsigned)" \
-            --notes "Unsigned test binaries for Buzz Desktop (Linux and Windows; macOS builds are deferred until signing/notarization is configured). Production distribution remains blocked on signing/notarization and backend launch-secret encryption." \
+            --title "Buzz HyperCLI provider ${{ inputs.version }}${TITLE_SUFFIX}" \
+            --notes "${MAC_NOTE} Windows binaries remain unsigned pending Authenticode setup. Backend launch-secret encryption is still an open item for production use." \
             dist/*
