@@ -117,6 +117,19 @@ fn install_providers() -> Result<ProviderStatus, String> {
     provider_status()
 }
 
+/// Remove every provider name from the bin dir. Only touches our names.
+#[tauri::command]
+fn uninstall_providers() -> Result<ProviderStatus, String> {
+    let dir = bin_dir()?;
+    for name in provider_names() {
+        let target = dir.join(&name);
+        if target.exists() || target.is_symlink() {
+            fs::remove_file(&target).map_err(|e| e.to_string())?;
+        }
+    }
+    provider_status()
+}
+
 /// Upsert one KEY=VALUE line in ~/.hypercli/config, preserving the rest.
 fn write_config_key(key: &str, value: &str) -> Result<(), String> {
     let path = config_path()?;
@@ -243,6 +256,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             provider_status,
             install_providers,
+            uninstall_providers,
             save_api_key,
             logout,
             mint_api_key,

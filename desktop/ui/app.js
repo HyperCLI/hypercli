@@ -34,6 +34,7 @@ function render(status) {
   const hint = document.getElementById("provider-hint");
   const list = document.getElementById("provider-list");
   const installBtn = document.getElementById("install-btn");
+  document.getElementById("uninstall-btn").hidden = status.installed.length === 0;
   list.replaceChildren(
     ...status.installed.map((name) => {
       const li = document.createElement("li");
@@ -114,7 +115,16 @@ document.getElementById("logout-btn").addEventListener("click", async () => {
 document.getElementById("install-btn").addEventListener("click", async () => {
   try {
     render(await invoke("install_providers"));
-    setStatus("Providers installed. Restart Buzz or use Settings → Agents → Check again.");
+    setStatus("");
+  } catch (error) {
+    setStatus(String(error), true);
+  }
+});
+
+document.getElementById("uninstall-btn").addEventListener("click", async () => {
+  try {
+    render(await invoke("uninstall_providers"));
+    setStatus("");
   } catch (error) {
     setStatus(String(error), true);
   }

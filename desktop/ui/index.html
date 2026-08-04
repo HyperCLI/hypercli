@@ -34,10 +34,16 @@
         <h1>Buzz provider</h1>
         <p class="hint" id="provider-hint"></p>
         <ul id="provider-list"></ul>
-        <button id="install-btn" class="primary">Install providers</button>
+        <div class="button-row">
+          <button id="install-btn" class="primary">Install providers</button>
+          <button id="uninstall-btn" class="link" hidden>Uninstall</button>
+        </div>
       </section>
 
       <p id="status" role="status"></p>
+      <div id="footer" class="button-row">
+        <button id="update-btn" class="link" hidden>Update the HyperCLI app</button>
+      </div>
     </main>
     <script type="module" src="app.js"></script>
   </body>
