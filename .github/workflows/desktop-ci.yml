@@ -1,0 +1,84 @@
+name: Desktop CI
+
+# The desktop crate lives outside the root cargo workspace (deliberately —
+# provider release builds must never compile GUI deps), so the workspace-wide
+# gates in other workflows do not cover it. This closes that blind spot.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "desktop/**"
+      - "rs-sdk/**"
+      - ".github/workflows/desktop-ci.yml"
+  pull_request:
+    paths:
+      - "desktop/**"
+      - "rs-sdk/**"
+      - ".github/workflows/desktop-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: Desktop crate (fmt, clippy, test)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
+          components: rustfmt, clippy
+
+      - name: Install Tauri Linux system dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential libgtk-3-dev librsvg2-dev libssl-dev \
+            libwebkit2gtk-4.1-dev libxdo-dev pkg-config
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Stub the sidecar binary
+        # tauri-build validates externalBin existence at compile time; CI
+        # never executes it, so an empty executable satisfies the check.
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p desktop/src-tauri/binaries
+          install -m 0755 /dev/null \
+            desktop/src-tauri/binaries/buzz-backend-hypercli-x86_64-unknown-linux-gnu
+
+      - name: fmt, clippy, test
+        shell: bash
+        working-directory: desktop/src-tauri
+        run: |
+          set -euo pipefail
+          cargo fmt --check
+          cargo clippy --all-targets --locked -- -D warnings
+          cargo test --locked
+
+  ui:
+    name: UI behavior (Playwright, mocked Tauri IPC)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install and run
+        shell: bash
+        working-directory: desktop/ui-tests
+        run: |
+          set -euo pipefail
+          npm ci --no-fund --no-audit
+          npx playwright install --with-deps chromium
+          npm test

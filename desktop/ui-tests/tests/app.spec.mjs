@@ -1,0 +1,96 @@
+import { fileURLToPath } from "node:url";
+import { test, expect } from "@playwright/test";
+
+const MOCK_PATH = fileURLToPath(new URL("./tauri-mock.js", import.meta.url));
+
+function withMock(page, overrides) {
+  return (async () => {
+    if (overrides) {
+      await page.addInitScript((o) => {
+        window.__MOCK_OVERRIDES__ = o;
+      }, overrides);
+    }
+    await page.addInitScript({ path: MOCK_PATH });
+  })();
+}
+
+test("logged out: auth only, providers hidden, footer resting", async ({ page }) => {
+  await withMock(page);
+  await page.goto("/");
+  await expect(page.locator("#auth-disconnected")).toBeVisible();
+  await expect(page.locator("#auth-connected")).toBeHidden();
+  await expect(page.locator("#provider-section")).toBeHidden();
+  await expect(page.locator("#version-line")).toContainText("up to date");
+});
+
+test("paste key: connects and reveals provider install", async ({ page }) => {
+  await withMock(page);
+  await page.goto("/");
+  await page.locator("#key-input").fill("hyper-test-key");
+  await page.getByRole("button", { name: "Save API key" }).click();
+  await expect(page.locator("#auth-connected")).toBeVisible();
+  await expect(page.locator("#provider-section")).toBeVisible();
+  await expect(page.locator("#install-btn")).toHaveText("Install providers");
+  await expect(page.locator("#auth-detail")).toContainText("test@hypercli.com");
+  await expect(page.locator("#key-name")).toHaveText("Linux (ci)");
+});
+
+test("install: quiet success line, reinstall + uninstall affordances", async ({ page }) => {
+  await withMock(page, { status: { has_api_key: true } });
+  await page.goto("/");
+  await page.locator("#install-btn").click();
+  await expect(page.locator("#provider-hint")).toContainText(
+    "Providers installed in /home/test/.local/bin",
+  );
+  await expect(page.locator("#install-btn")).toHaveText("Reinstall");
+  await expect(page.locator("#uninstall-btn")).toBeVisible();
+  await expect(page.locator("#status")).toContainText("you can close the app");
+  await expect(page.locator("#provider-list li")).toHaveCount(0);
+});
+
+test("partial install: missing names listed with reinstall", async ({ page }) => {
+  await withMock(page, {
+    status: {
+      has_api_key: true,
+      installed: ["buzz-backend-hypercli"],
+      missing: ["buzz-backend-hypercli-buzz-agent"],
+    },
+  });
+  await page.goto("/");
+  await expect(page.locator("#provider-hint")).toContainText("missing");
+  await expect(page.locator("#provider-list li.miss")).toHaveCount(1);
+  await expect(page.locator("#provider-list")).toContainText(
+    "buzz-backend-hypercli-buzz-agent",
+  );
+  await expect(page.locator("#install-btn")).toHaveText("Reinstall");
+});
+
+test("browser login: deep-link token mints and connects", async ({ page }) => {
+  await withMock(page);
+  await page.goto("/");
+  await page.locator("#login-btn").click();
+  await expect(page.locator("#status")).toContainText("Complete the sign-in");
+  await page.evaluate(() => {
+    window.__MOCK__.listeners["auth-token"]({ payload: "session-token" });
+  });
+  await expect(page.locator("#status")).toContainText('API key "Linux (ci)" created');
+  await expect(page.locator("#auth-connected")).toBeVisible();
+});
+
+test("logout with env key: explains why still logged in", async ({ page }) => {
+  await withMock(page, { status: { has_api_key: true }, envKeyActive: true });
+  await page.goto("/");
+  await page.locator("#logout-btn").click();
+  await expect(page.locator("#status")).toContainText("HYPER_API_KEY");
+  await expect(page.locator("#auth-connected")).toBeVisible();
+});
+
+test("key without agents:* shows capability warning", async ({ page }) => {
+  await withMock(page, {
+    status: { has_api_key: true },
+    validation: { has_agents_capability: false, key_name: "Buzz2" },
+  });
+  await page.goto("/");
+  await expect(page.locator("#auth-warning")).toBeVisible();
+  await expect(page.locator("#auth-warning")).toContainText("agents:*");
+});

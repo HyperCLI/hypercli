@@ -69,7 +69,7 @@ mirroring Buzz's `buzz-desktop-latest`.
 ## Releasing
 
 Modeled on Buzz Desktop's release flow (block/buzz `release.yml` +
-`RELEASING.md`). CI draft: `RELEASE-WORKFLOW-DRAFT.yml` (installed to
+`RELEASING.md`). CI draft: `.github/workflows/release-desktop.yml` (installed to
 `.github/workflows/release-desktop.yml` manually after review).
 
 1. Bump `version` in `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`
@@ -125,7 +125,7 @@ Pulumi stack (losing it strands every install on its current version).
       app launched from ~/Downloads runs from a randomized path and the
       symlinks would dangle). Symlinks are re-healed on every launch either
       way.
-- [ ] CI: review and install `RELEASE-WORKFLOW-DRAFT.yml` as
+- [ ] CI: review and install `.github/workflows/release-desktop.yml` as
       `.github/workflows/release-desktop.yml`; generate the updater keypair
       and store it (Pulumi stack + Actions secrets) before the first release.
 - [ ] macOS DMG: the draft workflow ships signed `.app.tar.gz` archives only —
