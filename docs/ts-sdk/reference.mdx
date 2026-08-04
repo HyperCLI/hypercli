@@ -86,10 +86,9 @@ Major methods:
 - `subscriptions()`
 - `subscriptionSummary()`
 - `entitlements()`
-- `entitlementInstances()`
 - `purchaseEntitlementFromBalance(planId, { duration, tags?, extendExisting? })`
 - `redeemGrantCode(code, { extendExisting? })`
-- `updateSubscription(subscriptionId, { bundle })`
+- `updateSubscription(subscriptionId, { planId, quantity })`
 - `cancelSubscription(subscriptionId)`
 - `models()`
 - `discoveryHealth()`
@@ -102,7 +101,9 @@ Important account types:
 - `HyperAgentEntitlements`
   effective account state with `slotInventory`, `pooledTpd`, `activeEntitlementCount`, and `billingResetAt`
 - `HyperAgentEntitlement`
-  concrete 1:1 entitlement instance, including expiry, tags, features, and related agent bindings
+  concrete 1:1 entitlement instance, included in
+  `subscriptionSummary().entitlementItems`, with expiry, tags, features, and
+  related agent bindings
 - `HyperAgentSubscriptionSummary`
   combined view with `entitlements`, `subscriptions`, `activeSubscriptions`, and `billingResetAt`
 - `HyperAgentSubscriptionMutationResult`

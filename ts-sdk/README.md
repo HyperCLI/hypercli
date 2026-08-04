@@ -128,6 +128,22 @@ await client.user.deleteProfileImage();
 const dailyByAgent = await client.agent.agentUsage(1);
 ```
 
+Plan IDs remain open strings so future and historical IDs keep parsing.
+`plan.canonicalId` recognizes the current `solo`, `team`, and `pro` IDs.
+Use the HyperClaw entitlement summary—not Orchestra `auth_me`—for plan access:
+
+```typescript
+import { hasActivePlan } from '@hypercli.com/sdk';
+
+const summary = await client.agent.subscriptionSummary();
+if (hasActivePlan(summary)) { // subscription OR direct entitlement
+  console.log(summary.agentSlots);
+}
+```
+
+A `401` or `403` from the summary means the selected key cannot determine plan
+state. Consumers should represent that as unknown, never as an explicit no.
+
 ### OpenClaw Agents
 
 OpenClaw uses the generic deployment launch surface. `registryUrl`, `registryAuth`, `syncRoot`, and `syncEnabled` are generic deployment options; the OpenClaw helpers only add defaults such as routes, image, and `syncRoot=/home/node`.
@@ -139,7 +155,17 @@ const agent = await client.deployments.createOpenClaw({
   registryUrl: 'git.nedos.co',
   registryAuth: { username: 'ci', password: 'token' },
 });
+
+const capacity = await client.deployments.listWithCapacity();
+console.log(capacity.maxAgentsPerAccount, capacity.runningAgents);
+for (const slot of capacity.agentSlots) {
+  console.log(slot.size, slot.planId, slot.agentId);
+}
 ```
+
+`list()` remains the compatibility array. `listWithCapacity()` preserves the
+full deployment response: saved/running account limits, pooled TPD, aggregate
+slot inventory, and individual entitlement-backed agent slots.
 
 Use `createOpenClawPro(...)` for the desktop/browser image. It enables noVNC through the protected `desktop-<agent>.hypercli.app` route and sets `OPENCLAW_DESKTOP_ENABLED=1`.
 

@@ -7,6 +7,7 @@
 import type { HTTPClient } from './http.js';
 import { getAgentsApiBaseUrl } from './config.js';
 import type { X402Signer } from './x402.js';
+import { agentSlotFromDict, type AgentSlot } from './agents.js';
 
 function resolveHyperAgentBaseUrl(agentsApiBaseUrl: string | undefined, dev: boolean): string {
   const raw = (agentsApiBaseUrl || '').replace(/\/+$/, '');
@@ -66,13 +67,34 @@ function resolveHyperAgentControlBaseUrl(
   return `${parsed.origin}/agents`;
 }
 
+export const HYPER_AGENT_CANONICAL_PLAN_IDS = ['solo', 'team', 'pro'] as const;
+export type HyperAgentCanonicalPlanId = typeof HYPER_AGENT_CANONICAL_PLAN_IDS[number];
+
+export function parseHyperAgentPlanId(value: unknown): HyperAgentCanonicalPlanId | null {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return HYPER_AGENT_CANONICAL_PLAN_IDS.includes(normalized as HyperAgentCanonicalPlanId)
+    ? normalized as HyperAgentCanonicalPlanId
+    : null;
+}
+
 export interface HyperAgentPlan {
   id: string;
+  canonicalId: HyperAgentCanonicalPlanId | null;
   name: string;
   price: number;
   priceUsd: number;
-  aiu: number;
+  /** @deprecated Present only on historical plan payloads. */
+  aiu?: number;
   agents: number;
+  amountCents?: number;
+  contractVersion?: string | null;
+  maxAgentSize?: 'small' | 'medium' | 'large' | null;
+  slotGrants?: Record<string, number>;
+  agentResources?: {
+    maxAgents: number;
+    totalCpu: number;
+    totalMemory: number;
+  } | null;
   features: string[];
   models: string[];
   highlighted?: boolean;
@@ -101,6 +123,7 @@ export interface HyperAgentCurrentPlan {
   secondsRemaining?: number | null;
   pooledTpd?: number;
   slotInventory?: Record<string, { granted: number; used: number; available: number }>;
+  agentSlots: AgentSlot[];
 }
 
 export interface HyperAgentSubscription {
@@ -124,6 +147,7 @@ export interface HyperAgentSubscription {
   planAgentTier: string | null;
   slotGrants: Record<string, number> | null;
   entitlements?: HyperAgentEntitlement[];
+  agentSlots: AgentSlot[];
 }
 
 export interface HyperAgentEntitlement {
@@ -147,6 +171,7 @@ export interface HyperAgentEntitlement {
   slotGrants: Record<string, number> | null;
   activeAgentCount: number;
   activeAgentIds: string[];
+  agentSlots: AgentSlot[];
 }
 
 export interface HyperAgentEntitlements {
@@ -157,6 +182,7 @@ export interface HyperAgentEntitlements {
   slotInventory: Record<string, { granted: number; used: number; available: number }>;
   activeEntitlementCount: number;
   billingResetAt: Date | null;
+  agentSlots: AgentSlot[];
 }
 
 export interface HyperAgentSubscriptionSummary {
@@ -175,11 +201,12 @@ export interface HyperAgentSubscriptionSummary {
   activeSubscriptions: HyperAgentSubscription[];
   subscriptions: HyperAgentSubscription[];
   user: Record<string, any>;
+  agentSlots: AgentSlot[];
 }
 
 export type HyperAgentEntitlementsSummary = HyperAgentSubscriptionSummary;
 
-/** Whether any plan or entitlement is currently active. */
+/** Whether any subscription or direct entitlement is currently active. */
 export function hasActivePlan(summary: HyperAgentSubscriptionSummary): boolean {
   return summary.activeSubscriptionCount > 0 || summary.activeEntitlementCount > 0;
 }
@@ -191,7 +218,8 @@ export interface HyperAgentSubscriptionMutationResult {
 }
 
 export interface HyperAgentUpdateSubscriptionRequest {
-  bundle?: Record<string, number> | null;
+  planId: string;
+  quantity?: number;
 }
 
 export interface HyperAgentModel {
@@ -406,7 +434,6 @@ export interface HyperAgentStripeCheckoutRequest {
   successUrl?: string;
   cancelUrl?: string;
   quantity?: number;
-  bundle?: Record<string, number>;
 }
 
 export interface HyperAgentStripeCheckoutResponse {
@@ -427,7 +454,6 @@ export interface HyperAgentStripeBillingPortalSessionResponse {
 
 export interface HyperAgentX402CheckoutRequest {
   quantity?: number;
-  bundle?: Record<string, number>;
 }
 
 export interface HyperAgentX402CheckoutResponse {
@@ -444,6 +470,11 @@ export interface HyperAgentX402CheckoutResponse {
 }
 
 export interface HyperAgentX402PurchaseRequest {
+  quantity?: number;
+}
+
+/** @deprecated Arbitrary slot bundles are no longer purchasable. */
+export interface HyperAgentLegacyBundlePurchaseRequest {
   quantity?: number;
   bundle?: Record<string, number>;
 }
@@ -501,13 +532,28 @@ async function controlPostWithX402Middleware(
 }
 
 function hyperAgentPlanFromDict(data: any): HyperAgentPlan {
+  const agents = Number(data.agents ?? 0);
+  const maxAgentSize = ['small', 'medium', 'large'].includes(data.max_agent_size)
+    ? data.max_agent_size as 'small' | 'medium' | 'large'
+    : null;
+  const resources = data.agent_resources;
   return {
     id: data.id,
+    canonicalId: parseHyperAgentPlanId(data.id),
     name: data.name,
     price: data.price ?? data.price_usd ?? 0,
     priceUsd: data.price_usd ?? data.price ?? 0,
-    aiu: data.aiu ?? 0,
-    agents: data.agents ?? 0,
+    aiu: data.aiu == null ? undefined : Number(data.aiu),
+    agents,
+    amountCents: Number(data.amount_cents ?? 0),
+    contractVersion: data.contract_version == null ? null : String(data.contract_version),
+    maxAgentSize,
+    slotGrants: maxAgentSize && agents > 0 ? { [maxAgentSize]: agents } : {},
+    agentResources: resources && typeof resources === 'object' ? {
+      maxAgents: Number(resources.max_agents ?? agents),
+      totalCpu: Number(resources.total_cpu ?? 0),
+      totalMemory: Number(resources.total_memory ?? 0),
+    } : null,
     features: data.features || [],
     models: data.models || [],
     highlighted: Boolean(data.highlighted),
@@ -538,12 +584,14 @@ function hyperAgentCurrentPlanFromDict(data: any): HyperAgentCurrentPlan {
     secondsRemaining: data.seconds_remaining ?? null,
     pooledTpd: data.pooled_tpd || 0,
     slotInventory: data.slot_inventory || undefined,
+    agentSlots: (data.agent_slots || []).map(agentSlotFromDict),
   };
 }
 
 function hyperAgentSubscriptionFromDict(data: any): HyperAgentSubscription {
   const periodEnd = data.current_period_end || data.expires_at || null;
   const entitlements = (data.entitlements || []).map(hyperAgentEntitlementFromDict);
+  const directAgentSlots = (data.agent_slots || []).map(agentSlotFromDict);
   const slotGrants = mergeSlotGrants(
     data.slot_grants,
     ...entitlements.map((entitlement: HyperAgentEntitlement) => entitlement.slotGrants),
@@ -569,6 +617,9 @@ function hyperAgentSubscriptionFromDict(data: any): HyperAgentSubscription {
     planAgentTier: data.plan_agent_tier || null,
     slotGrants,
     entitlements,
+    agentSlots: directAgentSlots.length > 0
+      ? directAgentSlots
+      : entitlements.flatMap((entitlement: HyperAgentEntitlement) => entitlement.agentSlots),
   };
 }
 
@@ -607,6 +658,7 @@ function hyperAgentEntitlementFromDict(data: any): HyperAgentEntitlement {
     slotGrants: data.slot_grants || null,
     activeAgentCount: data.active_agent_count || 0,
     activeAgentIds: data.active_agent_ids || [],
+    agentSlots: (data.agent_slots || []).map(agentSlotFromDict),
   };
 }
 
@@ -638,6 +690,7 @@ function hyperAgentEntitlementsFromDict(data: any): HyperAgentEntitlements {
     slotInventory: payload?.slot_inventory || data?.slot_inventory || {},
     activeEntitlementCount: payload?.active_entitlement_count || data?.active_entitlement_count || data?.active_subscription_count || 0,
     billingResetAt: billingResetAt ? new Date(String(billingResetAt).replace('Z', '+00:00')) : null,
+    agentSlots: (payload?.agent_slots || data?.agent_slots || []).map(agentSlotFromDict),
   };
 }
 
@@ -661,6 +714,7 @@ function hyperAgentSubscriptionSummaryFromDict(data: any): HyperAgentSubscriptio
     activeSubscriptions: (data.active_subscriptions || []).map(hyperAgentSubscriptionFromDict),
     subscriptions: (data.subscriptions || []).map(hyperAgentSubscriptionFromDict),
     user: data.user || {},
+    agentSlots: (data.agent_slots || []).map(agentSlotFromDict),
   };
 }
 
@@ -1103,16 +1157,32 @@ export class HyperAgent {
     subscriptionId: string,
     request: HyperAgentUpdateSubscriptionRequest,
   ): Promise<HyperAgentSubscriptionMutationResult> {
-    const response = await fetch(`${this.controlBaseUrl}/subscriptions/${subscriptionId}/update`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        'Content-Type': 'application/json',
+    const normalizedSubscriptionId = subscriptionId.trim();
+    const planId = request.planId.trim();
+    const quantity = request.quantity ?? 1;
+    if (!normalizedSubscriptionId) {
+      throw new Error('subscriptionId is required');
+    }
+    if (!planId) {
+      throw new Error('planId is required');
+    }
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      throw new Error('quantity must be a positive integer');
+    }
+    const response = await fetch(
+      `${this.controlBaseUrl}/subscriptions/${encodeURIComponent(normalizedSubscriptionId)}/update`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          plan_id: planId,
+          quantity,
+        }),
       },
-      body: JSON.stringify({
-        bundle: request.bundle ?? null,
-      }),
-    });
+    );
 
     if (!response.ok) {
       throw new Error(`Failed to update subscription: ${response.statusText}`);
@@ -1255,11 +1325,13 @@ export class HyperAgent {
     request: HyperAgentStripeCheckoutRequest = {},
     planId?: string,
   ): Promise<HyperAgentStripeCheckoutResponse> {
+    if ((request as HyperAgentStripeCheckoutRequest & { bundle?: unknown }).bundle != null) {
+      throw new Error('Arbitrary slot bundles are no longer supported; purchase a canonical plan');
+    }
     const payload = {
       ...(request.successUrl ? { success_url: request.successUrl } : {}),
       ...(request.cancelUrl ? { cancel_url: request.cancelUrl } : {}),
       ...(request.quantity !== undefined ? { quantity: request.quantity } : {}),
-      ...(request.bundle ? { bundle: request.bundle } : {}),
     };
     const path = planId ? `/stripe/${encodeURIComponent(planId)}` : '/stripe/checkout';
     return hyperAgentStripeCheckoutResponseFromDict(await this.controlPost(path, payload));
@@ -1280,9 +1352,11 @@ export class HyperAgent {
     planId: string,
     request: HyperAgentX402PurchaseRequest = {},
   ): Promise<HyperAgentX402PurchaseResponse> {
+    if ((request as HyperAgentX402PurchaseRequest & { bundle?: unknown }).bundle != null) {
+      throw new Error('Arbitrary slot bundles are no longer supported; purchase a canonical plan');
+    }
     const payload = {
       ...(request.quantity !== undefined ? { quantity: request.quantity } : {}),
-      ...(request.bundle ? { bundle: request.bundle } : {}),
     };
     return hyperAgentX402CheckoutResponseFromDict(
       await this.controlPost(`/x402/${encodeURIComponent(planId)}`, payload),
@@ -1293,9 +1367,11 @@ export class HyperAgent {
     planId: string,
     request: HyperAgentBrowserX402PurchaseRequest,
   ): Promise<HyperAgentX402PurchaseResponse> {
+    if ((request as HyperAgentBrowserX402PurchaseRequest & { bundle?: unknown }).bundle != null) {
+      throw new Error('Arbitrary slot bundles are no longer supported; purchase a canonical plan');
+    }
     const payload = {
       ...(request.quantity !== undefined ? { quantity: request.quantity } : {}),
-      ...(request.bundle ? { bundle: request.bundle } : {}),
     };
     return hyperAgentX402CheckoutResponseFromDict(
       await controlPostWithX402Middleware(
@@ -1310,41 +1386,24 @@ export class HyperAgent {
   }
 
   async purchaseBundleViaX402(
-    request: HyperAgentX402PurchaseRequest = {},
+    _request: HyperAgentLegacyBundlePurchaseRequest = {},
   ): Promise<HyperAgentX402PurchaseResponse> {
-    const payload = {
-      ...(request.quantity !== undefined ? { quantity: request.quantity } : {}),
-      ...(request.bundle ? { bundle: request.bundle } : {}),
-    };
-    return hyperAgentX402CheckoutResponseFromDict(await this.controlPost('/x402/_bundle', payload));
+    throw new Error('Arbitrary slot bundles are no longer supported; purchase a solo, team, or pro plan');
   }
 
   async purchaseBundleViaX402WithSigner(
-    request: HyperAgentBrowserX402PurchaseRequest,
+    _request: HyperAgentBrowserX402PurchaseRequest,
   ): Promise<HyperAgentX402PurchaseResponse> {
-    const payload = {
-      ...(request.quantity !== undefined ? { quantity: request.quantity } : {}),
-      ...(request.bundle ? { bundle: request.bundle } : {}),
-    };
-    return hyperAgentX402CheckoutResponseFromDict(
-      await controlPostWithX402Middleware(
-        this.controlBaseUrl,
-        this.apiKey,
-        '/x402/_bundle',
-        payload,
-        request.signer,
-        request.amountUsd,
-      ),
-    );
+    throw new Error('Arbitrary slot bundles are no longer supported; purchase a solo, team, or pro plan');
   }
 
-  async createX402Checkout(request: HyperAgentX402CheckoutRequest = {}): Promise<HyperAgentX402CheckoutResponse> {
-    return this.purchaseBundleViaX402(request);
+  async createX402Checkout(_request: HyperAgentX402CheckoutRequest = {}): Promise<HyperAgentX402CheckoutResponse> {
+    throw new Error('A canonical plan ID is required; use purchaseViaX402(planId, request)');
   }
 
   async createX402CheckoutWithSigner(
     request: HyperAgentBrowserX402PurchaseRequest,
   ): Promise<HyperAgentX402CheckoutResponse> {
-    return this.purchaseBundleViaX402WithSigner(request);
+    throw new Error('A canonical plan ID is required; use purchaseViaX402WithSigner(planId, request)');
   }
 }

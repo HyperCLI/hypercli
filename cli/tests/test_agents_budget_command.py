@@ -39,7 +39,7 @@ def test_agents_budget_keeps_legacy_budget_shape(monkeypatch):
     class FakeDeployments:
         def budget(self):
             return {
-                "plan_id": "basic",
+                "plan_id": "solo",
                 "budget": {"max_agents": 5, "total_cpu": 20, "total_memory": 80},
                 "used": {"agents": 2, "cpu": 8, "memory": 16},
                 "available": {"agents": 3, "cpu": 12, "memory": 64},

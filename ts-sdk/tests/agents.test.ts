@@ -125,6 +125,39 @@ describe('Agents SDK', () => {
     }, undefined);
   });
 
+  it('preserves the deployment capacity envelope', async () => {
+    const http = {
+      get: vi.fn().mockResolvedValue({
+        items: [{ id: 'agent-123', state: 'RUNNING' }],
+        total_agents: 1,
+        max_agents_per_account: 10,
+        running_agents: 1,
+        slots: { large: { granted: 3, used: 1, available: 2 } },
+        agent_slots: [{
+          id: 'slot-1',
+          entitlement_id: 'ent-1',
+          plan_id: 'pro',
+          size: 'large',
+          agent_id: 'agent-123',
+          occupied: true,
+          expires_at: '2026-09-01T00:00:00Z',
+        }],
+        pooled_tpd: 100_000_000,
+      }),
+    } as unknown as HTTPClient;
+
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+    const capacity = await deployments.listWithCapacity();
+
+    expect(capacity.items[0]?.id).toBe('agent-123');
+    expect(capacity.maxAgentsPerAccount).toBe(10);
+    expect(capacity.runningAgents).toBe(1);
+    expect(capacity.slots.large?.available).toBe(2);
+    expect(capacity.agentSlots[0]?.planId).toBe('pro');
+    expect(capacity.agentSlots[0]?.expiresAt?.toISOString()).toBe('2026-09-01T00:00:00.000Z');
+    expect(capacity.pooledTpd).toBe(100_000_000);
+  });
+
   it('preserves the transitional stopping state returned by stop', async () => {
     const http = {
       get: vi.fn().mockResolvedValue({

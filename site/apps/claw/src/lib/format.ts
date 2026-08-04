@@ -36,7 +36,8 @@ export interface Plan {
   id: string;
   name: string;
   price: number;
-  aiu: number;
+  /** Historical API field; canonical plans use agent slots. */
+  aiu?: number;
   features: string[];
   models: string[];
   highlighted?: boolean | null;

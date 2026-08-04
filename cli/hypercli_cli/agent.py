@@ -185,11 +185,11 @@ def _print_agent_lifecycle_result(action: str, agent: DeploymentAgent, *, json_o
 @app.command("subscribe")
 def subscribe(
     plan_id: str = typer.Argument(
-        "basic", help="Plan ID: basic, plus, pro, team (default: basic)"
+        "solo", help="Plan ID: solo, team, or pro (default: solo)"
     ),
     amount: str = typer.Argument(
         None,
-        help="USDC amount to pay (e.g., '25' for $25). Duration scales proportionally.",
+        help="Optional USDC amount. Duration scales proportionally from the plan's monthly price.",
     ),
     passphrase: str = typer.Option(
         None,
@@ -199,15 +199,12 @@ def subscribe(
 ):
     """Subscribe to a HyperCLI plan via x402 payment.
 
-    Duration scales with payment amount (basic: $25 = 32 days):
-      - $25 → 32 days
-      - $12.50 → 16 days
-      - $1 → ~1.3 days
+    Duration scales with payment amount (Solo: $39 = 32 days).
 
     Examples:
-      hyper agent subscribe basic 25     # Pay $25 for 32 days
-      hyper agent subscribe basic 50     # Pay $50 for 64 days
-      hyper agent subscribe pro 100    # Pay $100 for pro plan
+      hyper agent subscribe solo         # Purchase one Solo plan period
+      hyper agent subscribe team         # Purchase one Team plan period
+      hyper agent subscribe pro          # Purchase one Pro plan period
     """
     require_x402_deps()
 
@@ -459,7 +456,7 @@ def status():
 
     if not AGENT_KEY_PATH.exists():
         console.print("[yellow]No HyperCLI key found.[/yellow]")
-        console.print("Subscribe with: [bold]hyper agent subscribe <aiu>[/bold]")
+        console.print("Subscribe with: [bold]hyper agent subscribe <solo|team|pro>[/bold]")
         raise typer.Exit(0)
 
     with open(AGENT_KEY_PATH) as f:
@@ -1186,7 +1183,7 @@ def openclaw_setup(
     # Load HyperCLI key
     if not AGENT_KEY_PATH.exists():
         console.print("[red]❌ No HyperCLI key found.[/red]")
-        console.print("Run: [bold]hyper agent subscribe basic <amount>[/bold]")
+        console.print("Run: [bold]hyper agent subscribe solo <amount>[/bold]")
         raise typer.Exit(1)
 
     with open(AGENT_KEY_PATH) as f:
@@ -1249,7 +1246,7 @@ def _resolve_api_key(key: str | None) -> str:
             return k
     console.print("[red]❌ No API key found.[/red]")
     console.print("Either pass [bold]--key hyper_api_...[/bold] or subscribe first:")
-    console.print("  [bold]hyper agent subscribe basic[/bold]")
+    console.print("  [bold]hyper agent subscribe solo[/bold]")
     raise typer.Exit(1)
 
 

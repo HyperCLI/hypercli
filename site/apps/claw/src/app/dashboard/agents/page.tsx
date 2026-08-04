@@ -614,6 +614,7 @@ function applyActiveNoSlotBillingMock(
     planAgentTier: existingSubscription?.planAgentTier || tier,
     slotGrants: { ...(existingSubscription?.slotGrants ?? {}), [tier]: Math.max(Number(existingSubscription?.slotGrants?.[tier] || 1), 1) },
     entitlements: existingSubscription?.entitlements || [],
+    agentSlots: existingSubscription?.agentSlots || [],
   };
   const activeSubscriptions = existingSubscription
     ? (summary?.activeSubscriptions ?? []).map((subscription) => (subscription.id === mockSubscription.id ? mockSubscription : subscription))
@@ -628,6 +629,7 @@ function applyActiveNoSlotBillingMock(
     pooledRpmLimit: summary?.pooledRpmLimit || 0,
     pooledTpd: summary?.pooledTpd || currentPlan?.pooledTpd || 0,
     slotInventory: {},
+    agentSlots: summary?.agentSlots ?? [],
     billingResetAt: summary?.billingResetAt || null,
     activeSubscriptionCount: Math.max(summary?.activeSubscriptionCount ?? activeSubscriptions.length, activeSubscriptions.length, 1),
     activeEntitlementCount,
@@ -640,6 +642,7 @@ function applyActiveNoSlotBillingMock(
       slotInventory: {},
       activeEntitlementCount,
       billingResetAt: summary?.entitlements?.billingResetAt ?? summary?.billingResetAt ?? null,
+      agentSlots: summary?.entitlements?.agentSlots ?? [],
     },
     entitlementItems,
     activeSubscriptions,

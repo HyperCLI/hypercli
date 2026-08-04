@@ -213,7 +213,6 @@ export function EmbeddedPlanCheckout({
         quantity: 1,
         successUrl: buildStripeCheckoutReturnUrl("success"),
         cancelUrl: buildStripeCheckoutReturnUrl("cancelled"),
-        ...(planBundle ? { bundle: planBundle } : {}),
       }, plan.id);
       if (!canContinue()) return;
       writePendingCheckout();
@@ -252,7 +251,6 @@ export function EmbeddedPlanCheckout({
       writePendingCheckout();
       await hyperAgent.purchaseViaX402WithSigner(plan.id, {
         quantity: 1,
-        ...(planBundle ? { bundle: planBundle } : {}),
         signer: walletClientToX402Signer(wallet.client),
         amountUsd: plan.price,
       });

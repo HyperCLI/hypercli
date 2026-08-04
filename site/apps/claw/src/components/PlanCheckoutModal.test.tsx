@@ -122,6 +122,7 @@ describe("PlanCheckoutModal", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Pay $123 with USDC" }));
 
     await waitFor(() => expect(onSuccess).toHaveBeenCalledOnce());
+    expect(mocks.hyperAgent.purchaseViaX402WithSigner.mock.calls[0]?.[1]).not.toHaveProperty("bundle");
     expect(readPendingPlanCheckout("user-1")).toMatchObject({
       planId: "catalog-pro",
       ownedCount: 1,
@@ -131,13 +132,14 @@ describe("PlanCheckoutModal", () => {
     expect(readPendingPlanCheckout("user-1")?.returnSessionId).toMatch(/^x402:/);
   });
 
-  it("omits bundle from card checkout when a catalog plan has no bundle metadata", async () => {
+  it("keeps catalog slot metadata out of the card checkout request", async () => {
     renderWithClient(
       <PlanCheckoutModal
         plan={{
           id: "catalog-pro",
           name: "Catalog Pro",
           price: 123,
+          bundle: { large: 3 },
           limits: {
             tpd: 123_000_000,
             burstTpm: 456_000,

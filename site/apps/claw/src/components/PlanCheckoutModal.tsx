@@ -179,7 +179,6 @@ export function PlanCheckoutModal({
           quantity: 1,
           successUrl: buildStripeCheckoutReturnUrl("success"),
           cancelUrl: buildStripeCheckoutReturnUrl("cancelled"),
-          ...(planBundle ? { bundle: planBundle } : {}),
         },
         plan.id,
       );
@@ -241,7 +240,6 @@ export function PlanCheckoutModal({
       });
       await hyperAgent.purchaseViaX402WithSigner(plan.id, {
         quantity: 1,
-        ...(planBundle ? { bundle: planBundle } : {}),
         signer: walletClientToX402Signer(wallet.client),
         amountUsd: plan.price,
       });

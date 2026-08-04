@@ -59,9 +59,12 @@ from .job import BaseJob, ComfyUIJob, GradioJob, apply_params, apply_graph_modes
 from .logs import LogStream, stream_logs, fetch_logs
 from .agents import (
     Agent,
+    AgentCapacity,
     AgentFileSource,
     AgentRouteConfig,
     AgentRoutes,
+    AgentSlot,
+    AgentSlotInventory,
     BuzzAgent,
     BuzzLaunchConfig,
     ClaudeCodeAgent,
@@ -92,11 +95,13 @@ from .agents import (
 from .shell import ShellSession, shell_connect
 from .agent import (
     HyperAgent,
+    HyperAgentCanonicalPlanId,
     HyperAgentPlan,
     HyperAgentCurrentPlan,
     HyperAgentEntitlements,
     HyperAgentEntitlementsSummary,
     HyperAgentSubscription,
+    HyperAgentSubscriptionMutationResult,
     HyperAgentSubscriptionSummary,
     HyperAgentModel,
     HyperAgentUsageSummary,
@@ -117,6 +122,7 @@ from .agent import (
     HyperAgentPaymentsResponse,
     HyperAgentStripeCheckoutResponse,
     HyperAgentX402CheckoutResponse,
+    parse_hyper_agent_plan_id,
 )
 from .gateway import (
     GatewayClient,
@@ -221,9 +227,12 @@ __all__ = [
     # Agents (Reef Pods)
     "Deployments",
     "Agent",
+    "AgentCapacity",
     "AgentFileSource",
     "AgentRouteConfig",
     "AgentRoutes",
+    "AgentSlot",
+    "AgentSlotInventory",
     "BuzzAgent",
     "BuzzLaunchConfig",
     "CodingAgent",
@@ -254,11 +263,13 @@ __all__ = [
     "shell_connect",
     # HyperAgent
     "HyperAgent",
+    "HyperAgentCanonicalPlanId",
     "HyperAgentPlan",
     "HyperAgentCurrentPlan",
     "HyperAgentEntitlements",
     "HyperAgentEntitlementsSummary",
     "HyperAgentSubscription",
+    "HyperAgentSubscriptionMutationResult",
     "HyperAgentSubscriptionSummary",
     "HyperAgentModel",
     "HyperAgentUsageSummary",
@@ -279,6 +290,7 @@ __all__ = [
     "HyperAgentPaymentsResponse",
     "HyperAgentStripeCheckoutResponse",
     "HyperAgentX402CheckoutResponse",
+    "parse_hyper_agent_plan_id",
     # OpenClaw Gateway
     "GatewayClient",
     "GatewayError",

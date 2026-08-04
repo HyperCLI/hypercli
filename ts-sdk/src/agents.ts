@@ -353,6 +353,34 @@ export interface ListAgentsOptions extends RequestOverrides {
   includeDeleted?: boolean | null;
 }
 
+export type AgentSlotSize = 'small' | 'medium' | 'large' | (string & {});
+
+export interface AgentSlotInventory {
+  granted: number;
+  used: number;
+  available: number;
+}
+
+export interface AgentSlot {
+  id: string;
+  entitlementId: string | null;
+  planId: string;
+  size: AgentSlotSize;
+  agentId: string | null;
+  occupied: boolean;
+  expiresAt: Date | null;
+}
+
+export interface AgentCapacity {
+  items: Agent[];
+  totalAgents: number;
+  maxAgentsPerAccount: number;
+  runningAgents: number;
+  slots: Record<string, AgentSlotInventory>;
+  agentSlots: AgentSlot[];
+  pooledTpd: number;
+}
+
 export interface SlackOAuthStartOptions {
   relayBaseUrl: string;
   token: string;
@@ -1207,6 +1235,19 @@ export interface AgentHydrationData {
 function parseDate(value: unknown): Date | null {
   if (typeof value !== 'string' || !value) return null;
   return new Date(value.replace('Z', '+00:00'));
+}
+
+export function agentSlotFromDict(data: Record<string, any>): AgentSlot {
+  const agentId = data.agent_id ? String(data.agent_id) : null;
+  return {
+    id: String(data.id || ''),
+    entitlementId: data.entitlement_id ? String(data.entitlement_id) : null,
+    planId: String(data.plan_id || ''),
+    size: String(data.size || '') as AgentSlotSize,
+    agentId,
+    occupied: data.occupied === undefined ? agentId !== null : Boolean(data.occupied),
+    expiresAt: parseDate(data.expires_at),
+  };
 }
 
 function deepMergeConfig(base: Record<string, any>, patch: Record<string, any>): Record<string, any> {
@@ -3798,6 +3839,10 @@ export class Deployments {
   }
 
   async list(options: ListAgentsOptions = {}): Promise<Agent[]> {
+    return (await this.listWithCapacity(options)).items;
+  }
+
+  async listWithCapacity(options: ListAgentsOptions = {}): Promise<AgentCapacity> {
     const params: Record<string, string | number> = {};
     if (options.state) params.state = options.state;
     if (options.handle) params.handle = options.handle;
@@ -3825,8 +3870,27 @@ export class Deployments {
       Object.keys(params).length ? params : undefined,
       Object.keys(cleanRequestOptions).length ? cleanRequestOptions : undefined,
     );
-    const items = Array.isArray(data) ? data : data.items ?? [];
-    return items.map((item: AgentHydrationData) => this.hydrateAgent(item));
+    const payload = Array.isArray(data) ? { items: data } : data;
+    const items = (payload.items ?? []).map((item: AgentHydrationData) => this.hydrateAgent(item));
+    const runningFallback = items.filter((agent: Agent) => !['STOPPED', 'FAILED'].includes(agent.state.toUpperCase())).length;
+    return {
+      items,
+      totalAgents: Number(payload.total_agents ?? items.length),
+      maxAgentsPerAccount: Number(payload.max_agents_per_account ?? 0),
+      runningAgents: Number(payload.running_agents ?? runningFallback),
+      slots: Object.fromEntries(
+        Object.entries(payload.slots ?? {}).map(([size, raw]) => {
+          const inventory = raw as Record<string, any>;
+          return [size, {
+            granted: Number(inventory.granted ?? 0),
+            used: Number(inventory.used ?? inventory.occupied ?? 0),
+            available: Number(inventory.available ?? 0),
+          }];
+        }),
+      ),
+      agentSlots: (payload.agent_slots ?? []).map(agentSlotFromDict),
+      pooledTpd: Number(payload.pooled_tpd ?? 0),
+    };
   }
 
   async get(agentIdOrName: string, requestOptions: RequestOverrides = {}): Promise<Agent> {

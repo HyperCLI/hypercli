@@ -7,11 +7,13 @@ from unittest.mock import Mock, patch, MagicMock
 from hypercli import HyperCLI
 from hypercli.agent import (
     HyperAgent,
+    HyperAgentCanonicalPlanId,
     HyperAgentEntitlements,
     HyperAgentEntitlementsSummary,
     HyperAgentPlan,
     HyperAgentCurrentPlan,
     HyperAgentSubscription,
+    HyperAgentSubscriptionMutationResult,
     HyperAgentEntitlement,
     HyperAgentSubscriptionSummary,
     HyperAgentModel,
@@ -25,6 +27,7 @@ from hypercli.agent import (
     HyperAgentPaymentsResponse,
     HyperAgentStripeCheckoutResponse,
     HyperAgentX402CheckoutResponse,
+    parse_hyper_agent_plan_id,
 )
 
 
@@ -34,14 +37,28 @@ class TestHyperAgentDataclasses:
     def test_agent_plan_from_dict(self):
         data = {
             "id": "pro",
-            "name": "5 Agents",
-            "price_usd": 3.0,
-            "tpm_limit": 250000,
-            "rpm_limit": 5000
+            "name": "Pro",
+            "price": 149,
+            "amount_cents": 14900,
+            "contract_version": "2026-08",
+            "agents": 3,
+            "max_agent_size": "large",
+            "agent_resources": {"max_agents": 3, "total_cpu": 6, "total_memory": 24},
+            "tpm_limit": 69444,
+            "rpm_limit": 347,
         }
         plan = HyperAgentPlan.from_dict(data)
         assert plan.id == "pro"
-        assert plan.price_usd == 3.0
+        assert plan.price_usd == 149
+        assert plan.amount_cents == 14900
+        assert plan.contract_version == "2026-08"
+        assert plan.max_agent_size == "large"
+        assert plan.slot_grants == {"large": 3}
+        assert plan.agent_resources["total_memory"] == 24
+        assert plan.aiu is None
+        assert plan.canonical_id is HyperAgentCanonicalPlanId.PRO
+        assert parse_hyper_agent_plan_id("solo") is HyperAgentCanonicalPlanId.SOLO
+        assert parse_hyper_agent_plan_id("free") is None
     
     def test_agent_model_from_dict(self):
         data = {
@@ -90,6 +107,16 @@ class TestHyperAgentDataclasses:
                 "pooled_tpd": 2000000,
                 "billing_reset_at": "2026-04-15T00:00:00Z",
                 "slot_inventory": {"large": {"granted": 2, "used": 1, "available": 1}},
+                "agent_slots": [
+                    {
+                        "id": "slot-1",
+                        "entitlement_id": "ent-1",
+                        "plan_id": "pro",
+                        "size": "large",
+                        "agent_id": "agent-1",
+                        "occupied": True,
+                    }
+                ],
                 "active_subscription_count": 1,
                 "active_entitlement_count": 1,
                 "entitlements": {
@@ -144,6 +171,9 @@ class TestHyperAgentDataclasses:
         assert summary.entitlement_items[0].starts_at is not None
         assert summary.entitlement_items[0].tags == ["customer=acme"]
         assert summary.entitlement_items[0].slot_grants == {"large": 1}
+        assert summary.agent_slots[0].size == "large"
+        assert summary.entitlements.agent_slots[0].agent_id == "agent-1"
+        assert summary.has_active_plan is True
 
     def test_subscription_summary_preserves_direct_entitlement_items(self):
         summary = HyperAgentSubscriptionSummary.from_dict(
@@ -178,6 +208,7 @@ class TestHyperAgentDataclasses:
 
         assert summary.active_subscription_count == 0
         assert summary.active_entitlement_count == 1
+        assert summary.has_active_plan is True
         assert summary.entitlement_items[0].subscription_id is None
         assert summary.entitlement_items[0].starts_at is not None
         assert summary.entitlement_items[0].slot_grants == {"large": 1}
@@ -363,10 +394,61 @@ class TestHyperAgentClient:
             headers={"Authorization": "Bearer sk-hyper-test"},
         )
 
+    def test_update_subscription_uses_named_plan_and_quantity(self, mock_http):
+        mock_http._session.post.return_value.json.return_value = {
+            "ok": True,
+            "message": "Subscription upgraded immediately",
+            "subscription": {
+                "id": "sub-1",
+                "user_id": "user-1",
+                "plan_id": "team",
+                "plan_name": "Team",
+                "provider": "STRIPE",
+                "status": "ACTIVE",
+                "quantity": 2,
+            },
+        }
+        mock_http._session.post.return_value.raise_for_status = Mock()
+
+        agent = HyperAgent(
+            mock_http,
+            agent_api_key="sk-hyper-test",
+            agents_api_base_url="https://api.hypercli.com/agents",
+        )
+        result = agent.update_subscription(
+            "sub-1",
+            plan_id=HyperAgentCanonicalPlanId.TEAM,
+            quantity=2,
+        )
+
+        assert isinstance(result, HyperAgentSubscriptionMutationResult)
+        assert result.ok is True
+        assert result.subscription is not None
+        assert result.subscription.plan_id == "team"
+        assert result.subscription.quantity == 2
+        mock_http._session.post.assert_called_with(
+            "https://api.hypercli.com/agents/subscriptions/sub-1/update",
+            headers={"Authorization": "Bearer sk-hyper-test"},
+            json={"plan_id": "team", "quantity": 2},
+        )
+
+    @pytest.mark.parametrize("quantity", [0, -1, 1.5, True])
+    def test_update_subscription_rejects_invalid_quantity(self, mock_http, quantity):
+        agent = HyperAgent(
+            mock_http,
+            agent_api_key="sk-hyper-test",
+            agents_api_base_url="https://api.hypercli.com/agents",
+        )
+
+        with pytest.raises(ValueError, match="quantity must be a positive integer"):
+            agent.update_subscription("sub-1", plan_id="team", quantity=quantity)
+
+        mock_http._session.post.assert_not_called()
+
     def test_redeem_grant_code(self, mock_http):
         mock_http._session.post.return_value.json.return_value = {
             "grant": {"id": "grant-1", "code": "promo-123"},
-            "entitlement": {"id": "ent-1", "plan_id": "basic"},
+            "entitlement": {"id": "ent-1", "plan_id": "solo"},
         }
         mock_http._session.post.return_value.raise_for_status = Mock()
 
@@ -383,7 +465,7 @@ class TestHyperAgentClient:
     def test_redeem_grant_code_can_request_extension(self, mock_http):
         mock_http._session.post.return_value.json.return_value = {
             "grant": {"id": "grant-1", "code": "promo-123"},
-            "entitlement": {"id": "ent-1", "plan_id": "basic"},
+            "entitlement": {"id": "ent-1", "plan_id": "solo"},
         }
         mock_http._session.post.return_value.raise_for_status = Mock()
 
@@ -475,7 +557,7 @@ class TestHyperAgentClient:
         mock_response.json.return_value = {
             "ok": True,
             "key": "hyper_api_x402",
-            "plan_id": "basic",
+            "plan_id": "solo",
             "quantity": 1,
             "bundle": {"small": 1},
             "amount_paid": "20.00",
@@ -486,13 +568,16 @@ class TestHyperAgentClient:
         }
         mock_http._session.post.return_value = mock_response
 
-        result = agent.purchase_via_x402("basic", quantity=1, bundle={"small": 1})
+        result = agent.purchase_via_x402("solo", quantity=1)
 
-        assert result.plan_id == "basic"
-        assert mock_http._session.post.call_args[0][0] == "https://api.hypercli.com/agents/x402/basic"
-        assert mock_http._session.post.call_args[1]["json"] == {"quantity": 1, "bundle": {"small": 1}}
+        assert result.plan_id == "solo"
+        assert mock_http._session.post.call_args[0][0] == "https://api.hypercli.com/agents/x402/solo"
+        assert mock_http._session.post.call_args[1]["json"] == {"quantity": 1}
 
-    def test_purchase_bundle_via_x402_uses_bundle_route(self, mock_http):
+        with pytest.raises(ValueError, match="Arbitrary slot bundles are no longer supported"):
+            agent.purchase_via_x402("solo", bundle={"small": 1})
+
+    def test_purchase_bundle_via_x402_is_rejected_locally(self, mock_http):
         agent = HyperAgent(
             mock_http,
             agent_api_key="sk-hyper-test",
@@ -514,13 +599,11 @@ class TestHyperAgentClient:
         }
         mock_http._session.post.return_value = mock_response
 
-        result = agent.purchase_bundle_via_x402(quantity=1, bundle={"large": 2})
+        with pytest.raises(ValueError, match="Arbitrary slot bundles are no longer supported"):
+            agent.purchase_bundle_via_x402(quantity=1, bundle={"large": 2})
+        mock_http._session.post.assert_not_called()
 
-        assert result.plan_id == "_bundle"
-        assert mock_http._session.post.call_args[0][0] == "https://api.hypercli.com/agents/x402/_bundle"
-        assert mock_http._session.post.call_args[1]["json"] == {"quantity": 1, "bundle": {"large": 2}}
-
-    def test_create_x402_checkout_is_bundle_shim(self, mock_http):
+    def test_create_x402_checkout_requires_plan_id(self, mock_http):
         agent = HyperAgent(
             mock_http,
             agent_api_key="sk-hyper-test",
@@ -542,11 +625,9 @@ class TestHyperAgentClient:
         }
         mock_http._session.post.return_value = mock_response
 
-        result = agent.create_x402_checkout(quantity=1, bundle={"medium": 1})
-
-        assert result.plan_id == "_bundle"
-        assert mock_http._session.post.call_args[0][0] == "https://api.hypercli.com/agents/x402/_bundle"
-        assert mock_http._session.post.call_args[1]["json"] == {"quantity": 1, "bundle": {"medium": 1}}
+        with pytest.raises(ValueError, match="A canonical plan ID is required"):
+            agent.create_x402_checkout(quantity=1, bundle={"medium": 1})
+        mock_http._session.post.assert_not_called()
 
 class TestHyperAgentIntegration:
     """Integration tests for HyperAgent client (require running service)."""

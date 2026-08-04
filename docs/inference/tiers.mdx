@@ -3,24 +3,39 @@ title: Access Tiers
 description: Inference access is controlled by HyperCLI subscription plans
 ---
 
-Inference access limits (TPM/RPM) are controlled by your HyperCLI plan.
+Inference access is enforced from active entitlement snapshots. Daily tokens
+and derived TPM/RPM are pooled across all active entitlements, while agent
+slots remain exact-tier (`small`, `medium`, or `large`).
 
 ## Check Available Plans
 
 ```bash
-curl https://api.hypercli.com/api/plans
+curl https://api.hypercli.com/agents/plans
 ```
+
+The current paid contracts are:
+
+- Solo (`solo`): $39/month, 25M pooled tokens/day, one small agent slot
+- Team (`team`): $79/month, 50M pooled tokens/day, three medium agent slots
+- Pro (`pro`): $149/month, 100M pooled tokens/day, three large agent slots
+
+The catalog endpoint remains authoritative for checkout IDs and live feature
+availability.
 
 ## Check Your Current Plan
 
 ```bash
-curl https://api.hypercli.com/api/plans/current \
+curl https://api.hypercli.com/agents/plans/current \
   -H "Authorization: Bearer <jwt>"
 ```
 
 ## Notes
 
-- Authenticated x402 purchases attach plan/subscription data to your account.
-- Anonymous x402 purchases return standalone API keys.
+- Stripe is the recurring subscription provider. Stripe renewals materialize
+  or extend concrete entitlements.
+- Authenticated x402 purchases attach direct entitlements and payment records
+  to your account; they do not create recurring subscriptions.
+- Unauthenticated x402 purchases create or reuse a wallet-backed user and
+  return an API key for that account.
 
 See [Agents API](/agents/api) and [Inference for Agents](/agents/provider).

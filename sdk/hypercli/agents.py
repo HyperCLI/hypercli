@@ -1618,6 +1618,68 @@ class AgentRoutes:
         )
 
 
+@dataclass(frozen=True)
+class AgentSlotInventory:
+    """Aggregate capacity for one agent size."""
+
+    granted: int = 0
+    used: int = 0
+    available: int = 0
+
+    @classmethod
+    def from_dict(cls, data: dict | None) -> "AgentSlotInventory":
+        payload = data or {}
+        return cls(
+            granted=int(payload.get("granted", 0) or 0),
+            used=int(payload.get("used", payload.get("occupied", 0)) or 0),
+            available=int(payload.get("available", 0) or 0),
+        )
+
+
+@dataclass(frozen=True)
+class AgentSlot:
+    """One concrete launch slot granted by a main plan entitlement."""
+
+    id: str
+    entitlement_id: str | None
+    plan_id: str
+    size: str
+    agent_id: str | None
+    occupied: bool
+    expires_at: datetime | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "AgentSlot":
+        agent_id = data.get("agent_id")
+        return cls(
+            id=str(data.get("id") or ""),
+            entitlement_id=str(data["entitlement_id"]) if data.get("entitlement_id") else None,
+            plan_id=str(data.get("plan_id") or ""),
+            size=str(data.get("size") or ""),
+            agent_id=str(agent_id) if agent_id else None,
+            occupied=bool(data.get("occupied", agent_id is not None)),
+            expires_at=_parse_dt(data.get("expires_at")),
+        )
+
+
+@dataclass
+class AgentCapacity:
+    """Typed deployment-list envelope including stored and running capacity."""
+
+    items: list["Agent"]
+    total_agents: int
+    max_agents_per_account: int
+    running_agents: int
+    slots: dict[str, AgentSlotInventory] = field(default_factory=dict)
+    agent_slots: list[AgentSlot] = field(default_factory=list)
+    pooled_tpd: int = 0
+
+    @property
+    def agents(self) -> list["Agent"]:
+        """Readable alias for the wire-compatible ``items`` field."""
+        return self.items
+
+
 @dataclass
 class Agent:
     """Generic agent returned by the HyperClaw backend."""
@@ -2757,7 +2819,7 @@ class Deployments:
 
         Args:
             name: Agent name.
-            size: Size preset (small/medium/large). Default: medium.
+            size: Size preset (small/medium/large). When omitted, the backend defaults to small.
             config: Optional config overrides.
             env: Optional environment variables to pass through to the pod.
             ports: Optional exposed ports config.
@@ -3111,6 +3173,24 @@ class Deployments:
         Returns:
             List of Agent objects.
         """
+        return self.list_with_capacity(
+            state=state,
+            handle=handle,
+            name=name,
+            query=query,
+            include_deleted=include_deleted,
+        ).items
+
+    def list_with_capacity(
+        self,
+        *,
+        state: str | None = None,
+        handle: str | None = None,
+        name: str | None = None,
+        query: str | None = None,
+        include_deleted: bool | None = None,
+    ) -> AgentCapacity:
+        """List agents without discarding the account capacity envelope."""
         params = {
             "state": state,
             "handle": handle,
@@ -3119,8 +3199,21 @@ class Deployments:
             "include_deleted": include_deleted,
         }
         data = self._get(AGENTS_API_PREFIX, params={key: value for key, value in params.items() if value is not None})
-        items = data.get("items", data) if isinstance(data, dict) else data
-        return [self._hydrate_agent(p) for p in items]
+        payload = data if isinstance(data, dict) else {"items": data}
+        items = [self._hydrate_agent(item) for item in payload.get("items", [])]
+        running_fallback = sum(agent.state.upper() not in {"STOPPED", "FAILED"} for agent in items)
+        return AgentCapacity(
+            items=items,
+            total_agents=int(payload.get("total_agents", len(items)) or 0),
+            max_agents_per_account=int(payload.get("max_agents_per_account", 0) or 0),
+            running_agents=int(payload.get("running_agents", running_fallback) or 0),
+            slots={
+                str(size): AgentSlotInventory.from_dict(inventory)
+                for size, inventory in (payload.get("slots") or {}).items()
+            },
+            agent_slots=[AgentSlot.from_dict(slot) for slot in payload.get("agent_slots", [])],
+            pooled_tpd=int(payload.get("pooled_tpd", 0) or 0),
+        )
 
     def get(self, agent_id_or_name: str) -> Agent:
         """Get agent details by UUID or unique name.

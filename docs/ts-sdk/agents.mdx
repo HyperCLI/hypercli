@@ -42,10 +42,9 @@ Use this namespace for:
 - `subscriptions()`
 - `subscriptionSummary()`
 - `entitlements()`
-- `entitlementInstances()`
 - `purchaseEntitlementFromBalance(planId, { duration, tags? })`
 - `redeemGrantCode(code)`
-- `updateSubscription(subscriptionId, { bundle })`
+- `updateSubscription(subscriptionId, { planId, quantity })`
 - `cancelSubscription(subscriptionId)`
 - `models()`
 - `discoveryHealth()`
@@ -57,10 +56,9 @@ The key split is:
   effective current account state, including pooled inference, slot inventory, active entitlement count, and `billingResetAt`
 - `subscriptions()`
   recurring card-backed billing objects such as Stripe subscriptions, including `cancelAtPeriodEnd`
-- `entitlementInstances()`
-  concrete 1:1 entitlement grants with expiry, tags, features, and related agent bindings
 - `subscriptionSummary()`
-  combined account view that includes both the effective `entitlements` object and the active subscription list
+  combined account view that includes the effective `entitlements` object,
+  concrete grants in `entitlementItems`, and the active subscription list
 - `updateSubscription()`
   unified recurring billing mutation surface for upgrade, downgrade, and cancel-at-period-end
 
@@ -69,23 +67,24 @@ Example:
 ```ts
 const summary = await client.agent.subscriptionSummary();
 const entitlements = await client.agent.entitlements();
-const entitlementItems = await client.agent.entitlementInstances();
+const entitlementItems = summary.entitlementItems;
 const subscriptions = await client.agent.subscriptions();
 
-await client.agent.purchaseEntitlementFromBalance("basic", {
+await client.agent.purchaseEntitlementFromBalance("solo", {
   duration: 30 * 24 * 60 * 60,
   tags: ["customer=acme"],
 });
 
 await client.agent.redeemGrantCode("7f7d2f3a-1c4f-4d4d-8bdb-66a0df3d6f59");
 
-await client.agent.updateSubscription("sub_123", { bundle: { large: 1 } });
+await client.agent.updateSubscription("sub_123", { planId: "team", quantity: 1 });
 ```
 
-Use an empty bundle to cancel at period end:
+Subscription updates select one canonical plan and a positive quantity. Use
+the dedicated method to cancel at period end:
 
 ```ts
-await client.agent.updateSubscription("sub_123", { bundle: {} });
+await client.agent.cancelSubscription("sub_123");
 ```
 
 ## Grants And Balance Purchases
@@ -135,6 +134,9 @@ const agent = await client.deployments.create({
   env: { APP_ENV: "prod" },
 });
 ```
+
+Omitting `size` selects `small`. Choose `medium` or `large` explicitly only
+when the account has a compatible free slot.
 
 Routes can also be reconciled without restarting the deployment. `setRoutes`
 replaces the complete declarative map; `setRoute` and `removeRoute` mutate one

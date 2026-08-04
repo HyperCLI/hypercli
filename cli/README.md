@@ -44,13 +44,18 @@ hyper files upload ./source.png
 
 # HyperCLI checkout/config
 hyper agent plans
-hyper agent subscribe basic
+hyper agent subscribe solo
 hyper agent activate-code PROMO123
 hyper agent config env
 hyper agent exec <agent_id> "ls -la"
 hyper agent shell <agent_id>
 hyper agents create --index-on-session-start --index-on-search --index-watch
 ```
+
+The current paid plan IDs are `solo` ($39, 25M pooled tokens/day, one small
+agent), `team` ($79, 50M pooled tokens/day, up to three medium agents), and
+`pro` ($149, 100M pooled tokens/day, up to three large agents). Discover the
+live catalog with `hyper agent plans` before checkout.
 
 ## Notes
 

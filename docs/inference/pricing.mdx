@@ -6,11 +6,33 @@ description: HyperCLI plans and checkout options for inference
 Inference pricing is managed by HyperCLI plans.
 
 - Plans dashboard: [https://agents.hypercli.com/plans](https://agents.hypercli.com/plans)
-- Plans API: `GET https://api.hypercli.com/api/plans`
+- Paid-plan catalog API: `GET https://api.hypercli.com/agents/plans`
+
+## Current Plans
+
+| Plan ID | Price | Pooled inference | Included running slots |
+| --- | ---: | ---: | --- |
+| `solo` | $39/month | 25M tokens/day | 1 small agent |
+| `team` | $79/month | 50M tokens/day | 3 medium agents |
+| `pro` | $149/month | 100M tokens/day | 3 large agents |
+
+Each subscription quantity materializes that many plan entitlements. A Solo
+entitlement has one small slot; a Team entitlement has three medium slots; a
+Pro entitlement has three large slots. An available larger-tier slot can run
+an agent requesting a smaller size. Inference is always pooled across all active
+entitlements on the account.
+
+Pro is part of the billing and capacity contract. Model availability is a
+separate live catalog; query `GET /v1/models` instead of inferring a model from
+the plan name.
 
 ## Checkout Paths
 
 - Stripe checkout: `POST /agents/stripe/{plan_id}`
 - x402 checkout: `POST /agents/x402/{plan_id}`
+
+Stripe creates a recurring monthly subscription and materializes entitlements;
+the current plan entitlement-window setting is 32 days. x402 is a one-off
+direct entitlement purchase, and a full-price payment currently grants 30 days.
 
 See [Agents API](/agents/api) for request/response examples and behavior.

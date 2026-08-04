@@ -5,27 +5,30 @@ description: Check balances and inspect transaction history from the Python SDK.
 
 `client.billing` covers wallet balances and ledger-style transaction history.
 
-Recurring HyperCLI agent subscriptions are exposed separately under `client.agent`:
+HyperCLI plan billing is exposed separately through the Agents API. The current
+Python SDK surfaces are split between `client.agent` and `client.deployments`:
 
 - `client.agent.subscriptions()`
   recurring billing objects, including `cancel_at_period_end`
 - `client.agent.subscription_summary()`
-  combined account view with active subscriptions plus effective entitlements
+  combined account view with active subscriptions plus effective and concrete
+  entitlements (`summary.entitlement_items`)
 - `client.agent.entitlements()`
-  effective current account state, including slot inventory, pooled inference, and `billing_reset_at`
-- `client.agent.entitlement_instances()`
-  concrete 1:1 entitlement grants with expiry, tags, and related agent bindings
-- `client.agent.update_subscription(subscription_id, bundle)`
-  update a recurring billing subscription to a new bundle
+  the same account summary shape, including slot inventory, pooled inference,
+  concrete entitlement items, and `billing_reset_at`
+- `client.agent.cancel_subscription(subscription_id)`
+  schedule a recurring Stripe subscription for cancellation at period end
+- `client.agent.update_subscription(subscription_id, plan_id=..., quantity=1)`
+  change a recurring subscription using one canonical plan and quantity
+- `client.agent.redeem_grant_code(code, extend_existing=...)`
+  apply an activation-code grant
+- `client.deployments.purchase_entitlement_from_balance(...)`
+  charge Orchestra balance and apply the resulting grant
 
-`update_subscription(...)` is the primary write path:
-
-- upgrade
-  apply a larger bundle
-- downgrade
-  schedule a smaller bundle for the next billing boundary
-- cancel
-  pass an empty bundle, which resolves to period-end cancellation
+Concrete entitlement items are included in
+`subscription_summary().entitlement_items`. Subscription updates use one
+canonical `plan_id` and a positive `quantity`; use the dedicated cancellation
+method to cancel at period end.
 
 ## Balance
 

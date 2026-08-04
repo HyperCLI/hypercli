@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { HyperCLI } from '../src/client.js';
-import { HyperAgent } from '../src/agent.js';
+import { HyperAgent, hasActivePlan, parseHyperAgentPlanId } from '../src/agent.js';
 
 describe('HyperAgent API', () => {
   const client = new HyperCLI({ apiKey: 'hyper_api_test_key' });
@@ -118,15 +118,18 @@ describe('HyperAgent API', () => {
       return new Response(JSON.stringify({
         plans: [{
           id: 'pro',
-          name: '5 AIU',
-          price: 100,
-          aiu: 5,
-          agents: 1,
-          features: ['1 large agent'],
-          models: ['kimi-k2.5'],
-          limits: { tpd: 250000000, tpm: 173611, burst_tpm: 694444, rpm: 3472 },
-          tpm_limit: 173611,
-          rpm_limit: 3472,
+          name: 'Pro',
+          price: 149,
+          amount_cents: 14900,
+          contract_version: '2026-08',
+          agents: 3,
+          max_agent_size: 'large',
+          agent_resources: { max_agents: 3, total_cpu: 6, total_memory: 24 },
+          features: ['Up to 3 large agents'],
+          models: ['kimi-k2.6'],
+          limits: { tpd: 100000000, tpm: 69444, burst_tpm: 3472200, rpm: 347 },
+          tpm_limit: 69444,
+          rpm_limit: 347,
         }],
       }), {
         status: 200,
@@ -138,9 +141,18 @@ describe('HyperAgent API', () => {
       const plans = await agent.plans();
       expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/plans');
       expect((calls[0]?.init?.headers as Record<string, string>)?.Authorization).toBe('Bearer sk-hyper-test');
-      expect(plans[0]?.price).toBe(100);
-      expect(plans[0]?.features).toEqual(['1 large agent']);
-      expect(plans[0]?.limits.burstTpm).toBe(694444);
+      expect(plans[0]?.price).toBe(149);
+      expect(plans[0]?.canonicalId).toBe('pro');
+      expect(parseHyperAgentPlanId('team')).toBe('team');
+      expect(parseHyperAgentPlanId('free')).toBeNull();
+      expect(plans[0]?.features).toEqual(['Up to 3 large agents']);
+      expect(plans[0]?.limits.burstTpm).toBe(3472200);
+      expect(plans[0]?.amountCents).toBe(14900);
+      expect(plans[0]?.contractVersion).toBe('2026-08');
+      expect(plans[0]?.maxAgentSize).toBe('large');
+      expect(plans[0]?.slotGrants).toEqual({ large: 3 });
+      expect(plans[0]?.agentResources).toEqual({ maxAgents: 3, totalCpu: 6, totalMemory: 24 });
+      expect(plans[0]?.aiu).toBeUndefined();
     } finally {
       globalThis.fetch = fetchMock;
     }
@@ -156,10 +168,9 @@ describe('HyperAgent API', () => {
       calls.push({ url: String(input), init });
       return new Response(
         JSON.stringify({
-          id: 'basic',
-          name: '1 Agent',
-          price: 20,
-          aiu: 1,
+          id: 'solo',
+          name: 'Solo',
+          price: 39,
           limits: { tpd: 1, burst_tpm: 1, rpm: 1 },
           features: [],
         }),
@@ -236,7 +247,15 @@ describe('HyperAgent API', () => {
           pooled_tpd: 2000000,
           billing_reset_at: '2026-04-15T00:00:00Z',
           slot_inventory: { large: { granted: 2, used: 1, available: 1 } },
-          active_subscription_count: 1,
+          agent_slots: [{
+            id: 'slot-1',
+            entitlement_id: 'ent-1',
+            plan_id: 'pro',
+            size: 'large',
+            agent_id: 'agent-1',
+            occupied: true,
+          }],
+          active_subscription_count: 0,
           active_entitlement_count: 1,
           entitlement_items: [
             {
@@ -279,6 +298,9 @@ describe('HyperAgent API', () => {
       expect(summary.entitlementItems?.[0]?.slotGrants).toEqual({ large: 1 });
       expect(summary.entitlementItems?.[0]?.tpdLimit).toBe(1000000);
       expect(summary.entitlementItems?.[0]?.activeAgentIds).toEqual(['agent-1']);
+      expect(summary.agentSlots[0]?.size).toBe('large');
+      expect(summary.entitlements.agentSlots[0]?.agentId).toBe('agent-1');
+      expect(hasActivePlan(summary)).toBe(true);
       expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/subscriptions/summary');
       expect((calls[0]?.init?.headers as Record<string, string>)?.Authorization).toBe('Bearer sk-hyper-test');
     } finally {
@@ -374,6 +396,7 @@ describe('HyperAgent API', () => {
       const summary = await agent.entitlements();
       expect(summary.currentEntitlementId).toBe('sub-1');
       expect(summary.entitlements.slotInventory.large.granted).toBe(2);
+      expect(hasActivePlan(summary)).toBe(true);
       expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/entitlements');
     } finally {
       globalThis.fetch = fetchMock;
@@ -421,7 +444,7 @@ describe('HyperAgent API', () => {
     }
   });
 
-  it('updates a subscription bundle on the primary API host', async () => {
+  it('updates a recurring subscription plan and quantity on the primary API host', async () => {
     const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
     const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
     const fetchMock = globalThis.fetch;
@@ -436,8 +459,9 @@ describe('HyperAgent API', () => {
           subscription: {
             id: 'sub-1',
             user_id: 'user-1',
-            plan_id: 'medium',
-            plan_name: 'Medium',
+            plan_id: 'team',
+            plan_name: 'Team',
+            quantity: 2,
             provider: 'STRIPE',
             status: 'ACTIVE',
             cancel_at_period_end: false,
@@ -452,9 +476,10 @@ describe('HyperAgent API', () => {
     }) as typeof fetch;
 
     try {
-      const result = await agent.updateSubscription('sub-1', { bundle: { medium: 1 } });
+      const result = await agent.updateSubscription('sub-1', { planId: 'team', quantity: 2 });
       expect(result.ok).toBe(true);
-      expect(result.subscription?.planId).toBe('medium');
+      expect(result.subscription?.planId).toBe('team');
+      expect(result.subscription?.quantity).toBe(2);
       expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/subscriptions/sub-1/update');
       expect(calls[0]?.init?.method).toBe('POST');
       expect(calls[0]?.init?.headers).toEqual(
@@ -463,7 +488,7 @@ describe('HyperAgent API', () => {
           'Content-Type': 'application/json',
         }),
       );
-      expect(calls[0]?.init?.body).toBe(JSON.stringify({ bundle: { medium: 1 } }));
+      expect(calls[0]?.init?.body).toBe(JSON.stringify({ plan_id: 'team', quantity: 2 }));
     } finally {
       globalThis.fetch = fetchMock;
     }
@@ -529,7 +554,7 @@ describe('HyperAgent API', () => {
           grant: {
             id: 'grant-1',
             type: 'BALANCE',
-            plan_id: 'basic',
+            plan_id: 'solo',
             duration: 3600,
             tags: ['customer=acme'],
           },
@@ -537,8 +562,8 @@ describe('HyperAgent API', () => {
             id: 'ent-1',
             user_id: 'user-1',
             subscription_id: null,
-            plan_id: 'basic',
-            plan_name: '1 AIU',
+            plan_id: 'solo',
+            plan_name: 'Solo',
             provider: 'BALANCE',
             status: 'ACTIVE',
             starts_at: '2026-04-19T12:00:00Z',
@@ -568,11 +593,11 @@ describe('HyperAgent API', () => {
     }) as typeof fetch;
 
     try {
-      const result = await agent.purchaseEntitlementFromBalance('basic', { duration: 3600, tags: ['customer=acme'] });
+      const result = await agent.purchaseEntitlementFromBalance('solo', { duration: 3600, tags: ['customer=acme'] });
       expect(result.grant.type).toBe('BALANCE');
       expect(result.entitlement.startsAt?.toISOString()).toBe('2026-04-19T12:00:00.000Z');
       expect(result.payment?.provider).toBe('BALANCE');
-      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/billing/balance/basic');
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/billing/balance/solo');
       expect(calls[0]?.init?.method).toBe('POST');
       expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
         duration: 3600,
@@ -593,16 +618,16 @@ describe('HyperAgent API', () => {
       calls.push({ url: String(input), init });
       return new Response(
         JSON.stringify({
-          grant: { id: 'grant-1', type: 'BALANCE', plan_id: 'basic', duration: 3600 },
-          entitlement: { id: 'ent-1', plan_id: 'basic', provider: 'BALANCE', tags: [] },
+          grant: { id: 'grant-1', type: 'BALANCE', plan_id: 'solo', duration: 3600 },
+          entitlement: { id: 'ent-1', plan_id: 'solo', provider: 'BALANCE', tags: [] },
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     }) as typeof fetch;
 
     try {
-      await agent.purchaseEntitlementFromBalance('basic', { duration: 3600, extendExisting: true });
-      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/billing/balance/basic');
+      await agent.purchaseEntitlementFromBalance('solo', { duration: 3600, extendExisting: true });
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/billing/balance/solo');
       expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
         duration: 3600,
         extend_existing: true,
@@ -626,7 +651,7 @@ describe('HyperAgent API', () => {
             id: 'grant-1',
             type: 'ACTIVATION_CODE',
             code: 'promo-123',
-            plan_id: 'basic',
+            plan_id: 'solo',
             duration: 3600,
             tags: ['customer=acme'],
           },
@@ -634,8 +659,8 @@ describe('HyperAgent API', () => {
             id: 'ent-1',
             user_id: 'user-1',
             subscription_id: null,
-            plan_id: 'basic',
-            plan_name: '1 AIU',
+            plan_id: 'solo',
+            plan_name: 'Solo',
             provider: 'ACTIVATION_CODE',
             status: 'ACTIVE',
             starts_at: '2026-04-19T12:00:00Z',
@@ -678,7 +703,7 @@ describe('HyperAgent API', () => {
       return new Response(
         JSON.stringify({
           grant: { id: 'grant-1', type: 'ACTIVATION_CODE', code: 'promo-123' },
-          entitlement: { id: 'ent-1', plan_id: 'basic', provider: 'ACTIVATION_CODE' },
+          entitlement: { id: 'ent-1', plan_id: 'solo', provider: 'ACTIVATION_CODE' },
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
@@ -708,7 +733,7 @@ describe('HyperAgent API', () => {
         JSON.stringify({
           ok: true,
           key: 'hyper_api_x402',
-          plan_id: 'basic',
+          plan_id: 'solo',
           quantity: 1,
           bundle: { small: 1 },
           amount_paid: '20.00',
@@ -722,16 +747,17 @@ describe('HyperAgent API', () => {
     }) as typeof fetch;
 
     try {
-      const result = await agent.purchaseViaX402('basic', { quantity: 1, bundle: { small: 1 } });
-      expect(result.planId).toBe('basic');
-      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/x402/basic');
+      const result = await agent.purchaseViaX402('solo', { quantity: 1 });
+      expect(result.planId).toBe('solo');
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/x402/solo');
       expect(calls[0]?.init?.method).toBe('POST');
+      expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ quantity: 1 });
     } finally {
       globalThis.fetch = fetchMock;
     }
   });
 
-  it('purchases an x402 bundle through the explicit bundle route', async () => {
+  it('rejects the retired explicit x402 bundle route locally', async () => {
     const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
     const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
     const fetchMock = globalThis.fetch;
@@ -739,34 +765,19 @@ describe('HyperAgent API', () => {
 
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       calls.push({ url: String(input), init });
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          key: 'hyper_api_x402',
-          plan_id: '_bundle',
-          quantity: 1,
-          bundle: { large: 2 },
-          amount_paid: '200.00',
-          duration_days: 30,
-          expires_at: '2026-05-19T12:00:00Z',
-          tpm_limit: 1000,
-          rpm_limit: 10,
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      );
+      throw new Error('unexpected fetch');
     }) as typeof fetch;
 
     try {
-      const result = await agent.purchaseBundleViaX402({ quantity: 1, bundle: { large: 2 } });
-      expect(result.planId).toBe('_bundle');
-      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/x402/_bundle');
-      expect(calls[0]?.init?.method).toBe('POST');
+      await expect(agent.purchaseBundleViaX402({ quantity: 1, bundle: { large: 2 } }))
+        .rejects.toThrow('Arbitrary slot bundles are no longer supported');
+      expect(calls).toHaveLength(0);
     } finally {
       globalThis.fetch = fetchMock;
     }
   });
 
-  it('keeps legacy x402 checkout as a bundle-purchase shim', async () => {
+  it('requires a canonical plan ID for x402 checkout', async () => {
     const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
     const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
     const fetchMock = globalThis.fetch;
@@ -774,28 +785,13 @@ describe('HyperAgent API', () => {
 
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       calls.push({ url: String(input), init });
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          key: 'hyper_api_x402',
-          plan_id: '_bundle',
-          quantity: 1,
-          bundle: { medium: 1 },
-          amount_paid: '40.00',
-          duration_days: 30,
-          expires_at: '2026-05-19T12:00:00Z',
-          tpm_limit: 1000,
-          rpm_limit: 10,
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      );
+      throw new Error('unexpected fetch');
     }) as typeof fetch;
 
     try {
-      const result = await agent.createX402Checkout({ quantity: 1, bundle: { medium: 1 } });
-      expect(result.planId).toBe('_bundle');
-      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/x402/_bundle');
-      expect(calls[0]?.init?.method).toBe('POST');
+      await expect(agent.createX402Checkout({ quantity: 1 }))
+        .rejects.toThrow('A canonical plan ID is required');
+      expect(calls).toHaveLength(0);
     } finally {
       globalThis.fetch = fetchMock;
     }

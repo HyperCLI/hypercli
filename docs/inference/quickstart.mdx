@@ -38,7 +38,7 @@ curl https://api.hypercli.com/v1/messages \
   -H "anthropic-version: 2023-06-01" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "kimi-k2.5",
+    "model": "kimi-k2.6",
     "max_tokens": 512,
     "messages": [
       {
@@ -54,7 +54,8 @@ curl https://api.hypercli.com/v1/messages \
   }'
 ```
 
-Available models: `kimi-k2.5` (262K context) and `glm-5` (202K context, reasoning model).
+Current plan configuration includes `kimi-k2.6` and `glm-5`. Query
+`GET /v1/models` for the live model catalog and metadata.
 
 Or with Python:
 
@@ -67,7 +68,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="glm-5",  # or kimi-k2.5
+    model="glm-5",  # or kimi-k2.6
     messages=[{"role": "user", "content": "What is x402?"}]
 )
 print(response.choices[0].message.content)
@@ -89,8 +90,8 @@ hyper wallet create
 # Fund with USDC on Base (send to your wallet address)
 hyper wallet balance
 
-# Subscribe
-hyper agent subscribe basic
+# Buy one Solo entitlement
+hyper agent subscribe solo
 
 # Get your key
 hyper agent status
@@ -119,7 +120,7 @@ chmod +x x402-wallet
 ./x402-wallet create-payment \
   --pay-to <RECIPIENT_ADDRESS> \
   --token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 \
-  --amount 35000000
+  --amount 39000000
 ```
 
 See the [x402 wallet guide](/agents/x402-wallet) for the full flow.
@@ -138,7 +139,7 @@ curl https://api.hypercli.com/v1/models \
 From the dashboard or plans page, you can see your effective entitlements, active subscriptions, and billing reset timing.
 
 ```bash
-curl https://api.hypercli.com/api/plans/current \
+curl https://api.hypercli.com/agents/plans/current \
   -H "Authorization: Bearer <jwt-token>"
 ```
 

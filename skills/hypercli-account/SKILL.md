@@ -179,13 +179,17 @@ legacy status output.
 ## Subscribe, redeem, and onboard
 
 ```bash
-hyper agent subscribe basic 25
+hyper agent subscribe solo 39
 hyper agent activate-code <code>
 hyper agent activate-code <code> --extend-existing
 ```
 
-`subscribe` is an x402 wallet payment. Plan defaults to `basic`; an optional
-amount scales the duration. It can print the full returned key and writes
+`subscribe` is an x402 wallet payment. Use the live plan catalog and pass a
+canonical plan ID: `solo`, `team`, or `pro`. The current full-price contracts
+are Solo ($39, 25M pooled tokens/day, one small slot), Team ($79, 50M pooled
+tokens/day, three medium slots), and Pro ($149, 100M pooled tokens/day, three
+large slots). An optional amount scales the duration. It can print the full
+returned key and writes
 secret-bearing `~/.hypercli/agent-key.json` plus key history in
 `~/.hypercli/agent-keys.yaml`. Confirm live plan/amount and wallet balance,
 keep all output/state private, and do not retry an uncertain payment.
@@ -205,8 +209,8 @@ payment, provider config, and verification:
 
 ```bash
 hyper agent onboard --status
-hyper agent onboard --dry-run --plan basic --amount 25
-hyper agent onboard --plan basic --amount 25
+hyper agent onboard --dry-run --plan solo --amount 39
+hyper agent onboard --plan solo --amount 39
 ```
 
 It stores resumable state under `~/.hypercli/onboard/state.json`, a wallet QR,

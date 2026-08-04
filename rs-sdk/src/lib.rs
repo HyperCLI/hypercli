@@ -14,9 +14,12 @@ pub use config::{
     API_KEY_CONFIG_KEYS, DEFAULT_AGENTS_API_BASE,
 };
 pub use types::{
-    AgentSize, ApiKey, AuthMe, BuzzLaunchConfig, BuzzLaunchError, CreateApiKeyRequest,
-    CreateDeploymentRequest, Deployment, DeploymentRoutes, EntitlementsSummary,
-    ExecDeploymentRequest, ExecDeploymentResponse, ManagedRuntime, RouteConfig,
+    AgentCapacity, AgentSize, AgentSlot, AgentSlotInventory, ApiKey, AuthMe,
+    BuzzLaunchConfig, BuzzLaunchError, CreateApiKeyRequest, CreateDeploymentRequest,
+    Deployment, DeploymentRoutes, EntitlementsSummary, ExecDeploymentRequest,
+    ExecDeploymentResponse, HyperAgentCanonicalPlanId, HyperAgentCurrentPlan,
+    HyperAgentEntitlement, HyperAgentEntitlementsSummary, HyperAgentPlan,
+    HyperAgentPlanResources, HyperAgentSubscriptionSummary, ManagedRuntime, RouteConfig,
     SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
     BUZZ_RUNTIME_SCOPES,
 };

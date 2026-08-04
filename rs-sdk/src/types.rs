@@ -26,6 +26,173 @@ pub enum AgentSize {
     Large,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum HyperAgentCanonicalPlanId {
+    Solo,
+    Team,
+    Pro,
+}
+
+impl HyperAgentCanonicalPlanId {
+    /// Parse current public IDs without rejecting free, future, or historical wire IDs.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "solo" => Some(Self::Solo),
+            "team" => Some(Self::Team),
+            "pro" => Some(Self::Pro),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct AgentSlotInventory {
+    #[serde(default)]
+    pub granted: u32,
+    #[serde(default, alias = "occupied")]
+    pub used: u32,
+    #[serde(default)]
+    pub available: u32,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct AgentSlot {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub entitlement_id: Option<String>,
+    #[serde(default)]
+    pub plan_id: String,
+    #[serde(default)]
+    pub size: String,
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub occupied: bool,
+    #[serde(default)]
+    pub expires_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct HyperAgentPlan {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub price: Value,
+    #[serde(default)]
+    pub amount_cents: u64,
+    #[serde(default)]
+    pub contract_version: Option<String>,
+    #[serde(default)]
+    pub agents: u32,
+    #[serde(default)]
+    pub max_agent_size: Option<AgentSize>,
+    #[serde(default)]
+    pub agent_resources: Option<HyperAgentPlanResources>,
+    #[serde(default)]
+    pub tpm_limit: u64,
+    #[serde(default)]
+    pub rpm_limit: u64,
+    #[serde(default)]
+    pub features: Vec<String>,
+    #[serde(default)]
+    pub models: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct HyperAgentPlanResources {
+    #[serde(default)]
+    pub max_agents: u32,
+    #[serde(default)]
+    pub total_cpu: f64,
+    #[serde(default)]
+    pub total_memory: f64,
+}
+
+impl HyperAgentPlan {
+    pub fn canonical_id(&self) -> Option<HyperAgentCanonicalPlanId> {
+        HyperAgentCanonicalPlanId::parse(&self.id)
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct HyperAgentCurrentPlan {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub price: Value,
+    #[serde(default)]
+    pub agents: u32,
+    #[serde(default)]
+    pub tpm_limit: u64,
+    #[serde(default)]
+    pub rpm_limit: u64,
+    #[serde(default)]
+    pub pooled_tpd: u64,
+    #[serde(default)]
+    pub slot_inventory: BTreeMap<String, AgentSlotInventory>,
+    #[serde(default)]
+    pub agent_slots: Vec<AgentSlot>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct HyperAgentEntitlement {
+    pub id: String,
+    #[serde(default)]
+    pub subscription_id: Option<String>,
+    #[serde(default)]
+    pub plan_id: String,
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub tpm_limit: u64,
+    #[serde(default)]
+    pub rpm_limit: u64,
+    #[serde(default)]
+    pub tpd_limit: u64,
+    #[serde(default)]
+    pub slot_grants: BTreeMap<String, u32>,
+    #[serde(default)]
+    pub agent_slots: Vec<AgentSlot>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct HyperAgentEntitlementsSummary {
+    #[serde(default)]
+    pub effective_plan_id: String,
+    #[serde(default)]
+    pub pooled_tpm_limit: u64,
+    #[serde(default)]
+    pub pooled_rpm_limit: u64,
+    #[serde(default)]
+    pub pooled_tpd: u64,
+    #[serde(default)]
+    pub slot_inventory: BTreeMap<String, AgentSlotInventory>,
+    #[serde(default)]
+    pub agent_slots: Vec<AgentSlot>,
+    #[serde(default)]
+    pub active_subscription_count: u32,
+    #[serde(default)]
+    pub active_entitlement_count: u32,
+    #[serde(default)]
+    pub entitlement_items: Vec<HyperAgentEntitlement>,
+}
+
+impl HyperAgentEntitlementsSummary {
+    /// Whether any subscription or direct entitlement is currently active.
+    pub fn has_active_plan(&self) -> bool {
+        self.active_subscription_count > 0 || self.active_entitlement_count > 0
+    }
+}
+
+pub type EntitlementsSummary = HyperAgentEntitlementsSummary;
+pub type HyperAgentSubscriptionSummary = HyperAgentEntitlementsSummary;
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct RouteConfig {
     pub port: u16,
@@ -603,6 +770,24 @@ where
         Some(Raw::Str(value)) => value.trim().parse().ok(),
         _ => None,
     })
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct AgentCapacity {
+    #[serde(default)]
+    pub items: Vec<Deployment>,
+    #[serde(default)]
+    pub total_agents: u32,
+    #[serde(default)]
+    pub max_agents_per_account: u32,
+    #[serde(default)]
+    pub running_agents: u32,
+    #[serde(default)]
+    pub slots: BTreeMap<String, AgentSlotInventory>,
+    #[serde(default)]
+    pub agent_slots: Vec<AgentSlot>,
+    #[serde(default)]
+    pub pooled_tpd: u64,
 }
 
 #[cfg(test)]

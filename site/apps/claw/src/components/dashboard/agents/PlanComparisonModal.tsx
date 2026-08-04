@@ -61,6 +61,11 @@ function textValue(value: unknown): string {
   return "-";
 }
 
+function agentSizeLabel(plan: HyperAgentPlan): string {
+  if (!plan.maxAgentSize) return "-";
+  return plan.maxAgentSize.charAt(0).toUpperCase() + plan.maxAgentSize.slice(1);
+}
+
 function planSortValue(plan: HyperAgentPlan): number {
   const price = catalogPrice(plan);
   return price === null ? Number.POSITIVE_INFINITY : price;
@@ -135,14 +140,14 @@ export function PlanComparisonModal({ open, onClose, catalogPlans }: PlanCompari
       values: rowValues(comparisonPlans, priceLabel),
     },
     {
-      label: "AIU",
+      label: "Agent slots",
       icon: Cpu,
-      values: rowValues(comparisonPlans, (plan) => textValue(plan.aiu)),
+      values: rowValues(comparisonPlans, (plan) => textValue(plan.agents)),
     },
     {
-      label: "Agents",
+      label: "Largest agent",
       icon: Package,
-      values: rowValues(comparisonPlans, (plan) => textValue(plan.agents)),
+      values: rowValues(comparisonPlans, agentSizeLabel),
     },
     {
       label: "Daily tokens",

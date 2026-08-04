@@ -13,7 +13,6 @@ function toDisplayPlan(plan: HyperAgentPlan): Plan {
     id: plan.id,
     name: plan.name,
     price: plan.price,
-    aiu: plan.aiu,
     agents: plan.agents,
     features: plan.features,
     models: plan.models,
@@ -68,7 +67,7 @@ export function PricingSection() {
             />
           </motion.div>
 
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {plans.map((plan, index) => {
               const includedAgents = plan.agents ?? 0;
               return (
@@ -89,7 +88,7 @@ export function PricingSection() {
                     price={`$${plan.price}`}
                     highlighted={Boolean(plan.highlighted)}
                     eyebrow={plan.highlighted ? "Most Popular" : undefined}
-                    summary={<>{plan.aiu} AIU &middot; {formatTokens(plan.limits.tpd)} tokens/day</>}
+                    summary={<>{includedAgents} agent slot{includedAgents === 1 ? "" : "s"} &middot; {formatTokens(plan.limits.tpd)} tokens/day</>}
                     detail={
                       <>
                         Up to {formatTokens(plan.limits.burst_tpm)} TPM burst &middot; {formatTokens(plan.limits.rpm)} RPM

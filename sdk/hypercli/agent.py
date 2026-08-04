@@ -4,12 +4,14 @@ HyperAgent API client
 Provides access to the HyperClaw inference API for AI agents.
 Uses the official OpenAI Python client for chat completions.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import quote, urlsplit
 
 from .config import get_agents_api_base_url
+from .agents import AgentSlot
 from .http import HTTPClient
 
 try:
@@ -21,6 +23,22 @@ except ImportError:
     OPENAI_AVAILABLE = False
 
 
+class HyperAgentCanonicalPlanId(str, Enum):
+    """Current public plan IDs; wire plan IDs remain open strings."""
+
+    SOLO = "solo"
+    TEAM = "team"
+    PRO = "pro"
+
+
+def parse_hyper_agent_plan_id(value: object) -> HyperAgentCanonicalPlanId | None:
+    """Return a canonical plan ID without rejecting free, future, or historical IDs."""
+    try:
+        return HyperAgentCanonicalPlanId(str(value).strip().lower())
+    except ValueError:
+        return None
+
+
 @dataclass
 class HyperAgentPlan:
     """HyperAgent subscription plan."""
@@ -30,16 +48,38 @@ class HyperAgentPlan:
     price_usd: float
     tpm_limit: int
     rpm_limit: int
+    amount_cents: int = 0
+    contract_version: str | None = None
+    agents: int = 0
+    max_agent_size: str | None = None
+    slot_grants: dict[str, int] = field(default_factory=dict)
+    agent_resources: dict[str, Any] | None = None
+    aiu: int | None = None
+
+    @property
+    def canonical_id(self) -> HyperAgentCanonicalPlanId | None:
+        return parse_hyper_agent_plan_id(self.id)
 
     @classmethod
     def from_dict(cls, data: dict) -> "HyperAgentPlan":
         price = data.get("price_usd", data.get("price", 0))
+        agents = int(data.get("agents", 0) or 0)
+        max_agent_size = data.get("max_agent_size")
+        if max_agent_size not in {"small", "medium", "large"}:
+            max_agent_size = None
         return cls(
             id=data["id"],
             name=data.get("name", data["id"]),
             price_usd=float(price or 0),
             tpm_limit=int(data.get("tpm_limit", 0)),
             rpm_limit=int(data.get("rpm_limit", 0)),
+            amount_cents=int(data.get("amount_cents", 0) or 0),
+            contract_version=data.get("contract_version"),
+            agents=agents,
+            max_agent_size=max_agent_size,
+            slot_grants={max_agent_size: agents} if max_agent_size and agents > 0 else {},
+            agent_resources=data.get("agent_resources") or None,
+            aiu=data.get("aiu"),
         )
 
 
@@ -60,6 +100,7 @@ class HyperAgentCurrentPlan:
     seconds_remaining: int | None = None
     pooled_tpd: int = 0
     slot_inventory: dict[str, Any] | None = None
+    agent_slots: list[AgentSlot] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict) -> "HyperAgentCurrentPlan":
@@ -80,6 +121,7 @@ class HyperAgentCurrentPlan:
             seconds_remaining=data.get("seconds_remaining"),
             pooled_tpd=int(data.get("pooled_tpd", 0) or 0),
             slot_inventory=data.get("slot_inventory") or None,
+            agent_slots=[AgentSlot.from_dict(slot) for slot in data.get("agent_slots", [])],
         )
 
 
@@ -107,11 +149,14 @@ class HyperAgentSubscription:
     plan_agent_tier: str | None = None
     slot_grants: dict[str, int] | None = None
     entitlements: list["HyperAgentEntitlement"] | None = None
+    agent_slots: list[AgentSlot] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict) -> "HyperAgentSubscription":
         expires_at = data.get("current_period_end", data.get("expires_at"))
         updated_at = data.get("updated_at")
+        entitlements = [HyperAgentEntitlement.from_dict(item) for item in data.get("entitlements", [])]
+        direct_slots = [AgentSlot.from_dict(slot) for slot in data.get("agent_slots", [])]
         return cls(
             id=data["id"],
             user_id=data.get("user_id", ""),
@@ -132,7 +177,26 @@ class HyperAgentSubscription:
             plan_tpd=int(data.get("plan_tpd", 0) or 0),
             plan_agent_tier=data.get("plan_agent_tier"),
             slot_grants=data.get("slot_grants") or None,
-            entitlements=[HyperAgentEntitlement.from_dict(item) for item in data.get("entitlements", [])] or None,
+            entitlements=entitlements or None,
+            agent_slots=direct_slots or [slot for entitlement in entitlements for slot in entitlement.agent_slots],
+        )
+
+
+@dataclass
+class HyperAgentSubscriptionMutationResult:
+    """Result of changing a recurring HyperClaw subscription."""
+
+    ok: bool
+    message: str
+    subscription: HyperAgentSubscription | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentSubscriptionMutationResult":
+        subscription = data.get("subscription")
+        return cls(
+            ok=bool(data.get("ok", False)),
+            message=str(data.get("message", "")),
+            subscription=HyperAgentSubscription.from_dict(subscription) if subscription else None,
         )
 
 
@@ -160,6 +224,7 @@ class HyperAgentEntitlement:
     slot_grants: dict[str, int] | None = None
     active_agent_count: int = 0
     active_agent_ids: list[str] | None = None
+    agent_slots: list[AgentSlot] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict) -> "HyperAgentEntitlement":
@@ -187,6 +252,7 @@ class HyperAgentEntitlement:
             slot_grants=data.get("slot_grants") or None,
             active_agent_count=int(data.get("active_agent_count", 0) or 0),
             active_agent_ids=data.get("active_agent_ids") or [],
+            agent_slots=[AgentSlot.from_dict(slot) for slot in data.get("agent_slots", [])],
         )
 
 
@@ -201,6 +267,7 @@ class HyperAgentEntitlements:
     slot_inventory: dict[str, Any]
     active_entitlement_count: int
     billing_reset_at: datetime | None = None
+    agent_slots: list[AgentSlot] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict) -> "HyperAgentEntitlements":
@@ -222,6 +289,7 @@ class HyperAgentEntitlements:
             billing_reset_at=datetime.fromisoformat(str(billing_reset_at).replace("Z", "+00:00"))
             if billing_reset_at
             else None,
+            agent_slots=[AgentSlot.from_dict(slot) for slot in (payload.get("agent_slots") or data.get("agent_slots") or [])],
         )
 
 @dataclass
@@ -243,6 +311,12 @@ class HyperAgentSubscriptionSummary:
     active_subscriptions: list[HyperAgentSubscription]
     subscriptions: list[HyperAgentSubscription]
     user: dict[str, Any]
+    agent_slots: list[AgentSlot] = field(default_factory=list)
+
+    @property
+    def has_active_plan(self) -> bool:
+        """Whether any subscription or direct entitlement is currently active."""
+        return self.active_subscription_count > 0 or self.active_entitlement_count > 0
 
     @property
     def has_active_plan(self) -> bool:
@@ -269,6 +343,7 @@ class HyperAgentSubscriptionSummary:
             active_subscriptions=[HyperAgentSubscription.from_dict(item) for item in data.get("active_subscriptions", [])],
             subscriptions=[HyperAgentSubscription.from_dict(item) for item in data.get("subscriptions", [])],
             user=data.get("user") or {},
+            agent_slots=[AgentSlot.from_dict(slot) for slot in data.get("agent_slots", [])],
         )
 
 
@@ -889,6 +964,32 @@ class HyperAgent:
         response.raise_for_status()
         return response.json()
 
+    def update_subscription(
+        self,
+        subscription_id: str,
+        *,
+        plan_id: str | HyperAgentCanonicalPlanId,
+        quantity: int = 1,
+    ) -> HyperAgentSubscriptionMutationResult:
+        """Change a recurring subscription to a named plan and quantity."""
+        normalized_subscription_id = str(subscription_id or "").strip()
+        normalized_plan_id = (
+            plan_id.value
+            if isinstance(plan_id, HyperAgentCanonicalPlanId)
+            else str(plan_id or "").strip()
+        )
+        if not normalized_subscription_id:
+            raise ValueError("subscription_id is required")
+        if not normalized_plan_id:
+            raise ValueError("plan_id is required")
+        if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity < 1:
+            raise ValueError("quantity must be a positive integer")
+        data = self._control_post(
+            f"/subscriptions/{quote(normalized_subscription_id, safe='')}/update",
+            {"plan_id": normalized_plan_id, "quantity": quantity},
+        )
+        return HyperAgentSubscriptionMutationResult.from_dict(data)
+
     def redeem_grant_code(self, code: str, *, extend_existing: bool | None = None) -> Dict[str, Any]:
         payload: dict[str, Any] = {"code": str(code)}
         if extend_existing is not None:
@@ -908,11 +1009,11 @@ class HyperAgent:
         quantity: int | None = None,
         bundle: dict[str, int] | None = None,
     ) -> HyperAgentX402CheckoutResponse:
+        if bundle is not None:
+            raise ValueError("Arbitrary slot bundles are no longer supported; purchase a canonical plan")
         payload: dict[str, Any] = {}
         if quantity is not None:
             payload["quantity"] = int(quantity)
-        if bundle is not None:
-            payload["bundle"] = {str(k): int(v) for k, v in bundle.items()}
         response = self._http._session.post(
             f"{self._control_base_url}/x402/{quote(str(plan_id), safe='')}",
             headers={"Authorization": f"Bearer {self._api_key}"},
@@ -927,18 +1028,7 @@ class HyperAgent:
         quantity: int | None = None,
         bundle: dict[str, int] | None = None,
     ) -> HyperAgentX402CheckoutResponse:
-        payload: dict[str, Any] = {}
-        if quantity is not None:
-            payload["quantity"] = int(quantity)
-        if bundle is not None:
-            payload["bundle"] = {str(k): int(v) for k, v in bundle.items()}
-        response = self._http._session.post(
-            f"{self._control_base_url}/x402/_bundle",
-            headers={"Authorization": f"Bearer {self._api_key}"},
-            json=payload,
-        )
-        response.raise_for_status()
-        return HyperAgentX402CheckoutResponse.from_dict(response.json())
+        raise ValueError("Arbitrary slot bundles are no longer supported; purchase a solo, team, or pro plan")
 
     def create_x402_checkout(
         self,
@@ -946,8 +1036,7 @@ class HyperAgent:
         quantity: int | None = None,
         bundle: dict[str, int] | None = None,
     ) -> HyperAgentX402CheckoutResponse:
-        """Backward-compatible bundle x402 checkout shim."""
-        return self.purchase_bundle_via_x402(quantity=quantity, bundle=bundle)
+        raise ValueError("A canonical plan ID is required; use purchase_via_x402(plan_id, ...) instead")
 
     def discovery_health(self) -> Dict[str, Any]:
         response = self._http._session.get(f"{self._api_base_without_v1()}/discovery/health")

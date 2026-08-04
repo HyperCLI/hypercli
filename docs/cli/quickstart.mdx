@@ -48,7 +48,7 @@ hyper jobs shell <job_id>
 
 ```bash
 hyper agent plans
-hyper agent subscribe basic
+hyper agent subscribe solo
 hyper agent status
 ```
 
@@ -60,12 +60,12 @@ hyper config openclaw --apply
 ```
 
 `hyper config openclaw --apply` writes `~/.openclaw/openclaw.json` and
-sets `hypercli/kimi-k2.5` as the primary coding model.
+sets `hypercli/kimi-k2.6` as the primary coding model.
 
 ## Create An Agent
 
 ```bash
-hyper agents create --name docs-demo --size medium --wait
+hyper agents create --name docs-demo --size small --wait
 ```
 
 Current defaults:
@@ -76,7 +76,7 @@ Current defaults:
 For Chrome/browser automation and a noVNC desktop:
 
 ```bash
-hyper agents create --name docs-demo --size medium --desktop --wait
+hyper agents create --name docs-demo --size small --desktop --wait
 ```
 
 That uses the OpenClaw pro image, sets `OPENCLAW_DESKTOP_ENABLED=1`, and exposes `https://desktop-docs-demo.hypercli.app`.

@@ -13,6 +13,7 @@ from hypercli.agents import (
     AGENT_FILE_OPERATION_TIMEOUT_SECONDS,
     AGENT_FILE_TRANSFER_CHUNK_BYTES,
     Agent,
+    AgentCapacity,
     AgentRoutes,
     DEFAULT_AGENT_RUNTIME_SCOPES,
     DEFAULT_OPENCLAW_IMAGE,
@@ -1572,6 +1573,47 @@ def test_agents_list(agents_client):
         assert agents[0].id == "agent-1"
         assert agents[1].state == "stopped"
         assert all(agent._deployments is agents_client for agent in agents)
+
+
+def test_agents_list_with_capacity_preserves_envelope(agents_client):
+    payload = {
+        "items": [
+            {
+                "id": "agent-1",
+                "user_id": "user-456",
+                "pod_id": "pod-1",
+                "pod_name": "pod-1",
+                "state": "RUNNING",
+            }
+        ],
+        "total_agents": 1,
+        "max_agents_per_account": 10,
+        "running_agents": 1,
+        "slots": {"large": {"granted": 3, "used": 1, "available": 2}},
+        "agent_slots": [
+            {
+                "id": "slot-1",
+                "entitlement_id": "ent-1",
+                "plan_id": "pro",
+                "size": "large",
+                "agent_id": "agent-1",
+                "occupied": True,
+                "expires_at": "2026-09-01T00:00:00Z",
+            }
+        ],
+        "pooled_tpd": 100_000_000,
+    }
+    with patch.object(agents_client, "_get", return_value=payload):
+        capacity = agents_client.list_with_capacity()
+
+    assert isinstance(capacity, AgentCapacity)
+    assert capacity.items[0].id == "agent-1"
+    assert capacity.max_agents_per_account == 10
+    assert capacity.running_agents == 1
+    assert capacity.slots["large"].available == 2
+    assert capacity.agent_slots[0].plan_id == "pro"
+    assert capacity.agent_slots[0].expires_at is not None
+    assert capacity.pooled_tpd == 100_000_000
 
 
 def test_agents_list_passes_filters(agents_client):

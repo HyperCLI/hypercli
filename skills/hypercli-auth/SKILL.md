@@ -266,9 +266,18 @@ A `403` usually means a valid identity lacks the requested capability. Inspect
 the `capabilities` shown by `hyper me`; do not substitute another credential
 without the user's authorization.
 
-`has_active_subscription: false` describes account entitlement state. It does
-not mean the API key itself is inactive. Conversely, an unexpired timestamp in
-`agent-key.json` does not prove the server still accepts that key.
+Orchestra `/api/auth/me` field `has_active_subscription` describes the
+Orchestra product subscription only. It is **not** HyperClaw plan or agent
+entitlement truth. Read HyperClaw `GET /agents/subscriptions/summary` and treat
+the account as active when either `active_subscription_count > 0` or
+`active_entitlement_count > 0`; activation-code and other direct entitlements
+can make the latter positive while the former remains zero. A `401` or `403`
+from that summary means plan state is unknown to the selected key, not that the
+account has no plan. Never show a no-plan conclusion from that failure.
+
+An Orchestra `has_active_subscription: false` does not mean the API key itself
+is inactive. Conversely, an unexpired timestamp in `agent-key.json` does not
+prove the server still accepts that key.
 
 Hosted runtime keys are revoked by the control plane during runtime cleanup.
 Do not copy an injected runtime key into persistent config or vendor auth files.

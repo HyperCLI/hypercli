@@ -87,7 +87,7 @@ the HyperClaw inference base URL for chat completions:
 from hypercli import HyperCLI
 from openai import OpenAI
 
-sdk = HyperCLI(api_key="hyper_api_key", agent_api_key="sk-agent")
+sdk = HyperCLI(api_key="hyper_api_key", agent_api_key="hyper_api_agent_key")
 plans = sdk.agent.plans()
 activation = sdk.agent.redeem_grant_code("PROMO123")
 renewal = sdk.agent.redeem_grant_code("PROMO123", extend_existing=True)
@@ -105,6 +105,20 @@ response = client.chat.completions.create(
 
 `redeem_grant_code()` applies a promo/activation code to the current HyperClaw account and returns the created entitlement. Codes create new entitlements by default; pass `extend_existing=True` only for renewal/extension behavior.
 
+Plan IDs are open strings on the wire so future and historical plans continue
+to parse. `plan.canonical_id` recognizes the current `solo`, `team`, and `pro`
+IDs. Plan access comes from the HyperClaw summary, including direct grants:
+
+```python
+summary = sdk.agent.subscription_summary()
+if summary.has_active_plan:  # active subscription OR direct entitlement
+    print(summary.agent_slots)
+```
+
+Do not substitute the Orchestra `/api/auth/me` subscription flag. If the
+summary request returns `401` or `403`, the selected key cannot establish plan
+state; treat it as unknown rather than as no plan.
+
 ## OpenClaw Agents
 
 OpenClaw uses the generic deployment launch surface. `registry_url`, `registry_auth`, `sync_root`, and `sync_enabled` are generic deployment options; the OpenClaw helpers only add defaults such as routes, image, and `sync_root=/home/node`.
@@ -116,7 +130,16 @@ agent = client.deployments.create_openclaw(
     registry_url="git.nedos.co",
     registry_auth={"username": "ci", "password": "token"},
 )
+
+capacity = client.deployments.list_with_capacity()
+print(capacity.max_agents_per_account, capacity.running_agents)
+for slot in capacity.agent_slots:
+    print(slot.size, slot.plan_id, slot.agent_id)
 ```
+
+`list()` remains the compatibility list of agents. `list_with_capacity()`
+preserves the full deployment envelope: saved/running account limits, pooled
+TPD, aggregate slot inventory, and individual entitlement-backed agent slots.
 
 Use `create_openclaw_pro(...)` for the desktop/browser image. It enables noVNC through the protected `desktop-<agent>.hypercli.app` route and sets `OPENCLAW_DESKTOP_ENABLED=1`.
 

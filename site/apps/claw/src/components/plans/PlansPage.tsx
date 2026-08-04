@@ -8,7 +8,6 @@ import type {
   HyperAgentSubscriptionSummary,
 } from "@hypercli.com/sdk/agent";
 import {
-  BriefcaseBusiness,
   Check,
   ChevronDown,
   CircleDot,
@@ -212,8 +211,7 @@ function formatShortDate(value: Date | null | undefined): string {
 
 function PlanIcon({ name, className = "h-5 w-5" }: { name: string; className?: string }) {
   const normalized = name.toLowerCase();
-  if (normalized.includes("basic") || normalized.includes("free")) return <CircleDot className={className} />;
-  if (normalized.includes("plus")) return <BriefcaseBusiness className={className} />;
+  if (normalized.includes("solo") || normalized.includes("free")) return <CircleDot className={className} />;
   if (normalized.includes("pro")) return <Rocket className={className} />;
   if (normalized.includes("team")) return <Sparkles className={className} />;
   return <Code2 className={className} />;

@@ -2,13 +2,11 @@
 
 Set up HyperClaw LLM API access for OpenClaw agents.
 
-> **⚠️ Important: HyperCLI vs HyperClaw API Keys**
-> 
-> These are **two different things**:
-> - **HyperCLI API Key** — Used for GPU orchestration, job management, and billing at `api.hypercli.com`
-> - **HyperClaw API Key** — Used for LLM inference (chat completions) at `api.hypercli.com`
-> 
-> This guide sets up a **HyperClaw** API key for LLM access. HyperClaw keys start with `sk-`.
+> **Important: use the managed account key**
+>
+> Current self-service onboarding returns a `hyper_api_...` key for inference
+> and agent operations. Raw LiteLLM `sk-...` keys exist only for out-of-band
+> flat-rate customers and are not issued by this flow.
 
 ## Quick Start (Recommended)
 
@@ -19,21 +17,21 @@ The fastest way to get set up:
 pip install "hypercli-cli[all]"
 
 # 2. Run guided onboarding
-hyper claw onboard
+hyper agent onboard
 ```
 
 This walks you through everything: wallet creation, funding, plan selection, payment, OpenClaw config, and verification.
 
 **Options:**
 ```bash
-hyper claw onboard --dry-run   # Preview steps without making changes
-hyper claw onboard --json      # JSON mode for agent integration (writes state to ~/.hypercli/onboard/state.json)
-hyper claw onboard --plan basic --amount 35  # Skip prompts
-hyper claw onboard --status    # Check onboard progress
-hyper claw onboard --reset     # Start fresh
+hyper agent onboard --dry-run   # Preview steps without making changes
+hyper agent onboard --json      # JSON mode for agent integration (writes state to ~/.hypercli/onboard/state.json)
+hyper agent onboard --plan solo --amount 39  # Skip prompts
+hyper agent onboard --status    # Check onboard progress
+hyper agent onboard --reset     # Start fresh
 ```
 
-The onboard flow is resumable — if interrupted (Ctrl+C, network error), just run `hyper claw onboard` again to pick up where you left off.
+The onboard flow is resumable — if interrupted (Ctrl+C, network error), just run `hyper agent onboard` again to pick up where you left off.
 
 ## Manual Steps (Alternative)
 
@@ -74,28 +72,30 @@ hyper wallet balance
 
 View available plans:
 ```bash
-hyper claw plans
+hyper agent plans
 ```
 
 Plans and pricing:
-- **basic** (1 Agent): $35/mo — 100K TPM / 2K RPM
-- **plus** (2 Agents): $65/mo — 200K TPM / 4K RPM
-- **pro** (5 Agents): $120/mo — 500K TPM / 10K RPM
-- **team** (10 Agents): $225/mo — 1M TPM / 20K RPM
+- **Solo** (`solo`): $39/month — 25M pooled tokens/day and 1 small agent
+- **Team** (`team`): $79/month — 50M pooled tokens/day and up to 3 medium agents
+- **Pro** (`pro`): $149/month — 100M pooled tokens/day and up to 3 large agents
+
+Inference is pooled across every active entitlement. Each additional plan
+quantity adds another entitlement and its included slots.
 
 Subscribe:
 ```bash
-hyper claw subscribe basic 35    # 1 Agent plan
-hyper claw subscribe pro 120   # 5 Agents plan
+hyper agent subscribe solo 39
+hyper agent subscribe team 79
 ```
 
-On success, your API key is saved to `~/.hypercli/claw-key.json`.
+On success, your API key is saved to `~/.hypercli/agent-key.json`.
 
 ### 5. Configure OpenClaw
 
 ```bash
 # Patch config and set as default model
-hyper claw openclaw-setup --default
+hyper config openclaw --apply
 
 # Restart OpenClaw
 openclaw gateway restart
@@ -105,7 +105,7 @@ openclaw gateway restart
 
 ```bash
 curl -s https://api.hypercli.com/v1/models \
-  -H "Authorization: Bearer $(jq -r '.key' ~/.hypercli/claw-key.json)"
+  -H "Authorization: Bearer $(jq -r '.key' ~/.hypercli/agent-key.json)"
 ```
 
 ## Agent Integration (JSON Mode)
@@ -113,7 +113,7 @@ curl -s https://api.hypercli.com/v1/models \
 For OpenClaw agents onboarding users programmatically:
 
 ```bash
-hyper claw onboard --json --plan basic --amount 35
+hyper agent onboard --json --plan solo --amount 39
 ```
 
 State is written to `~/.hypercli/onboard/state.json` at each step:
@@ -130,10 +130,10 @@ State is written to `~/.hypercli/onboard/state.json` at each step:
 ```
 
 The agent can:
-1. Run `hyper claw onboard --json` 
+1. Run `hyper agent onboard --json`
 2. Poll `--status` to check progress
 3. Send the QR image from `qr_path` to the user
-4. Resume with `hyper claw onboard --json` after user funds wallet
+4. Resume with `hyper agent onboard --json` after user funds wallet
 
 ## Troubleshooting
 
@@ -144,22 +144,24 @@ If you forget your passphrase, create a new wallet and transfer funds.
 USDC must be on **Base network** (not Ethereum mainnet). Check with `hyper wallet balance`.
 
 ### Key not working
-Run `hyper claw status` to check expiration. Renew with `hyper claw subscribe`.
+Run `hyper agent status` to check expiration. Renew with `hyper agent subscribe`.
 
 ### Rate limits
-1AIU = 100K TPM / 2K RPM. Upgrade to higher plans for more capacity.
+Daily tokens are the source of truth and are pooled across active entitlements:
+25M for Solo, 50M for Team, and 100M for Pro. Query `hyper agent current-plan`
+for the effective derived TPM/RPM values and current slot inventory.
 
 ## Quick Reference
 
 | Command | Description |
 |---------|-------------|
-| `hyper claw onboard` | **Guided setup (recommended)** |
-| `hyper claw onboard --dry-run` | Preview onboarding steps |
-| `hyper claw onboard --json` | JSON mode for agent integration |
-| `hyper claw plans` | List available plans |
-| `hyper claw subscribe basic 35` | Purchase 1 Agent plan |
-| `hyper claw status` | Check subscription status |
-| `hyper claw openclaw-setup` | Patch OpenClaw config |
+| `hyper agent onboard` | **Guided setup (recommended)** |
+| `hyper agent onboard --dry-run` | Preview onboarding steps |
+| `hyper agent onboard --json` | JSON mode for agent integration |
+| `hyper agent plans` | List available plans |
+| `hyper agent subscribe solo 39` | Purchase one Solo entitlement |
+| `hyper agent status` | Check local entitlement-key status |
+| `hyper config openclaw --apply` | Patch OpenClaw config |
 | `hyper wallet create` | Create new wallet |
 | `hyper wallet address` | Show wallet address |
 | `hyper wallet qr -o file.png` | Save QR code |

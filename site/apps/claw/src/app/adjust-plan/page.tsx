@@ -121,8 +121,8 @@ function getPlanIcon(plan: HyperAgentPlan): LucideIcon {
   const label = `${plan.id} ${plan.name}`.toLowerCase();
   if (label.includes("enterprise") || label.includes("business")) return BriefcaseBusiness;
   if (label.includes("team") || label.includes("org")) return UsersRound;
-  if (label.includes("pro") || label.includes("plus")) return Rocket;
-  if (label.includes("free") || label.includes("simple") || label.includes("basic")) return Sparkles;
+  if (label.includes("pro")) return Rocket;
+  if (label.includes("solo") || label.includes("free")) return Sparkles;
   return Bot;
 }
 

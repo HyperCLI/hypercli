@@ -70,7 +70,8 @@ describe("EmbeddedPlanCheckout", () => {
     await waitFor(() => expect(mocks.hyperAgent.createStripeCheckout).toHaveBeenCalledTimes(1));
     const [request, planId] = mocks.hyperAgent.createStripeCheckout.mock.calls[0];
     expect(planId).toBe("pro");
-    expect(request).toMatchObject({ quantity: 1, bundle: { large: 1 } });
+    expect(request).toMatchObject({ quantity: 1 });
+    expect(request).not.toHaveProperty("bundle");
     expect(request.successUrl).toContain("checkout=success");
     expect(request.cancelUrl).toContain("checkout=cancelled");
     expect(await screen.findByRole("alert")).toHaveTextContent("stop before redirect");
@@ -111,6 +112,7 @@ describe("EmbeddedPlanCheckout", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Pay $80 USDC" }));
 
     await waitFor(() => expect(onSuccess).toHaveBeenCalledOnce());
+    expect(mocks.hyperAgent.purchaseViaX402WithSigner.mock.calls[0]?.[1]).not.toHaveProperty("bundle");
     expect(screen.getByRole("heading", { name: "Capacity unlocked" })).toBeInTheDocument();
     expect(readPendingPlanCheckout("user-1")).toMatchObject({
       planId: "pro",

@@ -8,7 +8,7 @@ description: Create and control an OpenClaw agent pod in a few commands.
 1. A HyperCLI key:
 
    ```bash
-   hyper agent subscribe basic
+   hyper agent subscribe solo
    ```
 
 2. The CLI installed:
@@ -28,7 +28,7 @@ description: Create and control an OpenClaw agent pod in a few commands.
 ## Create An Agent With The CLI
 
 ```bash
-hyper agents create --name my-agent --size medium --wait
+hyper agents create --name my-agent --size small --wait
 hyper agents status my-agent
 hyper agents exec my-agent "echo hello world"
 hyper agents shell my-agent
@@ -48,7 +48,7 @@ from hypercli import HyperCLI
 
 client = HyperCLI(api_key="...", agent_api_key="hyper_api_...")
 
-agent = client.deployments.create_openclaw(name="my-agent", start=True)
+agent = client.deployments.create_openclaw(name="my-agent", size="small", start=True)
 print(agent.id, agent.vnc_url)
 
 while not agent.is_running:

@@ -36,18 +36,23 @@ Guided flow for:
 - wallet creation
 - funding
 - plan selection
-- subscription
+- x402 entitlement purchase
 - config generation
 - verification
 
 ### `subscribe`
 
-Subscribe to a HyperCLI plan through the x402 wallet flow.
+Buy a one-off HyperCLI plan entitlement through the x402 wallet flow. Despite
+the command name, this does not create a recurring subscription.
 
 ```bash
-hyper agent subscribe basic
-hyper agent subscribe pro 100 --dev
+hyper agent subscribe solo
+hyper agent subscribe pro 149 --dev
 ```
+
+Omitting the amount uses the server payment requirement. A custom amount buys
+a proportionally shorter or longer entitlement window; the current full-price
+x402 window is 30 days.
 
 ### `status`
 
@@ -66,7 +71,8 @@ hyper agent plans --dev
 
 ### `current-plan`, `subscriptions`, and `subscription-summary`
 
-Inspect the current effective plan, every entitlement/subscription item, or the
+Inspect the current effective plan, recurring subscriptions and entitlement
+items, or the
 pooled effective limits and slot inventory:
 
 ```bash
@@ -236,7 +242,7 @@ sentences and reports dimensions, tokens, and cosine similarity.
 ## Recommended Flow
 
 1. `hyper agent plans`
-2. `hyper agent subscribe basic`
+2. `hyper agent subscribe solo`
 3. `hyper agent status`
 4. `hyper config openclaw --apply`
 5. `hyper agents create ...`

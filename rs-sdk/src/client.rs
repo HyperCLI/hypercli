@@ -16,9 +16,11 @@ use thiserror::Error;
 use url::Url;
 
 use crate::{
-    ApiKey, AuthMe, ClientConfig, CreateApiKeyRequest, CreateDeploymentRequest, Deployment,
-    DeploymentRoutes, EntitlementsSummary, ExecDeploymentRequest, ExecDeploymentResponse,
-    SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
+    AgentCapacity, ApiKey, AuthMe, ClientConfig, CreateApiKeyRequest,
+    CreateDeploymentRequest, Deployment, DeploymentRoutes, EntitlementsSummary,
+    ExecDeploymentRequest, ExecDeploymentResponse, HyperAgentCurrentPlan,
+    HyperAgentEntitlementsSummary, HyperAgentPlan, SetDeploymentRouteRequest,
+    SetDeploymentRoutesRequest, StartDeploymentRequest,
 };
 
 pub struct HyperCliClient {
@@ -69,20 +71,48 @@ impl HyperCliClient {
         )
     }
 
+    fn get_json<T: DeserializeOwned>(&self, path: &str) -> Result<T, HyperCliError> {
+        let url = self.endpoint(path);
+        let builder = self
+            .http
+            .get(&url)
+            .bearer_auth(self.api_key.expose_secret());
+        self.send_json(path, "GET", &url, None, builder)
+    }
+
     pub fn list_deployments_by_handle(
         &self,
         handle: &str,
     ) -> Result<Vec<Deployment>, HyperCliError> {
+        Ok(self.list_deployments_by_handle_with_capacity(handle)?.items)
+    }
+
+    pub fn list_deployments_with_capacity(&self) -> Result<AgentCapacity, HyperCliError> {
+        self.list_deployments_capacity(None)
+    }
+
+    pub fn list_deployments_by_handle_with_capacity(
+        &self,
+        handle: &str,
+    ) -> Result<AgentCapacity, HyperCliError> {
+        self.list_deployments_capacity(Some(handle))
+    }
+
+    fn list_deployments_capacity(
+        &self,
+        handle: Option<&str>,
+    ) -> Result<AgentCapacity, HyperCliError> {
         let url = self.endpoint("deployments");
-        let request = json!({"handle": handle});
+        let request = handle.map(|value| json!({"handle": value}));
         let started = Instant::now();
-        let response = match self
+        let mut request_builder = self
             .http
             .get(&url)
-            .bearer_auth(self.api_key.expose_secret())
-            .query(&[("handle", handle)])
-            .send()
-        {
+            .bearer_auth(self.api_key.expose_secret());
+        if let Some(handle) = handle {
+            request_builder = request_builder.query(&[("handle", handle)]);
+        }
+        let response = match request_builder.send() {
             Ok(response) => response,
             Err(error) => {
                 let error = HyperCliError::Transport(error.to_string());
@@ -90,7 +120,7 @@ impl HyperCliClient {
                     "list_deployments_by_handle",
                     "GET",
                     &url,
-                    Some(&request),
+                    request.as_ref(),
                     started,
                     None,
                     BTreeMap::new(),
@@ -101,19 +131,46 @@ impl HyperCliClient {
         };
         let status = response.status();
         let headers = trace_headers(&response);
-        let result: Result<DeploymentPage, HyperCliError> = decode_json(response);
+        let result: Result<AgentCapacity, HyperCliError> = decode_json(response);
         self.trace_http(
             "list_deployments_by_handle",
             "GET",
             &url,
-            Some(&request),
+            request.as_ref(),
             started,
             Some(status),
             headers,
             result.as_ref().map(|_| ()),
         );
-        let page = result?;
-        Ok(page.items)
+        result
+    }
+
+    pub fn plans(&self) -> Result<Vec<HyperAgentPlan>, HyperCliError> {
+        #[derive(Deserialize)]
+        struct PlanPage {
+            #[serde(default)]
+            plans: Vec<HyperAgentPlan>,
+        }
+        Ok(self.get_json::<PlanPage>("plans")?.plans)
+    }
+
+    pub fn current_plan(&self) -> Result<HyperAgentCurrentPlan, HyperCliError> {
+        self.get_json("plans/current")
+    }
+
+    pub fn subscription_summary(&self) -> Result<HyperAgentEntitlementsSummary, HyperCliError> {
+        self.get_json("subscriptions/summary")
+    }
+
+    /// Effective HyperClaw entitlement summary. A scoped key without the
+    /// `user` scope family returns 403; callers should treat that as unknown,
+    /// not as an explicit inactive-plan result.
+    pub fn entitlements_summary(&self) -> Result<HyperAgentEntitlementsSummary, HyperCliError> {
+        self.subscription_summary()
+    }
+
+    pub fn entitlements(&self) -> Result<HyperAgentEntitlementsSummary, HyperCliError> {
+        self.get_json("entitlements")
     }
 
     pub fn get_deployment(&self, deployment_id: &str) -> Result<Deployment, HyperCliError> {
@@ -551,11 +608,6 @@ impl HyperCliError {
     }
 }
 
-#[derive(Deserialize)]
-struct DeploymentPage {
-    items: Vec<Deployment>,
-}
-
 fn decode_json<T: serde::de::DeserializeOwned>(
     response: reqwest::blocking::Response,
 ) -> Result<T, HyperCliError> {
@@ -769,20 +821,79 @@ mod tests {
                         "state": "running"
                     }],
                     "total_agents": 1,
-                    "max_agents_per_account": 4,
-                    "slots": [],
-                    "pooled_tpd": {}
+                    "max_agents_per_account": 10,
+                    "running_agents": 1,
+                    "slots": {"large": {"granted": 3, "used": 1, "available": 2}},
+                    "agent_slots": [{
+                        "id": "slot-1",
+                        "entitlement_id": "ent-1",
+                        "plan_id": "pro",
+                        "size": "large",
+                        "agent_id": "deployment-1",
+                        "occupied": true,
+                        "expires_at": "2026-09-01T00:00:00Z"
+                    }],
+                    "pooled_tpd": 100000000
                 })
                 .to_string(),
             )
             .create();
 
-        let deployments = client(&server)
-            .list_deployments_by_handle("buzz-abc123")
+        let capacity = client(&server)
+            .list_deployments_by_handle_with_capacity("buzz-abc123")
             .unwrap();
-        assert_eq!(deployments.len(), 1);
-        assert_eq!(deployments[0].id, "deployment-1");
+        assert_eq!(capacity.items.len(), 1);
+        assert_eq!(capacity.items[0].id, "deployment-1");
+        assert_eq!(capacity.max_agents_per_account, 10);
+        assert_eq!(capacity.slots["large"].available, 2);
+        assert_eq!(capacity.agent_slots[0].plan_id, "pro");
+        assert_eq!(capacity.pooled_tpd, 100_000_000);
         mock.assert();
+    }
+
+    #[test]
+    fn plan_and_entitlement_models_keep_plan_ids_open_and_slots_typed() {
+        let mut server = Server::new();
+        let plans = server
+            .mock("GET", "/agents/plans")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"plans":[{"id":"solo","name":"Solo","price":39,"agents":1}]}"#)
+            .create();
+        let entitlements = server
+            .mock("GET", "/agents/entitlements")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "effective_plan_id": "historical-plan",
+                    "active_entitlement_count": 1,
+                    "slot_inventory": {"medium": {"granted": 3, "used": 1, "available": 2}},
+                    "agent_slots": [{
+                        "id": "slot-1",
+                        "entitlement_id": "ent-1",
+                        "plan_id": "team",
+                        "size": "medium",
+                        "agent_id": null,
+                        "occupied": false
+                    }]
+                })
+                .to_string(),
+            )
+            .create();
+
+        let client = client(&server);
+        let catalog = client.plans().unwrap();
+        assert_eq!(
+            catalog[0].canonical_id(),
+            Some(crate::HyperAgentCanonicalPlanId::Solo)
+        );
+        let summary = client.entitlements().unwrap();
+        assert_eq!(summary.effective_plan_id, "historical-plan");
+        assert_eq!(summary.agent_slots[0].size, "medium");
+        assert!(summary.has_active_plan());
+        plans.assert();
+        entitlements.assert();
     }
 
     #[test]

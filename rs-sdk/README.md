@@ -25,6 +25,29 @@ mode-`0600` JSONL request traces. Trace payloads recursively redact
 secret-looking fields, omit authorization headers, and never record response
 bodies.
 
+## Plans and agent capacity
+
+Plan IDs remain `String` values so future and historical plans keep parsing;
+`HyperAgentPlan::canonical_id()` recognizes current `solo`, `team`, and `pro`
+IDs. HyperClaw plan access is active when either the subscription count or the
+direct-entitlement count is positive:
+
+```rust
+let summary = client.entitlements_summary()?;
+if summary.has_active_plan() {
+    println!("{} active slots", summary.agent_slots.len());
+}
+```
+
+This summary is the HyperClaw source of truth, not Orchestra `/api/auth/me`.
+A `401` or `403` is an unknown plan state for that scoped key; callers must not
+turn the error into a false no-plan result.
+
+Compatibility list methods still return `Vec<Deployment>`. Use
+`list_deployments_with_capacity()` (or the handle-filtered variant) to preserve
+the full deployment envelope: saved/running account limits, pooled TPD,
+aggregate slot inventory, and entitlement-backed `AgentSlot` records.
+
 ## Dynamic routes
 
 The Rust client uses the same typed `RouteConfig` map for launch-time and live

@@ -27,11 +27,11 @@ def test_agent_subscribe_passes_explicit_passphrase(monkeypatch, tmp_path):
 
     def _fake_subscribe_async(account, plan_id: str, api_base: str, amount: str | None = None):
         assert account.address == "0xabc"
-        assert plan_id == "basic"
+        assert plan_id == "solo"
         assert amount == "0.01"
         return {
             "key": "hyper_api_test",
-            "plan_id": "basic",
+            "plan_id": "solo",
             "amount_paid": "0.010000",
             "duration_days": 0.5,
             "expires_at": "2026-04-14T00:00:00Z",
@@ -43,7 +43,7 @@ def test_agent_subscribe_passes_explicit_passphrase(monkeypatch, tmp_path):
     monkeypatch.setattr(agent_mod.asyncio, "run", lambda coro: coro)
     monkeypatch.setattr(agent_mod, "_subscribe_async", _fake_subscribe_async)
 
-    result = runner.invoke(app, ["agent", "subscribe", "basic", "0.01", "--passphrase", "secret"])
+    result = runner.invoke(app, ["agent", "subscribe", "solo", "0.01", "--passphrase", "secret"])
 
     assert result.exit_code == 0
     assert load_calls == ["secret"]
@@ -64,12 +64,12 @@ def test_agent_subscribe_uses_product_api_base_env(monkeypatch, tmp_path):
 
     def _fake_subscribe_async(account, plan_id: str, api_base: str, amount: str | None = None):
         assert account.address == "0xabc"
-        assert plan_id == "basic"
+        assert plan_id == "solo"
         assert amount == "0.01"
         assert api_base == "https://api.dev.hypercli.com"
         return {
             "key": "hyper_api_test",
-            "plan_id": "basic",
+            "plan_id": "solo",
             "amount_paid": "0.010000",
             "duration_days": 0.5,
             "expires_at": "2026-04-14T00:00:00Z",
@@ -81,7 +81,7 @@ def test_agent_subscribe_uses_product_api_base_env(monkeypatch, tmp_path):
     monkeypatch.setattr(agent_mod.asyncio, "run", lambda coro: coro)
     monkeypatch.setattr(agent_mod, "_subscribe_async", _fake_subscribe_async)
 
-    result = runner.invoke(app, ["agent", "subscribe", "basic", "0.01"])
+    result = runner.invoke(app, ["agent", "subscribe", "solo", "0.01"])
 
     assert result.exit_code == 0
 
@@ -106,14 +106,14 @@ def test_resolve_x402_timeout(monkeypatch):
 def test_extract_plan_purchase_url_from_agent_discovery():
     discovery = {
         "resources": [
-            "https://api.dev.hypercli.com/agents/x402/basic",
-            "https://api.dev.hypercli.com/agents/x402/plus",
+            "https://api.dev.hypercli.com/agents/x402/solo",
+            "https://api.dev.hypercli.com/agents/x402/team",
         ]
     }
 
     assert (
-        agent_mod._extract_plan_purchase_url_from_discovery(discovery, "basic")
-        == "https://api.dev.hypercli.com/agents/x402/basic"
+        agent_mod._extract_plan_purchase_url_from_discovery(discovery, "solo")
+        == "https://api.dev.hypercli.com/agents/x402/solo"
     )
 
 
@@ -125,7 +125,7 @@ def test_extract_plan_purchase_url_from_discovery_ignores_nonmatching_resources(
         ]
     }
 
-    assert agent_mod._extract_plan_purchase_url_from_discovery(discovery, "basic") is None
+    assert agent_mod._extract_plan_purchase_url_from_discovery(discovery, "solo") is None
 
 
 def test_agent_activate_code_redeems_via_sdk(monkeypatch):
@@ -134,10 +134,10 @@ def test_agent_activate_code_redeems_via_sdk(monkeypatch):
             assert code == "promo-123"
             assert kwargs == {"extend_existing": None}
             return {
-                "grant": {"id": "grant-1", "type": "ACTIVATION_CODE", "code": "promo-123", "plan_id": "basic"},
+                "grant": {"id": "grant-1", "type": "ACTIVATION_CODE", "code": "promo-123", "plan_id": "solo"},
                 "entitlement": {
                     "id": "ent-1",
-                    "plan_id": "basic",
+                    "plan_id": "solo",
                     "plan_name": "Basic",
                     "starts_at": "2026-04-27T00:00:00Z",
                     "expires_at": "2026-05-27T00:00:00Z",
@@ -165,10 +165,10 @@ def test_agent_activate_code_can_request_extension(monkeypatch):
         def redeem_grant_code(self, code: str, **kwargs):
             calls.append((code, kwargs))
             return {
-                "grant": {"id": "grant-1", "type": "ACTIVATION_CODE", "code": code, "plan_id": "basic"},
+                "grant": {"id": "grant-1", "type": "ACTIVATION_CODE", "code": code, "plan_id": "solo"},
                 "entitlement": {
                     "id": "ent-1",
-                    "plan_id": "basic",
+                    "plan_id": "solo",
                     "plan_name": "Basic",
                     "starts_at": "2026-04-27T00:00:00Z",
                     "expires_at": "2026-05-27T00:00:00Z",

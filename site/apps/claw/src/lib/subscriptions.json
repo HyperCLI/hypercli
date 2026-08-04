@@ -1,42 +1,32 @@
 [
   {
-    "id": "free",
-    "name": "Free",
-    "price": 0,
-    "bundle": { "free": 1 },
-    "subtitle": "1 free agent per Privy user when no paid entitlement is active.",
-    "features": ["1 free agent", "Community support"],
-    "limits": { "tpd": 1000000, "burstTpm": 1000, "rpm": 10 },
-    "highlighted": false
-  },
-  {
-    "id": "starter",
-    "name": "Starter",
-    "price": 20,
+    "id": "solo",
+    "name": "Solo",
+    "price": 39,
     "bundle": { "small": 1 },
     "subtitle": "1x Small",
-    "features": ["1 small slot", "50M tokens/day", "Email support"],
-    "limits": { "tpd": 50000000, "burstTpm": 34722, "rpm": 173 },
+    "features": ["1 small agent", "25M tokens/day", "Voice access"],
+    "limits": { "tpd": 25000000, "burstTpm": 868050, "rpm": 86 },
     "highlighted": false
-  },
-  {
-    "id": "pro",
-    "name": "Pro",
-    "price": 100,
-    "bundle": { "large": 1 },
-    "subtitle": "1x Large",
-    "features": ["1 large slot", "250M tokens/day", "Voice + render"],
-    "limits": { "tpd": 250000000, "burstTpm": 173611, "rpm": 868 },
-    "highlighted": true
   },
   {
     "id": "team",
     "name": "Team",
-    "price": 200,
-    "bundle": { "large": 2 },
-    "subtitle": "2x Large",
-    "features": ["2 large slots", "500M tokens/day", "Shared team capacity"],
-    "limits": { "tpd": 500000000, "burstTpm": 347222, "rpm": 1736 },
+    "price": 79,
+    "bundle": { "medium": 3 },
+    "subtitle": "Up to 3 Medium agents",
+    "features": ["Up to 3 medium agents", "50M pooled tokens/day", "Voice access"],
+    "limits": { "tpd": 50000000, "burstTpm": 1736100, "rpm": 173 },
+    "highlighted": true
+  },
+  {
+    "id": "pro",
+    "name": "Pro",
+    "price": 149,
+    "bundle": { "large": 3 },
+    "subtitle": "Up to 3 Large agents",
+    "features": ["Up to 3 large agents", "100M pooled tokens/day", "Voice + render access"],
+    "limits": { "tpd": 100000000, "burstTpm": 3472200, "rpm": 347 },
     "highlighted": false
   }
 ]

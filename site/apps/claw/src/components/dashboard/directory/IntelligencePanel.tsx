@@ -15,10 +15,10 @@ interface IntelligencePanelProps {
 }
 
 const MOCK_PLAN = {
-  name: "1 AIU Plan",
-  tokensPerDay: "500M",
-  tpmLimit: "600K",
-  rpmLimit: "3,000",
+  name: "Solo",
+  tokensPerDay: "25M",
+  tpmLimit: "17K",
+  rpmLimit: "86",
   billingReset: "2026-05-10",
 };
 

@@ -8,28 +8,29 @@ description: Checkout and account API for HyperCLI inference
 | Surface | URL |
 |---------|-----|
 | Inference (OpenAI-compatible) | `https://api.hypercli.com/v1` |
-| Agents API | `https://api.hypercli.com/agents` |
-| Account + billing API | `https://api.hypercli.com/api` |
+| Agents, plans, and plan billing | `https://api.hypercli.com/agents` |
+| Orchestra account, jobs, and balance | `https://api.hypercli.com/api` |
 | Product UI | `https://agents.hypercli.com` |
 
 <Note>
 In production, routes are served under `/agents` (for example `/agents/stripe/{plan_id}` and `/agents/x402/{plan_id}`).
 </Note>
 
-Published spec: `https://api.agents.hypercli.com/api/openapi.json`
+Published backend spec: `https://api.agents.hypercli.com/agents/openapi.json`
 
 Vendored docs copy: [agents-openapi.json](/agents-openapi.json)
 
 ## Auth Modes
 
 - Inference endpoints (`/v1/*`): `Authorization: Bearer hyper_api_...`
-- Account endpoints (`/api/*`): `Authorization: Bearer <jwt>`
+- Plan and plan-billing endpoints (`/agents/*`): `Authorization: Bearer <jwt>`
+  unless the endpoint is public or explicitly supports an agent API key
 - x402 checkout (`/agents/x402/{plan_id}`): JWT is optional
 
 For scoped API keys:
 
 - `GET /v1/models` uses the `models:*` baseline
-- model inference routes resolve the requested `model` and can be narrowed with reserved scopes like `models:kimi-k2.5`
+- model inference routes resolve the requested `model` and can be narrowed with reserved scopes like `models:kimi-k2.6`
 - subscription voice routes live under `/agents/voice/*` and use the `voice:*` family
 
 ## Plans
@@ -37,13 +38,18 @@ For scoped API keys:
 List plans:
 
 ```bash
-curl https://api.hypercli.com/api/plans
+curl https://api.hypercli.com/agents/plans
 ```
+
+Current paid contracts are Solo (`solo`, $39, 25M pooled tokens/day, one small
+slot), Team (`team`, $79, 50M pooled tokens/day, three medium slots), and Pro
+(`pro`, $149, 100M pooled tokens/day, three large slots). The catalog response
+is authoritative for checkout availability and features.
 
 Get current plan (JWT required):
 
 ```bash
-curl https://api.hypercli.com/api/plans/current \
+curl https://api.hypercli.com/agents/plans/current \
   -H "Authorization: Bearer <jwt>"
 ```
 
@@ -53,16 +59,38 @@ Endpoint: `POST /agents/stripe/{plan_id}`
 
 - Requires JWT auth
 - Returns a Stripe-hosted `checkout_url`
-- Webhook (`/api/stripe/hook`) activates subscription and applies team limits
+- Webhook (`/agents/stripe/hook`) creates or renews entitlement records and
+  applies the resulting account limits
 
 ```bash
-curl -X POST https://api.hypercli.com/agents/stripe/basic \
+curl -X POST https://api.hypercli.com/agents/stripe/solo \
   -H "Authorization: Bearer <jwt>" \
   -H "Content-Type: application/json" \
   -d '{
     "success_url": "https://agents.hypercli.com/plans?session_id={CHECKOUT_SESSION_ID}",
-    "cancel_url": "https://agents.hypercli.com/plans?cancelled=true"
+    "cancel_url": "https://agents.hypercli.com/plans?cancelled=true",
+    "quantity": 1
   }'
+```
+
+### Update Or Cancel A Stripe Subscription
+
+Update endpoint: `POST /agents/subscriptions/{subscription_id}/update`
+
+```bash
+curl -X POST https://api.hypercli.com/agents/subscriptions/<subscription_id>/update \
+  -H "Authorization: Bearer <jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"plan_id":"team","quantity":1}'
+```
+
+The recurring contract is one canonical `plan_id` plus a positive `quantity`.
+Arbitrary per-tier slot maps are not accepted. To cancel at period end, call the
+dedicated endpoint:
+
+```bash
+curl -X POST https://api.hypercli.com/agents/subscriptions/<subscription_id>/cancel \
+  -H "Authorization: Bearer <jwt>"
 ```
 
 ## x402 Checkout (USDC)
@@ -77,31 +105,39 @@ Endpoint: `POST /agents/x402/{plan_id}`
 
 1. POST request without payment headers
 2. Receive HTTP 402 with payment requirements
-3. Sign and retry with payment payload (`X-PAYMENT`)
-4. Receive API key + expiry + limits
+3. Sign and retry with the client-generated payment header
+   (`PAYMENT-SIGNATURE` for x402 v2; `X-PAYMENT` for v1)
+4. Receive API key + expiry + plan-unit limits
 
 ```bash
 # Step 1
-curl -X POST https://api.hypercli.com/agents/x402/basic
+curl -X POST https://api.hypercli.com/agents/x402/solo
 
 # Step 2: retry with x402 payment payload
-curl -X POST https://api.hypercli.com/agents/x402/basic \
-  -H "X-PAYMENT: <signed-payment-payload>"
+curl -X POST https://api.hypercli.com/agents/x402/solo \
+  -H "PAYMENT-SIGNATURE: <signed-payment-payload>"
 ```
 
 ### Duration Calculation
 
 Duration scales with paid amount:
 
-- `duration_days = (amount_paid / plan_price) * X402_PLAN_DURATION_DAYS`
+- `duration_days = (amount_paid / (plan_price * quantity)) * X402_PLAN_DURATION_DAYS`
 - Includes sub-day precision (seconds)
 
-So exact plan price gives base duration, and higher amounts increase duration proportionally.
+With the current production default, a full-price unit grants 30 days. Stripe
+plans use a separate `duration_days: 32` entitlement-window configuration.
+For `quantity > 1`, paying `plan_price * quantity` gives every purchased
+entitlement the same 30-day window; quantity buys parallel capacity rather
+than extra time.
 
 ### JWT Optional Behavior
 
-- With JWT: creates account-linked subscription/payment records and updates team limits
-- Without JWT: creates or reuses a wallet-backed user and returns a standalone API key for that purchase
+- With JWT: creates account-linked entitlements and a payment record, then updates team limits
+- Without JWT: creates or reuses a wallet-backed user, creates entitlements and
+  a payment record, and returns a usable API key
+
+x402 purchases are one-off and never create recurring subscription rows.
 
 ### Response Shape
 
@@ -109,14 +145,19 @@ So exact plan price gives base duration, and higher amounts increase duration pr
 {
   "ok": true,
   "key": "hyper_api_...",
-  "plan_id": "basic",
-  "amount_paid": "35.000000",
+  "plan_id": "solo",
+  "quantity": 1,
+  "contract_version": "2026-08",
+  "amount_paid": "39.000000",
   "duration_days": 30.0,
-  "expires_at": "2026-03-15T12:00:00+00:00",
-  "tpm_limit": 600000,
-  "rpm_limit": 3000
+  "expires_at": "2026-09-03T12:00:00+00:00",
+  "tpm_limit": 868050,
+  "rpm_limit": 86
 }
 ```
+
+The timestamp and derived rate limits are illustrative and follow the active
+plan and burst-window configuration.
 
 ## Balance-Funded Entitlements
 
@@ -143,8 +184,8 @@ Response shape:
 {
   "grant": {
     "id": "2b1c...",
-    "type": "balance",
-    "plan_id": "basic",
+    "type": "BALANCE",
+    "plan_id": "solo",
     "duration": 2592000,
     "tags": ["customer=acme"]
   },
@@ -152,12 +193,12 @@ Response shape:
     "id": "6a54...",
     "starts_at": "2026-04-19T20:00:00+00:00",
     "expires_at": "2026-05-19T20:00:00+00:00",
-    "plan_id": "basic",
+    "plan_id": "solo",
     "tags": ["customer=acme"]
   },
   "payment": {
-    "provider": "balance",
-    "status": "succeeded"
+    "provider": "BALANCE",
+    "status": "SUCCEEDED"
   }
 }
 ```
@@ -191,24 +232,6 @@ Important:
 - unactivated codes are `grants`, not `entitlements`
 - redeemed codes become applied grants linked to an entitlement
 
-## Job Tags
-
-HyperCLI's x402 job creation endpoint accepts the same optional `tags` object used by Orchestra jobs:
-
-```bash
-curl -X POST https://api.hypercli.com/agents/x402/job \
-  -H "Content-Type: application/json" \
-  -H "X-PAYMENT: <signed-payment-payload>" \
-  -d '{
-    "gpu_type": "l40s",
-    "gpu_count": 1,
-    "docker_image": "nvidia/cuda:12.0",
-    "command": "cHl0aG9uIHRyYWluLnB5",
-    "tags": {
-      "team": "ml",
-      "env": "prod"
-    }
-  }'
-```
-
-When tags are set, they are returned on the nested `job` object in the response. The canonical published API reference for Agents is the OpenAPI spec at `https://api.agents.hypercli.com/api/openapi.json`.
+Pay-per-use GPU jobs are a separate Orchestra surface at `/api/x402/job`; they
+are not an Agents plan-checkout route. See [Job Tags](/api-reference/job-tags)
+for that API.
