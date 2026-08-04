@@ -8,7 +8,7 @@ use hypercli_sdk::{
 };
 use secrecy::SecretString;
 use serde::Serialize;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use tauri_plugin_deep_link::DeepLinkExt;
 
 /// Runtime identities Buzz discovers as separate `Run on` choices. Keep in
@@ -16,11 +16,10 @@ use tauri_plugin_deep_link::DeepLinkExt;
 const RUNTIMES: [&str; 6] = ["buzz-agent", "opencode", "codex", "claude", "goose", "kimi"];
 const PROVIDER_BIN: &str = "buzz-backend-hypercli";
 
-/// Web login page that redirects back with a session token in the fragment.
-/// `hypercli://auth` must be present in the page's redirect allowlist
-/// (site/apps/claw/src/app/desktop-login/page.tsx).
-const DESKTOP_LOGIN_URL: &str =
-    "https://agents.hypercli.com/desktop-login?redirect_uri=hypercli%3A%2F%2Fauth";
+/// Web login page. Its allowlist accepts the `hypercli://auth` scheme
+/// callback (site/apps/claw/src/app/desktop-login/page.tsx) — the exact
+/// Backseat Driver pattern: token in the URL fragment, no server round-trip.
+const DESKTOP_LOGIN_PAGE: &str = "https://agents.hypercli.com/desktop-login";
 
 #[derive(Serialize)]
 pub struct ProviderStatus {
@@ -231,32 +230,131 @@ async fn mint_api_key(session_token: String) -> Result<String, String> {
         .map_err(|e| e.to_string())?
 }
 
+/// Returns `true` when the running install supports Tauri's auto-updater.
+///
+/// On Linux, Tauri's updater only works for AppImage bundles. The AppImage
+/// runtime sets the `APPIMAGE` environment variable when the binary is
+/// executed from an AppImage; when it is absent (e.g. a `.deb` install) the
+/// updater plugin would find an update but cannot swap the binary, producing
+/// an "invalid binary format" error at install time. On macOS and Windows
+/// every supported install format is auto-updatable.
+#[tauri::command]
+fn is_auto_update_supported() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        std::env::var("APPIMAGE").is_ok()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        true
+    }
+}
+
+/// Open the browser sign-in. The page redirects back to `hypercli://auth`
+/// with the token in the URL fragment — the exact Backseat Driver pattern.
+/// `HYPERCLI_DESKTOP_LOGIN_PAGE` overrides the page for dev/feat testing.
 #[tauri::command]
 fn start_login(app: tauri::AppHandle) -> Result<(), String> {
+    let page = std::env::var("HYPERCLI_DESKTOP_LOGIN_PAGE")
+        .unwrap_or_else(|_| DESKTOP_LOGIN_PAGE.to_owned());
+    let url = format!("{page}?redirect_uri=hypercli%3A%2F%2Fauth");
     tauri_plugin_opener::OpenerExt::opener(&app)
-        .open_url(DESKTOP_LOGIN_URL, None::<String>)
+        .open_url(url, None::<String>)
         .map_err(|e| e.to_string())
 }
 
+/// Emit the token to the window and bring the app back to the front after
+/// the browser detour.
+fn deliver_auth_token(app: &tauri::AppHandle, token: String) {
+    if app.emit("auth-token", token).is_err() {
+        eprintln!("hypercli-desktop: failed to deliver auth token to window");
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+/// Minimal %XX decoding — tokens are URL-safe base64, so this is mostly a
+/// no-op, but the page uses encodeURIComponent and we must round-trip it.
+fn percent_decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(byte) =
+                u8::from_str_radix(std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or(""), 16)
+            {
+                out.push(byte);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 /// Extract the session token from a `hypercli://auth#token=...` callback.
+/// Rejects anything that is not our scheme + host, loudly.
 fn token_from_callback(url: &str) -> Option<String> {
-    let fragment = url.split_once('#')?.1;
+    let rest = match url.strip_prefix("hypercli://auth") {
+        Some(rest) => rest,
+        None => {
+            eprintln!("hypercli-desktop: rejected deep link with unexpected target");
+            return None;
+        }
+    };
+    let fragment = rest.split_once('#')?.1;
     fragment.split('&').find_map(|pair| {
         let (key, value) = pair.split_once('=')?;
-        (key == "token").then(|| value.to_owned())
+        (key == "token" && !value.is_empty()).then(|| percent_decode(value))
     })
 }
 
 pub fn run() {
-    tauri::Builder::default()
+    // Single-instance must be the first registered plugin (Buzz pattern):
+    // its callback receives the second instance's argv, which on Windows and
+    // Linux carries the hypercli:// deep link.
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+            for arg in argv {
+                if arg.starts_with("hypercli://") {
+                    if let Some(token) = token_from_callback(&arg) {
+                        deliver_auth_token(app, token);
+                    }
+                }
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_deep_link::init());
+
+    // Register the updater (and the process plugin its relaunch flow needs)
+    // only in configured release builds; omit both locally. build.rs emits
+    // `hypercli_updater_enabled` when HYPERCLI_UPDATER_PUBLIC_KEY and
+    // HYPERCLI_UPDATER_ENDPOINT were present at build time.
+    #[cfg(hypercli_updater_enabled)]
+    let builder = if cfg!(debug_assertions) {
+        builder
+    } else {
+        builder
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .plugin(tauri_plugin_process::init())
+    };
+
+    builder
         .setup(|app| {
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
                 for url in event.urls() {
                     if let Some(token) = token_from_callback(url.as_str()) {
-                        let _ = handle.emit("auth-token", token);
+                        deliver_auth_token(&handle, token);
                     }
                 }
             });
@@ -270,8 +368,48 @@ pub fn run() {
             logout,
             validate_key,
             mint_api_key,
-            start_login
+            start_login,
+            is_auto_update_supported
         ])
         .run(tauri::generate_context!())
         .expect("error while running HyperCLI desktop");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_extracted_from_valid_callback() {
+        assert_eq!(
+            token_from_callback("hypercli://auth#token=abc.def-123"),
+            Some("abc.def-123".to_owned())
+        );
+    }
+
+    #[test]
+    fn callback_with_extra_params_still_yields_token() {
+        assert_eq!(
+            token_from_callback("hypercli://auth#state=x&token=t1"),
+            Some("t1".to_owned())
+        );
+    }
+
+    #[test]
+    fn wrong_scheme_and_missing_or_empty_token_are_rejected() {
+        assert_eq!(token_from_callback("https://evil.example/#token=x"), None);
+        assert_eq!(token_from_callback("hypercli://auth"), None);
+        assert_eq!(token_from_callback("hypercli://auth#token="), None);
+        assert_eq!(token_from_callback("hypercli://auth#other=x"), None);
+    }
+
+    #[test]
+    fn percent_encoded_tokens_round_trip() {
+        assert_eq!(
+            token_from_callback("hypercli://auth#token=a%3Db%2Fc"),
+            Some("a=b/c".to_owned())
+        );
+        assert_eq!(percent_decode("plain-token_1.2"), "plain-token_1.2");
+        assert_eq!(percent_decode("bad%zztail"), "bad%zztail");
+    }
 }

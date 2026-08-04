@@ -23,17 +23,19 @@ function fitWindow() {
 
 new ResizeObserver(fitWindow).observe(card);
 
-// Footer: version + update state. Until the updater plugin ships with
-// release CI, "up to date" is the resting state.
-(async () => {
-  const line = document.getElementById("version-line");
+// Footer: version + update state. "Up to date" is the resting state; the
+// updater section (bottom of this file) revises it when an update is staged.
+const versionLine = document.getElementById("version-line");
+
+async function showRestingVersion() {
   try {
     const version = await window.__TAURI__.app.getVersion();
-    line.textContent = `HyperCLI ${version} · your app is up to date`;
+    versionLine.textContent = `HyperCLI ${version} · your app is up to date`;
   } catch {
-    line.textContent = "Your app is up to date";
+    versionLine.textContent = "Your app is up to date";
   }
-})();
+}
+showRestingVersion();
 
 function setStatus(message, isError = false) {
   statusEl.textContent = message;
@@ -181,5 +183,79 @@ document.getElementById("uninstall-btn").addEventListener("click", async () => {
     setStatus(String(error), true);
   }
 });
+
+// Auto-updater — vanilla port of Buzz's use-updater.ts. On load and every
+// six hours: if the updater plugin is present (release builds only — dev
+// builds compile it out, so window.__TAURI__.updater is absent), check for an
+// update, auto-download it, and reveal #update-btn, which installs and
+// relaunches on click. Linux non-AppImage installs (.deb) cannot swap the
+// binary in place, so they stay resting, as do all errors — silently.
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const updateBtn = document.getElementById("update-btn");
+let pendingUpdate = null;
+let updateCheckInFlight = false;
+let installInFlight = false;
+
+function resetUpdateUi() {
+  pendingUpdate = null;
+  updateBtn.hidden = true;
+  updateBtn.disabled = false;
+  updateBtn.textContent = "Update the HyperCLI app";
+  showRestingVersion();
+}
+
+async function checkForUpdate() {
+  const updater = window.__TAURI__.updater;
+  if (!updater || updateCheckInFlight || pendingUpdate || installInFlight) {
+    return;
+  }
+  updateCheckInFlight = true;
+  try {
+    // Check support BEFORE any network call: a .deb install would find an
+    // update it cannot apply (Buzz shows a manual-download card here; we
+    // deliberately stay resting).
+    if (!(await invoke("is_auto_update_supported"))) return;
+    const update = await updater.check({
+      headers: { "Cache-Control": "no-cache" },
+    });
+    if (!update) return;
+    try {
+      await update.download();
+    } catch (error) {
+      await update.close().catch(() => {});
+      throw error;
+    }
+    pendingUpdate = update;
+    versionLine.textContent = `HyperCLI ${update.version} is ready to install`;
+    updateBtn.hidden = false;
+  } catch {
+    // Offline, missing manifest, dev races — back to resting, quietly. The
+    // next six-hour cycle retries.
+    resetUpdateUi();
+  } finally {
+    updateCheckInFlight = false;
+  }
+}
+
+updateBtn.addEventListener("click", async () => {
+  if (!pendingUpdate || installInFlight) return;
+  installInFlight = true;
+  updateBtn.disabled = true;
+  updateBtn.textContent = "Updating…";
+  const update = pendingUpdate;
+  try {
+    await update.install();
+    await window.__TAURI__.process.relaunch();
+  } catch {
+    // Failed install: drop the stale handle and rest; the periodic check
+    // will stage the update again.
+    await update.close().catch(() => {});
+    installInFlight = false;
+    resetUpdateUi();
+  }
+});
+
+checkForUpdate();
+setInterval(checkForUpdate, UPDATE_CHECK_INTERVAL_MS);
 
 refreshStatus();

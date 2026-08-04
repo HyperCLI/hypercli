@@ -1,0 +1,526 @@
+# DRAFT — intended path: .github/workflows/release-desktop.yml
+# Kept out of .github/ on purpose: CI changes are reviewed and installed
+# manually by the repo owner.
+#
+# Desktop release pipeline modeled on Buzz's .github/workflows/release.yml:
+#
+#   setup ─► build (matrix: darwin-aarch64, darwin-x86_64, windows-x86_64,
+#            linux-x86_64) ─► sign-macos (self-hosted) ─► publish
+#
+#   * build produces unsigned bundles with the env-gated updater compiled in
+#     (HYPERCLI_UPDATER_PUBLIC_KEY + HYPERCLI_UPDATER_ENDPOINT) and updater
+#     artifacts signed with the Tauri updater key (createUpdaterArtifacts via
+#     desktop/scripts/build-release-config.mjs).
+#   * sign-macos signs the .app with rcodesign (Developer ID cert pulled from
+#     the Pulumi stack — same pattern as sign-macos in
+#     .github/workflows/release-buzz-provider.yml), notarizes + staples when
+#     the stack has an ASC key, then REBUILDS the updater tar.gz from the
+#     signed .app and re-signs it with the Tauri updater key (Buzz's
+#     "re-sign dance", block/buzz release.yml ~lines 225-252) — the tar.gz
+#     produced at build time contains the unsigned .app and must never ship.
+#   * publish creates the versioned release `desktop-v<version>` (installers)
+#     and the rolling release `desktop-latest` (updater archives + sigs +
+#     latest.json for the Tauri auto-updater).
+#
+# ── One-time updater keypair setup ──────────────────────────────────────────
+#   npx --yes @tauri-apps/cli@2 signer generate -w hypercli-updater.key
+#     → prints the public key and writes the password-protected private key.
+#   * PUBLIC key  → Actions secret HYPERCLI_UPDATER_PUBLIC_KEY. It is baked
+#     into release builds; build.rs only enables the updater when it is set.
+#   * PRIVATE key + password → canonical copy lives in the Pulumi stack
+#     (e.g. `pulumi config set --secret tauri-updater-private-key ...` /
+#     `... tauri-updater-key-password ...` on the apple-certs stack), then
+#     mirrored to Actions secrets TAURI_SIGNING_PRIVATE_KEY and
+#     TAURI_SIGNING_PRIVATE_KEY_PASSWORD.
+#   Losing the private key strands every installed app on its current
+#   version — store it in the stack BEFORE the first release.
+#
+# ── Required Actions secrets ────────────────────────────────────────────────
+#   HYPERCLI_UPDATER_PUBLIC_KEY         updater public key (minisign format)
+#   TAURI_SIGNING_PRIVATE_KEY           updater private key
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  updater private key password
+#   PULUMI_APPLE_CERT_STACK             org/project/stack holding the
+#                                       Developer ID cert + optional ASC key
+#   PULUMI_APPLE_AWS_PROFILE            AWS profile for the Pulumi backend
+#   PULUMI_APPLE_PASSPHRASE_FILE        passphrase file path on the runner
+#
+# Self-hosted signing runner prerequisites (same box as the provider release):
+# pulumi at ~/.pulumi/bin, rcodesign at ~/.local/bin, plus node/npx for
+# `tauri signer sign` (new requirement vs the provider sign job).
+#
+# Deliberate deviations from Buzz's release.yml, for review:
+#   * No DMG: the .app is signed on a Linux box (rcodesign), and a DMG cannot
+#     be rebuilt there (hdiutil is macOS-only). macOS users download the
+#     signed+stapled .app.tar.gz. Add a DMG repack job on macOS later if
+#     wanted.
+#   * One matrix build job instead of four hand-written jobs; per-platform
+#     sigs travel as workflow artifacts instead of job outputs.
+#   * workflow_dispatch with explicit version input (repo convention, mirrors
+#     release-buzz-provider.yml) instead of Buzz's tag-push trigger.
+
+name: Release Desktop
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Desktop version (SemVer, must match desktop/src-tauri/tauri.conf.json)"
+        required: true
+        type: string
+      ref:
+        description: "Exact HyperCLI git ref to build"
+        required: true
+        default: main
+        type: string
+      publish_release:
+        description: "Create/refresh the GitHub releases after all builds pass"
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: release-desktop-${{ inputs.version }}
+  cancel-in-progress: false
+
+env:
+  HYPERCLI_UPDATER_ENDPOINT: https://github.com/HyperCLI/hypercli/releases/download/desktop-latest/latest.json
+
+jobs:
+  setup:
+    name: Validate release source
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ inputs.version }}
+      source_sha: ${{ steps.source.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Validate version input against sources
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${{ inputs.version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Desktop version must be stable SemVer" >&2
+            exit 1
+          fi
+          CONF_VERSION="$(python3 -c 'import json; print(json.load(open("desktop/src-tauri/tauri.conf.json"))["version"])')"
+          if [[ "$CONF_VERSION" != "${{ inputs.version }}" ]]; then
+            echo "Input version ${{ inputs.version }} does not match tauri.conf.json version $CONF_VERSION" >&2
+            exit 1
+          fi
+          test "$(git status --porcelain)" = ""
+          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build desktop (${{ matrix.platform }})
+    needs: setup
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: darwin-aarch64
+            runner: macos-15
+            triple: aarch64-apple-darwin
+            # Unsigned .app only; DMG intentionally skipped (see header).
+            build_flags: --no-sign --bundles app
+          - platform: darwin-x86_64
+            runner: macos-15-intel
+            triple: x86_64-apple-darwin
+            build_flags: --no-sign --bundles app
+          - platform: windows-x86_64
+            runner: windows-latest
+            triple: x86_64-pc-windows-msvc
+            build_flags: --bundles nsis
+          - platform: linux-x86_64
+            runner: ubuntu-24.04
+            triple: x86_64-unknown-linux-gnu
+            build_flags: --bundles deb,appimage
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.setup.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.setup.outputs.source_sha }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95.0"
+          targets: ${{ matrix.triple }}
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'linux-x86_64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            desktop-file-utils \
+            file \
+            libgtk-3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            patchelf \
+            pkg-config \
+            squashfs-tools
+
+      # Pin appimagetool + the AppImage type2 runtime to immutable releases so
+      # fix-appimage.sh never pulls from the mutable `continuous` tag.
+      # (Hashes copied from block/buzz release.yml, same pinned versions.)
+      - name: Install appimagetool (pinned)
+        if: matrix.platform == 'linux-x86_64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          wget -q --tries=3 --timeout=30 -O /tmp/appimagetool \
+            "https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage"
+          echo "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  /tmp/appimagetool" | sha256sum -c
+          sudo install -m 755 /tmp/appimagetool /usr/local/bin/appimagetool
+          wget -q --tries=3 --timeout=30 -O /tmp/appimage-runtime \
+            "https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64"
+          echo "2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d  /tmp/appimage-runtime" | sha256sum -c
+          sudo install -D -m 644 /tmp/appimage-runtime /usr/local/lib/appimage-runtime
+          echo "APPIMAGETOOL_RUNTIME_FILE=/usr/local/lib/appimage-runtime" >> "$GITHUB_ENV"
+
+      # The ui/ frontend is static — the Tauri CLI is the only node tooling,
+      # installed as a prebuilt binary (no frontend build step).
+      - name: Install Tauri CLI
+        shell: bash
+        run: npm install --global @tauri-apps/cli@2
+
+      - name: Build provider sidecar
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --locked -p buzz-backend-hypercli
+          EXT=""
+          if [[ "${{ matrix.triple }}" == *-windows-msvc ]]; then EXT=".exe"; fi
+          mkdir -p desktop/src-tauri/binaries
+          cp "target/release/buzz-backend-hypercli${EXT}" \
+            "desktop/src-tauri/binaries/buzz-backend-hypercli-${{ matrix.triple }}${EXT}"
+
+      - name: Generate release config
+        shell: bash
+        run: node desktop/scripts/build-release-config.mjs
+        env:
+          HYPERCLI_UPDATER_PUBLIC_KEY: ${{ secrets.HYPERCLI_UPDATER_PUBLIC_KEY }}
+
+      - name: Build Tauri app
+        shell: bash
+        working-directory: desktop/src-tauri
+        run: tauri build --verbose ${{ matrix.build_flags }} --config tauri.release.conf.json
+        env:
+          # Both env vars must be present so build.rs emits
+          # `hypercli_updater_enabled` and the updater plugin is registered.
+          HYPERCLI_UPDATER_PUBLIC_KEY: ${{ secrets.HYPERCLI_UPDATER_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - name: Fix AppImage (remove infra libs, shim host GStreamer, re-sign)
+        if: matrix.platform == 'linux-x86_64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t APPIMAGES < <(find desktop/src-tauri/target/release/bundle/appimage -name '*.AppImage' -type f)
+          if [[ ${#APPIMAGES[@]} -ne 1 ]]; then
+            echo "::error::Expected exactly one AppImage, found ${#APPIMAGES[@]}: ${APPIMAGES[*]:-none}"
+            exit 1
+          fi
+          bash desktop/scripts/fix-appimage.sh "${APPIMAGES[0]}"
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      # macOS: ship the UNSIGNED .app to the signing job. The updater tar.gz
+      # Tauri built here is discarded — sign-macos rebuilds and re-signs it.
+      - name: Stage unsigned macOS app
+        if: startsWith(matrix.platform, 'darwin-')
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_DIR="desktop/src-tauri/target/release/bundle/macos"
+          test -d "$APP_DIR/HyperCLI.app"
+          mkdir -p stage
+          tar -czf "stage/HyperCLI-${{ matrix.platform }}-unsigned.app.tar.gz" -C "$APP_DIR" HyperCLI.app
+
+      - name: Upload unsigned macOS app
+        if: startsWith(matrix.platform, 'darwin-')
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-macos-${{ matrix.platform }}
+          path: stage/
+          if-no-files-found: error
+
+      # Windows/Linux: updater artifact + sig are final here. Stage exactly
+      # [archive, archive.sig] per platform dir; publish discovers names from
+      # the artifact contents, so Tauri naming drift cannot desync latest.json.
+      - name: Stage updater artifacts
+        if: matrix.platform == 'windows-x86_64' || matrix.platform == 'linux-x86_64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUNDLE_DIR="desktop/src-tauri/target/release/bundle"
+          mkdir -p stage/updater
+          if [[ "${{ matrix.platform }}" == "windows-x86_64" ]]; then
+            # NSIS installer is signed in place: <name>-setup.exe + .sig
+            EXE=$(find "$BUNDLE_DIR/nsis" -name '*-setup.exe' -type f | head -1)
+            test -n "$EXE" && test -f "$EXE.sig"
+            cp "$EXE" "$EXE.sig" stage/updater/
+          else
+            APPIMAGE=$(find "$BUNDLE_DIR/appimage" -name '*.AppImage' -type f | head -1)
+            test -n "$APPIMAGE"
+            # Tauri 2.11+ signs the AppImage directly; older wraps in tar.gz.
+            ARCHIVE=$(find "$BUNDLE_DIR/appimage" -name '*.AppImage.tar.gz' ! -name '*.sig' -type f | head -1)
+            if [[ -z "$ARCHIVE" ]]; then ARCHIVE="$APPIMAGE"; fi
+            test -f "$ARCHIVE.sig"
+            cp "$ARCHIVE" "$ARCHIVE.sig" stage/updater/
+            # .deb is NOT auto-updatable — versioned release only.
+            DEB=$(find "$BUNDLE_DIR/deb" -name '*.deb' -type f | head -1)
+            test -n "$DEB"
+            mkdir -p stage/installer
+            cp "$DEB" stage/installer/
+            # AppImage itself is also a user-facing download.
+            cp "$APPIMAGE" stage/installer/
+          fi
+
+      - name: Upload updater artifacts
+        if: matrix.platform == 'windows-x86_64' || matrix.platform == 'linux-x86_64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-${{ matrix.platform }}
+          path: stage/updater/
+          if-no-files-found: error
+
+      - name: Upload installer artifacts
+        if: matrix.platform == 'linux-x86_64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.platform }}
+          path: stage/installer/
+          if-no-files-found: error
+
+  sign-macos:
+    name: Sign, notarize, and re-sign macOS apps
+    needs: [setup, build]
+    runs-on: [self-hosted, Linux]
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.setup.outputs.version }}
+      PULUMI_STACK: ${{ secrets.PULUMI_APPLE_CERT_STACK }}
+      AWS_PROFILE: ${{ secrets.PULUMI_APPLE_AWS_PROFILE }}
+      PULUMI_CONFIG_PASSPHRASE_FILE: ${{ secrets.PULUMI_APPLE_PASSPHRASE_FILE }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - name: Download unsigned macOS apps
+        uses: actions/download-artifact@v4
+        with:
+          pattern: unsigned-macos-*
+          path: unsigned
+          merge-multiple: true
+
+      - name: Sign, notarize, staple, rebuild updater archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${PULUMI_STACK}"
+          PULUMI="$HOME/.pulumi/bin/pulumi"
+          RCODESIGN="$HOME/.local/bin/rcodesign"
+          WORK="$(mktemp -d)"
+          trap 'rm -rf "$WORK"' EXIT
+          mkdir "$WORK/stack"
+          printf 'name: %s\nruntime: python\n' \
+            "$(cut -d/ -f2 <<<"$PULUMI_STACK")" > "$WORK/stack/Pulumi.yaml"
+          stack_output() {
+            (cd "$WORK/stack" && "$PULUMI" stack output "$1" \
+              -s "$PULUMI_STACK" --show-secrets 2>/dev/null)
+          }
+          stack_output developer-id-application-bundle-pem > "$WORK/signing.pem"
+          test -s "$WORK/signing.pem"
+          NOTARIZE=false
+          if stack_output asc-api-key-p8 > "$WORK/asc.p8" && test -s "$WORK/asc.p8"; then
+            "$RCODESIGN" encode-app-store-connect-api-key -o "$WORK/asc.json" \
+              "$(stack_output asc-issuer-id)" "$(stack_output asc-key-id)" \
+              "$WORK/asc.p8"
+            NOTARIZE=true
+          else
+            echo "notarization skipped: no ASC API key in stack outputs"
+          fi
+
+          rm -rf signed && mkdir signed
+          for PLATFORM in darwin-aarch64 darwin-x86_64; do
+            case "$PLATFORM" in
+              darwin-aarch64) ARCH_TAG="aarch64" ;;
+              darwin-x86_64)  ARCH_TAG="x64" ;;
+            esac
+            TARBALL="unsigned/HyperCLI-${PLATFORM}-unsigned.app.tar.gz"
+            test -f "$TARBALL"
+            STAGE="$WORK/stage-$PLATFORM"
+            mkdir "$STAGE"
+            tar -C "$STAGE" -xzf "$TARBALL"
+
+            # Recursive Developer ID signing of the bundle, sidecar included —
+            # the whole bundle is one Gatekeeper identity.
+            "$RCODESIGN" sign \
+              --pem-file "$WORK/signing.pem" \
+              --for-notarization \
+              "$STAGE/HyperCLI.app"
+
+            if [[ "$NOTARIZE" == "true" ]]; then
+              # zip -ry keeps the bundle's symlinks intact for submission.
+              (cd "$STAGE" && zip -qry "$WORK/$PLATFORM.zip" HyperCLI.app)
+              "$RCODESIGN" notary-submit --api-key-file "$WORK/asc.json" \
+                --wait "$WORK/$PLATFORM.zip"
+              "$RCODESIGN" staple "$STAGE/HyperCLI.app"
+            fi
+
+            # Buzz's re-sign dance: the updater tar.gz must contain the SIGNED
+            # .app, so rebuild it here and re-sign with the Tauri updater key.
+            ARCHIVE="HyperCLI_${VERSION}_${ARCH_TAG}.app.tar.gz"
+            tar -C "$STAGE" -czf "signed/$ARCHIVE" HyperCLI.app
+            # `tauri signer sign` reads the key + password from the
+            # environment — never pass the password via argv.
+            npx --yes @tauri-apps/cli@2 signer sign "$(pwd)/signed/$ARCHIVE"
+            mkdir -p "signed-split/updater-$PLATFORM"
+            mv "signed/$ARCHIVE" "signed/$ARCHIVE.sig" "signed-split/updater-$PLATFORM/"
+          done
+
+      - name: Upload signed macOS updater archives (aarch64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-darwin-aarch64
+          path: signed-split/updater-darwin-aarch64/
+          if-no-files-found: error
+
+      - name: Upload signed macOS updater archives (x86_64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-darwin-x86_64
+          path: signed-split/updater-darwin-x86_64/
+          if-no-files-found: error
+
+  publish:
+    name: Publish releases and latest.json
+    if: inputs.publish_release
+    needs: [setup, build, sign-macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.setup.outputs.version }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: desktop-v${{ needs.setup.outputs.version }}
+      ROLLING_TAG: desktop-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.setup.outputs.source_sha }}
+          fetch-depth: 0
+
+      - name: Download updater artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: updater-*
+          path: dist/updater
+
+      - name: Download installer artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: installer-*
+          path: dist/installer
+          merge-multiple: true
+
+      - name: Verify artifact set
+        shell: bash
+        run: |
+          set -euo pipefail
+          for platform in darwin-aarch64 darwin-x86_64 linux-x86_64 windows-x86_64; do
+            dir="dist/updater/updater-$platform"
+            archive=$(find "$dir" -type f ! -name '*.sig' | head -1)
+            [[ -n "$archive" && -f "$archive.sig" ]] || {
+              echo "::error::Missing updater archive or signature for $platform"
+              exit 1
+            }
+          done
+          find dist -type f | sort
+
+      - name: Create versioned GitHub release
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_SHA="$(git rev-parse HEAD)"
+          git fetch origin main
+          git merge-base --is-ancestor "$SOURCE_SHA" origin/main
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists" >&2
+            exit 1
+          fi
+          gh release create "$TAG" \
+            --target "$SOURCE_SHA" \
+            --title "HyperCLI Desktop $VERSION" \
+            --notes "HyperCLI desktop companion app. macOS downloads are the signed .app.tar.gz archives; Windows installer is unsigned pending Authenticode setup; Linux ships AppImage (auto-updatable) and .deb (manual updates)."
+
+      - name: Create rolling auto-update release
+        shell: bash
+        run: |
+          gh release create "$ROLLING_TAG" \
+            --prerelease \
+            --title "HyperCLI Desktop Auto-Update" \
+            --notes "Rolling release for the Tauri auto-updater. Do not download manually — use the versioned release instead." \
+            2>/dev/null || true
+
+      - name: Upload installers to versioned release
+        shell: bash
+        run: |
+          set -euo pipefail
+          # User-facing downloads: every updater archive doubles as the
+          # install artifact (signatures excluded); the .deb and raw AppImage
+          # come from dist/installer.
+          mapfile -t FILES < <(find dist/updater -type f ! -name '*.sig'; find dist/installer -type f)
+          gh release upload "$TAG" "${FILES[@]}" --clobber
+
+      - name: Upload updater archives to rolling release
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$ROLLING_TAG" dist/updater/updater-*/* --clobber
+
+      - name: Generate and upload latest.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://github.com/HyperCLI/hypercli/releases/download/$ROLLING_TAG"
+          TRIPLES=()
+          for platform in darwin-aarch64 darwin-x86_64 linux-x86_64 windows-x86_64; do
+            dir="dist/updater/updater-$platform"
+            archive=$(find "$dir" -type f ! -name '*.sig' | head -1)
+            name=$(basename "$archive")
+            TRIPLES+=("${platform}:${archive}.sig:${BASE}/${name}")
+          done
+          bash desktop/scripts/generate-oss-latest-json.sh "$VERSION" "${TRIPLES[@]}" > latest.json
+          cat latest.json
+          # Verify every referenced archive is reachable before publishing
+          # the manifest that points updaters at it.
+          for platform in darwin-aarch64 darwin-x86_64 linux-x86_64 windows-x86_64; do
+            dir="dist/updater/updater-$platform"
+            name=$(basename "$(find "$dir" -type f ! -name '*.sig' | head -1)")
+            ok=false
+            for attempt in 1 2 3; do
+              if curl -fsIL "$BASE/$name" > /dev/null 2>&1; then ok=true; break; fi
+              echo "Attempt $attempt failed for $name, retrying in 10s..."
+              sleep 10
+            done
+            [[ "$ok" == "true" ]] || { echo "::error::Archive not accessible: $BASE/$name"; exit 1; }
+          done
+          gh release upload "$ROLLING_TAG" latest.json --clobber

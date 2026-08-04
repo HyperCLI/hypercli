@@ -21,6 +21,15 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-deep-link = "2"
+# Windows/Linux deliver deep links to a NEW instance's argv; this forwards
+# them to the running instance and focuses it (Buzz pattern).
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+# Always compiled (their permissions must exist for capabilities/default.json),
+# but only *registered* when build.rs emits `hypercli_updater_enabled` — i.e.
+# when HYPERCLI_UPDATER_PUBLIC_KEY + HYPERCLI_UPDATER_ENDPOINT are set at
+# build time. Dev builds carry no updater surface.
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "6"
