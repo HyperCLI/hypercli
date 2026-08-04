@@ -239,7 +239,7 @@ describe("AgentCreationSetupWizard", () => {
     expect(within(getPlanCard("Basic")).getByText("Pro required")).toBeInTheDocument();
   });
 
-  it("disables Free when a Pro feature is selected", () => {
+  it("hides Free and disables non-Pro plans when a Pro feature is selected", () => {
     renderWithClient(
       <AgentCreationSetupWizard
         onCreateAgent={vi.fn(async () => null)}
@@ -273,7 +273,7 @@ describe("AgentCreationSetupWizard", () => {
     fireEvent.click(screen.getByLabelText(/Desktop browser/i));
     goToPlanStep();
 
-    expect(getPlanCard("Free")).toBeDisabled();
+    expect(screen.queryByText("Free")).not.toBeInTheDocument();
     expect(getPlanCard("Starter")).toBeDisabled();
     expect(getPlanCard("Pro")).toBeEnabled();
   });

@@ -5,6 +5,7 @@ import { motion, useInView } from "framer-motion";
 import { MarketingSection, PricingCard, SectionHeading } from "@hypercli/shared-ui";
 import type { HyperAgentPlan } from "@hypercli.com/sdk/agent";
 import { createPublicHyperAgentClient } from "@/lib/agent-client";
+import { isVisibleCurrentAgentPlan } from "@/lib/agent-plan-catalog";
 import { buildAgentLauncherHref } from "@/lib/dashboard-route";
 import { Plan, formatTokens } from "@/lib/format";
 
@@ -39,7 +40,7 @@ export function PricingSection() {
     createPublicHyperAgentClient()
       .plans()
       .then((data) => {
-        if (!cancelled) setPlans(data.map(toDisplayPlan));
+        if (!cancelled) setPlans(data.filter(isVisibleCurrentAgentPlan).map(toDisplayPlan));
       })
       .catch(() => {
         if (!cancelled) {

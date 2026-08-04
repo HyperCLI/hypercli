@@ -51,6 +51,7 @@ export function isLegacyAgentPlan(plan: HyperAgentPlan | null | undefined): bool
 
 export function isVisibleCurrentAgentPlan(plan: HyperAgentPlan | null | undefined): plan is HyperAgentPlan {
   if (!plan) return false;
+  if (plan.id === "free") return false;
   const catalogPlan = plan as CatalogPlan;
   return !catalogPlan.hidden && !catalogPlan.meta?.hidden && !isLegacyAgentPlan(plan);
 }
