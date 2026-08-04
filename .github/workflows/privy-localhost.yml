@@ -1,30 +1,16 @@
-name: playwright-privy-live
+name: privy-localhost
 
 on:
   workflow_call:
-    inputs:
-      test_base_url:
-        required: true
-        type: string
-      test_api_base_url:
-        required: true
-        type: string
   workflow_dispatch:
-    inputs:
-      test_base_url:
-        required: true
-        type: string
-      test_api_base_url:
-        required: true
-        type: string
 
 env:
   GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
 jobs:
-  playwright-privy-live:
+  playwright-privy:
     runs-on: self-hosted
-    timeout-minutes: 30
+    timeout-minutes: 60
     concurrency:
       group: hypercli-frontend-e2e-privy
       cancel-in-progress: false
@@ -32,14 +18,14 @@ jobs:
       run:
         shell: bash
     env:
-      TEST_BASE_URL: ${{ inputs.test_base_url }}
-      TEST_API_BASE_URL: ${{ inputs.test_api_base_url }}
+      TEST_HOSTNAME: 127.0.0.1
+      TEST_API_BASE_URL: https://api.dev.hypercli.com
       TEST_EMAIL: ${{ vars.TEST_EMAIL }}
       TEST_IMAP_HOST: ${{ vars.TEST_IMAP_HOST }}
       TEST_IMAP_USER: ${{ secrets.TEST_IMAP_USER }}
       TEST_IMAP_PASS: ${{ secrets.TEST_IMAP_PASS }}
       NOTIFY_URL: ${{ vars.NOTIFY_URL }}
-      PLAYWRIGHT_ARTIFACTS_DIR: ${{ github.workspace }}/.e2e-artifacts/playwright-privy-live-${{ github.run_id }}-${{ github.run_attempt }}
+      PLAYWRIGHT_ARTIFACTS_DIR: ${{ github.workspace }}/.e2e-artifacts/playwright-privy-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -51,10 +37,10 @@ jobs:
       - name: Build E2E image
         id: build-e2e
         run: |
-          IMAGE_TAG="e2e-privy-live-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+          IMAGE_TAG="e2e-privy-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             .github/scripts/build_e2e_image.sh >> "$GITHUB_OUTPUT"
 
-      - name: Run post-deploy login smoke
+      - name: Run dockerized Playwright tests
         id: e2e
         continue-on-error: true
         env:
@@ -65,7 +51,7 @@ jobs:
           mkdir -p "${ARTIFACTS_DIR}"
           docker run --rm --init \
             -e CI=true \
-            -e TEST_BASE_URL \
+            -e TEST_HOSTNAME \
             -e TEST_API_BASE_URL \
             -e TEST_EMAIL \
             -e TEST_IMAP_HOST \
@@ -77,13 +63,13 @@ jobs:
             -e E2E_ARTIFACTS_DIR=/artifacts \
             -v "${ARTIFACTS_DIR}:/artifacts" \
             "${{ steps.build-e2e.outputs.e2e_image }}" \
-            bash -lc 'cd /workspace && ./.github/scripts/run_e2e_privy_live.sh'
+            bash -lc 'cd /workspace && ./.github/scripts/run_e2e_privy.sh'
 
       - name: Upload Playwright artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-privy-live-artifacts
+          name: privy-localhost-artifacts
           path: ${{ env.PLAYWRIGHT_ARTIFACTS_DIR }}
           if-no-files-found: ignore
 
@@ -94,14 +80,14 @@ jobs:
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
           E2E_STATUS: ${{ steps.e2e.outcome }}
         run: |
-          MESSAGE="Post-deploy Privy login smoke passed (${{ inputs.test_base_url }})"
+          MESSAGE="Privy localhost login passed"
           python3 .github/scripts/ci_notify.py \
             --category frontend \
             --phase test \
             --status "${E2E_STATUS}" \
             --event "${{ github.event_name }}" \
             --message "${MESSAGE}" \
-            --workflow "playwright-privy-live" \
+            --workflow "privy-localhost" \
             --channel frontend \
             --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 

@@ -142,17 +142,19 @@ jobs:
     uses: ./.github/workflows/e2e-agents.yml
     secrets: inherit
 
-  e2e-privy:
-    # The single real Privy email-OTP test (login.spec.ts). Owns the OTP inbox.
-    uses: ./.github/workflows/e2e-privy.yml
+  privy-localhost:
+    # The single real Privy email-OTP test (login.spec.ts) against the local
+    # build. Owns the OTP inbox.
+    uses: ./.github/workflows/privy-localhost.yml
     secrets: inherit
 
-  e2e-privy-live:
+  privy-final:
     # Post-deploy gate: same Privy OTP login against the site just published
-    # from this branch (feat from main, dev from dev). Shares the OTP inbox,
-    # so it must not run concurrently with the other Privy suites.
-    needs: publish-claw
-    uses: ./.github/workflows/e2e-privy-live.yml
+    # from this branch (feat from main, dev from dev). Shares the OTP inbox
+    # with privy-localhost, so it is chained after it — implicit queueing on
+    # the concurrency group would let the newer run supersede the older one.
+    needs: [publish-claw, privy-localhost]
+    uses: ./.github/workflows/privy-final.yml
     with:
       test_base_url: ${{ github.ref_name == 'main' && 'https://agents.feat.hypercli.com' || 'https://agents.dev.hypercli.com' }}
       test_api_base_url: ${{ github.ref_name == 'main' && 'https://api.hypercli.com' || 'https://api.dev.hypercli.com' }}
