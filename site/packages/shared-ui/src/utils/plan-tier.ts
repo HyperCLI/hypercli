@@ -122,7 +122,9 @@ export function resolveCatalogPlanTier(
 ): PlanTier {
   const generation = resolvePlanCatalogGeneration(catalog);
   return (
-    resolveCanonicalPlanTier(plan.canonicalId, plan.id) ??
+    // Canonical IDs win only in current-generation catalogs; legacy catalogs
+    // keep the confirmed rank mapping (pro -> team, team -> enterprise).
+    (generation === "current" ? resolveCanonicalPlanTier(plan.canonicalId, plan.id) : null) ??
     resolvePlanTierForIdentity(plan.canonicalId, plan.name, generation) ??
     resolvePlanTierForIdentity(plan.id, plan.name, generation) ??
     resolveRelativeCatalogTier(plan, catalog) ??
@@ -149,7 +151,7 @@ export function resolveAccountPlanTier(
   const effectiveItem = [...(summary.activeSubscriptions ?? []), ...(summary.entitlementItems ?? [])]
     .find((item) => normalizedPlanKey(item.planId) === effectiveKey);
   return (
-    resolveCanonicalPlanTier(effectivePlanId) ??
+    (generation === "current" ? resolveCanonicalPlanTier(effectivePlanId) : null) ??
     resolvePlanTierForIdentity(effectivePlanId, effectiveItem?.planName, generation) ??
     DEFAULT_PLAN_TIER
   );
