@@ -7,6 +7,7 @@
 [data-theme="dark"] {
   color-scheme: dark;
   --font-size: 16px;
+  --font-ui: var(--font-figtree, "Figtree"), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --background: #10151f;
   --background-secondary: #151b26;
   --surface: #1b2331;
@@ -29,6 +30,7 @@
   --primary-foreground: #ffffff;
   --primary-hover: #5d87ff;
   --primary-pressed: #3d68e6;
+  --link: #9db4ff;
   --secondary: #232d3f;
   --secondary-foreground: #b9c4d6;
   --muted: #1a2230;
@@ -50,6 +52,12 @@
   --selection-accent-soft: rgba(93, 135, 255, 0.16);
   --selection-accent-border: rgba(93, 135, 255, 0.35);
   --selection-background: rgba(93, 135, 255, 0.35);
+  --plan-accent: #9db4ff;
+  --plan-accent-strong: #5d87ff;
+  --plan-accent-foreground: #10151f;
+  --plan-accent-soft: rgba(93, 135, 255, 0.16);
+  --plan-accent-border: rgba(157, 180, 255, 0.36);
+  --plan-accent-rgb: 157 180 255;
   --integration-discord: #5865f2;
   --integration-discord-foreground: #ffffff;
   --integration-slack: #e01e5a;
@@ -114,6 +122,7 @@
 [data-theme="light"] {
   color-scheme: light;
   --font-size: 16px;
+  --font-ui: var(--font-figtree, "Figtree"), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --background: #ffffff;
   --background-secondary: #f7f9fc;
   --surface: #ffffff;
@@ -136,6 +145,7 @@
   --primary-foreground: #ffffff;
   --primary-hover: #3d68e6;
   --primary-pressed: #2f56c4;
+  --link: #3157c7;
   --secondary: #f7f9fc;
   --secondary-foreground: #64748b;
   --muted: #f7f9fc;
@@ -157,6 +167,12 @@
   --selection-accent-soft: rgba(79, 124, 255, 0.1);
   --selection-accent-border: rgba(79, 124, 255, 0.3);
   --selection-background: #dde6ff;
+  --plan-accent: #3d68e6;
+  --plan-accent-strong: #4f7cff;
+  --plan-accent-foreground: #10151f;
+  --plan-accent-soft: #eef2ff;
+  --plan-accent-border: rgba(79, 124, 255, 0.34);
+  --plan-accent-rgb: 61 104 230;
   --integration-discord: #5865f2;
   --integration-discord-foreground: #ffffff;
   --integration-slack: #e01e5a;

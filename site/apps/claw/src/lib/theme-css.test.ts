@@ -145,11 +145,11 @@ describe("shared theme CSS", () => {
   it("keeps Aurora CTAs blue while plan tiers only override wayfinding tokens", () => {
     expect(auroraLightBlock).toContain("--button-primary: #4f7cff;");
     expect(auroraDarkBlock).toContain("--button-primary: #4f7cff;");
-    expect(clawThemeCss).toContain('[data-theme="aurora-light"] [data-plan-tier="team"]');
-    expect(clawThemeCss).toContain("--plan-accent: #0e7a5f;");
-    expect(clawThemeCss).toContain('[data-theme="aurora-dark"] [data-plan-tier="enterprise"]');
-    expect(clawThemeCss).toContain("--plan-accent: #c9afff;");
-    expect(clawThemeCss).toContain('@custom-variant dark (&:where(.dark, .dark *, [data-color-mode="dark"]');
+    expect(themeCss).toContain('[data-theme="aurora-light"] [data-plan-tier="team"]');
+    expect(themeCss).toContain("--plan-accent: #0e7a5f;");
+    expect(themeCss).toContain('[data-theme="aurora-dark"] [data-plan-tier="enterprise"]');
+    expect(themeCss).toContain("--plan-accent: #c9afff;");
+    expect(themeCss).toContain('@custom-variant dark (&:where(.dark, .dark *, [data-color-mode="dark"]');
   });
 
   it("does not include removed theme variants", () => {
