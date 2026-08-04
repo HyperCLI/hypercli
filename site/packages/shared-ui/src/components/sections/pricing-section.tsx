@@ -7,9 +7,9 @@ import Link from 'next/link';
 
 export function PricingSection() {
   const features = [
-    'Free tier with GPU credits',
-    'Pay-as-you-go compute',
-    'Team & enterprise plans',
+    '7-day free Team trial',
+    'Flat monthly plans from $39',
+    'Tokens pooled across your agents',
     'No hidden fees',
     'Bring your own GPUs (optional)'
   ];
@@ -82,7 +82,7 @@ export function PricingSection() {
             transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
           >
             <h3 className="text-5xl sm:text-6xl text-foreground mb-8 leading-[1.05] tracking-tight max-w-4xl">
-              Simple, transparent, usage-based
+              Simple, flat-rate, per plan
             </h3>
           </motion.div>
 

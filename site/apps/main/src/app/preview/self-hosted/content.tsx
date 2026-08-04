@@ -46,22 +46,22 @@ const features = [
 
 const pricingTiers = [
   {
-    name: "Starter",
-    users: "Up to 25 users",
-    price: "$15,000/yr",
-    features: ["Full platform", "Email support"],
+    name: "Private Cloud",
+    users: "Dedicated infrastructure, our cloud",
+    price: "From $5,000/mo",
+    features: ["Full platform", "Managed operations"],
   },
   {
-    name: "Growth",
-    users: "Up to 100 users",
-    price: "$45,000/yr",
-    features: ["Priority support", "Slack channel"],
+    name: "Self-Hosted",
+    users: "Your servers, unlimited agents",
+    price: "From $20,000/mo",
+    features: ["No per-token pricing", "White-glove deployment"],
   },
   {
-    name: "Enterprise",
-    users: "Unlimited",
-    price: "Custom",
-    features: ["SLA", "Dedicated engineer", "Custom integrations"],
+    name: "Pilot Program",
+    users: "4 weeks to production",
+    price: "$15,000 fixed",
+    features: ["Fully credited toward plan", "Limited per quarter"],
   },
 ]
 

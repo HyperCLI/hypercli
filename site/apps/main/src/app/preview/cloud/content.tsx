@@ -61,27 +61,27 @@ const comparisonRows = [
 
 const pricingTiers = [
   {
-    name: "Developer",
-    price: "$49/mo",
-    includes: "2M tokens + auto-shutdown",
+    name: "Solo",
+    price: "$39/mo",
+    includes: "25M tokens/day · 1 agent",
     bestFor: "Side projects",
   },
   {
     name: "Team",
-    price: "$199/mo",
-    includes: "10M tokens + priority support",
+    price: "$79/mo",
+    includes: "50M tokens/day, pooled · 3 agents · Most popular",
     bestFor: "Small teams",
   },
   {
-    name: "Business",
-    price: "$599/mo",
-    includes: "50M tokens + dedicated support",
+    name: "Pro",
+    price: "$149/mo",
+    includes: "100M tokens/day, pooled · 3 dev-grade agents · Kimi K3",
     bestFor: "Production workloads",
   },
   {
     name: "Enterprise",
     price: "Custom",
-    includes: "Unlimited + custom SLA",
+    includes: "Scale, private cloud, self-hosted",
     bestFor: "Scale without limits",
   },
 ]
