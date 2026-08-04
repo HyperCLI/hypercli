@@ -511,12 +511,21 @@ jobs:
           # User-facing downloads: every updater archive doubles as the
           # install artifact (signatures excluded); the .deb and raw AppImage
           # come from dist/installer.
-          mapfile -t FILES < <(find dist/updater -type f ! -name '*.sig'; find dist/installer -type f)
-          # GitHub's upload endpoint intermittently 404s right after release
-          # creation (eventual consistency); retry with backoff.
-          for attempt in 1 2 3 4; do
+          # Dedupe by basename: on Tauri 2.11+ the AppImage is its own
+          # updater artifact, so it appears in BOTH dist/updater and
+          # dist/installer — uploading the same filename twice in one batch
+          # makes the uploads endpoint 404 deterministically.
+          declare -A seen
+          FILES=()
+          while IFS= read -r f; do
+            base="$(basename "$f")"
+            [[ -n "${seen[$base]:-}" ]] && continue
+            seen[$base]=1
+            FILES+=("$f")
+          done < <(find dist/updater -type f ! -name '*.sig'; find dist/installer -type f)
+          for attempt in 1 2 3; do
             gh release upload "$TAG" "${FILES[@]}" --clobber && break
-            [[ "$attempt" == "4" ]] && exit 1
+            [[ "$attempt" == "3" ]] && exit 1
             sleep $((attempt * 10))
           done
 
