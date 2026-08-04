@@ -3,7 +3,7 @@
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronDown, LogOut } from "lucide-react";
+import { ChevronDown, ExternalLink, LogOut } from "lucide-react";
 import { useTurnkey } from "@turnkey/react-wallet-kit";
 import ContactModal from "./ContactModal";
 import { HyperCLILogo } from "./HyperCLILogo";
@@ -13,20 +13,66 @@ import { AuthContext as SharedAuthContext } from "../providers/AuthProvider";
 import { AuthContext as PrivyAuthContext } from "../auth/AuthProvider";
 import { clearLocalAuthTokens, cookieUtils, markAuthLogout } from "../utils/cookies";
 import { NAV_URLS } from "../utils/navigation";
-import {
-  NavigationMenu,
-  NavigationMenuList,
-  NavigationMenuItem,
-  NavigationMenuTrigger,
-  NavigationMenuContent,
-  NavigationMenuLink,
-} from "./ui/navigation-menu";
 
-const AUDIENCE_LINKS = [
-  { label: "Teams", href: NAV_URLS.forTeams, path: "/for-teams" },
-  { label: "Developers", href: NAV_URLS.developers, path: "/developers" },
-  { label: "Enterprise", href: NAV_URLS.enterprise, path: "/enterprise" },
-] as const;
+type TrackId = "teams" | "dev" | "ent";
+
+interface SubLink {
+  label: string;
+  href: string;
+  paths: string[];
+  external?: boolean;
+}
+
+const CHANNEL_PATHS = ["/slack", "/teams", "/telegram", "/whatsapp", "/discord", "/buzz"];
+
+const TRACKS: Record<TrackId, { paths: string[]; links: SubLink[] }> = {
+  teams: {
+    paths: ["/for-teams", "/what-it-can-do", ...CHANNEL_PATHS],
+    links: [
+      { label: "Overview", href: NAV_URLS.forTeams, paths: ["/for-teams"] },
+      { label: "What it can do", href: NAV_URLS.whatItCanDo, paths: ["/what-it-can-do"] },
+      { label: "Channels", href: NAV_URLS.slack, paths: CHANNEL_PATHS },
+      { label: "Pricing", href: NAV_URLS.pricing, paths: ["/pricing"] },
+    ],
+  },
+  dev: {
+    paths: ["/developers", "/capabilities", "/cli", "/inference", "/quickstart", "/pricing"],
+    links: [
+      { label: "Overview", href: NAV_URLS.developers, paths: ["/developers"] },
+      { label: "Capabilities", href: NAV_URLS.capabilities, paths: ["/capabilities"] },
+      { label: "CLI", href: NAV_URLS.cli, paths: ["/cli"] },
+      { label: "Inference", href: NAV_URLS.inference, paths: ["/inference"] },
+      { label: "Channels", href: NAV_URLS.slack, paths: CHANNEL_PATHS },
+      { label: "Docs", href: NAV_URLS.docs, paths: [], external: true },
+      { label: "Pricing", href: NAV_URLS.pricing, paths: ["/pricing"] },
+    ],
+  },
+  ent: {
+    paths: ["/enterprise", "/security", "/self-hosted", "/pilot-program"],
+    links: [
+      { label: "Overview", href: NAV_URLS.enterprise, paths: ["/enterprise"] },
+      { label: "Self-Hosted", href: NAV_URLS.selfHosted, paths: ["/self-hosted"] },
+      { label: "Pilot Program", href: NAV_URLS.pilotProgram, paths: ["/pilot-program"] },
+      { label: "Security", href: NAV_URLS.security, paths: ["/security"] },
+      { label: "Pricing", href: NAV_URLS.pricing, paths: ["/pricing"] },
+    ],
+  },
+};
+
+const AUDIENCE_LINKS: { label: string; href: string; track: TrackId }[] = [
+  { label: "Teams", href: NAV_URLS.forTeams, track: "teams" },
+  { label: "Developers", href: NAV_URLS.developers, track: "dev" },
+  { label: "Enterprise", href: NAV_URLS.enterprise, track: "ent" },
+];
+
+function detectTrack(pathname: string): TrackId | null {
+  for (const track of Object.keys(TRACKS) as TrackId[]) {
+    if (TRACKS[track].paths.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
+      return track;
+    }
+  }
+  return null;
+}
 
 export interface HeaderProps {
   loginApiBaseUrl?: string;
@@ -47,10 +93,8 @@ function TurnkeyLogoutBridge({ register }: { register: (logout: (() => Promise<v
 
 export default function Header({ loginApiBaseUrl, loginTokenStorageKey }: HeaderProps = {}) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-  const [openMenu, setOpenMenu] = useState<"platform" | "product" | "solutions" | null>(null);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
@@ -64,6 +108,9 @@ export default function Header({ loginApiBaseUrl, loginTokenStorageKey }: Header
   const isAuthenticated = sharedAuth?.isAuthenticated ?? privyAuth?.isAuthenticated ?? false;
   const accountEmail = sharedAuth?.userInfo?.email ?? privyAuth?.user?.email ?? null;
   const accountInitial = accountEmail?.trim()[0]?.toUpperCase() || "U";
+
+  const track = detectTrack(pathname);
+  const trackLinks = track ? TRACKS[track].links : null;
 
   const openContactModal = () => {
     setIsContactModalOpen(true);
@@ -95,14 +142,6 @@ export default function Header({ loginApiBaseUrl, loginTokenStorageKey }: Header
   };
 
   useEffect(() => {
-    const handleScroll = () => {
-      setScrolled(window.scrollY > 10);
-    };
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
-
-  useEffect(() => {
     if (!accountMenuOpen) return;
     const closeOnOutsideClick = (event: MouseEvent) => {
       if (!accountMenuRef.current?.contains(event.target as Node)) setAccountMenuOpen(false);
@@ -111,42 +150,13 @@ export default function Header({ loginApiBaseUrl, loginTokenStorageKey }: Header
     return () => document.removeEventListener("mousedown", closeOnOutsideClick);
   }, [accountMenuOpen]);
 
-  const openMenuFullyOpenRef = useRef(false);
-
-  // Track menu open state; only allow closing once the menu has been fully
-  // open for a moment so hover transitions between triggers don't flicker
-  useEffect(() => {
-    if (openMenu) {
-      openMenuFullyOpenRef.current = false;
-      const timer = setTimeout(() => {
-        openMenuFullyOpenRef.current = true;
-      }, 200);
-      return () => clearTimeout(timer);
-    } else {
-      openMenuFullyOpenRef.current = false;
-    }
-  }, [openMenu]);
-
-  const menuValueProps = (menu: "platform" | "product" | "solutions") => ({
-    value: openMenu === menu ? menu : undefined,
-    onValueChange: (value: string) => {
-      if (value === menu) {
-        setOpenMenu(menu);
-      } else if (openMenuFullyOpenRef.current) {
-        setOpenMenu(null);
-      }
-    },
-  });
-
   return (
     <>
       {sharedAuth ? <TurnkeyLogoutBridge register={registerTurnkeyLogout} /> : null}
       <header
-        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+        className={`fixed top-0 left-0 right-0 z-50 ${
           mobileMenuOpen ? "bg-background" : "bg-background/80"
-        } backdrop-blur-lg border-b border-border ${
-          scrolled ? "shadow-md" : ""
-        }`}
+        } backdrop-blur-lg border-b border-border`}
       >
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8">
           <nav className="flex items-center justify-between h-16">
@@ -159,215 +169,38 @@ export default function Header({ loginApiBaseUrl, loginTokenStorageKey }: Header
               <HyperCLILogo decorative className="h-[31px] w-[158px]" />
             </Link>
 
-            {/* Desktop Nav Links */}
-            <div className="hidden lg:!flex items-center space-x-5">
-              {/* Audience pill segment */}
-              <nav
-                aria-label="Audience"
-                className="flex items-center gap-0.5 rounded-full border border-border bg-surface-low p-1"
-              >
-                {AUDIENCE_LINKS.map((link) => {
-                  const isActive =
-                    pathname === link.path || pathname.startsWith(`${link.path}/`);
-                  return (
-                    <a
-                      key={link.label}
-                      href={link.href}
-                      aria-current={isActive ? "page" : undefined}
-                      className={`whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
-                        isActive
-                          ? "bg-surface-high text-foreground shadow-sm"
-                          : "text-text-secondary hover:text-foreground"
-                      }`}
-                    >
-                      {link.label}
-                    </a>
-                  );
-                })}
-              </nav>
+            {/* Audience pill segmented control */}
+            <nav
+              aria-label="Audience"
+              className="hidden lg:!flex items-center gap-0.5 rounded-full bg-surface-low p-1"
+            >
+              {AUDIENCE_LINKS.map((link) => {
+                const isActive = track === link.track;
+                return (
+                  <a
+                    key={link.label}
+                    href={link.href}
+                    aria-current={isActive ? "page" : undefined}
+                    className={`whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                      isActive
+                        ? "bg-surface-high text-foreground shadow-sm"
+                        : "text-text-muted hover:text-foreground"
+                    }`}
+                  >
+                    {link.label}
+                  </a>
+                );
+              })}
+            </nav>
 
-              {/* Platform dropdown grouping console/agents/playground/models/gpus (Radix) */}
-              <NavigationMenu
-                data-slot="header-platform"
-                viewport={false}
-                className="!flex-none"
-                {...menuValueProps("platform")}
-                delayDuration={150}
-                skipDelayDuration={0}
-              >
-                <NavigationMenuList>
-                  <NavigationMenuItem value="platform">
-                    <NavigationMenuTrigger className="text-sm !text-text-secondary hover:text-foreground transition-colors cursor-pointer !bg-transparent !px-0 !py-0 !h-auto !rounded-none !shadow-none focus-visible:ring-2 focus-visible:ring-primary/30 data-[state=open]:!text-text-secondary data-[state=open]:!bg-transparent data-[state=open]:hover:!text-text-secondary">
-                      Platform
-                    </NavigationMenuTrigger>
-                    <NavigationMenuContent className="md:w-auto overflow-visible bg-transparent p-0 border-none shadow-none">
-                      <div className="bg-surface-low border border-border rounded-lg p-2 shadow-lg w-56">
-                        <nav className="flex flex-col">
-                          <NavigationMenuLink
-                            href={NAV_URLS.console}
-                            className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md"
-                          >
-                            Console
-                          </NavigationMenuLink>
-                          <NavigationMenuLink
-                            href={NAV_URLS.agents}
-                            className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md"
-                          >
-                            Agents
-                          </NavigationMenuLink>
-                          <NavigationMenuLink
-                            href={NAV_URLS.playground}
-                            className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md"
-                          >
-                            Playground
-                          </NavigationMenuLink>
-                          <NavigationMenuLink
-                            href={NAV_URLS.models}
-                            className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md"
-                          >
-                            Models
-                          </NavigationMenuLink>
-                          <NavigationMenuLink
-                            href={NAV_URLS.gpus}
-                            className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md"
-                          >
-                            GPUs
-                          </NavigationMenuLink>
-                        </nav>
-                      </div>
-                    </NavigationMenuContent>
-                  </NavigationMenuItem>
-                </NavigationMenuList>
-              </NavigationMenu>
-
-              {/* Product dropdown grouping pricing/capabilities/cli/quickstart/inference (Radix) */}
-              <NavigationMenu
-                data-slot="header-product"
-                viewport={false}
-                className="!flex-none"
-                {...menuValueProps("product")}
-                delayDuration={150}
-                skipDelayDuration={0}
-              >
-                <NavigationMenuList>
-                  <NavigationMenuItem value="product">
-                    <NavigationMenuTrigger className="text-sm !text-text-secondary hover:text-foreground transition-colors cursor-pointer !bg-transparent !px-0 !py-0 !h-auto !rounded-none !shadow-none focus-visible:ring-2 focus-visible:ring-primary/30 data-[state=open]:!text-text-secondary data-[state=open]:!bg-transparent data-[state=open]:hover:!text-text-secondary">
-                      Product
-                    </NavigationMenuTrigger>
-                    <NavigationMenuContent className="md:w-auto overflow-visible bg-transparent p-0 border-none shadow-none">
-                      <div className="bg-surface-low border border-border rounded-lg p-2 shadow-lg w-56">
-                        <nav className="flex flex-col">
-                          <NavigationMenuLink
-                            href={NAV_URLS.pricing}
-                            className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md"
-                          >
-                            Pricing
-                          </NavigationMenuLink>
-                          <NavigationMenuLink
-                            href={NAV_URLS.capabilities}
-                            className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md"
-                          >
-                            Capabilities
-                          </NavigationMenuLink>
-                          <NavigationMenuLink
-                            href={NAV_URLS.cli}
-                            className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md"
-                          >
-                            CLI
-                          </NavigationMenuLink>
-                          <NavigationMenuLink
-                            href={NAV_URLS.quickstart}
-                            className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md"
-                          >
-                            Quickstart
-                          </NavigationMenuLink>
-                          <NavigationMenuLink
-                            href={NAV_URLS.inference}
-                            className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md"
-                          >
-                            Inference
-                          </NavigationMenuLink>
-                        </nav>
-                      </div>
-                    </NavigationMenuContent>
-                  </NavigationMenuItem>
-                </NavigationMenuList>
-              </NavigationMenu>
-
-              {/* Solutions dropdown grouping for-teams/developers/enterprise/data-center (Radix) */}
-              <NavigationMenu
-                data-slot="header-solutions"
-                viewport={false}
-                className="!flex-none"
-                {...menuValueProps("solutions")}
-                delayDuration={150}
-                skipDelayDuration={0}
-              >
-                <NavigationMenuList>
-                  <NavigationMenuItem value="solutions">
-                    <NavigationMenuTrigger className="text-sm !text-text-secondary hover:text-foreground transition-colors cursor-pointer !bg-transparent !px-0 !py-0 !h-auto !rounded-none !shadow-none focus-visible:ring-2 focus-visible:ring-primary/30 data-[state=open]:!text-text-secondary data-[state=open]:!bg-transparent data-[state=open]:hover:!text-text-secondary">
-                      Solutions
-                    </NavigationMenuTrigger>
-                    <NavigationMenuContent className="md:w-auto overflow-visible bg-transparent p-0 border-none shadow-none">
-                      <div className="bg-surface-low border border-border rounded-lg p-2 shadow-lg w-56">
-                        <nav className="flex flex-col">
-                          <NavigationMenuLink
-                            href={NAV_URLS.forTeams}
-                            className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md"
-                          >
-                            For Teams
-                          </NavigationMenuLink>
-                          <NavigationMenuLink
-                            href={NAV_URLS.developers}
-                            className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md"
-                          >
-                            Developers
-                          </NavigationMenuLink>
-                          <NavigationMenuLink
-                            href={NAV_URLS.enterprise}
-                            className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md"
-                          >
-                            Enterprise
-                          </NavigationMenuLink>
-                          <NavigationMenuLink
-                            href={NAV_URLS.dataCenter}
-                            className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md"
-                          >
-                            Data Center
-                          </NavigationMenuLink>
-                        </nav>
-                      </div>
-                    </NavigationMenuContent>
-                  </NavigationMenuItem>
-                </NavigationMenuList>
-              </NavigationMenu>
-
-            </div>
-
-            {/* Desktop CTAs - Only show on large screens and up */}
+            {/* Desktop CTAs */}
             <div className="hidden lg:!flex items-center space-x-4">
-              <div className="hidden xl:!flex items-center space-x-5">
-                <a
-                  href={NAV_URLS.docs}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm text-text-secondary hover:text-foreground transition-colors"
-                >
-                  Docs
-                </a>
-                <a
-                  href={NAV_URLS.status}
-                  className="text-sm text-text-secondary hover:text-foreground transition-colors"
-                >
-                  Status
-                </a>
-                <button
-                  onClick={openContactModal}
-                  className="text-sm text-text-secondary hover:text-foreground transition-colors cursor-pointer"
-                >
-                  Contact
-                </button>
-              </div>
+              <button
+                onClick={openContactModal}
+                className="text-sm text-text-muted hover:text-foreground transition-colors cursor-pointer"
+              >
+                Contact
+              </button>
               {isAuthenticated ? (
                 <div ref={accountMenuRef} className="relative">
                   <button
@@ -403,7 +236,7 @@ export default function Header({ loginApiBaseUrl, loginTokenStorageKey }: Header
                   <ThemeSelector />
                   <button
                     onClick={openLoginModal}
-                    className="text-sm font-medium text-text-secondary hover:text-foreground transition-colors cursor-pointer whitespace-nowrap"
+                    className="text-sm font-medium text-text-muted hover:text-foreground transition-colors cursor-pointer whitespace-nowrap"
                   >
                     Sign in
                   </button>
@@ -417,7 +250,7 @@ export default function Header({ loginApiBaseUrl, loginTokenStorageKey }: Header
               </a>
             </div>
 
-            {/* Mobile Menu Button - Only show on small screens */}
+            {/* Mobile Menu Button */}
             <div className="block lg:!hidden">
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -442,55 +275,110 @@ export default function Header({ loginApiBaseUrl, loginTokenStorageKey }: Header
           </nav>
         </div>
 
-        {/* Mobile Menu - Only show on small screens when hamburger is clicked */}
+        {/* Tier 2: per-track sub-bar */}
+        {trackLinks ? (
+          <nav aria-label="Section" className="hidden lg:!block border-t border-border">
+            <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8">
+              <div className="flex items-center gap-6 h-11 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {trackLinks.map((link) => {
+                  const isActive = link.paths.some(
+                    (p) => pathname === p || pathname.startsWith(`${p}/`),
+                  );
+                  const className = `flex items-center self-stretch whitespace-nowrap border-b-2 text-sm font-medium transition-colors ${
+                    isActive
+                      ? "border-primary text-foreground"
+                      : "border-transparent text-text-muted hover:text-foreground"
+                  }`;
+                  return (
+                    <a
+                      key={link.label}
+                      href={link.href}
+                      aria-current={isActive ? "page" : undefined}
+                      {...(link.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                      className={className}
+                    >
+                      {link.label}
+                      {link.external ? <ExternalLink aria-hidden="true" className="ml-1 h-3 w-3" /> : null}
+                    </a>
+                  );
+                })}
+              </div>
+            </div>
+          </nav>
+        ) : null}
+
+        {/* Mobile Menu */}
         <div
           className={`bg-surface-low border-t border-border lg:!hidden ${
             mobileMenuOpen ? "block" : "hidden"
           }`}
         >
           <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
-            {[
-              { label: "Agents", href: NAV_URLS.agents },
-              { label: "Console", href: NAV_URLS.console },
-              { label: "Playground", href: NAV_URLS.playground },
-              { label: "Models", href: NAV_URLS.models },
-              { label: "GPUs", href: NAV_URLS.gpus },
-              { label: "Pricing", href: NAV_URLS.pricing },
-              { label: "Capabilities", href: NAV_URLS.capabilities },
-              { label: "CLI", href: NAV_URLS.cli },
-              { label: "Quickstart", href: NAV_URLS.quickstart },
-              { label: "Inference", href: NAV_URLS.inference },
-              { label: "For Teams", href: NAV_URLS.forTeams },
-              { label: "Developers", href: NAV_URLS.developers },
-              { label: "Enterprise", href: NAV_URLS.enterprise },
-              { label: "Data Center", href: NAV_URLS.dataCenter },
-              { label: "Status", href: NAV_URLS.status },
-            ].map((item) => (
+            {AUDIENCE_LINKS.map((link) => (
               <a
-                key={item.label}
-                href={item.href}
+                key={link.label}
+                href={link.href}
+                className={`block px-3 py-2 rounded-md text-base font-medium ${
+                  track === link.track
+                    ? "text-foreground bg-surface-high"
+                    : "text-text-secondary hover:text-foreground hover:bg-surface-high"
+                }`}
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                {link.label}
+              </a>
+            ))}
+            {trackLinks ? (
+              <div className="border-t border-border-medium mt-2 pt-2 space-y-1">
+                {trackLinks.map((link) => (
+                  <a
+                    key={link.label}
+                    href={link.href}
+                    {...(link.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                    className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    {link.label}
+                    {link.external ? " ↗" : ""}
+                  </a>
+                ))}
+              </div>
+            ) : null}
+            <div className="border-t border-border-medium mt-2 pt-2 space-y-1">
+              {[
+                { label: "Agents", href: NAV_URLS.agents },
+                { label: "Console", href: NAV_URLS.console },
+                { label: "Playground", href: NAV_URLS.playground },
+                { label: "Models", href: NAV_URLS.models },
+                { label: "GPUs", href: NAV_URLS.gpus },
+                { label: "Status", href: NAV_URLS.status },
+              ].map((item) => (
+                <a
+                  key={item.label}
+                  href={item.href}
+                  className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  {item.label}
+                </a>
+              ))}
+              <a
+                href={NAV_URLS.docs}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
                 onClick={() => setMobileMenuOpen(false)}
               >
-                {item.label}
+                Docs
               </a>
-            ))}
-            <a
-              href={NAV_URLS.docs}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              Docs
-            </a>
-            <button
-              onClick={openContactModal}
-              className="block w-full text-left px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
-            >
-              Contact
-            </button>
-            <ThemeSelector className="w-full" />
+              <button
+                onClick={openContactModal}
+                className="block w-full text-left px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
+              >
+                Contact
+              </button>
+              <ThemeSelector className="w-full" />
+            </div>
             <div className="border-t border-border-medium mt-4 pt-4 space-y-2">
               {isAuthenticated ? (
                 <button
