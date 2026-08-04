@@ -4,6 +4,7 @@ import importlib.util
 import sys
 import types
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 
@@ -48,6 +49,21 @@ class _FakeResponse:
 
 def test_dev_bootstrap_uses_canonical_team_plan() -> None:
     assert MODULE.DEFAULT_PLAN_ID == "team"
+
+
+def test_new_bootstrap_identity_is_fresh_and_uuid_backed() -> None:
+    first = MODULE._new_bootstrap_identity()
+    second = MODULE._new_bootstrap_identity()
+
+    first_uuid = UUID(first.orchestra_user_id)
+    second_uuid = UUID(second.orchestra_user_id)
+
+    assert first_uuid != second_uuid
+    assert first.email != second.email
+    assert first.suffix == first_uuid.hex[:10]
+    assert second.suffix == second_uuid.hex[:10]
+    assert first.email == f"sdk-int-{first.suffix}@example.com"
+    assert second.email == f"sdk-int-{second.suffix}@example.com"
 
 
 def test_github_env_file_separates_mask_commands(

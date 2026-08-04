@@ -52,6 +52,24 @@ class BootstrapState:
     test_agent_api_key: str
 
 
+@dataclass(frozen=True)
+class BootstrapIdentity:
+    orchestra_user_id: str
+    email: str
+    suffix: str
+
+
+def _new_bootstrap_identity() -> BootstrapIdentity:
+    """Return a fresh UUID-backed identity for one live bootstrap run."""
+    generated_user_uuid = uuid.uuid4()
+    suffix = generated_user_uuid.hex[:10]
+    return BootstrapIdentity(
+        orchestra_user_id=str(generated_user_uuid),
+        email=f"sdk-int-{suffix}@example.com",
+        suffix=suffix,
+    )
+
+
 def _normalize_product_base(raw: str) -> str:
     base = (raw or DEFAULT_PRODUCT_BASE).strip().rstrip("/")
     if not base:
@@ -280,10 +298,10 @@ def bootstrap() -> BootstrapState:
     if not orchestra_admin_key:
         raise RuntimeError("BACKEND_API_KEY is required")
 
-    generated_user_uuid = uuid.uuid4()
-    suffix = generated_user_uuid.hex[:10]
-    orchestra_user_id = str(generated_user_uuid)
-    email = f"sdk-int-{suffix}@example.com"
+    identity = _new_bootstrap_identity()
+    suffix = identity.suffix
+    orchestra_user_id = identity.orchestra_user_id
+    email = identity.email
 
     _ensure_orchestra_user(
         orchestra_api_base=orchestra_api_base,
