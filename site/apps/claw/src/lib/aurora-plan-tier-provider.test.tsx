@@ -194,14 +194,17 @@ describe("AuroraPlanTierProvider", () => {
     act(() => notifyBillingPlanChanged());
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1_500);
+      // Syncs serialize: the queued fresh refresh starts only once the
+      // in-flight stale one settles. Its superseded "solo" resolution must
+      // be discarded (latest intent), then the fresh "pro" applies.
+      staleRefresh.resolve(currentPlan("solo"));
+      await Promise.resolve();
       freshRefresh.resolve(currentPlan("pro"));
       await Promise.resolve();
     });
     expect(document.documentElement).toHaveAttribute("data-plan-tier", "enterprise");
 
     await act(async () => {
-      staleRefresh.resolve(currentPlan("solo"));
-      await Promise.resolve();
       document.dispatchEvent(new Event("visibilitychange"));
       await Promise.resolve();
     });
@@ -228,11 +231,18 @@ describe("AuroraPlanTierProvider", () => {
     act(() => notifyBillingPlanChanged());
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1_500);
-      failedRetry.reject(new Error("network unavailable"));
-      await Promise.resolve();
       successfulRefresh.resolve(currentPlan("pro"));
       await Promise.resolve();
     });
+    expect(document.documentElement).toHaveAttribute("data-plan-tier", "enterprise");
+
+    // The queued retry only starts after the successful refresh settles;
+    // rejecting it now is handled and must not clobber the newer tier.
+    await act(async () => {
+      failedRetry.reject(new Error("network unavailable"));
+      await Promise.resolve();
+    });
+    failedRetry.promise.catch(() => {});
 
     expect(document.documentElement).toHaveAttribute("data-plan-tier", "enterprise");
     view.unmount();
