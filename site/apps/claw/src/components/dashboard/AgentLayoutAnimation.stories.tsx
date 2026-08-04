@@ -13,7 +13,7 @@ const meta: Meta<typeof AgentLayoutAnimation> = {
   },
   decorators: [
     (Story) => (
-      <div className="flex min-h-[360px] min-w-[420px] items-center justify-center bg-[#0a0a0b] p-8">
+      <div className="flex min-h-[360px] min-w-[420px] items-center justify-center bg-[#10151f] p-8">
         <Story />
       </div>
     ),
@@ -62,7 +62,7 @@ export const SidebarScale: Story = {
   },
   decorators: [
     (Story) => (
-      <div className="flex min-h-[180px] min-w-[280px] items-center justify-center bg-[#0a0a0b] p-8">
+      <div className="flex min-h-[180px] min-w-[280px] items-center justify-center bg-[#10151f] p-8">
         <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#111214] px-3 py-2">
           <Story />
           <span className="text-xs font-semibold uppercase tracking-wider text-white/60">Agents</span>
@@ -74,7 +74,7 @@ export const SidebarScale: Story = {
 
 export const ScaleComparison: Story = {
   render: () => (
-    <div className="grid min-h-[360px] min-w-[520px] grid-cols-3 items-end gap-8 bg-[#0a0a0b] p-10">
+    <div className="grid min-h-[360px] min-w-[520px] grid-cols-3 items-end gap-8 bg-[#10151f] p-10">
       <div className="flex flex-col items-center gap-3">
         <AgentLayoutAnimation className="h-8 w-8" title="Small agent layout animation" />
         <span className="text-[11px] font-medium text-white/45">32px</span>

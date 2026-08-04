@@ -52,18 +52,18 @@ const MARKDOWN_TABLE_CLASS = "w-full table-fixed border-collapse text-left text-
 const MARKDOWN_TABLE_CELL_CLASS = "border-b border-border/60 px-2 py-1 align-top break-words [overflow-wrap:anywhere]";
 const MERMAID_THEME_FALLBACKS = {
   dark: {
-    background: "#0a0a0b",
-    surface: "#141416",
-    foreground: "#fafafa",
-    border: "rgba(255, 255, 255, 0.24)",
-    secondaryText: "#a1a1a6",
+    background: "#10151f",
+    surface: "#1b2331",
+    foreground: "#e8edf4",
+    border: "rgba(255, 255, 255, 0.15)",
+    secondaryText: "#b9c4d6",
   },
   light: {
-    background: "#f7f8f4",
-    surface: "#ffffff",
-    foreground: "#0d1511",
-    border: "rgba(13, 21, 17, 0.2)",
-    secondaryText: "#35463f",
+    background: "#ffffff",
+    surface: "#f7f9fc",
+    foreground: "#1f2937",
+    border: "#cbd5e1",
+    secondaryText: "#64748b",
   },
 } as const;
 const SYNTAX_BASE_STYLE: CSSProperties = {

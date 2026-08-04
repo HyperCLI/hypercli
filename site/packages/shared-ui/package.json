@@ -12,7 +12,7 @@
     "./styles": "./src/styles/globals.css",
     "./styles/base": "./src/styles/base.css",
     "./styles/theme": "./src/styles/theme.css",
-    "./styles/claw": "./src/styles/claw.css",
+    "./styles/style": "./src/styles/style.css",
     "./styles/billing-print": "./src/styles/billing-print.css"
   },
   "scripts": {

@@ -13,7 +13,7 @@ const meta: Meta<typeof ToolCallBlock> = {
   },
   decorators: [
     (Story) => (
-      <div className="max-w-md p-4 bg-[#0a0a0b]">
+      <div className="max-w-md p-4 bg-[#10151f]">
         <Story />
       </div>
     ),

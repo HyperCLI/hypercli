@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
-import { Plus_Jakarta_Sans } from "next/font/google";
+import { Figtree } from "next/font/google";
 import "./globals.css";
 import { ClawProviders } from "@/components/ClawProviders";
 import { ThemeScript } from "@hypercli/shared-ui";
 
-const plusJakartaSans = Plus_Jakarta_Sans({
+const figtree = Figtree({
   subsets: ["latin"],
   display: "swap",
-  variable: "--font-plus-jakarta-sans",
+  variable: "--font-figtree",
 });
 
 export const metadata: Metadata = {
@@ -40,7 +40,7 @@ export default function RootLayout({
         <ThemeScript />
       </head>
       <body
-        className={`${plusJakartaSans.variable} font-sans antialiased overflow-x-hidden`}
+        className={`${figtree.variable} font-sans antialiased overflow-x-hidden`}
         suppressHydrationWarning
       >
         <ClawProviders>

@@ -10,7 +10,7 @@ const meta: Meta<typeof TimestampDisplay> = {
   },
   decorators: [
     (Story) => (
-      <div className="p-4 bg-[#0a0a0b] max-w-md group" style={{ minHeight: 60 }}>
+      <div className="p-4 bg-[#10151f] max-w-md group" style={{ minHeight: 60 }}>
         <p className="text-xs text-text-muted mb-2">Hover to reveal &quot;off&quot; variant</p>
         <Story />
       </div>

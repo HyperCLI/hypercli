@@ -1,8 +1,8 @@
 import type { CSSProperties } from "react";
 
-export const HYPERCLI_LOGO_FULL_SRC = "/logos/hyperclaw-full-green.svg";
-export const HYPERCLI_LOGO_ICON_SRC = "/logos/hyperclaw-icon-green.svg";
-export const HYPERCLI_BRAND_ACCENT_HEX = "#63E452";
+export const HYPERCLI_LOGO_FULL_SRC = "/logos/hyperclaw-full-blue.svg";
+export const HYPERCLI_LOGO_ICON_SRC = "/logos/hyperclaw-icon-blue.svg";
+export const HYPERCLI_BRAND_ACCENT_HEX = "#4F7CFF";
 
 interface HyperCLILogoProps {
   className?: string;

@@ -485,6 +485,20 @@ export type {
   ComparisonTableRow,
 } from "./components/patterns/marketing";
 export type { PricingCardFeature } from "./components/patterns/pricing-card";
+export { TerminalWindow } from "./components/patterns/terminal-window";
+export type { TerminalLine, TerminalLineTone, TerminalWindowProps } from "./components/patterns/terminal-window";
+export { ChatDemo } from "./components/patterns/chat-demo";
+export type { ChatDemoProps, ChatMessage } from "./components/patterns/chat-demo";
+export { AgentTimeline } from "./components/patterns/agent-timeline";
+export type { AgentTimelineEvent, AgentTimelineProps } from "./components/patterns/agent-timeline";
+export { DoorCard } from "./components/patterns/door-card";
+export type { DoorCardProps, DoorCardTone } from "./components/patterns/door-card";
+export { ChannelTabs } from "./components/patterns/channel-tabs";
+export type { ChannelTab, ChannelTabsProps } from "./components/patterns/channel-tabs";
+export { FAQBlock } from "./components/patterns/faq-block";
+export type { FAQBlockProps, FAQItem } from "./components/patterns/faq-block";
+export { PricingTierCard } from "./components/patterns/pricing-tier-card";
+export type { PricingTierCardProps } from "./components/patterns/pricing-tier-card";
 export {
   DEFAULT_THEME,
   LEGACY_THEME_KEY,

@@ -540,8 +540,8 @@ describe("MarkdownContent", () => {
 
       await waitFor(() => expect(mermaidMock.initialize).toHaveBeenCalled());
       expect(mermaidMock.initialize.mock.calls.at(-1)?.[0]?.themeVariables).toEqual(expect.objectContaining({
-        mainBkg: "#ffffff",
-        primaryColor: "#ffffff",
+        mainBkg: "#f7f9fc",
+        primaryColor: "#f7f9fc",
       }));
     } finally {
       if (previousTheme) root.setAttribute("data-theme", previousTheme);

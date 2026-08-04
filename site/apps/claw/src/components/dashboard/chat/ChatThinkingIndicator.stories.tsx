@@ -6,7 +6,7 @@ const meta: Meta<typeof ChatThinkingIndicator> = {
   component: ChatThinkingIndicator,
   decorators: [
     (Story) => (
-      <div className="p-4 bg-[#0a0a0b] min-h-[80px]">
+      <div className="p-4 bg-[#10151f] min-h-[80px]">
         <Story />
       </div>
     ),

@@ -1,56 +1,55 @@
-@custom-variant dark (&:where(.dark, .dark *, [data-theme="default"], [data-theme="default"] *, [data-theme="dark"], [data-theme="dark"] *, [data-theme="green"], [data-theme="green"] *));
+@custom-variant dark (&:where(.dark, .dark *, [data-theme="default"], [data-theme="default"] *, [data-theme="dark"], [data-theme="dark"] *));
 
-/* HyperCLI product theme. Keep green as a compatibility alias for the current default. */
+/* HyperCLI base theme (Aurora palette). Applies to all apps. */
 :root,
 .dark,
 [data-theme="default"],
-[data-theme="dark"],
-[data-theme="green"] {
+[data-theme="dark"] {
   color-scheme: dark;
   --font-size: 16px;
-  --background: #0a0a0b;
-  --background-secondary: #101012;
-  --surface: #101012;
-  --surface-low: #141416;
-  --surface-high: #1c1c1f;
-  --surface-mid: #1c1c1f;
-  --surface-medium: #1c1c1f;
-  --foreground: #fafafa;
-  --text-secondary: #a1a1a6;
-  --text-tertiary: #9e9ea3;
-  --text-muted: #7c7b82;
+  --background: #10151f;
+  --background-secondary: #151b26;
+  --surface: #1b2331;
+  --surface-low: #1a2230;
+  --surface-high: #232d3f;
+  --surface-mid: #232d3f;
+  --surface-medium: #232d3f;
+  --foreground: #e8edf4;
+  --text-secondary: #b9c4d6;
+  --text-tertiary: #7c8ba1;
+  --text-muted: #7c8ba1;
   --text-bright: #ffffff;
-  --tertiary-foreground: #9e9ea3;
-  --color-text: #fafafa;
-  --card: #141416;
-  --card-foreground: #fafafa;
-  --popover: #1c1c1f;
-  --popover-foreground: #fafafa;
-  --primary: #63e452;
-  --primary-foreground: #0a0a0b;
-  --primary-hover: #75ef64;
-  --primary-pressed: #52c943;
-  --secondary: #1c1c1f;
-  --secondary-foreground: #a1a1a6;
-  --muted: #141416;
-  --muted-foreground: #9e9ea3;
-  --accent: #63e452;
-  --accent-foreground: #0a0a0b;
-  --accent-hover: #75ef64;
-  --accent-pressed: #52c943;
-  --accent-subtle: #1f3f1a;
-  --button-primary: #63e452;
-  --button-primary-foreground: #0a0a0b;
-  --button-primary-hover: #75ef64;
+  --tertiary-foreground: #7c8ba1;
+  --color-text: #e8edf4;
+  --card: #1b2331;
+  --card-foreground: #e8edf4;
+  --popover: #232d3f;
+  --popover-foreground: #e8edf4;
+  --primary: #4f7cff;
+  --primary-foreground: #ffffff;
+  --primary-hover: #5d87ff;
+  --primary-pressed: #3d68e6;
+  --secondary: #232d3f;
+  --secondary-foreground: #b9c4d6;
+  --muted: #1a2230;
+  --muted-foreground: #7c8ba1;
+  --accent: #5d87ff;
+  --accent-foreground: #ffffff;
+  --accent-hover: #9db4ff;
+  --accent-pressed: #4f7cff;
+  --accent-subtle: rgba(93, 135, 255, 0.16);
+  --button-primary: #4f7cff;
+  --button-primary-foreground: #ffffff;
+  --button-primary-hover: #5d87ff;
   --button-hover-foreground: #ffffff;
-  --button-primary-pressed: #52c943;
-  --button-primary-rgb: 99 228 82;
-  --selection-accent: #63e452;
-  --selection-accent-foreground: #0a0a0b;
-  --selection-accent-rgb: 99 228 82;
-  --selection-accent-soft: rgba(99, 228, 82, 0.1);
-  --selection-accent-border: rgba(99, 228, 82, 0.3);
-  --selection-background: rgba(99, 228, 82, 0.3);
+  --button-primary-pressed: #3d68e6;
+  --button-primary-rgb: 79 124 255;
+  --selection-accent: #5d87ff;
+  --selection-accent-foreground: #ffffff;
+  --selection-accent-rgb: 93 135 255;
+  --selection-accent-soft: rgba(93, 135, 255, 0.16);
+  --selection-accent-border: rgba(93, 135, 255, 0.35);
+  --selection-background: rgba(93, 135, 255, 0.35);
   --integration-discord: #5865f2;
   --integration-discord-foreground: #ffffff;
   --integration-slack: #e01e5a;
@@ -59,105 +58,105 @@
   --integration-telegram-foreground: #06131a;
   --integration-whatsapp: #25d366;
   --integration-whatsapp-foreground: #06180d;
-  --glass-card-background: rgba(20, 20, 22, 0.7);
-  --glass-card-background-fallback: rgba(20, 20, 22, 0.94);
-  --glass-card-border: rgba(255, 255, 255, 0.06);
-  --glass-card-hover-border: rgba(255, 255, 255, 0.1);
-  --glass-card-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  --glass-card-background: rgba(27, 35, 49, 0.7);
+  --glass-card-background-fallback: rgba(27, 35, 49, 0.94);
+  --glass-card-border: rgba(255, 255, 255, 0.08);
+  --glass-card-hover-border: rgba(255, 255, 255, 0.14);
+  --glass-card-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
   --elevation-shadow-soft: 0 14px 40px rgba(0, 0, 0, 0.38);
   --elevation-shadow-medium: 0 18px 48px rgba(0, 0, 0, 0.46);
   --elevation-shadow-strong: 0 20px 56px rgba(0, 0, 0, 0.56);
   --elevation-shadow-top: 0 -18px 50px rgba(0, 0, 0, 0.48);
-  --glassmorphism-background: rgba(11, 13, 14, 0.8);
-  --glassmorphism-background-fallback: rgba(11, 13, 14, 0.96);
-  --gradient-text: linear-gradient(to right, #d4d6d7, #9ba0a2, #6e7375);
-  --gradient-text-primary: linear-gradient(to right, #fafafa, #63e452);
-  --radial-background: radial-gradient(ellipse at center, rgba(99, 228, 82, 0.05) 0%, #0a0a0b 60%);
-  --focus-outline: rgba(99, 228, 82, 0.5);
-  --destructive: #d05f5f;
-  --destructive-foreground: #fff;
-  --success: #3ad8a0;
-  --warning: #e0a85f;
-  --error: #d05f5f;
-  --info: #6b9eff;
-  --info-foreground: #07111f;
-  --border: rgba(255, 255, 255, 0.18);
-  --border-medium: rgba(255, 255, 255, 0.24);
-  --border-strong: rgba(255, 255, 255, 0.32);
+  --glassmorphism-background: rgba(16, 21, 31, 0.85);
+  --glassmorphism-background-fallback: rgba(16, 21, 31, 0.96);
+  --gradient-text: linear-gradient(to right, #e8edf4, #b9c4d6, #7c8ba1);
+  --gradient-text-primary: linear-gradient(92deg, #9db4ff 5%, #6ce8c4 48%, #c9afff 100%);
+  --radial-background: radial-gradient(ellipse at center, rgba(93, 135, 255, 0.07) 0%, #10151f 60%);
+  --focus-outline: rgba(93, 135, 255, 0.5);
+  --destructive: #ff6b81;
+  --destructive-foreground: #10151f;
+  --success: #6ce8c4;
+  --warning: #ffd76a;
+  --error: #ff6b81;
+  --info: #5d87ff;
+  --info-foreground: #ffffff;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-medium: rgba(255, 255, 255, 0.15);
+  --border-strong: rgba(255, 255, 255, 0.24);
   --input: transparent;
-  --input-background: #141416;
-  --switch-background: #1c1c1f;
+  --input-background: #1a2230;
+  --switch-background: #232d3f;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --ring: rgba(99, 228, 82, 0.35);
-  --chart-1: #63e452;
-  --chart-2: #75ef64;
-  --chart-3: #52c943;
-  --chart-4: #2f6d27;
-  --chart-5: #3ad8a0;
+  --ring: rgba(93, 135, 255, 0.35);
+  --chart-1: #5d87ff;
+  --chart-2: #6ce8c4;
+  --chart-3: #a97eff;
+  --chart-4: #ffd76a;
+  --chart-5: #9db4ff;
   --radius: 0.5rem;
-  --sidebar: #0a0a0b;
-  --sidebar-foreground: #fafafa;
-  --sidebar-primary: #63e452;
-  --sidebar-primary-foreground: #0a0a0b;
-  --sidebar-accent: #141416;
-  --sidebar-accent-foreground: #fafafa;
-  --sidebar-border: rgba(255, 255, 255, 0.18);
-  --sidebar-ring: rgba(99, 228, 82, 0.35);
-  --terminal-background: #09090b;
-  --terminal-surface: #111114;
-  --terminal-border: rgba(255, 255, 255, 0.16);
-  --terminal-foreground: #e5e7eb;
-  --terminal-muted: #9ca3af;
-  --terminal-live: #63e452;
+  --sidebar: #10151f;
+  --sidebar-foreground: #e8edf4;
+  --sidebar-primary: #4f7cff;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #1a2230;
+  --sidebar-accent-foreground: #e8edf4;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-ring: rgba(93, 135, 255, 0.35);
+  --terminal-background: #1f2937;
+  --terminal-surface: #26304a;
+  --terminal-border: #31405a;
+  --terminal-foreground: #e8edf4;
+  --terminal-muted: #7c8ba1;
+  --terminal-live: #6ce8c4;
 }
 
 [data-theme="light"] {
   color-scheme: light;
   --font-size: 16px;
-  --background: #f7f8f4;
-  --background-secondary: #eef3ee;
+  --background: #ffffff;
+  --background-secondary: #f7f9fc;
   --surface: #ffffff;
-  --surface-low: #ffffff;
-  --surface-high: #edf3ee;
-  --surface-mid: #f2f6f2;
-  --surface-medium: #f2f6f2;
-  --foreground: #0d1511;
-  --text-secondary: #35463f;
-  --text-tertiary: #5d6d66;
-  --text-muted: #63716a;
-  --text-bright: #050806;
-  --tertiary-foreground: #5d6d66;
-  --color-text: #0d1511;
+  --surface-low: #f7f9fc;
+  --surface-high: #eef2f7;
+  --surface-mid: #f7f9fc;
+  --surface-medium: #eef2f7;
+  --foreground: #1f2937;
+  --text-secondary: #64748b;
+  --text-tertiary: #64748b;
+  --text-muted: #94a3b8;
+  --text-bright: #111827;
+  --tertiary-foreground: #64748b;
+  --color-text: #1f2937;
   --card: #ffffff;
-  --card-foreground: #0d1511;
+  --card-foreground: #1f2937;
   --popover: #ffffff;
-  --popover-foreground: #0d1511;
-  --primary: #177a55;
+  --popover-foreground: #1f2937;
+  --primary: #4f7cff;
   --primary-foreground: #ffffff;
-  --primary-hover: #116543;
-  --primary-pressed: #0d5237;
-  --secondary: #edf3ee;
-  --secondary-foreground: #35463f;
-  --muted: #edf3ee;
-  --muted-foreground: #5d6d66;
-  --accent: #177a55;
+  --primary-hover: #3d68e6;
+  --primary-pressed: #2f56c4;
+  --secondary: #f7f9fc;
+  --secondary-foreground: #64748b;
+  --muted: #f7f9fc;
+  --muted-foreground: #64748b;
+  --accent: #4f7cff;
   --accent-foreground: #ffffff;
-  --accent-hover: #116543;
-  --accent-pressed: #0d5237;
-  --accent-subtle: #d9f4e8;
-  --button-primary: #177a55;
+  --accent-hover: #3d68e6;
+  --accent-pressed: #2f56c4;
+  --accent-subtle: #eef2ff;
+  --button-primary: #4f7cff;
   --button-primary-foreground: #ffffff;
-  --button-primary-hover: #116543;
-  --button-hover-foreground: #ffffff;
-  --button-primary-pressed: #0d5237;
-  --button-primary-rgb: 23 122 85;
-  --selection-accent: #177a55;
+  --button-primary-hover: #3d68e6;
+  --button-hover-foreground: #1f2937;
+  --button-primary-pressed: #2f56c4;
+  --button-primary-rgb: 79 124 255;
+  --selection-accent: #4f7cff;
   --selection-accent-foreground: #ffffff;
-  --selection-accent-rgb: 23 122 85;
-  --selection-accent-soft: rgba(23, 122, 85, 0.1);
-  --selection-accent-border: rgba(23, 122, 85, 0.28);
-  --selection-background: rgba(23, 122, 85, 0.22);
+  --selection-accent-rgb: 79 124 255;
+  --selection-accent-soft: rgba(79, 124, 255, 0.1);
+  --selection-accent-border: rgba(79, 124, 255, 0.3);
+  --selection-background: #dde6ff;
   --integration-discord: #5865f2;
   --integration-discord-foreground: #ffffff;
   --integration-slack: #e01e5a;
@@ -168,55 +167,55 @@
   --integration-whatsapp-foreground: #06180d;
   --glass-card-background: rgba(255, 255, 255, 0.78);
   --glass-card-background-fallback: rgba(255, 255, 255, 0.96);
-  --glass-card-border: rgba(13, 21, 17, 0.08);
-  --glass-card-hover-border: rgba(23, 122, 85, 0.24);
-  --glass-card-shadow: 0 4px 24px rgba(13, 21, 17, 0.1);
-  --elevation-shadow-soft: 0 14px 40px rgba(13, 21, 17, 0.1);
-  --elevation-shadow-medium: 0 18px 48px rgba(13, 21, 17, 0.15);
-  --elevation-shadow-strong: 0 20px 56px rgba(13, 21, 17, 0.2);
-  --elevation-shadow-top: 0 -18px 50px rgba(13, 21, 17, 0.16);
-  --glassmorphism-background: rgba(247, 248, 244, 0.84);
-  --glassmorphism-background-fallback: rgba(247, 248, 244, 0.98);
-  --gradient-text: linear-gradient(to right, #0d1511, #35463f, #63716a);
-  --gradient-text-primary: linear-gradient(to right, #0d1511, #177a55);
-  --radial-background: radial-gradient(ellipse at center, rgba(23, 122, 85, 0.08) 0%, #f7f8f4 62%);
-  --focus-outline: rgba(23, 122, 85, 0.5);
-  --destructive: #ad3535;
-  --destructive-foreground: #fff;
-  --success: #177a55;
-  --warning: #8a5612;
-  --error: #ad3535;
-  --info: #2563a8;
+  --glass-card-border: rgba(31, 41, 55, 0.08);
+  --glass-card-hover-border: rgba(79, 124, 255, 0.3);
+  --glass-card-shadow: 0 4px 24px rgba(31, 41, 55, 0.1);
+  --elevation-shadow-soft: 0 14px 40px rgba(31, 41, 55, 0.08);
+  --elevation-shadow-medium: 0 18px 48px rgba(31, 41, 55, 0.12);
+  --elevation-shadow-strong: 0 20px 56px rgba(31, 41, 55, 0.16);
+  --elevation-shadow-top: 0 -18px 50px rgba(31, 41, 55, 0.12);
+  --glassmorphism-background: rgba(255, 255, 255, 0.9);
+  --glassmorphism-background-fallback: rgba(255, 255, 255, 0.98);
+  --gradient-text: linear-gradient(to right, #1f2937, #64748b, #94a3b8);
+  --gradient-text-primary: linear-gradient(92deg, #4f7cff 5%, #6ce8c4 48%, #a97eff 100%);
+  --radial-background: radial-gradient(ellipse at center, rgba(79, 124, 255, 0.06) 0%, #ffffff 62%);
+  --focus-outline: rgba(79, 124, 255, 0.5);
+  --destructive: #b02a3e;
+  --destructive-foreground: #ffffff;
+  --success: #0e7a5f;
+  --warning: #8a6410;
+  --error: #b02a3e;
+  --info: #4f7cff;
   --info-foreground: #ffffff;
-  --border: rgba(13, 21, 17, 0.14);
-  --border-medium: rgba(13, 21, 17, 0.2);
-  --border-strong: rgba(13, 21, 17, 0.32);
-  --input: rgba(13, 21, 17, 0.22);
+  --border: #eef2f7;
+  --border-medium: #cbd5e1;
+  --border-strong: #94a3b8;
+  --input: #cbd5e1;
   --input-background: #ffffff;
-  --switch-background: #edf3ee;
+  --switch-background: #eef2f7;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --ring: rgba(23, 122, 85, 0.35);
-  --chart-1: #177a55;
-  --chart-2: #116543;
-  --chart-3: #0d5237;
-  --chart-4: #7bbf9b;
-  --chart-5: #d9f4e8;
+  --ring: rgba(79, 124, 255, 0.35);
+  --chart-1: #4f7cff;
+  --chart-2: #6ce8c4;
+  --chart-3: #a97eff;
+  --chart-4: #ffd76a;
+  --chart-5: #3d68e6;
   --radius: 0.5rem;
-  --sidebar: #f7f8f4;
-  --sidebar-foreground: #0d1511;
-  --sidebar-primary: #177a55;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #1f2937;
+  --sidebar-primary: #4f7cff;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #edf3ee;
-  --sidebar-accent-foreground: #0d1511;
-  --sidebar-border: rgba(13, 21, 17, 0.14);
-  --sidebar-ring: rgba(23, 122, 85, 0.35);
-  --terminal-background: #09090b;
-  --terminal-surface: #111114;
-  --terminal-border: rgba(255, 255, 255, 0.16);
-  --terminal-foreground: #e5e7eb;
-  --terminal-muted: #9ca3af;
-  --terminal-live: #63e452;
+  --sidebar-accent: #f7f9fc;
+  --sidebar-accent-foreground: #1f2937;
+  --sidebar-border: #eef2f7;
+  --sidebar-ring: rgba(79, 124, 255, 0.35);
+  --terminal-background: #1f2937;
+  --terminal-surface: #26304a;
+  --terminal-border: #31405a;
+  --terminal-foreground: #e8edf4;
+  --terminal-muted: #7c8ba1;
+  --terminal-live: #6ce8c4;
 }
 
 @theme inline {
@@ -288,7 +287,7 @@
   --color-terminal-foreground: var(--terminal-foreground);
   --color-terminal-muted: var(--terminal-muted);
   --color-terminal-live: var(--terminal-live);
-  --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sans: var(--font-figtree, "Figtree"), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -303,7 +302,8 @@ html {
 body {
   background-color: var(--background);
   color: var(--foreground);
-  font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-figtree, "Figtree"), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  line-height: 1.65;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow-x: hidden;
@@ -359,25 +359,25 @@ h6 {
   background-color: color-mix(in srgb, var(--warning) 45%, var(--background));
 }
 
-:where(button, a, [role="button"]).bg-primary,
-:where(button, a, [role="button"]) .bg-primary {
+:where(button, [role="button"]).bg-primary,
+:where(button, [role="button"]) .bg-primary {
   background-color: var(--button-primary);
 }
 
-:where(button, a, [role="button"]).text-primary-foreground,
-:where(button, a, [role="button"]) .text-primary-foreground {
+:where(button, [role="button"]).text-primary-foreground,
+:where(button, [role="button"]) .text-primary-foreground {
   color: var(--button-primary-foreground);
 }
 
-:where(button, a, [role="button"]).hover\:bg-primary-hover:hover {
+:where(button, [role="button"]).hover\:bg-primary-hover:hover {
   background-color: var(--button-primary-hover);
 }
 
-:where(button, a, [role="button"]).hover\:bg-primary\/90:hover {
+:where(button, [role="button"]).hover\:bg-primary\/90:hover {
   background-color: rgb(var(--button-primary-rgb) / 0.9);
 }
 
-:where(button, a, [role="button"]).focus-visible\:ring-primary\/60:focus-visible {
+:where(button, [role="button"]).focus-visible\:ring-primary\/60:focus-visible {
   --tw-ring-color: rgb(var(--button-primary-rgb) / 0.6);
 }
 
@@ -432,7 +432,7 @@ h6 {
 
 .card:hover {
   border-color: var(--border-medium);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--glass-card-shadow);
 }
 
 .gradient-text {
@@ -639,7 +639,7 @@ h6 {
 
 pre,
 code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-family: "SF Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
 pre {

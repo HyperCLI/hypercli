@@ -6,7 +6,7 @@ const meta: Meta<typeof StreamingIndicator> = {
   component: StreamingIndicator,
   decorators: [
     (Story) => (
-      <div className="p-4 bg-[#0a0a0b] relative overflow-hidden rounded-2xl border border-[#2a2a2c] max-w-md min-h-[60px] flex items-center">
+      <div className="p-4 bg-[#10151f] relative overflow-hidden rounded-2xl border border-[#2a2a2c] max-w-md min-h-[60px] flex items-center">
         <span className="text-sm text-foreground mr-2">Some streaming text</span>
         <Story />
       </div>
