@@ -512,13 +512,23 @@ jobs:
           # install artifact (signatures excluded); the .deb and raw AppImage
           # come from dist/installer.
           mapfile -t FILES < <(find dist/updater -type f ! -name '*.sig'; find dist/installer -type f)
-          gh release upload "$TAG" "${FILES[@]}" --clobber
+          # GitHub's upload endpoint intermittently 404s right after release
+          # creation (eventual consistency); retry with backoff.
+          for attempt in 1 2 3 4; do
+            gh release upload "$TAG" "${FILES[@]}" --clobber && break
+            [[ "$attempt" == "4" ]] && exit 1
+            sleep $((attempt * 10))
+          done
 
       - name: Upload updater archives to rolling release
         shell: bash
         run: |
           set -euo pipefail
-          gh release upload "$ROLLING_TAG" dist/updater/updater-*/* --clobber
+          for attempt in 1 2 3 4; do
+            gh release upload "$ROLLING_TAG" dist/updater/updater-*/* --clobber && break
+            [[ "$attempt" == "4" ]] && exit 1
+            sleep $((attempt * 10))
+          done
 
       - name: Generate and upload latest.json
         shell: bash
@@ -547,4 +557,8 @@ jobs:
             done
             [[ "$ok" == "true" ]] || { echo "::error::Archive not accessible: $BASE/$name"; exit 1; }
           done
-          gh release upload "$ROLLING_TAG" latest.json --clobber
+          for attempt in 1 2 3 4; do
+            gh release upload "$ROLLING_TAG" latest.json --clobber && break
+            [[ "$attempt" == "4" ]] && exit 1
+            sleep $((attempt * 10))
+          done
