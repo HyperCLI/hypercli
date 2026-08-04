@@ -76,17 +76,24 @@ jobs:
           fi
           test "$(git status --porcelain)" = ""
           SOURCE_SHA="$(git rev-parse HEAD)"
-          # Never release while the workflow that tests the provider and SDK
-          # ("Frontend CI" carries the sdk/provider jobs) is red or
-          # unfinished on main. Scoped: unrelated pipelines must not gate
-          # provider releases, and the branch's latest run is authoritative
-          # for path-filtered commits.
-          STATE="$(gh run list --workflow "Frontend CI" --branch main --limit 1 \
-            --json status,conclusion \
-            --jq 'if length == 0 then "success"
-                  else .[0] | if .status != "completed" then "pending" else (.conclusion // "pending") end end')"
-          if [[ "$STATE" != "success" && "$STATE" != "skipped" ]]; then
-            echo "Frontend CI (sdk/provider tests) on main is '$STATE'; wait for green before releasing" >&2
+          # Never release while the sdk/provider test jobs are red or
+          # unfinished on main. Scoped to the `sdk /` jobs inside the latest
+          # Frontend CI run: live-environment e2e suites in that workflow
+          # test deployed backends, not the code this release ships, and
+          # must not hold binary releases hostage (e.g. a dev-env outage).
+          RUN_ID="$(gh run list --workflow "Frontend CI" --branch main --limit 1 \
+            --json databaseId --jq '.[0].databaseId // empty')"
+          STATE="success"
+          if [[ -n "$RUN_ID" ]]; then
+            STATE="$(gh run view "$RUN_ID" --json jobs \
+              --jq '[.jobs[] | select(.name | startswith("sdk /"))]
+                    | if length == 0 then "pending"
+                      elif any(.[]; .status != "completed") then "pending"
+                      elif any(.[]; .conclusion != "success" and .conclusion != "skipped") then "failure"
+                      else "success" end')"
+          fi
+          if [[ "$STATE" != "success" ]]; then
+            echo "sdk/provider test jobs on main are '$STATE'; wait for green before releasing" >&2
             exit 1
           fi
           echo "SOURCE_SHA=$SOURCE_SHA" >> "$GITHUB_ENV"
