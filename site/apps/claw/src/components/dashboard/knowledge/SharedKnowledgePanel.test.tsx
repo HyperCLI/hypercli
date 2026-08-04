@@ -415,7 +415,9 @@ describe("SharedKnowledgePanel", () => {
   });
 
   it("updates collections and confirms destructive deletion", async () => {
-    const workspaces = renderSharedKnowledgePanel();
+    const workspaces = renderSharedKnowledgePanel(mockWorkspaces(), {
+      workspaceCount: 2,
+    });
     await waitForTeamKnowledge();
 
     fireEvent.click(screen.getByRole("button", { name: /edit team knowledge/i }));
@@ -439,7 +441,9 @@ describe("SharedKnowledgePanel", () => {
       delete: vi.fn(() => new Promise<void>((resolve) => {
         resolveDelete = resolve;
       })),
-    }));
+    }), {
+      workspaceCount: 2,
+    });
     await waitForTeamKnowledge();
 
     fireEvent.click(screen.getByRole("button", { name: /delete team knowledge/i }));
@@ -460,7 +464,9 @@ describe("SharedKnowledgePanel", () => {
       list: vi.fn()
         .mockResolvedValueOnce([workspace()])
         .mockRejectedValueOnce(new Error("Refresh failed")),
-    }));
+    }), {
+      workspaceCount: 2,
+    });
     await waitForTeamKnowledge();
 
     fireEvent.click(screen.getByRole("button", { name: /delete team knowledge/i }));
@@ -471,6 +477,15 @@ describe("SharedKnowledgePanel", () => {
     await waitFor(() => expect(screen.queryByRole("alertdialog", { name: /delete shared knowledge/i })).not.toBeInTheDocument());
     expect(screen.queryByText("Team knowledge")).not.toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("Refresh failed");
+  });
+
+  it("does not expose deletion for the last remaining Workspace", async () => {
+    const workspaces = renderSharedKnowledgePanel();
+    await waitForTeamKnowledge();
+
+    expect(screen.queryByRole("button", { name: /delete team knowledge/i })).not.toBeInTheDocument();
+    expect(screen.getByTitle("Your account must always have one Space. Create another Space before deleting this one.")).toHaveTextContent("Protected");
+    expect(workspaces.delete).not.toHaveBeenCalled();
   });
 
   it("keeps the account agent catalog and refreshes the selected roster after assignment changes", async () => {

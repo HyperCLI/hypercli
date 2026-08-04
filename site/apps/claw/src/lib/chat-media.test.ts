@@ -82,6 +82,35 @@ describe("chat media references", () => {
     ]);
   });
 
+  it("extracts known direct image urls instead of treating all HTTP resources as images", () => {
+    const result = extractContentMediaReferences("Image\nMEDIA:https://cdn.example.test/output/final.png");
+
+    expect(result.content).toBe("Image");
+    expect(result.directMedia).toEqual([
+      {
+        kind: "image",
+        url: "https://cdn.example.test/output/final.png",
+        fileName: "final.png",
+        raw: "https://cdn.example.test/output/final.png",
+      },
+    ]);
+  });
+
+  it("extracts typed media data urls", () => {
+    const url = "data:image/png;base64,aW1hZ2U=";
+    const result = extractContentMediaReferences(`MEDIA:${url}`);
+
+    expect(result.content).toBe("");
+    expect(result.directMedia).toEqual([
+      {
+        kind: "image",
+        url,
+        fileName: "media",
+        raw: url,
+      },
+    ]);
+  });
+
   it("classifies known non-image direct MEDIA urls as links", () => {
     const result = extractContentMediaReferences("Source\nMEDIA:https://cdn.example.test/src/app.tsx");
 
@@ -94,6 +123,32 @@ describe("chat media references", () => {
         raw: "https://cdn.example.test/src/app.tsx",
       },
     ]);
+  });
+
+  it("preserves unknown HTTP resources instead of assuming they are images", () => {
+    const content = "Resource\nMEDIA:https://cdn.example.test/output/opaque-resource";
+    const result = extractContentMediaReferences(content);
+
+    expect(result.content).toBe(content);
+    expect(result.mediaFiles).toHaveLength(0);
+    expect(result.directMedia).toHaveLength(0);
+    expect(result.pendingMedia).toBe(false);
+    expect(classifyChatMediaReference("https://cdn.example.test/output/opaque-resource"))
+      .toMatchObject({ kind: "unsupported" });
+  });
+
+  it("preserves ordinary prose containing MEDIA text", () => {
+    for (const content of [
+      "MEDIA: literacy matters",
+      "The MEDIA: section explains photos.",
+    ]) {
+      expect(extractContentMediaReferences(content)).toEqual({
+        content,
+        mediaFiles: [],
+        directMedia: [],
+        pendingMedia: false,
+      });
+    }
   });
 
   it("rejects executable schemes before classifying media extensions", () => {
@@ -168,13 +223,26 @@ describe("chat media references", () => {
     ]);
   });
 
-  it("tracks incomplete MEDIA sentinels as pending without exposing text", () => {
-    const result = extractContentMediaReferences("Working\nMEDIA:");
+  it("only hides incomplete MEDIA sentinels while they are streaming", () => {
+    const result = extractContentMediaReferences("Working\nMEDIA:", { streaming: true });
 
     expect(result.content).toBe("Working");
     expect(result.mediaFiles).toHaveLength(0);
     expect(result.directMedia).toHaveLength(0);
     expect(result.pendingMedia).toBe(true);
+
+    expect(extractContentMediaReferences("MEDIA")).toEqual({
+      content: "MEDIA",
+      mediaFiles: [],
+      directMedia: [],
+      pendingMedia: false,
+    });
+    expect(extractContentMediaReferences("MEDIA:")).toEqual({
+      content: "MEDIA:",
+      mediaFiles: [],
+      directMedia: [],
+      pendingMedia: false,
+    });
   });
 
   it("defers ambiguous trailing MEDIA urls while streaming", () => {
@@ -186,6 +254,13 @@ describe("chat media references", () => {
     expect(partial.content).toBe("Preparing speech");
     expect(partial.directMedia).toHaveLength(0);
     expect(partial.pendingMedia).toBe(true);
+
+    const settledInvalid = extractContentMediaReferences(
+      "Preparing speech\nMEDIA:https://cdn.example.test/output/reply.m",
+    );
+    expect(settledInvalid.content).toBe("Preparing speech\nMEDIA:https://cdn.example.test/output/reply.m");
+    expect(settledInvalid.directMedia).toHaveLength(0);
+    expect(settledInvalid.pendingMedia).toBe(false);
 
     const complete = extractContentMediaReferences(
       "Preparing speech\nMEDIA:https://cdn.example.test/output/reply.mp3",

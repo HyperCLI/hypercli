@@ -63,6 +63,7 @@ export interface CronJob {
   enabled: boolean;
   lastRun?: number;
   nextRun?: number;
+  timezone?: string;
 }
 
 export interface SubAgent {

@@ -338,6 +338,38 @@ describe("agent-client", () => {
     expect(deploymentsInstance.list).toHaveBeenCalledTimes(2);
   });
 
+  it("retries generated names when the backend reports a collision", async () => {
+    deploymentsInstance.createOpenClaw
+      .mockRejectedValueOnce({
+        statusCode: 409,
+        detail: "Agent 'bright-atlas-anchor' already exists",
+      })
+      .mockResolvedValueOnce({ id: "agent-123" });
+
+    await expect(createOpenClawAgent("hyper_api_test", {
+      name: "bright-atlas-anchor",
+    })).resolves.toEqual({ id: "agent-123" });
+
+    const attemptedNames = deploymentsInstance.createOpenClaw.mock.calls.map(([options]) => options.name);
+    expect(attemptedNames).toHaveLength(2);
+    expect(attemptedNames[0]).toBe("bright-atlas-anchor");
+    expect(attemptedNames[1]).toMatch(/^[a-z]+-[a-z]+-[a-z]+$/);
+    expect(new Set(attemptedNames).size).toBe(2);
+  });
+
+  it("does not replace a user-entered name when it conflicts", async () => {
+    const collision = {
+      statusCode: 409,
+      detail: "Agent 'my-custom-agent' already exists",
+    };
+    deploymentsInstance.createOpenClaw.mockRejectedValue(collision);
+
+    await expect(createOpenClawAgent("hyper_api_test", {
+      name: "my-custom-agent",
+    })).rejects.toBe(collision);
+    expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledOnce();
+  });
+
   it("accepts capitalized desktop launch env values", async () => {
     deploymentsInstance.createOpenClawPro.mockResolvedValue({ id: "agent-123" });
     deploymentsInstance.createOpenClaw.mockResolvedValue({ id: "agent-456" });

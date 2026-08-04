@@ -478,8 +478,8 @@ describe("FilePreview", () => {
     expect(editor).toHaveValue("updated");
   });
 
-  it("does not render raw HTML in markdown preview", () => {
-    render(
+  it("renders unsupported raw HTML as inert source in markdown preview", () => {
+    const { container } = render(
       <FilePreview
         entry={{ name: "README.md", path: ".openclaw/workspace/README.md", type: "file", size: 128 }}
         content={'<section><h2>HTML preview</h2><p>Rendered from HTML.</p></section>\n\n**Markdown survives**\n\n<script>alert("x")</script>'}
@@ -491,7 +491,8 @@ describe("FilePreview", () => {
     );
 
     expect(screen.queryByRole("heading", { name: "HTML preview" })).not.toBeInTheDocument();
-    expect(screen.queryByText(/Rendered from HTML/i)).not.toBeInTheDocument();
+    expect(container).toHaveTextContent("<section><h2>HTML preview</h2><p>Rendered from HTML.</p></section>");
+    expect(container.querySelector("section")).not.toBeInTheDocument();
     expect(screen.getByText("Markdown survives")).toHaveClass("font-semibold");
     expect(screen.queryByText(/alert\("x"\)/i)).not.toBeInTheDocument();
   });

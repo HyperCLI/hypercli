@@ -177,6 +177,25 @@ describe("useOpenClawSession", () => {
     window.localStorage.clear();
   });
 
+  it("connects with the canonical OpenClaw Control UI identity", async () => {
+    const gateway = buildGateway();
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(agent.gateway).toHaveBeenCalledWith(expect.objectContaining({
+      autoApprovePairing: true,
+      clientId: "openclaw-control-ui",
+      clientMode: "webchat",
+    }));
+    unmount();
+  });
+
   it("routes ephemeral prompts through the connected SDK gateway client", async () => {
     const gateway = buildGateway();
     const agent = {
@@ -907,7 +926,7 @@ describe("useOpenClawSession", () => {
       waitReady: vi.fn(async () => ({})),
       configPatch: vi.fn(async () => undefined),
     };
-    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
     await waitFor(() => expect(result.current.ready).toBe(true));
 
     await act(async () => {
@@ -1947,11 +1966,12 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
-  it("resumes the latest existing conversation before granting send authority", async () => {
+  it("resumes the latest existing user conversation instead of internal main", async () => {
     const gateway = buildGateway();
+    const dashboardSessionKey = "agent:default:dashboard:019789ab-cdef-4abc-8def-0123456789ab";
     gateway.sessionsList.mockResolvedValue([
       {
-        key: "agent:default:dashboard:019789ab-cdef-4abc-8def-0123456789ab",
+        key: dashboardSessionKey,
         displayName: "Older conversation",
         updatedAt: 10,
       },
@@ -1963,8 +1983,8 @@ describe("useOpenClawSession", () => {
       },
     ]);
     gateway.chatHistory.mockImplementation(async (sessionKey: string) => (
-      sessionKey === "agent:default:main"
-        ? [{ role: "assistant", content: "Legacy conversation restored" }]
+      sessionKey === dashboardSessionKey
+        ? [{ role: "assistant", content: "User conversation restored" }]
         : []
     ));
     const agent = {
@@ -1977,19 +1997,29 @@ describe("useOpenClawSession", () => {
     const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
 
     await waitFor(() => expect(result.current.activeSessionSelectionResolved).toBe(true));
-    await waitFor(() => expect(result.current.activeSessionKey).toBe("main"));
+    await waitFor(() => expect(result.current.activeSessionKey).toBe(dashboardSessionKey));
     await waitFor(() => expect(result.current.connected).toBe(true));
     expect(result.current.messages).toEqual([
-      expect.objectContaining({ role: "assistant", content: "Legacy conversation restored" }),
+      expect.objectContaining({ role: "assistant", content: "User conversation restored" }),
     ]);
-    expect(gateway.chatHistory).toHaveBeenLastCalledWith("agent:default:main", 200);
+    expect(gateway.chatHistory).toHaveBeenLastCalledWith(dashboardSessionKey, 200);
+    expect(gateway.chatHistory).not.toHaveBeenCalledWith("agent:default:main", 200);
     expect(gateway.chatSend).not.toHaveBeenCalled();
     unmount();
   });
 
-  it("streams chat through a new dashboard session when no conversation exists", async () => {
+  it("streams chat through a new dashboard session when only internal main exists", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([{
+      key: "agent:default:main",
+      origin: { provider: "webchat", surface: "webchat" },
+      deliveryContext: { channel: "webchat" },
+      updatedAt: 20,
+    }, {
+      key: "agent:default:heartbeat",
+      updatedAt: 30,
+    }]);
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
@@ -2001,8 +2031,21 @@ describe("useOpenClawSession", () => {
 
     await waitFor(() => expect(result.current.connected).toBe(true));
     await waitFor(() => expect(result.current.hydrating).toBe(false));
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
     const activeSessionKey = result.current.activeSessionKey;
     expect(activeSessionKey).toMatch(/^dashboard:[0-9a-f-]+$/i);
+    expect(result.current.sessions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        key: activeSessionKey,
+        clientDisplayName: "New Session",
+        title: "New Session",
+        messageCount: 0,
+      }),
+      expect.objectContaining({ key: "main", gatewaySessionKey: "agent:default:main" }),
+    ]));
+    expect(result.current.activeUnindexedInitialSession).toBeNull();
+    expect(gateway.sessionsCreate).toHaveBeenCalledWith({ key: activeSessionKey });
+    expect(result.current.creatingSessionKeys).not.toContain(activeSessionKey);
 
     act(() => {
       result.current.setInput("hello");
@@ -2013,7 +2056,116 @@ describe("useOpenClawSession", () => {
     });
 
     expect(gateway.chatSend).toHaveBeenCalledWith("hello", activeSessionKey, undefined);
+    expect(gateway.chatHistory).not.toHaveBeenCalledWith("agent:default:main", 200);
+    expect(gateway.chatHistory).not.toHaveBeenCalledWith("agent:default:heartbeat", 200);
     expect(gateway.sendChat).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("keeps the materialized first session when creating a second session", async () => {
+    const gateway = buildGateway();
+    gateway.sessionsList.mockResolvedValue([{
+      key: "agent:default:main",
+      origin: { provider: "webchat", surface: "webchat" },
+      deliveryContext: { channel: "webchat" },
+      updatedAt: 20,
+    }]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+
+    await waitFor(() => expect(result.current.activeSessionSelectionResolved).toBe(true));
+    const firstSessionKey = result.current.activeSessionKey;
+    await waitFor(() => expect(result.current.sessions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: firstSessionKey, title: "New Session" }),
+    ])));
+
+    let secondSessionKey = "";
+    await act(async () => {
+      secondSessionKey = await result.current.createSession({ waitForCreation: true });
+    });
+
+    expect(secondSessionKey).toMatch(/^dashboard:/);
+    expect(secondSessionKey).not.toBe(firstSessionKey);
+    expect(gateway.sessionsCreate.mock.calls.map(([params]) => params.key)).toEqual([
+      firstSessionKey,
+      secondSessionKey,
+    ]);
+    expect(result.current.sessions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: firstSessionKey, title: "New Session" }),
+      expect.objectContaining({ key: secondSessionKey, title: "New Session" }),
+    ]));
+    unmount();
+  });
+
+  it("does not expose a provisional row for an arbitrary unindexed session route", async () => {
+    const gateway = buildGateway();
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const sessionKey = "dashboard:019789ab-cdef-4abc-8def-0123456789ab";
+
+    const { result, unmount } = renderHookWithClient(() => (
+      useOpenClawSession(agent as any, true, sessionKey)
+    ));
+
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+    expect(result.current.activeSessionKey).toBe(sessionKey);
+    expect(result.current.activeUnindexedInitialSession).toBeNull();
+    unmount();
+  });
+
+  it("hands the materialized initial session off to the indexed record without resurrecting it", async () => {
+    const gateway = buildGateway();
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+    const sessionKey = result.current.activeSessionKey;
+    expect(result.current.sessions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: sessionKey, title: "New Session" }),
+    ]));
+    expect(result.current.activeUnindexedInitialSession).toBeNull();
+    gateway.sessionsList.mockResolvedValue([{
+      key: `agent:default:${sessionKey}`,
+      displayName: "Release planning",
+      updatedAt: 20,
+      messageCount: 1,
+    }]);
+
+    await act(async () => {
+      await result.current.refreshSessions();
+    });
+
+    await waitFor(() => expect(result.current.activeUnindexedInitialSession).toBeNull());
+    expect(result.current.sessions).toEqual([
+      expect.objectContaining({
+        key: `agent:default:${sessionKey}`,
+        clientDisplayName: "Release planning",
+      }),
+    ]);
+
+    gateway.sessionsList.mockResolvedValue([]);
+    await act(async () => {
+      await result.current.refreshSessions();
+    });
+
+    expect(result.current.sessions).toEqual([]);
+    expect(result.current.activeUnindexedInitialSession).toBeNull();
     unmount();
   });
 
@@ -2284,7 +2436,7 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
-  it("filters heartbeat and preview-like values from stored and gateway session names", async () => {
+  it("filters heartbeat sessions and preview-like values from session names", async () => {
     window.localStorage.setItem("openclaw.sessionTitles.v1:deploy-123", JSON.stringify({
       main: "HEARTBEAT",
       "session-alpha": "Read HEARTBEAT.md if it exists",
@@ -2292,6 +2444,7 @@ describe("useOpenClawSession", () => {
     const gateway = buildGateway();
     gateway.sessionsList.mockResolvedValue([
       { key: "main", title: "HEARTBEAT", clientDisplayName: "HEARTBEAT_OK" },
+      { key: "agent:default:heartbeat", updatedAt: 2 },
       { key: "session-alpha", summary: "Leaked chat preview", lastMessageAt: 1 },
     ]);
     const agent = {
@@ -2699,7 +2852,7 @@ describe("useOpenClawSession", () => {
 
     expect(newSessionKey).toMatch(/^dashboard:/);
     expect(gateway.sessionsReset).toHaveBeenCalledWith(newSessionKey, "new");
-    expect(result.current.sessions).not.toEqual(expect.arrayContaining([
+    expect(result.current.sessions).toEqual(expect.arrayContaining([
       expect.objectContaining({ key: newSessionKey }),
     ]));
     unmount();
@@ -3817,7 +3970,7 @@ describe("useOpenClawSession", () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
     gateway.sessionsList.mockResolvedValue([{ key: "main", title: "Main" }]);
-    const reset = deferred<void>();
+    const reset = deferred<string>();
     gateway.sessionsReset.mockReturnValueOnce(reset.promise);
     const agent = {
       id: "deploy-123",
@@ -3846,7 +3999,7 @@ describe("useOpenClawSession", () => {
     expect(result.current.messages).toEqual([]);
     expect(JSON.parse(window.localStorage.getItem("openclaw.sessionTitles.v1:deploy-123") ?? "{}"))
       .toEqual({ [newSessionKey]: "New Session" });
-    expect(result.current.sessions).not.toEqual(expect.arrayContaining([
+    expect(result.current.sessions).toEqual(expect.arrayContaining([
       expect.objectContaining({ key: newSessionKey }),
     ]));
 
@@ -3857,11 +4010,11 @@ describe("useOpenClawSession", () => {
     expect(gateway.chatHistory).not.toHaveBeenCalledWith(newSessionKey, 200);
 
     await act(async () => {
-      reset.resolve(undefined);
+      reset.resolve(`agent:default:${newSessionKey}`);
       await reset.promise;
     });
     await waitFor(() => expect(result.current.creatingSessionKeys).not.toContain(newSessionKey));
-    expect(result.current.sessions).not.toEqual(expect.arrayContaining([
+    expect(result.current.sessions).toEqual(expect.arrayContaining([
       expect.objectContaining({ key: newSessionKey }),
     ]));
 
@@ -4479,6 +4632,7 @@ describe("useOpenClawSession", () => {
   it("does not keep a failed new session local and surfaces the gateway reset error", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([{ key: "main", title: "Main" }]);
     gateway.sessionsReset.mockRejectedValueOnce(new Error("Session reset failed"));
     const agent = {
       id: "deploy-123",
@@ -4487,7 +4641,7 @@ describe("useOpenClawSession", () => {
       gateway: vi.fn(() => gateway),
     };
 
-    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
 
     await waitFor(() => expect(result.current.connected).toBe(true));
     await waitFor(() => expect(result.current.hydrating).toBe(false));
@@ -4941,7 +5095,8 @@ describe("useOpenClawSession", () => {
   it("coalesces passive terminal gateway events into one history and session refresh", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
-    gateway.sessionsList.mockResolvedValue([{ key: "main", title: "Main" }]);
+    const dashboardSessionKey = "dashboard:019789ab-cdef-4abc-8def-0123456789ab";
+    gateway.sessionsList.mockResolvedValue([{ key: dashboardSessionKey, title: "Dashboard", lastMessageAt: 1 }]);
     gateway.chatHistory.mockResolvedValue([{ role: "assistant", content: "Initial history" }]);
     const agent = {
       id: "deploy-123",
@@ -4952,8 +5107,9 @@ describe("useOpenClawSession", () => {
 
     const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
 
-    await waitFor(() => expect(result.current.activeSessionKey).toMatch(/^dashboard:[0-9a-f-]+$/i));
-    const activeSessionKey = result.current.activeSessionKey;
+    await waitFor(() => expect(result.current.activeSessionSelectionResolved).toBe(true));
+    expect(result.current.activeSessionKey).toBe(dashboardSessionKey);
+    const activeSessionKey = dashboardSessionKey;
     await waitFor(() => expect(gateway.chatHistory).toHaveBeenCalledWith(activeSessionKey, 200));
     await waitFor(() => expect(gateway.sessionsList).toHaveBeenCalledTimes(1));
     const historyCallsAfterHydration = gateway.chatHistory.mock.calls.length;
@@ -4978,7 +5134,8 @@ describe("useOpenClawSession", () => {
   it("coalesces duplicate passive done events into one history and session refresh", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
-    gateway.sessionsList.mockResolvedValue([{ key: "main", title: "Main" }]);
+    const dashboardSessionKey = "dashboard:019789ab-cdef-4abc-8def-0123456789ab";
+    gateway.sessionsList.mockResolvedValue([{ key: dashboardSessionKey, title: "Dashboard", lastMessageAt: 1 }]);
     gateway.chatHistory.mockResolvedValue([{ role: "assistant", content: "Initial history" }]);
     const agent = {
       id: "deploy-123",
@@ -4989,8 +5146,9 @@ describe("useOpenClawSession", () => {
 
     const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
 
-    await waitFor(() => expect(result.current.activeSessionKey).toMatch(/^dashboard:[0-9a-f-]+$/i));
-    const activeSessionKey = result.current.activeSessionKey;
+    await waitFor(() => expect(result.current.activeSessionSelectionResolved).toBe(true));
+    expect(result.current.activeSessionKey).toBe(dashboardSessionKey);
+    const activeSessionKey = dashboardSessionKey;
     await waitFor(() => expect(gateway.chatHistory).toHaveBeenCalledWith(activeSessionKey, 200));
     await waitFor(() => expect(gateway.sessionsList).toHaveBeenCalledTimes(1));
     const historyCallsAfterHydration = gateway.chatHistory.mock.calls.length;
@@ -6208,7 +6366,7 @@ describe("useOpenClawSession", () => {
         .mockReturnValueOnce(secondGateway),
     };
 
-    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
 
     await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
     expect(firstGateway.sessionsList).toHaveBeenCalledTimes(1);
@@ -6417,9 +6575,9 @@ describe("useOpenClawSession", () => {
 
   it("does not expose stale projects while switching selected agents", async () => {
     const firstGateway = buildGateway();
-    firstGateway.sessionsList.mockResolvedValue([{ key: "session-first", title: "First project" }]);
+    firstGateway.sessionsList.mockResolvedValue([{ key: "session-first", title: "First project", lastMessageAt: 10 }]);
     const secondGateway = buildGateway();
-    secondGateway.sessionsList.mockResolvedValue([{ key: "session-second", title: "Second project" }]);
+    secondGateway.sessionsList.mockResolvedValue([{ key: "session-second", title: "Second project", lastMessageAt: 20 }]);
     const firstAgent = {
       id: "deploy-1",
       connect: vi.fn(),
@@ -6470,7 +6628,7 @@ describe("useOpenClawSession", () => {
       gateway: vi.fn(() => gateway),
     };
 
-    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
 
     await waitFor(() => expect(result.current.connected).toBe(true));
     await waitFor(() => expect(result.current.messages).toHaveLength(1));

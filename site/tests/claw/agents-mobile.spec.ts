@@ -470,14 +470,18 @@ test.describe("Agents mobile layout", () => {
 
     await openMobileNavigation(page);
     await expect(page.getByRole("button", { name: "Select Mobile Regression Agent" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Move Mobile Regression Agent" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Move Mobile Regression Agent" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Select Offline Mobile Agent" })).toBeVisible();
     await expect(page.getByText(/^available agents$/i)).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Expand agents sidebar" })).toBeVisible();
     await page.getByRole("button", { name: "Expand agents sidebar" }).click();
     await expect(page.getByRole("button", { name: "Collapse sidebar" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Move Mobile Regression Agent" })).toBeVisible();
     await page.getByRole("button", { name: "Collapse sidebar" }).click();
     await expect(page.getByRole("button", { name: /^files$/i })).toBeVisible();
+    await page.getByRole("button", { name: "Select Mobile Support Agent" }).click();
+    await expect(page).toHaveURL(/agentId=agent-mobile-support/);
+    await expect(page.getByRole("button", { name: "Expand agents sidebar" })).toBeVisible();
     await page.waitForTimeout(250);
     await expectNoHorizontalOverflow(page);
     await page.getByRole("button", { name: "Close navigation" }).click();

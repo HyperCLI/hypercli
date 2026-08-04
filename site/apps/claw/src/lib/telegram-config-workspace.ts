@@ -4,6 +4,17 @@ export const TELEGRAM_AGENT_ALLOWLIST_DISPLAY_PROMPT = "Update Telegram allowlis
 export const TELEGRAM_AGENT_ACCESS_DISPLAY_PROMPT = "Update Telegram access settings.";
 
 const TOKEN_SHAPED_RE = /\b\d{5,}:[A-Za-z0-9_-]{20,}\b/g;
+const TELEGRAM_CONFIG_TARGET_RE = /\bchannels\.telegram(?:\.(?:enabled|botToken|dmPolicy|allowFrom|groupPolicy|groupAllowFrom|groups))?\b/i;
+const TELEGRAM_CONFIG_ASSISTANT_UPDATE_RE = /\b(?:applied|changed|configured|edited|patched|removed|saved|updated|wrote|written)\b/i;
+const TELEGRAM_CONFIG_TOOL_UPDATE_RE = /\b(?:apply|applied|change|changed|configure|configured|edit|edited|patch|patched|remove|removed|save|saved|set|update|updated|write|writes|writing|wrote|written)\b|\bjson\.dump\b|\bsetdefault\b/i;
+const TELEGRAM_CONFIG_STATUS_PATTERNS = [
+  /^(?:The\s+)?Telegram\s+(?:allowlist|access settings|config(?:uration)?)\s+(?:(?:was|were|has been|have been)\s+)?(?:updated|configured|saved|applied)(?:\s+successfully)?[.!]?$/i,
+  /^(?:Successfully\s+)?(?:Updated|Configured|Saved|Applied)\s+(?:the\s+)?Telegram\s+(?:allowlist|access settings|config(?:uration)?)(?:\s+successfully)?[.!]?$/i,
+  /^(?:I(?:'ll| will)|Let me)\s+(?:update|configure)\s+(?:the\s+)?Telegram\s+(?:allowlist|access settings|config(?:uration)?)\b/i,
+  /^Telegram gateway\s+(?:was\s+)?restarted[.!]?$/i,
+  /\bgateway\s+(?:was\s+)?restarted\b.{0,100}\bTelegram\s+(?:config|configuration|settings)\b/i,
+  /\bTelegram\s+(?:config|configuration|settings)\b.{0,100}\bgateway\s+(?:was\s+)?restarted\b/i,
+];
 
 export function buildTelegramAgentAllowlistPrompt(userIds: string[], requireMention: boolean): string {
   const safeIds = userIds.filter((id) => /^\d+$/.test(id));
@@ -84,12 +95,19 @@ function isTelegramConfigPromptContent(content: string): boolean {
 function isTelegramConfigAssistantContent(content: string): boolean {
   const redacted = content.replace(TOKEN_SHAPED_RE, "[redacted token]").trim();
   if (!redacted) return false;
-  return /telegram/i.test(redacted) && /(?:allowFrom|dmPolicy|allowlist|openclaw\.json|gateway restarted|config updated)/i.test(redacted);
+  if (isTelegramConfigPromptContent(redacted)) return true;
+  if (TELEGRAM_CONFIG_STATUS_PATTERNS.some((pattern) => pattern.test(redacted))) return true;
+  const hasConfigTarget = TELEGRAM_CONFIG_TARGET_RE.test(redacted)
+    || (/openclaw\.json/i.test(redacted) && /\bTelegram\b/i.test(redacted));
+  return hasConfigTarget && TELEGRAM_CONFIG_ASSISTANT_UPDATE_RE.test(redacted);
 }
 
 function isTelegramConfigToolCall(name: string, args: string, result = ""): boolean {
   const haystack = `${name}\n${args}\n${result}`.replace(TOKEN_SHAPED_RE, "[redacted token]");
-  return /telegram/i.test(haystack) && /(?:allowFrom|dmPolicy|allowlist|openclaw\.json|gateway restart|channels\.telegram)/i.test(haystack);
+  if (/\bTelegram\b/i.test(haystack) && /\bgateway\s+(?:restart|restarted)\b/i.test(haystack)) return true;
+  const hasConfigTarget = TELEGRAM_CONFIG_TARGET_RE.test(haystack)
+    || (/openclaw\.json/i.test(haystack) && /\bTelegram\b/i.test(haystack));
+  return hasConfigTarget && TELEGRAM_CONFIG_TOOL_UPDATE_RE.test(haystack);
 }
 
 export function shouldHideTelegramAgentConfigMessage(message: ChatMessage): boolean {

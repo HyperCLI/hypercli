@@ -159,6 +159,32 @@ const README_REFRESH_HISTORY = [
 ];
 
 describe("openclaw chat normalization", () => {
+  it("repairs only lossless, strongly evidenced mojibake in history and live content", () => {
+    const examples = [
+      {
+        input: "FranÃ§ois said â\u0080\u0094 hello ð\u009f\u0091\u008b.",
+        expected: "François said — hello 👋.",
+      },
+      {
+        input: "Itâ€™s ready ðŸ‘‹",
+        expected: "It’s ready 👋",
+      },
+      { input: "Mâcon is in France.", expected: "Mâcon is in France." },
+      { input: "Guðmundur approved it.", expected: "Guðmundur approved it." },
+      {
+        input: "Mâcon — Guðmundur approved it 👋 in 東京.",
+        expected: "Mâcon — Guðmundur approved it 👋 in 東京.",
+      },
+      { input: "Incomplete â\u0080 sequence", expected: "Incomplete â\u0080 sequence" },
+      { input: "Already damaged Ã© \uFFFD", expected: "Already damaged Ã© \uFFFD" },
+    ];
+
+    for (const { input, expected } of examples) {
+      expect(normalizeHistoryMessage({ role: "assistant", content: input })?.content).toBe(expected);
+      expect(upsertAssistantMessage([], { role: "assistant", content: input })[0]?.content).toBe(expected);
+    }
+  });
+
   it("keeps OpenClaw managed outgoing image blocks as media urls", () => {
     const normalized = normalizeHistoryMessage({
       role: "assistant",
@@ -438,6 +464,24 @@ describe("openclaw chat normalization", () => {
     })).toBeNull();
   });
 
+  it("preserves execution-like final answers in history and live content", () => {
+    const answers = [
+      "Exit code: 0",
+      "Raw output: the API returned 201.\nThis confirms success.",
+      "The source literally says ... (truncated) ... and the surrounding prose matters.",
+    ];
+
+    for (const content of answers) {
+      expect(normalizeHistoryMessage({ role: "assistant", content })).toEqual(expect.objectContaining({
+        role: "assistant",
+        content,
+      }));
+      expect(upsertAssistantMessage([], { role: "assistant", content })).toEqual([
+        expect.objectContaining({ role: "assistant", content }),
+      ]);
+    }
+  });
+
   it("drops NO_REPLY assistant sentinels from persisted history", () => {
     expect(normalizeHistoryMessage({
       role: "assistant",
@@ -607,6 +651,43 @@ describe("openclaw chat normalization", () => {
       role: "assistant",
       content: "Workspace files include HEARTBEAT.md and README.md.",
     }));
+  });
+
+  it("keeps heartbeat explanations and non-control tool data in history and live content", () => {
+    const explanations = [
+      "HEARTBEAT.md contains the periodic maintenance checklist for this workspace.",
+      "The phrase Read HEARTBEAT.md if it exists (workspace context) is quoted here for explanation.",
+      "The user wants me to read HEARTBEAT.md, but this sentence is explaining that request.",
+    ];
+
+    for (const content of explanations) {
+      expect(normalizeHistoryMessage({ role: "assistant", content })).toEqual(expect.objectContaining({ content }));
+      expect(upsertAssistantMessage([], { role: "assistant", content })).toEqual([
+        expect.objectContaining({ role: "assistant", content }),
+      ]);
+    }
+
+    const explanatoryToolCall = {
+      name: "search",
+      args: JSON.stringify({ query: "Explain HEARTBEAT.md" }),
+      result: "HEARTBEAT.md is a workspace maintenance document, not an error.",
+    };
+    expect(isInternalHeartbeatMessage({ toolCalls: [explanatoryToolCall] })).toBe(false);
+    expect(upsertAssistantMessage([], {
+      role: "assistant",
+      content: "I can explain HEARTBEAT.md without running a heartbeat control turn.",
+      toolCalls: [explanatoryToolCall],
+    })).toEqual([
+      expect.objectContaining({
+        content: "I can explain HEARTBEAT.md without running a heartbeat control turn.",
+        toolCalls: [explanatoryToolCall],
+      }),
+    ]);
+  });
+
+  it("drops exact heartbeat sentinels from history and live content", () => {
+    expect(normalizeHistoryMessage({ role: "assistant", content: "HEARTBEAT_OK" })).toBeNull();
+    expect(upsertAssistantMessage([], { role: "assistant", content: "HEARTBEAT_OK" })).toEqual([]);
   });
 
   it("preserves normal assistant text that resembles cron or reminder content", () => {
@@ -1187,14 +1268,21 @@ describe("openclaw chat normalization", () => {
     expect(JSON.stringify(next)).not.toContain(EXECUTION_OUTPUT_LEAK_SENTINEL);
   });
 
-  it("drops truncated internal assistant content chunks", () => {
+  it("keeps assistant prose containing truncation notation", () => {
+    const content = "Chief, want me to write this into a...(truncated)...";
     const next = upsertAssistantMessage([], {
       role: "assistant",
-      content: "Chief, want me to write this into a...(truncated)...",
+      content,
       timestamp: 1,
     });
 
-    expect(next).toEqual([]);
+    expect(next).toEqual([
+      {
+        role: "assistant",
+        content,
+        timestamp: 1,
+      },
+    ]);
   });
 
   it("redacts internal execution output from live tool result details", () => {
@@ -1213,6 +1301,25 @@ describe("openclaw chat normalization", () => {
 
     expect(JSON.stringify(next)).not.toContain(EXECUTION_OUTPUT_LEAK_SENTINEL);
     expect(next[0]?.toolCalls?.[0]?.result).toBe("[Internal tool output hidden from chat.]");
+  });
+
+  it("keeps common output labels in live tool result details", () => {
+    const details = [
+      "Exit code: 0",
+      "Raw output: the API returned 201.\nThis confirms success.",
+      "The response included ... (truncated) ... as literal prose.",
+    ];
+
+    for (const result of details) {
+      const toolResult = normalizeLiveToolResult({ name: "inspect", result });
+      expect(toolResult?.result).toBe(result);
+      const messages = upsertAssistantMessage([], {
+        role: "assistant",
+        content: "",
+        toolCalls: toolResult ? [toolResult] : [],
+      });
+      expect(messages[0]?.toolCalls?.[0]?.result).toBe(result);
+    }
   });
 
   it("does not attach live heartbeat tool calls to the previous assistant message", () => {
@@ -1277,6 +1384,19 @@ describe("openclaw chat normalization", () => {
     });
 
     expect(normalized?.content).toContain("Binary file content omitted");
+  });
+
+  it("keeps explanatory PDF signatures in history and live content", () => {
+    const explanations = [
+      "The token %PDF-1.7 identifies the PDF file format version.",
+      "%PDF-1.7\nThis is explanatory prose about a header, not a binary payload.",
+    ];
+
+    for (const content of explanations) {
+      expect(normalizeHistoryMessage({ role: "assistant", content })?.content).toBe(content);
+      expect(upsertAssistantMessage([], { role: "assistant", content })[0]?.content).toBe(content);
+      expect(normalizeLiveToolResult({ name: "explain", result: content })?.result).toBe(content);
+    }
   });
 
   it("omits raw PDF bytes from live tool results", () => {

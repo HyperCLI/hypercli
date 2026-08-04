@@ -50,6 +50,7 @@ import { clearOpenClawSessionPins, useOpenClawSessionPins } from "@/hooks/useOpe
 import { useAgentRosterOrder } from "@/hooks/useAgentRosterOrder";
 import { agentProfileImageUrl } from "@/lib/avatar";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
+import { AccountOperationsHome } from "@/components/dashboard/AccountOperationsHome";
 import {
   SkillDraftTestBanner,
   assertSkillDraftTestable,
@@ -82,8 +83,6 @@ import {
   SheetContent,
   SheetTitle,
   SheetTrigger,
-  WorkspaceKnowledgeHome,
-  type WorkspaceKnowledgeHomeAgent,
 } from "@hypercli/shared-ui";
 import { inferFileMimeType, isAudioFileReference, isFileTypeReference, isImageFileReference, type FileEntry } from "@hypercli/shared-ui/files";
 import { buildBrowserDesktopUrl } from "@hypercli.com/sdk/agents";
@@ -151,6 +150,9 @@ import {
 import {
   displayOpenClawSessionName,
   fallbackOpenClawSessionDisplayName,
+  isOpenClawHeartbeatSessionKey,
+  isOpenClawMainSessionKey,
+  isRecoverableOpenClawMainSession,
   sameOpenClawSelectableSessionKey,
 } from "@/lib/openclaw-session-sdk-surface";
 import {
@@ -186,7 +188,7 @@ import {
 import { AgentLogsController, type AgentLogsControllerHandle } from "@/components/dashboard/agents/AgentLogsController";
 import { AgentShellController, type AgentShellControllerHandle } from "@/components/dashboard/agents/AgentShellController";
 import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
-import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
+import { AgentMainPanel, type DashboardSurfaceHeader } from "@/components/dashboard/agents/AgentMainPanel";
 import { AgentDisplayNameEditor } from "@/components/dashboard/agents/AgentDisplayNameEditor";
 import { AgentPrivateChatControl } from "@/components/dashboard/agents/AgentPrivateChatControl";
 import { AgentWorkspaceSidebar, WorkspaceCreationDialog } from "@/components/dashboard/agents/AgentWorkspaceSidebar";
@@ -199,7 +201,6 @@ import {
 } from "@/components/dashboard/settings/SettingsMenu";
 import {
   useWorkspace,
-  workspaceAgentCreationDisabledReason,
   workspaceDisplayName,
 } from "@/components/dashboard/WorkspaceContext";
 import { JourneyFloatingPanel } from "@/components/dashboard/journey/JourneyFloatingPanel";
@@ -213,16 +214,17 @@ import { agentDisplayLabel, didAnyAgentFinishStopping, toAgentViewModel } from "
 import { compactBundle, formatBundle, subscriptionSlotBundle, type SlotBundle } from "@/lib/subscriptions";
 import { createAudioMediaRecorder } from "@/lib/audio-recorder";
 import { downloadFileBytes } from "@/lib/download-file";
-import { resolveAgentRouteTab, type AgentRouteTab } from "@/lib/agent-workspace-route";
+import { buildAgentWorkspaceTabHref, resolveAgentRouteTab, type AgentRouteTab } from "@/lib/agent-workspace-route";
 import { agentPrimarySurface } from "@/lib/agent-runtime-surface";
 import {
   ACCOUNT_PAGE_HREFS,
   buildDashboardViewHref,
+  buildKnowledgeHubHref,
   resolveDashboardView,
   syncDashboardSearchParams,
   type DashboardView,
 } from "@/lib/dashboard-route";
-import { stageAgentStarterFilesAndStart } from "@/lib/agent-starter-files";
+import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
 import { markDashboardPerformance, measureDashboardPerformance } from "@/lib/agent-dashboard-performance";
 import { normalizeCronJob } from "@/lib/cron-jobs";
 import {
@@ -236,6 +238,7 @@ import {
 import type { ChatPendingFile } from "@/lib/openclaw-chat";
 import type { JourneyCompletionEvent, JourneyDay } from "@/components/dashboard/journey/types";
 import { resolveWorkspaceAgentSelection } from "@/lib/workspace-agent-roster";
+import type { KnowledgeHubSelectedDomain } from "@/components/dashboard/knowledge/KnowledgeHub";
 
 type MainTab = AgentMainTab;
 type AgentOnboardingOverlay = "tour" | "launcher" | null;
@@ -278,7 +281,7 @@ const TOKEN_USAGE_RUNNING_REFRESH_INTERVAL_MS = 60_000;
 const AGENT_DASHBOARD_ENRICHMENT_TIMEOUT_MS = 10_000;
 const SHELL_INTENT_TTL_MS = 12_000;
 const AGENT_DIRECTORY_MARKER_NAME = ".hypercli-folder";
-const SHOW_INTERNAL_MAIN_SESSION = false;
+const KNOWLEDGE_HUB_SURFACE_CONTROLS_ID = "knowledge-hub-surface-controls";
 
 function DeferredDashboardPanel() {
   return (
@@ -306,6 +309,10 @@ const SkillsPanel = dynamic(
 );
 const SharedKnowledgeSection = dynamic(
   () => import("@/components/dashboard/knowledge/SharedKnowledgeSection").then((module) => module.SharedKnowledgeSection),
+  { loading: DeferredDashboardPanel },
+);
+const KnowledgeHub = dynamic(
+  () => import("@/components/dashboard/knowledge/KnowledgeHub").then((module) => module.KnowledgeHub),
   { loading: DeferredDashboardPanel },
 );
 const MembersSection = dynamic(
@@ -436,6 +443,19 @@ function agentTokenUsageMap(
     const agentId = typeof entry.agentId === "string" ? entry.agentId.trim() : "";
     return agentId ? [[agentId, finiteNumber(entry.totalTokens)]] : [];
   }));
+}
+
+function dailyTokenUsageTotal(
+  usage: {
+    agents?: Array<{ totalTokens?: unknown }>;
+    unattributed?: { totalTokens?: unknown };
+  } | null | undefined,
+): number | null {
+  if (!usage) return null;
+  const attributed = Array.isArray(usage.agents)
+    ? usage.agents.reduce((total, entry) => total + Math.max(finiteNumber(entry.totalTokens), 0), 0)
+    : 0;
+  return attributed + Math.max(finiteNumber(usage.unattributed?.totalTokens), 0);
 }
 
 function agentTokenLimit(
@@ -1086,7 +1106,7 @@ function AgentsPageContent() {
     agentRosterError,
     error: workspacesError,
     isLoading: workspacesLoading,
-    associateAgentWithSelectedWorkspace,
+    assignAgentToDomain,
     selectWorkspace,
   } = useWorkspace();
   const router = useRouter();
@@ -1098,6 +1118,7 @@ function AgentsPageContent() {
   const requestedPlanId = searchParams.get("plan")?.trim() || null;
   const stripeCheckoutRecoveryRequested = searchParams.get("checkout") === "success" && Boolean(searchParams.get("session_id")?.trim());
   const requestedSection = searchParams.get("section")?.trim() || null;
+  const requestedKnowledgeDomainId = searchParams.get("domainId")?.trim() || null;
   const requestedTab = searchParams.get("tab")?.trim() || null;
   const requestedView = searchParams.get("view")?.trim() || null;
   const dashboardView = isAuthenticated ? resolveDashboardView(requestedView) : null;
@@ -1107,13 +1128,16 @@ function AgentsPageContent() {
   );
   const requestedAgentTab = resolveAgentRouteTab(requestedTab);
   const requestedCenterTab: MainTab | null = requestedAgentTab === "openclaw" ? "chat" : requestedAgentTab;
+  const knowledgeHubSectionActive = isAuthenticated && requestedSection === "knowledge-hub";
   const knowledgeSectionActive = isAuthenticated && requestedSection === "knowledge";
   const membersSectionActive = isAuthenticated && requestedSection === "members";
-  const administrationSectionTab: Extract<MainTab, "knowledge" | "members"> | null = knowledgeSectionActive
-    ? "knowledge"
-    : membersSectionActive
-      ? "members"
-      : null;
+  const administrationSectionTab: Extract<MainTab, "knowledge-hub" | "knowledge" | "members"> | null = knowledgeHubSectionActive
+    ? "knowledge-hub"
+    : knowledgeSectionActive
+      ? "knowledge"
+      : membersSectionActive
+        ? "members"
+        : null;
   const slackOAuthOk = searchParams.get("slack_oauth_ok")?.trim() || null;
   const slackOAuthError = searchParams.get("slack_oauth_error")?.trim() || null;
   const slackOAuthResult = slackOAuthOk === "true" ? "success" : slackOAuthOk === "false" ? "failure" : null;
@@ -1126,17 +1150,9 @@ function AgentsPageContent() {
   const dashboardDisplayName = displayNameForDashboard(user);
   const suggestedJourneyUserName = dashboardDisplayName === "there" ? null : dashboardDisplayName;
   const accountInitial = user?.email?.trim()[0]?.toUpperCase() || "?";
-  const agentCreationDisabledReason = !isAuthenticated
-    ? null
-    : workspacesLoading
-      ? "Workspaces are still loading."
-      : workspacesError
-        ? "Workspaces could not be loaded. Refresh before launching an agent."
-      : workspaceAgentCreationDisabledReason(selectedWorkspace, agentRosterError);
-  const agentCreationBlockedReason = isAuthenticated && isAgentRosterLoading
-    ? "Agent roster is still loading."
-    : agentCreationDisabledReason;
-  const shouldOfferWorkspaceCreation = isAuthenticated && !workspacesLoading && !workspacesError && workspaces.length === 0 && Boolean(workspacesClient);
+  const agentCreationDisabledReason = null;
+  const agentCreationBlockedReason = null;
+  const shouldOfferWorkspaceCreation = false;
   const journey = useJourney({ searchParams, searchKey: queryKey, storageScope: user?.email ?? null });
   const journeyChatCompletionRef = useRef<PendingJourneyChatCompletion | null>(null);
   const completeJourneyForEvent = journey.completeForEvent;
@@ -1194,6 +1210,7 @@ function AgentsPageContent() {
   const [billingDataPrincipalId, setBillingDataPrincipalId] = useState<string | null>(null);
   const [billingDataError, setBillingDataError] = useState<string | null>(null);
   const [tokenUsageByAgent, setTokenUsageByAgent] = useState<Record<string, number> | null>(null);
+  const [dailyTokenUsage, setDailyTokenUsage] = useState<number | null>(null);
   const [upgradeCatalogOpen, setUpgradeCatalogOpen] = useState(false);
   const [upgradeCatalogError, setUpgradeCatalogError] = useState<string | null>(null);
   const [upgradeCheckoutPlan, setUpgradeCheckoutPlan] = useState<UpgradeCheckoutPlan | null>(null);
@@ -1366,10 +1383,20 @@ function AgentsPageContent() {
 
   // Selection and tabs
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [selectedKnowledgeDomain, setSelectedKnowledgeDomain] = useState<KnowledgeHubSelectedDomain | null>(null);
+  const handleKnowledgeDomainChange = useCallback((domain: KnowledgeHubSelectedDomain | null) => {
+    setSelectedKnowledgeDomain((current) => (
+      current?.id === domain?.id && current?.name === domain?.name ? current : domain
+    ));
+  }, []);
   const tokenUsage = selectedAgentId && tokenUsageByAgent
     ? tokenUsageByAgent[selectedAgentId] ?? 0
     : null;
   const tokenLimit = agentTokenLimit(subscriptionSummary, selectedAgentId);
+  const dailyTokenLimit = subscriptionSummary
+    ? Math.max(subscriptionSummary.entitlements?.pooledTpd ?? subscriptionSummary.pooledTpd ?? 0, 0)
+    : null;
+  const tokenUsageLoading = isAuthenticated && billingDataPrincipalId !== user?.id && !billingDataError;
   const [selectedSessionKeysByAgent, setSelectedSessionKeysByAgent] = useState<Record<string, string>>(() => (
     requestedAgentId && requestedSessionKey
       ? { [requestedAgentId]: requestedSessionKey }
@@ -1395,9 +1422,10 @@ function AgentsPageContent() {
   const preserveMainTabOnRouteCleanupRef = useRef(false);
   const [mainTab, setMainTab] = useState<MainTab>(() => administrationSectionTab ?? requestedCenterTab ?? "chat");
   const selectMainTab = useCallback((tab: MainTab) => {
-    if (tab === "knowledge" || tab === "members") {
+    if (tab !== "knowledge-hub") setSelectedKnowledgeDomain(null);
+    if (tab === "knowledge-hub" || tab === "knowledge" || tab === "members") {
       setMainTab((current) => {
-        if (current !== "knowledge" && current !== "members") mainTabBeforeAdministrationRef.current = current;
+        if (current !== "knowledge-hub" && current !== "knowledge" && current !== "members") mainTabBeforeAdministrationRef.current = current;
         return tab;
       });
       return;
@@ -1414,10 +1442,11 @@ function AgentsPageContent() {
   }, [administrationSectionTab, requestedAgentTab, router, searchParams]);
   useEffect(() => {
     const timeout = window.setTimeout(() => {
+      if (administrationSectionTab !== "knowledge-hub") setSelectedKnowledgeDomain(null);
       setMainTab((current) => {
         if (administrationSectionTab) {
           appliedAgentRouteTabRef.current = null;
-          if (current !== "knowledge" && current !== "members") mainTabBeforeAdministrationRef.current = current;
+          if (current !== "knowledge-hub" && current !== "knowledge" && current !== "members") mainTabBeforeAdministrationRef.current = current;
           return administrationSectionTab;
         }
         if (requestedAgentTab && requestedCenterTab) {
@@ -1429,7 +1458,7 @@ function AgentsPageContent() {
           appliedAgentRouteTabRef.current = null;
           return current;
         }
-        if (current === "knowledge" || current === "members") return mainTabBeforeAdministrationRef.current;
+        if (current === "knowledge-hub" || current === "knowledge" || current === "members") return mainTabBeforeAdministrationRef.current;
         if (appliedAgentRouteTabRef.current) {
           appliedAgentRouteTabRef.current = null;
           return "chat";
@@ -1621,6 +1650,7 @@ function AgentsPageContent() {
     setBillingDataPrincipalId(null);
     setBillingDataError(null);
     setTokenUsageByAgent(null);
+    setDailyTokenUsage(null);
     setDeployments(null);
     setAgentsLoadError(null);
     setSelectedAgentId(null);
@@ -1833,6 +1863,7 @@ function AgentsPageContent() {
       const usage = await hyperAgent.agentUsage(1);
       if (generation === agentDataGenerationRef.current) {
         setTokenUsageByAgent(agentTokenUsageMap(usage));
+        setDailyTokenUsage(dailyTokenUsageTotal(usage));
       }
     } catch {
       // Keep the last displayed value on transient usage refresh failures.
@@ -1899,6 +1930,7 @@ function AgentsPageContent() {
         setBillingDataPrincipalId(billingReady ? principalId : null);
         setBillingDataError(billingReady ? null : "Billing data could not be loaded. Retry before checkout.");
         setTokenUsageByAgent(agentTokenUsageMap(agentUsage));
+        setDailyTokenUsage(dailyTokenUsageTotal(agentUsage));
         markDashboardPerformance("enrichment-ready");
         measureDashboardPerformance("enrichment", "enrichment-start", "enrichment-ready");
         return { subscriptionSummary: summary, budget: nextBudget, billingReady };
@@ -2193,6 +2225,7 @@ function AgentsPageContent() {
       setBillingDataPrincipalId(null);
       setBillingDataError(null);
       setTokenUsageByAgent(null);
+      setDailyTokenUsage(null);
       deploymentsRef.current = null;
       setDeployments(null);
       setAgentsLoadError(null);
@@ -2423,14 +2456,16 @@ function AgentsPageContent() {
     return () => clearTimeout(timer);
   }, [checkoutSync]);
 
+  const accountSdkAgents = useMemo(
+    () => agentDataPrincipalId === user?.id ? sdkAgents : [],
+    [agentDataPrincipalId, sdkAgents, user?.id],
+  );
   const accountAgents = useMemo(
-    () => agentDataPrincipalId === user?.id
-      ? sdkAgents.map((agent) => toAgentViewModel(
-          agent,
-          agentAvatarOverrides.has(agent.id) ? agentAvatarOverrides.get(agent.id) : undefined,
-        ))
-      : [],
-    [agentAvatarOverrides, agentDataPrincipalId, sdkAgents, user?.id],
+    () => accountSdkAgents.map((agent) => toAgentViewModel(
+      agent,
+      agentAvatarOverrides.has(agent.id) ? agentAvatarOverrides.get(agent.id) : undefined,
+    )),
+    [accountSdkAgents, agentAvatarOverrides],
   );
   const selectedWorkspaceAgentIdSet = useMemo(
     () => new Set(selectedWorkspaceAgentIds),
@@ -2442,12 +2477,6 @@ function AgentsPageContent() {
       : accountAgents.filter((agent) => selectedWorkspaceAgentIdSet.has(agent.id)),
     [accountAgents, agentRosterError, isAgentRosterLoading, selectedWorkspaceAgentIdSet],
   );
-  const altHomeAgents = useMemo<WorkspaceKnowledgeHomeAgent[]>(() => accountAgents.map((agent) => ({
-    id: agent.id,
-    name: agentDisplayLabel(agent),
-    state: agent.state,
-    avatarUrl: agentProfileImageUrl(agent),
-  })), [accountAgents]);
   const agents = accountAgents;
   const updateAgentCanonicalName = useCallback(async (agentId: string, name: string) => {
     const generation = agentDataGenerationRef.current;
@@ -2510,6 +2539,7 @@ function AgentsPageContent() {
     return {
       setupId: firstAgentSetupDraft.setupId,
       workspaceId: firstAgentSetupDraft.workspaceId ?? selectedWorkspaceId,
+      knowledgeDomainId: firstAgentSetupDraft.knowledgeDomainId,
       size,
     };
   })();
@@ -2739,6 +2769,7 @@ function AgentsPageContent() {
   const stoppedTabLabel: Record<CenterPanel, string> = {
     chat: "Chat",
     files: "Files",
+    "knowledge-hub": "Knowledge Hub",
     knowledge: "Shared knowledge",
     members: "Members",
     integrations: "Integrations",
@@ -2884,6 +2915,12 @@ function AgentsPageContent() {
     }
     return `/dashboard/agents?${params.toString()}`;
   }, [canonicalSelectedSessionKey, selectedAgentId]);
+  const knowledgeHubSectionHref = useMemo(() => {
+    return buildKnowledgeHubHref({
+      agentId: selectedAgentId,
+      session: selectedAgentId ? canonicalSelectedSessionKey : null,
+    });
+  }, [canonicalSelectedSessionKey, selectedAgentId]);
   const membersSectionHref = useMemo(() => {
     const params = new URLSearchParams({ section: "members" });
     if (selectedAgentId) {
@@ -2900,10 +2937,6 @@ function AgentsPageContent() {
   }, [canonicalSelectedSessionKey, selectedAgentId]);
   const dashboardViewHrefs = useMemo<Record<DashboardView, string>>(() => ({
     overview: buildDashboardViewHref("overview", {
-      agentId: selectedAgentId,
-      session: selectedAgentId ? canonicalSelectedSessionKey : null,
-    }),
-    "alt-home": buildDashboardViewHref("alt-home", {
       agentId: selectedAgentId,
       session: selectedAgentId ? canonicalSelectedSessionKey : null,
     }),
@@ -3491,38 +3524,27 @@ function AgentsPageContent() {
   // Derive AgentSession[] from chat.sessions
   const agentSessionsForView = useMemo(() => {
     if (!chat.sessions || chat.sessions.length === 0) return null;
-    return chat.sessions.filter((session) => {
-      if (SHOW_INTERNAL_MAIN_SESSION || !sameOpenClawSelectableSessionKey(session.key, OPENCLAW_INTERNAL_SESSION_KEY)) {
-        return true;
-      }
-      return !session.readOnly && (session.messageCount > 0 || session.lastMessageAt > 0);
-    }).map((session) => {
+    return chat.sessions.filter((session) => (
+      !isOpenClawHeartbeatSessionKey(session.key) &&
+      (!isOpenClawMainSessionKey(session.key) || isRecoverableOpenClawMainSession(session))
+    )).map((session) => {
       const sourceChannelId = typeof session.sourceChannelId === "string" ? session.sourceChannelId : undefined;
-      const isLegacyMainSession = sameOpenClawSelectableSessionKey(session.key, OPENCLAW_INTERNAL_SESSION_KEY);
       return {
         key: session.key,
         clientMode: session.clientMode,
-        clientDisplayName: isLegacyMainSession ? "Previous conversation" : displayOpenClawSessionName(session),
+        clientDisplayName: displayOpenClawSessionName(session),
         createdAt: session.createdAt,
         lastMessageAt: session.lastMessageAt,
         ...(sourceChannelId ? { sourceChannelId } : {}),
       };
     });
   }, [chat.sessions]);
-  const showRecoverableMainSession = Boolean(agentSessionsForView?.some((session) => (
-    sameOpenClawSelectableSessionKey(session.key, OPENCLAW_INTERNAL_SESSION_KEY)
-  )));
-  const sidebarSessions = useMemo(() => chat.sessions.map((session) => (
-    sameOpenClawSelectableSessionKey(session.key, OPENCLAW_INTERNAL_SESSION_KEY)
-      ? { ...session, title: "Previous conversation", clientDisplayName: "Previous conversation" }
-      : session
-  )), [chat.sessions]);
 
   const scheduledSessionOptions = useMemo(() => {
     const options: Array<{ key: string; label: string }> = [];
     const addSession = (key: string, label: string) => {
       const normalizedKey = key.trim();
-      if (!SHOW_INTERNAL_MAIN_SESSION && sameOpenClawSelectableSessionKey(normalizedKey, OPENCLAW_INTERNAL_SESSION_KEY)) return;
+      if (isOpenClawMainSessionKey(normalizedKey) || isOpenClawHeartbeatSessionKey(normalizedKey)) return;
       if (!normalizedKey || options.some((option) => sameOpenClawSelectableSessionKey(option.key, normalizedKey))) return;
       options.push({ key: normalizedKey, label: label.trim() || (normalizedKey === "main" ? "Main Session" : "Current Session") });
     };
@@ -3766,7 +3788,16 @@ function AgentsPageContent() {
     return parseGeneratedOpenClawBootstrapFile(result.content, name);
   }, [getToken]);
 
-  const handleCreateFirstAgent = useCallback(async ({ name, iconIndex, size, files, enableDesktop, enableMemoryIndex = false, customImage = null }: AgentCreationSetupCreateParams) => {
+  const handleCreateFirstAgent = useCallback(async ({
+    name,
+    iconIndex,
+    size,
+    files,
+    enableDesktop,
+    enableMemoryIndex = false,
+    customImage = null,
+    knowledgeDomainId,
+  }: AgentCreationSetupCreateParams) => {
     if (!isAuthenticated) {
       requestAuthentication({ kind: "launch" });
       return null;
@@ -3778,12 +3809,21 @@ function AgentsPageContent() {
     const generation = agentDataGenerationRef.current;
     try {
       if (agentCreationBlockedReason) throw new Error(agentCreationBlockedReason);
+      const knowledgeDomain = knowledgeDomainId
+        ? workspaces.find((workspace) => workspace.id === knowledgeDomainId) ?? null
+        : null;
+      if (knowledgeDomainId && !knowledgeDomain) {
+        throw new Error("The selected Knowledge Domain is no longer available.");
+      }
+      if (knowledgeDomain && knowledgeDomain.role !== "admin") {
+        throw new Error("Domain admin access is required to assign this agent.");
+      }
       setError(null);
       const token = await getToken();
       if (generation !== agentDataGenerationRef.current) return null;
       const created = await createOpenClawAgent(token, {
         name: name || undefined,
-        start: files.length === 0,
+        start: false,
         size,
         meta: { ui: { avatar: { icon_index: iconIndex } } },
         ...buildOpenClawLaunchOptions({
@@ -3800,13 +3840,12 @@ function AgentsPageContent() {
         if (files.length > 0) {
           try {
             const agentClient = createAgentClient(token);
-            await stageAgentStarterFilesAndStart({
+            await uploadAgentStarterFiles({
               agentId: created.id,
               files,
               writeFileBytes: (agentId, path, content, destination) => (
                 agentClient.fileWriteBytes(agentId, path, content, destination)
               ),
-              startAgent: (agentId) => startOpenClawAgent(token, agentId),
             });
             if (generation !== agentDataGenerationRef.current) return null;
           } catch (uploadError) {
@@ -3817,19 +3856,23 @@ function AgentsPageContent() {
           }
           if (generation !== agentDataGenerationRef.current) return null;
         }
-        try {
-          await associateAgentWithSelectedWorkspace(created.id);
-          if (generation !== agentDataGenerationRef.current) return null;
-        } catch (associationError) {
-          const detail = associationError instanceof Error
-            ? associationError.message
-            : "Workspace access is unavailable right now.";
-          throw new Error(`Agent was created, but Workspace association did not complete: ${detail}`);
+        if (knowledgeDomain) {
+          try {
+            await assignAgentToDomain(created.id, knowledgeDomain.id);
+            if (generation !== agentDataGenerationRef.current) return null;
+          } catch (assignmentError) {
+            const detail = assignmentError instanceof Error
+              ? assignmentError.message
+              : "Knowledge Domain access is unavailable right now.";
+            throw new Error(`Agent was created, but Domain assignment did not complete: ${detail}`);
+          }
         }
+        await startOpenClawAgent(token, created.id);
+        if (generation !== agentDataGenerationRef.current) return null;
         const agentsRefreshed = await fetchAgents({ force: true });
         if (generation !== agentDataGenerationRef.current) return null;
         if (!agentsRefreshed) {
-          throw new Error("Agent was created and added to the selected Workspace, but agents could not be refreshed.");
+          throw new Error("Agent was created, but agents could not be refreshed.");
         }
         await selectAgent(created.id, true);
         if (generation !== agentDataGenerationRef.current) return null;
@@ -3853,7 +3896,7 @@ function AgentsPageContent() {
     }
   }, [
     agentCreationBlockedReason,
-    associateAgentWithSelectedWorkspace,
+    assignAgentToDomain,
     completeJourneyForEvent,
     fetchAgents,
     getToken,
@@ -3861,6 +3904,7 @@ function AgentsPageContent() {
     requestAuthentication,
     selectAgent,
     shouldOfferWorkspaceCreation,
+    workspaces,
   ]);
 
   useEffect(() => {
@@ -3923,6 +3967,7 @@ function AgentsPageContent() {
         enableDesktop: draft.enableDesktop,
         enableMemoryIndex: draft.enableMemoryIndex,
         customImage: draft.enableCustomImage ? draft.customImage || null : null,
+        knowledgeDomainId: draft.knowledgeDomainId,
       }).then((createdId) => {
         if (privatePrincipalRef.current !== principalId) return;
         if (!createdId) {
@@ -4651,6 +4696,7 @@ function AgentsPageContent() {
     mainTab === "files" ||
     mainTab === "integrations" ||
     mainTab === "skills" ||
+    mainTab === "knowledge-hub" ||
     mainTab === "knowledge" ||
     mainTab === "members" ||
     mainTab === "scheduled" ||
@@ -4659,6 +4705,16 @@ function AgentsPageContent() {
     mainTab === "settings"
       ? mainTab
       : "chat";
+  const knowledgeSurfaceHeader: DashboardSurfaceHeader | null = selectedCenterPanel === "knowledge-hub"
+    ? {
+        title: selectedKnowledgeDomain?.name ?? "Knowledge",
+        description: selectedKnowledgeDomain?.description?.trim()
+          || (selectedKnowledgeDomain
+            ? "Focused business knowledge available only to the agents you assign."
+            : "Organize knowledge by business area and keep every agent focused."),
+        controlsTargetId: KNOWLEDGE_HUB_SURFACE_CONTROLS_ID,
+      }
+    : null;
   const journeyCapabilityContext = useMemo(() => {
     const hasImageAttachment =
       chat.pendingAttachments.some((attachment) => attachment.mimeType?.toLowerCase().startsWith("image/")) ||
@@ -4979,24 +5035,41 @@ function AgentsPageContent() {
       router.push(href);
     })();
   };
-  const openSharedResources = () => {
+  const openKnowledgeHubSurface = (domainId: string | null) => {
+    const targetHref = buildKnowledgeHubHref({
+      domainId,
+      agentId: selectedAgentId,
+      session: selectedAgentId ? canonicalSelectedSessionKey : null,
+    });
     if (!isAuthenticated) {
-      requestAuthentication({ kind: "navigate", href: knowledgeSectionHref });
+      requestAuthentication({ kind: "navigate", href: targetHref });
       return;
     }
     closeMobileNavigation();
     setOpenclawSettingsOpen(false);
     setMobileShowChat(true);
-    selectMainTab("knowledge");
-    if (knowledgeSectionActive) return;
-    router.push(knowledgeSectionHref, { scroll: false });
+    setSelectedKnowledgeDomain(null);
+    selectMainTab("knowledge-hub");
+    if (knowledgeHubSectionActive && requestedKnowledgeDomainId === domainId) return;
+    router.push(targetHref, { scroll: false });
   };
-  const openAltHomeKnowledge = (workspaceId?: string) => {
-    if (workspaceId) {
-      const targetWorkspace = workspaces.find((entry) => entry.id === workspaceId);
-      if (targetWorkspace) selectWorkspace(targetWorkspace.id, targetWorkspace);
-    }
-    openSharedResources();
+  const openKnowledgeHub = () => openKnowledgeHubSurface(null);
+  const openActivityDomain = (domainId: string) => openKnowledgeHubSurface(domainId);
+  const openActivityConversation = (agentId: string, sessionKey: string) => {
+    const selectionOperation = agentSelectionOperationRef.current + 1;
+    agentSelectionOperationRef.current = selectionOperation;
+    void (async () => {
+      await endTemporaryChatBeforeSelectionRef.current();
+      if (agentSelectionOperationRef.current !== selectionOperation) return;
+      setSelectedSessionKeysByAgent((current) => ({ ...current, [agentId]: sessionKey }));
+      setSelectedAgentId(agentId);
+      setMobileShowChat(true);
+      selectMainTab("chat");
+      replaceAgentChatRoute(agentId, sessionKey, true, true);
+    })();
+  };
+  const openActivityScheduled = (agentId: string) => {
+    leaveAgentsPage(buildAgentWorkspaceTabHref(agentId, "scheduled"));
   };
   const openMembersTab = () => {
     if (!isAuthenticated) {
@@ -5012,7 +5085,6 @@ function AgentsPageContent() {
   };
   const openDashboardUsage = () => openDashboardView("usage");
   const openDashboardHome = () => openDashboardView("overview");
-  const openDashboardAltHome = () => openDashboardView("alt-home");
   const openAccountSettings = () => {
     setMobileSettingsMenuOpen(true);
     closeMobileNavigation();
@@ -5279,7 +5351,7 @@ function AgentsPageContent() {
           getToken={getToken}
           createOpenClawAgent={createOpenClawAgent}
           onCreateAgent={handleCreateFirstAgent}
-          associateCreatedAgent={associateAgentWithSelectedWorkspace}
+          associateCreatedAgent={assignAgentToDomain}
           agentCreationDisabledReason={agentCreationDisabledReason}
           fetchAgents={refreshAgentsForChildren}
           setError={setError}
@@ -5311,12 +5383,9 @@ function AgentsPageContent() {
           onOpenHome={openDashboardHome}
           homeActive={dashboardView === "overview"}
           homeHref={dashboardViewHrefs.overview}
-          onOpenAltHome={openDashboardAltHome}
-          altHomeActive={dashboardView === "alt-home"}
-          altHomeHref={dashboardViewHrefs["alt-home"]}
-          onOpenSharedResources={openSharedResources}
-          sharedResourcesActive={knowledgeSectionActive}
-          sharedResourcesHref={knowledgeSectionHref}
+          onOpenKnowledgeHub={openKnowledgeHub}
+          knowledgeHubActive={knowledgeHubSectionActive}
+          knowledgeHubHref={knowledgeHubSectionHref}
           onOpenMembers={openMembersTab}
           membersActive={membersSectionActive}
           membersHref={membersSectionHref}
@@ -5348,9 +5417,9 @@ function AgentsPageContent() {
           footerAction={renderPrivateChatControl()}
           closeButtonRef={mobileNavigationCloseRef}
           onClose={closeMobileNavigation}
-          sessions={sidebarSessions}
+          sessions={chat.sessions}
+          activeUnindexedInitialSession={chat.activeUnindexedInitialSession}
           sessionsFetched={chat.sessionsFetched}
-          showInternalMainSession={showRecoverableMainSession}
           creatingSessionKeys={chat.creatingSessionKeys}
           thinkingSessionKeys={chat.thinkingSessionKeys}
           selectedSessionKey={selectedSessionKey}
@@ -5372,7 +5441,6 @@ function AgentsPageContent() {
           onShellIntent={prepareShell}
           onShellIntentEnd={cancelShellIntent}
           onOpenOpenClaw={openOpenClawSettings}
-          onCreateWorkspace={openWorkspaceCreationFlow}
           onUpgrade={() => {
             closeMobileNavigation();
             void openUpgradeCatalog();
@@ -5605,7 +5673,25 @@ function AgentsPageContent() {
             >
               <HyperCLILogoMark className="h-6 w-6" />
             </Link>
-            {selectedAgent && !dashboardView ? (
+            {dashboardView ? (
+              <div className="min-w-0 px-1 text-center">
+                <p className="truncate text-xs font-semibold text-foreground">
+                  {dashboardView === "overview" ? "Home" : dashboardView === "usage" ? "Usage" : "Settings"}
+                </p>
+              </div>
+            ) : knowledgeSurfaceHeader ? (
+              <div data-slot="mobile-dashboard-surface-header" className="flex min-w-0 items-center justify-center gap-2 px-1">
+                {knowledgeSurfaceHeader.icon ? (
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] text-[var(--selection-accent)]">
+                    {knowledgeSurfaceHeader.icon}
+                  </span>
+                ) : null}
+                <div className="min-w-0 text-left">
+                  <p className="truncate text-xs font-semibold text-foreground">{knowledgeSurfaceHeader.title}</p>
+                  {knowledgeSurfaceHeader.subtitle ? <p className="mt-0.5 truncate text-[9px] text-text-muted">{knowledgeSurfaceHeader.subtitle}</p> : null}
+                </div>
+              </div>
+            ) : selectedAgent && !dashboardView ? (
               <AgentDisplayNameEditor
                 key={selectedAgent.id}
                 agent={selectedAgent}
@@ -5849,7 +5935,7 @@ function AgentsPageContent() {
             getToken={getToken}
             createOpenClawAgent={createOpenClawAgent}
             onCreateAgent={handleCreateFirstAgent}
-            associateCreatedAgent={associateAgentWithSelectedWorkspace}
+            associateCreatedAgent={assignAgentToDomain}
             agentLauncherSuspended={agentLauncherSuspended}
             agentCreationDisabledReason={agentCreationDisabledReason}
             fetchAgents={refreshAgentsForChildren}
@@ -5874,12 +5960,9 @@ function AgentsPageContent() {
             onOpenHome={openDashboardHome}
             homeActive={dashboardView === "overview"}
             homeHref={dashboardViewHrefs.overview}
-            onOpenAltHome={openDashboardAltHome}
-            altHomeActive={dashboardView === "alt-home"}
-            altHomeHref={dashboardViewHrefs["alt-home"]}
-            onOpenSharedResources={openSharedResources}
-            sharedResourcesActive={knowledgeSectionActive}
-            sharedResourcesHref={knowledgeSectionHref}
+            onOpenKnowledgeHub={openKnowledgeHub}
+            knowledgeHubActive={knowledgeHubSectionActive}
+            knowledgeHubHref={knowledgeHubSectionHref}
             onOpenMembers={openMembersTab}
             membersActive={membersSectionActive}
             membersHref={membersSectionHref}
@@ -5907,9 +5990,9 @@ function AgentsPageContent() {
             collapsed={!effectiveSidebarCollapsed}
             onCollapsedChange={(collapsed) => setEffectiveSidebarCollapsed(!collapsed)}
             embeddedInNavigation
-            sessions={sidebarSessions}
+            sessions={chat.sessions}
+            activeUnindexedInitialSession={chat.activeUnindexedInitialSession}
             sessionsFetched={chat.sessionsFetched}
-            showInternalMainSession={showRecoverableMainSession}
             creatingSessionKeys={chat.creatingSessionKeys}
             thinkingSessionKeys={chat.thinkingSessionKeys}
             selectedSessionKey={selectedSessionKey}
@@ -5931,7 +6014,6 @@ function AgentsPageContent() {
             onShellIntent={prepareShell}
             onShellIntentEnd={cancelShellIntent}
             onOpenOpenClaw={openOpenClawSettings}
-            onCreateWorkspace={openWorkspaceCreationFlow}
             onUpgrade={() => { void openUpgradeCatalog(); }}
             onStartTrial={() => { openAgentCreationFlow(); }}
           />
@@ -5956,8 +6038,9 @@ function AgentsPageContent() {
           agentStatus={agentStatus}
           activeConnectionStatus={activeConnectionStatus}
           chatConnected={chat.connected}
-          chatConnecting={chat.connecting}
-          sessionReturnTarget={selectedSessionReturnTarget}
+           chatConnecting={chat.connecting}
+           sessionReturnTarget={selectedSessionReturnTarget}
+          surfaceHeader={knowledgeSurfaceHeader}
           startingId={startingId}
           recentlyStoppedIds={recentlyStoppedIds}
           selectedAgentLaunchBlocked={selectedAgentLaunchBlocked}
@@ -6056,6 +6139,12 @@ function AgentsPageContent() {
                 onCreateAgent={createAgentFromLauncher}
                 draftPrincipalId={user?.id ?? null}
                 draftWorkspaceId={selectedWorkspaceId}
+                knowledgeDomains={workspaces.map((workspace) => ({
+                  id: workspace.id,
+                  name: workspaceDisplayName(workspace),
+                  role: workspace.role,
+                }))}
+                knowledgeDomainsLoading={workspacesLoading}
               />
             </div>
           ) : checkoutReturnRecoveryActive ? (
@@ -6253,6 +6342,17 @@ function AgentsPageContent() {
               onGenerateSkill={chat.ready ? chat.runEphemeralPrompt : undefined}
               onTestSkill={testSkillInNewSession}
             />
+          ) : mainTab === "knowledge-hub" ? (
+            <KnowledgeHub
+              key={requestedKnowledgeDomainId ?? "domain-catalog"}
+              agents={accountAgents}
+              agentsLoading={agentsLoading}
+              agentsError={agentsLoadError}
+              initialDomainId={requestedKnowledgeDomainId}
+              onRefreshAgents={refreshAgentsForChildren}
+              onSelectedDomainChange={handleKnowledgeDomainChange}
+              headerControlsTargetId={KNOWLEDGE_HUB_SURFACE_CONTROLS_ID}
+            />
           ) : mainTab === "knowledge" ? (
             <div className="h-full overflow-y-auto bg-background px-4 py-6 sm:px-6 lg:px-8">
               <SharedKnowledgeSection
@@ -6383,37 +6483,29 @@ function AgentsPageContent() {
         {dashboardView ? (
           <div className="min-w-0 flex-1 overflow-hidden">
             {dashboardView === "overview" ? (
-              <WorkspaceOverviewPanel
-                accountAgents={accountAgents}
-                workspaceAgents={workspaceAgents}
-                agentsLoading={agentsLoading}
-                workspaceAgentsLoading={agentsLoading || isAgentRosterLoading}
-                agentCreationDisabledReason={agentCreationBlockedReason}
-                agentsHref={selectedAgentHref}
-                knowledgeHref={knowledgeSectionHref}
-                membersHref={membersSectionHref}
-                onOpenMembers={openMembersTab}
-                onOpenAgentLauncher={() => {
-                  openAgentLauncherFromCurrentSection();
-                }}
-              />
-            ) : dashboardView === "alt-home" ? (
-              <WorkspaceKnowledgeHome
-                workspace={selectedWorkspace}
+              <AccountOperationsHome
+                sdkAgents={accountSdkAgents}
+                agents={accountAgents}
                 workspaces={workspaces}
-                knowledgeClient={workspacesClient}
-                agents={altHomeAgents}
-                selectedWorkspaceAgentIds={selectedWorkspaceAgentIds}
-                agentsLoading={agentsLoading || isAgentRosterLoading}
-                agentsError={agentsLoadError || agentRosterError}
+                spaceAccessClient={workspacesClient}
+                displayName={suggestedJourneyUserName}
+                agentsLoading={agentsLoading}
+                agentsError={agentsLoadError}
                 workspacesLoading={workspacesLoading}
                 workspacesError={workspacesError}
+                dailyTokenUsage={dailyTokenUsage}
+                dailyTokenLimit={dailyTokenLimit}
+                tokenUsageLoading={tokenUsageLoading}
                 agentCreationDisabledReason={agentCreationBlockedReason}
-                onOpenMembers={openMembersTab}
+                onOpenAgent={selectAgentFromRoster}
+                onOpenConversation={openActivityConversation}
+                onOpenScheduled={openActivityScheduled}
+                onOpenDomain={openActivityDomain}
+                onOpenKnowledge={openKnowledgeHub}
+                onOpenUsage={() => openDashboardView("usage")}
                 onOpenAgentLauncher={() => {
                   openAgentLauncherFromCurrentSection();
                 }}
-                onOpenKnowledge={openAltHomeKnowledge}
               />
             ) : dashboardView === "usage" ? (
               <WorkspaceUsagePanel

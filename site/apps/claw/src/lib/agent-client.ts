@@ -6,6 +6,7 @@ import { buildSlackRelayApiUrl, buildSlackRelayWebSocketUrl } from "@hypercli.co
 import { HTTPClient } from "@hypercli.com/sdk/http";
 import { WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
 import { API_BASE_URL, PRODUCT_API_BASE_URL, SLACK_RELAY_BASE_URL } from "./api";
+import { generateAgentName, isGeneratedAgentName } from "./agent-name";
 
 interface AgentUiMeta {
   avatar?: {
@@ -31,6 +32,7 @@ export const AGENT_CLEANUP_START_MESSAGE = "Agent is finishing shutdown. Try aga
 export const AGENT_STOP_CLEANUP_COOLDOWN_MS = 30_000;
 const AGENT_CLEANUP_RETRY_DELAYS_MS = [2_000, 3_000, 5_000, 8_000, 12_000] as const;
 const AGENT_CREATE_RECONCILE_DELAYS_MS = [750, 1_500, 3_000] as const;
+const AGENT_NAME_CREATE_ATTEMPTS = 32;
 const ENABLED_ENV_VALUES = new Set(["1", "true", "yes", "on", "enabled"]);
 const DISABLED_ENV_VALUES = new Set(["0", "false", "no", "off", "disabled"]);
 
@@ -97,6 +99,11 @@ export function isAgentCleanupConflictError(value: unknown): boolean {
 function isAgentCreateSpecVisibilityError(value: unknown): boolean {
   const statusCode = isRecord(value) && typeof value.statusCode === "number" ? value.statusCode : null;
   return statusCode === 409 && /backend agent spec not found/i.test(errorText(value));
+}
+
+function isAgentNameConflictError(value: unknown): boolean {
+  const statusCode = isRecord(value) && typeof value.statusCode === "number" ? value.statusCode : null;
+  return statusCode === 409 && /already exists|already in use|name (?:is )?taken|duplicate name|name conflict/i.test(errorText(value));
 }
 
 function agentName(value: unknown): string | null {
@@ -391,13 +398,29 @@ export async function createOpenClawAgent(apiKey: string, options: FrontendOpenC
   const create = ENABLED_ENV_VALUES.has((preparedOptions.env?.OPENCLAW_DESKTOP_ENABLED ?? "").trim().toLowerCase())
     ? agentClient.createOpenClawPro.bind(agentClient)
     : agentClient.createOpenClaw.bind(agentClient);
-  try {
-    return await create(preparedOptions);
-  } catch (error) {
-    if (!isAgentCreateSpecVisibilityError(error)) throw error;
-    const reconciled = await reconcileCreatedAgentByName(agentClient, preparedOptions.name);
-    if (reconciled) return reconciled;
-    throw error;
+  const canRegenerateName = isGeneratedAgentName(preparedOptions.name);
+  const attemptedNames = new Set<string>();
+  let candidateOptions = preparedOptions;
+
+  if (canRegenerateName && candidateOptions.name) attemptedNames.add(candidateOptions.name);
+
+  while (true) {
+    try {
+      return await create(candidateOptions);
+    } catch (error) {
+      if (isAgentCreateSpecVisibilityError(error)) {
+        const reconciled = await reconcileCreatedAgentByName(agentClient, candidateOptions.name);
+        if (reconciled) return reconciled;
+        throw error;
+      }
+      if (!canRegenerateName || !isAgentNameConflictError(error) || attemptedNames.size >= AGENT_NAME_CREATE_ATTEMPTS) {
+        throw error;
+      }
+
+      const name = generateAgentName(attemptedNames);
+      attemptedNames.add(name);
+      candidateOptions = { ...candidateOptions, name };
+    }
   }
 }
 

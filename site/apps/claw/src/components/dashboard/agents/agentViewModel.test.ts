@@ -88,7 +88,7 @@ describe("agentViewModel", () => {
     expect(mapped.managed).toBe(false);
   });
 
-  it("uses backend handles as display names for managed or unknown agents", () => {
+  it("derives friendly display names from backend handles for managed or unknown agents", () => {
     const managed = toAgentViewModel(buildSdkAgent({
       name: "research-agent",
       handle: "research-pilot",
@@ -107,11 +107,11 @@ describe("agentViewModel", () => {
       managed: false,
     }));
 
-    expect(managed.displayName).toBe("research-pilot");
+    expect(managed.displayName).toBe("Research Pilot");
     expect(managed.name).toBe("research-agent");
-    expect(unknown.displayName).toBe("unknown-pilot");
+    expect(unknown.displayName).toBe("Unknown Pilot");
     expect(external.displayName).toBe("Backend Name");
-    expect(agentDisplayLabel(managed)).toBe("research-pilot");
+    expect(agentDisplayLabel(managed)).toBe("Research Pilot");
   });
 
   it("falls back to the canonical name without a managed handle", () => {

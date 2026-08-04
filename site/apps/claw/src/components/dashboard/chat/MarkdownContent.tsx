@@ -3,12 +3,10 @@
 import { createContext, useContext, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { AlertCircle, AlertTriangle, Check, Copy, Info, Lightbulb, ShieldAlert, type LucideIcon } from "lucide-react";
 import Markdown, { defaultUrlTransform } from "react-markdown";
-import remend from "remend";
 import { Prism as SyntaxHighlighter, type SyntaxHighlighterProps } from "react-syntax-highlighter";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema, type Options as RehypeSanitizeOptions } from "rehype-sanitize";
-import remarkEmoji from "remark-emoji";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import {
@@ -263,11 +261,6 @@ function isMediaHtmlBlock(value: string, tagName: "audio" | "video"): boolean {
   return tags.slice(1, -1).every((tag) => /^<source(?:\s|\/?>)/i.test(tag));
 }
 
-function isKbdHtmlTag(value: string): boolean {
-  const trimmed = value.trim();
-  return /^<kbd(?:\s+[^<>]*)?>$/i.test(trimmed) || /^<\/kbd\s*>$/i.test(trimmed);
-}
-
 function isImageHtmlTag(value: string): boolean {
   return /^<img(?:\s+[^<>]*)?\/?>$/i.test(value.trim());
 }
@@ -344,6 +337,11 @@ function isActiveContentHtmlBlock(value: string, tagName: "object" | "canvas"): 
   return new RegExp(`^<${tagName}(?:\\s|>)[\\s\\S]*<\\/${tagName}\\s*>$`, "i").test(trimmed);
 }
 
+function isCompleteRawHtmlBlock(value: string, tagName: "script" | "style"): boolean {
+  const trimmed = value.trim();
+  return new RegExp(`^<${tagName}(?:\\s|>)[\\s\\S]*<\\/${tagName}\\s*>$`, "i").test(trimmed);
+}
+
 function isNativeIndicatorHtmlBlock(value: string, tagName: "meter" | "progress"): boolean {
   const trimmed = value.trim();
   return new RegExp(`^<${tagName}(?:\\s|>)[\\s\\S]*<\\/${tagName}\\s*>$`, "i").test(trimmed);
@@ -394,19 +392,14 @@ function isClosingSvgHtmlTag(value: string): boolean {
   return /^<\/svg\s*>$/i.test(value.trim());
 }
 
-function isInlineAudioHtmlTag(value: string): boolean {
-  const trimmed = value.trim();
-  return /^<audio(?:\s+[^<>]*)?>$/i.test(trimmed) ||
-    /^<\/audio\s*>$/i.test(trimmed) ||
-    /^<source(?:\s+[^<>]*)?\/?>$/i.test(trimmed);
-}
-
 function retainSupportedHtmlInAst(node: unknown): void {
   if (!isRecord(node)) return;
   const children = Array.isArray(node.children) ? node.children : null;
   if (!children) return;
+  let inlineAudioOrVideoOpen: "audio" | "video" | null = null;
   let inlineFigureOpen = false;
   let inlineIndicatorOpen: "meter" | "progress" | null = null;
+  let inlineKbdOpen = false;
   let inlineSvgOpen = false;
   let inlinePictureOpen = false;
 
@@ -419,8 +412,8 @@ function retainSupportedHtmlInAst(node: unknown): void {
       if (pairedTag) {
         const closingIndex = closingRawHtmlTagIndex(children, index, pairedTag);
         if (closingIndex < 0) {
-          children.splice(index);
-          break;
+          child.type = "text";
+          continue;
         }
         const fallback = pairedTag === "object" || pairedTag === "canvas"
           ? activeContentFallbackFromRange(children.slice(index + 1, closingIndex))
@@ -431,7 +424,16 @@ function retainSupportedHtmlInAst(node: unknown): void {
       const strippedTag = (["script", "style"] as const).find((tagName) => isOpeningRawHtmlTag(raw, tagName));
       if (strippedTag) {
         const closingIndex = closingRawHtmlTagIndex(children, index, strippedTag);
-        children.splice(index, closingIndex < 0 ? children.length - index : closingIndex - index + 1);
+        if (closingIndex < 0) {
+          child.type = "text";
+          continue;
+        }
+        children.splice(index, closingIndex - index + 1);
+        index -= 1;
+        continue;
+      }
+      if (isCompleteRawHtmlBlock(raw, "script") || isCompleteRawHtmlBlock(raw, "style")) {
+        children.splice(index, 1);
         index -= 1;
         continue;
       }
@@ -445,8 +447,8 @@ function retainSupportedHtmlInAst(node: unknown): void {
       }
       const splitIndicatorTag = (["meter", "progress"] as const).find((tagName) => isOpeningRawHtmlTag(raw, tagName));
       if (splitIndicatorTag && closingRawHtmlTagIndex(children, index, splitIndicatorTag) < 0) {
-        children.splice(index);
-        break;
+        child.type = "text";
+        continue;
       }
       const gallery = imageGalleryHtml(raw);
       if (gallery) {
@@ -462,6 +464,11 @@ function retainSupportedHtmlInAst(node: unknown): void {
         isRecord(candidate) && candidate.type === "raw" && typeof candidate.value === "string" && isClosingRawHtmlTag(candidate.value, splitIndicatorTag)
       )) ? splitIndicatorTag : undefined;
       const closesInlineIndicator = inlineIndicatorOpen !== null && isClosingRawHtmlTag(raw, inlineIndicatorOpen);
+      const splitAudioOrVideoTag = (["audio", "video"] as const).find((tagName) => isOpeningRawHtmlTag(raw, tagName));
+      const opensInlineAudioOrVideo = splitAudioOrVideoTag && closingRawHtmlTagIndex(children, index, splitAudioOrVideoTag) >= 0
+        ? splitAudioOrVideoTag
+        : undefined;
+      const closesInlineAudioOrVideo = inlineAudioOrVideoOpen !== null && isClosingRawHtmlTag(raw, inlineAudioOrVideoOpen);
       const opensInlineFigure = isOpeningFigureHtmlTag(raw) && children.slice(index + 1).some((candidate) => (
         isRecord(candidate) && candidate.type === "raw" && typeof candidate.value === "string" && isClosingFigureHtmlTag(candidate.value)
       ));
@@ -474,9 +481,10 @@ function retainSupportedHtmlInAst(node: unknown): void {
         isRecord(candidate) && candidate.type === "raw" && typeof candidate.value === "string" && isClosingPictureHtmlTag(candidate.value)
       ));
       const closesInlinePicture = inlinePictureOpen && isClosingPictureHtmlTag(raw);
+      const opensInlineKbd = isOpeningRawHtmlTag(raw, "kbd") && closingRawHtmlTagIndex(children, index, "kbd") >= 0;
+      const closesInlineKbd = inlineKbdOpen && isClosingRawHtmlTag(raw, "kbd");
       const supported = isMediaHtmlBlock(raw, "audio") ||
         isMediaHtmlBlock(raw, "video") ||
-        isInlineAudioHtmlTag(raw) ||
         isImageHtmlTag(raw) ||
         isActiveContentHtmlBlock(raw, "object") ||
         isActiveContentHtmlBlock(raw, "canvas") ||
@@ -487,20 +495,26 @@ function retainSupportedHtmlInAst(node: unknown): void {
         isSvgHtmlBlock(raw) ||
         Boolean(opensInlineIndicator) ||
         inlineIndicatorOpen !== null ||
+        Boolean(opensInlineAudioOrVideo) ||
+        inlineAudioOrVideoOpen !== null ||
         opensInlineFigure ||
         inlineFigureOpen ||
         opensInlinePicture ||
         inlinePictureOpen ||
         opensInlineSvg ||
         inlineSvgOpen ||
-        isKbdHtmlTag(raw);
+        opensInlineKbd ||
+        closesInlineKbd;
       if (!supported) {
-        children.splice(index, 1);
-        index -= 1;
+        child.type = "text";
       } else if (opensInlineIndicator) {
         inlineIndicatorOpen = opensInlineIndicator;
       } else if (closesInlineIndicator) {
         inlineIndicatorOpen = null;
+      } else if (opensInlineAudioOrVideo) {
+        inlineAudioOrVideoOpen = opensInlineAudioOrVideo;
+      } else if (closesInlineAudioOrVideo) {
+        inlineAudioOrVideoOpen = null;
       } else if (opensInlineFigure) {
         inlineFigureOpen = true;
       } else if (closesInlineFigure) {
@@ -513,6 +527,10 @@ function retainSupportedHtmlInAst(node: unknown): void {
         inlinePictureOpen = true;
       } else if (closesInlinePicture) {
         inlinePictureOpen = false;
+      } else if (opensInlineKbd) {
+        inlineKbdOpen = true;
+      } else if (closesInlineKbd) {
+        inlineKbdOpen = false;
       }
       continue;
     }
@@ -708,19 +726,26 @@ function fileMentionNodes(text: string): Array<Record<string, unknown>> {
 }
 
 function isFenceClose(line: string, fence: string): boolean {
-  const trimmed = line.trimStart();
-  return trimmed.startsWith(fence[0].repeat(fence.length));
+  const trimmed = line.trim();
+  return trimmed.length >= fence.length && [...trimmed].every((character) => character === fence[0]);
 }
 
 function encodeCodeFenceMetadata(content: string): string {
   const lines = content.split("\n");
   const nextLines: string[] = [];
   let activeFence = "";
+  let escapeFirstCodeLine = false;
 
   for (const line of lines) {
     if (activeFence) {
-      if (isFenceClose(line, activeFence)) activeFence = "";
-      nextLines.push(line);
+      if (isFenceClose(line, activeFence)) {
+        activeFence = "";
+        escapeFirstCodeLine = false;
+        nextLines.push(line);
+        continue;
+      }
+      nextLines.push(escapeFirstCodeLine && line.startsWith(CODE_META_MARKER) ? `${CODE_META_MARKER}${line}` : line);
+      escapeFirstCodeLine = false;
       continue;
     }
 
@@ -735,6 +760,7 @@ function encodeCodeFenceMetadata(content: string): string {
     const language = opening[3]?.trim() || "text";
     const meta = opening[4]?.trim() || "";
     activeFence = fence;
+    escapeFirstCodeLine = !meta;
     nextLines.push(`${prefix}${fence}${language}`);
     if (meta) nextLines.push(`${CODE_META_MARKER}${encodeURIComponent(meta)}`);
   }
@@ -744,6 +770,9 @@ function encodeCodeFenceMetadata(content: string): string {
 
 function decodeCodeTextAndMeta(children: ReactNode, fallbackMeta: string): { code: string; meta: string } {
   let code = String(children).replace(/\n$/, "");
+  if (code.startsWith(`${CODE_META_MARKER}${CODE_META_MARKER}`)) {
+    return { code: code.slice(CODE_META_MARKER.length), meta: fallbackMeta };
+  }
   if (!code.startsWith(CODE_META_MARKER)) return { code, meta: fallbackMeta };
   const lineEnd = code.indexOf("\n");
   const encodedMeta = code.slice(CODE_META_MARKER.length, lineEnd === -1 ? undefined : lineEnd).trim();
@@ -918,6 +947,33 @@ function nodeSourceText(node: Record<string, unknown>, source: string): string |
   return start != null && end != null ? source.slice(start, end) : null;
 }
 
+function isClosedStandaloneBlockMath(source: string): boolean {
+  const lines = source.split("\n");
+  return lines.length >= 3 &&
+    /^[ \t]{0,3}\$\$[ \t]*$/.test(lines[0] ?? "") &&
+    /^[ \t]{0,3}\$\$[ \t]*$/.test(lines.at(-1) ?? "");
+}
+
+function applyBlockOnlyMathToAst(node: unknown, source: string): void {
+  if (!isRecord(node) || !Array.isArray(node.children)) return;
+
+  for (let index = 0; index < node.children.length; index += 1) {
+    const child = node.children[index];
+    if (!isRecord(child)) continue;
+    if (child.type === "inlineMath" || child.type === "math") {
+      const value = typeof child.value === "string" ? child.value : "";
+      const literal = nodeSourceText(child, source) ?? (child.type === "math" ? `$$\n${value}\n$$` : `$$${value}$$`);
+      if (child.type === "math" && isClosedStandaloneBlockMath(literal)) continue;
+      const textNode = { type: "text", value: literal, position: child.position };
+      node.children[index] = child.type === "math"
+        ? { type: "paragraph", children: [textNode], position: child.position }
+        : textNode;
+      continue;
+    }
+    applyBlockOnlyMathToAst(child, source);
+  }
+}
+
 function applyOpenClawEmbedsToAst(node: unknown, source: string): void {
   if (!isRecord(node)) return;
   const children = Array.isArray(node.children) ? node.children : null;
@@ -988,6 +1044,10 @@ function remarkCodeMeta() {
   return (tree: unknown) => applyCodeMetaToAst(tree);
 }
 
+function remarkBlockOnlyMath(source: string) {
+  return () => (tree: unknown) => applyBlockOnlyMathToAst(tree, source);
+}
+
 function remarkOpenClawEmbeds(source: string) {
   return () => (tree: unknown) => applyOpenClawEmbedsToAst(tree, source);
 }
@@ -1006,9 +1066,9 @@ function remarkChatSoftBreaks() {
 
 function markdownRemarkPlugins(abbreviations: MarkdownAbbreviation[], linkWorkspaceFiles: boolean, source: string): NonNullable<Parameters<typeof Markdown>[0]["remarkPlugins"]> {
   return [
-    remarkGfm,
-    remarkMath,
-    [remarkEmoji, { emoticon: false }],
+    [remarkGfm, { singleTilde: false }],
+    [remarkMath, { singleDollarTextMath: false }],
+    remarkBlockOnlyMath(source),
     remarkMarkdownAlerts,
     remarkOpenClawEmbeds(source),
     remarkCodeMeta,
@@ -1786,12 +1846,8 @@ function renderMarkdown(text: string, linkWorkspaceFiles: boolean) {
 
 export function MarkdownContent({ content, typewriter = false, isStreaming = false, className, style, onOpenWorkspaceFile }: MarkdownContentProps) {
   const displayedContent = useTypewriter(content, typewriter);
-  const renderableContent = useMemo(
-    () => isStreaming ? remend(displayedContent, { linkMode: "text-only" }) : displayedContent,
-    [displayedContent, isStreaming],
-  );
   const linkWorkspaceFiles = Boolean(onOpenWorkspaceFile);
-  const renderedContent = useMemo(() => renderMarkdown(renderableContent, linkWorkspaceFiles), [linkWorkspaceFiles, renderableContent]);
+  const renderedContent = useMemo(() => renderMarkdown(displayedContent, linkWorkspaceFiles), [displayedContent, linkWorkspaceFiles]);
 
   return (
     <MarkdownStreamingContext.Provider value={isStreaming}>

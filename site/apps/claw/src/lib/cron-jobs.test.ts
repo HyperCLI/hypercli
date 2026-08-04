@@ -46,6 +46,7 @@ describe("cron job helpers", () => {
       targetSessionKey: "project-daily",
       lastRun: 1000,
       nextRun: 2000,
+      timezone: "UTC",
       enabled: true,
     }));
 
@@ -73,6 +74,16 @@ describe("cron job helpers", () => {
       command: "Compile notes.",
       schedule: "0 10 * * 1",
       enabled: false,
+    }));
+
+    expect(normalizeCronJob({
+      id: "job-state-times",
+      schedule: { expr: "0 12 * * *", tz: "UTC" },
+      state: { lastRunAtMs: "3000", nextRunAtMs: 4000 },
+    })).toEqual(expect.objectContaining({
+      lastRun: 3000,
+      nextRun: 4000,
+      timezone: "UTC",
     }));
   });
 });

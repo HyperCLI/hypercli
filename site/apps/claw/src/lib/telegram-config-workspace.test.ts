@@ -41,6 +41,10 @@ describe("telegram-config-workspace", () => {
     })).toBe(true);
     expect(shouldHideTelegramAgentConfigMessage({
       role: "assistant",
+      content: "Telegram access settings were updated successfully.",
+    })).toBe(true);
+    expect(shouldHideTelegramAgentConfigMessage({
+      role: "assistant",
       content: "Done.",
       toolCalls: [{ name: "edit", args: "/home/node/.openclaw/openclaw.json", result: "changed channels.telegram.dmPolicy and allowFrom" }],
     })).toBe(true);
@@ -52,6 +56,20 @@ describe("telegram-config-workspace", () => {
     expect(shouldHideTelegramAgentConfigMessage({
       role: "assistant",
       content: "I can help draft a Telegram announcement.",
+    })).toBe(false);
+    expect(shouldHideTelegramAgentConfigMessage({
+      role: "assistant",
+      content: "Telegram uses an allowlist for private chats.",
+    })).toBe(false);
+    expect(shouldHideTelegramAgentConfigMessage({
+      role: "assistant",
+      content: "The channels.telegram.dmPolicy setting controls private chat access.",
+      toolCalls: [{ name: "read", args: "/home/node/.openclaw/openclaw.json", result: "channels.telegram.dmPolicy setting: allowlist" }],
+    })).toBe(false);
+    expect(shouldHideTelegramAgentConfigMessage({
+      role: "assistant",
+      content: "Telegram uses an allowlist for private chats.",
+      toolCalls: [{ name: "read", args: "/docs/telegram.md", result: "Telegram allowlist overview" }],
     })).toBe(false);
   });
 

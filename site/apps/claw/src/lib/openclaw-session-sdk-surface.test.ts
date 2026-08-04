@@ -3,9 +3,13 @@ import { describe, expect, it, vi } from "vitest";
 import {
   applyOpenClawSessionTitleMap,
   createOpenClawSession,
+  displayOpenClawSessionName,
   isEphemeralOpenClawSessionName,
+  isOpenClawHeartbeatSessionKey,
+  isOpenClawMainSessionKey,
   isOpenClawSubagentSession,
   isOpenClawSubagentSessionKey,
+  isRecoverableOpenClawMainSession,
   listOpenClawSessions,
   normalizeOpenClawSessions,
   normalizeOpenClawThinkingLevels,
@@ -134,6 +138,38 @@ describe("openclaw-session-sdk-surface", () => {
     ]);
   });
 
+  it("applies gateway variant defaults to selectable session rows", async () => {
+    const sessions = await listOpenClawSessions({
+      sessionsList: async () => [],
+      sessionsListResult: async () => ({
+        defaults: {
+          modelProvider: "hypercli",
+          model: "kimi-k2.6-anthropic",
+          thinkingLevels: ["off", "minimal", "low", "medium", "high"],
+          thinkingDefault: "medium",
+        },
+        sessions: [{
+          key: "agent:default:dashboard:test-session",
+          thinkingLevel: "low",
+        }],
+      }),
+    });
+
+    expect(sessions.find((session) => session.key === "agent:default:dashboard:test-session"))
+      .toEqual(expect.objectContaining({
+        model: "hypercli/kimi-k2.6-anthropic",
+        thinkingLevel: "low",
+        thinkingLevels: [
+          { id: "off", label: "off" },
+          { id: "minimal", label: "minimal" },
+          { id: "low", label: "low" },
+          { id: "medium", label: "medium" },
+          { id: "high", label: "high" },
+        ],
+        thinkingDefault: "medium",
+      }));
+  });
+
   it("normalizes channel-backed default sessions to a distinct channel session key", () => {
     const sessions = normalizeOpenClawSessions({
       "agent:default:main": {
@@ -204,7 +240,22 @@ describe("openclaw-session-sdk-surface", () => {
     ]);
   });
 
-  it("resumes the most recently active writable conversation, including legacy main history", () => {
+  it("classifies internal sessions while preserving recoverable legacy main history", () => {
+    const [legacyMain] = normalizeOpenClawSessions([{
+      key: "agent:default:main",
+      updatedAt: 20,
+    }]);
+    const [emptyMain] = normalizeOpenClawSessions([{ key: "main" }]);
+
+    expect(isOpenClawMainSessionKey("agent:default:main")).toBe(true);
+    expect(isOpenClawHeartbeatSessionKey("agent:default:heartbeat")).toBe(true);
+    expect(isOpenClawHeartbeatSessionKey("heartbeat-planning")).toBe(false);
+    expect(isRecoverableOpenClawMainSession(legacyMain!)).toBe(true);
+    expect(displayOpenClawSessionName(legacyMain!)).toBe("Previous conversation");
+    expect(isRecoverableOpenClawMainSession(emptyMain!)).toBe(false);
+  });
+
+  it("resumes the most recently active writable user conversation while ignoring internal main", () => {
     const sessions = normalizeOpenClawSessions([
       {
         key: "agent:default:dashboard:019789ab-cdef-4abc-8def-0123456789ab",
@@ -225,11 +276,15 @@ describe("openclaw-session-sdk-surface", () => {
       },
     ]);
 
-    expect(resolveOpenClawResumeSessionKey(sessions)).toBe("main");
+    expect(resolveOpenClawResumeSessionKey(sessions)).toBe(
+      "agent:default:dashboard:019789ab-cdef-4abc-8def-0123456789ab",
+    );
   });
 
-  it("does not resume archived, private, read-only, or subagent sessions", () => {
+  it("does not resume main, archived, private, read-only, or subagent sessions", () => {
     const sessions = normalizeOpenClawSessions([
+      { key: "agent:default:heartbeat", updatedAt: 60 },
+      { key: "main", updatedAt: 50 },
       { key: "dashboard:archived", updatedAt: 40, archived: true },
       { key: "session-hypercli-ephemeral-019789ab-cdef-4abc-8def-0123456789ab", updatedAt: 30 },
       {

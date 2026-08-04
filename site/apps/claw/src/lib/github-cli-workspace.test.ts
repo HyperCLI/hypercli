@@ -189,6 +189,10 @@ describe("github-cli-workspace", () => {
       role: "assistant",
       content: "Authenticated! The gh auth login process completed successfully as frankMolinaDev. Let me verify with the standard checks:",
     })).toBe(true);
+    expect(shouldHideGitHubAgentSetupMessage({
+      role: "assistant",
+      content: "Verifying GitHub CLI authentication in this workspace.",
+    })).toBe(true);
 
     expect(shouldHideGitHubAgentSetupMessage({
       role: "user",
@@ -198,6 +202,19 @@ describe("github-cli-workspace", () => {
       role: "assistant",
       content: "I can inspect the repository issues.",
       toolCalls: [{ name: "shell", args: "gh issue list --limit 5", result: "no open issues" }],
+    })).toBe(false);
+    expect(shouldHideGitHubAgentSetupMessage({
+      role: "assistant",
+      content: "Let me verify the totals before answering.",
+    })).toBe(false);
+    expect(shouldHideGitHubAgentSetupMessage({
+      role: "assistant",
+      content: "GitHub CLI authentication uses a browser-based device flow.",
+    })).toBe(false);
+    expect(shouldHideGitHubAgentSetupMessage({
+      role: "assistant",
+      content: "The reference code is ABCD-EFGH.",
+      toolCalls: [{ name: "shell", args: "printf ABCD-EFGH", result: "ABCD-EFGH" }],
     })).toBe(false);
   });
 });

@@ -1,18 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   Blocks,
   CalendarClock,
-  Check,
   ChevronUp,
-  ChevronsUpDown,
   Code2,
   Codepen,
-  Command,
   FolderOpen,
   Loader2,
   Monitor,
@@ -31,7 +27,7 @@ import {
 } from "lucide-react";
 
 import type { Agent, AgentState } from "@/app/dashboard/agents/types";
-import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
+import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 import type { AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 import { PulsingDotIndicator } from "@/components/dashboard/PulsingDotIndicator";
 import { resolveSessionSourceChannel, type SessionSourceChannel } from "@/components/dashboard/session-source-channel";
@@ -46,12 +42,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
   Input,
   Label,
   Select,
@@ -66,12 +56,17 @@ import {
   Textarea,
 } from "@hypercli/shared-ui";
 import { Tooltip, TooltipContent, TooltipHint, TooltipTrigger } from "@/components/ClawTooltip";
-import { useWorkspace, workspaceDisplayName } from "@/components/dashboard/WorkspaceContext";
+import { useWorkspace } from "@/components/dashboard/WorkspaceContext";
 import { formatTokens } from "@/lib/format";
 import {
   displayOpenClawSessionName,
   fallbackOpenClawSessionDisplayName,
+  isEphemeralOpenClawSessionName,
+  isGeneratedOpenClawSessionName,
+  isOpenClawHeartbeatSessionKey,
   isOpenClawSubagentSession,
+  isRecoverableOpenClawMainSession,
+  sameOpenClawSessionKey,
   sameOpenClawSelectableSessionKey,
   type OpenClawSessionRecord,
   unscopedOpenClawSessionKey,
@@ -106,7 +101,6 @@ interface AgentWorkspaceSidebarProps {
   onShellIntent?: () => void;
   onShellIntentEnd?: () => void;
   onOpenOpenClaw: () => void;
-  onCreateWorkspace?: () => void;
   onUpgrade: () => void;
   onStartTrial?: () => void;
   renderMobile?: boolean;
@@ -119,9 +113,9 @@ interface AgentWorkspaceSidebarProps {
   closeButtonRef?: React.Ref<HTMLButtonElement>;
   onClose?: () => void;
   sessions?: OpenClawSessionRecord[] | null;
+  activeUnindexedInitialSession?: OpenClawSessionRecord | null;
   sessionsFetched?: boolean;
   sessionsUnavailableReason?: string;
-  showInternalMainSession?: boolean;
   creatingSessionKeys?: string[];
   thinkingSessionKeys?: string[];
   selectedSessionKey?: string | null;
@@ -193,6 +187,7 @@ function WorkspaceButton({
             aria-disabled={disabled}
             aria-busy={item.busy || undefined}
             aria-current={item.active ? "page" : undefined}
+            data-workspace-item={item.id}
             className={buttonClassName}
           >
             <Icon className={iconClassName} />
@@ -210,6 +205,7 @@ function WorkspaceButton({
       aria-disabled={disabled}
       aria-busy={item.busy || undefined}
       aria-current={item.active ? "page" : undefined}
+      data-workspace-item={item.id}
       className={buttonClassName}
     >
       <Icon className={iconClassName} />
@@ -237,20 +233,6 @@ function isUnresolvedPlaceholderSession(session: OpenClawSessionRecord): boolean
   const fallbackTitle = fallbackOpenClawSessionDisplayName(session.key);
   return (fallbackTitle === "Main Session" || fallbackTitle === "New Session") &&
     sessionTitle(session) === fallbackTitle;
-}
-
-function selectedSessionRecord(sessionKey: string, lastMessageAt = Number.MAX_SAFE_INTEGER): OpenClawSessionRecord {
-  const title = fallbackOpenClawSessionDisplayName(sessionKey);
-  return {
-    key: sessionKey,
-    clientMode: "openclaw",
-    clientDisplayName: title,
-    createdAt: 0,
-    lastMessageAt,
-    title,
-    messageCount: 0,
-    raw: { key: sessionKey, title },
-  };
 }
 
 function isMainEquivalentSessionKey(sessionKey: string | null | undefined): boolean {
@@ -339,6 +321,7 @@ function RecentSessionRow({
   deleteDisabled = false,
   deleteDisabledReason,
   thinking = false,
+  provisional = false,
 }: {
   title: string;
   sourceChannel?: SessionSourceChannel | null;
@@ -354,6 +337,7 @@ function RecentSessionRow({
   deleteDisabled?: boolean;
   deleteDisabledReason?: string;
   thinking?: boolean;
+  provisional?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [unpinAnimating, setUnpinAnimating] = useState(false);
@@ -386,6 +370,7 @@ function RecentSessionRow({
           : { type: "spring", stiffness: 520, damping: 36, mass: 0.65 },
       }}
       data-session-pinned={pinned ? "true" : "false"}
+      data-session-provisional={provisional ? "true" : undefined}
       className={`group/session relative isolate flex w-full min-w-0 items-center ${menuOpen ? "z-40" : "z-0"}`}
     >
       <AnimatePresence initial={false}>
@@ -489,62 +474,64 @@ function RecentSessionRow({
         </button>
       </TooltipHint>
 
-      <div
-        ref={menuRef}
-        data-session-options
-        className="pointer-events-none absolute right-0 top-1/2 z-20 h-7 w-7 -translate-y-1/2 group-hover/session:pointer-events-auto focus-within:pointer-events-auto"
-      >
-        <TooltipHint label={disabledReason ?? `Session options for ${title}`} disabled={disabled} side="right">
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              if (disabled) return;
-              setMenuOpen((open) => !open);
-            }}
-            disabled={disabled}
-            aria-disabled={disabled}
-            aria-label={`Session options for ${title}`}
-            className={`flex h-7 w-7 items-center justify-center rounded-full bg-surface-low/95 transition-all ${
-              disabled
-                ? "cursor-not-allowed text-text-muted/30 opacity-0 group-hover/session:opacity-100 focus:opacity-100"
-                : `text-text-muted hover:bg-surface-low hover:text-foreground ${menuOpen ? "opacity-100" : "opacity-0 group-hover/session:opacity-100 focus:opacity-100"}`
-            }`}
-          >
-            <MoreVertical className="h-4 w-4" />
-          </button>
-        </TooltipHint>
+      {!provisional ? (
+        <div
+          ref={menuRef}
+          data-session-options
+          className="pointer-events-none absolute right-0 top-1/2 z-20 h-7 w-7 -translate-y-1/2 group-hover/session:pointer-events-auto focus-within:pointer-events-auto"
+        >
+          <TooltipHint label={disabledReason ?? `Session options for ${title}`} disabled={disabled} side="right">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                if (disabled) return;
+                setMenuOpen((open) => !open);
+              }}
+              disabled={disabled}
+              aria-disabled={disabled}
+              aria-label={`Session options for ${title}`}
+              className={`flex h-7 w-7 items-center justify-center rounded-full bg-surface-low/95 transition-all ${
+                disabled
+                  ? "cursor-not-allowed text-text-muted/30 opacity-0 group-hover/session:opacity-100 focus:opacity-100"
+                  : `text-text-muted hover:bg-surface-low hover:text-foreground ${menuOpen ? "opacity-100" : "opacity-0 group-hover/session:opacity-100 focus:opacity-100"}`
+              }`}
+            >
+              <MoreVertical className="h-4 w-4" />
+            </button>
+          </TooltipHint>
 
-        {menuOpen && !disabled && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: -4 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            transition={{ duration: 0.1 }}
-            className="absolute right-0 top-full z-50 mt-1 w-[11.5rem] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border border-border bg-popover py-1 shadow-2xl"
-          >
-            {onSetPinned ? (
+          {menuOpen && !disabled && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: -4 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              transition={{ duration: 0.1 }}
+              className="absolute right-0 top-full z-50 mt-1 w-[11.5rem] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border border-border bg-popover py-1 shadow-2xl"
+            >
+              {onSetPinned ? (
+                <SessionMenuButton
+                  icon={pinned ? PinOff : Pin}
+                  label={pinned ? "Unpin" : "Pin"}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setUnpinAnimating(pinned);
+                    onSetPinned(!pinned);
+                  }}
+                />
+              ) : null}
+              <SessionMenuButton icon={PenLine} label="Rename" onClick={() => { setMenuOpen(false); onRename(); }} />
               <SessionMenuButton
-                icon={pinned ? PinOff : Pin}
-                label={pinned ? "Unpin" : "Pin"}
-                onClick={() => {
-                  setMenuOpen(false);
-                  setUnpinAnimating(pinned);
-                  onSetPinned(!pinned);
-                }}
+                icon={Trash2}
+                label="Delete"
+                danger
+                disabled={deleteDisabled}
+                disabledReason={deleteDisabledReason}
+                onClick={() => { setMenuOpen(false); onDelete(); }}
               />
-            ) : null}
-            <SessionMenuButton icon={PenLine} label="Rename" onClick={() => { setMenuOpen(false); onRename(); }} />
-            <SessionMenuButton
-              icon={Trash2}
-              label="Delete"
-              danger
-              disabled={deleteDisabled}
-              disabledReason={deleteDisabledReason}
-              onClick={() => { setMenuOpen(false); onDelete(); }}
-            />
-          </motion.div>
-        )}
-      </div>
+            </motion.div>
+          )}
+        </div>
+      ) : null}
     </motion.div>
   );
 }
@@ -1025,123 +1012,6 @@ export function WorkspaceCreationDialog({
   );
 }
 
-function WorkspacePicker({
-  sharedHeader = false,
-  onCreateWorkspace,
-}: {
-  sharedHeader?: boolean;
-  onCreateWorkspace?: () => void;
-}) {
-  const {
-    principalId,
-    workspacesClient,
-    workspaces,
-    selectedWorkspace,
-    isLoading: workspacesLoading,
-    error: workspacesError,
-    selectWorkspace,
-  } = useWorkspace();
-  const workspaceScope = principalId ?? "current";
-  const [createWorkspaceScope, setCreateWorkspaceScope] = useState<string | null>(null);
-  const currentWorkspaceName = selectedWorkspace
-    ? workspaceDisplayName(selectedWorkspace)
-    : workspacesLoading
-      ? "Loading Workspaces"
-      : "No Workspace";
-
-  useEffect(() => {
-    if (!createWorkspaceScope || createWorkspaceScope === workspaceScope) return;
-    const timeout = window.setTimeout(() => setCreateWorkspaceScope(null), 0);
-    return () => window.clearTimeout(timeout);
-  }, [createWorkspaceScope, workspaceScope]);
-
-  return (
-    <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            aria-label={`Current workspace: ${currentWorkspaceName}`}
-            className={`flex min-w-0 flex-1 items-center text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)] ${
-              sharedHeader
-                ? "h-10 gap-2 rounded-xl border border-border bg-background/50 px-2 hover:bg-surface-low"
-                : "h-8 gap-2 rounded-lg px-2 hover:bg-surface-low"
-            }`}
-          >
-            {sharedHeader ? (
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-low text-text-muted">
-                <Command className="h-4 w-4" />
-              </span>
-            ) : null}
-            <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">{currentWorkspaceName}</span>
-            <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-text-muted" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" sideOffset={8} className="z-[80] w-[280px] rounded-xl border-border bg-popover p-2 shadow-2xl">
-          <DropdownMenuLabel className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-text-muted">
-            Workspaces
-          </DropdownMenuLabel>
-          {workspacesLoading && workspaces.length === 0 ? (
-            <div role="status" className="mt-1 flex items-center gap-2 px-2 py-3 text-[12px] text-text-muted">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading Workspaces
-            </div>
-          ) : workspacesError && workspaces.length === 0 ? (
-            <div role="alert" className="mx-1 mt-1 rounded-lg border border-destructive/25 bg-destructive/10 px-2.5 py-2 text-[11px] leading-relaxed text-destructive">
-              {workspacesError}
-            </div>
-          ) : workspaces.length === 0 ? (
-            <p className="mt-1 px-2 py-3 text-[12px] text-text-muted">No Workspaces available.</p>
-          ) : workspaces.map((workspace) => {
-            const active = workspace.id === selectedWorkspace?.id;
-            const displayName = workspaceDisplayName(workspace);
-            return (
-              <DropdownMenuItem
-                key={workspace.id}
-                aria-current={active ? "page" : undefined}
-                onSelect={() => selectWorkspace(workspace.id)}
-                className="mt-1 flex items-center gap-3 rounded-lg px-2 py-2.5 focus:bg-surface-low"
-              >
-                <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-[10px] font-semibold ${active ? "border-[rgb(var(--selection-accent-rgb)_/_0.25)] bg-[radial-gradient(circle_at_35%_30%,rgb(var(--selection-accent-rgb)_/_0.95),rgb(var(--selection-accent-rgb)_/_0.35))] text-[var(--selection-accent-foreground)]" : "border-border bg-surface-low text-text-secondary"}`}>
-                  {displayName.slice(0, 1).toUpperCase()}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-foreground">{displayName}</span>
-                  <span className="block text-[11px] capitalize text-text-muted">{workspace.role ? `${workspace.role} access` : "Available Workspace"}</span>
-                </span>
-                {active ? <Check className="h-4 w-4 shrink-0 text-[var(--selection-accent)]" /> : null}
-              </DropdownMenuItem>
-            );
-          })}
-          <DropdownMenuSeparator className="my-1.5 bg-border" />
-          <DropdownMenuItem
-            disabled={!workspacesClient && !onCreateWorkspace}
-            onSelect={() => {
-              if (!workspacesClient) {
-                onCreateWorkspace?.();
-                return;
-              }
-              setCreateWorkspaceScope(workspaceScope);
-            }}
-            className="flex items-center gap-3 rounded-lg px-2 py-2.5 text-text-secondary focus:bg-surface-low focus:text-foreground"
-          >
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-low">
-              <Plus className="h-4 w-4" />
-            </span>
-            <span className="min-w-0">
-              <span className="block text-sm font-medium">New Workspace</span>
-              <span className="block text-[11px] text-text-muted">Create a shared workspace</span>
-            </span>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <WorkspaceCreationDialog
-        open={Boolean(workspacesClient && createWorkspaceScope === workspaceScope)}
-        onOpenChange={(open) => setCreateWorkspaceScope(open ? workspaceScope : null)}
-      />
-    </>
-  );
-}
-
 export function AgentWorkspaceSidebar({
   selectedAgent,
   activeTab,
@@ -1168,7 +1038,6 @@ export function AgentWorkspaceSidebar({
   onShellIntent,
   onShellIntentEnd,
   onOpenOpenClaw,
-  onCreateWorkspace,
   onUpgrade,
   onStartTrial,
   renderMobile = false,
@@ -1181,9 +1050,9 @@ export function AgentWorkspaceSidebar({
   closeButtonRef,
   onClose,
   sessions,
+  activeUnindexedInitialSession = null,
   sessionsFetched = sessions != null,
   sessionsUnavailableReason = "Sessions are loading.",
-  showInternalMainSession = false,
   creatingSessionKeys = [],
   thinkingSessionKeys = [],
   selectedSessionKey,
@@ -1240,22 +1109,40 @@ export function AgentWorkspaceSidebar({
       : sessionsFetched
         ? undefined
         : sessionsUnavailableReason;
+  const provisionalInitialSession = useMemo(() => {
+    if (
+      !hasSelectedAgent ||
+      !sessionsFetched ||
+      !activeUnindexedInitialSession ||
+      activeUnindexedInitialSession.ephemeral === true ||
+      !isGeneratedOpenClawSessionName(activeUnindexedInitialSession.key) ||
+      isEphemeralOpenClawSessionName(activeUnindexedInitialSession.key) ||
+      isCanonicalMainSession(activeUnindexedInitialSession) ||
+      isOpenClawSubagentSession(activeUnindexedInitialSession) ||
+      !sameOpenClawSelectableSessionKey(activeUnindexedInitialSession.key, selectedSessionKey)
+    ) return null;
+    return activeUnindexedInitialSession;
+  }, [activeUnindexedInitialSession, hasSelectedAgent, selectedSessionKey, sessionsFetched]);
   const sortedSessions = useMemo(() => {
     if (!hasSelectedAgent) return [];
     const sourceSessions = sessions ?? [];
     const sessionRecords = sourceSessions.filter((session) => (
       session.ephemeral !== true &&
-      (showInternalMainSession || !isCanonicalMainSession(session)) &&
+      !isOpenClawHeartbeatSessionKey(session.key) &&
+      (!isCanonicalMainSession(session) || isRecoverableOpenClawMainSession(session)) &&
       !isOpenClawSubagentSession(session)
     ));
-    if (showInternalMainSession && !sessionRecords.some(isCanonicalMainSession)) {
-      sessionRecords.unshift(selectedSessionRecord("main", 0));
+    if (provisionalInitialSession && !sessionRecords.some((session) => (
+      sameOpenClawSelectableSessionKey(session.key, provisionalInitialSession.key) ||
+      sameOpenClawSessionKey(session.gatewaySessionKey, provisionalInitialSession.key)
+    ))) {
+      sessionRecords.push(provisionalInitialSession);
     }
     return sessionRecords.sort((a, b) => {
       const pinOrder = Number(isSessionPinned(b.key, pinnedSessionKeys)) - Number(isSessionPinned(a.key, pinnedSessionKeys));
       return pinOrder || b.lastMessageAt - a.lastMessageAt;
     });
-  }, [hasSelectedAgent, pinnedSessionKeys, sessions, showInternalMainSession]);
+  }, [hasSelectedAgent, pinnedSessionKeys, provisionalInitialSession, sessions]);
   const titledSessions = useMemo(
     () => sessionsFetched ? sortedSessions : sortedSessions.filter((session) => !isUnresolvedPlaceholderSession(session)),
     [sessionsFetched, sortedSessions],
@@ -1425,25 +1312,18 @@ export function AgentWorkspaceSidebar({
     >
       {embeddedInNavigation ? (
         <div
-          className={`agent-desktop-navigation-header absolute -top-16 z-30 flex h-14 w-64 items-center gap-2 border-b border-r border-border bg-[var(--agent-panel-background)] px-3 transition-[left] duration-200 ease-out ${
+          className={`agent-desktop-navigation-header absolute -top-16 z-30 flex h-14 w-64 items-center justify-center border-b border-r border-border bg-[var(--agent-panel-background)] px-3 transition-[left] duration-200 ease-out ${
             isCollapsed ? "-left-52" : "-left-12"
           }`}
         >
-          <Link
-            href="/"
-            aria-label="HyperCLI home"
-            className="flex h-10 w-8 shrink-0 items-center justify-center text-foreground"
-          >
-            <HyperCLILogoMark className="h-6 w-6" />
-          </Link>
-          <WorkspacePicker sharedHeader onCreateWorkspace={onCreateWorkspace} />
+          <HyperCLILogoLink className="h-[28px] w-[144px]" />
           {onClose ? (
             <button
               ref={closeButtonRef}
               type="button"
               onClick={onClose}
               aria-label="Close navigation"
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+              className="absolute right-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
             >
               <X className="h-5 w-5" />
             </button>
@@ -1455,7 +1335,7 @@ export function AgentWorkspaceSidebar({
             isCollapsed ? "justify-center px-0" : "gap-2 px-4"
           }`}
         >
-          {!isCollapsed ? <WorkspacePicker onCreateWorkspace={onCreateWorkspace} /> : null}
+          {!isCollapsed ? <HyperCLILogoLink className="h-[26px] min-w-0 flex-1" /> : null}
           {onClose ? (
             <button
               type="button"
@@ -1548,6 +1428,7 @@ export function AgentWorkspaceSidebar({
                       const sourceChannel = resolveSessionSourceChannel(session.sourceChannelId);
                       const thinking = thinkingSessionKeys.some((sessionKey) => isSessionActive(session, sessionKey, sortedSessions));
                       const pinned = isSessionPinned(session.key, pinnedSessionKeys);
+                      const provisional = session === provisionalInitialSession && !(sessions ?? []).includes(session);
                       return (
                         <RecentSessionRow
                           key={session.key}
@@ -1563,6 +1444,7 @@ export function AgentWorkspaceSidebar({
                             : session.readOnlyReason ?? "Connected conversations cannot be deleted here."}
                           creating={creatingSessionKeys.some((sessionKey) => sameOpenClawSelectableSessionKey(sessionKey, session.key))}
                           thinking={thinking}
+                          provisional={provisional}
                           onSelect={onSelectSession ? () => onSelectSession(session.key) : undefined}
                           onSetPinned={onSetSessionPinned ? (nextPinned) => onSetSessionPinned(session.key, nextPinned) : undefined}
                           onRename={() => setRenameTarget(session)}

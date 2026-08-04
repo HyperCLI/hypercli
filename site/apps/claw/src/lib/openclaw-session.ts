@@ -202,7 +202,10 @@ export function handleOpenClawChatStreamEvent({
       setMessages((prev) => upsertAssistantMessage(
         prev,
         identifiedAssistantMessage({ role: "assistant", content: text, timestamp: Date.now() }, identity, assistantRenderId, clientTurnId),
-        { replaceContent: chatEvent.replace === true },
+        {
+          replaceContent: chatEvent.replace === true,
+          appendContent: chatEvent.replace !== true,
+        },
       ));
     }
   } else if (chatEvent.type === "thinking") {
@@ -248,7 +251,7 @@ export function handleOpenClawChatStreamEvent({
 function appendLiveChatMessage(
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>,
   message: ChatMessage | null,
-  options: { replaceContent?: boolean } = {},
+  options: { replaceContent?: boolean; appendContent?: boolean } = {},
 ): void {
   if (!message) return;
   if (message.role === "assistant") {
@@ -316,7 +319,10 @@ export function handleOpenClawSessionEvent({
       appendLiveChatMessage(
         setMessages,
         identifiedAssistantMessage(normalized, identity),
-        { replaceContent: payloadRecord.replace === true },
+        {
+          replaceContent: payloadRecord.replace === true,
+          appendContent: payloadRecord.replace !== true,
+        },
       );
     } else {
       const text = sanitizeChatDisplayText((payload as Record<string, unknown>).text as string ?? "");
@@ -324,7 +330,10 @@ export function handleOpenClawSessionEvent({
         setMessages((prev) => upsertAssistantMessage(
           prev,
           identifiedAssistantMessage({ role: "assistant", content: text, timestamp: Date.now() }, identity),
-          { replaceContent: payloadRecord.replace === true },
+          {
+            replaceContent: payloadRecord.replace === true,
+            appendContent: payloadRecord.replace !== true,
+          },
         ));
       }
     }

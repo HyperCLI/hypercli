@@ -27,6 +27,10 @@ import { agentAvatar, agentProfileImageUrl } from "@/lib/avatar";
 import { ResourceImage } from "@/components/ResourceImage";
 import { MarkdownContent } from "@/components/dashboard/chat/MarkdownContent";
 import { useWorkspace } from "@/components/dashboard/WorkspaceContext";
+import {
+  domainDeletionBlockedReason,
+  domainDisplayName,
+} from "@/lib/account-domain";
 import { downloadFileBytes } from "@/lib/download-file";
 import { TooltipHint } from "@/components/ClawTooltip";
 
@@ -290,7 +294,7 @@ function NewKnowledgeBaseModal({
       await onCreate(name.trim(), description.trim(), Array.from(selectedAgentIds));
       onClose();
     } catch (err) {
-      setError(describeError(err, "Unable to create shared knowledge."));
+      setError(describeError(err, "Unable to create Domain."));
     } finally {
       setSubmitting(false);
     }
@@ -298,7 +302,7 @@ function NewKnowledgeBaseModal({
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
-      <button type="button" aria-label="Close new shared knowledge" onClick={submitting ? undefined : onClose} className="absolute inset-0 cursor-default bg-background/75 backdrop-blur-sm" />
+      <button type="button" aria-label="Close new Domain" onClick={submitting ? undefined : onClose} className="absolute inset-0 cursor-default bg-background/75 backdrop-blur-sm" />
       <section role="dialog" aria-modal="true" aria-labelledby="new-workspace-title" className="elevation-shadow-strong relative flex max-h-[92vh] w-full max-w-[520px] flex-col overflow-hidden rounded-2xl border border-border bg-popover text-popover-foreground">
         <header className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
           <div className="flex items-start gap-3">
@@ -306,8 +310,8 @@ function NewKnowledgeBaseModal({
               <HardDrive className="h-4 w-4" />
             </div>
             <div>
-              <h2 id="new-workspace-title" className="text-[16px] font-semibold leading-tight text-foreground">New shared knowledge</h2>
-              <p className="mt-1 text-[12px] leading-snug text-text-muted">Create shared knowledge that agents can access during conversations.</p>
+              <h2 id="new-workspace-title" className="text-[16px] font-semibold leading-tight text-foreground">New Domain</h2>
+              <p className="mt-1 text-[12px] leading-snug text-text-muted">Organize one business area and assign only the agents that need it.</p>
             </div>
           </div>
           <button type="button" aria-label="Close" onClick={onClose} disabled={submitting} className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-45">
@@ -322,7 +326,7 @@ function NewKnowledgeBaseModal({
             </div>
             <label className="block">
               <span className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.22em] text-text-muted">Name</span>
-              <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g., Team knowledge" className="h-10 rounded-xl border-border bg-input-background text-sm text-foreground placeholder:text-text-muted dark:bg-input-background" />
+              <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g., Finance" className="h-10 rounded-xl border-border bg-input-background text-sm text-foreground placeholder:text-text-muted dark:bg-input-background" />
             </label>
 
             <div />
@@ -367,7 +371,7 @@ function NewKnowledgeBaseModal({
           </Button>
           <Button type="button" onClick={() => void handleCreate()} disabled={!canCreate} className="h-9 rounded-xl px-4 font-semibold">
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-            {submitting ? "Creating..." : "Create shared knowledge"}
+            {submitting ? "Creating..." : "Create Domain"}
           </Button>
         </footer>
       </section>
@@ -376,7 +380,7 @@ function NewKnowledgeBaseModal({
 }
 
 function EditKnowledgeBaseModal({ base, onClose, onSave }: { base: KnowledgeBase; onClose: () => void; onSave: (name: string, description: string) => Promise<void> }) {
-  const [name, setName] = React.useState(base.workspace.name);
+  const [name, setName] = React.useState(domainDisplayName(base.workspace));
   const [description, setDescription] = React.useState(base.workspace.description || "");
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -390,7 +394,7 @@ function EditKnowledgeBaseModal({ base, onClose, onSave }: { base: KnowledgeBase
       await onSave(name.trim(), description.trim());
       onClose();
     } catch (err) {
-      setError(describeError(err, "Unable to update shared knowledge."));
+      setError(describeError(err, "Unable to update Domain."));
     } finally {
       setSaving(false);
     }
@@ -398,7 +402,7 @@ function EditKnowledgeBaseModal({ base, onClose, onSave }: { base: KnowledgeBase
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
-      <button type="button" aria-label="Close edit shared knowledge" onClick={saving ? undefined : onClose} className="absolute inset-0 cursor-default bg-background/75 backdrop-blur-sm" />
+      <button type="button" aria-label="Close edit Domain" onClick={saving ? undefined : onClose} className="absolute inset-0 cursor-default bg-background/75 backdrop-blur-sm" />
       <section role="dialog" aria-modal="true" aria-labelledby="edit-workspace-title" className="elevation-shadow-strong relative flex max-h-[92vh] w-full max-w-[520px] flex-col overflow-hidden rounded-2xl border border-border bg-popover text-popover-foreground">
         <header className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
           <div className="flex items-start gap-3">
@@ -406,8 +410,8 @@ function EditKnowledgeBaseModal({ base, onClose, onSave }: { base: KnowledgeBase
               <Pencil className="h-4 w-4" />
             </div>
             <div>
-              <h2 id="edit-workspace-title" className="text-[16px] font-semibold leading-tight text-foreground">Edit shared knowledge</h2>
-              <p className="mt-1 text-[12px] leading-snug text-text-muted">Update the shared knowledge name and description.</p>
+              <h2 id="edit-workspace-title" className="text-[16px] font-semibold leading-tight text-foreground">Edit Domain</h2>
+              <p className="mt-1 text-[12px] leading-snug text-text-muted">Update the Domain name and description.</p>
             </div>
           </div>
           <button type="button" aria-label="Close" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground">
@@ -789,6 +793,7 @@ function KnowledgeBaseCard({
   onToggleAssignment,
   onToggleAgent,
   onEdit,
+  deleteBlockedReason,
   onDeleteWorkspace,
   onUploadFiles,
   onRequestDeletePath,
@@ -806,6 +811,7 @@ function KnowledgeBaseCard({
   onToggleAssignment: () => void;
   onToggleAgent: (agentId: string) => void;
   onEdit: () => void;
+  deleteBlockedReason: string | null;
   onDeleteWorkspace: () => void;
   onUploadFiles: (files: Array<{ path: string; file: File }>) => Promise<void>;
   onRequestDeletePath: (path: string, options?: { recursive?: boolean }) => void;
@@ -818,6 +824,7 @@ function KnowledgeBaseCard({
   const failed = failedFileCount(base);
   const canWrite = workspaceCanWrite(base.workspace);
   const canAdminister = workspaceCanAdminister(base.workspace);
+  const workspaceName = domainDisplayName(base.workspace);
 
   return (
     <article className="overflow-hidden rounded-2xl border border-border bg-card text-card-foreground transition-colors hover:border-border-strong">
@@ -827,7 +834,7 @@ function KnowledgeBaseCard({
             <HardDrive className="h-4 w-4" />
           </div>
           <div className="min-w-0 flex-1">
-            <h3 className="truncate text-[15px] font-semibold leading-tight text-foreground">{base.workspace.name}</h3>
+            <h3 className="truncate text-[15px] font-semibold leading-tight text-foreground">{workspaceName}</h3>
             <p className="mt-1 truncate text-[12px] leading-snug text-text-muted">{base.workspace.description || base.workspace.slug}</p>
           </div>
         </div>
@@ -838,15 +845,19 @@ function KnowledgeBaseCard({
           {base.workspace.role ? <span className="rounded-full border border-border px-2 py-0.5 text-[10px] capitalize text-text-muted">{base.workspace.role}</span> : null}
           {canAdminister ? (
             <>
-              <button type="button" aria-label={`Edit ${base.workspace.name}`} onClick={onEdit} disabled={busy} className="flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-50">
+              <button type="button" aria-label={`Edit ${workspaceName}`} onClick={onEdit} disabled={busy} className="flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-50">
                 <Pencil className="h-3.5 w-3.5" />
               </button>
-              <button type="button" aria-label={`Delete ${base.workspace.name}`} onClick={onDeleteWorkspace} disabled={busy} className="flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-destructive disabled:opacity-50">
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
+              {deleteBlockedReason ? (
+                <span title={deleteBlockedReason} className="rounded-full border border-border px-2 py-0.5 text-[10px] text-text-muted">Protected</span>
+              ) : (
+                <button type="button" aria-label={`Delete ${workspaceName}`} onClick={onDeleteWorkspace} disabled={busy} className="flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-destructive disabled:opacity-50">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
             </>
           ) : null}
-          <button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} ${base.workspace.name}`} onClick={onToggle} className="flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground">
+          <button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} ${workspaceName}`} onClick={onToggle} className="flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground">
             {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
           </button>
         </div>
@@ -1023,7 +1034,7 @@ export function SharedKnowledgePanel({
             ? errorStatusCode(agentAccessResult.reason) === 403
               ? "You don't have permission to view or change agent access."
               : errorStatusCode(agentAccessResult.reason) === 404
-                ? "Agent assignments require a workspace service update."
+                ? "Agent assignments aren't available for this Domain yet."
                 : "Agent access couldn't be loaded. Refresh to retry."
             : null;
         const agentIds = agentAccessResult.status === "fulfilled" ? agentAccessResult.value.agentIds : [];
@@ -1067,7 +1078,7 @@ export function SharedKnowledgePanel({
   }, [selectedWorkspaceId]);
 
   const createBase = async (name: string, description: string, agentIds: string[]) => {
-    if (!workspaces) throw new Error("Shared knowledge is not connected.");
+    if (!workspaces) throw new Error("The Domain catalog is not connected.");
     setError(null);
     try {
       const workspace = await workspaces.create({ name, description: description || undefined });
@@ -1095,17 +1106,17 @@ export function SharedKnowledgePanel({
       setExpandedBaseId(workspace.id);
       setAssignmentBaseId(null);
       if (failedGrants > 0) {
-        setError(`Shared knowledge was created, but ${failedGrants} agent assignment${failedGrants === 1 ? "" : "s"} failed.`);
+        setError(`The Domain was created, but ${failedGrants} agent assignment${failedGrants === 1 ? "" : "s"} failed.`);
       }
     } catch (err) {
-      setError(describeError(err, "Unable to create shared knowledge."));
+      setError(describeError(err, "Unable to create Domain."));
       throw err;
     }
   };
 
   const updateBase = async (base: KnowledgeBase, name: string, description: string) => {
-    if (!workspaces) throw new Error("Shared knowledge is not connected.");
-    if (!workspaceCanAdminister(base.workspace)) throw new Error("Admin access is required to update this Workspace.");
+    if (!workspaces) throw new Error("The Domain catalog is not connected.");
+    if (!workspaceCanAdminister(base.workspace)) throw new Error("Domain admin access is required to update this Domain.");
     setBaseBusy(base.workspace.id, true);
     setError(null);
     try {
@@ -1117,7 +1128,7 @@ export function SharedKnowledgePanel({
       else await loadWorkspacesRef.current(debouncedQueryRef.current);
       if (selectedWorkspaceIdRef.current === updated.id) setExpandedBaseId(updated.id);
     } catch (err) {
-      setError(describeError(err, "Unable to update shared knowledge."));
+      setError(describeError(err, "Unable to update Domain."));
       throw err;
     } finally {
       setBaseBusy(base.workspace.id, false);
@@ -1125,8 +1136,10 @@ export function SharedKnowledgePanel({
   };
 
   const deleteBase = async (base: KnowledgeBase) => {
-    if (!workspaces) throw new Error("Shared knowledge is not connected.");
-    if (!workspaceCanAdminister(base.workspace)) throw new Error("Admin access is required to delete this Workspace.");
+    if (!workspaces) throw new Error("The Domain catalog is not connected.");
+    if (!workspaceCanAdminister(base.workspace)) throw new Error("Domain admin access is required to delete this Domain.");
+    const blockedReason = domainDeletionBlockedReason(base.workspace);
+    if (blockedReason) throw new Error(blockedReason);
     setBaseBusy(base.workspace.id, true);
     setError(null);
     try {
@@ -1137,7 +1150,7 @@ export function SharedKnowledgePanel({
       if (onWorkspacesChanged) await onWorkspacesChanged();
       else await loadWorkspacesRef.current(debouncedQueryRef.current);
     } catch (err) {
-      setError(describeError(err, "Unable to delete shared knowledge."));
+      setError(describeError(err, "Unable to delete Domain."));
       throw err;
     } finally {
       setBaseBusy(base.workspace.id, false);
@@ -1345,12 +1358,12 @@ export function SharedKnowledgePanel({
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               </Button>
               <Button type="button" onClick={() => setCreateOpen(true)} disabled={!workspaces || !ready || agentsLoading} className="h-9 shrink-0 rounded-xl px-4 font-semibold">
-                <Plus className="h-4 w-4" /> New shared knowledge
+                 <Plus className="h-4 w-4" /> New Domain
               </Button>
             </div>
           </div>
           <label className="relative block">
-            <span className="sr-only">Search shared knowledge</span>
+            <span className="sr-only">Search Domains</span>
             <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
             <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search names, files, and metadata..." className="h-10 rounded-xl border-border bg-input-background pl-10 pr-4 text-sm text-foreground placeholder:text-text-muted dark:bg-input-background" />
           </label>
@@ -1363,7 +1376,7 @@ export function SharedKnowledgePanel({
           {agentsError && (
             <div role="status" className="flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-[12px] text-warning">
               <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <span>Collections are available, but agent assignments can&apos;t be changed right now. {agentsError}</span>
+              <span>Domains are available, but agent assignments can&apos;t be changed right now. {agentsError}</span>
             </div>
           )}
         </div>
@@ -1372,14 +1385,14 @@ export function SharedKnowledgePanel({
           {!workspaces && (
             <div className="rounded-2xl border border-dashed border-border bg-surface-low/25 px-5 py-10 text-center">
               <HardDrive className="mx-auto mb-2 h-5 w-5 text-text-muted" />
-              <p className="text-[13px] font-semibold text-foreground">Shared knowledge is not connected.</p>
-              <p className="mt-1 text-[11px] text-text-muted">{connectionError || "Sign in again if shared knowledge is unavailable."}</p>
+              <p className="text-[13px] font-semibold text-foreground">The Domain catalog is not connected.</p>
+              <p className="mt-1 text-[11px] text-text-muted">{connectionError || "Sign in again if Domains are unavailable."}</p>
             </div>
           )}
           {workspaces && (!ready || loading) && knowledgeBases.length === 0 && (
             <div className="rounded-2xl border border-border bg-surface-low/25 px-5 py-10 text-center" role="status">
               <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin text-text-muted" />
-              <p className="text-[13px] font-semibold text-foreground">Loading shared knowledge</p>
+              <p className="text-[13px] font-semibold text-foreground">Loading Domains</p>
             </div>
           )}
           {workspaces && ready && knowledgeBases.map((base) => (
@@ -1400,6 +1413,7 @@ export function SharedKnowledgePanel({
               onToggleAssignment={() => setAssignmentBaseId((current) => current === base.workspace.id ? null : base.workspace.id)}
               onToggleAgent={(agentId) => void toggleAssignedAgent(base, agentId)}
               onEdit={() => setEditingBaseId(base.workspace.id)}
+              deleteBlockedReason={domainDeletionBlockedReason(base.workspace)}
               onDeleteWorkspace={() => setPendingDeleteBase(base)}
               onUploadFiles={(uploads) => uploadFiles(base, uploads)}
               onRequestDeletePath={(path, options) => requestPathDelete(base, path, options)}
@@ -1410,8 +1424,8 @@ export function SharedKnowledgePanel({
           {workspaces && ready && !loading && !connectionError && knowledgeBases.length === 0 && (
             <div className="rounded-2xl border border-dashed border-border bg-surface-low/25 px-5 py-10 text-center">
               <HardDrive className="mx-auto mb-2 h-5 w-5 text-text-muted" />
-              <p className="text-[13px] font-semibold text-foreground">No shared knowledge found.</p>
-              <p className="mt-1 text-[11px] text-text-muted">{debouncedQuery ? "Try a different search." : "Create shared knowledge to start sharing files with agents."}</p>
+              <p className="text-[13px] font-semibold text-foreground">No Domains found.</p>
+              <p className="mt-1 text-[11px] text-text-muted">{debouncedQuery ? "Try a different search." : "Create a Domain to organize sources and agent access."}</p>
             </div>
           )}
         </div>
@@ -1435,8 +1449,8 @@ export function SharedKnowledgePanel({
       )}
       <ConfirmDialog
         open={Boolean(pendingDeleteBase)}
-        title="Delete shared knowledge?"
-        message={pendingDeleteBase ? `Delete ${pendingDeleteBase.workspace.name} and all of its files? Agents will lose access immediately.` : ""}
+        title="Delete Domain?"
+        message={pendingDeleteBase ? `Delete ${domainDisplayName(pendingDeleteBase.workspace)} and all of its files? Agents will lose access immediately.` : ""}
         confirmLabel="Delete"
         danger
         loading={pendingBaseDeleteBusy}

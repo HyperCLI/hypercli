@@ -3,10 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ACCOUNT_PAGE_HREFS,
   DASHBOARD_VIEW_HREFS,
+  KNOWLEDGE_HUB_HREF,
   buildAgentLauncherHref,
   buildDashboardAgentsRedirectHref,
   buildDashboardViewHref,
   buildDashboardViewRedirectHref,
+  buildKnowledgeHubHref,
   resolveDashboardView,
   syncDashboardSearchParams,
 } from "./dashboard-route";
@@ -19,7 +21,7 @@ afterEach(() => {
 describe("dashboard routes", () => {
   it("resolves supported dashboard views", () => {
     expect(resolveDashboardView(" overview ")).toBe("overview");
-    expect(resolveDashboardView("alt-home")).toBe("alt-home");
+    expect(resolveDashboardView("alt-home")).toBeNull();
     expect(resolveDashboardView("usage")).toBe("usage");
     expect(resolveDashboardView("settings")).toBe("settings");
     expect(resolveDashboardView("agents")).toBeNull();
@@ -27,8 +29,8 @@ describe("dashboard routes", () => {
   });
 
   it("builds canonical view links with optional agent selection", () => {
+    expect(KNOWLEDGE_HUB_HREF).toBe("/dashboard/agents?section=knowledge-hub");
     expect(DASHBOARD_VIEW_HREFS.overview).toBe("/dashboard/agents?view=overview");
-    expect(DASHBOARD_VIEW_HREFS["alt-home"]).toBe("/dashboard/agents?view=alt-home");
     expect(buildDashboardViewHref("usage", {
       agentId: "agent/one",
       session: "session focus",
@@ -41,6 +43,16 @@ describe("dashboard routes", () => {
     expect(buildAgentLauncherHref()).toBe("/dashboard/agents?open=agent-launcher");
     expect(buildAgentLauncherHref(" pro/annual ")).toBe(
       "/dashboard/agents?open=agent-launcher&plan=pro%2Fannual",
+    );
+  });
+
+  it("builds a Knowledge Hub link with an owned Domain selection", () => {
+    expect(buildKnowledgeHubHref({
+      domainId: "domain/marketing",
+      agentId: "agent-1",
+      session: "focus session",
+    })).toBe(
+      "/dashboard/agents?section=knowledge-hub&agentId=agent-1&session=focus+session&domainId=domain%2Fmarketing",
     );
   });
 

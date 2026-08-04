@@ -6,6 +6,24 @@ import type {
 
 type AgentProfileIdentity = Pick<SdkAgent, "id" | "managed" | "name">;
 
+export function normalizeAgentHandle(value: string): string | null {
+  const normalized = value
+    .trim()
+    .replace(/^@+\s*/, "")
+    .toLowerCase()
+    .replace(/\s+/g, "-");
+  return normalized || null;
+}
+
+export function displayNameFromAgentHandle(handle: string): string {
+  return handle
+    .trim()
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
+    .join(" ");
+}
+
 interface AgentProfileUpdateClient<TAgent = SdkAgent> {
   update: (agentId: string, options: UpdateAgentOptions) => Promise<TAgent>;
   updateExternalAgent: (agentId: string, options: UpdateExternalAgentOptions) => Promise<TAgent>;
@@ -70,9 +88,9 @@ export async function persistAgentDisplayName<TAgent>(
   if (agent.managed === false) {
     return client.updateExternalAgent(agent.id, { displayName: nextDisplayName.slice(0, 255) });
   }
-  const handle = nextDisplayName.replace(/^@+/, "").toLowerCase();
-  if (!/^[a-z0-9][a-z0-9_-]{1,63}$/.test(handle)) {
-    throw new Error("Display names must start with a lowercase letter or number and contain 2-64 lowercase letters, numbers, underscores, or dashes.");
+  const handle = normalizeAgentHandle(nextDisplayName);
+  if (!handle || !/^[a-z0-9][a-z0-9_-]{1,63}$/.test(handle)) {
+    throw new Error("Display names must start with a letter or number and contain 2-64 letters, numbers, spaces, underscores, or dashes.");
   }
   return client.update(agent.id, { handle });
 }

@@ -81,9 +81,9 @@ describe("OpenClawModelMenu", () => {
     });
     const { rerender } = renderWithClient(<OpenClawModelMenu chat={chat} />);
 
-    const trigger = screen.getByRole("button", { name: "Model: Kimi K2.6, Fast" });
+    const trigger = screen.getByRole("button", { name: "Model: Kimi K2.6" });
     expect(within(trigger).getByText("Kimi K2.6")).toHaveClass("text-foreground");
-    expect(within(trigger).getByText("Fast")).toHaveClass("text-text-muted");
+    expect(within(trigger).queryByText("Fast")).not.toBeInTheDocument();
 
     fireEvent.click(trigger);
     const menuOptions = screen.getAllByRole("option");
@@ -100,9 +100,30 @@ describe("OpenClawModelMenu", () => {
     await waitFor(() => expect(chat.setActiveSessionThinkingLevel).toHaveBeenCalledWith("medium"));
     expect(chat.setActiveSessionModel).not.toHaveBeenCalled();
     rerender(<OpenClawModelMenu chat={{ ...chat, activeSessionThinkingLevel: "medium" }} />);
-    const updatedTrigger = screen.getByRole("button", { name: "Model: Kimi K2.6, Medium" });
+    const updatedTrigger = screen.getByRole("button", { name: "Model: Kimi K2.6" });
     expect(within(updatedTrigger).getByText("Kimi K2.6")).toHaveClass("text-foreground");
-    expect(within(updatedTrigger).getByText("Medium")).toHaveClass("text-text-muted");
+    expect(within(updatedTrigger).queryByText("Medium")).not.toBeInTheDocument();
+  });
+
+  it("uses the current variant as the compact trigger label and changes it directly", async () => {
+    const chat = buildChat({
+      activeSessionModel: "openai/gpt-5-mini",
+      activeSessionThinkingLevel: "medium",
+      activeSessionThinkingDefault: "off",
+    });
+    renderWithClient(<OpenClawModelMenu chat={chat} compactTrigger />);
+
+    const trigger = screen.getByRole("button", { name: "Variant: Medium, model: GPT-5 Mini" });
+    expect(trigger).toHaveClass("bg-surface-high");
+    expect(within(trigger).getByText("Medium")).toHaveClass("text-text-secondary");
+    expect(within(trigger).queryByText("GPT-5 Mini")).not.toBeInTheDocument();
+    expect(trigger).toHaveAttribute("title", "Medium variant, GPT-5 Mini");
+
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole("option", { name: "Variant: Off" }));
+
+    await waitFor(() => expect(chat.setActiveSessionThinkingLevel).toHaveBeenCalledWith("off"));
+    expect(chat.setActiveSessionModel).not.toHaveBeenCalled();
   });
 
   it("lists and selects a model for the active conversation without search", async () => {

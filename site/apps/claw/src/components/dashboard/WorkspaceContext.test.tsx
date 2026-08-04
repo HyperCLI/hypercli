@@ -28,16 +28,16 @@ const discoveredWorkspace = {
   slug: "discovered-workspace",
 };
 
-const personalWorkspace = {
+const generalWorkspace = {
   ...teamWorkspace,
-  id: "workspace-personal",
-  name: "Personal Workspace",
-  slug: "personal-workspace",
+  id: "workspace-general",
+  name: "General",
+  slug: "general",
 };
 
-const replacementPersonalWorkspace = {
-  ...personalWorkspace,
-  id: "workspace-personal-replacement",
+const replacementGeneralWorkspace = {
+  ...generalWorkspace,
+  id: "workspace-general-replacement",
 };
 
 function workspaceAgent(agentId: string, workspaceId = teamWorkspace.id) {
@@ -63,6 +63,7 @@ const mocks = vi.hoisted(() => ({
     listAgents: vi.fn(),
     listGrants: vi.fn(),
     create: vi.fn(),
+    update: vi.fn(),
     grant: vi.fn(),
   },
 }));
@@ -159,11 +160,11 @@ describe("WorkspaceProvider", () => {
     mocks.auth.isLoading = false;
     mocks.auth.user = { id: "user-1" };
     mocks.createWorkspacesClient.mockReturnValue(mocks.client);
-    mocks.client.list.mockResolvedValue([teamWorkspace, productWorkspace]);
-    mocks.client.get.mockResolvedValue(personalWorkspace);
+    mocks.client.list.mockResolvedValue([teamWorkspace, productWorkspace, generalWorkspace]);
+    mocks.client.get.mockResolvedValue(generalWorkspace);
     mocks.client.listAgents.mockResolvedValue([]);
     mocks.client.listGrants.mockResolvedValue([]);
-    mocks.client.create.mockResolvedValue(productWorkspace);
+    mocks.client.create.mockResolvedValue(generalWorkspace);
     mocks.client.grant.mockResolvedValue({
       id: "grant-agent-new",
       workspaceId: teamWorkspace.id,
@@ -354,7 +355,7 @@ describe("WorkspaceProvider", () => {
     renderProvider();
 
     await waitFor(() => expect(screen.getByTestId("workspace-state")).toHaveTextContent("Product Operations"));
-    expect(screen.getByTestId("workspace-count")).toHaveTextContent("2");
+    expect(screen.getByTestId("workspace-count")).toHaveTextContent("3");
     expect(mocks.createWorkspacesClient).toHaveBeenCalledWith("session-token");
     expect(mocks.client.list).toHaveBeenCalledOnce();
 
@@ -363,40 +364,51 @@ describe("WorkspaceProvider", () => {
     expect(window.localStorage.getItem("claw.selectedWorkspace.v1:user-1")).toBe("workspace-team");
   });
 
-  it("creates and selects a Personal Workspace when the account has none", async () => {
+  it("creates and selects General when the account has no Domains", async () => {
     mocks.client.list.mockResolvedValue([]);
-    mocks.client.create.mockResolvedValue({ ...personalWorkspace, role: null });
+    mocks.client.create.mockResolvedValue({ ...generalWorkspace, role: null });
 
     renderProvider();
 
-    await waitFor(() => expect(screen.getByTestId("workspace-state")).toHaveTextContent("Personal Workspace"));
+    await waitFor(() => expect(screen.getByTestId("workspace-state")).toHaveTextContent("General"));
     expect(mocks.client.create).toHaveBeenCalledOnce();
-    expect(mocks.client.create).toHaveBeenCalledWith({ name: "Personal Workspace" });
-    expect(mocks.client.get).toHaveBeenCalledWith("workspace-personal");
+    expect(mocks.client.create).toHaveBeenCalledWith({ name: "General", slug: "general" });
+    expect(mocks.client.get).toHaveBeenCalledWith("workspace-general");
     expect(screen.getByTestId("workspace-count")).toHaveTextContent("1");
-    expect(window.localStorage.getItem("claw.selectedWorkspace.v1:user-1")).toBe("workspace-personal");
-    await waitFor(() => expect(mocks.client.listAgents).toHaveBeenCalledWith("workspace-personal"));
+    expect(window.localStorage.getItem("claw.selectedWorkspace.v1:user-1")).toBe("workspace-general");
+    await waitFor(() => expect(mocks.client.listAgents).toHaveBeenCalledWith("workspace-general"));
   });
 
-  it("uses a concurrently created Workspace when Personal Workspace creation conflicts", async () => {
+  it("provisions General without replacing an existing Domain", async () => {
+    mocks.client.list.mockResolvedValue([teamWorkspace]);
+    mocks.client.create.mockResolvedValue(generalWorkspace);
+
+    renderProvider();
+
+    await waitFor(() => expect(mocks.client.create).toHaveBeenCalledWith({ name: "General", slug: "general" }));
+    expect(screen.getByTestId("workspace-state")).toHaveTextContent("Team Knowledge");
+    expect(screen.getByTestId("workspace-count")).toHaveTextContent("2");
+  });
+
+  it("uses a concurrently created General Domain when provisioning conflicts", async () => {
     mocks.client.list
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([teamWorkspace, personalWorkspace]);
+      .mockResolvedValueOnce([teamWorkspace, generalWorkspace]);
     mocks.client.create.mockRejectedValue(Object.assign(new Error("Workspace already exists"), { statusCode: 409 }));
 
     renderProvider();
 
-    await waitFor(() => expect(screen.getByTestId("workspace-state")).toHaveTextContent("Personal Workspace"));
-    expect(mocks.client.create).toHaveBeenCalledWith({ name: "Personal Workspace" });
+    await waitFor(() => expect(screen.getByTestId("workspace-state")).toHaveTextContent("General"));
+    expect(mocks.client.create).toHaveBeenCalledWith({ name: "General", slug: "general" });
     expect(mocks.client.list).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId("workspace-count")).toHaveTextContent("2");
-    expect(window.localStorage.getItem("claw.selectedWorkspace.v1:user-1")).toBe("workspace-personal");
+    expect(window.localStorage.getItem("claw.selectedWorkspace.v1:user-1")).toBe("workspace-general");
   });
 
-  it("waits for a stable principal before provisioning Personal Workspace", async () => {
+  it("waits for a stable principal before provisioning General", async () => {
     mocks.auth.user = null;
     mocks.client.list.mockResolvedValue([]);
-    mocks.client.create.mockResolvedValue({ ...personalWorkspace, role: null });
+    mocks.client.create.mockResolvedValue({ ...generalWorkspace, role: null });
 
     const view = renderProvider();
     await act(async () => { await Promise.resolve(); });
@@ -411,31 +423,32 @@ describe("WorkspaceProvider", () => {
     );
 
     await waitFor(() => expect(mocks.client.create).toHaveBeenCalledOnce());
-    await waitFor(() => expect(screen.getByTestId("workspace-state")).toHaveTextContent("Personal Workspace"));
+    await waitFor(() => expect(screen.getByTestId("workspace-state")).toHaveTextContent("General"));
   });
 
-  it("provisions a replacement after the last Workspace is deleted", async () => {
+  it("repairs an externally emptied account with a replacement General Domain", async () => {
     mocks.client.list.mockResolvedValue([]);
     mocks.client.create
-      .mockResolvedValueOnce({ ...personalWorkspace, role: null })
-      .mockResolvedValueOnce({ ...replacementPersonalWorkspace, role: null });
+      .mockResolvedValueOnce({ ...generalWorkspace, role: null })
+      .mockResolvedValueOnce({ ...replacementGeneralWorkspace, role: null });
     mocks.client.get.mockImplementation(async (workspaceId: string) => (
-      workspaceId === replacementPersonalWorkspace.id ? replacementPersonalWorkspace : personalWorkspace
+      workspaceId === replacementGeneralWorkspace.id ? replacementGeneralWorkspace : generalWorkspace
     ));
 
     renderProvider();
-    await waitFor(() => expect(window.localStorage.getItem("claw.selectedWorkspace.v1:user-1")).toBe("workspace-personal"));
+    await waitFor(() => expect(window.localStorage.getItem("claw.selectedWorkspace.v1:user-1")).toBe("workspace-general"));
 
     fireEvent.click(screen.getByRole("button", { name: "Refresh Workspaces" }));
 
     await waitFor(() => expect(mocks.client.create).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(window.localStorage.getItem("claw.selectedWorkspace.v1:user-1")).toBe("workspace-personal-replacement"));
+    await waitFor(() => expect(window.localStorage.getItem("claw.selectedWorkspace.v1:user-1")).toBe("workspace-general-replacement"));
   });
 
   it("refreshes the catalog and selects a newly created Workspace", async () => {
     mocks.client.list
-      .mockResolvedValueOnce([teamWorkspace])
-      .mockResolvedValueOnce([teamWorkspace, productWorkspace]);
+      .mockResolvedValueOnce([teamWorkspace, generalWorkspace])
+      .mockResolvedValueOnce([teamWorkspace, productWorkspace, generalWorkspace]);
+    mocks.client.create.mockResolvedValue(productWorkspace);
 
     renderProvider();
     await waitFor(() => expect(screen.getByTestId("workspace-state")).toHaveTextContent("Team Knowledge"));
@@ -447,14 +460,14 @@ describe("WorkspaceProvider", () => {
   });
 
   it("registers an authorized Workspace discovered by search before selecting it", async () => {
-    mocks.client.list.mockResolvedValue([teamWorkspace]);
+    mocks.client.list.mockResolvedValue([teamWorkspace, generalWorkspace]);
     renderProvider();
     await waitFor(() => expect(screen.getByTestId("workspace-state")).toHaveTextContent("Team Knowledge"));
 
     fireEvent.click(screen.getByRole("button", { name: "Select discovered" }));
 
     expect(screen.getByTestId("workspace-state")).toHaveTextContent("Discovered Workspace");
-    expect(screen.getByTestId("workspace-count")).toHaveTextContent("2");
+    expect(screen.getByTestId("workspace-count")).toHaveTextContent("3");
     expect(window.localStorage.getItem("claw.selectedWorkspace.v1:user-1")).toBe("workspace-discovered");
   });
 

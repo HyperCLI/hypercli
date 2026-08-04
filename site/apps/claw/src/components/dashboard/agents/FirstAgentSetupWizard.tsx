@@ -23,6 +23,7 @@ import type { SlotInventory } from "@/lib/format";
 import { formatTokens } from "@/lib/format";
 import { getOpenClawDefaultImage } from "@/lib/openclaw-launch";
 import { parseAgentCapacityError } from "@/lib/agent-tier";
+import { generateAgentName } from "@/lib/agent-name";
 import {
   hasPlanWord,
   isFiveAiuPlan,
@@ -68,6 +69,13 @@ export interface FirstAgentSetupCreateParams {
   enableDesktop: boolean;
   enableMemoryIndex?: boolean;
   customImage?: string | null;
+  knowledgeDomainId: string | null;
+}
+
+export interface KnowledgeDomainOption {
+  id: string;
+  name: string;
+  role: string | null;
 }
 
 interface FirstAgentSetupWizardProps {
@@ -103,6 +111,8 @@ interface FirstAgentSetupWizardProps {
   onStartFresh?: () => void;
   draftPrincipalId?: string | null;
   draftWorkspaceId?: string | null;
+  knowledgeDomains?: KnowledgeDomainOption[];
+  knowledgeDomainsLoading?: boolean;
   size?: "default" | "embedded" | "inline" | "large";
 }
 
@@ -140,43 +150,6 @@ const stepCopy: Record<WizardStepId, { title: string; subtitle: string }> = {
 };
 
 const steps: WizardStepId[] = ["identity", "workspace", "plan"];
-const agentNameFirstWords = [
-  "bright",
-  "clear",
-  "fresh",
-  "rapid",
-  "solar",
-  "quiet",
-  "prime",
-  "silver",
-  "steady",
-  "swift",
-];
-const agentNameSecondWords = [
-  "atlas",
-  "beam",
-  "forge",
-  "harbor",
-  "matrix",
-  "orbit",
-  "pilot",
-  "signal",
-  "vector",
-  "window",
-];
-const agentNameThirdWords = [
-  "anchor",
-  "bridge",
-  "engine",
-  "field",
-  "garden",
-  "lab",
-  "node",
-  "studio",
-  "tower",
-  "works",
-];
-const blockedAgentNameWords = new Set(["signal"]);
 
 type LaunchPlanAction = "launch" | "plans";
 
@@ -655,28 +628,6 @@ function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-function randomIndex(max: number): number {
-  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
-    const values = new Uint32Array(1);
-    crypto.getRandomValues(values);
-    return values[0] % max;
-  }
-  return Math.floor(Math.random() * max);
-}
-
-function pickAgentNameWord(words: string[]): string {
-  const allowedWords = words.filter((word) => !blockedAgentNameWords.has(word.toLowerCase()));
-  const pool = allowedWords.length > 0 ? allowedWords : words;
-  return pool[randomIndex(pool.length)] ?? "agent";
-}
-
-function generateAgentName(): string {
-  const first = pickAgentNameWord(agentNameFirstWords);
-  const second = pickAgentNameWord(agentNameSecondWords);
-  const third = pickAgentNameWord(agentNameThirdWords);
-  return `${first}-${second}-${third}`;
-}
-
 function agentUrlSlug(name: string): string {
   const normalized = name
     .normalize("NFKD")
@@ -897,6 +848,8 @@ export function FirstAgentSetupWizard({
   onStartFresh,
   draftPrincipalId = null,
   draftWorkspaceId = null,
+  knowledgeDomains = [],
+  knowledgeDomainsLoading = false,
   size = "default",
 }: FirstAgentSetupWizardProps) {
   const [restoredDraft] = React.useState(() => {
@@ -921,6 +874,7 @@ export function FirstAgentSetupWizard({
   const [enableCustomImage, setEnableCustomImage] = React.useState(restoredDraft?.enableCustomImage ?? false);
   const [customImage, setCustomImage] = React.useState(restoredDraft?.customImage ?? "");
   const [customImageEdited, setCustomImageEdited] = React.useState(Boolean(restoredDraft?.customImage));
+  const [knowledgeDomainId, setKnowledgeDomainId] = React.useState<string | null>(restoredDraft?.knowledgeDomainId ?? null);
   const [advancedOpen, setAdvancedOpen] = React.useState(true);
   const [bootstrapDraft, setBootstrapDraft] = React.useState<OpenClawBootstrapDraft>(() => (
     restoredDraft?.bootstrapDraft ?? createOpenClawBootstrapDraft(restoredDraft?.name ?? "Your agent")
@@ -1111,6 +1065,7 @@ export function FirstAgentSetupWizard({
       customImage: enableCustomImage ? effectiveCustomImage.trim() : "",
       principalId: draftPrincipalId,
       workspaceId: draftWorkspaceId,
+      knowledgeDomainId,
       bootstrapDraft,
     });
   }, [
@@ -1123,6 +1078,7 @@ export function FirstAgentSetupWizard({
     enableDesktop,
     enableMemoryIndex,
     initialPlanId,
+    knowledgeDomainId,
     restoredDraft?.plan,
     restoredDraft?.size,
     selectedCatalogPlanId,
@@ -1284,6 +1240,7 @@ export function FirstAgentSetupWizard({
         enableDesktop,
         enableMemoryIndex,
         customImage: selectedCustomImage,
+        knowledgeDomainId,
       });
       if (createdId && typeof window !== "undefined") {
         clearFirstAgentSetupDraft();
@@ -1569,6 +1526,34 @@ export function FirstAgentSetupWizard({
                       );
                     })}
                   </div>
+                </div>
+
+                <div className={largePresentation ? "mt-[clamp(1.5rem,4vw,3rem)]" : "mt-4"}>
+                  <label htmlFor="first-agent-knowledge-domain" className={cx("block font-semibold leading-tight text-foreground", largePresentation ? "text-[clamp(0.9375rem,1.7vw,1.25rem)]" : "text-[13px]")}>Initial Knowledge Domain</label>
+                  <div className={cx("relative", largePresentation ? "mt-3" : "mt-2")}>
+                    <select
+                      id="first-agent-knowledge-domain"
+                      value={knowledgeDomainId ?? ""}
+                      onChange={(event) => setKnowledgeDomainId(event.target.value || null)}
+                      disabled={knowledgeDomainsLoading}
+                      className={cx(
+                        "peer w-full appearance-none border border-border bg-background text-foreground outline-none transition-colors focus:border-border-strong focus-visible:ring-2 focus-visible:ring-selection-accent/40 disabled:cursor-wait disabled:opacity-60",
+                        largePresentation ? "h-[clamp(3rem,5.4vw,4rem)] rounded-[18px] pl-4 pr-14 text-[clamp(0.9375rem,1.7vw,1.125rem)]" : "h-10 rounded-[10px] pl-3 pr-10 text-[13px]",
+                      )}
+                    >
+                      <option value="">{knowledgeDomainsLoading ? "Loading Domains..." : "No Domain"}</option>
+                      {knowledgeDomains.map((domain) => (
+                        <option key={domain.id} value={domain.id} disabled={domain.role?.toLowerCase() !== "admin"}>
+                          {domain.name}{domain.role?.toLowerCase() === "admin" ? "" : " (admin access required)"}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown aria-hidden className={cx(
+                      "pointer-events-none absolute top-1/2 -translate-y-1/2 text-text-muted transition-colors peer-focus:text-foreground peer-disabled:opacity-60",
+                      largePresentation ? "right-5 h-5 w-5" : "right-3 h-4 w-4",
+                    )} />
+                  </div>
+                  <p className={cx("text-text-muted", largePresentation ? "mt-2 text-[13px] leading-5" : "mt-1.5 text-[11px] leading-4")}>Assign only the business knowledge this agent needs. You can change Domain access later.</p>
                 </div>
 
                 <details

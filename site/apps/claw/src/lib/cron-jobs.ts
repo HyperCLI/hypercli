@@ -32,6 +32,19 @@ function firstString(...values: unknown[]): string {
   return "";
 }
 
+function firstTimestamp(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim()) {
+      const numeric = Number(value);
+      if (Number.isFinite(numeric)) return numeric;
+      const parsed = Date.parse(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return undefined;
+}
+
 export function cronScheduleLabel(value: unknown): string {
   if (typeof value === "string") return value;
   const schedule = asRecord(value);
@@ -86,18 +99,27 @@ export function cronSessionTargetKey(value: unknown): string {
 
 export function normalizeCronJob(value: unknown): CronJob {
   const entry = asRecord(value) ?? {};
+  const scheduleEntry = asRecord(entry.schedule);
+  const stateEntry = asRecord(entry.state);
   const name = firstString(entry.name, entry.description);
   const command = firstString(entry.command, entry.prompt, cronPayloadMessage(entry.payload));
-  const lastRun = typeof entry.lastRun === "number"
-    ? entry.lastRun
-    : typeof entry.last_run === "number"
-      ? entry.last_run
-      : undefined;
-  const nextRun = typeof entry.nextRun === "number"
-    ? entry.nextRun
-    : typeof entry.next_run === "number"
-      ? entry.next_run
-      : undefined;
+  const lastRun = firstTimestamp(
+    entry.lastRun,
+    entry.last_run,
+    entry.lastRunAtMs,
+    entry.last_run_at_ms,
+    stateEntry?.lastRunAtMs,
+    stateEntry?.last_run_at_ms,
+  );
+  const nextRun = firstTimestamp(
+    entry.nextRun,
+    entry.next_run,
+    entry.nextRunAtMs,
+    entry.next_run_at_ms,
+    stateEntry?.nextRunAtMs,
+    stateEntry?.next_run_at_ms,
+  );
+  const timezone = firstString(scheduleEntry?.tz, scheduleEntry?.timezone, entry.timezone, entry.time_zone);
 
   return {
     id: typeof entry.id === "string" ? entry.id : String(entry.id ?? ""),
@@ -110,5 +132,6 @@ export function normalizeCronJob(value: unknown): CronJob {
     enabled: entry.enabled !== false,
     lastRun,
     nextRun,
+    ...(timezone ? { timezone } : {}),
   };
 }

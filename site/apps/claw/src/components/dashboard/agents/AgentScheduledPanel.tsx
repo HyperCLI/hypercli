@@ -8,6 +8,7 @@ import { getAgentGatewayPanelBootStatus } from "@/components/dashboard/agents/ch
 import { TabLoadingState } from "@/components/dashboard/agents/page-helpers";
 import type { CronJob } from "@/components/dashboard/agentViewTypes";
 import { buildCronJobInput, type CronJobInput } from "@/lib/cron-jobs";
+import { humanizeCronSchedule, isValidCronExpression, nextCronOccurrences } from "@/lib/cron-schedule";
 import { fallbackOpenClawSessionDisplayName, sameOpenClawSelectableSessionKey } from "@/lib/openclaw-session-sdk-surface";
 
 export interface ScheduledSessionOption {
@@ -144,124 +145,6 @@ function cronFromNaturalLanguage(value: string): string | null {
   }
 
   return null;
-}
-
-function expandCronField(value: string, min: number, max: number): number[] | null {
-  if (value === "*") return Array.from({ length: max - min + 1 }, (_, index) => min + index);
-
-  const output = new Set<number>();
-  for (const part of value.split(",")) {
-    let match = part.match(/^\*\/(\d+)$/);
-    if (match) {
-      const step = Number(match[1]);
-      if (!Number.isFinite(step) || step <= 0) return null;
-      for (let current = min; current <= max; current += step) output.add(current);
-      continue;
-    }
-
-    match = part.match(/^(\d+)-(\d+)(?:\/(\d+))?$/);
-    if (match) {
-      const start = Number(match[1]);
-      const end = Number(match[2]);
-      const step = Number(match[3] ?? "1");
-      if (start < min || end > max || start > end || step <= 0) return null;
-      for (let current = start; current <= end; current += step) output.add(current);
-      continue;
-    }
-
-    match = part.match(/^(\d+)$/);
-    if (match) {
-      const item = Number(match[1]);
-      if (item < min || item > max) return null;
-      output.add(item);
-      continue;
-    }
-
-    return null;
-  }
-
-  return [...output].sort((left, right) => left - right);
-}
-
-function parseCronExpression(value: string): {
-  minute: number[];
-  hour: number[];
-  dom: number[];
-  month: number[];
-  dow: number[];
-  raw: string[];
-} | null {
-  const parts = value.trim().split(/\s+/);
-  if (parts.length !== 5) return null;
-  const minute = expandCronField(parts[0] ?? "", 0, 59);
-  const hour = expandCronField(parts[1] ?? "", 0, 23);
-  const dom = expandCronField(parts[2] ?? "", 1, 31);
-  const month = expandCronField(parts[3] ?? "", 1, 12);
-  const dow = expandCronField(parts[4] ?? "", 0, 7)?.map((day) => (day === 7 ? 0 : day));
-  if (!minute || !hour || !dom || !month || !dow) return null;
-  return { minute, hour, dom, month, dow: [...new Set(dow)].sort((left, right) => left - right), raw: parts };
-}
-
-function timeLabel(hour: number, minute: number): string {
-  const meridiem = hour >= 12 ? "pm" : "am";
-  const displayHour = ((hour + 11) % 12) + 1;
-  return `${displayHour}:${minute.toString().padStart(2, "0")} ${meridiem}`;
-}
-
-function humanizeCron(value: string): string | null {
-  const parsed = parseCronExpression(value);
-  if (!parsed) return null;
-  const everyMinute = parsed.minute.length === 60;
-  const singleMinute = parsed.minute.length === 1;
-  const everyHour = parsed.hour.length === 24;
-  const singleHour = parsed.hour.length === 1;
-  const everyDom = parsed.dom.length === 31;
-  const everyMonth = parsed.month.length === 12;
-  const everyDow = parsed.dow.length === 7;
-  const weekdays = parsed.dow.length === 5 && parsed.dow.every((day, index) => day === index + 1);
-  const weekends = parsed.dow.length === 2 && parsed.dow.includes(0) && parsed.dow.includes(6);
-
-  let time = "custom schedule";
-  if (singleMinute && singleHour) {
-    time = `at ${timeLabel(parsed.hour[0] ?? 0, parsed.minute[0] ?? 0)}`;
-  } else if (singleMinute && everyHour) {
-    time = (parsed.minute[0] ?? 0) === 0 ? "every hour" : `${parsed.minute[0]} minutes past every hour`;
-  } else if (everyMinute && everyHour) {
-    time = "every minute";
-  } else {
-    const step = parsed.raw[0]?.match(/^\*\/(\d+)$/);
-    if (step) time = `every ${step[1]} minutes`;
-  }
-
-  if (everyDom && everyMonth && everyDow) return time;
-  if (weekdays && everyDom && everyMonth) return `${time}, weekdays`;
-  if (weekends && everyDom && everyMonth) return `${time}, weekends`;
-  if (!everyDow && everyDom && everyMonth) return `${time}, on ${parsed.dow.map((day) => DOW_NAMES[day] ?? "Sun").join(", ")}`;
-  if (parsed.dom.length === 1 && everyDow) return `${time}, on day ${parsed.dom[0]} of the month`;
-  return time;
-}
-
-function nextRuns(value: string, count = 5): Date[] {
-  const parsed = parseCronExpression(value);
-  if (!parsed) return [];
-  const output: Date[] = [];
-  let cursor = new Date(Date.now() + 60_000);
-  cursor.setSeconds(0, 0);
-
-  for (let index = 0; output.length < count && index < 60 * 24 * 366; index += 1) {
-    if (
-      parsed.minute.includes(cursor.getMinutes()) &&
-      parsed.hour.includes(cursor.getHours()) &&
-      parsed.dom.includes(cursor.getDate()) &&
-      parsed.month.includes(cursor.getMonth() + 1) &&
-      parsed.dow.includes(cursor.getDay())
-    ) {
-      output.push(new Date(cursor));
-    }
-    cursor = new Date(cursor.getTime() + 60_000);
-  }
-
-  return output;
 }
 
 function dayStart(value: Date): number {
@@ -422,12 +305,13 @@ export function AgentScheduledPanel({
   const [deleteJob, setDeleteJob] = React.useState<CronJob | null>(null);
   const [deleting, setDeleting] = React.useState(false);
   const [sessionPickerOpen, setSessionPickerOpen] = React.useState(false);
+  const [previewAnchor] = React.useState(() => Date.now());
   const noticeTimeoutRef = React.useRef<number | null>(null);
   const sessionPickerRef = React.useRef<HTMLDivElement | null>(null);
-  const parsedCron = React.useMemo(() => parseCronExpression(draft.schedule), [draft.schedule]);
+  const parsedCron = React.useMemo(() => isValidCronExpression(draft.schedule), [draft.schedule]);
   const inferredSchedule = React.useMemo(() => cronFromNaturalLanguage(draft.command), [draft.command]);
-  const previewRuns = React.useMemo(() => nextRuns(draft.schedule, 5), [draft.schedule]);
-  const humanSchedule = React.useMemo(() => humanizeCron(draft.schedule), [draft.schedule]);
+  const previewRuns = React.useMemo(() => nextCronOccurrences(draft.schedule, 5, previewAnchor).map((timestamp) => new Date(timestamp)), [draft.schedule, previewAnchor]);
+  const humanSchedule = React.useMemo(() => humanizeCronSchedule(draft.schedule), [draft.schedule]);
   const runPrompt = deriveRunPrompt(draft.command);
   const selectedSessionLabel = sessionLabel(normalizedSessionOptions, draft.targetSessionKey);
   const selectedSessionIndex = normalizedSessionOptions.findIndex((option) => sameOpenClawSelectableSessionKey(option.key, draft.targetSessionKey));

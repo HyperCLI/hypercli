@@ -464,6 +464,32 @@ describe("openclaw session keys", () => {
     ]);
   });
 
+  it("appends canonical stream chunks even when a chunk repeats the current prefix", () => {
+    let messages: ChatMessage[] = [];
+    const setMessages = vi.fn((value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+      messages = typeof value === "function" ? value(messages) : value;
+    });
+    const context = {
+      setMessages,
+      setSending: vi.fn(),
+      appendActivity: vi.fn(),
+    };
+
+    for (const text of ["ha", "ha!"]) {
+      handleOpenClawChatStreamEvent({
+        ...context,
+        chatEvent: { type: "content", text } as any,
+      });
+    }
+
+    expect(messages).toEqual([
+      expect.objectContaining({
+        role: "assistant",
+        content: "haha!",
+      }),
+    ]);
+  });
+
   it("applies stream replacements to one identified assistant render row", () => {
     let messages: ChatMessage[] = [];
     const setMessages = vi.fn((value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {

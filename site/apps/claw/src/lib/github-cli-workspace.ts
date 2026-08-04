@@ -68,17 +68,18 @@ const PROGRESS_PHASES = new Set<GitHubAgentSetupPhase>(["checking", "installing"
 const GITHUB_SETUP_MARKER_RE = /@@hypercli\.ui-action\/v1\s+integration\.github\.(?:progress|device-code|ready|failed)\b/i;
 const GITHUB_SETUP_DISPLAY_PROMPT = "Set up GitHub in this workspace.";
 const GITHUB_VERIFY_DISPLAY_PROMPT = "Check GitHub connection in this workspace.";
-const GITHUB_SETUP_CHATTER_PATTERNS = [
-  /\bgh\s+is\s+missing\b/i,
-  /\binstalling\b.{0,100}\bGitHub CLI\b/i,
-  /\bofficial\s+GitHub CLI\s+release\b/i,
-  /\bDebian\s+12\s+\(bookworm\)\s+x86_64\b/i,
-  /\bAuthenticated!\b/i,
+const GITHUB_SETUP_STATUS_PATTERNS = [
+  /\b(?:installing|downloading)\b.{0,100}\bGitHub CLI\b/i,
+  /\bGitHub CLI\b.{0,100}\b(?:installed|installation completed|downloaded)\b/i,
+  /\bgh\s+is\s+missing\b.{0,120}\b(?:install|download|GitHub CLI)\b/i,
   /\bgh\s+auth\s+login\s+process\s+completed\s+successfully\b/i,
-  /\bLet\s+me\s+verify\b/i,
-  /\bstandard\s+checks\b/i,
-  /\bgh\s+auth\s+status\b/i,
-  /\bgh\s+api\s+user\s+--jq\s+\.login\b/i,
+  /\b(?:Authenticated to|Logged in to)\s+github\.com\s+(?:account\s+|as\s+)?[A-Za-z0-9-]+\b/i,
+  /\bGitHub CLI authentication\s+(?:(?:is|was|has been)\s+)?(?:ready|complete|completed|successful|waiting|failed|expired|denied)\b/i,
+  /\bGitHub setup\s+(?:is\s+)?(?:in progress|complete|ready|waiting for (?:device )?authorization|failed)\b/i,
+  /\b(?:checking|verifying)\b.{0,80}\bGitHub(?: CLI)?\s+(?:authentication|auth|connection)\b/i,
+  /\b(?:starting|waiting for)\s+GitHub\s+(?:device\s+)?authorization\b/i,
+  /\bsetting up\s+GitHub CLI(?: authentication)?\s+in this workspace\b/i,
+  /\bGitHub is ready in this workspace\b/i,
 ];
 
 export function isManagedGitHubAuthUnsupportedError(cause: unknown): boolean {
@@ -106,14 +107,16 @@ function isGitHubRelevantTool(name: string, args: string, result = ""): boolean 
 
 function isGitHubSetupToolCall(name: string, args: string, result = ""): boolean {
   const haystack = `${name}\n${args}\n${result}`.toLowerCase();
-  if (haystack.includes("github.com/login/device") || DEVICE_CODE_RE.test(`${args}\n${result}`)) return true;
+  const hasInstallAction = /\b(?:curl|download|extract|install|tar|wget)\b/.test(haystack);
+  if (haystack.includes("github.com/login/device") && DEVICE_CODE_RE.test(`${args}\n${result}`)) return true;
   if (/\bgh\s+auth\s+(?:login|status)\b/.test(haystack)) return true;
   if (/\bgh\s+api\s+user\b/.test(haystack)) return true;
-  if (/\b(?:command\s+-v|which)\s+gh\b/.test(haystack) || /\bgh\s+--version\b/.test(haystack)) return true;
-  if (haystack.includes("github.com/cli/cli") || haystack.includes("cli.github.com")) return true;
+  if (/\b(?:command\s+-v|which)\s+gh\b/.test(haystack) && /\bgh\s+--version\b/.test(haystack)) return true;
+  if ((haystack.includes("github.com/cli/cli") || haystack.includes("cli.github.com")) && hasInstallAction) return true;
   if (haystack.includes("github cli") && /\b(?:install|download|release|tarball)\b/.test(haystack)) return true;
-  if (haystack.includes(".local/bin") && /\bgh\b/.test(haystack)) return true;
-  if (/\b(?:apt(?:-get)?|dnf|yum|apk)\s+[^\n]*\bgh\b/.test(haystack)) return true;
+  if (haystack.includes(".local/bin") && /\bgh\b/.test(haystack) && hasInstallAction) return true;
+  if (/\b(?:apt(?:-get)?|dnf|yum)\s+install\b[^\n]*\bgh\b/.test(haystack)) return true;
+  if (/\bapk\s+add\b[^\n]*\bgh\b/.test(haystack)) return true;
   return false;
 }
 
@@ -157,14 +160,11 @@ function extractGitHubLoginFromText(text: string, args = ""): string | undefined
 function isGitHubSetupAssistantContent(content: string): boolean {
   const trimmed = content.trim();
   if (!trimmed) return false;
+  if (isGitHubSetupPromptContent(trimmed)) return true;
   if (GITHUB_SETUP_MARKER_RE.test(trimmed)) return true;
   if (DEVICE_URL_RE.test(trimmed) && DEVICE_CODE_RE.test(trimmed)) return true;
-  if (/\bSet up GitHub CLI\b/i.test(trimmed) || /\bGitHub CLI authentication\b/i.test(trimmed)) return true;
-  if (/\bGitHub setup\b.{0,120}\b(?:agent|workspace|device|auth|authorization)\b/i.test(trimmed)) return true;
-  if (/\bLogged in to github\.com account\b/i.test(trimmed)) return true;
-  if (/\bGitHub is ready in this workspace\b/i.test(trimmed)) return true;
-  if (GITHUB_SETUP_CHATTER_PATTERNS.some((pattern) => pattern.test(trimmed))) return true;
-  return false;
+  if (/\bgh\s+auth\s+status\b/i.test(trimmed) && /\bgh\s+api\s+user\s+--jq\s+\.login\b/i.test(trimmed)) return true;
+  return GITHUB_SETUP_STATUS_PATTERNS.some((pattern) => pattern.test(trimmed));
 }
 
 export function shouldHideGitHubAgentSetupMessage(message: ChatMessage): boolean {

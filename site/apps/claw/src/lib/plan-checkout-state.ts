@@ -36,6 +36,7 @@ export interface PendingPlanCheckout {
   flow?: "first-agent-setup";
   setupId?: string;
   workspaceId?: string;
+  knowledgeDomainId?: string | null;
   agentSize?: string;
 }
 
@@ -90,6 +91,13 @@ export function readPendingPlanCheckout(expectedPrincipalId?: string | null): Pe
         : {}),
       ...(typeof parsed.workspaceId === "string" && parsed.workspaceId.trim()
         ? { workspaceId: parsed.workspaceId.trim().slice(0, 100) }
+        : {}),
+      ...(parsed.flow === "first-agent-setup"
+        ? {
+            knowledgeDomainId: typeof parsed.knowledgeDomainId === "string" && parsed.knowledgeDomainId.trim()
+              ? parsed.knowledgeDomainId.trim().slice(0, 100)
+              : null,
+          }
         : {}),
       ...(typeof parsed.agentSize === "string" && parsed.agentSize.trim()
         ? { agentSize: parsed.agentSize.trim().slice(0, 40) }

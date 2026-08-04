@@ -113,8 +113,37 @@ describe("AgentMainPanel", () => {
 
     renderAgentMainPanel({ selectedAgent });
 
-    expect(screen.getByText("research-pilot")).toBeInTheDocument();
+    expect(screen.getByText("Research Pilot")).toBeInTheDocument();
     expect(screen.queryByText("research-agent")).not.toBeInTheDocument();
+  });
+
+  it("replaces agent chrome with a cross-cutting surface header", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({
+      name: "research-agent",
+      handle: "research-pilot",
+      managed: true,
+      state: "STOPPED",
+    }));
+
+    renderAgentMainPanel({
+      selectedAgent,
+      currentPanel: "knowledge-hub",
+      stoppedTabLabel: "Knowledge Hub",
+      panelContent: <div>Knowledge Hub content</div>,
+      surfaceHeader: { title: "Main Space", subtitle: "Knowledge Space", controlsTargetId: "knowledge-controls" },
+      headerAction: <button type="button">Private chat</button>,
+      sessionReturnTarget: { label: "Main session", onSelect: vi.fn() },
+    });
+
+    expect(screen.getByText("Main Space")).toBeInTheDocument();
+    expect(screen.getByText("Knowledge Space")).toBeInTheDocument();
+    expect(document.getElementById("knowledge-controls")).toBeInTheDocument();
+    expect(screen.getByText("Knowledge Hub content")).toBeInTheDocument();
+    expect(screen.queryByText("Research Pilot")).not.toBeInTheDocument();
+    expect(screen.queryByText("STOPPED")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit agent display name" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Private chat" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open Main session" })).not.toBeInTheDocument();
   });
 
   it("centers the chat header title and subtitle on the same axis", () => {
@@ -395,6 +424,37 @@ describe("AgentMainPanel", () => {
     expect(screen.getByText("Shared knowledge content")).toBeInTheDocument();
     expect(screen.queryByText("Loading agents")).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: /first agent empty state/i })).not.toBeInTheDocument();
+  });
+
+  it("renders Knowledge Hub before any account agent exists", () => {
+    renderAgentMainPanel({
+      selectedAgent: null,
+      hasAgents: false,
+      loadingInitialAgents: true,
+      currentPanel: "knowledge-hub",
+      stoppedTabLabel: "Knowledge Hub",
+      panelContent: <div>Knowledge Hub content</div>,
+      surfaceHeader: { title: "Main Space", subtitle: "Knowledge Space" },
+    });
+
+    expect(screen.getByText("Main Space")).toBeInTheDocument();
+    expect(screen.getByText("Knowledge Space")).toBeInTheDocument();
+    expect(screen.getByText("Knowledge Hub content")).toBeInTheDocument();
+    expect(screen.queryByText("Loading agents")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /first agent empty state/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps Knowledge Hub visible while the selected agent is starting", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "STARTING" }));
+    renderAgentMainPanel({
+      selectedAgent,
+      currentPanel: "knowledge-hub",
+      stoppedTabLabel: "Knowledge Hub",
+      panelContent: <div>Knowledge Hub content</div>,
+    });
+
+    expect(screen.getByText("Knowledge Hub content")).toBeInTheDocument();
+    expect(screen.queryByText("Booting agent")).not.toBeInTheDocument();
   });
 
   it("keeps members visible while the selected agent is starting", () => {

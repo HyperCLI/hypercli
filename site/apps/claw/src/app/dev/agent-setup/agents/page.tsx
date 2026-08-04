@@ -665,6 +665,7 @@ export default function DevAgentSetupAgentsPage() {
     files: "Files",
     integrations: "Integrations",
     skills: "Skills",
+    "knowledge-hub": "Knowledge Hub",
     knowledge: "Shared knowledge",
     members: "Members",
     scheduled: "Scheduled",

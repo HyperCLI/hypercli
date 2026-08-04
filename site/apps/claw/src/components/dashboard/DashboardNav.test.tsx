@@ -42,6 +42,10 @@ describe("DashboardNav", () => {
     expect(accountButton).not.toBeNull();
     fireEvent.click(accountButton!);
 
+    expect(screen.getByRole("link", { name: /knowledge hub/i })).toHaveAttribute(
+      "href",
+      "/dashboard/agents?section=knowledge-hub",
+    );
     expect(screen.getByRole("link", { name: /shared knowledge/i })).toHaveAttribute(
       "href",
       "/dashboard/agents?section=knowledge",

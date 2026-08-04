@@ -16,6 +16,7 @@ import {
   TerminalSquare,
   FolderOpen,
   HardDrive,
+  LibraryBig,
   Plug,
   Trash2,
   Loader2,
@@ -25,9 +26,10 @@ import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 import { ThemeSelector } from "@hypercli/shared-ui";
-import { ACCOUNT_PAGE_HREFS, DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
+import { ACCOUNT_PAGE_HREFS, DASHBOARD_VIEW_HREFS, KNOWLEDGE_HUB_HREF } from "@/lib/dashboard-route";
 
 const dropdownNavItems = [
+  { label: "Knowledge Hub", href: KNOWLEDGE_HUB_HREF, icon: LibraryBig, badge: "Preview" },
   { label: "Shared knowledge", href: "/dashboard/agents?section=knowledge", icon: HardDrive },
   { label: "Members", href: "/dashboard/agents?section=members", icon: UsersRound },
   { label: "API Keys", href: ACCOUNT_PAGE_HREFS.apiKeys, icon: Key },
@@ -129,6 +131,7 @@ export function DashboardNav() {
                         >
                           <Icon className="w-4 h-4" />
                           {item.label}
+                          {"badge" in item ? <span className="ml-auto rounded-full border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] px-1.5 py-0.5 text-[9px] font-semibold text-[var(--selection-accent)]">{item.badge}</span> : null}
                         </Link>
                       );
                     })}
@@ -214,6 +217,7 @@ export function DashboardNav() {
                       >
                         <Icon className="w-4 h-4" />
                         <span>{item.label}</span>
+                        {"badge" in item ? <span className="ml-auto rounded-full border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] px-1.5 py-0.5 text-[9px] font-semibold text-[var(--selection-accent)]">{item.badge}</span> : null}
                       </Link>
                     );
                   })}

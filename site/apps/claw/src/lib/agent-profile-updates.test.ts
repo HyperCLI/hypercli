@@ -89,9 +89,15 @@ describe("agent profile updates", () => {
       { id: "unknown-1", managed: null, name: "unknown" },
       "unknown",
     )).resolves.toEqual({ endpoint: "managed" });
+    await expect(persistAgentDisplayName(
+      client,
+      { id: "managed-2", managed: true, name: "managed" },
+      "Best One In The World",
+    )).resolves.toEqual({ endpoint: "managed" });
 
     expect(client.update).toHaveBeenNthCalledWith(1, "managed-1", { handle: "managed_alias" });
     expect(client.update).toHaveBeenNthCalledWith(2, "unknown-1", { handle: "unknown" });
+    expect(client.update).toHaveBeenNthCalledWith(3, "managed-2", { handle: "best-one-in-the-world" });
     expect(client.updateExternalAgent).not.toHaveBeenCalled();
   });
 
@@ -114,8 +120,8 @@ describe("agent profile updates", () => {
     await expect(persistAgentDisplayName(
       client,
       { id: "managed-1", managed: true, name: "managed" },
-      "Friendly Alias",
-    )).rejects.toThrow("Display names must start with a lowercase letter or number and contain 2-64 lowercase letters, numbers, underscores, or dashes.");
+      "Friendly Alias!",
+    )).rejects.toThrow("Display names must start with a letter or number and contain 2-64 letters, numbers, spaces, underscores, or dashes.");
     expect(client.update).not.toHaveBeenCalled();
     expect(client.updateExternalAgent).not.toHaveBeenCalled();
   });

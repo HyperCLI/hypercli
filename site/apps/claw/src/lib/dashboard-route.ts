@@ -1,14 +1,14 @@
 export const DASHBOARD_AGENTS_PATH = "/dashboard/agents";
+export const KNOWLEDGE_HUB_HREF = "/dashboard/agents?section=knowledge-hub";
 
-export type DashboardView = "overview" | "alt-home" | "usage" | "settings";
+export type DashboardView = "overview" | "usage" | "settings";
 
 export type DashboardSearchParams = Record<string, string | string[] | undefined>;
 
-const DASHBOARD_VIEWS = new Set<DashboardView>(["overview", "alt-home", "usage", "settings"]);
+const DASHBOARD_VIEWS = new Set<DashboardView>(["overview", "usage", "settings"]);
 
 export const DASHBOARD_VIEW_HREFS: Record<DashboardView, string> = {
   overview: `${DASHBOARD_AGENTS_PATH}?view=overview`,
-  "alt-home": `${DASHBOARD_AGENTS_PATH}?view=alt-home`,
   usage: `${DASHBOARD_AGENTS_PATH}?view=usage`,
   settings: `${DASHBOARD_AGENTS_PATH}?view=settings`,
 };
@@ -23,6 +23,21 @@ export function buildAgentLauncherHref(planId?: string | null): string {
   const params = new URLSearchParams({ open: "agent-launcher" });
   const normalizedPlanId = planId?.trim();
   if (normalizedPlanId) params.set("plan", normalizedPlanId);
+  return `${DASHBOARD_AGENTS_PATH}?${params.toString()}`;
+}
+
+export function buildKnowledgeHubHref(selection?: {
+  domainId?: string | null;
+  agentId?: string | null;
+  session?: string | null;
+}): string {
+  const params = new URLSearchParams({ section: "knowledge-hub" });
+  const domainId = selection?.domainId?.trim();
+  const agentId = selection?.agentId?.trim();
+  const session = selection?.session?.trim();
+  if (agentId) params.set("agentId", agentId);
+  if (session) params.set("session", session);
+  if (domainId) params.set("domainId", domainId);
   return `${DASHBOARD_AGENTS_PATH}?${params.toString()}`;
 }
 

@@ -67,6 +67,72 @@ describe("MarkdownContent", () => {
     expect(screen.getByRole("link", { name: "Open docs" })).toHaveAttribute("target", "_blank");
   });
 
+  it("keeps currency and shell variables as text while streaming and after settlement", () => {
+    const content = "The $119,334 estimated balance conflicts with $94k equity. Compare $HOME with $PATH.";
+    const { container, rerender } = render(<MarkdownContent content={content} isStreaming />);
+
+    expect(container).toHaveTextContent(content);
+    expect(container.querySelector(".katex")).not.toBeInTheDocument();
+
+    rerender(<MarkdownContent content={content} />);
+    expect(container).toHaveTextContent(content);
+    expect(container.querySelector(".katex")).not.toBeInTheDocument();
+  });
+
+  it("keeps shell and inline double-dollar prose literal while streaming and settled", () => {
+    const content = "Run echo $$ for the shell PID. Formula: $$E = mc^2$$.";
+    const { container, rerender } = render(<MarkdownContent content={content} isStreaming />);
+
+    expect(container).toHaveTextContent(content);
+    expect(container.querySelector(".katex")).not.toBeInTheDocument();
+
+    rerender(<MarkdownContent content={content} />);
+    expect(container).toHaveTextContent(content);
+    expect(container.querySelector(".katex")).not.toBeInTheDocument();
+  });
+
+  it("keeps unclosed flow math literal while streaming and settled", () => {
+    const content = "$$\nE = mc^2";
+    const { container, rerender } = render(<MarkdownContent content={content} isStreaming />);
+
+    expect(container).toHaveTextContent("$$ E = mc^2");
+    expect(container.querySelector(".katex")).not.toBeInTheDocument();
+    expect(container.querySelectorAll("br")).toHaveLength(1);
+
+    rerender(<MarkdownContent content={content} />);
+    expect(container).toHaveTextContent("$$ E = mc^2");
+    expect(container.querySelector(".katex")).not.toBeInTheDocument();
+    expect(container.querySelectorAll("br")).toHaveLength(1);
+  });
+
+  it("renders only closed standalone multiline double-dollar blocks as math", () => {
+    const content = ["$$", "E = mc^2", "$$"].join("\n");
+    const { container, rerender } = render(<MarkdownContent content={content} isStreaming />);
+
+    expect(container.querySelector(".katex-display .katex")).toBeInTheDocument();
+
+    rerender(<MarkdownContent content={content} />);
+    expect(container.querySelector(".katex-display .katex")).toBeInTheDocument();
+  });
+
+  it("does not pair single tildes across prose", () => {
+    const content = "10~20 and 30~40";
+    const { container, rerender } = render(<MarkdownContent content={content} isStreaming />);
+
+    expect(container.textContent).toBe(content);
+    expect(container.querySelector("del")).not.toBeInTheDocument();
+
+    rerender(<MarkdownContent content={content} />);
+    expect(container.textContent).toBe(content);
+    expect(container.querySelector("del")).not.toBeInTheDocument();
+  });
+
+  it("still renders explicit double-tilde strikethrough", () => {
+    const { container } = render(<MarkdownContent content="Keep ~~obsolete~~ archived." isStreaming />);
+
+    expect(container.querySelector("del")).toHaveTextContent("obsolete");
+  });
+
   it("preserves single line breaks in streamed and settled chat text", () => {
     const content = "First line\nSecond line\nThird line";
     const { container, rerender } = render(<MarkdownContent content={content} isStreaming />);
@@ -115,51 +181,69 @@ describe("MarkdownContent", () => {
     expect(screen.getAllByRole("checkbox")[0]).toBeChecked();
   });
 
-  it("keeps incomplete streamed emphasis structurally stable until its closing marker arrives", () => {
+  it.each([
+    "arr[0",
+    "[0, 1",
+    "_DEBUG",
+    "rm *.log",
+    "src/**/test.ts",
+    "cat <input.txt",
+  ])("preserves ambiguous source exactly while streaming and settled: %s", (content) => {
+    const { container, rerender } = render(<MarkdownContent content={content} isStreaming />);
+
+    expect(container.textContent).toBe(content);
+
+    rerender(<MarkdownContent content={content} />);
+    expect(container.textContent).toBe(content);
+  });
+
+  it("keeps incomplete streamed strong emphasis literal until its closing marker arrives", () => {
     const { container, rerender } = render(
       <MarkdownContent content="This is **bold te" isStreaming />,
     );
-    const strong = screen.getByText("bold te");
 
-    expect(strong.tagName).toBe("STRONG");
-    expect(container).not.toHaveTextContent("**");
+    expect(container.textContent).toBe("This is **bold te");
+    expect(container.querySelector("strong")).not.toBeInTheDocument();
 
     rerender(
       <MarkdownContent content="This is **bold text that continues" isStreaming />,
     );
-    expect(screen.getByText("bold text that continues")).toBe(strong);
+    expect(container.textContent).toBe("This is **bold text that continues");
+    expect(container.querySelector("strong")).not.toBeInTheDocument();
 
     rerender(
       <MarkdownContent content="This is **bold text that continues**" isStreaming />,
     );
-    expect(screen.getByText("bold text that continues")).toBe(strong);
+    expect(container.querySelector("strong")).toHaveTextContent("bold text that continues");
     expect(container).not.toHaveTextContent("**");
   });
 
-  it("repairs a single-asterisk emphasis span across cumulative stream updates", () => {
-    const { rerender } = render(
+  it("keeps incomplete streamed emphasis literal until its closing marker arrives", () => {
+    const { container, rerender } = render(
       <MarkdownContent content="This is *a partial sentence" isStreaming />,
     );
-    const emphasis = screen.getByText("a partial sentence");
 
-    expect(emphasis.tagName).toBe("EM");
+    expect(container.textContent).toBe("This is *a partial sentence");
+    expect(container.querySelector("em")).not.toBeInTheDocument();
 
     rerender(
       <MarkdownContent content="This is *a partial sentence that continues" isStreaming />,
     );
-    expect(screen.getByText("a partial sentence that continues")).toBe(emphasis);
+    expect(container.textContent).toBe("This is *a partial sentence that continues");
+    expect(container.querySelector("em")).not.toBeInTheDocument();
 
     rerender(
       <MarkdownContent content="This is *a partial sentence that continues*" isStreaming />,
     );
-    expect(screen.getByText("a partial sentence that continues")).toBe(emphasis);
+    expect(container.querySelector("em")).toHaveTextContent("a partial sentence that continues");
   });
 
-  it("recomputes streaming repairs from replacements and flushes exact malformed source when settled", () => {
+  it("recomputes streaming source from replacements and keeps malformed settled source exact", () => {
     const { container, rerender } = render(
       <MarkdownContent content="Before **partial" isStreaming />,
     );
-    expect(container.querySelector("strong")).toHaveTextContent("partial");
+    expect(container.querySelector("strong")).not.toBeInTheDocument();
+    expect(container.textContent).toBe("Before **partial");
 
     rerender(<MarkdownContent content="Replacement without formatting" isStreaming />);
     expect(container.querySelector("strong")).not.toBeInTheDocument();
@@ -171,14 +255,13 @@ describe("MarkdownContent", () => {
     expect(container).toHaveTextContent("Final **unfinished");
   });
 
-  it("keeps incomplete streamed links inert and suppresses incomplete images", () => {
+  it("keeps incomplete streamed links and images inert without dropping their source", () => {
     const { container, rerender } = render(
       <MarkdownContent content="Read [the docs](https://exam" isStreaming />,
     );
 
-    expect(container).toHaveTextContent("Read the docs");
+    expect(container.textContent).toBe("Read [the docs](https://exam");
     expect(screen.queryByRole("link", { name: "the docs" })).not.toBeInTheDocument();
-    expect(container).not.toHaveTextContent("https://exam");
 
     rerender(
       <MarkdownContent content="Read [the docs](https://example.com)" isStreaming />,
@@ -189,7 +272,7 @@ describe("MarkdownContent", () => {
       <MarkdownContent content="Preview: ![generated image](https://exam" isStreaming />,
     );
     expect(screen.queryByRole("img", { name: "generated image" })).not.toBeInTheDocument();
-    expect(container).not.toHaveTextContent("https://exam");
+    expect(container.textContent).toBe("Preview: ![generated image](https://exam");
   });
 
   it("wraps long markdown content instead of enabling horizontal scroll", () => {
@@ -237,6 +320,29 @@ describe("MarkdownContent", () => {
     expect(container.querySelector("pre code")).toHaveTextContent("return value;");
     expect(container.querySelector('[style*="border-left"]')).toBeInTheDocument();
     expect(container.querySelector("pre code")).toHaveStyle({ color: "var(--foreground)" });
+  });
+
+  it("does not close a code fence when the marker has trailing text", () => {
+    const content = [
+      "```text",
+      "first line",
+      "``` trailing text",
+      "second line",
+      "```",
+    ].join("\n");
+    const { container } = render(<MarkdownContent content={content} />);
+
+    expect(container.querySelectorAll("pre code")).toHaveLength(1);
+    expect(container.querySelector("pre code")).toHaveTextContent("first line ``` trailing text second line");
+  });
+
+  it("preserves a literal first code line that begins with the metadata marker", () => {
+    const firstLine = "__OPENCLAW_CODE_META__:literal source";
+    const { container } = render(
+      <MarkdownContent content={["```text", firstLine, "second line", "```"].join("\n")} />,
+    );
+
+    expect(container.querySelector("pre code")).toHaveTextContent(`${firstLine} second line`);
   });
 
   it("copies the exact contents of each generated code block", async () => {
@@ -701,11 +807,12 @@ describe("MarkdownContent", () => {
 
   it("waits for streamed progress markup to close", () => {
     const complete = '<progress value="45" max="100">45%</progress>';
+    const incomplete = complete.slice(0, -11);
     const { container, rerender } = render(
-      <MarkdownContent content={complete.slice(0, -11)} isStreaming />,
+      <MarkdownContent content={incomplete} isStreaming />,
     );
     expect(container.querySelector("progress")).not.toBeInTheDocument();
-    expect(container).not.toHaveTextContent("45%");
+    expect(container.textContent).toBe(incomplete);
 
     rerender(<MarkdownContent content={complete} isStreaming />);
     expect(screen.getByRole("progressbar", { name: "45% complete" })).toBeInTheDocument();
@@ -779,12 +886,30 @@ describe("MarkdownContent", () => {
     expect(container.querySelector("pre code")).toHaveTextContent("<svg");
   });
 
-  it("ignores raw HTML while rendering markdown syntax", () => {
-    render(
+  it.each([
+    "Promise<T>",
+    "git checkout <branch>",
+    "x<y>z",
+    "<widget>literal</widget>",
+    "Never use <script> in chat.",
+  ])("renders unsupported or unmatched angle-bracket prose literally: %s", (content) => {
+    const { container, rerender } = render(<MarkdownContent content={content} isStreaming />);
+
+    expect(container.textContent).toBe(content);
+    expect(container.querySelector("script")).not.toBeInTheDocument();
+
+    rerender(<MarkdownContent content={content} />);
+    expect(container.textContent).toBe(content);
+    expect(container.querySelector("script")).not.toBeInTheDocument();
+  });
+
+  it("renders unsupported HTML literally while blocking complete active content", () => {
+    const { container } = render(
       <MarkdownContent content={'<h2>Raw heading</h2>\n\n**Markdown survives**\n\n<script>alert("x")</script>\n\n<iframe src="https://example.com"></iframe>'} />,
     );
 
     expect(screen.queryByRole("heading", { name: "Raw heading" })).not.toBeInTheDocument();
+    expect(container).toHaveTextContent("<h2>Raw heading</h2>");
     expect(screen.getByText("Markdown survives")).toHaveClass("font-semibold");
     expect(screen.queryByText(/alert\("x"\)/i)).not.toBeInTheDocument();
     expect(document.querySelector("iframe")).not.toBeInTheDocument();
@@ -943,13 +1068,12 @@ describe("MarkdownContent", () => {
     expect(key).not.toHaveAttribute("title");
   });
 
-  it("keeps streamed keyboard markup stable when the closing tag arrives", () => {
+  it("keeps incomplete keyboard markup literal until the closing tag arrives", () => {
     const { container, rerender } = render(<MarkdownContent content="Press <kbd>Ctrl" isStreaming />);
-    const key = container.querySelector("kbd");
-    expect(key).toHaveTextContent("Ctrl");
+    expect(container.querySelector("kbd")).not.toBeInTheDocument();
+    expect(container.textContent).toBe("Press <kbd>Ctrl");
 
     rerender(<MarkdownContent content="Press <kbd>Ctrl</kbd> + <kbd>C</kbd>" isStreaming />);
-    expect(container.querySelector("kbd")).toBe(key);
     expect(Array.from(container.querySelectorAll("kbd")).map((item) => item.textContent)).toEqual(["Ctrl", "C"]);
   });
 
@@ -1066,11 +1190,11 @@ describe("MarkdownContent", () => {
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Logo title");
   });
 
-  it("renders footnotes, abbreviations, and emoji shortcodes", async () => {
+  it("renders footnotes and abbreviations while keeping shortcodes literal and native emoji intact", async () => {
     const { container } = render(
       <MarkdownContent
         content={[
-          "The HTML parser ships with footnotes[^1] :rocket:.",
+          "The HTML parser ships with footnotes[^1] :rocket:. Native 🚀 stays.",
           "",
           "*[HTML]: HyperText Markup Language",
           "",
@@ -1084,9 +1208,20 @@ describe("MarkdownContent", () => {
     expect(abbreviation).not.toHaveAttribute("title");
     fireEvent.focus(abbreviation!);
     expect(await screen.findByRole("tooltip")).toHaveTextContent("HyperText Markup Language");
-    expect(screen.getByText(/🚀/)).toBeInTheDocument();
+    expect(screen.getByText(/:rocket:/)).toBeInTheDocument();
+    expect(screen.getByText(/Native 🚀 stays/)).toBeInTheDocument();
     expect(screen.getByText("Footnote detail.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "1" })).toHaveAttribute("href", "#user-content-fn-1");
+  });
+
+  it("preserves colon-delimited prose that resembles emoji shortcodes", () => {
+    const content = "Status:warning: and 1:100:";
+    const { container, rerender } = render(<MarkdownContent content={content} isStreaming />);
+
+    expect(container.textContent).toBe(content);
+
+    rerender(<MarkdownContent content={content} />);
+    expect(container.textContent).toBe(content);
   });
 
   it("links file mentions to the workspace file opener", () => {

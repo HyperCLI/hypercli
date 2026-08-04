@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent } from "@/app/dashboard/agents/types";
 import { renderWithClient } from "@/test/utils";
-import { AgentWorkspaceSidebar } from "./AgentWorkspaceSidebar";
+import { AgentWorkspaceSidebar, WorkspaceCreationDialog } from "./AgentWorkspaceSidebar";
 
 type SidebarSession = NonNullable<ComponentProps<typeof AgentWorkspaceSidebar>["sessions"]>[number];
 
@@ -102,8 +102,9 @@ vi.mock("@hypercli/shared-ui", () => ({
 }));
 
 vi.mock("@/components/HyperCLILogoLink", () => ({
-  HyperCLILogoLink: () => <div>HyperCLI</div>,
-  HyperCLILogoMark: () => <div data-testid="hypercli-logo-mark" />,
+  HyperCLILogoLink: ({ className }: { className?: string }) => (
+    <div data-testid="hypercli-logo-full" className={className}>HyperCLI</div>
+  ),
 }));
 
 const agent: Agent = {
@@ -152,6 +153,10 @@ function renderAgentWorkspaceSidebar(overrides: Partial<ComponentProps<typeof Ag
   return props;
 }
 
+function renderWorkspaceCreationDialog() {
+  renderWithClient(<WorkspaceCreationDialog open onOpenChange={vi.fn()} />);
+}
+
 function expectSessionBefore(firstName: string, secondName: string): void {
   const first = screen.getByRole("button", { name: firstName, exact: true });
   const second = screen.getByRole("button", { name: secondName, exact: true });
@@ -174,21 +179,17 @@ describe("AgentWorkspaceSidebar", () => {
     mocks.preloadShell.mockReset();
   });
 
-  it("selects an available Workspace from the sidebar menu", () => {
+  it("uses the full HyperCLI logo instead of a Workspace picker", () => {
     renderAgentWorkspaceSidebar();
 
-    expect(screen.getByRole("button", { name: "Current workspace: Marketing" })).toHaveTextContent("Marketing");
-    expect(screen.getByText("Workspaces")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("menuitem", { name: /Product/ }));
-    expect(mocks.workspaceContext.selectWorkspace).toHaveBeenCalledWith("workspace-product");
-    expect(screen.getByRole("menuitem", { name: /New Workspace/ })).toBeEnabled();
-    expect(screen.queryByText("Coming soon")).not.toBeInTheDocument();
+    expect(screen.getByTestId("hypercli-logo-full")).toHaveTextContent("HyperCLI");
+    expect(screen.queryByRole("button", { name: /current workspace/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("Workspaces")).not.toBeInTheDocument();
   });
 
-  it("creates a Workspace from the sidebar menu", async () => {
-    renderAgentWorkspaceSidebar();
+  it("creates a Workspace from the creation dialog", async () => {
+    renderWorkspaceCreationDialog();
 
-    fireEvent.click(screen.getByRole("menuitem", { name: /New Workspace/ }));
     const dialog = screen.getByRole("dialog", { name: "New Workspace" });
     fireEvent.change(within(dialog).getByLabelText("Workspace name"), { target: { value: "Support" } });
     fireEvent.change(within(dialog).getByLabelText(/Description/), { target: { value: "Support playbooks" } });
@@ -202,9 +203,8 @@ describe("AgentWorkspaceSidebar", () => {
   });
 
   it("collects email invites and grants direct access by user UUID", async () => {
-    renderAgentWorkspaceSidebar();
+    renderWorkspaceCreationDialog();
 
-    fireEvent.click(screen.getByRole("menuitem", { name: /New Workspace/ }));
     const dialog = screen.getByRole("dialog", { name: "New Workspace" });
     fireEvent.change(within(dialog).getByLabelText("Workspace name"), { target: { value: "Support" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
@@ -233,9 +233,8 @@ describe("AgentWorkspaceSidebar", () => {
     mocks.workspacesClient.grant
       .mockRejectedValueOnce(new Error("User UUID was not found."))
       .mockResolvedValueOnce({ id: "grant-1" });
-    renderAgentWorkspaceSidebar();
+    renderWorkspaceCreationDialog();
 
-    fireEvent.click(screen.getByRole("menuitem", { name: /New Workspace/ }));
     const dialog = screen.getByRole("dialog", { name: "New Workspace" });
     fireEvent.change(within(dialog).getByLabelText("Workspace name"), { target: { value: "Support" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
@@ -247,35 +246,6 @@ describe("AgentWorkspaceSidebar", () => {
 
     await waitFor(() => expect(mocks.workspacesClient.grant).toHaveBeenCalledTimes(2));
     expect(mocks.workspaceContext.createWorkspace).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not present the account fallback as an existing Workspace", () => {
-    mocks.workspaceContext.workspaces = [];
-    mocks.workspaceContext.selectedWorkspace = null;
-    mocks.workspaceContext.selectedWorkspaceId = null;
-
-    renderAgentWorkspaceSidebar();
-
-    expect(screen.getByRole("button", { name: "Current workspace: No Workspace" })).toHaveTextContent("No Workspace");
-    expect(screen.getByText("No Workspaces available.")).toBeInTheDocument();
-  });
-
-  it("routes signed-out Workspace creation through authentication", () => {
-    mocks.workspaceContext.principalId = null;
-    mocks.workspaceContext.workspacesClient = null;
-    mocks.workspaceContext.workspaces = [];
-    mocks.workspaceContext.selectedWorkspace = null;
-    mocks.workspaceContext.selectedWorkspaceId = null;
-    const onCreateWorkspace = vi.fn();
-
-    renderAgentWorkspaceSidebar({ isAuthenticated: false, onCreateWorkspace });
-
-    const createWorkspace = screen.getByRole("menuitem", { name: /New Workspace/ });
-    expect(createWorkspace).toBeEnabled();
-    fireEvent.click(createWorkspace);
-
-    expect(onCreateWorkspace).toHaveBeenCalledOnce();
-    expect(screen.queryByRole("dialog", { name: "New Workspace" })).not.toBeInTheDocument();
   });
 
   it("forces the desktop workspace sidebar expanded without a collapse control", () => {
@@ -294,7 +264,7 @@ describe("AgentWorkspaceSidebar", () => {
     const shell = document.querySelector(".agent-workspace-shell");
     expect(shell).toHaveAttribute("data-collapsed", "true");
     expect(shell).toHaveClass("w-12");
-    expect(screen.queryByRole("button", { name: "Current workspace: Marketing" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("hypercli-logo-full")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Expand workspace sidebar" }));
     expect(onCollapsedChange).toHaveBeenCalledWith(false);
@@ -334,9 +304,10 @@ describe("AgentWorkspaceSidebar", () => {
   it("keeps the shared header visible while only the navigation body is collapsed", () => {
     renderAgentWorkspaceSidebar({ collapsed: true, embeddedInNavigation: true });
 
-    expect(screen.getByTestId("hypercli-logo-mark")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Current workspace: Marketing" })).toBeInTheDocument();
-    expect(document.querySelector(".agent-desktop-navigation-header")).toHaveClass("w-64", "-top-16", "-left-52");
+    expect(screen.getByTestId("hypercli-logo-full")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /current workspace/i })).not.toBeInTheDocument();
+    expect(document.querySelector(".agent-desktop-navigation-header")).toHaveClass("w-64", "-top-16", "-left-52", "justify-center");
+    expect(screen.getByTestId("hypercli-logo-full")).not.toHaveClass("mr-auto");
     expect(document.querySelector(".agent-workspace-shell")).not.toHaveClass("border-r");
     expect(screen.queryByRole("button", { name: /workspace sidebar/i })).not.toBeInTheDocument();
     expect(screen.queryByText("Setup")).not.toBeInTheDocument();
@@ -362,7 +333,9 @@ describe("AgentWorkspaceSidebar", () => {
     });
 
     expect(document.querySelector(".agent-workspace-shell")).toHaveAttribute("data-collapsed", "false");
-    fireEvent.click(screen.getByRole("button", { name: "Close navigation" }));
+    const closeButton = screen.getByRole("button", { name: "Close navigation" });
+    expect(closeButton).toHaveClass("absolute", "right-2");
+    fireEvent.click(closeButton);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -750,16 +723,87 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.queryByText("dashboard:019789ab-cdef-4abc-8def-0123456789ab")).not.toBeInTheDocument();
   });
 
-  it("shows indexed dashboard sessions while hiding the internal main session", () => {
+  it("shows the active implicit initial session before the gateway indexes it", () => {
+    const sessionKey = "dashboard:019789ab-cdef-4abc-8def-0123456789ab";
+    const initialSession: SidebarSession = {
+      key: sessionKey,
+      clientMode: "openclaw",
+      clientDisplayName: "New Session",
+      createdAt: 10,
+      lastMessageAt: 10,
+      title: "New Session",
+      messageCount: 0,
+      raw: { key: sessionKey, title: "New Session" },
+    };
+    const onSelectSession = vi.fn();
+
+    renderAgentWorkspaceSidebar({
+      sessions: [],
+      activeUnindexedInitialSession: initialSession,
+      sessionsFetched: true,
+      selectedSessionKey: sessionKey,
+      onSelectSession,
+    });
+
+    expect(screen.getByText("Sessions")).toBeInTheDocument();
+    const initialSessionButton = screen.getByRole("button", { name: "New Session", current: "page" });
+    expect(initialSessionButton.closest('[data-session-provisional="true"]')).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Session options for New Session" })).not.toBeInTheDocument();
+    fireEvent.click(initialSessionButton);
+    expect(onSelectSession).toHaveBeenCalledWith(sessionKey);
+  });
+
+  it("replaces the implicit initial row with its indexed session", () => {
+    const sessionKey = "dashboard:019789ab-cdef-4abc-8def-0123456789ab";
+    const initialSession: SidebarSession = {
+      key: sessionKey,
+      clientMode: "openclaw",
+      clientDisplayName: "New Session",
+      createdAt: 10,
+      lastMessageAt: 10,
+      title: "New Session",
+      messageCount: 0,
+      raw: { key: sessionKey, title: "New Session" },
+    };
+
+    renderAgentWorkspaceSidebar({
+      sessions: [{
+        ...initialSession,
+        key: `agent:default:${sessionKey}`,
+        clientDisplayName: "Release planning",
+        title: "Release planning",
+        messageCount: 1,
+      }],
+      activeUnindexedInitialSession: initialSession,
+      sessionsFetched: true,
+      selectedSessionKey: sessionKey,
+    });
+
+    expect(screen.getByRole("button", { name: "Release planning", current: "page" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New Session", current: "page" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Session options for Release planning" })).toBeInTheDocument();
+  });
+
+  it("shows indexed dashboard sessions while hiding empty main and heartbeat sessions", () => {
     renderAgentWorkspaceSidebar({
       sessions: [
         {
           key: "main",
           clientMode: "openclaw",
           clientDisplayName: "Main Session",
-          createdAt: 1,
-          lastMessageAt: 10,
+          createdAt: 0,
+          lastMessageAt: 0,
           title: "Main Session",
+          messageCount: 0,
+          raw: {},
+        },
+        {
+          key: "agent:default:heartbeat",
+          clientMode: "openclaw",
+          clientDisplayName: "agent:default:heartbeat",
+          createdAt: 1,
+          lastMessageAt: 30,
+          title: "",
           messageCount: 1,
           raw: {},
         },
@@ -779,7 +823,29 @@ describe("AgentWorkspaceSidebar", () => {
     });
 
     expect(screen.queryByRole("button", { name: "Main Session" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Previous conversation" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "agent:default:heartbeat" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Dashboard Session" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("keeps recoverable legacy main history discoverable", () => {
+    renderAgentWorkspaceSidebar({
+      sessions: [{
+        key: "main",
+        gatewaySessionKey: "agent:default:main",
+        clientMode: "openclaw",
+        clientDisplayName: "Main Session",
+        createdAt: 1,
+        lastMessageAt: 20,
+        title: "Main Session",
+        messageCount: 1,
+        raw: {},
+      }],
+      selectedSessionKey: "main",
+    });
+
+    expect(screen.getByRole("button", { name: "Previous conversation" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByText("agent:default:main")).not.toBeInTheDocument();
   });
 
   it("keeps a channel session selected without exposing the default session", () => {
@@ -846,10 +912,10 @@ describe("AgentWorkspaceSidebar", () => {
         key: "main",
         clientMode: "openclaw",
         clientDisplayName: "Main Session",
-        createdAt: 1,
-        lastMessageAt: 20,
+        createdAt: 0,
+        lastMessageAt: 0,
         title: "Main Session",
-        messageCount: 1,
+        messageCount: 0,
         raw: {},
       }],
       selectedSessionKey: "main",

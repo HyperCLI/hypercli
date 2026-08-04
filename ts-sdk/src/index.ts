@@ -282,6 +282,7 @@ export {
   type RuntimeAuthLoginOptions,
   type OpenClawHeartbeatConfig,
   type OpenClawRouteOptions,
+  type OpenClawOperationsSnapshot,
   type CreateAgentOptions,
   type OpenClawCreateAgentOptions,
   type OpenClawStartAgentOptions,

@@ -108,11 +108,9 @@ describe("AgentsSidebarDashboardLinks", () => {
     expect(document.querySelector(".agents-dashboard-links")).toHaveClass("bg-[var(--agent-roster-background)]");
   });
 
-  it("renders shared Administration navigation in the roster", () => {
+  it("prioritizes primary navigation and omits the legacy Shared item", () => {
     const onOpenAccountSettings = vi.fn();
     const onOpenHome = vi.fn();
-    const onOpenAltHome = vi.fn();
-    const onOpenSharedResources = vi.fn();
     const onOpenMembers = vi.fn();
     const onOpenUsage = vi.fn();
     render(
@@ -123,9 +121,6 @@ describe("AgentsSidebarDashboardLinks", () => {
         onSelectThread={vi.fn()}
         showChannels={false}
         onOpenHome={onOpenHome}
-        onOpenAltHome={onOpenAltHome}
-        onOpenSharedResources={onOpenSharedResources}
-        sharedResourcesActive
         onOpenMembers={onOpenMembers}
         onOpenUsage={onOpenUsage}
         onOpenAccountSettings={onOpenAccountSettings}
@@ -134,30 +129,39 @@ describe("AgentsSidebarDashboardLinks", () => {
     );
 
     const rosterScroll = document.querySelector(".agents-roster-scroll");
+    const rosterActions = document.querySelector(".agents-roster-actions");
+    const home = document.querySelector(".agents-roster-home");
+    const sectionHeader = document.querySelector(".agents-roster-section-header");
     const agentList = document.querySelector(".agents-roster-agent-list");
 
     expect(rosterScroll).toHaveClass("flex-col", "overflow-hidden");
     expect(agentList).toHaveClass("shrink", "overflow-y-auto");
     const administration = screen.getByRole("region", { name: "Administration" });
     expect(administration).toHaveTextContent("Administration");
-    expect(screen.getByRole("button", { name: "Shared" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByText("Shared")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Members" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Usage" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Home" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Alt home" })).toBeInTheDocument();
-    expect(document.querySelector(".agents-roster-home")).toHaveTextContent("HomeAlt home");
+    const homeButton = screen.getByRole("button", { name: "Home" });
+    expect(homeButton).toHaveClass("gap-1", "pl-1", "pr-2");
+    expect(homeButton).not.toHaveClass("border-l-2", "border-l-transparent");
+    expect(homeButton.firstElementChild).toHaveClass("w-5");
+    expect(screen.queryByRole("button", { name: /Alt Home/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /knowledge hub/i })).toHaveAttribute("href", "/dashboard/agents?section=knowledge-hub");
+    expect(document.querySelector(".agents-roster-home")).toHaveTextContent("HomeKnowledge Hub");
+    expect(screen.queryByText("Preview")).not.toBeInTheDocument();
+    expect(rosterActions?.nextElementSibling).toBe(home);
+    expect(home?.nextElementSibling).toBe(sectionHeader);
+    expect(agentList?.nextElementSibling).toBe(administration);
+    expect(administration.firstElementChild).toHaveClass("pl-1.5", "pr-2");
+    expect(administration.firstElementChild?.children).toHaveLength(1);
     expect(administration).not.toHaveTextContent("Home");
     expect(administration).not.toHaveTextContent("Settings");
     expect(onOpenAccountSettings).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
-    fireEvent.click(screen.getByRole("button", { name: "Alt home" }));
-    fireEvent.click(screen.getByRole("button", { name: "Shared" }));
     fireEvent.click(screen.getByRole("button", { name: "Members" }));
     fireEvent.click(screen.getByRole("button", { name: "Usage" }));
     expect(onOpenHome).toHaveBeenCalledOnce();
-    expect(onOpenAltHome).toHaveBeenCalledOnce();
-    expect(onOpenSharedResources).toHaveBeenCalledOnce();
     expect(onOpenMembers).toHaveBeenCalledOnce();
     expect(onOpenUsage).toHaveBeenCalledOnce();
 
@@ -206,10 +210,12 @@ describe("AgentsChannelsSidebar", () => {
       />,
     );
 
-    expect(screen.getByAltText("Primary Agent avatar")).toHaveAttribute(
+    const avatar = screen.getByAltText("Primary Agent avatar");
+    expect(avatar).toHaveAttribute(
       "src",
       "https://cdn.example.test/agent.png",
     );
+    expect(avatar.closest(".agents-roster-agent-avatar")).toHaveStyle({ width: "20px", height: "20px" });
   });
 
   it("disables launch controls when the selected Workspace is read-only", () => {
@@ -280,6 +286,18 @@ describe("AgentsChannelsSidebar", () => {
     expect(screen.queryByRole("button", { name: "Delete agent" })).not.toBeInTheDocument();
     expect(onDeleteThread).not.toHaveBeenCalled();
     expect(onSelectThread).toHaveBeenCalledTimes(2);
-    expect(screen.getByRole("button", { name: "Select Primary Agent" })).toHaveAttribute("aria-current", "page");
+    const primary = screen.getByRole("button", { name: "Select Primary Agent" });
+    expect(primary).toHaveAttribute("aria-current", "page");
+    expect(primary).toHaveClass("items-center", "gap-1", "pl-1", "pr-2", "py-2");
+    const name = primary.querySelector(".agents-roster-agent-name");
+    const status = primary.querySelector(".agents-roster-agent-status");
+    const activity = primary.querySelector(".agents-roster-agent-activity");
+    expect(name).toHaveClass("font-semibold");
+    expect(status).toHaveTextContent("Connected");
+    expect(status).toHaveClass("text-[10px]", "font-normal", "text-text-muted");
+    expect(activity).toHaveClass("h-2", "w-2");
+    expect(activity?.previousElementSibling).toContainElement(name);
+    expect(status?.nextElementSibling).toHaveClass("leading-3", "group-hover/row:opacity-0");
+    expect(status?.nextElementSibling).not.toHaveClass("group-hover/row:hidden");
   });
 });

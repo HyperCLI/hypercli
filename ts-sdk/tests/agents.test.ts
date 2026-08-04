@@ -377,6 +377,106 @@ describe('Agents SDK', () => {
     expect(gateway.close).toHaveBeenCalledTimes(3);
   });
 
+  it('captures OpenClaw operations concurrently over one gateway connection', async () => {
+    vi.useFakeTimers();
+    const capturedAt = new Date('2026-08-03T12:00:00Z').valueOf();
+    vi.setSystemTime(capturedAt);
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-123',
+      user_id: 'user-456',
+      pod_id: 'pod-789',
+      pod_name: 'pod-789',
+      state: 'RUNNING',
+      hostname: 'agent.hypercli.app',
+      gateway_token: 'gw-token',
+    });
+    const sessions = {
+      sessions: [{ key: 'main', label: 'Main' }],
+      defaults: { model: 'test-model' },
+    };
+    const cronJobs = [{ id: 'job-1', name: 'Daily summary' }];
+    let resolveSessions!: (value: typeof sessions) => void;
+    const pendingSessions = new Promise<typeof sessions>((resolve) => {
+      resolveSessions = resolve;
+    });
+    const gateway = {
+      connect: vi.fn(async () => undefined),
+      sessionsListResult: vi.fn(() => pendingSessions),
+      cronList: vi.fn(async () => cronJobs),
+      close: vi.fn(),
+    };
+    const gatewayFactory = vi.spyOn(agent, 'gateway').mockReturnValue(gateway as any);
+
+    const snapshotPromise = agent.operationsSnapshot({ timeout: 1234 });
+    await Promise.resolve();
+
+    expect(gateway.sessionsListResult).toHaveBeenCalledOnce();
+    expect(gateway.cronList).toHaveBeenCalledOnce();
+    resolveSessions(sessions);
+    await expect(snapshotPromise).resolves.toEqual({
+      sessions,
+      cronJobs,
+      failures: {},
+      capturedAt,
+    });
+    expect(gatewayFactory).toHaveBeenCalledOnce();
+    expect(gatewayFactory).toHaveBeenCalledWith({ timeout: 1234 });
+    expect(gateway.connect).toHaveBeenCalledOnce();
+    expect(gateway.close).toHaveBeenCalledOnce();
+  });
+
+  it('preserves successful OpenClaw operations when one RPC fails', async () => {
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-123',
+      user_id: 'user-456',
+      pod_id: 'pod-789',
+      pod_name: 'pod-789',
+      state: 'RUNNING',
+      hostname: 'agent.hypercli.app',
+      gateway_token: 'gw-token',
+    });
+    const sessions = { sessions: [{ key: 'main' }] };
+    const gateway = {
+      connect: vi.fn(async () => undefined),
+      sessionsListResult: vi.fn(async () => sessions),
+      cronList: vi.fn().mockRejectedValue(new Error('cron unavailable')),
+      close: vi.fn(),
+    };
+    vi.spyOn(agent, 'gateway').mockReturnValue(gateway as any);
+
+    await expect(agent.operationsSnapshot()).resolves.toMatchObject({
+      sessions,
+      cronJobs: null,
+      failures: { cron: 'cron unavailable' },
+      capturedAt: expect.any(Number),
+    });
+    expect(gateway.close).toHaveBeenCalledOnce();
+  });
+
+  it('closes the OpenClaw operations gateway when connection fails', async () => {
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-123',
+      user_id: 'user-456',
+      pod_id: 'pod-789',
+      pod_name: 'pod-789',
+      state: 'RUNNING',
+      hostname: 'agent.hypercli.app',
+      gateway_token: 'gw-token',
+    });
+    const gateway = {
+      connect: vi.fn().mockRejectedValue(new Error('gateway unavailable')),
+      sessionsListResult: vi.fn(),
+      cronList: vi.fn(),
+      close: vi.fn(),
+    };
+    vi.spyOn(agent, 'gateway').mockReturnValue(gateway as any);
+
+    await expect(agent.operationsSnapshot()).rejects.toThrow('gateway unavailable');
+    expect(gateway.sessionsListResult).not.toHaveBeenCalled();
+    expect(gateway.cronList).not.toHaveBeenCalled();
+    expect(gateway.close).toHaveBeenCalledOnce();
+  });
+
   it('hydrates granular restore and workspace sync states', async () => {
     const http = {
       get: vi.fn().mockResolvedValue({

@@ -75,17 +75,88 @@ interface Agent {
   hostname: string | null;
 }
 
+const WINDOWS_1252_BYTE_BY_CODE_POINT = new Map<number, number>([
+  [0x20ac, 0x80], [0x201a, 0x82], [0x0192, 0x83], [0x201e, 0x84],
+  [0x2026, 0x85], [0x2020, 0x86], [0x2021, 0x87], [0x02c6, 0x88],
+  [0x2030, 0x89], [0x0160, 0x8a], [0x2039, 0x8b], [0x0152, 0x8c],
+  [0x017d, 0x8e], [0x2018, 0x91], [0x2019, 0x92], [0x201c, 0x93],
+  [0x201d, 0x94], [0x2022, 0x95], [0x2013, 0x96], [0x2014, 0x97],
+  [0x02dc, 0x98], [0x2122, 0x99], [0x0161, 0x9a], [0x203a, 0x9b],
+  [0x0153, 0x9c], [0x017e, 0x9e], [0x0178, 0x9f],
+]);
+
+function mojibakeSourceByte(character: string): number | undefined {
+  const codePoint = character.codePointAt(0);
+  if (codePoint === undefined) return undefined;
+  if (codePoint <= 0xff) return codePoint;
+  return WINDOWS_1252_BYTE_BY_CODE_POINT.get(codePoint);
+}
+
+function utf8SequenceLength(leadByte: number): number {
+  if (leadByte >= 0xc2 && leadByte <= 0xdf) return 2;
+  if (leadByte >= 0xe0 && leadByte <= 0xef) return 3;
+  if (leadByte >= 0xf0 && leadByte <= 0xf4) return 4;
+  return 0;
+}
+
+function hasStrongMojibakeEvidence(source: string, bytes: number[], decoded: string): boolean {
+  if (!decoded || decoded === source || source.includes("\uFFFD") || decoded.includes("\uFFFD")) return false;
+  if (Array.from(decoded).length !== 1 || utf8SequenceLength(bytes[0] ?? 0) !== bytes.length) return false;
+  if (!bytes.slice(1).every((byte) => byte >= 0x80 && byte <= 0xbf)) return false;
+
+  return Array.from(source).some((character, index) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return (
+      (index === 0 && codePoint >= 0x00c2 && codePoint <= 0x00f4) ||
+      (codePoint >= 0x0080 && codePoint <= 0x009f) ||
+      WINDOWS_1252_BYTE_BY_CODE_POINT.has(codePoint)
+    );
+  });
+}
+
 function maybeDecodeMojibake(text: string): string {
-  // Some gateways occasionally emit UTF-8 text decoded as latin1 (e.g. ð, â).
-  if (!/[Ãâð]/.test(text)) return text;
-  try {
-    const bytes = Uint8Array.from(text, (ch) => ch.charCodeAt(0) & 0xff);
-    const decoded = new TextDecoder("utf-8").decode(bytes);
-    if (decoded && decoded !== text) return decoded;
-  } catch {
-    // Fall back to original text on decoding errors.
+  // Repair only complete UTF-8 byte sequences represented losslessly as Latin-1/Windows-1252.
+  if (text.includes("\uFFFD")) return text;
+  const characters = Array.from(text);
+  const output: string[] = [];
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  const encoder = new TextEncoder();
+
+  for (let cursor = 0; cursor < characters.length;) {
+    const leadByte = mojibakeSourceByte(characters[cursor] ?? "");
+    const sequenceLength = leadByte === undefined ? 0 : utf8SequenceLength(leadByte);
+    const source = sequenceLength > 0 ? characters.slice(cursor, cursor + sequenceLength) : [];
+    const bytes = source.map(mojibakeSourceByte);
+    if (
+      source.length !== sequenceLength ||
+      bytes.some((byte) => byte === undefined) ||
+      !bytes.slice(1).every((byte) => byte !== undefined && byte >= 0x80 && byte <= 0xbf)
+    ) {
+      output.push(characters[cursor] ?? "");
+      cursor += 1;
+      continue;
+    }
+
+    try {
+      const candidateBytes = Uint8Array.from(bytes as number[]);
+      const decoded = decoder.decode(candidateBytes);
+      const roundTrip = encoder.encode(decoded);
+      const isLossless = roundTrip.length === candidateBytes.length &&
+        roundTrip.every((byte, index) => byte === candidateBytes[index]);
+      if (isLossless && hasStrongMojibakeEvidence(source.join(""), [...candidateBytes], decoded)) {
+        output.push(decoded);
+        cursor += sequenceLength;
+        continue;
+      }
+    } catch {
+      // Invalid UTF-8 is legitimate source text, not a repair candidate.
+    }
+
+    output.push(characters[cursor] ?? "");
+    cursor += 1;
   }
-  return text;
+
+  return output.join("");
 }
 
 const BINARY_CONTENT_OMITTED_MESSAGE = "[Binary file content omitted from chat preview.]";
@@ -120,19 +191,22 @@ const FILE_TYPE_BY_EXTENSION: Record<string, string> = {
 
 function looksLikeBinaryDisplayText(text: string): boolean {
   const sample = text.slice(0, 4096);
-  if (/^\s*%PDF-\d+(?:\.\d+)?/.test(sample) || sample.slice(0, 1200).includes("%PDF-")) {
-    return true;
-  }
-  if (sample.includes("\u0000")) {
-    return true;
-  }
-
+  const hasPdfSignature = /^\s*%PDF-\d+(?:\.\d+)?(?=\r?\n|$)/.test(sample);
   const replacementCount = sample.match(/\uFFFD/g)?.length ?? 0;
   const controlCount = sample.match(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g)?.length ?? 0;
-  if (controlCount >= 3) {
-    return true;
-  }
-  return replacementCount >= 8 && replacementCount / Math.max(sample.length, 1) > 0.01;
+  const hasBinaryByteEvidence = sample.includes("\u0000") ||
+    controlCount >= 3 ||
+    (replacementCount >= 8 && replacementCount / Math.max(sample.length, 1) > 0.01);
+  const hasPdfBinaryComment = sample
+    .split(/\r?\n/)
+    .slice(1, 6)
+    .some((line) => line.startsWith("%") && Array.from(line.slice(1)).filter((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint >= 0x80 && codePoint <= 0xff;
+    }).length >= 4);
+
+  if (hasPdfSignature) return hasBinaryByteEvidence || hasPdfBinaryComment;
+  return hasBinaryByteEvidence;
 }
 
 function isBinaryOmittedText(text: string | undefined): boolean {
@@ -176,12 +250,12 @@ function normalizeChatRole(role: string): ChatMessage["role"] {
   return "assistant";
 }
 
-const INTERNAL_HEARTBEAT_MARKERS = [/HEARTBEAT\.md/i, /HEARTBEAT_OK/i];
 const INTERNAL_HEARTBEAT_PRELUDE_MARKERS = [
-  /\bThe user wants me to read\b/i,
-  /\bLet me read the file first\b/i,
+  /^The user wants me to read\s+HEARTBEAT\.md\b[\s\S]*\bfollow it strictly\b/i,
+  /^Let me read the file first\b[\s\S]*\bHEARTBEAT\.md\b/i,
 ];
-const INTERNAL_HEARTBEAT_CONTROL_PROMPT_START = /\bRead\s+HEARTBEAT\.md\s+if\s+it\s+exists\b/i;
+const INTERNAL_HEARTBEAT_SENTINEL = /^HEARTBEAT_OK$/i;
+const INTERNAL_HEARTBEAT_CONTROL_PROMPT_START = /^Read\s+HEARTBEAT\.md\s+if\s+it\s+exists\b/i;
 const INTERNAL_HEARTBEAT_CONTROL_PROMPT_DETAILS = [
   /\bworkspace context\b/i,
   /\bDo\s+not\s+infer\s+or\s+repeat\s+old\s+tasks\s+from\s+prior\s+chats\b/i,
@@ -232,12 +306,9 @@ const INTERNAL_EXECUTION_STATUS_MARKERS = [
   /^\(?\s*command exited with code \d+\s*\)?\.?$/i,
   /^\(?\s*command failed with exit code \d+\s*\)?\.?$/i,
   /^\(?\s*process exited with code \d+\s*\)?\.?$/i,
-  /^\(?\s*exit code:?\s*\d+\s*\)?\.?$/i,
 ];
 const INTERNAL_EXECUTION_OUTPUT_MARKERS = [
-  /\.\.\.\s*\(truncated\)\s*\.\.\./i,
   /^\s*PROOF\s+ANCHORS\b/i,
-  /^\s*(?:stdout|stderr|tool output|command output|execution output|raw output)\s*[:\-]/i,
 ];
 const MARKDOWN_HORIZONTAL_RULE = /^\s*[-*_]{3,}\s*$/;
 const INTERNAL_ASYNC_COMMAND_COMPLETION_MARKERS = [
@@ -326,10 +397,6 @@ function stripInternalAssistantContent(text: string): string {
     }
 
     strippedInternalBlock = true;
-    if (/\.\.\.\s*\(truncated\)\s*\.\.\./i.test(line)) {
-      continue;
-    }
-
     cursor += 1;
     while (cursor < lines.length) {
       const candidate = lines[cursor] ?? "";
@@ -387,32 +454,66 @@ function isInternalAudioReplyCarrierMessage(message: ChatMessage): boolean {
     (message.files?.length ?? 0) === 0;
 }
 
-function containsInternalHeartbeatMarker(value: unknown): boolean {
-  if (value == null) return false;
+function isInternalHeartbeatText(text: string): boolean {
+  const trimmed = sanitizeChatDisplayText(text).trim();
+  return INTERNAL_HEARTBEAT_SENTINEL.test(trimmed) ||
+    isInternalHeartbeatControlPromptText(trimmed) ||
+    INTERNAL_HEARTBEAT_PRELUDE_MARKERS.some((marker) => marker.test(trimmed));
+}
+
+function isExactHeartbeatPath(value: string): boolean {
+  return /(?:^|[/\\])HEARTBEAT\.md$/i.test(value.trim().replace(/^['"]|['"]$/g, ""));
+}
+
+function hasExactHeartbeatPathArgument(value: unknown, allowDirectPath = true): boolean {
   if (typeof value === "string") {
-    const text = maybeDecodeMojibake(value);
-    return INTERNAL_HEARTBEAT_MARKERS.some((marker) => marker.test(text));
+    const trimmed = value.trim();
+    if (allowDirectPath && isExactHeartbeatPath(trimmed)) return true;
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return false;
+    try {
+      return hasExactHeartbeatPathArgument(JSON.parse(trimmed), false);
+    } catch {
+      return false;
+    }
   }
-  if (typeof value !== "object") return false;
   if (Array.isArray(value)) {
-    return value.some((entry) => containsInternalHeartbeatMarker(entry));
+    return value.some((entry) => hasExactHeartbeatPathArgument(entry, false));
   }
-  return Object.values(value as Record<string, unknown>).some((entry) => containsInternalHeartbeatMarker(entry));
+  const record = asRecord(value);
+  if (!record) return false;
+
+  return Object.entries(record).some(([key, entry]) => {
+    const normalizedKey = key.replace(/[_-]/g, "").toLowerCase();
+    if (normalizedKey === "path" || normalizedKey === "filepath" || normalizedKey === "file") {
+      return typeof entry === "string" && isExactHeartbeatPath(entry);
+    }
+    return typeof entry === "object" && entry !== null
+      ? hasExactHeartbeatPathArgument(entry, false)
+      : false;
+  });
+}
+
+function isInternalHeartbeatToolCall(value: unknown): boolean {
+  const record = asRecord(value);
+  if (!record) return false;
+  const name = typeof record.name === "string" ? record.name.trim() : "";
+  if (!/(?:^|[.:/])(?:read|read_file)$/i.test(name)) return false;
+  return hasExactHeartbeatPathArgument(record.args ?? record.arguments);
 }
 
 export function isInternalHeartbeatMessage(value: unknown): boolean {
-  if (containsInternalHeartbeatMarker(value)) return true;
-  if (typeof value !== "object" || value == null) return false;
-  const candidate = value as {
-    content?: unknown;
-    thinking?: unknown;
-    toolCalls?: unknown;
-  };
-  return (
-    containsInternalHeartbeatMarker(candidate.content) ||
-    containsInternalHeartbeatMarker(candidate.thinking) ||
-    containsInternalHeartbeatMarker(candidate.toolCalls)
-  );
+  if (typeof value === "string") return isInternalHeartbeatText(value);
+  const candidate = asRecord(value);
+  if (!candidate) return false;
+
+  const content = typeof candidate.content === "string" ? candidate.content : "";
+  if (content && isInternalHeartbeatText(content)) return true;
+  if (content.trim()) return false;
+
+  const thinking = typeof candidate.thinking === "string" ? candidate.thinking : "";
+  if (thinking && isInternalHeartbeatText(thinking)) return true;
+  const toolCalls = Array.isArray(candidate.toolCalls) ? candidate.toolCalls : [];
+  return toolCalls.some((toolCall) => isInternalHeartbeatToolCall(toolCall));
 }
 
 function isLikelyInternalHeartbeatPrelude(message: ChatMessage): boolean {
@@ -868,9 +969,8 @@ function normalizeHistoryMessage(message: unknown): ChatMessage | null {
     };
   }
   const thinking = sanitizeChatDisplayText(normalized?.thinking ?? "").trim();
-  if (isInternalHeartbeatMessage({ thinking })) return null;
   const historyToolCalls = summarizeToolCalls(normalized?.toolCalls ?? []);
-  if (historyToolCalls?.some((toolCall) => isInternalHeartbeatMessage({ toolCalls: [toolCall] }))) {
+  if (!content && isInternalHeartbeatMessage({ thinking, toolCalls: historyToolCalls })) {
     return null;
   }
   const mediaUrls = uniqueStrings([
@@ -878,6 +978,9 @@ function normalizeHistoryMessage(message: unknown): ChatMessage | null {
     ...extractGatewayContentAudioUrls(message),
   ]);
   if (role === "assistant" && isInternalNoReplyText(content)) {
+    return null;
+  }
+  if (role === "assistant" && isInternalHeartbeatText(content)) {
     return null;
   }
   if (role === "assistant" && isInternalAudioReplyCarrierText(content) && mediaUrls.length === 0) {
@@ -941,6 +1044,7 @@ function mergeToolCalls(
 
 interface AssistantUpsertOptions {
   replaceContent?: boolean;
+  appendContent?: boolean;
 }
 
 function chatMessageProtocolIdentity(
@@ -995,15 +1099,19 @@ function mergeAssistantMessage(
   // longer than the accumulated text, silently dropping prior content.
   const rawMergedContent = options.replaceContent
     ? incoming.content
-    : incoming.content
+    : options.appendContent
+      ? `${cleanCurrent.content ?? ""}${incoming.content}`
+      : incoming.content
       ? (
         cleanCurrent.content && incoming.content.startsWith(cleanCurrent.content)
           ? incoming.content
           : `${cleanCurrent.content ?? ""}${incoming.content}`
       )
       : cleanCurrent.content;
-  const mergedContent = !options.replaceContent && isBinaryOmittedText(cleanCurrent.content) && incoming.content
-    ? cleanCurrent.content
+  const mergedContent = !options.replaceContent && (
+    isBinaryOmittedText(cleanCurrent.content) || isBinaryOmittedText(incoming.content)
+  ) && (cleanCurrent.content || incoming.content)
+    ? BINARY_CONTENT_OMITTED_MESSAGE
     : normalizeOpenClawEmptyReplyText(sanitizeChatDisplayText(rawMergedContent));
   const mergedMediaUrls = [
     ...(cleanCurrent.mediaUrls ?? []),
@@ -1034,7 +1142,7 @@ function sanitizeAssistantMessage(message: ChatMessage): ChatMessage {
   const content = message.role === "assistant"
     ? normalizeOpenClawEmptyReplyText(stripInternalAssistantContent(rawContent))
     : normalizeOpenClawEmptyReplyText(rawContent);
-  const toolCalls = message.toolCalls?.map((toolCall) => {
+  const toolCalls = message.toolCalls?.filter((toolCall) => !isInternalHeartbeatToolCall(toolCall)).map((toolCall) => {
     const result = toolCall.result !== undefined ? sanitizeChatDisplayText(toolCall.result) : undefined;
     return {
       ...toolCall,
@@ -1048,7 +1156,7 @@ function sanitizeAssistantMessage(message: ChatMessage): ChatMessage {
     role: message.role,
     content: message.role === "assistant" && (
       isInternalNoReplyText(content) ||
-      isInternalHeartbeatControlPromptText(content) ||
+      isInternalHeartbeatText(content) ||
       isLikelyInternalToolOutputText(content) ||
       isInternalAsyncCommandCompletionText(content) ||
       isInternalExecutionStatusText(content)

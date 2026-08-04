@@ -16,6 +16,7 @@ export interface FirstAgentSetupDraft {
   setupId: string;
   principalId: string | null;
   workspaceId: string | null;
+  knowledgeDomainId: string | null;
   name: string;
   description: string;
   size: string | null;
@@ -69,6 +70,7 @@ export function parseFirstAgentSetupDraft(raw: string | null): FirstAgentSetupDr
       setupId: normalizeOptionalString(value.setupId, 100) ?? `legacy-${normalizedUpdatedAt}-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
       principalId: normalizeOptionalString(value.principalId, 100),
       workspaceId: normalizeOptionalString(value.workspaceId, 100),
+      knowledgeDomainId: normalizeOptionalString(value.knowledgeDomainId, 100),
       name,
       description: normalizeOptionalString(value.description, 300) ?? "",
       size: normalizeOptionalString(value.size, 40),

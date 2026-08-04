@@ -122,6 +122,48 @@ function isSameWorkspaceFilePath(left: string, right: string): boolean {
   return normalizeOpenClawWorkspaceFilePath(left) === normalizeOpenClawWorkspaceFilePath(right);
 }
 
+function parseJsonValue(value: string): { value: unknown } | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    return { value: JSON.parse(trimmed) };
+  } catch {
+    return null;
+  }
+}
+
+function jsonValuesAreEquivalent(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((entry, index) => jsonValuesAreEquivalent(entry, right[index]));
+  }
+  if (!left || !right || typeof left !== "object" || typeof right !== "object") return false;
+
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const leftKeys = Object.keys(leftRecord);
+  const rightKeys = Object.keys(rightRecord);
+  return leftKeys.length === rightKeys.length && leftKeys.every((key) => (
+    Object.prototype.hasOwnProperty.call(rightRecord, key) &&
+    jsonValuesAreEquivalent(leftRecord[key], rightRecord[key])
+  ));
+}
+
+function isDuplicateToolResultJson(message: ChatMessageType): boolean {
+  if (message.role !== "assistant") return false;
+  const contentJson = parseJsonValue(message.content);
+  if (!contentJson) return false;
+
+  return message.toolCalls?.some((toolCall) => {
+    if (toolCall.result === undefined) return false;
+    const resultJson = parseJsonValue(toolCall.result);
+    return resultJson !== null && jsonValuesAreEquivalent(contentJson.value, resultJson.value);
+  }) ?? false;
+}
+
 interface ChatFileActionsProps {
   file: ChatPendingFile;
   onOpenFile?: (path: string) => void;
@@ -1149,20 +1191,7 @@ export function ChatMessageBubble({
   const showV2Name = nameVariant === "v2";
   const effectiveName = isUser ? (senderName ?? "You") : (agentName ?? "Agent");
   const showStreamingDot = isStreaming && !isUser;
-  const hasToolResults = message.toolCalls?.some((tc) => tc.result != null) ?? false;
-  let contentIsJson = false;
-  if (hasToolResults) {
-    const trimmedContent = message.content.trim();
-    if (trimmedContent.startsWith("{") || trimmedContent.startsWith("[")) {
-      try {
-        JSON.parse(trimmedContent);
-        contentIsJson = true;
-      } catch {
-        contentIsJson = false;
-      }
-    }
-  }
-  const rawEffectiveContent = contentIsJson
+  const rawEffectiveContent = isDuplicateToolResultJson(message)
     ? ""
     : isIncompleteReply
       ? OPENCLAW_EMPTY_REPLY_NOTICE

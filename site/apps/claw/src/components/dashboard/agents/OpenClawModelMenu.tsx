@@ -47,6 +47,7 @@ interface OpenClawModelMenuSession {
 interface OpenClawModelMenuProps {
   chat: OpenClawModelMenuSession;
   disabled?: boolean;
+  compactTrigger?: boolean;
   onOpenSettings?: () => void;
   onSelectionComplete?: () => void;
 }
@@ -74,7 +75,7 @@ function thinkingLevelLabel(option: { id: string; label: string } | undefined, f
   return option?.label.trim() || (fallback ? titleizeVariant(fallback) : "");
 }
 
-export function OpenClawModelMenu({ chat, disabled = false, onOpenSettings, onSelectionComplete }: OpenClawModelMenuProps) {
+export function OpenClawModelMenu({ chat, disabled = false, compactTrigger = false, onOpenSettings, onSelectionComplete }: OpenClawModelMenuProps) {
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [addDialogOpen, setAddDialogOpen] = React.useState(false);
   const [providerValue, setProviderValue] = React.useState("");
@@ -103,6 +104,12 @@ export function OpenClawModelMenu({ chat, disabled = false, onOpenSettings, onSe
   const activeVariantId = chat.activeSessionThinkingLevel || chat.activeSessionThinkingDefault || "";
   const activeVariant = chat.activeSessionThinkingLevels.find((option) => option.id === activeVariantId);
   const triggerVariant = thinkingLevelLabel(activeVariant, activeVariantId);
+  const compactTriggerLabel = triggerVariant || "Variant";
+  const triggerAriaLabel = compactTrigger
+    ? triggerVariant
+      ? `Variant: ${triggerVariant}, model: ${triggerLabel}`
+      : `Choose variant, model: ${triggerLabel}`
+    : `Model: ${triggerLabel}`;
 
   const selectModel = async (model: string) => {
     if (selectingModel || selectingVariant || addingModel) return;
@@ -199,11 +206,15 @@ export function OpenClawModelMenu({ chat, disabled = false, onOpenSettings, onSe
           <button
             type="button"
             disabled={disabled}
-            aria-label={triggerVariant ? `Model: ${triggerLabel}, ${triggerVariant}` : `Model: ${triggerLabel}`}
-            className="flex h-8 max-w-24 items-center justify-start gap-1.5 rounded-lg px-2 text-left transition-colors hover:bg-surface-low disabled:cursor-not-allowed disabled:opacity-40 sm:max-w-40"
+            aria-label={triggerAriaLabel}
+            title={compactTrigger
+              ? triggerVariant ? `${triggerVariant} variant, ${triggerLabel}` : `Choose variant for ${triggerLabel}`
+              : triggerLabel}
+            className={`flex h-8 items-center justify-start gap-1.5 rounded-lg px-2 text-left transition-colors hover:bg-surface-low disabled:cursor-not-allowed disabled:opacity-40 ${compactTrigger ? "max-w-20 bg-surface-high" : "max-w-24"}`}
           >
-            <span className="min-w-0 truncate text-[12px] font-semibold text-foreground">{triggerLabel}</span>
-            {triggerVariant ? <span className="hidden shrink-0 text-[12px] font-medium text-text-muted sm:inline">{triggerVariant}</span> : null}
+            <span className={`min-w-0 truncate text-[12px] font-semibold ${compactTrigger && triggerVariant ? "text-text-secondary" : "text-foreground"}`}>
+              {compactTrigger ? compactTriggerLabel : triggerLabel}
+            </span>
             <ChevronDown className="h-3 w-3 shrink-0 text-text-muted" />
           </button>
         </PopoverTrigger>

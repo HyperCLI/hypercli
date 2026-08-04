@@ -1,5 +1,6 @@
 import type { SdkAgent } from "@/types";
 import type { Agent, AgentState } from "@/app/dashboard/agents/types";
+import { displayNameFromAgentHandle } from "@/lib/agent-profile-updates";
 
 export function normalizeAgentState(state: unknown): AgentState {
   const normalized = typeof state === "string" ? state.toUpperCase() : "";
@@ -24,9 +25,10 @@ export function normalizeAgentState(state: unknown): AgentState {
 
 export function agentDisplayLabel(agent: Pick<Agent, "id" | "name" | "handle" | "displayName" | "managed" | "pod_name">): string {
   const canonicalName = agent.name?.trim() || agent.pod_name?.trim() || agent.id;
+  const handle = agent.handle?.trim();
   return agent.managed === false
     ? agent.displayName?.trim() || canonicalName
-    : agent.handle?.trim() || canonicalName;
+    : handle ? displayNameFromAgentHandle(handle) : canonicalName;
 }
 
 export function didAnyAgentFinishStopping(
@@ -47,7 +49,9 @@ export function toAgentViewModel(agent: SdkAgent, avatarUrlOverride?: string | n
     handle: agent.handle ?? null,
     displayName: managed === false
       ? agent.displayName?.trim() || canonicalName
-      : agent.handle?.trim() || canonicalName,
+      : agent.handle?.trim()
+        ? displayNameFromAgentHandle(agent.handle)
+        : canonicalName,
     avatarUrl: avatarUrlOverride === undefined ? agent.avatarUrl ?? null : avatarUrlOverride,
     displayIdentity: agent.displayIdentity ?? null,
     managed,

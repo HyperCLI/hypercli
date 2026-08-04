@@ -805,7 +805,7 @@ describe("AgentChatPanel", () => {
     const bubbleProps = chatMessageBubbleMock.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
     expect(bubbleProps).toEqual(expect.objectContaining({
       agentId: selectedAgent.id,
-      agentName: "research-pilot",
+      agentName: "Research Pilot",
       animationVariant: "off",
       onReadFileBytesFromChat: expect.any(Function),
       onOpenFileFromChat: expect.any(Function),
@@ -974,14 +974,17 @@ describe("AgentChatPanel", () => {
       isSelectedRunning: true,
     });
 
-    const modelTrigger = screen.getByRole("button", { name: "Model: GPT-5 Mini, Medium" });
-    expect(modelTrigger).toHaveClass("max-w-24", "sm:max-w-40");
+    const modelTrigger = screen.getByRole("button", { name: "Model: GPT-5 Mini" });
+    expect(modelTrigger).toHaveClass("max-w-24");
     expect(modelTrigger.parentElement).toHaveClass("hidden", "sm:block");
-    expect(within(modelTrigger).getByText("Medium")).toHaveClass("hidden", "sm:inline");
-    expect(screen.getByRole("textbox", { name: /message agent/i })).toHaveClass("pr-32", "sm:pr-72");
+    expect(within(modelTrigger).queryByText("Medium")).not.toBeInTheDocument();
+    const compactTrigger = screen.getByRole("button", { name: "Variant: Medium, model: GPT-5 Mini" });
+    expect(compactTrigger.parentElement).not.toHaveClass("hidden", "sm:hidden");
+    expect(within(compactTrigger).getByText("Medium")).not.toHaveClass("hidden");
+    expect(screen.getByRole("textbox", { name: /message agent/i })).toHaveClass("max-sm:pb-14", "max-sm:pr-5", "sm:pr-76");
   });
 
-  it("groups mobile model and attachment controls beside the voice button", () => {
+  it("keeps mobile model and attachment controls directly available", () => {
     const fileInputClick = vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => undefined);
     renderAgentChatPanel({
       chat: buildChat({
@@ -994,30 +997,26 @@ describe("AgentChatPanel", () => {
           agents: { defaults: { model: { primary: "openai/gpt-5-mini" } } },
           models: { providers: { openai: { name: "OpenAI", models: [{ id: "gpt-5-mini", name: "GPT-5 Mini" }] } } },
         },
+        activeSessionThinkingLevels: [{ id: "medium", label: "Medium" }],
+        activeSessionThinkingDefault: "medium",
       }),
       isSelectedRunning: true,
     });
 
-    const desktopAttachment = screen.getByRole("button", { name: "Attach file" });
-    expect(desktopAttachment.parentElement).toHaveClass("hidden", "sm:block");
-
-    const toolsTrigger = screen.getByRole("button", { name: "Open message tools" });
+    const compactTrigger = screen.getByRole("button", { name: "Variant: Medium, model: GPT-5 Mini" });
+    expect(compactTrigger.parentElement).not.toHaveClass("hidden", "sm:hidden");
     const voiceTrigger = screen.getByRole("button", { name: "Record voice message" });
-    expect(toolsTrigger).toHaveClass("sm:hidden");
-    expect(toolsTrigger.nextElementSibling).toBe(voiceTrigger);
-
-    fireEvent.click(toolsTrigger);
-
-    const toolsMenu = screen.getByLabelText("Message tools");
-    expect(within(toolsMenu).getByRole("button", { name: /model: gpt-5 mini/i })).toBeInTheDocument();
-    fireEvent.click(within(toolsMenu).getByRole("button", { name: "Attach file" }));
+    const attachmentTrigger = screen.getByRole("button", { name: "Attach file" });
+    expect(attachmentTrigger.parentElement).toBe(voiceTrigger.parentElement);
+    expect(compactTrigger.parentElement?.parentElement).toBe(attachmentTrigger.parentElement?.parentElement);
+    fireEvent.click(attachmentTrigger);
 
     expect(fileInputClick).toHaveBeenCalledTimes(1);
-    expect(screen.queryByLabelText("Message tools")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open message tools" })).not.toBeInTheDocument();
     fileInputClick.mockRestore();
   });
 
-  it("stacks mobile tools and send controls at the right edge when text is present", () => {
+  it("reserves a mobile composer footer for model and send controls", () => {
     renderAgentChatPanel({
       chat: buildChat({
         backend: "openclaw",
@@ -1026,26 +1025,27 @@ describe("AgentChatPanel", () => {
         ready: true,
         connected: true,
         input: "A draft that needs the full composer width",
+        activeSessionThinkingLevels: [{ id: "medium", label: "Medium" }],
+        activeSessionThinkingDefault: "medium",
       }),
       isSelectedRunning: true,
     });
 
     const composer = screen.getByRole("textbox", { name: /message agent/i });
-    expect(composer).toHaveClass("pr-12", "sm:pr-72", "max-sm:min-h-20");
+    expect(composer).toHaveClass("max-sm:pb-14", "max-sm:pr-5", "sm:pr-76", "max-sm:min-h-24");
 
-    const toolsTrigger = screen.getByRole("button", { name: "Open message tools" });
+    const compactTrigger = screen.getByRole("button", { name: "Variant: Medium, model: Choose model" });
     const sendTrigger = screen.getByRole("button", { name: "Send message" });
-    const actionRail = toolsTrigger.parentElement;
-    expect(actionRail).toBe(sendTrigger.parentElement);
-    expect(toolsTrigger).toHaveClass("sm:hidden");
-    expect(actionRail).toHaveClass("right-2", "top-[calc(50%-3px)]", "-translate-y-1/2", "max-sm:top-1/2", "max-sm:flex-col");
+    const actionRail = compactTrigger.parentElement?.parentElement;
+    expect(sendTrigger.parentElement?.parentElement).toBe(actionRail);
+    expect(actionRail).toHaveClass("bottom-2", "left-2", "right-2", "justify-between", "sm:top-[calc(50%-3px)]");
     expect(actionRail).not.toHaveClass("flex-col");
 
     const voiceTrigger = screen.getByLabelText("Clear text to record voice");
     expect(voiceTrigger.parentElement).toHaveClass("max-sm:hidden");
   });
 
-  it("selects a model from the mobile tools menu and closes both menus", async () => {
+  it("selects a model from the compact mobile control", async () => {
     const chat = buildChat({
       backend: "openclaw",
       status: "connected",
@@ -1057,16 +1057,16 @@ describe("AgentChatPanel", () => {
         models: { providers: { openai: { name: "OpenAI", models: [{ id: "gpt-5-mini", name: "GPT-5 Mini" }] } } },
       },
       models: [{ id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5", providerId: "anthropic", providerName: "Anthropic" }],
+      activeSessionThinkingLevels: [{ id: "medium", label: "Medium" }],
+      activeSessionThinkingDefault: "medium",
     });
     renderAgentChatPanel({ chat, isSelectedRunning: true });
 
-    fireEvent.click(screen.getByRole("button", { name: "Open message tools" }));
-    const toolsMenu = screen.getByLabelText("Message tools");
-    fireEvent.click(within(toolsMenu).getByRole("button", { name: /model: gpt-5 mini/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Variant: Medium, model: GPT-5 Mini" }));
     fireEvent.click(screen.getByRole("option", { name: "Claude Sonnet 4.5 (Anthropic)" }));
 
     await waitFor(() => expect(chat.setActiveSessionModel).toHaveBeenCalledWith("anthropic/claude-sonnet-4-5"));
-    await waitFor(() => expect(screen.queryByLabelText("Message tools")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("option", { name: "Claude Sonnet 4.5 (Anthropic)" })).not.toBeInTheDocument());
   });
 
   it("disables the composer for read-only connected conversations", () => {

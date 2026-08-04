@@ -320,7 +320,7 @@ describe("FirstAgentSetupWizard", () => {
   });
 
   it("skips blocked words in generated agent names", async () => {
-    const randomValues = [0, 7, 0];
+    const randomValues = [896, 0];
     const getRandomValuesSpy = vi.spyOn(crypto, "getRandomValues").mockImplementation((array) => {
       const view = array as Uint32Array;
       view[0] = randomValues.shift() ?? 0;

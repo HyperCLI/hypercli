@@ -19,9 +19,14 @@ import type {
 
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { createWorkspacesClient } from "@/lib/agent-client";
+import {
+  GENERAL_DOMAIN_NAME,
+  GENERAL_DOMAIN_SLUG,
+  domainDisplayName,
+  isGeneralDomain,
+} from "@/lib/account-domain";
 
 const WORKSPACE_SELECTION_STORAGE_PREFIX = "claw.selectedWorkspace.v1";
-const PERSONAL_WORKSPACE_NAME = "Personal Workspace";
 const EMPTY_WORKSPACES: Workspace[] = [];
 const EMPTY_AGENT_IDS: readonly string[] = [];
 
@@ -42,6 +47,7 @@ type WorkspaceContextValue = {
   createWorkspace: (input: WorkspaceCreateInput) => Promise<Workspace>;
   refreshWorkspaces: (preferredWorkspaceId?: string | null) => Promise<boolean>;
   refreshSelectedWorkspaceAgents: () => Promise<boolean>;
+  assignAgentToDomain: (agentId: string, domainId: string) => Promise<void>;
   associateAgentWithSelectedWorkspace: (agentId: string) => Promise<void>;
 };
 
@@ -76,7 +82,7 @@ type WorkspaceAgentRoster = {
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 
 export function workspaceDisplayName(workspace: Workspace): string {
-  return workspace.displayName?.trim() || workspace.name;
+  return domainDisplayName(workspace);
 }
 
 export function workspaceAgentCreationDisabledReason(
@@ -117,7 +123,7 @@ function describeWorkspaceError(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
-async function confirmPersonalWorkspace(client: WorkspacesAPI, candidate: Workspace): Promise<Workspace> {
+async function confirmGeneralDomain(client: WorkspacesAPI, candidate: Workspace): Promise<Workspace> {
   try {
     const confirmed = await client.get(candidate.id);
     if (confirmed.role === "admin") return confirmed;
@@ -127,7 +133,7 @@ async function confirmPersonalWorkspace(client: WorkspacesAPI, candidate: Worksp
   const listed = await client.list();
   const confirmed = listed.find((workspace) => workspace.id === candidate.id);
   if (confirmed?.role === "admin") return confirmed;
-  throw new Error("Personal Workspace was created, but admin access is not ready. Refresh Workspaces to retry.");
+  throw new Error(`${GENERAL_DOMAIN_NAME} was created, but admin access is not ready. Refresh Domains to retry.`);
 }
 
 function workspaceErrorStatus(error: unknown): number | null {
@@ -203,7 +209,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   });
   const listRequestRef = useRef(0);
   const agentRosterRequestRef = useRef(0);
-  const personalWorkspaceCreationRef = useRef<{
+  const generalDomainCreationRef = useRef<{
     principalId: string;
     client: WorkspacesAPI;
     promise: Promise<Workspace>;
@@ -302,35 +308,37 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         || activeConnectionRef.current.client !== workspacesClient
         || activeConnectionRef.current.principalId !== principalId
       ) return false;
-      if (listed.length === 0 && !preferredWorkspaceId) {
-        const existingCreation = personalWorkspaceCreationRef.current;
+      if (!listed.some(isGeneralDomain)) {
+        const shouldSelectGeneral = listed.length === 0 && !preferredWorkspaceId;
+        const existingCreation = generalDomainCreationRef.current;
         const creationPromise = existingCreation?.principalId === principalId
           && existingCreation.client === workspacesClient
           ? existingCreation.promise
           : workspacesClient
-              .create({ name: PERSONAL_WORKSPACE_NAME })
-              .then((created) => confirmPersonalWorkspace(workspacesClient, created));
-        personalWorkspaceCreationRef.current = {
+              .create({ name: GENERAL_DOMAIN_NAME, slug: GENERAL_DOMAIN_SLUG })
+              .then((created) => confirmGeneralDomain(workspacesClient, created));
+        generalDomainCreationRef.current = {
           principalId,
           client: workspacesClient,
           promise: creationPromise,
         };
         try {
-          listed = [await creationPromise];
-          selectionPreference = listed[0].id;
+          const general = await creationPromise;
+          listed = [...listed.filter((workspace) => workspace.id !== general.id), general];
+          if (shouldSelectGeneral) selectionPreference = general.id;
         } catch (cause) {
           if (workspaceErrorStatus(cause) !== 409) throw cause;
           const recovered = await workspacesClient.list();
-          const personalWorkspace = recovered.find((workspace) => workspace.name === PERSONAL_WORKSPACE_NAME);
-          if (!personalWorkspace) throw cause;
-          const confirmed = personalWorkspace.role === "admin"
-            ? personalWorkspace
-            : await confirmPersonalWorkspace(workspacesClient, personalWorkspace);
+          const general = recovered.find(isGeneralDomain);
+          if (!general) throw cause;
+          const confirmed = general.role === "admin"
+            ? general
+            : await confirmGeneralDomain(workspacesClient, general);
           listed = recovered.map((workspace) => workspace.id === confirmed.id ? confirmed : workspace);
-          selectionPreference = confirmed.id;
+          if (shouldSelectGeneral) selectionPreference = confirmed.id;
         } finally {
-          if (personalWorkspaceCreationRef.current?.promise === creationPromise) {
-            personalWorkspaceCreationRef.current = null;
+          if (generalDomainCreationRef.current?.promise === creationPromise) {
+            generalDomainCreationRef.current = null;
           }
         }
         if (
@@ -496,21 +504,19 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     return created;
   }, [principalId, refreshWorkspaces, workspacesClient]);
 
-  const associateAgentWithSelectedWorkspace = useCallback(async (agentId: string) => {
+  const assignAgentToDomain = useCallback(async (agentId: string, domainId: string) => {
     const capturedPrincipalId = principalId;
     const client = workspacesClient;
-    const workspace = selectedWorkspace;
-    const scope = activeAgentRosterScopeRef.current;
+    const workspace = workspaces.find((candidate) => candidate.id === domainId);
     if (
       !capturedPrincipalId
       || !client
       || !workspace
-      || scope.principalId !== capturedPrincipalId
-      || scope.client !== client
-      || scope.workspaceId !== workspace.id
-    ) throw new Error("Workspace access is unavailable right now.");
+      || activeConnectionRef.current.principalId !== capturedPrincipalId
+      || activeConnectionRef.current.client !== client
+    ) throw new Error("Knowledge Domain access is unavailable right now.");
     if (workspace.role !== "admin") {
-      throw new Error("Workspace admin access is required to add agents.");
+      throw new Error("Domain admin access is required to assign agents.");
     }
 
     await client.grant(workspace.id, {
@@ -518,17 +524,24 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       subjectId: agentId,
       role: "viewer",
     });
-    if (activeAgentRosterScopeRef.current !== scope) {
-      throw new Error("The signed-in account or selected Workspace changed before the agent was added.");
+    if (
+      activeConnectionRef.current.principalId !== capturedPrincipalId
+      || activeConnectionRef.current.client !== client
+    ) {
+      throw new Error("The signed-in account changed before the Domain assignment finished.");
     }
-    const refreshed = await refreshSelectedWorkspaceAgents();
-    if (!refreshed) {
-      throw new Error("The agent was added to the selected Workspace, but the roster could not be refreshed.");
+    if (selectedWorkspaceId === workspace.id) {
+      const refreshed = await refreshSelectedWorkspaceAgents();
+      if (!refreshed) {
+        throw new Error("The agent was assigned to the Domain, but its agent list could not be refreshed.");
+      }
     }
-    if (activeAgentRosterScopeRef.current !== scope) {
-      throw new Error("The signed-in account or selected Workspace changed before the agent roster refreshed.");
-    }
-  }, [principalId, refreshSelectedWorkspaceAgents, selectedWorkspace, workspacesClient]);
+  }, [principalId, refreshSelectedWorkspaceAgents, selectedWorkspaceId, workspaces, workspacesClient]);
+
+  const associateAgentWithSelectedWorkspace = useCallback(async (agentId: string) => {
+    if (!selectedWorkspaceId) throw new Error("Workspace access is unavailable right now.");
+    await assignAgentToDomain(agentId, selectedWorkspaceId);
+  }, [assignAgentToDomain, selectedWorkspaceId]);
 
   const isLoading = authLoading || Boolean(
     isAuthenticated && (
@@ -552,9 +565,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     createWorkspace,
     refreshWorkspaces,
     refreshSelectedWorkspaceAgents,
+    assignAgentToDomain,
     associateAgentWithSelectedWorkspace,
   }), [
     agentRosterError,
+    assignAgentToDomain,
     associateAgentWithSelectedWorkspace,
     catalog.error,
     catalogIsCurrent,

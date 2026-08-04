@@ -2,8 +2,7 @@
 
 import React from "react";
 import dynamic from "next/dynamic";
-import { ArrowDown, ArrowRight, FileText, Loader2, LockKeyhole, Mic, Paperclip, Pause, Play, Plus, Send, Sparkles, Square, X } from "lucide-react";
-import { Popover, PopoverContent, PopoverTrigger } from "@hypercli/shared-ui";
+import { ArrowDown, ArrowRight, FileText, Loader2, LockKeyhole, Mic, Paperclip, Pause, Play, Send, Sparkles, Square, X } from "lucide-react";
 import {
   inferFileMimeType,
   normalizeDroppedRelativePath,
@@ -318,8 +317,8 @@ function shouldHideIntegrationSetupMessage(message: ChatSession["messages"][numb
 
 function ChatEmptyStateFrame({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex flex-1 shrink-0 items-center justify-center text-text-muted">
-      <div className="agent-empty-history-frame flex w-full flex-1 shrink-0 items-center justify-center">
+    <div className="flex min-h-0 flex-1 items-center justify-center text-text-muted">
+      <div className="agent-empty-history-frame flex min-h-0 max-h-full w-full flex-1 items-center justify-center">
         {children}
       </div>
     </div>
@@ -536,7 +535,6 @@ export function AgentChatPanel({
   const [activeIntegrationCard, setActiveIntegrationCard] = React.useState<ActiveIntegrationCard | null>(null);
   const [dismissedConnectionSuggestions, setDismissedConnectionSuggestions] = React.useState<{ context: string; ids: string[] }>({ context: "", ids: [] });
   const [retryingFailedReplyKey, setRetryingFailedReplyKey] = React.useState<string | null>(null);
-  const [composerToolsOpen, setComposerToolsOpen] = React.useState(false);
   const [transcriptRenderState, setTranscriptRenderState] = React.useState({
     context: chatScrollContext,
     limit: CHAT_TRANSCRIPT_RENDER_LIMIT,
@@ -936,15 +934,21 @@ export function AgentChatPanel({
   const modelMenuAvailable = chat.backend === "openclaw";
   const mobileComposerRightPadding = composerHasText ? "pr-12" : activeSessionSending ? "pr-40" : "pr-32";
   const desktopComposerRightPadding = modelMenuAvailable
-    ? activeSessionSending ? "sm:pr-80" : "sm:pr-72"
+    ? activeSessionSending ? "sm:pr-84" : "sm:pr-76"
     : activeSessionSending ? "sm:pr-40" : "sm:pr-32";
-  const composerRightPadding = `${mobileComposerRightPadding} ${desktopComposerRightPadding}`;
-  const composerMinHeight = composerHasText
-    ? activeSessionSending ? "max-sm:min-h-28" : "max-sm:min-h-20"
-    : "";
-  const composerActionsLayout = composerHasText
-    ? "top-[calc(50%-3px)] -translate-y-1/2 max-sm:top-1/2 max-sm:flex-col"
-    : "top-[calc(50%-3px)] -translate-y-1/2";
+  const composerRightPadding = modelMenuAvailable
+    ? `max-sm:pb-14 max-sm:pr-5 ${desktopComposerRightPadding}`
+    : `${mobileComposerRightPadding} ${desktopComposerRightPadding}`;
+  const composerMinHeight = modelMenuAvailable
+    ? activeSessionSending ? "max-sm:min-h-28" : "max-sm:min-h-24"
+    : composerHasText
+      ? activeSessionSending ? "max-sm:min-h-28" : "max-sm:min-h-20"
+      : "";
+  const composerActionsLayout = modelMenuAvailable
+    ? "bottom-2 left-2 right-2 justify-between sm:bottom-auto sm:left-auto sm:right-2 sm:top-[calc(50%-3px)] sm:-translate-y-1/2"
+    : composerHasText
+      ? "right-2 top-[calc(50%-3px)] -translate-y-1/2 max-sm:top-1/2 max-sm:flex-col"
+      : "right-2 top-[calc(50%-3px)] -translate-y-1/2";
   const attachFileTooltip = chat.activeSessionReadOnly ? readOnlyComposerReason : "Attach file";
   const recordVoiceTooltip = chat.activeSessionReadOnly
     ? readOnlyComposerReason
@@ -1680,17 +1684,27 @@ export function AgentChatPanel({
                       </div>
                     </div>
                   ) : null}
-                  <div className={`absolute right-2 flex items-center gap-1 ${composerActionsLayout}`}>
+                  <div className={`absolute flex items-center gap-1 ${composerActionsLayout}`}>
                     {modelMenuAvailable ? (
-                      <div className="hidden sm:block">
+                      <div className="shrink-0">
                         <OpenClawModelMenu
                           chat={chat}
+                          compactTrigger
                           disabled={composerDisabled || activeSessionSending}
                           onOpenSettings={slashCommandActions?.onOpenConfig}
                         />
                       </div>
                     ) : null}
-                    <div className="hidden sm:block">
+                    <div className="ml-auto flex items-center gap-1">
+                      {modelMenuAvailable ? (
+                        <div className="hidden sm:block">
+                          <OpenClawModelMenu
+                            chat={chat}
+                            disabled={composerDisabled || activeSessionSending}
+                            onOpenSettings={slashCommandActions?.onOpenConfig}
+                          />
+                        </div>
+                      ) : null}
                       <TooltipHint label={attachFileTooltip} disabled={composerDisabled}>
                         <button
                           type="button"
@@ -1703,80 +1717,34 @@ export function AgentChatPanel({
                           <Paperclip className="h-4 w-4" />
                         </button>
                       </TooltipHint>
-                    </div>
-                    <Popover open={composerToolsOpen} onOpenChange={setComposerToolsOpen}>
-                      <PopoverTrigger asChild>
-                        <button
-                          type="button"
-                          aria-label="Open message tools"
-                          disabled={composerDisabled}
-                          className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-low hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 data-[state=open]:bg-surface-low data-[state=open]:text-foreground sm:hidden"
-                        >
-                          <Plus className="h-4 w-4" />
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent
-                        side="top"
-                        align="end"
-                        sideOffset={8}
-                        aria-label="Message tools"
-                        className="z-[60] w-56 rounded-xl border-border bg-popover p-1.5 shadow-2xl sm:hidden"
+                      <TooltipHint
+                        label={recordVoiceTooltip}
+                        disabled={composerDisabled || composerHasText}
+                        triggerClassName={composerHasText ? "max-sm:hidden" : undefined}
                       >
-                        {modelMenuAvailable ? (
-                          <div className="flex min-h-10 items-center justify-between gap-2 rounded-lg px-2 text-xs font-medium text-text-secondary">
-                            <span>Model</span>
-                            <OpenClawModelMenu
-                              chat={chat}
-                              disabled={composerDisabled || activeSessionSending}
-                              onOpenSettings={() => {
-                                setComposerToolsOpen(false);
-                                slashCommandActions?.onOpenConfig?.();
-                              }}
-                              onSelectionComplete={() => setComposerToolsOpen(false)}
-                            />
-                          </div>
-                        ) : null}
-                        <button
-                          type="button"
-                          disabled={composerDisabled}
-                          onClick={() => {
-                            setComposerToolsOpen(false);
-                            triggerFilePicker();
-                          }}
-                          className="flex h-10 w-full items-center gap-2.5 rounded-lg px-2 text-left text-xs font-medium text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          <Paperclip className="h-4 w-4 text-text-muted" />
-                          <span>{attachFileTooltip}</span>
-                        </button>
-                      </PopoverContent>
-                    </Popover>
-                    <TooltipHint
-                      label={recordVoiceTooltip}
-                      disabled={composerDisabled || composerHasText}
-                      triggerClassName={composerHasText ? "max-sm:hidden" : undefined}
-                    >
-                      <button aria-label={recordVoiceTooltip} onClick={startRecording} disabled={composerDisabled || composerHasText} className="w-8 h-8 rounded-full bg-[rgb(var(--selection-accent-rgb)_/_0.15)] text-[var(--selection-accent)] hover:bg-[rgb(var(--selection-accent-rgb)_/_0.25)] hover:text-[var(--selection-accent)] flex items-center justify-center transition-colors disabled:opacity-40 disabled:hover:bg-[rgb(var(--selection-accent-rgb)_/_0.15)]">
-                        <Mic className="w-4 h-4" />
-                      </button>
-                    </TooltipHint>
-                    {activeSessionSending ? (
-                      <TooltipHint label={activeSessionAborting ? "Stopping reply" : "Stop reply"} disabled={!chat.connected || activeSessionAborting}>
-                        <button
-                          onClick={() => { void chat.abortMessage(); }}
-                          disabled={!chat.connected || activeSessionAborting}
-                          className="w-8 h-8 rounded-full border border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/20 disabled:opacity-40 flex items-center justify-center transition-colors"
-                          aria-label={activeSessionAborting ? "Stopping reply" : "Stop reply"}
-                          type="button"
-                        >
-                          {activeSessionAborting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />}
+                        <button aria-label={recordVoiceTooltip} onClick={startRecording} disabled={composerDisabled || composerHasText} className="w-8 h-8 rounded-full bg-[rgb(var(--selection-accent-rgb)_/_0.15)] text-[var(--selection-accent)] hover:bg-[rgb(var(--selection-accent-rgb)_/_0.25)] hover:text-[var(--selection-accent)] flex items-center justify-center transition-colors disabled:opacity-40 disabled:hover:bg-[rgb(var(--selection-accent-rgb)_/_0.15)]">
+                          <Mic className="w-4 h-4" />
                         </button>
                       </TooltipHint>
-                    ) : null}
-                    <TooltipHint label="Send message" disabled={!canSendChatDraft}>
-                      <button aria-label="Send message" onClick={handleSendChat} disabled={!canSendChatDraft} className="w-8 h-8 btn-primary rounded-full disabled:opacity-40 flex items-center justify-center">
-                        <Send className="w-3.5 h-3.5" />
-                      </button>
-                    </TooltipHint>
+                      {activeSessionSending ? (
+                        <TooltipHint label={activeSessionAborting ? "Stopping reply" : "Stop reply"} disabled={!chat.connected || activeSessionAborting}>
+                          <button
+                            onClick={() => { void chat.abortMessage(); }}
+                            disabled={!chat.connected || activeSessionAborting}
+                            className="w-8 h-8 rounded-full border border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/20 disabled:opacity-40 flex items-center justify-center transition-colors"
+                            aria-label={activeSessionAborting ? "Stopping reply" : "Stop reply"}
+                            type="button"
+                          >
+                            {activeSessionAborting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />}
+                          </button>
+                        </TooltipHint>
+                      ) : null}
+                      <TooltipHint label="Send message" disabled={!canSendChatDraft}>
+                        <button aria-label="Send message" onClick={handleSendChat} disabled={!canSendChatDraft} className="w-8 h-8 btn-primary rounded-full disabled:opacity-40 flex items-center justify-center">
+                          <Send className="w-3.5 h-3.5" />
+                        </button>
+                      </TooltipHint>
+                    </div>
                   </div>
                   <input
                     ref={fileInputRef}

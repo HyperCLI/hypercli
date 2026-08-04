@@ -20,8 +20,7 @@ import {
   PanelLeftClose,
   GripVertical,
   Loader2,
-  HardDrive,
-  LayoutDashboard,
+  LibraryBig,
   BarChart3,
   UsersRound,
   House,
@@ -35,7 +34,7 @@ import { AgentCardTooltip, type AgentCardTooltipData } from "./modules/AgentCard
 import { QuickAgentCreator } from "./QuickAgentCreator";
 import { QuickChannelCreator } from "./QuickChannelCreator";
 import type { AgentCreationSetupCreateParams } from "./agents/AgentCreationSetupWizard";
-import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
+import { DASHBOARD_VIEW_HREFS, KNOWLEDGE_HUB_HREF } from "@/lib/dashboard-route";
 
 function RosterTooltip({
   label,
@@ -168,15 +167,13 @@ export interface AgentsChannelsSidebarProps {
   agentCreationDisabledReason?: string | null;
   /** Whether the selected Workspace roster is still loading. */
   rosterLoading?: boolean;
+  rosterLoadingLabel?: string;
   onOpenHome?: () => void;
   homeActive?: boolean;
   homeHref?: string;
-  onOpenAltHome?: () => void;
-  altHomeActive?: boolean;
-  altHomeHref?: string;
-  onOpenSharedResources?: () => void;
-  sharedResourcesActive?: boolean;
-  sharedResourcesHref?: string;
+  onOpenKnowledgeHub?: () => void;
+  knowledgeHubActive?: boolean;
+  knowledgeHubHref?: string;
   onOpenMembers?: () => void;
   membersActive?: boolean;
   membersHref?: string;
@@ -422,7 +419,7 @@ function ParticipantAvatars({
           <Tooltip key={p.id}>
             <TooltipTrigger asChild>
               <div
-                className="relative rounded-full flex items-center justify-center overflow-hidden border-2 border-background"
+                className="agents-roster-agent-avatar relative flex items-center justify-center overflow-hidden rounded-full border-2 border-background"
                 style={{
                   width: size,
                   height: size,
@@ -517,10 +514,12 @@ function ThreadRow({
       tabIndex={0}
       aria-label={`Select ${resolvedTitle}`}
       aria-current={selected ? "page" : undefined}
-      className={`w-full text-left px-3 ${mobileMode ? "py-3 gap-3" : "border-r border-border py-2.5 gap-2.5"} flex items-start transition-colors relative group/row cursor-pointer ${
+      className={`agents-roster-agent-row group/row relative flex w-full cursor-pointer items-center text-left transition-colors ${
+        mobileMode ? "gap-2 px-3 py-2.5" : "gap-1 border-r border-border py-2 pl-1 pr-2"
+      } ${
         selected
-          ? "bg-surface-low border-l-2 border-l-[var(--selection-accent)]"
-          : "border-l-2 border-l-transparent hover:bg-surface-low/50"
+          ? "bg-surface-low"
+          : "hover:bg-surface-low/50"
       }`}
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
@@ -533,14 +532,14 @@ function ThreadRow({
       {!compact && (
         <ParticipantAvatars
           participants={thread.kind === "user-agent" ? thread.participants.filter((p) => p.type === "agent") : thread.participants}
-          size={mobileMode ? 36 : 28}
+          size={mobileMode ? 28 : 20}
           agentCardDataById={agentCardDataById}
         />
       )}
 
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 min-w-0">
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-1.5 transition-[padding] group-hover/row:pr-6">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
             {editing ? (
               <input
                 autoFocus
@@ -550,11 +549,11 @@ function ThreadRow({
                 onKeyDown={(e) => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditing(false); }}
                 onBlur={commitEdit}
                 onClick={(e) => e.stopPropagation()}
-                className="text-sm font-medium text-foreground bg-transparent border-b border-[var(--selection-accent)] focus:outline-none w-full min-w-0"
+                className="w-full min-w-0 border-b border-[var(--selection-accent)] bg-transparent text-sm font-semibold text-foreground focus:outline-none"
               />
             ) : (
               <>
-                <span className="text-sm font-medium text-foreground truncate">{resolvedTitle}</span>
+                <span className="agents-roster-agent-name truncate text-[14px] font-semibold leading-4 tracking-[-0.01em] text-foreground">{resolvedTitle}</span>
                 {onRename && (
                   <RosterTooltip label="Rename agent">
                     <button
@@ -571,13 +570,10 @@ function ThreadRow({
                 )}
               </>
             )}
-            {!editing && thread.isActive && <span className="w-1.5 h-1.5 rounded-full bg-[var(--selection-accent)] flex-shrink-0" />}
           </div>
-          {!editing && (
-            <span className={`text-[10px] text-text-muted flex-shrink-0 ${mobileMode && deleteAction ? "hidden" : "group-hover/row:hidden"}`}>
-              {relativeTime(thread.lastMessageAt)}
-            </span>
-          )}
+          {!editing && thread.isActive ? (
+            <span aria-hidden="true" className="agents-roster-agent-activity h-2 w-2 shrink-0 rounded-full bg-[var(--selection-accent)]" />
+          ) : null}
           {/* Delete is hover-revealed on desktop and always visible in the mobile drawer. */}
           {!editing && deleteAction && (
             <RosterTooltip label={deleteLabel}>
@@ -594,8 +590,8 @@ function ThreadRow({
             </RosterTooltip>
           )}
         </div>
-        <div className="flex items-center justify-between gap-2 mt-0.5">
-          <p className="text-xs text-text-muted truncate">
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="agents-roster-agent-status min-w-0 flex-1 truncate text-[10px] font-normal leading-3 text-text-muted">
             {thread.lastMessage ? (
               <>
                 {showLastMessageSender ? <><span className="text-text-secondary">{lastMessageSender}:</span>{" "}</> : null}
@@ -605,8 +601,13 @@ function ThreadRow({
               <span className="italic">No messages yet</span>
             )}
           </p>
+          {!editing ? (
+            <span className={`ml-auto shrink-0 tabular-nums text-[10px] leading-3 text-text-muted/75 ${mobileMode && deleteAction ? "hidden" : "transition-opacity group-hover/row:opacity-0 group-focus-within/row:opacity-0"}`}>
+              {relativeTime(thread.lastMessageAt)}
+            </span>
+          ) : null}
           {thread.unreadCount > 0 && (
-            <span className="flex-shrink-0 bg-[var(--selection-accent)] text-[var(--selection-accent-foreground)] text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
+            <span className="flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-[var(--selection-accent)] px-1 text-[10px] font-bold text-[var(--selection-accent-foreground)]">
               {thread.unreadCount}
             </span>
           )}
@@ -661,11 +662,9 @@ function SortableThreadRow({
           event.stopPropagation();
           onMove(event.key === "ArrowUp" ? -1 : 1);
         }}
-        className={`flex shrink-0 touch-none cursor-grab items-center justify-center rounded-md text-text-muted/55 transition-colors hover:bg-surface-high hover:text-text-secondary active:cursor-grabbing ${
-          mobileMode ? "-ml-2 h-10 w-10" : "-ml-2 h-7 w-6 opacity-60 group-hover/row:opacity-100"
-        }`}
+        className="absolute right-1 top-1 z-10 flex h-6 w-6 touch-none cursor-grab items-center justify-center rounded-md text-text-muted opacity-0 transition-[color,background-color,opacity] group-hover/row:bg-surface-high group-hover/row:text-foreground group-hover/row:opacity-100 hover:bg-surface-high hover:text-foreground active:cursor-grabbing focus-visible:bg-surface-high focus-visible:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--selection-accent)]"
       >
-        <GripVertical className={mobileMode ? "h-4 w-4" : "h-3.5 w-3.5"} />
+        <GripVertical className="h-3 w-2" />
       </button>
     </RosterTooltip>
   );
@@ -1943,6 +1942,7 @@ export function RosterNavigationItem({
   icon: Icon,
   compact = false,
   mobileMode = false,
+  badge,
 }: {
   label: string;
   href: string;
@@ -1951,6 +1951,7 @@ export function RosterNavigationItem({
   icon: typeof UsersRound;
   compact?: boolean;
   mobileMode?: boolean;
+  badge?: string;
 }) {
   const className = compact
     ? `flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
@@ -1958,21 +1959,25 @@ export function RosterNavigationItem({
           ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
           : "text-text-muted hover:bg-surface-low hover:text-foreground"
       }`
-    : `flex w-full items-center gap-0 border-l-2 text-left transition-colors ${
-        mobileMode ? "h-11 px-4 text-sm" : "h-9 px-3 text-[13px]"
+    : `flex w-full items-center text-left transition-colors ${
+        mobileMode ? "h-11 gap-2 pl-3 pr-4 text-sm" : "h-9 gap-1 pl-1 pr-2 text-[13px]"
       } ${
         active
-          ? "border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
-          : "border-l-transparent text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
+          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground"
+          : "text-text-secondary hover:bg-surface-low/50 hover:text-foreground"
       }`;
   const content = compact ? (
-    <Icon className="h-4 w-4" />
+    <span className="relative">
+      <Icon className="h-4 w-4" />
+      {badge ? <span aria-hidden="true" className="absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full bg-[var(--selection-accent)] ring-1 ring-[var(--agent-roster-background)]" /> : null}
+    </span>
   ) : (
     <>
-      <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-8" : "w-7"}`}>
+      <span className={`flex shrink-0 items-center justify-center ${mobileMode ? "w-7" : "w-5"}`}>
         <Icon className={mobileMode ? "h-5 w-5" : "h-4 w-4"} />
       </span>
       <span className="font-medium">{label}</span>
+      {badge ? <span className="ml-auto rounded-full border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] px-1.5 py-0.5 text-[9px] font-semibold text-[var(--selection-accent)]">{badge}</span> : null}
     </>
   );
   const item = onOpen ? (
@@ -1996,7 +2001,7 @@ export function RosterNavigationItem({
     </Link>
   );
 
-  return compact ? <RosterTooltip label={label} side="right">{item}</RosterTooltip> : item;
+  return compact ? <RosterTooltip label={badge ? `${label}, ${badge}` : label} side="right">{item}</RosterTooltip> : item;
 }
 
 function HandoffThreadView({
@@ -2011,15 +2016,13 @@ function HandoffThreadView({
   onOpenAgentLauncher,
   agentCreationDisabledReason,
   rosterLoading = false,
+  rosterLoadingLabel = "Loading Workspace agents",
   onOpenHome,
   homeActive = false,
   homeHref = DASHBOARD_VIEW_HREFS.overview,
-  onOpenAltHome,
-  altHomeActive = false,
-  altHomeHref = DASHBOARD_VIEW_HREFS["alt-home"],
-  onOpenSharedResources,
-  sharedResourcesActive = false,
-  sharedResourcesHref = "/dashboard/agents?section=knowledge",
+  onOpenKnowledgeHub,
+  knowledgeHubActive = false,
+  knowledgeHubHref = KNOWLEDGE_HUB_HREF,
   onOpenMembers,
   membersActive = false,
   membersHref = "/dashboard/agents?section=members",
@@ -2053,15 +2056,13 @@ function HandoffThreadView({
   onOpenAgentLauncher?: () => void;
   agentCreationDisabledReason?: string | null;
   rosterLoading?: boolean;
+  rosterLoadingLabel?: string;
   onOpenHome?: () => void;
   homeActive?: boolean;
   homeHref?: string;
-  onOpenAltHome?: () => void;
-  altHomeActive?: boolean;
-  altHomeHref?: string;
-  onOpenSharedResources?: () => void;
-  sharedResourcesActive?: boolean;
-  sharedResourcesHref?: string;
+  onOpenKnowledgeHub?: () => void;
+  knowledgeHubActive?: boolean;
+  knowledgeHubHref?: string;
   onOpenMembers?: () => void;
   membersActive?: boolean;
   membersHref?: string;
@@ -2134,8 +2135,8 @@ function HandoffThreadView({
     agentIds[targetIndex] = currentAgentId;
     onReorderAgents(agentIds);
   }, [onReorderAgents, privateThreads]);
-  const canReorderAgents = Boolean(onReorderAgents && privateThreads.length > 1);
-  const sectionHeadingInsetClass = mobileMode ? "pl-6 pr-4" : "pl-5 pr-3";
+  const canReorderAgents = Boolean(!mobileMode && onReorderAgents && privateThreads.length > 1);
+  const sectionHeadingInsetClass = mobileMode ? "pl-12 pr-4" : "pl-7 pr-3";
 
   return (
     <motion.div layoutScroll className="agents-roster-scroll flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--agent-roster-background)]">
@@ -2170,6 +2171,25 @@ function HandoffThreadView({
             ) : null
           ) : null}
         </div>
+      </div>
+
+      <div className="agents-roster-home mb-1 shrink-0">
+        <RosterNavigationItem
+          label="Home"
+          href={homeHref}
+          active={homeActive}
+          onOpen={onOpenHome}
+          icon={House}
+          mobileMode={mobileMode}
+        />
+        <RosterNavigationItem
+          label="Knowledge Hub"
+          href={knowledgeHubHref}
+          active={knowledgeHubActive}
+          onOpen={onOpenKnowledgeHub}
+          icon={LibraryBig}
+          mobileMode={mobileMode}
+        />
       </div>
 
       {!embeddedInNavigation ? <div className={`agents-roster-section-header flex shrink-0 items-center gap-1 pb-1.5 pt-0.5 transition-colors hover:bg-surface-low/40 ${sectionHeadingInsetClass}`}>
@@ -2221,7 +2241,7 @@ function HandoffThreadView({
       {rosterLoading ? (
         <div role="status" aria-live="polite" className="flex shrink-0 items-center gap-2 px-5 py-2 text-xs text-text-muted">
           <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-          Loading Workspace agents
+          {rosterLoadingLabel}
         </div>
       ) : null}
 
@@ -2253,24 +2273,18 @@ function HandoffThreadView({
                    setShowAgentCreator((v) => !v);
                    setShowChannelCreator(false);
                  }}
-                className={`group/agent relative flex w-full items-start border-l-2 border-l-transparent text-left transition-colors hover:bg-surface-low/50 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent ${
-                  mobileMode ? "gap-3 px-3 py-3" : "gap-2.5 border-r border-border px-3 py-2.5"
+                className={`agents-roster-launch group/agent relative flex w-full items-center text-left transition-colors hover:bg-surface-low/50 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent ${
+                  mobileMode ? "gap-2 px-3 py-2.5" : "gap-1 py-2 pl-1 pr-2"
                 }`}
               >
-              {canReorderAgents ? (
-                <span
-                  aria-hidden="true"
-                  className={`shrink-0 ${mobileMode ? "-ml-2 h-10 w-10" : "-ml-2 h-7 w-6"}`}
-                />
-              ) : null}
               <span className={`flex flex-shrink-0 items-center justify-center rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.25)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)] transition-[border-color,background-color,transform] group-hover/agent:scale-105 group-hover/agent:border-[rgb(var(--selection-accent-rgb)_/_0.45)] group-hover/agent:bg-[rgb(var(--selection-accent-rgb)_/_0.15)] ${
-                mobileMode ? "h-9 w-9" : "h-7 w-7"
+                mobileMode ? "h-7 w-7" : "h-5 w-5"
               }`}>
-                <Plus className={mobileMode ? "h-5 w-5" : "h-3.5 w-3.5"} />
+                <Plus className={mobileMode ? "h-3.5 w-3.5" : "h-3 w-3"} />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium text-foreground">Launch agent</span>
-                <span className="mt-0.5 block truncate text-xs text-text-muted">Create a new workspace</span>
+                <span className="block truncate text-sm font-semibold leading-4 text-foreground">Launch agent</span>
+                <span className="mt-0.5 block truncate text-[12px] leading-4 text-text-secondary">Create a new workspace</span>
               </span>
               </motion.button>
             </RosterTooltip>
@@ -2281,7 +2295,7 @@ function HandoffThreadView({
               onClose={() => setShowAgentCreator(false)}
               onCreated={async (name, iconIndex, size) => {
                 if (onCreateAgent) {
-                  const createdId = await onCreateAgent({ name, iconIndex, size, files: [], enableDesktop: false });
+                  const createdId = await onCreateAgent({ name, iconIndex, size, files: [], enableDesktop: false, knowledgeDomainId: null });
                   setShowAgentCreator(false);
                   if (createdId) {
                     onStartAgentChat?.({ id: createdId, name, type: "agent" });
@@ -2333,37 +2347,10 @@ function HandoffThreadView({
         </AnimatePresence>
       </div>
 
-      <div className="agents-roster-home mt-1 shrink-0">
-        <RosterNavigationItem
-          label="Home"
-          href={homeHref}
-          active={homeActive}
-          onOpen={onOpenHome}
-          icon={House}
-          mobileMode={mobileMode}
-        />
-        <RosterNavigationItem
-          label="Alt home"
-          href={altHomeHref}
-          active={altHomeActive}
-          onOpen={onOpenAltHome}
-          icon={LayoutDashboard}
-          mobileMode={mobileMode}
-        />
-      </div>
-
       <section className="agents-roster-administration mt-1 shrink-0" aria-label="Administration">
-        <div className={`${sectionHeadingInsetClass} ${mobileMode ? "text-sm" : "text-[13px]"} py-1.5`}>
+        <div className={`py-1.5 ${mobileMode ? "pl-4 pr-4 text-sm" : "pl-1.5 pr-2 text-[13px]"}`}>
           <span className="font-medium text-text-secondary">Administration</span>
         </div>
-        <RosterNavigationItem
-          label="Shared"
-          href={sharedResourcesHref}
-          active={sharedResourcesActive}
-          onOpen={onOpenSharedResources}
-          icon={HardDrive}
-          mobileMode={mobileMode}
-        />
         <RosterNavigationItem
           label="Members"
           href={membersHref}
@@ -2485,15 +2472,13 @@ export function AgentsChannelsSidebar({
   onOpenAgentLauncher,
   agentCreationDisabledReason,
   rosterLoading = false,
+  rosterLoadingLabel,
   onOpenHome,
   homeActive,
   homeHref,
-  onOpenAltHome,
-  altHomeActive,
-  altHomeHref,
-  onOpenSharedResources,
-  sharedResourcesActive,
-  sharedResourcesHref,
+  onOpenKnowledgeHub,
+  knowledgeHubActive,
+  knowledgeHubHref,
   onOpenMembers,
   membersActive,
   membersHref,
@@ -2570,15 +2555,13 @@ export function AgentsChannelsSidebar({
           onOpenAgentLauncher={onOpenAgentLauncher}
           agentCreationDisabledReason={agentCreationDisabledReason}
           rosterLoading={rosterLoading}
+          rosterLoadingLabel={rosterLoadingLabel}
           onOpenHome={onOpenHome}
           homeActive={homeActive}
           homeHref={homeHref}
-          onOpenAltHome={onOpenAltHome}
-          altHomeActive={altHomeActive}
-          altHomeHref={altHomeHref}
-          onOpenSharedResources={onOpenSharedResources}
-          sharedResourcesActive={sharedResourcesActive}
-          sharedResourcesHref={sharedResourcesHref}
+          onOpenKnowledgeHub={onOpenKnowledgeHub}
+          knowledgeHubActive={knowledgeHubActive}
+          knowledgeHubHref={knowledgeHubHref}
           onOpenMembers={onOpenMembers}
           membersActive={membersActive}
           membersHref={membersHref}
@@ -2618,15 +2601,13 @@ export function AgentsChannelsSidebar({
           onOpenAgentLauncher={onOpenAgentLauncher}
           agentCreationDisabledReason={agentCreationDisabledReason}
           rosterLoading={rosterLoading}
+          rosterLoadingLabel={rosterLoadingLabel}
           onOpenHome={onOpenHome}
           homeActive={homeActive}
           homeHref={homeHref}
-          onOpenAltHome={onOpenAltHome}
-          altHomeActive={altHomeActive}
-          altHomeHref={altHomeHref}
-          onOpenSharedResources={onOpenSharedResources}
-          sharedResourcesActive={sharedResourcesActive}
-          sharedResourcesHref={sharedResourcesHref}
+          onOpenKnowledgeHub={onOpenKnowledgeHub}
+          knowledgeHubActive={knowledgeHubActive}
+          knowledgeHubHref={knowledgeHubHref}
           onOpenMembers={onOpenMembers}
           membersActive={membersActive}
           membersHref={membersHref}

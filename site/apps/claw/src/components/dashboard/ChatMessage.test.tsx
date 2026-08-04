@@ -1501,6 +1501,79 @@ describe("ChatMessageBubble", () => {
     expect(screen.getByText("README.md")).toBeInTheDocument();
   });
 
+  it("keeps an independent JSON final answer visible after a completed tool call", () => {
+    const finalAnswer = JSON.stringify({
+      status: "complete",
+      answer: "INDEPENDENT_ASSISTANT_JSON",
+    });
+    const { container } = render(
+      <ChatMessageBubble
+        message={{
+          role: "assistant",
+          content: finalAnswer,
+          toolCalls: [
+            {
+              name: "lookup",
+              args: JSON.stringify({ query: "status" }),
+              result: JSON.stringify({ found: true }),
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(container.textContent).toContain(finalAnswer);
+  });
+
+  it("suppresses a structurally equivalent JSON echo of a displayed tool result", () => {
+    const duplicateSentinel = "DUPLICATE_TOOL_RESULT_JSON";
+    const { container } = render(
+      <ChatMessageBubble
+        message={{
+          role: "assistant",
+          content: JSON.stringify({ count: 2, source: duplicateSentinel }),
+          toolCalls: [
+            {
+              name: "inspect",
+              args: "{}",
+              result: JSON.stringify({ source: duplicateSentinel, count: 2 }, null, 2),
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(container.textContent).not.toContain(duplicateSentinel);
+    fireEvent.click(screen.getByText("Inspect"));
+    expect(container.textContent).toContain(duplicateSentinel);
+  });
+
+  it("renders primitive files JSON verbatim instead of an empty directory visualization", () => {
+    const content = JSON.stringify({ files: ["a.txt", "b.txt"] });
+    expect(parseDirectoryVisualization(content)).toBeNull();
+
+    const { container } = render(
+      <ChatMessageBubble message={{ role: "assistant", content }} />,
+    );
+
+    expect(screen.queryByRole("tree")).not.toBeInTheDocument();
+    expect(container.textContent).toContain(content);
+  });
+
+  it("renders domain items JSON verbatim instead of a synthetic file tree", () => {
+    const content = JSON.stringify({
+      items: [{ name: "Alice", path: "customers/1" }],
+    });
+    expect(parseDirectoryVisualization(content)).toBeNull();
+
+    const { container } = render(
+      <ChatMessageBubble message={{ role: "assistant", content }} />,
+    );
+
+    expect(screen.queryByRole("tree")).not.toBeInTheDocument();
+    expect(container.textContent).toContain(content);
+  });
+
   it("renders directory tool results inside an opened tool call", () => {
     render(
       <ChatMessageBubble

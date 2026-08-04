@@ -82,30 +82,56 @@ function readSize(value: unknown): number | undefined {
   return value;
 }
 
-function readEntryType(record: Record<string, unknown>, path: string): "file" | "directory" | null {
+function readExplicitEntryType(record: Record<string, unknown>, path: string): "file" | "directory" | null {
   const rawType = typeof record.type === "string" ? record.type.toLowerCase() : "";
   if (rawType === "directory" || rawType === "dir" || rawType === "folder") return "directory";
   if (rawType === "file") return "file";
-  if (record.isDirectory === true || record.directory === true) return "directory";
+  if (typeof record.isDirectory === "boolean") return record.isDirectory ? "directory" : "file";
+  if (record.directory === true) return "directory";
   if (Array.isArray(record.children) || Array.isArray(record.files) || Array.isArray(record.directories)) return "directory";
   if (path.endsWith("/")) return "directory";
+  return null;
+}
+
+function readEntryType(
+  record: Record<string, unknown>,
+  path: string,
+  fallbackType?: "file" | "directory",
+): "file" | "directory" | null {
+  const explicitType = readExplicitEntryType(record, path);
+  if (explicitType) return explicitType;
+  if (fallbackType) return fallbackType;
   if (typeof record.name === "string" || typeof record.path === "string") return "file";
   return null;
 }
 
-function normalizeEntry(value: unknown, fallbackRoot = ""): DirectoryVisualizationEntry | null {
-  if (!isRecord(value)) return null;
-
-  const rawPath =
+function rawEntryPath(value: Record<string, unknown>): string {
+  return (
     (typeof value.path === "string" && value.path.trim()) ||
     (typeof value.fullPath === "string" && value.fullPath.trim()) ||
     (typeof value.file_path === "string" && value.file_path.trim()) ||
     (typeof value.name === "string" && value.name.trim()) ||
-    "";
+    ""
+  );
+}
+
+function hasExplicitFilesystemEvidence(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return readExplicitEntryType(value, rawEntryPath(value)) !== null;
+}
+
+function normalizeEntry(
+  value: unknown,
+  fallbackRoot = "",
+  fallbackType?: "file" | "directory",
+): DirectoryVisualizationEntry | null {
+  if (!isRecord(value)) return null;
+
+  const rawPath = rawEntryPath(value);
   if (!rawPath) return null;
 
   const normalizedPath = normalizePath(rawPath);
-  const type = readEntryType(value, rawPath);
+  const type = readEntryType(value, rawPath, fallbackType);
   if (!type) return null;
 
   const rawName = typeof value.name === "string" && value.name.trim()
@@ -113,11 +139,20 @@ function normalizeEntry(value: unknown, fallbackRoot = ""): DirectoryVisualizati
     : basename(normalizedPath);
   const name = rawName || basename(normalizedPath);
   const path = normalizedPath || normalizePath(`${fallbackRoot}/${name}`);
-  const nestedEntries = [
-    ...(Array.isArray(value.directories) ? value.directories : []),
-    ...(Array.isArray(value.files) ? value.files : []),
-    ...(Array.isArray(value.children) ? value.children : []),
-  ].map((entry) => normalizeEntry(entry, path)).filter((entry): entry is DirectoryVisualizationEntry => Boolean(entry));
+  const nestedDirectories = Array.isArray(value.directories) ? value.directories : [];
+  const nestedFiles = Array.isArray(value.files) ? value.files : [];
+  const nestedChildren = Array.isArray(value.children) ? value.children : [];
+  const normalizedDirectories = normalizeEntries(nestedDirectories, path, "directory");
+  const normalizedFiles = normalizeEntries(nestedFiles, path, "file");
+  const normalizedChildren = normalizeEntries(nestedChildren, path);
+  if (
+    normalizedDirectories.length !== nestedDirectories.length ||
+    normalizedFiles.length !== nestedFiles.length ||
+    normalizedChildren.length !== nestedChildren.length
+  ) {
+    return null;
+  }
+  const nestedEntries = [...normalizedDirectories, ...normalizedFiles, ...normalizedChildren];
 
   return {
     name,
@@ -129,9 +164,13 @@ function normalizeEntry(value: unknown, fallbackRoot = ""): DirectoryVisualizati
   };
 }
 
-function normalizeEntries(values: unknown[], fallbackRoot = ""): DirectoryVisualizationEntry[] {
+function normalizeEntries(
+  values: unknown[],
+  fallbackRoot = "",
+  fallbackType?: "file" | "directory",
+): DirectoryVisualizationEntry[] {
   return values
-    .map((value) => normalizeEntry(value, fallbackRoot))
+    .map((value) => normalizeEntry(value, fallbackRoot, fallbackType))
     .filter((entry): entry is DirectoryVisualizationEntry => Boolean(entry));
 }
 
@@ -166,9 +205,9 @@ export function parseDirectoryVisualization(value: unknown): DirectoryVisualizat
   if (!parsed) return null;
 
   if (Array.isArray(parsed)) {
+    if (parsed.length === 0 || !parsed.every(hasExplicitFilesystemEvidence)) return null;
     const entries = normalizeEntries(parsed);
-    const hasExplicitFileTypes = parsed.some((entry) => isRecord(entry) && typeof entry.type === "string");
-    return entries.length > 0 && hasExplicitFileTypes ? { entries } : null;
+    return entries.length === parsed.length ? { entries } : null;
   }
 
   if (!isRecord(parsed)) return null;
@@ -183,16 +222,27 @@ export function parseDirectoryVisualization(value: unknown): DirectoryVisualizat
   const rootPath = rootPathFromRecord(parsed);
 
   if (directories.length > 0 || files.length > 0) {
+    const normalizedDirectories = normalizeEntries(directories, rootPath, "directory");
+    const normalizedFiles = normalizeEntries(files, rootPath, "file");
+    const normalizedEntries = [...normalizedDirectories, ...normalizedFiles];
+    if (
+      normalizedEntries.length === 0 ||
+      normalizedDirectories.length !== directories.length ||
+      normalizedFiles.length !== files.length
+    ) {
+      return null;
+    }
     return {
       rootPath,
-      entries: normalizeEntries([...directories, ...files], rootPath),
+      entries: normalizedEntries,
       truncated: parsed.truncated === true,
     };
   }
 
   if (entries.length > 0) {
+    if (!entries.every(hasExplicitFilesystemEvidence)) return null;
     const normalizedEntries = normalizeEntries(entries, rootPath);
-    if (normalizedEntries.length === 0) return null;
+    if (normalizedEntries.length !== entries.length) return null;
     return {
       rootPath,
       entries: normalizedEntries,
@@ -202,10 +252,10 @@ export function parseDirectoryVisualization(value: unknown): DirectoryVisualizat
 
   if (parsed.type === "directory") {
     const normalized = normalizeEntry(parsed);
-    if (!normalized) return null;
+    if (!normalized?.children?.length) return null;
     return {
       rootPath: normalized.path,
-      entries: normalized.children ?? [],
+      entries: normalized.children,
       truncated: parsed.truncated === true,
     };
   }

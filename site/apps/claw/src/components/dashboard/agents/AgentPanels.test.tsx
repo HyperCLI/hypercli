@@ -415,6 +415,23 @@ describe("AgentList", () => {
     expect(props.setSidebarCollapsed).toHaveBeenCalledWith(false);
   });
 
+  it("selects an agent directly from the mobile rail", () => {
+    const supportAgent = { ...agent, id: "agent-2", name: "Support Agent" };
+    const props = renderAgentList({
+      isDesktopViewport: false,
+      renderMobileNavigation: true,
+      agents: [agent, supportAgent],
+      syntheticThreads: [agentThread(agent), agentThread(supportAgent)],
+    });
+
+    expect(screen.queryByRole("button", { name: /^Move / })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Select Support Agent" }));
+
+    expect(props.setSelectedAgentId).toHaveBeenCalledWith("agent-2");
+    expect(props.setMobileShowChat).toHaveBeenCalledWith(true);
+    expect(props.setSidebarCollapsed).not.toHaveBeenCalled();
+  });
+
   it("renders the agent profile image in the collapsed roster", () => {
     const profileImageUrl = "https://cdn.example.test/agent.png";
     renderAgentList({ agents: [{ ...agent, avatarUrl: profileImageUrl }] });
@@ -437,13 +454,17 @@ describe("AgentList", () => {
   });
 
   it("lets the expanded mobile agents pane return to the workspace pane", () => {
+    const supportAgent = { ...agent, id: "agent-2", name: "Support Agent" };
     const props = renderAgentList({
       sidebarCollapsed: false,
       isDesktopViewport: false,
       renderMobileNavigation: true,
       embeddedInNavigation: true,
+      agents: [agent, supportAgent],
+      syntheticThreads: [agentThread(agent), agentThread(supportAgent)],
     });
 
+    expect(screen.queryByRole("button", { name: /^Move / })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
     expect(props.setSidebarCollapsed).toHaveBeenCalledWith(true);
   });
@@ -485,9 +506,24 @@ describe("AgentList", () => {
     expect(screen.getByRole("switch", { name: "Show offline agents" })).toHaveAttribute("aria-checked", "true");
     expect(screen.queryByRole("heading", { name: "Agents" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/dashboard/agents?view=overview");
-    expect(screen.getByRole("link", { name: "Alt home" })).toHaveAttribute("href", "/dashboard/agents?view=alt-home");
+    expect(screen.queryByRole("link", { name: /Alt Home/i })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
     expect(props.setSidebarCollapsed).toHaveBeenCalledWith(true);
+  });
+
+  it("opens Knowledge Hub through the embedded navigation callback", () => {
+    const onOpenKnowledgeHub = vi.fn();
+    renderAgentList({
+      sidebarCollapsed: false,
+      embeddedInNavigation: true,
+      onOpenKnowledgeHub,
+      knowledgeHubActive: true,
+    });
+
+    const knowledgeHub = screen.getByRole("button", { name: /Knowledge Hub/i });
+    expect(knowledgeHub).toHaveAttribute("aria-current", "page");
+    fireEvent.click(knowledgeHub);
+    expect(onOpenKnowledgeHub).toHaveBeenCalledOnce();
   });
 
   it("shows Administration actions in the embedded collapsed rail", () => {
@@ -497,16 +533,17 @@ describe("AgentList", () => {
     expect(screen.getByRole("button", { name: "Expand agents sidebar" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Select Test Agent" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/dashboard/agents?view=overview");
-    expect(screen.getByRole("link", { name: "Alt home" })).toHaveAttribute("href", "/dashboard/agents?view=alt-home");
+    expect(screen.queryByRole("link", { name: /Alt Home/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Knowledge Hub" })).toHaveAttribute("href", "/dashboard/agents?section=knowledge-hub");
     expect(screen.getByRole("button", { name: "Launch agent" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Shared" })).toHaveAttribute("href", "/dashboard/agents?section=knowledge");
+    expect(screen.queryByText("Shared")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Members" })).toHaveAttribute("href", "/dashboard/agents?section=members");
     expect(screen.getByRole("link", { name: "Usage" })).toHaveAttribute("href", "/dashboard/agents?view=usage");
     fireEvent.click(screen.getByRole("button", { name: "Account links" }));
     expect(screen.getByRole("menuitem", { name: "Settings" })).toBeInTheDocument();
   });
 
-  it("places My Agents or search below the desktop roster actions", () => {
+  it("places primary navigation above My Agents and Administration below it", () => {
     renderAgentList({ sidebarCollapsed: false });
 
     const rosterHeader = document.querySelector(".agents-roster-header");
@@ -523,14 +560,15 @@ describe("AgentList", () => {
     expect(myAgentsLabel).toHaveClass("text-[13px]", "text-text-secondary");
     expect(myAgentsLabel).not.toHaveClass("uppercase");
     expect(screen.getByText("Administration")).toBeInTheDocument();
-    expect(sectionHeader).toHaveClass("pl-5", "pr-3");
+    expect(sectionHeader).toHaveClass("pl-7", "pr-3");
     expect(sectionHeader?.querySelector(".h-px")).not.toBeInTheDocument();
     expect(document.querySelector(".agents-roster-administration")).toBeInTheDocument();
     const agentList = document.querySelector(".agents-roster-agent-list");
     const home = document.querySelector(".agents-roster-home");
     const administration = document.querySelector(".agents-roster-administration");
-    expect(agentList?.nextElementSibling).toBe(home);
-    expect(home?.nextElementSibling).toBe(administration);
+    expect(actions?.nextElementSibling).toBe(home);
+    expect(home?.nextElementSibling).toBe(sectionHeader);
+    expect(agentList?.nextElementSibling).toBe(administration);
     expect(rosterHeader).not.toContainElement(search);
     expect(rosterHeader).not.toContainElement(collapse);
 
@@ -700,7 +738,7 @@ describe("AgentList", () => {
     expect(props.setSelectedAgentId).toHaveBeenCalledWith("agent-1");
   });
 
-  it("aligns the expanded launch action with reorderable agent rows", () => {
+  it("keeps expanded launch and agent rows compact when reordering is available", () => {
     const agents = [agent, failedAgent];
     renderAgentList({
       sidebarCollapsed: false,
@@ -709,12 +747,25 @@ describe("AgentList", () => {
     });
 
     const launch = screen.getByRole("button", { name: "Launch agent" });
-    expect(launch).toHaveClass("items-start", "border-l-2", "border-r", "border-border", "px-3", "py-2.5");
-    expect(launch.children[0]).toHaveAttribute("aria-hidden", "true");
-    expect(launch.children[0]).toHaveClass("-ml-2", "h-7", "w-6");
-    expect(launch.children[1]).toHaveClass("h-7", "w-7", "rounded-full");
+    expect(launch).toHaveClass("items-center", "gap-1", "pl-1", "pr-2", "py-2");
+    expect(launch).not.toHaveClass("border-l-2");
+    expect(launch).not.toHaveClass("border-r");
+    expect(launch.children[0]).toHaveClass("h-5", "w-5", "rounded-full");
     expect(launch).toHaveTextContent("Create a new workspace");
-    expect(document.querySelector(".agents-roster-section-header")).toHaveClass("pl-5", "pr-3");
+    const row = screen.getByRole("button", { name: "Select Test Agent" });
+    expect(row).toHaveClass("items-center", "gap-1", "pl-1", "pr-2", "py-2");
+    expect(row).toHaveClass("border-r", "border-border");
+    expect(row).not.toHaveClass("border-l-2");
+    expect(screen.getByRole("button", { name: "Move Test Agent" })).toHaveClass(
+      "absolute",
+      "right-1",
+      "w-6",
+      "opacity-0",
+      "group-hover/row:bg-surface-high",
+      "group-hover/row:text-foreground",
+      "group-hover/row:opacity-100",
+    );
+    expect(document.querySelector(".agents-roster-section-header")).toHaveClass("pl-7", "pr-3");
     expect(document.querySelector(".agents-roster-administration")).toBeInTheDocument();
     expect(document.querySelector(".agents-roster-expanded .agents-roster-header")).toHaveClass("bg-background");
     expect(document.querySelector(".agents-roster-expanded .agents-roster-scroll")).toHaveClass("bg-[var(--agent-roster-background)]");
@@ -779,8 +830,6 @@ describe("AgentList", () => {
   it("opens Administration actions from the collapsed rail", () => {
     const onOpenAccountSettings = vi.fn();
     const onOpenHome = vi.fn();
-    const onOpenAltHome = vi.fn();
-    const onOpenSharedResources = vi.fn();
     const onOpenMembers = vi.fn();
     const onOpenUsage = vi.fn();
     renderAgentList({
@@ -788,9 +837,6 @@ describe("AgentList", () => {
       accountSettingsActive: true,
       onOpenHome,
       homeActive: true,
-      onOpenAltHome,
-      onOpenSharedResources,
-      sharedResourcesActive: true,
       onOpenMembers,
       onOpenUsage,
     });
@@ -804,21 +850,26 @@ describe("AgentList", () => {
     expect(document.querySelector(".agents-roster-rail-primary")).toHaveClass("shrink-0", "gap-2");
     expect(document.querySelector(".agents-roster-rail-agents")).toHaveClass("w-full", "shrink", "overflow-y-auto", "py-1");
     expect(screen.getByRole("button", { name: "Home" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("button", { name: "Alt home" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Shared" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("button", { name: "Alt Home" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Shared")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Members" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Usage" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Settings" })).not.toBeInTheDocument();
     expect(onOpenAccountSettings).not.toHaveBeenCalled();
+    const primary = document.querySelector(".agents-roster-rail-primary");
+    const home = document.querySelector(".agents-roster-rail-home");
+    const agents = document.querySelector(".agents-roster-rail-agents");
+    const administration = document.querySelector(".agents-roster-rail-administration");
+    expect(primary?.nextElementSibling).toBe(home);
+    expect(home?.nextElementSibling).toBe(dividers[0]);
+    expect(dividers[0]?.nextElementSibling).toBe(agents);
+    expect(agents?.nextElementSibling).toBe(dividers[1]);
+    expect(dividers[1]?.nextElementSibling).toBe(administration);
 
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
-    fireEvent.click(screen.getByRole("button", { name: "Alt home" }));
-    fireEvent.click(screen.getByRole("button", { name: "Shared" }));
     fireEvent.click(screen.getByRole("button", { name: "Members" }));
     fireEvent.click(screen.getByRole("button", { name: "Usage" }));
     expect(onOpenHome).toHaveBeenCalledOnce();
-    expect(onOpenAltHome).toHaveBeenCalledOnce();
-    expect(onOpenSharedResources).toHaveBeenCalledOnce();
     expect(onOpenMembers).toHaveBeenCalledOnce();
     expect(onOpenUsage).toHaveBeenCalledOnce();
 
@@ -855,34 +906,25 @@ describe("AgentList", () => {
     expect(screen.getByRole("button", { name: "Select Starting Agent" })).toBeInTheDocument();
   });
 
-  it("reorders agents directly from the collapsed rail", async () => {
+  it("does not expose reordering from the collapsed rail", () => {
     const agents = [agent, failedAgent, startingAgent];
-    const setSelectedAgentId = vi.fn();
     renderAgentList({
       agents,
-      setSelectedAgentId,
       syntheticThreads: agents.map(agentThread),
     });
 
-    const startingHandle = screen.getByRole("button", { name: "Move Starting Agent" });
-    expect(startingHandle.parentElement).toHaveClass("w-8");
-    expect(startingHandle).toHaveClass("-left-2");
-    fireEvent.click(startingHandle);
-    expect(setSelectedAgentId).not.toHaveBeenCalled();
-    fireEvent.keyDown(startingHandle, { key: "ArrowUp" });
-
-    await waitFor(() => expect(
-      screen.getAllByRole("button", { name: /^Select / }).map((button) => button.getAttribute("aria-label")),
-    ).toEqual([
+    expect(screen.queryByRole("button", { name: /^Move / })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^Select / }).map((button) => button.getAttribute("aria-label"))).toEqual([
       "Select Test Agent",
-      "Select Starting Agent",
       "Select Failed Agent",
-    ]));
+      "Select Starting Agent",
+    ]);
   });
 
-  it("persists reordered agents across remounts", async () => {
+  it("persists expanded roster order across remounts", async () => {
     const agents = [agent, failedAgent, startingAgent];
     const props = createAgentListProps({
+      sidebarCollapsed: false,
       agents,
       syntheticThreads: agents.map(agentThread),
     });
@@ -905,27 +947,21 @@ describe("AgentList", () => {
     first.unmount();
     renderWithClient(<AgentList {...props} />);
 
-    expect(screen.getAllByRole("button", { name: /^Select / }).map((button) => button.getAttribute("aria-label"))).toEqual([
-      "Select Test Agent",
-      "Select Starting Agent",
-      "Select Failed Agent",
+    expect(screen.getAllByRole("button", { name: /^Move / }).map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Move Test Agent",
+      "Move Starting Agent",
+      "Move Failed Agent",
     ]);
   });
 
-  it("hides agent hover cards while a collapsed reorder handle is active", () => {
+  it("keeps agent hover cards available without collapsed reorder controls", () => {
     const agents = [agent, failedAgent];
     renderAgentList({
       agents,
       syntheticThreads: agents.map(agentThread),
     });
 
-    const handle = screen.getByRole("button", { name: "Move Test Agent" });
-    expect(screen.getAllByText("agent.example.com")).toHaveLength(2);
-
-    fireEvent.pointerDown(handle);
-    expect(screen.queryByText("agent.example.com")).not.toBeInTheDocument();
-
-    fireEvent.pointerUp(handle);
+    expect(screen.queryByRole("button", { name: /^Move / })).not.toBeInTheDocument();
     expect(screen.getAllByText("agent.example.com")).toHaveLength(2);
   });
 
@@ -1021,6 +1057,7 @@ describe("AgentList", () => {
     ]));
 
     fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    expect(screen.queryByRole("button", { name: /^Move / })).not.toBeInTheDocument();
     await waitFor(() => expect(
       screen.getAllByRole("button", { name: /^Select / }).map((button) => button.getAttribute("aria-label")),
     ).toEqual([
@@ -1101,7 +1138,7 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByText("Display name")).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Agent display name" })).toHaveValue("Test Agent");
     expect(screen.getByRole("textbox", { name: "Agent display name" })).not.toHaveAttribute("readonly");
-    expect(screen.getByText(/used for .* mentions/i)).toBeInTheDocument();
+    expect(screen.getByText(/spaces become dashes.*slack/i)).toBeInTheDocument();
     expect(screen.queryByText("Slack handle")).not.toBeInTheDocument();
     expect(screen.getByText("Default model")).toBeInTheDocument();
     expect(screen.getByText("Visibility")).toBeInTheDocument();
@@ -1434,7 +1471,7 @@ describe("AgentSettingsPanel", () => {
     rerender(<AgentSettingsPanel {...props} agent={{ ...initialAgent, handle: "marketing", displayName: "marketing" }} />);
 
     await waitFor(() => {
-      expect(screen.getByRole("textbox", { name: "Agent display name" })).toHaveValue("marketing");
+      expect(screen.getByRole("textbox", { name: "Agent display name" })).toHaveValue("Marketing");
     });
     expect(screen.getByRole("textbox", { name: "Agent name" })).toHaveValue("Unsaved canonical name");
     expect(screen.getByRole("textbox", { name: "Additional env" })).toHaveValue("CUSTOM_FLAG=unsaved");
@@ -1476,19 +1513,36 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByRole("textbox", { name: "Agent display name" })).toHaveValue("Test Agent");
   });
 
+  it("turns a friendly managed display name into a Slack-safe handle", async () => {
+    const onUpdateAgentProfile = vi.fn(async () => undefined);
+    renderAgentSettingsPanel({ onUpdateAgentProfile });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Agent display name" }), {
+      target: { value: "best one in the world" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      expect(onUpdateAgentProfile).toHaveBeenCalledWith("agent-1", { handle: "best-one-in-the-world" });
+    });
+    expect(screen.getByRole("textbox", { name: "Agent display name" })).toHaveValue("Best One In The World");
+    expect(screen.getByText("Agent settings updated.")).toBeInTheDocument();
+  });
+
   it("dismisses invalid managed display-name feedback after five seconds", () => {
     const onUpdateAgentProfile = vi.fn(async () => undefined);
     renderAgentSettingsPanel({ onUpdateAgentProfile });
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Agent display name" }), {
-      target: { value: "Friendly Alias" },
+      target: { value: "Friendly Alias!" },
     });
     vi.useFakeTimers();
     try {
       fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
-      const message = "Display names must start with a lowercase letter or number and contain 2-64 lowercase letters, numbers, underscores, or dashes.";
+      const message = "Display names must start with a letter or number and contain 2-64 letters, numbers, spaces, underscores, or dashes.";
       expect(screen.getByText(message)).toBeInTheDocument();
       expect(onUpdateAgentProfile).not.toHaveBeenCalled();
 
@@ -1720,6 +1774,21 @@ describe("AgentSettingsPanel", () => {
     const startButton = screen.getByRole("button", { name: /start agent/i });
     expect(startButton).toBeDisabled();
     expect(startButton).toHaveTextContent("Start agent");
+    expect(screen.queryByText("Starting...")).not.toBeInTheDocument();
+  });
+
+  it("renders a stopping runtime as stopping instead of starting", () => {
+    renderAgentSettingsPanel({
+      agent: { ...agent, state: "STOPPING" },
+      agentStopping: false,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+
+    const stopButton = screen.getByRole("button", { name: "Stop agent" });
+    expect(stopButton).toBeDisabled();
+    expect(stopButton).toHaveTextContent("Stopping...");
+    expect(screen.getByText("Agent is stopping")).toBeInTheDocument();
     expect(screen.queryByText("Starting...")).not.toBeInTheDocument();
   });
 

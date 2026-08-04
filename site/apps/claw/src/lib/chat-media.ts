@@ -9,7 +9,7 @@ import {
   resolveFileType,
 } from "@hypercli/shared-ui/files";
 
-const LOCAL_MEDIA_REFERENCE = /^media:/i;
+const LOCAL_MEDIA_REFERENCE = /^media:\/\/\S+$/i;
 const CONTENT_MEDIA_REFERENCE_LINE = /^\s*MEDIA(?::(?!\/\/)\s*(.*))?\s*$/i;
 const CONTENT_LOCAL_MEDIA_REFERENCE_LINE = /^\s*(media:\/\/\S+)\s*$/i;
 const CONTENT_MEDIA_MARKDOWN_LINE = /^\s*!\[([^\]]*)\](?:\(([^)]*)\))?\s*$/i;
@@ -90,7 +90,7 @@ export function mediaWorkspacePathFromReference(path: string): string {
 }
 
 export function isGeneratedMediaPath(path: string): boolean {
-  return /^(?:home\/node\/\.openclaw\/workspace|\.?openclaw\/workspace|workspace|home)(?:\/|$)/i.test(
+  return /^(?:home\/node\/\.openclaw\/workspace|\.?openclaw\/workspace|workspace|home)\/.+/i.test(
     mediaWorkspacePathFromReference(path).replace(/^\/+/, ""),
   );
 }
@@ -188,7 +188,7 @@ export function classifyChatMediaReference(raw: string, matchingFile?: ChatPendi
     if (isKnownNonImageFileReference(value)) {
       return { kind: "link", url: value, fileName: mediaFileNameFromUrl(value), raw };
     }
-    return { kind: "image", url: value, fileName: mediaFileNameFromUrl(value), raw };
+    return { kind: "unsupported", raw, label: "Preview unavailable" };
   }
   return { kind: "unsupported", raw, label: "Preview unavailable" };
 }
@@ -215,14 +215,26 @@ function addUniqueDirectReference(
   refs.push(ref);
 }
 
-function isDefinitiveStreamingMediaReference(raw: string): boolean {
-  const value = mediaWorkspacePathFromReference(raw);
-  if (!value) return false;
-  if (/^data:(?:audio|image|video)\//i.test(value)) return true;
-  return isAudioFileReference({ path: value }) ||
-    isVideoFileReference({ path: value }) ||
-    isImageFileReference({ path: value }) ||
-    isKnownNonImageFileReference(value);
+function isPotentiallyIncompleteStreamingMediaReference(raw: string): boolean {
+  const value = mediaWorkspacePathFromReference(raw).toLowerCase();
+  if (!value) return true;
+
+  const prefixes = [
+    "http://",
+    "https://",
+    "blob:",
+    "media://",
+    "/",
+    "home/",
+    "home/node/.openclaw/workspace/",
+    ".openclaw/workspace/",
+    "openclaw/workspace/",
+    "workspace/",
+  ];
+  if (prefixes.some((prefix) => prefix.startsWith(value) || value.startsWith(prefix))) return true;
+
+  return ["data:audio/", "data:image/", "data:video/"]
+    .some((prefix) => prefix.startsWith(value) || value.startsWith(prefix));
 }
 
 export function extractContentMediaReferences(content: string, options: ExtractContentMediaOptions = {}): ExtractedContentMediaReferences {
@@ -236,14 +248,17 @@ export function extractContentMediaReferences(content: string, options: ExtractC
   const consumeReference = (raw: string, deferAmbiguous = false): boolean => {
     const value = mediaWorkspacePathFromReference(raw);
     if (!value) {
-      pendingMedia = true;
-      return true;
-    }
-    if (deferAmbiguous && !isDefinitiveStreamingMediaReference(value)) {
-      pendingMedia = true;
-      return true;
+      if (deferAmbiguous) pendingMedia = true;
+      return deferAmbiguous;
     }
     const classified = classifyChatMediaReference(value);
+    if (classified.kind === "unsupported") {
+      if (deferAmbiguous && isPotentiallyIncompleteStreamingMediaReference(value)) {
+        pendingMedia = true;
+        return true;
+      }
+      return false;
+    }
     if (classified.kind === "workspace") {
       addUniqueMediaReference(mediaFiles, classified.media, seenWorkspaceMedia);
       return true;
@@ -262,21 +277,29 @@ export function extractContentMediaReferences(content: string, options: ExtractC
       const srcPath = markdownMediaMatch[2]?.trim();
       const raw = srcPath || altPath || "";
       if (!raw) {
-        pendingMedia = true;
+        if (deferAmbiguous) {
+          pendingMedia = true;
+          continue;
+        }
+        visibleLines.push(line);
         continue;
       }
-      consumeReference(raw, deferAmbiguous);
+      if (!consumeReference(raw, deferAmbiguous)) visibleLines.push(line);
       continue;
     }
 
     if (/^\s*!\[MEDIA\b/i.test(line)) {
-      pendingMedia = true;
+      if (deferAmbiguous) {
+        pendingMedia = true;
+      } else {
+        visibleLines.push(line);
+      }
       continue;
     }
 
     const localMediaMatch = line.match(CONTENT_LOCAL_MEDIA_REFERENCE_LINE);
     if (localMediaMatch?.[1]) {
-      consumeReference(localMediaMatch[1], deferAmbiguous);
+      if (!consumeReference(localMediaMatch[1], deferAmbiguous)) visibleLines.push(line);
       continue;
     }
 
@@ -286,7 +309,7 @@ export function extractContentMediaReferences(content: string, options: ExtractC
       continue;
     }
 
-    consumeReference(match[1] ?? "", deferAmbiguous);
+    if (!consumeReference(match[1] ?? "", deferAmbiguous)) visibleLines.push(line);
   }
 
   const visibleContent = visibleLines
@@ -295,13 +318,15 @@ export function extractContentMediaReferences(content: string, options: ExtractC
       const inlineMatch = line.match(CONTENT_INLINE_MEDIA_REFERENCE);
       const raw = inlineMatch?.[1] ?? inlineMatch?.[2] ?? inlineMatch?.[3] ?? inlineMatch?.[4];
       if (inlineMatch && raw != null) {
-        consumeReference(raw, deferAmbiguous);
-        return line.replace(inlineMatch[0], "").trimEnd();
+        return consumeReference(raw, deferAmbiguous)
+          ? line.replace(inlineMatch[0], "").trimEnd()
+          : line;
       }
       const localInlineMatch = line.match(CONTENT_INLINE_LOCAL_MEDIA_REFERENCE);
       if (!localInlineMatch?.[1]) return line;
-      consumeReference(localInlineMatch[1], deferAmbiguous);
-      return line.replace(localInlineMatch[0], "").trimEnd();
+      return consumeReference(localInlineMatch[1], deferAmbiguous)
+        ? line.replace(localInlineMatch[0], "").trimEnd()
+        : line;
     })
     .join("\n")
     .trim();

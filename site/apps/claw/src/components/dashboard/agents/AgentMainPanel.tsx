@@ -17,6 +17,15 @@ import { TooltipHint } from "@/components/ClawTooltip";
 import { agentDisplayLabel } from "@/components/dashboard/agents/agentViewModel";
 import { AgentDisplayNameEditor } from "@/components/dashboard/agents/AgentDisplayNameEditor";
 
+export type DashboardSurfaceHeader = {
+  title: string;
+  subtitle?: string;
+  description?: string;
+  icon?: React.ReactNode;
+  controlsTargetId?: string;
+  metrics?: Array<{ label: string; value: string; tone?: "default" | "warning" | "danger" }>;
+};
+
 interface AgentMainPanelProps {
   isDesktopViewport: boolean;
   mobileShowChat: boolean;
@@ -50,6 +59,7 @@ interface AgentMainPanelProps {
   launcherContent?: React.ReactNode;
   persistentPanelContent?: React.ReactNode;
   headerAction?: React.ReactNode;
+  surfaceHeader?: DashboardSurfaceHeader | null;
   onUpdateAgentDisplayName?: (agentId: string, displayName: string) => Promise<void> | void;
   onCreate: () => void;
   onCreateAgent?: (params: AgentCreationSetupCreateParams) => Promise<string | null>;
@@ -105,6 +115,7 @@ export function AgentMainPanel({
   launcherContent,
   persistentPanelContent,
   headerAction,
+  surfaceHeader = null,
   onUpdateAgentDisplayName,
   onCreate,
   onCreateAgent,
@@ -276,7 +287,7 @@ export function AgentMainPanel({
   const renderSelectedPanelContent = () => {
     const activeAgent = selectedAgent;
     if (!activeAgent) return null;
-    if (currentPanel === "members") return panelContent;
+    if (currentPanel === "knowledge-hub" || currentPanel === "members") return panelContent;
 
     const chatPanelOwnsBootState =
       currentPanel === "chat" &&
@@ -379,6 +390,38 @@ export function AgentMainPanel({
     return panelContent;
   };
 
+  const desktopSurfaceHeader = isDesktopViewport && surfaceHeader ? (
+    <div data-slot="dashboard-surface-header" className="relative z-20 flex min-h-[76px] min-w-0 items-center justify-between gap-6 border-b border-border bg-surface-low/20 px-5 py-3 lg:px-6">
+      <div className="flex min-w-0 items-center gap-3.5">
+        {surfaceHeader.icon ? (
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] text-[var(--selection-accent)]">
+            {surfaceHeader.icon}
+          </span>
+        ) : null}
+        <div className="min-w-0 text-left">
+          <div className="flex min-w-0 items-center gap-2">
+            <p className="truncate text-[16px] font-semibold tracking-[-0.02em] text-foreground">{surfaceHeader.title}</p>
+            {surfaceHeader.subtitle ? <span className="shrink-0 rounded-full border border-border bg-background px-2 py-0.5 text-[9px] font-medium text-text-muted">{surfaceHeader.subtitle}</span> : null}
+          </div>
+          {surfaceHeader.description ? <p className="mt-1 max-w-[64ch] truncate text-[11px] leading-relaxed text-text-muted">{surfaceHeader.description}</p> : null}
+        </div>
+      </div>
+      <div className="flex min-w-0 flex-[1_1_36rem] items-center justify-end gap-4">
+        {surfaceHeader.controlsTargetId ? <div id={surfaceHeader.controlsTargetId} className="flex w-full min-w-0 items-center justify-end" /> : null}
+        {surfaceHeader.metrics?.length ? (
+          <dl className="hidden shrink-0 items-center divide-x divide-border md:flex">
+            {surfaceHeader.metrics.map((metric) => (
+              <div key={metric.label} className="min-w-[76px] px-4 text-right first:pl-0 last:pr-0">
+                <dt className="text-[9px] font-medium text-text-muted">{metric.label}</dt>
+                <dd className={`mt-1 text-xs font-semibold tabular-nums ${metric.tone === "danger" ? "text-destructive" : metric.tone === "warning" ? "text-warning" : "text-foreground"}`}>{metric.value}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : null}
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div className={`min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${!mobileShowChat && !isDesktopViewport ? "hidden" : "flex"}`}>
       {launcherContent ? (
@@ -426,8 +469,11 @@ export function AgentMainPanel({
             />
           )}
         </div>
-      ) : !selectedAgent && (currentPanel === "knowledge" || currentPanel === "members") ? (
-        <div className="flex-1 min-h-0">{panelContent}</div>
+      ) : !selectedAgent && (currentPanel === "knowledge-hub" || currentPanel === "knowledge" || currentPanel === "members") ? (
+        <>
+          {desktopSurfaceHeader}
+          <div className="flex-1 min-h-0">{panelContent}</div>
+        </>
       ) : loadingInitialAgents && !selectedAgent ? (
         <div className="flex-1 min-h-0">
           <AgentLoadingState
@@ -464,7 +510,7 @@ export function AgentMainPanel({
         />
       ) : (
         <>
-          {isDesktopViewport && (
+          {desktopSurfaceHeader ?? (isDesktopViewport && (
             <div className="relative z-20 grid h-14 min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,auto)_minmax(0,1fr)] items-center gap-3 border-b border-border bg-background px-4">
               <div className="relative z-10 flex min-w-0 items-center gap-2">
                 {showMobileListButton && (
@@ -552,7 +598,7 @@ export function AgentMainPanel({
                 )}
               </div>
             </div>
-          )}
+          ))}
 
           <div className="relative flex-1 min-h-0 overflow-hidden">
             {persistentPanelContent}

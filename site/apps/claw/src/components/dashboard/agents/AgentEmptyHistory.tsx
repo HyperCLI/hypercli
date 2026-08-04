@@ -111,18 +111,18 @@ export function AgentEmptyHistory({
   return (
     <section
       aria-labelledby="agent-empty-history-title"
-      className="agent-empty-history w-full max-w-[50rem] px-3 py-5 text-foreground sm:px-6 sm:py-8"
+      className="agent-empty-history max-h-full w-full max-w-[50rem] px-3 py-4 text-foreground sm:px-6 sm:py-5"
     >
       <header className="text-center">
         <div
           aria-hidden="true"
-          className="agent-empty-history-logo mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-[rgb(var(--selection-accent-rgb)_/_0.24)] bg-[rgb(var(--selection-accent-rgb)_/_0.08)] shadow-[0_16px_48px_rgb(var(--selection-accent-rgb)_/_0.08)]"
+          className="agent-empty-history-logo mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-[rgb(var(--selection-accent-rgb)_/_0.24)] bg-[rgb(var(--selection-accent-rgb)_/_0.08)] shadow-[0_16px_48px_rgb(var(--selection-accent-rgb)_/_0.08)]"
         >
-          <HyperCLILogoMark className="h-7 w-7" />
+          <HyperCLILogoMark className="h-6 w-6" />
         </div>
         <h2
           id="agent-empty-history-title"
-          className="agent-empty-history-title mt-4 text-2xl font-semibold tracking-[-0.035em] text-foreground sm:text-3xl"
+          className="agent-empty-history-title mt-3 text-2xl font-semibold tracking-[-0.035em] text-foreground"
         >
           Your agent is ready for real work
         </h2>
@@ -132,8 +132,8 @@ export function AgentEmptyHistory({
       </header>
 
       {actions?.onOpenIntegrationChatCard || availableWorkspaceActions.length > 0 ? (
-        <div className="agent-empty-history-group mt-7">
-          <div className="agent-empty-history-group-header mb-3 text-center">
+        <div className="agent-empty-history-group mt-5 sm:mt-6">
+          <div className="agent-empty-history-group-header mb-2 text-center">
             <h3 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
               Build out the workspace
             </h3>
@@ -148,9 +148,9 @@ export function AgentEmptyHistory({
                 variant="ghost"
                 aria-label="Connect Slack"
                 onClick={() => actions.onOpenIntegrationChatCard?.("slack")}
-                className="agent-empty-history-workspace-card group col-span-2 h-auto min-h-24 w-full flex-col justify-start gap-1.5 whitespace-normal rounded-xl px-4 py-2 text-center text-text-secondary hover:-translate-y-0.5 hover:bg-surface-low/55 hover:text-foreground focus-visible:bg-surface-low/55 motion-reduce:transform-none md:min-h-[8.75rem] md:gap-2.5 md:py-3 dark:hover:bg-surface-low/55"
+                className="agent-empty-history-workspace-card group col-span-2 h-auto min-h-24 w-full flex-col justify-start gap-1.5 whitespace-normal rounded-xl px-4 py-2 text-center text-text-secondary hover:-translate-y-0.5 hover:bg-surface-low/55 hover:text-foreground focus-visible:bg-surface-low/55 motion-reduce:transform-none md:min-h-[7.5rem] md:gap-2 md:py-2.5 dark:hover:bg-surface-low/55"
               >
-                <span className="agent-empty-history-workspace-icon flex size-10 shrink-0 items-center justify-center rounded-xl bg-[rgb(var(--selection-accent-rgb)_/_0.1)] shadow-[0_6px_18px_rgb(var(--selection-accent-rgb)_/_0.06)] transition-all group-hover:scale-105 group-hover:bg-[rgb(var(--selection-accent-rgb)_/_0.14)] motion-reduce:transform-none md:size-12">
+                <span className="agent-empty-history-workspace-icon flex size-10 shrink-0 items-center justify-center rounded-xl bg-[rgb(var(--selection-accent-rgb)_/_0.1)] shadow-[0_6px_18px_rgb(var(--selection-accent-rgb)_/_0.06)] transition-all group-hover:scale-105 group-hover:bg-[rgb(var(--selection-accent-rgb)_/_0.14)] motion-reduce:transform-none">
                   <SlackIcon aria-hidden="true" className="size-5" />
                 </span>
                 <span className="flex max-w-[15rem] flex-col items-center gap-1">
@@ -169,9 +169,9 @@ export function AgentEmptyHistory({
                   variant="ghost"
                   aria-label={workspaceAction.ariaLabel}
                   onClick={() => onSelect?.()}
-                  className="agent-empty-history-workspace-card group h-auto min-h-24 w-full flex-col justify-start gap-1.5 whitespace-normal rounded-xl px-3 py-2 text-center text-text-secondary hover:-translate-y-0.5 hover:bg-surface-low/55 hover:text-foreground focus-visible:bg-surface-low/55 motion-reduce:transform-none md:min-h-[8.75rem] md:gap-2.5 md:py-3 dark:hover:bg-surface-low/55"
+                  className="agent-empty-history-workspace-card group h-auto min-h-24 w-full flex-col justify-start gap-1.5 whitespace-normal rounded-xl px-3 py-2 text-center text-text-secondary hover:-translate-y-0.5 hover:bg-surface-low/55 hover:text-foreground focus-visible:bg-surface-low/55 motion-reduce:transform-none md:min-h-[7.5rem] md:gap-2 md:py-2.5 dark:hover:bg-surface-low/55"
                 >
-                  <span className="agent-empty-history-workspace-icon flex size-10 shrink-0 items-center justify-center md:size-12">
+                  <span className="agent-empty-history-workspace-icon flex size-10 shrink-0 items-center justify-center">
                     <span className="flex size-8 items-center justify-center rounded-lg bg-surface-low text-text-muted transition-colors group-hover:text-[var(--selection-accent)] md:size-9">
                       <Icon aria-hidden="true" className="size-4" />
                     </span>
@@ -187,8 +187,8 @@ export function AgentEmptyHistory({
         </div>
       ) : null}
 
-      <div className="agent-empty-history-group mt-6 sm:mt-7">
-        <div className="agent-empty-history-group-header mb-3 text-center">
+      <div className="agent-empty-history-group mt-5 sm:mt-6">
+        <div className="agent-empty-history-group-header mb-2 text-center">
           <h3 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
             Start with something concrete
           </h3>
@@ -205,7 +205,7 @@ export function AgentEmptyHistory({
                 type="button"
                 variant="ghost"
                 onClick={() => onPromptSelect(prompt.prompt)}
-                className="agent-empty-history-starter-card group h-auto min-h-[4.5rem] w-full flex-row justify-start gap-3 whitespace-normal rounded-xl px-3 py-2 text-left text-foreground hover:-translate-y-0.5 hover:bg-surface-low/55 hover:text-foreground focus-visible:bg-surface-low/55 motion-reduce:transform-none sm:min-h-[9rem] sm:flex-col sm:justify-center sm:px-4 sm:py-4 sm:text-center dark:hover:bg-surface-low/55"
+                className="agent-empty-history-starter-card group h-auto min-h-[4.5rem] w-full flex-row justify-start gap-3 whitespace-normal rounded-xl px-3 py-2 text-left text-foreground hover:-translate-y-0.5 hover:bg-surface-low/55 hover:text-foreground focus-visible:bg-surface-low/55 motion-reduce:transform-none sm:min-h-[7rem] sm:flex-col sm:justify-center sm:px-4 sm:py-3 sm:text-center dark:hover:bg-surface-low/55"
               >
                 <span className="agent-empty-history-starter-icon flex size-9 shrink-0 items-center justify-center rounded-lg bg-surface-low text-text-muted transition-colors group-hover:text-[var(--selection-accent)] sm:size-10 sm:rounded-xl">
                   <Icon aria-hidden="true" className="size-5" />

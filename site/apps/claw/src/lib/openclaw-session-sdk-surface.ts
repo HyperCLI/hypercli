@@ -354,6 +354,14 @@ export function isEphemeralOpenClawSessionName(value: string | null | undefined)
   return EPHEMERAL_OPENCLAW_SESSION_KEY.test(unscopedOpenClawSessionKey(value));
 }
 
+export function isOpenClawMainSessionKey(value: string | null | undefined): boolean {
+  return unscopedOpenClawSessionKey(value).toLowerCase() === OPENCLAW_INTERNAL_MAIN_SESSION_KEY;
+}
+
+export function isOpenClawHeartbeatSessionKey(value: string | null | undefined): boolean {
+  return unscopedOpenClawSessionKey(value).toLowerCase() === "heartbeat";
+}
+
 export function isOpenClawSubagentSessionKey(value: string | null | undefined): boolean {
   return unscopedOpenClawSessionKey(value).toLowerCase().startsWith("subagent:");
 }
@@ -413,9 +421,22 @@ export function fallbackOpenClawSessionDisplayName(sessionKey: string): string {
 export function displayOpenClawSessionName(
   session: Pick<OpenClawSessionRecord, "key" | "title" | "clientDisplayName">,
 ): string {
-  return normalizeOpenClawSessionDisplayName(session.title, session.key)
+  const fallback = fallbackOpenClawSessionDisplayName(session.key);
+  const displayName = normalizeOpenClawSessionDisplayName(session.title, session.key)
     ?? normalizeOpenClawSessionDisplayName(session.clientDisplayName, session.key)
-    ?? fallbackOpenClawSessionDisplayName(session.key);
+    ?? fallback;
+  return isOpenClawMainSessionKey(session.key) && displayName === fallback
+    ? "Previous conversation"
+    : displayName;
+}
+
+export function isRecoverableOpenClawMainSession(session: OpenClawSessionRecord): boolean {
+  if (!isOpenClawMainSessionKey(session.key) || session.readOnly) return false;
+  const fallback = fallbackOpenClawSessionDisplayName(session.key);
+  const title = normalizeOpenClawSessionDisplayName(session.title, session.key);
+  const clientDisplayName = normalizeOpenClawSessionDisplayName(session.clientDisplayName, session.key);
+  return session.messageCount > 0 || session.lastMessageAt > 0 ||
+    Boolean((title && title !== fallback) || (clientDisplayName && clientDisplayName !== fallback));
 }
 
 function finiteTimestamp(value: unknown): number | null {
@@ -500,6 +521,8 @@ export function resolveOpenClawResumeSessionKey(sessions: OpenClawSessionRecord[
       session.readOnly ||
       session.ephemeral ||
       session.raw.archived === true ||
+      isOpenClawMainSessionKey(session.key) ||
+      isOpenClawHeartbeatSessionKey(session.key) ||
       isEphemeralOpenClawSessionName(session.key) ||
       isOpenClawSubagentSession(session)
     ) continue;
@@ -650,18 +673,33 @@ export async function listOpenClawSessions(
   const result = typeof gateway.sessionsListResult === "function"
     ? await gateway.sessionsListResult()
     : { sessions: await gateway.sessionsList() };
-  const sessions = normalizeOpenClawSessions(result.sessions);
-  if (findOpenClawSelectableSession(sessions, OPENCLAW_INTERNAL_MAIN_SESSION_KEY)) return sessions;
-
   const defaults = isRecord(result.defaults) ? result.defaults : null;
-  if (!defaults) return sessions;
-  const defaultSession = normalizeOpenClawSession({ ...defaults, key: OPENCLAW_INTERNAL_MAIN_SESSION_KEY });
+  const defaultSession = defaults
+    ? normalizeOpenClawSession({ ...defaults, key: OPENCLAW_INTERNAL_MAIN_SESSION_KEY })
+    : null;
+  const sessions = normalizeOpenClawSessions(result.sessions).map((session) => (
+    defaultSession
+      ? {
+          ...session,
+          ...(!session.model && defaultSession.model ? { model: defaultSession.model } : {}),
+          ...(!session.modelProvider && defaultSession.modelProvider ? { modelProvider: defaultSession.modelProvider } : {}),
+          ...(!session.thinkingLevels?.length && defaultSession.thinkingLevels?.length
+            ? { thinkingLevels: defaultSession.thinkingLevels }
+            : {}),
+          ...(!session.thinkingDefault && defaultSession.thinkingDefault
+            ? { thinkingDefault: defaultSession.thinkingDefault }
+            : {}),
+        }
+      : session
+  ));
+  if (findOpenClawSelectableSession(sessions, OPENCLAW_INTERNAL_MAIN_SESSION_KEY)) return sessions;
+  if (!defaultSession) return sessions;
   const hasSelectableDefaults = Boolean(
-    defaultSession?.model ||
-    defaultSession?.thinkingDefault ||
-    defaultSession?.thinkingLevels?.length,
+    defaultSession.model ||
+    defaultSession.thinkingDefault ||
+    defaultSession.thinkingLevels?.length,
   );
-  return defaultSession && hasSelectableDefaults ? [defaultSession, ...sessions] : sessions;
+  return hasSelectableDefaults ? [defaultSession, ...sessions] : sessions;
 }
 
 export async function loadOpenClawChatHistory(

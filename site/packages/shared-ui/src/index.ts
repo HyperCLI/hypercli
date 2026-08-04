@@ -423,11 +423,6 @@ export {
   AgentSidebarSkeleton,
 } from "./components/patterns/skeletons";
 export { ResourceCard } from "./components/patterns/resource-card";
-export {
-  WorkspaceKnowledgeHome,
-  type WorkspaceKnowledgeHomeAgent,
-  type WorkspaceKnowledgeHomeProps,
-} from "./components/patterns/workspace-knowledge-home";
 export { PlaygroundTemplateCard, PlaygroundSectionHeader } from "./components/patterns/playground";
 export {
   TemplateDetailBadge,

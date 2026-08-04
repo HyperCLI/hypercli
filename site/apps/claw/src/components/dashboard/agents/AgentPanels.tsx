@@ -3,8 +3,8 @@
 import Link from "next/link";
 import React from "react";
 import { createPortal } from "react-dom";
-import { AnimatePresence, motion, Reorder } from "framer-motion";
-import { ArrowLeft, ArrowRight, BarChart3, Blocks, CalendarClock, Check, Codepen, Copy, FolderOpen, HardDrive, House, KeyRound, LayoutDashboard, Loader2, LogOut, MessageSquare, Monitor, PanelRight, Plus, Play, Send, SlidersHorizontal, Sparkles, Square, UsersRound, X } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import { ArrowLeft, ArrowRight, BarChart3, Blocks, CalendarClock, Check, Codepen, Copy, FolderOpen, House, KeyRound, LibraryBig, Loader2, LogOut, MessageSquare, Monitor, PanelRight, Plus, Play, Send, SlidersHorizontal, Sparkles, Square, UsersRound, X } from "lucide-react";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import type { AgentChannelSummary } from "@hypercli.com/sdk/channels";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
@@ -22,10 +22,10 @@ import { FilePreview, type FileEntry } from "@hypercli/shared-ui/files";
 import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { ResourceImage } from "@/components/ResourceImage";
 import { createAgentClient, createBrowserHyperCLIClient } from "@/lib/agent-client";
-import { stageAgentStarterFilesAndStart } from "@/lib/agent-starter-files";
-import { moveAgentInRosterOrder, useAgentRosterOrder } from "@/hooks/useAgentRosterOrder";
+import { displayNameFromAgentHandle, normalizeAgentHandle } from "@/lib/agent-profile-updates";
+import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
+import { useAgentRosterOrder } from "@/hooks/useAgentRosterOrder";
 import { useAgentRosterShowOffline } from "@/hooks/useAgentRosterShowOffline";
-import { CollapsedAgentReorderItem } from "@/components/dashboard/agents/CollapsedAgentReorderItem";
 import {
   buildOpenClawLaunchOptions,
   buildOpenClawMemoryIndexEnv,
@@ -47,7 +47,7 @@ import { AgentCreationSetupWizard, type AgentCreationSetupCreateParams } from ".
 import { AgentSettingsMobileChrome } from "./AgentSettingsMobileChrome";
 import { AgentTeamSettingsContent } from "./AgentTeamSettingsContent";
 import { getAgentGatewayPanelBootStatus } from "./chat-boot-stage";
-import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
+import { DASHBOARD_VIEW_HREFS, KNOWLEDGE_HUB_HREF } from "@/lib/dashboard-route";
 import { agentDisplayLabel } from "./agentViewModel";
 import { AgentChatComposerShell } from "./AgentChatComposerShell";
 
@@ -589,9 +589,7 @@ function agentSettingsName(agent: Agent | null): string {
 }
 
 function agentSettingsDisplayName(agent: Agent | null): string {
-  return agent?.managed === false
-    ? agent.displayName?.trim() || agentSettingsName(agent)
-    : agent?.handle?.trim() || agentSettingsName(agent);
+  return agent ? agentDisplayLabel(agent) : "";
 }
 
 function agentSettingsHandle(agent: Agent | null): string {
@@ -611,11 +609,6 @@ function agentSettingsAvatarFallback(agent: Agent | null): string | null {
     agent.meta,
     typeof identityAvatar === "string" ? identityAvatar : null,
   ).imageUrl ?? null;
-}
-
-function normalizeAgentHandle(value: string): string | null {
-  const normalized = value.trim().replace(/^@+/, "").toLowerCase();
-  return normalized || null;
 }
 
 function validAgentHandle(value: string | null): boolean {
@@ -1205,6 +1198,8 @@ function AgentSectionSettingsContent({
   const failedRuntimeNeedsCleanup = isAgentFailureState(agent.state) && Boolean(agent.pod_id);
   const canStartAgent = agent.state === "STOPPED" || (isAgentFailureState(agent.state) && !agent.pod_id);
   const canStopAgent = agent.state === "RUNNING" || failedRuntimeNeedsCleanup;
+  const stopping = Boolean(agentStopping || agent.state === "STOPPING");
+  const starting = Boolean(agentStarting || (isAgentTransitionalState(agent.state) && !stopping));
   const lifecycleBusy = Boolean(agentStarting || agentStopping || isAgentTransitionalState(agent.state));
   const lifecycleDescription = canStopAgent
     ? failedRuntimeNeedsCleanup
@@ -1230,7 +1225,7 @@ function AgentSectionSettingsContent({
             <p className="text-[14px] font-semibold leading-5 text-foreground">Agent runtime</p>
             <p className="mt-1 text-[13px] font-medium leading-5 text-text-muted">{lifecycleDescription}</p>
           </div>
-          {canStopAgent ? (
+          {canStopAgent || stopping ? (
             <button
               type="button"
               aria-label={failedRuntimeNeedsCleanup ? "Clean up failed launch" : "Stop agent"}
@@ -1238,7 +1233,7 @@ function AgentSectionSettingsContent({
               disabled={!onStopAgent || lifecycleBusy}
               className={`${SETTINGS_SMALL_BUTTON_CLASS} shrink-0 gap-2`}
             >
-              {agentStopping ? "Stopping..." : failedRuntimeNeedsCleanup ? "Clean up failed launch" : "Stop agent"}
+              {stopping ? "Stopping..." : failedRuntimeNeedsCleanup ? "Clean up failed launch" : "Stop agent"}
               <Square className="h-3 w-3 fill-current" />
             </button>
           ) : (
@@ -1250,7 +1245,7 @@ function AgentSectionSettingsContent({
                 disabled={!canStartAgent || !onStartAgent || lifecycleBusy || agentStartBlocked}
                 className="inline-flex h-8 shrink-0 items-center gap-2 rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.4)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-3 text-xs font-medium text-[var(--selection-accent)] transition-colors hover:bg-[rgb(var(--selection-accent-rgb)_/_0.15)] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {agentStarting || isAgentTransitionalState(agent.state) ? "Starting..." : "Start agent"}
+                {starting ? "Starting..." : "Start agent"}
                 <Play className="h-3.5 w-3.5 fill-current" />
               </button>
             </TooltipHint>
@@ -1289,7 +1284,7 @@ function AgentSectionSettingsContent({
             label="Display name"
             description={externalAgent
               ? "Shown in the agent roster and other user-facing views."
-              : `Shown across the workspace and used for @${SLACK_APP_HANDLE} mentions. Start with a lowercase letter or number; use 2-64 letters, numbers, underscores, or dashes.`}
+              : `Shown across HyperCLI. Spaces become dashes when this name is used with @${SLACK_APP_HANDLE} in Slack.`}
           >
             <input
               aria-label="Agent display name"
@@ -2062,8 +2057,8 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
 
     if (agentHandleChanged && !validAgentHandle(nextAgentHandle)) {
       setAgentSettingsError(externalAgent
-        ? "Slack handles must start with a lowercase letter or number and contain 2-64 lowercase letters, numbers, underscores, or dashes."
-        : "Display names must start with a lowercase letter or number and contain 2-64 lowercase letters, numbers, underscores, or dashes.");
+        ? "Slack handles must start with a letter or number and contain 2-64 letters, numbers, spaces, underscores, or dashes."
+        : "Display names must start with a letter or number and contain 2-64 letters, numbers, spaces, underscores, or dashes.");
       return;
     }
 
@@ -2195,7 +2190,9 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         if (agentHandleChanged) {
           setAgentHandleDraft(nextAgentHandle ?? "");
           setSavedAgentHandle(nextAgentHandle ?? "");
-          const savedDisplayName = nextAgentHandle ?? nextAgentName;
+          const savedDisplayName = nextAgentHandle
+            ? displayNameFromAgentHandle(nextAgentHandle)
+            : nextAgentName;
           setAgentDisplayNameDraft(savedDisplayName);
           setSavedAgentDisplayName(savedDisplayName);
         }
@@ -2689,7 +2686,7 @@ interface AgentListProps {
   getToken: () => Promise<string>;
   createOpenClawAgent: (apiKey: string, options?: Record<string, unknown>) => Promise<{ id?: string | null }>;
   onCreateAgent?: (params: AgentCreationSetupCreateParams) => Promise<string | null>;
-  associateCreatedAgent?: (agentId: string) => Promise<void>;
+  associateCreatedAgent?: (agentId: string, domainId: string) => Promise<void>;
   agentCreationDisabledReason?: string | null;
   onOpenAgentLauncher?: () => void;
   agentLauncherSuspended?: boolean;
@@ -2716,12 +2713,9 @@ interface AgentListProps {
   onOpenHome?: () => void;
   homeActive?: boolean;
   homeHref?: string;
-  onOpenAltHome?: () => void;
-  altHomeActive?: boolean;
-  altHomeHref?: string;
-  onOpenSharedResources?: () => void;
-  sharedResourcesActive?: boolean;
-  sharedResourcesHref?: string;
+  onOpenKnowledgeHub?: () => void;
+  knowledgeHubActive?: boolean;
+  knowledgeHubHref?: string;
   onOpenMembers?: () => void;
   membersActive?: boolean;
   membersHref?: string;
@@ -2794,12 +2788,9 @@ export function AgentList({
   onOpenHome,
   homeActive = false,
   homeHref = DASHBOARD_VIEW_HREFS.overview,
-  onOpenAltHome,
-  altHomeActive = false,
-  altHomeHref = DASHBOARD_VIEW_HREFS["alt-home"],
-  onOpenSharedResources,
-  sharedResourcesActive = false,
-  sharedResourcesHref = "/dashboard/agents?section=knowledge",
+  onOpenKnowledgeHub,
+  knowledgeHubActive = false,
+  knowledgeHubHref = KNOWLEDGE_HUB_HREF,
   onOpenMembers,
   membersActive = false,
   membersHref = "/dashboard/agents?section=members",
@@ -2827,7 +2818,6 @@ export function AgentList({
   }, [effectiveCreationDisabledReason, onOpenAgentLauncher, setError]);
   const handledSidebarCreatorSignalRef = React.useRef(0);
   const [showOfflineAgents, setShowOfflineAgents] = useAgentRosterShowOffline();
-  const [reorderingAgentId, setReorderingAgentId] = React.useState<string | null>(null);
   const agentIds = React.useMemo(() => agents.map((agent) => agent.id), [agents]);
   const { orderedAgentIds, setVisibleAgentOrder } = useAgentRosterOrder(agentIds, rosterOrderScope);
   const orderedAgents = React.useMemo(() => {
@@ -2847,13 +2837,6 @@ export function AgentList({
   const visibleAgents = React.useMemo(
     () => showOfflineAgents ? orderedAgents : orderedAgents.filter((agent) => !offlineAgentIds.has(agent.id)),
     [offlineAgentIds, orderedAgents, showOfflineAgents],
-  );
-  const visibleAgentIds = React.useMemo(() => visibleAgents.map((agent) => agent.id), [visibleAgents]);
-  const moveVisibleAgent = React.useCallback(
-    (agentId: string, direction: -1 | 1) => {
-      setVisibleAgentOrder(moveAgentInRosterOrder(visibleAgentIds, agentId, direction));
-    },
-    [setVisibleAgentOrder, visibleAgentIds],
   );
   const visibleSyntheticThreads = React.useMemo(
     () => showOfflineAgents
@@ -2881,13 +2864,13 @@ export function AgentList({
     openAgentLauncher();
   }, [isDesktopViewport, openAgentLauncher, renderMobileNavigation, rosterLoading, sidebarCreatorSignal]);
 
-  const createAgentFromLauncher = React.useCallback(async ({ name, iconIndex, size, files, enableDesktop, enableMemoryIndex = false, customImage = null }: AgentCreationSetupCreateParams) => {
+  const createAgentFromLauncher = React.useCallback(async ({ name, iconIndex, size, files, enableDesktop, enableMemoryIndex = false, customImage = null, knowledgeDomainId }: AgentCreationSetupCreateParams) => {
     try {
       if (effectiveCreationDisabledReason) throw new Error(effectiveCreationDisabledReason);
       const token = await getToken();
       const created = await createOpenClawAgent(token, {
         name: name || undefined,
-        start: files.length === 0,
+        start: false,
         size,
         meta: { ui: { avatar: { icon_index: iconIndex } } },
         ...buildOpenClawLaunchOptions({
@@ -2901,16 +2884,15 @@ export function AgentList({
       });
       const createdId = created.id ?? null;
       if (createdId) {
+        const agentClient = createAgentClient(token);
         if (files.length > 0) {
           try {
-            const agentClient = createAgentClient(token);
-            await stageAgentStarterFilesAndStart({
+            await uploadAgentStarterFiles({
               agentId: createdId,
               files,
               writeFileBytes: (agentId, path, content, destination) => (
                 agentClient.fileWriteBytes(agentId, path, content, destination)
               ),
-              startAgent: (agentId) => agentClient.startOpenClaw(agentId),
             });
           } catch (uploadError) {
             throw new Error(uploadError instanceof Error
@@ -2918,19 +2900,20 @@ export function AgentList({
               : "Agent created, but starter files could not be uploaded.");
           }
         }
-        if (associateCreatedAgent) {
+        if (associateCreatedAgent && knowledgeDomainId) {
           try {
-            await associateCreatedAgent(createdId);
+            await associateCreatedAgent(createdId, knowledgeDomainId);
           } catch (associationError) {
             const detail = associationError instanceof Error
               ? associationError.message
-              : "Workspace access is unavailable right now.";
-            throw new Error(`Agent was created, but Workspace association did not complete: ${detail}`);
+              : "Knowledge Domain access is unavailable right now.";
+            throw new Error(`Agent was created, but Domain assignment did not complete: ${detail}`);
           }
         }
+        await agentClient.startOpenClaw(createdId);
         const agentsRefreshed = await fetchAgents();
         if (agentsRefreshed === false) {
-          throw new Error("Agent was created and added to the selected Workspace, but agents could not be refreshed.");
+          throw new Error("Agent was created, but agents could not be refreshed.");
         }
         setSelectedAgentId(createdId);
         setMobileShowChat(true);
@@ -2997,6 +2980,24 @@ export function AgentList({
                 <TooltipContent side="right">Expand agents sidebar</TooltipContent>
               </Tooltip>
               </div>
+              <div className="agents-roster-rail-home mt-2 flex shrink-0 flex-col items-center gap-2">
+                <RosterNavigationItem
+                  compact
+                  label="Home"
+                  href={homeHref}
+                  active={homeActive}
+                  onOpen={onOpenHome}
+                  icon={House}
+                />
+                <RosterNavigationItem
+                  compact
+                  label="Knowledge Hub"
+                  href={knowledgeHubHref}
+                  active={knowledgeHubActive}
+                  onOpen={onOpenKnowledgeHub}
+                  icon={LibraryBig}
+                />
+              </div>
               <div aria-hidden="true" className="agents-roster-rail-divider my-2 h-px w-8 shrink-0 bg-border/70" />
               <div className="agents-roster-rail-agents min-h-0 w-full shrink overflow-y-auto py-1">
                 <div className="flex w-full flex-col items-center gap-2">
@@ -3020,95 +3021,47 @@ export function AgentList({
                   <span className="sr-only">Loading Workspace agents</span>
                 </div>
               ) : (
-                <Reorder.Group
-                  as="div"
-                  axis="y"
-                  values={visibleAgentIds}
-                  onReorder={setVisibleAgentOrder}
-                  className="flex w-full flex-col items-center gap-2"
-                >
-                  {visibleAgents.map((a) => {
+                visibleAgents.map((a) => {
                   const agentName = agentDisplayLabel(a);
                   const av = agentAvatar(agentName, a.meta, agentProfileImageUrl(a));
                   const Icon = av.icon;
                   const selected = selectedAgentId === a.id;
-                  const agentButton = (
-                    <button
-                      onClick={() => {
-                        selectRosterAgent(a.id);
-                        setSidebarCollapsed(false);
-                      }}
-                      aria-label={`Select ${agentName}`}
-                      className={`relative flex h-8 w-8 items-center justify-center rounded-full transition-transform hover:scale-110 ${selected ? "ring-2 ring-[var(--selection-accent)]" : ""}`}
-                      style={{ backgroundColor: av.bgColor }}
-                    >
-                      {av.imageUrl ? (
-                        <ResourceImage
-                          src={av.imageUrl}
-                          alt={`${agentName} avatar`}
-                          fill
-                          sizes="32px"
-                          className="rounded-full object-cover"
-                        />
-                      ) : (
-                        <Icon className="w-4 h-4" style={{ color: av.fgColor }} />
-                      )}
-                    </button>
-                  );
                   return (
-                    <CollapsedAgentReorderItem
-                      key={a.id}
-                      agentId={a.id}
-                      agentName={agentName}
-                      canReorder={visibleAgents.length > 1}
-                      onMove={(direction) => moveVisibleAgent(a.id, direction)}
-                      onReorderingChange={(reordering) => {
-                        setReorderingAgentId((current) => reordering ? a.id : current === a.id ? null : current);
-                      }}
-                    >
-                      {reorderingAgentId === null ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>{agentButton}</TooltipTrigger>
-                          <TooltipContent side="right" align="start" className="bg-transparent border-0 p-0 shadow-none">
-                            <AgentCardTooltip agentName={agentName} agent={mergedAgentCardDataById[a.id]} />
-                          </TooltipContent>
-                        </Tooltip>
-                      ) : agentButton}
-                    </CollapsedAgentReorderItem>
+                    <Tooltip key={a.id}>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => {
+                            selectRosterAgent(a.id);
+                            if (!renderMobileNavigation) setSidebarCollapsed(false);
+                          }}
+                          aria-label={`Select ${agentName}`}
+                          className={`relative flex h-8 w-8 items-center justify-center rounded-full transition-transform hover:scale-110 ${selected ? "ring-2 ring-[var(--selection-accent)]" : ""}`}
+                          style={{ backgroundColor: av.bgColor }}
+                        >
+                          {av.imageUrl ? (
+                            <ResourceImage
+                              src={av.imageUrl}
+                              alt={`${agentName} avatar`}
+                              fill
+                              sizes="32px"
+                              className="rounded-full object-cover"
+                            />
+                          ) : (
+                            <Icon className="h-4 w-4" style={{ color: av.fgColor }} />
+                          )}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" align="start" className="border-0 bg-transparent p-0 shadow-none">
+                        <AgentCardTooltip agentName={agentName} agent={mergedAgentCardDataById[a.id]} />
+                      </TooltipContent>
+                    </Tooltip>
                   );
-                  })}
-                </Reorder.Group>
+                })
               )}
                 </div>
               </div>
               <div aria-hidden="true" className="agents-roster-rail-divider my-2 h-px w-8 shrink-0 bg-border/70" />
-              <div className="agents-roster-rail-home flex shrink-0 flex-col items-center gap-2">
-                <RosterNavigationItem
-                  compact
-                  label="Home"
-                  href={homeHref}
-                  active={homeActive}
-                  onOpen={onOpenHome}
-                  icon={House}
-                />
-                <RosterNavigationItem
-                  compact
-                  label="Alt home"
-                  href={altHomeHref}
-                  active={altHomeActive}
-                  onOpen={onOpenAltHome}
-                  icon={LayoutDashboard}
-                />
-              </div>
               <div className="agents-roster-rail-administration flex shrink-0 flex-col items-center gap-2">
-                <RosterNavigationItem
-                  compact
-                  label="Shared"
-                  href={sharedResourcesHref}
-                  active={sharedResourcesActive}
-                  onOpen={onOpenSharedResources}
-                  icon={HardDrive}
-                />
                 <RosterNavigationItem
                   compact
                   label="Members"
@@ -3183,12 +3136,9 @@ export function AgentList({
               onOpenHome={onOpenHome}
               homeActive={homeActive}
               homeHref={homeHref}
-              onOpenAltHome={onOpenAltHome}
-              altHomeActive={altHomeActive}
-              altHomeHref={altHomeHref}
-              onOpenSharedResources={onOpenSharedResources}
-              sharedResourcesActive={sharedResourcesActive}
-              sharedResourcesHref={sharedResourcesHref}
+              onOpenKnowledgeHub={onOpenKnowledgeHub}
+              knowledgeHubActive={knowledgeHubActive}
+              knowledgeHubHref={knowledgeHubHref}
               onOpenMembers={onOpenMembers}
               membersActive={membersActive}
               membersHref={membersHref}

@@ -239,6 +239,29 @@ export interface GatewayContextWaitOptions {
   signal?: AbortSignal;
 }
 
+export interface OpenClawOperationsSnapshot {
+  sessions: GatewaySessionsListResult | null;
+  cronJobs: any[] | null;
+  failures: Partial<Record<'sessions' | 'cron', string>>;
+  capturedAt: number;
+}
+
+function stringifyOpenClawOperationsFailure(reason: unknown): string {
+  if (reason instanceof Error) return reason.message || reason.name || 'Error';
+  if (typeof reason === 'string') return reason;
+  try {
+    const serialized = JSON.stringify(reason);
+    if (serialized !== undefined) return serialized;
+  } catch {
+    // Fall back to String for non-serializable rejection values.
+  }
+  try {
+    return String(reason);
+  } catch {
+    return 'Unknown error';
+  }
+}
+
 export interface AgentShellTokenResponse {
   agent_id?: string;
   jwt: string;
@@ -3022,6 +3045,37 @@ export class OpenClawAgent extends Agent {
     const client = await this.connect(options);
     try {
       return await client.sessionsListResult();
+    } finally {
+      client.close();
+    }
+  }
+
+  async operationsSnapshot(
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<OpenClawOperationsSnapshot> {
+    if (!this.gatewayUrl || (!this.gatewayToken && !options.gatewayToken)) {
+      await this.waitForGatewayContext({ timeoutMs: options.timeout });
+    }
+    const client = this.gateway(options);
+    try {
+      await client.connect();
+      const [sessionsResult, cronResult] = await Promise.allSettled([
+        client.sessionsListResult(),
+        client.cronList(),
+      ] as const);
+      const failures: OpenClawOperationsSnapshot['failures'] = {};
+      if (sessionsResult.status === 'rejected') {
+        failures.sessions = stringifyOpenClawOperationsFailure(sessionsResult.reason);
+      }
+      if (cronResult.status === 'rejected') {
+        failures.cron = stringifyOpenClawOperationsFailure(cronResult.reason);
+      }
+      return {
+        sessions: sessionsResult.status === 'fulfilled' ? sessionsResult.value : null,
+        cronJobs: cronResult.status === 'fulfilled' ? cronResult.value : null,
+        failures,
+        capturedAt: Date.now(),
+      };
     } finally {
       client.close();
     }
