@@ -110,6 +110,25 @@ def test_dev_bootstrap_accepts_legacy_test_api_base(monkeypatch: pytest.MonkeyPa
     assert orchestra_api_base == "https://api.dev.hypercli.com/api"
 
 
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [
+        ("https://api.dev.hypercli.com", "https://api.dev.hypercli.com/agents"),
+        ("https://api.dev.hypercli.com/agents", "https://api.dev.hypercli.com/agents"),
+        ("https://api.dev.hypercli.com/agents/admin", "https://api.dev.hypercli.com/agents"),
+        ("https://api.agents.dev.hypercli.com", "https://api.dev.hypercli.com/agents"),
+    ],
+)
+def test_agents_admin_base_targets_unified_agents_route(configured: str, expected: str) -> None:
+    assert (
+        MODULE._normalize_agents_admin_base(
+            configured,
+            product_base="https://api.dev.hypercli.com",
+        )
+        == expected
+    )
+
+
 def test_create_or_get_hyperclaw_user_resolves_conflict(monkeypatch: pytest.MonkeyPatch) -> None:
     responses = [
         _FakeResponse(409, text="User already exists"),

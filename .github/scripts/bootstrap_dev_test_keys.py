@@ -106,9 +106,7 @@ def _normalize_agents_api_base(raw: str, *, product_base: str) -> str:
 
 
 def _normalize_agents_admin_base(raw: str, *, product_base: str) -> str:
-    base = (raw or "").strip().rstrip("/")
-    if not base:
-        base = _normalize_agents_api_base("", product_base=product_base)
+    base = _normalize_agents_api_base(raw, product_base=product_base)
     if base.endswith("/admin"):
         base = base[: -len("/admin")]
     return base
