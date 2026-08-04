@@ -476,7 +476,7 @@ test.describe("Agents mobile layout", () => {
     await expect(page.getByRole("button", { name: "Expand agents sidebar" })).toBeVisible();
     await page.getByRole("button", { name: "Expand agents sidebar" }).click();
     await expect(page.getByRole("button", { name: "Collapse sidebar" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Move Mobile Regression Agent" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Move Mobile Regression Agent" })).toHaveCount(0);
     await page.getByRole("button", { name: "Collapse sidebar" }).click();
     await expect(page.getByRole("button", { name: /^files$/i })).toBeVisible();
     await page.getByRole("button", { name: "Select Mobile Support Agent" }).click();
