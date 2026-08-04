@@ -5,7 +5,6 @@ import { useState } from "react";
 import { NAV_URLS } from "../utils/navigation";
 import ContactModal from "./ContactModal";
 import { HyperCLILogo } from "./HyperCLILogo";
-import { ThemeSelector } from "./ThemeSelector";
 
 export default function Footer() {
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
@@ -160,7 +159,6 @@ export default function Footer() {
         <div className="mt-12 pt-8 border-t border-border-medium flex flex-col md:flex-row justify-between items-center gap-4">
           <p className="text-sm text-text-muted">&copy; 2026 HyperCLI. All rights reserved.</p>
           <div className="flex items-center gap-6">
-            <ThemeSelector />
             <Link href={NAV_URLS.privacy} className="text-sm text-text-muted hover:text-muted-foreground transition-colors">
               Privacy Policy
             </Link>

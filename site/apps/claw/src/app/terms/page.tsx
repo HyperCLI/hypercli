@@ -1,7 +1,6 @@
 import { Metadata } from "next";
-import { LegalPageShell } from "@hypercli/shared-ui";
-import { ClawHeader } from "@/components/landing/ClawHeader";
-import { ClawFooter } from "@/components/landing/ClawFooter";
+import { Footer, Header, LegalPageShell } from "@hypercli/shared-ui";
+import { AUTH_BASE_URL } from "@/lib/api";
 
 export const metadata: Metadata = {
   title: "Terms & Conditions - HyperCLI",
@@ -11,8 +10,8 @@ export const metadata: Metadata = {
 export default function TermsPage() {
   return (
     <LegalPageShell
-      header={<ClawHeader />}
-      footer={<ClawFooter />}
+      header={<Header loginApiBaseUrl={AUTH_BASE_URL} loginTokenStorageKey="claw_auth_token" />}
+      footer={<Footer />}
       title="Terms & Conditions"
       lastUpdated="February 4, 2025"
       contentClassName="text-text-secondary leading-relaxed"

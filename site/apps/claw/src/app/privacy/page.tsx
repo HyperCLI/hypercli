@@ -1,7 +1,6 @@
 import { Metadata } from "next";
-import { LegalPageShell } from "@hypercli/shared-ui";
-import { ClawHeader } from "@/components/landing/ClawHeader";
-import { ClawFooter } from "@/components/landing/ClawFooter";
+import { Footer, Header, LegalPageShell } from "@hypercli/shared-ui";
+import { AUTH_BASE_URL } from "@/lib/api";
 
 export const metadata: Metadata = {
   title: "Privacy Policy - HyperCLI",
@@ -10,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <LegalPageShell header={<ClawHeader />} footer={<ClawFooter />} title="Privacy Policy" lastUpdated="February 4, 2025">
+    <LegalPageShell header={<Header loginApiBaseUrl={AUTH_BASE_URL} loginTokenStorageKey="claw_auth_token" />} footer={<Footer />} title="Privacy Policy" lastUpdated="February 4, 2025">
             <section>
               <h2 className="text-2xl font-semibold text-foreground mb-4">
                 1. Introduction
