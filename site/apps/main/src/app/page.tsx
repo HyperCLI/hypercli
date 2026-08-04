@@ -327,7 +327,7 @@ export default function Home() {
                 One real evening's delegation — "get us ready for the launch" — and everything the agent did about it,
                 time-stamped.
               </p>
-              <AgentTimeline events={NIGHT_EVENTS} className="mx-auto max-w-xl text-left" />
+              <AgentTimeline events={NIGHT_EVENTS} className="mx-auto max-w-xl text-left bg-terminal-surface border-terminal-border" />
               <p className="mt-8 text-lg font-semibold text-terminal-foreground">
                 You were asleep for six of these.
                 <small className="mt-1.5 block text-sm font-normal text-terminal-muted">
