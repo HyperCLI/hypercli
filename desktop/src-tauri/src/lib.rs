@@ -7,7 +7,7 @@ use tauri_plugin_deep_link::DeepLinkExt;
 
 /// Runtime identities Buzz discovers as separate `Run on` choices. Keep in
 /// sync with `buzz-backend-provider/README.md`.
-const RUNTIMES: [&str; 5] = ["opencode", "codex", "claude", "goose", "kimi"];
+const RUNTIMES: [&str; 6] = ["buzz-agent", "opencode", "codex", "claude", "goose", "kimi"];
 const PROVIDER_BIN: &str = "buzz-backend-hypercli";
 
 /// Web login page that redirects back with a session token in the fragment.
