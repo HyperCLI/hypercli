@@ -554,13 +554,34 @@ pub struct ApiKey {
     pub api_key: Option<String>,
     #[serde(default)]
     pub is_active: bool,
-    /// Unix timestamps (fractional seconds).
-    #[serde(default)]
+    /// Unix timestamps in fractional seconds. Deserialized tolerantly:
+    /// JSON numbers and numeric strings both accepted.
+    #[serde(default, deserialize_with = "de_opt_unix_ts")]
     pub created_at: Option<f64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_opt_unix_ts")]
     pub expires_at: Option<f64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_opt_unix_ts")]
     pub last_used_at: Option<f64>,
+}
+
+/// Accept a unix timestamp as a JSON number or a numeric string; anything
+/// else becomes `None` rather than failing the whole response.
+fn de_opt_unix_ts<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Raw {
+        Num(f64),
+        Str(String),
+        Other(serde_json::Value),
+    }
+    Ok(match Option::<Raw>::deserialize(deserializer)? {
+        Some(Raw::Num(value)) => Some(value),
+        Some(Raw::Str(value)) => value.trim().parse().ok(),
+        _ => None,
+    })
 }
 
 #[cfg(test)]
