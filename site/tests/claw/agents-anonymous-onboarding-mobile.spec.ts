@@ -105,34 +105,21 @@ async function readSavedDraftName(page: Page): Promise<string | null> {
   });
 }
 
-test("keeps the mobile Privy email field touchable and restores the login shell", async ({ page }) => {
+test("keeps the mobile Privy email field touchable and restores the login wall", async ({ page }) => {
   const forbiddenRequests = await prepareAnonymousFlow(page);
 
   await page.goto("/");
-  const mobileMenu = page.locator(".claw-header-mobile-toggle");
-  await expect(mobileMenu).toBeVisible();
-  await mobileMenu.tap();
-  await page.getByRole("button", { name: "Sign In", exact: true }).tap();
+  const loginHeading = page.getByRole("heading", { name: "Welcome to HyperCLI Agents" });
+  const loginButton = page.getByRole("button", { name: "Login with Privy" });
+  await expect(loginHeading).toBeVisible();
+  await expect(loginButton).toBeEnabled();
+  await loginButton.tap();
 
-  const loginShellClose = page.locator('button[aria-label="Close login modal"]');
-  const loginShell = page.locator("div.fixed.inset-0").filter({ has: loginShellClose }).first();
-  await expect(loginShell).toBeVisible();
-  await loginShell.getByRole("button", { name: "Login with Privy" }).tap();
-
-  await expect(loginShell).toHaveAttribute("inert", "");
-  await expect(loginShell).toHaveClass(/invisible/);
-  await expect(loginShell).toHaveClass(/pointer-events-none/);
   const privyModal = await expectPrivyEmailAcceptsTouch(page);
   await closePrivy(page, privyModal);
 
-  await expect(loginShell).toBeVisible();
-  await expect(loginShell).not.toHaveAttribute("inert", "");
-  await loginShellClose.tap();
-  await expect(loginShell).toHaveCount(0);
-  await expect(
-    page.getByRole("banner").getByRole("link", { name: "HyperCLI home", exact: true })
-  ).toBeVisible();
-  await expect(page.locator("main")).toBeVisible();
+  await expect(loginHeading).toBeVisible();
+  await expect(loginButton).toBeEnabled();
   expect(forbiddenRequests).toEqual([]);
 });
 
