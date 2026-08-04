@@ -318,6 +318,7 @@ export default function CapabilitiesPage() {
               <div className="flex flex-wrap justify-center gap-3.5">
                 <GetStartedLink
                   label="Deploy your first agent"
+                  toAgentDashboard
                   className="btn-primary inline-block rounded-full px-8 py-4 text-base font-semibold"
                 />
                 <a

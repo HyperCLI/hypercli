@@ -36,6 +36,10 @@ const consoleGlobalsCss = readFileSync(
 const clawLayout = readFileSync(path.resolve(process.cwd(), "src/app/layout.tsx"), "utf8");
 const mainLayout = readFileSync(path.resolve(process.cwd(), "../main/src/app/layout.tsx"), "utf8");
 const consoleLayout = readFileSync(path.resolve(process.cwd(), "../console/src/app/layout.tsx"), "utf8");
+const hypercliLogoSource = readFileSync(
+  path.resolve(process.cwd(), "../../packages/shared-ui/src/components/HyperCLILogo.tsx"),
+  "utf8",
+);
 const cursorPrimitiveSources = [
   "accordion.tsx",
   "button.tsx",
@@ -214,6 +218,13 @@ describe("shared theme CSS", () => {
     expect(mainLayout).toContain('data-color-mode="dark"');
     expect(consoleLayout).toContain('data-color-mode="dark"');
     expect(clawLayout).toContain('data-plan-tier="solo"');
+  });
+
+  it("selects the full logo from the color mode applied before first paint", () => {
+    expect(themeCss).toContain('--hypercli-logo-full-image: url("/logos/hypercli-full-blue.svg");');
+    expect(themeCss).toContain('--hypercli-logo-full-image: url("/logos/hypercli-full-blue-light.svg");');
+    expect(hypercliLogoSource).toContain("var(--hypercli-logo-full-image");
+    expect(hypercliLogoSource).not.toContain("useThemeOptional");
   });
 
   it("does not use the old teal brand palette in active source or docs", () => {

@@ -867,6 +867,29 @@ describe("GatewayClient", () => {
     expect(rpc).toHaveBeenNthCalledWith(2, "chat.history", { limit: 5 });
   });
 
+  it("loads a full persisted chat message by transcript id", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const message = {
+      role: "assistant",
+      content: [{ type: "text", text: "Complete response" }],
+      __openclaw: { id: "message-1" },
+    };
+    const rpc = vi.spyOn(client as any, "rpc").mockResolvedValue({ ok: true, message });
+
+    await expect(client.chatMessageGet("main", "message-1", { maxChars: 500_000 })).resolves.toEqual({
+      ok: true,
+      message,
+    });
+    expect(rpc).toHaveBeenCalledWith("chat.message.get", {
+      sessionKey: "main",
+      messageId: "message-1",
+      maxChars: 500_000,
+    });
+  });
+
   it.each([
     ["null", null],
     ["a string", "not history"],
@@ -1701,14 +1724,15 @@ describe("GatewayClient", () => {
     )).toBe("final answer");
   });
 
-  it("does not truncate streamed content to a stale lifecycle history prefix", async () => {
+  it("does not replace a long streamed response with OpenClaw's truncated history projection", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",
       gatewayToken: "gw-token",
     });
     (client as any).connected = true;
     (client as any).ws = { readyState: MockWebSocket.OPEN };
-    const complete = "Let me check the available channels. Telegram, Slack, and Discord are ready.";
+    const projectedPrefix = "a".repeat(8_000);
+    const complete = `${projectedPrefix}\nThis ending must remain visible.`;
     vi.spyOn(client as any, "rpc").mockImplementation(async (method: string) => {
       if (method === "chat.send") return { runId: "stale-history-run" };
       if (method === "chat.history") {
@@ -1716,7 +1740,7 @@ describe("GatewayClient", () => {
           messages: [{
             role: "assistant",
             runId: "stale-history-run",
-            content: "Let me check the available channels.",
+            content: `${projectedPrefix}\n...(truncated)...`,
           }],
         };
       }

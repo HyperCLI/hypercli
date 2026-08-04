@@ -1,7 +1,5 @@
 "use client";
 
-import { useThemeOptional } from "./ThemeProvider";
-
 export const HYPERCLI_LOGO_FULL_SRC = "/logos/hypercli-full-blue.svg";
 export const HYPERCLI_LOGO_FULL_LIGHT_SRC = "/logos/hypercli-full-blue-light.svg";
 export const HYPERCLI_LOGO_ICON_SRC = "/logos/hypercli-icon-blue.svg";
@@ -22,15 +20,11 @@ export function HyperCLILogo({
   markOnly = false,
   decorative = false,
 }: HyperCLILogoProps) {
-  // The logo also renders outside a ThemeProvider (tests, emails, bare
-  // pages); fall back to the dark-variant full lockup in that case.
-  const theme = useThemeOptional();
-  const mode = theme?.mode ?? "dark";
-  const src = markOnly
-    ? HYPERCLI_LOGO_ICON_SRC
-    : mode === "light"
-      ? HYPERCLI_LOGO_FULL_LIGHT_SRC
-      : HYPERCLI_LOGO_FULL_SRC;
+  // ThemeScript sets data-color-mode before first paint. CSS-driven selection
+  // avoids briefly rendering the server-default dark logo during hydration.
+  const backgroundImage = markOnly
+    ? `url('${HYPERCLI_LOGO_ICON_SRC}')`
+    : `var(--hypercli-logo-full-image, url('${HYPERCLI_LOGO_FULL_SRC}'))`;
 
   return (
     <span
@@ -38,7 +32,7 @@ export function HyperCLILogo({
       aria-label={decorative ? undefined : "HyperCLI"}
       role={decorative ? undefined : "img"}
       className={`relative inline-flex shrink-0 bg-contain bg-left bg-no-repeat ${className} ${imageClassName}`}
-      style={{ backgroundImage: `url('${src}')` }}
+      style={{ backgroundImage }}
     />
   );
 }

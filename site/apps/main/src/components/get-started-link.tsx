@@ -6,10 +6,12 @@ interface GetStartedLinkProps {
   label: string;
   className?: string;
   plan?: string;
+  toAgentDashboard?: boolean;
 }
 
-export function GetStartedLink({ label, className, plan }: GetStartedLinkProps) {
-  const href = plan ? `${NAV_URLS.agents}?plan=${encodeURIComponent(plan)}` : NAV_URLS.agents;
+export function GetStartedLink({ label, className, plan, toAgentDashboard }: GetStartedLinkProps) {
+  const baseHref = toAgentDashboard ? `${NAV_URLS.clawDashboard}/agents/` : NAV_URLS.agents;
+  const href = plan ? `${baseHref}?plan=${encodeURIComponent(plan)}` : baseHref;
   return (
     <a href={href} className={className}>
       {label}

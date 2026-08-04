@@ -34,6 +34,9 @@ export interface OpenClawThinkingLevelOption {
 }
 
 export const OPENCLAW_NEW_SESSION_TITLE = "New Session";
+const OPENCLAW_CHAT_HISTORY_TRUNCATION_SUFFIX = "\n...(truncated)...";
+const OPENCLAW_CHAT_MESSAGE_MAX_CHARS = 500_000;
+const OPENCLAW_CHAT_MESSAGE_HYDRATION_CONCURRENCY = 4;
 const GENERATED_OPENCLAW_SESSION_KEY = /^(?:(?:session-|hcli:|dashboard:)(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|local-[a-z0-9-]+))$/i;
 const EPHEMERAL_OPENCLAW_SESSION_KEY = /^session-hypercli-ephemeral-[0-9a-f-]+$/i;
 const INTERNAL_OPENCLAW_SESSION_LABEL_PATTERNS = [
@@ -54,6 +57,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function containsOpenClawHistoryTruncation(value: unknown): boolean {
+  if (typeof value === "string") return value.endsWith(OPENCLAW_CHAT_HISTORY_TRUNCATION_SUFFIX);
+  if (Array.isArray(value)) return value.some(containsOpenClawHistoryTruncation);
+  return isRecord(value) && Object.values(value).some(containsOpenClawHistoryTruncation);
 }
 
 function firstNonEmptyString(...values: unknown[]): string | null {
@@ -703,11 +712,62 @@ export async function listOpenClawSessions(
 }
 
 export async function loadOpenClawChatHistory(
-  gateway: Pick<GatewayClient, "chatHistory">,
+  gateway: Pick<GatewayClient, "chatHistory"> & Partial<Pick<GatewayClient, "chatMessageGet">>,
   sessionKey: string,
   limit = 200,
 ): Promise<unknown[]> {
-  return gateway.chatHistory(sessionKey, limit);
+  const messages = await gateway.chatHistory(sessionKey, limit);
+  const chatMessageGet = gateway.chatMessageGet?.bind(gateway);
+  if (!chatMessageGet) return messages;
+
+  const candidates = messages.flatMap((message, index) => {
+    if (!isRecord(message) || String(message.role ?? "").toLowerCase() !== "assistant") return [];
+    if (message.openclawMessageToolMirror) return [];
+    const metadata = isRecord(message.__openclaw) ? message.__openclaw : null;
+    const messageId = nonEmptyString(metadata?.id) ?? nonEmptyString(message.messageId);
+    const explicitlyTruncated = metadata?.truncated === true;
+    return messageId && (explicitlyTruncated || containsOpenClawHistoryTruncation(message))
+      ? [{ index, message, messageId }]
+      : [];
+  });
+  if (candidates.length === 0) return messages;
+
+  const hydrated = [...messages];
+  let cursor = 0;
+  const hydrateNext = async () => {
+    while (cursor < candidates.length) {
+      const candidate = candidates[cursor++];
+      if (!candidate) continue;
+      try {
+        const result = await chatMessageGet(sessionKey, candidate.messageId, {
+          maxChars: OPENCLAW_CHAT_MESSAGE_MAX_CHARS,
+        });
+        if (!result.ok || !isRecord(result.message)) continue;
+        const fullMetadata = isRecord(result.message.__openclaw) ? result.message.__openclaw : null;
+        hydrated[candidate.index] = {
+          ...candidate.message,
+          ...result.message,
+          ...(
+            candidate.message.__openclaw || result.message.__openclaw
+              ? {
+                  __openclaw: {
+                    ...(isRecord(candidate.message.__openclaw) ? candidate.message.__openclaw : {}),
+                    ...(fullMetadata ?? {}),
+                  },
+                }
+              : {}
+          ),
+        };
+      } catch {}
+    }
+  };
+  await Promise.all(
+    Array.from(
+      { length: Math.min(OPENCLAW_CHAT_MESSAGE_HYDRATION_CONCURRENCY, candidates.length) },
+      hydrateNext,
+    ),
+  );
+  return hydrated;
 }
 
 export function streamOpenClawChat(

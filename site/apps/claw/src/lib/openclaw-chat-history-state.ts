@@ -1,6 +1,7 @@
 import { ensureChatMessageRenderId, type ChatMessage } from "@/lib/openclaw-chat";
 
 const OPENCLAW_REPLY_STOPPED_MESSAGE = "Reply stopped";
+const OPENCLAW_CHAT_HISTORY_TRUNCATION_SUFFIX = "\n...(truncated)...";
 const VOICE_NOTE_FILE_NAME = /^(?:voice|audio)-[\w.-]+\.(?:aac|flac|m4a|mp3|oga|ogg|opus|wav|weba|webm)$/i;
 
 export type ChatMessageUpdate = ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[]);
@@ -183,9 +184,17 @@ function historyRevisionIsAtLeastCurrent(history: ChatMessage, current: ChatMess
 }
 
 function mergeAssistantSnapshot(history: ChatMessage, current: ChatMessage): ChatMessage {
-  const liveContentIsFuller = !historyRevisionIsAtLeastCurrent(history, current) &&
+  const projectedPrefix = history.content.endsWith(OPENCLAW_CHAT_HISTORY_TRUNCATION_SUFFIX)
+    ? history.content.slice(0, -OPENCLAW_CHAT_HISTORY_TRUNCATION_SUFFIX.length)
+    : null;
+  const historyIsTruncatedLivePrefix = projectedPrefix !== null &&
+    current.content.length > projectedPrefix.length &&
+    current.content.startsWith(projectedPrefix);
+  const liveContentIsFuller = historyIsTruncatedLivePrefix || (
+    !historyRevisionIsAtLeastCurrent(history, current) &&
     current.content.length > history.content.length &&
-    current.content.startsWith(history.content);
+    current.content.startsWith(history.content)
+  );
   return {
     ...history,
     ...identityWithHistoryPriority(history, current),

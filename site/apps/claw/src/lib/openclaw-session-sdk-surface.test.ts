@@ -11,6 +11,7 @@ import {
   isOpenClawSubagentSessionKey,
   isRecoverableOpenClawMainSession,
   listOpenClawSessions,
+  loadOpenClawChatHistory,
   normalizeOpenClawSessions,
   normalizeOpenClawThinkingLevels,
   openClawEventMatchesSession,
@@ -20,6 +21,42 @@ import {
 } from "./openclaw-session-sdk-surface";
 
 describe("openclaw-session-sdk-surface", () => {
+  it("hydrates OpenClaw's truncated history projection from the persisted message", async () => {
+    const projectedPrefix = "a".repeat(8_000);
+    const preview = {
+      role: "assistant",
+      content: [{ type: "text", text: `${projectedPrefix}\n...(truncated)...` }],
+      __openclaw: { id: "message-1" },
+    };
+    const full = {
+      role: "assistant",
+      content: [{ type: "text", text: `${projectedPrefix}\nComplete ending.` }],
+      __openclaw: { id: "message-1", seq: 2 },
+    };
+    const gateway = {
+      chatHistory: vi.fn(async () => [preview]),
+      chatMessageGet: vi.fn(async () => ({ ok: true, message: full })),
+    };
+
+    await expect(loadOpenClawChatHistory(gateway as any, "main", 200)).resolves.toEqual([full]);
+    expect(gateway.chatHistory).toHaveBeenCalledWith("main", 200);
+    expect(gateway.chatMessageGet).toHaveBeenCalledWith("main", "message-1", { maxChars: 500_000 });
+  });
+
+  it("keeps a truncated history preview when the full message is unavailable", async () => {
+    const preview = {
+      role: "assistant",
+      content: [{ type: "text", text: `Preview\n...(truncated)...` }],
+      __openclaw: { id: "message-1" },
+    };
+    const gateway = {
+      chatHistory: vi.fn(async () => [preview]),
+      chatMessageGet: vi.fn(async () => ({ ok: false, unavailableReason: "not_found" })),
+    };
+
+    await expect(loadOpenClawChatHistory(gateway as any, "main")).resolves.toEqual([preview]);
+  });
+
   it("captures a raw gateway history baseline for established conversations", () => {
     const stream = (async function* () {})();
     const chatSend = vi.fn(() => stream);

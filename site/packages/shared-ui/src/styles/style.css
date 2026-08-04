@@ -1,5 +1,14 @@
 @custom-variant dark (&:where(.dark, .dark *, [data-color-mode="dark"], [data-color-mode="dark"] *));
 
+:root,
+[data-color-mode="dark"] {
+  --hypercli-logo-full-image: url("/logos/hypercli-full-blue.svg");
+}
+
+[data-color-mode="light"] {
+  --hypercli-logo-full-image: url("/logos/hypercli-full-blue-light.svg");
+}
+
 /* HyperCLI base theme (Aurora palette). Applies to all apps. */
 :root,
 .dark,

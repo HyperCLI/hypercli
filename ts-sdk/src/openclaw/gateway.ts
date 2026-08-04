@@ -22,6 +22,7 @@ import type {
 export const OPENCLAW_INTERNAL_MAIN_SESSION_KEY = "main";
 export const OPENCLAW_SDK_SESSION_PREFIX = "hcli:";
 export const OPENCLAW_DASHBOARD_SESSION_PREFIX = "dashboard:";
+const OPENCLAW_CHAT_HISTORY_TRUNCATION_SUFFIX = "\n...(truncated)...";
 
 export function createOpenClawSessionKey(
   existingSessionKeys: Array<string | null | undefined> = [],
@@ -241,6 +242,17 @@ export interface GatewayChatMessageSummary {
   sessionKey?: string;
   /** Protocol message revision, when supplied by the raw history message. */
   revision?: number | string;
+}
+
+export interface GatewayChatMessageGetOptions {
+  agentId?: string;
+  maxChars?: number;
+}
+
+export interface GatewayChatMessageGetResult {
+  ok: boolean;
+  message?: unknown;
+  unavailableReason?: "not_found" | "oversized" | "not_visible";
 }
 
 export interface GatewaySessionPatch {
@@ -1902,6 +1914,17 @@ function reconcileStreamContent(
   }
   if (previousText.startsWith(snapshot)) return null;
   return { text: snapshot, nextText: snapshot, replace: true };
+}
+
+function reconcileHistoryStreamContent(
+  previousText: string,
+  snapshot: string,
+): StreamContentUpdate | null {
+  if (snapshot.endsWith(OPENCLAW_CHAT_HISTORY_TRUNCATION_SUFFIX)) {
+    const projectedPrefix = snapshot.slice(0, -OPENCLAW_CHAT_HISTORY_TRUNCATION_SUFFIX.length);
+    if (previousText.startsWith(projectedPrefix)) return null;
+  }
+  return reconcileStreamContent(previousText, snapshot);
 }
 
 function protocolIdentityString(value: unknown): string | undefined {
@@ -4142,6 +4165,24 @@ export class GatewayClient {
     });
   }
 
+  async chatMessageGet(
+    sessionKey: string,
+    messageId: string,
+    options: GatewayChatMessageGetOptions = {},
+  ): Promise<GatewayChatMessageGetResult> {
+    const params: Record<string, any> = { sessionKey, messageId };
+    if (options.agentId) params.agentId = options.agentId;
+    if (options.maxChars !== undefined) params.maxChars = options.maxChars;
+    const res = await this.rpc("chat.message.get", params);
+    if (!asRecord(res) || typeof res.ok !== "boolean") {
+      throw new GatewayRequestError({
+        code: "PROTOCOL_ERROR",
+        message: "Gateway protocol error: chat.message.get response must contain a boolean `ok` property",
+      });
+    }
+    return res as GatewayChatMessageGetResult;
+  }
+
   async chatAbort(sessionKey?: string): Promise<void> {
     const params: Record<string, any> = {};
     if (sessionKey) params.sessionKey = sessionKey;
@@ -4696,7 +4737,7 @@ export class GatewayClient {
                     : await waitForHistoryText();
             if (queuedEvents.length > 0) continue;
             if (historyText) {
-              const update = reconcileStreamContent(emittedDisplayText, historyText);
+              const update = reconcileHistoryStreamContent(emittedDisplayText, historyText);
               if (update) {
                 emittedDisplayText = update.nextText;
                 yield {
@@ -4760,7 +4801,7 @@ export class GatewayClient {
               ? await waitForHistoryText()
               : "";
           if (historyText) {
-            const update = reconcileStreamContent(emittedDisplayText, historyText);
+            const update = reconcileHistoryStreamContent(emittedDisplayText, historyText);
             if (update) {
               emittedDisplayText = update.nextText;
               yield {
@@ -4876,7 +4917,7 @@ export class GatewayClient {
           }
           const historyText = await waitForHistoryText();
           if (historyText) {
-            const update = reconcileStreamContent(emittedDisplayText, historyText);
+            const update = reconcileHistoryStreamContent(emittedDisplayText, historyText);
             if (update) {
               emittedDisplayText = update.nextText;
               yield {

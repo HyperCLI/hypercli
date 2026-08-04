@@ -9,7 +9,8 @@
         "mock-server"
     ],
     "scripts": {
-        "dev": "turbo run dev",
+        "dev": "turbo run dev --filter=!hypercli-mock-server",
+        "dev:real": "bash scripts/setup-local-env.sh && npm run dev",
         "dev:with-mock": "concurrently \"npm run dev\" \"npm run mock-server:all\" --names \"apps\" \"mock-servers\"",
         "mock-server": "npm start -w mock-server",
         "mock-server:all": "npm run start:all -w mock-server",
@@ -23,7 +24,7 @@
         "cors-proxy": "node cors-anywhere.js",
         "clear-cache": "node scripts/clear-cache.js",
         "clear-cache:bat": "scripts\\clear-cache.bat",
-        "dev:apps": "turbo run dev",
+        "dev:apps": "npm run dev",
         "sdk:use-checkout": "npm install --save-exact @hypercli.com/sdk@file:../../../ts-sdk --workspace @hypercli/claw --workspace @hypercli/console --workspace @hypercli/shared-ui",
         "sdk:use-local": "npm run sdk:use-checkout",
         "sdk:use-published": "npm install --save-exact @hypercli.com/sdk@latest --workspace @hypercli/claw --workspace @hypercli/console --workspace @hypercli/shared-ui"

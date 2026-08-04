@@ -93,6 +93,7 @@ export default function DevelopersPage() {
             <div className="mb-11 flex flex-wrap justify-center gap-3.5">
               <GetStartedLink
                 label="Deploy your first agent"
+                toAgentDashboard
                 className="btn-primary inline-block rounded-full px-8 py-3.5 text-base font-semibold"
               />
               <Link
@@ -234,6 +235,7 @@ export default function DevelopersPage() {
               <div className="flex flex-wrap justify-center gap-3.5">
                 <GetStartedLink
                   label="Deploy your first agent"
+                  toAgentDashboard
                   className="btn-primary inline-block rounded-full px-8 py-4 text-base font-semibold"
                 />
                 <Link

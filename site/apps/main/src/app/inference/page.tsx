@@ -103,12 +103,11 @@ export default function InferencePage() {
                 label="Get an API key"
                 className="btn-primary inline-block rounded-full px-8 py-3.5 text-base font-semibold"
               />
-              <Link
-                href="/developers"
+              <GetStartedLink
+                label="Deploy a full agent"
+                toAgentDashboard
                 className="btn-secondary inline-block rounded-full px-8 py-3.5 text-base font-semibold"
-              >
-                Deploy a full agent
-              </Link>
+              />
             </div>
             <div className="relative mx-auto max-w-[560px]">
               <div
@@ -237,12 +236,11 @@ export default function InferencePage() {
                   label="Get an API key"
                   className="btn-primary inline-block rounded-full px-8 py-4 text-base font-semibold"
                 />
-                <Link
-                  href="/developers"
+                <GetStartedLink
+                  label="Deploy a full agent"
+                  toAgentDashboard
                   className="inline-block rounded-full border border-terminal-border px-8 py-4 text-base font-semibold text-terminal-foreground transition-colors hover:border-accent-hover hover:text-accent-hover"
-                >
-                  Deploy a full agent
-                </Link>
+                />
               </div>
             </div>
           </div>

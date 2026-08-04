@@ -193,12 +193,14 @@ describe("openclaw chat history state", () => {
     ]);
   });
 
-  it("does not roll a fuller identified live reply back to a partial snapshot", () => {
+  it("does not roll a fuller live reply back to an equally revised truncated history projection", () => {
+    const projectedPrefix = "a".repeat(8_000);
+    const complete = `${projectedPrefix}\nThe complete ending remains visible.`;
     const current: ChatMessage[] = [
       { role: "user", content: "Explain the migration", renderId: "user-live" },
       {
         role: "assistant",
-        content: "The migration has three complete steps.",
+        content: complete,
         messageId: "message-1",
         turnId: "turn-1",
         runId: "run-1",
@@ -214,18 +216,18 @@ describe("openclaw chat history state", () => {
         { role: "user", content: "Explain the migration", renderId: "user-history" },
         {
           role: "assistant",
-          content: "The migration has three",
+          content: `${projectedPrefix}\n...(truncated)...`,
           messageId: "message-1",
           turnId: "turn-1",
           runId: "run-1",
-          revision: 1,
+          revision: 2,
           renderId: "assistant-history",
         },
       ],
     });
 
     expect(messages[1]).toMatchObject({
-      content: "The migration has three complete steps.",
+      content: complete,
       messageId: "message-1",
       revision: 2,
       status: "interrupted",

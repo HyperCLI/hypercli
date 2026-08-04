@@ -209,6 +209,7 @@ export default function Home() {
               <div className="text-center">
                 <GetStartedLink
                   label="Launch your agent"
+                  toAgentDashboard
                   className="btn-secondary inline-block rounded-full px-8 py-3.5 text-base font-semibold"
                 />
                 <p className="mx-auto mt-2 max-w-[230px] text-xs text-text-muted">
@@ -413,6 +414,7 @@ export default function Home() {
               <div className="mb-11 flex flex-wrap justify-center gap-3.5">
                 <GetStartedLink
                   label="Deploy your agent"
+                  toAgentDashboard
                   className="btn-primary inline-block rounded-full px-8 py-4 text-base font-semibold"
                 />
                 <GetStartedLink
