@@ -32,6 +32,10 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "HyperCLI, Inc.",
+    "copyright": "© 2026 HyperCLI, Inc.",
+    "category": "DeveloperTool",
+    "shortDescription": "Connect your HyperCLI account and install the Buzz provider.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

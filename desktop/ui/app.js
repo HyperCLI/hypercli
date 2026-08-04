@@ -11,7 +11,9 @@ const TITLEBAR = 28;
 const appWindow = getCurrentWindow();
 const card = document.querySelector(".card");
 
-const MIN_HEIGHT = 240;
+// No artificial minimum beyond sanity: the shorter the window, the clearer
+// it is that the user is done here.
+const MIN_HEIGHT = 160;
 
 function fitWindow() {
   const height = Math.min(
@@ -92,7 +94,7 @@ async function validateKey() {
     if (result.valid) {
       detail.textContent = result.email ? ` as ${result.email}` : "";
       keyLine.hidden = !result.key_name;
-      keyLine.textContent = result.key_name ? `key "${result.key_name}"` : "";
+      document.getElementById("key-name").textContent = result.key_name || "";
       warning.hidden = result.has_agents_capability;
       warning.textContent = result.has_agents_capability
         ? ""

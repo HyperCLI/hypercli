@@ -5,6 +5,7 @@
   color-scheme: dark;
   --background: #0a0a0b;
   --card: #141416;
+  --surface-high: #1c1c1f;
   --foreground: #fafafa;
   --muted-foreground: #9e9ea3;
   --text-muted: #7c7b82;
@@ -23,6 +24,7 @@
     color-scheme: light;
     --background: #f7f8f4;
     --card: #ffffff;
+    --surface-high: #edf3ee;
     --foreground: #0d1511;
     --muted-foreground: #5d6d66;
     --text-muted: #63716a;
@@ -207,6 +209,29 @@ button.link:hover {
 
 .hint.warn {
   color: var(--error);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-high);
+  font-size: 12px;
+  color: var(--foreground);
+}
+
+.chip-label {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 #status {
