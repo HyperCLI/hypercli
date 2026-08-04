@@ -677,11 +677,18 @@ export async function loginWithPrivy(
   if (response?.status() === 404) {
     throw new Error(`Target ${getEnv("TEST_HOSTNAME")} returned a 404 for the Claw app`);
   }
-  await expect(primaryAuthButton).toBeVisible({ timeout: 30_000 });
-  await captureStep(page, "01-home");
-  await primaryAuthButton.click();
 
   const sharedLoginButton = page.getByRole("button", { name: /login with privy/i }).first();
+  const loginButtonVisible = await sharedLoginButton
+    .waitFor({ state: "visible", timeout: 10_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!loginButtonVisible) {
+    await expect(primaryAuthButton).toBeVisible({ timeout: 30_000 });
+    await captureStep(page, "01-home");
+    await primaryAuthButton.click();
+  }
+
   await expect(sharedLoginButton).toBeVisible({ timeout: 15_000 });
   await captureStep(page, "02-login-shell-open");
   await sharedLoginButton.click();
