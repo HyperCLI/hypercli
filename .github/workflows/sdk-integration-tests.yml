@@ -167,7 +167,7 @@ jobs:
           python -m pip install --upgrade "${PYTHON_PIP_CONSTRAINT}"
           python -m pip install requests "PyYAML>=6,<7"
           for attempt in $(seq 1 "${SDK_INTEGRATION_RETRIES}"); do
-            if python .github/scripts/bootstrap_dev_test_keys.py bootstrap --format github-env >> "$GITHUB_ENV"; then
+            if python .github/scripts/bootstrap_dev_test_keys.py bootstrap --format github-env --github-env-file "$GITHUB_ENV"; then
               break
             fi
             if [ "${attempt}" -ge "${SDK_INTEGRATION_RETRIES}" ]; then
@@ -261,7 +261,7 @@ jobs:
           python -m pip install --upgrade "${PYTHON_PIP_CONSTRAINT}"
           python -m pip install requests "PyYAML>=6,<7"
           for attempt in $(seq 1 "${SDK_INTEGRATION_RETRIES}"); do
-            if python .github/scripts/bootstrap_dev_test_keys.py bootstrap --format github-env >> "$GITHUB_ENV"; then
+            if python .github/scripts/bootstrap_dev_test_keys.py bootstrap --format github-env --github-env-file "$GITHUB_ENV"; then
               break
             fi
             if [ "${attempt}" -ge "${SDK_INTEGRATION_RETRIES}" ]; then
@@ -360,7 +360,7 @@ jobs:
           python -m pip install --upgrade "${PYTHON_PIP_CONSTRAINT}"
           python -m pip install requests "PyYAML>=6,<7"
           for attempt in $(seq 1 "${SDK_INTEGRATION_RETRIES}"); do
-            if python .github/scripts/bootstrap_dev_test_keys.py bootstrap --format github-env >> "$GITHUB_ENV"; then
+            if python .github/scripts/bootstrap_dev_test_keys.py bootstrap --format github-env --github-env-file "$GITHUB_ENV"; then
               break
             fi
             if [ "${attempt}" -ge "${SDK_INTEGRATION_RETRIES}" ]; then

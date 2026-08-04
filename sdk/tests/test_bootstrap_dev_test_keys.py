@@ -50,6 +50,44 @@ def test_dev_bootstrap_uses_canonical_team_plan() -> None:
     assert MODULE.DEFAULT_PLAN_ID == "team"
 
 
+def test_github_env_file_separates_mask_commands(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    state = MODULE.BootstrapState(
+        product_base="https://api.dev.hypercli.com",
+        orchestra_api_base="https://api.dev.hypercli.com/api",
+        agents_api_base="https://api.dev.hypercli.com/agents",
+        agents_admin_base="https://api.agents.dev.hypercli.com",
+        orchestra_admin_key="orchestra-admin",
+        agents_admin_key="agents-admin",
+        orchestra_user_id="orchestra-user",
+        hyperclaw_user_id="hyperclaw-user",
+        email="sdk-test@example.com",
+        test_api_key="hyper-api-key",
+        test_agent_api_key="hyper-agent-key",
+    )
+    github_env = tmp_path / "github-env"
+
+    MODULE._print_github_env(
+        state,
+        "/tmp/bootstrap-state.json",
+        github_env_file=str(github_env),
+    )
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert captured.out.splitlines() == [
+        "::add-mask::hyper-api-key",
+        "::add-mask::hyper-agent-key",
+    ]
+    env_text = github_env.read_text(encoding="utf-8")
+    assert "::add-mask::" not in env_text
+    assert "TEST_API_KEY<<EOF\nhyper-api-key\nEOF\n" in env_text
+    assert "TEST_AGENT_API_KEY<<EOF\nhyper-agent-key\nEOF\n" in env_text
+    assert "BOOTSTRAP_STATE_FILE<<EOF\n/tmp/bootstrap-state.json\nEOF\n" in env_text
+
+
 def test_request_retries_transient_status(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[int] = []
 

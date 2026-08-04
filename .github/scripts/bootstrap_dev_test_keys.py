@@ -422,7 +422,12 @@ def _load_state_file(path: str) -> BootstrapState:
     return BootstrapState(**payload)
 
 
-def _print_github_env(state: BootstrapState, state_file: str) -> None:
+def _print_github_env(
+    state: BootstrapState,
+    state_file: str,
+    *,
+    github_env_file: str | None = None,
+) -> None:
     fields = {
         "TEST_API_KEY": state.test_api_key,
         "TEST_API_BASE": state.product_base,
@@ -432,12 +437,20 @@ def _print_github_env(state: BootstrapState, state_file: str) -> None:
         "TEST_AGENTS_ADMIN_BASE": state.agents_admin_base,
         "BOOTSTRAP_STATE_FILE": state_file,
     }
+    mask_output = sys.stdout if github_env_file else sys.stderr
     for masked in ("TEST_API_KEY", "TEST_AGENT_API_KEY"):
-        print(f"::add-mask::{fields[masked]}")
-    for key, value in fields.items():
-        print(f"{key}<<EOF")
-        print(value)
-        print("EOF")
+        print(f"::add-mask::{fields[masked]}", file=mask_output)
+
+    env_output = "".join(
+        f"{key}<<EOF\n{value}\nEOF\n"
+        for key, value in fields.items()
+    )
+    if github_env_file:
+        with Path(github_env_file).open("a", encoding="utf-8") as output:
+            output.write(env_output)
+        return
+
+    print(env_output, end="")
 
 
 def main() -> int:
@@ -446,6 +459,10 @@ def main() -> int:
 
     bootstrap_parser = subparsers.add_parser("bootstrap")
     bootstrap_parser.add_argument("--format", choices=("json", "github-env"), default="json")
+    bootstrap_parser.add_argument(
+        "--github-env-file",
+        help="Append GitHub environment entries directly to this file",
+    )
 
     cleanup_parser = subparsers.add_parser("cleanup")
     cleanup_parser.add_argument("--state-file", required=True)
@@ -456,7 +473,11 @@ def main() -> int:
         state = bootstrap()
         state_file = _write_state_file(state)
         if args.format == "github-env":
-            _print_github_env(state, state_file)
+            _print_github_env(
+                state,
+                state_file,
+                github_env_file=args.github_env_file,
+            )
         else:
             print(json.dumps({"state_file": state_file, **asdict(state)}, indent=2))
         return 0
