@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   X,
 } from "lucide-react";
+import { ContactCta } from "@/components/contact-cta";
 
 export const metadata: Metadata = {
   title: "HyperCLI Security — Architecture, not a policy document",
@@ -339,17 +340,12 @@ export default function SecurityPage() {
               <p className="mx-auto mb-9 max-w-xl text-lg text-text-secondary">
                 Send your questionnaire — or skip a cycle and read the architecture first.
               </p>
-              <div className="flex flex-wrap justify-center gap-3.5">
-                <Link href="/pricing" className="btn-primary inline-block rounded-full px-8 py-4 text-base font-semibold">
-                  Talk to engineering
-                </Link>
-                <Link
-                  href="/pricing"
-                  className="inline-block rounded-full border border-terminal-border px-8 py-4 text-base font-semibold text-terminal-foreground transition-colors hover:border-accent-hover hover:text-accent-hover"
-                >
-                  Get the architecture brief
-                </Link>
-              </div>
+              <ContactCta
+                source="security"
+                primaryLabel="Talk to engineering"
+                secondaryLabel="Get the architecture brief"
+                theme="dark"
+              />
             </div>
           </div>
         </section>

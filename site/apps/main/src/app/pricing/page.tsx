@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Footer, GlassCard, Header, PricingTierCard } from "@hypercli/shared-ui";
+import { Footer, GlassCard, Header, NAV_URLS, PricingTierCard } from "@hypercli/shared-ui";
 import { Check, Users } from "lucide-react";
+import { GetStartedLink } from "@/components/get-started-link";
 import { BEYOND_PRO, NO_PER_SEAT_COPY, OVERAGE_COPY, PLAN_TIERS, POOL_COPY, TRIAL_COPY } from "@/lib/plans";
 
 export const metadata: Metadata = {
@@ -58,7 +59,7 @@ export default function PricingPage() {
                   gaugePercent={tier.gaugePercent}
                   highlighted={tier.highlighted}
                   ctaLabel={tier.cta}
-                  ctaHref="/pricing"
+                  ctaHref={`${NAV_URLS.agents}?plan=${tier.id}`}
                 />
               ))}
             </div>
@@ -145,9 +146,10 @@ export default function PricingPage() {
                 One decision: <span className="gradient-text-primary">how much agent do you need?</span>
               </h2>
               <p className="mb-9 text-lg text-text-secondary">Everything else is included. Card down, agents up.</p>
-              <Link href="/pricing" className="btn-primary inline-block rounded-full px-8 py-4 text-base font-semibold">
-                Start your free trial
-              </Link>
+              <GetStartedLink
+                label="Start your free trial"
+                className="btn-primary inline-block rounded-full px-8 py-4 text-base font-semibold"
+              />
               <p className="mt-7 text-xs text-terminal-muted">{TRIAL_COPY}</p>
             </div>
           </div>

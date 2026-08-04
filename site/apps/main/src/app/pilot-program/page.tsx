@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { Footer, GlassCard, Header } from "@hypercli/shared-ui";
 import { Check, CircleCheck, CircleMinus, Code, Gem, Minus, Users } from "lucide-react";
 import { PILOT_PROGRAM_PRICE } from "@/lib/plans";
+import { ContactCta } from "@/components/contact-cta";
 
 export const metadata: Metadata = {
   title: "The Agent Pilot Program — Generic agents are a party trick. Yours will run your business.",
@@ -108,9 +108,7 @@ export default function PilotProgramPage() {
             <p className="mb-8 text-sm text-text-muted">
               4 weeks · Production agents, not demos · Limited to 10 companies per quarter
             </p>
-            <Link href="/pricing" className="btn-primary inline-block rounded-full px-8 py-3.5 text-base font-semibold">
-              Apply for a pilot
-            </Link>
+            <ContactCta source="pilot-program" primaryLabel="Apply for a pilot" />
           </div>
         </section>
 
@@ -230,9 +228,7 @@ export default function PilotProgramPage() {
                 <b className="font-semibold text-foreground">Fully credited</b> toward a Teams or Self-Hosted plan if
                 you continue.
               </p>
-              <Link href="/pricing" className="btn-primary inline-block rounded-full px-8 py-3.5 text-base font-semibold">
-                Apply for a pilot
-              </Link>
+              <ContactCta source="pilot-program" primaryLabel="Apply for a pilot" />
             </GlassCard>
             <p className="mx-auto mt-6 max-w-md text-sm text-text-muted">
               10 companies per quarter — our experts build alongside you, and that doesn't scale infinitely. That's
@@ -255,9 +251,7 @@ export default function PilotProgramPage() {
               <p className="mx-auto mb-9 max-w-xl text-lg text-text-secondary">
                 Tell us the process you'd most love to never do manually again. We'll tell you if an agent can own it.
               </p>
-              <Link href="/pricing" className="btn-primary inline-block rounded-full px-8 py-4 text-base font-semibold">
-                Apply for a pilot
-              </Link>
+              <ContactCta source="pilot-program" primaryLabel="Apply for a pilot" />
             </div>
           </div>
         </section>

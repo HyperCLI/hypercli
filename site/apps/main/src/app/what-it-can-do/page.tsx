@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Footer, Header } from "@hypercli/shared-ui";
 import { CheckCircle2, Cog, MessageSquare } from "lucide-react";
 import { CapabilityTabs, RoleTabs } from "@/components/what-it-can-do-tabs";
+import { GetStartedLink } from "@/components/get-started-link";
 
 export const metadata: Metadata = {
   title: "HyperCLI — Hand it off. It's just done.",
@@ -167,9 +168,10 @@ export default function WhatItCanDoPage() {
                 The plan changes how much it can think — never what it can do.
               </p>
               <div className="flex flex-wrap justify-center gap-3.5">
-                <Link href="/pricing" className="btn-primary inline-block rounded-full px-8 py-4 text-base font-semibold">
-                  Add to Slack
-                </Link>
+                <GetStartedLink
+                  label="Add to Slack"
+                  className="btn-primary inline-block rounded-full px-8 py-4 text-base font-semibold"
+                />
                 <Link
                   href="/pricing"
                   className="inline-block rounded-full border border-terminal-border px-8 py-4 text-base font-semibold text-terminal-foreground transition-colors hover:border-accent-hover hover:text-accent-hover"

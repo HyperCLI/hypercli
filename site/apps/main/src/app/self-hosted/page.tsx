@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { Footer, GlassCard, Header, MetricCard } from "@hypercli/shared-ui";
 import {
   Check,
@@ -17,6 +16,7 @@ import {
   ShieldCheck,
   Unplug,
 } from "lucide-react";
+import { ContactCta } from "@/components/contact-cta";
 
 export const metadata: Metadata = {
   title: "HyperCLI Self-Hosted — The whole platform. Inside your walls.",
@@ -153,17 +153,11 @@ export default function SelfHostedPage() {
             <p className="mb-8 text-sm text-text-muted">
               Starting at $20,000/mo · Unlimited agents · No per-token pricing, ever
             </p>
-            <div className="flex flex-wrap justify-center gap-3.5">
-              <Link href="/pricing" className="btn-primary inline-block rounded-full px-8 py-3.5 text-base font-semibold">
-                Talk to engineering
-              </Link>
-              <Link
-                href="/pricing"
-                className="btn-secondary inline-block rounded-full px-8 py-3.5 text-base font-semibold"
-              >
-                Get the architecture brief
-              </Link>
-            </div>
+            <ContactCta
+              source="self-hosted"
+              primaryLabel="Talk to engineering"
+              secondaryLabel="Get the architecture brief"
+            />
           </div>
         </section>
 
@@ -301,17 +295,12 @@ export default function SelfHostedPage() {
               <p className="mx-auto mb-9 max-w-xl text-lg text-text-secondary">
                 A working pilot on your hardware in 30 days. Talk to an engineer, not a sales deck.
               </p>
-              <div className="flex flex-wrap justify-center gap-3.5">
-                <Link href="/pricing" className="btn-primary inline-block rounded-full px-8 py-4 text-base font-semibold">
-                  Talk to engineering
-                </Link>
-                <Link
-                  href="/pricing"
-                  className="inline-block rounded-full border border-terminal-border px-8 py-4 text-base font-semibold text-terminal-foreground transition-colors hover:border-accent-hover hover:text-accent-hover"
-                >
-                  Get the architecture brief
-                </Link>
-              </div>
+              <ContactCta
+                source="self-hosted"
+                primaryLabel="Talk to engineering"
+                secondaryLabel="Get the architecture brief"
+                theme="dark"
+              />
             </div>
           </div>
         </section>

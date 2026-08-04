@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import {
   CodeSnippetCard,
   Footer,
   GlassCard,
   Header,
 } from "@hypercli/shared-ui";
+import { GetStartedLink } from "@/components/get-started-link";
 import {
   CheckCircle2,
   Cpu,
@@ -316,12 +316,10 @@ export default function CapabilitiesPage() {
               </h2>
               <p className="mb-9 text-lg text-text-secondary">Every capability above, live in under 5 minutes.</p>
               <div className="flex flex-wrap justify-center gap-3.5">
-                <Link
-                  href="/pricing"
+                <GetStartedLink
+                  label="Deploy your first agent"
                   className="btn-primary inline-block rounded-full px-8 py-4 text-base font-semibold"
-                >
-                  Deploy your first agent
-                </Link>
+                />
                 <a
                   href="https://docs.hypercli.com"
                   className="inline-block rounded-full border border-terminal-border px-8 py-4 text-base font-semibold text-terminal-foreground transition-colors hover:border-accent-hover hover:text-accent-hover"

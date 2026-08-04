@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ChatDemo, Footer, GlassCard, Header, PricingTierCard } from "@hypercli/shared-ui";
+import { ChatDemo, Footer, GlassCard, Header, NAV_URLS, PricingTierCard } from "@hypercli/shared-ui";
 import {
   BellRing,
   Check,
@@ -14,6 +14,7 @@ import {
   Users,
 } from "lucide-react";
 import { OVERAGE_COPY, PLAN_TIERS } from "@/lib/plans";
+import { GetStartedLink } from "@/components/get-started-link";
 
 export const metadata: Metadata = {
   title: "HyperCLI — The teammate that never clocks out",
@@ -159,15 +160,14 @@ export default function ForTeamsPage() {
               you run the business. No code, no IT, no new tab to check.
             </p>
             <div className="mb-12 flex flex-wrap justify-center gap-3.5">
-              <Link href="/pricing" className="btn-primary inline-block rounded-full px-8 py-3.5 text-base font-semibold">
-                Add to Slack
-              </Link>
-              <Link
-                href="/pricing"
+              <GetStartedLink
+                label="Add to Slack"
+                className="btn-primary inline-block rounded-full px-8 py-3.5 text-base font-semibold"
+              />
+              <GetStartedLink
+                label="Add to Teams"
                 className="btn-secondary inline-block rounded-full px-8 py-3.5 text-base font-semibold"
-              >
-                Add to Teams
-              </Link>
+              />
             </div>
             <ChatDemo channel="Slack" agentName="Aria" messages={CHAT_MESSAGES} className="mx-auto max-w-xl text-left" />
             <p className="mt-5 text-sm text-text-muted">It worked while Jamie slept. That's the whole product.</p>
@@ -317,7 +317,7 @@ export default function ForTeamsPage() {
                   gaugePercent={tier.gaugePercent}
                   highlighted={tier.highlighted}
                   ctaLabel={tier.cta}
-                  ctaHref="/pricing"
+                  ctaHref={`${NAV_URLS.agents}?plan=${tier.id}`}
                 />
               ))}
             </div>
@@ -365,15 +365,14 @@ export default function ForTeamsPage() {
                 Add it to Slack, hand it something real, and see what comes back by morning.
               </p>
               <div className="flex flex-wrap justify-center gap-3.5">
-                <Link href="/pricing" className="btn-primary inline-block rounded-full px-8 py-4 text-base font-semibold">
-                  Add to Slack
-                </Link>
-                <Link
-                  href="/pricing"
+                <GetStartedLink
+                  label="Add to Slack"
+                  className="btn-primary inline-block rounded-full px-8 py-4 text-base font-semibold"
+                />
+                <GetStartedLink
+                  label="Add to Teams"
                   className="inline-block rounded-full border border-terminal-border px-8 py-4 text-base font-semibold text-terminal-foreground transition-colors hover:border-accent-hover hover:text-accent-hover"
-                >
-                  Add to Teams
-                </Link>
+                />
               </div>
             </div>
           </div>

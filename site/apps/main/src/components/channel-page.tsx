@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ChannelTabs, ChatDemo, FAQBlock, Footer, GlassCard, Header, type ChatMessage, type FAQItem } from "@hypercli/shared-ui";
 import { Check } from "lucide-react";
+import { GetStartedLink } from "@/components/get-started-link";
 
 export interface ChannelBehavior {
   tag: string;
@@ -78,9 +79,10 @@ export function ChannelPage({ data }: { data: ChannelPageData }) {
             </h1>
             <p className="mx-auto mb-9 max-w-2xl text-lg leading-relaxed text-text-secondary">{data.heroSub}</p>
             <div className="mb-5 flex flex-wrap justify-center gap-3.5">
-              <Link href="/pricing" className="btn-primary inline-block rounded-full px-8 py-3.5 text-base font-semibold">
-                {data.ctaLabel}
-              </Link>
+              <GetStartedLink
+                label={data.ctaLabel}
+                className="btn-primary inline-block rounded-full px-8 py-3.5 text-base font-semibold"
+              />
             </div>
             <p className="text-sm text-text-muted">{data.notes.join(" · ")}</p>
           </div>
@@ -188,9 +190,10 @@ export function ChannelPage({ data }: { data: ChannelPageData }) {
               </h2>
               <p className="mx-auto mb-9 max-w-xl text-lg text-text-secondary">{data.closerSub}</p>
               <div className="flex flex-wrap justify-center gap-3.5">
-                <Link href="/pricing" className="btn-primary inline-block rounded-full px-8 py-4 text-base font-semibold">
-                  {data.ctaLabel}
-                </Link>
+                <GetStartedLink
+                  label={data.ctaLabel}
+                  className="btn-primary inline-block rounded-full px-8 py-4 text-base font-semibold"
+                />
               </div>
               <p className="mt-8 text-xs text-terminal-muted">
                 Also available for{" "}

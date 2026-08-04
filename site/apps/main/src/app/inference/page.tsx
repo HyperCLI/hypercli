@@ -10,6 +10,7 @@ import {
 } from "@hypercli/shared-ui";
 import { Bot, KeyRound } from "lucide-react";
 import { InferenceCostCalculator } from "@/components/inference-cost-calculator";
+import { GetStartedLink } from "@/components/get-started-link";
 
 export const metadata: Metadata = {
   title: "HyperCLI Inference — Frontier models. Flat rate. No meter.",
@@ -98,12 +99,10 @@ export default function InferencePage() {
               to 100 million tokens a day — your bill never moves.
             </p>
             <div className="mb-11 flex flex-wrap justify-center gap-3.5">
-              <Link
-                href="/pricing"
+              <GetStartedLink
+                label="Get an API key"
                 className="btn-primary inline-block rounded-full px-8 py-3.5 text-base font-semibold"
-              >
-                Get an API key
-              </Link>
+              />
               <Link
                 href="/developers"
                 className="btn-secondary inline-block rounded-full px-8 py-3.5 text-base font-semibold"
@@ -186,9 +185,7 @@ export default function InferencePage() {
                 </p>
                 <CodeSnippetCard label="terminal" code={CURL_SNIPPET} />
                 <p className="mt-5 text-sm">
-                  <Link href="/pricing" className="font-semibold text-primary hover:underline">
-                    Get an API key →
-                  </Link>
+                  <GetStartedLink label="Get an API key →" className="font-semibold text-primary hover:underline" />
                 </p>
               </GlassCard>
               <GlassCard highlighted className="p-7 sm:p-8">
@@ -236,12 +233,10 @@ export default function InferencePage() {
                 Frontier inference, one flat bill. Live in minutes either way.
               </p>
               <div className="flex flex-wrap justify-center gap-3.5">
-                <Link
-                  href="/pricing"
+                <GetStartedLink
+                  label="Get an API key"
                   className="btn-primary inline-block rounded-full px-8 py-4 text-base font-semibold"
-                >
-                  Get an API key
-                </Link>
+                />
                 <Link
                   href="/developers"
                   className="inline-block rounded-full border border-terminal-border px-8 py-4 text-base font-semibold text-terminal-foreground transition-colors hover:border-accent-hover hover:text-accent-hover"

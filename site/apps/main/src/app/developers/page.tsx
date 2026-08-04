@@ -5,12 +5,14 @@ import {
   GlassCard,
   Header,
   MetricCard,
+  NAV_URLS,
   PricingTierCard,
   TerminalWindow,
   type TerminalLine,
 } from "@hypercli/shared-ui";
 import { Database, Images, MessageCircle, Mic, Monitor, Settings2 } from "lucide-react";
 import { PLAN_TIERS } from "@/lib/plans";
+import { GetStartedLink } from "@/components/get-started-link";
 
 export const metadata: Metadata = {
   title: "HyperCLI — Your agent gets a whole machine",
@@ -89,12 +91,10 @@ export default function DevelopersPage() {
               minutes. No config gymnastics, no separate inference bills.
             </p>
             <div className="mb-11 flex flex-wrap justify-center gap-3.5">
-              <Link
-                href="/pricing"
+              <GetStartedLink
+                label="Deploy your first agent"
                 className="btn-primary inline-block rounded-full px-8 py-3.5 text-base font-semibold"
-              >
-                Deploy your first agent
-              </Link>
+              />
               <Link
                 href="/inference"
                 className="btn-secondary inline-block rounded-full px-8 py-3.5 text-base font-semibold"
@@ -205,7 +205,7 @@ export default function DevelopersPage() {
                   gaugePercent={tier.gaugePercent}
                   highlighted={tier.highlighted}
                   ctaLabel={tier.cta}
-                  ctaHref="/pricing"
+                  ctaHref={`${NAV_URLS.agents}?plan=${tier.id}`}
                 />
               ))}
             </div>
@@ -230,12 +230,10 @@ export default function DevelopersPage() {
               </h2>
               <p className="mb-9 text-lg text-text-secondary">Card down, agent up. Cancel anytime.</p>
               <div className="flex flex-wrap justify-center gap-3.5">
-                <Link
-                  href="/pricing"
+                <GetStartedLink
+                  label="Deploy your first agent"
                   className="btn-primary inline-block rounded-full px-8 py-4 text-base font-semibold"
-                >
-                  Deploy your first agent
-                </Link>
+                />
                 <Link
                   href="/quickstart"
                   className="inline-block rounded-full border border-terminal-border px-8 py-4 text-base font-semibold text-terminal-foreground transition-colors hover:border-accent-hover hover:text-accent-hover"

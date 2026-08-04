@@ -25,6 +25,7 @@ import {
   Zap,
 } from "lucide-react";
 import { CostComparator } from "@/components/cost-comparator";
+import { GetStartedLink } from "@/components/get-started-link";
 
 export const metadata: Metadata = {
   title: "HyperCLI — 100 million tokens of Kimi K3. Every day. One flat price.",
@@ -197,23 +198,19 @@ export default function Home() {
 
             <div className="mt-11 flex flex-wrap justify-center gap-8">
               <div className="text-center">
-                <Link
-                  href="/pricing"
+                <GetStartedLink
+                  label="Get your API key"
                   className="btn-primary inline-block rounded-full px-8 py-3.5 text-base font-semibold"
-                >
-                  Get your API key
-                </Link>
+                />
                 <p className="mx-auto mt-2 max-w-[230px] text-xs text-text-muted">
                   OpenAI- and Anthropic-compatible. Two lines to switch.
                 </p>
               </div>
               <div className="text-center">
-                <Link
-                  href="/pricing"
+                <GetStartedLink
+                  label="Launch your agent"
                   className="btn-secondary inline-block rounded-full px-8 py-3.5 text-base font-semibold"
-                >
-                  Launch your agent
-                </Link>
+                />
                 <p className="mx-auto mt-2 max-w-[230px] text-xs text-text-muted">
                   A whole machine — browser, voice, memory — live in 5 minutes.
                 </p>
@@ -402,18 +399,14 @@ export default function Home() {
               </h2>
               <p className="mb-9 text-lg text-text-secondary">Deploy in 5 minutes. Flat rate from $39. Cancel anytime.</p>
               <div className="mb-11 flex flex-wrap justify-center gap-3.5">
-                <Link
-                  href="/pricing"
+                <GetStartedLink
+                  label="Deploy your agent"
                   className="btn-primary inline-block rounded-full px-8 py-4 text-base font-semibold"
-                >
-                  Deploy your agent
-                </Link>
-                <Link
-                  href="/pricing"
+                />
+                <GetStartedLink
+                  label="Get your API key"
                   className="inline-block rounded-full border border-terminal-border px-8 py-4 text-base font-semibold text-terminal-foreground transition-colors hover:border-accent-hover hover:text-accent-hover"
-                >
-                  Get your API key
-                </Link>
+                />
               </div>
               <div className="flex flex-wrap justify-center gap-3">
                 <span className="rounded-full border border-border-medium px-4.5 py-2.5 text-sm text-text-secondary">

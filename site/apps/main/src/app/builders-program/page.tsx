@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { Footer, GlassCard, Header } from "@hypercli/shared-ui";
 import { ArrowRight, Check, Gift, Mic, Rss, Twitter, Video, Youtube } from "lucide-react";
+import { ContactCta } from "@/components/contact-cta";
 
 export const metadata: Metadata = {
   title: "The HyperCLI Builders Program — Build something cool. We'll cover the compute.",
@@ -120,9 +120,7 @@ export default function BuildersProgramPage() {
             <p className="mb-8 text-sm text-text-muted">
               Free Agent Pro + GPU credits, for people actively making things.
             </p>
-            <Link href="/pricing" className="btn-primary inline-block rounded-full px-8 py-3.5 text-base font-semibold">
-              Apply in 5 minutes
-            </Link>
+            <ContactCta source="builders-program" primaryLabel="Apply in 5 minutes" />
           </div>
         </section>
 
@@ -267,9 +265,7 @@ export default function BuildersProgramPage() {
               <p className="mx-auto mb-9 max-w-xl text-lg text-text-secondary">
                 Free compute for people who make things. Show us what you'd build.
               </p>
-              <Link href="/pricing" className="btn-primary inline-block rounded-full px-8 py-4 text-base font-semibold">
-                Apply in 5 minutes
-              </Link>
+              <ContactCta source="builders-program" primaryLabel="Apply in 5 minutes" />
             </div>
           </div>
         </section>
