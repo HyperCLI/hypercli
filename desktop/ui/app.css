@@ -1,40 +1,48 @@
-/* Tokens copied from site/packages/shared-ui/src/styles/claw.css.
-   Dark is the product default (:root block); light mirrors [data-theme="light"].
-   Keep values in sync with shared-ui — do not invent new ones. */
+/* Aurora palette — tokens copied from
+   site/packages/shared-ui/src/styles/style.css. Dark is the product default
+   (:root block); light mirrors [data-theme="light"]. Keep values in sync
+   with shared-ui — do not invent new ones. */
+@font-face {
+  font-family: "Figtree";
+  src: url("figtree.woff2") format("woff2-variations");
+  font-weight: 300 900;
+  font-display: swap;
+}
+
 :root {
   color-scheme: dark;
-  --background: #0a0a0b;
-  --card: #141416;
-  --surface-high: #1c1c1f;
-  --foreground: #fafafa;
-  --muted-foreground: #9e9ea3;
-  --text-muted: #7c7b82;
-  --primary: #63e452;
-  --primary-foreground: #0a0a0b;
-  --primary-hover: #75ef64;
-  --border: rgba(255, 255, 255, 0.18);
-  --input-background: #141416;
-  --error: #d05f5f;
-  --ring: rgba(99, 228, 82, 0.35);
-  --radius: 0.5rem;
+  --background: #10151f;
+  --card: #1b2331;
+  --surface-high: #232d3f;
+  --foreground: #e8edf4;
+  --muted-foreground: #7c8ba1;
+  --text-muted: #7c8ba1;
+  --primary: #4f7cff;
+  --primary-foreground: #ffffff;
+  --primary-hover: #5d87ff;
+  --border: rgba(255, 255, 255, 0.08);
+  --input-background: #1a2230;
+  --error: #ff6b81;
+  --ring: rgba(93, 135, 255, 0.35);
+  --radius: 1rem;
 }
 
 @media (prefers-color-scheme: light) {
   :root {
     color-scheme: light;
-    --background: #f7f8f4;
+    --background: #ffffff;
     --card: #ffffff;
-    --surface-high: #edf3ee;
-    --foreground: #0d1511;
-    --muted-foreground: #5d6d66;
-    --text-muted: #63716a;
-    --primary: #177a55;
+    --surface-high: #eef2f7;
+    --foreground: #1f2937;
+    --muted-foreground: #64748b;
+    --text-muted: #94a3b8;
+    --primary: #4f7cff;
     --primary-foreground: #ffffff;
-    --primary-hover: #116543;
-    --border: rgba(13, 21, 17, 0.14);
+    --primary-hover: #3d68e6;
+    --border: #eef2f7;
     --input-background: #ffffff;
-    --error: #ad3535;
-    --ring: rgba(23, 122, 85, 0.35);
+    --error: #b02a3e;
+    --ring: rgba(79, 124, 255, 0.35);
   }
 }
 
@@ -44,7 +52,7 @@
 }
 
 body {
-  font-family: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  font-family: "Figtree", system-ui, -apple-system, sans-serif;
   background: var(--background);
   color: var(--foreground);
   user-select: none;
@@ -64,6 +72,20 @@ body {
   align-self: flex-start;
 }
 
+/* Theme-aware lockup: the blue-on-dark logo, its light-background twin. */
+.logo-light {
+  display: none;
+}
+
+@media (prefers-color-scheme: light) {
+  .logo-dark {
+    display: none;
+  }
+  .logo-light {
+    display: block;
+  }
+}
+
 h1 {
   font-size: 15px;
   font-weight: 600;
@@ -79,7 +101,7 @@ button {
   font: inherit;
   font-size: 13px;
   padding: 9px 14px;
-  border-radius: var(--radius);
+  border-radius: calc(var(--radius) * 0.625);
   border: 1px solid var(--border);
   background: transparent;
   color: var(--foreground);
@@ -120,7 +142,7 @@ input {
   font: inherit;
   font-size: 13px;
   padding: 9px 12px;
-  border-radius: var(--radius);
+  border-radius: calc(var(--radius) * 0.625);
   border: 1px solid var(--border);
   background: var(--input-background);
   color: var(--foreground);
