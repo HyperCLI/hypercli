@@ -129,7 +129,9 @@ test("keeps the mobile Privy email field touchable and restores the login shell"
   await expect(loginShell).not.toHaveAttribute("inert", "");
   await loginShellClose.tap();
   await expect(loginShell).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "HyperCLI home", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("banner").getByRole("link", { name: "HyperCLI home", exact: true })
+  ).toBeVisible();
   await expect(page.locator("main")).toBeVisible();
   expect(forbiddenRequests).toEqual([]);
 });
