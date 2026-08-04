@@ -37,6 +37,7 @@ pub struct KeyValidation {
     email: Option<String>,
     key_name: Option<String>,
     has_agents_capability: bool,
+    has_active_subscription: bool,
     detail: Option<String>,
 }
 
@@ -164,6 +165,7 @@ fn validate_key_blocking() -> Result<KeyValidation, String> {
             email: me.email,
             key_name: me.key_name,
             has_agents_capability: me.capabilities.iter().any(|c| c == "agents:*"),
+            has_active_subscription: me.has_active_subscription,
             detail: None,
         }),
         Err(error) => {
@@ -176,6 +178,7 @@ fn validate_key_blocking() -> Result<KeyValidation, String> {
                 email: None,
                 key_name: None,
                 has_agents_capability: false,
+                has_active_subscription: false,
                 detail: Some(detail),
             })
         }
@@ -255,6 +258,13 @@ fn is_auto_update_supported() -> bool {
 /// Open the browser sign-in. The page redirects back to `hypercli://auth`
 /// with the token in the URL fragment — the exact Backseat Driver pattern.
 /// `HYPERCLI_DESKTOP_LOGIN_PAGE` overrides the page for dev/feat testing.
+#[tauri::command]
+fn open_plans(app: tauri::AppHandle) -> Result<(), String> {
+    tauri_plugin_opener::OpenerExt::opener(&app)
+        .open_url("https://agents.hypercli.com/plans", None::<String>)
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn start_login(app: tauri::AppHandle) -> Result<(), String> {
     let page = std::env::var("HYPERCLI_DESKTOP_LOGIN_PAGE")
@@ -371,6 +381,7 @@ pub fn run() {
             validate_key,
             mint_api_key,
             start_login,
+            open_plans,
             is_auto_update_supported
         ])
         .run(tauri::generate_context!())

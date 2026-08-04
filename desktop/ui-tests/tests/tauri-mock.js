@@ -27,6 +27,7 @@
       email: "test@hypercli.com",
       key_name: "Linux (ci)",
       has_agents_capability: true,
+      has_active_subscription: true,
       detail: null,
     },
     envKeyActive: false,
@@ -75,6 +76,7 @@
             state.status.has_api_key = true;
             return state.validation.key_name;
           case "start_login":
+          case "open_plans":
             return null;
           case "is_auto_update_supported":
             return true;

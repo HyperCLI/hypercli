@@ -91,10 +91,12 @@ async function validateKey() {
   try {
     const result = await invoke("validate_key");
     const keyLine = document.getElementById("key-line");
+    const planLine = document.getElementById("plan-line");
     if (result.valid) {
       detail.textContent = result.email ? ` as ${result.email}` : "";
       keyLine.hidden = !result.key_name;
       document.getElementById("key-name").textContent = result.key_name || "";
+      planLine.hidden = result.has_active_subscription;
       warning.hidden = result.has_agents_capability;
       warning.textContent = result.has_agents_capability
         ? ""
@@ -147,6 +149,14 @@ document.getElementById("key-form").addEventListener("submit", async (event) => 
     input.value = "";
     setStatus("API key saved.");
     await refreshStatus();
+  } catch (error) {
+    setStatus(String(error), true);
+  }
+});
+
+document.getElementById("plans-btn").addEventListener("click", async () => {
+  try {
+    await invoke("open_plans");
   } catch (error) {
     setStatus(String(error), true);
   }
