@@ -106,10 +106,24 @@ def _normalize_agents_api_base(raw: str, *, product_base: str) -> str:
 
 
 def _normalize_agents_admin_base(raw: str, *, product_base: str) -> str:
-    base = _normalize_agents_api_base(raw, product_base=product_base)
-    if base.endswith("/admin"):
-        base = base[: -len("/admin")]
-    return base
+    base = (raw or "").strip().rstrip("/")
+    if not base:
+        base = product_base
+
+    parsed = urlsplit(base if "://" in base else f"https://{base}")
+    host = parsed.netloc.lower()
+    path = parsed.path.rstrip("/")
+    if host in {"api.hypercli.com", "api.hyperclaw.app"}:
+        host = "api.agents.hypercli.com"
+        path = ""
+    elif host in {"api.dev.hypercli.com", "api.dev.hyperclaw.app", "dev-api.hyperclaw.app"}:
+        host = "api.agents.dev.hypercli.com"
+        path = ""
+    elif path.endswith("/agents/admin"):
+        path = path[: -len("/agents/admin")]
+    elif path.endswith("/admin"):
+        path = path[: -len("/admin")]
+    return urlunsplit((parsed.scheme or "https", host, path, "", "")).rstrip("/")
 
 
 def _headers(admin_key: str) -> dict[str, str]:

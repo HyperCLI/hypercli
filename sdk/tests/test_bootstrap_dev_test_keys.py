@@ -113,13 +113,15 @@ def test_dev_bootstrap_accepts_legacy_test_api_base(monkeypatch: pytest.MonkeyPa
 @pytest.mark.parametrize(
     ("configured", "expected"),
     [
-        ("https://api.dev.hypercli.com", "https://api.dev.hypercli.com/agents"),
-        ("https://api.dev.hypercli.com/agents", "https://api.dev.hypercli.com/agents"),
-        ("https://api.dev.hypercli.com/agents/admin", "https://api.dev.hypercli.com/agents"),
-        ("https://api.agents.dev.hypercli.com", "https://api.dev.hypercli.com/agents"),
+        ("https://api.dev.hypercli.com", "https://api.agents.dev.hypercli.com"),
+        ("https://api.dev.hypercli.com/api", "https://api.agents.dev.hypercli.com"),
+        ("https://api.dev.hypercli.com/agents", "https://api.agents.dev.hypercli.com"),
+        ("https://api.dev.hypercli.com/agents/admin", "https://api.agents.dev.hypercli.com"),
+        ("https://api.agents.dev.hypercli.com", "https://api.agents.dev.hypercli.com"),
+        ("https://api.agents.dev.hypercli.com/admin", "https://api.agents.dev.hypercli.com"),
     ],
 )
-def test_agents_admin_base_targets_unified_agents_route(configured: str, expected: str) -> None:
+def test_agents_admin_base_targets_private_admin_host(configured: str, expected: str) -> None:
     assert (
         MODULE._normalize_agents_admin_base(
             configured,
