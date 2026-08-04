@@ -2,11 +2,28 @@ import type {
   HyperAgentPlan,
   HyperAgentSubscriptionSummary,
 } from "@hypercli.com/sdk/agent";
+import { parseHyperAgentPlanId, type HyperAgentCanonicalPlanId } from "@hypercli.com/sdk/agent";
 
 import { cookieUtils } from "./cookies";
 
 export type PlanTier = "solo" | "team" | "enterprise";
 export type PlanCatalogGeneration = "current" | "legacy" | "unknown";
+
+// The backend is authoritative for plans. Canonical IDs come from the SDK's
+// parser of the backend payload; heuristics below are legacy fallbacks only.
+const CANONICAL_PLAN_TIER: Record<HyperAgentCanonicalPlanId, PlanTier> = {
+  solo: "solo",
+  team: "team",
+  pro: "enterprise",
+};
+
+function resolveCanonicalPlanTier(...ids: unknown[]): PlanTier | null {
+  for (const id of ids) {
+    const canonical = parseHyperAgentPlanId(id);
+    if (canonical) return CANONICAL_PLAN_TIER[canonical];
+  }
+  return null;
+}
 
 export interface CachedPlanTier {
   version: 1;
@@ -105,6 +122,7 @@ export function resolveCatalogPlanTier(
 ): PlanTier {
   const generation = resolvePlanCatalogGeneration(catalog);
   return (
+    resolveCanonicalPlanTier(plan.canonicalId, plan.id) ??
     resolvePlanTierForIdentity(plan.canonicalId, plan.name, generation) ??
     resolvePlanTierForIdentity(plan.id, plan.name, generation) ??
     resolveRelativeCatalogTier(plan, catalog) ??
@@ -130,7 +148,11 @@ export function resolveAccountPlanTier(
 
   const effectiveItem = [...(summary.activeSubscriptions ?? []), ...(summary.entitlementItems ?? [])]
     .find((item) => normalizedPlanKey(item.planId) === effectiveKey);
-  return resolvePlanTierForIdentity(effectivePlanId, effectiveItem?.planName, generation) ?? DEFAULT_PLAN_TIER;
+  return (
+    resolveCanonicalPlanTier(effectivePlanId) ??
+    resolvePlanTierForIdentity(effectivePlanId, effectiveItem?.planName, generation) ??
+    DEFAULT_PLAN_TIER
+  );
 }
 
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
