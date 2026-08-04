@@ -1,11 +1,5 @@
 import type { Agent, AgentBudget } from "@/app/dashboard/agents/types";
 
-const FALLBACK_AGENT_SIZE_PRESETS: Record<string, { cpu: number; memory: number }> = {
-  small: { cpu: 1, memory: 1 },
-  medium: { cpu: 2, memory: 2 },
-  large: { cpu: 4, memory: 4 },
-};
-
 export interface AgentTierStartGuidance {
   tier: string;
   title: string;
@@ -41,7 +35,7 @@ export function titleizeTier(value: string): string {
 export function getAgentSizePresets(
   budget: AgentBudget | null,
 ): Record<string, { cpu_millicores: number; memory_mib: number }> {
-  const source = budget?.size_presets ?? FALLBACK_AGENT_SIZE_PRESETS;
+  const source = budget?.size_presets ?? {};
   return Object.fromEntries(
     Object.entries(source).map(([tier, preset]) => [
       tier,

@@ -470,10 +470,8 @@ def budget():
             "agents": a.get("agents", sum(int(slot.get("available") or 0) for slot in slots.values())),
         }
 
-    console.print(f"\n[bold]Agent Resource Budget[/bold] ({data.get('plan_id', '')})")
+    console.print(f"\n[bold]Agent Capacity[/bold] ({data.get('plan_id', '')})")
     console.print(f"  Agents:  {u.get('agents', 0)}/{b.get('max_agents', 0)} ({a.get('agents', 0)} available)")
-    console.print(f"  CPU:     {u.get('cpu', 0)}/{b.get('total_cpu', 0)} cores ({a.get('cpu', 0)} available)")
-    console.print(f"  Memory:  {u.get('memory', 0)}/{b.get('total_memory', 0)} GB ({a.get('memory', 0)} available)")
     if data.get("pooled_tpd") is not None:
         console.print(f"  Tokens:  {int(data['pooled_tpd']):,} TPD")
 

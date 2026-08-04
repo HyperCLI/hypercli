@@ -9,8 +9,8 @@ const specs = [
   {
     icon: Zap,
     label: "Throughput",
-    value: "100M",
-    unit: "tokens/day on Pro",
+    value: "Daily",
+    unit: "pooled tokens",
     description: "Daily pooled inference with burst capacity on frontier models",
   },
   {

@@ -204,6 +204,11 @@ If you add templates, update `scripts/templates.txt` and re-run the generator.
 - Claw plans/billing data should come from the SDK (`HyperAgent.currentPlan()`,
   `subscriptionSummary()`, `plans()`, `agentTypes()`), not ad hoc frontend
   fetches or duplicated plan state.
+- Do not add static commercial plan catalogs or agent-size fallback presets to
+  Claw. `/agents/plans` and `/agents/types`, exposed through the SDK, are the
+  sole source for advertised prices, limits, slot grants, and resource sizes.
+  If either catalog is unavailable, render an explicit unavailable/empty state
+  instead of silently substituting remembered values.
 - Do not expose implementation terms such as "SDK" in user-visible UI copy.
   This includes headings, labels, helper text, empty states, button text,
   modal titles/descriptions, toast messages, and similar visual elements.

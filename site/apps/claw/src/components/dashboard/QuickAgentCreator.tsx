@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Bot, Brain, Cat, Crown, Dog, Eye, Flame, Globe, Heart, Leaf,
@@ -9,6 +9,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ClawTooltip";
+import { useAgentAuth } from "@/hooks/useAgentAuth";
+import { createHyperAgentClient } from "@/lib/agent-client";
 
 // ── Types ──
 
@@ -41,40 +43,87 @@ const ICONS: { icon: LucideIcon; name: string }[] = [
 
 const HUES = [157, 180, 210, 240, 260, 280, 310, 340, 10, 30, 50, 70, 90, 120, 140, 200];
 
-const SIZES: { id: string; label: string; cpu: number; memory: number }[] = [
-  { id: "small", label: "S", cpu: 1, memory: 1 },
-  { id: "medium", label: "M", cpu: 2, memory: 2 },
-  { id: "large", label: "L", cpu: 4, memory: 4 },
-];
+interface AgentSizeOption {
+  id: string;
+  name: string;
+  cpu: number;
+  memory: number;
+}
 
 // ── Component ──
 
 export function QuickAgentCreator({ open, onClose, onCreated }: QuickAgentCreatorProps) {
+  return (
+    <AnimatePresence>
+      {open ? <QuickAgentCreatorContent onClose={onClose} onCreated={onCreated} /> : null}
+    </AnimatePresence>
+  );
+}
+
+function QuickAgentCreatorContent({
+  onClose,
+  onCreated,
+}: Omit<QuickAgentCreatorProps, "open">) {
+  const { getToken } = useAgentAuth();
   const [name, setName] = useState("");
   const [selectedIcon, setSelectedIcon] = useState(0);
-  const [selectedSize, setSelectedSize] = useState("large");
+  const [selectedSize, setSelectedSize] = useState("");
+  const [sizes, setSizes] = useState<AgentSizeOption[]>([]);
+  const [sizesLoading, setSizesLoading] = useState(true);
+  const [sizesError, setSizesError] = useState<string | null>(null);
 
   const hue = HUES[selectedIcon];
   const SelectedIcon = ICONS[selectedIcon].icon;
 
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const token = await getToken();
+        const catalog = await createHyperAgentClient(token).agentTypes();
+        if (cancelled) return;
+        const nextSizes = catalog.types.map((size) => ({
+          id: size.id,
+          name: size.name,
+          cpu: size.cpu,
+          memory: size.memory,
+        }));
+        setSizes(nextSizes);
+        setSizesError(null);
+        setSelectedSize(nextSizes[0]?.id ?? "");
+      } catch {
+        if (!cancelled) {
+          setSizes([]);
+          setSelectedSize("");
+          setSizesError("Agent sizes are unavailable right now.");
+        }
+      } finally {
+        if (!cancelled) setSizesLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken]);
+
   const handleCreate = () => {
-    if (!name.trim()) return;
+    if (!name.trim() || !selectedSize) return;
     onCreated(name.trim(), selectedIcon, selectedSize);
     setName("");
     setSelectedIcon(0);
-    setSelectedSize("large");
+    setSelectedSize(sizes[0]?.id ?? "");
   };
 
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          initial={{ height: 0, opacity: 0 }}
-          animate={{ height: "auto", opacity: 1 }}
-          exit={{ height: 0, opacity: 0 }}
-          transition={{ duration: 0.2 }}
-          className="overflow-hidden border-b border-border"
-        >
+    <motion.div
+      initial={{ height: 0, opacity: 0 }}
+      animate={{ height: "auto", opacity: 1 }}
+      exit={{ height: 0, opacity: 0 }}
+      transition={{ duration: 0.2 }}
+      className="overflow-hidden border-b border-border"
+    >
           <div className="px-3 py-3 space-y-3">
             {/* Header */}
             <div className="flex items-center justify-between">
@@ -166,8 +215,15 @@ export function QuickAgentCreator({ open, onClose, onCreated }: QuickAgentCreato
             {/* Size selector */}
             <div>
               <p className="text-[9px] font-semibold text-text-secondary uppercase tracking-wider mb-1.5">Size</p>
-              <div className="flex gap-1.5">
-                {SIZES.map((size) => {
+              {sizesLoading ? (
+                <p className="rounded-lg border border-border p-2 text-[10px] text-text-muted">Loading agent sizes…</p>
+              ) : sizesError ? (
+                <p role="alert" className="rounded-lg border border-destructive/20 bg-destructive/10 p-2 text-[10px] text-destructive">{sizesError}</p>
+              ) : sizes.length === 0 ? (
+                <p className="rounded-lg border border-border p-2 text-[10px] text-text-muted">No agent sizes are currently available.</p>
+              ) : (
+                <div className="flex gap-1.5">
+                {sizes.map((size) => {
                   const active = size.id === selectedSize;
                   return (
                     <motion.button
@@ -181,7 +237,7 @@ export function QuickAgentCreator({ open, onClose, onCreated }: QuickAgentCreato
                           : "border-border text-text-muted hover:text-foreground hover:border-border-strong"
                       }`}
                     >
-                      <span className="text-[11px] font-semibold">{size.id}</span>
+                      <span className="text-[11px] font-semibold">{size.name}</span>
                       <div className="flex items-center gap-2 text-[8px] opacity-70">
                         <span className="flex items-center gap-0.5"><Cpu className="w-2.5 h-2.5" />{size.cpu}</span>
                         <span className="flex items-center gap-0.5"><MemoryStick className="w-2.5 h-2.5" />{size.memory}G</span>
@@ -189,14 +245,15 @@ export function QuickAgentCreator({ open, onClose, onCreated }: QuickAgentCreato
                     </motion.button>
                   );
                 })}
-              </div>
+                </div>
+              )}
             </div>
 
             {/* Create button */}
             <motion.button
-              whileHover={name.trim() ? { scale: 1.02 } : undefined}
-              whileTap={name.trim() ? { scale: 0.97 } : undefined}
-              disabled={!name.trim()}
+              whileHover={name.trim() && selectedSize ? { scale: 1.02 } : undefined}
+              whileTap={name.trim() && selectedSize ? { scale: 0.97 } : undefined}
+              disabled={!name.trim() || !selectedSize}
               onClick={handleCreate}
               className="flex w-full items-center justify-center gap-2 rounded-lg border border-selection-accent/20 bg-selection-accent/15 px-3 py-2 text-xs font-medium text-selection-accent transition-colors hover:border-selection-accent/40 disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -204,8 +261,6 @@ export function QuickAgentCreator({ open, onClose, onCreated }: QuickAgentCreato
               <span>Create & Start</span>
             </motion.button>
           </div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+    </motion.div>
   );
 }

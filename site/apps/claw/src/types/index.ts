@@ -71,8 +71,6 @@ export interface AgentTypePreset {
   name: string;
   cpu: number;
   memory: number;
-  cpu_limit: number;
-  memory_limit: number;
 }
 
 export interface AgentTypePlan {

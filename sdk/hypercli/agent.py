@@ -471,8 +471,6 @@ class HyperAgentTypePreset:
     name: str
     cpu: float
     memory: int
-    cpu_limit: float
-    memory_limit: int
 
     @classmethod
     def from_dict(cls, data: dict) -> "HyperAgentTypePreset":
@@ -481,8 +479,6 @@ class HyperAgentTypePreset:
             name=str(data.get("name", "")),
             cpu=float(data.get("cpu", 0) or 0),
             memory=int(data.get("memory", 0) or 0),
-            cpu_limit=float(data.get("cpu_limit", 0) or 0),
-            memory_limit=int(data.get("memory_limit", 0) or 0),
         )
 
 

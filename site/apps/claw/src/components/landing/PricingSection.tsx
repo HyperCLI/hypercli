@@ -31,6 +31,8 @@ export function PricingSection() {
   const sectionRef = useRef<HTMLElement>(null);
   const isInView = useInView(sectionRef, { once: true, margin: "-100px" });
   const [plans, setPlans] = useState<Plan[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -39,7 +41,15 @@ export function PricingSection() {
       .then((data) => {
         if (!cancelled) setPlans(data.map(toDisplayPlan));
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) {
+          setPlans([]);
+          setCatalogError("Pricing is unavailable right now. Please try again shortly.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setCatalogLoading(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -67,6 +77,13 @@ export function PricingSection() {
             />
           </motion.div>
 
+          {catalogLoading ? (
+            <p className="text-center text-sm text-text-muted">Loading current plans…</p>
+          ) : catalogError ? (
+            <p role="alert" className="text-center text-sm text-destructive">{catalogError}</p>
+          ) : plans.length === 0 ? (
+            <p className="text-center text-sm text-text-muted">No plans are currently available.</p>
+          ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {plans.map((plan, index) => {
               const includedAgents = plan.agents ?? 0;
@@ -107,6 +124,7 @@ export function PricingSection() {
               );
             })}
           </div>
+          )}
     </MarketingSection>
   );
 }

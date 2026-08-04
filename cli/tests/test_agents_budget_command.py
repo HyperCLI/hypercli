@@ -19,9 +19,9 @@ def test_agents_budget_uses_slot_inventory(monkeypatch):
                 },
                 "pooled_tpd": 500_000_000,
                 "size_presets": {
-                    "small": {"cpu": 0.5, "memory": 4},
+                    "small": {"cpu": 0.5, "memory": 2},
                     "medium": {"cpu": 1.0, "memory": 4},
-                    "large": {"cpu": 2.0, "memory": 4},
+                    "large": {"cpu": 2.0, "memory": 8},
                 },
             }
 
@@ -30,9 +30,12 @@ def test_agents_budget_uses_slot_inventory(monkeypatch):
     result = runner.invoke(app, ["agents", "budget"])
 
     assert result.exit_code == 0
+    assert "Agent Capacity" in result.stdout
     assert "Agents:  0/2 (2 available)" in result.stdout
     assert "large" in result.stdout
     assert "500,000,000 TPD" in result.stdout
+    assert "CPU:" not in result.stdout
+    assert "Memory:" not in result.stdout
 
 
 def test_agents_budget_keeps_legacy_budget_shape(monkeypatch):
@@ -51,4 +54,5 @@ def test_agents_budget_keeps_legacy_budget_shape(monkeypatch):
 
     assert result.exit_code == 0
     assert "Agents:  2/5 (3 available)" in result.stdout
-    assert "CPU:     8/20 cores (12 available)" in result.stdout
+    assert "CPU:" not in result.stdout
+    assert "Memory:" not in result.stdout

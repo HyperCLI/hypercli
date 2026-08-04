@@ -59,6 +59,30 @@ class TestHyperAgentDataclasses:
         assert plan.canonical_id is HyperAgentCanonicalPlanId.PRO
         assert parse_hyper_agent_plan_id("solo") is HyperAgentCanonicalPlanId.SOLO
         assert parse_hyper_agent_plan_id("free") is None
+
+    def test_agent_type_catalog_exposes_only_advertised_resources(self):
+        catalog = HyperAgentTypeCatalog.from_dict(
+            {
+                "types": [
+                    {
+                        "id": "small",
+                        "name": "Small",
+                        "cpu": 0.5,
+                        "memory": 2,
+                        "cpu_request": 0.25,
+                        "memory_request": 1,
+                        "cpu_limit": 2,
+                        "memory_limit": 3,
+                    }
+                ],
+                "plans": [],
+            }
+        )
+
+        assert catalog.types[0].cpu == 0.5
+        assert catalog.types[0].memory == 2
+        assert not hasattr(catalog.types[0], "cpu_limit")
+        assert not hasattr(catalog.types[0], "memory_limit")
     
     def test_agent_model_from_dict(self):
         data = {

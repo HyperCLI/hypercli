@@ -95,15 +95,15 @@ hyper agents budget
 
 ### Size Presets
 
-| Size | Base CPU / memory | Kubernetes request | Hard limit |
-| --- | --- | --- | --- |
-| `small` | 0.5 CPU / 2 GiB | 0.25 CPU / 1 GiB | 2 CPU / 3 GiB |
-| `medium` | 1 CPU / 4 GiB | 0.5 CPU / 2 GiB | 2 CPU / 6 GiB |
-| `large` | 2 CPU / 8 GiB | 0.5 CPU / 4 GiB | 4 CPU / 10 GiB |
+| Size | Advertised CPU / memory |
+| --- | --- |
+| `small` | 0.5 CPU / 2 GiB |
+| `medium` | 1 CPU / 4 GiB |
+| `large` | 2 CPU / 8 GiB |
 
-These presets are the runtime shapes injected by the backend when a slot
-launches. Billing is enforced by tier count, not by summing CPU and RAM across
-the account.
+These are the customer-facing machine shapes. Billing is enforced by tier
+count, not by summing CPU and RAM across the account. Kubernetes scheduling
+requests and burst ceilings are private backend-to-Lagoon implementation data.
 
 Examples:
 

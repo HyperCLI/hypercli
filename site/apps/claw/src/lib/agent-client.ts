@@ -341,9 +341,12 @@ function mergeStartOptions(
   return merged;
 }
 
-function resolveAgentApiBaseUrl(rawBaseUrl: string): string {
+function resolveAgentApiBaseUrl(rawBaseUrl: string, origin?: string): string {
   if (!rawBaseUrl.startsWith("/")) {
     return rawBaseUrl;
+  }
+  if (origin) {
+    return `${origin.replace(/\/+$/, "")}${rawBaseUrl}`;
   }
   if (typeof window !== "undefined" && window.location?.origin) {
     return `${window.location.origin}${rawBaseUrl}`;
@@ -366,8 +369,8 @@ export function createBrowserHyperCLIClient(token: string): BrowserHyperCLI {
   });
 }
 
-export function createHyperAgentClient(apiKey: string): HyperAgent {
-  const resolvedApiBaseUrl = resolveAgentApiBaseUrl(API_BASE_URL);
+export function createHyperAgentClient(apiKey: string, origin?: string): HyperAgent {
+  const resolvedApiBaseUrl = resolveAgentApiBaseUrl(API_BASE_URL, origin);
   const productApiBaseUrl = resolvedApiBaseUrl.replace(/\/agents\/?$/, "");
   const http = new HTTPClient(productApiBaseUrl, apiKey);
   return new HyperAgent(http, apiKey, false, resolvedApiBaseUrl);
@@ -378,8 +381,8 @@ export function createWorkspacesClient(apiKey: string): WorkspacesAPI {
   return new WorkspacesAPI(apiKey, { agentsApiBase: resolvedApiBaseUrl });
 }
 
-export function createPublicHyperAgentClient(): HyperAgent {
-  return createHyperAgentClient("");
+export function createPublicHyperAgentClient(origin?: string): HyperAgent {
+  return createHyperAgentClient("", origin);
 }
 
 export async function createOpenClawAgent(apiKey: string, options: FrontendOpenClawCreateOptions = {}) {

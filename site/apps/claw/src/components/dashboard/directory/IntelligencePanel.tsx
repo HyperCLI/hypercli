@@ -14,14 +14,6 @@ interface IntelligencePanelProps {
   onSaveConfig: (patch: Record<string, unknown>) => Promise<void>;
 }
 
-const MOCK_PLAN = {
-  name: "Solo",
-  tokensPerDay: "25M",
-  tpmLimit: "17K",
-  rpmLimit: "86",
-  billingReset: "2026-05-10",
-};
-
 const MOCK_MODELS = [
   {
     id: "kimi-k2.5",
@@ -62,23 +54,10 @@ export function IntelligencePanel({ config, onSaveConfig }: IntelligencePanelPro
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          <div className="rounded-lg bg-background/50 p-3">
-            <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted mb-1">Plan</p>
-            <p className="text-sm font-semibold text-foreground">{MOCK_PLAN.name}</p>
-          </div>
-          <div className="rounded-lg bg-background/50 p-3">
-            <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted mb-1">Tokens / Day</p>
-            <p className="text-sm font-semibold text-foreground">{MOCK_PLAN.tokensPerDay}</p>
-          </div>
-          <div className="rounded-lg bg-background/50 p-3">
-            <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted mb-1">Rate Limits</p>
-            <p className="text-sm font-semibold text-foreground">{MOCK_PLAN.tpmLimit} TPM \u00b7 {MOCK_PLAN.rpmLimit} RPM</p>
-          </div>
-          <div className="rounded-lg bg-background/50 p-3">
-            <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted mb-1">Billing Reset</p>
-            <p className="text-sm font-semibold text-foreground">{new Date(MOCK_PLAN.billingReset).toLocaleDateString()}</p>
-          </div>
+        <div className="mt-4 rounded-lg bg-background/50 p-3">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted mb-1">Inference capacity</p>
+          <p className="text-sm font-semibold text-foreground">Shared across your account</p>
+          <p className="mt-1 text-xs text-text-muted">Plan limits and billing reset details are loaded from your account billing data.</p>
         </div>
       </motion.div>
 

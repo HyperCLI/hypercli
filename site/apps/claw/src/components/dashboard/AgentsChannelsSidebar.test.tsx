@@ -7,6 +7,22 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 
+const agentCatalogMocks = vi.hoisted(() => ({
+  getToken: vi.fn().mockResolvedValue("test-token"),
+  agentTypes: vi.fn().mockResolvedValue({
+    types: [{ id: "test-size", name: "Test Size", cpu: 0.25, memory: 0.5 }],
+    plans: [],
+  }),
+}));
+
+vi.mock("@/hooks/useAgentAuth", () => ({
+  useAgentAuth: () => ({ getToken: agentCatalogMocks.getToken }),
+}));
+
+vi.mock("@/lib/agent-client", () => ({
+  createHyperAgentClient: () => ({ agentTypes: agentCatalogMocks.agentTypes }),
+}));
+
 vi.mock("framer-motion", () => ({
   AnimatePresence: ({ children }: { children: ReactNode }) => <>{children}</>,
   Reorder: { Group: "div", Item: "div" },

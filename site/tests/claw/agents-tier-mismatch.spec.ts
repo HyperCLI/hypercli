@@ -65,9 +65,9 @@ test("agents page resizes a stopped agent to an available tier before starting i
             large: { granted: 4, used: 0, available: 4 },
           },
           size_presets: {
-            small: { cpu: 1, memory: 1 },
-            medium: { cpu: 2, memory: 2 },
-            large: { cpu: 4, memory: 4 },
+            small: { cpu: 0.5, memory: 2 },
+            medium: { cpu: 1, memory: 4 },
+            large: { cpu: 2, memory: 8 },
           },
         }),
       });
@@ -80,12 +80,12 @@ test("agents page resizes a stopped agent to an available tier before starting i
         contentType: "application/json",
         body: JSON.stringify({
           types: [
-            { id: "small", name: "Small", cpu: 1, memory: 1, cpu_limit: 1, memory_limit: 1 },
-            { id: "medium", name: "Medium", cpu: 2, memory: 2, cpu_limit: 2, memory_limit: 2 },
-            { id: "large", name: "Large", cpu: 4, memory: 4, cpu_limit: 4, memory_limit: 4 },
+            { id: "small", name: "Small", cpu: 0.5, memory: 2 },
+            { id: "medium", name: "Medium", cpu: 1, memory: 4 },
+            { id: "large", name: "Large", cpu: 2, memory: 8 },
           ],
           plans: [
-            { id: "team", name: "10 AIU", price: 200, agents: 2, agent_type: "large", highlighted: true },
+            { id: "pro", name: "Pro", price: 149, agents: 3, agent_type: "large", highlighted: false },
           ],
         }),
       });

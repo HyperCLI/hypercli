@@ -37,8 +37,6 @@ interface AgentTypePreset {
   name: string;
   cpu: number;
   memory: number;
-  cpu_limit: number;
-  memory_limit: number;
 }
 
 interface AgentTypePlan {
@@ -89,11 +87,6 @@ const ICONS: { icon: LucideIcon; name: string }[] = [
 
 const HUES = [157, 180, 210, 240, 260, 280, 310, 340, 10, 30, 50, 70, 90, 120, 140, 200];
 
-const FALLBACK_TYPES: AgentTypePreset[] = [
-  { id: "small", name: "Small", cpu: 1, memory: 1, cpu_limit: 1, memory_limit: 1 },
-  { id: "medium", name: "Medium", cpu: 2, memory: 2, cpu_limit: 2, memory_limit: 2 },
-  { id: "large", name: "Large", cpu: 4, memory: 4, cpu_limit: 4, memory_limit: 4 },
-];
 const TYPE_ORDER = ["small", "medium", "large"];
 
 const TOTAL_STEPS = 3;
@@ -171,6 +164,8 @@ export function AgentCreationWizard({
   const [selectedLaunchSourceId, setSelectedLaunchSourceId] = useState<string | null>(null);
   const [startImmediately, setStartImmediately] = useState(true);
   const [typeCatalog, setTypeCatalog] = useState<AgentTypeCatalogResponse | null>(null);
+  const [typeCatalogLoading, setTypeCatalogLoading] = useState(false);
+  const [typeCatalogError, setTypeCatalogError] = useState<string | null>(null);
 
   // Step 3: Creating state
   const [creating, setCreating] = useState(false);
@@ -179,17 +174,18 @@ export function AgentCreationWizard({
   // Derived
   const currentHue = HUES[selectedIcon];
   const CurrentIcon = ICONS[selectedIcon].icon;
-  const sizeOptions = [...(typeCatalog?.types || FALLBACK_TYPES)].sort((a, b) => {
+  const sizeOptions = useMemo(() => [...(typeCatalog?.types ?? [])].sort((a, b) => {
     const aIndex = TYPE_ORDER.indexOf(a.id);
     const bIndex = TYPE_ORDER.indexOf(b.id);
     return (aIndex === -1 ? Number.MAX_SAFE_INTEGER : aIndex) - (bIndex === -1 ? Number.MAX_SAFE_INTEGER : bIndex);
-  });
-  const selectedType = sizeOptions.find((option) => option.id === selectedTypeId) || sizeOptions[0] || FALLBACK_TYPES[2];
+  }), [typeCatalog?.types]);
+  const selectedType = sizeOptions.find((option) => option.id === selectedTypeId) ?? sizeOptions[0] ?? null;
+  const typeCatalogPending = typeCatalogLoading || (!typeCatalog && !typeCatalogError);
   const slotInventory = useMemo(() => budget?.slots ?? EMPTY_SLOT_INVENTORY, [budget?.slots]);
-  const selectedAvailability = slotInventory[selectedType.id]?.available ?? 0;
+  const selectedAvailability = selectedType ? slotInventory[selectedType.id]?.available ?? 0 : 0;
   const totalAvailableSlots = Object.values(slotInventory).reduce((sum, entry) => sum + Math.max(0, entry.available), 0);
   const launchEntitlementsLoaded = Boolean(budget);
-  const selectedTypeCanLaunch = selectedAvailability > 0;
+  const selectedTypeCanLaunch = Boolean(selectedType) && selectedAvailability > 0;
   const launchEligibility = deriveLaunchEligibilityState({
     subscriptionSummary,
     slotInventory,
@@ -245,6 +241,8 @@ export function AgentCreationWizard({
       setStartImmediately(true);
       setCreating(false);
       setError(null);
+      setTypeCatalog(null);
+      setTypeCatalogError(null);
     }
   }, [open, initialStep, preferredTypeId]);
 
@@ -253,6 +251,8 @@ export function AgentCreationWizard({
     let cancelled = false;
 
     const loadTypeCatalog = async () => {
+      setTypeCatalogLoading(true);
+      setTypeCatalogError(null);
       try {
         const token = await getToken();
         const catalogResponse = await createHyperAgentClient(token).agentTypes();
@@ -261,7 +261,10 @@ export function AgentCreationWizard({
       } catch {
         if (!cancelled) {
           setTypeCatalog(null);
+          setTypeCatalogError("Agent sizes are unavailable right now. Try again shortly.");
         }
+      } finally {
+        if (!cancelled) setTypeCatalogLoading(false);
       }
     };
 
@@ -353,6 +356,10 @@ export function AgentCreationWizard({
   // ── Create agent ──
 
   const handleCreate = async () => {
+    if (!selectedType) {
+      setError("Agent sizes are unavailable right now. Refresh before creating an agent.");
+      return;
+    }
     if (!selectedTypeCanLaunch) {
       setError("No launch entitlement slot is available for this agent size yet. Refresh billing before creating an agent.");
       return;
@@ -582,47 +589,61 @@ export function AgentCreationWizard({
       {/* Size picker */}
       <div>
         <label className="block text-sm text-text-secondary mb-3">Size</label>
-        <div className="grid grid-cols-3 gap-3">
-          {sizeOptions.map((option) => {
-            const availability = slotInventory[option.id]?.available ?? 0;
-            const granted = slotInventory[option.id]?.granted ?? 0;
-            const sourceAllowsTier = !selectedLaunchSource || selectedLaunchSource.inferenceOnly || selectedLaunchSource.tierIds.length === 0
-              ? true
-              : selectedLaunchSource.tierIds.includes(option.id);
-            const isSelectable = (!budget || availability > 0) && sourceAllowsTier;
-            const isSelected = selectedType.id === option.id;
-            return (
-              <button
-                key={option.id}
-                disabled={!isSelectable}
-                onClick={() => {
-                  if (!isSelectable) return;
-                  setSelectedTypeId(option.id);
-                }}
-                className={`relative p-4 rounded-xl border text-center transition-all ${
-                  !isSelectable
-                    ? "opacity-40 cursor-not-allowed border-border bg-surface-low text-text-secondary"
-                    : isSelected
-                      ? "border-primary bg-primary/10 text-foreground"
-                      : "border-border bg-surface-low text-text-secondary hover:border-text-muted"
-                }`}
-              >
-                <div className="text-sm font-semibold">{option.name}</div>
-                <div className="text-xs text-text-muted mt-1">
-                  {option.cpu} vCPU · {option.memory} GiB
-                </div>
-                {selectedLaunchSource && !selectedLaunchSource.inferenceOnly && !selectedLaunchSource.tierIds.includes(option.id) && (
-                  <div className="text-[11px] text-text-muted mt-2">Not granted by selected plan</div>
-                )}
-                {budget && (
-                  <div className="text-[11px] text-text-muted mt-2">
-                    {availability} free / {granted} total
+        {typeCatalogPending ? (
+          <div className="rounded-xl border border-border bg-surface-low/50 p-4 text-sm text-text-muted">
+            Loading available agent sizes…
+          </div>
+        ) : typeCatalogError ? (
+          <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">
+            {typeCatalogError}
+          </div>
+        ) : sizeOptions.length === 0 ? (
+          <div className="rounded-xl border border-warning/20 bg-warning/10 p-4 text-sm text-warning">
+            No agent sizes are currently available.
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-3">
+            {sizeOptions.map((option) => {
+              const availability = slotInventory[option.id]?.available ?? 0;
+              const granted = slotInventory[option.id]?.granted ?? 0;
+              const sourceAllowsTier = !selectedLaunchSource || selectedLaunchSource.inferenceOnly || selectedLaunchSource.tierIds.length === 0
+                ? true
+                : selectedLaunchSource.tierIds.includes(option.id);
+              const isSelectable = (!budget || availability > 0) && sourceAllowsTier;
+              const isSelected = selectedType?.id === option.id;
+              return (
+                <button
+                  key={option.id}
+                  disabled={!isSelectable}
+                  onClick={() => {
+                    if (!isSelectable) return;
+                    setSelectedTypeId(option.id);
+                  }}
+                  className={`relative p-4 rounded-xl border text-center transition-all ${
+                    !isSelectable
+                      ? "opacity-40 cursor-not-allowed border-border bg-surface-low text-text-secondary"
+                      : isSelected
+                        ? "border-primary bg-primary/10 text-foreground"
+                        : "border-border bg-surface-low text-text-secondary hover:border-text-muted"
+                  }`}
+                >
+                  <div className="text-sm font-semibold">{option.name}</div>
+                  <div className="text-xs text-text-muted mt-1">
+                    {option.cpu} vCPU · {option.memory} GiB
                   </div>
-                )}
-              </button>
-            );
-          })}
-        </div>
+                  {selectedLaunchSource && !selectedLaunchSource.inferenceOnly && !selectedLaunchSource.tierIds.includes(option.id) && (
+                    <div className="text-[11px] text-text-muted mt-2">Not granted by selected plan</div>
+                  )}
+                  {budget && (
+                    <div className="text-[11px] text-text-muted mt-2">
+                      {availability} free / {granted} total
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Start immediately */}
@@ -707,7 +728,9 @@ export function AgentCreationWizard({
           <div className="flex items-center justify-between text-sm">
             <span className="text-text-muted">Size</span>
             <span className="text-foreground">
-              {selectedType.name} ({selectedType.cpu} vCPU · {selectedType.memory} GiB)
+              {selectedType
+                ? `${selectedType.name} (${selectedType.cpu} vCPU · ${selectedType.memory} GiB)`
+                : "Unavailable"}
             </span>
           </div>
           <div className="flex items-center justify-between text-sm">

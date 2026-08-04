@@ -162,6 +162,9 @@ If you add templates, update `scripts/templates.txt` and re-run the generator.
 - Claw plans/billing views should come from the SDK (`HyperAgent.currentPlan()`,
   `subscriptionSummary()`, `plans()`, `agentTypes()`), not ad hoc frontend
   plan state.
+- Do not add static plan catalogs or agent-size fallback presets. The SDK's
+  backend-backed `plans()` and `agentTypes()` responses are authoritative; show
+  an explicit unavailable state when they cannot be loaded.
 
 ## Troubleshooting
 - Node version mismatches: use Node 22 (recommended) or Node 20+.

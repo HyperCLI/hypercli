@@ -41,14 +41,6 @@ function titleizePlanId(planId: string | null | undefined): string {
   return words.map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
 }
 
-function inferPlanLabel(tokenTotal: number | null): string {
-  if (!tokenTotal) return "Current";
-  if (tokenTotal >= 100_000_000) return "Pro";
-  if (tokenTotal >= 50_000_000) return "Team";
-  if (tokenTotal >= 25_000_000) return "Solo";
-  return "Current";
-}
-
 function formatPlanLabel(label: string): string {
   return /\bplan\b/i.test(label) ? label : `${label} plan`;
 }
@@ -183,7 +175,7 @@ function collectPurchasedPlans({
 
   const fallbackName = planName?.trim() && !isLegacyAgentPlanLabel(planName)
     ? planName.trim()
-    : inferPlanLabel(tokenLimit && tokenLimit > 0 ? tokenLimit : null);
+    : "Current";
   return [{
     id: fallbackName,
     name: fallbackName,
@@ -243,7 +235,7 @@ export function AgentPlanSummary({
     () => collectPurchasedPlans({ planName, subscriptionSummary, catalogPlans, tokenLimit }),
     [catalogPlans, planName, subscriptionSummary, tokenLimit],
   );
-  const displayPlan = formatPlanLabel(plans[0]?.name || planName?.trim() || inferPlanLabel(tokenLimit && tokenLimit > 0 ? tokenLimit : null));
+  const displayPlan = formatPlanLabel(plans[0]?.name || planName?.trim() || "Current");
 
   return (
     <Tooltip>
@@ -274,5 +266,5 @@ export function getHighestValuePlanLabel({
   tokenLimit,
 }: Pick<AgentPlanSummaryProps, "planName" | "subscriptionSummary" | "catalogPlans" | "tokenLimit">): string {
   const plans = collectPurchasedPlans({ planName, subscriptionSummary, catalogPlans, tokenLimit });
-  return formatPlanLabel(plans[0]?.name || planName?.trim() || inferPlanLabel(tokenLimit && tokenLimit > 0 ? tokenLimit : null));
+  return formatPlanLabel(plans[0]?.name || planName?.trim() || "Current");
 }

@@ -330,9 +330,9 @@ async function mockAuthenticatedMobileAgent(page: Page): Promise<void> {
     if (pathName.endsWith("/agents/types")) {
       await route.fulfill(json({
         types: [
-          { id: "small", name: "Small", cpu: 1, memory: 1, cpu_limit: 1, memory_limit: 1 },
-          { id: "medium", name: "Medium", cpu: 2, memory: 2, cpu_limit: 2, memory_limit: 2 },
-          { id: "large", name: "Large", cpu: 4, memory: 4, cpu_limit: 4, memory_limit: 4 },
+          { id: "small", name: "Small", cpu: 0.5, memory: 2 },
+          { id: "medium", name: "Medium", cpu: 1, memory: 4 },
+          { id: "large", name: "Large", cpu: 2, memory: 8 },
         ],
         plans: [],
       }));

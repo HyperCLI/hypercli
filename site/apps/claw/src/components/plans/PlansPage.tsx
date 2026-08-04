@@ -36,7 +36,7 @@ import {
   readPendingPlanCheckout,
   readStripeCheckoutReturnState,
 } from "@/lib/plan-checkout-state";
-import { bundleKey, CLAW_PRODUCTS, compactBundle, formatBundle, type SlotBundle } from "@/lib/subscriptions";
+import { bundleKey, compactBundle, formatBundle, type SlotBundle } from "@/lib/subscriptions";
 import type { SdkAgent } from "@/types";
 
 interface DisplayProduct {
@@ -88,7 +88,6 @@ type CatalogPlan = HyperAgentPlan & {
   subtitle?: string | null;
 };
 
-const FALLBACK_PRODUCTS_BY_ID = new Map(CLAW_PRODUCTS.map((product) => [product.id, product]));
 const CORE_PLAN_FETCH_TIMEOUT_MS = 15_000;
 const SUMMARY_PLAN_FETCH_TIMEOUT_MS = 4_000;
 
@@ -168,7 +167,6 @@ function buildDisplayProducts(catalogPlans: HyperAgentPlan[]): DisplayProduct[] 
     .filter(isVisibleCurrentAgentPlan)
     .map((plan) => {
       const catalogPlan = plan as CatalogPlan;
-      const fallbackBundle = FALLBACK_PRODUCTS_BY_ID.get(plan.id)?.bundle;
       const limits = plan.limits ?? ({} as HyperAgentPlan["limits"]);
       const bundle = firstBundle(
         catalogPlan.bundle,
@@ -178,7 +176,6 @@ function buildDisplayProducts(catalogPlans: HyperAgentPlan[]): DisplayProduct[] 
         catalogPlan.meta?.checkout_bundle,
         catalogPlan.slotGrants,
         catalogPlan.slot_grants,
-        fallbackBundle,
       );
       const tpd = finiteNumber(limits.tpd);
       const burstTpm = finiteNumber(

@@ -12,14 +12,14 @@ import { buildAgentBudget } from "@/test/factories";
 import type { Agent } from "@/app/dashboard/agents/types";
 
 const largeAgent: Pick<Agent, "cpu_millicores" | "memory_mib"> = {
-  cpu_millicores: 4000,
-  memory_mib: 4096,
+  cpu_millicores: 2000,
+  memory_mib: 8192,
 };
 
 describe("agent tier helpers", () => {
   it("infers agent tier from budget presets", () => {
     expect(inferAgentTier(largeAgent, buildAgentBudget())).toBe("large");
-    expect(inferAgentTier({ cpu_millicores: 1000, memory_mib: 1024 }, null)).toBe("small");
+    expect(inferAgentTier({ cpu_millicores: 500, memory_mib: 2048 }, null)).toBeNull();
     expect(inferAgentTier({ cpu_millicores: 9000, memory_mib: 1024 }, buildAgentBudget())).toBeNull();
   });
 
@@ -112,13 +112,13 @@ describe("agent tier helpers", () => {
     expect(titleizeTier("extra-large")).toBe("Extra Large");
   });
 
-  it("handles no-op guidance and fallback presets", () => {
+  it("handles no-op guidance without inventing size presets", () => {
     expect(describeAgentTierStartGuidance(null, buildAgentBudget())).toBeNull();
     expect(describeAgentTierStartGuidance(largeAgent, null)).toBeNull();
     expect(describeAgentTierStartGuidance({ cpu_millicores: 9000, memory_mib: 4096 }, buildAgentBudget())).toBeNull();
     expect(
       describeAgentTierStartGuidance(
-        { cpu_millicores: 1000, memory_mib: 1024 },
+        { cpu_millicores: 500, memory_mib: 2048 },
         buildAgentBudget({
           slots: {
             small: { granted: 1, used: 0, available: 1 },
@@ -127,10 +127,7 @@ describe("agent tier helpers", () => {
       ),
     ).toBeNull();
 
-    expect(getAgentSizePresets(null).medium).toEqual({
-      cpu_millicores: 2000,
-      memory_mib: 2048,
-    });
+    expect(getAgentSizePresets(null)).toEqual({});
     expect(
       getAgentSizePresets(
         buildAgentBudget({

@@ -294,8 +294,6 @@ export interface HyperAgentTypePreset {
   name: string;
   cpu: number;
   memory: number;
-  cpuLimit: number;
-  memoryLimit: number;
 }
 
 export interface HyperAgentTypePlan {
@@ -537,6 +535,18 @@ function hyperAgentPlanFromDict(data: any): HyperAgentPlan {
     ? data.max_agent_size as 'small' | 'medium' | 'large'
     : null;
   const resources = data.agent_resources;
+  const explicitSlotGrants = data.slot_grants && typeof data.slot_grants === 'object'
+    ? Object.fromEntries(
+        Object.entries(data.slot_grants)
+          .map(([tier, count]) => [tier, Number(count)] as const)
+          .filter(([, count]) => Number.isFinite(count) && count > 0),
+      )
+    : {};
+  const slotGrants = Object.keys(explicitSlotGrants).length > 0
+    ? explicitSlotGrants
+    : maxAgentSize && agents > 0
+      ? { [maxAgentSize]: agents }
+      : {};
   return {
     id: data.id,
     canonicalId: parseHyperAgentPlanId(data.id),
@@ -548,7 +558,7 @@ function hyperAgentPlanFromDict(data: any): HyperAgentPlan {
     amountCents: Number(data.amount_cents ?? 0),
     contractVersion: data.contract_version == null ? null : String(data.contract_version),
     maxAgentSize,
-    slotGrants: maxAgentSize && agents > 0 ? { [maxAgentSize]: agents } : {},
+    slotGrants,
     agentResources: resources && typeof resources === 'object' ? {
       maxAgents: Number(resources.max_agents ?? agents),
       totalCpu: Number(resources.total_cpu ?? 0),
@@ -812,8 +822,6 @@ function hyperAgentTypeCatalogFromDict(data: any): HyperAgentTypeCatalog {
       name: String(item?.name || ''),
       cpu: Number(item?.cpu || 0),
       memory: Number(item?.memory || 0),
-      cpuLimit: Number(item?.cpu_limit || 0),
-      memoryLimit: Number(item?.memory_limit || 0),
     })),
     plans: (data?.plans || []).map((item: any) => ({
       id: String(item?.id || ''),

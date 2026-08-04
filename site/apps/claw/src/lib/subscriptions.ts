@@ -1,4 +1,3 @@
-import rawProducts from "./subscriptions.json";
 import type { HyperAgentSubscription } from "@hypercli.com/sdk/agent";
 
 export interface SlotBundle {
@@ -7,24 +6,6 @@ export interface SlotBundle {
   medium?: number;
   large?: number;
 }
-
-export interface ProductDefinition {
-  id: string;
-  name: string;
-  price: number;
-  bundle: SlotBundle;
-  highlighted?: boolean;
-  hidden?: boolean;
-  features?: string[];
-  subtitle?: string;
-  limits: {
-    tpd: number;
-    burstTpm: number;
-    rpm: number;
-  };
-}
-
-export const CLAW_PRODUCTS: readonly ProductDefinition[] = rawProducts as ProductDefinition[];
 
 export function compactBundle(bundle: SlotBundle | null | undefined): SlotBundle {
   const entries = Object.entries(bundle ?? {}).filter(([, count]) => Number(count || 0) > 0);

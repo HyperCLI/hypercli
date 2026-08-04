@@ -137,6 +137,30 @@ describe("PlansPage", () => {
     expect(screen.getByRole("dialog")).toHaveTextContent("Checkout catalog-pro without bundle");
   });
 
+  it("does not invent a slot bundle when the backend catalog omits one", async () => {
+    mocks.hyperAgent.plans.mockResolvedValue([
+      {
+        id: "pro",
+        name: "Backend Plan",
+        price: 17,
+        priceUsd: 17,
+        agents: 0,
+        features: [],
+        models: [],
+        highlighted: false,
+        limits: { tpd: 1_234, tpm: 0, burstTpm: 456, rpm: 7 },
+        tpmLimit: 0,
+        rpmLimit: 7,
+      },
+    ]);
+
+    renderWithClient(<PlansPage />);
+
+    expect(await screen.findByRole("heading", { name: "Backend Plan" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: /purchase/i }));
+    expect(screen.getByRole("dialog")).toHaveTextContent("Checkout pro without bundle");
+  });
+
   it("blocks checkout until billing data loads successfully", async () => {
     mocks.hyperAgent.plans.mockResolvedValue([{
       id: "catalog-pro",

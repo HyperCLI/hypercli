@@ -23,6 +23,38 @@ describe('HyperAgent API', () => {
     expect(agent.controlBaseUrl).toBe('https://api.dev.hypercli.com/agents');
   });
 
+  it('exposes only advertised resources from the agent type catalog', async () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
+    const fetchMock = globalThis.fetch;
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      types: [{
+        id: 'small',
+        name: 'Small',
+        cpu: 0.5,
+        memory: 2,
+        cpu_request: 0.25,
+        memory_request: 1,
+        cpu_limit: 2,
+        memory_limit: 3,
+      }],
+      plans: [],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch;
+
+    try {
+      await expect(agent.agentTypes()).resolves.toEqual({
+        types: [{ id: 'small', name: 'Small', cpu: 0.5, memory: 2 }],
+        plans: [],
+      });
+    } finally {
+      globalThis.fetch = fetchMock;
+    }
+  });
+
   it('returns token usage attributed by agent', async () => {
     const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
     const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
@@ -130,6 +162,15 @@ describe('HyperAgent API', () => {
           limits: { tpd: 100000000, tpm: 69444, burst_tpm: 3472200, rpm: 347 },
           tpm_limit: 69444,
           rpm_limit: 347,
+        }, {
+          id: 'team',
+          name: 'Team',
+          price: 79,
+          agents: 3,
+          slot_grants: { medium: 3 },
+          features: [],
+          models: [],
+          limits: {},
         }],
       }), {
         status: 200,
@@ -151,6 +192,7 @@ describe('HyperAgent API', () => {
       expect(plans[0]?.contractVersion).toBe('2026-08');
       expect(plans[0]?.maxAgentSize).toBe('large');
       expect(plans[0]?.slotGrants).toEqual({ large: 3 });
+      expect(plans[1]?.slotGrants).toEqual({ medium: 3 });
       expect(plans[0]?.agentResources).toEqual({ maxAgents: 3, totalCpu: 6, totalMemory: 24 });
       expect(plans[0]?.aiu).toBeUndefined();
     } finally {

@@ -215,7 +215,7 @@ test("creates the saved first agent after Stripe payment is reflected", async ({
     }
     if (pathName.endsWith("/agents/types")) {
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
-        types: [{ id: "large", name: "Large", cpu: 4, memory: 4, cpu_limit: 4, memory_limit: 4 }],
+        types: [{ id: "large", name: "Large", cpu: 2, memory: 8 }],
         plans: [],
       }) });
       return;

@@ -210,7 +210,7 @@ import { getAgentGatewayPanelBootStatus } from "@/components/dashboard/agents/ch
 import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { PlanCheckoutModal } from "@/components/PlanCheckoutModal";
 import { agentDisplayLabel, didAnyAgentFinishStopping, toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
-import { CLAW_PRODUCTS, compactBundle, formatBundle, subscriptionSlotBundle, type SlotBundle } from "@/lib/subscriptions";
+import { compactBundle, formatBundle, subscriptionSlotBundle, type SlotBundle } from "@/lib/subscriptions";
 import { createAudioMediaRecorder } from "@/lib/audio-recorder";
 import { downloadFileBytes } from "@/lib/download-file";
 import { resolveAgentRouteTab, type AgentRouteTab } from "@/lib/agent-workspace-route";
@@ -423,8 +423,6 @@ type CatalogPlan = HyperAgentPlan & {
   slot_grants?: Record<string, number> | null;
 };
 
-const FALLBACK_PRODUCTS_BY_ID = new Map(CLAW_PRODUCTS.map((product) => [product.id, product]));
-
 function finiteNumber(value: unknown, fallback = 0): number {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
@@ -485,7 +483,6 @@ function buildUpgradeProducts(catalogPlans: HyperAgentPlan[]): UpgradeDisplayPro
     .map((plan) => {
       const catalogPlan = plan as CatalogPlan;
       const limits = plan.limits ?? ({} as HyperAgentPlan["limits"]);
-      const fallbackBundle = FALLBACK_PRODUCTS_BY_ID.get(plan.id)?.bundle;
       return {
         id: plan.id,
         name: plan.name,
@@ -497,7 +494,6 @@ function buildUpgradeProducts(catalogPlans: HyperAgentPlan[]): UpgradeDisplayPro
           catalogPlan.meta?.checkout_bundle,
           catalogPlan.slotGrants,
           catalogPlan.slot_grants,
-          fallbackBundle,
         ),
         price: finiteNumber(catalogPlan.priceUsd ?? catalogPlan.price_usd ?? plan.price),
         description: catalogPlan.meta?.subtitle ?? undefined,

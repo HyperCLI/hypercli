@@ -64,8 +64,8 @@ export function buildAgentBudget(overrides: Partial<AgentBudget> = {}): AgentBud
     },
     pooled_tpd: 1_000_000,
     size_presets: {
-      small: { cpu: 1, memory: 1 },
-      large: { cpu: 4, memory: 4 },
+      small: { cpu: 0.5, memory: 2 },
+      large: { cpu: 2, memory: 8 },
     },
     ...overrides,
   };
