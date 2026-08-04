@@ -17,8 +17,8 @@ use url::Url;
 
 use crate::{
     ApiKey, AuthMe, ClientConfig, CreateApiKeyRequest, CreateDeploymentRequest, Deployment,
-    DeploymentRoutes, ExecDeploymentRequest, ExecDeploymentResponse, SetDeploymentRouteRequest,
-    SetDeploymentRoutesRequest, StartDeploymentRequest,
+    DeploymentRoutes, EntitlementsSummary, ExecDeploymentRequest, ExecDeploymentResponse,
+    SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
 };
 
 pub struct HyperCliClient {
@@ -438,6 +438,18 @@ impl HyperCliClient {
             .bearer_auth(self.api_key.expose_secret())
             .json(request);
         self.send_json("create_api_key", "POST", &url, trace_request, builder)
+    }
+
+    /// Effective entitlement summary for the authenticated user
+    /// (`GET {base}/subscriptions/summary`). Requires the `user` scope
+    /// family on the key; scoped keys without it get HTTP 403.
+    pub fn entitlements_summary(&self) -> Result<EntitlementsSummary, HyperCliError> {
+        let url = self.endpoint("subscriptions/summary");
+        let builder = self
+            .http
+            .get(&url)
+            .bearer_auth(self.api_key.expose_secret());
+        self.send_json("entitlements_summary", "GET", &url, None, builder)
     }
 
     /// The product API base is the agents base without its `/agents` suffix

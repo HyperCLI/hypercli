@@ -27,7 +27,7 @@
       email: "test@hypercli.com",
       key_name: "Linux (ci)",
       has_agents_capability: true,
-      has_active_subscription: true,
+      has_active_plan: true,
       detail: null,
     },
     envKeyActive: false,

@@ -88,7 +88,7 @@ test("logout with env key: explains why still logged in", async ({ page }) => {
 test("no active plan: purchase hint with plans link", async ({ page }) => {
   await withMock(page, {
     status: { has_api_key: true },
-    validation: { has_active_subscription: false },
+    validation: { has_active_plan: false },
   });
   await page.goto("/");
   await expect(page.locator("#plan-line")).toBeVisible();
@@ -101,6 +101,16 @@ test("no active plan: purchase hint with plans link", async ({ page }) => {
 
 test("active plan: no purchase hint", async ({ page }) => {
   await withMock(page, { status: { has_api_key: true } });
+  await page.goto("/");
+  await expect(page.locator("#auth-detail")).toContainText("test@hypercli.com");
+  await expect(page.locator("#plan-line")).toBeHidden();
+});
+
+test("unknown plan status (scoped key): no purchase hint", async ({ page }) => {
+  await withMock(page, {
+    status: { has_api_key: true },
+    validation: { has_active_plan: null },
+  });
   await page.goto("/");
   await expect(page.locator("#auth-detail")).toContainText("test@hypercli.com");
   await expect(page.locator("#plan-line")).toBeHidden();

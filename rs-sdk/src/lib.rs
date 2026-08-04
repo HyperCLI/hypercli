@@ -15,7 +15,8 @@ pub use config::{
 };
 pub use types::{
     AgentSize, ApiKey, AuthMe, BuzzLaunchConfig, BuzzLaunchError, CreateApiKeyRequest,
-    CreateDeploymentRequest, Deployment, DeploymentRoutes, ExecDeploymentRequest,
-    ExecDeploymentResponse, ManagedRuntime, RouteConfig, SetDeploymentRouteRequest,
-    SetDeploymentRoutesRequest, StartDeploymentRequest, BUZZ_RUNTIME_SCOPES,
+    CreateDeploymentRequest, Deployment, DeploymentRoutes, EntitlementsSummary,
+    ExecDeploymentRequest, ExecDeploymentResponse, ManagedRuntime, RouteConfig,
+    SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
+    BUZZ_RUNTIME_SCOPES,
 };

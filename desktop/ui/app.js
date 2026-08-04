@@ -96,7 +96,9 @@ async function validateKey() {
       detail.textContent = result.email ? ` as ${result.email}` : "";
       keyLine.hidden = !result.key_name;
       document.getElementById("key-name").textContent = result.key_name || "";
-      planLine.hidden = result.has_active_subscription;
+      // Tri-state: only an explicit "no plan" shows the hint; unknown
+      // (scoped key, offline) stays hidden.
+      planLine.hidden = result.has_active_plan !== false;
       warning.hidden = result.has_agents_capability;
       warning.textContent = result.has_agents_capability
         ? ""

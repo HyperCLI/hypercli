@@ -37,7 +37,9 @@ pub struct KeyValidation {
     email: Option<String>,
     key_name: Option<String>,
     has_agents_capability: bool,
-    has_active_subscription: bool,
+    /// None = plan status unknowable (key lacks the `user` scope family) —
+    /// the UI must not show a purchase hint in that case.
+    has_active_plan: Option<bool>,
     detail: Option<String>,
 }
 
@@ -165,7 +167,14 @@ fn validate_key_blocking() -> Result<KeyValidation, String> {
             email: me.email,
             key_name: me.key_name,
             has_agents_capability: me.capabilities.iter().any(|c| c == "agents:*"),
-            has_active_subscription: me.has_active_subscription,
+            // The HyperClaw plan lives in the entitlements summary, NOT in
+            // auth_me.has_active_subscription (that flag is the Orchestra
+            // product subscription). Scoped keys without the `user` family
+            // get 403 here — report unknown, never a false "no plan".
+            has_active_plan: client
+                .entitlements_summary()
+                .ok()
+                .map(|summary| summary.has_active_plan()),
             detail: None,
         }),
         Err(error) => {
@@ -178,7 +187,7 @@ fn validate_key_blocking() -> Result<KeyValidation, String> {
                 email: None,
                 key_name: None,
                 has_agents_capability: false,
-                has_active_subscription: false,
+                has_active_plan: None,
                 detail: Some(detail),
             })
         }
@@ -218,8 +227,9 @@ fn mint_api_key_blocking(session_token: String) -> Result<String, String> {
     .map_err(|e| e.to_string())?;
     let mut request = CreateApiKeyRequest::new(name.clone());
     // Tags are scope grants in `family:baseline` grammar (deny-by-default
-    // without them); the provider needs exactly `agents:*`.
-    request.tags = vec!["agents:*".to_owned()];
+    // without them). The provider needs `agents:*`; `user:self` lets the
+    // app read the entitlements summary for the plan hint.
+    request.tags = vec!["agents:*".to_owned(), "user:self".to_owned()];
     let key = client.create_api_key(&request).map_err(|e| e.to_string())?;
     let api_key = key
         .api_key
