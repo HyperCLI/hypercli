@@ -1,3 +1,7 @@
+"use client";
+
+import { useTheme } from "./ThemeProvider";
+
 export const HYPERCLI_LOGO_FULL_SRC = "/logos/hypercli-full-blue.svg";
 export const HYPERCLI_LOGO_FULL_LIGHT_SRC = "/logos/hypercli-full-blue-light.svg";
 export const HYPERCLI_LOGO_ICON_SRC = "/logos/hypercli-icon-blue.svg";
@@ -18,35 +22,20 @@ export function HyperCLILogo({
   markOnly = false,
   decorative = false,
 }: HyperCLILogoProps) {
-  if (markOnly) {
-    return (
-      <span
-        aria-hidden={decorative || undefined}
-        aria-label={decorative ? undefined : "HyperCLI"}
-        role={decorative ? undefined : "img"}
-        className={`relative inline-flex shrink-0 bg-contain bg-center bg-no-repeat ${className} ${imageClassName}`}
-        style={{ backgroundImage: `url('${HYPERCLI_LOGO_ICON_SRC}')` }}
-      />
-    );
-  }
+  const { mode } = useTheme();
+  const src = markOnly
+    ? HYPERCLI_LOGO_ICON_SRC
+    : mode === "light"
+      ? HYPERCLI_LOGO_FULL_LIGHT_SRC
+      : HYPERCLI_LOGO_FULL_SRC;
 
   return (
     <span
       aria-hidden={decorative || undefined}
       aria-label={decorative ? undefined : "HyperCLI"}
       role={decorative ? undefined : "img"}
-      className={`relative inline-flex shrink-0 ${className} ${imageClassName}`}
-    >
-      <span
-        aria-hidden="true"
-        className="absolute inset-0 hidden bg-contain bg-left bg-no-repeat dark:block"
-        style={{ backgroundImage: `url('${HYPERCLI_LOGO_FULL_SRC}')` }}
-      />
-      <span
-        aria-hidden="true"
-        className="absolute inset-0 block bg-contain bg-left bg-no-repeat dark:hidden"
-        style={{ backgroundImage: `url('${HYPERCLI_LOGO_FULL_LIGHT_SRC}')` }}
-      />
-    </span>
+      className={`relative inline-flex shrink-0 bg-contain bg-left bg-no-repeat ${className} ${imageClassName}`}
+      style={{ backgroundImage: `url('${src}')` }}
+    />
   );
 }
