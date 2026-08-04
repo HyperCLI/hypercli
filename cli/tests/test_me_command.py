@@ -69,6 +69,7 @@ def test_me_command_outputs_agents_entitlement_summary(monkeypatch):
         def subscription_summary(self):
             return SimpleNamespace(
                 effective_plan_id="pro",
+                has_active_plan=True,
                 current_subscription_id=None,
                 current_entitlement_id="ent-123",
                 active_subscription_count=0,
@@ -130,6 +131,7 @@ def test_me_command_json_serializes_agents_entitlement_datetimes(monkeypatch):
         def subscription_summary(self):
             return SimpleNamespace(
                 effective_plan_id="pro",
+                has_active_plan=True,
                 current_subscription_id=None,
                 current_entitlement_id="ent-123",
                 active_subscription_count=0,
