@@ -160,6 +160,7 @@ def me_cmd(
         payload = dict(getattr(auth_me, "__dict__", {}))
         if entitlement_summary is not None:
             payload["agents_entitlements"] = {
+                "has_active_plan": entitlement_summary.has_active_plan,
                 "effective_plan_id": entitlement_summary.effective_plan_id,
                 "current_subscription_id": entitlement_summary.current_subscription_id,
                 "current_entitlement_id": entitlement_summary.current_entitlement_id,
@@ -197,6 +198,7 @@ def me_cmd(
     capabilities = "\n".join(raw_capabilities) if raw_capabilities else ""
     table.add_row("capabilities", capabilities)
     if entitlement_summary is not None:
+        table.add_row("agents_has_active_plan", "yes" if entitlement_summary.has_active_plan else "no")
         table.add_row("agents_effective_plan", entitlement_summary.effective_plan_id)
         table.add_row("agents_current_entitlement", str(entitlement_summary.current_entitlement_id or ""))
         table.add_row("agents_active_entitlements", str(entitlement_summary.active_entitlement_count))
