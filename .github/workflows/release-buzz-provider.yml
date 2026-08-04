@@ -59,6 +59,8 @@ jobs:
 
       - name: Validate release input and source
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if [[ ! "${{ inputs.version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -73,7 +75,21 @@ jobs:
             exit 1
           fi
           test "$(git status --porcelain)" = ""
-          echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          SOURCE_SHA="$(git rev-parse HEAD)"
+          # Never release from a red or unfinished commit: every non-release
+          # workflow run attached to this SHA must have completed green.
+          BAD="$(gh run list --commit "$SOURCE_SHA" --limit 100 \
+            --json workflowName,status,conclusion \
+            --jq '[.[]
+              | select(.workflowName != "Release Desktop" and .workflowName != "Release Buzz Provider")
+              | select((.status != "completed") or (.conclusion != "success" and .conclusion != "skipped"))
+            ] | length')"
+          if [[ "$BAD" != "0" ]]; then
+            echo "CI on $SOURCE_SHA is red or still running ($BAD run(s)); wait for green before releasing" >&2
+            gh run list --commit "$SOURCE_SHA" --limit 100 >&2 || true
+            exit 1
+          fi
+          echo "SOURCE_SHA=$SOURCE_SHA" >> "$GITHUB_ENV"
 
       - uses: dtolnay/rust-toolchain@stable
         with:
