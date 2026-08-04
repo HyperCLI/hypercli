@@ -1370,11 +1370,22 @@ export async function waitForLocalStorageValue(
 }
 
 export async function getClawAuthToken(page: Page): Promise<string> {
-  const token = await page.evaluate(() => localStorage.getItem("claw_auth_token"));
-  if (!token) {
-    throw new Error("claw_auth_token was not found in localStorage");
+  // Post-login the live site may hard-navigate (SSO handoff between hosts),
+  // which destroys the execution context mid-evaluate. Wait for a stable
+  // context and retry through navigations.
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    try {
+      await page.waitForLoadState("domcontentloaded");
+      const token = await page.evaluate(() => localStorage.getItem("claw_auth_token"));
+      if (token) return token;
+      lastError = new Error("claw_auth_token was not found in localStorage");
+    } catch (error) {
+      lastError = error;
+    }
+    await page.waitForTimeout(1_000);
   }
-  return token;
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 export async function fetchClawCurrentPlan(page: Page): Promise<HyperAgentCurrentPlan | null> {

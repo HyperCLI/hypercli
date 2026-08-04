@@ -1,10 +1,20 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { execSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pkg from '../package.json' with { type: 'json' };
 
 const here = dirname(fileURLToPath(import.meta.url));
 const sdkRoot = resolve(here, '..');
+
+// CI jobs that run tests without a prior build step still need a dist to
+// compare against; build once when it is missing.
+beforeAll(() => {
+  if (!existsSync(resolve(sdkRoot, 'dist/index.js'))) {
+    execSync('npm run build', { cwd: sdkRoot, stdio: 'inherit' });
+  }
+}, 180_000);
 
 // Site workspaces consume @hypercli.com/sdk via file: -> dist/. When src
 // moves ahead without a rebuild, apps and their test suites silently run
