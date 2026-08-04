@@ -424,11 +424,13 @@ impl HyperCliClient {
         self.send_json("auth_me", "GET", &url, None, builder)
     }
 
-    /// Create an API key (`POST {base}/keys`). The bearer credential may be
-    /// a web-login session token rather than an existing API key. The full
-    /// key material is returned only by this call.
+    /// Create an API key (`POST {product}/api/keys` — the same endpoint the
+    /// dashboard's ApiKeysManager uses). The bearer credential may be a
+    /// web-login session token rather than an existing API key. `tags` are
+    /// scope grants (e.g. "agents"): keys are deny-by-default without them.
+    /// The full key material is returned only by this call.
     pub fn create_api_key(&self, request: &CreateApiKeyRequest) -> Result<ApiKey, HyperCliError> {
-        let url = self.endpoint("keys");
+        let url = self.product_endpoint("api/keys");
         let trace_request = serde_json::to_value(request).ok();
         let builder = self
             .http
