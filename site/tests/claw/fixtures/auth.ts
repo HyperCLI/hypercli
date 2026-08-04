@@ -1635,6 +1635,10 @@ export async function launchClawAgentAndWaitForGateway(
   const dismissAgentDashboardTour = async (): Promise<void> => {
     const deadline = Date.now() + 120_000;
     const normalDashboard = page.getByRole("button", { name: /^Current workspace:/i }).first();
+    const currentWorkspaceEmptyState = page
+      .locator("main")
+      .getByRole("button", { name: /^Launch an agent\b/i })
+      .first();
 
     do {
       const tourHeading = page
@@ -1660,7 +1664,10 @@ export async function launchClawAgentAndWaitForGateway(
         throw new Error("Agent dashboard tour is visible but no dismiss control was found");
       }
 
-      if (await normalDashboard.isVisible().catch(() => false)) {
+      if (
+        await normalDashboard.isVisible().catch(() => false) ||
+        await currentWorkspaceEmptyState.isVisible().catch(() => false)
+      ) {
         return;
       }
 

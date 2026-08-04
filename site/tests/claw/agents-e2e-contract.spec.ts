@@ -1,0 +1,22 @@
+import fs from "node:fs";
+import path from "node:path";
+import { expect, test } from "@playwright/test";
+
+const fixturesDir = path.resolve(__dirname, "fixtures");
+const authFixtureSource = fs.readFileSync(path.join(fixturesDir, "auth.ts"), "utf8");
+const subscriptionSpecSource = fs.readFileSync(path.resolve(__dirname, "agents-subscription.spec.ts"), "utf8");
+
+test("agents launch helper accepts the current workspace empty state", () => {
+  expect(authFixtureSource).toContain('return "workspace-selector"');
+  expect(authFixtureSource).toContain('return "workspace-empty-state"');
+  expect(authFixtureSource).toContain("name: /^Launch an agent\\b/i");
+  expect(authFixtureSource).toContain("await findLastVisible(workspaceEmptyStateLaunchButton");
+  expect(authFixtureSource).toContain('name: "Team", exact: true');
+  expect(authFixtureSource).toContain("expected Team to select medium launch capacity");
+});
+
+test("agents subscription retry permits immutable canceled history", () => {
+  expect(subscriptionSpecSource).toContain("beforeSummary.activeSubscriptions).toHaveLength(0)");
+  expect(subscriptionSpecSource).toContain("filter((subscription) => subscription.isCurrent)");
+  expect(subscriptionSpecSource).not.toContain("beforeSummary.subscriptions ?? []).toHaveLength(0)");
+});

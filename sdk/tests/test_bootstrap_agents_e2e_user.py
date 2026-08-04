@@ -131,26 +131,3 @@ def test_partial_bootstrap_failure_removes_orchestra_projection(
         "DELETE",
         f"https://api.dev.hypercli.com/api/admin/users/{user_id}",
     )
-
-
-def test_agents_browser_contract_accepts_current_workspace_empty_state() -> None:
-    source = (SCRIPT_PATH.parents[2] / "site/tests/claw/fixtures/auth.ts").read_text(
-        encoding="utf-8"
-    )
-
-    assert 'return "workspace-selector"' in source
-    assert 'return "workspace-empty-state"' in source
-    assert 'name: /^Launch an agent\\b/i' in source
-    assert "await findLastVisible(workspaceEmptyStateLaunchButton" in source
-    assert 'name: "Team", exact: true' in source
-    assert "expected Team to select medium launch capacity" in source
-
-
-def test_agents_browser_contract_allows_immutable_subscription_history() -> None:
-    source = (
-        SCRIPT_PATH.parents[2] / "site/tests/claw/agents-subscription.spec.ts"
-    ).read_text(encoding="utf-8")
-
-    assert "beforeSummary.activeSubscriptions).toHaveLength(0)" in source
-    assert "filter((subscription) => subscription.isCurrent)" in source
-    assert "beforeSummary.subscriptions ?? []).toHaveLength(0)" not in source
