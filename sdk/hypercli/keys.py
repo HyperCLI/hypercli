@@ -1,5 +1,5 @@
 """API Keys management"""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -18,6 +18,7 @@ class ApiKey:
     created_at: str
     last_used_at: Optional[str]
     expires_at: Optional[str]
+    capabilities: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict) -> "ApiKey":
@@ -32,6 +33,7 @@ class ApiKey:
             created_at=data.get("created_at", ""),
             last_used_at=data.get("last_used_at"),
             expires_at=data.get("expires_at"),
+            capabilities=list(data.get("capabilities") or []),
         )
 
 

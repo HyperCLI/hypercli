@@ -12,6 +12,8 @@ class Balance:
     rewards: str
     paid: str
     available: str
+    currency: str = "USD"
+    decimals: int = 2
 
     @classmethod
     def from_dict(cls, data: dict) -> "Balance":
@@ -20,6 +22,8 @@ class Balance:
             rewards=data.get("rewards_balance", "0"),
             paid=data.get("balance", "0"),
             available=data.get("available_balance", "0"),
+            currency=data.get("currency") or "USD",
+            decimals=data.get("decimals") if data.get("decimals") is not None else 2,
         )
 
 

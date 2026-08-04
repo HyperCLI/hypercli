@@ -13,6 +13,10 @@ class User:
     name: str | None
     is_active: bool
     created_at: str
+    email_verified: bool | None = None
+    updated_at: str = ""
+    user_type: str | None = None
+    meta: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "User":
@@ -22,6 +26,10 @@ class User:
             name=data.get("name"),
             is_active=data.get("is_active", True),
             created_at=data.get("created_at", ""),
+            email_verified=data.get("email_verified"),
+            updated_at=data.get("updated_at", ""),
+            user_type=data.get("user_type"),
+            meta=data.get("meta"),
         )
 
 

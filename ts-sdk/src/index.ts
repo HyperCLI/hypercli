@@ -84,6 +84,19 @@ export {
   type DesignOptions,
 } from './voice.js';
 
+// Voice streaming session
+export {
+  VoiceSession,
+  VoiceStreamError,
+  encodeBase64,
+  type VoiceSessionState,
+  type VoiceChunkEvent,
+  type VoiceSessionOptions,
+  type SpeakOptions,
+  type CloneSpeakOptions,
+  type DesignSpeakOptions,
+} from './voice-session.js';
+
 // User API
 export {
   UserAPI,

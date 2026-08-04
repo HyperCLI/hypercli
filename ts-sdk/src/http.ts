@@ -37,7 +37,7 @@ function waitForBackoff(delayMs: number, signal?: AbortSignal): Promise<void> {
 
 async function requestWithRetryHandled<T>(
   options: RequestOptions,
-  handle: (response: Response) => Promise<T>,
+  handle: (response: Response, method?: string) => Promise<T>,
 ): Promise<T> {
   const {
     method,
@@ -99,7 +99,7 @@ async function requestWithRetryHandled<T>(
         void response.body?.cancel().catch(() => undefined);
         retry = true;
       } else {
-        return await handle(response);
+        return await handle(response, method);
       }
     } catch (error: any) {
       lastError = error;
@@ -139,30 +139,33 @@ export async function requestWithRetry(options: RequestOptions): Promise<Respons
   return requestWithRetryHandled(options, async (response) => response);
 }
 
-async function responseErrorDetail(response: Response): Promise<string> {
+async function responseAPIError(response: Response, method?: string): Promise<APIError> {
   const fallback = response.statusText || 'Request failed';
+  const url = response.url || undefined;
   let text: string;
   try {
     text = await response.text();
   } catch {
-    return fallback;
+    return new APIError(response.status, fallback, method, url, '');
   }
-  if (!text) return fallback;
-  try {
-    const payload = JSON.parse(text) as { detail?: unknown };
-    if (payload.detail !== undefined && payload.detail !== null) return String(payload.detail);
-  } catch {
-    // Plain-text error bodies are valid API responses.
+  let detail = text || fallback;
+  if (text) {
+    try {
+      const payload = JSON.parse(text) as { detail?: unknown };
+      if (payload.detail !== undefined && payload.detail !== null) detail = String(payload.detail);
+    } catch {
+      // Plain-text error bodies are valid API responses.
+    }
   }
-  return text;
+  return new APIError(response.status, detail, method, url, text);
 }
 
 /**
  * Handle API response, raise on error
  */
-async function handleResponse<T = any>(response: Response): Promise<T> {
+async function handleResponse<T = any>(response: Response, method?: string): Promise<T> {
   if (response.status >= 400) {
-    throw new APIError(response.status, await responseErrorDetail(response));
+    throw await responseAPIError(response, method);
   }
 
   if (response.status === 204) {
@@ -172,9 +175,9 @@ async function handleResponse<T = any>(response: Response): Promise<T> {
   return (await response.json()) as T;
 }
 
-async function handleBytesResponse(response: Response): Promise<Uint8Array> {
+async function handleBytesResponse(response: Response, method?: string): Promise<Uint8Array> {
   if (response.status >= 400) {
-    throw new APIError(response.status, await responseErrorDetail(response));
+    throw await responseAPIError(response, method);
   }
 
   return new Uint8Array(await response.arrayBuffer());
@@ -373,7 +376,7 @@ export class HTTPClient {
 
     if (!response.ok) {
       const text = await response.text();
-      throw new APIError(response.status, text);
+      throw new APIError(response.status, text, 'POST', response.url || `${this.baseUrl}${path}`, text);
     }
 
     if (!response.body) {

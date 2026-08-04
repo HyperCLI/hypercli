@@ -66,6 +66,7 @@ class HyperCLI:
         agent_dev: bool = False,
         agents_api_base_url: str = None,
         agents_ws_url: str = None,
+        timeout: float = None,
     ):
         resolved_product_api_key = api_key or get_api_key()
         resolved_agent_api_key = agent_api_key or get_agent_api_key()
@@ -77,7 +78,8 @@ class HyperCLI:
             )
 
         self._api_url = api_url or get_api_url()
-        self._http = HTTPClient(self._api_url, self._api_key)
+        resolved_timeout = timeout if timeout is not None else 30.0
+        self._http = HTTPClient(self._api_url, self._api_key, timeout=resolved_timeout)
 
         # API namespaces
         resolved_agents_api_base = (
@@ -89,12 +91,13 @@ class HyperCLI:
             or (_derive_agents_ws_url(self._api_url, agent_dev) if api_url else get_agents_ws_url(agent_dev))
         )
         self._agents_api_base_url = resolved_agents_api_base
-        self._agents_http = HTTPClient(self._agents_api_base_url, self._api_key)
+        self._agents_http = HTTPClient(self._agents_api_base_url, self._api_key, timeout=resolved_timeout)
         self.deployments = Deployments(
             self._http,
             api_key=resolved_agent_api_key,
             api_base=resolved_agents_api_base,
             agents_ws_url=resolved_agents_ws_url,
+            timeout=timeout,
         )
         self.billing = Billing(self._http)
         self.jobs = Jobs(self._http)

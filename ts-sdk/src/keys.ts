@@ -34,6 +34,7 @@ export interface ApiKey {
   createdAt: string;
   lastUsedAt: string | null;
   expiresAt: string | null;
+  capabilities?: string[];
 }
 
 export interface CreateApiKeyOptions {
@@ -90,6 +91,9 @@ function apiKeyFromDict(data: any): ApiKey {
     createdAt: firstTimestamp(record.created_at, record.createdAt) || '',
     lastUsedAt: firstTimestamp(record.last_used_at, record.lastUsedAt),
     expiresAt: firstTimestamp(record.expires_at, record.expiresAt),
+    capabilities: Array.isArray(record.capabilities)
+      ? record.capabilities.filter((capability): capability is string => typeof capability === 'string')
+      : undefined,
   };
 }
 

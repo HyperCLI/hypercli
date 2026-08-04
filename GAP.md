@@ -4,6 +4,7 @@ This file compares the current public surfaces of:
 
 - `ts-sdk` (`@hypercli.com/sdk`)
 - `sdk` (`hypercli-sdk`)
+- `rs-sdk` (Rust, deliberately narrow — see notes below)
 
 Scope:
 
@@ -19,34 +20,27 @@ Non-goals:
 
 ## Summary
 
-The Python SDK is still broader in end-user capability. The biggest missing areas in `ts-sdk` are:
+The two main SDKs are converging. Both now support x402, job tags, a
+constructor-level HTTP timeout, a public deployment config builder, and a
+`list[Agent]`-shaped `deployments.list()`. The remaining gaps:
 
-- x402 support
-- async helper classes and shell session helpers
-- HyperAgent convenience chat/OpenAI client helpers
-- advanced ComfyUI execution and node-management helpers
-- higher-level deployment streaming helpers
-
-The TypeScript SDK is ahead in a few areas:
-
-- exported configuration helpers and defaults
-- public deployment config builder
-- gateway trusted pairing/browser-oriented features
-- a constructor-level HTTP timeout option
+- `ts-sdk` has whole modules with no Python counterpart: `skills.ts`, `channels.ts`, `connectors.ts`, `browser.ts`
+- Python has higher-level deployment streaming helpers (`chat_stream`, SSE `logs_stream`) that TS only partially matches (`logsConnect` returns a raw WebSocket)
+- Python has async helper classes, shell session helpers, HyperAgent chat/OpenAI conveniences, and advanced ComfyUI execution helpers
+- `ts-sdk` has gateway trusted pairing/browser-oriented features
 
 ## Present In `ts-sdk` But Not In `sdk`
 
-### Public configuration exports
+### TS-only modules
 
-Available in `ts-sdk`, not exported by `sdk`:
+Entire modules exported from `ts-sdk/src/index.ts` with no Python equivalent:
 
-- `getApiKey()`
-- `getApiUrl()`
-- `getWsUrl()`
-- `DEFAULT_API_URL`
-- `DEFAULT_WS_URL`
+- `skills.ts` — agent skills provider types (summaries, install/recover flows)
+- `channels.ts` — agent channel provider types plus hosted Slack relay helpers
+- `connectors.ts` — agent connector setup/authorization provider types
+- `browser.ts` — `BrowserHyperCLI` browser-oriented client
 
-Python has equivalent internals in `hypercli.config`, but they are not part of the package's public export surface.
+These are Python gaps if script/backend users need the same capabilities.
 
 ### Public `HTTPClient` export
 
@@ -55,22 +49,6 @@ Available in `ts-sdk`:
 - `HTTPClient`
 
 Python exports `AsyncHTTPClient`, but not the sync `HTTPClient` class.
-
-### Client timeout option
-
-Available in `ts-sdk`:
-
-- `new HyperCLI({ timeout })`
-
-Python `HyperCLI(...)` does not expose a client-level timeout argument.
-
-### Public deployment config builder
-
-Available in `ts-sdk`:
-
-- `buildAgentConfig()`
-
-Python has `_build_agent_config(...)`, but it is private and not exported.
 
 ### Gateway trusted pairing and browser/client identity surface
 
@@ -101,7 +79,6 @@ Python has `chat_send(...)` and `sessions_list(...)`, but not these exact conven
 
 Available as public TS types, not mirrored as public Python equivalents:
 
-- `AgentListResponse`
 - `AgentRouteConfig`
 - `RegistryAuth`
 - `BuildAgentConfigOptions`
@@ -112,23 +89,10 @@ Available as public TS types, not mirrored as public Python equivalents:
 - `GatewayEvent`
 - `GatewayEventHandler`
 - `ChatAttachment`
-- `OpenClawConfigSchemaResponse`
 
 Python has runtime objects and dicts here, but not exported typed schema objects.
 
 ## Present In `sdk` But Not In `ts-sdk`
-
-### x402 client and response models
-
-Python-only today:
-
-- `X402Client`
-- `X402JobLaunch`
-- `X402FlowCreate`
-- `X402RenderCreate` alias
-- `FlowCatalogItem`
-
-This is the largest product gap. TypeScript users currently have no first-party x402 SDK surface.
 
 ### Async file upload client
 
@@ -156,20 +120,6 @@ Python-only on `client.agent`:
 - `chat(...)`
 
 The TS SDK exposes plan/key/model discovery only. It does not provide a first-party OpenAI client wrapper or chat convenience method.
-
-### Jobs tag support
-
-Python-only in the jobs namespace:
-
-- `client.jobs.create(..., tags={...})`
-- `client.jobs.list(tags={...})`
-
-`ts-sdk` jobs currently expose:
-
-- `list(state?)`
-- `create(...)` without `tags`
-
-This is a real feature gap, not just naming.
 
 ### Advanced ComfyUI helper surface
 
@@ -208,12 +158,12 @@ Python `GradioJob.connect()` returns a working client.
 
 TypeScript `GradioJob.connect()` is intentionally unimplemented and throws.
 
-### Deployment streaming and chat helpers
+### Deployment streaming and chat helpers (still open)
 
 Python-only on `Deployments`:
 
 - `chat_stream(...)`
-- `logs_stream(...)`
+- `logs_stream(...)` (SSE convenience wrapper)
 - `logs_stream_ws(...)`
 
 TypeScript exposes:
@@ -221,29 +171,6 @@ TypeScript exposes:
 - `logsConnect(...)` returning a raw WebSocket
 - no `chat_stream(...)` executor helper
 - no SSE log stream convenience wrapper
-
-### OpenClawAgent convenience wrappers
-
-Python `OpenClawAgent` exposes more high-level helpers than the TS version:
-
-- `config_patch(...)`
-- `models_list(...)`
-- `workspace_files(...)`
-- `file_get(...)`
-- `file_set(...)`
-- `chat_history(...)`
-- `chat_send_message(...)`
-- `cron_list(...)`
-
-TypeScript `OpenClawAgent` currently exposes a smaller subset:
-
-- `gatewayStatus()`
-- `configGet()`
-- `configSchema()`
-- `sessionsList()`
-- `chatSend()`
-
-Users can still drop down to `GatewayClient`, but parity is not there on the agent wrapper.
 
 ### Gateway event iteration and extra RPC helpers
 
@@ -260,30 +187,6 @@ TS has overlapping functionality in other forms, but these exact user-facing hel
 ## Shared Areas With Shape Or Behavior Differences
 
 These are not strictly "missing" on one side, but they are not yet parity-equivalent.
-
-### Main deployment list response
-
-`ts-sdk`:
-
-- `client.deployments.list()` returns `AgentListResponse`
-- includes `items`
-- may include `budget`
-
-`sdk`:
-
-- `client.deployments.list()` returns `list[Agent]`
-
-The shape differs, which matters for shared examples and adapters.
-
-### Config helper exposure
-
-Both SDKs support:
-
-- environment variable resolution
-- shared config file resolution
-- `configure(...)`
-
-But only TS exports the config getters and defaults as first-class public API.
 
 ### Gateway surface emphasis
 
@@ -335,17 +238,27 @@ TS is currently better suited to:
 - standing up the service
 - making raw HTTP calls to the job once ready
 
+## Rust SDK (`rs-sdk`)
+
+A third SDK exists at `rs-sdk/`. It is deliberately deployments-scoped: it
+covers the agents/deployments surface needed by the buzz backend provider
+(config resolution, deployments CRUD/exec, redacted HTTP tracing) and does not
+aim for parity with the Python or TS SDKs. Do not file its missing namespaces
+as gaps.
+
+Housekeeping: `rs-sdk/crates/*` contained empty leftover directories from an
+abandoned workspace layout (`crates/hypercli-sdk`, `crates/buzz-backend-hypercli`);
+they held no files and have been deleted.
+
 ## Suggested Parity Work Order
 
 If the goal is practical parity rather than identical APIs, the highest-value backlog is:
 
-1. Add x402 support to `ts-sdk`
-2. Add job tag support to `ts-sdk`
-3. Add HyperAgent `chat()` and `openai()`-style convenience helpers to `ts-sdk`
-4. Add higher-level deployment log/chat helpers to `ts-sdk`
-5. Bring core ComfyUI execution helpers to `ts-sdk`
-6. Decide whether Python should also export config getters/defaults and a public deployment config builder
-7. Normalize `deployments.list()` response shape across both SDKs
+1. Add HyperAgent `chat()` and `openai()`-style convenience helpers to `ts-sdk`
+2. Add higher-level deployment log/chat helpers to `ts-sdk` (`chat_stream`, SSE log streaming)
+3. Bring core ComfyUI execution helpers to `ts-sdk`
+4. Decide whether Python needs counterparts to the TS-only modules (`skills`, `channels`, `connectors`, `browser`)
+5. Export a sync `HTTPClient` from the Python package if users need it
 
 ## Notes
 

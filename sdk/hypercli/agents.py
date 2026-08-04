@@ -828,6 +828,55 @@ def _build_agent_launch(
     return launch, effective_gateway_token
 
 
+def build_agent_config(
+    config: dict | None = None,
+    *,
+    env: dict | None = None,
+    ports: list | None = None,
+    routes: dict | None = None,
+    command: list[str] | None = None,
+    entrypoint: list[str] | None = None,
+    image: str | None = None,
+    sync_root: str | None = None,
+    sync_enabled: bool | None = None,
+    sync_uid: int | None = None,
+    sync_gid: int | None = None,
+    registry_url: str | None = None,
+    registry_auth: dict | None = None,
+    restart: bool | None = None,
+    runtime_scopes: list[str] | None = None,
+    gateway_token: str | None = None,
+    heartbeat: dict | None = None,
+    inject_gateway_token: bool = True,
+) -> tuple[dict, str | None]:
+    """Build an agent launch config payload (mirrors ts-sdk buildAgentConfig).
+
+    Returns a tuple of (launch_config, gateway_token). The gateway token is
+    generated when not provided (unless inject_gateway_token=False, in which
+    case it is None).
+    """
+    return _build_agent_launch(
+        config,
+        env=env,
+        ports=ports,
+        routes=routes,
+        command=command,
+        entrypoint=entrypoint,
+        image=image,
+        sync_root=sync_root,
+        sync_enabled=sync_enabled,
+        sync_uid=sync_uid,
+        sync_gid=sync_gid,
+        registry_url=registry_url,
+        registry_auth=registry_auth,
+        restart=restart,
+        runtime_scopes=runtime_scopes,
+        gateway_token=gateway_token,
+        heartbeat=heartbeat,
+        inject_gateway_token=inject_gateway_token,
+    )
+
+
 def _default_openclaw_image(image: str | None) -> str | None:
     if image is not None:
         return image
@@ -2483,9 +2532,11 @@ class Deployments:
         api_key: str = None,
         api_base: str = None,
         agents_ws_url: str = None,
+        timeout: float = None,
     ):
         self._http = http
         self._api_key = api_key or http.api_key
+        self._timeout = timeout if timeout is not None else getattr(http, "timeout", 30.0)
         self._api_base = _normalize_agents_api_base(api_base or get_agents_api_base_url()).rstrip("/")
         resolved_agents_ws_url = agents_ws_url or get_config_value("AGENTS_WS_URL")
         self._agents_ws_url = (
@@ -2525,7 +2576,7 @@ class Deployments:
         }
 
     def _get(self, path: str, params: dict = None) -> Any:
-        with httpx.Client(timeout=30) as client:
+        with httpx.Client(timeout=self._timeout) as client:
             resp = client.get(f"{self._api_base}{path}", headers=self._headers, params=params)
         if resp.status_code >= 400:
             try:
@@ -2536,7 +2587,7 @@ class Deployments:
         return resp.json()
 
     def _post(self, path: str, json: dict = None) -> Any:
-        with httpx.Client(timeout=30) as client:
+        with httpx.Client(timeout=self._timeout) as client:
             resp = client.post(f"{self._api_base}{path}", headers=self._headers, json=json)
         if resp.status_code >= 400:
             try:
@@ -2573,7 +2624,7 @@ class Deployments:
         return resp.json()
 
     def _patch(self, path: str, json: dict = None) -> Any:
-        with httpx.Client(timeout=30) as client:
+        with httpx.Client(timeout=self._timeout) as client:
             resp = client.patch(f"{self._api_base}{path}", headers=self._headers, json=json)
         if resp.status_code >= 400:
             try:
@@ -2584,7 +2635,7 @@ class Deployments:
         return resp.json()
 
     def _put(self, path: str, json: dict = None) -> Any:
-        with httpx.Client(timeout=30) as client:
+        with httpx.Client(timeout=self._timeout) as client:
             resp = client.put(f"{self._api_base}{path}", headers=self._headers, json=json)
         if resp.status_code >= 400:
             try:
@@ -2595,7 +2646,7 @@ class Deployments:
         return resp.json()
 
     def _delete(self, path: str) -> Any:
-        with httpx.Client(timeout=30) as client:
+        with httpx.Client(timeout=self._timeout) as client:
             resp = client.delete(f"{self._api_base}{path}", headers=self._headers)
         if resp.status_code >= 400:
             try:
