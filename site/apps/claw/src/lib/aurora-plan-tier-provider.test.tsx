@@ -65,6 +65,18 @@ function renderProvider() {
   );
 }
 
+function renderDuplicateProviders() {
+  return render(
+    <ThemeProvider>
+      <AuroraPlanTierProvider>
+        <AuroraPlanTierProvider>
+          <div>content</div>
+        </AuroraPlanTierProvider>
+      </AuroraPlanTierProvider>
+    </ThemeProvider>,
+  );
+}
+
 describe("AuroraPlanTierProvider", () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -95,6 +107,20 @@ describe("AuroraPlanTierProvider", () => {
 
     await waitFor(() => expect(sdkMocks.subscriptionSummary).toHaveBeenCalledTimes(1));
     expect(document.documentElement).toHaveAttribute("data-theme", "aurora-dark");
+  });
+
+  it("runs a single sync loop when mounted more than once", async () => {
+    document.cookie = `auth_token=${authToken("duplicate-mount-user")}; Path=/`;
+    sdkMocks.subscriptionSummary.mockResolvedValue(currentPlan("team"));
+    setTheme("aurora-dark");
+    renderDuplicateProviders();
+
+    await waitFor(() => expect(document.documentElement).toHaveAttribute("data-plan-tier", "team"));
+    const callsAfterResolve = sdkMocks.subscriptionSummary.mock.calls.length;
+    expect(callsAfterResolve).toBe(1);
+
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(sdkMocks.subscriptionSummary).toHaveBeenCalledTimes(callsAfterResolve);
   });
 
   it("resolves the authenticated tier and refreshes after billing mutations", async () => {

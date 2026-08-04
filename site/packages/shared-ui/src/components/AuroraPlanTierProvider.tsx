@@ -114,10 +114,18 @@ function isUnauthenticatedFailure(error: unknown): boolean {
   return /\b(?:401|unauthorized)\b/i.test(message);
 }
 
+// Single-owner guard: shared-ui owns the only active sync loop. Extra mounts
+// (duplicate provider trees) no-op instead of racing write/clear cycles.
+let activePlanTierSyncOwner: symbol | null = null;
+
 export function AuroraPlanTierProvider({ children }: { children: ReactNode }) {
   const { family } = useTheme();
 
   useEffect(() => {
+    if (activePlanTierSyncOwner) return;
+    const owner = Symbol("aurora-plan-tier-sync");
+    activePlanTierSyncOwner = owner;
+
     let active = true;
     let requestVersion = 0;
     let latestPublishedVersion = 0;
@@ -207,6 +215,7 @@ export function AuroraPlanTierProvider({ children }: { children: ReactNode }) {
     document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
+      if (activePlanTierSyncOwner === owner) activePlanTierSyncOwner = null;
       active = false;
       requestVersion += 1;
       if (lastSubject) invalidatePlanSnapshot(lastSubject, environment);
