@@ -76,17 +76,17 @@ jobs:
           fi
           test "$(git status --porcelain)" = ""
           SOURCE_SHA="$(git rev-parse HEAD)"
-          # Never release from a red or unfinished commit: every non-release
-          # workflow run attached to this SHA must have completed green.
-          BAD="$(gh run list --commit "$SOURCE_SHA" --limit 100 \
-            --json workflowName,status,conclusion \
-            --jq '[.[]
-              | select(.workflowName != "Release Desktop" and .workflowName != "Release Buzz Provider")
-              | select((.status != "completed") or (.conclusion != "success" and .conclusion != "skipped"))
-            ] | length')"
-          if [[ "$BAD" != "0" ]]; then
-            echo "CI on $SOURCE_SHA is red or still running ($BAD run(s)); wait for green before releasing" >&2
-            gh run list --commit "$SOURCE_SHA" --limit 100 >&2 || true
+          # Never release while the workflow that tests the provider and SDK
+          # ("Frontend CI" carries the sdk/provider jobs) is red or
+          # unfinished on main. Scoped: unrelated pipelines must not gate
+          # provider releases, and the branch's latest run is authoritative
+          # for path-filtered commits.
+          STATE="$(gh run list --workflow "Frontend CI" --branch main --limit 1 \
+            --json status,conclusion \
+            --jq 'if length == 0 then "success"
+                  else .[0] | if .status != "completed" then "pending" else (.conclusion // "pending") end end')"
+          if [[ "$STATE" != "success" && "$STATE" != "skipped" ]]; then
+            echo "Frontend CI (sdk/provider tests) on main is '$STATE'; wait for green before releasing" >&2
             exit 1
           fi
           echo "SOURCE_SHA=$SOURCE_SHA" >> "$GITHUB_ENV"
