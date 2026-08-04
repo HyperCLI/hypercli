@@ -123,9 +123,12 @@ export function setStoredToken(token: string, tokenStorageKey = "app_auth_token"
   localStorage.setItem(tokenStorageKey, token);
 }
 
-export function clearStoredToken(tokenStorageKey = "app_auth_token"): void {
+export function clearStoredToken(tokenStorageKey = "app_auth_token", cookieName?: string): void {
   if (typeof window === "undefined") return;
   localStorage.removeItem(tokenStorageKey);
+  if (cookieName) {
+    cookieUtils.remove(cookieName);
+  }
 }
 
 function decodeJwtPayload(token: string): Record<string, unknown> {
@@ -250,7 +253,7 @@ export async function getAppToken(
 
   const privyToken = await waitForAuthOperation(getPrivyToken(), signal);
   if (!privyToken) {
-    clearStoredToken(tokenStorageKey);
+    clearStoredToken(tokenStorageKey, cookieName);
     throw new Error("Not authenticated");
   }
 
@@ -304,10 +307,10 @@ function StoredSessionAuthProvider({
   const [error, setError] = useState<string | null>(null);
 
   const resetSession = useCallback((nextError: string | null = null) => {
-    clearStoredToken(tokenStorageKey);
+    clearStoredToken(tokenStorageKey, cookieName);
     setError(nextError);
     setIsAuthenticated(false);
-  }, [tokenStorageKey]);
+  }, [cookieName, tokenStorageKey]);
 
   const syncStoredSession = useCallback(() => {
     const hasSession = hasStoredSession(tokenStorageKey, cookieName);
@@ -444,13 +447,13 @@ function PrivySessionAuthProvider({
   }, [getUserFromPrivy]);
 
   const resetSession = useCallback((nextState: AuthFlowState = "idle", nextError: string | null = null) => {
-    clearStoredToken(tokenStorageKey);
+    clearStoredToken(tokenStorageKey, cookieName);
     setUser(null);
     setError(nextError);
     setFlowState(nextState);
     setIsAuthenticated(false);
     setIsLoading(false);
-  }, [tokenStorageKey]);
+  }, [cookieName, tokenStorageKey]);
 
   const syncStoredSession = useCallback((): boolean => {
     const storedSession = getStoredSession(tokenStorageKey, cookieName);
