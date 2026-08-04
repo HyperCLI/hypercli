@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev --port 4000",
     "build": "next build --webpack",
-    "start": "next start --port 4000",
+    "start": "sh -lc 'next start --port ${PORT:-4000}'",
     "lint": "eslint",
     "clean": "rm -rf .next"
   },
