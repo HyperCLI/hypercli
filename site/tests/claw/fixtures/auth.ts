@@ -125,6 +125,7 @@ interface HyperAgentSubscriptionSummary {
     slotInventory?: Record<string, { granted: number; used: number; available?: number }>;
   };
   activeSubscriptions: HyperAgentSubscription[];
+  subscriptions: HyperAgentSubscription[];
 }
 
 interface HyperAgentClientLike {
@@ -136,6 +137,7 @@ interface DeploymentRecord {
   id: string;
   name?: string | null;
   state?: string | null;
+  memory?: number | null;
   hostname?: string | null;
   routes?: Record<string, unknown> | null;
   lastError?: string | null;

@@ -21,7 +21,6 @@ jobs:
       TEST_HOSTNAME: 127.0.0.1
       BACKEND_API_KEY: ${{ secrets.BACKEND_API_KEY }}
       TEST_API_BASE_URL: https://api.dev.hypercli.com
-      TEST_EMAIL: ${{ vars.TEST_EMAIL }}
       TEST_AGENTS_API_BASE_URL: https://api.dev.hypercli.com/agents
       TEST_STRIPE_AGENTS_SECRET_KEY: ${{ secrets.TEST_STRIPE_AGENTS_SECRET_KEY }}
       NOTIFY_URL: ${{ vars.NOTIFY_URL }}
@@ -33,6 +32,13 @@ jobs:
 
       - name: Normalize workspace ownership
         run: sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
+
+      - name: Bootstrap isolated agents test user
+        run: |
+          python3 .github/scripts/bootstrap_agents_e2e_user.py bootstrap \
+            --suite agents-subscription \
+            --state-file "${RUNNER_TEMP}/hypercli-agents-e2e-user-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json" \
+            --github-env-file "$GITHUB_ENV"
 
       - name: Build E2E image
         id: build-e2e
@@ -72,6 +78,13 @@ jobs:
           name: playwright-agents-artifacts
           path: ${{ env.PLAYWRIGHT_ARTIFACTS_DIR }}
           if-no-files-found: ignore
+
+      - name: Cleanup isolated agents test user
+        if: always() && env.AGENTS_E2E_USER_STATE_FILE != ''
+        continue-on-error: true
+        run: |
+          python3 .github/scripts/bootstrap_agents_e2e_user.py cleanup \
+            --state-file "${AGENTS_E2E_USER_STATE_FILE}"
 
       - name: Notify e2e result
         if: steps.e2e.outcome == 'success'
