@@ -88,10 +88,11 @@ async function validateKey() {
   const warning = document.getElementById("auth-warning");
   try {
     const result = await invoke("validate_key");
+    const keyLine = document.getElementById("key-line");
     if (result.valid) {
-      const who = result.email ? ` as ${result.email}` : "";
-      const key = result.key_name ? ` · key "${result.key_name}"` : "";
-      detail.textContent = `${who}${key}`;
+      detail.textContent = result.email ? ` as ${result.email}` : "";
+      keyLine.hidden = !result.key_name;
+      keyLine.textContent = result.key_name ? `key "${result.key_name}"` : "";
       warning.hidden = result.has_agents_capability;
       warning.textContent = result.has_agents_capability
         ? ""
