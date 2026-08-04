@@ -125,7 +125,6 @@ IMAGE_TAG=local-agents-debug .github/scripts/build_e2e_image.sh
 mkdir -p .e2e-artifacts-local-live
 docker run --init --name hypercli-e2e-agents-debug \
   --env-file .env.agents \
-  -e TEST_CLAW_ADMIN_LOGIN_SHORTCUT=1 \
   -e E2E_KEEP_ALIVE_ON_FAILURE=1 \
   -e E2E_ARTIFACTS_DIR=/artifacts \
   -v "$PWD/.e2e-artifacts-local-live:/artifacts" \
@@ -144,8 +143,9 @@ npx playwright test \
 ```
 
 `E2E_KEEP_ALIVE_ON_FAILURE=1` leaves the container and Next servers running.
-`TEST_CLAW_ADMIN_LOGIN_SHORTCUT=1` uses admin auth instead of OTP when the admin
-keys are available. Keep secrets in `.env.agents`. The E2E image contains a
+When `BACKEND_API_KEY` or `AGENTS_BACKEND_API_KEY` is present, Claw specs log in
+via the backend admin bootstrap instead of OTP; only `login.spec.ts` exercises
+the real Privy email OTP flow. Keep secrets in `.env.agents`. The E2E image contains a
 copied workspace, so rebuild after source edits or bind-mount the specific test
 file you are iterating on.
 

@@ -82,7 +82,6 @@ cd ~/dev/hypercli
 mkdir -p .e2e-artifacts-local-live
 docker run --init --name hypercli-e2e-agents-debug \
   --env-file .env.agents \
-  -e TEST_CLAW_ADMIN_LOGIN_SHORTCUT=1 \
   -e E2E_KEEP_ALIVE_ON_FAILURE=1 \
   -e E2E_ARTIFACTS_DIR=/artifacts \
   -v "$PWD/.e2e-artifacts-local-live:/artifacts" \
@@ -102,8 +101,9 @@ Notes:
   can take time to propagate through DNS; keep polling the real hostname with a
   bounded readiness wait and inspect the gateway/route state before changing
   test coverage.
-- `TEST_CLAW_ADMIN_LOGIN_SHORTCUT=1` uses the backend admin login path instead
-  of OTP when `BACKEND_API_KEY` or `AGENTS_BACKEND_API_KEY` is present.
+- When `BACKEND_API_KEY` or `AGENTS_BACKEND_API_KEY` is present, Claw specs use
+  the backend admin login path instead of OTP. Only `login.spec.ts` forces the
+  real Privy OTP flow, so the console and agents suites can run in parallel.
 - Keep secrets in `.env.agents` or CI secrets. Do not pass secret values with
   `docker run -e KEY=value`, because those values can leak through process
   listings and shell history.

@@ -130,8 +130,7 @@ jobs:
     secrets: inherit
 
   e2e-agents:
-    # Both Privy E2E suites currently consume the same OTP inbox.
-    # Running them concurrently causes nondeterministic code pickup.
-    needs: e2e-console
+    # Only login.spec.ts consumes the shared Privy OTP inbox; every other spec
+    # authenticates via the backend admin bootstrap, so the suites run in parallel.
     uses: ./.github/workflows/e2e-agents.yml
     secrets: inherit

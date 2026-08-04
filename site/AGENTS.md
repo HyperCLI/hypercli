@@ -71,7 +71,6 @@ IMAGE_TAG=local-agents-debug .github/scripts/build_e2e_image.sh
 mkdir -p .e2e-artifacts-local-live
 docker run --init --name hypercli-e2e-agents-debug \
   --env-file .env.agents \
-  -e TEST_CLAW_ADMIN_LOGIN_SHORTCUT=1 \
   -e E2E_KEEP_ALIVE_ON_FAILURE=1 \
   -e E2E_ARTIFACTS_DIR=/artifacts \
   -v "$PWD/.e2e-artifacts-local-live:/artifacts" \

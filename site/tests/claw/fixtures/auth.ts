@@ -703,11 +703,26 @@ async function logPrivyAuthState(page: Page, label: string): Promise<void> {
   console.log(`[privy-auth:${label}] ${JSON.stringify(state)}`);
 }
 
-export async function loginWithPrivy(page: Page): Promise<void> {
-  const allowAdminShortcut = getOptionalEnv("TEST_CLAW_ADMIN_LOGIN_SHORTCUT") === "1";
-  if (allowAdminShortcut && await tryAdminLoginForClaw(page)) {
-    await captureStep(page, "00-admin-authenticated");
-    return;
+export async function loginWithPrivy(
+  page: Page,
+  options: { forceOtp?: boolean } = {}
+): Promise<void> {
+  const adminKeyPresent = Boolean(
+    getOptionalEnv("AGENTS_BACKEND_API_KEY") || getOptionalEnv("BACKEND_API_KEY")
+  );
+  if (!options.forceOtp && adminKeyPresent) {
+    try {
+      if (await tryAdminLoginForClaw(page)) {
+        await captureStep(page, "00-admin-authenticated");
+        return;
+      }
+    } catch (error) {
+      console.warn(
+        `[auth] admin bootstrap login failed, falling back to Privy OTP: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
   }
 
   const email = getEnv("TEST_EMAIL");

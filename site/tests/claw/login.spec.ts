@@ -6,7 +6,7 @@ import { captureStep, expectJwtShape, getClawAuthToken, loginWithPrivy } from ".
 loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
 
 test("logs into Claw with Privy email OTP and stores a valid app JWT", async ({ page }) => {
-  await loginWithPrivy(page);
+  await loginWithPrivy(page, { forceOtp: true });
 
   const token = await getClawAuthToken(page);
   expectJwtShape(token);

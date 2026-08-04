@@ -38,9 +38,14 @@ hyper flow text-to-image "a cinematic portrait" --x402
 
 # HyperCLI plan + config workflow
 hyper agent plans
-hyper agent subscribe basic
+hyper agent subscribe solo
 hyper config openclaw
 ```
+
+Current paid plans are Solo ($39, 25M pooled tokens/day, one small agent), Team
+($79, 50M pooled tokens/day, up to three medium agents), and Pro ($149, 100M
+pooled tokens/day, up to three large agents). Run `hyper agent plans` before
+checkout for the live catalog.
 
 ## Agents Billing Notes
 
@@ -79,7 +84,6 @@ IMAGE_TAG=local-agents-debug .github/scripts/build_e2e_image.sh
 mkdir -p .e2e-artifacts-local-live
 docker run --init --name hypercli-e2e-agents-debug \
   --env-file .env.agents \
-  -e TEST_CLAW_ADMIN_LOGIN_SHORTCUT=1 \
   -e E2E_KEEP_ALIVE_ON_FAILURE=1 \
   -e E2E_ARTIFACTS_DIR=/artifacts \
   -v "$PWD/.e2e-artifacts-local-live:/artifacts" \

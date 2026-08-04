@@ -12,7 +12,7 @@ jobs:
     runs-on: self-hosted
     timeout-minutes: 45
     concurrency:
-      group: hypercli-frontend-privy-e2e
+      group: hypercli-frontend-e2e-console
       cancel-in-progress: false
     defaults:
       run:
