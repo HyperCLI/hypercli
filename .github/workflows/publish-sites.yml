@@ -61,6 +61,13 @@ jobs:
       - name: Normalize workspace ownership
         run: sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
 
+      - name: Prepare isolated Docker config
+        run: |
+          set -euo pipefail
+          docker_config_dir="${RUNNER_TEMP}/docker-config-${GITHUB_RUN_ID}-${GITHUB_JOB}"
+          echo "DOCKER_CONFIG=${docker_config_dir}" >> "${GITHUB_ENV}"
+          mkdir -p "${docker_config_dir}"
+
       - name: Require site builder image config
         run: |
           set -euo pipefail
