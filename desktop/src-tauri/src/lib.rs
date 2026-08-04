@@ -3,8 +3,8 @@ use std::path::PathBuf;
 
 use hypercli_sdk::{
     discover_client_config, normalize_agents_api_base, remove_config_api_keys,
-    save_api_key as write_api_key, ClientConfig, ConfigError, CreateApiKeyRequest,
-    HyperCliClient, DEFAULT_AGENTS_API_BASE,
+    save_api_key as write_api_key, ClientConfig, ConfigError, CreateApiKeyRequest, HyperCliClient,
+    DEFAULT_AGENTS_API_BASE,
 };
 use secrecy::SecretString;
 use serde::Serialize;
@@ -207,8 +207,7 @@ fn key_annotation() -> String {
 /// key and persist it. The session token is never stored.
 fn mint_api_key_blocking(session_token: String) -> Result<String, String> {
     let name = key_annotation();
-    let api_base =
-        normalize_agents_api_base(DEFAULT_AGENTS_API_BASE).map_err(|e| e.to_string())?;
+    let api_base = normalize_agents_api_base(DEFAULT_AGENTS_API_BASE).map_err(|e| e.to_string())?;
     let client = HyperCliClient::new(ClientConfig {
         api_base,
         api_key: SecretString::from(session_token.trim().to_owned()),

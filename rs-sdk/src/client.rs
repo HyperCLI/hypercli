@@ -427,10 +427,7 @@ impl HyperCliClient {
     /// Create an API key (`POST {base}/keys`). The bearer credential may be
     /// a web-login session token rather than an existing API key. The full
     /// key material is returned only by this call.
-    pub fn create_api_key(
-        &self,
-        request: &CreateApiKeyRequest,
-    ) -> Result<ApiKey, HyperCliError> {
+    pub fn create_api_key(&self, request: &CreateApiKeyRequest) -> Result<ApiKey, HyperCliError> {
         let url = self.endpoint("keys");
         let trace_request = serde_json::to_value(request).ok();
         let builder = self
