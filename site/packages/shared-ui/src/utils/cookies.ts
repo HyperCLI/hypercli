@@ -234,13 +234,16 @@ export const cookieUtils = {
     const securePart = getSecurePart();
     const expiration = "Thu, 01 Jan 1970 00:00:00 UTC";
     const domains = ["", ...getCookieCandidateDomains(configuredDomain)];
+    const existed = this.has(name);
 
     for (const domain of domains) {
       const domainPart = domain ? `; domain=${domain}` : "";
       document.cookie = `${name}=; expires=${expiration}; max-age=0; path=/${domainPart}${securePart}; samesite=lax`;
     }
 
-    emitCookieChange(name);
+    if (existed) {
+      emitCookieChange(name);
+    }
 
     console.log(`🍪 Removed cookie: ${name}`);
   },
