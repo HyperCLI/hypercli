@@ -142,6 +142,27 @@ fn write_config_key(key: &str, value: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Remove any configured API key lines; other config lines are preserved.
+#[tauri::command]
+fn logout() -> Result<(), String> {
+    let path = config_path()?;
+    let existing = fs::read_to_string(&path).unwrap_or_default();
+    let remaining: Vec<&str> = existing
+        .lines()
+        .filter(|line| {
+            let line = line.trim_start();
+            !["HYPER_AGENTS_API_KEY=", "HYPER_API_KEY=", "HYPERCLI_API_KEY="]
+                .iter()
+                .any(|prefix| line.starts_with(prefix))
+        })
+        .collect();
+    let mut content = remaining.join("\n");
+    if !content.is_empty() {
+        content.push('\n');
+    }
+    fs::write(&path, content).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn save_api_key(api_key: String) -> Result<(), String> {
     let api_key = api_key.trim();
@@ -223,6 +244,7 @@ pub fn run() {
             provider_status,
             install_providers,
             save_api_key,
+            logout,
             mint_api_key,
             start_login
         ])

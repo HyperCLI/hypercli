@@ -10,9 +10,10 @@
     <main class="card">
       <img src="logo.svg" alt="HyperCLI" class="logo" />
 
-      <section id="auth-section">
+      <!-- state: disconnected -->
+      <section id="auth-disconnected" hidden>
         <h1>Connect your account</h1>
-        <p class="hint" id="auth-hint">Sign in with your browser, or paste an API key from the dashboard.</p>
+        <p class="hint">Sign in with your browser, or paste an API key from the dashboard.</p>
         <button id="login-btn" class="primary">Sign in with browser</button>
         <div class="divider"><span>or</span></div>
         <form id="key-form">
@@ -21,11 +22,19 @@
         </form>
       </section>
 
-      <section id="provider-section">
+      <!-- state: connected -->
+      <section id="auth-connected" hidden>
+        <p class="hint"><span class="ok-mark">✓</span> Connected — API key configured
+          <button id="logout-btn" class="link">Log out</button>
+        </p>
+      </section>
+
+      <!-- providers: only rendered when connected -->
+      <section id="provider-section" hidden>
         <h1>Buzz provider</h1>
-        <p class="hint" id="provider-hint">Install the HyperCLI backend so your agents appear in Buzz.</p>
-        <button id="install-btn" class="primary">Install providers</button>
+        <p class="hint" id="provider-hint"></p>
         <ul id="provider-list"></ul>
+        <button id="install-btn" class="primary">Install providers</button>
       </section>
 
       <p id="status" role="status"></p>

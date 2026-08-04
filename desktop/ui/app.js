@@ -1,42 +1,68 @@
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
+const { getCurrentWindow, LogicalSize } = window.__TAURI__.window;
 
 const statusEl = document.getElementById("status");
-const providerList = document.getElementById("provider-list");
-const providerHint = document.getElementById("provider-hint");
+
+// Window height follows content, capped. Width stays fixed.
+const WINDOW_WIDTH = 440;
+const MAX_HEIGHT = 720;
+const TITLEBAR = 28;
+const appWindow = getCurrentWindow();
+const card = document.querySelector(".card");
+
+function fitWindow() {
+  const height = Math.min(MAX_HEIGHT, card.offsetHeight + TITLEBAR);
+  appWindow.setSize(new LogicalSize(WINDOW_WIDTH, height)).catch(() => {});
+}
+
+new ResizeObserver(fitWindow).observe(card);
 
 function setStatus(message, isError = false) {
   statusEl.textContent = message;
   statusEl.classList.toggle("error", isError);
 }
 
+// Two-state FSM: disconnected (auth only) / connected (providers visible).
+function render(status) {
+  const connected = status.has_api_key;
+  document.getElementById("auth-disconnected").hidden = connected;
+  document.getElementById("auth-connected").hidden = !connected;
+  document.getElementById("provider-section").hidden = !connected;
+  if (!connected) return;
+
+  const hint = document.getElementById("provider-hint");
+  const list = document.getElementById("provider-list");
+  const installBtn = document.getElementById("install-btn");
+  list.replaceChildren(
+    ...status.installed.map((name) => {
+      const li = document.createElement("li");
+      li.className = "ok";
+      li.textContent = name;
+      return li;
+    }),
+  );
+  if (status.missing.length === 0) {
+    hint.innerHTML = `<span class="ok-mark">✓</span> Installed in ${status.bin_dir}`;
+    installBtn.textContent = "Reinstall";
+    installBtn.classList.remove("primary");
+    installBtn.classList.add("link");
+  } else if (status.installed.length > 0) {
+    hint.textContent = `Missing: ${status.missing.join(", ")}`;
+    installBtn.textContent = "Install missing providers";
+    installBtn.classList.add("primary");
+    installBtn.classList.remove("link");
+  } else {
+    hint.textContent = "Install the HyperCLI backend so your agents appear in Buzz.";
+    installBtn.textContent = "Install providers";
+    installBtn.classList.add("primary");
+    installBtn.classList.remove("link");
+  }
+}
+
 async function refreshStatus() {
   try {
-    const status = await invoke("provider_status");
-    providerList.replaceChildren(
-      ...status.installed.map((name) => {
-        const li = document.createElement("li");
-        li.className = "ok";
-        li.textContent = name;
-        return li;
-      }),
-    );
-    const installBtn = document.getElementById("install-btn");
-    if (status.missing.length === 0) {
-      providerHint.textContent = `Installed in ${status.bin_dir}`;
-      installBtn.textContent = "Reinstall providers";
-    } else if (!status.bin_dir_exists) {
-      providerHint.textContent = `${status.bin_dir} does not exist yet — it will be created on install.`;
-    }
-    // Providers are useless without a credential: gate install on login.
-    installBtn.disabled = !status.has_api_key;
-    if (status.has_api_key) {
-      document.getElementById("auth-hint").textContent =
-        "✓ Connected — API key found in ~/.hypercli/config. Sign in again or paste a key to replace it.";
-      document.getElementById("key-input").placeholder = "replace API key…";
-    } else {
-      providerHint.textContent = "Connect your account first, then install the provider.";
-    }
+    render(await invoke("provider_status"));
   } catch (error) {
     setStatus(String(error), true);
   }
@@ -75,11 +101,20 @@ document.getElementById("key-form").addEventListener("submit", async (event) => 
   }
 });
 
+document.getElementById("logout-btn").addEventListener("click", async () => {
+  try {
+    await invoke("logout");
+    setStatus("Logged out — API key removed from ~/.hypercli/config.");
+    await refreshStatus();
+  } catch (error) {
+    setStatus(String(error), true);
+  }
+});
+
 document.getElementById("install-btn").addEventListener("click", async () => {
   try {
-    await invoke("install_providers");
+    render(await invoke("install_providers"));
     setStatus("Providers installed. Restart Buzz or use Settings → Agents → Check again.");
-    await refreshStatus();
   } catch (error) {
     setStatus(String(error), true);
   }
