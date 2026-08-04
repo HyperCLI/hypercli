@@ -46,6 +46,10 @@ class _FakeResponse:
         return self._payload
 
 
+def test_dev_bootstrap_uses_canonical_team_plan() -> None:
+    assert MODULE.DEFAULT_PLAN_ID == "team"
+
+
 def test_request_retries_transient_status(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[int] = []
 
