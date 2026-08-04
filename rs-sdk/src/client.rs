@@ -16,11 +16,10 @@ use thiserror::Error;
 use url::Url;
 
 use crate::{
-    AgentCapacity, ApiKey, AuthMe, ClientConfig, CreateApiKeyRequest,
-    CreateDeploymentRequest, Deployment, DeploymentRoutes, ExecDeploymentRequest,
-    ExecDeploymentResponse, HyperAgentCurrentPlan,
-    HyperAgentEntitlementsSummary, HyperAgentPlan, SetDeploymentRouteRequest,
-    SetDeploymentRoutesRequest, StartDeploymentRequest,
+    AgentCapacity, ApiKey, AuthMe, ClientConfig, CreateApiKeyRequest, CreateDeploymentRequest,
+    Deployment, DeploymentRoutes, ExecDeploymentRequest, ExecDeploymentResponse,
+    HyperAgentCurrentPlan, HyperAgentEntitlementsSummary, HyperAgentPlan,
+    SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
 };
 
 pub struct HyperCliClient {
