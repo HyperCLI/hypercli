@@ -209,36 +209,71 @@ fn load_legacy_agent_key(path: &PathBuf) -> Result<Option<String>, ConfigError> 
         .map(ToOwned::to_owned))
 }
 
+/// Normalize a configured agents API base URL.
+///
+/// Mirrors the Python SDK's `_normalize_agents_api_base` (sdk/hypercli/
+/// agents.py), including its ordering: empty input yields the default base;
+/// a path ending in `/agents` is kept as-is even on alias hosts; a path
+/// ending in `/api` is rewritten (with special cases for the agents alias
+/// hosts); bare alias hosts map to the prod/dev defaults; anything else gets
+/// `/agents` appended.
+///
+/// Deliberate differences from Python, because we return a typed `Url`:
+/// - the scheme must end up http/https and a host must be present;
+/// - query strings and fragments are always stripped (Python's fallback
+///   branch technically keeps the query — we do not replicate that quirk);
+/// - scheme-less fallback input carries the implied `https://` prefix in the
+///   returned URL (Python echoes it back scheme-less).
 pub fn normalize_agents_api_base(raw: &str) -> Result<Url, ConfigError> {
-    let input = raw.trim().trim_end_matches('/');
-    let mut parsed = Url::parse(input).map_err(|_| ConfigError::InvalidApiBase)?;
+    const DEV_AGENTS_API_BASE: &str = "https://api.dev.hypercli.com/agents";
+    let default_base =
+        || Url::parse(DEFAULT_AGENTS_API_BASE).map_err(|_| ConfigError::InvalidApiBase);
+    let dev_base = || Url::parse(DEV_AGENTS_API_BASE).map_err(|_| ConfigError::InvalidApiBase);
+
+    let input = raw.trim();
+    if input.is_empty() {
+        return default_base();
+    }
+    let with_scheme = if input.contains("://") {
+        input.to_owned()
+    } else {
+        format!("https://{input}")
+    };
+    let mut parsed = Url::parse(&with_scheme).map_err(|_| ConfigError::InvalidApiBase)?;
     if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
         return Err(ConfigError::InvalidApiBase);
     }
 
+    // Python compares the lowercased netloc, i.e. the host plus any explicit
+    // non-default port, so a custom port never matches an alias host.
     let host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
-    if matches!(
-        host.as_str(),
+    let netloc = match parsed.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host,
+    };
+
+    let path = parsed.path().trim_end_matches('/').to_owned();
+    let normalized_path = if path.ends_with("/agents") {
+        path
+    } else if let Some(stem) = path.strip_suffix("/api") {
+        match netloc.as_str() {
+            "api.agents.hypercli.com" => return default_base(),
+            "api.agents.dev.hypercli.com" => return dev_base(),
+            _ => format!("{stem}/agents"),
+        }
+    } else if matches!(
+        netloc.as_str(),
         "api.agents.hypercli.com" | "api.hypercli.com" | "api.hyperclaw.app"
     ) {
-        return Url::parse(DEFAULT_AGENTS_API_BASE).map_err(|_| ConfigError::InvalidApiBase);
-    }
-    if matches!(
-        host.as_str(),
+        return default_base();
+    } else if matches!(
+        netloc.as_str(),
         "api.agents.dev.hypercli.com"
             | "api.dev.hypercli.com"
             | "api.dev.hyperclaw.app"
             | "dev-api.hyperclaw.app"
     ) {
-        return Url::parse("https://api.dev.hypercli.com/agents")
-            .map_err(|_| ConfigError::InvalidApiBase);
-    }
-
-    let path = parsed.path().trim_end_matches('/');
-    let normalized_path = if path.ends_with("/agents") {
-        path.to_owned()
-    } else if path.ends_with("/api") {
-        format!("{}/agents", path.trim_end_matches("/api"))
+        return dev_base();
     } else {
         format!("{path}/agents")
     };
@@ -320,6 +355,106 @@ mod tests {
                 .unwrap()
                 .as_str(),
             "http://localhost:8000/agents"
+        );
+    }
+
+    #[test]
+    fn accepts_scheme_less_input() {
+        assert_eq!(
+            normalize_agents_api_base("api.hypercli.com")
+                .unwrap()
+                .as_str(),
+            DEFAULT_AGENTS_API_BASE
+        );
+        assert_eq!(
+            normalize_agents_api_base("custom.example.com")
+                .unwrap()
+                .as_str(),
+            "https://custom.example.com/agents"
+        );
+    }
+
+    #[test]
+    fn agents_path_is_preserved_even_on_alias_hosts() {
+        assert_eq!(
+            normalize_agents_api_base("https://api.dev.hyperclaw.app/agents")
+                .unwrap()
+                .as_str(),
+            "https://api.dev.hyperclaw.app/agents"
+        );
+        assert_eq!(
+            normalize_agents_api_base("https://api.hyperclaw.app/v2/agents/")
+                .unwrap()
+                .as_str(),
+            "https://api.hyperclaw.app/v2/agents"
+        );
+    }
+
+    #[test]
+    fn api_suffix_is_rewritten_with_alias_special_cases() {
+        assert_eq!(
+            normalize_agents_api_base("https://custom.example.com/v1/api")
+                .unwrap()
+                .as_str(),
+            "https://custom.example.com/v1/agents"
+        );
+        assert_eq!(
+            normalize_agents_api_base("https://api.agents.hypercli.com/api")
+                .unwrap()
+                .as_str(),
+            DEFAULT_AGENTS_API_BASE
+        );
+        assert_eq!(
+            normalize_agents_api_base("https://api.agents.dev.hypercli.com/api")
+                .unwrap()
+                .as_str(),
+            "https://api.dev.hypercli.com/agents"
+        );
+    }
+
+    #[test]
+    fn bare_alias_hosts_map_to_defaults() {
+        for host in [
+            "https://api.agents.hypercli.com",
+            "https://api.hyperclaw.app",
+        ] {
+            assert_eq!(
+                normalize_agents_api_base(host).unwrap().as_str(),
+                DEFAULT_AGENTS_API_BASE
+            );
+        }
+        for host in [
+            "https://api.agents.dev.hypercli.com",
+            "https://api.dev.hypercli.com",
+            "https://api.dev.hyperclaw.app",
+            "https://dev-api.hyperclaw.app",
+        ] {
+            assert_eq!(
+                normalize_agents_api_base(host).unwrap().as_str(),
+                "https://api.dev.hypercli.com/agents"
+            );
+        }
+    }
+
+    #[test]
+    fn empty_input_yields_default_base() {
+        assert_eq!(
+            normalize_agents_api_base("").unwrap().as_str(),
+            DEFAULT_AGENTS_API_BASE
+        );
+        assert_eq!(
+            normalize_agents_api_base("   ").unwrap().as_str(),
+            DEFAULT_AGENTS_API_BASE
+        );
+    }
+
+    #[test]
+    fn query_and_fragment_are_stripped() {
+        assert_eq!(
+            normalize_agents_api_base("http://env.test/base?x=1#frag")
+                .unwrap()
+                .as_str(),
+            "http://env.test/base/agents"
         );
     }
 }
