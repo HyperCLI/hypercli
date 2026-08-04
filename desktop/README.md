@@ -143,4 +143,8 @@ key (getpass-style), optional API URL, write `~/.hypercli/config`. Lives in
 
 ## Icon source
 
-`src-tauri/icons/icon-source.png` is the 1024px master (from hypercli-styles/logos/icon_dark_bg.png); all sizes and the icns are generated from it (RGBA required by Tauri).
+`src-tauri/icons/icon-source.png` is the 1024px master: the Aurora mark from
+`hypercli-styles/logos/icon_padded.png` composited on `#10151f` and laid out
+on Apple's macOS grid — 824×824 shape at +100,+100 in a 1024 canvas, mark
+sized to the 626px square element. Every other size, the `.icns` and the
+`.ico` are generated from it (Tauri requires 8-bit RGBA).
