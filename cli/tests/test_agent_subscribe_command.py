@@ -187,6 +187,59 @@ def test_agent_activate_code_can_request_extension(monkeypatch):
     assert calls == [("promo-123", {"extend_existing": True})]
 
 
+def test_agent_subscription_summary_json_includes_additive_direct_entitlements(monkeypatch):
+    summary = SimpleNamespace(
+        has_active_plan=True,
+        effective_plan_id="team",
+        current_subscription_id="sub-team",
+        current_entitlement_id="ent-team",
+        pooled_tpm_limit=2_604_150,
+        pooled_rpm_limit=259,
+        pooled_tpd=75_000_000,
+        slot_inventory={
+            "small": {"granted": 1, "used": 0, "available": 1},
+            "medium": {"granted": 3, "used": 0, "available": 3},
+        },
+        billing_reset_at=None,
+        active_subscription_count=1,
+        active_entitlement_count=2,
+        entitlements=SimpleNamespace(active_entitlement_count=2),
+        entitlement_items=[
+            SimpleNamespace(plan_id="team", subscription_id="sub-team"),
+            SimpleNamespace(plan_id="solo", subscription_id=None),
+        ],
+        agent_slots=[
+            SimpleNamespace(size="medium"),
+            SimpleNamespace(size="medium"),
+            SimpleNamespace(size="medium"),
+            SimpleNamespace(size="small"),
+        ],
+        active_subscriptions=[],
+        subscriptions=[],
+        user={"id": "user-1"},
+    )
+
+    class _FakeAgent:
+        def subscription_summary(self):
+            return summary
+
+    class _FakeClient:
+        agent = _FakeAgent()
+
+    monkeypatch.setattr(agent_mod, "_get_agent_query_client", lambda dev: _FakeClient())
+
+    result = runner.invoke(app, ["agent", "subscription-summary", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["has_active_plan"] is True
+    assert payload["effective_plan_id"] == "team"
+    assert payload["active_entitlement_count"] == 2
+    assert payload["entitlements"]["active_entitlement_count"] == 2
+    assert [item["plan_id"] for item in payload["entitlement_items"]] == ["team", "solo"]
+    assert [slot["size"] for slot in payload["agent_slots"]] == ["medium", "medium", "medium", "small"]
+
+
 def test_agent_enable_attaches_slack_relay_without_restart(monkeypatch):
     calls: list[tuple[str, object]] = []
 

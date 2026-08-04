@@ -19,6 +19,7 @@ from hypercli.config import get_agent_api_key, get_agents_api_base_url_from_prod
 from hypercli.http import HTTPClient
 
 from .onboard import onboard as _onboard_fn
+from .output import output
 from .voice import app as voice_app
 from .embed import app as embed_app
 
@@ -621,25 +622,27 @@ def subscription_summary(
     summary = client.agent.subscription_summary()
 
     if json_output:
-        console.print_json(
-            json.dumps(
-                {
-                    "effective_plan_id": summary.effective_plan_id,
-                    "current_subscription_id": summary.current_subscription_id,
-                    "pooled_tpm_limit": summary.pooled_tpm_limit,
-                    "pooled_rpm_limit": summary.pooled_rpm_limit,
-                    "pooled_tpd": summary.pooled_tpd,
-                    "slot_inventory": summary.slot_inventory,
-                    "active_subscription_count": summary.active_subscription_count,
-                    "active_subscriptions": [
-                        item.__dict__ for item in summary.active_subscriptions
-                    ],
-                    "subscriptions": [item.__dict__ for item in summary.subscriptions],
-                    "user": summary.user,
-                },
-                indent=2,
-                default=str,
-            )
+        output(
+            {
+                "has_active_plan": summary.has_active_plan,
+                "effective_plan_id": summary.effective_plan_id,
+                "current_subscription_id": summary.current_subscription_id,
+                "current_entitlement_id": summary.current_entitlement_id,
+                "pooled_tpm_limit": summary.pooled_tpm_limit,
+                "pooled_rpm_limit": summary.pooled_rpm_limit,
+                "pooled_tpd": summary.pooled_tpd,
+                "slot_inventory": summary.slot_inventory,
+                "billing_reset_at": summary.billing_reset_at,
+                "active_subscription_count": summary.active_subscription_count,
+                "active_entitlement_count": summary.active_entitlement_count,
+                "entitlements": summary.entitlements,
+                "entitlement_items": summary.entitlement_items,
+                "agent_slots": summary.agent_slots,
+                "active_subscriptions": summary.active_subscriptions,
+                "subscriptions": summary.subscriptions,
+                "user": summary.user,
+            },
+            "json",
         )
         return
 

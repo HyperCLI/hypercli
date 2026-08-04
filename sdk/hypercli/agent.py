@@ -318,11 +318,6 @@ class HyperAgentSubscriptionSummary:
         """Whether any subscription or direct entitlement is currently active."""
         return self.active_subscription_count > 0 or self.active_entitlement_count > 0
 
-    @property
-    def has_active_plan(self) -> bool:
-        """Whether any plan or entitlement is currently active."""
-        return self.active_subscription_count > 0 or self.active_entitlement_count > 0
-
     @classmethod
     def from_dict(cls, data: dict) -> "HyperAgentSubscriptionSummary":
         return cls(
