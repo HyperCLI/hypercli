@@ -325,7 +325,7 @@ export function EmbeddedPlanCheckout({
             </div>
             <div className="shrink-0 text-right">
               <span className="text-[30px] font-bold leading-none text-foreground">${plan.price}</span>
-              <span className="mt-1 block text-[10px] font-medium text-text-muted">per agent / month</span>
+              <span className="mt-1 block text-[10px] font-medium text-text-muted">per plan / month</span>
             </div>
           </div>
 

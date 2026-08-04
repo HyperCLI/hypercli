@@ -22,8 +22,8 @@ const MODEL_DISPLAY: Record<
   string,
   { title: string; tagline: string; highlighted?: boolean }
 > = {
-  "kimi-k2.5": {
-    title: "Kimi K2.5",
+  "kimi-k2.6": {
+    title: "Kimi K2.6",
     tagline: "Full-featured MoE with vision & tools",
     highlighted: true,
   },
@@ -106,7 +106,7 @@ export function ModelsSection() {
           <SectionHeading
             title="Frontier"
             accent="Models"
-            description="All models included in every plan. Choose the right one for your workload."
+            description="One API key, frontier open models. Model access depends on your plan."
           />
         </motion.div>
 
@@ -157,7 +157,7 @@ export function ModelsSection() {
           transition={{ duration: 0.6, delay: 0.6 }}
           className="text-center text-sm text-text-muted mt-8"
         >
-          All model usage is included in your active plan.
+          Model usage draws from your plan&apos;s daily token pool.
         </motion.p>
     </MarketingSection>
   );

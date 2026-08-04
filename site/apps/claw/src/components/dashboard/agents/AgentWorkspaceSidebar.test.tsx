@@ -1490,7 +1490,7 @@ describe("AgentWorkspaceSidebar", () => {
     expect(usageValue).toHaveClass("shrink-0", "whitespace-nowrap", "tabular-nums");
     expect(usageLabel.parentElement).toHaveClass("gap-1.5", "text-[11px]", "leading-none");
     expect(screen.getByRole("button", { name: /upgrade/i })).toBeInTheDocument();
-    expect(screen.queryByText("7-day free trial on every plan")).not.toBeInTheDocument();
+    expect(screen.queryByText("7-day free trial on Team")).not.toBeInTheDocument();
     expect(screen.queryByText("Purchased plans")).not.toBeInTheDocument();
   });
 
@@ -1512,7 +1512,7 @@ describe("AgentWorkspaceSidebar", () => {
       onStartTrial,
     });
 
-    expect(screen.getByText("7-day free trial on every plan")).toBeInTheDocument();
+    expect(screen.getByText("7-day free trial on Team")).toBeInTheDocument();
     expect(screen.getByText("Tokens today")).toBeInTheDocument();
     expect(screen.getByText("0 / --")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /upgrade/i })).not.toBeInTheDocument();

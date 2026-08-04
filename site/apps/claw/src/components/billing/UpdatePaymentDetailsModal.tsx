@@ -183,7 +183,7 @@ function UpdatePaymentDetailsModalContent({
             <span>
               <span className="block font-medium">Accept terms and conditions</span>
               <span className="mt-1 block text-xs leading-5 text-text-muted">
-                Your plan will auto-renew each month at the current price per agent.
+                Your plan will auto-renew each month at the current plan price.
               </span>
             </span>
           </label>

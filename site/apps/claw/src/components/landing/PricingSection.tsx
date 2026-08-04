@@ -64,7 +64,7 @@ export function PricingSection() {
             <SectionHeading
               title="Simple, Predictable"
               accent="Pricing"
-              description="Pay per AIU, not per token. Scale your agents without surprise bills."
+              description="Flat monthly plans, not per token. Scale by adding plans — never a surprise bill."
             />
           </motion.div>
 

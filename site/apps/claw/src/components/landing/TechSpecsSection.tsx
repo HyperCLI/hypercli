@@ -9,16 +9,16 @@ const specs = [
   {
     icon: Zap,
     label: "Throughput",
-    value: "~36M",
-    unit: "tokens/hour per AIU",
-    description: "Sustained throughput with 4x burst on frontier models",
+    value: "100M",
+    unit: "tokens/day on Pro",
+    description: "Daily pooled inference with burst capacity on frontier models",
   },
   {
     icon: Gauge,
     label: "Rate Limits",
-    value: "600K TPM",
-    unit: "/ 3,000 RPM per AIU",
-    description: "Base rate per AIU with 4x burst capacity. Scales linearly with AIUs.",
+    value: "Pooled",
+    unit: "tokens across your agents",
+    description: "Your API key and agents draw from the same daily pool.",
   },
   {
     icon: Plug,
@@ -37,7 +37,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="kimi-k2.5",
+    model="kimi-k2.6",
     messages=[{"role": "user", "content": "Hello!"}],
 )
 print(response.choices[0].message.content)`;

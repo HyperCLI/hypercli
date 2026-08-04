@@ -415,8 +415,8 @@ describe("AccountSettingsPanel", () => {
     expect(screen.getByRole("progressbar", { name: "Daily token pool usage" })).toHaveAttribute("aria-valuemax", "50000");
 
     await user.click(screen.getByRole("button", { name: "Agents this cycle" }));
-    expect(screen.getByText("Basic")).toBeInTheDocument();
-    expect(screen.getByText("Plus")).toBeInTheDocument();
+    expect(screen.getByText("Solo")).toBeInTheDocument();
+    expect(screen.getByText("Team")).toBeInTheDocument();
     expect(screen.getByText("Pro")).toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Invoices" }));

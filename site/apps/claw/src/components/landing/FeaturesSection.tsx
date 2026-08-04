@@ -8,9 +8,9 @@ import { FeatureCard, MarketingSection, SectionHeading } from "@hypercli/shared-
 const features = [
   {
     icon: Infinity,
-    title: "Unlimited Inference",
+    title: "Flat-Rate Inference",
     description:
-      "No per-token pricing. Use as much as your agents need with flat-rate AIU subscriptions. Predictable costs for autonomous workloads.",
+      "No per-token pricing. Generous daily token pools on flat-rate plans. Predictable costs for autonomous workloads.",
   },
   {
     icon: Code,
@@ -22,7 +22,7 @@ const features = [
     icon: Cpu,
     title: "Frontier Models on B200 GPUs",
     description:
-      "Kimi K2.5, GLM-5, and MiniMax M2.5 — reasoning, vision, and tool use. ~36M tokens/hour per AIU with 4x burst.",
+      "Kimi K2.6 and Qwen — reasoning, vision, and tool use. Daily pooled tokens with burst capacity.",
   },
   {
     icon: Wallet,

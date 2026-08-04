@@ -610,7 +610,7 @@ function buildLaunchPlanOptions(
       icon: iconForTier(tier),
       description: catalogDescription(plan),
       price: priceLabel(plan),
-      priceNote: "USD/month per agent",
+      priceNote: "USD/month per plan",
       statusText: waitingForEntitlement ? "Payment active, waiting for entitlement" : slotBeingReleased ? "Slot being released" : undefined,
       cta: canLaunch ? "Launch agent" : waitingForEntitlement ? "Open plans" : slotBeingReleased ? "Refreshing slots" : "View plan",
       accent: Boolean(plan.highlighted),
@@ -1819,7 +1819,7 @@ export function FirstAgentSetupWizard({
                         {plan.price ? (
                           <>
                             <span className={cx("font-bold leading-none text-foreground", largePresentation ? "text-[24px]" : "text-[20px]")}>{plan.price}</span>
-                            <span className="mt-1 text-[9px] font-medium leading-none text-text-muted">per agent / mo</span>
+                            <span className="mt-1 text-[9px] font-medium leading-none text-text-muted">per plan / mo</span>
                           </>
                         ) : (
                           <span className={cx("text-[11px] font-semibold leading-tight", isReleasing ? "text-warning" : "text-foreground")}>

@@ -9,7 +9,7 @@ const codeSnippet = `curl https://api.hypercli.com/v1/chat/completions \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "kimi-k2.5",
+    "model": "kimi-k2.6",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'`;
 export function HeroSection() {
@@ -77,7 +77,7 @@ export function HeroSection() {
             }}
             className="text-[40px] sm:text-[48px] md:text-[56px] lg:text-[64px] font-bold leading-[0.95] tracking-[-0.03em] mb-6"
           >
-            Unlimited Agent{" "}
+            Flat-Rate Agent{" "}
             <span className="gradient-text-primary">Inference</span>
           </motion.h1>
 
@@ -91,7 +91,7 @@ export function HeroSection() {
             }}
             className="text-base sm:text-lg md:text-xl text-text-secondary max-w-2xl mx-auto mb-10 leading-relaxed px-2"
           >
-            AIU (Agent Inference Units) enable 24/7 agent operation with no
+            Up to 100 million pooled tokens a day for one flat price — no
             per-token charges. OpenAI-compatible API on NVIDIA B200 GPUs.
           </motion.p>
 

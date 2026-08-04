@@ -795,7 +795,7 @@ function UpgradePlanCatalogContent({
                 <div className="mt-3 flex min-h-[42px] items-center gap-2.5">
                   <span className="text-[28px] font-bold leading-none text-foreground">${product.price}</span>
                   <span className="max-w-[78px] text-[10px] font-semibold leading-[1.1] text-text-secondary">
-                    USD/month per agent
+                    USD/month per plan
                   </span>
                 </div>
 

@@ -207,7 +207,7 @@ function buildDisplayPlans(
         icon: getPlanIcon(plan),
         price: formatPlanPrice(plan),
         priceSuffix: price > 0 ? "USD/month" : undefined,
-        priceNote: plan.agents > 1 ? `${plan.agents} agents` : "per agent",
+        priceNote: plan.agents > 1 ? `${plan.agents} agents` : "per plan",
         action: current ? "Current" : price > 0 ? "Select plan" : "Included",
         actionHref: current ? undefined : "/plans",
         badge: plan.highlighted ? "Most popular" : undefined,

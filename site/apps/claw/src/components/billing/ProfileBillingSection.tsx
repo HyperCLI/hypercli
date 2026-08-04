@@ -384,8 +384,8 @@ function getReceiptContext(receipt: ReceiptRecord): string {
 }
 
 function tierLabel(tier: string): string {
-  if (tier === "small") return "Basic";
-  if (tier === "medium") return "Plus";
+  if (tier === "small") return "Solo";
+  if (tier === "medium") return "Team";
   if (tier === "large") return "Pro";
   return humanizePlanId(tier);
 }

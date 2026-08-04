@@ -43,10 +43,10 @@ function titleizePlanId(planId: string | null | undefined): string {
 
 function inferPlanLabel(tokenTotal: number | null): string {
   if (!tokenTotal) return "Current";
-  if (tokenTotal >= 500_000_000) return "Team";
-  if (tokenTotal >= 250_000_000) return "Pro";
-  if (tokenTotal >= 50_000_000) return "Starter";
-  return "Free";
+  if (tokenTotal >= 100_000_000) return "Pro";
+  if (tokenTotal >= 50_000_000) return "Team";
+  if (tokenTotal >= 25_000_000) return "Solo";
+  return "Current";
 }
 
 function formatPlanLabel(label: string): string {

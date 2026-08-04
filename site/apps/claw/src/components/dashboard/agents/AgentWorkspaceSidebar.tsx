@@ -1736,7 +1736,7 @@ export function AgentWorkspaceSidebar({
             {!isAuthenticated ? (
               <div className="flex w-full items-center justify-center gap-1.5 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.36)] bg-[rgb(var(--selection-accent-rgb)_/_0.06)] px-2 py-1 text-[10px] font-semibold leading-none text-[var(--selection-accent)]">
                 <Sparkles className="h-3 w-3 shrink-0" />
-                <span className="whitespace-nowrap">7-day free trial on every plan</span>
+                <span className="whitespace-nowrap">7-day free trial on Team</span>
               </div>
             ) : null}
             <div className="flex items-center justify-between gap-1.5 text-[11px] leading-none">
