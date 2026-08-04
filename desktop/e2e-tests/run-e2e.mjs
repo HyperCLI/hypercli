@@ -223,16 +223,31 @@ async function main() {
     await (await browser.$("#install-btn")).click();
     await waitForText(browser, "#provider-hint", "Providers installed");
     const binDir = path.join(home, ".local", "bin");
+    // The install must NOT reference the app bundle: a downloaded app can run
+    // from an App Translocation mount that disappears on quit, which would
+    // leave every provider dangling. One real copy is owned by the user, and
+    // the runtime identities link to it.
+    const primary = path.join(binDir, "hypercli-configure");
+    if (!fs.existsSync(primary)) fail(`missing installed binary ${primary}`);
     const sidecar = path.join(path.dirname(APP_BIN), "buzz-backend-hypercli");
+    if (!fs.readFileSync(primary).equals(fs.readFileSync(sidecar))) {
+      fail(`${primary} differs from the bundled sidecar`);
+    }
+    if (!(fs.statSync(primary).mode & 0o111)) fail(`${primary} is not executable`);
     for (const name of PROVIDER_NAMES) {
       const link = path.join(binDir, name);
       if (!fs.existsSync(link)) fail(`missing provider link ${link}`);
-      if (fs.realpathSync(link) !== fs.realpathSync(sidecar)) {
-        fail(`${link} does not resolve to the bundled sidecar`);
+      if (fs.realpathSync(link) !== fs.realpathSync(primary)) {
+        fail(`${link} does not resolve to ${primary}`);
+      }
+      if (fs.realpathSync(link).startsWith(path.dirname(APP_BIN))) {
+        fail(`${link} points into the app bundle; it must survive the app`);
       }
     }
     await expectDisplayed(browser, "#uninstall-btn", true);
-    console.log(`[ok] all ${PROVIDER_NAMES.length} provider names symlinked to the sidecar`);
+    console.log(
+      `[ok] ${PROVIDER_NAMES.length} provider names link to the user-owned copy`,
+    );
 
     // 5. Logout clears the credential and returns to the disconnected state.
     await (await browser.$("#logout-btn")).click();
