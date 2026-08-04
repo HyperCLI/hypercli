@@ -25,10 +25,7 @@ export default function Header() {
   const [scrolled, setScrolled] = useState(false);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-  const [platformMenuOpen, setPlatformMenuOpen] = useState(false);
-  const [platformMenuFullyOpen, setPlatformMenuFullyOpen] = useState(false);
-  const [solutionsMenuOpen, setSolutionsMenuOpen] = useState(false);
-  const [solutionsMenuFullyOpen, setSolutionsMenuFullyOpen] = useState(false);
+  const [openMenu, setOpenMenu] = useState<"platform" | "product" | "solutions" | null>(null);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const { logout } = useTurnkey();
@@ -78,41 +75,32 @@ export default function Header() {
     return () => document.removeEventListener("mousedown", closeOnOutsideClick);
   }, [accountMenuOpen]);
 
-  const platformMenuFullyOpenRef = useRef(false);
-  const solutionsMenuFullyOpenRef = useRef(false);
+  const openMenuFullyOpenRef = useRef(false);
 
-  // Track menu states
+  // Track menu open state; only allow closing once the menu has been fully
+  // open for a moment so hover transitions between triggers don't flicker
   useEffect(() => {
-    if (platformMenuOpen) {
-      platformMenuFullyOpenRef.current = false;
-      // Close the other menu
-      if (solutionsMenuOpen) {
-        setSolutionsMenuOpen(false);
-      }
+    if (openMenu) {
+      openMenuFullyOpenRef.current = false;
       const timer = setTimeout(() => {
-        platformMenuFullyOpenRef.current = true;
+        openMenuFullyOpenRef.current = true;
       }, 200);
       return () => clearTimeout(timer);
     } else {
-      platformMenuFullyOpenRef.current = false;
+      openMenuFullyOpenRef.current = false;
     }
-  }, [platformMenuOpen, solutionsMenuOpen]);
+  }, [openMenu]);
 
-  useEffect(() => {
-    if (solutionsMenuOpen) {
-      solutionsMenuFullyOpenRef.current = false;
-      // Close the other menu
-      if (platformMenuOpen) {
-        setPlatformMenuOpen(false);
+  const menuValueProps = (menu: "platform" | "product" | "solutions") => ({
+    value: openMenu === menu ? menu : undefined,
+    onValueChange: (value: string) => {
+      if (value === menu) {
+        setOpenMenu(menu);
+      } else if (openMenuFullyOpenRef.current) {
+        setOpenMenu(null);
       }
-      const timer = setTimeout(() => {
-        solutionsMenuFullyOpenRef.current = true;
-      }, 200);
-      return () => clearTimeout(timer);
-    } else {
-      solutionsMenuFullyOpenRef.current = false;
-    }
-  }, [solutionsMenuOpen, platformMenuOpen]);
+    },
+  });
 
   return (
     <>
@@ -136,27 +124,12 @@ export default function Header() {
 
             {/* Desktop Nav Links */}
             <div className="hidden md:!flex items-center space-x-6">
-              <a
-                href={NAV_URLS.claw}
-                className="text-sm text-text-secondary hover:text-foreground transition-colors"
-              >
-                HyperClaw
-              </a>
-
-              {/* Product dropdown grouping console/playground/models/gpus/launch (Radix) */}
+              {/* Platform dropdown grouping console/agents/playground/models/gpus (Radix) */}
               <NavigationMenu
-                data-slot="header-product"
+                data-slot="header-platform"
                 viewport={false}
                 className="!flex-none"
-                value={platformMenuOpen ? "platform" : undefined}
-                onValueChange={(value) => {
-                  const shouldOpen = value === "platform";
-                  if (shouldOpen) {
-                    setPlatformMenuOpen(true);
-                  } else if (platformMenuFullyOpenRef.current) {
-                    setPlatformMenuOpen(false);
-                  }
-                }}
+                {...menuValueProps("platform")}
                 delayDuration={150}
                 skipDelayDuration={0}
               >
@@ -173,6 +146,12 @@ export default function Header() {
                             className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md"
                           >
                             Console
+                          </NavigationMenuLink>
+                          <NavigationMenuLink
+                            href={NAV_URLS.agents}
+                            className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md"
+                          >
+                            Agents
                           </NavigationMenuLink>
                           <NavigationMenuLink
                             href={NAV_URLS.playground}
@@ -192,11 +171,59 @@ export default function Header() {
                           >
                             GPUs
                           </NavigationMenuLink>
+                        </nav>
+                      </div>
+                    </NavigationMenuContent>
+                  </NavigationMenuItem>
+                </NavigationMenuList>
+              </NavigationMenu>
+
+              {/* Product dropdown grouping pricing/capabilities/cli/quickstart/inference (Radix) */}
+              <NavigationMenu
+                data-slot="header-product"
+                viewport={false}
+                className="!flex-none"
+                {...menuValueProps("product")}
+                delayDuration={150}
+                skipDelayDuration={0}
+              >
+                <NavigationMenuList>
+                  <NavigationMenuItem value="product">
+                    <NavigationMenuTrigger className="text-sm !text-text-secondary hover:text-foreground transition-colors cursor-pointer !bg-transparent !px-0 !py-0 !h-auto !rounded-none !shadow-none focus-visible:ring-2 focus-visible:ring-primary/30 data-[state=open]:!text-text-secondary data-[state=open]:!bg-transparent data-[state=open]:hover:!text-text-secondary">
+                      Product
+                    </NavigationMenuTrigger>
+                    <NavigationMenuContent className="md:w-auto overflow-visible bg-transparent p-0 border-none shadow-none">
+                      <div className="bg-surface-low border border-border rounded-lg p-2 shadow-lg w-56">
+                        <nav className="flex flex-col">
                           <NavigationMenuLink
-                            href={NAV_URLS.launch}
+                            href={NAV_URLS.pricing}
                             className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md"
                           >
-                            Launch
+                            Pricing
+                          </NavigationMenuLink>
+                          <NavigationMenuLink
+                            href={NAV_URLS.capabilities}
+                            className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md"
+                          >
+                            Capabilities
+                          </NavigationMenuLink>
+                          <NavigationMenuLink
+                            href={NAV_URLS.cli}
+                            className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md"
+                          >
+                            CLI
+                          </NavigationMenuLink>
+                          <NavigationMenuLink
+                            href={NAV_URLS.quickstart}
+                            className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md"
+                          >
+                            Quickstart
+                          </NavigationMenuLink>
+                          <NavigationMenuLink
+                            href={NAV_URLS.inference}
+                            className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md"
+                          >
+                            Inference
                           </NavigationMenuLink>
                         </nav>
                       </div>
@@ -205,20 +232,12 @@ export default function Header() {
                 </NavigationMenuList>
               </NavigationMenu>
 
-              {/* Solutions dropdown grouping partners/enterprise/data-center (Radix) */}
+              {/* Solutions dropdown grouping for-teams/developers/enterprise/data-center (Radix) */}
               <NavigationMenu
                 data-slot="header-solutions"
                 viewport={false}
                 className="!flex-none"
-                value={solutionsMenuOpen ? "solutions" : undefined}
-                onValueChange={(value) => {
-                  const shouldOpen = value === "solutions";
-                  if (shouldOpen) {
-                    setSolutionsMenuOpen(true);
-                  } else if (solutionsMenuFullyOpenRef.current) {
-                    setSolutionsMenuOpen(false);
-                  }
-                }}
+                {...menuValueProps("solutions")}
                 delayDuration={150}
                 skipDelayDuration={0}
               >
@@ -231,10 +250,16 @@ export default function Header() {
                       <div className="bg-surface-low border border-border rounded-lg p-2 shadow-lg w-56">
                         <nav className="flex flex-col">
                           <NavigationMenuLink
-                            href={NAV_URLS.partner}
+                            href={NAV_URLS.forTeams}
                             className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md"
                           >
-                            Partners
+                            For Teams
+                          </NavigationMenuLink>
+                          <NavigationMenuLink
+                            href={NAV_URLS.developers}
+                            className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md"
+                          >
+                            Developers
                           </NavigationMenuLink>
                           <NavigationMenuLink
                             href={NAV_URLS.enterprise}
@@ -243,7 +268,7 @@ export default function Header() {
                             Enterprise
                           </NavigationMenuLink>
                           <NavigationMenuLink
-                            href="/data-center"
+                            href={NAV_URLS.dataCenter}
                             className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md"
                           >
                             Data Center
@@ -354,48 +379,32 @@ export default function Header() {
           }`}
         >
           <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
-            <a
-              href={NAV_URLS.claw}
-              className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              HyperClaw
-            </a>
-            <a
-              href={NAV_URLS.console}
-              className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              Console
-            </a>
-            <a
-              href={NAV_URLS.gpus}
-              className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              GPUs
-            </a>
-            <a
-              href={NAV_URLS.models}
-              className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              Models
-            </a>
-            <a
-              href={NAV_URLS.playground}
-              className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              Playground
-            </a>
-            <a
-              href={NAV_URLS.launch}
-              className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              Launch
-            </a>
+            {[
+              { label: "Agents", href: NAV_URLS.agents },
+              { label: "Console", href: NAV_URLS.console },
+              { label: "Playground", href: NAV_URLS.playground },
+              { label: "Models", href: NAV_URLS.models },
+              { label: "GPUs", href: NAV_URLS.gpus },
+              { label: "Pricing", href: NAV_URLS.pricing },
+              { label: "Capabilities", href: NAV_URLS.capabilities },
+              { label: "CLI", href: NAV_URLS.cli },
+              { label: "Quickstart", href: NAV_URLS.quickstart },
+              { label: "Inference", href: NAV_URLS.inference },
+              { label: "For Teams", href: NAV_URLS.forTeams },
+              { label: "Developers", href: NAV_URLS.developers },
+              { label: "Enterprise", href: NAV_URLS.enterprise },
+              { label: "Data Center", href: NAV_URLS.dataCenter },
+              { label: "Status", href: NAV_URLS.status },
+            ].map((item) => (
+              <a
+                key={item.label}
+                href={item.href}
+                className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                {item.label}
+              </a>
+            ))}
             <a
               href={NAV_URLS.docs}
               target="_blank"
@@ -404,34 +413,6 @@ export default function Header() {
               onClick={() => setMobileMenuOpen(false)}
             >
               Docs
-            </a>
-            <a
-              href={NAV_URLS.status}
-              className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              Status
-            </a>
-            <a
-              href={NAV_URLS.partner}
-              className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              Partners
-            </a>
-            <a
-              href={NAV_URLS.enterprise}
-              className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              Enterprise
-            </a>
-            <a
-              href="/data-center"
-              className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              Data Center
             </a>
             <button
               onClick={openContactModal}

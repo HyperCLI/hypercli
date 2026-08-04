@@ -40,93 +40,46 @@ export default function Footer() {
               </Link>
             </div>
           </div>
-          <div className="mt-12 grid grid-cols-2 gap-8 md:grid-cols-3 lg:grid-cols-5 xl:mt-0 xl:col-span-3">
+          <div className="mt-12 grid grid-cols-2 gap-8 md:grid-cols-4 xl:mt-0 xl:col-span-3">
             <div>
               <h3 className="text-foreground mb-4">Product</h3>
               <ul className="space-y-3">
                 <li>
-                    <Link href={NAV_URLS.console} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                      Deployments
-                    </Link>
-                </li>
-                {/* <li>
-                  <Link href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                    Fine-Tuning
-                  </Link>
-                </li> */}
-                <li>
-                  <Link href={NAV_URLS.apiReference} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                    API Reference
-                  </Link>
-                </li>
-                {/* <li>
-                  <Link href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                  <Link href={NAV_URLS.pricing} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
                     Pricing
                   </Link>
-                </li> */}
-              </ul>
-            </div>
-
-            <div>
-              <h3 className="text-foreground mb-4">Company</h3>
-              <ul className="space-y-3">
-                {/* <li>
-                  <Link href={NAV_URLS.home} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                    About
-                  </Link>
-                </li> */}
-                {/* <li>
-                  <Link href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                    Blog
-                  </Link>
-                </li> */}
-                {/* <li>
-                  <Link href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                    Careers
-                  </Link>
-                </li> */}
+                </li>
                 <li>
-                  <Link href={NAV_URLS.architecture} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                    Architecture and Security
+                  <Link href={NAV_URLS.capabilities} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                    Capabilities
                   </Link>
                 </li>
                 <li>
-                  <button onClick={() => setIsContactModalOpen(true)} className="text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
-                    Contact
-                  </button>
+                  <Link href={NAV_URLS.cli} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                    CLI
+                  </Link>
                 </li>
-              </ul>
-            </div>
-
-            <div>
-              <h3 className="text-foreground mb-4">Resources</h3>
-              <ul className="space-y-3">
                 <li>
-                  <Link href={NAV_URLS.docs} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                    Documentation
+                  <Link href={NAV_URLS.quickstart} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                    Quickstart
                   </Link>
                 </li>
-                {/* <li>
-                  <Link href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                    Guides
-                  </Link>
-                </li> */}
                 <li>
-                  <button onClick={() => setIsContactModalOpen(true)} className="text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
-                    Support
-                  </button>
-                </li>
-                {/* <li>
-                  <Link href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                    Status
+                  <Link href={NAV_URLS.inference} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                    Inference
                   </Link>
-                </li> */}
+                </li>
               </ul>
             </div>
 
             <div>
               <h3 className="text-foreground mb-4">Solutions</h3>
               <ul className="space-y-3">
+                <li>
+                  <Link href={NAV_URLS.forTeams} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                    For Teams
+                  </Link>
+                </li>
                 <li>
                   <Link href={NAV_URLS.enterprise} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
                     Enterprise
@@ -138,6 +91,11 @@ export default function Footer() {
                   </Link>
                 </li>
                 <li>
+                  <Link href={NAV_URLS.selfHosted} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                    Self-Hosted
+                  </Link>
+                </li>
+                <li>
                   <Link href={NAV_URLS.partner} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
                     Partners
                   </Link>
@@ -146,8 +104,44 @@ export default function Footer() {
             </div>
 
             <div>
-              <h3 className="text-foreground mb-4">Legal</h3>
+              <h3 className="text-foreground mb-4">Resources</h3>
               <ul className="space-y-3">
+                <li>
+                  <a href={NAV_URLS.docs} target="_blank" rel="noopener noreferrer" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                    Documentation
+                  </a>
+                </li>
+                <li>
+                  <a href={NAV_URLS.apiReference} target="_blank" rel="noopener noreferrer" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                    API Reference
+                  </a>
+                </li>
+                <li>
+                  <Link href={NAV_URLS.status} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                    Status
+                  </Link>
+                </li>
+                <li>
+                  <Link href={NAV_URLS.buildersProgram} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                    Builders Program
+                  </Link>
+                </li>
+              </ul>
+            </div>
+
+            <div>
+              <h3 className="text-foreground mb-4">Company</h3>
+              <ul className="space-y-3">
+                <li>
+                  <button onClick={() => setIsContactModalOpen(true)} className="text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
+                    Contact
+                  </button>
+                </li>
+                <li>
+                  <Link href={NAV_URLS.security} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                    Security
+                  </Link>
+                </li>
                 <li>
                   <Link href={NAV_URLS.privacy} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
                     Privacy
@@ -156,11 +150,6 @@ export default function Footer() {
                 <li>
                   <Link href={NAV_URLS.terms} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
                     Terms
-                  </Link>
-                </li>
-                <li>
-                  <Link href={NAV_URLS.architecture} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                    Security
                   </Link>
                 </li>
               </ul>

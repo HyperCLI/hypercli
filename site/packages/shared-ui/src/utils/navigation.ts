@@ -31,6 +31,20 @@ export const NAV_URLS = {
   dataCenter: IS_MAIN_SITE ? '/data-center' : `${MAIN_SITE_URL}/data-center`,
   // Architecture & Security page
   architecture: IS_MAIN_SITE ? '/architecture' : `${MAIN_SITE_URL}/architecture`,
+  security: IS_MAIN_SITE ? '/security' : `${MAIN_SITE_URL}/security`,
+
+  // Product pages
+  pricing: IS_MAIN_SITE ? '/pricing' : `${MAIN_SITE_URL}/pricing`,
+  capabilities: IS_MAIN_SITE ? '/capabilities' : `${MAIN_SITE_URL}/capabilities`,
+  cli: IS_MAIN_SITE ? '/cli' : `${MAIN_SITE_URL}/cli`,
+  quickstart: IS_MAIN_SITE ? '/quickstart' : `${MAIN_SITE_URL}/quickstart`,
+  inference: IS_MAIN_SITE ? '/inference' : `${MAIN_SITE_URL}/inference`,
+
+  // Solutions pages
+  forTeams: IS_MAIN_SITE ? '/for-teams' : `${MAIN_SITE_URL}/for-teams`,
+  developers: IS_MAIN_SITE ? '/developers' : `${MAIN_SITE_URL}/developers`,
+  selfHosted: IS_MAIN_SITE ? '/self-hosted' : `${MAIN_SITE_URL}/self-hosted`,
+  buildersProgram: IS_MAIN_SITE ? '/builders-program' : `${MAIN_SITE_URL}/builders-program`,
 
   // Legal pages
   privacy: IS_MAIN_SITE ? '/privacy' : `${MAIN_SITE_URL}/privacy`,
@@ -44,8 +58,9 @@ export const NAV_URLS = {
   history: `${CONSOLE_URL}/history`,
   keys: `${CONSOLE_URL}/keys`,
 
-  // HyperClaw
+  // HyperClaw / Agents
   claw: CLAW_URL,
+  agents: CLAW_URL,
   clawDashboard: `${CLAW_URL}/dashboard`,
 } as const;
 
