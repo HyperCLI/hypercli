@@ -295,7 +295,11 @@ jobs:
             echo "Release ${TAG} already exists" >&2
             exit 1
           fi
-          SIGNING="$(tar -xzOf dist/buzz-backend-hypercli-macos-aarch64-${{ inputs.version }}.tar.gz BUILD-INFO | sed -n 's/^signing=//p')"
+          # Archives are packed with `tar -C dir .`, so members are prefixed
+          # with ./ — resolve the actual member name instead of assuming it.
+          TARBALL="dist/buzz-backend-hypercli-macos-aarch64-${{ inputs.version }}.tar.gz"
+          MEMBER="$(tar -tzf "$TARBALL" | grep -E '(^|/)BUILD-INFO$' | head -1)"
+          SIGNING="$(tar -xzOf "$TARBALL" "$MEMBER" | sed -n 's/^signing=//p')"
           case "${SIGNING}" in
             signed-notarized)
               TITLE_SUFFIX=""
