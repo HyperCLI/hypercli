@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import remend from "remend";
 import { Brain, ChevronRight, Download, FileImage, FolderOpen, Loader2, Paperclip, RefreshCw, Square } from "lucide-react";
 import { AnimatePresence, motion, type HTMLMotionProps } from "framer-motion";
 import {
@@ -15,12 +16,14 @@ import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import { deriveToolWrittenFiles } from "@/lib/chat-attachment-state";
 import {
   classifyChatMediaReference,
+  dropIncompleteMediaSentinelLines,
   extractContentMediaReferences,
   findFileForMediaReference,
   getChatFileLabel,
   inferChatMediaFileType,
   isAudioFileReference,
   isImageFileReference,
+  isOpenClawManagedOutgoingMediaUrl,
   isVideoFileReference,
   type ContentMediaReference,
   type DirectChatMediaReference,
@@ -642,7 +645,7 @@ function useAgentFileObjectState(
 }
 
 function isGatewayManagedMediaUrl(value: string): boolean {
-  return /^\/api\/chat\/media\/outgoing\//.test(value);
+  return isOpenClawManagedOutgoingMediaUrl(value);
 }
 
 function useGatewayMediaObjectState(
@@ -1263,12 +1266,16 @@ export function ChatMessageBubble({
     generatedMediaUrlReferences.some(({ file }) => isAudioFileReference(file)) ||
     directMediaReferences.some(({ reference }) => reference.kind === "audio"),
   );
+  const sanitizedContentMediaText = !isUser
+    ? dropIncompleteMediaSentinelLines(extractedContentMedia.content)
+    : extractedContentMedia.content;
   const displayContent = hasAudioPresentation && (
     (!isUser && isAudioReplyCarrierText(extractedContentMedia.content)) ||
     (isUser && isVoiceNoteTranscriptionInstruction(extractedContentMedia.content))
   )
     ? ""
-    : extractedContentMedia.content;
+    : sanitizedContentMediaText;
+  const streamingDisplayContent = showStreamingDot ? remend(displayContent) : displayContent;
   const contentDirectoryListing = !isUser && displayContent ? parseDirectoryVisualization(displayContent) : null;
   const messageColumnClass = isUser
     ? "w-fit max-w-[75%] items-end"
@@ -1653,7 +1660,7 @@ export function ChatMessageBubble({
               />
             ) : displayContent && (
               <MarkdownContent
-                content={displayContent}
+                content={streamingDisplayContent}
                 typewriter={false}
                 isStreaming={showStreamingDot}
                 className="relative"

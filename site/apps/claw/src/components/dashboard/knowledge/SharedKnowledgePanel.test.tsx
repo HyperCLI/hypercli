@@ -226,7 +226,7 @@ describe("SharedKnowledgePanel", () => {
       />,
     );
     expect(await screen.findByRole("button", { name: /collapse product knowledge/i })).toBeInTheDocument();
-    fireEvent.change(screen.getByRole("textbox", { name: /search shared knowledge/i }), { target: { value: "product" } });
+    fireEvent.change(screen.getByRole("textbox", { name: /search domains/i }), { target: { value: "product" } });
     await waitFor(() => expect(workspaces.search).toHaveBeenCalledWith("product"));
 
     await act(async () => {
@@ -249,7 +249,7 @@ describe("SharedKnowledgePanel", () => {
     renderSharedKnowledgePanel(workspaces);
     await waitForTeamKnowledge();
 
-    const search = screen.getByRole("textbox", { name: /search shared knowledge/i });
+    const search = screen.getByRole("textbox", { name: /search domains/i });
     fireEvent.change(search, { target: { value: "older" } });
     await waitFor(() => expect(workspaces.search).toHaveBeenCalledWith("older"));
     fireEvent.change(search, { target: { value: "newer" } });
@@ -272,12 +272,12 @@ describe("SharedKnowledgePanel", () => {
     });
     await waitForTeamKnowledge();
 
-    fireEvent.click(screen.getByRole("button", { name: /new shared knowledge/i }));
+    fireEvent.click(screen.getByRole("button", { name: /new domain/i }));
     expect(screen.getByRole("button", { name: /brand agent/i })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: /docs pilot/i })).toHaveAttribute("aria-pressed", "false");
-    fireEvent.change(screen.getByPlaceholderText(/team knowledge/i), { target: { value: "Support Docs" } });
+    fireEvent.change(screen.getByPlaceholderText(/e\.g\., finance/i), { target: { value: "Support Docs" } });
     fireEvent.change(screen.getByPlaceholderText(/what should agents find here/i), { target: { value: "Customer support procedures." } });
-    fireEvent.click(screen.getByRole("button", { name: /create shared knowledge/i }));
+    fireEvent.click(screen.getByRole("button", { name: /create domain/i }));
 
     await waitFor(() => expect(workspaces.create).toHaveBeenCalledWith({
       name: "Support Docs",
@@ -287,7 +287,7 @@ describe("SharedKnowledgePanel", () => {
     expect(workspaces.grant).toHaveBeenCalledWith("support-docs", { subjectType: "agent", subjectId: "agent-brand", role: "viewer" });
     expect(onWorkspacesChanged).toHaveBeenCalledWith("workspace-2");
     expect(onSelectWorkspace).toHaveBeenCalledWith("workspace-2", expect.objectContaining({ id: "workspace-2" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: /new shared knowledge/i })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /new domain/i })).not.toBeInTheDocument());
   });
 
   it("waits for the focused agent before opening the create dialog", async () => {
@@ -303,8 +303,8 @@ describe("SharedKnowledgePanel", () => {
     );
     await waitForTeamKnowledge();
 
-    expect(screen.getByRole("button", { name: /new shared knowledge/i })).toBeDisabled();
-    expect(screen.queryByRole("dialog", { name: /new shared knowledge/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /new domain/i })).toBeDisabled();
+    expect(screen.queryByRole("dialog", { name: /new domain/i })).not.toBeInTheDocument();
 
     rerender(
       <SharedKnowledgePanel
@@ -315,12 +315,12 @@ describe("SharedKnowledgePanel", () => {
       />,
     );
 
-    const newKnowledge = screen.getByRole("button", { name: /new shared knowledge/i });
+    const newKnowledge = screen.getByRole("button", { name: /new domain/i });
     expect(newKnowledge).toBeEnabled();
     fireEvent.click(newKnowledge);
     expect(screen.getByRole("button", { name: /brand agent/i })).toHaveAttribute("aria-pressed", "true");
-    fireEvent.change(screen.getByPlaceholderText(/team knowledge/i), { target: { value: "Support Docs" } });
-    expect(screen.getByRole("button", { name: /create shared knowledge/i })).toBeEnabled();
+    fireEvent.change(screen.getByPlaceholderText(/e\.g\., finance/i), { target: { value: "Support Docs" } });
+    expect(screen.getByRole("button", { name: /create domain/i })).toBeEnabled();
   });
 
   it("keeps the create dialog open when creation fails", async () => {
@@ -328,11 +328,11 @@ describe("SharedKnowledgePanel", () => {
     renderSharedKnowledgePanel(workspaces);
     await waitForTeamKnowledge();
 
-    fireEvent.click(screen.getByRole("button", { name: /new shared knowledge/i }));
-    fireEvent.change(screen.getByPlaceholderText(/team knowledge/i), { target: { value: "Support Docs" } });
-    fireEvent.click(screen.getByRole("button", { name: /create shared knowledge/i }));
+    fireEvent.click(screen.getByRole("button", { name: /new domain/i }));
+    fireEvent.change(screen.getByPlaceholderText(/e\.g\., finance/i), { target: { value: "Support Docs" } });
+    fireEvent.click(screen.getByRole("button", { name: /create domain/i }));
 
-    const dialog = screen.getByRole("dialog", { name: /new shared knowledge/i });
+    const dialog = screen.getByRole("dialog", { name: /new domain/i });
     expect(await within(dialog).findByText("Create failed")).toBeInTheDocument();
   });
 
@@ -415,9 +415,7 @@ describe("SharedKnowledgePanel", () => {
   });
 
   it("updates collections and confirms destructive deletion", async () => {
-    const workspaces = renderSharedKnowledgePanel(mockWorkspaces(), {
-      workspaceCount: 2,
-    });
+    const workspaces = renderSharedKnowledgePanel();
     await waitForTeamKnowledge();
 
     fireEvent.click(screen.getByRole("button", { name: /edit team knowledge/i }));
@@ -430,7 +428,7 @@ describe("SharedKnowledgePanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /delete renamed knowledge/i }));
     expect(workspaces.delete).not.toHaveBeenCalled();
-    const dialog = screen.getByRole("alertdialog", { name: /delete shared knowledge/i });
+    const dialog = screen.getByRole("alertdialog", { name: /delete domain/i });
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
     await waitFor(() => expect(workspaces.delete).toHaveBeenCalledWith("team-knowledge"));
   });
@@ -441,22 +439,20 @@ describe("SharedKnowledgePanel", () => {
       delete: vi.fn(() => new Promise<void>((resolve) => {
         resolveDelete = resolve;
       })),
-    }), {
-      workspaceCount: 2,
-    });
+    }));
     await waitForTeamKnowledge();
 
     fireEvent.click(screen.getByRole("button", { name: /delete team knowledge/i }));
-    const dialog = screen.getByRole("alertdialog", { name: /delete shared knowledge/i });
+    const dialog = screen.getByRole("alertdialog", { name: /delete domain/i });
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
     await waitFor(() => expect(workspaces.delete).toHaveBeenCalledWith("team-knowledge"));
 
     const cancelButtons = within(dialog).getAllByRole("button", { name: "Cancel" });
     fireEvent.click(cancelButtons[cancelButtons.length - 1]!);
-    expect(screen.getByRole("alertdialog", { name: /delete shared knowledge/i })).toBeInTheDocument();
+    expect(screen.getByRole("alertdialog", { name: /delete domain/i })).toBeInTheDocument();
 
     await act(async () => resolveDelete?.());
-    await waitFor(() => expect(screen.queryByRole("alertdialog", { name: /delete shared knowledge/i })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("alertdialog", { name: /delete domain/i })).not.toBeInTheDocument());
   });
 
   it("removes a deleted collection locally when the refresh fails", async () => {
@@ -464,27 +460,27 @@ describe("SharedKnowledgePanel", () => {
       list: vi.fn()
         .mockResolvedValueOnce([workspace()])
         .mockRejectedValueOnce(new Error("Refresh failed")),
-    }), {
-      workspaceCount: 2,
-    });
+    }));
     await waitForTeamKnowledge();
 
     fireEvent.click(screen.getByRole("button", { name: /delete team knowledge/i }));
-    const dialog = screen.getByRole("alertdialog", { name: /delete shared knowledge/i });
+    const dialog = screen.getByRole("alertdialog", { name: /delete domain/i });
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
 
     await waitFor(() => expect(workspaces.delete).toHaveBeenCalledWith("team-knowledge"));
-    await waitFor(() => expect(screen.queryByRole("alertdialog", { name: /delete shared knowledge/i })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("alertdialog", { name: /delete domain/i })).not.toBeInTheDocument());
     expect(screen.queryByText("Team knowledge")).not.toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("Refresh failed");
   });
 
-  it("does not expose deletion for the last remaining Workspace", async () => {
-    const workspaces = renderSharedKnowledgePanel();
-    await waitForTeamKnowledge();
+  it("does not expose deletion for the account General Domain", async () => {
+    const workspaces = renderSharedKnowledgePanel(mockWorkspaces({
+      list: vi.fn(async () => [workspace({ name: "General", slug: "general" })]),
+    }));
+    expect((await screen.findAllByText("General")).length).toBeGreaterThan(0);
 
-    expect(screen.queryByRole("button", { name: /delete team knowledge/i })).not.toBeInTheDocument();
-    expect(screen.getByTitle("Your account must always have one Space. Create another Space before deleting this one.")).toHaveTextContent("Protected");
+    expect(screen.queryByRole("button", { name: /delete general/i })).not.toBeInTheDocument();
+    expect(screen.getByTitle("General is created with your account and cannot be deleted.")).toHaveTextContent("Protected");
     expect(workspaces.delete).not.toHaveBeenCalled();
   });
 
@@ -595,14 +591,14 @@ describe("SharedKnowledgePanel", () => {
     await expandTeamKnowledge();
 
     expect(screen.getByText("Access unavailable")).toBeInTheDocument();
-    expect(screen.getByText("Agent assignments require a workspace service update.")).toBeInTheDocument();
+    expect(screen.getByText("Agent assignments aren't available for this Domain yet.")).toBeInTheDocument();
     expect(screen.queryByText("No agents assigned.")).not.toBeInTheDocument();
   });
 
   it("shows an unavailable state when shared knowledge is not connected", () => {
     renderWithClient(<SharedKnowledgePanel agents={agents} workspaces={null} ready={false} connectionError="Session expired" />);
 
-    expect(screen.getByText("Shared knowledge is not connected.")).toBeInTheDocument();
+    expect(screen.getByText("The Domain catalog is not connected.")).toBeInTheDocument();
     expect(screen.getByText("Session expired")).toBeInTheDocument();
   });
 });

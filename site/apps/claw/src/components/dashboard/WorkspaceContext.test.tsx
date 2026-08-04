@@ -332,7 +332,7 @@ describe("WorkspaceProvider", () => {
     fireEvent.click(screen.getByRole("button", { name: "Associate agent" }));
 
     await waitFor(() => expect(screen.getByTestId("association-error")).toHaveTextContent(
-      "The agent was added to the selected Workspace, but the roster could not be refreshed.",
+      "The agent was assigned to the Domain, but its agent list could not be refreshed.",
     ));
     expect(mocks.client.grant).toHaveBeenCalledOnce();
     expect(screen.getByTestId("agent-roster-error")).toHaveTextContent("Roster refresh failed");
@@ -345,7 +345,7 @@ describe("WorkspaceProvider", () => {
     await waitFor(() => expect(screen.getByTestId("workspace-state")).toHaveTextContent("Team Knowledge"));
     fireEvent.click(screen.getByRole("button", { name: "Associate agent" }));
 
-    await waitFor(() => expect(screen.getByTestId("association-error")).toHaveTextContent("Workspace admin access is required to add agents."));
+    await waitFor(() => expect(screen.getByTestId("association-error")).toHaveTextContent("Domain admin access is required to assign agents."));
     expect(mocks.client.grant).not.toHaveBeenCalled();
   });
 
@@ -491,12 +491,12 @@ describe("WorkspaceProvider", () => {
       slug: "second-account",
     };
     const secondClient = {
-      list: vi.fn(async () => [secondAccountWorkspace]),
+      list: vi.fn(async () => [secondAccountWorkspace, generalWorkspace]),
       listAgents: vi.fn(async () => []),
       create: vi.fn(),
       grant: vi.fn(),
     };
-    mocks.client.list.mockResolvedValue([teamWorkspace]);
+    mocks.client.list.mockResolvedValue([teamWorkspace, generalWorkspace]);
     mocks.client.create.mockReturnValue(pendingCreate);
     mocks.auth.getToken.mockImplementation(async () => mocks.auth.user?.id === "user-2" ? "token-2" : "token-1");
     mocks.createWorkspacesClient.mockImplementation((token: string) => token === "token-2" ? secondClient : mocks.client);

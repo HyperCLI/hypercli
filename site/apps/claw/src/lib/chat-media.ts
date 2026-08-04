@@ -10,12 +10,14 @@ import {
 } from "@hypercli/shared-ui/files";
 
 const LOCAL_MEDIA_REFERENCE = /^media:\/\/\S+$/i;
+const OPENCLAW_MANAGED_OUTGOING_MEDIA = /^\/api\/chat\/media\/outgoing\//i;
 const CONTENT_MEDIA_REFERENCE_LINE = /^\s*MEDIA(?::(?!\/\/)\s*(.*))?\s*$/i;
 const CONTENT_LOCAL_MEDIA_REFERENCE_LINE = /^\s*(media:\/\/\S+)\s*$/i;
 const CONTENT_MEDIA_MARKDOWN_LINE = /^\s*!\[([^\]]*)\](?:\(([^)]*)\))?\s*$/i;
 const CONTENT_INLINE_MEDIA_REFERENCE = /\bMEDIA:(?!\/\/)\s*(?:"([^"]+)"|'([^']+)'|`([^`]+)`|(\S+))/i;
 const CONTENT_INLINE_LOCAL_MEDIA_REFERENCE = /\b(media:\/\/\S+)/i;
 const UUID_FILE_SUFFIX = /---[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(\.[^.?#]+)$/i;
+const INCOMPLETE_MEDIA_SENTINEL_LINE = /^\s*MEDIA:?\s*$/i;
 const URL_SCHEME = /^([A-Za-z][A-Za-z0-9+.-]*):/;
 
 export interface ContentMediaReference {
@@ -150,9 +152,16 @@ export function findFileForMediaReference(files: ChatPendingFile[], url: string)
   }) ?? null;
 }
 
+export function isOpenClawManagedOutgoingMediaUrl(value: string): boolean {
+  return OPENCLAW_MANAGED_OUTGOING_MEDIA.test(value.trim());
+}
+
 export function classifyChatMediaReference(raw: string, matchingFile?: ChatPendingFile | null): ClassifiedChatMediaReference {
   const value = mediaWorkspacePathFromReference(raw);
   if (!value) return { kind: "unsupported", raw, label: "Preview unavailable" };
+  if (isOpenClawManagedOutgoingMediaUrl(value)) {
+    return { kind: "image", url: value, fileName: mediaFileNameFromUrl(value), raw };
+  }
   if (isGeneratedMediaPath(value)) {
     return { kind: "workspace", media: generatedMediaFileFromPath(value, matchingFile), raw };
   }
@@ -235,6 +244,14 @@ function isPotentiallyIncompleteStreamingMediaReference(raw: string): boolean {
 
   return ["data:audio/", "data:image/", "data:video/"]
     .some((prefix) => prefix.startsWith(value) || value.startsWith(prefix));
+}
+
+export function dropIncompleteMediaSentinelLines(content: string): string {
+  if (!content) return content;
+  return content
+    .split("\n")
+    .filter((line) => !INCOMPLETE_MEDIA_SENTINEL_LINE.test(line))
+    .join("\n");
 }
 
 export function extractContentMediaReferences(content: string, options: ExtractContentMediaOptions = {}): ExtractedContentMediaReferences {

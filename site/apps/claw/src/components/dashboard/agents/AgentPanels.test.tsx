@@ -18,6 +18,7 @@ vi.mock("./FirstAgentSetupWizard", () => ({
       size: "small";
       files: [];
       enableDesktop: boolean;
+      knowledgeDomainId: string | null;
     }) => Promise<string | null>;
     onClose?: () => void;
   }) => (
@@ -32,6 +33,7 @@ vi.mock("./FirstAgentSetupWizard", () => ({
           size: "small",
           files: [],
           enableDesktop: false,
+          knowledgeDomainId: "knowledge-domain-1",
         }); }}
       >
         Finish setup
@@ -92,7 +94,7 @@ const sdkMocks = vi.hoisted(() => ({
 }));
 
 const agentClientMocks = vi.hoisted(() => ({
-  createAgentClient: vi.fn(() => ({ fileWriteBytes: vi.fn(async () => undefined) })),
+  createAgentClient: vi.fn(() => ({ fileWriteBytes: vi.fn(async () => undefined), startOpenClaw: vi.fn(async () => undefined) })),
 }));
 
 vi.mock("@hypercli.com/sdk/browser", () => ({
@@ -157,7 +159,7 @@ beforeEach(() => {
     avatarUrl: null,
     s3Key: null,
   });
-  agentClientMocks.createAgentClient.mockReturnValue({ fileWriteBytes: vi.fn(async () => undefined) });
+  agentClientMocks.createAgentClient.mockReturnValue({ fileWriteBytes: vi.fn(async () => undefined), startOpenClaw: vi.fn(async () => undefined) });
 });
 
 const agent: Agent = {
@@ -623,7 +625,7 @@ describe("AgentList", () => {
     fireEvent.click(screen.getByRole("button", { name: "Finish setup" }));
 
     await waitFor(() => expect(setSelectedAgentId).toHaveBeenCalledWith("created-agent"));
-    expect(associateCreatedAgent).toHaveBeenCalledWith("created-agent");
+    expect(associateCreatedAgent).toHaveBeenCalledWith("created-agent", "knowledge-domain-1");
     expect(operations).toEqual(["create", "associate", "refresh"]);
   });
 
@@ -641,7 +643,7 @@ describe("AgentList", () => {
     fireEvent.click(screen.getByRole("button", { name: "Finish setup" }));
 
     await waitFor(() => expect(setError).toHaveBeenCalledWith(
-      "Agent was created, but Workspace association did not complete: Roster refresh failed",
+      "Agent was created, but Domain assignment did not complete: Roster refresh failed",
     ));
     expect(setSelectedAgentId).not.toHaveBeenCalled();
   });
@@ -662,9 +664,9 @@ describe("AgentList", () => {
     fireEvent.click(screen.getByRole("button", { name: "Finish setup" }));
 
     await waitFor(() => expect(setError).toHaveBeenCalledWith(
-      "Agent was created and added to the selected Workspace, but agents could not be refreshed.",
+      "Agent was created, but agents could not be refreshed.",
     ));
-    expect(associateCreatedAgent).toHaveBeenCalledWith("created-agent");
+    expect(associateCreatedAgent).toHaveBeenCalledWith("created-agent", "knowledge-domain-1");
     expect(setSelectedAgentId).not.toHaveBeenCalled();
   });
 
