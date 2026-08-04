@@ -23,6 +23,13 @@ const ALLOWED_REDIRECT_URIS = [
 ] as const;
 const DEFAULT_REDIRECT_URI = ALLOWED_REDIRECT_URIS[0];
 
+// Display name derived from the validated redirect target; agnostic
+// fallback keeps the copy honest for any future app.
+const APP_NAMES: Record<string, string> = {
+  "backseatdriver://auth": "Backseat Driver",
+  "hypercli://auth": "HyperCLI",
+};
+
 function buildCallbackUrl(redirectUri: string, token: string): string {
   // Token travels in the URL fragment (not the query) so it is never sent
   // to any server if the scheme is mishandled.
@@ -63,6 +70,7 @@ export default function DesktopLoginPage() {
 
   const autoLoginTriggered = useRef(false);
   const autoRedirectTriggered = useRef(false);
+  const appName = APP_NAMES[redirectUri] ?? "your desktop app";
 
   // Validate ?redirect_uri= from the query string. Absent defaults to the
   // allowed value; anything that is not an exact match is rejected.
@@ -167,11 +175,11 @@ export default function DesktopLoginPage() {
     return (
       <CardShell>
         <h1 className="text-base font-semibold text-foreground">
-          Sign in to Backseat Driver
+          Sign in to {appName}
         </h1>
         <p className="mt-2 text-sm text-text-muted">
-          Sign in with your HyperCLI account to connect the Backseat Driver
-          desktop app.
+          Sign in with your HyperCLI account to connect the {appName} desktop
+          app.
         </p>
         {authError && flowState === "error" && (
           <p className="mt-3 text-xs text-destructive">{authError}</p>
@@ -221,7 +229,7 @@ export default function DesktopLoginPage() {
   return (
     <CardShell>
       <h1 className="text-base font-semibold text-foreground">
-        Opening Backseat Driver&hellip;
+        Opening {appName}&hellip;
       </h1>
       <p className="mt-2 text-sm text-text-muted">
         You are signed in. If the app did not open automatically, use the
@@ -233,7 +241,7 @@ export default function DesktopLoginPage() {
         className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary/15 px-4 py-2.5 text-sm font-semibold text-primary transition-colors hover:bg-primary/25"
       >
         <ExternalLink className="h-4 w-4" />
-        Open Backseat Driver
+        Open {appName}
       </button>
 
       <div className="mt-5 border-t border-border pt-4">
