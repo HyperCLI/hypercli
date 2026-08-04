@@ -160,13 +160,18 @@ jobs:
             (cd "$WORK/stack" && "$PULUMI" stack output "$1" \
               -s "$PULUMI_STACK" --show-secrets 2>/dev/null)
           }
-          stack_output developer-id-application-bundle-pem > "$WORK/signing.pem"
-          test -s "$WORK/signing.pem"
+          # Secrets stay in shell memory and reach rcodesign through
+          # process substitution (/dev/fd pipes) — nothing lands on disk,
+          # not even inside the trap-cleaned tmpdir.
+          SIGNING_PEM="$(stack_output developer-id-application-bundle-pem)"
+          test -n "$SIGNING_PEM"
           SIGNING="signed-unnotarized"
-          if stack_output asc-api-key-p8 > "$WORK/asc.p8" && test -s "$WORK/asc.p8"; then
-            "$RCODESIGN" encode-app-store-connect-api-key -o "$WORK/asc.json" \
+          ASC_JSON=""
+          ASC_P8="$(stack_output asc-api-key-p8 || true)"
+          if [[ -n "$ASC_P8" ]]; then
+            ASC_JSON="$("$RCODESIGN" encode-app-store-connect-api-key -o /dev/stdout \
               "$(stack_output asc-issuer-id)" "$(stack_output asc-key-id)" \
-              "$WORK/asc.p8"
+              <(printf '%s' "$ASC_P8"))"
             SIGNING="signed-notarized"
           else
             echo "notarization skipped: no ASC API key in stack outputs"
@@ -178,12 +183,13 @@ jobs:
             mkdir "$STAGE"
             tar -C "$STAGE" -xzf "$ARCHIVE"
             "$RCODESIGN" sign \
-              --pem-file "$WORK/signing.pem" \
+              --pem-file <(printf '%s' "$SIGNING_PEM") \
               --for-notarization \
               "$STAGE/buzz-backend-hypercli"
             if [[ "$SIGNING" == "signed-notarized" ]]; then
               (cd "$STAGE" && zip -q "$WORK/$NAME.zip" buzz-backend-hypercli)
-              "$RCODESIGN" notary-submit --api-key-file "$WORK/asc.json" \
+              "$RCODESIGN" notary-submit \
+                --api-key-file <(printf '%s' "$ASC_JSON") \
                 --wait "$WORK/$NAME.zip"
             fi
             sed -i "s/^signing=.*/signing=$SIGNING/" "$STAGE/BUILD-INFO"

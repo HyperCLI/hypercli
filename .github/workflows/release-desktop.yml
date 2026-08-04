@@ -1,7 +1,3 @@
-# DRAFT — intended path: .github/workflows/release-desktop.yml
-# Kept out of .github/ on purpose: CI changes are reviewed and installed
-# manually by the repo owner.
-#
 # Desktop release pipeline modeled on Buzz's .github/workflows/release.yml:
 #
 #   setup ─► build (matrix: darwin-aarch64, darwin-x86_64, windows-x86_64,
@@ -28,10 +24,9 @@
 #   * PUBLIC key  → Actions secret HYPERCLI_UPDATER_PUBLIC_KEY. It is baked
 #     into release builds; build.rs only enables the updater when it is set.
 #   * PRIVATE key + password → canonical copy lives in the Pulumi stack
-#     (e.g. `pulumi config set --secret tauri-updater-private-key ...` /
-#     `... tauri-updater-key-password ...` on the apple-certs stack), then
+#     organization/hypercli-tauri-key/prod (repo hypercli-tauri-key-pulumi),
 #     mirrored to Actions secrets TAURI_SIGNING_PRIVATE_KEY and
-#     TAURI_SIGNING_PRIVATE_KEY_PASSWORD.
+#     TAURI_SIGNING_PRIVATE_KEY_PASSWORD. All three secrets are already set.
 #   Losing the private key strands every installed app on its current
 #   version — store it in the stack BEFORE the first release.
 #
@@ -111,6 +106,11 @@ jobs:
           CONF_VERSION="$(python3 -c 'import json; print(json.load(open("desktop/src-tauri/tauri.conf.json"))["version"])')"
           if [[ "$CONF_VERSION" != "${{ inputs.version }}" ]]; then
             echo "Input version ${{ inputs.version }} does not match tauri.conf.json version $CONF_VERSION" >&2
+            exit 1
+          fi
+          CARGO_VERSION="$(python3 -c 'import tomllib; print(tomllib.load(open("desktop/src-tauri/Cargo.toml", "rb"))["package"]["version"])')"
+          if [[ "$CARGO_VERSION" != "${{ inputs.version }}" ]]; then
+            echo "Input version ${{ inputs.version }} does not match src-tauri/Cargo.toml version $CARGO_VERSION" >&2
             exit 1
           fi
           test "$(git status --porcelain)" = ""
@@ -196,7 +196,7 @@ jobs:
       # installed as a prebuilt binary (no frontend build step).
       - name: Install Tauri CLI
         shell: bash
-        run: npm install --global @tauri-apps/cli@2
+        run: npm install --global @tauri-apps/cli@2.11.4
 
       - name: Build provider sidecar
         shell: bash
@@ -346,13 +346,18 @@ jobs:
             (cd "$WORK/stack" && "$PULUMI" stack output "$1" \
               -s "$PULUMI_STACK" --show-secrets 2>/dev/null)
           }
-          stack_output developer-id-application-bundle-pem > "$WORK/signing.pem"
-          test -s "$WORK/signing.pem"
+          # Secrets stay in shell memory and reach rcodesign through
+          # process substitution (/dev/fd pipes) — nothing lands on disk,
+          # not even inside the trap-cleaned tmpdir.
+          SIGNING_PEM="$(stack_output developer-id-application-bundle-pem)"
+          test -n "$SIGNING_PEM"
           NOTARIZE=false
-          if stack_output asc-api-key-p8 > "$WORK/asc.p8" && test -s "$WORK/asc.p8"; then
-            "$RCODESIGN" encode-app-store-connect-api-key -o "$WORK/asc.json" \
+          ASC_JSON=""
+          ASC_P8="$(stack_output asc-api-key-p8 || true)"
+          if [[ -n "$ASC_P8" ]]; then
+            ASC_JSON="$("$RCODESIGN" encode-app-store-connect-api-key -o /dev/stdout \
               "$(stack_output asc-issuer-id)" "$(stack_output asc-key-id)" \
-              "$WORK/asc.p8"
+              <(printf '%s' "$ASC_P8"))"
             NOTARIZE=true
           else
             echo "notarization skipped: no ASC API key in stack outputs"
@@ -373,14 +378,15 @@ jobs:
             # Recursive Developer ID signing of the bundle, sidecar included —
             # the whole bundle is one Gatekeeper identity.
             "$RCODESIGN" sign \
-              --pem-file "$WORK/signing.pem" \
+              --pem-file <(printf '%s' "$SIGNING_PEM") \
               --for-notarization \
               "$STAGE/HyperCLI.app"
 
             if [[ "$NOTARIZE" == "true" ]]; then
               # zip -ry keeps the bundle's symlinks intact for submission.
               (cd "$STAGE" && zip -qry "$WORK/$PLATFORM.zip" HyperCLI.app)
-              "$RCODESIGN" notary-submit --api-key-file "$WORK/asc.json" \
+              "$RCODESIGN" notary-submit \
+                --api-key-file <(printf '%s' "$ASC_JSON") \
                 --wait "$WORK/$PLATFORM.zip"
               "$RCODESIGN" staple "$STAGE/HyperCLI.app"
             fi
@@ -391,7 +397,7 @@ jobs:
             tar -C "$STAGE" -czf "signed/$ARCHIVE" HyperCLI.app
             # `tauri signer sign` reads the key + password from the
             # environment — never pass the password via argv.
-            npx --yes @tauri-apps/cli@2 signer sign "$(pwd)/signed/$ARCHIVE"
+            npx --yes @tauri-apps/cli@2.11.4 signer sign "$(pwd)/signed/$ARCHIVE"
             mkdir -p "signed-split/updater-$PLATFORM"
             mv "signed/$ARCHIVE" "signed/$ARCHIVE.sig" "signed-split/updater-$PLATFORM/"
           done
@@ -462,14 +468,16 @@ jobs:
           SOURCE_SHA="$(git rev-parse HEAD)"
           git fetch origin main
           git merge-base --is-ancestor "$SOURCE_SHA" origin/main
+          # Re-runnable: a partially published release from a failed run is
+          # reused; all asset uploads below pass --clobber (Buzz pattern).
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists" >&2
-            exit 1
+            echo "Release $TAG already exists — resuming publish into it"
+          else
+            gh release create "$TAG" \
+              --target "$SOURCE_SHA" \
+              --title "HyperCLI Desktop $VERSION" \
+              --notes "HyperCLI desktop companion app. macOS downloads are the signed .app.tar.gz archives; Windows installer is unsigned pending Authenticode setup; Linux ships AppImage (auto-updatable) and .deb (manual updates)."
           fi
-          gh release create "$TAG" \
-            --target "$SOURCE_SHA" \
-            --title "HyperCLI Desktop $VERSION" \
-            --notes "HyperCLI desktop companion app. macOS downloads are the signed .app.tar.gz archives; Windows installer is unsigned pending Authenticode setup; Linux ships AppImage (auto-updatable) and .deb (manual updates)."
 
       - name: Create rolling auto-update release
         shell: bash
