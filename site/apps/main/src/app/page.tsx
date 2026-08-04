@@ -327,7 +327,7 @@ export default function Home() {
                 One real evening's delegation — "get us ready for the launch" — and everything the agent did about it,
                 time-stamped.
               </p>
-              <AgentTimeline events={NIGHT_EVENTS} className="mx-auto max-w-xl text-left bg-terminal-surface border-terminal-border" />
+              <AgentTimeline events={NIGHT_EVENTS} className="mx-auto max-w-xl text-left" />
               <p className="mt-8 text-lg font-semibold text-terminal-foreground">
                 You were asleep for six of these.
                 <small className="mt-1.5 block text-sm font-normal text-terminal-muted">
@@ -383,14 +383,14 @@ export default function Home() {
               Same agent. Same machine. <span className="text-primary">Same flat rate.</span>
             </h2>
             <p className="mx-auto mb-12 max-w-xl text-center text-lg text-text-secondary">You pick the language.</p>
-            <div className="grid items-start gap-6 md:grid-cols-2">
-              <div>
+            <div className="grid items-stretch gap-6 md:grid-cols-2">
+              <div className="flex flex-col">
                 <p className="mb-3 text-xs font-bold uppercase tracking-[0.1em] text-primary">If you speak terminal</p>
-                <TerminalWindow title="hyper — zsh" lines={TERMINAL_LINES} typed className="min-h-[296px]" />
+                <TerminalWindow title="hyper — zsh" lines={TERMINAL_LINES} typed className="h-full" />
               </div>
-              <div>
+              <div className="flex flex-col">
                 <p className="mb-3 text-xs font-bold uppercase tracking-[0.1em] text-success">If you speak Slack</p>
-                <ChatDemo channel="Slack" agentName="Aria" messages={CHAT_MESSAGES} />
+                <ChatDemo agentName="Aria" messages={CHAT_MESSAGES} className="h-full" />
               </div>
             </div>
           </div>
