@@ -64,7 +64,7 @@ export default function Page() {
           <>
             <LongFormText className="mb-5">Hyper supports:</LongFormText>
             <LongFormText className="mb-10">
-              H100 / A100 / H200 / B200. L40S / L4 / older architectures. Mixed fleets. Shared nodes. Fractional GPUs. Multi-DC routing.
+              B300 / H100 / A100 / H200 / B200. L40S / L4 / older architectures. Mixed fleets. Shared nodes. Fractional GPUs. Multi-DC routing.
             </LongFormText>
             <LongFormText variant="emphasis" className="mb-3">The physical limits disappear.</LongFormText>
             <LongFormText variant="mutedEmphasis">The fabric handles the rest.</LongFormText>

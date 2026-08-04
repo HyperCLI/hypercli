@@ -168,7 +168,7 @@ export default function Footer() {
           </div>
         </div>
         <div className="mt-12 pt-8 border-t border-border-medium flex flex-col md:flex-row justify-between items-center gap-4">
-          <p className="text-sm text-text-muted">&copy; 2025 HyperCLI. All rights reserved.</p>
+          <p className="text-sm text-text-muted">&copy; 2026 HyperCLI. All rights reserved.</p>
           <div className="flex items-center gap-6">
             <Link href={NAV_URLS.privacy} className="text-sm text-text-muted hover:text-muted-foreground transition-colors">
               Privacy Policy

@@ -87,7 +87,7 @@ export function Footer({ currentPage, setCurrentPage }: FooterProps) {
         {/* Bottom bar */}
         <div className="pt-8 border-t border-border-medium flex flex-col md:flex-row justify-between items-center gap-4">
           <p className="text-sm text-text-muted">
-            © 2025 HyperCLI. All rights reserved.
+            © 2026 HyperCLI. All rights reserved.
           </p>
           <div className="flex items-center gap-6">
             <a href="#" className="text-sm text-text-muted hover:text-muted-foreground transition-colors">

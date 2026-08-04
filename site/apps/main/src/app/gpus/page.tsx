@@ -10,7 +10,7 @@ export default function GPUsPage() {
       <main>
         <MarketingPageHero
           title={<>State-of-the-Art <span className="text-primary">GPUs</span></>}
-          description="B200, H200, H100, A100, L40S, L4 and more."
+          description="B300, B200, H200, H100, A100, L40S, L4 and more."
           secondaryDescription={<>On-demand and interruptible instances. Deploy in seconds. <span className="text-primary">Pay per second.</span></>}
           align="center"
           maxWidth="6xl"

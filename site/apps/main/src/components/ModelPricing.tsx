@@ -262,7 +262,7 @@ export default function ModelPricing() {
               Ready to Access Every Model?
             </h3>
             <p className="text-lg text-muted-foreground mb-6 max-w-2xl mx-auto">
-              Drop-in API replacement. Compatible with OpenAI-style APIs. Hosted on B200 GPUs.
+              Drop-in API replacement. Compatible with OpenAI-style APIs. Hosted on B300 GPUs.
             </p>
             <button
               onClick={() => setIsModalOpen(true)}

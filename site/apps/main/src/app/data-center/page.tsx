@@ -114,7 +114,7 @@ export default function DataCenterPage() {
 
       <NarrativeSplitSection
         title="Any GPU, Any Configuration"
-        left={<LongFormText variant="statement">Monetize H100s, A100s, L40S, H200, B200 — or mixed fleets.</LongFormText>}
+        left={<LongFormText variant="statement">Monetize B300s, H100s, A100s, L40S, H200, B200 — or mixed fleets.</LongFormText>}
         right={
           <>
             <LongFormText className="mb-5">

@@ -28,7 +28,7 @@ const features = [
     icon: Cpu,
     title: "GPU Orchestration",
     description:
-      "Auto-scaling across AWS, Azure, GCP. Spot pricing. B200, H100, L40S.",
+      "Auto-scaling across AWS, Azure, GCP. Spot pricing. B300, H100, L40S.",
   },
   {
     icon: Code,

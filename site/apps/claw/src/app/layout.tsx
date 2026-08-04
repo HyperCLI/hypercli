@@ -12,7 +12,7 @@ const plusJakartaSans = Plus_Jakarta_Sans({
 
 export const metadata: Metadata = {
   title: "HyperCLI - Unlimited Agent Inference",
-  description: "Flat-rate, unlimited LLM inference for AI agents. OpenAI-compatible API on NVIDIA B200 GPUs.",
+  description: "Flat-rate, unlimited LLM inference for AI agents. OpenAI-compatible API on NVIDIA B300 GPUs.",
   manifest: "/site.webmanifest",
   icons: {
     icon: [

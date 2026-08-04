@@ -92,7 +92,7 @@ export function HeroSection() {
             className="text-base sm:text-lg md:text-xl text-text-secondary max-w-2xl mx-auto mb-10 leading-relaxed px-2"
           >
             Up to 100 million pooled tokens a day for one flat price — no
-            per-token charges. OpenAI-compatible API on NVIDIA B200 GPUs.
+            per-token charges. OpenAI-compatible API on NVIDIA B300 GPUs.
           </motion.p>
 
           <motion.div

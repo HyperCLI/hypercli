@@ -11,7 +11,7 @@ export default function ModelsPage() {
         <MarketingPageHero
           title={<>State-of-the-Art <span className="text-primary">AI Models</span></>}
           description="API access to the latest open models. Kimi K2.6, Qwen, and more."
-          secondaryDescription={<>Drop-in replacement for OpenAI-compatible APIs. Hosted on our <span className="text-primary">B200 GPU fleet</span>.</>}
+          secondaryDescription={<>Drop-in replacement for OpenAI-compatible APIs. Hosted on our <span className="text-primary">B300 GPU fleet</span>.</>}
           align="center"
           maxWidth="6xl"
           className="pb-16"

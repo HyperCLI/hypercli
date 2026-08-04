@@ -20,7 +20,7 @@ const features = [
   },
   {
     icon: Cpu,
-    title: "Frontier Models on B200 GPUs",
+    title: "Frontier Models on B300 GPUs",
     description:
       "Kimi K2.6 and Qwen — reasoning, vision, and tool use. Daily pooled tokens with burst capacity.",
   },
