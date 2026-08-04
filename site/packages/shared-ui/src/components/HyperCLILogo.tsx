@@ -1,6 +1,6 @@
 "use client";
 
-import { useTheme } from "./ThemeProvider";
+import { useThemeOptional } from "./ThemeProvider";
 
 export const HYPERCLI_LOGO_FULL_SRC = "/logos/hypercli-full-blue.svg";
 export const HYPERCLI_LOGO_FULL_LIGHT_SRC = "/logos/hypercli-full-blue-light.svg";
@@ -22,7 +22,10 @@ export function HyperCLILogo({
   markOnly = false,
   decorative = false,
 }: HyperCLILogoProps) {
-  const { mode } = useTheme();
+  // The logo also renders outside a ThemeProvider (tests, emails, bare
+  // pages); fall back to the dark-variant full lockup in that case.
+  const theme = useThemeOptional();
+  const mode = theme?.mode ?? "dark";
   const src = markOnly
     ? HYPERCLI_LOGO_ICON_SRC
     : mode === "light"

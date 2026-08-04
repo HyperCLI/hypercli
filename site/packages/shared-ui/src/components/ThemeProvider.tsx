@@ -51,3 +51,7 @@ export function useTheme(): ThemeContextValue {
   if (!context) throw new Error("useTheme must be used within a ThemeProvider");
   return context;
 }
+
+export function useThemeOptional(): ThemeContextValue | null {
+  return useContext(ThemeContext);
+}
