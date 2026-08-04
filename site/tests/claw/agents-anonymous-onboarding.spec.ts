@@ -47,10 +47,8 @@ test("rotates agent sections and requires sign in before creation", async ({ pag
     await route.continue();
   });
 
-  await page.goto("/dashboard/agents?open=agent-launcher&plan=free");
-  await expect(page.getByRole("heading", { name: "Build a teammate, not another chat window." })).toBeVisible();
+  await page.goto("/dashboard/agents?plan=free");
   await expect(page.getByRole("dialog", { name: "Launch agent" })).toHaveCount(0);
-  await page.getByRole("button", { name: "Skip tour" }).click();
   await expect(page.getByRole("dialog", { name: "A quick tour of your agent workspace" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Create agent" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: /Sign in to/ })).toHaveCount(0);
@@ -82,7 +80,7 @@ test("rotates agent sections and requires sign in before creation", async ({ pag
   expect(forbiddenRequests).toEqual([]);
 });
 
-test("opens login and signup directly after completing the tour", async ({ page }) => {
+test("opens login directly when the agent launcher is requested", async ({ page }) => {
   const forbiddenRequests: string[] = [];
   page.on("request", (request) => {
     if (!["fetch", "xhr"].includes(request.resourceType())) return;
@@ -104,13 +102,8 @@ test("opens login and signup directly after completing the tour", async ({ page 
   await page.goto("/dashboard/agents?open=agent-launcher&plan=pro");
 
   await expect(page).toHaveURL(/\/dashboard\/agents/);
-  await expect(page.getByRole("heading", { name: "Build a teammate, not another chat window." })).toBeVisible();
-  await page.getByRole("button", { name: "Continue" }).click();
-  await expect(page.getByRole("heading", { name: "Start with a purpose. Add knowledge as you go." })).toBeVisible();
-  await page.getByRole("button", { name: "Continue" }).click();
-  await expect(page.getByRole("heading", { name: "Choose capacity, then put your agent to work." })).toBeVisible();
-  await page.getByRole("button", { name: "Create my account" }).click();
   await expect(page.locator("#privy-modal-content")).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "A quick tour of your agent workspace" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Create agent" })).toHaveCount(0);
   await page.locator("#privy-modal-content").getByRole("button", { name: "close modal" }).click();
   await expect(page.locator("#privy-modal-content")).toHaveCount(0);
@@ -119,7 +112,7 @@ test("opens login and signup directly after completing the tour", async ({ page 
   expect(forbiddenRequests).toEqual([]);
 });
 
-test("returns to the rotating preview when the tour is dismissed", async ({ page }) => {
+test("shows the rotating preview without opening the tour", async ({ page }) => {
   await page.route("**/*", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -131,8 +124,7 @@ test("returns to the rotating preview when the tour is dismissed", async ({ page
   });
 
   await page.goto("/dashboard/agents?plan=pro");
-  await expect(page.getByRole("heading", { name: "Build a teammate, not another chat window." })).toBeVisible();
-  await page.getByRole("button", { name: "Close agent tour" }).click();
+  await expect(page.getByRole("dialog", { name: "A quick tour of your agent workspace" })).toHaveCount(0);
   const chatPreview = page.getByRole("heading", { name: "Your business, one chat" }).locator("xpath=..");
   await expect(chatPreview).toBeVisible();
   await expect(page.locator("[data-agent-launch-surface]")).toHaveCount(0);
@@ -158,7 +150,6 @@ test("routes trial and roster agent creation actions through authentication", as
   });
 
   await page.goto("/dashboard/agents");
-  await page.getByRole("button", { name: "Close agent tour" }).click();
   const startTrial = page.getByRole("button", { name: "Start free trial" });
   await expect(startTrial).toBeVisible();
   await startTrial.click();
@@ -242,7 +233,7 @@ test("routes New Workspace through authentication", async ({ page }) => {
   await expect(page.getByRole("dialog", { name: "New Workspace" })).toHaveCount(0);
 });
 
-test("keeps a saved anonymous draft while Skip tour opens the dashboard preview", async ({ page }) => {
+test("keeps a saved anonymous draft while showing the dashboard preview", async ({ page }) => {
   await page.addInitScript(() => {
     window.sessionStorage.setItem("hypercli-first-agent-draft", JSON.stringify({
       source: "first-agent-setup",
@@ -267,8 +258,7 @@ test("keeps a saved anonymous draft while Skip tour opens the dashboard preview"
     await route.continue();
   });
 
-  await page.goto("/dashboard/agents?open=agent-launcher");
-  await page.getByRole("button", { name: "Skip tour" }).click();
+  await page.goto("/dashboard/agents");
 
   await expect(page.getByRole("heading", { name: "Your business, one chat" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Your agent has a head start." })).toHaveCount(0);

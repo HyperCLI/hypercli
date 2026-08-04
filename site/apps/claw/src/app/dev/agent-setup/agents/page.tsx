@@ -1240,7 +1240,7 @@ export default function DevAgentSetupAgentsPage() {
     }
   };
 
-  const handleCreateFirstAgent = useCallback(async ({ name, iconIndex, size, files, enableDesktop, enableMemoryIndex = false, customImage = null }: AgentCreationSetupCreateParams) => {
+  const handleCreateFirstAgent = useCallback(async ({ name, handle = null, iconIndex, size, files, enableDesktop, enableMemoryIndex = false, customImage = null }: AgentCreationSetupCreateParams) => {
     const generation = agentDataGenerationRef.current;
     try {
       setError(null);
@@ -1248,6 +1248,7 @@ export default function DevAgentSetupAgentsPage() {
       if (generation !== agentDataGenerationRef.current) return null;
       const created = await createOpenClawAgent(token, {
         name: name || undefined,
+        handle,
         start: files.length === 0,
         size,
         meta: { ui: { avatar: { icon_index: iconIndex } } },

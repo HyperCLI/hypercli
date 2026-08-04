@@ -166,7 +166,9 @@ describe("FirstAgentSetupWizard", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Create agent" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Agent name")).toBeInTheDocument();
+    expect(screen.getByLabelText("Agent name")).toHaveValue("");
+    expect(screen.getByLabelText("Agent name")).toHaveAttribute("placeholder", "e.g. Research Assistant");
+    expect(screen.queryByText("Avatar")).not.toBeInTheDocument();
     expect(screen.queryByText("What does it help with?")).not.toBeInTheDocument();
     expect(document.querySelector('input[type="file"]')).toBeNull();
 
@@ -275,9 +277,10 @@ describe("FirstAgentSetupWizard", () => {
       const draft = JSON.parse(window.sessionStorage.getItem("hypercli-first-agent-draft") ?? "{}");
       expect(draft).toMatchObject({
         source: "first-agent-setup",
-        name: "night-ops-pilot",
+        displayName: "night-ops-pilot",
         plan: null,
       });
+      expect(draft.name).toMatch(/^[a-z]+-[a-z]+-[a-z]+$/);
     });
 
     goToPlanStep();
@@ -301,7 +304,7 @@ describe("FirstAgentSetupWizard", () => {
     expect(JSON.parse(window.sessionStorage.getItem("hypercli-first-agent-draft") ?? "{}").plan).toBe("pro");
   });
 
-  it("generates a three-word default agent name", async () => {
+  it("keeps the display name blank while generating a three-word URL name", async () => {
     renderWithClient(
       <FirstAgentSetupWizard
         onCreateAgent={vi.fn(async () => null)}
@@ -312,15 +315,17 @@ describe("FirstAgentSetupWizard", () => {
     );
 
     const nameInput = screen.getByLabelText("Agent name") as HTMLInputElement;
+    const urlPreview = screen.getByLabelText("Agent URL preview");
 
     await waitFor(() => {
-      expect(nameInput.value.split("-")).toHaveLength(3);
+      expect(urlPreview.textContent?.split("-")).toHaveLength(3);
     });
-    expect(nameInput.value).toMatch(/^[a-z]+-[a-z]+-[a-z]+$/);
+    expect(nameInput).toHaveValue("");
+    expect(urlPreview).toHaveTextContent(/^[a-z]+-[a-z]+-[a-z]+$/);
   });
 
   it("skips blocked words in generated agent names", async () => {
-    const randomValues = [896, 0];
+    const randomValues = [0, 896, 0];
     const getRandomValuesSpy = vi.spyOn(crypto, "getRandomValues").mockImplementation((array) => {
       const view = array as Uint32Array;
       view[0] = randomValues.shift() ?? 0;
@@ -336,12 +341,12 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    const nameInput = screen.getByLabelText("Agent name") as HTMLInputElement;
+    const urlPreview = screen.getByLabelText("Agent URL preview");
 
     await waitFor(() => {
-      expect(nameInput.value).toBe("bright-vector-anchor");
+      expect(urlPreview).toHaveTextContent("bright-vector-anchor");
     });
-    expect(nameInput.value.split("-")).not.toContain("signal");
+    expect(urlPreview.textContent?.split("-")).not.toContain("signal");
 
     getRandomValuesSpy.mockRestore();
   });
@@ -766,7 +771,7 @@ describe("FirstAgentSetupWizard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByLabelText("Agent name")).toHaveValue("restored-agent");
     expect(screen.getByText("Advanced").closest("details")).toHaveAttribute("open");
-    expect(screen.getByRole("button", { name: "Shield avatar" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByText("Avatar")).not.toBeInTheDocument();
   });
 
   it("maps a restored catalog plan to its active entitlement option", async () => {
@@ -1047,7 +1052,7 @@ describe("FirstAgentSetupWizard", () => {
 
   it("launches from the choose-plan card button with the selected entitlement", async () => {
     const onOpenPlanCatalog = vi.fn();
-    const onCreateAgent = vi.fn(async () => "agent-1");
+    const onCreateAgent = vi.fn(async (_params: FirstAgentSetupCreateParams) => "agent-1");
 
     renderWithClient(
       <FirstAgentSetupWizard
@@ -1075,6 +1080,12 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
+    const urlPreview = screen.getByLabelText("Agent URL preview");
+    await waitFor(() => expect(urlPreview).toHaveTextContent(/^[a-z]+-[a-z]+-[a-z]+$/));
+    const deploymentName = urlPreview.textContent;
+    fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: "Research Assistant" } });
+    expect(urlPreview).toHaveTextContent(deploymentName!);
+
     goToPlanStep();
 
     expect(screen.getByText("1 Medium slot available")).toBeInTheDocument();
@@ -1082,7 +1093,13 @@ describe("FirstAgentSetupWizard", () => {
 
     await waitFor(() => expect(onCreateAgent).toHaveBeenCalled());
     const createParams = onCreateAgent.mock.calls[0]?.[0];
-    expect(createParams).toEqual(expect.objectContaining({ size: "medium" }));
+    expect(createParams).toEqual(expect.objectContaining({
+      name: deploymentName,
+      handle: "research-assistant",
+      size: "medium",
+    }));
+    expect(createParams?.iconIndex).toBeGreaterThanOrEqual(0);
+    expect(createParams?.iconIndex).toBeLessThan(16);
     expect(createParams?.files.map((file) => file.name)).toEqual(["AGENTS.md", "SOUL.md", "USER.md"]);
     expect(onOpenPlanCatalog).not.toHaveBeenCalled();
   });

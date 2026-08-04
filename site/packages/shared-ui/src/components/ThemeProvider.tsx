@@ -3,16 +3,22 @@
 import { createContext, useContext, useSyncExternalStore, type ReactNode } from "react";
 import {
   DEFAULT_THEME,
+  getThemeFamily,
+  getThemeMode,
   getTheme,
   initializeTheme,
   setTheme,
   subscribeToThemeChanges,
   toggleTheme,
   type Theme,
+  type ThemeFamily,
+  type ThemeMode,
 } from "../utils/theme";
 
 export interface ThemeContextValue {
   theme: Theme;
+  family: ThemeFamily;
+  mode: ThemeMode;
   setTheme: (theme: Theme) => void;
   toggleTheme: () => Theme;
 }
@@ -32,7 +38,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const theme = useSyncExternalStore(subscribeToThemeStore, getTheme, getServerTheme);
 
   return (
-    <ThemeContext.Provider value={{ theme, setTheme, toggleTheme }}>
+    <ThemeContext.Provider
+      value={{ theme, family: getThemeFamily(theme), mode: getThemeMode(theme), setTheme, toggleTheme }}
+    >
       {children}
     </ThemeContext.Provider>
   );

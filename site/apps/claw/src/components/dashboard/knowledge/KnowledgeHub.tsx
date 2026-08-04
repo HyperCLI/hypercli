@@ -724,14 +724,14 @@ function CollectionSettings({
 
   return (
     <form onSubmit={submit} className="mx-auto w-full max-w-6xl px-4 pb-8 pt-5 sm:px-6 sm:pb-10 lg:px-8">
-      <header data-slot="domain-settings-header" className="mb-5 border-b border-border pb-5 text-left">
+      <header data-slot="domain-settings-header" className="mb-5 grid gap-4 border-b border-border pb-5 text-left sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start sm:gap-8">
         <div className="min-w-0 text-left">
           <h3 className="text-lg font-semibold tracking-[-0.02em] text-foreground">Domain configuration</h3>
-          <p className="mt-1 max-w-2xl text-xs leading-relaxed text-text-muted">Set a clear knowledge boundary, then review the account record and access rules behind it.</p>
+          <p className="mt-1 max-w-2xl truncate text-xs leading-relaxed text-text-muted">Set a clear knowledge boundary, then review the account record and access rules behind it.</p>
         </div>
-        <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-left">
-          <p data-slot="domain-settings-state" className={`text-xs font-semibold ${editStateClasses}`}>{editStateLabel}</p>
-          <p className="text-[10px] text-text-muted">{canAdminister ? "Published across the Knowledge Hub after you save." : "Domain admin access is required to edit."}</p>
+        <div className="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-3 text-left sm:pt-1">
+          <p data-slot="domain-settings-state" className={`whitespace-nowrap text-xs font-semibold ${editStateClasses}`}>{editStateLabel}</p>
+          <p className="truncate text-[10px] text-text-muted">{canAdminister ? "Published across the Knowledge Hub after you save." : "Domain admin access is required to edit."}</p>
         </div>
       </header>
 
@@ -865,14 +865,14 @@ function CollectionSettings({
         </div>
       ) : null}
       {canAdminister ? (
-        <footer data-slot="space-actions" className="sticky bottom-0 z-10 mt-5 flex flex-col gap-3 border-t border-border bg-background py-3 sm:flex-row sm:items-center sm:justify-between">
+        <footer data-slot="space-actions" className="sticky bottom-0 z-10 mt-5 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-t border-border bg-background py-3 text-left">
           <div className="min-w-0">
-            <p className="text-xs font-semibold text-text-secondary">{hasChanges ? "Review and publish your updates" : "The published profile is current"}</p>
-            <p className="mt-0.5 text-[10px] leading-relaxed text-text-muted">{hasChanges ? "Saving updates the Domain wherever it appears in Knowledge Hub." : "Edit the profile when this business boundary changes."}</p>
+            <p className="truncate text-xs font-semibold text-text-secondary">{hasChanges ? "Review and publish your updates" : "The published profile is current"}</p>
+            <p className="mt-0.5 hidden truncate text-[10px] leading-relaxed text-text-muted sm:block">{hasChanges ? "Saving updates the Domain wherever it appears in Knowledge Hub." : "Edit the profile when this business boundary changes."}</p>
           </div>
           <div className="flex shrink-0 items-center justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={discardChanges} disabled={!hasChanges || busy || saving}>Discard changes</Button>
-            <Button type="submit" disabled={!trimmedName || !hasChanges || busy || saving} className="min-w-36">
+            <Button type="button" variant="ghost" onClick={discardChanges} disabled={!hasChanges || busy || saving} className="px-2 text-[11px] sm:px-4 sm:text-sm">Discard changes</Button>
+            <Button type="submit" disabled={!trimmedName || !hasChanges || busy || saving} className="min-w-28 px-3 text-[11px] sm:min-w-36 sm:px-4 sm:text-sm">
               {saving ? <Loader2 className="animate-spin" /> : null}
               {saving ? "Saving" : "Save changes"}
             </Button>

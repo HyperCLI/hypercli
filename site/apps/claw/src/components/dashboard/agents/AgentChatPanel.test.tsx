@@ -700,6 +700,11 @@ describe("AgentChatPanel", () => {
       slashCommandActions: { onOpenFiles, onOpenIntegrations, onOpenSkills, onOpenScheduled },
     });
 
+    const emptyStateFrame = screen
+      .getByRole("heading", { name: "Your agent is ready for real work" })
+      .closest(".agent-empty-history-frame");
+    expect(emptyStateFrame).toHaveClass("self-stretch");
+    expect(emptyStateFrame).not.toHaveClass("max-h-full");
     expect(screen.getByRole("button", { name: /connect slack/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /open workspace files/i }));
     fireEvent.click(screen.getByRole("button", { name: /open integrations/i }));

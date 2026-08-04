@@ -18,7 +18,8 @@ describe("AgentEmptyHistory", () => {
 
     const heading = screen.getByRole("heading", { name: "Your agent is ready for real work" });
     expect(heading).toBeInTheDocument();
-    expect(heading.closest("section")).toHaveClass("agent-empty-history", "max-h-full", "w-full", "max-w-[50rem]");
+    expect(heading.closest("section")).toHaveClass("agent-empty-history", "w-full", "max-w-[50rem]");
+    expect(heading.closest("section")).not.toHaveClass("max-h-full");
     expect(screen.getByText(/connect the tools your agent needs/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Start with something concrete" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /map this workspace/i })).toHaveClass("sm:min-h-[7rem]");

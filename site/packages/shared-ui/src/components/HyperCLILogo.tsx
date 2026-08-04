@@ -1,7 +1,9 @@
 export const HYPERCLI_LOGO_FULL_SRC = "/logos/hypercli-full-blue.svg";
 export const HYPERCLI_LOGO_FULL_LIGHT_SRC = "/logos/hypercli-full-blue-light.svg";
 export const HYPERCLI_LOGO_ICON_SRC = "/logos/hypercli-icon-blue.svg";
+export const HYPERCLI_AURORA_LOGO_ICON_SRC = HYPERCLI_LOGO_ICON_SRC;
 export const HYPERCLI_BRAND_ACCENT_HEX = "#4F7CFF";
+export const HYPERCLI_AURORA_BRAND_ACCENT_HEX = "#4F7CFF";
 
 interface HyperCLILogoProps {
   className?: string;

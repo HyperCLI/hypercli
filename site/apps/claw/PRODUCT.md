@@ -46,7 +46,7 @@ Home is the account-level operating brief. It joins deployment state with recent
 
 - Product name: HyperCLI Claw.
 - Feature name: Knowledge Hub; page heading: Knowledge.
-- Preserve the established Claw navigation, typography, theme tokens, dark and light modes, and restrained green selection accent.
+- Preserve the established Claw navigation. Aurora dark/light are the canonical themes, with a blue primary and plan-aware Solo, Team, and Enterprise wayfinding accents; Classic tokens remain only for legacy compatibility.
 - User-visible copy must use product language and must not mention implementation terms such as SDK.
 
 ## Evidence on Hand
@@ -68,4 +68,4 @@ Home is the account-level operating brief. It joins deployment state with recent
 
 ## Accessibility & Inclusion
 
-Knowledge Hub must support keyboard navigation, visible focus, text alternatives for status color, reduced motion, responsive mobile drawers, and readable contrast in both Claw themes.
+Knowledge Hub must support keyboard navigation, visible focus, text alternatives for status color, reduced motion, responsive mobile drawers, and readable contrast in every Claw theme.

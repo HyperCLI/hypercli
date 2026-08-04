@@ -4,12 +4,12 @@ import { toast, Toaster as Sonner, ToasterProps } from "sonner";
 import { useTheme } from "../ThemeProvider";
 
 const Toaster = ({ theme: themeOverride, ...props }: ToasterProps) => {
-  const { theme: productTheme } = useTheme();
-  const theme = themeOverride ?? productTheme;
+  const { mode } = useTheme();
+  const theme = themeOverride ?? mode;
 
   return (
     <Sonner
-      theme={theme as ToasterProps["theme"]}
+      theme={theme}
       className="toaster group"
       style={
         {

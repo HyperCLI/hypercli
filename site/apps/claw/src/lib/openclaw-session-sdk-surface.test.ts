@@ -91,6 +91,27 @@ describe("openclaw-session-sdk-surface", () => {
     expect(sessionsReset).not.toHaveBeenCalled();
   });
 
+  it("resets the requested dashboard session when native creation reports main", async () => {
+    const sessionKey = "dashboard:019789ab-cdef-4abc-8def-0123456789ab";
+    const sessionsSubscribe = vi.fn(async () => true);
+    const sessionsCreate = vi.fn(async () => ({ ok: true as const, key: "agent:default:main" }));
+    const sessionsReset = vi.fn(async (key: string) => `agent:default:${key}`);
+
+    await expect(createOpenClawSession({ sessionsCreate, sessionsSubscribe, sessionsReset }, sessionKey))
+      .resolves.toBe(`agent:default:${sessionKey}`);
+    expect(sessionsReset).toHaveBeenCalledWith(sessionKey, "new");
+  });
+
+  it("rejects a reset that does not preserve the requested dashboard session", async () => {
+    const sessionKey = "dashboard:019789ab-cdef-4abc-8def-0123456789ab";
+    const sessionsSubscribe = vi.fn(async () => true);
+    const sessionsCreate = vi.fn(async () => ({ ok: true as const, key: "main" }));
+    const sessionsReset = vi.fn(async () => "agent:default:main");
+
+    await expect(createOpenClawSession({ sessionsCreate, sessionsSubscribe, sessionsReset }, sessionKey))
+      .rejects.toThrow(`expected session ${sessionKey}`);
+  });
+
   it("falls back to deterministic dashboard sessions on older gateways", async () => {
     const sessionsSubscribe = vi.fn(async () => {
       throw new Error("unknown method: sessions.subscribe");

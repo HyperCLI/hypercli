@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { createOpenClawBootstrapDraft } from "@/lib/openclaw-bootstrap-pack";
 import {
+  parseFirstAgentSetupDraft,
   readFirstAgentSetupDraft,
   updateFirstAgentSetupDraftPlan,
   writeFirstAgentSetupDraft,
@@ -10,6 +11,18 @@ import {
 describe("first agent setup draft", () => {
   beforeEach(() => {
     window.sessionStorage.clear();
+  });
+
+  it("preserves an explicit blank display name while migrating legacy drafts", () => {
+    expect(parseFirstAgentSetupDraft(JSON.stringify({
+      source: "first-agent-setup",
+      name: "bright-vector-anchor",
+      displayName: "",
+    }))?.displayName).toBe("");
+    expect(parseFirstAgentSetupDraft(JSON.stringify({
+      source: "first-agent-setup",
+      name: "legacy-agent-name",
+    }))?.displayName).toBe("legacy-agent-name");
   });
 
   it("keeps a stable setup identity and full launch snapshot when the paid plan changes", () => {
@@ -22,7 +35,9 @@ describe("first agent setup draft", () => {
     writeFirstAgentSetupDraft({
       principalId: "user-1",
       workspaceId: "workspace-1",
+      knowledgeDomainId: null,
       name: "Tern",
+      displayName: "Release Coordinator",
       description: "Coordinates release work.",
       size: "small",
       iconIndex: 11,
@@ -39,6 +54,7 @@ describe("first agent setup draft", () => {
     expect(initial).toMatchObject({
       principalId: "user-1",
       workspaceId: "workspace-1",
+      displayName: "Release Coordinator",
       size: "small",
       plan: "basic",
     });

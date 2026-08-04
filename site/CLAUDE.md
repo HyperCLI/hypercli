@@ -261,9 +261,10 @@ Export new components from `src/index.ts`.
 
 ### Styling
 - **Tailwind v4** with bracketed color tokens (`bg-[#0B0D0E]`) and opacity scales (`/8`, `/15`)
-- **Design tokens** (globals.css): `--background: #0a0a0b`, `--primary: #63e452`, `--surface-low: #141416`, `--foreground: #fafafa`
+- **Design tokens** (`packages/shared-ui/src/styles/claw.css`): Aurora dark/light are canonical; Classic dark/light remain for legacy compatibility. Use semantic variables rather than hardcoded palette values.
+- **Plan wayfinding**: Aurora resolves Solo to blue, Team to mint, and Enterprise to lavender through `--plan-accent*`; primary actions remain blue.
 - **Glass cards**: `.glass-card` class for frosted glass effect
-- **Font**: Plus Jakarta Sans (Google Fonts)
+- **Fonts**: Plus Jakarta Sans for Classic themes and Figtree for Aurora themes, loaded through `next/font`
 
 ### Code Patterns
 - **Package manager**: npm (do not change)

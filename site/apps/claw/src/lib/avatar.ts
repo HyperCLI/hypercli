@@ -37,6 +37,8 @@ const ICONS: LucideIcon[] = [
   Zap,
 ];
 
+const UINT32_RANGE = 0x1_0000_0000;
+
 // Harmonious hue offsets from the primary green family.
 const HUES = [157, 180, 210, 240, 260, 280, 310, 340, 10, 30, 50, 70, 90, 120, 140, 200];
 
@@ -68,6 +70,19 @@ export interface AgentAvatarInfo {
   bgColor: string;
   fgColor: string;
   imageUrl?: string | null;
+}
+
+export function randomAgentAvatarIconIndex(): number {
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    const values = new Uint32Array(1);
+    const unbiasedLimit = UINT32_RANGE - (UINT32_RANGE % ICONS.length);
+    do {
+      crypto.getRandomValues(values);
+    } while (values[0] >= unbiasedLimit);
+    return values[0] % ICONS.length;
+  }
+
+  return Math.floor(Math.random() * ICONS.length);
 }
 
 export function agentProfileImageUrl(agent: {

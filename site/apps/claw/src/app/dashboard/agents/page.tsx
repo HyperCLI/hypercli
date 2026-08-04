@@ -36,6 +36,7 @@ import {
 } from "@/lib/agent-client";
 import {
   createAgentMutationQueue,
+  managedAgentHandleFromDisplayName,
   mergeAgentListAfterMutations,
   persistAgentCanonicalName,
   persistAgentDisplayName,
@@ -150,10 +151,12 @@ import {
 import {
   displayOpenClawSessionName,
   fallbackOpenClawSessionDisplayName,
+  isGeneratedOpenClawSessionName,
   isOpenClawHeartbeatSessionKey,
   isOpenClawMainSessionKey,
   isRecoverableOpenClawMainSession,
   sameOpenClawSelectableSessionKey,
+  unscopedOpenClawSessionKey,
 } from "@/lib/openclaw-session-sdk-surface";
 import {
   launchConfigSyncRoot,
@@ -259,6 +262,7 @@ type SubscriptionSummaryWithEntitlementItems = HyperAgentSubscriptionSummary & {
 };
 
 const SHOW_AGENT_INSPECTOR = false;
+const AGENT_DASHBOARD_TOUR_ENABLED = false;
 const SCHEDULED_SECTION_ENABLED = true;
 const SCHEDULED_SECTION_DISABLED_REASON = "Scheduled workflows are not available yet.";
 const BILLING_MOCK_PARAM = "billingMock";
@@ -942,6 +946,14 @@ function normalizeAgentFilePath(path: string): string {
   return normalizeAgentBrowserFilePath(path);
 }
 
+function routableOpenClawSessionKey(value: string | null | undefined): string | null {
+  const sessionKey = value?.trim() || null;
+  if (!sessionKey || isOpenClawMainSessionKey(sessionKey)) return null;
+  return isGeneratedOpenClawSessionName(sessionKey)
+    ? unscopedOpenClawSessionKey(sessionKey)
+    : sessionKey;
+}
+
 function stringFileMetadata(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
@@ -1112,7 +1124,9 @@ function AgentsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedAgentId = searchParams.get("agentId")?.trim() || null;
-  const requestedSessionKey = searchParams.get("session")?.trim() || null;
+  const requestedSessionRouteValue = searchParams.get("session")?.trim() || null;
+  const requestedSessionKey = routableOpenClawSessionKey(requestedSessionRouteValue);
+  const requestedLegacyMainSession = Boolean(requestedSessionRouteValue && !requestedSessionKey);
   const requestedIntegrationId = searchParams.get("integration")?.trim() || null;
   const requestedOpen = searchParams.get("open")?.trim() || null;
   const requestedPlanId = searchParams.get("plan")?.trim() || null;
@@ -1143,7 +1157,7 @@ function AgentsPageContent() {
   const slackOAuthResult = slackOAuthOk === "true" ? "success" : slackOAuthOk === "false" ? "failure" : null;
   const queryKey = searchParams.toString();
   const shouldOpenAgentLauncherFromQuery = requestedOpen ? AGENT_LAUNCHER_OPEN_VALUES.has(requestedOpen) : false;
-  const shouldOpenAgentTourFromPageEntry = !isAuthenticated && !requestedOpen && !requestedAgentId && !requestedSessionKey &&
+  const shouldOpenAgentTourFromPageEntry = AGENT_DASHBOARD_TOUR_ENABLED && !isAuthenticated && !requestedOpen && !requestedAgentId && !requestedSessionKey &&
     !requestedIntegrationId && !requestedSection && !requestedTab && !requestedView &&
     !slackOAuthOk && !slackOAuthError && !firstAgentSetupDraft;
   const { setAgentMenu } = useDashboardMobileAgentMenu();
@@ -1484,7 +1498,7 @@ function AgentsPageContent() {
   const [agentOnboardingOverlay, setAgentOnboardingOverlay] = useState<AgentOnboardingOverlay>(null);
   const [anonymousDesktopPreviewOpen, setAnonymousDesktopPreviewOpen] = useState(false);
   const [anonymousPreviewSelectionMade, setAnonymousPreviewSelectionMade] = useState(false);
-  const agentTourOpen = !isAuthenticated && agentOnboardingOverlay === "tour";
+  const agentTourOpen = AGENT_DASHBOARD_TOUR_ENABLED && !isAuthenticated && agentOnboardingOverlay === "tour";
   const agentLauncherOpen = agentOnboardingOverlay === "launcher";
   const anonymousAgentPreviewMode = !isAuthenticated;
   const anonymousDesktopPreviewMode = anonymousAgentPreviewMode && anonymousDesktopPreviewOpen;
@@ -1594,6 +1608,7 @@ function AgentsPageContent() {
     setWorkspaceCreationOpen(true);
   }, [isAuthenticated, requestAuthentication]);
   const openAgentTourFlow = useCallback(() => {
+    if (!AGENT_DASHBOARD_TOUR_ENABLED) return openAgentCreationFlow();
     if (isAuthenticated) return false;
     embeddedCheckoutSelectionRequestRef.current += 1;
     setEmbeddedCheckoutPlan(null);
@@ -1604,7 +1619,7 @@ function AgentsPageContent() {
     setMobileNavigationOpen(false);
     setAgentTourOpen(true);
     return true;
-  }, [isAuthenticated, setAgentTourOpen]);
+  }, [isAuthenticated, openAgentCreationFlow, setAgentTourOpen]);
   const startAgentCreationFromTour = useCallback(() => {
     if (openAgentCreationFlow()) setAgentTourOpen(false);
   }, [openAgentCreationFlow, setAgentTourOpen]);
@@ -1755,7 +1770,7 @@ function AgentsPageContent() {
       params.delete("agentId");
     }
 
-    const normalizedSessionKey = sessionKey?.trim() || null;
+    const normalizedSessionKey = routableOpenClawSessionKey(sessionKey);
     if (agentId && normalizedSessionKey) {
       params.set("session", normalizedSessionKey);
     } else {
@@ -2654,7 +2669,7 @@ function AgentsPageContent() {
     }
 
     const selectionQueryKey = requestedAgentId
-      ? JSON.stringify([requestedAgentId, requestedSessionKey])
+      ? JSON.stringify([requestedAgentId, requestedSessionKey, requestedLegacyMainSession])
       : null;
     const applyRequestedSession = () => {
       if (!requestedAgentId) {
@@ -2668,6 +2683,13 @@ function AgentsPageContent() {
             ? current
             : { ...current, [requestedAgentId]: requestedSessionKey }
         ));
+      } else if (requestedLegacyMainSession) {
+        setSelectedSessionKeysByAgent((current) => {
+          if (!(requestedAgentId in current)) return current;
+          const next = { ...current };
+          delete next[requestedAgentId];
+          return next;
+        });
       }
       setMobileShowChat(true);
     };
@@ -2695,6 +2717,7 @@ function AgentsPageContent() {
     agentsLoading,
     isAgentRosterLoading,
     requestedAgentId,
+    requestedLegacyMainSession,
     requestedSessionKey,
     router,
     searchParams,
@@ -2863,8 +2886,13 @@ function AgentsPageContent() {
   const routedSelectedSessionKey = selectedAgentId && requestedAgentId === selectedAgentId
     ? requestedSessionKey
     : null;
+  const selectedAgentHasExplicitSessionRoute = Boolean(
+    selectedAgentId && requestedAgentId === selectedAgentId && requestedSessionRouteValue,
+  );
   const selectedSessionRouteValue = selectedAgentId
-    ? routedSelectedSessionKey ?? selectedSessionKeysByAgent[selectedAgentId] ?? null
+    ? selectedAgentHasExplicitSessionRoute
+      ? routedSelectedSessionKey
+      : selectedSessionKeysByAgent[selectedAgentId] ?? null
     : null;
   const gatewayEnabled = selectedAgentPrimarySurface === "chat" && isSelectedRunning && agentWorkspaceActivated;
   const openClawHydrationMode: OpenClawHydrationMode = !dashboardView &&
@@ -2888,9 +2916,9 @@ function AgentsPageContent() {
     { hydrationMode: openClawHydrationMode },
   );
   const selectedSessionKey = selectedSessionRouteValue ?? chat.activeSessionKey;
-  const canonicalSelectedSessionKey = selectedSessionRouteValue ?? (
+  const canonicalSelectedSessionKey = routableOpenClawSessionKey(selectedSessionRouteValue ?? (
     chat.activeSessionSelectionResolved ? chat.activeSessionKey : null
-  );
+  ));
   useEffect(() => {
     if (!selectedAgentId || !chat.activeSessionSelectionResolved) return;
     const resolvedSessionKey = chat.activeSessionKey.trim();
@@ -3790,6 +3818,7 @@ function AgentsPageContent() {
 
   const handleCreateFirstAgent = useCallback(async ({
     name,
+    handle = null,
     iconIndex,
     size,
     files,
@@ -3823,6 +3852,7 @@ function AgentsPageContent() {
       if (generation !== agentDataGenerationRef.current) return null;
       const created = await createOpenClawAgent(token, {
         name: name || undefined,
+        handle,
         start: false,
         size,
         meta: { ui: { avatar: { icon_index: iconIndex } } },
@@ -3961,6 +3991,7 @@ function AgentsPageContent() {
       const bootstrap = draft.bootstrapDraft ?? createOpenClawBootstrapDraft(draft.name);
       void handleCreateFirstAgent({
         name: draft.name,
+        handle: draft.displayName ? managedAgentHandleFromDisplayName(draft.displayName) : null,
         iconIndex: draft.iconIndex,
         size: pending.agentSize,
         files: bootstrap.files.map((file) => new File([file.content], file.name, { type: "text/markdown" })),
@@ -4856,7 +4887,7 @@ function AgentsPageContent() {
       return;
     }
     const params = new URLSearchParams({ agentId: selectedAgentId });
-    if (selectedSessionRouteValue) params.set("session", selectedSessionRouteValue);
+    if (canonicalSelectedSessionKey) params.set("session", canonicalSelectedSessionKey);
     if (tab !== "chat") params.set("tab", tab);
     router.push(`/dashboard/agents?${params.toString()}`, { scroll: false });
   };
@@ -5897,12 +5928,14 @@ function AgentsPageContent() {
         handleResizeAndStart={handleResizeAndStart}
         titleizeTier={titleizeTier}
       />
-      <AgentDashboardTour
-        open={agentTourOpen}
-        onOpenChange={setAgentTourOpen}
-        onSkipTour={skipAgentTour}
-        onCreateAccount={createAccountFromTour}
-      />
+      {AGENT_DASHBOARD_TOUR_ENABLED ? (
+        <AgentDashboardTour
+          open={agentTourOpen}
+          onOpenChange={setAgentTourOpen}
+          onSkipTour={skipAgentTour}
+          onCreateAccount={createAccountFromTour}
+        />
+      ) : null}
 
       {/* Main layout: AgentList + AgentMainPanel + AgentInspector */}
       <div className="flex flex-1 min-h-0">

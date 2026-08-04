@@ -126,9 +126,7 @@ test("keeps the mobile Privy email field touchable and restores the login wall",
 test("completes mobile previews and every dashboard authentication gate", async ({ page }) => {
   const forbiddenRequests = await prepareAnonymousFlow(page);
 
-  await page.goto("/dashboard/agents?open=agent-launcher&plan=pro");
-  await expect(page.getByRole("heading", { name: "Build a teammate, not another chat window." })).toBeVisible();
-  await page.getByRole("button", { name: "Skip tour" }).tap();
+  await page.goto("/dashboard/agents?plan=pro");
   await expectAnonymousFlowComplete(page);
 
   const previewSections = [
@@ -186,23 +184,14 @@ test("completes mobile previews and every dashboard authentication gate", async 
   expect(forbiddenRequests).toEqual([]);
 });
 
-test("completes and dismisses the mobile onboarding tour", async ({ page }) => {
+test("opens authentication directly for mobile launcher requests", async ({ page }) => {
   const forbiddenRequests = await prepareAnonymousFlow(page);
 
   await page.goto("/dashboard/agents?open=agent-launcher&plan=pro");
-  const tour = page.getByRole("dialog", { name: "A quick tour of your agent workspace" });
-  await expect(tour).toBeVisible();
-  await tour.getByRole("button", { name: "Continue" }).tap();
-  await expect(tour.getByRole("heading", { name: "Start with a purpose. Add knowledge as you go." })).toBeVisible();
-  await tour.getByRole("button", { name: "Continue" }).tap();
-  await expect(tour.getByRole("heading", { name: "Choose capacity, then put your agent to work." })).toBeVisible();
-  await tour.getByRole("button", { name: "Create my account" }).tap();
-  await expect(tour).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "A quick tour of your agent workspace" })).toHaveCount(0);
   await completeAuthenticationRoundTrip(page);
 
-  await page.goto("/dashboard/agents?open=agent-launcher&plan=pro");
-  await expect(page.getByRole("dialog", { name: "A quick tour of your agent workspace" })).toBeVisible();
-  await page.getByRole("button", { name: "Close agent tour" }).tap();
+  await page.goto("/dashboard/agents?plan=pro");
   await expectAnonymousFlowComplete(page);
 
   await expectNoHorizontalOverflow(page);
@@ -241,9 +230,8 @@ test("keeps a saved mobile draft private through completed authentication round 
   expect(await readSavedDraftName(page)).toBe("night-ops-pilot");
 
   await page.goto("/dashboard/agents?open=agent-launcher&plan=pro");
-  await expect(page.getByRole("dialog", { name: "A quick tour of your agent workspace" })).toBeVisible();
-  await page.getByRole("button", { name: "Skip tour" }).tap();
-  await expectAnonymousFlowComplete(page);
+  await expect(page.getByRole("dialog", { name: "A quick tour of your agent workspace" })).toHaveCount(0);
+  await completeAuthenticationRoundTrip(page);
   expect(await readSavedDraftName(page)).toBe("night-ops-pilot");
 
   const restoredPreview = page.getByRole("heading", { name: DEFAULT_PREVIEW_HEADING }).locator("xpath=..");

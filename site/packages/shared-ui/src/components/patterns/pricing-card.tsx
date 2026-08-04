@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { Check, X } from "lucide-react";
 import { cn } from "../ui/utils";
 import { GlassCard } from "./surface-card";
+import type { PlanTier } from "../../utils/plan-tier";
 
 export interface PricingCardFeature {
   label: ReactNode;
@@ -19,6 +20,7 @@ export function PricingCard({
   detail,
   features,
   highlighted = false,
+  planTier,
   actionLabel,
   onAction,
   className,
@@ -31,14 +33,22 @@ export function PricingCard({
   detail?: ReactNode;
   features: PricingCardFeature[];
   highlighted?: boolean;
+  planTier?: PlanTier;
   actionLabel?: ReactNode;
   onAction?: () => void;
   className?: string;
 }) {
   return (
-    <GlassCard highlighted={highlighted} className={cn("flex flex-col p-6", className)}>
+    <GlassCard
+      data-plan-tier={planTier}
+      className={cn(
+        "plan-pricing-card flex flex-col p-6",
+        highlighted && "border-[var(--plan-accent-border)] shadow-[0_12px_42px_rgb(var(--plan-accent-rgb)_/_0.12)]",
+        className,
+      )}
+    >
       {eyebrow && (
-        <div className="mb-4 self-start rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+        <div className="mb-4 self-start rounded-full bg-[var(--plan-accent-soft)] px-3 py-1 text-xs font-semibold text-[var(--plan-accent)]">
           {eyebrow}
         </div>
       )}
@@ -55,7 +65,7 @@ export function PricingCard({
           return (
             <li key={index} className="flex items-start gap-2 text-sm text-text-secondary">
               {included ? (
-                <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary" />
+                <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-[var(--plan-accent)]" />
               ) : (
                 <X className="mt-0.5 h-4 w-4 flex-shrink-0 text-text-muted/40" />
               )}

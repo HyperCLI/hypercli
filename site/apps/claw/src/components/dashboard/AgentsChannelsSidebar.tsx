@@ -717,6 +717,7 @@ function SidebarHeader({
       <div className={`agents-roster-header flex h-14 items-center justify-between px-3 ${mobileMode ? "" : "border-b border-border bg-background"}`}>
         <HyperCLILogoLink
           className={mobileMode ? "h-[32px] w-[164px]" : "h-[28px] w-[144px]"}
+          imageClassName={mobileMode ? "text-[22px]" : "text-[20px]"}
         />
         {mobileMode ? (
           <div className="flex items-center gap-1">

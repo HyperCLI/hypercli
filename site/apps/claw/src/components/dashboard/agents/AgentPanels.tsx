@@ -2864,12 +2864,13 @@ export function AgentList({
     openAgentLauncher();
   }, [isDesktopViewport, openAgentLauncher, renderMobileNavigation, rosterLoading, sidebarCreatorSignal]);
 
-  const createAgentFromLauncher = React.useCallback(async ({ name, iconIndex, size, files, enableDesktop, enableMemoryIndex = false, customImage = null, knowledgeDomainId }: AgentCreationSetupCreateParams) => {
+  const createAgentFromLauncher = React.useCallback(async ({ name, handle = null, iconIndex, size, files, enableDesktop, enableMemoryIndex = false, customImage = null, knowledgeDomainId }: AgentCreationSetupCreateParams) => {
     try {
       if (effectiveCreationDisabledReason) throw new Error(effectiveCreationDisabledReason);
       const token = await getToken();
       const created = await createOpenClawAgent(token, {
         name: name || undefined,
+        handle,
         start: false,
         size,
         meta: { ui: { avatar: { icon_index: iconIndex } } },

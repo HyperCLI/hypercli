@@ -36,11 +36,11 @@ const config = fullConfig || minimalConfig;
 const rainbowThemes = { dark: darkTheme(), light: lightTheme() } as const;
 
 export function RainbowKitProvider({ children }: { children: ReactNode }) {
-  const { theme } = useTheme();
+  const { mode } = useTheme();
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        <RKProvider theme={rainbowThemes[theme]}>{children}</RKProvider>
+        <RKProvider theme={rainbowThemes[mode]}>{children}</RKProvider>
       </QueryClientProvider>
     </WagmiProvider>
   );

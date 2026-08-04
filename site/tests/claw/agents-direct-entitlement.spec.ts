@@ -225,7 +225,8 @@ test("agents page launches from a direct entitlement without an active subscript
   const workspaceStep = page.getByRole("region", { name: "Set up the workspace" });
   await expect(workspaceStep).toBeVisible();
   await expect(workspaceStep.getByRole("heading", { name: "Shape the agent" })).toBeVisible();
-  await expect(workspaceStep.getByRole("heading", { name: "Generated workspace files" })).toBeVisible();
+  await expect(workspaceStep.getByRole("heading", { name: "Generated workspace files" })).toHaveCount(0);
+  await expect(workspaceStep.getByRole("group", { name: "Workspace files" })).toBeVisible();
   await expect(workspaceStep.getByText("AGENTS.md ready")).toHaveCount(0);
   await expect(workspaceStep.getByRole("button", { name: "Preview" })).toHaveAttribute("aria-pressed", "true");
   await workspaceStep.getByRole("button", { name: "Raw" }).click();

@@ -56,6 +56,7 @@ test("creates the saved first agent after Stripe payment is reflected", async ({
       principalId,
       workspaceId,
       name: "paid-setup-agent",
+      displayName: "Paid Setup Agent",
       description: "Saved paid setup",
       size: "large",
       iconIndex: 11,
@@ -147,6 +148,7 @@ test("creates the saved first agent after Stripe payment is reflected", async ({
       createdAgent = {
         id: "agent-paid-first",
         name: "paid-setup-agent",
+        handle: "paid-setup-agent",
         user_id: TEST_PRINCIPAL_ID,
         state: "STARTING",
         cpu: 4,
@@ -237,7 +239,7 @@ test("creates the saved first agent after Stripe payment is reflected", async ({
   expect(await page.evaluate(() => (window as Window & { __sawPaidWorkspaceWelcome?: boolean }).__sawPaidWorkspaceWelcome)).toBe(false);
   purchasedSlotAvailable = true;
   await expect.poll(() => createCount, { timeout: 30_000 }).toBe(1);
-  expect(createBody).toMatchObject({ name: "paid-setup-agent", size: "large", start: false });
+  expect(createBody).toMatchObject({ name: "paid-setup-agent", handle: "paid-setup-agent", size: "large", start: false });
   expect(createBody?.meta).toMatchObject({ ui: { avatar: { icon_index: 11 } } });
   expect(createBody?.env).toMatchObject({ OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START: "1" });
   await expect.poll(() => writtenFiles["AGENTS.md"] ?? "").toContain("Preserve this saved file.");

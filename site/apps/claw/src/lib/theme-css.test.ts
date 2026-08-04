@@ -92,6 +92,8 @@ function sourceFilesIn(dir: string): string[] {
 
 const fixedDefaultBlock = themeBlockFor('[data-theme="default"]');
 const lightBlock = themeBlockFor('[data-theme="light"]');
+const auroraLightBlock = themeBlockFor('[data-theme="aurora-light"]');
+const auroraDarkBlock = themeBlockFor('[data-theme="aurora-dark"]');
 
 describe("shared theme CSS", () => {
   it("defines the fixed default brand, button, and selection contract", () => {
@@ -121,6 +123,33 @@ describe("shared theme CSS", () => {
     expect(lightBlock).toContain("color-scheme: light;");
     expect(fixedDefaultBlock).toContain("color-scheme: dark;");
     expect(tokenNames(lightBlock)).toEqual(tokenNames(fixedDefaultBlock));
+  });
+
+  it("defines complete Aurora light and dark themes from the brand palette", () => {
+    expect(auroraLightBlock).toContain("--background: #ffffff;");
+    expect(auroraLightBlock).toContain("--foreground: #1f2937;");
+    expect(auroraLightBlock).toContain("--primary: #4f7cff;");
+    expect(auroraLightBlock).toContain("--gradient-text-primary: linear-gradient(92deg, #4f7cff 5%, #6ce8c4 48%, #a97eff 100%);");
+    expect(auroraLightBlock).toContain('--font-ui: var(--font-figtree, "Figtree")');
+    expect(auroraDarkBlock).toContain("--background: #10151f;");
+    expect(auroraDarkBlock).toContain("--surface-low: #1b2331;");
+    expect(auroraDarkBlock).toContain("--foreground: #e8edf4;");
+    expect(auroraDarkBlock).toContain("--link: #9db4ff;");
+    expect(auroraDarkBlock).toContain("--terminal-live: #6ce8c4;");
+    expect(auroraLightBlock).toContain("color-scheme: light;");
+    expect(auroraDarkBlock).toContain("color-scheme: dark;");
+    expect(tokenNames(auroraLightBlock)).toEqual(tokenNames(fixedDefaultBlock));
+    expect(tokenNames(auroraDarkBlock)).toEqual(tokenNames(fixedDefaultBlock));
+  });
+
+  it("keeps Aurora CTAs blue while plan tiers only override wayfinding tokens", () => {
+    expect(auroraLightBlock).toContain("--button-primary: #4f7cff;");
+    expect(auroraDarkBlock).toContain("--button-primary: #4f7cff;");
+    expect(clawThemeCss).toContain('[data-theme="aurora-light"] [data-plan-tier="team"]');
+    expect(clawThemeCss).toContain("--plan-accent: #0e7a5f;");
+    expect(clawThemeCss).toContain('[data-theme="aurora-dark"] [data-plan-tier="enterprise"]');
+    expect(clawThemeCss).toContain("--plan-accent: #c9afff;");
+    expect(clawThemeCss).toContain('@custom-variant dark (&:where(.dark, .dark *, [data-color-mode="dark"]');
   });
 
   it("does not include removed theme variants", () => {
@@ -160,10 +189,11 @@ describe("shared theme CSS", () => {
     expect(sliderSource).toContain("data-[disabled]:cursor-not-allowed");
   });
 
-  it("compacts the agent empty state within the available chat width", () => {
+  it("compacts the agent empty state within the available chat dimensions", () => {
     expect(clawGlobalsCss).toContain("align-items: safe center;");
     expect(clawGlobalsCss).toContain("container-name: agent-empty-history;");
     expect(clawGlobalsCss).toContain("container-type: size;");
+    expect(clawGlobalsCss).toContain("@container agent-empty-history (max-height: 47rem)");
     expect(clawGlobalsCss).toContain("@container agent-empty-history (max-width: 40rem)");
     expect(clawGlobalsCss).toContain(".agent-empty-history-workspace-card");
   });
@@ -174,12 +204,16 @@ describe("shared theme CSS", () => {
     expect(clawGlobalsCss).toContain('@import "@hypercli/shared-ui/styles/theme";');
     expect(mainGlobalsCss).toContain('@import "@hypercli/shared-ui/styles/theme";');
     expect(consoleGlobalsCss).toContain('@import "@hypercli/shared-ui/styles/theme";');
-    expect(clawLayout).toContain('data-theme="dark"');
-    expect(mainLayout).toContain('data-theme="dark"');
-    expect(consoleLayout).toContain('data-theme="dark"');
+    expect(clawLayout).toContain('data-theme="aurora-dark"');
+    expect(mainLayout).toContain('data-theme="aurora-dark"');
+    expect(consoleLayout).toContain('data-theme="aurora-dark"');
     expect(clawLayout).not.toContain('data-theme="green"');
     expect(mainLayout).not.toContain('data-theme="green"');
     expect(consoleLayout).not.toContain('data-theme="green"');
+    expect(clawLayout).toContain('data-color-mode="dark"');
+    expect(mainLayout).toContain('data-color-mode="dark"');
+    expect(consoleLayout).toContain('data-color-mode="dark"');
+    expect(clawLayout).toContain('data-plan-tier="solo"');
   });
 
   it("does not use the old teal brand palette in active source or docs", () => {

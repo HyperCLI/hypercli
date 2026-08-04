@@ -24,6 +24,14 @@ export function displayNameFromAgentHandle(handle: string): string {
     .join(" ");
 }
 
+export function managedAgentHandleFromDisplayName(displayName: string): string {
+  const handle = normalizeAgentHandle(displayName);
+  if (!handle || !/^[a-z0-9][a-z0-9_-]{1,63}$/.test(handle)) {
+    throw new Error("Display names must start with a letter or number and contain 2-64 letters, numbers, spaces, underscores, or dashes.");
+  }
+  return handle;
+}
+
 interface AgentProfileUpdateClient<TAgent = SdkAgent> {
   update: (agentId: string, options: UpdateAgentOptions) => Promise<TAgent>;
   updateExternalAgent: (agentId: string, options: UpdateExternalAgentOptions) => Promise<TAgent>;
@@ -88,9 +96,5 @@ export async function persistAgentDisplayName<TAgent>(
   if (agent.managed === false) {
     return client.updateExternalAgent(agent.id, { displayName: nextDisplayName.slice(0, 255) });
   }
-  const handle = normalizeAgentHandle(nextDisplayName);
-  if (!handle || !/^[a-z0-9][a-z0-9_-]{1,63}$/.test(handle)) {
-    throw new Error("Display names must start with a letter or number and contain 2-64 letters, numbers, spaces, underscores, or dashes.");
-  }
-  return client.update(agent.id, { handle });
+  return client.update(agent.id, { handle: managedAgentHandleFromDisplayName(nextDisplayName) });
 }

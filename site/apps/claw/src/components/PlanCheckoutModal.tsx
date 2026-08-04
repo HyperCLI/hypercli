@@ -8,6 +8,7 @@ import { formatTokens } from "@/lib/format";
 import { buildStripeCheckoutReturnUrl, clearPendingPlanCheckout, writePendingPlanCheckout } from "@/lib/plan-checkout-state";
 import { createWalletClient, custom, type WalletClient } from "viem";
 import { base } from "viem/chains";
+import { notifyBillingPlanChanged } from "@hypercli/shared-ui";
 
 interface EthereumProvider {
   request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
@@ -244,6 +245,7 @@ export function PlanCheckoutModal({
         amountUsd: plan.price,
       });
       if (!canContinue()) return;
+      notifyBillingPlanChanged();
       writePendingPlanCheckout({
         principalId,
         planId: plan.id,

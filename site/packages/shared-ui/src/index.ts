@@ -21,6 +21,8 @@ export {
 export { PrivyAuthBoundary } from "./auth/PrivyAuthBoundary";
 export { AuthRouteBoundary as PrivyAuthRouteBoundary } from "./auth/AuthRouteBoundary";
 export {
+  HYPERCLI_AURORA_BRAND_ACCENT_HEX,
+  HYPERCLI_AURORA_LOGO_ICON_SRC,
   HYPERCLI_BRAND_ACCENT_HEX,
   HYPERCLI_LOGO_FULL_SRC,
   HYPERCLI_LOGO_ICON_SRC,
@@ -396,6 +398,7 @@ export {
   useTheme,
   type ThemeContextValue,
 } from "./components/ThemeProvider";
+export { AuroraPlanTierProvider } from "./components/AuroraPlanTierProvider";
 export { ThemeScript, type ThemeScriptProps } from "./components/ThemeScript";
 export { ThemeToggle, type ThemeToggleProps } from "./components/ThemeToggle";
 export { ThemeSelector, type ThemeSelectorProps } from "./components/ThemeSelector";
@@ -492,12 +495,51 @@ export {
   DEFAULT_THEME,
   LEGACY_THEME_KEY,
   THEME_COOKIE_NAME,
+  THEME_DEFINITIONS,
+  THEME_FAMILY_COOKIE_NAME,
+  THEME_FAMILY_STORAGE_KEY,
   THEME_STORAGE_KEY,
+  composeTheme,
+  getPairedTheme,
   getTheme,
+  getThemeFamily,
+  getThemeMode,
+  normalizeTheme,
+  normalizeThemeFamily,
+  normalizeThemeMode,
   setTheme,
   applyTheme,
   initializeTheme,
   toggleTheme,
   subscribeToThemeChanges,
+  withThemeFamily,
+  withThemeMode,
   type Theme,
+  type ThemeDefinition,
+  type ThemeFamily,
+  type ThemeMode,
 } from "./utils/theme";
+export {
+  BILLING_PLAN_CHANGE_EVENT,
+  DEFAULT_PLAN_TIER,
+  PLAN_TIER_CACHE_SECONDS,
+  PLAN_TIER_CHANGE_EVENT,
+  PLAN_TIER_COOKIE_NAME,
+  applyPlanTier,
+  clearCachedPlanTier,
+  getPlanTierEnvironment,
+  getPlanTierSubject,
+  normalizePlanTier,
+  notifyBillingPlanChanged,
+  parseCachedPlanTier,
+  publishPlanTier,
+  readCachedPlanTier,
+  resolveAccountPlanTier,
+  resolveCatalogPlanTier,
+  resolvePlanCatalogGeneration,
+  resolvePlanTierForIdentity,
+  writeCachedPlanTier,
+  type CachedPlanTier,
+  type PlanCatalogGeneration,
+  type PlanTier,
+} from "./utils/plan-tier";

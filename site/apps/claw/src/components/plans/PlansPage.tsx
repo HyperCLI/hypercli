@@ -38,6 +38,7 @@ import {
 } from "@/lib/plan-checkout-state";
 import { bundleKey, compactBundle, formatBundle, type SlotBundle } from "@/lib/subscriptions";
 import type { SdkAgent } from "@/types";
+import { notifyBillingPlanChanged, resolveCatalogPlanTier, type PlanTier } from "@hypercli/shared-ui";
 
 interface DisplayProduct {
   id: string;
@@ -46,6 +47,7 @@ interface DisplayProduct {
   price: number;
   features: string[];
   highlighted: boolean;
+  planTier: PlanTier;
   limits: {
     tpd: number;
     burstTpm: number;
@@ -190,6 +192,7 @@ function buildDisplayProducts(catalogPlans: HyperAgentPlan[]): DisplayProduct[] 
         price: finiteNumber(catalogPlan.priceUsd ?? catalogPlan.price_usd ?? plan.price),
         features: plan.features ?? [],
         highlighted: Boolean(plan.highlighted),
+        planTier: resolveCatalogPlanTier(plan, catalogPlans),
         limits: {
           tpd,
           burstTpm,
@@ -330,6 +333,7 @@ export default function PlansPage() {
 
     if (reflectionStatus === "ready") {
       clearPendingPlanCheckout(user?.id);
+      notifyBillingPlanChanged();
       setCheckoutSync({
         status: "success",
         message: `${pending?.planName ?? "Your plan"} is active. Agent slots and limits are updated.`,
@@ -420,6 +424,7 @@ export default function PlansPage() {
 
       if (reflectionStatus === "ready") {
         clearPendingPlanCheckout(principalId);
+        notifyBillingPlanChanged();
         setCheckoutSync({
           status: "success",
           message: `${pending?.planName ?? "Your plan"} is active. Agent slots and limits are updated.`,
@@ -458,6 +463,7 @@ export default function PlansPage() {
     const reflectionStatus = getCheckoutReflectionStatus(summary, pending);
     if (reflectionStatus === "ready") {
       clearPendingPlanCheckout(user.id);
+      notifyBillingPlanChanged();
       setCheckoutSync({
         status: "success",
         message: `${pending.planName} is active. Agent slots and limits are updated.`,
@@ -580,6 +586,7 @@ export default function PlansPage() {
       }
       setSubscriptionNotice(result.message || "Subscription cancellation scheduled");
       await refreshPlan();
+      notifyBillingPlanChanged();
     } catch (error) {
       setSubscriptionError(error instanceof Error ? error.message : "Failed to cancel subscription");
     } finally {
@@ -616,6 +623,7 @@ export default function PlansPage() {
       setSubscriptionNotice(`Code activated. ${planLabel} is now active${expiryLabel}.`);
       setShowRedeemModal(false);
       await refreshPlan();
+      notifyBillingPlanChanged();
     } catch (error) {
       setSubscriptionError(error instanceof Error ? error.message : "Failed to activate code");
     } finally {
@@ -951,15 +959,15 @@ export default function PlansPage() {
             const waitingForLaunchEntitlement = ownedCount > 0 && hasCheckoutBundle && !hasGrantedLaunchSlots;
 
             return (
-              <article key={product.id} className={`flex min-w-0 flex-col border-b border-border p-4 last:border-b-0 md:[&:nth-child(odd)]:border-r xl:border-b-0 xl:border-r xl:last:border-r-0 ${product.highlighted ? "bg-surface-low" : "bg-background"}`}>
+              <article data-plan-tier={product.planTier} key={product.id} className={`flex min-w-0 flex-col border-b border-t-2 border-border border-t-[var(--plan-accent-strong)] p-4 last:border-b-0 md:[&:nth-child(odd)]:border-r xl:border-b-0 xl:border-r xl:last:border-r-0 ${product.highlighted ? "bg-surface-low" : "bg-background"}`}>
                 <div className="mb-4 flex h-9 items-center justify-between gap-3">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-surface-high text-foreground">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--plan-accent-border)] bg-[var(--plan-accent-soft)] text-[var(--plan-accent)]">
                     <PlanIcon name={product.name} className="h-4 w-4" />
                   </span>
                   {waitingForLaunchEntitlement ? (
                     <span className="rounded-full bg-warning/10 px-3 py-1 text-xs font-semibold text-warning">Provisioning</span>
                   ) : product.highlighted ? (
-                    <span className="rounded-full bg-[var(--selection-accent-soft)] px-3 py-1 text-xs font-semibold text-[var(--selection-accent)]">Most Popular</span>
+                    <span className="rounded-full bg-[var(--plan-accent-soft)] px-3 py-1 text-xs font-semibold text-[var(--plan-accent)]">Most Popular</span>
                   ) : null}
                 </div>
 
@@ -989,7 +997,7 @@ export default function PlansPage() {
                     });
                   }}
                   disabled={product.id === "free" || !billingReady}
-                  className={`mb-4 flex min-h-10 w-full items-center justify-center rounded-lg px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${product.highlighted ? "bg-[var(--selection-accent)] text-[var(--selection-accent-foreground)] hover:brightness-95" : "btn-secondary"}`}
+                  className={`mb-4 flex min-h-10 w-full items-center justify-center rounded-lg px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${product.highlighted ? "btn-primary" : "btn-secondary"}`}
                 >
                   {product.id === "free" ? "Included" : !billingReady ? "Billing unavailable" : waitingForLaunchEntitlement ? "Refresh billing" : ownedCount > 0 ? "Add another" : "Purchase"}
                 </button>
@@ -998,7 +1006,7 @@ export default function PlansPage() {
                 <ul className="flex-1 space-y-2">
                   {(product.features ?? []).map((feature) => (
                     <li key={feature} className={`flex items-start gap-2 text-xs ${/^no\s/i.test(feature) ? "text-text-muted" : "text-foreground"}`}>
-                      {/^no\s/i.test(feature) ? <X className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" /> : <Check className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" />}
+                      {/^no\s/i.test(feature) ? <X className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" /> : <Check className="mt-0.5 h-4 w-4 shrink-0 text-[var(--plan-accent)]" />}
                       <span>{feature}</span>
                     </li>
                   ))}

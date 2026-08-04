@@ -318,7 +318,7 @@ function shouldHideIntegrationSetupMessage(message: ChatSession["messages"][numb
 function ChatEmptyStateFrame({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center text-text-muted">
-      <div className="agent-empty-history-frame flex min-h-0 max-h-full w-full flex-1 items-center justify-center">
+      <div className="agent-empty-history-frame flex min-h-0 w-full flex-1 self-stretch items-center justify-center">
         {children}
       </div>
     </div>

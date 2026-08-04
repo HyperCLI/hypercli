@@ -8,7 +8,13 @@ import { AuthProvider } from "../providers/AuthProvider";
 import { WalletProvider } from "../contexts/WalletContext";
 import { RainbowKitProvider } from "../providers/RainbowKitProvider";
 import { ThemeProvider, useTheme } from "./ThemeProvider";
-import { HYPERCLI_BRAND_ACCENT_HEX, HYPERCLI_LOGO_ICON_SRC } from "./HyperCLILogo";
+import { AuroraPlanTierProvider } from "./AuroraPlanTierProvider";
+import {
+  HYPERCLI_AURORA_BRAND_ACCENT_HEX,
+  HYPERCLI_AURORA_LOGO_ICON_SRC,
+  HYPERCLI_BRAND_ACCENT_HEX,
+  HYPERCLI_LOGO_ICON_SRC,
+} from "./HyperCLILogo";
 
 declare global {
   interface Window {
@@ -46,26 +52,30 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <ThemeProvider>
-      <ThemedProviderStack>{children}</ThemedProviderStack>
+      <AuroraPlanTierProvider>
+        <ThemedProviderStack>{children}</ThemedProviderStack>
+      </AuroraPlanTierProvider>
     </ThemeProvider>
   );
 }
 
 function ThemedProviderStack({ children }: { children: React.ReactNode }) {
-  const { theme } = useTheme();
+  const { family, mode } = useTheme();
+  const brandLogo = family === "aurora" ? HYPERCLI_AURORA_LOGO_ICON_SRC : HYPERCLI_LOGO_ICON_SRC;
+  const brandAccent = family === "aurora" ? HYPERCLI_AURORA_BRAND_ACCENT_HEX : HYPERCLI_BRAND_ACCENT_HEX;
   const turnkeyConfig = useMemo<TurnkeyProviderConfig>(() => ({
     organizationId: process.env.NEXT_PUBLIC_ORGANIZATION_ID!,
     authProxyConfigId: process.env.NEXT_PUBLIC_AUTH_PROXY_CONFIG_ID!,
     ui: {
-      logoLight: HYPERCLI_LOGO_ICON_SRC,
-      logoDark: HYPERCLI_LOGO_ICON_SRC,
-      darkMode: theme === "dark",
+      logoLight: brandLogo,
+      logoDark: brandLogo,
+      darkMode: mode === "dark",
       colors: {
         light: { modalText: "#0f1419" },
         dark: { modalText: "#fafafa" },
       },
     },
-  }), [theme]);
+  }), [brandLogo, mode]);
 
   const appProviders = (
     <RainbowKitProvider>
@@ -104,9 +114,9 @@ function ThemedProviderStack({ children }: { children: React.ReactNode }) {
       config={{
         loginMethods: ["email", "wallet", "google"],
         appearance: {
-          theme,
-          accentColor: HYPERCLI_BRAND_ACCENT_HEX,
-          logo: HYPERCLI_LOGO_ICON_SRC,
+          theme: mode,
+          accentColor: brandAccent,
+          logo: brandLogo,
         },
         embeddedWallets: {
           ethereum: { createOnLogin: "off" },

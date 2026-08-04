@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { createWalletClient, custom, type WalletClient } from "viem";
 import { base } from "viem/chains";
+import { notifyBillingPlanChanged } from "@hypercli/shared-ui";
 
 import { createHyperAgentClient } from "@/lib/agent-client";
 import { formatTokens } from "@/lib/format";
@@ -256,6 +257,7 @@ export function EmbeddedPlanCheckout({
         signer: walletClientToX402Signer(wallet.client),
         amountUsd: plan.price,
       });
+      notifyBillingPlanChanged();
       writePendingCheckout(`x402:${Date.now()}`);
       const principalCurrent = isPrincipalCurrent ? isPrincipalCurrent() : activeRef.current;
       if (!principalCurrent) return;

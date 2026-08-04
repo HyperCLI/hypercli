@@ -111,7 +111,7 @@ export function AgentEmptyHistory({
   return (
     <section
       aria-labelledby="agent-empty-history-title"
-      className="agent-empty-history max-h-full w-full max-w-[50rem] px-3 py-4 text-foreground sm:px-6 sm:py-5"
+      className="agent-empty-history w-full max-w-[50rem] px-3 py-4 text-foreground sm:px-6 sm:py-5"
     >
       <header className="text-center">
         <div

@@ -742,16 +742,22 @@ export async function createOpenClawSession(
   gateway: Pick<GatewayClient, "sessionsReset"> & Partial<Pick<GatewayClient, "sessionsCreate" | "sessionsSubscribe">>,
   sessionKey: string,
 ): Promise<string> {
+  const resetSession = async (): Promise<string> => {
+    const resetKey = nonEmptyString(await gateway.sessionsReset(sessionKey, "new")) ?? "";
+    if (resetKey && sameOpenClawSessionKey(resetKey, sessionKey)) return resetKey;
+    throw new Error(`Gateway protocol error: expected session ${sessionKey}, received ${resetKey || "no session key"}`);
+  };
+
   if (typeof gateway.sessionsCreate === "function" && typeof gateway.sessionsSubscribe === "function") {
     try {
       await gateway.sessionsSubscribe();
       const result = await gateway.sessionsCreate({ key: sessionKey });
-      if (typeof result.key === "string" && result.key.trim()) return result.key.trim();
-      throw new Error("Gateway protocol error: sessions.create returned no session key");
+      const createdKey = typeof result.key === "string" ? result.key.trim() : "";
+      if (createdKey && sameOpenClawSessionKey(createdKey, sessionKey)) return createdKey;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error ?? "");
       if (!/unknown method|method not found|not implemented|unsupported/i.test(message)) throw error;
     }
   }
-  return await gateway.sessionsReset(sessionKey, "new");
+  return await resetSession();
 }

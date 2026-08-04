@@ -1130,7 +1130,7 @@ function concreteMermaidColor(styles: CSSStyleDeclaration, property: string, fal
 function resolvedMermaidThemeVariables() {
   const root = document.documentElement;
   const styles = window.getComputedStyle(root);
-  const fallback = root.getAttribute("data-theme") === "light" ? MERMAID_THEME_FALLBACKS.light : MERMAID_THEME_FALLBACKS.dark;
+  const fallback = root.getAttribute("data-color-mode") === "light" ? MERMAID_THEME_FALLBACKS.light : MERMAID_THEME_FALLBACKS.dark;
   const surface = concreteMermaidColor(styles, "--surface-low", fallback.surface);
   const foreground = concreteMermaidColor(styles, "--foreground", fallback.foreground);
   return {

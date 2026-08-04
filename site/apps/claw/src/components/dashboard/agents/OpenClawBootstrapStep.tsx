@@ -180,41 +180,34 @@ export function OpenClawBootstrapStep({
         </details>
       </section>
 
-      <section className={`flex h-[400px] min-h-0 flex-col overflow-hidden rounded-[14px] border border-border bg-background ${wide ? "xl:h-auto" : ""}`}>
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-3">
-          <div>
-            <h3 className="text-[13px] font-semibold text-foreground">Generated workspace files</h3>
-            <p className="mt-0.5 text-[11px] leading-4 text-text-muted">
-              Review or edit the files added before launch. Regenerating replaces direct edits.
-            </p>
+      <section aria-label="Workspace file editor" className={`flex h-[400px] min-h-0 flex-col overflow-hidden rounded-[14px] border border-border bg-background ${wide ? "xl:h-auto" : ""}`}>
+        <div className="flex min-w-0 items-end gap-2 border-b border-border px-2">
+          <div className="flex min-w-0 flex-1 justify-start gap-1 overflow-x-auto pt-2" role="group" aria-label="Workspace files">
+            {effectiveDraft.files.map((file) => (
+              <button
+                key={file.name}
+                type="button"
+                aria-pressed={selectedFile?.name === file.name}
+                onClick={() => setActiveFile(file.name)}
+                title={FILE_LABELS[file.name]}
+                className={`shrink-0 rounded-t-[8px] border-x border-t px-2.5 py-2 font-mono text-[10px] ${
+                  selectedFile?.name === file.name
+                    ? "border-border bg-surface-high text-foreground"
+                    : "border-transparent text-text-muted hover:text-foreground"
+                }`}
+              >
+                {file.name}
+              </button>
+            ))}
           </div>
           <button
             type="button"
             onClick={onRegenerate}
-            className="inline-flex h-8 items-center gap-1.5 rounded-[8px] border border-border bg-surface-high px-2.5 text-[11px] font-semibold text-foreground hover:border-border-strong"
+            className="mb-2 inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[8px] border border-border bg-surface-high px-2.5 text-[11px] font-semibold text-foreground hover:border-border-strong"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${generationActive ? "animate-spin" : ""}`} />
             {generationActive ? "Restart generation" : "Regenerate files"}
           </button>
-        </div>
-
-        <div className="flex gap-1 overflow-x-auto border-b border-border px-2 pt-2" role="group" aria-label="Generated workspace files">
-          {effectiveDraft.files.map((file) => (
-            <button
-              key={file.name}
-              type="button"
-              aria-pressed={selectedFile?.name === file.name}
-              onClick={() => setActiveFile(file.name)}
-              title={FILE_LABELS[file.name]}
-              className={`shrink-0 rounded-t-[8px] border-x border-t px-2.5 py-2 font-mono text-[10px] ${
-                selectedFile?.name === file.name
-                  ? "border-border bg-surface-high text-foreground"
-                  : "border-transparent text-text-muted hover:text-foreground"
-              }`}
-            >
-              {file.name}
-            </button>
-          ))}
         </div>
 
         {selectedFile && selectedFileEntry ? (

@@ -1316,7 +1316,7 @@ export function AgentWorkspaceSidebar({
             isCollapsed ? "-left-52" : "-left-12"
           }`}
         >
-          <HyperCLILogoLink className="h-[28px] w-[144px]" />
+          <HyperCLILogoLink className="h-[28px] w-[144px]" imageClassName="text-[20px]" />
           {onClose ? (
             <button
               ref={closeButtonRef}
@@ -1335,7 +1335,9 @@ export function AgentWorkspaceSidebar({
             isCollapsed ? "justify-center px-0" : "gap-2 px-4"
           }`}
         >
-          {!isCollapsed ? <HyperCLILogoLink className="h-[26px] min-w-0 flex-1" /> : null}
+          {!isCollapsed ? (
+            <HyperCLILogoLink className="h-[26px] min-w-0 flex-1" imageClassName="text-[19px]" />
+          ) : null}
           {onClose ? (
             <button
               type="button"

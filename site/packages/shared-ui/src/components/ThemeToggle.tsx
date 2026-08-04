@@ -12,8 +12,8 @@ export interface ThemeToggleProps extends Omit<ComponentPropsWithoutRef<"button"
 }
 
 export function ThemeToggle({ showLabel = false, className, onClick, type = "button", title, ...props }: ThemeToggleProps) {
-  const { theme, toggleTheme } = useTheme();
-  const target = theme === "light" ? "dark" : "light";
+  const { mode, toggleTheme } = useTheme();
+  const target = mode === "light" ? "dark" : "light";
   const label = `Switch to ${target} mode`;
   const Icon = target === "light" ? Sun : Moon;
   const tooltipLabel = title === "" || (showLabel && title === undefined) ? null : title ?? label;

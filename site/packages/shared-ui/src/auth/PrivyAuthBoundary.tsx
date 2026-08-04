@@ -3,7 +3,12 @@
 import { ReactNode, useSyncExternalStore } from "react";
 import { PrivyProvider } from "@privy-io/react-auth";
 import { AuthProvider, hasStoredSession } from "./AuthProvider";
-import { HYPERCLI_BRAND_ACCENT_HEX, HYPERCLI_LOGO_ICON_SRC } from "../components/HyperCLILogo";
+import {
+  HYPERCLI_AURORA_BRAND_ACCENT_HEX,
+  HYPERCLI_AURORA_LOGO_ICON_SRC,
+  HYPERCLI_BRAND_ACCENT_HEX,
+  HYPERCLI_LOGO_ICON_SRC,
+} from "../components/HyperCLILogo";
 import { useTheme } from "../components/ThemeProvider";
 
 interface PrivyAuthBoundaryProps {
@@ -44,12 +49,14 @@ export function PrivyAuthBoundary({
   children,
   tokenStorageKey = "app_auth_token",
   loginMethods = ["email", "wallet", "google"],
-  logo = HYPERCLI_LOGO_ICON_SRC,
-  accentColor = HYPERCLI_BRAND_ACCENT_HEX,
+  logo,
+  accentColor,
   theme,
 }: PrivyAuthBoundaryProps) {
-  const { theme: productTheme } = useTheme();
-  const privyTheme = theme ?? productTheme;
+  const { family, mode } = useTheme();
+  const privyTheme = theme ?? mode;
+  const resolvedLogo = logo ?? (family === "aurora" ? HYPERCLI_AURORA_LOGO_ICON_SRC : HYPERCLI_LOGO_ICON_SRC);
+  const resolvedAccentColor = accentColor ?? (family === "aurora" ? HYPERCLI_AURORA_BRAND_ACCENT_HEX : HYPERCLI_BRAND_ACCENT_HEX);
   const seededPlaywrightSession = useSyncExternalStore(
     subscribeToSeededPlaywrightSession,
     () => hasSeededPlaywrightSession(tokenStorageKey),
@@ -74,8 +81,8 @@ export function PrivyAuthBoundary({
         loginMethods,
         appearance: {
           theme: privyTheme,
-          accentColor,
-          logo,
+          accentColor: resolvedAccentColor,
+          logo: resolvedLogo,
         },
         embeddedWallets: {
           ethereum: {

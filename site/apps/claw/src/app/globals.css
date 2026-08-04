@@ -65,8 +65,13 @@
   --agent-panel-background: var(--surface-low);
 }
 
-[data-theme="light"] {
-  --agent-roster-background: #edf3ee;
+[data-color-mode="light"] {
+  --agent-roster-background: var(--background-secondary);
+  --agent-panel-background: var(--surface-low);
+}
+
+[data-theme="aurora-dark"] {
+  --agent-roster-background: #1a2230;
   --agent-panel-background: var(--surface-low);
 }
 

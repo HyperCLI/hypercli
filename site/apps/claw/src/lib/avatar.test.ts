@@ -1,6 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { agentAvatar, agentProfileImageUrl } from "./avatar";
+import { agentAvatar, agentProfileImageUrl, randomAgentAvatarIconIndex } from "./avatar";
+
+describe("randomAgentAvatarIconIndex", () => {
+  it("maps secure random values to the available icons", () => {
+    const getRandomValuesSpy = vi.spyOn(crypto, "getRandomValues").mockImplementation((array) => {
+      (array as Uint32Array)[0] = 31;
+      return array;
+    });
+
+    expect(randomAgentAvatarIconIndex()).toBe(15);
+
+    getRandomValuesSpy.mockRestore();
+  });
+});
 
 describe("agentProfileImageUrl", () => {
   it("prefers the hydrated profile image", () => {

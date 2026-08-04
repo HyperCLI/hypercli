@@ -10,6 +10,8 @@ import { ThemeToggle } from "../../../../packages/shared-ui/src/components/Theme
 import {
   LEGACY_THEME_KEY,
   THEME_COOKIE_NAME,
+  THEME_FAMILY_COOKIE_NAME,
+  THEME_FAMILY_STORAGE_KEY,
   THEME_STORAGE_KEY,
   getTheme,
   setTheme,
@@ -65,8 +67,9 @@ function executeThemeScript({
     },
   };
   const fakeWindow = {
-    location: { hostname, protocol },
+    location: { hostname, protocol, origin: `${protocol}//${hostname}` },
     localStorage: { getItem: getStored, setItem: setStored },
+    atob,
   };
 
   const { source } = getThemeScript();
@@ -77,9 +80,12 @@ function executeThemeScript({
 
 beforeEach(() => {
   expireCookie(THEME_COOKIE_NAME);
+  expireCookie(THEME_FAMILY_COOKIE_NAME);
   expireCookie(LEGACY_THEME_KEY);
   window.localStorage.clear();
-  document.documentElement.setAttribute("data-theme", "dark");
+  document.documentElement.setAttribute("data-theme", "aurora-dark");
+  document.documentElement.setAttribute("data-color-mode", "dark");
+  document.documentElement.setAttribute("data-plan-tier", "solo");
   document.documentElement.style.colorScheme = "";
   document.body.removeAttribute("data-theme");
 });
@@ -90,22 +96,22 @@ afterEach(() => {
 
 describe("theme preference runtime", () => {
   it.each([
-    ["default", "dark"],
-    ["dark", "dark"],
-    ["green", "dark"],
-    ["light", "light"],
-  ] as const)("migrates the legacy cookie value %s to %s", (legacyTheme, expectedTheme) => {
+    ["default", "aurora-dark", "dark"],
+    ["dark", "aurora-dark", "dark"],
+    ["green", "aurora-dark", "dark"],
+    ["light", "aurora-light", "light"],
+  ] as const)("migrates the legacy cookie value %s to %s", (legacyTheme, expectedTheme, expectedMode) => {
     setCookie(LEGACY_THEME_KEY, legacyTheme);
 
     expect(getTheme()).toBe(expectedTheme);
-    expect(document.cookie).toContain(`${THEME_COOKIE_NAME}=${expectedTheme}`);
-    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe(expectedTheme);
+    expect(document.cookie).toContain(`${THEME_COOKIE_NAME}=${expectedMode}`);
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe(expectedMode);
   });
 
   it("migrates legacy storage when no theme cookie exists", () => {
     window.localStorage.setItem(LEGACY_THEME_KEY, "green");
 
-    expect(getTheme()).toBe("dark");
+    expect(getTheme()).toBe("aurora-dark");
     expect(document.cookie).toContain(`${THEME_COOKIE_NAME}=dark`);
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
   });
@@ -114,7 +120,7 @@ describe("theme preference runtime", () => {
     setCookie(THEME_COOKIE_NAME, "light");
     window.localStorage.setItem(THEME_STORAGE_KEY, "dark");
 
-    expect(getTheme()).toBe("light");
+    expect(getTheme()).toBe("aurora-light");
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("light");
   });
 
@@ -124,11 +130,23 @@ describe("theme preference runtime", () => {
 
     setTheme("light");
 
-    expect(document.documentElement).toHaveAttribute("data-theme", "light");
+    expect(document.documentElement).toHaveAttribute("data-theme", "aurora-light");
     expect(document.documentElement.style.colorScheme).toBe("light");
-    expect(document.body).toHaveAttribute("data-theme", "light");
-    expect(changes).toEqual(["light"]);
+    expect(document.body).toHaveAttribute("data-theme", "aurora-light");
+    expect(changes).toEqual(["aurora-light"]);
     unsubscribe();
+  });
+
+  it("persists Aurora family separately while applying a valid native color mode", () => {
+    setTheme("aurora-light");
+
+    expect(document.documentElement).toHaveAttribute("data-theme", "aurora-light");
+    expect(document.documentElement).toHaveAttribute("data-color-mode", "light");
+    expect(document.documentElement.style.colorScheme).toBe("light");
+    expect(document.cookie).toContain(`${THEME_COOKIE_NAME}=light`);
+    expect(document.cookie).toContain(`${THEME_FAMILY_COOKIE_NAME}=aurora`);
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("light");
+    expect(window.localStorage.getItem(THEME_FAMILY_STORAGE_KEY)).toBe("aurora");
   });
 
   it("resynchronizes cookie changes on storage and browser lifecycle events", () => {
@@ -145,7 +163,7 @@ describe("theme preference runtime", () => {
     setCookie(THEME_COOKIE_NAME, "dark");
     window.dispatchEvent(new Event("pageshow"));
 
-    expect(changes).toEqual(["light", "dark", "light", "dark"]);
+    expect(changes).toEqual(["aurora-light", "aurora-dark", "aurora-light", "aurora-dark"]);
     expect(intervalSpy).not.toHaveBeenCalled();
     unsubscribe();
   });
@@ -159,19 +177,21 @@ describe("theme preference runtime", () => {
     });
 
     expect(() => setTheme("light")).not.toThrow();
-    expect(document.documentElement).toHaveAttribute("data-theme", "light");
+    expect(document.documentElement).toHaveAttribute("data-theme", "aurora-light");
     expect(document.cookie).toContain(`${THEME_COOKIE_NAME}=light`);
-    expect(getTheme()).toBe("light");
+    expect(getTheme()).toBe("aurora-light");
   });
 });
 
 describe("ThemeProvider", () => {
   function ThemeConsumer() {
-    const { theme, setTheme: updateTheme, toggleTheme } = useTheme();
+    const { theme, family, mode, setTheme: updateTheme, toggleTheme } = useTheme();
     return (
       <>
         <output>{theme}</output>
+        <output>{family}:{mode}</output>
         <button type="button" onClick={() => updateTheme("light")}>Light</button>
+        <button type="button" onClick={() => updateTheme("aurora-light")}>Aurora</button>
         <button type="button" onClick={() => toggleTheme()}>Toggle</button>
       </>
     );
@@ -184,11 +204,17 @@ describe("ThemeProvider", () => {
       </ThemeProvider>,
     );
 
-    expect(screen.getByText("dark")).toBeInTheDocument();
+    expect(screen.getByText("aurora-dark")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Light" }));
-    expect(screen.getByText("light")).toBeInTheDocument();
+    expect(screen.getByText("aurora-light")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Toggle" }));
-    expect(screen.getByText("dark")).toBeInTheDocument();
+    expect(screen.getByText("aurora-dark")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Aurora" }));
+    expect(screen.getByText("aurora-light")).toBeInTheDocument();
+    expect(screen.getByText("aurora:light")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Toggle" }));
+    expect(screen.getByText("aurora-dark")).toBeInTheDocument();
   });
 });
 
@@ -202,7 +228,7 @@ describe("theme controls", () => {
 
     const lightButton = screen.getByRole("button", { name: "Switch to light mode" });
     fireEvent.click(lightButton);
-    expect(document.documentElement).toHaveAttribute("data-theme", "light");
+    expect(document.documentElement).toHaveAttribute("data-theme", "aurora-light");
     expect(screen.getByRole("button", { name: "Switch to dark mode" })).toBeInTheDocument();
   });
 
@@ -217,15 +243,22 @@ describe("theme controls", () => {
     fireEvent.click(screen.getByRole("button", { name: "Light" }));
     expect(screen.getByRole("button", { name: "Light" })).toHaveAttribute("aria-pressed", "true");
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("light");
+
+    expect(document.documentElement).toHaveAttribute("data-theme", "aurora-light");
+    fireEvent.click(screen.getByRole("button", { name: "Dark" }));
+    expect(document.documentElement).toHaveAttribute("data-theme", "aurora-dark");
   });
 });
 
 describe("ThemeScript", () => {
   const originalCookieDomain = process.env.NEXT_PUBLIC_COOKIE_DOMAIN;
+  const originalApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
 
   afterEach(() => {
     if (originalCookieDomain === undefined) delete process.env.NEXT_PUBLIC_COOKIE_DOMAIN;
     else process.env.NEXT_PUBLIC_COOKIE_DOMAIN = originalCookieDomain;
+    if (originalApiBaseUrl === undefined) delete process.env.NEXT_PUBLIC_API_BASE_URL;
+    else process.env.NEXT_PUBLIC_API_BASE_URL = originalApiBaseUrl;
   });
 
   it("prepaints malformed-cookie fallback even when storage is blocked", () => {
@@ -239,7 +272,7 @@ describe("ThemeScript", () => {
       },
     });
 
-    expect(result.attributes["data-theme"]).toBe("light");
+    expect(result.attributes["data-theme"]).toBe("aurora-light");
     expect(result.style.colorScheme).toBe("light");
     expect(result.writtenCookies[0]).toContain(`${THEME_COOKIE_NAME}=light`);
   });
@@ -252,9 +285,65 @@ describe("ThemeScript", () => {
       protocol: "https:",
     });
 
-    expect(result.attributes["data-theme"]).toBe("dark");
-    expect(result.writtenCookies[0]).toContain("Domain=.hypercli.com");
-    expect(result.writtenCookies[0]).toContain("Secure");
+    expect(result.attributes["data-theme"]).toBe("aurora-dark");
+    expect(result.writtenCookies).toContainEqual(expect.stringContaining("Max-Age=0"));
+    expect(result.writtenCookies).toContainEqual(expect.stringContaining("Domain=.hypercli.com"));
+    expect(result.writtenCookies).toContainEqual(expect.stringContaining("Secure"));
+  });
+
+  it("migrates Classic preferences while prepainting an account-bound cached plan tier", () => {
+    process.env.NEXT_PUBLIC_API_BASE_URL = "https://api.dev.hypercli.com/api";
+    const payload = btoa(JSON.stringify({ sub: "user-1", exp: Date.now() / 1000 + 300 }))
+      .replace(/=/g, "")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_");
+    const token = `header.${payload}.signature`;
+    const cachedTier = JSON.stringify({
+      version: 1,
+      subject: "user-1",
+      environment: "https://api.dev.hypercli.com",
+      tier: "enterprise",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const result = executeThemeScript({
+      cookie: `${THEME_COOKIE_NAME}=dark; ${THEME_FAMILY_COOKIE_NAME}=classic; auth_token=${token}; hypercli_plan_tier=${encodeURIComponent(cachedTier)}`,
+      hostname: "agents.dev.hypercli.com",
+      protocol: "https:",
+    });
+
+    expect(result.attributes["data-theme"]).toBe("aurora-dark");
+    expect(result.attributes["data-color-mode"]).toBe("dark");
+    expect(result.attributes["data-plan-tier"]).toBe("enterprise");
+    expect(result.style.colorScheme).toBe("dark");
+  });
+
+  it.each([
+    ["an expired token", false],
+    ["a logout marker", true],
+  ])("does not prepaint a cached account tier with %s", (_label, loggedOut) => {
+    process.env.NEXT_PUBLIC_API_BASE_URL = "https://api.dev.hypercli.com/api";
+    const payload = btoa(JSON.stringify({ sub: "user-1", exp: loggedOut ? Date.now() / 1000 + 60 : 1 }))
+      .replace(/=/g, "")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_");
+    const token = `header.${payload}.signature`;
+    const cachedTier = encodeURIComponent(JSON.stringify({
+      version: 1,
+      subject: "user-1",
+      environment: "https://api.dev.hypercli.com",
+      tier: "enterprise",
+      expiresAt: Date.now() + 60_000,
+    }));
+    const logoutCookie = loggedOut ? "; hypercli_logged_out=1" : "";
+
+    const result = executeThemeScript({
+      cookie: `auth_token=${token}; hypercli_plan_tier=${cachedTier}${logoutCookie}`,
+      hostname: "agents.dev.hypercli.com",
+      protocol: "https:",
+    });
+
+    expect(result.attributes["data-plan-tier"]).toBe("solo");
   });
 
   it("uses a host-only cookie on localhost and supports a nonce", () => {

@@ -5,8 +5,6 @@ import { motion, useReducedMotion } from "framer-motion";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import {
   ArrowRight,
-  Bot,
-  Brain,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -14,16 +12,16 @@ import {
   Globe,
   Rocket,
   Settings2,
-  Shield,
   Sparkles,
   X,
-  Zap,
 } from "lucide-react";
 import type { SlotInventory } from "@/lib/format";
 import { formatTokens } from "@/lib/format";
+import { agentAvatar, randomAgentAvatarIconIndex } from "@/lib/avatar";
 import { getOpenClawDefaultImage } from "@/lib/openclaw-launch";
 import { parseAgentCapacityError } from "@/lib/agent-tier";
 import { generateAgentName } from "@/lib/agent-name";
+import { managedAgentHandleFromDisplayName } from "@/lib/agent-profile-updates";
 import {
   hasPlanWord,
   isFiveAiuPlan,
@@ -63,6 +61,7 @@ import {
 
 export interface FirstAgentSetupCreateParams {
   name: string;
+  handle?: string | null;
   iconIndex: number;
   size: string;
   files: File[];
@@ -122,22 +121,10 @@ const EMPTY_SLOT_INVENTORY: SlotInventory = {};
 
 export { updateFirstAgentSetupDraftPlan } from "@/hooks/useFirstAgentSetupDraft";
 
-const avatarOptions: Array<{
-  iconIndex: number;
-  label: string;
-  icon: ComponentType<{ className?: string }>;
-}> = [
-  { iconIndex: 0, label: "Bot avatar", icon: Bot },
-  { iconIndex: 1, label: "Brain avatar", icon: Brain },
-  { iconIndex: 12, label: "Shield avatar", icon: Shield },
-  { iconIndex: 11, label: "Rocket avatar", icon: Rocket },
-  { iconIndex: 15, label: "Lightning avatar", icon: Zap },
-];
-
 const stepCopy: Record<WizardStepId, { title: string; subtitle: string }> = {
   identity: {
     title: "Create agent",
-    subtitle: "Give it a name, a look, and a quick note on what it does. You can change anything later.",
+    subtitle: "Give it a display name and choose its initial access. You can change both later.",
   },
   workspace: {
     title: "Set up the workspace",
@@ -857,18 +844,17 @@ export function FirstAgentSetupWizard({
     if (!draft) return null;
     if (draft.principalId && draftPrincipalId && draft.principalId !== draftPrincipalId) return null;
     if (draft.workspaceId && draftWorkspaceId && draft.workspaceId !== draftWorkspaceId) return null;
-    const iconIndex = avatarOptions.some((option) => option.iconIndex === draft.iconIndex)
-      ? draft.iconIndex
-      : avatarOptions[0].iconIndex;
-    return iconIndex === draft.iconIndex ? draft : { ...draft, iconIndex };
+    return draft;
   });
   const [draftResumeOpen, setDraftResumeOpen] = React.useState(() => (
     Boolean(restoredDraft && onStartFresh)
   ));
-  const [defaultAgentName, setDefaultAgentName] = React.useState("");
-  const [agentName, setAgentName] = React.useState(restoredDraft?.name ?? "");
+  const [deploymentName, setDeploymentName] = React.useState(restoredDraft?.name ?? "");
+  const [agentName, setAgentName] = React.useState(restoredDraft?.displayName ?? "");
+  const [agentNameError, setAgentNameError] = React.useState<string | null>(null);
+  const agentNameErrorId = React.useId();
   const [selectedCategory] = React.useState(restoredDraft?.category ?? "General");
-  const [selectedIconIndex, setSelectedIconIndex] = React.useState(restoredDraft?.iconIndex ?? avatarOptions[0].iconIndex);
+  const [selectedIconIndex] = React.useState(() => restoredDraft?.iconIndex ?? randomAgentAvatarIconIndex());
   const [enableDesktop, setEnableDesktop] = React.useState(restoredDraft?.enableDesktop ?? false);
   const [enableMemoryIndex, setEnableMemoryIndex] = React.useState(restoredDraft?.enableMemoryIndex ?? false);
   const [enableCustomImage, setEnableCustomImage] = React.useState(restoredDraft?.enableCustomImage ?? false);
@@ -957,9 +943,12 @@ export function FirstAgentSetupWizard({
   const selectedPlanFeatureRows = selectedPlan
     ? uniqueFeatureList([selectedPlanStatusFeature, ...selectedPlan.features].filter((feature): feature is string => Boolean(feature))).slice(0, 7)
     : [];
-  const displayName = agentName.trim() || defaultAgentName || "agent";
-  const agentUrl = agentUrlSlug(displayName);
-  const ResumeAvatarIcon = avatarOptions.find((option) => option.iconIndex === restoredDraft?.iconIndex)?.icon ?? Bot;
+  const workspaceAgentName = agentName.trim() || deploymentName || "Your agent";
+  const agentUrl = agentUrlSlug(deploymentName);
+  const ResumeAvatarIcon = agentAvatar(
+    restoredDraft?.name ?? deploymentName,
+    { ui: { avatar: { icon_index: restoredDraft?.iconIndex ?? selectedIconIndex } } },
+  ).icon;
   const restoredCapabilities = restoredDraft
     ? [
         restoredDraft.enableDesktop ? "Browser ready" : null,
@@ -971,7 +960,7 @@ export function FirstAgentSetupWizard({
   const runBootstrapGeneration = React.useCallback(async (rawInputs: OpenClawBootstrapInputs) => {
     const runId = bootstrapGenerationRunRef.current + 1;
     bootstrapGenerationRunRef.current = runId;
-    const inputs = { ...rawInputs, agentName: displayName };
+    const inputs = { ...rawInputs, agentName: workspaceAgentName };
     const fallbackFiles = buildDeterministicOpenClawBootstrapPack(inputs);
     const names = fallbackFiles.map((file) => file.name);
 
@@ -1024,7 +1013,7 @@ export function FirstAgentSetupWizard({
           ? "mixed"
           : "deterministic",
     }));
-  }, [bootstrapDraft.version, displayName, onGenerateBootstrap]);
+  }, [bootstrapDraft.version, onGenerateBootstrap, workspaceAgentName]);
 
   const handleBootstrapDraftChange = React.useCallback((nextDraft: OpenClawBootstrapDraft) => {
     const runId = bootstrapGenerationRunRef.current + 1;
@@ -1047,14 +1036,15 @@ export function FirstAgentSetupWizard({
   React.useEffect(() => {
     if (currentStep !== "workspace" || bootstrapInitialGenerationStartedRef.current) return;
     bootstrapInitialGenerationStartedRef.current = true;
-    void runBootstrapGeneration({ ...bootstrapDraft.inputs, agentName: displayName });
-  }, [bootstrapDraft.inputs, currentStep, displayName, runBootstrapGeneration]);
+    void runBootstrapGeneration({ ...bootstrapDraft.inputs, agentName: workspaceAgentName });
+  }, [bootstrapDraft.inputs, currentStep, runBootstrapGeneration, workspaceAgentName]);
 
   const persistDraft = React.useCallback((plan: LaunchPlanOption | null = null) => {
     const retainedPlanId = selectedCatalogPlanId?.trim() || restoredDraft?.plan || initialPlanId?.trim() || null;
     writeFirstAgentSetupDraft({
-      name: displayName,
-      description: `${displayName} helps with ${selectedCategory.toLowerCase()} workflows.`,
+      name: deploymentName,
+      displayName: agentName.trim(),
+      description: `${workspaceAgentName} helps with ${selectedCategory.toLowerCase()} workflows.`,
       size: plan?.size ?? restoredDraft?.size ?? null,
       iconIndex: selectedIconIndex,
       category: selectedCategory,
@@ -1070,7 +1060,8 @@ export function FirstAgentSetupWizard({
     });
   }, [
     bootstrapDraft,
-    displayName,
+    agentName,
+    deploymentName,
     draftPrincipalId,
     draftWorkspaceId,
     effectiveCustomImage,
@@ -1084,6 +1075,7 @@ export function FirstAgentSetupWizard({
     selectedCatalogPlanId,
     selectedCategory,
     selectedIconIndex,
+    workspaceAgentName,
   ]);
 
   const openCapacityCatalog = React.useCallback(async () => {
@@ -1115,23 +1107,22 @@ export function FirstAgentSetupWizard({
   React.useEffect(() => {
     const timeout = window.setTimeout(() => {
       const generatedName = generateAgentName();
-      setDefaultAgentName(generatedName);
-      setAgentName((currentName) => currentName.trim() ? currentName : generatedName);
+      setDeploymentName((currentName) => currentName.trim() ? currentName : generatedName);
     }, 0);
     return () => window.clearTimeout(timeout);
   }, []);
 
   React.useEffect(() => {
-    if (draftResumeOpen || !saveDraftAsYouGo || !agentName.trim()) return;
+    if (draftResumeOpen || !saveDraftAsYouGo || !deploymentName.trim()) return;
     const timeout = window.setTimeout(() => persistDraft(), 120);
     return () => window.clearTimeout(timeout);
-  }, [agentName, draftResumeOpen, persistDraft, saveDraftAsYouGo]);
+  }, [agentName, deploymentName, draftResumeOpen, persistDraft, saveDraftAsYouGo]);
 
   React.useEffect(() => {
-    if (draftResumeOpen || currentStep === "identity" || !agentName.trim()) return;
+    if (draftResumeOpen || currentStep === "identity" || !deploymentName.trim()) return;
     const timeout = window.setTimeout(() => persistDraft(selectedPlan ?? null), 120);
     return () => window.clearTimeout(timeout);
-  }, [agentName, bootstrapDraft, currentStep, draftResumeOpen, persistDraft, selectedPlan]);
+  }, [agentName, bootstrapDraft, currentStep, deploymentName, draftResumeOpen, persistDraft, selectedPlan]);
 
   React.useEffect(() => {
     if (!restoredDraft || draftResumeOpen) return;
@@ -1231,7 +1222,8 @@ export function FirstAgentSetupWizard({
     dispatchWizard({ type: "CREATE_REQUESTED" });
     try {
       const createdId = await onCreateAgent({
-        name: displayName,
+        name: deploymentName,
+        handle: agentName.trim() ? managedAgentHandleFromDisplayName(agentName) : null,
         iconIndex: selectedIconIndex,
         size: plan.size,
         files: bootstrapDraft.files.map((file) => (
@@ -1395,7 +1387,7 @@ export function FirstAgentSetupWizard({
                       <div className="min-w-0">
                         <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-selection-accent">Saved agent</p>
                         <h3 className="mt-1 truncate text-[24px] font-semibold leading-tight tracking-[-0.02em] text-foreground sm:text-[28px]">
-                          {restoredDraft.name}
+                          {restoredDraft.displayName || restoredDraft.name}
                         </h3>
                         <p className="mt-1 truncate text-[12px] font-medium text-text-muted">
                           {agentUrlSlug(restoredDraft.name)}.hypercli.com
@@ -1471,14 +1463,23 @@ export function FirstAgentSetupWizard({
                 <input
                   id="first-agent-name"
                   autoFocus
-                  maxLength={80}
+                  maxLength={64}
                   value={agentName}
-                  onChange={(event) => setAgentName(event.target.value)}
+                  placeholder="e.g. Research Assistant"
+                  aria-invalid={Boolean(agentNameError)}
+                  aria-describedby={agentNameError ? agentNameErrorId : undefined}
+                  onChange={(event) => {
+                    setAgentName(event.target.value);
+                    setAgentNameError(null);
+                  }}
                   className={cx(
                     "w-full border border-border bg-surface-low text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-border-strong",
                     largePresentation ? "h-[clamp(3rem,5.4vw,4rem)] rounded-[18px] px-[clamp(1rem,1.7vw,1.25rem)] text-[clamp(1rem,1.7vw,1.25rem)]" : "h-10 rounded-[10px] px-3 text-[14px]",
                   )}
                 />
+                {agentNameError ? (
+                  <p id={agentNameErrorId} role="alert" className={cx("text-destructive", largePresentation ? "mt-2 text-[13px]" : "mt-1.5 text-[11px]")}>{agentNameError}</p>
+                ) : null}
 
                 <div className={largePresentation ? "mt-[clamp(1.5rem,4vw,3rem)]" : "mt-4"}>
                   <span className={cx(
@@ -1497,34 +1498,6 @@ export function FirstAgentSetupWizard({
                     </span>
                     <output aria-label="Agent URL preview" className={cx("flex min-w-0 flex-1 items-center truncate font-medium", largePresentation ? "px-4 sm:px-5" : "px-3")}>{agentUrl}</output>
                     <span className={cx("flex shrink-0 items-center border-l border-border", largePresentation ? "px-4 sm:px-5" : "px-2.5")}>.hypercli.com</span>
-                  </div>
-                </div>
-
-                <div className={largePresentation ? "mt-[clamp(1.5rem,4vw,3rem)]" : "mt-4"}>
-                  <p className={cx("font-semibold leading-tight text-foreground", largePresentation ? "text-[clamp(0.9375rem,1.7vw,1.25rem)]" : "text-[13px]")}>Avatar</p>
-                  <div className={cx("flex flex-wrap", largePresentation ? "mt-[clamp(0.75rem,1.7vw,1.25rem)] gap-[clamp(0.625rem,1.35vw,1rem)]" : "mt-2 gap-1.5")}>
-                    {avatarOptions.map((option) => {
-                      const Icon = option.icon;
-                      const selected = selectedIconIndex === option.iconIndex;
-                      return (
-                        <button
-                          key={option.iconIndex}
-                          type="button"
-                          aria-label={option.label}
-                          aria-pressed={selected}
-                          onClick={() => setSelectedIconIndex(option.iconIndex)}
-                          className={cx(
-                            "flex items-center justify-center border bg-surface-high transition-colors",
-                            largePresentation ? "h-[clamp(3rem,5.4vw,4rem)] w-[clamp(3rem,5.4vw,4rem)] rounded-[18px]" : "h-9 w-9 rounded-[9px]",
-                            selected
-                              ? "border-selection-accent text-selection-accent shadow-[0_0_0_1px_color-mix(in_srgb,var(--selection-accent)_28%,transparent)]"
-                              : "border-border text-foreground hover:border-border-strong hover:bg-surface-low",
-                          )}
-                        >
-                          <Icon className={largePresentation ? "h-[clamp(1.25rem,2vw,1.5rem)] w-[clamp(1.25rem,2vw,1.5rem)]" : "h-4 w-4"} />
-                        </button>
-                      );
-                    })}
                   </div>
                 </div>
 
@@ -1647,6 +1620,14 @@ export function FirstAgentSetupWizard({
               {onClose ? <WizardButton large={largePresentation} variant="secondary" onClick={onClose}>Cancel</WizardButton> : null}
               {largePresentation ? null : <WizardMomentum stage="identity" />}
               <WizardButton onClick={() => {
+                if (agentName.trim()) {
+                  try {
+                    managedAgentHandleFromDisplayName(agentName);
+                  } catch (error) {
+                    setAgentNameError(error instanceof Error ? error.message : "Enter a valid display name.");
+                    return;
+                  }
+                }
                 if (saveDraftAsYouGo) persistDraft();
                 goToStep(1);
               }} large={largePresentation}>Continue</WizardButton>
@@ -1684,7 +1665,7 @@ export function FirstAgentSetupWizard({
                 </div>
               ) : null}
               <OpenClawBootstrapStep
-                agentName={displayName}
+                agentName={workspaceAgentName}
                 draft={bootstrapDraft}
                 onChange={handleBootstrapDraftChange}
                 generation={bootstrapGeneration}

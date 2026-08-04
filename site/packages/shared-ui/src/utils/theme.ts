@@ -1,16 +1,42 @@
-export type Theme = "dark" | "light";
+export type ThemeMode = "dark" | "light";
+export type ThemeFamily = "classic" | "aurora";
+export type Theme = ThemeMode | `aurora-${ThemeMode}`;
 
-export const DEFAULT_THEME: Theme = "dark";
+export interface ThemeDefinition {
+  value: Theme;
+  family: ThemeFamily;
+  mode: ThemeMode;
+  label: string;
+}
+
+export const THEME_DEFINITIONS = [
+  { value: "light", family: "classic", mode: "light", label: "Classic Light" },
+  { value: "dark", family: "classic", mode: "dark", label: "Classic Dark" },
+  { value: "aurora-light", family: "aurora", mode: "light", label: "Aurora Light" },
+  { value: "aurora-dark", family: "aurora", mode: "dark", label: "Aurora Dark" },
+] as const satisfies readonly ThemeDefinition[];
+
+export const DEFAULT_THEME: Theme = "aurora-dark";
 export const THEME_COOKIE_NAME = "hypercli_color_theme";
 export const THEME_STORAGE_KEY = THEME_COOKIE_NAME;
+export const THEME_FAMILY_COOKIE_NAME = "hypercli_theme_family";
+export const THEME_FAMILY_STORAGE_KEY = THEME_FAMILY_COOKIE_NAME;
 export const LEGACY_THEME_KEY = "hypercli_theme";
 
 const THEME_CHANGE_EVENT = "hypercli-theme-changed";
 const COOKIE_MAX_AGE = 365 * 24 * 60 * 60;
 const CONFIGURED_COOKIE_DOMAIN = (process.env.NEXT_PUBLIC_COOKIE_DOMAIN || "").trim();
 
-function normalizeTheme(value: unknown): Theme | null {
+export function normalizeTheme(value: unknown): Theme | null {
+  return THEME_DEFINITIONS.some((theme) => theme.value === value) ? value as Theme : null;
+}
+
+export function normalizeThemeMode(value: unknown): ThemeMode | null {
   return value === "dark" || value === "light" ? value : null;
+}
+
+export function normalizeThemeFamily(value: unknown): ThemeFamily | null {
+  return value === "classic" || value === "aurora" ? value : null;
 }
 
 function normalizeLegacyTheme(value: unknown): Theme | null {
@@ -18,7 +44,31 @@ function normalizeLegacyTheme(value: unknown): Theme | null {
   return normalizeTheme(value);
 }
 
-function readCookie(name: string, normalize: (value: unknown) => Theme | null): Theme | null {
+export function getThemeMode(theme: Theme): ThemeMode {
+  return theme === "light" || theme === "aurora-light" ? "light" : "dark";
+}
+
+export function getThemeFamily(theme: Theme): ThemeFamily {
+  return theme.startsWith("aurora-") ? "aurora" : "classic";
+}
+
+export function composeTheme(family: ThemeFamily, mode: ThemeMode): Theme {
+  return family === "aurora" ? `aurora-${mode}` : mode;
+}
+
+export function withThemeMode(theme: Theme, mode: ThemeMode): Theme {
+  return composeTheme(getThemeFamily(theme), mode);
+}
+
+export function withThemeFamily(theme: Theme, family: ThemeFamily): Theme {
+  return composeTheme(family, getThemeMode(theme));
+}
+
+export function getPairedTheme(theme: Theme): Theme {
+  return withThemeMode(theme, getThemeMode(theme) === "light" ? "dark" : "light");
+}
+
+function readCookie<T>(name: string, normalize: (value: unknown) => T | null): T | null {
   if (typeof document === "undefined") return null;
 
   let cookies: string;
@@ -28,22 +78,23 @@ function readCookie(name: string, normalize: (value: unknown) => Theme | null): 
     return null;
   }
 
+  let resolved: T | null = null;
   for (const cookie of cookies.split(";")) {
     const separatorIndex = cookie.indexOf("=");
     if (separatorIndex === -1 || cookie.slice(0, separatorIndex).trim() !== name) continue;
 
     try {
-      const theme = normalize(decodeURIComponent(cookie.slice(separatorIndex + 1).trim()));
-      if (theme) return theme;
+      const value = normalize(decodeURIComponent(cookie.slice(separatorIndex + 1).trim()));
+      if (value !== null) resolved = value;
     } catch {
       // Ignore one malformed cookie and continue checking other cookie scopes.
     }
   }
 
-  return null;
+  return resolved;
 }
 
-function readStorage(name: string, normalize: (value: unknown) => Theme | null): Theme | null {
+function readStorage<T>(name: string, normalize: (value: unknown) => T | null): T | null {
   if (typeof window === "undefined") return null;
 
   try {
@@ -57,7 +108,8 @@ function writeStorage(theme: Theme): void {
   if (typeof window === "undefined") return;
 
   try {
-    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    window.localStorage.setItem(THEME_STORAGE_KEY, getThemeMode(theme));
+    window.localStorage.setItem(THEME_FAMILY_STORAGE_KEY, getThemeFamily(theme));
   } catch {
     // Cookies remain authoritative when storage is unavailable.
   }
@@ -94,7 +146,7 @@ function getCookieDomain(): string {
   }
 }
 
-function writeCookie(theme: Theme): void {
+function writeCookie(name: string, value: string): void {
   if (typeof document === "undefined") return;
 
   let domain = "";
@@ -110,7 +162,10 @@ function writeCookie(theme: Theme): void {
   }
 
   try {
-    document.cookie = `${THEME_COOKIE_NAME}=${theme}; Path=/; Max-Age=${COOKIE_MAX_AGE}; SameSite=Lax${domain}${secure}`;
+    if (domain) {
+      document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax${secure}`;
+    }
+    document.cookie = `${name}=${value}; Path=/; Max-Age=${COOKIE_MAX_AGE}; SameSite=Lax${domain}${secure}`;
   } catch {
     // The DOM theme and same-tab event still update when cookies are blocked.
   }
@@ -122,7 +177,8 @@ function readAppliedTheme(): Theme | null {
 }
 
 function persistTheme(theme: Theme): void {
-  writeCookie(theme);
+  writeCookie(THEME_COOKIE_NAME, getThemeMode(theme));
+  writeCookie(THEME_FAMILY_COOKIE_NAME, getThemeFamily(theme));
   writeStorage(theme);
 }
 
@@ -132,35 +188,31 @@ function notifyThemeChange(theme: Theme): void {
 }
 
 /**
- * Read the current preference, with the shared domain cookie as the source of truth.
- * Legacy cookie and storage values are migrated to the canonical key on first read.
+ * Read the current preference, with shared domain cookies as the source of truth.
+ * Mode and visual family are persisted separately so older apps can still honor mode.
  */
 export function getTheme(): Theme {
-  const cookieTheme = readCookie(THEME_COOKIE_NAME, normalizeTheme);
-  if (cookieTheme) {
-    writeStorage(cookieTheme);
-    return cookieTheme;
-  }
-
+  const canonicalCookieTheme = readCookie(THEME_COOKIE_NAME, normalizeTheme);
+  const canonicalCookieMode = canonicalCookieTheme
+    ? getThemeMode(canonicalCookieTheme)
+    : readCookie(THEME_COOKIE_NAME, normalizeThemeMode);
   const legacyCookieTheme = readCookie(LEGACY_THEME_KEY, normalizeLegacyTheme);
-  if (legacyCookieTheme) {
-    persistTheme(legacyCookieTheme);
-    return legacyCookieTheme;
-  }
-
-  const storedTheme = readStorage(THEME_STORAGE_KEY, normalizeTheme);
-  if (storedTheme) {
-    persistTheme(storedTheme);
-    return storedTheme;
-  }
-
+  const canonicalStoredTheme = readStorage(THEME_STORAGE_KEY, normalizeTheme);
+  const canonicalStoredMode = canonicalStoredTheme
+    ? getThemeMode(canonicalStoredTheme)
+    : readStorage(THEME_STORAGE_KEY, normalizeThemeMode);
   const legacyStoredTheme = readStorage(LEGACY_THEME_KEY, normalizeLegacyTheme);
-  if (legacyStoredTheme) {
-    persistTheme(legacyStoredTheme);
-    return legacyStoredTheme;
-  }
+  const appliedTheme = readAppliedTheme();
 
-  const theme = readAppliedTheme() ?? DEFAULT_THEME;
+  const mode =
+    canonicalCookieMode ??
+    (legacyCookieTheme ? getThemeMode(legacyCookieTheme) : null) ??
+    canonicalStoredMode ??
+    (legacyStoredTheme ? getThemeMode(legacyStoredTheme) : null) ??
+    (appliedTheme ? getThemeMode(appliedTheme) : null) ??
+    getThemeMode(DEFAULT_THEME);
+  const theme = composeTheme("aurora", mode);
+
   persistTheme(theme);
   return theme;
 }
@@ -168,16 +220,21 @@ export function getTheme(): Theme {
 /** Apply a theme immediately, independently of cookie or storage availability. */
 export function applyTheme(theme: Theme): void {
   if (typeof document === "undefined") return;
-  const normalizedTheme = normalizeTheme(theme) ?? DEFAULT_THEME;
+  const requestedTheme = normalizeTheme(theme) ?? DEFAULT_THEME;
+  const normalizedTheme = composeTheme("aurora", getThemeMode(requestedTheme));
+  const mode = getThemeMode(normalizedTheme);
 
   document.documentElement.setAttribute("data-theme", normalizedTheme);
-  document.documentElement.style.colorScheme = normalizedTheme;
+  document.documentElement.setAttribute("data-color-mode", mode);
+  document.documentElement.style.colorScheme = mode;
   document.body?.setAttribute("data-theme", normalizedTheme);
+  document.body?.setAttribute("data-color-mode", mode);
 }
 
 /** Apply and persist a preference, then notify subscribers in the current tab. */
 export function setTheme(theme: Theme): void {
-  const normalizedTheme = normalizeTheme(theme) ?? DEFAULT_THEME;
+  const requestedTheme = normalizeTheme(theme) ?? DEFAULT_THEME;
+  const normalizedTheme = composeTheme("aurora", getThemeMode(requestedTheme));
   applyTheme(normalizedTheme);
   persistTheme(normalizedTheme);
   notifyThemeChange(normalizedTheme);
@@ -190,7 +247,7 @@ export function initializeTheme(): Theme {
 }
 
 export function toggleTheme(): Theme {
-  const nextTheme: Theme = getTheme() === "light" ? "dark" : "light";
+  const nextTheme = getPairedTheme(getTheme());
   setTheme(nextTheme);
   return nextTheme;
 }
@@ -212,13 +269,18 @@ export function subscribeToThemeChanges(callback: (theme: Theme) => void): () =>
     applyTheme(theme);
     callback(theme);
   };
-
   const handleThemeChange = (event: Event) => {
     const theme = normalizeTheme((event as CustomEvent<{ theme?: unknown }>).detail?.theme);
     synchronize(theme ?? undefined);
   };
   const handleStorage = (event: StorageEvent) => {
-    if (event.key === THEME_STORAGE_KEY || event.key === LEGACY_THEME_KEY) synchronize();
+    if (
+      event.key === THEME_STORAGE_KEY ||
+      event.key === THEME_FAMILY_STORAGE_KEY ||
+      event.key === LEGACY_THEME_KEY
+    ) {
+      synchronize();
+    }
   };
   const handleFocus = () => synchronize();
   const handleVisibilityChange = () => {

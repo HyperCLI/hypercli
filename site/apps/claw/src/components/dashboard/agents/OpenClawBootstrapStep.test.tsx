@@ -12,7 +12,7 @@ import type { OpenClawBootstrapGenerationState } from "./openclaw-bootstrap-gene
 import { OpenClawBootstrapStep } from "./OpenClawBootstrapStep";
 
 describe("OpenClawBootstrapStep", () => {
-  it("previews generated files from tabs and saves raw edits to the parent draft", async () => {
+  it("left-aligns workspace file tabs and saves raw edits to the parent draft", async () => {
     const onRegenerate = vi.fn();
 
     function Harness() {
@@ -50,9 +50,10 @@ describe("OpenClawBootstrapStep", () => {
     expect(screen.queryByText("USER.md queued")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Restart generation" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Shape the agent" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Generated workspace files" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Generated workspace files" })).not.toBeInTheDocument();
     expect(screen.getByText("Describe its main goals, recurring tasks, and important limits.")).toBeInTheDocument();
-    const fileTabs = screen.getByRole("group", { name: "Generated workspace files" });
+    const fileTabs = screen.getByRole("group", { name: "Workspace files" });
+    expect(fileTabs).toHaveClass("justify-start");
     expect(within(fileTabs).getAllByRole("button")).toHaveLength(3);
     expect(screen.getByRole("button", { name: "Preview" })).toHaveAttribute("aria-pressed", "true");
     expect(document.querySelector('[data-slot="openclaw-bootstrap-step"]')).toHaveClass(

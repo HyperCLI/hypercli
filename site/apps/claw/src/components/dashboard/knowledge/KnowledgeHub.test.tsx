@@ -259,8 +259,8 @@ describe("KnowledgeHub", () => {
     expect(screen.getByRole("heading", { name: "Governance record" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Access boundary" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Lifecycle" })).toBeInTheDocument();
-    expect(document.querySelector('[data-slot="domain-settings-header"]')).toHaveClass("text-left");
-    expect(document.querySelector('[data-slot="domain-settings-state"]')?.parentElement).toHaveClass("text-left");
+    expect(document.querySelector('[data-slot="domain-settings-header"]')).toHaveClass("grid", "sm:grid-cols-[minmax(0,1fr)_auto]", "text-left");
+    expect(document.querySelector('[data-slot="domain-settings-state"]')?.parentElement).toHaveClass("grid", "grid-cols-[auto_minmax(0,1fr)]", "text-left");
     const settingsLayout = document.querySelector('[data-slot="domain-settings-layout"]');
     expect(settingsLayout).toHaveClass("lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.75fr)]");
     expect(settingsLayout?.querySelector("svg")).not.toBeInTheDocument();
@@ -268,7 +268,7 @@ describe("KnowledgeHub", () => {
     expect(document.querySelector('[data-slot="space-metadata"]')).toHaveClass("divide-y", "border-y");
     expect(document.querySelector('[data-slot="domain-catalog-preview"]')).toHaveTextContent("Support playbook");
     expect(document.querySelector('[data-slot="domain-catalog-preview"]')).toHaveTextContent("1 source · 1 assigned agent");
-    expect(document.querySelector('[data-slot="space-actions"]')).toHaveClass("sticky", "flex-col", "sm:flex-row");
+    expect(document.querySelector('[data-slot="space-actions"]')).toHaveClass("sticky", "grid", "grid-cols-[minmax(0,1fr)_auto]");
     expect(screen.getByRole("button", { name: "Review assigned agents" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Discard changes" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();

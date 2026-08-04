@@ -18,6 +18,7 @@ export interface FirstAgentSetupDraft {
   workspaceId: string | null;
   knowledgeDomainId: string | null;
   name: string;
+  displayName: string;
   description: string;
   size: string | null;
   iconIndex: number;
@@ -59,6 +60,9 @@ export function parseFirstAgentSetupDraft(raw: string | null): FirstAgentSetupDr
     if (value.source !== "first-agent-setup") return null;
     const name = normalizeOptionalString(value.name, 80);
     if (!name) return null;
+    const displayName = "displayName" in value
+      ? normalizeOptionalString(value.displayName, 64) ?? ""
+      : name.slice(0, 64);
     const iconIndex = Number(value.iconIndex);
     const category = typeof value.category === "string" && HELP_CATEGORIES.has(value.category)
       ? value.category
@@ -72,6 +76,7 @@ export function parseFirstAgentSetupDraft(raw: string | null): FirstAgentSetupDr
       workspaceId: normalizeOptionalString(value.workspaceId, 100),
       knowledgeDomainId: normalizeOptionalString(value.knowledgeDomainId, 100),
       name,
+      displayName,
       description: normalizeOptionalString(value.description, 300) ?? "",
       size: normalizeOptionalString(value.size, 40),
       iconIndex: Number.isFinite(iconIndex) ? Math.abs(Math.trunc(iconIndex)) % 16 : 0,

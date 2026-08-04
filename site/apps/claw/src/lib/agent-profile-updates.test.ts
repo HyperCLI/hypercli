@@ -2,10 +2,18 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createAgentMutationQueue,
+  managedAgentHandleFromDisplayName,
   mergeAgentListAfterMutations,
   persistAgentCanonicalName,
   persistAgentDisplayName,
 } from "./agent-profile-updates";
+
+describe("managedAgentHandleFromDisplayName", () => {
+  it("uses the managed display-name normalization and validation rules", () => {
+    expect(managedAgentHandleFromDisplayName(" Research Assistant ")).toBe("research-assistant");
+    expect(() => managedAgentHandleFromDisplayName("Assistant!")).toThrow("Display names must start");
+  });
+});
 
 function updateClient() {
   return {

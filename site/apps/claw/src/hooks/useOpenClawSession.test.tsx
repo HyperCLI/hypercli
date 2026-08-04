@@ -2111,7 +2111,7 @@ describe("useOpenClawSession", () => {
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
-    const sessionKey = "dashboard:019789ab-cdef-4abc-8def-0123456789ab";
+    const sessionKey = "session-primary-focus";
 
     const { result, unmount } = renderHookWithClient(() => (
       useOpenClawSession(agent as any, true, sessionKey)
@@ -2120,10 +2120,57 @@ describe("useOpenClawSession", () => {
     await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
     expect(result.current.activeSessionKey).toBe(sessionKey);
     expect(result.current.activeUnindexedInitialSession).toBeNull();
+    expect(gateway.sessionsCreate).not.toHaveBeenCalled();
     unmount();
   });
 
-  it("hands the materialized initial session off to the indexed record without resurrecting it", async () => {
+  it("materializes an unindexed dashboard route without adopting main", async () => {
+    const gateway = buildGateway();
+    const sessionKey = "dashboard:019789ab-cdef-4abc-8def-0123456789ab";
+    const gatewaySessionKey = `agent:default:${sessionKey}`;
+    gateway.sessionsList.mockResolvedValue([{
+      key: "agent:default:main",
+      origin: { provider: "webchat", surface: "webchat" },
+      deliveryContext: { channel: "webchat" },
+      updatedAt: 20,
+    }]);
+    gateway.sessionsCreate.mockResolvedValue({ ok: true, key: "agent:default:main" });
+    gateway.sessionsReset.mockImplementation(async (key: string) => `agent:default:${key}`);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => (
+      useOpenClawSession(agent as any, true, sessionKey)
+    ));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    expect(gateway.sessionsCreate).toHaveBeenCalledWith({ key: sessionKey });
+    expect(gateway.sessionsReset).toHaveBeenCalledWith(sessionKey, "new");
+    expect(result.current.sessions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        key: sessionKey,
+        gatewaySessionKey,
+        title: "New Session",
+      }),
+    ]));
+
+    act(() => {
+      result.current.setInput("hello after refresh");
+    });
+    await act(async () => {
+      await result.current.sendMessage();
+    });
+
+    expect(gateway.chatSend).toHaveBeenCalledWith("hello after refresh", gatewaySessionKey, undefined);
+    expect(gateway.chatSend).not.toHaveBeenCalledWith("hello after refresh", "agent:default:main", undefined);
+    unmount();
+  });
+
+  it("restores the active initial row when the indexed record is temporarily omitted", async () => {
     const gateway = buildGateway();
     const agent = {
       id: "deploy-123",
@@ -2165,7 +2212,10 @@ describe("useOpenClawSession", () => {
     });
 
     expect(result.current.sessions).toEqual([]);
-    expect(result.current.activeUnindexedInitialSession).toBeNull();
+    expect(result.current.activeUnindexedInitialSession).toEqual(expect.objectContaining({
+      key: sessionKey,
+      title: "New Session",
+    }));
     unmount();
   });
 

@@ -42,6 +42,7 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
+  notifyBillingPlanChanged,
   type ReceiptRecord,
 } from "@hypercli/shared-ui";
 import type {
@@ -713,6 +714,7 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
       if (!result.ok) throw new Error(result.message || "Failed to cancel subscription");
       setSubscriptionNotice(result.message || "Subscription cancellation scheduled");
       await refreshBilling();
+      notifyBillingPlanChanged();
     } catch (mutationError) {
       setSubscriptionError(mutationError instanceof Error ? mutationError.message : "Failed to cancel subscription");
     } finally {
@@ -739,6 +741,7 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
       setSubscriptionNotice(`Code activated. ${planLabel} is now active${expiryLabel}.`);
       setShowRedeemModal(false);
       await refreshBilling();
+      notifyBillingPlanChanged();
     } catch (redemptionError) {
       setRedeemError(redemptionError instanceof Error ? redemptionError.message : "Failed to activate code");
     } finally {
@@ -810,7 +813,7 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
                 </CardHeader>
               </Card>
 
-              <Card className="gap-0 rounded-2xl bg-surface-low" aria-labelledby="active-bundles-heading">
+              <Card className="gap-0 rounded-2xl border-t-2 border-t-[var(--plan-accent-strong)] bg-surface-low" aria-labelledby="active-bundles-heading">
                 <CardHeader className="gap-1.5 p-5 pb-0 text-left">
                   <h2 id="active-bundles-heading" className="text-[0.9375rem] font-semibold leading-5 tracking-tight text-foreground">Active Bundles</h2>
                   <CardDescription className="text-xs leading-4 text-text-muted">
@@ -827,7 +830,7 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
                           size="lg"
                           className="col-start-1 row-start-1 h-11 min-w-0 justify-start rounded-xl px-0 text-xs leading-4"
                         >
-                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-surface-high">
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[var(--plan-accent-border)] bg-[var(--plan-accent-soft)] text-[var(--plan-accent)]">
                             <ChevronDown className={`h-4 w-4 transition-transform ${agentsExpanded ? "rotate-180" : "-rotate-90"}`} aria-hidden="true" />
                           </span>
                           <span>Agents this cycle</span>
@@ -971,7 +974,7 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
                         aria-valuemin={0}
                         aria-valuemax={pooledTpd}
                         aria-valuenow={dailyTokenUsage ?? 0}
-                        className="mt-4 bg-surface-high [&_[data-slot=progress-indicator]]:bg-[var(--selection-accent)]"
+                        className="mt-4 bg-surface-high [&_[data-slot=progress-indicator]]:bg-[var(--plan-accent-strong)]"
                       />
                     ) : (
                       <Progress value={0} aria-label="Daily token pool usage unavailable" className="mt-4 bg-surface-high" />

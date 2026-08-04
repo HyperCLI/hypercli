@@ -530,9 +530,9 @@ describe("MarkdownContent", () => {
 
   it("falls back to concrete light-theme colors for unresolved tokens", async () => {
     const root = document.documentElement;
-    const previousTheme = root.getAttribute("data-theme");
+    const previousMode = root.getAttribute("data-color-mode");
     const previousSurface = root.style.getPropertyValue("--surface-low");
-    root.setAttribute("data-theme", "light");
+    root.setAttribute("data-color-mode", "light");
     root.style.setProperty("--surface-low", "var(--missing-mermaid-surface)");
 
     try {
@@ -544,8 +544,8 @@ describe("MarkdownContent", () => {
         primaryColor: "#f7f9fc",
       }));
     } finally {
-      if (previousTheme) root.setAttribute("data-theme", previousTheme);
-      else root.removeAttribute("data-theme");
+      if (previousMode) root.setAttribute("data-color-mode", previousMode);
+      else root.removeAttribute("data-color-mode");
       if (previousSurface) root.style.setProperty("--surface-low", previousSurface);
       else root.style.removeProperty("--surface-low");
     }

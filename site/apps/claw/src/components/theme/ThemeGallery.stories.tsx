@@ -43,6 +43,23 @@ function ThemeGallery() {
           </div>
         </section>
 
+        <section className="grid gap-3 md:grid-cols-3" aria-label="Plan wayfinding accents">
+          {(["solo", "team", "enterprise"] as const).map((tier) => (
+            <article
+              key={tier}
+              data-plan-tier={tier}
+              className="rounded-2xl border border-[var(--plan-accent-border)] border-t-2 border-t-[var(--plan-accent-strong)] bg-card p-5"
+            >
+              <span className="rounded-full bg-[var(--plan-accent-soft)] px-2.5 py-1 text-xs font-semibold capitalize text-[var(--plan-accent)]">
+                {tier}
+              </span>
+              <p className="mt-4 font-semibold capitalize text-foreground">{tier} plan</p>
+              <p className="mt-1 text-sm text-text-secondary">Wayfinding changes; the purchase action stays blue.</p>
+              <button className="btn-primary mt-4 rounded-lg px-3 py-2 text-sm font-semibold">Select plan</button>
+            </article>
+          ))}
+        </section>
+
         <section className="grid gap-3 md:grid-cols-3">
           <div className="rounded-xl border border-success/30 bg-success/10 p-4 text-sm text-success"><Check className="mr-2 inline h-4 w-4" />Connection healthy</div>
           <div className="rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning"><AlertTriangle className="mr-2 inline h-4 w-4" />Action required</div>
