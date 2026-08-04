@@ -10,7 +10,7 @@ export const TEST_AGENTS_ADMIN_BASE =
   process.env.TEST_AGENTS_ADMIN_BASE?.trim() || "https://api.dev.hypercli.com/agents";
 export const TEST_AGENT_API_KEY = process.env.TEST_AGENT_API_KEY?.trim() || "";
 export const TEST_BACKEND_API_KEY = process.env.TEST_BACKEND_API_KEY?.trim() || "";
-export const EXPECTED_TEST_EMAIL = process.env.EXPECTED_TEST_EMAIL?.trim() || "agent@nedos.io";
+export const EXPECTED_TEST_EMAIL = process.env.EXPECTED_TEST_EMAIL?.trim() || "agent@hypercli.com";
 
 export const integrationIt = TEST_API_KEY ? it : it.skip;
 export const integrationDescribe = TEST_API_KEY ? describe : describe.skip;

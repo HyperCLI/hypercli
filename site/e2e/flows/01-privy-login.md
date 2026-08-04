@@ -23,9 +23,9 @@ Automated login via Privy email OTP using IMAP to fetch the verification code.
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `IMAP_PASS` | **yes** | — | IMAP password / app password |
-| `PRIVY_EMAIL` | no | `agent@nedos.io` | Email for Privy login |
+| `PRIVY_EMAIL` | no | `agent@hypercli.com` | Email for Privy login |
 | `IMAP_HOST` | no | `imap.fastmail.com` | IMAP server |
-| `IMAP_USER` | no | `agent@nedos.io` | IMAP username |
+| `IMAP_USER` | no | `agent@hypercli.com` | IMAP username |
 | `E2E_BASE_URL` | no | `https://gilfoyle.dev.hypercli.com` | Frontend URL |
 
 ## Usage

@@ -6,7 +6,7 @@ Usage:
 
 Env:
   IMAP_HOST  (default: imap.fastmail.com)
-  IMAP_USER  (default: agent@nedos.io)
+  IMAP_USER  (default: agent@hypercli.com)
   IMAP_PASS  (required)
 
 Prints the 6-digit OTP code to stdout. Exits 1 if not found within timeout.
@@ -21,7 +21,7 @@ import time
 import os
 
 IMAP_HOST = os.environ.get("IMAP_HOST", "imap.fastmail.com")
-IMAP_USER = os.environ.get("IMAP_USER", "agent@nedos.io")
+IMAP_USER = os.environ.get("IMAP_USER", "agent@hypercli.com")
 IMAP_PASS = os.environ.get("IMAP_PASS", "")
 TIMEOUT = int(sys.argv[sys.argv.index("--timeout") + 1]) if "--timeout" in sys.argv else 30
 AFTER = int(sys.argv[sys.argv.index("--after") + 1]) if "--after" in sys.argv else 0

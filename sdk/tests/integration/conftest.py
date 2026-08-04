@@ -7,7 +7,7 @@ import pytest
 from hypercli import HyperCLI
 
 
-EXPECTED_TEST_EMAIL = "agent@nedos.io"
+EXPECTED_TEST_EMAIL = os.getenv("EXPECTED_TEST_EMAIL", "agent@hypercli.com").strip()
 
 
 def _env(name: str, default: str = "") -> str:

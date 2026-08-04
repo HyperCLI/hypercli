@@ -2,9 +2,9 @@
  * Shared E2E helpers: Privy login, IMAP OTP fetch.
  *
  * Environment:
- *   PRIVY_EMAIL  — email for Privy login (default: agent@nedos.io)
+ *   PRIVY_EMAIL  — email for Privy login (default: agent@hypercli.com)
  *   IMAP_HOST    — IMAP server (default: imap.fastmail.com)
- *   IMAP_USER    — IMAP username (default: agent@nedos.io)
+ *   IMAP_USER    — IMAP username (default: agent@hypercli.com)
  *   IMAP_PASS    — IMAP password (required for OTP flows)
  *   E2E_BASE_URL — frontend URL (default: https://gilfoyle.dev.hypercli.com)
  */
@@ -15,7 +15,7 @@ import path from "path";
 
 export const BASE_URL =
   process.env.E2E_BASE_URL || "https://gilfoyle.dev.hypercli.com";
-export const PRIVY_EMAIL = process.env.PRIVY_EMAIL || "agent@nedos.io";
+export const PRIVY_EMAIL = process.env.PRIVY_EMAIL || "agent@hypercli.com";
 
 const DEFAULT_TEST_AGENTS_API_BASE_URL = "https://api.dev.hypercli.com/agents";
 
