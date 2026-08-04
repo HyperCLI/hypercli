@@ -179,6 +179,11 @@ export interface HyperAgentSubscriptionSummary {
 
 export type HyperAgentEntitlementsSummary = HyperAgentSubscriptionSummary;
 
+/** Whether any plan or entitlement is currently active. */
+export function hasActivePlan(summary: HyperAgentSubscriptionSummary): boolean {
+  return summary.activeSubscriptionCount > 0 || summary.activeEntitlementCount > 0;
+}
+
 export interface HyperAgentSubscriptionMutationResult {
   ok: boolean;
   message: string;

@@ -148,6 +148,7 @@ export {
 // HyperAgent
 export {
   HyperAgent,
+  hasActivePlan,
   type HyperAgentPlan,
   type HyperAgentCurrentPlan,
   type HyperAgentEntitlements,
