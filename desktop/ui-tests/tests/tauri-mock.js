@@ -17,6 +17,8 @@
     status: {
       installed: [],
       missing: NAMES.slice(),
+      broken: [],
+      translocated: false,
       has_api_key: false,
       config_error: null,
       bin_dir: "/home/test/.local/bin",
@@ -60,10 +62,12 @@
           case "install_providers":
             state.status.installed = NAMES.slice();
             state.status.missing = [];
+            state.status.broken = [];
             return snapshot();
           case "uninstall_providers":
             state.status.installed = [];
             state.status.missing = NAMES.slice();
+            state.status.broken = [];
             return snapshot();
           case "save_api_key":
             if (!args?.apiKey?.trim()) throw "API key is empty";

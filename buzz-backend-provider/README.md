@@ -39,9 +39,12 @@ buzz-backend-hypercli-goose.exe
 buzz-backend-hypercli-kimi.exe
 ```
 
-Put the executables in `%USERPROFILE%\.local\bin`, then restart Buzz or use
-**Settings > Agents > Check again**. Buzz scans that directory explicitly, so
-it works even when the desktop process did not inherit a terminal `PATH`.
+Put the executables in `%USERPROFILE%\\.local\\bin`, then reopen Buzz's
+create-agent dialog — the backend-provider list refetches on its own (30s
+staleness), no restart needed. **Settings > Agents > Check again** refreshes
+ACP harnesses only and does *not* rescan backend providers. Buzz scans that
+directory explicitly, so it works even when the desktop process did not
+inherit a terminal `PATH`.
 Keeping all aliases beside the base executable makes each runtime appear as a
 separate `Run on` choice while retaining one implementation. The release
 workflow builds these files for `x86_64-pc-windows-msvc`; current artifacts are

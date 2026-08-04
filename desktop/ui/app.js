@@ -74,10 +74,13 @@ function render(status) {
         return li;
       }),
     );
-    const fresh = status.installed.length === 0;
-    hint.textContent = fresh
-      ? "Install the HyperCLI backend so your agents appear in Buzz."
-      : "Some providers are missing:";
+    const broken = status.broken && status.broken.length > 0;
+    const fresh = status.installed.length === 0 && !broken;
+    hint.textContent = broken
+      ? "Previously installed providers stopped working — reinstall to repair:"
+      : fresh
+        ? "Install the HyperCLI backend so your agents appear in Buzz."
+        : "Some providers are missing:";
     installBtn.textContent = fresh ? "Install providers" : "Reinstall";
     installBtn.classList.add("primary");
     installBtn.classList.remove("link");
@@ -183,8 +186,14 @@ document.getElementById("logout-btn").addEventListener("click", async () => {
 
 document.getElementById("install-btn").addEventListener("click", async () => {
   try {
-    render(await invoke("install_providers"));
-    setStatus("Providers installed — you can close the app.");
+    const status = await invoke("install_providers");
+    render(status);
+    setStatus(
+      status.translocated
+        ? "Providers installed. macOS is running HyperCLI from a temporary copy — drag HyperCLI.app to Applications to stop the warning on each launch."
+        : "Providers installed — you can close the app.",
+      status.translocated,
+    );
   } catch (error) {
     setStatus(String(error), true);
   }

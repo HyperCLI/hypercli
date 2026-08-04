@@ -24,6 +24,12 @@ const DESKTOP_LOGIN_PAGE: &str = "https://agents.hypercli.com/desktop-login";
 pub struct ProviderStatus {
     installed: Vec<String>,
     missing: Vec<String>,
+    /// Present but unusable — a leftover link whose target is gone. Reported
+    /// separately so the UI can say "reinstall" instead of "never installed".
+    broken: Vec<String>,
+    /// macOS is running the app from a translocation mount; the install
+    /// still works (we copy), but the user should move the app.
+    translocated: bool,
     has_api_key: bool,
     config_error: Option<String>,
     bin_dir: String,
@@ -51,6 +57,15 @@ fn bin_dir() -> Result<PathBuf, String> {
     Ok(home_dir()?.join(".local").join("bin"))
 }
 
+/// The single real binary installed in `~/.local/bin`; every Buzz runtime
+/// identity links to it. Generic on purpose — the same executable serves
+/// the provider protocol and (per buzz-backend-provider/README.md) the
+/// planned `hypercli-configure` argv[0] surface.
+fn canonical_bin_name() -> String {
+    let ext = if cfg!(windows) { ".exe" } else { "" };
+    format!("hypercli-configure{ext}")
+}
+
 fn provider_names() -> Vec<String> {
     let ext = if cfg!(windows) { ".exe" } else { "" };
     let mut names = vec![format!("{PROVIDER_BIN}{ext}")];
@@ -60,6 +75,16 @@ fn provider_names() -> Vec<String> {
             .map(|rt| format!("{PROVIDER_BIN}-{rt}{ext}")),
     );
     names
+}
+
+/// True when macOS is running this app from an App Translocation mount — a
+/// randomized read-only copy of a still-quarantined download, torn down when
+/// the app quits. Installing by copy is safe from there; only links into the
+/// bundle would break, which is exactly why we no longer create any.
+fn is_translocated() -> bool {
+    std::env::current_exe()
+        .map(|exe| exe.to_string_lossy().contains("/AppTranslocation/"))
+        .unwrap_or(false)
 }
 
 /// The sidecar binary Tauri bundles next to the app executable.
@@ -76,6 +101,48 @@ fn sidecar_path() -> Result<PathBuf, String> {
     Ok(path)
 }
 
+/// Install a binary by streaming its bytes to a temp file and renaming it
+/// into place.
+///
+/// Deliberately NOT `fs::copy`: on macOS that clones extended attributes, so
+/// copying out of a quarantined app bundle would produce a quarantined
+/// binary and Gatekeeper would kill it the moment Buzz executed it. The
+/// rename is atomic and safe even while a previous copy is running — the
+/// live process keeps the old inode.
+fn install_binary(source: &std::path::Path, dest: &std::path::Path) -> std::io::Result<()> {
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let tmp = dest.with_extension("tmp-install");
+    let _ = fs::remove_file(&tmp);
+    {
+        let mut reader = fs::File::open(source)?;
+        let mut writer = fs::File::create(&tmp)?;
+        std::io::copy(&mut reader, &mut writer)?;
+        writer.sync_all()?;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755))?;
+    }
+    fs::rename(&tmp, dest)
+}
+
+/// Drop the quarantine flag a copied binary inherits from a downloaded app.
+/// Buzz spawns these directly; a quarantined, not-yet-notarized binary would
+/// be blocked by Gatekeeper. Best effort — the attribute is often absent.
+#[cfg(target_os = "macos")]
+fn clear_quarantine(path: &std::path::Path) {
+    let _ = std::process::Command::new("/usr/bin/xattr")
+        .args(["-d", "com.apple.quarantine"])
+        .arg(path)
+        .output();
+}
+
+#[cfg(not(target_os = "macos"))]
+fn clear_quarantine(_path: &std::path::Path) {}
+
 /// Credential presence via the SDK's discovery (env vars, config file,
 /// legacy agent-key.json) — exactly what the provider itself will see.
 fn credential_state() -> (bool, Option<String>) {
@@ -89,13 +156,25 @@ fn credential_state() -> (bool, Option<String>) {
 #[tauri::command]
 fn provider_status() -> Result<ProviderStatus, String> {
     let dir = bin_dir()?;
-    let (installed, missing) = provider_names()
+    // `exists()` follows symlinks, so a link left dangling by an older
+    // install (which pointed into the app bundle) correctly reads as missing
+    // and gets replaced on the next install.
+    let (installed, missing): (Vec<String>, Vec<String>) = provider_names()
         .into_iter()
         .partition(|name| dir.join(name).exists());
+    // A name that exists as a link but resolves nowhere: installed by an
+    // older build that pointed into the app bundle.
+    let broken = missing
+        .iter()
+        .filter(|name| dir.join(name).symlink_metadata().is_ok())
+        .cloned()
+        .collect();
     let (has_api_key, config_error) = credential_state();
     Ok(ProviderStatus {
         installed,
         missing,
+        broken,
+        translocated: is_translocated(),
         has_api_key,
         config_error,
         bin_dir: dir.display().to_string(),
@@ -103,34 +182,52 @@ fn provider_status() -> Result<ProviderStatus, String> {
     })
 }
 
-/// Install the provider under every runtime name Buzz looks for.
-/// Symlinks on macOS/Linux (one real file, one Gatekeeper identity);
-/// copies on Windows (symlinks there need admin or Developer Mode).
+/// Install the provider into `~/.local/bin`, owned by the user rather than
+/// the app bundle: one real copy under the generic `hypercli-configure`
+/// name, with every Buzz runtime identity a relative symlink beside it
+/// (copies on Windows, where symlinks need admin or Developer Mode).
+///
+/// Copying — rather than linking into `HyperCLI.app` — is deliberate: a
+/// downloaded app may run from an App Translocation mount that vanishes on
+/// quit, and the app can be moved or deleted. The install must outlive it.
 #[tauri::command]
 fn install_providers() -> Result<ProviderStatus, String> {
     let source = sidecar_path()?;
     let dir = bin_dir()?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+    let primary = dir.join(canonical_bin_name());
+    install_binary(&source, &primary)
+        .map_err(|e| format!("installing {}: {e}", primary.display()))?;
+    clear_quarantine(&primary);
+
     for name in provider_names() {
         let target = dir.join(&name);
-        if target.exists() || target.is_symlink() {
+        // symlink_metadata, not exists(): a link left dangling by an older
+        // install still needs removing, and exists() follows the link.
+        if target.symlink_metadata().is_ok() {
             fs::remove_file(&target).map_err(|e| e.to_string())?;
         }
+        // Relative target: resolves through the directory itself, so the
+        // install survives the home directory being moved or renamed.
         #[cfg(unix)]
-        std::os::unix::fs::symlink(&source, &target).map_err(|e| e.to_string())?;
+        std::os::unix::fs::symlink(canonical_bin_name(), &target).map_err(|e| e.to_string())?;
         #[cfg(windows)]
-        fs::copy(&source, &target).map_err(|e| e.to_string())?;
+        {
+            fs::copy(&primary, &target).map_err(|e| e.to_string())?;
+            clear_quarantine(&target);
+        }
     }
     provider_status()
 }
 
-/// Remove every provider name from the bin dir. Only touches our names.
+/// Remove every provider name and the shared binary. Only touches our names.
 #[tauri::command]
 fn uninstall_providers() -> Result<ProviderStatus, String> {
     let dir = bin_dir()?;
-    for name in provider_names() {
+    for name in provider_names().into_iter().chain([canonical_bin_name()]) {
         let target = dir.join(&name);
-        if target.exists() || target.is_symlink() {
+        if target.symlink_metadata().is_ok() {
             fs::remove_file(&target).map_err(|e| e.to_string())?;
         }
     }
