@@ -76,24 +76,25 @@ jobs:
           fi
           test "$(git status --porcelain)" = ""
           SOURCE_SHA="$(git rev-parse HEAD)"
-          # Never release while the sdk/provider test jobs are red or
-          # unfinished on main. Scoped to the `sdk /` jobs inside the latest
-          # Frontend CI run: live-environment e2e suites in that workflow
-          # test deployed backends, not the code this release ships, and
-          # must not hold binary releases hostage (e.g. a dev-env outage).
+          # Never release while the workspace test job for the code this
+          # release ships is red or unfinished on main. Deliberately gated on
+          # exactly "sdk / Rust SDK and Buzz provider": the sdk integration
+          # and e2e suites exercise the LIVE dev backend, which cycles and
+          # goes down routinely — they must never hold binary releases
+          # hostage.
           RUN_ID="$(gh run list --workflow "Frontend CI" --branch main --limit 1 \
             --json databaseId --jq '.[0].databaseId // empty')"
           STATE="success"
           if [[ -n "$RUN_ID" ]]; then
             STATE="$(gh run view "$RUN_ID" --json jobs \
-              --jq '[.jobs[] | select(.name | startswith("sdk /"))]
+              --jq '[.jobs[] | select(.name == "sdk / Rust SDK and Buzz provider")]
                     | if length == 0 then "pending"
                       elif any(.[]; .status != "completed") then "pending"
                       elif any(.[]; .conclusion != "success" and .conclusion != "skipped") then "failure"
                       else "success" end')"
           fi
           if [[ "$STATE" != "success" ]]; then
-            echo "sdk/provider test jobs on main are '$STATE'; wait for green before releasing" >&2
+            echo "Rust SDK and Buzz provider job on main is '$STATE'; wait for green before releasing" >&2
             exit 1
           fi
           echo "SOURCE_SHA=$SOURCE_SHA" >> "$GITHUB_ENV"
