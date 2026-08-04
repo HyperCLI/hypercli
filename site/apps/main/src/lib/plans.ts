@@ -1,6 +1,7 @@
 export interface PlanTier {
   id: "solo" | "team" | "pro";
   name: string;
+  tagline: string;
   price: number;
   agents: string;
   memory: string;
@@ -9,12 +10,14 @@ export interface PlanTier {
   gaugePercent: number;
   highlighted?: boolean;
   cta: string;
+  ctaNote: string;
 }
 
 export const PLAN_TIERS: PlanTier[] = [
   {
     id: "solo",
     name: "Solo",
+    tagline: "One agent, always on. Yours.",
     price: 39,
     agents: "1 agent",
     memory: "2 GB",
@@ -22,10 +25,12 @@ export const PLAN_TIERS: PlanTier[] = [
     models: ["Kimi K2.6", "Qwen Embeddings", "Qwen TTS"],
     gaugePercent: 25,
     cta: "Get started",
+    ctaNote: "Billed monthly · cancel anytime",
   },
   {
     id: "team",
     name: "Team",
+    tagline: "Up to three agents. Expand as you grow.",
     price: 79,
     agents: "Up to 3 agents",
     memory: "4 GB",
@@ -34,10 +39,12 @@ export const PLAN_TIERS: PlanTier[] = [
     gaugePercent: 50,
     highlighted: true,
     cta: "Start free trial",
+    ctaNote: "7 days free · cancel anytime",
   },
   {
     id: "pro",
     name: "Pro",
+    tagline: "Three developer-grade agents, frontier brain.",
     price: 149,
     agents: "Up to 3 dev-grade agents",
     memory: "8 GB",
@@ -45,13 +52,26 @@ export const PLAN_TIERS: PlanTier[] = [
     models: ["Kimi K3", "Qwen Embeddings", "Qwen TTS", "Render"],
     gaugePercent: 100,
     cta: "Go Pro",
+    ctaNote: "Billed monthly · cancel anytime",
   },
 ];
 
 export const BEYOND_PRO = [
-  { name: "Scale", price: "from $500/mo", blurb: "More agents, more pool, same flat rate." },
-  { name: "Private cloud", price: "from $5,000/mo", blurb: "Dedicated infrastructure, our cloud, your rules." },
-  { name: "Self-hosted", price: "from $20,000/mo", blurb: "The whole platform, inside your walls." },
+  {
+    name: "Scale",
+    price: "from $500/mo",
+    blurb: "Pro-grade agent fleets, shared workspaces with roles, scoped keys, central billing, priority support.",
+  },
+  {
+    name: "Private cloud",
+    price: "from $5,000/mo",
+    blurb: "Managed, single-tenant deployment — isolated compute, your region, our operations.",
+  },
+  {
+    name: "Self-hosted",
+    price: "from $20,000/mo",
+    blurb: "Up to air-gapped. Open weights, no egress, no meter.",
+  },
 ] as const;
 
 export const PILOT_PROGRAM_PRICE = "$15,000 fixed";
@@ -64,6 +84,6 @@ export const OVERAGE_COPY =
 
 export const POOL_COPY = "API key draws from the same pool on every tier.";
 
-export const NO_PER_SEAT_COPY = "No per-seat pricing, ever.";
+export const NO_PER_SEAT_COPY = "Your whole team can talk to them — no per-seat pricing";
 
 export const FLAT_RATE_FROM = "Flat rate from $39/mo.";

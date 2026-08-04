@@ -6,6 +6,7 @@ import { GlassCard } from "./surface-card";
 
 export interface PricingTierCardProps {
   name: string;
+  tagline?: string;
   price: string;
   cadence?: string;
   specs: string[];
@@ -14,12 +15,14 @@ export interface PricingTierCardProps {
   highlighted?: boolean;
   ctaLabel: string;
   ctaHref?: string;
+  ctaNote?: string;
   onCtaClick?: () => void;
   className?: string;
 }
 
 export function PricingTierCard({
   name,
+  tagline,
   price,
   cadence = "/mo",
   specs,
@@ -28,6 +31,7 @@ export function PricingTierCard({
   highlighted = false,
   ctaLabel,
   ctaHref,
+  ctaNote,
   onCtaClick,
   className,
 }: PricingTierCardProps) {
@@ -45,6 +49,7 @@ export function PricingTierCard({
         </span>
       )}
       <h3 className="text-lg font-semibold text-foreground">{name}</h3>
+      {tagline && <p className="mt-1 text-sm text-text-muted">{tagline}</p>}
       <div className="mb-1 mt-2">
         <span className="text-3xl font-bold text-foreground">{price}</span>
         {cadence && <span className="text-sm text-text-muted">{cadence}</span>}
@@ -79,6 +84,7 @@ export function PricingTierCard({
           {ctaLabel}
         </button>
       )}
+      {ctaNote && <p className="mt-2.5 text-center text-xs text-text-muted">{ctaNote}</p>}
     </GlassCard>
   );
 }

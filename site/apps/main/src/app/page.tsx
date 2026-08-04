@@ -300,6 +300,12 @@ export default function Home() {
             <p className="mt-7 text-xs text-text-muted">
               *It never buys anything or ships anything without you. Initiative has rules here.
             </p>
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-6 text-sm font-semibold">
+              <GetStartedLink label="Meet yours →" className="text-primary hover:underline" />
+              <Link href="#night" className="text-primary hover:underline">
+                Watch a night's work →
+              </Link>
+            </div>
           </div>
         </section>
 
@@ -345,20 +351,26 @@ export default function Home() {
               <DoorCard
                 tone="mint"
                 href="/for-teams"
+                kicker="For founders and small teams"
                 title="Hire your first AI teammate"
                 blurb="Add it to Slack or Teams and hand it real work in plain English. Research, content, ops, follow-ups — done while you run the business. No code, no IT."
+                goText="Meet your teammate →"
               />
               <DoorCard
                 tone="blue"
                 href="/developers"
+                kicker="For builders and hackers"
                 title="Deploy an agent with a whole machine"
                 blurb="Two commands to an always-on agent with browser, voice, media, and memory. Or grab an API key — OpenAI- and Anthropic-compatible, flat rate."
+                goText="Start building →"
               />
               <DoorCard
                 tone="lavender"
                 href="/enterprise"
+                kicker="For companies that need control"
                 title="Own your AI workforce"
                 blurb="An agent platform every department builds on — governed, auditable, and self-hostable down to air-gapped. Open weights mean there's no lock-in to escape."
+                goText="Talk to engineering →"
               />
             </div>
           </div>

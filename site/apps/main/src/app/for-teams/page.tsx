@@ -311,6 +311,7 @@ export default function ForTeamsPage() {
                 <PricingTierCard
                   key={tier.id}
                   name={tier.name}
+                  tagline={tier.tagline}
                   price={`$${tier.price}`}
                   specs={[tier.agents, `${tier.memory} memory`, tier.tokensPerDay, "API access — same pool"]}
                   models={tier.models}
@@ -318,6 +319,7 @@ export default function ForTeamsPage() {
                   highlighted={tier.highlighted}
                   ctaLabel={tier.cta}
                   ctaHref={`${NAV_URLS.agents}?plan=${tier.id}`}
+                  ctaNote={tier.ctaNote}
                 />
               ))}
             </div>

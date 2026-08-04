@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   BellRing,
   Clapperboard,
@@ -19,14 +19,27 @@ import { cn } from "@hypercli/shared-ui";
 
 interface TabPanel {
   label: string;
+  title: string;
   icon: LucideIcon;
   lead: string;
   asks: React.ReactNode[];
   back: string;
 }
 
-function TabPanelGroup({ panels }: { panels: TabPanel[] }) {
+function TabPanelGroup({ panels, autoRotate = false }: { panels: TabPanel[]; autoRotate?: boolean }) {
   const [active, setActive] = useState(0);
+  const userSelected = useRef(false);
+
+  useEffect(() => {
+    if (!autoRotate) return;
+    const id = setInterval(() => {
+      if (!userSelected.current) {
+        setActive((current) => (current + 1) % panels.length);
+      }
+    }, 4500);
+    return () => clearInterval(id);
+  }, [autoRotate, panels.length]);
+
   const panel = panels[active];
   return (
     <div>
@@ -37,7 +50,10 @@ function TabPanelGroup({ panels }: { panels: TabPanel[] }) {
             type="button"
             role="tab"
             aria-selected={index === active}
-            onClick={() => setActive(index)}
+            onClick={() => {
+              userSelected.current = true;
+              setActive(index);
+            }}
             className={cn(
               "flex items-center gap-1.5 rounded-full border px-4.5 py-2 text-sm font-medium transition-all",
               index === active
@@ -51,6 +67,10 @@ function TabPanelGroup({ panels }: { panels: TabPanel[] }) {
         ))}
       </div>
       <div className="glass-card mx-auto max-w-2xl p-8 text-left">
+        <h3 className="mb-4 flex items-center gap-2.5 text-xl font-bold tracking-tight text-foreground">
+          <panel.icon className="h-5 w-5 text-primary" aria-hidden="true" />
+          {panel.title}
+        </h3>
         <p className="mb-5 text-base leading-relaxed text-text-secondary">{panel.lead}</p>
         <div className="mb-5 grid gap-2.5">
           {panel.asks.map((ask, index) => (
@@ -76,6 +96,7 @@ function TabPanelGroup({ panels }: { panels: TabPanel[] }) {
 const CAPABILITY_PANELS: TabPanel[] = [
   {
     label: "Research",
+    title: "Research and reports",
     icon: Search,
     lead: "It has its own browser and reads the web the way you do — then hands you a document, not forty links.",
     asks: [
@@ -86,6 +107,7 @@ const CAPABILITY_PANELS: TabPanel[] = [
   },
   {
     label: "Content",
+    title: "Content and media",
     icon: Clapperboard,
     lead: "It makes images, videos, and voiceovers in-house — your product shots become demo clips, your scripts become talking-head videos.",
     asks: [
@@ -96,6 +118,7 @@ const CAPABILITY_PANELS: TabPanel[] = [
   },
   {
     label: "Voice",
+    title: "Talk instead of type",
     icon: Mic,
     lead: "Send it voice notes; it transcribes and acts. Ask it to speak; it reads your digest aloud — in a voice you picked or designed.",
     asks: [
@@ -108,6 +131,7 @@ const CAPABILITY_PANELS: TabPanel[] = [
   },
   {
     label: "Ops",
+    title: "Ops and paperwork",
     icon: ListChecks,
     lead: "The work nobody loves: forms, follow-ups, spreadsheets, portals. Handled, with a paper trail.",
     asks: [
@@ -118,6 +142,7 @@ const CAPABILITY_PANELS: TabPanel[] = [
   },
   {
     label: "Watching",
+    title: "Watching and alerts",
     icon: BellRing,
     lead: "It's always on — so standing orders actually stand. It checks, every day, forever, and only speaks when something matters.",
     asks: [
@@ -128,6 +153,7 @@ const CAPABILITY_PANELS: TabPanel[] = [
   },
   {
     label: "Memory",
+    title: "Remembering everything",
     icon: Database,
     lead: "It keeps a real memory of your business — decisions, docs, preferences. The longer it works with you, the less you have to explain.",
     asks: [
@@ -141,6 +167,7 @@ const CAPABILITY_PANELS: TabPanel[] = [
 const ROLE_PANELS: TabPanel[] = [
   {
     label: "Founder",
+    title: "Founder",
     icon: Rocket,
     lead: "The stuff that eats your evenings:",
     asks: [
@@ -153,6 +180,7 @@ const ROLE_PANELS: TabPanel[] = [
   },
   {
     label: "Marketing",
+    title: "Marketing",
     icon: Megaphone,
     lead: "A content teammate that never runs out:",
     asks: [
@@ -165,6 +193,7 @@ const ROLE_PANELS: TabPanel[] = [
   },
   {
     label: "Ops",
+    title: "Ops",
     icon: Settings,
     lead: "The pipeline runs itself:",
     asks: [
@@ -177,6 +206,7 @@ const ROLE_PANELS: TabPanel[] = [
   },
   {
     label: "Sales",
+    title: "Sales",
     icon: Target,
     lead: "Show up knowing everything:",
     asks: [
@@ -190,7 +220,7 @@ const ROLE_PANELS: TabPanel[] = [
 ];
 
 export function CapabilityTabs() {
-  return <TabPanelGroup panels={CAPABILITY_PANELS} />;
+  return <TabPanelGroup panels={CAPABILITY_PANELS} autoRotate />;
 }
 
 export function RoleTabs() {

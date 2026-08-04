@@ -39,12 +39,15 @@ export const NAV_URLS = {
   cli: IS_MAIN_SITE ? '/cli' : `${MAIN_SITE_URL}/cli`,
   quickstart: IS_MAIN_SITE ? '/quickstart' : `${MAIN_SITE_URL}/quickstart`,
   inference: IS_MAIN_SITE ? '/inference' : `${MAIN_SITE_URL}/inference`,
+  slack: IS_MAIN_SITE ? '/slack' : `${MAIN_SITE_URL}/slack`,
 
   // Solutions pages
   forTeams: IS_MAIN_SITE ? '/for-teams' : `${MAIN_SITE_URL}/for-teams`,
   developers: IS_MAIN_SITE ? '/developers' : `${MAIN_SITE_URL}/developers`,
   selfHosted: IS_MAIN_SITE ? '/self-hosted' : `${MAIN_SITE_URL}/self-hosted`,
   buildersProgram: IS_MAIN_SITE ? '/builders-program' : `${MAIN_SITE_URL}/builders-program`,
+  pilotProgram: IS_MAIN_SITE ? '/pilot-program' : `${MAIN_SITE_URL}/pilot-program`,
+  whatItCanDo: IS_MAIN_SITE ? '/what-it-can-do' : `${MAIN_SITE_URL}/what-it-can-do`,
 
   // Legal pages
   privacy: IS_MAIN_SITE ? '/privacy' : `${MAIN_SITE_URL}/privacy`,

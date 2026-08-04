@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Footer, GlassCard, Header, TerminalWindow, type TerminalLine } from "@hypercli/shared-ui";
+import { GlassCard, Header, TerminalWindow, type TerminalLine } from "@hypercli/shared-ui";
 import { BookOpen, Bot, Code, Cpu, Database, Image, Key, Mic, Package, SquareTerminal, User } from "lucide-react";
 
 export const metadata: Metadata = {
@@ -103,6 +103,31 @@ const PHILOSOPHY = [
     body: "Per-command reference, guides, and OpenAPI specs at docs.hypercli.com — the source of truth this page happily defers to.",
   },
 ];
+
+const CLI_FOOTER_LINKS = [
+  { label: "Capabilities", href: "/capabilities" },
+  { label: "Inference", href: "/inference" },
+  { label: "Channels", href: "/slack" },
+  { label: "Pricing", href: "/pricing" },
+];
+
+function CliFooter() {
+  return (
+    <footer className="border-t border-border px-6 pb-12 pt-8 text-center text-sm text-text-muted">
+      <p>
+        HyperCLI, Inc.
+        {CLI_FOOTER_LINKS.map((link) => (
+          <span key={link.href}>
+            {" · "}
+            <Link href={link.href} className="hover:text-foreground transition-colors">
+              {link.label}
+            </Link>
+          </span>
+        ))}
+      </p>
+    </footer>
+  );
+}
 
 export default function CliPage() {
   return (
@@ -283,7 +308,7 @@ export default function CliPage() {
           </div>
         </section>
       </main>
-      <Footer />
+      <CliFooter />
     </div>
   );
 }
