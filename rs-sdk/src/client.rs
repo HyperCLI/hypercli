@@ -16,9 +16,9 @@ use thiserror::Error;
 use url::Url;
 
 use crate::{
-    ClientConfig, CreateDeploymentRequest, Deployment, DeploymentRoutes, ExecDeploymentRequest,
-    ExecDeploymentResponse, SetDeploymentRouteRequest, SetDeploymentRoutesRequest,
-    StartDeploymentRequest,
+    ApiKey, AuthMe, ClientConfig, CreateApiKeyRequest, CreateDeploymentRequest, Deployment,
+    DeploymentRoutes, ExecDeploymentRequest, ExecDeploymentResponse, SetDeploymentRouteRequest,
+    SetDeploymentRoutesRequest, StartDeploymentRequest,
 };
 
 pub struct HyperCliClient {
@@ -411,6 +411,42 @@ impl HyperCliClient {
             result.as_ref().map(|_| ()),
         );
         result
+    }
+
+    /// Resolve the auth context for the configured credential
+    /// (`GET {product}/api/auth/me`). Includes the key's `capabilities`.
+    pub fn auth_me(&self) -> Result<AuthMe, HyperCliError> {
+        let url = self.product_endpoint("api/auth/me");
+        let builder = self
+            .http
+            .get(&url)
+            .bearer_auth(self.api_key.expose_secret());
+        self.send_json("auth_me", "GET", &url, None, builder)
+    }
+
+    /// Create an API key (`POST {base}/keys`). The bearer credential may be
+    /// a web-login session token rather than an existing API key. The full
+    /// key material is returned only by this call.
+    pub fn create_api_key(
+        &self,
+        request: &CreateApiKeyRequest,
+    ) -> Result<ApiKey, HyperCliError> {
+        let url = self.endpoint("keys");
+        let trace_request = serde_json::to_value(request).ok();
+        let builder = self
+            .http
+            .post(&url)
+            .bearer_auth(self.api_key.expose_secret())
+            .json(request);
+        self.send_json("create_api_key", "POST", &url, trace_request, builder)
+    }
+
+    /// The product API base is the agents base without its `/agents` suffix
+    /// (the inverse of `normalize_agents_api_base`).
+    fn product_endpoint(&self, path: &str) -> String {
+        let base = self.api_base.as_str().trim_end_matches('/');
+        let base = base.strip_suffix("/agents").unwrap_or(base);
+        format!("{}/{}", base, path.trim_start_matches('/'))
     }
 
     fn send_json<T: DeserializeOwned>(

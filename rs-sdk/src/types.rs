@@ -493,6 +493,71 @@ pub struct Deployment {
     pub hostname: Option<String>,
 }
 
+/// Auth context for the configured credential (`GET /api/auth/me` on the
+/// product API base). Subset of the Python SDK's `AuthMe`.
+#[derive(Clone, Debug, Deserialize)]
+pub struct AuthMe {
+    pub user_id: String,
+    #[serde(default)]
+    pub team_id: String,
+    #[serde(default)]
+    pub plan_id: String,
+    #[serde(default)]
+    pub email: Option<String>,
+    #[serde(default)]
+    pub auth_type: String,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub has_active_subscription: bool,
+    #[serde(default)]
+    pub key_id: Option<String>,
+    #[serde(default)]
+    pub key_name: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct CreateApiKeyRequest {
+    pub name: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+}
+
+impl CreateApiKeyRequest {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            tags: Vec::new(),
+            duration: None,
+            expires_at: None,
+        }
+    }
+}
+
+/// A created API key. No `Debug` derive: `api_key` is the full secret and
+/// is only returned on create.
+#[derive(Clone, Deserialize)]
+pub struct ApiKey {
+    #[serde(default)]
+    pub key_id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub api_key: Option<String>,
+    #[serde(default)]
+    pub is_active: bool,
+    #[serde(default)]
+    pub created_at: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

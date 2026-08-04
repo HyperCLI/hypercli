@@ -29,41 +29,69 @@ function render(status) {
   document.getElementById("auth-disconnected").hidden = connected;
   document.getElementById("auth-connected").hidden = !connected;
   document.getElementById("provider-section").hidden = !connected;
+  if (status.config_error) setStatus(status.config_error, true);
   if (!connected) return;
 
   const hint = document.getElementById("provider-hint");
   const list = document.getElementById("provider-list");
   const installBtn = document.getElementById("install-btn");
   document.getElementById("uninstall-btn").hidden = status.installed.length === 0;
-  list.replaceChildren(
-    ...status.installed.map((name) => {
-      const li = document.createElement("li");
-      li.className = "ok";
-      li.textContent = name;
-      return li;
-    }),
-  );
   if (status.missing.length === 0) {
-    hint.innerHTML = `<span class="ok-mark">✓</span> Installed in ${status.bin_dir}`;
+    // All good: one quiet line, nothing else.
+    list.replaceChildren();
+    hint.innerHTML = `<span class="ok-mark">✓</span> Providers installed in ${status.bin_dir}`;
     installBtn.textContent = "Reinstall";
     installBtn.classList.remove("primary");
     installBtn.classList.add("link");
-  } else if (status.installed.length > 0) {
-    hint.textContent = `Missing: ${status.missing.join(", ")}`;
-    installBtn.textContent = "Install missing providers";
-    installBtn.classList.add("primary");
-    installBtn.classList.remove("link");
   } else {
-    hint.textContent = "Install the HyperCLI backend so your agents appear in Buzz.";
-    installBtn.textContent = "Install providers";
+    // Show only what's wrong; Reinstall installs everything.
+    list.replaceChildren(
+      ...status.missing.map((name) => {
+        const li = document.createElement("li");
+        li.className = "miss";
+        li.textContent = name;
+        return li;
+      }),
+    );
+    const fresh = status.installed.length === 0;
+    hint.textContent = fresh
+      ? "Install the HyperCLI backend so your agents appear in Buzz."
+      : "Some providers are missing:";
+    installBtn.textContent = fresh ? "Install providers" : "Reinstall";
     installBtn.classList.add("primary");
     installBtn.classList.remove("link");
   }
 }
 
+// Background key check: annotate the connected line, warn on problems.
+async function validateKey() {
+  const detail = document.getElementById("auth-detail");
+  const warning = document.getElementById("auth-warning");
+  try {
+    const result = await invoke("validate_key");
+    if (result.valid) {
+      const who = result.email ? ` as ${result.email}` : "";
+      const key = result.key_name ? ` · key "${result.key_name}"` : "";
+      detail.textContent = `${who}${key}`;
+      warning.hidden = result.has_agents_capability;
+      warning.textContent = result.has_agents_capability
+        ? ""
+        : "This key lacks the agents:* capability the Buzz provider needs.";
+    } else {
+      detail.textContent = "";
+      warning.hidden = false;
+      warning.textContent = result.detail || "API key check failed.";
+    }
+  } catch {
+    // Offline or discovery race — leave the plain connected line.
+  }
+}
+
 async function refreshStatus() {
   try {
-    render(await invoke("provider_status"));
+    const status = await invoke("provider_status");
+    render(status);
+    if (status.has_api_key) void validateKey();
   } catch (error) {
     setStatus(String(error), true);
   }

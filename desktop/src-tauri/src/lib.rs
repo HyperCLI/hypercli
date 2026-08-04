@@ -1,6 +1,12 @@
 use std::fs;
 use std::path::PathBuf;
 
+use hypercli_sdk::{
+    discover_client_config, normalize_agents_api_base, remove_config_api_keys,
+    save_api_key as write_api_key, ClientConfig, ConfigError, CreateApiKeyRequest,
+    HyperCliClient, DEFAULT_AGENTS_API_BASE,
+};
+use secrecy::SecretString;
 use serde::Serialize;
 use tauri::Emitter;
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -16,16 +22,23 @@ const PROVIDER_BIN: &str = "buzz-backend-hypercli";
 const DESKTOP_LOGIN_URL: &str =
     "https://agents.hypercli.com/desktop-login?redirect_uri=hypercli%3A%2F%2Fauth";
 
-/// Backend that mints API keys from a logged-in session token.
-const AGENTS_API_BASE: &str = "https://api.hypercli.com/agents";
-
 #[derive(Serialize)]
 pub struct ProviderStatus {
     installed: Vec<String>,
     missing: Vec<String>,
     has_api_key: bool,
+    config_error: Option<String>,
     bin_dir: String,
     bin_dir_exists: bool,
+}
+
+#[derive(Serialize)]
+pub struct KeyValidation {
+    valid: bool,
+    email: Option<String>,
+    key_name: Option<String>,
+    has_agents_capability: bool,
+    detail: Option<String>,
 }
 
 fn home_dir() -> Result<PathBuf, String> {
@@ -35,10 +48,6 @@ fn home_dir() -> Result<PathBuf, String> {
 /// Buzz scans this directory explicitly on every platform.
 fn bin_dir() -> Result<PathBuf, String> {
     Ok(home_dir()?.join(".local").join("bin"))
-}
-
-fn config_path() -> Result<PathBuf, String> {
-    Ok(home_dir()?.join(".hypercli").join("config"))
 }
 
 fn provider_names() -> Vec<String> {
@@ -66,19 +75,14 @@ fn sidecar_path() -> Result<PathBuf, String> {
     Ok(path)
 }
 
-fn config_has_key() -> bool {
-    let Ok(path) = config_path() else {
-        return false;
-    };
-    let Ok(content) = fs::read_to_string(path) else {
-        return false;
-    };
-    content.lines().any(|line| {
-        let line = line.trim();
-        ["HYPER_AGENTS_API_KEY=", "HYPER_API_KEY=", "HYPERCLI_API_KEY="]
-            .iter()
-            .any(|prefix| line.starts_with(prefix) && line.len() > prefix.len())
-    })
+/// Credential presence via the SDK's discovery (env vars, config file,
+/// legacy agent-key.json) — exactly what the provider itself will see.
+fn credential_state() -> (bool, Option<String>) {
+    match discover_client_config() {
+        Ok(_) => (true, None),
+        Err(ConfigError::MissingCredential) => (false, None),
+        Err(error) => (false, Some(error.to_string())),
+    }
 }
 
 #[tauri::command]
@@ -87,10 +91,12 @@ fn provider_status() -> Result<ProviderStatus, String> {
     let (installed, missing) = provider_names()
         .into_iter()
         .partition(|name| dir.join(name).exists());
+    let (has_api_key, config_error) = credential_state();
     Ok(ProviderStatus {
         installed,
         missing,
-        has_api_key: config_has_key(),
+        has_api_key,
+        config_error,
         bin_dir: dir.display().to_string(),
         bin_dir_exists: dir.is_dir(),
     })
@@ -130,59 +136,49 @@ fn uninstall_providers() -> Result<ProviderStatus, String> {
     provider_status()
 }
 
-/// Upsert one KEY=VALUE line in ~/.hypercli/config, preserving the rest.
-fn write_config_key(key: &str, value: &str) -> Result<(), String> {
-    let path = config_path()?;
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let existing = fs::read_to_string(&path).unwrap_or_default();
-    let mut lines: Vec<String> = existing
-        .lines()
-        .filter(|line| !line.trim_start().starts_with(&format!("{key}=")))
-        .map(ToOwned::to_owned)
-        .collect();
-    lines.push(format!("{key}={value}"));
-    let mut content = lines.join("\n");
-    content.push('\n');
-    fs::write(&path, content).map_err(|e| e.to_string())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
-            .map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-/// Remove any configured API key lines; other config lines are preserved.
-#[tauri::command]
-fn logout() -> Result<(), String> {
-    let path = config_path()?;
-    let existing = fs::read_to_string(&path).unwrap_or_default();
-    let remaining: Vec<&str> = existing
-        .lines()
-        .filter(|line| {
-            let line = line.trim_start();
-            !["HYPER_AGENTS_API_KEY=", "HYPER_API_KEY=", "HYPERCLI_API_KEY="]
-                .iter()
-                .any(|prefix| line.starts_with(prefix))
-        })
-        .collect();
-    let mut content = remaining.join("\n");
-    if !content.is_empty() {
-        content.push('\n');
-    }
-    fs::write(&path, content).map_err(|e| e.to_string())
-}
-
 #[tauri::command]
 fn save_api_key(api_key: String) -> Result<(), String> {
     let api_key = api_key.trim();
     if api_key.is_empty() {
         return Err("API key is empty".into());
     }
-    write_config_key("HYPER_API_KEY", api_key)
+    write_api_key(&home_dir()?, api_key).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn logout() -> Result<(), String> {
+    remove_config_api_keys(&home_dir()?).map_err(|e| e.to_string())
+}
+
+/// Check the configured key against the API and report whether it carries
+/// the `agents:*` capability the Buzz provider needs. Blocking SDK call —
+/// `(async)` runs it off the main thread.
+#[tauri::command(async)]
+fn validate_key() -> Result<KeyValidation, String> {
+    let config = discover_client_config().map_err(|e| e.to_string())?;
+    let client = HyperCliClient::new(config).map_err(|e| e.to_string())?;
+    match client.auth_me() {
+        Ok(me) => Ok(KeyValidation {
+            valid: true,
+            email: me.email,
+            key_name: me.key_name,
+            has_agents_capability: me.capabilities.iter().any(|c| c == "agents:*"),
+            detail: None,
+        }),
+        Err(error) => {
+            let detail = match error.status().map(|s| s.as_u16()) {
+                Some(401) | Some(403) => "API key is invalid or revoked".to_string(),
+                _ => error.to_string(),
+            };
+            Ok(KeyValidation {
+                valid: false,
+                email: None,
+                key_name: None,
+                has_agents_capability: false,
+                detail: Some(detail),
+            })
+        }
+    }
 }
 
 /// Human-readable key annotation, e.g. "macOS (Dmitrys-Mac-mini)".
@@ -198,27 +194,24 @@ fn key_annotation() -> String {
 
 /// Exchange a desktop-login session token for a durable, per-machine API
 /// key and persist it. The session token is never stored.
-#[tauri::command]
-async fn mint_api_key(session_token: String) -> Result<String, String> {
+#[tauri::command(async)]
+fn mint_api_key(session_token: String) -> Result<String, String> {
     let name = key_annotation();
-    let client = reqwest::Client::new();
-    let response = client
-        .post(format!("{AGENTS_API_BASE}/keys"))
-        .bearer_auth(session_token.trim())
-        .json(&serde_json::json!({ "name": name, "tags": ["desktop"] }))
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if !response.status().is_success() {
-        return Err(format!("key mint failed: HTTP {}", response.status()));
-    }
-    let body: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
-    let api_key = body
-        .get("api_key")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| "response missing api_key".to_string())?
-        .to_owned();
-    write_config_key("HYPER_API_KEY", &api_key)?;
+    let api_base =
+        normalize_agents_api_base(DEFAULT_AGENTS_API_BASE).map_err(|e| e.to_string())?;
+    let client = HyperCliClient::new(ClientConfig {
+        api_base,
+        api_key: SecretString::from(session_token.trim().to_owned()),
+        trace_file: None,
+    })
+    .map_err(|e| e.to_string())?;
+    let mut request = CreateApiKeyRequest::new(name.clone());
+    request.tags = vec!["desktop".to_owned()];
+    let key = client.create_api_key(&request).map_err(|e| e.to_string())?;
+    let api_key = key
+        .api_key
+        .ok_or_else(|| "key created but response contained no key material".to_string())?;
+    write_api_key(&home_dir()?, &api_key).map_err(|e| e.to_string())?;
     Ok(name)
 }
 
@@ -259,6 +252,7 @@ pub fn run() {
             uninstall_providers,
             save_api_key,
             logout,
+            validate_key,
             mint_api_key,
             start_login
         ])

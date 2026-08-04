@@ -194,6 +194,15 @@ button.link:hover {
   color: var(--primary);
 }
 
+#provider-list .miss::before {
+  content: "✗ ";
+  color: var(--error);
+}
+
+.hint.warn {
+  color: var(--error);
+}
+
 #status {
   font-size: 12px;
   color: var(--muted-foreground);

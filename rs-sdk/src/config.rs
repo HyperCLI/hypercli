@@ -6,8 +6,12 @@ use secrecy::SecretString;
 use thiserror::Error;
 use url::Url;
 
-const DEFAULT_AGENTS_API_BASE: &str = "https://api.hypercli.com/agents";
+pub const DEFAULT_AGENTS_API_BASE: &str = "https://api.hypercli.com/agents";
 const MAX_CREDENTIAL_FILE_BYTES: u64 = 64 * 1024;
+
+/// Key names accepted for the API credential, in precedence order.
+pub const API_KEY_CONFIG_KEYS: [&str; 3] =
+    ["HYPER_AGENTS_API_KEY", "HYPER_API_KEY", "HYPERCLI_API_KEY"];
 
 pub struct ClientConfig {
     pub api_base: Url,
@@ -30,6 +34,72 @@ pub enum ConfigError {
     CredentialFileTooLarge,
     #[error("HyperCLI agent credential file is not valid JSON")]
     InvalidAgentCredentialFile,
+    #[error("could not write HyperCLI config file")]
+    ConfigWrite,
+}
+
+/// Upsert KEY=VALUE lines in `<home>/.hypercli/config` (created 0600 on
+/// Unix), preserving unrelated lines.
+pub fn write_config_values(
+    home: &Path,
+    values: &BTreeMap<String, String>,
+) -> Result<(), ConfigError> {
+    let dir = home.join(".hypercli");
+    fs::create_dir_all(&dir).map_err(|_| ConfigError::ConfigWrite)?;
+    let path = dir.join("config");
+    let existing = fs::read_to_string(&path).unwrap_or_default();
+    let mut lines: Vec<String> = existing
+        .lines()
+        .filter(|line| match line.trim().split_once('=') {
+            Some((key, _)) => !values.contains_key(key.trim()),
+            None => true,
+        })
+        .map(ToOwned::to_owned)
+        .collect();
+    for (key, value) in values {
+        lines.push(format!("{key}={value}"));
+    }
+    let mut content = lines.join("\n");
+    content.push('\n');
+    fs::write(&path, content).map_err(|_| ConfigError::ConfigWrite)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
+            .map_err(|_| ConfigError::ConfigWrite)?;
+    }
+    Ok(())
+}
+
+/// Persist an API key as `HYPER_API_KEY` in `<home>/.hypercli/config`.
+pub fn save_api_key(home: &Path, api_key: &str) -> Result<(), ConfigError> {
+    let mut values = BTreeMap::new();
+    values.insert("HYPER_API_KEY".to_owned(), api_key.trim().to_owned());
+    write_config_values(home, &values)
+}
+
+/// Remove every API-key entry from `<home>/.hypercli/config`, preserving
+/// other lines, and delete the legacy `agent-key.json` credential so a
+/// logout is complete.
+pub fn remove_config_api_keys(home: &Path) -> Result<(), ConfigError> {
+    let dir = home.join(".hypercli");
+    let path = dir.join("config");
+    if let Ok(existing) = fs::read_to_string(&path) {
+        let remaining: Vec<&str> = existing
+            .lines()
+            .filter(|line| match line.trim().split_once('=') {
+                Some((key, _)) => !API_KEY_CONFIG_KEYS.contains(&key.trim()),
+                None => true,
+            })
+            .collect();
+        let mut content = remaining.join("\n");
+        if !content.is_empty() {
+            content.push('\n');
+        }
+        fs::write(&path, content).map_err(|_| ConfigError::ConfigWrite)?;
+    }
+    let _ = fs::remove_file(dir.join("agent-key.json"));
+    Ok(())
 }
 
 pub fn discover_client_config() -> Result<ClientConfig, ConfigError> {
@@ -51,12 +121,14 @@ pub fn discover_client_config_from(
         None => BTreeMap::new(),
     };
 
+    // Per-key env-then-file precedence, matching the Python CLI's
+    // get_config_value semantics.
     let configured_key = first_nonempty([
         env.get("HYPER_AGENTS_API_KEY"),
-        env.get("HYPER_API_KEY"),
-        env.get("HYPERCLI_API_KEY"),
         file_config.get("HYPER_AGENTS_API_KEY"),
+        env.get("HYPER_API_KEY"),
         file_config.get("HYPER_API_KEY"),
+        env.get("HYPERCLI_API_KEY"),
         file_config.get("HYPERCLI_API_KEY"),
     ])
     .map(ToOwned::to_owned);
