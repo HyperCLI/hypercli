@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { ChevronDown, LogOut } from "lucide-react";
 import { useTurnkey } from "@turnkey/react-wallet-kit";
 import ContactModal from "./ContactModal";
 import { HyperCLILogo } from "./HyperCLILogo";
 import { PrivyLoginModal } from "./PrivyLogin";
 import { ThemeSelector } from "./ThemeSelector";
-import { useAuth } from "../providers/AuthProvider";
+import { AuthContext as SharedAuthContext } from "../providers/AuthProvider";
+import { AuthContext as PrivyAuthContext } from "../auth/AuthProvider";
 import { clearLocalAuthTokens, cookieUtils, markAuthLogout } from "../utils/cookies";
 import { NAV_URLS } from "../utils/navigation";
 import {
@@ -20,7 +22,30 @@ import {
   NavigationMenuLink,
 } from "./ui/navigation-menu";
 
-export default function Header() {
+const AUDIENCE_LINKS = [
+  { label: "Teams", href: NAV_URLS.forTeams, path: "/for-teams" },
+  { label: "Developers", href: NAV_URLS.developers, path: "/developers" },
+  { label: "Enterprise", href: NAV_URLS.enterprise, path: "/enterprise" },
+] as const;
+
+export interface HeaderProps {
+  loginApiBaseUrl?: string;
+  loginTokenStorageKey?: string;
+}
+
+// Mounted only when the shared (Turnkey-backed) auth provider is present,
+// since TurnkeyProvider always wraps it. Exposes Turnkey logout without
+// requiring every consumer of Header to mount a TurnkeyProvider.
+function TurnkeyLogoutBridge({ register }: { register: (logout: (() => Promise<void>) | null) => void }) {
+  const { logout } = useTurnkey();
+  useEffect(() => {
+    register(logout ? async () => { await logout(); } : null);
+    return () => register(null);
+  }, [logout, register]);
+  return null;
+}
+
+export default function Header({ loginApiBaseUrl, loginTokenStorageKey }: HeaderProps = {}) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
@@ -28,9 +53,17 @@ export default function Header() {
   const [openMenu, setOpenMenu] = useState<"platform" | "product" | "solutions" | null>(null);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const accountMenuRef = useRef<HTMLDivElement>(null);
-  const { logout } = useTurnkey();
-  const { isAuthenticated, userInfo } = useAuth();
-  const accountInitial = userInfo?.email?.trim()[0]?.toUpperCase() || "U";
+  const pathname = usePathname();
+  const sharedAuth = useContext(SharedAuthContext);
+  const privyAuth = useContext(PrivyAuthContext);
+  const turnkeyLogoutRef = useRef<(() => Promise<void>) | null>(null);
+  const registerTurnkeyLogout = useCallback((fn: (() => Promise<void>) | null) => {
+    turnkeyLogoutRef.current = fn;
+  }, []);
+
+  const isAuthenticated = sharedAuth?.isAuthenticated ?? privyAuth?.isAuthenticated ?? false;
+  const accountEmail = sharedAuth?.userInfo?.email ?? privyAuth?.user?.email ?? null;
+  const accountInitial = accountEmail?.trim()[0]?.toUpperCase() || "U";
 
   const openContactModal = () => {
     setIsContactModalOpen(true);
@@ -47,9 +80,12 @@ export default function Header() {
     cookieUtils.remove("auth_token");
     clearLocalAuthTokens("app_auth_token", "claw_auth_token");
 
-    // Call Turnkey logout
-    if (logout) {
-      await logout();
+    if (sharedAuth) {
+      if (turnkeyLogoutRef.current) {
+        await turnkeyLogoutRef.current();
+      }
+    } else if (privyAuth) {
+      await privyAuth.logout();
     }
 
     setMobileMenuOpen(false);
@@ -104,6 +140,7 @@ export default function Header() {
 
   return (
     <>
+      {sharedAuth ? <TurnkeyLogoutBridge register={registerTurnkeyLogout} /> : null}
       <header
         className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
           mobileMenuOpen ? "bg-background" : "bg-background/80"
@@ -123,7 +160,32 @@ export default function Header() {
             </Link>
 
             {/* Desktop Nav Links */}
-            <div className="hidden md:!flex items-center space-x-6">
+            <div className="hidden lg:!flex items-center space-x-5">
+              {/* Audience pill segment */}
+              <nav
+                aria-label="Audience"
+                className="flex items-center gap-0.5 rounded-full border border-border bg-surface-low p-1"
+              >
+                {AUDIENCE_LINKS.map((link) => {
+                  const isActive =
+                    pathname === link.path || pathname.startsWith(`${link.path}/`);
+                  return (
+                    <a
+                      key={link.label}
+                      href={link.href}
+                      aria-current={isActive ? "page" : undefined}
+                      className={`whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                        isActive
+                          ? "bg-surface-high text-foreground shadow-sm"
+                          : "text-text-secondary hover:text-foreground"
+                      }`}
+                    >
+                      {link.label}
+                    </a>
+                  );
+                })}
+              </nav>
+
               {/* Platform dropdown grouping console/agents/playground/models/gpus (Radix) */}
               <NavigationMenu
                 data-slot="header-platform"
@@ -280,30 +342,32 @@ export default function Header() {
                 </NavigationMenuList>
               </NavigationMenu>
 
-              <a
-                href={NAV_URLS.docs}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm text-text-secondary hover:text-foreground transition-colors"
-              >
-                Docs
-              </a>
-              <a
-                href={NAV_URLS.status}
-                className="text-sm text-text-secondary hover:text-foreground transition-colors"
-              >
-                Status
-              </a>
-              <button
-                onClick={openContactModal}
-                className="text-sm text-text-secondary hover:text-foreground transition-colors cursor-pointer"
-              >
-                Contact
-              </button>
             </div>
 
-            {/* Desktop CTAs - Only show on medium screens and up */}
-            <div className="hidden md:!flex items-center space-x-3">
+            {/* Desktop CTAs - Only show on large screens and up */}
+            <div className="hidden lg:!flex items-center space-x-4">
+              <div className="hidden xl:!flex items-center space-x-5">
+                <a
+                  href={NAV_URLS.docs}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-text-secondary hover:text-foreground transition-colors"
+                >
+                  Docs
+                </a>
+                <a
+                  href={NAV_URLS.status}
+                  className="text-sm text-text-secondary hover:text-foreground transition-colors"
+                >
+                  Status
+                </a>
+                <button
+                  onClick={openContactModal}
+                  className="text-sm text-text-secondary hover:text-foreground transition-colors cursor-pointer"
+                >
+                  Contact
+                </button>
+              </div>
               {isAuthenticated ? (
                 <div ref={accountMenuRef} className="relative">
                   <button
@@ -319,7 +383,7 @@ export default function Header() {
                   {accountMenuOpen ? (
                     <div role="menu" className="absolute right-0 top-11 w-60 rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-xl">
                       <div className="border-b border-border px-3 py-2">
-                        <p className="truncate text-sm font-medium">{userInfo?.email || "HyperCLI account"}</p>
+                        <p className="truncate text-sm font-medium">{accountEmail || "HyperCLI account"}</p>
                       </div>
                       <ThemeSelector menu aria-label="Appearance theme" className="mt-1 w-full" />
                       <button
@@ -339,16 +403,22 @@ export default function Header() {
                   <ThemeSelector />
                   <button
                     onClick={openLoginModal}
-                    className="px-5 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary-hover transition-colors font-medium"
+                    className="text-sm font-medium text-text-secondary hover:text-foreground transition-colors cursor-pointer whitespace-nowrap"
                   >
-                    Login
+                    Sign in
                   </button>
                 </>
               )}
+              <a
+                href={NAV_URLS.agents}
+                className="btn-primary whitespace-nowrap rounded-full px-5 py-2 text-sm font-semibold"
+              >
+                Get started
+              </a>
             </div>
 
             {/* Mobile Menu Button - Only show on small screens */}
-            <div className="block md:!hidden">
+            <div className="block lg:!hidden">
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                 className="text-foreground hover:text-primary focus:outline-none"
@@ -374,7 +444,7 @@ export default function Header() {
 
         {/* Mobile Menu - Only show on small screens when hamburger is clicked */}
         <div
-          className={`bg-surface-low border-t border-border md:!hidden ${
+          className={`bg-surface-low border-t border-border lg:!hidden ${
             mobileMenuOpen ? "block" : "hidden"
           }`}
         >
@@ -421,7 +491,7 @@ export default function Header() {
               Contact
             </button>
             <ThemeSelector className="w-full" />
-            <div className="border-t border-border-medium mt-4 pt-4">
+            <div className="border-t border-border-medium mt-4 pt-4 space-y-2">
               {isAuthenticated ? (
                 <button
                   onClick={handleLogoutClick}
@@ -430,12 +500,21 @@ export default function Header() {
                   Logout
                 </button>
               ) : (
-                <button
-                  onClick={openLoginModal}
-                  className="block w-full text-center bg-primary text-primary-foreground font-semibold py-2 px-4 rounded-lg hover:bg-primary-hover transition-colors"
-                >
-                  Login
-                </button>
+                <>
+                  <a
+                    href={NAV_URLS.agents}
+                    className="btn-primary block w-full text-center font-semibold py-2 px-4 rounded-lg"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Get started
+                  </a>
+                  <button
+                    onClick={openLoginModal}
+                    className="block w-full text-center text-secondary-foreground hover:text-foreground font-semibold py-2 px-4 rounded-lg"
+                  >
+                    Sign in
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -454,6 +533,8 @@ export default function Header() {
         title="Welcome to HyperCLI Console"
         description="Please sign in to continue"
         showTurnkeyFallback={true}
+        apiBaseUrl={loginApiBaseUrl}
+        tokenStorageKey={loginTokenStorageKey}
         onSuccess={() => window.location.reload()}
       />
     </>
