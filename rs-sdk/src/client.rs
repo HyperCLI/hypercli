@@ -34,7 +34,7 @@ pub enum HyperCliError {
     Transport(String),
     #[error("HyperCLI returned HTTP {0}")]
     Status(StatusCode),
-    #[error("HyperCLI returned an invalid deployment response: {0}")]
+    #[error("HyperCLI returned an invalid response: {0}")]
     InvalidResponse(String),
 }
 
@@ -553,9 +553,43 @@ fn decode_json<T: serde::de::DeserializeOwned>(
         // environment values, including the Buzz agent nsec.
         return Err(HyperCliError::Status(status));
     }
-    response
-        .json()
-        .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))
+    let body = response
+        .text()
+        .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))?;
+    match serde_json::from_str::<serde_json::Value>(&body) {
+        // Valid JSON of the wrong shape: report the serde error and the
+        // top-level field NAMES only — values may contain key material.
+        Ok(value) => serde_json::from_value(value.clone()).map_err(|error| {
+            let shape = match &value {
+                serde_json::Value::Object(map) => {
+                    let keys: Vec<&str> = map.keys().map(String::as_str).collect();
+                    format!("object with fields [{}]", keys.join(", "))
+                }
+                serde_json::Value::Array(items) => format!("array of {} items", items.len()),
+                other => format!("JSON {}", json_type_name(other)),
+            };
+            HyperCliError::InvalidResponse(format!("{error}; response was {shape}"))
+        }),
+        // Not JSON at all (HTML error page, redirect target, plain text):
+        // a short snippet is safe and is the only way to see what happened.
+        Err(error) => {
+            let snippet: String = body.chars().take(160).collect();
+            Err(HyperCliError::InvalidResponse(format!(
+                "{error}; body starts with {snippet:?}"
+            )))
+        }
+    }
+}
+
+fn json_type_name(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "boolean",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
+    }
 }
 
 fn trace_headers(response: &reqwest::blocking::Response) -> BTreeMap<String, String> {

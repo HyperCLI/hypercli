@@ -214,9 +214,9 @@ fn mint_api_key_blocking(session_token: String) -> Result<String, String> {
     })
     .map_err(|e| e.to_string())?;
     let mut request = CreateApiKeyRequest::new(name.clone());
-    // Tags are scope grants (deny-by-default without them); the provider
-    // needs the agents family.
-    request.tags = vec!["agents".to_owned()];
+    // Tags are scope grants in `family:baseline` grammar (deny-by-default
+    // without them); the provider needs exactly `agents:*`.
+    request.tags = vec!["agents:*".to_owned()];
     let key = client.create_api_key(&request).map_err(|e| e.to_string())?;
     let api_key = key
         .api_key
