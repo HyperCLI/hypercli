@@ -731,27 +731,6 @@ pub struct ApiKey {
     pub last_used_at: Option<f64>,
 }
 
-/// Effective entitlement summary for the authenticated HyperClaw user
-/// (`GET {base}/subscriptions/summary`). Reading it requires the `user`
-/// scope family on the key. Subset of the Python SDK's
-/// `HyperAgentSubscriptionSummary`.
-#[derive(Clone, Debug, Deserialize)]
-pub struct EntitlementsSummary {
-    #[serde(default)]
-    pub effective_plan_id: Option<String>,
-    #[serde(default)]
-    pub active_subscription_count: u64,
-    #[serde(default)]
-    pub active_entitlement_count: u64,
-}
-
-impl EntitlementsSummary {
-    /// Whether any plan or entitlement is currently active.
-    pub fn has_active_plan(&self) -> bool {
-        self.active_subscription_count > 0 || self.active_entitlement_count > 0
-    }
-}
-
 /// Accept a unix timestamp as a JSON number or a numeric string; anything
 /// else becomes `None` rather than failing the whole response.
 fn de_opt_unix_ts<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>

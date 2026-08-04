@@ -17,8 +17,8 @@ use url::Url;
 
 use crate::{
     AgentCapacity, ApiKey, AuthMe, ClientConfig, CreateApiKeyRequest,
-    CreateDeploymentRequest, Deployment, DeploymentRoutes, EntitlementsSummary,
-    ExecDeploymentRequest, ExecDeploymentResponse, HyperAgentCurrentPlan,
+    CreateDeploymentRequest, Deployment, DeploymentRoutes, ExecDeploymentRequest,
+    ExecDeploymentResponse, HyperAgentCurrentPlan,
     HyperAgentEntitlementsSummary, HyperAgentPlan, SetDeploymentRouteRequest,
     SetDeploymentRoutesRequest, StartDeploymentRequest,
 };
@@ -497,18 +497,6 @@ impl HyperCliClient {
         self.send_json("create_api_key", "POST", &url, trace_request, builder)
     }
 
-    /// Effective entitlement summary for the authenticated user
-    /// (`GET {base}/subscriptions/summary`). Requires the `user` scope
-    /// family on the key; scoped keys without it get HTTP 403.
-    pub fn entitlements_summary(&self) -> Result<EntitlementsSummary, HyperCliError> {
-        let url = self.endpoint("subscriptions/summary");
-        let builder = self
-            .http
-            .get(&url)
-            .bearer_auth(self.api_key.expose_secret());
-        self.send_json("entitlements_summary", "GET", &url, None, builder)
-    }
-
     /// The product API base is the agents base without its `/agents` suffix
     /// (the inverse of `normalize_agents_api_base`).
     fn product_endpoint(&self, path: &str) -> String {
@@ -894,6 +882,40 @@ mod tests {
         assert!(summary.has_active_plan());
         plans.assert();
         entitlements.assert();
+    }
+
+    #[test]
+    fn subscription_summary_treats_direct_entitlement_as_an_active_plan() {
+        let mut server = Server::new();
+        let summary = server
+            .mock("GET", "/agents/subscriptions/summary")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "effective_plan_id": "team",
+                    "active_subscription_count": 0,
+                    "active_entitlement_count": 1,
+                    "slot_inventory": {"medium": {"granted": 3, "used": 0, "available": 3}},
+                    "agent_slots": [{
+                        "id": "slot-activation-code",
+                        "entitlement_id": "ent-activation-code",
+                        "plan_id": "team",
+                        "size": "medium",
+                        "agent_id": null,
+                        "occupied": false
+                    }]
+                })
+                .to_string(),
+            )
+            .create();
+
+        let entitlements = client(&server).entitlements_summary().unwrap();
+        assert_eq!(entitlements.active_subscription_count, 0);
+        assert_eq!(entitlements.active_entitlement_count, 1);
+        assert_eq!(entitlements.agent_slots[0].size, "medium");
+        assert!(entitlements.has_active_plan());
+        summary.assert();
     }
 
     #[test]
