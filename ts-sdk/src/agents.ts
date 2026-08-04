@@ -2,6 +2,17 @@
  * HyperClaw agents API - typed agent lifecycle, files, exec, and OpenClaw access.
  */
 import { randomFillSync } from 'node:crypto';
+import {
+  agentSlotFromDict,
+  type AgentSlot,
+  type AgentSlotInventory,
+} from './agent-slots.js';
+export {
+  agentSlotFromDict,
+  type AgentSlot,
+  type AgentSlotInventory,
+  type AgentSlotSize,
+} from './agent-slots.js';
 import { getAgentsApiBaseUrl, getConfigValue } from './config.js';
 import { APIError } from './errors.js';
 import { HTTPClient, type RequestOverrides } from './http.js';
@@ -351,24 +362,6 @@ export interface ListAgentsOptions extends RequestOverrides {
   name?: string | null;
   query?: string | null;
   includeDeleted?: boolean | null;
-}
-
-export type AgentSlotSize = 'small' | 'medium' | 'large' | (string & {});
-
-export interface AgentSlotInventory {
-  granted: number;
-  used: number;
-  available: number;
-}
-
-export interface AgentSlot {
-  id: string;
-  entitlementId: string | null;
-  planId: string;
-  size: AgentSlotSize;
-  agentId: string | null;
-  occupied: boolean;
-  expiresAt: Date | null;
 }
 
 export interface AgentCapacity {
@@ -1235,19 +1228,6 @@ export interface AgentHydrationData {
 function parseDate(value: unknown): Date | null {
   if (typeof value !== 'string' || !value) return null;
   return new Date(value.replace('Z', '+00:00'));
-}
-
-export function agentSlotFromDict(data: Record<string, any>): AgentSlot {
-  const agentId = data.agent_id ? String(data.agent_id) : null;
-  return {
-    id: String(data.id || ''),
-    entitlementId: data.entitlement_id ? String(data.entitlement_id) : null,
-    planId: String(data.plan_id || ''),
-    size: String(data.size || '') as AgentSlotSize,
-    agentId,
-    occupied: data.occupied === undefined ? agentId !== null : Boolean(data.occupied),
-    expiresAt: parseDate(data.expires_at),
-  };
 }
 
 function deepMergeConfig(base: Record<string, any>, patch: Record<string, any>): Record<string, any> {

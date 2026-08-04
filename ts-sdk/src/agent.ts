@@ -7,7 +7,7 @@
 import type { HTTPClient } from './http.js';
 import { getAgentsApiBaseUrl } from './config.js';
 import type { X402Signer } from './x402.js';
-import { agentSlotFromDict, type AgentSlot } from './agents.js';
+import { agentSlotFromDict, type AgentSlot } from './agent-slots.js';
 
 function resolveHyperAgentBaseUrl(agentsApiBaseUrl: string | undefined, dev: boolean): string {
   const raw = (agentsApiBaseUrl || '').replace(/\/+$/, '');
