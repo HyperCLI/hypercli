@@ -10,8 +10,8 @@
     "windows": [
       {
         "title": "HyperCLI",
-        "width": 480,
-        "height": 600,
+        "width": 440,
+        "height": 500,
         "resizable": false,
         "center": true
       }

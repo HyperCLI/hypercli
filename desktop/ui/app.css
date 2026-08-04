@@ -45,18 +45,13 @@ body {
   font-family: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
   background: var(--background);
   color: var(--foreground);
-  display: grid;
-  place-items: center;
   min-height: 100vh;
   user-select: none;
 }
 
+/* The window chrome is the card: content fills it edge-to-edge. */
 .card {
-  width: 400px;
   padding: 28px;
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) + 4px);
-  background: var(--card);
   display: flex;
   flex-direction: column;
   gap: 20px;

@@ -21,14 +21,21 @@ async function refreshStatus() {
         return li;
       }),
     );
+    const installBtn = document.getElementById("install-btn");
     if (status.missing.length === 0) {
       providerHint.textContent = `Installed in ${status.bin_dir}`;
-      document.getElementById("install-btn").textContent = "Reinstall providers";
+      installBtn.textContent = "Reinstall providers";
     } else if (!status.bin_dir_exists) {
       providerHint.textContent = `${status.bin_dir} does not exist yet — it will be created on install.`;
     }
+    // Providers are useless without a credential: gate install on login.
+    installBtn.disabled = !status.has_api_key;
     if (status.has_api_key) {
-      document.getElementById("key-input").placeholder = "API key configured ✓";
+      document.getElementById("auth-hint").textContent =
+        "✓ Connected — API key found in ~/.hypercli/config. Sign in again or paste a key to replace it.";
+      document.getElementById("key-input").placeholder = "replace API key…";
+    } else {
+      providerHint.textContent = "Connect your account first, then install the provider.";
     }
   } catch (error) {
     setStatus(String(error), true);

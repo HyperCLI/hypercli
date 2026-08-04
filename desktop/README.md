@@ -69,3 +69,7 @@ provider binary itself will gain a `hypercli-configure` argv[0] identity
 Python `hyper configure` surface: show current key preview, prompt for a new
 key (getpass-style), optional API URL, write `~/.hypercli/config`. Lives in
 `buzz-backend-provider`; tracked there.
+
+## Icon source
+
+`src-tauri/icons/icon-source.png` is the 1024px master (from hypercli-styles/logos/icon_dark_bg.png); all sizes and the icns are generated from it (RGBA required by Tauri).
