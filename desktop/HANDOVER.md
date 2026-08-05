@@ -118,8 +118,12 @@ secrets — the signing job reads them live from the stack, so rotating a
 credential means `pulumi up`, not touching repo settings.
 
 **Scraping the status of a live submission.** `rcodesign notarize --wait`
-gives up after 600s; that is a timeout, **not** a rejection. The submission
-is still queued at Apple and you re-query it out of band. From gilfoyle
+gives up after 600s; that is a timeout, **not** a rejection. The Desktop
+release workflow treats that exact timeout as `pending`, records both
+submissions in its `desktop-notarization-submissions` workflow artifact, and
+continues with Developer-ID-signed but unstapled archives. Any other non-zero
+notary result is still fatal. The submission remains queued at Apple and you
+re-query it out of band. From gilfoyle
 (where `rcodesign` lives at `~/.local/bin`, and a non-interactive ssh gets
 neither it nor `pulumi` on `PATH`):
 
@@ -209,7 +213,7 @@ inputs only (`enum` is ignored), so no dropdown. Fixing mismatches properly
 needs a small upstream change: allowlist `harnesses`, add it to the probe
 type, filter the harness dropdown per provider.
 
-### 6. Slot selection and real provider CI — IMPLEMENTED LOCALLY, CI PENDING
+### 6. Slot selection and real provider CI — IMPLEMENTED AND VERIFIED
 
 New provider launches no longer hard-code `large`. The provider reads the
 capacity returned with the deterministic-handle lookup and chooses the largest
@@ -218,15 +222,15 @@ It still reuses an existing deployment before considering capacity. If create
 loses a slot race with HTTP 429, it refreshes inventory and may retry an
 unattempted lower tier. Unit coverage pins that fallback.
 
-The backend provider smoke is being upgraded from a refused loopback relay to
-the real hosted path. For each live-supported runtime (Buzz Agent, OpenCode,
-Goose), it provisions a routed relay fixture, invokes the exact provider
-binary with `provider_config: {}`, waits for the provider-created image to
-subscribe, publishes an owner-signed kind-9 question, requires a non-empty
-agent reply within 60 seconds, then publishes owner-signed `!shutdown` and
-checks the deployment stops. This exercises both `buzz-backend-hypercli` and
-the HyperCLI-owned `buzz-acp`; it is not considered verified until the backend
-CI job passes against the candidate images.
+The backend provider smoke now uses the private shared dev `#CI` relay and
+invokes the exact one-shot provider binary against immutable candidate images.
+Buzz Agent, OpenCode, Goose, and Kimi must subscribe and return a non-empty
+reply within 60 seconds; Codex and Claude validate their native auth/config
+surfaces without pretending unsupported inference works. Every case publishes
+owner-signed `!shutdown`, verifies the slot is released, and removes its
+deployment and Nostr identity. Backend candidate `c3da7fdd` passed all six
+runtime-image lanes, all six provider lanes, and the dynamic-route lifecycle;
+the six exact tested image digests were then promoted to `:latest`.
 
 HyperCLI now owns only the hosted ACP delta as the top-level
 `hypercli/buzz-acp` package. Its Buzz crate dependencies share one exact,

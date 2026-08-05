@@ -9,11 +9,13 @@
 #     desktop/scripts/build-release-config.mjs).
 #   * sign-macos signs the .app with rcodesign (Developer ID cert pulled from
 #     the Pulumi stack — same pattern as sign-macos in
-#     .github/workflows/release-buzz-provider.yml), notarizes + staples when
-#     the stack has an ASC key, then REBUILDS the updater tar.gz from the
-#     signed .app and re-signs it with the Tauri updater key (Buzz's
-#     "re-sign dance", block/buzz release.yml ~lines 225-252) — the tar.gz
-#     produced at build time contains the unsigned .app and must never ship.
+#     .github/workflows/release-buzz-provider.yml), submits it to Apple and
+#     staples when Apple finishes within 600s. A processing timeout is recorded
+#     as pending rather than misreported as rejection. It then REBUILDS the
+#     updater tar.gz from the signed app and re-signs it with the Tauri updater
+#     key (Buzz's "re-sign dance", block/buzz release.yml ~lines 225-252) — the
+#     tar.gz produced at build time contains the unsigned app and must never
+#     ship.
 #   * publish creates the versioned release `desktop-v<version>` (installers)
 #     and the rolling release `desktop-latest` (updater archives + sigs +
 #     latest.json for the Tauri auto-updater).
@@ -329,6 +331,8 @@ jobs:
     name: Sign, notarize, and re-sign macOS apps
     needs: [setup, build]
     runs-on: [self-hosted, Linux]
+    outputs:
+      notarization_status: ${{ steps.sign.outputs.notarization_status }}
     permissions:
       contents: read
     env:
@@ -347,6 +351,7 @@ jobs:
           merge-multiple: true
 
       - name: Sign, notarize, staple, rebuild updater archives
+        id: sign
         shell: bash
         run: |
           set -euo pipefail
@@ -379,7 +384,13 @@ jobs:
             echo "notarization skipped: no ASC API key in stack outputs"
           fi
 
-          rm -rf signed && mkdir signed
+          rm -rf signed signed-split notary-status
+          mkdir signed notary-status
+          NOTARIZATION_STATUS="accepted"
+          if [[ "$NOTARIZE" != "true" ]]; then
+            NOTARIZATION_STATUS="skipped"
+            printf 'all\tno ASC API key configured\n' > notary-status/submissions.tsv
+          fi
           for PLATFORM in darwin-aarch64 darwin-x86_64; do
             case "$PLATFORM" in
               darwin-aarch64) ARCH_TAG="aarch64" ;;
@@ -400,11 +411,49 @@ jobs:
 
             if [[ "$NOTARIZE" == "true" ]]; then
               # zip -ry keeps the bundle's symlinks intact for submission.
-              (cd "$STAGE" && zip -qry "$WORK/$PLATFORM.zip" HyperCLI.app)
+              NOTARY_NAME="HyperCLI-${VERSION}-${PLATFORM}.zip"
+              NOTARY_ARCHIVE="$WORK/$NOTARY_NAME"
+              NOTARY_LOG="$WORK/$PLATFORM-notary.log"
+              (cd "$STAGE" && zip -qry "$NOTARY_ARCHIVE" HyperCLI.app)
+              set +e
               "$RCODESIGN" notary-submit \
                 --api-key-file <(printf '%s' "$ASC_JSON") \
-                --wait "$WORK/$PLATFORM.zip"
-              "$RCODESIGN" staple "$STAGE/HyperCLI.app"
+                --wait --max-wait-seconds 600 "$NOTARY_ARCHIVE" 2>&1 |
+                tee "$NOTARY_LOG"
+              NOTARY_EXIT="${PIPESTATUS[0]}"
+              set -e
+              if [[ "$NOTARY_EXIT" == "0" ]]; then
+                "$RCODESIGN" staple "$STAGE/HyperCLI.app"
+              elif grep -Fq \
+                "reached time limit waiting for notarization to complete" \
+                "$NOTARY_LOG"; then
+                # Apple accepted the upload but has not finished processing.
+                # A 600s client timeout is not a rejection. Publish the signed
+                # (unstapled) app, record the submission below, and let online
+                # Gatekeeper pick up the ticket when Apple finishes.
+                NOTARIZATION_STATUS="pending"
+                echo "::warning::$PLATFORM notarization is still pending at Apple"
+              else
+                echo "::error::$PLATFORM notarization failed before acceptance"
+                exit "$NOTARY_EXIT"
+              fi
+
+              NOTARY_LINE=""
+              for attempt in 1 2 3; do
+                NOTARY_LINE="$(
+                  "$RCODESIGN" notary-list \
+                    --api-key-file <(printf '%s' "$ASC_JSON") |
+                    awk -v name="$NOTARY_NAME" '$3 == name { print; exit }'
+                )"
+                [[ -n "$NOTARY_LINE" ]] && break
+                sleep 5
+              done
+              if [[ -z "$NOTARY_LINE" ]]; then
+                echo "::error::Could not resolve notarization submission for $NOTARY_NAME"
+                exit 1
+              fi
+              printf '%s\t%s\n' "$PLATFORM" "$NOTARY_LINE" \
+                >> notary-status/submissions.tsv
             fi
 
             # Buzz's re-sign dance: the updater tar.gz must contain the SIGNED
@@ -417,6 +466,14 @@ jobs:
             mkdir -p "signed-split/updater-$PLATFORM"
             mv "signed/$ARCHIVE" "signed/$ARCHIVE.sig" "signed-split/updater-$PLATFORM/"
           done
+          echo "notarization_status=$NOTARIZATION_STATUS" >> "$GITHUB_OUTPUT"
+
+      - name: Upload notarization submission status
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-notarization-submissions
+          path: notary-status/submissions.tsv
+          if-no-files-found: error
 
       - name: Upload signed macOS updater archives (aarch64)
         uses: actions/upload-artifact@v4
@@ -441,6 +498,7 @@ jobs:
       contents: write
     env:
       VERSION: ${{ needs.setup.outputs.version }}
+      NOTARIZATION_STATUS: ${{ needs['sign-macos'].outputs.notarization_status }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       TAG: desktop-v${{ needs.setup.outputs.version }}
       ROLLING_TAG: desktop-latest
@@ -489,10 +547,21 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists — resuming publish into it"
           else
+            case "$NOTARIZATION_STATUS" in
+              accepted)
+                MACOS_NOTE="macOS downloads are Developer-ID signed, notarized, and stapled."
+                ;;
+              pending)
+                MACOS_NOTE="macOS downloads are Developer-ID signed; Apple accepted the notarization submissions but they were still processing after 600 seconds, so these archives are not stapled yet."
+                ;;
+              *)
+                MACOS_NOTE="macOS downloads are Developer-ID signed but notarization was unavailable."
+                ;;
+            esac
             gh release create "$TAG" \
               --target "$SOURCE_SHA" \
               --title "HyperCLI Desktop $VERSION" \
-              --notes "HyperCLI desktop companion app. macOS downloads are the signed .app.tar.gz archives; Windows installer is unsigned pending Authenticode setup; Linux ships AppImage (auto-updatable) and .deb (manual updates)."
+              --notes "HyperCLI desktop companion app. $MACOS_NOTE Windows installer is unsigned pending Authenticode setup; Linux ships AppImage (auto-updatable) and .deb (manual updates)."
           fi
 
       - name: Create rolling auto-update release
