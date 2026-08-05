@@ -23,7 +23,9 @@ const ADMIN_KEY = process.env.BACKEND_API_KEY;
 const APP_BIN = process.env.HYPERCLI_DESKTOP_APP || path.resolve(HERE, "../src-tauri/target/debug/HyperCLI");
 const TAURI_DRIVER = process.env.TAURI_DRIVER || "tauri-driver";
 const ARTIFACTS_DIR = process.env.E2E_ARTIFACTS_DIR || path.join(HERE, "artifacts");
-const DRIVER_PORT = 4445;
+// tauri-driver defaults its underlying WebKitWebDriver to 4445. Its own
+// intermediary must use a distinct port (4444 is the upstream default).
+const DRIVER_PORT = 4444;
 const START_TIMEOUT_MS = 12 * 60_000;
 const REPLY_TIMEOUT_MS = 60_000;
 
@@ -48,13 +50,13 @@ async function mintSessionToken() {
   return payload.token;
 }
 
-function waitForDriver(proc, timeoutMs = 30_000) {
+function waitForDriver(proc, stderrTail, timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
   return new Promise((resolve, reject) => {
     let exited = false;
     proc.once("exit", (code) => {
       exited = true;
-      reject(new Error(`tauri-driver exited early (code ${code})`));
+      reject(new Error(`tauri-driver exited early (code ${code}): ${stderrTail()}`));
     });
     (async () => {
       while (Date.now() < deadline) {
@@ -67,7 +69,7 @@ function waitForDriver(proc, timeoutMs = 30_000) {
         }
         await new Promise((resolveDelay) => setTimeout(resolveDelay, 500));
       }
-      reject(new Error("timed out waiting for tauri-driver"));
+      reject(new Error(`timed out waiting for tauri-driver: ${stderrTail()}`));
     })();
   });
 }
@@ -225,14 +227,18 @@ async function main() {
   };
   const driver = spawn(TAURI_DRIVER, ["--port", String(DRIVER_PORT)], {
     env: appEnv,
-    stdio: ["ignore", "inherit", "inherit"],
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  let driverStderr = "";
+  driver.stderr.on("data", (chunk) => {
+    driverStderr = `${driverStderr}${chunk}`.slice(-8192);
   });
   let browser;
   let agentId;
   let agentName;
   let connectionId;
   try {
-    await waitForDriver(driver);
+    await waitForDriver(driver, () => driverStderr.trim().slice(-2000));
     browser = await remote({
       hostname: "127.0.0.1",
       port: DRIVER_PORT,
