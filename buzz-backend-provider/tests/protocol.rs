@@ -37,7 +37,13 @@ fn info_fixture_is_a_one_shot_json_exchange() {
     assert_eq!(response, expected);
     assert_eq!(
         response["config_schema"]["properties"],
-        serde_json::json!({})
+        serde_json::json!({
+            "api_base": {
+                "type": "string",
+                "title": "HyperCLI API base URL",
+                "description": "Advanced: leave empty to use your installed HyperCLI configuration. Set this only for a trusted dev or self-hosted control plane; your HyperCLI credential is sent to this URL."
+            }
+        })
     );
 }
 
@@ -339,6 +345,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
         // HyperCLI inference defaults, resolved per harness. Buzz sends a
         // vendor-neutral provider id that only this provider knows how to
         // translate, and each harness reads a different dialect.
+        expected["env"]["HYPER_API_BASE"] = serde_json::json!(server.url());
         if runtime == "buzz-agent" {
             // `hypercli` is not a provider id buzz-agent accepts; without the
             // rewrite the harness exits at startup. The base URL is forced
@@ -437,7 +444,8 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
                 }
             },
             "provider_config": {
-                "workspace": "fixture-workspace"
+                "workspace": "fixture-workspace",
+                "api_base": server.url()
             }
         });
 
@@ -454,7 +462,9 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
         command
             .arg("--dry-run")
             .env("HYPER_AGENTS_API_KEY", "fixture-hypercli-credential")
-            .env("AGENTS_API_BASE_URL", format!("{}/agents", server.url()))
+            // Deliberately unreachable: provider_config.api_base must override
+            // the installed/default control-plane URL for self-hosted setups.
+            .env("AGENTS_API_BASE_URL", "http://127.0.0.1:9/agents")
             .env("HYPER_HTTP_TRACE_FILE", &trace_file)
             .write_stdin(request.to_string());
         let output = command.output().unwrap();

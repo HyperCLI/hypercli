@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
+use url::Url;
 
 const DEFAULT_BUZZ_OPENCODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-opencode:latest";
 const DEFAULT_BUZZ_AGENT_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-agent:latest";
@@ -22,8 +23,8 @@ const DEFAULT_BUZZ_GOOSE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-goose:lat
 const DEFAULT_BUZZ_KIMI_CODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-kimi-code:latest";
 const BUZZ_LAUNCH_TAG_PREFIX: &str = "buzz_launch=";
 // CI bakes an immutable candidate into the exact provider binary under test so
-// provider_config remains byte-for-byte identical to Buzz Desktop's empty
-// schema. Release builds do not set this and use the runtime defaults above.
+// the image remains provider-controlled rather than becoming a user-facing
+// schema knob. Release builds do not set this and use the runtime defaults.
 const COMPILE_TIME_DEFAULT_IMAGE_OVERRIDE: Option<&str> =
     option_env!("HYPERCLI_BUZZ_DEFAULT_IMAGE_OVERRIDE");
 const DEPLOYMENT_READY_TIMEOUT: Duration = Duration::from_secs(300);
@@ -194,6 +195,8 @@ struct ProviderOptions {
     image: Option<String>,
     #[serde(default)]
     workspace: Option<String>,
+    #[serde(default)]
+    api_base: Option<String>,
 }
 
 fn default_runtime() -> CodingRuntime {
@@ -234,6 +237,8 @@ pub enum ProviderError {
     InvalidProviderConfig,
     #[error("provider_config is not supported")]
     UnsupportedProviderConfig,
+    #[error("provider_config.api_base must be a valid HTTP(S) HyperCLI API URL")]
+    InvalidProviderApiBase,
     #[error("agent identity is invalid")]
     InvalidAgentIdentity,
     #[error("agent relay URL is required")]
@@ -312,7 +317,13 @@ pub fn provider_info() -> ProviderInfoResponse {
         config_schema: serde_json::json!({
             "type": "object",
             "additionalProperties": false,
-            "properties": {}
+            "properties": {
+                "api_base": {
+                    "type": "string",
+                    "title": "HyperCLI API base URL",
+                    "description": "Advanced: leave empty to use your installed HyperCLI configuration. Set this only for a trusted dev or self-hosted control plane; your HyperCLI credential is sent to this URL."
+                }
+            }
         }),
     }
 }
@@ -354,7 +365,10 @@ fn deploy_with_readiness(
         .map_err(|_| ProviderError::UnsupportedProviderConfig)?;
     let public_key = derive_agent_pubkey(&agent.private_key_nsec)?;
     let handle = deterministic_handle(&public_key);
-    let product_api_base = client.product_api_base();
+    let product_api_base = match provider_api_base_from_options(&options)? {
+        Some(api_base) => product_api_base_from_agents_url(&api_base),
+        None => client.product_api_base(),
+    };
     let mut request = build_launch_request_with_inference_base(
         agent,
         &public_key,
@@ -1083,6 +1097,18 @@ fn apply_hypercli_inference_defaults(
     runtime: CodingRuntime,
     inference_api_base: &str,
 ) {
+    // Runtime images deliberately carry a production-safe default, but the
+    // provider may itself be pointed at dev or another HyperCLI deployment.
+    // Propagate that resolved product base across the container boundary so
+    // OpenCode, Goose, Kimi, and the native-login wrappers do not silently
+    // fall back to the image's build-time environment. An explicit Buzz/user
+    // launch value remains authoritative.
+    let inference_api_base = inference_api_base.trim_end_matches('/');
+    if !inference_api_base.is_empty() {
+        env.entry("HYPER_API_BASE".to_owned())
+            .or_insert_with(|| inference_api_base.to_owned());
+    }
+
     match runtime {
         CodingRuntime::BuzzAgent => {
             let native = env
@@ -1098,7 +1124,7 @@ fn apply_hypercli_inference_defaults(
                 // api.anthropic.com when this is absent.
                 env.insert(
                     "ANTHROPIC_BASE_URL".to_owned(),
-                    inference_api_base.trim_end_matches('/').to_owned(),
+                    inference_api_base.to_owned(),
                 );
             }
         }
@@ -1192,6 +1218,31 @@ pub fn validate_provider_config(value: &Value) -> Result<(), ProviderError> {
         }
     }
     Ok(())
+}
+
+/// Resolve the optional provider-specific API base before constructing the
+/// control-plane client. This is intentionally non-secret schema data: auth
+/// continues to come from the installed HyperCLI credential/configuration.
+pub fn provider_api_base(value: &Value) -> Result<Option<Url>, ProviderError> {
+    validate_provider_config(value)?;
+    let options: ProviderOptions = serde_json::from_value(value.clone())
+        .map_err(|_| ProviderError::UnsupportedProviderConfig)?;
+    provider_api_base_from_options(&options)
+}
+
+fn provider_api_base_from_options(options: &ProviderOptions) -> Result<Option<Url>, ProviderError> {
+    options
+        .api_base
+        .as_deref()
+        .and_then(|value| nonempty(Some(value)))
+        .map(hypercli_sdk::normalize_agents_api_base)
+        .transpose()
+        .map_err(|_| ProviderError::InvalidProviderApiBase)
+}
+
+fn product_api_base_from_agents_url(api_base: &Url) -> String {
+    let base = api_base.as_str().trim_end_matches('/');
+    base.strip_suffix("/agents").unwrap_or(base).to_owned()
 }
 
 fn split_config_key(key: &str) -> Vec<String> {
@@ -1300,6 +1351,7 @@ mod tests {
             size: AgentSize::Large,
             image: None,
             workspace: None,
+            api_base: None,
         }
     }
 
@@ -1409,6 +1461,28 @@ mod tests {
     }
 
     #[test]
+    fn provider_api_base_is_optional_normalized_and_non_secret() {
+        assert_eq!(provider_api_base(&serde_json::json!({})).unwrap(), None);
+        assert_eq!(
+            provider_api_base(&serde_json::json!({"api_base": "  "})).unwrap(),
+            None
+        );
+        assert_eq!(
+            provider_api_base(&serde_json::json!({
+                "api_base": "https://self-hosted.example/api"
+            }))
+            .unwrap()
+            .unwrap()
+            .as_str(),
+            "https://self-hosted.example/agents"
+        );
+        assert!(matches!(
+            provider_api_base(&serde_json::json!({"api_base": "file:///tmp/api"})),
+            Err(ProviderError::InvalidProviderApiBase)
+        ));
+    }
+
+    #[test]
     fn runtime_catalog_uses_distinct_buzz_images() {
         for (runtime, managed, image) in [
             (
@@ -1451,6 +1525,7 @@ mod tests {
                     size: AgentSize::Large,
                     image: None,
                     workspace: None,
+                    api_base: None,
                 },
             )
             .unwrap();
@@ -1507,6 +1582,7 @@ mod tests {
                 size: AgentSize::Large,
                 image: None,
                 workspace: None,
+                api_base: None,
             },
         )
         .unwrap();
@@ -1550,10 +1626,23 @@ mod tests {
                 size: AgentSize::Large,
                 image: None,
                 workspace: None,
+                api_base: None,
             },
         )
         .unwrap()
         .env
+    }
+
+    #[test]
+    fn runtime_api_base_defaults_to_provider_and_preserves_launch_override() {
+        let defaulted = launch_env(CodingRuntime::Opencode, &[]);
+        assert_eq!(defaulted["HYPER_API_BASE"], HYPERCLI_ANTHROPIC_BASE_URL);
+
+        let explicit = launch_env(
+            CodingRuntime::Opencode,
+            &[("HYPER_API_BASE", "https://self-hosted.example")],
+        );
+        assert_eq!(explicit["HYPER_API_BASE"], "https://self-hosted.example");
     }
 
     #[test]
@@ -1659,6 +1748,7 @@ mod tests {
                 size: AgentSize::Large,
                 image: None,
                 workspace: None,
+                api_base: None,
             },
         )
         .unwrap();
@@ -1843,6 +1933,7 @@ mod tests {
             size: AgentSize::Large,
             image: None,
             workspace: None,
+            api_base: None,
         };
 
         let mut invalid_mode = test_agent();
@@ -1972,6 +2063,7 @@ mod tests {
                     size: AgentSize::Large,
                     image: None,
                     workspace: None,
+                    api_base: None,
                 },
             )
             .unwrap();
@@ -2066,6 +2158,7 @@ mod tests {
                 size: AgentSize::Large,
                 image: None,
                 workspace: None,
+                api_base: None,
             },
         )
         .unwrap();
@@ -2105,6 +2198,7 @@ mod tests {
                 size: AgentSize::Large,
                 image: None,
                 workspace: None,
+                api_base: None,
             },
         )
         .unwrap();
