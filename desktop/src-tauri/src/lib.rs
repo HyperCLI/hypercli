@@ -469,16 +469,28 @@ fn agent_actions(state: &str) -> AgentActions {
     }
 }
 
+fn buzz_agent_public_key(deployment: &Deployment) -> Option<String> {
+    deployment.tags.iter().find_map(|tag| {
+        tag.strip_prefix("buzz_agent=")
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+    })
+}
+
+fn deployment_display_name(deployment: &Deployment) -> String {
+    launch_env(&deployment.launch_config)
+        .ok()
+        .and_then(|env| env_value(&env, "BUZZ_ACP_DISPLAY_NAME"))
+        .unwrap_or_else(|| deployment.name.clone())
+}
+
 impl From<Deployment> for DesktopAgent {
     fn from(deployment: Deployment) -> Self {
         let actions = agent_actions(&deployment.state);
         let is_buzz = deployment.is_buzz_managed();
-        let agent_public_key = deployment.tags.iter().find_map(|tag| {
-            tag.strip_prefix("buzz_agent=")
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_owned)
-        });
+        let agent_public_key = buzz_agent_public_key(&deployment);
+        let display_name = deployment_display_name(&deployment);
         let native_auth_runtime = match deployment.runtime.as_ref() {
             Some(hypercli_sdk::ManagedRuntime::ClaudeCode) => Some("claude-code"),
             Some(hypercli_sdk::ManagedRuntime::Codex) => Some("codex"),
@@ -491,7 +503,7 @@ impl From<Deployment> for DesktopAgent {
             .and_then(|env| env_value(&env, "BUZZ_PROFILE_PICTURE"));
         Self {
             id: deployment.id,
-            name: deployment.name,
+            name: display_name,
             handle: deployment.handle,
             avatar_url: deployment.avatar_url.or(launch_avatar),
             runtime: deployment
@@ -1248,12 +1260,7 @@ fn get_agent_detail_blocking(agent_id: String) -> Result<DesktopAgentDetail, Str
         .filter(|key| !is_protected_launch_env(key) && is_secret_env_key(key))
         .cloned()
         .collect();
-    let agent_public_key = deployment.tags.iter().find_map(|tag| {
-        tag.strip_prefix("buzz_agent=")
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_owned)
-    });
+    let agent_public_key = buzz_agent_public_key(&deployment);
     let stored_agent = buzz_connection_repository()
         .and_then(|repository| repository.load().map_err(|error| error.to_string()))
         .ok()
@@ -1295,7 +1302,7 @@ fn get_agent_detail_blocking(agent_id: String) -> Result<DesktopAgentDetail, Str
 
     Ok(DesktopAgentDetail {
         id: deployment.id,
-        name: deployment.name,
+        name: env_value(&env, "BUZZ_ACP_DISPLAY_NAME").unwrap_or(deployment.name),
         runtime: runtime_id(runtime).to_owned(),
         state: normalized_state(&deployment.state),
         size: deployment.requested_size,
@@ -1633,6 +1640,10 @@ fn save_agent_blocking(agent_id: String, input: AgentEditorInput) -> Result<Desk
         "BUZZ_ACP_SYSTEM_PROMPT",
         Some(input.instructions.clone()),
     );
+    env.insert(
+        "BUZZ_ACP_DISPLAY_NAME".to_owned(),
+        input.name.trim().to_owned(),
+    );
     set_optional_env(&mut env, "BUZZ_PROFILE_PICTURE", input.avatar_url.clone());
     env.insert(
         "BUZZ_ACP_RESPOND_TO".to_owned(),
@@ -1680,8 +1691,10 @@ fn save_agent_blocking(agent_id: String, input: AgentEditorInput) -> Result<Desk
     let requested_size = parse_editor_size(input.size.as_deref())?;
     let size_changed =
         requested_size.filter(|size| current.requested_size.as_deref() != Some(size.as_str()));
-    let name = input.name.trim().to_owned();
-    let name_changed = (name != current.name).then_some(name);
+    let deployment_name = buzz_agent_public_key(&current)
+        .map(|public_key| hypercli_sdk::canonical_deployment_name(input.name.trim(), &public_key))
+        .unwrap_or_else(|| current.name.clone());
+    let name_changed = (deployment_name != current.name).then_some(deployment_name);
     let config_changed =
         (launch_config != original_config).then(|| DeploymentLaunchConfig::from_map(launch_config));
     if name_changed.is_none() && size_changed.is_none() && config_changed.is_none() {
@@ -3382,6 +3395,35 @@ mod tests {
         assert_eq!(serialized["can_restart"], true);
         assert_eq!(serialized["runtime"], "claude-code");
         assert!(serialized.get("pod_id").is_none());
+    }
+
+    #[test]
+    fn desktop_agent_uses_buzz_display_name_instead_of_backend_slug() {
+        let mut launch_config = BTreeMap::new();
+        launch_config.insert(
+            "env".to_owned(),
+            serde_json::json!({"BUZZ_ACP_DISPLAY_NAME": "CI Buzz Agent"}),
+        );
+        let view = DesktopAgent::from(Deployment {
+            id: "40c42593-7d02-48f9-a3ff-6c7d6461f140".to_owned(),
+            name: "ci-buzz-agent-79be667e".to_owned(),
+            handle: Some("buzz-public".to_owned()),
+            avatar_url: None,
+            runtime: Some(hypercli_sdk::ManagedRuntime::BuzzAgent),
+            state: "RUNNING".to_owned(),
+            pod_id: None,
+            hostname: None,
+            tags: vec![
+                "app=buzz".to_owned(),
+                "buzz_agent=79be667ef9dcbbac".to_owned(),
+            ],
+            requested_size: Some("large".to_owned()),
+            last_error: None,
+            launch_config: DeploymentLaunchConfig::from_map(launch_config),
+        });
+
+        assert_eq!(view.name, "CI Buzz Agent");
+        assert_eq!(view.agent_public_key.as_deref(), Some("79be667ef9dcbbac"));
     }
 
     #[test]

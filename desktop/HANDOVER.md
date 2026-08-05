@@ -420,7 +420,10 @@ user projections; the gate does not borrow slots from the shared test account.
 Buzz display names are not backend deployment names. Both the provider and the
 direct Desktop path use the SDK's `canonical_deployment_name` helper to derive
 a lowercase DNS-safe slug with an eight-character Nostr identity suffix, while
-the original name remains the Buzz profile/display name.
+the original name remains `BUZZ_ACP_DISPLAY_NAME` and the signed Buzz profile.
+Fleet cards and the editor prefer that display value over the backend slug;
+renames update the display field/profile and recanonicalize the backend name
+with the existing Nostr suffix instead of sending the human name to DNS.
 The same shared SDK `BuzzLaunchConfig` owns the default hosted image for each
 coding runtime. Direct Desktop launches and provider launches therefore emit
 the same `ghcr.io/hypercli/hypercli-buzz-*` image, while an explicit provider
@@ -516,7 +519,7 @@ deployment and erases its connection/keychain entry. Runs are non-cancelling
 and serialized because they share one dev identity and channel. The nsec is an
 existing GitHub secret and is never printed or passed in argv.
 
-As of 2026-08-05 21:05 Europe/Moscow, local validation is green: 25 Desktop
+As of 2026-08-05 21:13 Europe/Moscow, local validation is green: 26 Desktop
 Rust tests, 50 Rust SDK tests, 47 provider unit + 8 provider protocol tests,
 and 28 mocked UI tests.
 Real dev-relay run `31028721199` proved authenticated private discovery returned
@@ -529,7 +532,10 @@ waits for the connection screen, saves the identity, and only then requires the
 editor. Run `31032444451` then proved canonical backend naming and exposed the
 next direct-launch seam: the SDK contract did not supply a container image, so
 dev returned HTTP 500 with `Pod creation failed: image is required`. The image
-mapping is now shared as described above. Do not cut 0.1.3 until the next full
-gate reaches RUNNING, receives the #CI reply, and completes cleanup. Apple still
-reports the existing notarization submissions as `in progress`, with no
+mapping is now shared as described above. Run `31033168634` then proved dev
+accepted the image and created the pod, but the E2E could not find its human
+name because the fleet rendered the canonical backend slug. Display-name
+projection is now corrected as described above. Do not cut 0.1.3 until the next
+full gate reaches RUNNING, receives the #CI reply, and completes cleanup. Apple
+still reports the existing notarization submissions as `in progress`, with no
 rejection log available.
