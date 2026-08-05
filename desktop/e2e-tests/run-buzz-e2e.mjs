@@ -284,7 +284,9 @@ async function main() {
         document.querySelectorAll("#agent-community option"),
         (option) => ({ value: option.value, text: option.textContent || "" }),
       ));
-      const ci = options.find((option) => option.value && option.text.trim().toLowerCase() === "#ci");
+      const ci = options.find((option) => (
+        option.value && option.text.trim().replace(/^#/, "").toLowerCase() === "ci"
+      ));
       channelId = ci?.value;
       return Boolean(channelId);
     }, { timeout: 60_000, timeoutMsg: "private #CI channel was not discovered" });

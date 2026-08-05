@@ -104,7 +104,7 @@
         env: { GITHUB_ORG: "hypercli" },
         secret_env_keys: ["GITHUB_TOKEN"],
         recent_communities: [
-          { id: CI_CHANNEL_ID, name: "#CI" },
+          { id: CI_CHANNEL_ID, name: "CI" },
           { id: INTERNAL_CHANNEL_ID, name: "Internal" },
         ],
       },
@@ -224,6 +224,9 @@
             state.buzzConnections.push(connection);
             return { ...connection };
           }
+          case "remove_buzz_connection":
+            state.buzzConnections = state.buzzConnections.filter((item) => item.id !== args?.connectionId);
+            return null;
           case "draft_agent_prompt":
             if (state.draftError) throw state.draftError;
             return `You are a focused agent. ${args?.keywords} Keep responses concise and useful.`;

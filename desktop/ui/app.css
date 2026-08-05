@@ -73,6 +73,10 @@ body {
   align-self: flex-start;
 }
 
+.card.subscreen > .logo {
+  display: none;
+}
+
 /* Theme-aware lockup: the blue-on-dark logo, its light-background twin. */
 .logo-light {
   display: none;
@@ -494,10 +498,8 @@ button.link:hover {
   gap: 14px;
 }
 
-.draft-screen.inset {
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: flex-start;
+.draft-screen:not([hidden]) {
+  display: flex;
 }
 
 .draft-actions {
@@ -714,6 +716,43 @@ button.link:hover {
   border: 1px solid var(--border);
   border-radius: calc(var(--radius) * 0.7);
   background: var(--card);
+}
+
+.connection-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.connection-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 0.7);
+  background: var(--card);
+}
+
+.connection-card-main {
+  min-width: 0;
+}
+
+.connection-card strong,
+.connection-card .hint {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connection-remove {
+  flex: none;
+  color: var(--error);
+}
+
+#buzz-connection-add {
+  align-self: flex-start;
 }
 
 input:read-only,

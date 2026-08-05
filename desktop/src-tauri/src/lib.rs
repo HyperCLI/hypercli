@@ -1133,6 +1133,25 @@ fn managed_client() -> Result<HyperCliClient, String> {
     HyperCliClient::new(config).map_err(|error| error.to_string())
 }
 
+fn prompt_drafting_status_error(status: u16) -> String {
+    match status {
+        400 => "The inference gateway rejected this draft request (HTTP 400). Try a shorter description or sign in again.".to_owned(),
+        401 | 403 => {
+            "This Desktop key needs to be reauthorized for prompt drafting".to_owned()
+        }
+        402 => "This account does not currently have inference access (HTTP 402). Check the account plan and try again.".to_owned(),
+        404 => "Prompt drafting is not available at the configured HyperCLI endpoint (HTTP 404).".to_owned(),
+        408 | 504 => "Prompt drafting timed out at the inference gateway. Try again in a moment.".to_owned(),
+        429 => "Prompt drafting is temporarily rate limited. Wait a moment, then try again.".to_owned(),
+        500..=599 => format!(
+            "HyperCLI inference is temporarily unavailable (HTTP {status}). Try again in a moment."
+        ),
+        _ => format!(
+            "Prompt drafting failed at the inference gateway (HTTP {status})."
+        ),
+    }
+}
+
 fn draft_agent_prompt_blocking(keywords: String) -> Result<String, String> {
     let keywords = keywords.trim();
     if keywords.len() < 2 || keywords.len() > 1000 {
@@ -1161,14 +1180,20 @@ fn draft_agent_prompt_blocking(keywords: String) -> Result<String, String> {
             "temperature": 0.4
         }))
         .send()
-        .map_err(|_| "Prompt drafting request failed".to_owned())?;
+        .map_err(|error| {
+            if error.is_timeout() {
+                "Could not reach HyperCLI inference within 60 seconds. Check the connection and try again."
+                    .to_owned()
+            } else if error.is_connect() {
+                "Could not connect to the configured HyperCLI inference endpoint. Check the connection and API URL."
+                    .to_owned()
+            } else {
+                "The prompt drafting request could not be completed. Check the connection and try again."
+                    .to_owned()
+            }
+        })?;
     if !response.status().is_success() {
-        return Err(match response.status().as_u16() {
-            401 | 403 => "This Desktop key needs to be reauthorized for prompt drafting",
-            429 => "Prompt drafting is temporarily rate limited",
-            _ => "Prompt drafting request failed",
-        }
-        .to_owned());
+        return Err(prompt_drafting_status_error(response.status().as_u16()));
     }
     let completion: ChatCompletionResponse = response
         .json()
@@ -3375,6 +3400,14 @@ mod tests {
         assert!(DESKTOP_KEY_SCOPES.contains(&"models:kimi-k2.6"));
         assert!(DESKTOP_KEY_SCOPES.contains(&"user:self"));
         assert!(!DESKTOP_KEY_SCOPES.contains(&"models:*"));
+    }
+
+    #[test]
+    fn prompt_drafting_errors_explain_the_actionable_failure() {
+        assert!(prompt_drafting_status_error(403).contains("reauthorized"));
+        assert!(prompt_drafting_status_error(404).contains("configured HyperCLI endpoint"));
+        assert!(prompt_drafting_status_error(429).contains("rate limited"));
+        assert!(prompt_drafting_status_error(503).contains("HTTP 503"));
     }
 
     #[test]

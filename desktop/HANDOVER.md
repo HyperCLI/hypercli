@@ -380,11 +380,20 @@ create a fresh agent identity, enroll it as a bot, and create the matching
 HyperCLI deployment directly through `rs-sdk`. Vanilla Buzz remains unchanged
 and continues to use the one-shot provider executable.
 
+Connection setup is a first-class dashboard surface, not an advanced field in
+agent creation: **Buzz connections** opens a focused list/add/remove screen.
+The nsec is entered only while adding a connection, moves immediately into the
+system keychain, and is never rendered again. Create selects from those saved
+identities; with none configured, it routes through connection setup first.
+
 Private channel discovery follows upstream Buzz's authenticated HTTP bridge:
 NIP-98-signed `POST /query` first requests kind 39002 with `#p=<owner>`, then
 requests kind 39000 only for the returned `d` channel ids. A plain WebSocket
 subscription can connect to a hosted community while returning none of its
 private discovery state; do not switch this path back to raw `fetch_events`.
+Relay metadata stores the channel name without presentation punctuation (for
+example `ci`); the picker adds one leading `#`. Tests compare the normalized
+name so relay storage and Buzz UI decoration cannot drift into a false miss.
 
 The create screen collects name, a native image-picker avatar, instructions, runtime, best
 available or explicit 2/4/8 GB size, one discovered channel, respond policy,
@@ -484,11 +493,11 @@ deployment and erases its connection/keychain entry. Runs are non-cancelling
 and serialized because they share one dev identity and channel. The nsec is an
 existing GitHub secret and is never printed or passed in argv.
 
-As of 2026-08-05 20:10 Europe/Moscow, local validation is green: 24 Desktop
-Rust tests plus Clippy, 48 Rust SDK tests plus Clippy, and 26 mocked UI tests.
-Real dev-relay run `31025919309` failed before agent launch because WebdriverIO's
-chainable option collection was passed to `Promise.all` as a native iterable;
-the current gate reads options and cards through DOM `Array.from` instead. Do
-not cut 0.1.3 until that corrected gate passes. Apple still reports the
-existing 0.1.2 notarization submissions as `in progress`, with no rejection log
-available.
+As of 2026-08-05 20:22 Europe/Moscow, local validation is green: 25 Desktop
+Rust tests plus Clippy, 48 Rust SDK tests plus Clippy, and 27 mocked UI tests.
+Real dev-relay run `31028721199` proved authenticated private discovery returned
+the CI channel but timed out on the test's decorative-name comparison: relay
+metadata is `ci`, while Buzz presents `#ci`. The UI now decorates the name and
+the gate compares its normalized spelling. Do not cut 0.1.3 until that next
+gate passes. Apple still reports the existing notarization submissions as `in
+progress`, with no rejection log available.

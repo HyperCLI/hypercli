@@ -20,6 +20,7 @@ test("logged out: auth only, providers hidden, footer resting", async ({ page })
   await expect(page.locator("#auth-disconnected")).toBeVisible();
   await expect(page.locator("#auth-connected")).toBeHidden();
   await expect(page.locator("#provider-section")).toBeHidden();
+  await expect(page.locator("#buzz-connections-section")).toBeHidden();
   await expect(page.locator("#version-line")).toContainText("up to date");
 });
 
@@ -331,8 +332,12 @@ test("create prompt drafting previews text and never saves automatically", async
   await page.goto("/");
   await page.locator("#create-agent-btn").click();
   await page.locator("#agent-name").fill("Compass");
+  await expect(page.locator(".logo-dark")).toBeHidden();
+  await expect(page.locator(".logo-light")).toBeHidden();
   await page.locator("#draft-agent-prompt").click();
   await expect(page.locator("#prompt-draft-screen")).toBeVisible();
+  await expect(page.locator("#prompt-draft-screen")).not.toHaveClass(/inset/);
+  await expect(page.locator("#prompt-draft-screen")).toHaveCSS("border-top-width", "0px");
   await expect(page.locator("#agent-form")).toBeHidden();
   await page.locator("#prompt-draft-generate").click();
   await expect(page.locator("#prompt-draft-preview")).toHaveValue(/focused agent/);
@@ -372,6 +377,7 @@ test("create flow is progressive and launches a Buzz agent", async ({ page }) =>
   await page.locator("#create-agent-btn").click();
 
   await expect(page.locator("#agent-screen-title")).toHaveText("Create agent");
+  await expect(page.locator("#agent-community option").filter({ hasText: "#CI" })).toHaveCount(1);
   await expect(page.locator("#runtime-auth-card")).toBeHidden();
   await expect(page.locator("#agent-advanced")).not.toHaveAttribute("open", "");
   await page.locator("#agent-name").fill("Compass");
@@ -423,6 +429,28 @@ test("create can save a Buzz connection without retaining the nsec in the page",
   await expect(page.locator("#agent-relay")).toHaveValue("wss://dev.buzz.hypercli.com");
   await expect(page.locator("#connection-nsec")).toHaveValue("");
   const retained = await page.evaluate(() => Object.values(localStorage).some((value) => value.includes("nsec1test-secret")));
+  expect(retained).toBe(false);
+});
+
+test("dashboard exposes direct Buzz identity setup without opening an agent", async ({ page }) => {
+  await withMock(page, {
+    status: { has_api_key: true },
+    buzzConnections: [],
+  });
+  await page.goto("/");
+  await expect(page.locator("#buzz-connections-summary")).toContainText("without opening Buzz");
+  await page.locator("#buzz-connections-manage").click();
+  await expect(page.locator("#buzz-connection-screen")).toBeVisible();
+  await expect(page.locator("#agent-screen")).toBeHidden();
+  await expect(page.locator("#connection-nsec")).toBeVisible();
+  await expect(page.locator(".logo-dark")).toBeHidden();
+  await page.locator("#connection-label").fill("Personal Buzz");
+  await page.locator("#connection-relay").fill("wss://buzz.example.com");
+  await page.locator("#connection-nsec").fill("nsec1dashboard-secret");
+  await page.locator("#connection-save").click();
+  await expect(page.locator("#buzz-connection-list")).toContainText("Personal Buzz");
+  await expect(page.locator("#connection-nsec")).toHaveValue("");
+  const retained = await page.evaluate(() => Object.values(localStorage).some((value) => value.includes("nsec1dashboard-secret")));
   expect(retained).toBe(false);
 });
 

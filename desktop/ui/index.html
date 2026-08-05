@@ -54,6 +54,16 @@
         </div>
       </section>
 
+      <section id="buzz-connections-section" hidden>
+        <div class="section-heading">
+          <div>
+            <h1>Buzz connections</h1>
+            <p id="buzz-connections-summary" class="hint">Connect an identity and relay to launch agents without opening Buzz.</p>
+          </div>
+          <button id="buzz-connections-manage" type="button">Connect</button>
+        </div>
+      </section>
+
       <!-- account fleet: only rendered when connected -->
       <section id="agents-section" hidden>
         <div class="section-heading">
@@ -75,6 +85,39 @@
       </section>
       </div>
 
+      <section id="buzz-connection-screen" class="agent-screen" hidden aria-labelledby="buzz-connection-title">
+        <div class="screen-heading">
+          <button id="buzz-connection-back" class="back-button" type="button" aria-label="Back">‹</button>
+          <div>
+            <h1 id="buzz-connection-title">Buzz connections</h1>
+            <p class="hint">Saved identities let HyperCLI launch agents directly into Buzz communities.</p>
+          </div>
+        </div>
+
+        <div id="buzz-connection-list" class="connection-list"></div>
+        <button id="buzz-connection-add" type="button" class="primary">Add connection</button>
+
+        <div id="add-connection-panel" class="connection-panel" hidden>
+          <div class="field-stack">
+            <label for="connection-label">Connection name</label>
+            <input id="connection-label" placeholder="Personal Buzz" maxlength="64" />
+          </div>
+          <div class="field-stack">
+            <label for="connection-relay">Relay</label>
+            <input id="connection-relay" placeholder="wss://your-buzz-relay.example" />
+          </div>
+          <div class="field-stack">
+            <label for="connection-nsec">Owner nsec</label>
+            <input id="connection-nsec" type="password" autocomplete="off" placeholder="nsec1…" />
+            <span class="hint">Saved in the system keychain and never shown again.</span>
+          </div>
+          <div class="button-row tight">
+            <button id="connection-cancel" type="button">Cancel</button>
+            <button id="connection-save" type="button" class="primary">Save connection</button>
+          </div>
+        </div>
+      </section>
+
       <section id="agent-screen" class="agent-screen" hidden aria-labelledby="agent-screen-title">
         <div class="screen-heading">
           <button id="agent-back" class="back-button" type="button" aria-label="Back to agents">‹</button>
@@ -84,7 +127,7 @@
           </div>
         </div>
 
-        <section id="prompt-draft-screen" class="draft-screen inset" hidden aria-labelledby="prompt-draft-title">
+        <section id="prompt-draft-screen" class="draft-screen" hidden aria-labelledby="prompt-draft-title">
           <div class="field-stack">
             <span class="eyebrow">Instruction helper</span>
             <strong id="prompt-draft-title">What should this agent do?</strong>
@@ -202,25 +245,6 @@
               <label for="agent-connection">Connection</label>
               <select id="agent-connection" name="connection_id"></select>
               <span class="hint">A saved Buzz identity and relay. Secrets stay in secure app storage.</span>
-            </div>
-            <div id="add-connection-panel" class="connection-panel" hidden>
-              <div class="field-stack">
-                <label for="connection-label">Connection name</label>
-                <input id="connection-label" placeholder="Personal Buzz" maxlength="64" />
-              </div>
-              <div class="field-stack">
-                <label for="connection-relay">Relay</label>
-                <input id="connection-relay" placeholder="wss://your-buzz-relay.example" />
-              </div>
-              <div class="field-stack">
-                <label for="connection-nsec">Owner nsec</label>
-                <input id="connection-nsec" type="password" autocomplete="off" placeholder="nsec1…" />
-                <span class="hint">Saved securely and never shown again.</span>
-              </div>
-              <div class="button-row tight">
-                <button id="connection-cancel" type="button">Cancel</button>
-                <button id="connection-save" type="button" class="primary">Save connection</button>
-              </div>
             </div>
             <div class="field-stack">
               <label for="agent-relay">Relay</label>
