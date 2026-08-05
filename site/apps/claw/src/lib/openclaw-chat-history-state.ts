@@ -16,7 +16,7 @@ export type ChatHistoryAction =
   | { type: "append-system-message"; content: string; timestamp?: number }
   | { type: "append-user-message"; message: ChatMessage }
   | { type: "clear" }
-  | { type: "mark-interrupted" }
+  | { type: "mark-interrupted"; runId?: string }
   | { type: "merge-history-refresh"; messages: ChatMessage[] }
   | { type: "replace"; messages: ChatMessage[] }
   | { type: "restore-cache"; messages: ChatMessage[] };
@@ -133,6 +133,7 @@ function retainHistoryRenderIds(
       renderId: currentMessage?.renderId ?? historyMessage.renderId,
       ...(currentMessage?.clientTurnId ? { clientTurnId: currentMessage.clientTurnId } : {}),
       ...(currentMessage?.retryContent ? { retryContent: currentMessage.retryContent } : {}),
+      ...(currentMessage?.status ? { status: currentMessage.status } : {}),
     };
   });
 }
@@ -268,13 +269,22 @@ function reconcileCurrentLastTurn(
     }
   }
 
-  const stoppedNotice = currentTail.find((message) => (
-    message.role === "system" && message.content === OPENCLAW_REPLY_STOPPED_MESSAGE
+  const terminalNotices = currentTail.filter((message) => (
+    message.role === "system" && (
+      message.content === OPENCLAW_REPLY_STOPPED_MESSAGE ||
+      message.content.startsWith("Error: ") ||
+      message.content.startsWith("Assistant response failed: ")
+    )
   ));
-  if (stoppedNotice && !next.slice(historyLastUserIndex + 1).some((message) => (
-    message.role === "system" && message.content === OPENCLAW_REPLY_STOPPED_MESSAGE
-  ))) {
-    next.push(stoppedNotice);
+  for (const notice of terminalNotices) {
+    const noticeKey = terminalNoticeKey(notice.content);
+    if (next.slice(historyLastUserIndex + 1).some((message) => (
+      message.role === "system" && (
+        message.content === notice.content ||
+        (noticeKey !== null && terminalNoticeKey(message.content) === noticeKey)
+      )
+    ))) continue;
+    next.push(notice);
   }
 
   return dedupeChatMessages(next);
@@ -290,6 +300,16 @@ function assistantMessageHasVisibleReply(message: ChatMessage): boolean {
       (message.files?.length ?? 0) > 0
     )
   );
+}
+
+function terminalNoticeKey(content: string): string | null {
+  if (content === OPENCLAW_REPLY_STOPPED_MESSAGE) return "stopped";
+  const error = content.startsWith("Error: ")
+    ? content.slice("Error: ".length)
+    : content.startsWith("Assistant response failed: ")
+      ? content.slice("Assistant response failed: ".length)
+      : null;
+  return error ? `error:${error.trim().replace(/[.!]+$/, "").toLowerCase()}` : null;
 }
 
 export function sameChatHistoryTarget(a: ChatHistoryTarget, b: ChatHistoryTarget): boolean {
@@ -322,7 +342,9 @@ export function reduceChatHistoryMessages(current: ChatMessage[], action: ChatHi
   if (action.type === "mark-interrupted") {
     const lastAssistantIndex = (() => {
       for (let index = currentMessages.length - 1; index >= 0; index -= 1) {
-        if (currentMessages[index]?.role === "assistant") return index;
+        const message = currentMessages[index];
+        if (message?.role === "assistant" && (!action.runId || message.runId === action.runId)) return index;
+        if (action.runId) continue;
         if (currentMessages[index]?.role === "user") return -1;
       }
       return -1;

@@ -203,7 +203,7 @@ test("keeps a saved draft private until authentication", async ({ page }) => {
   expect(await page.evaluate(() => window.sessionStorage.getItem("hypercli-first-agent-draft"))).toContain("night-ops-pilot");
 });
 
-test("routes New Workspace through authentication", async ({ page }) => {
+test("routes New Domain through authentication", async ({ page }) => {
   await page.route("**/*", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -220,7 +220,7 @@ test("routes New Workspace through authentication", async ({ page }) => {
   const workspaceSelector = navigation.getByRole("button", { name: /Current workspace:/ });
   if (await workspaceSelector.isVisible().catch(() => false)) {
     await workspaceSelector.click();
-    const newWorkspace = page.getByRole("menuitem", { name: /New Workspace/ });
+    const newWorkspace = page.getByRole("menuitem", { name: /New Domain/ });
     await expect(newWorkspace).toBeEnabled();
     await newWorkspace.click();
   } else {
@@ -230,7 +230,7 @@ test("routes New Workspace through authentication", async ({ page }) => {
   }
 
   await expect(page.locator("#privy-modal-content")).toBeVisible();
-  await expect(page.getByRole("dialog", { name: "New Workspace" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "New Domain" })).toHaveCount(0);
 });
 
 test("keeps a saved anonymous draft while showing the dashboard preview", async ({ page }) => {

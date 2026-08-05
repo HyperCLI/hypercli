@@ -43,7 +43,7 @@ vi.mock("@/components/dashboard/agents/AgentPanels", () => {
             onClick={onCreateWorkspace ?? onLaunchAction ?? onCreate}
             disabled={Boolean(launching || launchBlocked || (!workspaceSetupRequired && creationDisabledReason))}
           >
-            {workspaceSetupRequired ? "Create your first Workspace" : launching ? "Starting agent" : launchLabel ?? defaultButtonLabel}
+            {workspaceSetupRequired ? "Create your first Domain" : launching ? "Starting agent" : launchLabel ?? defaultButtonLabel}
           </button>
           {workspaceName && hasAccountAgents && onOpenMembers ? (
             <button type="button" onClick={onOpenMembers}>Add an existing agent in Members</button>
@@ -278,10 +278,10 @@ describe("AgentMainPanel", () => {
       selectedAgent: null,
       onCreate,
       onCreateWorkspace,
-      creationDisabledReason: "Select a Workspace before launching an agent.",
+      creationDisabledReason: "Select a Domain before launching an agent.",
     });
 
-    const createWorkspace = screen.getByRole("button", { name: "Create your first Workspace" });
+    const createWorkspace = screen.getByRole("button", { name: "Create your first Domain" });
     expect(createWorkspace).toBeEnabled();
     fireEvent.click(createWorkspace);
     expect(onCreateWorkspace).toHaveBeenCalledOnce();
@@ -302,11 +302,11 @@ describe("AgentMainPanel", () => {
     expect(onOpenMembers).toHaveBeenCalledOnce();
   });
 
-  it("disables agent creation for a non-admin Workspace member", () => {
+  it("disables agent creation for a non-admin Domain member", () => {
     renderAgentMainPanel({
       selectedAgent: null,
       workspaceName: "Product Operations",
-      creationDisabledReason: "Workspace admin access is required to add agents.",
+      creationDisabledReason: "Domain admin access is required to add agents.",
     });
 
     const createAgent = screen.getByRole("button", { name: "Create an agent" });
@@ -417,7 +417,7 @@ describe("AgentMainPanel", () => {
     expect(screen.queryByRole("region", { name: /first agent empty state/i })).not.toBeInTheDocument();
   });
 
-  it("renders shared knowledge before any Workspace agent exists", () => {
+  it("renders shared knowledge before any Domain agent exists", () => {
     renderAgentMainPanel({
       selectedAgent: null,
       hasAgents: false,

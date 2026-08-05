@@ -42,7 +42,7 @@ describe("SettingsMenu", () => {
       "Profile",
       "Preferences",
       "Agent",
-      "Workspace",
+      "Knowledge Hub",
       "Members",
       "API Keys",
       "Billing",
@@ -71,7 +71,7 @@ describe("SettingsMenu", () => {
       />,
     );
 
-    ["Workspace", "Members", "API Keys", "Billing", "Plans", "Memory index"].forEach((label) => {
+    ["Knowledge Hub", "Members", "API Keys", "Billing", "Plans", "Memory index"].forEach((label) => {
       fireEvent.click(screen.getByRole("button", { name: label }));
     });
 
@@ -91,7 +91,7 @@ describe("SettingsSectionHeader", () => {
     ["profile", "Profile"],
     ["preferences", "Preferences"],
     ["agent", "Agent"],
-    ["workspace", "Workspace"],
+    ["workspace", "Knowledge Hub"],
     ["members", "Members"],
     ["memory-index", "Memory index"],
   ] satisfies Array<[SettingsSectionId, string]>) (

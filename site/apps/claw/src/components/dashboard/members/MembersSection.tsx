@@ -114,7 +114,7 @@ function describeError(error: unknown, fallback: string): string {
 function rejectedReason(error: unknown): string {
   if (error instanceof Error && error.message.trim()) return error.message.trim();
   if (typeof error === "string" && error.trim()) return error.trim();
-  return "The Workspace service rejected the request.";
+  return "Knowledge Hub could not complete the request.";
 }
 
 function localDateTimeToIso(value: string): string | undefined {
@@ -300,7 +300,7 @@ export function MembersSection({ compact = false, agents = [], agentsLoading = f
         workspaceId,
         snapshot: null,
         loading: false,
-        error: describeError(cause, "Unable to load Workspace access."),
+        error: describeError(cause, "Unable to load Domain access."),
       });
     }
   }, [workspacesClient]);
@@ -369,7 +369,7 @@ export function MembersSection({ compact = false, agents = [], agentsLoading = f
     if (explicitName) return explicitName;
     if (subject.subjectType === "user" && currentSubjectIds.has(subject.subjectId)) return currentAccountName;
     return subject.displaySlug?.trim()
-      || (subject.subjectType === "agent" ? "Workspace agent" : "Workspace member");
+      || (subject.subjectType === "agent" ? "Domain agent" : "Domain member");
   };
 
   const subjectSecondaryLabel = (subject: Pick<WorkspaceAccessEntry, "subjectType" | "subjectId" | "displaySlug">): string => {
@@ -437,7 +437,7 @@ export function MembersSection({ compact = false, agents = [], agentsLoading = f
       await reloadAfterMutation(targetWorkspaceId, targetSubjectType);
     } catch (cause) {
       if (selectedWorkspaceIdRef.current === targetWorkspaceId) {
-        setMutationError(describeError(cause, "Unable to add Workspace access."));
+        setMutationError(describeError(cause, "Unable to add Domain access."));
       }
     } finally {
       setBusyWorkspaceId((current) => current === targetWorkspaceId ? null : current);
@@ -490,27 +490,27 @@ export function MembersSection({ compact = false, agents = [], agentsLoading = f
         <div className="flex min-h-[70px] items-center justify-between gap-3 border-b border-border px-6 py-3 text-left">
           <div className="min-w-0">
             <h2 className="text-base font-semibold text-foreground">Members</h2>
-            <p className="mt-0.5 truncate text-[11px] text-text-muted">{selectedWorkspace ? workspaceName(selectedWorkspace) : "Workspace access"}</p>
+            <p className="mt-0.5 truncate text-[11px] text-text-muted">{selectedWorkspace ? workspaceName(selectedWorkspace) : "Knowledge Hub access"}</p>
           </div>
           <Link href="/dashboard/agents?section=members" className="shrink-0 text-[11px] font-medium text-text-muted transition-colors hover:text-foreground">Manage</Link>
         </div>
         <div className="flex flex-1 flex-col px-6 py-5 text-left">
           {loadingWorkspaces || loadingAccess ? (
-            <div role="status" className="flex flex-1 items-center justify-center gap-2 text-[12px] text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading Workspace access</div>
+            <div role="status" className="flex flex-1 items-center justify-center gap-2 text-[12px] text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading Domain access</div>
           ) : visibleError ? (
             <div role="alert" className="rounded-xl border border-destructive/25 bg-destructive/10 px-4 py-3 text-[12px] text-destructive">{visibleError}</div>
           ) : !selectedWorkspace ? (
-            <div role="status" className="flex flex-1 flex-col items-center justify-center text-center"><HardDrive className="h-5 w-5 text-text-muted" /><p className="mt-2 text-[12px] font-medium text-foreground">No Workspaces yet</p><p className="mt-1 text-[11px] text-text-muted">Create one from the Workspace menu.</p></div>
+            <div role="status" className="flex flex-1 flex-col items-center justify-center text-center"><HardDrive className="h-5 w-5 text-text-muted" /><p className="mt-2 text-[12px] font-medium text-foreground">No Knowledge Domains yet</p><p className="mt-1 text-[11px] text-text-muted">Create a Domain in Knowledge Hub.</p></div>
           ) : hasCurrentAccessOnly ? (
             <div className="flex flex-1 flex-col justify-center">
               <div className="flex items-center gap-3 rounded-xl border border-border bg-background/35 px-4 py-3.5">
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.28)] bg-[rgb(var(--selection-accent-rgb)_/_0.12)] text-[11px] font-semibold text-[var(--selection-accent)]">{accountInitials(currentAccountName, currentAccountEmail)}</span>
                 <span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-medium text-foreground">{currentAccountName}</span><span className="mt-1 block truncate text-[11px] text-text-muted">{currentAccountEmail || "Signed-in account"}</span><span className="mt-1 block text-[10px] capitalize text-text-muted">{selectedRole || "viewer"} - Current access</span></span>
               </div>
-              <p className="mt-3 text-center text-[11px] leading-relaxed text-text-muted">The full direct-access list is available to Workspace admins.</p>
+              <p className="mt-3 text-center text-[11px] leading-relaxed text-text-muted">The full direct-access list is available to Domain admins.</p>
             </div>
           ) : !hasFullDirectory ? (
-            <div role="status" className="flex flex-1 items-center justify-center text-center text-[12px] text-text-muted">Workspace access is unavailable.</div>
+            <div role="status" className="flex flex-1 items-center justify-center text-center text-[12px] text-text-muted">Domain access is unavailable.</div>
           ) : directory.length === 0 ? (
             <div role="status" className="flex flex-1 items-center justify-center text-center text-[12px] text-text-muted">No active direct access entries.</div>
           ) : (
@@ -536,15 +536,15 @@ export function MembersSection({ compact = false, agents = [], agentsLoading = f
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[rgb(var(--selection-accent-rgb)_/_0.24)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"><UsersRound className="h-5 w-5" /></span>
           <div className="min-w-0">
             <h1 id="members-title" className="text-[22px] font-semibold leading-tight tracking-tight text-foreground">Members</h1>
-            <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-text-muted">Review access for {selectedWorkspace ? workspaceName(selectedWorkspace) : "the selected Workspace"}. Workspace admins can manage the full direct-access list.</p>
+            <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-text-muted">Review access for {selectedWorkspace ? workspaceName(selectedWorkspace) : "the selected Domain"}. Domain admins can manage the full direct-access list.</p>
           </div>
         </div>
-        <TooltipHint label="Refresh Workspace access" disabled={!selectedWorkspace || loadingWorkspaces || loadingAccess || busy}>
+        <TooltipHint label="Refresh Domain access" disabled={!selectedWorkspace || loadingWorkspaces || loadingAccess || busy}>
           <button
             type="button"
             onClick={refreshWorkspaceAccess}
             disabled={!selectedWorkspace || loadingWorkspaces || loadingAccess || busy}
-            aria-label="Refresh Workspace access"
+            aria-label="Refresh Domain access"
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loadingAccess ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
@@ -555,22 +555,22 @@ export function MembersSection({ compact = false, agents = [], agentsLoading = f
       {visibleError ? <div role="alert" className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-[12px] text-destructive"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />{visibleError}</div> : null}
 
       {loadingWorkspaces ? (
-        <div role="status" className="flex min-h-44 items-center justify-center gap-2 rounded-2xl border border-border text-[12px] text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading available Workspaces</div>
+        <div role="status" className="flex min-h-44 items-center justify-center gap-2 rounded-2xl border border-border text-[12px] text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading Knowledge Hub domains</div>
       ) : connectionError && !selectedWorkspace ? null : !selectedWorkspace ? (
-        <div role="status" className="rounded-2xl border border-dashed border-border px-5 py-12 text-center"><HardDrive className="mx-auto h-6 w-6 text-text-muted" /><p className="mt-3 text-[13px] font-medium text-foreground">No Workspaces available</p><p className="mt-1 text-[11px] text-text-muted">Create a Workspace from the sidebar to start managing shared access.</p></div>
+        <div role="status" className="rounded-2xl border border-dashed border-border px-5 py-12 text-center"><HardDrive className="mx-auto h-6 w-6 text-text-muted" /><p className="mt-3 text-[13px] font-medium text-foreground">No Knowledge Domains available</p><p className="mt-1 text-[11px] text-text-muted">Create a Domain in Knowledge Hub to start managing shared access.</p></div>
       ) : (
         <>
           <div className="grid gap-3 lg:grid-cols-3">
-            <SummaryCard label="People" value={loadingAccess || !hasFullDirectory ? "-" : String(activePeople)} detail={hasFullDirectory ? "Active direct user access" : "Available to Workspace admins"} icon={UsersRound} accent />
-            <SummaryCard label="Agents" value={loadingAccess || !hasFullDirectory ? "-" : String(activeAgents)} detail={hasFullDirectory ? "Active direct agent access" : "Available to Workspace admins"} icon={Bot} />
-            <SummaryCard label="Your role" value={selectedRole ? selectedRole[0]!.toUpperCase() + selectedRole.slice(1) : "Unknown"} detail={canManageAccess ? "Can manage Workspace access" : "Your current Workspace access"} icon={ShieldCheck} />
+            <SummaryCard label="People" value={loadingAccess || !hasFullDirectory ? "-" : String(activePeople)} detail={hasFullDirectory ? "Active direct user access" : "Available to Domain admins"} icon={UsersRound} accent />
+            <SummaryCard label="Agents" value={loadingAccess || !hasFullDirectory ? "-" : String(activeAgents)} detail={hasFullDirectory ? "Active direct agent access" : "Available to Domain admins"} icon={Bot} />
+            <SummaryCard label="Your role" value={selectedRole ? selectedRole[0]!.toUpperCase() + selectedRole.slice(1) : "Unknown"} detail={canManageAccess ? "Can manage Domain access" : "Your current Domain access"} icon={ShieldCheck} />
           </div>
 
           {loadingAccess ? (
-            <div role="status" className="flex min-h-44 items-center justify-center gap-2 rounded-2xl border border-border text-[12px] text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading Workspace access</div>
+            <div role="status" className="flex min-h-44 items-center justify-center gap-2 rounded-2xl border border-border text-[12px] text-text-muted"><Loader2 className="h-4 w-4 animate-spin" /> Loading Domain access</div>
           ) : hasCurrentAccessOnly ? (
             <div className="overflow-hidden rounded-2xl border border-border bg-surface-low/20">
-              <div className="border-b border-border px-5 py-4"><h2 className="text-[14px] font-semibold text-foreground">Your Workspace access</h2><p className="mt-0.5 text-[11px] text-text-muted">The full direct-access list is available to Workspace admins.</p></div>
+              <div className="border-b border-border px-5 py-4"><h2 className="text-[14px] font-semibold text-foreground">Your Domain access</h2><p className="mt-0.5 text-[11px] text-text-muted">The full direct-access list is available to Domain admins.</p></div>
               <div className="grid gap-4 px-4 py-4 sm:px-5 lg:grid-cols-[minmax(0,1.4fr)_130px_150px_110px] lg:items-center">
                 <div className="flex min-w-0 items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.28)] bg-[rgb(var(--selection-accent-rgb)_/_0.12)] text-[11px] font-semibold text-[var(--selection-accent)]">{accountInitials(currentAccountName, currentAccountEmail)}</span><span className="min-w-0"><span className="block truncate text-[13px] font-medium text-foreground">{currentAccountName}</span>{currentAccountEmail ? <span className="mt-1 block truncate text-[11px] text-text-muted">{currentAccountEmail}</span> : null}</span></div>
                 <div><Badge variant="active" className="rounded-full px-2.5 py-1 text-[10px]"><Check className="h-3 w-3" /> Active</Badge></div>
@@ -579,12 +579,12 @@ export function MembersSection({ compact = false, agents = [], agentsLoading = f
               </div>
             </div>
           ) : !hasFullDirectory ? (
-            <div role="status" className="rounded-2xl border border-dashed border-border px-5 py-12 text-center text-[12px] text-text-muted">Workspace access is unavailable.</div>
+            <div role="status" className="rounded-2xl border border-dashed border-border px-5 py-12 text-center text-[12px] text-text-muted">Domain access is unavailable.</div>
           ) : (
             <>
               {canManageAccess && accessOpen ? (
                 <div id="workspace-access-form" aria-labelledby="workspace-access-form-title" className="grid gap-3 rounded-2xl border border-border bg-surface-low/25 p-4 xl:grid-cols-[130px_minmax(0,1fr)_150px_190px_auto] xl:items-end">
-                  <span id="workspace-access-form-title" className="sr-only">Add Workspace access</span>
+                  <span id="workspace-access-form-title" className="sr-only">Add Domain access</span>
                   <div>
                     <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Type</span>
                     <Select value={subjectType} onValueChange={(value) => { setSubjectType(value as GrantSubjectType); setSubjectId(""); }}>
@@ -630,7 +630,7 @@ export function MembersSection({ compact = false, agents = [], agentsLoading = f
 
               <div className="overflow-hidden rounded-2xl border border-border bg-surface-low/20">
                 <div className="flex flex-col items-start gap-3 border-b border-border px-4 py-4 text-left sm:flex-row sm:items-center sm:px-5">
-                  <div className="min-w-0 self-start text-left"><h2 className="text-[14px] font-semibold text-foreground">Workspace direct access</h2><p className="mt-0.5 text-[11px] text-text-muted">Active grouped people and agents for {workspaceName(selectedWorkspace)}.</p></div>
+                   <div className="min-w-0 self-start text-left"><h2 className="text-[14px] font-semibold text-foreground">Domain direct access</h2><p className="mt-0.5 text-[11px] text-text-muted">Active grouped people and agents for {workspaceName(selectedWorkspace)}.</p></div>
                   <div className="flex w-full gap-2 sm:ml-auto sm:w-auto">
                     <label className="relative block min-w-0 flex-1 sm:w-64"><span className="sr-only">Search members</span><Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search access" className="h-9 w-full rounded-xl border border-border bg-background/45 pl-9 pr-3 text-[12px] text-foreground outline-none placeholder:text-text-muted focus:border-foreground/60" /></label>
                     {canManageAccess ? <button ref={accessTriggerRef} type="button" aria-expanded={accessOpen} aria-controls="workspace-access-form" onClick={() => {
@@ -647,7 +647,7 @@ export function MembersSection({ compact = false, agents = [], agentsLoading = f
                   </div>
                 </div>
 
-                <div role="table" aria-label="Workspace direct access">
+                <div role="table" aria-label="Domain direct access">
                   <div role="row" className="sr-only lg:not-sr-only lg:grid lg:grid-cols-[minmax(0,1.4fr)_150px_150px_110px] lg:gap-4 lg:border-b lg:border-border lg:bg-background/20 lg:px-5 lg:py-2.5"><span role="columnheader" className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Principal</span><span role="columnheader" className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Status</span><span role="columnheader" className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Role</span><span role="columnheader" className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Action</span></div>
                   {displayedDirectory.length === 0 ? (
                     <div role="row"><div role="cell" aria-colspan={4} className="px-5 py-10 text-center text-[12px] text-text-muted">{query ? "No active people or agents match your search." : "No active direct access entries."}</div></div>
@@ -671,7 +671,7 @@ export function MembersSection({ compact = false, agents = [], agentsLoading = f
               {inactiveGrants.length > 0 ? (
                 <div className="overflow-hidden rounded-2xl border border-border bg-surface-low/20">
                   <div className="border-b border-border px-5 py-4"><h2 className="text-[14px] font-semibold text-foreground">Access history</h2><p className="mt-0.5 text-[11px] text-text-muted">Revoked and expired direct grants at the time this access view was captured.</p></div>
-                  <div role="table" aria-label="Inactive Workspace access grants">
+                  <div role="table" aria-label="Inactive Domain access grants">
                     {inactiveGrants.map((grant) => {
                       const status = grantStatus(grant);
                       return (
@@ -692,8 +692,8 @@ export function MembersSection({ compact = false, agents = [], agentsLoading = f
 
       <ConfirmDialog
         open={Boolean(pendingCurrentRevoke)}
-        title="Remove Workspace access"
-        message={pendingCurrentRevoke ? `Remove all direct access for ${subjectLabel(pendingCurrentRevoke)} from ${selectedWorkspace ? workspaceName(selectedWorkspace) : "this Workspace"}?` : ""}
+        title="Remove Domain access"
+        message={pendingCurrentRevoke ? `Remove all direct access for ${subjectLabel(pendingCurrentRevoke)} from ${selectedWorkspace ? workspaceName(selectedWorkspace) : "this Domain"}?` : ""}
         confirmLabel="Remove access"
         danger
         loading={busy}

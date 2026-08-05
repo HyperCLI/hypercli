@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import {
-  BriefcaseBusiness,
   ChevronLeft,
   ChevronRight,
   CircleDollarSign,
@@ -10,6 +9,7 @@ import {
   DatabaseZap,
   Globe2,
   KeyRound,
+  LibraryBig,
   MessageSquareText,
   SlidersHorizontal,
   UserRound,
@@ -33,7 +33,7 @@ const SETTINGS_SECTION_LABELS: Record<SettingsSectionId, string> = {
   profile: "Profile",
   preferences: "Preferences",
   agent: "Agent",
-  workspace: "Workspace",
+  workspace: "Knowledge Hub",
   members: "Members",
   "api-keys": "API Keys",
   billing: "Billing",
@@ -76,7 +76,7 @@ const SETTINGS_GROUPS: Array<{ label: string; items: SettingsMenuItem[] }> = [
   {
     label: "Administration",
     items: [
-      { id: "workspace", label: SETTINGS_SECTION_LABELS.workspace, icon: BriefcaseBusiness },
+      { id: "workspace", label: SETTINGS_SECTION_LABELS.workspace, icon: LibraryBig },
       { id: "members", label: SETTINGS_SECTION_LABELS.members, icon: UsersRound },
       { id: "api-keys", label: SETTINGS_SECTION_LABELS["api-keys"], icon: KeyRound },
       { id: "billing", label: SETTINGS_SECTION_LABELS.billing, icon: CreditCard },

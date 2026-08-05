@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 
 import type { Agent } from "@/app/dashboard/agents/types";
 import { buildAgentWorkspaceTabHref, type AgentRouteTab } from "@/lib/agent-workspace-route";
+import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
 import { AgentWorkspaceSidebar } from "./AgentWorkspaceSidebar";
 
 export function DashboardWorkspaceNavigation({
@@ -43,6 +44,7 @@ export function DashboardWorkspaceNavigation({
       onOpenLogs={() => openAgentTab("logs")}
       onOpenShell={() => openAgentTab("shell")}
       onOpenOpenClaw={() => openAgentTab("openclaw")}
+      onOpenSettings={() => router.push(DASHBOARD_VIEW_HREFS.settings)}
       onUpgrade={() => router.push("/plans")}
     />
   );

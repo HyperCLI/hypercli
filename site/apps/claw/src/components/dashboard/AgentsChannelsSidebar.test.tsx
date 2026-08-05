@@ -228,13 +228,13 @@ describe("AgentsChannelsSidebar", () => {
         onSelectThread={vi.fn()}
         showChannels={false}
         onOpenAgentLauncher={onOpenAgentLauncher}
-        agentCreationDisabledReason="Workspace admin access is required to add agents."
+        agentCreationDisabledReason="Domain admin access is required to add agents."
       />,
     );
 
     const launch = screen.getByRole("button", { name: "Launch agent" });
     expect(launch).toBeDisabled();
-    expect(screen.getByText("Workspace admin access is required to add agents.")).toBeInTheDocument();
+    expect(screen.getByText("Domain admin access is required to add agents.")).toBeInTheDocument();
     fireEvent.click(launch);
     expect(onOpenAgentLauncher).not.toHaveBeenCalled();
   });

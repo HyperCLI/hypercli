@@ -1440,7 +1440,7 @@ export default function DevAgentSetupPage() {
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
               <div className="rounded-xl border border-white/8 bg-surface-low/80 p-5">
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Workspace name" value={teamOnboardingState.workspaceName} onChange={(value) => updateTeamField("workspaceName", value)} placeholder="Platform" />
+                  <Field label="Domain name" value={teamOnboardingState.workspaceName} onChange={(value) => updateTeamField("workspaceName", value)} placeholder="Platform" />
                   <Field label="Top priority" value={teamOnboardingState.priority} onChange={(value) => updateTeamField("priority", value)} placeholder="Reduce incident response time" />
                   <Field label="Systems" value={teamOnboardingState.systems} onChange={(value) => updateTeamField("systems", value)} placeholder="dashboard, billing, agents-api" />
                   <Field label="Team vocabulary" value={teamOnboardingState.vocabulary} onChange={(value) => updateTeamField("vocabulary", value)} placeholder="AIU, grant, entitlement" />

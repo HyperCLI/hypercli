@@ -1721,16 +1721,16 @@ export async function launchClawAgentAndWaitForGateway(
     const workspaceName = `Agents E2E ${Date.now()}`;
     const createWorkspaceButton = page
       .locator("main")
-      .getByRole("button", { name: /^Create your first Workspace/i });
+      .getByRole("button", { name: /^Create your first Domain/i });
     await expect(createWorkspaceButton).toBeVisible({ timeout: 30_000 });
     await createWorkspaceButton.click();
 
     const workspaceDialog = page.getByRole("dialog").last();
-    await expect(workspaceDialog.getByRole("heading", { name: "New Workspace", exact: true })).toBeVisible({ timeout: 30_000 });
-    await workspaceDialog.getByLabel("Workspace name").fill(workspaceName);
+    await expect(workspaceDialog.getByRole("heading", { name: "New Domain", exact: true })).toBeVisible({ timeout: 30_000 });
+    await workspaceDialog.getByLabel("Domain name").fill(workspaceName);
     await workspaceDialog.getByRole("button", { name: "Continue", exact: true }).click();
     await expect(workspaceDialog.getByRole("heading", { name: "Invite team members", exact: true })).toBeVisible();
-    await workspaceDialog.getByRole("button", { name: "Create Workspace", exact: true }).click();
+    await workspaceDialog.getByRole("button", { name: "Create Domain", exact: true }).click();
 
     await expect(workspaceDialog).not.toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole("button", { name: `Current workspace: ${workspaceName}` })).toBeVisible({ timeout: 30_000 });

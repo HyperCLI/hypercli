@@ -409,6 +409,14 @@ describe("AccountSettingsPanel", () => {
     render(<AccountSettingsPanel />);
 
     const startupSwitch = screen.getByRole("switch", { name: "Show helpful loading tips" });
+    const loadingScreenCard = screen.getByRole("heading", { name: "Loading screen" }).closest('[data-slot="card"]');
+    expect(loadingScreenCard?.firstElementChild).toHaveClass(
+      "grid",
+      "w-full",
+      "md:grid-cols-[minmax(0,1fr)_auto]",
+      "md:items-center",
+    );
+    expect(startupSwitch.parentElement).toHaveClass("w-full", "md:w-auto", "md:min-w-[19rem]");
     expect(startupSwitch).toBeChecked();
     expect(screen.getByText("Helpful tips")).toBeInTheDocument();
 

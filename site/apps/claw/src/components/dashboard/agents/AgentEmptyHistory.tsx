@@ -19,7 +19,10 @@ type AgentEmptyHistoryActions = Pick<
 >;
 
 interface AgentEmptyHistoryProps {
-  onPromptSelect: (prompt: string) => void;
+  onSayHello: () => void | Promise<void>;
+  hasPriorInteraction?: boolean;
+  userName?: string | null;
+  salutationSeed?: string | null;
   actions?: AgentEmptyHistoryActions;
 }
 
@@ -37,12 +40,45 @@ interface Capability {
   actions: CapabilityAction[];
 }
 
-const SAY_HELLO_PROMPT = "Hi! Let's spend a few minutes getting to know each other. Ask me one question at a time to learn how I work and where you can help most.";
+export const RETURNING_AGENT_SALUTATIONS = [
+  "What are we working on today",
+  "What should we tackle today",
+  "What's on the agenda today",
+  "Where should we start",
+  "What would you like to make progress on",
+  "What's the priority today",
+  "What are we solving today",
+  "What should we get done today",
+  "What would make today productive",
+  "What can we move forward today",
+] as const;
+
+export function returningAgentSalutation(
+  seed: string | null | undefined,
+  userName: string | null | undefined,
+): string {
+  const normalizedSeed = seed?.trim() ?? "";
+  let hash = 0;
+  for (let index = 0; index < normalizedSeed.length; index += 1) {
+    hash = (Math.imul(hash, 31) + normalizedSeed.charCodeAt(index)) >>> 0;
+  }
+  const salutation = RETURNING_AGENT_SALUTATIONS[
+    normalizedSeed ? hash % RETURNING_AGENT_SALUTATIONS.length : 0
+  ];
+  const firstName = userName?.trim().split(/\s+/)[0] || null;
+  return `${salutation}${firstName ? `, ${firstName}` : ""}?`;
+}
 
 export function AgentEmptyHistory({
-  onPromptSelect,
+  onSayHello,
+  hasPriorInteraction = false,
+  userName,
+  salutationSeed,
   actions,
 }: AgentEmptyHistoryProps) {
+  const heading = hasPriorInteraction
+    ? returningAgentSalutation(salutationSeed, userName)
+    : "Meet your new AI teammate.";
   const capabilities: Capability[] = [
     {
       id: "personalize",
@@ -114,20 +150,24 @@ export function AgentEmptyHistory({
           id="agent-empty-history-title"
           className="agent-empty-history-title mt-4 text-balance text-[1.75rem] font-semibold leading-[1.15] tracking-[-0.035em] text-foreground"
         >
-          Meet your new AI teammate.
+          {heading}
         </h2>
-        <p className="agent-empty-history-intro mx-auto mt-2 max-w-[38rem] text-sm leading-6 text-text-secondary">
-          Let&apos;s spend a few minutes getting to know each other so I can learn how you work and become a valuable member of your team.
-        </p>
-        <Button
-          type="button"
-          size="lg"
-          onClick={() => onPromptSelect(SAY_HELLO_PROMPT)}
-          className="agent-empty-history-cta mt-5 h-11 rounded-xl px-5 text-sm font-semibold shadow-[0_12px_28px_rgb(var(--button-primary-rgb)_/_0.22)] hover:-translate-y-0.5 focus-visible:ring-[rgb(var(--button-primary-rgb)_/_0.5)] motion-reduce:transform-none"
-        >
-          <MessageCircle aria-hidden="true" className="size-4" />
-          Say hello
-        </Button>
+        {!hasPriorInteraction ? (
+          <>
+            <p className="agent-empty-history-intro mx-auto mt-2 max-w-[38rem] text-sm leading-6 text-text-secondary">
+              Let&apos;s spend a few minutes getting to know each other so I can learn how you work and become a valuable member of your team.
+            </p>
+            <Button
+              type="button"
+              size="lg"
+              onClick={() => { void onSayHello(); }}
+              className="agent-empty-history-cta mt-5 h-11 rounded-xl px-5 text-sm font-semibold shadow-[0_12px_28px_rgb(var(--button-primary-rgb)_/_0.22)] hover:-translate-y-0.5 focus-visible:ring-[rgb(var(--button-primary-rgb)_/_0.5)] motion-reduce:transform-none"
+            >
+              <MessageCircle aria-hidden="true" className="size-4" />
+              Say hello
+            </Button>
+          </>
+        ) : null}
       </header>
 
       <div className="agent-empty-history-capabilities mt-6 divide-y divide-border border-y border-border">

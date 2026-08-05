@@ -405,6 +405,17 @@ async function mockAgentChat(
     await route.fulfill(json(pathName.endsWith(`/workspaces/${TEST_WORKSPACE_ID}`) ? workspace : [workspace]));
   });
 
+  await page.route("**/api/user", async (route) => {
+    await route.fulfill(json({
+      user_id: "user-agent-chat-navigation",
+      email: "franc@example.com",
+      name: "Franc User",
+      is_active: true,
+      email_verified: true,
+      created_at: "2026-08-05T00:00:00Z",
+    }));
+  });
+
   await page.route("**/agents/**", async (route) => {
     const url = new URL(route.request().url());
     const pathName = url.pathname;
@@ -522,6 +533,24 @@ test("a ready empty session fits within the desktop transcript", async ({ page }
   expect(metrics!.sectionTop).toBeGreaterThanOrEqual(metrics!.scrollerTop - 1);
   expect(metrics!.sectionBottom).toBeLessThanOrEqual(metrics!.scrollerBottom + 1);
   expect(metrics!.scrollerScrollHeight).toBeLessThanOrEqual(metrics!.scrollerClientHeight + 1);
+});
+
+test("say hello sends hi and later sessions use the returning prompt", async ({ page }) => {
+  const gatewayTracker = await mockAgentChat(page, { mainOnly: true });
+  await page.goto("/dashboard/agents?agentId=agent-1", { waitUntil: "domcontentloaded" });
+
+  await expect(page.getByRole("heading", { name: "Meet your new AI teammate." })).toBeVisible();
+  await page.getByRole("button", { name: "Say hello" }).click();
+
+  await expect.poll(() => gatewayTracker.requests.find((request) => request.method === "chat.send")?.params?.message)
+    .toBe("hi");
+  await expect(page.getByText("hi", { exact: true })).toBeVisible();
+
+  await page.locator('[data-workspace-item="new-session"]').click();
+  await expect(page.locator("#agent-empty-history-title")).toHaveText(/\?$/);
+  await expect(page.locator("#agent-empty-history-title")).toHaveText(/, Franc\?$/);
+  await expect(page.locator("#agent-empty-history-title")).not.toHaveText("Meet your new AI teammate.");
+  await expect(page.getByRole("button", { name: "Say hello" })).toHaveCount(0);
 });
 
 test("a stale main route starts a named dashboard conversation and hides main history", async ({ page }) => {

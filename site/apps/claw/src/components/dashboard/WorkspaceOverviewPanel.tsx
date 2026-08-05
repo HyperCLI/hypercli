@@ -121,7 +121,7 @@ export function WorkspaceOverviewPanel({
     return () => window.clearTimeout(timeout);
   }, [fetchOverview]);
 
-  const workspaceName = selectedWorkspace ? workspaceDisplayName(selectedWorkspace) : "Workspace";
+  const workspaceName = selectedWorkspace ? workspaceDisplayName(selectedWorkspace) : "Knowledge Hub";
   const workspaceInitial = workspaceName.trim()[0] ?? "?";
   const memberCount = authLoading ? null : user ? 1 : 0;
   const periodLabel = rangePeriodLabel(range);
@@ -195,7 +195,7 @@ export function WorkspaceOverviewPanel({
           <DashboardMetricCard
             title="Agents"
             value={workspaceAgentsLoading ? "---" : workspaceAgents.length.toLocaleString()}
-            periodLabel="In this Workspace"
+            periodLabel="In this Domain"
             icon={Bot}
             href={agentsHref}
             compact
@@ -203,7 +203,7 @@ export function WorkspaceOverviewPanel({
           <DashboardMetricCard
             title="Knowledge files"
             value={overviewLoading || knowledgeFileCount == null ? "---" : knowledgeFileCount.toLocaleString()}
-            periodLabel="Across shared knowledge"
+            periodLabel="Across Knowledge Hub"
             icon={HardDrive}
             href={knowledgeHref}
             compact

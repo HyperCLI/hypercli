@@ -81,11 +81,20 @@ describe("OpenClawSettingsDrawer", () => {
     expect(screen.getAllByText("Model settings").length).toBeGreaterThan(0);
     expect(screen.getByText("Configure provider and model behavior.")).toBeInTheDocument();
     expect(screen.queryByText("Messaging platforms your agent can join.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Model settings" })).toHaveClass(
+      "border-[var(--selection-accent-border)]",
+      "bg-[var(--selection-accent-soft)]",
+    );
+    expect(screen.getByRole("button", { name: "Model settings" })).not.toHaveClass("border-l-2");
 
     fireEvent.click(screen.getByRole("button", { name: "Channels" }));
 
     expect(screen.getByText("Messaging platforms your agent can join.")).toBeInTheDocument();
     expect(screen.queryByText("Configure provider and model behavior.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Channels" })).toHaveClass(
+      "border-[var(--selection-accent-border)]",
+      "bg-[var(--selection-accent-soft)]",
+    );
   });
 
   it("keeps dynamic channel maps collapsed until expanded", () => {
@@ -105,7 +114,7 @@ describe("OpenClawSettingsDrawer", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "work" }));
 
-    expect(screen.getByDisplayValue("xoxb-work")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("xoxb-work")).toHaveClass("border-input", "bg-input-background");
   });
 
   it("saves only the active section patch", async () => {

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Pause, Play } from "lucide-react";
 
 import {
   AgentGatewayLoadingVisual,
@@ -108,17 +107,15 @@ export function AgentStartupTipsVisual({
 }: Pick<AgentStartupLoadingVisualProps, "heading" | "note" | "title" | "detail" | "className">) {
   const reducedMotion = useReducedMotion();
   const [tipIndex, setTipIndex] = useState(0);
-  const [paused, setPaused] = useState(false);
   const tip = AGENT_STARTUP_TIPS[tipIndex];
   const statusTitle = title.replace(/\s*\.+$/, "").trim();
 
   useEffect(() => {
-    if (paused) return;
     const interval = window.setInterval(() => {
       setTipIndex((current) => (current + 1) % AGENT_STARTUP_TIPS.length);
     }, AGENT_STARTUP_TIP_INTERVAL_MS);
     return () => window.clearInterval(interval);
-  }, [paused]);
+  }, []);
 
   return (
     <section
@@ -147,25 +144,7 @@ export function AgentStartupTipsVisual({
       </div>
 
       <div className="mt-10 w-full border-t border-border pt-4 text-left" aria-live="off">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-xs font-medium text-text-muted">While you wait</p>
-          <div className="flex items-center gap-2 text-[11px] tabular-nums text-text-muted">
-            <span aria-label={`Tip ${tipIndex + 1} of ${AGENT_STARTUP_TIPS.length}`}>
-              {tipIndex + 1} / {AGENT_STARTUP_TIPS.length}
-            </span>
-            <button
-              type="button"
-              onClick={() => setPaused((current) => !current)}
-              aria-label={paused ? "Resume startup tips" : "Pause startup tips"}
-              title={paused ? "Resume tips" : "Pause tips"}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {paused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
-            </button>
-          </div>
-        </div>
-
-        <div className="relative mt-2 min-h-[4.75rem] overflow-hidden">
+        <div className="relative min-h-[4.75rem] overflow-hidden">
           <AnimatePresence initial={false}>
             <motion.div
               key={tip.label}

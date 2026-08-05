@@ -18,7 +18,7 @@ describe("AgentStartupTipsVisual", () => {
     vi.useRealTimers();
   });
 
-  it("shows truthful startup status with a practical first tip", async () => {
+  it("shows truthful startup status with rotating guidance", async () => {
     const { container } = renderWithClient(
       <AgentStartupTipsVisual
         title="Provisioning runtime"
@@ -32,7 +32,9 @@ describe("AgentStartupTipsVisual", () => {
     })).toBeInTheDocument();
     expect(container.querySelector('[data-slot="loading-dots"]')?.children).toHaveLength(3);
     expect(screen.getByText("Start with the finish line")).toBeInTheDocument();
-    expect(screen.getByLabelText("Tip 1 of 10")).toBeInTheDocument();
+    expect(screen.queryByText("While you wait")).not.toBeInTheDocument();
+    expect(screen.queryByText(/1\s*\/\s*10/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /startup tips/i })).not.toBeInTheDocument();
     await expectNoA11yViolations(container);
   });
 
@@ -50,40 +52,17 @@ describe("AgentStartupTipsVisual", () => {
     expect(screen.getByText("Restoring your connection and recent conversation.")).toBeInTheDocument();
   });
 
-  it("rotates tips every five seconds without resetting when startup status changes", () => {
-    vi.useFakeTimers();
-    const { rerender } = renderWithClient(
-      <AgentStartupTipsVisual
-        title="Provisioning runtime"
-        detail="Reserving compute and preparing the workspace."
-      />,
-    );
-
-    act(() => vi.advanceTimersByTime(3_000));
-    rerender(
-      <AgentStartupTipsVisual
-        title="Booting agent"
-        detail="Starting the container and OpenClaw services."
-      />,
-    );
-    act(() => vi.advanceTimersByTime(AGENT_STARTUP_TIP_INTERVAL_MS - 3_000));
-
-    expect(screen.getByText("Bring the source with you")).toBeInTheDocument();
-    expect(screen.getByLabelText("Tip 2 of 10")).toBeInTheDocument();
-  });
-
-  it("pauses and resumes automatic tip rotation", () => {
+  it("rotates tips every five seconds without a playback control", () => {
     vi.useFakeTimers();
     renderWithClient(<AgentStartupTipsVisual />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Pause startup tips" }));
-    act(() => vi.advanceTimersByTime(AGENT_STARTUP_TIP_INTERVAL_MS * 2));
-    expect(screen.getByText("Start with the finish line")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Resume startup tips" }));
     act(() => vi.advanceTimersByTime(AGENT_STARTUP_TIP_INTERVAL_MS));
+
     expect(screen.getByText("Bring the source with you")).toBeInTheDocument();
+    expect(screen.queryByText(/2\s*\/\s*10/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /startup tips/i })).not.toBeInTheDocument();
   });
+
 });
 
 describe("AgentStartupLoadingVisual", () => {

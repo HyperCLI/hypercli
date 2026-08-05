@@ -77,7 +77,7 @@ async function expectAnonymousFlowComplete(
   await expect(page.locator(PRIVY_MODAL_SELECTOR)).toHaveCount(0);
   await expect(page.getByRole("dialog", { name: "Agent navigation" })).toHaveCount(0);
   await expect(page.getByRole("dialog", { name: "A quick tour of your agent workspace" })).toHaveCount(0);
-  await expect(page.getByRole("dialog", { name: "New Workspace" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "New Domain" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Create agent", includeHidden: true })).toHaveCount(0);
   await expect(page.locator("[data-agent-launch-surface]")).toHaveCount(0);
 }
@@ -158,7 +158,7 @@ test("completes mobile previews and every dashboard authentication gate", async 
   const workspaceSelector = navigation.getByRole("button", { name: /Current workspace:/ });
   if (await workspaceSelector.isVisible().catch(() => false)) {
     await workspaceSelector.tap();
-    const newWorkspace = page.getByRole("menuitem", { name: /New Workspace/ });
+    const newWorkspace = page.getByRole("menuitem", { name: /New Domain/ });
     await expect(newWorkspace).toBeEnabled();
     await newWorkspace.tap();
   } else {
@@ -169,7 +169,7 @@ test("completes mobile previews and every dashboard authentication gate", async 
     await launchWorkspace.tap();
   }
   await expect(navigation).toHaveCount(0);
-  await expect(page.getByRole("dialog", { name: "New Workspace" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "New Domain" })).toHaveCount(0);
   await completeAuthenticationRoundTrip(page, "A browser built for action");
 
   navigation = await openMobileNavigation(page);

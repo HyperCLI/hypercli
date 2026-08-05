@@ -96,10 +96,10 @@ function SectionNav({
             <button
               type="button"
               onClick={() => onSelect(sectionKey)}
-              className={`block w-full rounded-md px-2.5 py-2 text-left text-xs transition-colors ${
+              className={`block w-full rounded-lg border px-2.5 py-2 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                 selected
-                  ? "border-l-2 border-selection-accent bg-selection-accent/15 font-medium text-foreground"
-                  : "text-text-muted hover:bg-surface-low/50 hover:text-foreground"
+                  ? "border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] font-medium text-foreground"
+                  : "border-transparent text-text-muted hover:bg-surface-low/50 hover:text-foreground"
               }`}
             >
               <span className="block truncate">{sectionLabel}</span>
@@ -209,7 +209,7 @@ function OpenClawSectionEditor({
             type="button"
             onClick={() => void onSave()}
             disabled={saving || !connected || !draft || Boolean(jsonDraftError) || !sectionKey}
-            className="inline-flex items-center gap-2 rounded-lg bg-[var(--button-primary)] px-3 py-2 text-sm font-semibold text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-lg bg-[var(--button-primary)] px-3 py-2 text-sm font-semibold text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <SlidersHorizontal className="h-4 w-4" />}
             Save Section
@@ -231,7 +231,7 @@ function OpenClawSectionEditor({
               </div>
             )}
             {success && !error && !jsonDraftError && (
-              <div className="rounded-lg border border-selection-accent/30 bg-selection-accent/10 px-3 py-2 text-sm text-selection-accent">
+              <div className="rounded-lg border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] px-3 py-2 text-sm text-[var(--selection-accent)]">
                 {success}
               </div>
             )}

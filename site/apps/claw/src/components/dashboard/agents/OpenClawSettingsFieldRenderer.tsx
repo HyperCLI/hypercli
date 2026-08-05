@@ -107,7 +107,7 @@ function JsonTextareaField({
         spellCheck={false}
         placeholder={placeholder}
         disabled={disabled}
-        className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-text-secondary focus:border-border-strong focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+        className="w-full rounded-lg border border-input bg-input-background px-3 py-2 font-mono text-xs text-text-secondary focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60"
       />
       {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
@@ -206,7 +206,7 @@ function DynamicMapEntries({
               onChange={(e) => controls.onMapDraftKeyChange(pathKey, e.target.value)}
               placeholder={`Add ${title.toLowerCase()} key`}
               disabled={controls.disabled}
-              className="flex-1 rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-foreground focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60"
+              className="flex-1 rounded-lg border border-input bg-input-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60"
             />
             <button
               type="button"
@@ -362,7 +362,7 @@ function ScalarField({
             controls.onUpdatePath(path, nextValue ?? e.target.value);
           }}
           disabled={controls.disabled}
-          className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60"
+          className="w-full rounded-lg border border-input bg-input-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60"
         >
           <option value="">(unset)</option>
           {enumValues.map((value) => (
@@ -378,7 +378,7 @@ function ScalarField({
             checked={Boolean(currentValue)}
             onChange={(e) => controls.onUpdatePath(path, e.target.checked)}
             disabled={controls.disabled}
-            className="rounded border-border bg-surface-low disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded border-input bg-input-background accent-[var(--button-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
           />
           Enabled
         </label>
@@ -397,7 +397,7 @@ function ScalarField({
           }}
           placeholder={placeholder}
           disabled={controls.disabled}
-          className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60"
+          className="w-full rounded-lg border border-input bg-input-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60"
         />
       ) : type === "array" || type === "object" ? (
         <>
@@ -408,7 +408,7 @@ function ScalarField({
             spellCheck={false}
             placeholder={placeholder}
             disabled={controls.disabled}
-            className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-text-secondary focus:border-border-strong focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-lg border border-input bg-input-background px-3 py-2 font-mono text-xs text-text-secondary focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60"
           />
           {controls.jsonDraftErrors[pathKey] && <p className="text-xs text-destructive">{controls.jsonDraftErrors[pathKey]}</p>}
         </>
@@ -419,7 +419,7 @@ function ScalarField({
           onChange={(e) => controls.onUpdatePath(path, e.target.value)}
           placeholder={placeholder}
           disabled={controls.disabled}
-          className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60"
+          className="w-full rounded-lg border border-input bg-input-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60"
         />
       )}
     </div>

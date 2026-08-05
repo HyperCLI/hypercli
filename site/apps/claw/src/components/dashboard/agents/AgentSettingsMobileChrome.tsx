@@ -19,10 +19,10 @@ export function AgentSettingsMobileChrome({
   return (
     <div className="flex shrink-0 flex-col bg-background">
       <h1 className="sr-only">Settings</h1>
-      <div className="shrink-0 border-b border-foreground px-5 py-5">
+      <div className="shrink-0 border-b border-border px-4 py-4 sm:px-5">
         <nav
           aria-label="Settings sections"
-          className="flex h-7 w-full overflow-hidden rounded-[5px] bg-surface-high p-[1px]"
+          className="flex h-11 w-full overflow-hidden rounded-xl border border-border bg-surface-low p-1"
         >
           {sections.map((section) => {
             const active = activeSection === section.id;
@@ -32,10 +32,10 @@ export function AgentSettingsMobileChrome({
                 type="button"
                 aria-current={active ? "page" : undefined}
                 onClick={() => onSectionChange(section.id)}
-                className={`flex h-full min-w-0 flex-1 items-center justify-center rounded-[4px] px-1 text-[11px] font-medium leading-none transition-colors ${
+                className={`flex h-full min-w-0 flex-1 items-center justify-center rounded-lg px-1 text-xs font-medium leading-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
                   active
-                    ? "bg-background text-foreground shadow-[inset_0_0_0_1px_var(--border-medium)]"
-                    : "text-text-muted hover:bg-background/50 hover:text-foreground"
+                    ? "bg-surface-high text-foreground"
+                    : "text-text-muted hover:bg-surface-medium hover:text-foreground"
                 }`}
               >
                 <span className="truncate">{section.label}</span>

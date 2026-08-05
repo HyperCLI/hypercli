@@ -20,6 +20,7 @@ import {
   PinOff,
   Plus,
   Sparkles,
+  Settings,
   SlidersHorizontal,
   TerminalSquare,
   Trash2,
@@ -100,6 +101,8 @@ interface AgentWorkspaceSidebarProps {
   onShellIntent?: () => void;
   onShellIntentEnd?: () => void;
   onOpenOpenClaw: () => void;
+  onOpenSettings: () => void;
+  settingsActive?: boolean;
   onUpgrade: () => void;
   onStartTrial?: () => void;
   renderMobile?: boolean;
@@ -861,32 +864,32 @@ function CreateWorkspaceDialog({
       reset();
       onOpenChange(false);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to finish setting up the Workspace.");
+      setError(cause instanceof Error ? cause.message : "Unable to finish setting up the Domain.");
       setSubmitting(false);
     }
   };
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (nextOpen) onOpenChange(true); else close(); }}>
-      <DialogContent closeLabel="Close new Workspace" overlayClassName="z-[89] bg-black/60 backdrop-blur-sm" className="z-[90] gap-0 overflow-hidden rounded-2xl border-border bg-background p-0 shadow-2xl sm:max-w-[540px]">
+      <DialogContent closeLabel="Close new Domain" overlayClassName="z-[89] bg-black/60 backdrop-blur-sm" className="z-[90] gap-0 overflow-hidden rounded-2xl border-border bg-background p-0 shadow-2xl sm:max-w-[540px]">
         <DialogHeader className="border-b border-border px-5 py-4 pr-12">
-          <DialogTitle className="text-base">{step === "details" ? "New Workspace" : "Invite team members"}</DialogTitle>
+          <DialogTitle className="text-base">{step === "details" ? "New Domain" : "Invite team members"}</DialogTitle>
           <DialogDescription className="text-[12px] leading-relaxed text-text-muted">
             {step === "details"
               ? "Create a shared space for knowledge, members, and agents."
-              : "Add people who should collaborate in this Workspace, or skip this step for now."}
+              : "Add people who should collaborate in this Domain, or skip this step for now."}
           </DialogDescription>
         </DialogHeader>
         {step === "details" ? (
           <form onSubmit={continueToMembers}>
             <div className="space-y-4 px-5 py-5">
               <div className="space-y-1.5">
-                <Label htmlFor="workspace-name" className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Workspace name</Label>
+                <Label htmlFor="workspace-name" className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Domain name</Label>
                 <Input id="workspace-name" autoFocus value={name} onChange={(event) => setName(event.target.value)} disabled={submitting} className="h-10 rounded-xl bg-surface-low/35 text-[13px]" placeholder="Product operations" />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="workspace-description" className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Description <span className="normal-case tracking-normal">(optional)</span></Label>
-                <Textarea id="workspace-description" value={description} onChange={(event) => setDescription(event.target.value)} disabled={submitting} rows={3} className="min-h-[84px] rounded-xl bg-surface-low/35 text-[13px] leading-relaxed" placeholder="What belongs in this Workspace?" />
+                <Textarea id="workspace-description" value={description} onChange={(event) => setDescription(event.target.value)} disabled={submitting} rows={3} className="min-h-[84px] rounded-xl bg-surface-low/35 text-[13px] leading-relaxed" placeholder="What belongs in this Domain?" />
               </div>
               {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
             </div>
@@ -946,9 +949,9 @@ function CreateWorkspaceDialog({
               </Tabs>
 
               <div className="space-y-1.5">
-                <Label htmlFor="workspace-member-role">Workspace role</Label>
+                <Label htmlFor="workspace-member-role">Domain role</Label>
                 <Select value={role} onValueChange={(value) => setRole(value as WorkspaceInviteRole)} disabled={submitting}>
-                  <SelectTrigger id="workspace-member-role" aria-label="Workspace role" className="h-11 rounded-xl">
+                  <SelectTrigger id="workspace-member-role" aria-label="Domain role" className="h-11 rounded-xl">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="z-[100]">
@@ -966,7 +969,7 @@ function CreateWorkspaceDialog({
                   <Button type="button" variant="outline" onClick={close} disabled={submitting} className="rounded-xl text-xs">Cancel</Button>
                   <Button type="submit" disabled={submitting} className="rounded-xl text-xs">
                     {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                    Create Workspace
+                    Create Domain
                   </Button>
                 </div>
               </div>
@@ -1000,7 +1003,7 @@ export function WorkspaceCreationDialog({
       onCreate={createWorkspace}
       onInviteByEmail={mockWorkspaceEmailInvites}
       onGrantByUuid={async (workspaceId, userId, role) => {
-        if (!workspacesClient) throw new Error("Workspace access is unavailable right now.");
+        if (!workspacesClient) throw new Error("Domain access is unavailable right now.");
         await workspacesClient.grant(workspaceId, {
           subjectType: "user",
           subjectId: userId,
@@ -1037,6 +1040,8 @@ export function AgentWorkspaceSidebar({
   onShellIntent,
   onShellIntentEnd,
   onOpenOpenClaw,
+  onOpenSettings,
+  settingsActive = false,
   onUpgrade,
   onStartTrial,
   renderMobile = false,
@@ -1262,6 +1267,7 @@ export function AgentWorkspaceSidebar({
     { id: "logs", label: "Logs", icon: TerminalSquare, active: activeTab === "logs", onClick: onOpenLogs, ...advancedDisabled },
     { id: "shell", label: "Shell", icon: TerminalSquare, active: activeTab === "shell", onClick: onOpenShell, ...advancedDisabled },
     { id: "openclaw", label: "OpenClaw Settings", icon: SlidersHorizontal, active: activeTab === "openclaw", onClick: onOpenOpenClaw, ...(disabled || noSelectedAgent ? { disabled: true, disabledReason: advancedDropdownDisabledReason } : {}) },
+    { id: "settings", label: "Settings", icon: Settings, active: settingsActive, onClick: onOpenSettings },
   ];
   const advancedActive = advancedItems.some((item) => item.active);
   const prepareShell = () => {

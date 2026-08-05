@@ -115,7 +115,7 @@ export default function AccountSettingsPanel() {
           </div>
         </Card>
         <Card className="mb-5 gap-0 rounded-xl bg-surface-low p-5 text-left">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="grid w-full gap-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-base font-semibold text-foreground">Loading screen</h2>
@@ -127,7 +127,7 @@ export default function AccountSettingsPanel() {
                 Choose what you see while your teammate gets ready or rejoins after a page load.
               </p>
             </div>
-            <div className="flex shrink-0 items-center justify-between gap-5 lg:min-w-[19rem] lg:justify-end">
+            <div className="flex w-full items-center justify-between gap-5 md:w-auto md:min-w-[19rem] md:justify-end">
               <div className="min-w-0">
                 <p className="text-sm font-medium text-foreground">
                   {startupTipsEnabled ? "Helpful tips" : "Classic"}

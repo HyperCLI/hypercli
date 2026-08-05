@@ -24,6 +24,7 @@ import {
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useAgentRosterCollapsed } from "@/hooks/useAgentRosterCollapsed";
 import { useAccountProfileAvatar } from "@/hooks/useAccountProfileAvatar";
+import { useAccountProfileName } from "@/hooks/useAccountProfileName";
 import {
   AGENT_CLEANUP_START_MESSAGE,
   AGENT_STOP_CLEANUP_COOLDOWN_MS,
@@ -1098,6 +1099,14 @@ function AgentsPageContent() {
     getToken,
     userId: user?.id ?? null,
   });
+  const {
+    name: accountProfileName,
+    setName: setAccountProfileName,
+  } = useAccountProfileName({
+    enabled: isAuthenticated,
+    getToken,
+    userId: user?.id ?? null,
+  });
   useEffect(() => {
     markDashboardPerformance("page-mounted");
   }, []);
@@ -1163,6 +1172,7 @@ function AgentsPageContent() {
   const { setAgentMenu } = useDashboardMobileAgentMenu();
   const dashboardDisplayName = displayNameForDashboard(user);
   const suggestedJourneyUserName = dashboardDisplayName === "there" ? null : dashboardDisplayName;
+  const chatGreetingName = accountProfileName;
   const accountInitial = user?.email?.trim()[0]?.toUpperCase() || "?";
   const agentCreationDisabledReason = null;
   const agentCreationBlockedReason = null;
@@ -1724,11 +1734,11 @@ function AgentsPageContent() {
         showAgentCreationFlow();
       } else if (intent.kind === "workspace") {
         if (workspacesError) {
-          setError("Workspaces could not be loaded. Refresh before creating a Workspace.");
+          setError("Knowledge Hub could not be loaded. Refresh before creating a Domain.");
           return;
         }
         if (!workspacesClient) {
-          setError("Workspace access is unavailable right now.");
+          setError("Domain access is unavailable right now.");
           return;
         }
         setWorkspaceCreationOpen(true);
@@ -3962,7 +3972,7 @@ function AgentsPageContent() {
           selectWorkspace(checkoutWorkspace.id, checkoutWorkspace);
         } else if (!workspacesLoading) {
           setPaidFirstAgentCheckout(null);
-          setError("The Workspace used for this agent setup is no longer available. Choose a Workspace to finish launching it.");
+          setError("The Domain used for this agent setup is no longer available. Choose a Domain to finish launching it.");
           setResumeAgentLauncher(true);
         }
         return;
@@ -5490,6 +5500,8 @@ function AgentsPageContent() {
           onShellIntent={prepareShell}
           onShellIntentEnd={cancelShellIntent}
           onOpenOpenClaw={openOpenClawSettings}
+          onOpenSettings={openAccountSettings}
+          settingsActive={dashboardView === "settings"}
           onUpgrade={() => {
             closeMobileNavigation();
             void openUpgradeCatalog();
@@ -5508,6 +5520,7 @@ function AgentsPageContent() {
     agent: selectedAgent,
     user,
     getToken,
+    onProfileNameChange: setAccountProfileName,
     onProfileAvatarChange: setAccountAvatarUrl,
     onStartAgent: () => {
       if (selectedAgent) void handleStart(selectedAgent.id);
@@ -6065,6 +6078,8 @@ function AgentsPageContent() {
             onShellIntent={prepareShell}
             onShellIntentEnd={cancelShellIntent}
             onOpenOpenClaw={openOpenClawSettings}
+            onOpenSettings={openAccountSettings}
+            settingsActive={dashboardView === "settings"}
             onUpgrade={() => { void openUpgradeCatalog(); }}
             onStartTrial={() => { openAgentCreationFlow(); }}
           />
@@ -6225,6 +6240,7 @@ function AgentsPageContent() {
               chat={gatewayChat}
               selectedAgent={selectedAgent!}
               userAvatarUrl={accountAvatarUrl}
+              userName={chatGreetingName}
               isSelectedRunning={Boolean(isSelectedRunning)}
               chatDragActive={chatDragActive}
               setChatDragActive={setChatDragActive}

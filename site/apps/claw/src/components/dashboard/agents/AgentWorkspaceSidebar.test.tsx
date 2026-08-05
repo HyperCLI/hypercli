@@ -65,7 +65,7 @@ vi.mock("@hypercli/shared-ui", () => ({
   Badge: ({ children }: { children: ReactNode }) => <span>{children}</span>,
   Button: ({ children, ...props }: ComponentProps<"button">) => <button {...props}>{children}</button>,
   Dialog: ({ children, open }: { children: ReactNode; open?: boolean }) => open ? <>{children}</> : null,
-  DialogContent: ({ children }: { children: ReactNode }) => <div role="dialog" aria-label="New Workspace">{children}</div>,
+  DialogContent: ({ children }: { children: ReactNode }) => <div role="dialog" aria-label="New Domain">{children}</div>,
   DialogDescription: ({ children }: { children: ReactNode }) => <p>{children}</p>,
   DialogFooter: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   DialogHeader: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -141,6 +141,7 @@ function agentWorkspaceSidebarProps(overrides: Partial<ComponentProps<typeof Age
     onOpenLogs: vi.fn(),
     onOpenShell: vi.fn(),
     onOpenOpenClaw: vi.fn(),
+    onOpenSettings: vi.fn(),
     onUpgrade: vi.fn(),
     ...overrides,
   } satisfies ComponentProps<typeof AgentWorkspaceSidebar>;
@@ -190,11 +191,11 @@ describe("AgentWorkspaceSidebar", () => {
   it("creates a Workspace from the creation dialog", async () => {
     renderWorkspaceCreationDialog();
 
-    const dialog = screen.getByRole("dialog", { name: "New Workspace" });
-    fireEvent.change(within(dialog).getByLabelText("Workspace name"), { target: { value: "Support" } });
+    const dialog = screen.getByRole("dialog", { name: "New Domain" });
+    fireEvent.change(within(dialog).getByLabelText("Domain name"), { target: { value: "Support" } });
     fireEvent.change(within(dialog).getByLabelText(/Description/), { target: { value: "Support playbooks" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
-    fireEvent.click(within(dialog).getByRole("button", { name: "Create Workspace" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create Domain" }));
 
     await waitFor(() => expect(mocks.workspaceContext.createWorkspace).toHaveBeenCalledWith({
       name: "Support",
@@ -205,8 +206,8 @@ describe("AgentWorkspaceSidebar", () => {
   it("collects email invites and grants direct access by user UUID", async () => {
     renderWorkspaceCreationDialog();
 
-    const dialog = screen.getByRole("dialog", { name: "New Workspace" });
-    fireEvent.change(within(dialog).getByLabelText("Workspace name"), { target: { value: "Support" } });
+    const dialog = screen.getByRole("dialog", { name: "New Domain" });
+    fireEvent.change(within(dialog).getByLabelText("Domain name"), { target: { value: "Support" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
     fireEvent.change(within(dialog).getByLabelText("Email addresses"), {
       target: { value: "lucy@example.com, andrew@example.com," },
@@ -217,7 +218,7 @@ describe("AgentWorkspaceSidebar", () => {
 
     expect(within(dialog).getByText("lucy@example.com")).toBeInTheDocument();
     expect(within(dialog).getByText("andrew@example.com")).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Create Workspace" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create Domain" }));
 
     await waitFor(() => expect(mocks.workspacesClient.grant).toHaveBeenCalledWith(
       "workspace-product",
@@ -235,14 +236,14 @@ describe("AgentWorkspaceSidebar", () => {
       .mockResolvedValueOnce({ id: "grant-1" });
     renderWorkspaceCreationDialog();
 
-    const dialog = screen.getByRole("dialog", { name: "New Workspace" });
-    fireEvent.change(within(dialog).getByLabelText("Workspace name"), { target: { value: "Support" } });
+    const dialog = screen.getByRole("dialog", { name: "New Domain" });
+    fireEvent.change(within(dialog).getByLabelText("Domain name"), { target: { value: "Support" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
     fireEvent.change(within(dialog).getByLabelText("User UUID"), { target: { value: "user-2" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Create Workspace" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create Domain" }));
 
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("User UUID was not found.");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Create Workspace" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create Domain" }));
 
     await waitFor(() => expect(mocks.workspacesClient.grant).toHaveBeenCalledTimes(2));
     expect(mocks.workspaceContext.createWorkspace).toHaveBeenCalledTimes(1);
@@ -296,9 +297,22 @@ describe("AgentWorkspaceSidebar", () => {
     expect(document.querySelector(".agent-workspace-shell")).toHaveAttribute("data-collapsed", "false");
     const advancedMenu = document.querySelector<HTMLElement>(".agent-workspace-advanced [role='menu']");
     expect(advancedMenu).toHaveClass("bottom-full", "left-3", "right-3");
-    expect(within(advancedMenu!).queryByRole("menuitem", { name: "Settings" })).not.toBeInTheDocument();
-    fireEvent.click(within(advancedMenu!).getByRole("menuitem", { name: "OpenClaw Settings" }));
+    fireEvent.click(within(advancedMenu!).getByRole("menuitem", { name: "Settings" }));
+    expect(props.onOpenSettings).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
+    const reopenedMenu = document.querySelector<HTMLElement>(".agent-workspace-advanced [role='menu']");
+    fireEvent.click(within(reopenedMenu!).getByRole("menuitem", { name: "OpenClaw Settings" }));
     expect(props.onOpenOpenClaw).toHaveBeenCalledTimes(1);
+  });
+
+  it("matches the profile menu active state for account Settings", () => {
+    renderAgentWorkspaceSidebar({ settingsActive: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
+
+    expect(screen.getByRole("menuitem", { name: "Settings" })).toHaveClass("bg-surface-low", "text-foreground");
+    expect(screen.getByRole("menuitem", { name: "OpenClaw Settings" })).not.toHaveClass("bg-surface-low");
   });
 
   it("keeps the shared header visible while only the navigation body is collapsed", () => {
@@ -432,6 +446,7 @@ describe("AgentWorkspaceSidebar", () => {
         onOpenLogs={vi.fn()}
         onOpenShell={vi.fn()}
         onOpenOpenClaw={vi.fn()}
+        onOpenSettings={vi.fn()}
         onUpgrade={vi.fn()}
       />
     );

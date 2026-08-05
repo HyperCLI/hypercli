@@ -3872,7 +3872,7 @@ describe("GatewayClient", () => {
     expect(events[0]?.text).toBe("SMOKE_OK");
   });
 
-  it("chatSend falls back to lifecycle error when chat error is missing", async () => {
+  it("keeps streaming through a provider lifecycle error and replaces the failed attempt", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",
       gatewayToken: "gw-token",
@@ -3881,7 +3881,7 @@ describe("GatewayClient", () => {
     (client as any).ws = { readyState: MockWebSocket.OPEN };
     vi.spyOn(client as any, "rpc").mockImplementation(async (method: string) => {
       if (method === "chat.send") {
-        return { runId: "lifecycle-error-1" };
+        return { runId: "fallback-run-1" };
       }
       throw new Error(`unexpected RPC ${method}`);
     });
@@ -3897,18 +3897,219 @@ describe("GatewayClient", () => {
     await flushMicrotasks();
     (client as any).handleMessage(JSON.stringify({
       type: "event",
+      event: "chat",
+      payload: {
+        runId: "fallback-run-1",
+        sessionKey: "main",
+        seq: 1,
+        state: "delta",
+        deltaText: "Draft",
+        message: { role: "assistant", content: "Draft" },
+      },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
       event: "agent",
       payload: {
-        runId: "lifecycle-error-1",
+        runId: "fallback-run-1",
         sessionKey: "main",
+        seq: 2,
         stream: "lifecycle",
-        data: { phase: "error", error: "boom" },
+        data: { phase: "error", error: "provider unavailable" },
+      },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "fallback-run-1",
+        sessionKey: "main",
+        seq: 2,
+        state: "delta",
+        deltaText: " tail",
+        message: { role: "assistant", content: "Draft tail" },
+      },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "fallback-run-1",
+        sessionKey: "main",
+        seq: 3,
+        state: "delta",
+        deltaText: "Draft",
+        message: { role: "assistant", content: "Draft" },
+      },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "fallback-run-1",
+        sessionKey: "main",
+        seq: 4,
+        state: "final",
+        message: { role: "assistant", content: "Draft complete" },
       },
     }));
 
     const events = await streamPromise;
-    expect(events.map((event) => event.type)).toEqual(["error"]);
-    expect(events[0]?.text).toBe("boom");
+    expect(events.map((event) => event.type)).toEqual(["content", "content", "content", "content", "done"]);
+    expect(events.filter((event) => event.type === "content").map(({ text, replace }) => ({ text, replace }))).toEqual([
+      { text: "Draft", replace: undefined },
+      { text: " tail", replace: undefined },
+      { text: "Draft", replace: true },
+      { text: " complete", replace: undefined },
+    ]);
+  });
+
+  it("reconciles fallback history when the terminal event has no message", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client as any, "rpc").mockImplementation(async (method: string) => {
+      if (method === "chat.send") return { runId: "fallback-history-run" };
+      if (method === "chat.history") {
+        return {
+          messages: [{
+            role: "assistant",
+            runId: "fallback-history-run",
+            content: "Fallback answer from history",
+          }],
+        };
+      }
+      throw new Error(`unexpected RPC ${method}`);
+    });
+
+    const streamPromise = (async () => {
+      const events = [];
+      for await (const event of client.chatSend("retry please", "main")) events.push(event);
+      return events;
+    })();
+
+    await flushMicrotasks();
+    for (const frame of [
+      {
+        event: "chat",
+        payload: {
+          runId: "fallback-history-run",
+          sessionKey: "main",
+          seq: 1,
+          state: "delta",
+          deltaText: "Failed draft",
+          message: { role: "assistant", content: "Failed draft" },
+        },
+      },
+      {
+        event: "agent",
+        payload: {
+          runId: "fallback-history-run",
+          sessionKey: "main",
+          seq: 2,
+          stream: "lifecycle",
+          data: { phase: "error", error: "provider unavailable" },
+        },
+      },
+      {
+        event: "chat",
+        payload: {
+          runId: "fallback-history-run",
+          sessionKey: "main",
+          seq: 3,
+          state: "final",
+        },
+      },
+    ]) {
+      (client as any).handleMessage(JSON.stringify({ type: "event", ...frame }));
+    }
+
+    await expect(streamPromise).resolves.toMatchObject([
+      { type: "content", text: "Failed draft" },
+      { type: "content", text: "Fallback answer from history", replace: true },
+      { type: "done" },
+    ]);
+  });
+
+  it("times out a legacy lifecycle-only error after waiting for fallback", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = new GatewayClient({
+        url: "wss://openclaw-agent.example",
+        gatewayToken: "gw-token",
+      });
+      (client as any).connected = true;
+      (client as any).ws = { readyState: MockWebSocket.OPEN };
+      vi.spyOn(client as any, "rpc").mockResolvedValue({ runId: "legacy-error-run" });
+      const streamPromise = (async () => {
+        const events = [];
+        for await (const event of client.chatSend("fail please", "main")) events.push(event);
+        return events;
+      })();
+
+      await flushMicrotasks();
+      (client as any).handleMessage(JSON.stringify({
+        type: "event",
+        event: "agent",
+        payload: {
+          runId: "legacy-error-run",
+          sessionKey: "main",
+          seq: 2,
+          stream: "lifecycle",
+          data: { phase: "error", error: "legacy failure" },
+        },
+      }));
+      (client as any).handleMessage(JSON.stringify({
+        type: "event",
+        event: "agent",
+        payload: {
+          runId: "legacy-error-run",
+          sessionKey: "main",
+          seq: 3,
+          stream: "tool",
+          data: { phase: "result", toolCallId: "late-tool", name: "shell", result: "done" },
+        },
+      }));
+      await flushMicrotasks();
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      await expect(streamPromise).resolves.toMatchObject([
+        { type: "tool_result", runId: "legacy-error-run" },
+        { type: "error", text: "legacy failure" },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("chatSend terminates on a legacy chat.aborted event", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client as any, "rpc").mockResolvedValue({ runId: "aborted-run-1" });
+
+    const streamPromise = (async () => {
+      const events = [];
+      for await (const event of client.chatSend("stop please", "main")) events.push(event);
+      return events;
+    })();
+
+    await flushMicrotasks();
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.aborted",
+      payload: { runId: "aborted-run-1", sessionKey: "main" },
+    }));
+
+    await expect(streamPromise).resolves.toMatchObject([
+      { type: "error", text: "aborted", runId: "aborted-run-1" },
+    ]);
   });
 
   it("sends cron.run RPC with jobId", async () => {

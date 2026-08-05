@@ -40,6 +40,7 @@ import { agentDisplayLabel } from "@/components/dashboard/agents/agentViewModel"
 import { agentProfileImageUrl } from "@/lib/avatar";
 import { AgentChatComposerShell } from "@/components/dashboard/agents/AgentChatComposerShell";
 import { useAgentStartupExperience } from "@/hooks/useAgentStartupExperience";
+import { isOpenClawMainSessionKey } from "@/lib/openclaw-session-sdk-surface";
 
 export type { ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
 export type ChatPendingFileRemovalState = "removing" | "failed";
@@ -73,6 +74,7 @@ const CHAT_HISTORY_LOAD_THRESHOLD_PX = 48;
 const CHAT_TRANSCRIPT_RENDER_LIMIT = 100;
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 const RESPONSE_STATUS_TICK_MS = 1_000;
+const AGENT_CHAT_INTRODUCED_STORAGE_PREFIX = "claw.agentChatIntroduced.v1";
 const AUDIO_BAR_WEIGHTS = [
   0.62,
   0.78,
@@ -96,6 +98,25 @@ const AUDIO_BAR_WEIGHTS = [
   0.8,
 ] as const;
 const MemoizedChatMessageBubble = React.memo(ChatMessageBubble);
+const MemoizedChatThinkingIndicator = React.memo(ChatThinkingIndicator);
+
+export function agentChatIntroducedStorageKey(agentId: string): string {
+  return `${AGENT_CHAT_INTRODUCED_STORAGE_PREFIX}:${agentId}`;
+}
+
+function readAgentChatIntroduced(agentId: string): boolean {
+  try {
+    return window.localStorage.getItem(agentChatIntroducedStorageKey(agentId)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeAgentChatIntroduced(agentId: string): void {
+  try {
+    window.localStorage.setItem(agentChatIntroducedStorageKey(agentId), "1");
+  } catch {}
+}
 
 interface ActiveResponseStatusPresentation {
   label: string;
@@ -112,13 +133,8 @@ function formatResponseElapsed(elapsedMs: number): string {
   return seconds > 0 ? `${minutes}m ${seconds}s elapsed` : `${minutes}m elapsed`;
 }
 
-function formatResponseUpdateAge(updatedAt: number | null, now: number): string | null {
-  if (updatedAt === null) return null;
-  const seconds = Math.max(0, Math.floor((now - updatedAt) / 1_000));
-  if (seconds < 2) return "updated just now";
-  if (seconds < 60) return `updated ${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  return `updated ${minutes}m ago`;
+function warmResponseElapsed(elapsed: string): string {
+  return `Still with you, working with care · ${elapsed}`;
 }
 
 function activeResponseStatusPresentation(
@@ -142,32 +158,24 @@ function activeResponseStatusPresentation(
       ? assistant.timestamp
       : fallbackStartedAt;
   const elapsed = formatResponseElapsed(now - startedAt);
-  const updated = formatResponseUpdateAge(
-    typeof assistant?.timestamp === "number" ? assistant.timestamp : null,
-    now,
-  );
+  const description = warmResponseElapsed(elapsed);
   const toolCalls = assistant?.toolCalls ?? [];
   const pendingTools = toolCalls.filter((toolCall) => toolCall.result === undefined).length;
   const completedTools = toolCalls.length - pendingTools;
   const responseContent = assistant?.content ?? "";
-  const contentChars = responseContent.trim() ? responseContent.length : 0;
 
   if (pendingTools > 0) {
-    const activeTools = `${pendingTools} tool step${pendingTools === 1 ? "" : "s"} active`;
-    const completed = completedTools > 0
-      ? ` · ${completedTools} complete`
-      : "";
     return {
       label: "Using tools",
-      description: `${activeTools}${completed}${updated ? ` · ${updated}` : ""} · ${elapsed}`,
+      description,
       ariaLabel: "Using tools. The response is still active.",
     };
   }
 
-  if (contentChars > 0) {
+  if (responseContent.trim()) {
     return {
       label: "Receiving response",
-      description: `${contentChars.toLocaleString("en-US")} characters received${updated ? ` · ${updated}` : ""} · ${elapsed}`,
+      description,
       ariaLabel: "Receiving response. The response is still active.",
     };
   }
@@ -175,7 +183,7 @@ function activeResponseStatusPresentation(
   if (completedTools > 0) {
     return {
       label: "Waiting for final response",
-      description: `${completedTools} tool step${completedTools === 1 ? "" : "s"} complete${updated ? ` · ${updated}` : ""} · ${elapsed}`,
+      description,
       ariaLabel: "Waiting for the final response. Tool work is complete.",
     };
   }
@@ -183,7 +191,7 @@ function activeResponseStatusPresentation(
   if (assistant?.thinking?.trim()) {
     return {
       label: now - startedAt >= 15_000 ? "Still working through your request" : "Working through your request",
-      description: `${updated ? `${updated} · ` : ""}${elapsed}`,
+      description,
       ariaLabel: "Working through your request. The response is still active.",
     };
   }
@@ -191,7 +199,7 @@ function activeResponseStatusPresentation(
   const waitingLonger = now - startedAt >= 10_000;
   return {
     label: waitingLonger ? "Still working" : "Starting response",
-    description: `${waitingLonger ? "The response is active" : "Waiting for the first update"} · ${elapsed}`,
+    description,
     ariaLabel: waitingLonger
       ? "Still working. The response is active."
       : "Starting response. Waiting for the first update.",
@@ -209,11 +217,12 @@ function ActiveResponseStatus({ messages }: { messages: ChatMessage[] }) {
 
   const status = activeResponseStatusPresentation(messages, now, fallbackStartedAt);
   return (
-    <ChatThinkingIndicator
+    <MemoizedChatThinkingIndicator
       variant="v2"
       label={status.label}
       description={status.description}
       ariaLabel={status.ariaLabel}
+      descriptionOnHover
     />
   );
 }
@@ -580,6 +589,7 @@ interface AgentChatPanelProps {
   chat: ChatSession;
   selectedAgent: Agent;
   userAvatarUrl?: string | null;
+  userName?: string | null;
   isSelectedRunning: boolean;
   chatDragActive: boolean;
   setChatDragActive: (active: boolean) => void;
@@ -625,6 +635,7 @@ export function AgentChatPanel({
   chat,
   selectedAgent,
   userAvatarUrl,
+  userName,
   isSelectedRunning,
   chatDragActive,
   setChatDragActive,
@@ -669,6 +680,26 @@ export function AgentChatPanel({
   const chatScrollContext = `${selectedAgent.id}\0${chat.activeSessionKey}`;
   const selectedAgentDisplayName = agentDisplayLabel(selectedAgent);
   const selectedAgentAvatarUrl = agentProfileImageUrl(selectedAgent);
+  const [introducedAgentIds, setIntroducedAgentIds] = React.useState<Set<string>>(() => new Set());
+  const hasConversationEvidence = chat.messages.some((message) => message.role === "user") || chat.sessions.some((session) => (
+    !isOpenClawMainSessionKey(session.key) && session.messageCount > 0
+  ));
+  const hasPriorInteraction = hasConversationEvidence || introducedAgentIds.has(selectedAgent.id);
+  const markAgentIntroduced = React.useCallback(() => {
+    writeAgentChatIntroduced(selectedAgent.id);
+    setIntroducedAgentIds((current) => {
+      if (current.has(selectedAgent.id)) return current;
+      const next = new Set(current);
+      next.add(selectedAgent.id);
+      return next;
+    });
+  }, [selectedAgent.id]);
+  React.useEffect(() => {
+    if (!hasConversationEvidence && !readAgentChatIntroduced(selectedAgent.id)) return;
+    if (hasConversationEvidence) writeAgentChatIntroduced(selectedAgent.id);
+    const timeout = window.setTimeout(markAgentIntroduced, 0);
+    return () => window.clearTimeout(timeout);
+  }, [hasConversationEvidence, markAgentIntroduced, selectedAgent.id]);
   const slashCommandMenuRef = React.useRef<AgentSlashCommandMenuHandle>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const slashFeedbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -786,6 +817,13 @@ export function AgentChatPanel({
     observer.observe(transcriptContentElement);
     return () => observer.disconnect();
   }, [onTranscriptResize, transcriptContentElement, transcriptScrollElement]);
+  React.useLayoutEffect(() => {
+    if (!activeSessionSending || showScrollToLatest) return;
+    const scroller = chatScrollRef.current;
+    if (!scroller) return;
+    // Keep the live status visually anchored before a streamed text update paints.
+    scrollTranscriptToBottom(scroller, "auto");
+  }, [activeSessionSending, chat.messages, chatScrollRef, showScrollToLatest]);
   const connectionSuggestions = React.useMemo(
     () => getConnectionSuggestions(chat.input, chat.reportedChannels),
     [chat.input, chat.reportedChannels],
@@ -1066,6 +1104,15 @@ export function AgentChatPanel({
     !pendingFileRemovalActive &&
     chat.pendingAttachmentReads === 0 &&
     (composerHasText || chat.pendingAttachments.length > 0 || chat.pendingFiles.length > 0);
+  const submitCurrentChat = React.useCallback(() => {
+    if (!canSendChatDraft) return;
+    markAgentIntroduced();
+    handleSendChat();
+  }, [canSendChatDraft, handleSendChat, markAgentIntroduced]);
+  const sayHello = React.useCallback(() => {
+    markAgentIntroduced();
+    void chat.sendMessage("hi").catch(() => undefined);
+  }, [chat, markAgentIntroduced]);
   const composerHasDraft =
     recording ||
     preparingAudioPreview ||
@@ -1195,7 +1242,15 @@ export function AgentChatPanel({
       }
       if (journeyIntro?.enabled) return <JourneyIntroPanel {...journeyIntro} />;
       if (journeyMissionCard?.enabled) return <JourneyMissionChatCard key={journeyMissionCard.day.id} {...journeyMissionCard} />;
-      return <AgentEmptyHistory onPromptSelect={setChatInput} actions={commandActions} />;
+      return (
+        <AgentEmptyHistory
+          onSayHello={sayHello}
+          hasPriorInteraction={hasPriorInteraction}
+          userName={userName}
+          salutationSeed={chat.activeSessionKey}
+          actions={commandActions}
+        />
+      );
     }
 
     return <StoppedChatEmptyState />;
@@ -1775,7 +1830,7 @@ export function AgentChatPanel({
                           return;
                         }
                         if (!canSendChatDraft) return;
-                        handleSendChat();
+                         submitCurrentChat();
                       }
                     }}
                     onPaste={(e) => {
@@ -1913,7 +1968,7 @@ export function AgentChatPanel({
                         </TooltipHint>
                       ) : null}
                       <TooltipHint label="Send message" disabled={!canSendChatDraft}>
-                        <button aria-label="Send message" onClick={handleSendChat} disabled={!canSendChatDraft} className="w-8 h-8 btn-primary rounded-full disabled:opacity-40 flex items-center justify-center">
+                        <button aria-label="Send message" onClick={submitCurrentChat} disabled={!canSendChatDraft} className="w-8 h-8 btn-primary rounded-full disabled:opacity-40 flex items-center justify-center">
                           <Send className="w-3.5 h-3.5" />
                         </button>
                       </TooltipHint>

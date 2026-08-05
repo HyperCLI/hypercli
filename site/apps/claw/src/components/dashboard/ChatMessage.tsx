@@ -1723,11 +1723,13 @@ export function ChatThinkingIndicator({
   label = "Thinking",
   description,
   ariaLabel,
+  descriptionOnHover = false,
 }: {
   variant?: FeatureVariant;
   label?: string;
   description?: string;
   ariaLabel?: string;
+  descriptionOnHover?: boolean;
 } = {}) {
   void variant; // accepted for future style options
   return (
@@ -1735,13 +1737,24 @@ export function ChatThinkingIndicator({
       role="status"
       aria-label={ariaLabel ?? label}
       aria-live="polite"
-      className="flex justify-start"
+      className="group relative flex w-fit max-w-full justify-start"
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.18 }}
     >
-      <div className="relative flex max-w-full items-center gap-2.5 overflow-hidden rounded-2xl border border-primary/20 bg-surface-low/60 px-4 py-2.5 backdrop-blur-sm">
+      {description && descriptionOnHover ? (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute bottom-full left-0 z-20 mb-1 w-max max-w-[min(22rem,80vw)] translate-y-1 rounded-lg border border-border bg-popover px-2.5 py-1.5 text-[10px] leading-4 text-text-muted opacity-0 shadow-lg transition-[opacity,transform] duration-200 ease-out group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100"
+        >
+          {description}
+        </span>
+      ) : null}
+      <div
+        tabIndex={description && descriptionOnHover ? 0 : undefined}
+        className="relative flex max-w-full items-center gap-2.5 overflow-hidden rounded-2xl border border-primary/20 bg-surface-low/60 px-4 py-2.5 backdrop-blur-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+      >
         {/* Subtle shimmer background */}
         <motion.div
           aria-hidden
@@ -1758,8 +1771,11 @@ export function ChatThinkingIndicator({
         </motion.div>
         <span className="min-w-0">
           <span className="block text-xs font-medium text-text-secondary">{label}</span>
-          {description ? (
-            <span aria-hidden="true" className="mt-0.5 block text-[10px] leading-4 text-text-muted">
+          {description && !descriptionOnHover ? (
+            <span
+              aria-hidden="true"
+              className="mt-0.5 block text-[10px] leading-4 text-text-muted"
+            >
               {description}
             </span>
           ) : null}

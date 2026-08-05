@@ -3,16 +3,20 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { renderWithClient } from "@/test/utils";
-import { AgentEmptyHistory } from "./AgentEmptyHistory";
+import {
+  AgentEmptyHistory,
+  RETURNING_AGENT_SALUTATIONS,
+  returningAgentSalutation,
+} from "./AgentEmptyHistory";
 
 describe("AgentEmptyHistory", () => {
-  it("introduces the agent and fills a hello prompt", async () => {
+  it("introduces the agent and starts the hello interaction", async () => {
     const user = userEvent.setup();
-    const onPromptSelect = vi.fn();
+    const onSayHello = vi.fn();
 
     renderWithClient(
       <AgentEmptyHistory
-        onPromptSelect={onPromptSelect}
+        onSayHello={onSayHello}
       />,
     );
 
@@ -25,9 +29,32 @@ describe("AgentEmptyHistory", () => {
     expect(sayHello).toHaveClass("bg-[var(--button-primary,var(--primary))]");
 
     await user.click(sayHello);
-    expect(onPromptSelect).toHaveBeenCalledWith(
-      "Hi! Let's spend a few minutes getting to know each other. Ask me one question at a time to learn how I work and where you can help most.",
+    expect(onSayHello).toHaveBeenCalledOnce();
+  });
+
+  it("welcomes returning users without repeating the introduction", () => {
+    renderWithClient(
+      <AgentEmptyHistory
+        onSayHello={vi.fn()}
+        hasPriorInteraction
+        userName="Sam Rivera"
+      />,
     );
+
+    expect(screen.getByRole("heading", { name: "What are we working on today, Sam?" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Meet your new AI teammate." })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Say hello" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/getting to know each other/i)).not.toBeInTheDocument();
+  });
+
+  it("offers ten personalized salutations for new returning sessions", () => {
+    expect(RETURNING_AGENT_SALUTATIONS).toHaveLength(10);
+
+    const salutation = returningAgentSalutation(
+      "dashboard:019789ab-cdef-4abc-8def-0123456789ab",
+      "Sam Rivera",
+    );
+    expect(RETURNING_AGENT_SALUTATIONS.some((candidate) => salutation === `${candidate}, Sam?`)).toBe(true);
   });
 
   it("opens workspace tools through the provided actions", async () => {
@@ -40,7 +67,7 @@ describe("AgentEmptyHistory", () => {
 
     renderWithClient(
       <AgentEmptyHistory
-        onPromptSelect={vi.fn()}
+        onSayHello={vi.fn()}
         actions={{ onOpenFiles, onOpenIntegrations, onOpenIntegrationChatCard, onOpenSkills, onOpenScheduled }}
       />,
     );
@@ -71,7 +98,7 @@ describe("AgentEmptyHistory", () => {
   it("does not advertise workspace tools without an action", () => {
     renderWithClient(
       <AgentEmptyHistory
-        onPromptSelect={vi.fn()}
+        onSayHello={vi.fn()}
         actions={{ onOpenFiles: vi.fn() }}
       />,
     );

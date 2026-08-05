@@ -188,7 +188,7 @@ export function OpenClawConfigPanel({
             <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{effectiveError}</div>
           )}
           {effectiveSuccess && !effectiveError && (
-            <div className="rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-3 py-2 text-sm text-[var(--selection-accent)]">{effectiveSuccess}</div>
+            <div className="rounded-lg border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] px-3 py-2 text-sm text-[var(--selection-accent)]">{effectiveSuccess}</div>
           )}
         </div>
       )}
@@ -290,10 +290,10 @@ export function OpenClawSettingsPanel({
                 setActiveOpenclawSection(sectionKey);
                 setMobileSectionsOpen(false);
               }}
-              className={`block w-full rounded-md px-2.5 py-2 text-left text-xs transition-colors ${
+              className={`block w-full rounded-lg border px-2.5 py-2 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                 selected
-                  ? "border-l-2 border-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.15)] font-medium text-foreground"
-                  : "text-text-muted hover:bg-surface-low/50 hover:text-foreground"
+                  ? "border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] font-medium text-foreground"
+                  : "border-transparent text-text-muted hover:bg-surface-low/50 hover:text-foreground"
               }`}
             >
               <span className="block truncate">{sectionLabel}</span>
@@ -312,7 +312,7 @@ export function OpenClawSettingsPanel({
         </div>
       )}
       {openclawSuccess && !openclawError && (
-        <div className="rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-3 py-2 text-sm text-[var(--selection-accent)]">
+        <div className="rounded-lg border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] px-3 py-2 text-sm text-[var(--selection-accent)]">
           {openclawSuccess}
         </div>
       )}
@@ -369,7 +369,7 @@ export function OpenClawSettingsPanel({
             type="button"
             onClick={() => void (effectiveOpenclawSection ? saveOpenclawSection(effectiveOpenclawSection) : saveAllOpenclaw())}
             disabled={openclawSaving || !chat.connected || !openclawDraft}
-            className="inline-flex items-center gap-2 rounded-lg bg-[var(--button-primary)] px-3 py-2 text-sm font-semibold text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-lg bg-[var(--button-primary)] px-3 py-2 text-sm font-semibold text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
           >
             {openclawSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <SlidersHorizontal className="h-4 w-4" />}
             {saveLabel}
@@ -457,6 +457,7 @@ interface AgentSettingsPanelProps {
     walletAddress?: string;
   } | null;
   getToken?: () => Promise<string>;
+  onProfileNameChange?: (name: string | null) => void;
   onProfileAvatarChange?: (avatarUrl: string | null, file?: File) => void;
   onStartAgent?: () => void;
   onStopAgent?: () => void;
@@ -525,16 +526,16 @@ const DEFAULT_WORKSPACES_SYNC_SETTINGS: WorkspacesSyncSettings = {
 };
 
 const SETTINGS_FIELD_CLASS =
-  "h-9 w-full rounded-lg border border-border bg-surface-low px-3 text-sm text-foreground placeholder:text-text-muted transition-colors focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60";
+  "h-9 w-full rounded-lg border border-input bg-input-background px-3 text-sm text-foreground placeholder:text-text-muted transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60";
 const SETTINGS_TEXTAREA_CLASS =
-  "min-h-[112px] w-full resize-y rounded-lg border border-border bg-surface-low px-3 py-2 text-sm leading-5 text-foreground placeholder:text-text-muted transition-colors focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60";
-const SETTINGS_CHECKBOX_CLASS = "h-4 w-4 rounded border-border bg-background accent-[var(--button-primary)]";
+  "min-h-[112px] w-full resize-y rounded-lg border border-input bg-input-background px-3 py-2 text-sm leading-5 text-foreground placeholder:text-text-muted transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60";
+const SETTINGS_CHECKBOX_CLASS = "h-4 w-4 rounded border-input bg-input-background accent-[var(--button-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const SETTINGS_SMALL_BUTTON_CLASS =
-  "inline-flex h-8 items-center justify-center rounded-lg border border-border bg-surface-low px-3 text-xs font-medium text-foreground transition-colors hover:bg-surface-high disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex h-8 items-center justify-center rounded-lg border border-border bg-surface-low px-3 text-xs font-medium text-foreground transition-colors hover:bg-surface-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
 const SETTINGS_DANGER_BUTTON_CLASS =
-  "inline-flex h-8 items-center justify-center rounded-lg border border-destructive/30 bg-background px-3 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex h-8 items-center justify-center rounded-lg border border-destructive/30 bg-background px-3 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40 disabled:cursor-not-allowed disabled:opacity-60";
 const SETTINGS_FILLED_DANGER_BUTTON_CLASS =
-  "inline-flex h-8 min-w-[96px] shrink-0 items-center justify-center rounded-lg border border-destructive/30 bg-destructive/15 px-3 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/25 disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex h-8 min-w-[96px] shrink-0 items-center justify-center rounded-lg border border-destructive/30 bg-destructive/15 px-3 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40 disabled:cursor-not-allowed disabled:opacity-50";
 const PROFILE_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
 const PROFILE_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 
@@ -922,8 +923,8 @@ function AgentProfileSettingsRow({
   return (
     <div className={`grid min-w-0 grid-cols-1 gap-2 lg:grid-cols-[260px_minmax(0,440px)] lg:items-start lg:justify-between lg:gap-4 ${compact ? "min-h-0 py-4" : `${minHeight} py-5 lg:py-7`}`}>
       <div>
-        <p className="text-[14px] font-semibold leading-5 text-foreground">{label}</p>
-        {description ? <p className="mt-1 text-[12px] text-text-muted">{description}</p> : null}
+        <p className="text-sm font-semibold leading-5 text-foreground">{label}</p>
+        {description ? <p className="mt-1 text-xs leading-5 text-text-muted">{description}</p> : null}
       </div>
       <div className="w-full min-w-0 lg:max-w-[440px]">{children}</div>
     </div>
@@ -978,7 +979,7 @@ function AgentGeneralSettingsContent({
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-4 py-7 text-left sm:px-6 lg:px-8">
       <div className="mx-auto w-full max-w-6xl">
-        <h2 className="text-[20px] font-semibold leading-tight text-foreground">Profile</h2>
+        <h2 className="text-xl font-semibold leading-tight text-foreground">Profile</h2>
         {(profileError || profileSuccess) && (
           <div className="mt-4">
             {profileError ? (
@@ -986,14 +987,14 @@ function AgentGeneralSettingsContent({
                 {profileError}
               </div>
             ) : (
-              <div className="rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-3 py-2 text-sm text-[var(--selection-accent)]">
+              <div className="rounded-lg border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] px-3 py-2 text-sm text-[var(--selection-accent)]">
                 {profileSuccess}
               </div>
             )}
           </div>
         )}
 
-        <section className="mt-4 divide-y divide-foreground border-b border-foreground md:mt-7">
+        <section className="mt-4 divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface-low/30 px-4 sm:px-5 md:mt-7">
           <AgentProfileSettingsRow label="Full Name" description="Shown across your workspace.">
             <input
               value={profileName}
@@ -1012,7 +1013,7 @@ function AgentGeneralSettingsContent({
             />
           </AgentProfileSettingsRow>
 
-          <AgentProfileSettingsRow label="User UUID" description="Share this ID when someone adds you directly to a Workspace.">
+          <AgentProfileSettingsRow label="User UUID" description="Share this ID when someone adds you directly to a Domain.">
             <div className="flex min-w-0 gap-2">
               <Input
                 aria-label="User UUID"
@@ -1048,7 +1049,7 @@ function AgentGeneralSettingsContent({
                     if (avatarUpdatesEnabled) avatarInputRef.current?.click();
                   }}
                   disabled={!avatarUpdatesEnabled}
-                  className="relative flex h-[64px] w-[64px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-high text-[13px] font-semibold text-text-muted"
+                  className="relative flex h-[64px] w-[64px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-high text-sm font-semibold text-text-muted"
                   aria-label="Upload profile avatar"
                 >
                   {profileAvatar ? (
@@ -1059,8 +1060,8 @@ function AgentGeneralSettingsContent({
                 </button>
               </TooltipHint>
               <div className="min-w-0">
-                <p className="text-[16px] font-semibold leading-5 text-foreground">Upload Image</p>
-                <p className="mt-1 text-[13px] font-semibold leading-5 text-text-muted">PNG, JPEG, WebP, or GIF up to 2MB</p>
+                <p className="text-base font-semibold leading-5 text-foreground">Upload Image</p>
+                <p className="mt-1 text-sm font-medium leading-5 text-text-muted">PNG, JPEG, WebP, or GIF up to 2MB</p>
                 <input
                   ref={avatarInputRef}
                   type="file"
@@ -1220,10 +1221,10 @@ function AgentSectionSettingsContent({
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-4 py-7 text-left sm:px-6 lg:px-8">
       <div className="mx-auto w-full max-w-6xl">
-        <div className="mb-7 flex min-h-[72px] items-center justify-between gap-4 rounded-[14px] border border-foreground px-3 py-3">
+        <div className="mb-7 flex min-h-[72px] items-center justify-between gap-4 rounded-xl border border-border bg-surface-low p-4">
           <div className="min-w-0">
-            <p className="text-[14px] font-semibold leading-5 text-foreground">Agent runtime</p>
-            <p className="mt-1 text-[13px] font-medium leading-5 text-text-muted">{lifecycleDescription}</p>
+            <p className="text-sm font-semibold leading-5 text-foreground">Agent runtime</p>
+            <p className="mt-1 text-sm leading-5 text-text-muted">{lifecycleDescription}</p>
           </div>
           {canStopAgent || stopping ? (
             <button
@@ -1243,7 +1244,7 @@ function AgentSectionSettingsContent({
                 aria-label="Start agent"
                 onClick={onStartAgent}
                 disabled={!canStartAgent || !onStartAgent || lifecycleBusy || agentStartBlocked}
-                className="inline-flex h-8 shrink-0 items-center gap-2 rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.4)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-3 text-xs font-medium text-[var(--selection-accent)] transition-colors hover:bg-[rgb(var(--selection-accent-rgb)_/_0.15)] disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-8 shrink-0 items-center gap-2 rounded-lg border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] px-3 text-xs font-medium text-[var(--selection-accent)] transition-colors hover:bg-surface-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {starting ? "Starting..." : "Start agent"}
                 <Play className="h-3.5 w-3.5 fill-current" />
@@ -1252,7 +1253,7 @@ function AgentSectionSettingsContent({
           )}
         </div>
 
-        <h2 className="text-[20px] font-semibold leading-tight text-foreground">Agent Settings</h2>
+        <h2 className="text-xl font-semibold leading-tight text-foreground">Agent Settings</h2>
         {(agentSettingsError || agentSettingsSuccess) && (
           <div className="mt-4">
             {agentSettingsError ? (
@@ -1260,14 +1261,14 @@ function AgentSectionSettingsContent({
                 {agentSettingsError}
               </div>
             ) : (
-              <div className="rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-3 py-2 text-sm text-[var(--selection-accent)]">
+              <div className="rounded-lg border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] px-3 py-2 text-sm text-[var(--selection-accent)]">
                 {agentSettingsSuccess}
               </div>
             )}
           </div>
         )}
 
-        <section className="mt-4 divide-y divide-foreground border-b border-foreground md:mt-7">
+        <section className="mt-4 divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface-low/30 px-4 sm:px-5 md:mt-7">
           <AgentProfileSettingsRow label="Agent name" description="Unique name used to identify this agent.">
             <input
               aria-label="Agent name"
@@ -1322,7 +1323,7 @@ function AgentSectionSettingsContent({
                     if (agentAvatarUploadEnabled) avatarInputRef.current?.click();
                   }}
                   disabled={!agentAvatarUploadEnabled}
-                  className="relative flex h-[64px] w-[64px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-high text-[13px] font-semibold text-text-muted"
+                  className="relative flex h-[64px] w-[64px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-high text-sm font-semibold text-text-muted"
                   aria-label="Upload agent avatar"
                 >
                   {agentAvatarPreview ? (
@@ -1333,8 +1334,8 @@ function AgentSectionSettingsContent({
                 </button>
               </TooltipHint>
               <div className="min-w-0">
-                <p className="text-[16px] font-semibold leading-5 text-foreground">Upload Image</p>
-                <p className="mt-1 text-[13px] font-semibold leading-5 text-text-muted">PNG, JPEG, WebP, or GIF up to 2MB</p>
+                <p className="text-base font-semibold leading-5 text-foreground">Upload Image</p>
+                <p className="mt-1 text-sm font-medium leading-5 text-text-muted">PNG, JPEG, WebP, or GIF up to 2MB</p>
                 <input
                   ref={avatarInputRef}
                   type="file"
@@ -1491,7 +1492,7 @@ function AgentSectionSettingsContent({
               disabled
               className={SETTINGS_FIELD_CLASS}
             >
-              <option value="">Workspace members</option>
+              <option value="">Domain members</option>
             </select>
           </AgentProfileSettingsRow>
 
@@ -1524,12 +1525,12 @@ function AgentSectionSettingsContent({
           </AgentProfileSettingsRow>
         </section>
 
-        <section className="mt-8">
-          <h2 className="text-[20px] font-semibold leading-tight text-foreground">Danger Zone</h2>
-          <div className="mt-7 flex min-h-[68px] items-center justify-between gap-4">
+        <section className="mt-8 rounded-xl border border-destructive/30 bg-destructive/5 p-4 sm:p-5">
+          <h2 className="text-xl font-semibold leading-tight text-foreground">Danger Zone</h2>
+          <div className="mt-5 flex min-h-[68px] items-center justify-between gap-4">
             <div className="min-w-0">
-              <p className="text-[14px] font-semibold leading-5 text-foreground">Delete agent</p>
-              <p className="mt-1 max-w-[420px] text-[13px] font-medium leading-5 text-text-muted">
+              <p className="text-sm font-semibold leading-5 text-foreground">Delete agent</p>
+              <p className="mt-1 max-w-[420px] text-sm leading-5 text-text-muted">
                 Permanently delete this agent and all related settings. This action cannot be undone.
               </p>
             </div>
@@ -1598,7 +1599,7 @@ function AgentIndexSettingsContent({
   return (
     <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-7 text-left sm:px-6 lg:px-8">
       <div className="mx-auto w-full max-w-6xl">
-        <h2 className="text-[20px] font-semibold leading-tight text-foreground">Memory index</h2>
+        <h2 className="text-xl font-semibold leading-tight text-foreground">Memory index</h2>
         {(error || success) && (
           <div className="mt-4">
             {error ? (
@@ -1606,13 +1607,13 @@ function AgentIndexSettingsContent({
                 {error}
               </div>
             ) : (
-              <div className="rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-3 py-2 text-sm text-[var(--selection-accent)]">
+              <div className="rounded-lg border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] px-3 py-2 text-sm text-[var(--selection-accent)]">
                 {success}
               </div>
             )}
           </div>
         )}
-        <section className="mt-4 divide-y divide-foreground border-b border-foreground md:mt-7">
+        <section className="mt-4 divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface-low/30 px-4 sm:px-5 md:mt-7">
           <AgentProfileSettingsRow compact label="Memory search" description="Enable semantic search over indexed memory files.">
             <label className="flex h-9 items-center gap-2 text-sm font-medium text-foreground">
               <input
@@ -1700,42 +1701,40 @@ function AgentUsageSettingsContent() {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-4 py-7 text-left sm:px-6 lg:px-8">
       <div className="mx-auto w-full max-w-6xl">
-        <h2 className="text-[20px] font-semibold leading-tight text-foreground">Usage</h2>
-        <section className="mt-7 border-b border-foreground">
-          <div className="grid gap-4 border-b border-foreground py-7 md:grid-cols-2">
+        <h2 className="text-xl font-semibold leading-tight text-foreground">Usage</h2>
+        <section className="mt-7 space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
             <Link
               href={DASHBOARD_VIEW_HREFS.usage}
-              className="flex min-h-[92px] items-center gap-3 rounded-[12px] border border-foreground px-3 transition-colors hover:bg-surface-low"
+              className="flex min-h-[92px] items-center gap-3 rounded-xl border border-border bg-surface-low/40 px-4 transition-colors hover:bg-surface-low focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-surface-high">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-high">
                 <BarChart3 className="h-4 w-4 text-foreground" />
               </div>
               <div className="min-w-0">
-                <p className="text-[14px] font-semibold leading-5 text-foreground">Usage dashboard</p>
-                <p className="mt-1 text-[12px] font-medium leading-5 text-text-muted">View token usage, requests, and current limits.</p>
+                <p className="text-sm font-semibold leading-5 text-foreground">Usage dashboard</p>
+                <p className="mt-1 text-xs font-medium leading-5 text-text-muted">View token usage, requests, and current limits.</p>
               </div>
             </Link>
             <Link
               href="/keys"
-              className="flex min-h-[92px] items-center gap-3 rounded-[12px] border border-foreground px-3 transition-colors hover:bg-surface-low"
+              className="flex min-h-[92px] items-center gap-3 rounded-xl border border-border bg-surface-low/40 px-4 transition-colors hover:bg-surface-low focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-surface-high">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-high">
                 <KeyRound className="h-4 w-4 text-foreground" />
               </div>
               <div className="min-w-0">
-                <p className="text-[14px] font-semibold leading-5 text-foreground">API keys</p>
-                <p className="mt-1 text-[12px] font-medium leading-5 text-text-muted">Manage keys and inspect key-level activity.</p>
+                <p className="text-sm font-semibold leading-5 text-foreground">API keys</p>
+                <p className="mt-1 text-xs font-medium leading-5 text-text-muted">Manage keys and inspect key-level activity.</p>
               </div>
             </Link>
           </div>
-          <div className="py-7">
-            <div className="flex min-h-[68px] items-center justify-between gap-4 rounded-[14px] border border-foreground px-3">
-              <div className="min-w-0">
-                <p className="text-[14px] font-semibold leading-5 text-foreground">Current plan limits</p>
-                <p className="mt-1 text-[13px] font-medium leading-5 text-text-muted">Open the usage dashboard for live plan limits.</p>
-              </div>
-              <AgentSettingsLinkButton href={DASHBOARD_VIEW_HREFS.usage}>Open usage</AgentSettingsLinkButton>
+          <div className="flex min-h-[76px] items-center justify-between gap-4 rounded-xl border border-border bg-surface-low/40 px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold leading-5 text-foreground">Current plan limits</p>
+              <p className="mt-1 text-sm leading-5 text-text-muted">Open the usage dashboard for live plan limits.</p>
             </div>
+            <AgentSettingsLinkButton href={DASHBOARD_VIEW_HREFS.usage}>Open usage</AgentSettingsLinkButton>
           </div>
         </section>
       </div>
@@ -1751,6 +1750,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     showSectionNavigation = true,
     user,
     getToken,
+    onProfileNameChange,
     onProfileAvatarChange,
     onStartAgent,
     onStopAgent,
@@ -2135,6 +2135,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
           const nextName = updated.name ?? profileName.trim();
           setSavedProfileName(nextName);
           setProfileName(nextName);
+          onProfileNameChange?.(nextName);
         }
         if (profileAvatarFile) {
           savingAvatar = "profile";
@@ -2309,6 +2310,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     onUpdateAgentLaunchConfig,
     onUpdateAgentProfile,
     onProfileAvatarChange,
+    onProfileNameChange,
     onUploadAgentAvatar,
     onDeleteAgentAvatar,
     onSaveOpenClawConfig,
@@ -2372,7 +2374,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     <div className={`flex h-full min-h-0 bg-background ${isDesktopViewport ? "flex-row" : "flex-col"}`}>
       {showSectionNavigation && isDesktopViewport ? (
         <aside className="h-full w-[208px] shrink-0 border-r border-border px-4 py-5">
-          <h2 className="text-[20px] font-semibold leading-none text-foreground">Settings</h2>
+          <h2 className="text-xl font-semibold leading-none text-foreground">Settings</h2>
           <nav aria-label="Settings sections" className="mt-6 flex flex-col gap-1">
             {AGENT_SETTINGS_SECTIONS.map((section) => {
               const active = activeSettingsSection === section.id;
@@ -2382,7 +2384,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
                   type="button"
                   onClick={() => selectSettingsSection(section.id)}
                   aria-current={active ? "page" : undefined}
-                  className={`flex h-8 min-w-0 w-full items-center rounded-[7px] px-2.5 text-left font-sans text-sm font-normal not-italic leading-5 text-sidebar-foreground transition-colors ${
+                  className={`flex h-8 min-w-0 w-full items-center rounded-lg px-2.5 text-left font-sans text-sm font-normal not-italic leading-5 text-sidebar-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                     active
                       ? "bg-surface-low"
                       : "hover:bg-surface-low/70"
@@ -3019,7 +3021,7 @@ export function AgentList({
               {rosterLoading ? (
                 <div role="status" aria-live="polite" className="flex h-8 w-8 items-center justify-center text-text-muted">
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                  <span className="sr-only">Loading Workspace agents</span>
+                  <span className="sr-only">Loading Domain agents</span>
                 </div>
               ) : (
                 visibleAgents.map((a) => {
@@ -3261,12 +3263,12 @@ export function LaunchFirstAgentEmptyState({
         </h1>
         <p className="mt-6 text-[16px] font-medium leading-6 text-text-muted">
           {workspaceScoped && hasAccountAgents
-            ? "Launch a new agent for this Workspace or add an existing agent from Members."
+            ? "Launch a new agent for this Domain or add an existing agent from Members."
             : "Agents handle projects, tasks, and workflows on your behalf."}
         </p>
 
         <TooltipHint
-          label={workspaceSetupRequired ? "Create your first Workspace" : creationDisabledReason ?? (workspaceScoped ? "Launch an agent" : "Create an agent")}
+          label={workspaceSetupRequired ? "Create your first Domain" : creationDisabledReason ?? (workspaceScoped ? "Launch an agent" : "Create an agent")}
           disabled={!workspaceSetupRequired && Boolean(creationDisabledReason)}
           triggerClassName="w-full"
         >
@@ -3289,7 +3291,7 @@ export function LaunchFirstAgentEmptyState({
             </span>
             <span className="min-w-0 flex-1">
               <span className="block text-[14px] font-semibold leading-5 text-foreground">
-                {workspaceSetupRequired ? "Create your first Workspace" : workspaceScoped ? "Launch an agent" : "Create an agent"}
+                {workspaceSetupRequired ? "Create your first Domain" : workspaceScoped ? "Launch an agent" : "Create an agent"}
               </span>
               <span className="mt-0.5 block text-[12px] font-medium leading-4 text-text-muted">
                 {workspaceSetupRequired

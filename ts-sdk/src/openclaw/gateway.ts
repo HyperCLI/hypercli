@@ -1274,6 +1274,7 @@ export const MAX_GATEWAY_VERSION = 4;
 const DEFAULT_CONNECTION_TIMEOUT = 30_000;
 const WEB_LOGIN_WAIT_TIMEOUT = 120_000;
 const DEFAULT_AGENT_TIMEOUT = 900_000;
+const CHAT_LIFECYCLE_ERROR_FALLBACK_TIMEOUT_MS = 20_000;
 const SKILLS_MUTATION_TIMEOUT = 300_000;
 const PLUGIN_MUTATION_TIMEOUT = 300_000;
 const RECONNECT_CLOSE_CODE = 4008;
@@ -2100,11 +2101,11 @@ function isChatStreamGatewayEvent(event: GatewayEvent): boolean {
 }
 
 function isTerminalChatStreamGatewayEvent(event: GatewayEvent): boolean {
-  if (event.event === "chat.done" || event.event === "chat.error") return true;
+  if (event.event === "chat.done" || event.event === "chat.error" || event.event === "chat.aborted") return true;
   const payload = asRecord(event.payload) ?? {};
   if (event.event === "agent" && String(payload.stream ?? "").toLowerCase() === "lifecycle") {
     const phase = String(asRecord(payload.data)?.phase ?? "").toLowerCase();
-    return phase === "end" || phase === "error";
+    return phase === "end";
   }
   if (event.event !== "chat") return false;
   const state = String(payload.state ?? "").toLowerCase();
@@ -4505,6 +4506,14 @@ export class GatewayClient {
     let resolveWait: (() => void) | null = null;
     let correlationReady = false;
     let emittedDisplayText = "";
+    let fallbackReplacementAfterSeq: number | null | undefined;
+    let pendingLifecycleError: {
+      text: string;
+      identity: ReturnType<typeof chatEventIdentity>;
+      data: Record<string, any>;
+      seq: number | null;
+      expiresAt: number;
+    } | null = null;
     let lastThinkingText = "";
     const seenToolCallIds = new Set<string>();
     const seenToolResultIds = new Set<string>();
@@ -4673,7 +4682,20 @@ export class GatewayClient {
       while (Date.now() < deadline) {
         if (queuedEvents.length === 0) {
           if (streamCloseError) throw streamCloseError;
-          const remainingMs = Math.max(100, Math.min(1000, deadline - Date.now()));
+          if (pendingLifecycleError && Date.now() >= pendingLifecycleError.expiresAt) {
+            yield {
+              type: "error",
+              text: pendingLifecycleError.text,
+              ...pendingLifecycleError.identity,
+              data: pendingLifecycleError.data,
+            };
+            return;
+          }
+          const remainingMs = Math.max(100, Math.min(
+            1000,
+            deadline - Date.now(),
+            pendingLifecycleError ? pendingLifecycleError.expiresAt - Date.now() : Number.POSITIVE_INFINITY,
+          ));
           await new Promise<void>((resolve) => {
             const timer = setTimeout(() => {
               if (resolveWait === release) {
@@ -4703,14 +4725,36 @@ export class GatewayClient {
           continue;
         }
         const identity = chatEventIdentity(payload);
+        const eventRunSeq = Number.isSafeInteger(payload.seq) ? payload.seq as number : null;
+        const replacesFailedAttempt = fallbackReplacementAfterSeq !== undefined && (
+          fallbackReplacementAfterSeq === null ||
+          eventRunSeq === null ||
+          eventRunSeq > fallbackReplacementAfterSeq
+        );
+        const eventLifecyclePhase = evt.event === "agent" && String(payload.stream ?? "").toLowerCase() === "lifecycle"
+          ? String(asRecord(payload.data)?.phase ?? "").toLowerCase()
+          : "";
+        const fallbackContinued = replacesFailedAttempt && (
+          evt.event === "chat" ||
+          evt.event === "chat.content" ||
+          Boolean(eventLifecyclePhase && eventLifecyclePhase !== "error")
+        );
+        if (pendingLifecycleError && fallbackContinued) {
+          pendingLifecycleError = null;
+        }
 
         deadline = Date.now() + DEFAULT_AGENT_TIMEOUT;
 
         if (evt.event === "chat.content") {
           const text = typeof payload.text === "string" ? payload.text : "";
-          const update = appendStreamContent(emittedDisplayText, text, payload.replace === true);
+          const update = appendStreamContent(
+            emittedDisplayText,
+            text,
+            payload.replace === true || replacesFailedAttempt,
+          );
           if (update) {
             emittedDisplayText = update.nextText;
+            if (replacesFailedAttempt) fallbackReplacementAfterSeq = undefined;
             yield {
               type: "content",
               text: update.text,
@@ -4767,9 +4811,12 @@ export class GatewayClient {
                     : await waitForHistoryText();
             if (queuedEvents.length > 0) continue;
             if (historyText) {
-              const update = reconcileHistoryStreamContent(emittedDisplayText, historyText);
+              const update = replacesFailedAttempt
+                ? reconcileStreamContent(emittedDisplayText, historyText, true)
+                : reconcileHistoryStreamContent(emittedDisplayText, historyText);
               if (update) {
                 emittedDisplayText = update.nextText;
+                if (replacesFailedAttempt) fallbackReplacementAfterSeq = undefined;
                 yield {
                   type: "content",
                   text: update.text,
@@ -4783,18 +4830,22 @@ export class GatewayClient {
             return;
           }
           if (phase === "error") {
-            yield {
-              type: "error",
+            // OpenClaw emits lifecycle errors for failed provider attempts, then
+            // may continue the same chat run through a fallback provider.
+            fallbackReplacementAfterSeq = eventRunSeq;
+            pendingLifecycleError = {
               text:
                 typeof lifecyclePayload.error === "string" && lifecyclePayload.error
                   ? lifecyclePayload.error
                   : typeof payload.errorMessage === "string" && payload.errorMessage
                     ? payload.errorMessage
                     : phase,
-              ...identity,
+              identity,
               data: payload,
+              seq: eventRunSeq,
+              expiresAt: Date.now() + CHAT_LIFECYCLE_ERROR_FALLBACK_TIMEOUT_MS,
             };
-            return;
+            continue;
           }
           continue;
         }
@@ -4827,13 +4878,16 @@ export class GatewayClient {
             Boolean(lastThinkingText) || seenToolCallIds.size > 0 || seenToolResultIds.size > 0;
           const historyText = emittedDisplayText && hasNonTextActivity
             ? await reconcileHistoryAfterToolActivity(emittedDisplayText)
-            : !emittedDisplayText && !hasNonTextActivity
+            : (!emittedDisplayText && !hasNonTextActivity) || fallbackReplacementAfterSeq !== undefined
               ? await waitForHistoryText()
               : "";
           if (historyText) {
-            const update = reconcileHistoryStreamContent(emittedDisplayText, historyText);
+            const update = replacesFailedAttempt || fallbackReplacementAfterSeq !== undefined
+              ? reconcileStreamContent(emittedDisplayText, historyText, true)
+              : reconcileHistoryStreamContent(emittedDisplayText, historyText);
             if (update) {
               emittedDisplayText = update.nextText;
+              fallbackReplacementAfterSeq = undefined;
               yield {
                 type: "content",
                 text: update.text,
@@ -4844,6 +4898,10 @@ export class GatewayClient {
             }
           }
           yield { type: "done", ...identity, data: payload };
+          return;
+        }
+        if (evt.event === "chat.aborted") {
+          yield { type: "error", text: "aborted", ...identity, data: payload };
           return;
         }
         if (evt.event === "chat.error") {
@@ -4864,11 +4922,13 @@ export class GatewayClient {
         const currentDeltaText = typeof payload.deltaText === "string" ? payload.deltaText : "";
         const normalizedMessage = normalizeGatewayChatMessage(payload.message);
         if (state === "delta") {
+          const replaceContent = payload.replace === true || replacesFailedAttempt;
           const update = currentText !== null && (currentText || payload.replace === true)
-            ? reconcileStreamContent(emittedDisplayText, currentText, payload.replace === true)
-            : appendStreamContent(emittedDisplayText, currentDeltaText, payload.replace === true);
+            ? reconcileStreamContent(emittedDisplayText, currentText, replaceContent)
+            : appendStreamContent(emittedDisplayText, currentDeltaText, replaceContent);
           if (update) {
             emittedDisplayText = update.nextText;
+            if (replacesFailedAttempt) fallbackReplacementAfterSeq = undefined;
             yield {
               type: "content",
               text: update.text,
@@ -4922,10 +4982,11 @@ export class GatewayClient {
             const update = reconcileStreamContent(
               emittedDisplayText,
               currentText,
-              payload.replace === true,
+              payload.replace === true || replacesFailedAttempt,
             );
             if (update) {
               emittedDisplayText = update.nextText;
+              if (replacesFailedAttempt) fallbackReplacementAfterSeq = undefined;
               yield {
                 type: "content",
                 text: update.text,
@@ -4937,7 +4998,7 @@ export class GatewayClient {
             yield { type: "done", ...identity, data: payload };
             return;
           }
-          if (emittedDisplayText) {
+          if (emittedDisplayText && fallbackReplacementAfterSeq === undefined) {
             yield { type: "done", ...identity, data: payload };
             return;
           }
@@ -4947,9 +5008,12 @@ export class GatewayClient {
           }
           const historyText = await waitForHistoryText();
           if (historyText) {
-            const update = reconcileHistoryStreamContent(emittedDisplayText, historyText);
+            const update = fallbackReplacementAfterSeq !== undefined
+              ? reconcileStreamContent(emittedDisplayText, historyText, true)
+              : reconcileHistoryStreamContent(emittedDisplayText, historyText);
             if (update) {
               emittedDisplayText = update.nextText;
+              fallbackReplacementAfterSeq = undefined;
               yield {
                 type: "content",
                 text: update.text,

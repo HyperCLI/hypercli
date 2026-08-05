@@ -89,9 +89,9 @@ export function workspaceAgentCreationDisabledReason(
   workspace: Workspace | null,
   rosterError: string | null,
 ): string | null {
-  if (!workspace) return "Select a Workspace before launching an agent.";
-  if (workspace.role !== "admin") return "Workspace admin access is required to add agents.";
-  if (rosterError) return "Workspace agents could not be loaded. Refresh before launching an agent.";
+  if (!workspace) return "Select a Domain before launching an agent.";
+  if (workspace.role !== "admin") return "Domain admin access is required to add agents.";
+  if (rosterError) return "Domain agents could not be loaded. Refresh before launching an agent.";
   return null;
 }
 
@@ -158,7 +158,7 @@ async function listWorkspaceAgentAssociations(
     if (workspaceErrorStatus(cause) !== 404) throw cause;
     // Older Workspace services expose agent associations only through the admin grants catalog.
     if (workspace.role !== "admin") {
-      throw new Error("Workspace agent rosters for non-admin members require a workspace service update.");
+      throw new Error("Domain agent rosters for non-admin members require a Knowledge Hub service update.");
     }
 
     const grants = await client.listGrants(workspace.id);
@@ -273,7 +273,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             principalId,
             tokenGetter: getToken,
             client: null,
-            error: describeWorkspaceError(cause, "Workspace access is unavailable right now."),
+            error: describeWorkspaceError(cause, "Domain access is unavailable right now."),
           });
         }
       })();
@@ -369,7 +369,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         client: workspacesClient,
         workspaces: EMPTY_WORKSPACES,
         loading: false,
-        error: describeWorkspaceError(cause, "Unable to load Workspaces."),
+        error: describeWorkspaceError(cause, "Unable to load Knowledge Hub."),
       });
       setSelection({ principalId, workspaceId: null });
       return false;
@@ -440,7 +440,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         workspaceId,
         agentIds: EMPTY_AGENT_IDS,
         loading: false,
-        error: describeWorkspaceError(cause, "Unable to load Workspace agents."),
+        error: describeWorkspaceError(cause, "Unable to load Domain agents."),
       });
       return false;
     }
@@ -485,12 +485,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [principalId, workspaces, workspacesClient]);
 
   const createWorkspace = useCallback(async (input: WorkspaceCreateInput) => {
-    if (!workspacesClient) throw new Error("Workspace access is unavailable right now.");
+    if (!workspacesClient) throw new Error("Domain access is unavailable right now.");
     const created = await workspacesClient.create(input);
     if (
       activeConnectionRef.current.client !== workspacesClient
       || activeConnectionRef.current.principalId !== principalId
-    ) throw new Error("The signed-in account changed before Workspace creation finished.");
+    ) throw new Error("The signed-in account changed before Domain creation finished.");
     const refreshed = await refreshWorkspaces(created.id);
     if (!refreshed) {
       setCatalog((current) => current.client === workspacesClient ? {
@@ -539,7 +539,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [principalId, refreshSelectedWorkspaceAgents, selectedWorkspaceId, workspaces, workspacesClient]);
 
   const associateAgentWithSelectedWorkspace = useCallback(async (agentId: string) => {
-    if (!selectedWorkspaceId) throw new Error("Workspace access is unavailable right now.");
+    if (!selectedWorkspaceId) throw new Error("Domain access is unavailable right now.");
     await assignAgentToDomain(agentId, selectedWorkspaceId);
   }, [assignAgentToDomain, selectedWorkspaceId]);
 

@@ -84,12 +84,12 @@ import {
 
 describe("workspaceAgentCreationDisabledReason", () => {
   it("requires a selected Workspace with admin access and a healthy roster", () => {
-    expect(workspaceAgentCreationDisabledReason(null, null)).toBe("Select a Workspace before launching an agent.");
+    expect(workspaceAgentCreationDisabledReason(null, null)).toBe("Select a Domain before launching an agent.");
     expect(workspaceAgentCreationDisabledReason({ ...teamWorkspace, role: "viewer" }, null)).toBe(
-      "Workspace admin access is required to add agents.",
+      "Domain admin access is required to add agents.",
     );
     expect(workspaceAgentCreationDisabledReason(teamWorkspace, "Unavailable")).toBe(
-      "Workspace agents could not be loaded. Refresh before launching an agent.",
+      "Domain agents could not be loaded. Refresh before launching an agent.",
     );
     expect(workspaceAgentCreationDisabledReason(teamWorkspace, null)).toBeNull();
   });
@@ -195,7 +195,7 @@ describe("WorkspaceProvider", () => {
     expect(screen.getByTestId("agent-roster-error")).toHaveTextContent("none");
   });
 
-  it("deduplicates selected Workspace agent IDs", async () => {
+  it("deduplicates selected Domain agent IDs", async () => {
     mocks.client.listAgents.mockResolvedValue([
       workspaceAgent("agent-1"),
       workspaceAgent("agent-1"),
@@ -264,7 +264,7 @@ describe("WorkspaceProvider", () => {
     expect(screen.getByTestId("agent-roster-error")).toHaveTextContent("none");
   });
 
-  it("reports selected Workspace agent loading failures without fallback IDs", async () => {
+  it("reports selected Domain agent loading failures without fallback IDs", async () => {
     mocks.client.listAgents.mockRejectedValue(new Error("Agent roster unavailable"));
 
     renderProvider();
@@ -338,7 +338,7 @@ describe("WorkspaceProvider", () => {
     expect(screen.getByTestId("agent-roster-error")).toHaveTextContent("Roster refresh failed");
   });
 
-  it("rejects automatic association without Workspace admin access", async () => {
+  it("rejects automatic association without Domain admin access", async () => {
     mocks.client.list.mockResolvedValue([{ ...teamWorkspace, role: "viewer" }]);
 
     renderProvider();

@@ -37,18 +37,22 @@ function expectNoLeakSentinels(markup: string): void {
 }
 
 describe("ChatMessageBubble", () => {
-  it("shows verbose progress without announcing the ticking measurements", () => {
+  it("reveals elapsed detail on hover or focus without announcing it", () => {
     render(
       <ChatThinkingIndicator
         label="Receiving response"
-        description="10,250 characters received · updated just now · 25s elapsed"
+        description="Still with you, working with care · 25s elapsed"
         ariaLabel="Receiving response. The response is still active."
+        descriptionOnHover
       />,
     );
 
     const status = screen.getByRole("status", { name: "Receiving response. The response is still active." });
-    expect(status).toHaveTextContent("10,250 characters received");
-    expect(status).not.toHaveAccessibleName(/10,250|25s/);
+    const detail = screen.getByText("Still with you, working with care · 25s elapsed");
+    expect(detail).toHaveClass("absolute", "opacity-0", "group-hover:opacity-100", "group-focus-within:opacity-100");
+    expect(detail).not.toHaveClass("max-h-0");
+    expect(status.querySelector("[tabindex='0']")).toBeInTheDocument();
+    expect(status).not.toHaveAccessibleName(/25s/);
   });
 
   afterEach(() => {

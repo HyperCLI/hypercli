@@ -9,8 +9,10 @@ import { renderWithClient } from "@/test/utils";
 import { OPENCLAW_EMPTY_REPLY_NOTICE } from "@/lib/openclaw-chat";
 import { AGENT_STARTUP_EXPERIENCE_STORAGE_KEY } from "@/hooks/useAgentStartupExperience";
 import { toAgentViewModel } from "./agentViewModel";
+import { RETURNING_AGENT_SALUTATIONS } from "./AgentEmptyHistory";
 import {
   AgentChatPanel,
+  agentChatIntroducedStorageKey,
   chatMessageRowKey,
   failedReplyRetrySource,
   isRetryableFailedReply,
@@ -19,6 +21,7 @@ import {
 import { agentLifecycleLabel } from "./AgentSlashCommandMenu";
 
 const chatMessageBubbleMock = vi.hoisted(() => vi.fn());
+const chatThinkingIndicatorMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/components/dashboard/ChatMessage", () => ({
   ChatMessageBubble: (props: {
@@ -43,16 +46,21 @@ vi.mock("@/components/dashboard/ChatMessage", () => ({
     label = "Thinking",
     description,
     ariaLabel,
+    descriptionOnHover,
   }: {
     label?: string;
     description?: string;
     ariaLabel?: string;
-  }) => (
-    <div role="status" aria-label={ariaLabel ?? label}>
-      <span>{label}</span>
-      {description ? <span>{description}</span> : null}
-    </div>
-  ),
+    descriptionOnHover?: boolean;
+  }) => {
+    chatThinkingIndicatorMock({ label, description, ariaLabel, descriptionOnHover });
+    return (
+      <div role="status" aria-label={ariaLabel ?? label} data-description-on-hover={descriptionOnHover || undefined}>
+        <span>{label}</span>
+        {description ? <span>{description}</span> : null}
+      </div>
+    );
+  },
 }));
 
 vi.mock("@/components/dashboard/ConfirmDialog", () => ({
@@ -279,6 +287,8 @@ describe("AgentChatPanel", () => {
   afterEach(() => {
     vi.useRealTimers();
     chatMessageBubbleMock.mockClear();
+    chatThinkingIndicatorMock.mockClear();
+    window.localStorage.removeItem(agentChatIntroducedStorageKey("agent-1"));
   });
 
   it("passes the profile avatar to user chat messages", () => {
@@ -441,6 +451,87 @@ describe("AgentChatPanel", () => {
       (bubbleProps as { message: ChatSession["messages"][number] }).message.content
     ))));
     expect(rerenderedContents).toEqual(["Streaming update"]);
+  });
+
+  it("anchors the active response indicator before streamed text updates paint", () => {
+    const chatScrollRef = createRef<HTMLDivElement>();
+    const streamingMessage = { role: "assistant" as const, content: "Streaming", renderId: "stream-anchor" };
+    const props = buildAgentChatPanelProps({
+      chatScrollRef,
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        sending: true,
+        activeSessionSending: true,
+        messages: [streamingMessage],
+      }),
+      isSelectedRunning: true,
+    });
+    const { rerender } = renderWithClient(<AgentChatPanel {...props} />);
+    const scroller = chatScrollRef.current!;
+    let scrollHeight = 1_000;
+    Object.defineProperties(scroller, {
+      scrollHeight: { configurable: true, get: () => scrollHeight },
+      clientHeight: { configurable: true, value: 400 },
+      scrollTop: { configurable: true, writable: true, value: 600 },
+    });
+    chatThinkingIndicatorMock.mockClear();
+
+    scrollHeight = 1_120;
+    rerender(
+      <AgentChatPanel
+        {...props}
+        chat={{
+          ...props.chat,
+          messages: [{ ...streamingMessage, content: "Streaming text that now wraps onto another line" }],
+        }}
+      />,
+    );
+
+    expect(scroller.scrollTop).toBe(1_120);
+    expect(chatThinkingIndicatorMock).not.toHaveBeenCalled();
+  });
+
+  it("does not anchor streamed updates while the user is reading earlier messages", () => {
+    const chatScrollRef = createRef<HTMLDivElement>();
+    const streamingMessage = { role: "assistant" as const, content: "Streaming", renderId: "stream-history" };
+    const props = buildAgentChatPanelProps({
+      chatScrollRef,
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        sending: true,
+        activeSessionSending: true,
+        messages: [streamingMessage],
+      }),
+      isSelectedRunning: true,
+    });
+    const { rerender } = renderWithClient(<AgentChatPanel {...props} />);
+    const scroller = chatScrollRef.current!;
+    let scrollHeight = 1_200;
+    Object.defineProperties(scroller, {
+      scrollHeight: { configurable: true, get: () => scrollHeight },
+      clientHeight: { configurable: true, value: 400 },
+      scrollTop: { configurable: true, writable: true, value: 300 },
+    });
+    fireEvent.scroll(scroller);
+
+    scrollHeight = 1_320;
+    rerender(
+      <AgentChatPanel
+        {...props}
+        chat={{
+          ...props.chat,
+          messages: [{ ...streamingMessage, content: "Streaming update while reviewing history" }],
+        }}
+      />,
+    );
+
+    expect(scroller.scrollTop).toBe(300);
   });
 
   it("keeps memoized message file actions current", () => {
@@ -730,6 +821,70 @@ describe("AgentChatPanel", () => {
     expect(onOpenIntegrations).toHaveBeenCalledTimes(1);
     expect(onOpenSkills).toHaveBeenCalledTimes(1);
     expect(onOpenScheduled).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends hi immediately from the first-use empty state", () => {
+    const sendMessage = vi.fn(async () => undefined);
+    const setInput = vi.fn();
+
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        sendMessage,
+        setInput,
+      }),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Say hello" }));
+
+    expect(sendMessage).toHaveBeenCalledWith("hi");
+    expect(setInput).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem(agentChatIntroducedStorageKey("agent-1"))).toBe("1");
+  });
+
+  it("personalizes later empty sessions without repeating the first-use CTA", () => {
+    renderAgentChatPanel({
+      userName: "Sam Rivera",
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        sessions: [{
+          key: "dashboard:019789ab-cdef-4abc-8def-0123456789ab",
+          messageCount: 2,
+        }] as ChatSession["sessions"],
+      }),
+    });
+
+    const heading = screen.getByRole("heading", { level: 2 });
+    expect(RETURNING_AGENT_SALUTATIONS.some((candidate) => heading.textContent === `${candidate}, Sam?`)).toBe(true);
+    expect(screen.queryByRole("button", { name: "Say hello" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/getting to know each other/i)).not.toBeInTheDocument();
+  });
+
+  it("restores the returning empty state after conversation history is cleared", async () => {
+    window.localStorage.setItem(agentChatIntroducedStorageKey("agent-1"), "1");
+
+    renderAgentChatPanel({
+      userName: "Sam Rivera",
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        sessions: [],
+      }),
+    });
+
+    await waitFor(() => {
+      const heading = screen.getByRole("heading", { level: 2 });
+      expect(RETURNING_AGENT_SALUTATIONS.some((candidate) => heading.textContent === `${candidate}, Sam?`)).toBe(true);
+    });
+    expect(screen.queryByRole("button", { name: "Say hello" })).not.toBeInTheDocument();
   });
 
   it("shows a stable history loader instead of empty-chat actions while history is pending", () => {
@@ -2926,11 +3081,13 @@ describe("AgentChatPanel", () => {
       isSelectedRunning: true,
     });
 
-    expect(screen.getByRole("status", { name: /starting response/i })).toHaveTextContent("Waiting for the first update");
+    const status = screen.getByRole("status", { name: /starting response/i });
+    expect(status).toHaveTextContent("Still with you, working with care · just started");
+    expect(status).toHaveAttribute("data-description-on-hover", "true");
     expect(screen.getByRole("button", { name: /stop reply/i })).toBeInTheDocument();
   });
 
-  it("reports received text instead of pinning tool-completion feedback", () => {
+  it("keeps response measurements to a warm elapsed-time detail", () => {
     renderAgentChatPanel({
       chat: buildChat({
         status: "connected",
@@ -2948,7 +3105,10 @@ describe("AgentChatPanel", () => {
       isSelectedRunning: true,
     });
 
-    expect(screen.getByRole("status", { name: /receiving response/i })).toHaveTextContent("characters received");
+    const status = screen.getByRole("status", { name: /receiving response/i });
+    expect(status).toHaveTextContent("Still with you, working with care");
+    expect(status).not.toHaveTextContent("characters received");
+    expect(status).not.toHaveTextContent("updated");
   });
 
   it("reports active tool work while a tool call is pending", () => {
@@ -2969,7 +3129,7 @@ describe("AgentChatPanel", () => {
       isSelectedRunning: true,
     });
 
-    expect(screen.getByRole("status", { name: /using tools/i })).toHaveTextContent("1 tool step active");
+    expect(screen.getByRole("status", { name: /using tools/i })).toHaveTextContent("Still with you, working with care");
   });
 
   it("reports reasoning activity without exposing its contents", () => {
@@ -2994,7 +3154,7 @@ describe("AgentChatPanel", () => {
     expect(screen.queryByText(hiddenThinking)).not.toBeInTheDocument();
   });
 
-  it("shows concrete progress for a response over 10,000 characters", () => {
+  it("shows only a warm elapsed-time detail for a long response", () => {
     const now = new Date("2026-08-04T16:00:00.000Z");
     vi.useFakeTimers();
     vi.setSystemTime(now);
@@ -3017,9 +3177,10 @@ describe("AgentChatPanel", () => {
     });
 
     const status = screen.getByRole("status", { name: /receiving response/i });
-    expect(status).toHaveTextContent("10,250 characters received");
-    expect(status).toHaveTextContent("updated just now");
-    expect(status).toHaveTextContent("25s elapsed");
+    expect(status).toHaveTextContent("Still with you, working with care · 25s elapsed");
+    expect(status).not.toHaveTextContent("characters received");
+    expect(status).not.toHaveTextContent("updated");
+    expect(status).toHaveAttribute("data-description-on-hover", "true");
   });
 
   it("reassures users when the first response update takes longer", () => {
@@ -3042,7 +3203,7 @@ describe("AgentChatPanel", () => {
 
     expect(screen.getByRole("status", { name: /starting response/i })).toBeInTheDocument();
     act(() => vi.advanceTimersByTime(10_000));
-    expect(screen.getByRole("status", { name: /still working/i })).toHaveTextContent("The response is active · 10s elapsed");
+    expect(screen.getByRole("status", { name: /still working/i })).toHaveTextContent("Still with you, working with care · 10s elapsed");
   });
 
   it("shows a separate stop button while keeping send available for queued drafts", () => {

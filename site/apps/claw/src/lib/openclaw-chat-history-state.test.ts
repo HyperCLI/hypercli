@@ -324,6 +324,41 @@ describe("openclaw chat history state", () => {
     ]);
   });
 
+  it("preserves a terminal error across a same-turn history refresh", () => {
+    const messages = reduceChatHistoryMessages([
+      { role: "user", content: "Generate a report", renderId: "user-live" },
+      { role: "assistant", content: "Partial report", runId: "run-1", renderId: "assistant-live" },
+      { role: "system", content: "Assistant response failed: Generation failed.", runId: "run-1" },
+    ], {
+      type: "merge-history-refresh",
+      messages: [
+        { role: "user", content: "Generate a report", renderId: "user-history" },
+        { role: "assistant", content: "Partial report", runId: "run-1", renderId: "assistant-history" },
+      ],
+    });
+
+    expect(messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Generate a report", renderId: "user-live" }),
+      expect.objectContaining({ role: "assistant", content: "Partial report", renderId: "assistant-live" }),
+      expect.objectContaining({ role: "system", content: "Assistant response failed: Generation failed." }),
+    ]);
+  });
+
+  it("does not duplicate equivalent live and canonical terminal errors", () => {
+    const messages = reduceChatHistoryMessages([
+      { role: "user", content: "Generate a report", renderId: "user-live" },
+      { role: "system", content: "Error: Generation failed", runId: "run-1" },
+    ], {
+      type: "merge-history-refresh",
+      messages: [
+        { role: "user", content: "Generate a report", renderId: "user-history" },
+        { role: "system", content: "Assistant response failed: Generation failed.", runId: "run-1" },
+      ],
+    });
+
+    expect(messages.filter((message) => message.role === "system")).toHaveLength(1);
+  });
+
   it("assigns distinct render ids without globally deduping equal message content", () => {
     const messages = reduceChatHistoryMessages([], {
       type: "restore-cache",
@@ -369,6 +404,18 @@ describe("openclaw chat history state", () => {
       expect.objectContaining({ role: "user", content: "Stop after starting" }),
       expect.objectContaining({ role: "assistant", content: "Partial answer", status: "interrupted" }),
     ]);
+  });
+
+  it("marks the interrupted run instead of a newer sibling reply", () => {
+    const messages = reduceChatHistoryMessages([
+      { role: "user", content: "Run both", timestamp: 1 },
+      { role: "assistant", content: "First partial", runId: "run-1", timestamp: 2 },
+      { role: "assistant", content: "Second partial", runId: "run-2", timestamp: 3 },
+    ], { type: "mark-interrupted", runId: "run-1" });
+
+    expect(messages[1]).toEqual(expect.objectContaining({ runId: "run-1", status: "interrupted" }));
+    expect(messages[2]).toEqual(expect.objectContaining({ runId: "run-2" }));
+    expect(messages[2]?.status).toBeUndefined();
   });
 
   it("adds one stopped notice when no assistant reply is visible", () => {

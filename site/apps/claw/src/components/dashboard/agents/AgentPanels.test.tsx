@@ -348,41 +348,41 @@ describe("LaunchFirstAgentEmptyState", () => {
     expect(screen.queryByText("private-draft")).not.toBeInTheDocument();
   });
 
-  it("replaces the blocked agent action with a friendly Workspace setup CTA", () => {
+  it("replaces the blocked agent action with a friendly Domain setup CTA", () => {
     const onCreate = vi.fn();
     const onCreateWorkspace = vi.fn();
 
     render(
       <LaunchFirstAgentEmptyState
         onCreate={onCreate}
-        creationDisabledReason="Select a Workspace before launching an agent."
+        creationDisabledReason="Select a Domain before launching an agent."
         onCreateWorkspace={onCreateWorkspace}
       />,
     );
 
-    const createWorkspace = screen.getByRole("button", { name: /create your first workspace/i });
+    const createWorkspace = screen.getByRole("button", { name: /create your first domain/i });
     expect(createWorkspace).toBeEnabled();
     expect(screen.getByText("One quick step, then you can launch your first agent.")).toBeInTheDocument();
-    expect(screen.queryByText("Select a Workspace before launching an agent.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Select a Domain before launching an agent.")).not.toBeInTheDocument();
 
     fireEvent.click(createWorkspace);
     expect(onCreateWorkspace).toHaveBeenCalledOnce();
     expect(onCreate).not.toHaveBeenCalled();
   });
 
-  it("keeps the selection guard when Workspaces exist but none is selected", () => {
+  it("keeps the selection guard when Domains exist but none is selected", () => {
     render(
       <LaunchFirstAgentEmptyState
         onCreate={vi.fn()}
-        creationDisabledReason="Select a Workspace before launching an agent."
+        creationDisabledReason="Select a Domain before launching an agent."
       />,
     );
 
     expect(screen.getByRole("button", { name: /^Create an agent/ })).toBeDisabled();
-    expect(screen.getAllByText("Select a Workspace before launching an agent.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Select a Domain before launching an agent.").length).toBeGreaterThan(0);
   });
 
-  it("welcomes users to an empty Workspace by name", () => {
+  it("welcomes users to an empty Domain by name", () => {
     render(
       <LaunchFirstAgentEmptyState
         onCreate={vi.fn()}
@@ -670,25 +670,25 @@ describe("AgentList", () => {
     expect(setSelectedAgentId).not.toHaveBeenCalled();
   });
 
-  it("blocks launch entry points without Workspace admin access", async () => {
+  it("blocks launch entry points without Domain admin access", async () => {
     const props = renderAgentList({
       sidebarCollapsed: false,
       sidebarCreatorSignal: 1,
-      agentCreationDisabledReason: "Workspace admin access is required to add agents.",
+      agentCreationDisabledReason: "Domain admin access is required to add agents.",
     });
 
     const launch = screen.getByRole("button", { name: "Launch agent" });
     expect(launch).toBeDisabled();
-    expect(screen.getByText("Workspace admin access is required to add agents.")).toBeInTheDocument();
-    await waitFor(() => expect(props.setError).toHaveBeenCalledWith("Workspace admin access is required to add agents."));
+    expect(screen.getByText("Domain admin access is required to add agents.")).toBeInTheDocument();
+    await waitFor(() => expect(props.setError).toHaveBeenCalledWith("Domain admin access is required to add agents."));
     expect(screen.queryByText("First agent setup wizard")).not.toBeInTheDocument();
   });
 
-  it("shows a loading status instead of stale Workspace agents", () => {
+  it("shows a loading status instead of stale Domain agents", () => {
     renderAgentList({ rosterLoading: true });
 
     expect(document.querySelector(".agents-roster-shell")).toHaveAttribute("aria-busy", "true");
-    expect(screen.getByRole("status")).toHaveTextContent("Loading Workspace agents");
+    expect(screen.getByRole("status")).toHaveTextContent("Loading Domain agents");
     expect(screen.queryByRole("button", { name: "Select Test Agent" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Launch agent" })).toBeDisabled();
   });
@@ -1153,6 +1153,25 @@ describe("AgentSettingsPanel", () => {
     expect(screen.queryByRole("button", { name: /start agent/i })).not.toBeInTheDocument();
   });
 
+  it("uses canonical theme surfaces for settings groups and controls", () => {
+    renderAgentSettingsPanel();
+
+    const profileGroup = screen.getByText("Full Name").closest("section");
+    expect(profileGroup).toHaveClass("divide-border", "border-border", "bg-surface-low/30");
+    expect(profileGroup).not.toHaveClass("divide-foreground", "border-foreground");
+    expect(screen.getByDisplayValue("John Smith")).toHaveClass("border-input", "bg-input-background");
+
+    fireEvent.click(screen.getByRole("button", { name: "Usage" }));
+    const usageCard = screen.getByText("Usage dashboard").closest("a");
+    expect(usageCard).toHaveClass("rounded-xl", "border-border", "bg-surface-low/40");
+    expect(usageCard).not.toHaveClass("border-foreground");
+
+    fireEvent.click(screen.getByRole("button", { name: "Team" }));
+    const teamGroup = screen.getByText("Domain members").closest("section");
+    expect(teamGroup).toHaveClass("divide-border", "border-border", "bg-surface-low/30");
+    expect(teamGroup).not.toHaveClass("divide-foreground", "border-foreground");
+  });
+
   it("toggles the local file source tabs setting without marking agent settings dirty", () => {
     const onShowFileSourceTabsChange = vi.fn();
     renderAgentSettingsPanel({ showFileSourceTabs: true, onShowFileSourceTabsChange });
@@ -1219,14 +1238,17 @@ describe("AgentSettingsPanel", () => {
     });
 
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
-    expect(screen.getByRole("navigation", { name: /settings sections/i })).toBeInTheDocument();
+    const navigation = screen.getByRole("navigation", { name: /settings sections/i });
+    expect(navigation).toHaveClass("h-11", "rounded-xl", "border-border", "bg-surface-low");
+    expect(screen.getByRole("button", { name: "General" })).toHaveClass("rounded-lg", "bg-surface-high");
     expect(screen.queryByRole("button", { name: /open agents sidebar/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /open workspace sidebar/i })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Team" }));
     expect(screen.getByRole("button", { name: "Team" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Team" })).toHaveClass("bg-surface-high");
     expect(screen.getByRole("heading", { name: "Team" })).toBeInTheDocument();
-    expect(screen.getByText("Workspace members")).toBeInTheDocument();
+    expect(screen.getByText("Domain members")).toBeInTheDocument();
   });
 
   it("signs out from general settings", () => {
@@ -1257,6 +1279,7 @@ describe("AgentSettingsPanel", () => {
 
   it("loads and saves the profile name through the SDK", async () => {
     const getToken = vi.fn(async () => "token");
+    const onProfileNameChange = vi.fn();
     sdkMocks.userGet.mockResolvedValueOnce({
       userId: "user-1234567890abcdef",
       email: "test@example.com",
@@ -1272,7 +1295,7 @@ describe("AgentSettingsPanel", () => {
       createdAt: "2026-05-05T00:00:00Z",
     });
 
-    renderAgentSettingsPanel({ getToken });
+    renderAgentSettingsPanel({ getToken, onProfileNameChange });
 
     expect(await screen.findByDisplayValue("Server Name")).toBeInTheDocument();
 
@@ -1282,6 +1305,7 @@ describe("AgentSettingsPanel", () => {
     await waitFor(() => {
       expect(sdkMocks.userUpdate).toHaveBeenCalledWith({ name: "Jane Smith" });
     });
+    expect(onProfileNameChange).toHaveBeenCalledWith("Jane Smith");
     expect(screen.getByText("Profile updated.")).toBeInTheDocument();
   });
 

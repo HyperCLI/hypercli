@@ -2017,7 +2017,7 @@ function HandoffThreadView({
   onOpenAgentLauncher,
   agentCreationDisabledReason,
   rosterLoading = false,
-  rosterLoadingLabel = "Loading Workspace agents",
+  rosterLoadingLabel = "Loading Domain agents",
   onOpenHome,
   homeActive = false,
   homeHref = DASHBOARD_VIEW_HREFS.overview,
