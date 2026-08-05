@@ -231,6 +231,25 @@ pub struct AuthenticateArgs {
     pub method_id: String,
 }
 
+/// CLI args for `buzz-acp auth-tag` — compute a NIP-OA owner attestation.
+///
+/// The owner secret is deliberately read from stdin by the command so it does
+/// not appear in argv, shell history, or process listings.
+#[derive(Debug, Parser)]
+#[command(
+    name = "buzz-acp auth-tag",
+    about = "Compute a NIP-OA auth tag using an owner secret read from stdin"
+)]
+pub struct AuthTagArgs {
+    /// Agent public key as 64-character hex or npub.
+    #[arg(long)]
+    pub agent_pubkey: String,
+
+    /// Optional NIP-OA authorization conditions.
+    #[arg(long, default_value = "")]
+    pub conditions: String,
+}
+
 #[derive(Debug, Parser)]
 #[command(
     name = "buzz-acp",

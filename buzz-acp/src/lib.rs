@@ -15,6 +15,7 @@ mod usage;
 pub use usage::TurnUsage;
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::io::Read;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -30,7 +31,7 @@ use buzz_core::observer::{
 };
 use clap::Parser;
 use config::{
-    AuthAgentArgs, AuthMethodsArgs, AuthenticateArgs, Config, DedupMode, ModelsArgs,
+    AuthAgentArgs, AuthMethodsArgs, AuthTagArgs, AuthenticateArgs, Config, DedupMode, ModelsArgs,
     MultipleEventHandling, RespondTo, SubscribeMode,
 };
 use filter::SubscriptionRule;
@@ -1322,6 +1323,16 @@ async fn tokio_main() -> Result<()> {
             .collect();
         let args = AuthenticateArgs::parse_from(&filtered);
         return run_authenticate(args).await;
+    }
+
+    if is_subcommand("auth-tag") {
+        let filtered: Vec<String> = std::env::args()
+            .enumerate()
+            .filter(|(i, _)| *i != 1)
+            .map(|(_, a)| a)
+            .collect();
+        let args = AuthTagArgs::parse_from(&filtered);
+        return run_auth_tag(args);
     }
 
     tracing_subscriber::fmt()
@@ -4033,6 +4044,71 @@ async fn spawn_and_init(
 async fn spawn_auth_client(agent: &AuthAgentArgs) -> Result<AcpClient, acp::AcpError> {
     let agent_args = config::normalize_agent_args(&agent.agent_command, agent.agent_args.clone());
     AcpClient::spawn(&agent.agent_command, &agent_args, &[], false).await
+}
+
+fn compute_auth_tag_output(
+    owner_secret: &str,
+    agent_pubkey: &str,
+    conditions: &str,
+) -> Result<String> {
+    let owner_keys = nostr::Keys::parse(owner_secret.trim())
+        .map_err(|_| anyhow::anyhow!("invalid owner secret on stdin"))?;
+    let agent_pubkey = nostr::PublicKey::parse(agent_pubkey)
+        .map_err(|_| anyhow::anyhow!("invalid agent public key"))?;
+    let output = buzz_sdk::nip_oa::compute_auth_tag(&owner_keys, &agent_pubkey, conditions)
+        .map_err(|error| anyhow::anyhow!("failed to compute auth tag: {error}"))?;
+    buzz_sdk::nip_oa::verify_auth_tag(&output, &agent_pubkey)
+        .map_err(|error| anyhow::anyhow!("computed auth tag failed verification: {error}"))?;
+    Ok(output)
+}
+
+/// `buzz-acp auth-tag` — read an owner nsec/hex key from stdin and print only
+/// the verified NIP-OA tag. The secret is never accepted in argv or emitted.
+fn run_auth_tag(args: AuthTagArgs) -> Result<()> {
+    let mut owner_secret = String::new();
+    std::io::stdin().read_to_string(&mut owner_secret)?;
+    if owner_secret.len() > 256 {
+        anyhow::bail!("owner secret input is unexpectedly long");
+    }
+    if owner_secret.trim().is_empty() {
+        anyhow::bail!("owner secret is required on stdin");
+    }
+    println!(
+        "{}",
+        compute_auth_tag_output(&owner_secret, &args.agent_pubkey, &args.conditions)?
+    );
+    Ok(())
+}
+
+#[cfg(test)]
+mod auth_tag_command_tests {
+    use super::compute_auth_tag_output;
+    use nostr::ToBech32;
+
+    #[test]
+    fn computes_a_verified_tag_from_nsec_without_echoing_the_secret() {
+        let owner = nostr::Keys::generate();
+        let agent = nostr::Keys::generate();
+        let owner_nsec = owner.secret_key().to_bech32().expect("owner nsec");
+        let output = compute_auth_tag_output(&owner_nsec, &agent.public_key().to_hex(), "")
+            .expect("auth tag");
+
+        assert!(!output.contains(&owner_nsec));
+        let verified = buzz_sdk::nip_oa::verify_auth_tag(&output, &agent.public_key())
+            .expect("verified auth tag");
+        assert_eq!(verified, owner.public_key());
+    }
+
+    #[test]
+    fn rejects_self_attestation() {
+        let owner = nostr::Keys::generate();
+        let owner_nsec = owner.secret_key().to_bech32().expect("owner nsec");
+        let error = compute_auth_tag_output(&owner_nsec, &owner.public_key().to_hex(), "")
+            .expect_err("self-attestation must fail");
+        assert!(error
+            .to_string()
+            .contains("owner and agent pubkeys must differ"));
+    }
 }
 
 fn extract_auth_methods(init_result: &serde_json::Value) -> Vec<serde_json::Value> {
