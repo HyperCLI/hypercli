@@ -214,7 +214,12 @@ def cleanup(state: BootstrapState, *, admin_key: str | None = None) -> list[str]
     return errors
 
 
-def bootstrap(*, suite: str = "agents-subscription") -> BootstrapState:
+def bootstrap(
+    *,
+    suite: str = "agents-subscription",
+    plan_id: str | None = None,
+    entitlement_duration: int = 3600,
+) -> BootstrapState:
     admin_key = os.getenv("BACKEND_API_KEY", "").strip()
     if not admin_key:
         raise RuntimeError("BACKEND_API_KEY is required")
@@ -267,6 +272,19 @@ def bootstrap(*, suite: str = "agents-subscription") -> BootstrapState:
                 admin_key=admin_key,
                 orchestra_user_id=identity.orchestra_user_id,
             )
+        if plan_id:
+            _request(
+                "POST",
+                f"{agents_base}/admin/users/{state.hyperclaw_user_id}/entitlements",
+                admin_key=admin_key,
+                expected=(200, 201),
+                json_body={
+                    "plan_id": plan_id,
+                    "quantity": 1,
+                    "duration": entitlement_duration,
+                    "meta": {"source": suite},
+                },
+            )
         return state
     except Exception:
         for error in cleanup(state, admin_key=admin_key):
@@ -307,13 +325,19 @@ def main() -> int:
     bootstrap_parser.add_argument("--suite", default="agents-subscription")
     bootstrap_parser.add_argument("--state-file")
     bootstrap_parser.add_argument("--github-env-file")
+    bootstrap_parser.add_argument("--plan-id")
+    bootstrap_parser.add_argument("--entitlement-duration", type=int, default=3600)
 
     cleanup_parser = commands.add_parser("cleanup")
     cleanup_parser.add_argument("--state-file", required=True)
     args = parser.parse_args()
 
     if args.command == "bootstrap":
-        state = bootstrap(suite=args.suite)
+        state = bootstrap(
+            suite=args.suite,
+            plan_id=args.plan_id,
+            entitlement_duration=args.entitlement_duration,
+        )
         state_file = _write_state_file(state, args.state_file)
         values = {"TEST_EMAIL": state.email, "AGENTS_E2E_USER_STATE_FILE": state_file}
         if args.github_env_file:

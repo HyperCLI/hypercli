@@ -411,6 +411,10 @@ task subpages, runtime login, SSH setup, and Buzz connection management use
 flat fields and divided rows instead of nested cards. New agents require a
 saved Buzz connection; existing identities keep their connection immutable
 until a future explicit Clone/Move flow exists.
+The hosted Buzz E2E bootstraps a unique dev user plus a one-hour `pro`
+entitlement before opening Desktop, so largest-slot selection has deterministic
+large capacity. Its `always()` cleanup removes both HyperClaw and Orchestra
+user projections; the gate does not borrow slots from the shared test account.
 
 Avatar bytes never enter launch env or relay events. The native picker rejects
 symlinks, images over 2 MiB, and content whose magic is not PNG/JPEG/GIF/WebP,

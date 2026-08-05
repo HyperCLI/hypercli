@@ -476,6 +476,15 @@ button.link:hover {
   gap: 10px;
 }
 
+.screen-heading > div {
+  min-width: 0;
+}
+
+.screen-heading > .icon-button {
+  flex: none;
+  margin-left: auto;
+}
+
 .back-button {
   width: 30px;
   height: 30px;
@@ -753,10 +762,6 @@ button.link:hover {
 .field-error {
   color: var(--error);
   font-size: 11.5px;
-}
-
-#buzz-connection-add {
-  align-self: flex-start;
 }
 
 input:read-only,

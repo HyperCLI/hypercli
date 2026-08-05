@@ -10,6 +10,7 @@ on:
       - "buzz-backend-provider/**"
       - "desktop/**"
       - "rs-sdk/**"
+      - ".github/scripts/bootstrap_agents_e2e_user.py"
       - ".github/workflows/desktop-buzz-e2e.yml"
   pull_request:
     paths:
@@ -19,6 +20,7 @@ on:
       - "buzz-backend-provider/**"
       - "desktop/**"
       - "rs-sdk/**"
+      - ".github/scripts/bootstrap_agents_e2e_user.py"
       - ".github/workflows/desktop-buzz-e2e.yml"
   workflow_dispatch:
 
@@ -101,6 +103,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Bootstrap isolated Buzz E2E user with slots
+        shell: bash
+        run: |
+          python3 .github/scripts/bootstrap_agents_e2e_user.py bootstrap \
+            --suite desktop-buzz-e2e \
+            --plan-id pro \
+            --entitlement-duration 3600 \
+            --state-file "${RUNNER_TEMP}/desktop-buzz-e2e-user-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json" \
+            --github-env-file "$GITHUB_ENV"
+
       - name: Install WebDriver and secure-storage dependencies
         shell: bash
         run: |
@@ -152,3 +164,11 @@ jobs:
           name: desktop-buzz-e2e-artifacts
           path: desktop/e2e-tests/artifacts/
           if-no-files-found: ignore
+
+      - name: Cleanup isolated Buzz E2E user
+        if: always() && env.AGENTS_E2E_USER_STATE_FILE != ''
+        continue-on-error: true
+        shell: bash
+        run: |
+          python3 .github/scripts/bootstrap_agents_e2e_user.py cleanup \
+            --state-file "${AGENTS_E2E_USER_STATE_FILE}"
