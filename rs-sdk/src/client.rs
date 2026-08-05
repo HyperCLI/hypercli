@@ -516,10 +516,17 @@ impl HyperCliClient {
 
     /// The product API base is the agents base without its `/agents` suffix
     /// (the inverse of `normalize_agents_api_base`).
-    fn product_endpoint(&self, path: &str) -> String {
+    pub fn product_api_base(&self) -> String {
         let base = self.api_base.as_str().trim_end_matches('/');
-        let base = base.strip_suffix("/agents").unwrap_or(base);
-        format!("{}/{}", base, path.trim_start_matches('/'))
+        base.strip_suffix("/agents").unwrap_or(base).to_owned()
+    }
+
+    fn product_endpoint(&self, path: &str) -> String {
+        format!(
+            "{}/{}",
+            self.product_api_base(),
+            path.trim_start_matches('/')
+        )
     }
 
     fn send_json<T: DeserializeOwned>(

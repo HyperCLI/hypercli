@@ -344,7 +344,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
             // rewrite the harness exits at startup. The base URL is forced
             // because an unset value silently routes to api.anthropic.com.
             expected["env"]["BUZZ_AGENT_PROVIDER"] = serde_json::json!("anthropic");
-            expected["env"]["ANTHROPIC_BASE_URL"] = serde_json::json!("https://api.hypercli.com");
+            expected["env"]["ANTHROPIC_BASE_URL"] = serde_json::json!(server.url());
         }
         if runtime == "opencode" {
             // opencode advertises `<provider>/<model>`; a bare id never

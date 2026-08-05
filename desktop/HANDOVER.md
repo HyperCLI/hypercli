@@ -164,19 +164,21 @@ Verified per-runtime contract (source-cited, one agent per runtime):
 | **buzz-agent** | `BUZZ_AGENT_PROVIDER` ∈ {anthropic, openai, openai-compat, databricks, databricks_v2, openrouter}; Anthropic route needs `ANTHROPIC_BASE_URL` (**no `/v1`** — it appends `/v1/messages`) | **fixed in provider**: non-native id → `anthropic`, base URL forced |
 | **goose** | image ships a declarative provider literally named `hypercli` (`custom_providers/hypercli.json`, anthropic engine, `HYPER_AGENTS_API_KEY`) | **fixed**: fill `GOOSE_PROVIDER=hypercli` only when absent, never clobber |
 | **opencode** | config file only (`~/.config/opencode/opencode.json`, baked); models are named `<provider>/<model>` | **fixed**: qualify bare `BUZZ_ACP_MODEL` → `hypercli/<model>` so the switch stops silently no-op'ing |
-| **claude-code** | Buzz *locks* the provider; image bakes nothing for hypercli inference | **open (image lane)**: needs `~/.claude/settings.json` with `availableModels` + `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` |
-| **kimi-code** | **env cannot configure it** — reads only `~/.kimi-code/config.toml`; its env fallback reads the config file's own table, never `process.env` | **open (image lane)**: entrypoint must render `config.toml` |
-| **codex** | needs `MODEL_PROVIDER` + a `CODEX_CONFIG` overlay with `model_providers.<id>.base_url`; absent that it silently uses `api.openai.com` | **blocked**: codex ≥0.146 requires `wire_api = "responses"`; our gateway serves Anthropic Messages and chat-completions. Needs a Responses surface or codex can't work |
+| **claude-code** | `claude-agent-acp` inherits `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and `ANTHROPIC_MODEL` | **ACP runtime injection**: generated at each child spawn; image persists only a non-secret `settings.json` model catalog |
+| **kimi-code** | pinned Kimi 0.31 synthesizes an in-memory provider from native `KIMI_MODEL_*` env and strips it from config write paths | **ACP runtime injection**: live HyperCLI inference is testable without a pre-seeded Kimi login |
+| **codex** | `codex-acp` forwards a `CODEX_CONFIG` overlay with `model_providers.<id>.base_url` and `env_key` | **config fixed, inference blocked**: codex ≥0.146 requires `wire_api = "responses"`; our gateway serves Anthropic Messages and chat-completions |
 
 Upstream login behavior is not uniform. Claude and Codex are built-ins with
-auth probes (`claude auth status`, `codex login status`); Buzz requires login
-before it starts their external npm ACP adapters. Kimi is a PATH-only preset
-using native `kimi acp`, is marked auth `NotApplicable`, and is launched even
-when logged out, only to fail later during ACP session creation. Bundled
-`buzz-acp` has generic ACP auth discovery/authenticate support, but Desktop
-restricts that flow to exact built-ins and therefore excludes Kimi. Do not
-claim live CI coverage for any of these three without pre-seeded login state;
-the real provider/message matrix is Buzz Agent, Goose, and OpenCode.
+local auth probes (`claude auth status`, `codex login status`), while Kimi is a
+PATH-only preset marked auth `NotApplicable`. Provider deploy does not run the
+local spawn/readiness setup-mode path, so hosted inference can be configured
+inside the container. `hypercli-buzz-acp` now derives runtime-native child env
+from Lagoon's inherited `HYPER_API_BASE` + `HYPER_AGENTS_API_KEY` immediately
+before every lazy spawn/respawn. It never persists the key and never mixes with
+an explicit native runtime env. Set `HYPERCLI_RUNTIME_INFERENCE=native` to use a
+synced vendor login/config instead. Kimi 0.31 can therefore join live CI;
+Claude and Codex retain native login for vendor-specific features, and Codex
+still cannot infer through HyperCLI until the gateway serves Responses.
 
 The translation lives in `apply_hypercli_inference_defaults`
 (`buzz-backend-provider/src/lib.rs`), applied **after** the launch-block
@@ -261,8 +263,9 @@ Tauri command unless the fresh state is exactly `stopped`.
   `BUZZ_ACP_LAZY_POOL=true` means the harness may not even spawn until work
   arrives.
 * **`HYPER_AGENTS_API_KEY` is injected by lagoon at pod-spec time**, not by
-  the provider — it cannot appear in `request.env`, so key mapping belongs in
-  image entrypoints.
+  the provider — it cannot appear in `request.env`. Runtime-native key mapping
+  therefore lives in `hypercli-buzz-acp` at the child-spawn boundary, where it
+  also applies to lazy starts and respawns without persisting a secret.
 * **Image entrypoints guard defaults with `[ -z "${VAR+x}" ]`** (only if
   unset). Buzz always sets the provider var, so those defaults never fire —
   that is the entire buzz-agent failure.

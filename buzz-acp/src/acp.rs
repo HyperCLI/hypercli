@@ -12,6 +12,7 @@ use futures_util::StreamExt;
 use hypercli_sdk::{
     BUZZ_ACP_MAX_REPLY_NAGS as MAX_REPLY_NAGS, BUZZ_ACP_REPLY_GUARD_NAG as REPLY_GUARD_NAG,
 };
+use std::collections::BTreeMap;
 use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio_util::codec::{FramedRead, LinesCodec, LinesCodecError};
@@ -244,6 +245,139 @@ fn deep_merge(
     }
 }
 
+const DEFAULT_HYPERCLI_ANTHROPIC_MODEL: &str = "kimi-k2.6-anthropic";
+const DEFAULT_HYPERCLI_CODEX_MODEL: &str = "kimi-k2.6";
+
+fn nonempty_env<'a>(env: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> {
+    env.get(key)
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+/// Derive the selected runtime's native inference environment from Lagoon's
+/// short-lived HyperCLI credential. This runs at the ACP child boundary, so it
+/// is repeated on every lazy spawn and respawn and no secret is persisted in a
+/// synced home directory.
+///
+/// The overlay is deliberately all-or-nothing per runtime. If the operator has
+/// supplied any native routing/auth variable, that native configuration wins
+/// as a unit; mixing a HyperCLI key with a vendor URL (or the reverse) could
+/// disclose a credential. `HYPERCLI_RUNTIME_INFERENCE=native` is an explicit
+/// opt-out for a synced vendor login/config that is not represented by env.
+fn hypercli_runtime_env(
+    command: &str,
+    parent_env: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    if matches!(
+        nonempty_env(parent_env, "HYPERCLI_RUNTIME_INFERENCE")
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("native" | "off" | "false" | "0")
+    ) {
+        return BTreeMap::new();
+    }
+
+    let Some(api_key) = nonempty_env(parent_env, "HYPER_AGENTS_API_KEY") else {
+        return BTreeMap::new();
+    };
+    let Some(api_base) = nonempty_env(parent_env, "HYPER_API_BASE") else {
+        return BTreeMap::new();
+    };
+    let api_base = api_base.trim_end_matches('/');
+    if api_base.is_empty() {
+        return BTreeMap::new();
+    }
+    let model = nonempty_env(parent_env, "BUZZ_ACP_MODEL");
+
+    let mut injected = BTreeMap::new();
+    match crate::config::normalize_agent_command_identity(command).as_str() {
+        "claude-agent-acp" | "claude-code-acp" | "claude-code" | "claudecode" => {
+            const NATIVE_KEYS: &[&str] = &[
+                "ANTHROPIC_BASE_URL",
+                "ANTHROPIC_AUTH_TOKEN",
+                "ANTHROPIC_API_KEY",
+                "ANTHROPIC_MODEL",
+            ];
+            if NATIVE_KEYS.iter().any(|key| parent_env.contains_key(*key)) {
+                return injected;
+            }
+            injected.insert("ANTHROPIC_BASE_URL".into(), api_base.into());
+            injected.insert("ANTHROPIC_AUTH_TOKEN".into(), api_key.into());
+            injected.insert(
+                "ANTHROPIC_MODEL".into(),
+                model.unwrap_or(DEFAULT_HYPERCLI_ANTHROPIC_MODEL).into(),
+            );
+        }
+        "codex" | "codex-acp" => {
+            if parent_env.contains_key("CODEX_CONFIG") {
+                return injected;
+            }
+            injected.insert(
+                "CODEX_CONFIG".into(),
+                serde_json::json!({
+                    "model": model.unwrap_or(DEFAULT_HYPERCLI_CODEX_MODEL),
+                    "model_provider": "hypercli",
+                    "model_providers": {
+                        "hypercli": {
+                            "name": "HyperCLI",
+                            "base_url": format!("{api_base}/v1"),
+                            "env_key": "HYPER_AGENTS_API_KEY",
+                            "wire_api": "responses"
+                        }
+                    }
+                })
+                .to_string(),
+            );
+        }
+        "kimi" => {
+            const NATIVE_KEYS: &[&str] = &[
+                "KIMI_MODEL_NAME",
+                "KIMI_MODEL_API_KEY",
+                "KIMI_MODEL_BASE_URL",
+                "KIMI_MODEL_PROVIDER_TYPE",
+            ];
+            if NATIVE_KEYS.iter().any(|key| parent_env.contains_key(*key)) {
+                return injected;
+            }
+            injected.insert(
+                "KIMI_MODEL_NAME".into(),
+                model.unwrap_or(DEFAULT_HYPERCLI_ANTHROPIC_MODEL).into(),
+            );
+            injected.insert("KIMI_MODEL_API_KEY".into(), api_key.into());
+            injected.insert("KIMI_MODEL_BASE_URL".into(), api_base.into());
+            injected.insert("KIMI_MODEL_PROVIDER_TYPE".into(), "anthropic".into());
+            injected.insert("KIMI_MODEL_MAX_CONTEXT_SIZE".into(), "262144".into());
+            injected.insert("KIMI_MODEL_MAX_OUTPUT_SIZE".into(), "65536".into());
+        }
+        _ => {}
+    }
+    injected
+}
+
+fn hypercli_runtime_env_for_spawn(
+    command: &str,
+    parent_env: &BTreeMap<String, String>,
+    extra_env: &[(String, String)],
+    has_generated_codex_config: bool,
+) -> BTreeMap<String, String> {
+    let mut effective_env = parent_env.clone();
+    let generated_codex_index = has_generated_codex_config
+        .then(|| extra_env.iter().rposition(|(key, _)| key == "CODEX_CONFIG"))
+        .flatten();
+    for (index, (key, value)) in extra_env.iter().enumerate() {
+        // The final generated CODEX_CONFIG is only the network sandbox
+        // overlay, not an operator choice of inference provider.
+        if key == "CODEX_CONFIG" && generated_codex_index == Some(index) {
+            continue;
+        }
+        effective_env
+            .entry(key.clone())
+            .or_insert_with(|| value.clone());
+    }
+    hypercli_runtime_env(command, &effective_env)
+}
+
 /// Build the merged `CODEX_CONFIG` environment-variable value for a Codex agent spawn.
 ///
 /// Returns `Some(json_string)` when `has_generated_codex_config` is true (Buzz injected a
@@ -271,8 +405,9 @@ fn deep_merge(
 /// Returns `Err(AcpError::Protocol)` when `has_generated_codex_config` is true and any
 /// `CODEX_CONFIG` value is not valid JSON or is not a JSON object, or when
 /// `sandbox_workspace_write` is present but not an object after all merges.
-pub(crate) fn build_codex_config_env(
+fn build_codex_config_env_with_default(
     extra_env: &[(String, String)],
+    default_codex_config: Option<&str>,
     parent_codex_config: Option<&str>,
     has_generated_codex_config: bool,
 ) -> Result<Option<String>, AcpError> {
@@ -295,9 +430,24 @@ pub(crate) fn build_codex_config_env(
         return Ok(None);
     }
 
-    // Parse all entries; first one is the persona base (or the generated entry if no
-    // persona CODEX_CONFIG was set), rest are additional generated entries.
+    // The runtime default is the lowest-precedence base. Persona and generated
+    // entries overlay it, followed by the inherited operator config.
     let mut parsed_entries: Vec<serde_json::Map<String, serde_json::Value>> = Vec::new();
+    if let Some(raw) = default_codex_config {
+        match serde_json::from_str::<serde_json::Value>(raw) {
+            Ok(serde_json::Value::Object(obj)) => parsed_entries.push(obj),
+            Ok(_) => {
+                return Err(AcpError::Protocol(
+                    "default CODEX_CONFIG is valid JSON but not an object".into(),
+                ));
+            }
+            Err(e) => {
+                return Err(AcpError::Protocol(format!(
+                    "default CODEX_CONFIG is not valid JSON: {e}"
+                )));
+            }
+        }
+    }
     for (i, raw) in codex_entries.iter().enumerate() {
         match serde_json::from_str::<serde_json::Value>(raw) {
             Ok(serde_json::Value::Object(obj)) => parsed_entries.push(obj),
@@ -359,6 +509,20 @@ pub(crate) fn build_codex_config_env(
     }
 
     Ok(Some(serde_json::Value::Object(base).to_string()))
+}
+
+#[cfg(test)]
+pub(crate) fn build_codex_config_env(
+    extra_env: &[(String, String)],
+    parent_codex_config: Option<&str>,
+    has_generated_codex_config: bool,
+) -> Result<Option<String>, AcpError> {
+    build_codex_config_env_with_default(
+        extra_env,
+        None,
+        parent_codex_config,
+        has_generated_codex_config,
+    )
 }
 
 /// goose's non-standard mid-turn steer method. Requires `expectedRunId`, so it
@@ -472,6 +636,16 @@ impl AcpClient {
             // Callers MUST still call shutdown().await for guaranteed cleanup.
             .kill_on_drop(true);
 
+        let parent_env: BTreeMap<String, String> = std::env::vars_os()
+            .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
+            .collect();
+        let runtime_env = hypercli_runtime_env_for_spawn(
+            command,
+            &parent_env,
+            extra_env,
+            has_generated_codex_config,
+        );
+
         // Per-persona env vars (e.g., GOOSE_PROVIDER, BUZZ_AGENT_PROVIDER).
         // For most keys, operator precedence wins: skip injection if already set
         // in the parent environment.
@@ -483,12 +657,14 @@ impl AcpClient {
         //     CODEX_CONFIG falls through to the normal operator-wins loop below.
         let has_codex_config = extra_env.iter().any(|(k, _)| k == "CODEX_CONFIG");
         let parent_codex_config = if has_generated_codex_config && has_codex_config {
-            std::env::var("CODEX_CONFIG").ok()
+            parent_env.get("CODEX_CONFIG").cloned()
         } else {
             None
         };
-        let codex_config_value = build_codex_config_env(
+        let default_codex_config = runtime_env.get("CODEX_CONFIG");
+        let codex_config_value = build_codex_config_env_with_default(
             extra_env,
+            default_codex_config.map(String::as_str),
             parent_codex_config.as_deref(),
             has_generated_codex_config,
         )?;
@@ -501,9 +677,16 @@ impl AcpClient {
         // key replacement) and inherited parent env (via the parent-presence
         // check) override them.
         for &(key, value) in crate::config::default_agent_env(command) {
-            if std::env::var_os(key).is_none() {
+            if !parent_env.contains_key(key) {
                 cmd.env(key, value);
             }
+        }
+
+        for (key, value) in &runtime_env {
+            if key == "CODEX_CONFIG" && codex_merge_active {
+                continue;
+            }
+            cmd.env(key, value);
         }
 
         for (key, value) in extra_env {
@@ -511,7 +694,7 @@ impl AcpClient {
                 // Handled by build_codex_config_env; skip here to avoid double-setting.
                 continue;
             }
-            if std::env::var_os(key).is_none() {
+            if !parent_env.contains_key(key) {
                 cmd.env(key, value);
             }
         }
@@ -4477,6 +4660,152 @@ mod tests {
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect()
+    }
+
+    fn env_map(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect()
+    }
+
+    fn hyper_parent() -> BTreeMap<String, String> {
+        env_map(&[
+            ("HYPER_API_BASE", "https://api.dev.hypercli.com/"),
+            ("HYPER_AGENTS_API_KEY", "runtime-secret"),
+            ("BUZZ_ACP_MODEL", "runtime-model"),
+        ])
+    }
+
+    #[test]
+    fn hypercli_runtime_env_maps_claude_without_persisting_config() {
+        let injected = hypercli_runtime_env("/usr/local/bin/claude-agent-acp", &hyper_parent());
+        assert_eq!(
+            injected["ANTHROPIC_BASE_URL"],
+            "https://api.dev.hypercli.com"
+        );
+        assert_eq!(injected["ANTHROPIC_AUTH_TOKEN"], "runtime-secret");
+        assert_eq!(injected["ANTHROPIC_MODEL"], "runtime-model");
+        assert_eq!(injected.len(), 3);
+    }
+
+    #[test]
+    fn hypercli_runtime_env_maps_kimi_native_overlay() {
+        let injected = hypercli_runtime_env("kimi", &hyper_parent());
+        assert_eq!(injected["KIMI_MODEL_NAME"], "runtime-model");
+        assert_eq!(injected["KIMI_MODEL_API_KEY"], "runtime-secret");
+        assert_eq!(
+            injected["KIMI_MODEL_BASE_URL"],
+            "https://api.dev.hypercli.com"
+        );
+        assert_eq!(injected["KIMI_MODEL_PROVIDER_TYPE"], "anthropic");
+        assert_eq!(injected["KIMI_MODEL_MAX_CONTEXT_SIZE"], "262144");
+        assert_eq!(injected["KIMI_MODEL_MAX_OUTPUT_SIZE"], "65536");
+    }
+
+    #[test]
+    fn hypercli_runtime_env_maps_codex_config_without_serializing_secret() {
+        let injected = hypercli_runtime_env("codex-acp", &hyper_parent());
+        let raw = &injected["CODEX_CONFIG"];
+        assert!(!raw.contains("runtime-secret"));
+        let config: serde_json::Value = serde_json::from_str(raw).unwrap();
+        assert_eq!(config["model"], "runtime-model");
+        assert_eq!(config["model_provider"], "hypercli");
+        assert_eq!(
+            config["model_providers"]["hypercli"]["base_url"],
+            "https://api.dev.hypercli.com/v1"
+        );
+        assert_eq!(
+            config["model_providers"]["hypercli"]["env_key"],
+            "HYPER_AGENTS_API_KEY"
+        );
+        assert_eq!(
+            config["model_providers"]["hypercli"]["wire_api"],
+            "responses"
+        );
+    }
+
+    #[test]
+    fn hypercli_runtime_env_never_mixes_with_explicit_native_routing() {
+        for (command, native_key) in [
+            ("claude-code", "ANTHROPIC_AUTH_TOKEN"),
+            ("codex-acp", "CODEX_CONFIG"),
+            ("kimi", "KIMI_MODEL_BASE_URL"),
+        ] {
+            let mut parent = hyper_parent();
+            parent.insert(native_key.into(), "operator-value".into());
+            assert!(
+                hypercli_runtime_env(command, &parent).is_empty(),
+                "{command} must preserve its native configuration as a unit"
+            );
+        }
+    }
+
+    #[test]
+    fn hypercli_runtime_env_respects_persona_env_and_ignores_codex_network_overlay() {
+        let claude_extra = env(&[("ANTHROPIC_BASE_URL", "https://native.example")]);
+        assert!(hypercli_runtime_env_for_spawn(
+            "claude-agent-acp",
+            &hyper_parent(),
+            &claude_extra,
+            false,
+        )
+        .is_empty());
+
+        let generated_only = env(&[("CODEX_CONFIG", GENERATED)]);
+        assert!(hypercli_runtime_env_for_spawn(
+            "codex-acp",
+            &hyper_parent(),
+            &generated_only,
+            true,
+        )
+        .contains_key("CODEX_CONFIG"));
+
+        let persona_and_generated = env(&[
+            ("CODEX_CONFIG", r#"{"model_provider":"native"}"#),
+            ("CODEX_CONFIG", GENERATED),
+        ]);
+        assert!(hypercli_runtime_env_for_spawn(
+            "codex-acp",
+            &hyper_parent(),
+            &persona_and_generated,
+            true,
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn hypercli_runtime_env_requires_complete_credentials_and_honors_native_opt_out() {
+        let mut missing_key = hyper_parent();
+        missing_key.remove("HYPER_AGENTS_API_KEY");
+        assert!(hypercli_runtime_env("kimi", &missing_key).is_empty());
+
+        let mut native = hyper_parent();
+        native.insert("HYPERCLI_RUNTIME_INFERENCE".into(), "native".into());
+        assert!(hypercli_runtime_env("kimi", &native).is_empty());
+    }
+
+    #[test]
+    fn codex_hypercli_default_is_lower_precedence_than_persona_and_operator() {
+        let default = hypercli_runtime_env("codex-acp", &hyper_parent())
+            .remove("CODEX_CONFIG")
+            .unwrap();
+        let extra = env(&[
+            ("CODEX_CONFIG", r#"{"model":"persona-model"}"#),
+            ("CODEX_CONFIG", GENERATED),
+        ]);
+        let merged = build_codex_config_env_with_default(
+            &extra,
+            Some(&default),
+            Some(r#"{"model":"operator-model"}"#),
+            true,
+        )
+        .unwrap()
+        .unwrap();
+        let config: serde_json::Value = serde_json::from_str(&merged).unwrap();
+        assert_eq!(config["model"], "operator-model");
+        assert_eq!(config["model_provider"], "hypercli");
+        assert_eq!(config["sandbox_workspace_write"]["network_access"], true);
     }
 
     const GENERATED: &str = r#"{"sandbox_workspace_write":{"network_access":true}}"#;

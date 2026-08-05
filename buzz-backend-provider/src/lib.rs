@@ -343,7 +343,14 @@ fn deploy_with_readiness(
         .map_err(|_| ProviderError::UnsupportedProviderConfig)?;
     let public_key = derive_agent_pubkey(&agent.private_key_nsec)?;
     let handle = deterministic_handle(&public_key);
-    let mut request = build_launch_request(agent, &public_key, &handle, options)?;
+    let product_api_base = client.product_api_base();
+    let mut request = build_launch_request_with_inference_base(
+        agent,
+        &public_key,
+        &handle,
+        options,
+        &product_api_base,
+    )?;
     request.dry_run = dry_run;
     // Apply tier defaults only when concurrency is genuinely unspecified.
     // Any concrete Buzz value — including 1 — is authoritative.
@@ -587,11 +594,28 @@ fn wait_until_running(
     }
 }
 
+#[cfg(test)]
 fn build_launch_request(
     agent: BuzzAgentPayload,
     public_key: &str,
     handle: &str,
     options: ProviderOptions,
+) -> Result<CreateDeploymentRequest, ProviderError> {
+    build_launch_request_with_inference_base(
+        agent,
+        public_key,
+        handle,
+        options,
+        HYPERCLI_ANTHROPIC_BASE_URL,
+    )
+}
+
+fn build_launch_request_with_inference_base(
+    agent: BuzzAgentPayload,
+    public_key: &str,
+    handle: &str,
+    options: ProviderOptions,
+    inference_api_base: &str,
 ) -> Result<CreateDeploymentRequest, ProviderError> {
     if agent.relay_url.trim().is_empty() {
         return Err(ProviderError::MissingRelayUrl);
@@ -685,7 +709,7 @@ fn build_launch_request(
         agent.agent_args.clone()
     };
 
-    apply_hypercli_inference_defaults(&mut env, runtime);
+    apply_hypercli_inference_defaults(&mut env, runtime, inference_api_base);
 
     if launch_args.iter().any(|argument| argument.contains(',')) {
         return Err(ProviderError::InvalidLaunchArguments);
@@ -931,6 +955,7 @@ const BUZZ_AGENT_NATIVE_PROVIDERS: [&str; 7] = [
 /// `/v1`: buzz-agent appends `/v1/messages` itself, and an unset value
 /// silently defaults to `api.anthropic.com` — i.e. our key would go to the
 /// wrong vendor.
+#[cfg(test)]
 const HYPERCLI_ANTHROPIC_BASE_URL: &str = "https://api.hypercli.com";
 
 /// Translate the vendor-neutral `hypercli` selection Buzz Desktop sends into
@@ -949,11 +974,17 @@ const HYPERCLI_ANTHROPIC_BASE_URL: &str = "https://api.hypercli.com";
 ///   image, so the id is already valid and must not be touched.
 /// * `opencode` names models `<provider>/<model>`; a bare id never matches
 ///   its advertised options, so the model switch silently no-ops.
-/// * `claude-code` and `kimi` take no provider from Buzz at all.
+/// * `claude-code`, `codex`, and `kimi` take no provider from Buzz at all;
+///   `hypercli-buzz-acp` derives their native child env at spawn time from
+///   Lagoon's short-lived `HYPER_*` environment.
 ///
 /// User-supplied values always win: nothing here overwrites an explicit
 /// setting except a provider id the harness would reject outright.
-fn apply_hypercli_inference_defaults(env: &mut BTreeMap<String, String>, runtime: CodingRuntime) {
+fn apply_hypercli_inference_defaults(
+    env: &mut BTreeMap<String, String>,
+    runtime: CodingRuntime,
+    inference_api_base: &str,
+) {
     match runtime {
         CodingRuntime::BuzzAgent => {
             let native = env
@@ -969,7 +1000,7 @@ fn apply_hypercli_inference_defaults(env: &mut BTreeMap<String, String>, runtime
                 // api.anthropic.com when this is absent.
                 env.insert(
                     "ANTHROPIC_BASE_URL".to_owned(),
-                    HYPERCLI_ANTHROPIC_BASE_URL.to_owned(),
+                    inference_api_base.trim_end_matches('/').to_owned(),
                 );
             }
         }
@@ -989,8 +1020,8 @@ fn apply_hypercli_inference_defaults(env: &mut BTreeMap<String, String>, runtime
                 }
             }
         }
-        // claude-code and kimi-code take their provider config from the
-        // image; Buzz sends them no provider id to translate.
+        // These runtimes receive their provider config at the ACP child-spawn
+        // boundary; Buzz sends them no provider id to translate here.
         CodingRuntime::ClaudeCode | CodingRuntime::Codex | CodingRuntime::KimiCode => {}
     }
 }
@@ -1496,10 +1527,14 @@ mod tests {
     }
 
     #[test]
-    fn claude_and_kimi_take_no_provider_injection() {
+    fn acp_injected_runtimes_take_no_provider_wire_injection() {
         // Buzz locks the provider for claude and drops it for kimi presets;
         // their inference config lives in the image.
-        for runtime in [CodingRuntime::ClaudeCode, CodingRuntime::KimiCode] {
+        for runtime in [
+            CodingRuntime::ClaudeCode,
+            CodingRuntime::Codex,
+            CodingRuntime::KimiCode,
+        ] {
             let env = launch_env(runtime, &[("BUZZ_ACP_MODEL", "kimi-k2.6-anthropic")]);
             assert!(!env.contains_key("BUZZ_AGENT_PROVIDER"));
             assert!(!env.contains_key("ANTHROPIC_BASE_URL"));
