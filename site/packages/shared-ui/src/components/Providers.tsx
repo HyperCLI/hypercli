@@ -112,7 +112,7 @@ function ThemedProviderStack({ children }: { children: React.ReactNode }) {
     <PrivyProvider
       appId={PRIVY_APP_ID!}
       config={{
-        loginMethods: ["email", "wallet", "google"],
+        loginMethods: ["email", "wallet", "google", "apple"],
         appearance: {
           theme: mode,
           accentColor: brandAccent,

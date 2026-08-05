@@ -48,7 +48,7 @@ export function PrivyAuthBoundary({
   apiBaseUrl,
   children,
   tokenStorageKey = "app_auth_token",
-  loginMethods = ["email", "wallet", "google"],
+  loginMethods = ["email", "wallet", "google", "apple"],
   logo,
   accentColor,
   theme,
