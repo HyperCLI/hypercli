@@ -2139,7 +2139,10 @@ fn create_buzz_deployment_blocking(
         AgentSize::Large => 10,
     });
     let mut request = CreateDeploymentRequest::new(runtime);
-    request.name = Some(input.name.trim().to_owned());
+    request.name = Some(hypercli_sdk::canonical_deployment_name(
+        input.name.trim(),
+        &prepared.agent_public_hex,
+    ));
     request.env = input.env.clone();
     if let Some(avatar_url) = input
         .avatar_url

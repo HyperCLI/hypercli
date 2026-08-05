@@ -415,6 +415,10 @@ The hosted Buzz E2E bootstraps a unique dev user plus a one-hour `pro`
 entitlement before opening Desktop, so largest-slot selection has deterministic
 large capacity. Its `always()` cleanup removes both HyperClaw and Orchestra
 user projections; the gate does not borrow slots from the shared test account.
+Buzz display names are not backend deployment names. Both the provider and the
+direct Desktop path use the SDK's `canonical_deployment_name` helper to derive
+a lowercase DNS-safe slug with an eight-character Nostr identity suffix, while
+the original name remains the Buzz profile/display name.
 
 Avatar bytes never enter launch env or relay events. The native picker rejects
 symlinks, images over 2 MiB, and content whose magic is not PNG/JPEG/GIF/WebP,

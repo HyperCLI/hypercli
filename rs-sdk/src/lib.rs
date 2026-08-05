@@ -19,9 +19,9 @@ pub use runtime_auth::{
     RuntimeLoginSession, RuntimeShellToken,
 };
 pub use types::{
-    AgentCapacity, AgentSize, AgentSlot, AgentSlotInventory, ApiKey, AuthMe, BuzzLaunchConfig,
-    BuzzLaunchError, CreateApiKeyRequest, CreateDeploymentRequest, DeleteDeploymentResponse,
-    Deployment, DeploymentFileWriteResponse, DeploymentLaunchConfig,
+    canonical_deployment_name, AgentCapacity, AgentSize, AgentSlot, AgentSlotInventory, ApiKey,
+    AuthMe, BuzzLaunchConfig, BuzzLaunchError, CreateApiKeyRequest, CreateDeploymentRequest,
+    DeleteDeploymentResponse, Deployment, DeploymentFileWriteResponse, DeploymentLaunchConfig,
     DeploymentProfileImageResponse, DeploymentRoutes, EntitlementsSummary, ExecDeploymentRequest,
     ExecDeploymentResponse, HyperAgentCanonicalPlanId, HyperAgentCurrentPlan,
     HyperAgentEntitlement, HyperAgentEntitlementsSummary, HyperAgentPlan, HyperAgentPlanResources,

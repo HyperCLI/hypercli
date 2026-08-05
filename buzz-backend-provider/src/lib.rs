@@ -4,8 +4,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use hypercli_sdk::{
-    AgentCapacity, AgentSize, CreateDeploymentRequest, Deployment, HyperCliClient, HyperCliError,
-    ManagedRuntime, StartDeploymentRequest, BUZZ_RUNTIME_SCOPES,
+    canonical_deployment_name, AgentCapacity, AgentSize, CreateDeploymentRequest, Deployment,
+    HyperCliClient, HyperCliError, ManagedRuntime, StartDeploymentRequest, BUZZ_RUNTIME_SCOPES,
 };
 use nostr::Keys;
 use reqwest::StatusCode;
@@ -1151,40 +1151,7 @@ pub fn deterministic_handle(public_key: &str) -> String {
 }
 
 pub fn deployment_name(display_name: &str, public_key: &str) -> String {
-    const SUFFIX_LEN: usize = 8;
-    const MAX_NAME_LEN: usize = 32;
-
-    let mut base = String::with_capacity(display_name.len());
-    let mut previous_hyphen = false;
-    for character in display_name.chars().flat_map(char::to_lowercase) {
-        if character.is_ascii_lowercase() || character.is_ascii_digit() {
-            base.push(character);
-            previous_hyphen = false;
-        } else if !base.is_empty() && !previous_hyphen {
-            base.push('-');
-            previous_hyphen = true;
-        }
-    }
-    while base.ends_with('-') {
-        base.pop();
-    }
-    if !base
-        .chars()
-        .next()
-        .is_some_and(|character| character.is_ascii_lowercase())
-    {
-        base.insert_str(0, "buzz-");
-    }
-    let suffix = &public_key[..public_key.len().min(SUFFIX_LEN)];
-    let max_base_len = MAX_NAME_LEN - suffix.len() - 1;
-    base.truncate(max_base_len);
-    while base.ends_with('-') {
-        base.pop();
-    }
-    if base.len() < 2 {
-        base = "buzz".to_owned();
-    }
-    format!("{base}-{suffix}")
+    canonical_deployment_name(display_name, public_key)
 }
 
 pub fn validate_provider_config(value: &Value) -> Result<(), ProviderError> {

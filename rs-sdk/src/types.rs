@@ -37,6 +37,46 @@ impl AgentSize {
     }
 }
 
+/// Convert a human-facing agent name into the stable DNS-safe deployment name
+/// accepted by the managed-agent API. The identity suffix avoids collisions
+/// without changing the display name published to chat surfaces.
+pub fn canonical_deployment_name(display_name: &str, identity: &str) -> String {
+    const SUFFIX_LEN: usize = 8;
+    const MAX_NAME_LEN: usize = 32;
+
+    let mut base = String::with_capacity(display_name.len());
+    let mut previous_hyphen = false;
+    for character in display_name.chars().flat_map(char::to_lowercase) {
+        if character.is_ascii_lowercase() || character.is_ascii_digit() {
+            base.push(character);
+            previous_hyphen = false;
+        } else if !base.is_empty() && !previous_hyphen {
+            base.push('-');
+            previous_hyphen = true;
+        }
+    }
+    while base.ends_with('-') {
+        base.pop();
+    }
+    if !base
+        .chars()
+        .next()
+        .is_some_and(|character| character.is_ascii_lowercase())
+    {
+        base.insert_str(0, "buzz-");
+    }
+    let suffix = &identity[..identity.len().min(SUFFIX_LEN)];
+    let max_base_len = MAX_NAME_LEN - suffix.len() - 1;
+    base.truncate(max_base_len);
+    while base.ends_with('-') {
+        base.pop();
+    }
+    if base.len() < 2 {
+        base = "buzz".to_owned();
+    }
+    format!("{base}-{suffix}")
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum HyperAgentCanonicalPlanId {
@@ -935,6 +975,20 @@ mod tests {
         ))
         .unwrap();
         golden["dynamic_env"]["BUZZ_MANAGED_AGENT_START_NONCE"].clone()
+    }
+
+    #[test]
+    fn deployment_name_keeps_display_names_out_of_the_dns_contract() {
+        let identity = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+        assert_eq!(
+            canonical_deployment_name("CI Buzz Agent", identity),
+            "ci-buzz-agent-79be667e"
+        );
+        assert_eq!(
+            canonical_deployment_name("  42 / Very Long Agent Name With Spaces  ", identity),
+            "buzz-42-very-long-agent-79be667e"
+        );
+        assert_eq!(canonical_deployment_name("___", identity), "buzz-79be667e");
     }
 
     #[test]
