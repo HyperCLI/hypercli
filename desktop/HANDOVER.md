@@ -550,4 +550,20 @@ RUNNING, but the persisted log showed `buzz-agent` rejecting the legacy
 `owner-only | allowlist | anyone | nobody`. Desktop now stores/emits
 `owner-only`, reads legacy `owner` as `owner-only`, and the shared Rust SDK
 canonicalizes the old alias at the final launch-env boundary. A regression test
-pins the exact `BUZZ_ACP_RESPOND_TO=owner-only` wire value.
+pins the exact `BUZZ_ACP_RESPOND_TO=owner-only` wire value. Run `31035159265`
+then passed the full production-shaped gate: the real Linux Desktop saved the
+CI Buzz identity, discovered private `#CI`, launched an isolated hosted agent,
+observed its online presence, sent the signed owner message, received a
+non-empty reply, stop/deleted the deployment, removed the local connection,
+and cleaned both isolated backend user projections.
+
+Desktop 0.1.3 was released from exact source
+`e432f06fb364a25c7b5b72621a1f307b584156a3` by run `31037568318` after
+Desktop CI and the hosted gate were green. The versioned release is
+`desktop-v0.1.3`; rolling `desktop-latest/latest.json` reports `0.1.3` and has
+signed updater entries for darwin-aarch64, darwin-x86_64, linux-x86_64, and
+windows-x86_64. Both macOS bundles are Developer-ID signed. Apple submission
+`50ce5e34-910f-4330-affb-b8d47a26595e` is the 0.1.3 arm64 archive and
+`8277eedd-43eb-4079-8d5d-e560d3c9cdcc` is x86_64; both were still
+`submissions in progress` when the bounded 600-second waits expired, so the
+release correctly recorded them as pending rather than rejected.
