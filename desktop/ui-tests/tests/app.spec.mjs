@@ -320,11 +320,11 @@ test("native model override requires explicit HyperCLI compatibility env", async
   await page.goto("/");
   await page.locator(".agent-card", { hasText: "Maverick" }).click();
   await expect(page.locator("#agent-model")).toBeDisabled();
-  await expect(page.locator("#agent-model-help")).toContainText("HYPERCLI_RUNTIME_INFERENCE=hypercli");
+  await expect(page.locator("#agent-model-help")).toContainText("native account");
   await page.locator("#agent-advanced").click();
   await page.locator("#agent-env").fill("GITHUB_ORG=hypercli\nHYPERCLI_RUNTIME_INFERENCE=hypercli");
   await expect(page.locator("#agent-model")).toBeEnabled();
-  await expect(page.locator("#agent-model-help")).toContainText("explicitly enabled");
+  await expect(page.locator("#agent-model-help")).toContainText("compatibility inference");
 });
 
 test("create prompt drafting previews text and never saves automatically", async ({ page }) => {
@@ -461,6 +461,7 @@ test("legacy agent with no recoverable channel remains editable", async ({ page 
       "40c42593-7d02-48f9-a3ff-6c7d6461f140": {
         community: "",
         channel: "",
+        respond_to: "",
       },
     },
   });
@@ -468,6 +469,7 @@ test("legacy agent with no recoverable channel remains editable", async ({ page 
   await page.locator(".agent-card", { hasText: "Maverick" }).click();
   await expect(page.locator("#agent-community option").first()).toHaveText("Current channel unavailable");
   await expect(page.locator("#agent-community")).toBeEditable({ editable: false });
+  await expect(page.locator("#agent-respond-to")).toHaveValue("owner");
   await expect(page.locator("#connection-move-hint")).toContainText("Clone / Move");
   await page.locator("#agent-name").fill("Maverick Legacy");
   await page.locator("#agent-save").click();

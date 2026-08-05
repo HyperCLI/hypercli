@@ -403,6 +403,14 @@ concurrency is 2/5/10 for small/medium/large. Every deployment carries both
 preserves the full stored launch envelope, mutates only owned fields, and
 stop/PATCH/starts a running deployment. Runtime and Buzz connection are
 immutable in-place; moving them is a future Clone/Move operation.
+Legacy deployments with no recoverable `respond_to` value fail closed to
+`owner` / **Only me** in the editor; the UI never renders or submits a blank
+policy, and local validation explains the required choice before IPC.
+The compact-app visual rule is deliberate: persistent cards represent agents;
+task subpages, runtime login, SSH setup, and Buzz connection management use
+flat fields and divided rows instead of nested cards. New agents require a
+saved Buzz connection; existing identities keep their connection immutable
+until a future explicit Clone/Move flow exists.
 
 Avatar bytes never enter launch env or relay events. The native picker rejects
 symlinks, images over 2 MiB, and content whose magic is not PNG/JPEG/GIF/WebP,

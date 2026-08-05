@@ -222,13 +222,13 @@
             </div>
           </section>
 
-          <div class="form-grid">
+          <div class="form-grid model-concurrency-grid">
             <div class="field-stack">
               <label for="agent-model">Model</label>
               <input id="agent-model" name="model" placeholder="Runtime default" />
               <span id="agent-model-help" class="hint"></span>
             </div>
-            <div class="field-stack compact-field">
+            <div class="field-stack concurrency-field">
               <label for="agent-concurrency">Concurrency</label>
               <input id="agent-concurrency" name="concurrency" type="number" min="1" max="32" placeholder="Automatic" />
             </div>
@@ -264,6 +264,7 @@
                 <option value="allowlist">Selected people</option>
                 <option value="anyone">Anyone</option>
               </select>
+              <span id="agent-respond-to-error" class="field-error" role="alert" hidden></span>
             </div>
             <div id="allowlist-field" class="field-stack" hidden>
               <label for="agent-allowlist">Allowed people</label>

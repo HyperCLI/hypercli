@@ -638,8 +638,12 @@ button.link:hover {
   gap: 10px;
 }
 
-.compact-field input {
-  width: 100%;
+.model-concurrency-grid {
+  grid-template-columns: minmax(0, 1fr) 112px;
+}
+
+.concurrency-field input {
+  width: 112px;
   flex: none;
 }
 
@@ -660,10 +664,9 @@ button.link:hover {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) * 0.7);
-  background: var(--card);
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 
 .inset > div:first-child {
@@ -712,10 +715,8 @@ button.link:hover {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) * 0.7);
-  background: var(--card);
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
 }
 
 .connection-list {
@@ -729,10 +730,8 @@ button.link:hover {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 11px 12px;
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) * 0.7);
-  background: var(--card);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
 }
 
 .connection-card-main {
@@ -749,6 +748,11 @@ button.link:hover {
 .connection-remove {
   flex: none;
   color: var(--error);
+}
+
+.field-error {
+  color: var(--error);
+  font-size: 11.5px;
 }
 
 #buzz-connection-add {

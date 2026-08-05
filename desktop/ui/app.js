@@ -545,8 +545,8 @@ function updateModelAvailability() {
   model.placeholder = native && !compatibility ? "Native default" : "kimi-k2.6";
   help.textContent = native
     ? (compatibility
-      ? "HyperCLI compatibility inference is explicitly enabled in Advanced."
-      : "The native account chooses its model. To override it, add HYPERCLI_RUNTIME_INFERENCE=hypercli in Advanced.")
+      ? "Using HyperCLI compatibility inference from Advanced."
+      : "Uses the model selected by your native account.")
     : "";
 }
 
@@ -663,6 +663,7 @@ function showEditor(detail, agent = null) {
   const community = document.getElementById("agent-community");
   const relay = document.getElementById("agent-relay");
   connectionSelect.disabled = !creating;
+  connectionSelect.required = creating;
   if (!creating && !selectedConnectionId) {
     const current = document.createElement("option");
     current.value = "";
@@ -678,7 +679,14 @@ function showEditor(detail, agent = null) {
   setEditorField("agent-relay", editorValue(detail, "relay", relay.value));
   const detailCommunity = editorValue(detail, "community", editorValue(detail, "channel", ""));
   setEditorField("agent-community", detailCommunity);
-  setEditorField("agent-respond-to", editorValue(detail, "respond_to", "owner"));
+  const respondTo = editorValue(detail, "respond_to", "owner");
+  setEditorField(
+    "agent-respond-to",
+    ["owner", "allowlist", "anyone"].includes(respondTo) ? respondTo : "owner",
+  );
+  const respondToError = document.getElementById("agent-respond-to-error");
+  respondToError.textContent = "";
+  respondToError.hidden = true;
   const allowlist = editorValue(detail, "allowlist", []);
   setEditorField("agent-allowlist", Array.isArray(allowlist) ? allowlist.join("\n") : allowlist);
   setEditorField("agent-env", normalizeEnvironment(editorValue(detail, "env", {})));
@@ -804,6 +812,13 @@ function editorPayload() {
   const channel = document.getElementById("agent-community").value.trim();
   const connectionId = document.getElementById("agent-connection").value;
   const model = document.getElementById("agent-model");
+  const respondTo = document.getElementById("agent-respond-to").value;
+  if (!["owner", "allowlist", "anyone"].includes(respondTo)) {
+    const error = document.getElementById("agent-respond-to-error");
+    error.textContent = "Choose who can send instructions.";
+    error.hidden = false;
+    throw new Error("Choose who can send instructions to this agent.");
+  }
   return {
     name: document.getElementById("agent-name").value.trim(),
     instructions: document.getElementById("agent-instructions").value.trim(),
@@ -818,11 +833,17 @@ function editorPayload() {
     connection_id: connectionId && connectionId !== "__add__" ? connectionId : null,
     channels: channel ? [channel] : [],
     community: channel,
-    respond_to: document.getElementById("agent-respond-to").value,
+    respond_to: respondTo,
     allowlist: document.getElementById("agent-allowlist").value.split("\n").map((item) => item.trim()).filter(Boolean),
     env: parseEnvironment(document.getElementById("agent-env").value),
   };
 }
+
+document.getElementById("agent-respond-to").addEventListener("change", () => {
+  const error = document.getElementById("agent-respond-to-error");
+  error.textContent = "";
+  error.hidden = true;
+});
 
 document.getElementById("create-agent-btn").addEventListener("click", async () => {
   setStatus("Loading Buzz connections…");

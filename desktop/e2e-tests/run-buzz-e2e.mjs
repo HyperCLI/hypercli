@@ -303,8 +303,22 @@ async function main() {
     await (await browser.$("#agent-name")).setValue(agentName);
     await (await browser.$("#agent-instructions")).setValue("Answer direct factual questions briefly and always publish the answer to Buzz.");
     await (await browser.$("#agent-runtime")).selectByAttribute("value", "buzz-agent");
+    const invalidFields = await browser.execute(() => Array.from(
+      document.querySelector("#agent-form").elements,
+      (field) => ({ id: field.id, valid: field.checkValidity() }),
+    ).filter((field) => !field.valid).map((field) => field.id));
+    if (invalidFields.length) fail(`agent form is invalid: ${invalidFields.join(", ")}`);
     await (await browser.$("#agent-save")).click();
-    await (await browser.$("#dashboard-view")).waitForDisplayed({ timeout: 60_000 });
+    let createError = "";
+    await browser.waitUntil(async () => {
+      if (await (await browser.$("#dashboard-view")).isDisplayed()) return true;
+      createError = await browser.execute(() => {
+        const status = document.querySelector("#status");
+        return status?.classList.contains("error") ? status.textContent?.trim() || "" : "";
+      });
+      return Boolean(createError);
+    }, { timeout: 60_000, timeoutMsg: "agent creation did not return to the dashboard" });
+    if (createError) fail(`agent creation failed: ${createError}`);
 
     await browser.waitUntil(async () => {
       const candidates = await browser.execute(() => Array.from(
