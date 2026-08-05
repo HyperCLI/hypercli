@@ -142,14 +142,17 @@ parallelism, response-policy, allowlist, prompt, and authorization fields:
 The provider derives a deterministic user-scoped handle from the agent public
 key, checks for an existing deployment before create, and repeats the lookup
 after a conflict. A deploy request restarts a stopped deployment with the
-request's current launch settings. A deploy request for an already-running
-deployment is idempotent and does not update its launch settings in place;
-stop it through the authenticated HyperCLI deployment API before asking Buzz
-to deploy it again with changed settings. For `failed`, `restore_failed`, or
-`sync_failed`, let the no-restart cleanup reach `stopped` (or stop the
-deployment with authenticated HyperCLI tooling), then deploy again; the
-provider never starts through an uncleared runtime. It emits exactly one JSON
-response and writes no protocol diagnostics to stderr.
+request's current launch settings. New deployments carry a non-secret launch
+fingerprint tag. An identical request for an already-running deployment is
+idempotent; a changed request fails clearly until the agent is stopped. Once
+stopped, changed launch settings or a changed runtime replace the old
+deployment so Buzz's “changes apply next spawn” contract remains true. Legacy
+same-runtime deployments without a fingerprint retain the compatible restart
+path. For `failed`, `restore_failed`, or `sync_failed`, let the no-restart
+cleanup reach `stopped` (or stop the deployment with authenticated HyperCLI
+tooling), then deploy again; the provider never starts through an uncleared
+runtime. It emits exactly one JSON response and writes no protocol diagnostics
+to stderr.
 
 Stock v0.5.2 sends `idle_timeout_seconds`, legacy
 `turn_timeout_seconds`, `max_turn_duration_seconds`, `respond_to`, and

@@ -180,10 +180,12 @@ synced vendor login/config instead. Kimi 0.31 can therefore join live CI;
 Claude and Codex retain native login for vendor-specific features, and Codex
 still cannot infer through HyperCLI until the gateway serves Responses.
 
-The translation lives in `apply_hypercli_inference_defaults`
-(`buzz-backend-provider/src/lib.rs`), applied **after** the launch-block
-merge so it reaches the path Buzz actually uses. Covered by six matrix tests
-in that file plus the golden contract test
+Provider-level translation for Buzz Agent, Goose, and OpenCode lives in
+`apply_hypercli_inference_defaults` (`buzz-backend-provider/src/lib.rs`),
+applied **after** the launch-block merge so it reaches the path Buzz actually
+uses. Claude, Codex, and Kimi translation lives at the ACP child-spawn boundary
+in `buzz-acp/src/acp.rs`, so it is re-applied on every lazy spawn and respawn.
+Covered by runtime matrix tests plus the golden contract test
 (`tests/protocol.rs` + `tests/fixtures/buzz-launch-contract.json`), which now
 pins the injected keys per runtime — if the wire shape changes again, that
 test fails rather than shipping silently.
@@ -193,10 +195,11 @@ Two structural notes:
 * The per-runtime env block used to live in the legacy `else` branch, so it
   never ran on the launch-block path Buzz actually uses — the Goose special
   case had been dead code.
-* Buzz's harness command set is **open-ended** (5 builtin + 9 preset + any
-  user-defined custom harness), so the provider's accept-list can never be
-  complete. Failing closed produces "Buzz launch command is unsupported".
-  Fail-open with a default runtime is the correct behavior.
+* Buzz's harness command set is open-ended, but hosted dispatch must remain
+  fail-closed. Silently mapping an unknown custom harness onto a different
+  image executes a runtime the user did not select. Until provider capability
+  filtering exists upstream, unsupported hosted harnesses should fail with a
+  clear error.
 
 ### 5. Providers cannot advertise harnesses — upstream
 Buzz 0.5.4 validates a provider's `info` response against a closed six-field
@@ -235,6 +238,12 @@ runtime-image dependency.
 Every newly created provider deployment now carries `app=buzz` plus its
 existing `buzz_agent=<public-key>` identity tag. Existing deployments are
 still recognized by the identity tag, so this is backward compatible.
+Provider reconciliation derives the same public key from the request nsec and
+uses the identity tag as a second fence after the deterministic handle; it
+never selects by display name or list order. New deployments also carry a
+non-secret launch fingerprint. An identical running deploy is idempotent, a
+changed running deploy fails until shutdown, and a stopped deployment can be
+replaced when its runtime or launch contract changed.
 Concurrency remains user-authoritative: if Buzz sends `BUZZ_ACP_AGENTS`, even
 as `1`, the provider preserves it. Only a genuinely absent value receives the
 resolved tier default: 2 on small (2 GB), 5 on medium (4 GB), and 10 on large
@@ -262,6 +271,15 @@ Tauri command unless the fresh state is exactly `stopped`.
   vendor's cloud. A "RUNNING" deployment proves the pod booted, nothing more —
   `BUZZ_ACP_LAZY_POOL=true` means the harness may not even spawn until work
   arrives.
+* **Vanilla Buzz cannot currently surface hosted restart after `!shutdown`.**
+  The keyed record keeps its provider, provider path, and `backend_agent_id`,
+  but Desktop derives its primary action from the permanent `deployed` status
+  instead of offline presence. Delete removes that keyed instance and leaves
+  the definition; Play on the remaining definition silently defaults to local
+  because `Run on` is available only during brand-new creation. HyperCLI's
+  provider can restart the exact identity, but current vanilla Buzz does not
+  make that call reachable. Leave this as an upstream lifecycle/UI issue; do
+  not mutate Buzz's local store from the provider.
 * **`HYPER_AGENTS_API_KEY` is injected by lagoon at pod-spec time**, not by
   the provider — it cannot appear in `request.env`. Runtime-native key mapping
   therefore lives in `hypercli-buzz-acp` at the child-spawn boundary, where it
@@ -312,10 +330,12 @@ for l in open('/tmp/buzz-provider-capture.jsonl'):
 "
 ```
 
-This is what proved the diagnosis: **every** agent — regardless of its name —
-was sending `launch.command=buzz-agent` with
-`BUZZ_AGENT_PROVIDER=hypercli`, because `global-agent-config.json`'s
-`preferred_runtime` overrides the per-agent harness.
+This capture showed that the tested records all resolved to
+`launch.command=buzz-agent` with `BUZZ_AGENT_PROVIDER=hypercli`. It does not
+prove a global override: current Buzz resolves explicit launch pin, then the
+record runtime, then a legacy persona runtime, then Buzz Agent. The capture is
+therefore evidence of stale or mis-materialized records, not evidence that
+`preferred_runtime` overrides per-agent harnesses.
 
 ### Replaying a captured request (no deploy, no side effects)
 
@@ -342,6 +362,7 @@ without deploying anything.
 #   ~/Library/Application Support/xyz.block.buzz.app/agents/{managed-agents,global-agent-config}.json
 ```
 
-`global-agent-config.json` holds `preferred_runtime` — it overrides the
-harness for **every** agent, which is why agents named Goose/Opencode were all
-launching `buzz-agent`.
+`global-agent-config.json` holds `preferred_runtime`, which selects the default
+shown for new configuration. It does not override an existing record runtime.
+When named Goose/OpenCode agents all launch `buzz-agent`, inspect each record's
+materialized runtime and the persona fallback before blaming the global value.

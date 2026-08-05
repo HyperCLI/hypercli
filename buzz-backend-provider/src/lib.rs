@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashSet};
+use std::fmt::Write as _;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -10,6 +11,7 @@ use nostr::Keys;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 const DEFAULT_BUZZ_OPENCODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-opencode:latest";
@@ -18,6 +20,7 @@ const DEFAULT_BUZZ_CODEX_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-codex:lat
 const DEFAULT_BUZZ_CLAUDE_CODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-claude:latest";
 const DEFAULT_BUZZ_GOOSE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-goose:latest";
 const DEFAULT_BUZZ_KIMI_CODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-kimi-code:latest";
+const BUZZ_LAUNCH_TAG_PREFIX: &str = "buzz_launch=";
 // CI bakes an immutable candidate into the exact provider binary under test so
 // provider_config remains byte-for-byte identical to Buzz Desktop's empty
 // schema. Release builds do not set this and use the runtime defaults above.
@@ -263,8 +266,16 @@ pub enum ProviderError {
     ResponseEncoding,
     #[error("idempotent deployment lookup returned multiple agents")]
     AmbiguousDeployment,
+    #[error("existing deployment identity tag does not match the requested Buzz agent")]
+    IdentityMismatch,
     #[error("existing deployment runtime does not match the requested runtime")]
     RuntimeMismatch,
+    #[error(
+        "existing deployment launch settings differ from this request; shut it down before redeploying"
+    )]
+    LaunchMismatch,
+    #[error("Buzz launch fingerprint could not be encoded")]
+    LaunchFingerprintEncoding,
     #[error("no HyperCLI agent slots are currently available")]
     NoAvailableSlots,
     #[error("HyperCLI deployment {deployment_id} is still {state}; retry after cleanup completes")]
@@ -352,6 +363,7 @@ fn deploy_with_readiness(
         &product_api_base,
     )?;
     request.dry_run = dry_run;
+    mark_launch_fingerprint(&mut request)?;
     // Apply tier defaults only when concurrency is genuinely unspecified.
     // Any concrete Buzz value — including 1 — is authoritative.
     let size_based_parallelism = !request.env.contains_key("BUZZ_ACP_AGENTS");
@@ -377,15 +389,17 @@ fn deploy_with_readiness(
             .map_err(ProviderError::HyperCli);
     }
 
-    let (existing, mut capacity) = find_existing_with_capacity(client, &handle, request.runtime)?;
+    let (existing, mut capacity) = find_existing_with_capacity(client, &handle, &public_key)?;
     if let Some(existing) = existing {
         apply_existing_size_parallelism(&mut request, &existing, size_based_parallelism);
-        let deployment = restart_if_stopped(client, existing, &request)?;
-        let deployment = wait_until_running(client, deployment, readiness_timeout, poll_interval)?;
-        return Ok(DeployResponse {
-            ok: true,
-            agent_id: deployment.id,
-        });
+        if let Some(deployment) = reconcile_existing(client, existing, &request)? {
+            let deployment =
+                wait_until_running(client, deployment, readiness_timeout, poll_interval)?;
+            return Ok(DeployResponse {
+                ok: true,
+                agent_id: deployment.id,
+            });
+        }
     }
 
     let mut attempted_sizes = Vec::new();
@@ -408,33 +422,39 @@ fn deploy_with_readiness(
             Err(error) if error.status() == Some(StatusCode::CONFLICT) => {
                 // Close the list-before-create race without inventing a separate
                 // provider database. The user-scoped handle is deterministic.
-                let (existing, _) = find_existing_with_capacity(client, &handle, request.runtime)?;
+                let (existing, refreshed) =
+                    find_existing_with_capacity(client, &handle, &public_key)?;
                 let existing = existing.ok_or(ProviderError::MissingConflictingDeployment)?;
                 apply_existing_size_parallelism(&mut request, &existing, size_based_parallelism);
-                let existing = restart_if_stopped(client, existing, &request)?;
-                let existing =
-                    wait_until_running(client, existing, readiness_timeout, poll_interval)?;
-                return Ok(DeployResponse {
-                    ok: true,
-                    agent_id: existing.id,
-                });
-            }
-            Err(error) if error.status() == Some(StatusCode::TOO_MANY_REQUESTS) => {
-                let (existing, refreshed) =
-                    find_existing_with_capacity(client, &handle, request.runtime)?;
-                if let Some(existing) = existing {
-                    apply_existing_size_parallelism(
-                        &mut request,
-                        &existing,
-                        size_based_parallelism,
-                    );
-                    let existing = restart_if_stopped(client, existing, &request)?;
+                if let Some(existing) = reconcile_existing(client, existing, &request)? {
                     let existing =
                         wait_until_running(client, existing, readiness_timeout, poll_interval)?;
                     return Ok(DeployResponse {
                         ok: true,
                         agent_id: existing.id,
                     });
+                }
+                capacity = refreshed;
+                attempted_sizes.clear();
+            }
+            Err(error) if error.status() == Some(StatusCode::TOO_MANY_REQUESTS) => {
+                let (existing, refreshed) =
+                    find_existing_with_capacity(client, &handle, &public_key)?;
+                if let Some(existing) = existing {
+                    apply_existing_size_parallelism(
+                        &mut request,
+                        &existing,
+                        size_based_parallelism,
+                    );
+                    if let Some(existing) = reconcile_existing(client, existing, &request)? {
+                        let existing =
+                            wait_until_running(client, existing, readiness_timeout, poll_interval)?;
+                        return Ok(DeployResponse {
+                            ok: true,
+                            agent_id: existing.id,
+                        });
+                    }
+                    attempted_sizes.clear();
                 }
                 capacity = refreshed;
                 if largest_unattempted_size(&capacity, &attempted_sizes).is_none() {
@@ -501,22 +521,100 @@ fn largest_unattempted_size(
 fn find_existing_with_capacity(
     client: &HyperCliClient,
     handle: &str,
-    runtime: ManagedRuntime,
+    public_key: &str,
 ) -> Result<(Option<Deployment>, AgentCapacity), ProviderError> {
     let mut capacity = client
         .list_deployments_by_handle_with_capacity(handle)
         .map_err(ProviderError::HyperCli)?;
-    let mut deployments = std::mem::take(&mut capacity.items);
+    let deployments = std::mem::take(&mut capacity.items);
+    let expected_tag = format!("buzz_agent={public_key}");
+    let mut tagged_matches = deployments
+        .iter()
+        .filter(|deployment| deployment.tags.iter().any(|tag| tag == &expected_tag));
+    let tagged_match = tagged_matches.next().cloned();
+    if tagged_matches.next().is_some() {
+        return Err(ProviderError::AmbiguousDeployment);
+    }
+    if tagged_match.is_some() {
+        return Ok((tagged_match, capacity));
+    }
+    if deployments.iter().any(|deployment| {
+        deployment
+            .tags
+            .iter()
+            .any(|tag| tag.starts_with("buzz_agent="))
+    }) {
+        return Err(ProviderError::IdentityMismatch);
+    }
     if deployments.len() > 1 {
         return Err(ProviderError::AmbiguousDeployment);
     }
-    let existing = deployments.pop();
-    if let Some(deployment) = existing.as_ref() {
-        if deployment.runtime.is_some() && deployment.runtime != Some(runtime) {
-            return Err(ProviderError::RuntimeMismatch);
-        }
+    // Backward compatibility for deployments created before the identity tag
+    // shipped. New deployments always take the exact tagged path above.
+    Ok((deployments.into_iter().next(), capacity))
+}
+
+fn mark_launch_fingerprint(request: &mut CreateDeploymentRequest) -> Result<(), ProviderError> {
+    request
+        .tags
+        .retain(|tag| !tag.starts_with(BUZZ_LAUNCH_TAG_PREFIX));
+    let mut fingerprint_request = request.clone();
+    // This anti-replay nonce must change on each real process start, but it is
+    // not user launch intent and therefore must not make an identical deploy
+    // look like configuration drift.
+    fingerprint_request
+        .env
+        .remove("BUZZ_MANAGED_AGENT_START_NONCE");
+    let encoded = serde_json::to_vec(&fingerprint_request)
+        .map_err(|_| ProviderError::LaunchFingerprintEncoding)?;
+    let digest = Sha256::digest(encoded);
+    let mut fingerprint = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        write!(&mut fingerprint, "{byte:02x}")
+            .map_err(|_| ProviderError::LaunchFingerprintEncoding)?;
     }
-    Ok((existing, capacity))
+    request
+        .tags
+        .push(format!("{BUZZ_LAUNCH_TAG_PREFIX}{fingerprint}"));
+    Ok(())
+}
+
+fn reconcile_existing(
+    client: &HyperCliClient,
+    deployment: Deployment,
+    create: &CreateDeploymentRequest,
+) -> Result<Option<Deployment>, ProviderError> {
+    let stopped = deployment.state.eq_ignore_ascii_case("stopped");
+    let runtime_matches =
+        deployment.runtime.is_none() || deployment.runtime == Some(create.runtime);
+    let desired_fingerprint = create
+        .tags
+        .iter()
+        .find(|tag| tag.starts_with(BUZZ_LAUNCH_TAG_PREFIX));
+    let existing_fingerprint = deployment
+        .tags
+        .iter()
+        .find(|tag| tag.starts_with(BUZZ_LAUNCH_TAG_PREFIX));
+    let known_launch_matches = match (desired_fingerprint, existing_fingerprint) {
+        (Some(desired), Some(existing)) => desired == existing,
+        _ => true,
+    };
+
+    if !runtime_matches || !known_launch_matches {
+        if !stopped {
+            return Err(if runtime_matches {
+                ProviderError::LaunchMismatch
+            } else {
+                ProviderError::RuntimeMismatch
+            });
+        }
+        client
+            .delete_deployment(&deployment.id)
+            .map_err(ProviderError::HyperCli)?;
+        return Ok(None);
+    }
+
+    restart_if_stopped(client, deployment, create).map(Some)
 }
 
 fn restart_if_stopped(
@@ -2014,6 +2112,121 @@ mod tests {
     }
 
     #[test]
+    fn launch_fingerprint_is_stable_and_covers_runtime_environment() {
+        let mut first = build_launch_request(
+            test_agent(),
+            TEST_PUBLIC_HEX,
+            "buzz-runtime-test",
+            test_options(),
+        )
+        .unwrap();
+        let mut identical = build_launch_request(
+            test_agent(),
+            TEST_PUBLIC_HEX,
+            "buzz-runtime-test",
+            test_options(),
+        )
+        .unwrap();
+        assert_ne!(
+            first.env.get("BUZZ_MANAGED_AGENT_START_NONCE"),
+            identical.env.get("BUZZ_MANAGED_AGENT_START_NONCE")
+        );
+        mark_launch_fingerprint(&mut first).unwrap();
+        mark_launch_fingerprint(&mut identical).unwrap();
+        let first_tag = first
+            .tags
+            .iter()
+            .find(|tag| tag.starts_with(BUZZ_LAUNCH_TAG_PREFIX))
+            .unwrap();
+        let identical_tag = identical
+            .tags
+            .iter()
+            .find(|tag| tag.starts_with(BUZZ_LAUNCH_TAG_PREFIX))
+            .unwrap();
+        assert_eq!(first_tag, identical_tag);
+
+        identical
+            .env
+            .insert("BUZZ_ACP_MODEL".into(), "different-model".into());
+        mark_launch_fingerprint(&mut identical).unwrap();
+        let changed_tag = identical
+            .tags
+            .iter()
+            .find(|tag| tag.starts_with(BUZZ_LAUNCH_TAG_PREFIX))
+            .unwrap();
+        assert_ne!(first_tag, changed_tag);
+    }
+
+    #[test]
+    fn existing_lookup_uses_exact_buzz_identity_tag_not_list_order() {
+        let mut server = Server::new();
+        let handle = format!("buzz-{}", &TEST_PUBLIC_HEX[..48]);
+        let lookup = server
+            .mock("GET", "/agents/deployments")
+            .match_query(Matcher::UrlEncoded("handle".into(), handle.clone()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "items": [
+                        {
+                            "id":"wrong-first",
+                            "handle":handle,
+                            "runtime":"opencode",
+                            "state":"stopped",
+                            "tags":["app=buzz",format!("buzz_agent={}", "a".repeat(64))]
+                        },
+                        {
+                            "id":"right-second",
+                            "handle":handle,
+                            "runtime":"opencode",
+                            "state":"stopped",
+                            "tags":["app=buzz",format!("buzz_agent={TEST_PUBLIC_HEX}")]
+                        }
+                    ]
+                })
+                .to_string(),
+            )
+            .create();
+
+        let (existing, _) =
+            find_existing_with_capacity(&client(&server), &handle, TEST_PUBLIC_HEX).unwrap();
+
+        assert_eq!(existing.unwrap().id, "right-second");
+        lookup.assert();
+    }
+
+    #[test]
+    fn existing_lookup_refuses_a_conflicting_buzz_identity_tag() {
+        let mut server = Server::new();
+        let handle = format!("buzz-{}", &TEST_PUBLIC_HEX[..48]);
+        let lookup = server
+            .mock("GET", "/agents/deployments")
+            .match_query(Matcher::UrlEncoded("handle".into(), handle.clone()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "items": [{
+                        "id":"wrong-agent",
+                        "handle":handle,
+                        "runtime":"opencode",
+                        "state":"stopped",
+                        "tags":["app=buzz",format!("buzz_agent={}", "a".repeat(64))]
+                    }]
+                })
+                .to_string(),
+            )
+            .create();
+
+        let error =
+            find_existing_with_capacity(&client(&server), &handle, TEST_PUBLIC_HEX).unwrap_err();
+
+        assert!(matches!(error, ProviderError::IdentityMismatch));
+        lookup.assert();
+    }
+
+    #[test]
     fn deploy_uses_handle_for_idempotency_and_forwards_buzz_environment() {
         let mut server = Server::new();
         let handle = format!("buzz-{}", &TEST_PUBLIC_HEX[..48]);
@@ -2269,6 +2482,114 @@ mod tests {
         lookup.assert();
         restart.assert();
         ready.assert();
+    }
+
+    #[test]
+    fn deploy_replaces_a_stopped_agent_when_its_runtime_changes() {
+        let mut server = Server::new();
+        let handle = format!("buzz-{}", &TEST_PUBLIC_HEX[..48]);
+        let lookup = server
+            .mock("GET", "/agents/deployments")
+            .match_query(Matcher::UrlEncoded("handle".into(), handle.clone()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "items": [{
+                        "id":"old-runtime",
+                        "handle":handle,
+                        "runtime":"goose",
+                        "state":"stopped"
+                    }],
+                    "slots":{"large":{"available":1}}
+                })
+                .to_string(),
+            )
+            .create();
+        let delete = server
+            .mock("DELETE", "/agents/deployments/old-runtime")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"ok":true,"id":"old-runtime"}"#)
+            .create();
+        let create = server
+            .mock("POST", "/agents/deployments")
+            .match_body(Matcher::PartialJsonString(
+                serde_json::json!({"runtime":"opencode","size":"large"}).to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id":"new-runtime",
+                    "handle":handle,
+                    "runtime":"opencode",
+                    "state":"pending"
+                })
+                .to_string(),
+            )
+            .create();
+        let ready = server
+            .mock("GET", "/agents/deployments/new-runtime")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id":"new-runtime",
+                    "handle":handle,
+                    "runtime":"opencode",
+                    "state":"running"
+                })
+                .to_string(),
+            )
+            .create();
+
+        let response = deploy(
+            &client(&server),
+            test_agent(),
+            serde_json::json!({"runtime":"opencode"}),
+        )
+        .unwrap();
+
+        assert_eq!(response.agent_id, "new-runtime");
+        lookup.assert();
+        delete.assert();
+        create.assert();
+        ready.assert();
+    }
+
+    #[test]
+    fn deploy_rejects_changed_launch_settings_while_agent_is_running() {
+        let mut server = Server::new();
+        let handle = format!("buzz-{}", &TEST_PUBLIC_HEX[..48]);
+        let lookup = server
+            .mock("GET", "/agents/deployments")
+            .match_query(Matcher::UrlEncoded("handle".into(), handle.clone()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "items": [{
+                        "id":"existing",
+                        "handle":handle,
+                        "runtime":"opencode",
+                        "state":"running",
+                        "tags":["app=buzz","buzz_launch=stale"]
+                    }]
+                })
+                .to_string(),
+            )
+            .create();
+
+        let error = deploy(
+            &client(&server),
+            test_agent(),
+            serde_json::json!({"runtime":"opencode"}),
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, ProviderError::LaunchMismatch));
+        lookup.assert();
     }
 
     #[test]

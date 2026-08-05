@@ -481,6 +481,29 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
         assert!(nonce.chars().all(|character| character.is_ascii_hexdigit()));
         traced_request["env"]["BUZZ_MANAGED_AGENT_START_NONCE"] = serde_json::json!("<dynamic>");
         expected["env"]["BUZZ_MANAGED_AGENT_START_NONCE"] = serde_json::json!("<dynamic>");
+        let launch_tag = traced_request["tags"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|tag| {
+                tag.as_str()
+                    .is_some_and(|value| value.starts_with("buzz_launch="))
+            })
+            .unwrap();
+        let fingerprint = launch_tag
+            .as_str()
+            .unwrap()
+            .strip_prefix("buzz_launch=")
+            .unwrap();
+        assert_eq!(fingerprint.len(), 64);
+        assert!(fingerprint
+            .chars()
+            .all(|character| character.is_ascii_hexdigit()));
+        *launch_tag = serde_json::json!("buzz_launch=<dynamic>");
+        expected["tags"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!("buzz_launch=<dynamic>"));
         for key in [
             "MODEL_API_KEY",
             "BUZZ_PRIVATE_KEY",
