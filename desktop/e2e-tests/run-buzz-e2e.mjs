@@ -94,6 +94,14 @@ async function tauriInvoke(browser, command, args = {}) {
   return result.value;
 }
 
+async function waitForText(browser, selector, expected, timeoutMs = 60_000) {
+  const element = await browser.$(selector);
+  await browser.waitUntil(async () => (await element.getText()).includes(expected), {
+    timeout: timeoutMs,
+    timeoutMsg: `${selector} did not contain ${JSON.stringify(expected)} after ${timeoutMs}ms`,
+  });
+}
+
 async function waitForAgent(browser, agentId, target, timeoutMs = START_TIMEOUT_MS) {
   const deadline = Date.now() + timeoutMs;
   let last = "missing";
@@ -247,7 +255,13 @@ async function main() {
       connectionRetryTimeout: 60_000,
       capabilities: { "tauri:options": { application: APP_BIN } },
     });
+    // The deep link is forwarded as a transient Tauri event. Prove the
+    // webview has initialized before launching the second instance so the
+    // auth-token listener cannot miss it (the ordinary Desktop E2E uses the
+    // same startup handshake).
+    await (await browser.$("#auth-disconnected")).waitForDisplayed({ timeout: 60_000 });
     await deliverDeepLink(appEnv, token);
+    await waitForText(browser, "#status", "created and saved");
     await (await browser.$("#auth-connected")).waitForDisplayed({ timeout: 60_000 });
 
     await (await browser.$("#create-agent-btn")).click();
