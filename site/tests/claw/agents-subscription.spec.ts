@@ -141,6 +141,13 @@ test.describe.serial("Agents subscription", () => {
     console.log(`[agents-plans] pre-cleanup canceled Stripe subscriptions=${preCleanupStripeIds.length}`);
     await loginWithPrivy(page);
 
+    // A Playwright retry reuses the bootstrapped account. If the previous
+    // attempt reached deployment creation but the Agents API failed during
+    // readiness/cleanup, that stopped deployment still consumes a slot. Make
+    // an empty deployment inventory a precondition before asserting the newly
+    // purchased plan's full availability.
+    await cleanupClawAgents(page);
+
     try {
       const logPlanState = async (label: string) => {
         const summary = await fetchClawSubscriptionSummary(page).catch(() => null);
