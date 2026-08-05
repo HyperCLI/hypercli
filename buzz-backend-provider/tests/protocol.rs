@@ -345,7 +345,6 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
         // HyperCLI inference defaults, resolved per harness. Buzz sends a
         // vendor-neutral provider id that only this provider knows how to
         // translate, and each harness reads a different dialect.
-        expected["env"]["HYPER_API_BASE"] = serde_json::json!(server.url());
         if runtime == "buzz-agent" {
             // `hypercli` is not a provider id buzz-agent accepts; without the
             // rewrite the harness exits at startup. The base URL is forced

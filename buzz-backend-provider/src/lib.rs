@@ -1097,18 +1097,7 @@ fn apply_hypercli_inference_defaults(
     runtime: CodingRuntime,
     inference_api_base: &str,
 ) {
-    // Runtime images deliberately carry a production-safe default, but the
-    // provider may itself be pointed at dev or another HyperCLI deployment.
-    // Propagate that resolved product base across the container boundary so
-    // OpenCode, Goose, Kimi, and the native-login wrappers do not silently
-    // fall back to the image's build-time environment. An explicit Buzz/user
-    // launch value remains authoritative.
     let inference_api_base = inference_api_base.trim_end_matches('/');
-    if !inference_api_base.is_empty() {
-        env.entry("HYPER_API_BASE".to_owned())
-            .or_insert_with(|| inference_api_base.to_owned());
-    }
-
     match runtime {
         CodingRuntime::BuzzAgent => {
             let native = env
@@ -1631,18 +1620,6 @@ mod tests {
         )
         .unwrap()
         .env
-    }
-
-    #[test]
-    fn runtime_api_base_defaults_to_provider_and_preserves_launch_override() {
-        let defaulted = launch_env(CodingRuntime::Opencode, &[]);
-        assert_eq!(defaulted["HYPER_API_BASE"], HYPERCLI_ANTHROPIC_BASE_URL);
-
-        let explicit = launch_env(
-            CodingRuntime::Opencode,
-            &[("HYPER_API_BASE", "https://self-hosted.example")],
-        );
-        assert_eq!(explicit["HYPER_API_BASE"], "https://self-hosted.example");
     }
 
     #[test]
