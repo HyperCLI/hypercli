@@ -18,7 +18,7 @@ export {
   exchangePrivyToken,
   getAppToken,
 } from "./auth/AuthProvider";
-export { PrivyAuthBoundary } from "./auth/PrivyAuthBoundary";
+export { PrivyAuthBoundary, DEFAULT_PRIVY_LOGIN_METHODS, type PrivyLoginMethod } from "./auth/PrivyAuthBoundary";
 export { AuthRouteBoundary as PrivyAuthRouteBoundary } from "./auth/AuthRouteBoundary";
 export {
   HYPERCLI_AURORA_BRAND_ACCENT_HEX,

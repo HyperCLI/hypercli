@@ -11,12 +11,17 @@ import {
 } from "../components/HyperCLILogo";
 import { useTheme } from "../components/ThemeProvider";
 
+export type PrivyLoginMethod = "email" | "wallet" | "google" | "sms" | "twitter" | "discord" | "github" | "linkedin" | "apple";
+
+// The one place login methods are defined; every consumer references this.
+export const DEFAULT_PRIVY_LOGIN_METHODS: PrivyLoginMethod[] = ["email", "wallet", "google", "apple"];
+
 interface PrivyAuthBoundaryProps {
   appId: string;
   apiBaseUrl: string;
   children: ReactNode;
   tokenStorageKey?: string;
-  loginMethods?: ("email" | "wallet" | "google" | "sms" | "twitter" | "discord" | "github" | "linkedin" | "apple")[];
+  loginMethods?: PrivyLoginMethod[];
   logo?: string;
   accentColor?: `#${string}`;
   theme?: "light" | "dark";
@@ -48,7 +53,7 @@ export function PrivyAuthBoundary({
   apiBaseUrl,
   children,
   tokenStorageKey = "app_auth_token",
-  loginMethods = ["email", "wallet", "google", "apple"],
+  loginMethods = DEFAULT_PRIVY_LOGIN_METHODS,
   logo,
   accentColor,
   theme,

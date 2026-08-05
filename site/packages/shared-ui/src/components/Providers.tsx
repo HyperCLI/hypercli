@@ -7,6 +7,7 @@ import "@turnkey/react-wallet-kit/styles.css";
 import { AuthProvider } from "../providers/AuthProvider";
 import { WalletProvider } from "../contexts/WalletContext";
 import { RainbowKitProvider } from "../providers/RainbowKitProvider";
+import { DEFAULT_PRIVY_LOGIN_METHODS } from "../auth/PrivyAuthBoundary";
 import { ThemeProvider, useTheme } from "./ThemeProvider";
 import { AuroraPlanTierProvider } from "./AuroraPlanTierProvider";
 import {
@@ -112,7 +113,7 @@ function ThemedProviderStack({ children }: { children: React.ReactNode }) {
     <PrivyProvider
       appId={PRIVY_APP_ID!}
       config={{
-        loginMethods: ["email", "wallet", "google", "apple"],
+        loginMethods: DEFAULT_PRIVY_LOGIN_METHODS,
         appearance: {
           theme: mode,
           accentColor: brandAccent,
