@@ -432,6 +432,21 @@ test("create can save a Buzz connection without retaining the nsec in the page",
   expect(retained).toBe(false);
 });
 
+test("agent Buzz connection plus preserves the in-progress create form", async ({ page }) => {
+  await withMock(page, {
+    status: { has_api_key: true },
+  });
+  await page.goto("/");
+  await page.locator("#create-agent-btn").click();
+  await page.locator("#agent-name").fill("Draft agent");
+  await expect(page.locator("#agent-connection-add")).toHaveText("+");
+  await page.locator("#agent-connection-add").click();
+  await expect(page.locator("#add-connection-panel")).toBeVisible();
+  await page.locator("#buzz-connection-back").click();
+  await expect(page.locator("#agent-screen")).toBeVisible();
+  await expect(page.locator("#agent-name")).toHaveValue("Draft agent");
+});
+
 test("dashboard exposes direct Buzz identity setup without opening an agent", async ({ page }) => {
   await withMock(page, {
     status: { has_api_key: true },
@@ -439,6 +454,7 @@ test("dashboard exposes direct Buzz identity setup without opening an agent", as
   });
   await page.goto("/");
   await expect(page.locator("#buzz-connections-summary")).toContainText("without opening Buzz");
+  await expect(page.locator("#buzz-connections-manage")).toHaveText("+");
   await page.locator("#buzz-connections-manage").click();
   await expect(page.locator("#buzz-connection-screen")).toBeVisible();
   await expect(page.locator("#agent-screen")).toBeHidden();

@@ -357,18 +357,19 @@ function renderConnectionChannels(connection, extra = []) {
 
 function renderConnectionSelect(selectedId = "") {
   const select = document.getElementById("agent-connection");
-  select.replaceChildren(
-    ...buzzConnections.map((connection) => {
-      const option = document.createElement("option");
-      option.value = connection.id;
-      option.textContent = connection.label || connection.name || connection.relay_url || connection.relay;
-      return option;
-    }),
-    Object.assign(document.createElement("option"), {
-      value: "__add__",
-      textContent: "Add connection…",
-    }),
-  );
+  const options = buzzConnections.map((connection) => {
+    const option = document.createElement("option");
+    option.value = connection.id;
+    option.textContent = connection.label || connection.name || connection.relay_url || connection.relay;
+    return option;
+  });
+  if (!options.length) {
+    options.push(Object.assign(document.createElement("option"), {
+      value: "",
+      textContent: "Choose a Buzz connection…",
+    }));
+  }
+  select.replaceChildren(...options);
   if (selectedId && buzzConnections.some((item) => item.id === selectedId)) {
     select.value = selectedId;
   } else if (selectedId) {
@@ -380,7 +381,7 @@ function renderConnectionSelect(selectedId = "") {
   } else if (buzzConnections.length) {
     select.value = buzzConnections[0].id;
   } else {
-    select.value = "__add__";
+    select.value = "";
   }
   updateSelectedConnection();
 }
@@ -391,7 +392,7 @@ function renderBuzzConnections() {
   summary.textContent = buzzConnections.length
     ? `${buzzConnections.length} saved ${buzzConnections.length === 1 ? "identity" : "identities"}. Secrets stay in the system keychain.`
     : "Connect an identity and relay to launch agents without opening Buzz.";
-  manage.textContent = buzzConnections.length ? "Manage" : "Connect";
+  manage.textContent = "+";
 
   const list = document.getElementById("buzz-connection-list");
   if (!buzzConnections.length) {
@@ -434,9 +435,6 @@ function showBuzzConnectionForm() {
 function openBuzzConnections(returnView = "dashboard", add = false) {
   connectionReturnView = returnView;
   connectionReturnSelection = document.getElementById("agent-connection").value;
-  if (connectionReturnSelection === "__add__") {
-    connectionReturnSelection = buzzConnections[0]?.id || "";
-  }
   renderBuzzConnections();
   dashboardView.hidden = true;
   agentScreen.hidden = true;
@@ -452,12 +450,9 @@ function openBuzzConnections(returnView = "dashboard", add = false) {
 function closeBuzzConnections(savedConnectionId = "") {
   buzzConnectionScreen.hidden = true;
   document.getElementById("add-connection-panel").hidden = true;
-  if (connectionReturnView === "editor") {
+  if (connectionReturnView === "editor" || connectionReturnView === "create") {
     agentScreen.hidden = false;
     renderConnectionSelect(savedConnectionId || connectionReturnSelection);
-  } else if (connectionReturnView === "create" && savedConnectionId) {
-    showEditor({});
-    renderConnectionSelect(savedConnectionId);
   } else {
     dashboardView.hidden = false;
     document.getElementById("footer").hidden = false;
@@ -469,11 +464,6 @@ function closeBuzzConnections(savedConnectionId = "") {
 
 async function updateSelectedConnection() {
   const select = document.getElementById("agent-connection");
-  const adding = select.value === "__add__";
-  if (adding && !agentScreen.hidden) {
-    openBuzzConnections("editor", true);
-    return;
-  }
   const connection = buzzConnections.find((item) => item.id === select.value);
   if (!editingAgent) {
     setEditorField("agent-relay", connection?.relay_url || connection?.relay || "");
@@ -953,13 +943,16 @@ document.getElementById("buzz-connections-manage").addEventListener("click", asy
   try {
     await loadBuzzConnections();
     setStatus("");
-    openBuzzConnections("dashboard");
+    openBuzzConnections("dashboard", true);
   } catch (error) {
     setStatus(`Could not load Buzz connections: ${String(error)}`, true);
   }
 });
 document.getElementById("buzz-connection-back").addEventListener("click", () => closeBuzzConnections());
 document.getElementById("buzz-connection-add").addEventListener("click", showBuzzConnectionForm);
+document.getElementById("agent-connection-add").addEventListener("click", () => {
+  openBuzzConnections(editingAgent ? "editor" : "create", true);
+});
 document.getElementById("buzz-connection-list").addEventListener("click", async (event) => {
   const remove = event.target.closest("button[data-connection-id]");
   if (!remove) return;
