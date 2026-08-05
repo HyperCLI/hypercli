@@ -345,6 +345,9 @@ fn deploy_with_readiness(
     let handle = deterministic_handle(&public_key);
     let mut request = build_launch_request(agent, &public_key, &handle, options)?;
     request.dry_run = dry_run;
+    // Apply tier defaults only when concurrency is genuinely unspecified.
+    // Any concrete Buzz value — including 1 — is authoritative.
+    let size_based_parallelism = !request.env.contains_key("BUZZ_ACP_AGENTS");
 
     // A dry-run validates the requested launch shape and must never enter the
     // idempotent lookup/restart path. In particular, a stopped deployment with
@@ -353,11 +356,11 @@ fn deploy_with_readiness(
         let capacity = client
             .list_deployments_with_capacity()
             .map_err(ProviderError::HyperCli)?;
-        request.size = Some(
-            capacity
-                .largest_available_size()
-                .ok_or(ProviderError::NoAvailableSlots)?,
-        );
+        let selected_size = capacity
+            .largest_available_size()
+            .ok_or(ProviderError::NoAvailableSlots)?;
+        request.size = Some(selected_size);
+        apply_size_based_parallelism(&mut request, selected_size, size_based_parallelism);
         return client
             .create_deployment(&request)
             .map(|deployment| DeployResponse {
@@ -369,6 +372,7 @@ fn deploy_with_readiness(
 
     let (existing, mut capacity) = find_existing_with_capacity(client, &handle, request.runtime)?;
     if let Some(existing) = existing {
+        apply_existing_size_parallelism(&mut request, &existing, size_based_parallelism);
         let deployment = restart_if_stopped(client, existing, &request)?;
         let deployment = wait_until_running(client, deployment, readiness_timeout, poll_interval)?;
         return Ok(DeployResponse {
@@ -382,6 +386,7 @@ fn deploy_with_readiness(
         let selected_size = largest_unattempted_size(&capacity, &attempted_sizes)
             .ok_or(ProviderError::NoAvailableSlots)?;
         request.size = Some(selected_size);
+        apply_size_based_parallelism(&mut request, selected_size, size_based_parallelism);
         attempted_sizes.push(selected_size);
 
         match client.create_deployment(&request) {
@@ -398,6 +403,7 @@ fn deploy_with_readiness(
                 // provider database. The user-scoped handle is deterministic.
                 let (existing, _) = find_existing_with_capacity(client, &handle, request.runtime)?;
                 let existing = existing.ok_or(ProviderError::MissingConflictingDeployment)?;
+                apply_existing_size_parallelism(&mut request, &existing, size_based_parallelism);
                 let existing = restart_if_stopped(client, existing, &request)?;
                 let existing =
                     wait_until_running(client, existing, readiness_timeout, poll_interval)?;
@@ -410,6 +416,11 @@ fn deploy_with_readiness(
                 let (existing, refreshed) =
                     find_existing_with_capacity(client, &handle, request.runtime)?;
                 if let Some(existing) = existing {
+                    apply_existing_size_parallelism(
+                        &mut request,
+                        &existing,
+                        size_based_parallelism,
+                    );
                     let existing = restart_if_stopped(client, existing, &request)?;
                     let existing =
                         wait_until_running(client, existing, readiness_timeout, poll_interval)?;
@@ -425,6 +436,43 @@ fn deploy_with_readiness(
             }
             Err(error) => return Err(ProviderError::HyperCli(error)),
         }
+    }
+}
+
+fn default_parallelism_for_size(size: AgentSize) -> u32 {
+    match size {
+        AgentSize::Small => 2,
+        AgentSize::Medium => 5,
+        AgentSize::Large => 10,
+    }
+}
+
+fn apply_size_based_parallelism(
+    request: &mut CreateDeploymentRequest,
+    size: AgentSize,
+    enabled: bool,
+) {
+    if enabled {
+        request.env.insert(
+            "BUZZ_ACP_AGENTS".to_owned(),
+            default_parallelism_for_size(size).to_string(),
+        );
+    }
+}
+
+fn apply_existing_size_parallelism(
+    request: &mut CreateDeploymentRequest,
+    existing: &Deployment,
+    enabled: bool,
+) {
+    let size = match existing.requested_size.as_deref() {
+        Some("small") => Some(AgentSize::Small),
+        Some("medium") => Some(AgentSize::Medium),
+        Some("large") => Some(AgentSize::Large),
+        _ => None,
+    };
+    if let Some(size) = size {
+        apply_size_based_parallelism(request, size, enabled);
     }
 }
 
@@ -573,7 +621,7 @@ fn build_launch_request(
                 .map(str::to_owned)
         })
         .or_else(|| Some(runtime.default_image().to_owned()));
-    request.tags = vec![format!("buzz_agent={public_key}")];
+    request.mark_buzz_deployment(Some(public_key));
 
     request.command = vec!["/usr/local/bin/buzz-acp".to_owned()];
     request.sync_root = Some("/home/node".to_owned());
@@ -1166,6 +1214,31 @@ mod tests {
             error.to_string(),
             "HyperCLI deployment request failed: HyperCLI returned HTTP 422 Unprocessable Entity"
         );
+    }
+
+    #[test]
+    fn unspecified_parallelism_uses_memory_tier_defaults() {
+        for (size, expected) in [
+            (AgentSize::Small, "2"),
+            (AgentSize::Medium, "5"),
+            (AgentSize::Large, "10"),
+        ] {
+            let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+            apply_size_based_parallelism(&mut request, size, true);
+            assert_eq!(request.env["BUZZ_ACP_AGENTS"], expected);
+        }
+    }
+
+    #[test]
+    fn concrete_parallelism_is_never_reinterpreted_as_auto() {
+        for concrete in ["1", "7", "10"] {
+            let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+            request
+                .env
+                .insert("BUZZ_ACP_AGENTS".to_owned(), concrete.to_owned());
+            apply_size_based_parallelism(&mut request, AgentSize::Large, false);
+            assert_eq!(request.env["BUZZ_ACP_AGENTS"], concrete);
+        }
     }
 
     #[test]
@@ -1926,7 +1999,7 @@ mod tests {
                     "command": ["/usr/local/bin/buzz-acp"],
                     "restart": false,
                     "runtime_scopes": BUZZ_RUNTIME_SCOPES,
-                    "tags": [format!("buzz_agent={TEST_PUBLIC_HEX}")],
+                    "tags": ["app=buzz", format!("buzz_agent={TEST_PUBLIC_HEX}")],
                     "env": {
                         "BUZZ_RELAY_URL": "wss://buzz.example.com",
                         "BUZZ_PRIVATE_KEY": TEST_SECRET_HEX,
@@ -2525,6 +2598,9 @@ mod tests {
             state: "pending".to_owned(),
             pod_id: None,
             hostname: None,
+            tags: Vec::new(),
+            requested_size: None,
+            last_error: None,
         };
 
         let ready = wait_until_running(
@@ -2558,6 +2634,9 @@ mod tests {
                 state: state.to_owned(),
                 pod_id: None,
                 hostname: None,
+                tags: Vec::new(),
+                requested_size: None,
+                last_error: None,
             };
 
             let error = wait_until_running(
@@ -2594,6 +2673,9 @@ mod tests {
             state: "starting".to_owned(),
             pod_id: None,
             hostname: None,
+            tags: Vec::new(),
+            requested_size: None,
+            last_error: None,
         };
 
         let error =

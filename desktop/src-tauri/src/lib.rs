@@ -1,9 +1,11 @@
 use std::fs;
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use hypercli_sdk::{
     discover_agents_api_base, discover_client_config, remove_config_api_keys,
-    save_api_key as write_api_key, ClientConfig, ConfigError, CreateApiKeyRequest, HyperCliClient,
+    save_api_key as write_api_key, ClientConfig, ConfigError, CreateApiKeyRequest, Deployment,
+    HyperCliClient, StartDeploymentRequest,
 };
 use secrecy::SecretString;
 use serde::Serialize;
@@ -46,6 +48,98 @@ pub struct KeyValidation {
     /// the UI must not show a purchase hint in that case.
     has_active_plan: Option<bool>,
     detail: Option<String>,
+}
+
+/// Secret-free deployment summary rendered by the Desktop fleet view.
+#[derive(Serialize)]
+pub struct DesktopAgent {
+    id: String,
+    name: String,
+    handle: Option<String>,
+    runtime: Option<String>,
+    state: String,
+    tags: Vec<String>,
+    hostname: Option<String>,
+    requested_size: Option<String>,
+    last_error: Option<String>,
+    is_buzz: bool,
+    can_start: bool,
+    can_stop: bool,
+    can_restart: bool,
+    can_delete: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct AgentActions {
+    start: bool,
+    stop: bool,
+    restart: bool,
+    delete: bool,
+}
+
+fn normalized_state(state: &str) -> String {
+    state.trim().to_ascii_lowercase()
+}
+
+fn agent_actions(state: &str) -> AgentActions {
+    match normalized_state(state).as_str() {
+        "stopped" => AgentActions {
+            start: true,
+            stop: false,
+            restart: false,
+            delete: true,
+        },
+        "running" => AgentActions {
+            start: false,
+            stop: true,
+            restart: true,
+            delete: false,
+        },
+        "pending" | "restoring" | "syncing" | "starting" => AgentActions {
+            start: false,
+            stop: true,
+            restart: false,
+            delete: false,
+        },
+        "restore_failed" | "sync_failed" | "failed" | "crashed" | "error" => AgentActions {
+            start: false,
+            stop: false,
+            restart: true,
+            delete: false,
+        },
+        _ => AgentActions {
+            start: false,
+            stop: false,
+            restart: false,
+            delete: false,
+        },
+    }
+}
+
+impl From<Deployment> for DesktopAgent {
+    fn from(deployment: Deployment) -> Self {
+        let actions = agent_actions(&deployment.state);
+        let is_buzz = deployment.is_buzz_managed();
+        Self {
+            id: deployment.id,
+            name: deployment.name,
+            handle: deployment.handle,
+            runtime: deployment
+                .runtime
+                .and_then(|runtime| serde_json::to_value(runtime).ok())
+                .and_then(|value| value.as_str().map(str::to_owned)),
+            state: normalized_state(&deployment.state),
+            tags: deployment.tags,
+            hostname: deployment.hostname,
+            requested_size: deployment.requested_size,
+            last_error: deployment.last_error,
+            is_buzz,
+            can_start: actions.start,
+            can_stop: actions.stop,
+            can_restart: actions.restart,
+            can_delete: actions.delete,
+        }
+    }
 }
 
 fn home_dir() -> Result<PathBuf, String> {
@@ -299,6 +393,153 @@ async fn validate_key() -> Result<KeyValidation, String> {
         .map_err(|e| e.to_string())?
 }
 
+fn managed_client() -> Result<HyperCliClient, String> {
+    let config = discover_client_config().map_err(|error| error.to_string())?;
+    HyperCliClient::new(config).map_err(|error| error.to_string())
+}
+
+fn checked_agent_id(agent_id: &str) -> Result<String, String> {
+    uuid::Uuid::parse_str(agent_id.trim())
+        .map(|value| value.to_string())
+        .map_err(|_| "Invalid agent id".to_owned())
+}
+
+fn list_agents_blocking() -> Result<Vec<DesktopAgent>, String> {
+    let capacity = managed_client()?
+        .list_deployments_with_capacity()
+        .map_err(|error| error.to_string())?;
+    Ok(capacity.items.into_iter().map(DesktopAgent::from).collect())
+}
+
+#[tauri::command]
+async fn list_agents() -> Result<Vec<DesktopAgent>, String> {
+    tauri::async_runtime::spawn_blocking(list_agents_blocking)
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn start_agent_blocking(agent_id: String) -> Result<DesktopAgent, String> {
+    let agent_id = checked_agent_id(&agent_id)?;
+    let client = managed_client()?;
+    let current = client
+        .get_deployment(&agent_id)
+        .map_err(|error| error.to_string())?;
+    if !agent_actions(&current.state).start {
+        return Err(format!(
+            "Agent must be stopped before it can start (currently {})",
+            normalized_state(&current.state)
+        ));
+    }
+    client
+        .start_deployment(&agent_id, &StartDeploymentRequest::default())
+        .map(DesktopAgent::from)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn start_agent(agent_id: String) -> Result<DesktopAgent, String> {
+    tauri::async_runtime::spawn_blocking(move || start_agent_blocking(agent_id))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn stop_agent_blocking(agent_id: String) -> Result<DesktopAgent, String> {
+    let agent_id = checked_agent_id(&agent_id)?;
+    let client = managed_client()?;
+    let current = client
+        .get_deployment(&agent_id)
+        .map_err(|error| error.to_string())?;
+    if !agent_actions(&current.state).stop {
+        return Err(format!(
+            "Agent cannot be stopped while it is {}",
+            normalized_state(&current.state)
+        ));
+    }
+    client
+        .stop_deployment(&agent_id)
+        .map(DesktopAgent::from)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn stop_agent(agent_id: String) -> Result<DesktopAgent, String> {
+    tauri::async_runtime::spawn_blocking(move || stop_agent_blocking(agent_id))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+const RESTART_STOP_TIMEOUT: Duration = Duration::from_secs(60);
+const RESTART_POLL_INTERVAL: Duration = Duration::from_secs(1);
+
+fn restart_agent_blocking(agent_id: String) -> Result<DesktopAgent, String> {
+    let agent_id = checked_agent_id(&agent_id)?;
+    let client = managed_client()?;
+    let mut current = client
+        .get_deployment(&agent_id)
+        .map_err(|error| error.to_string())?;
+    let state = normalized_state(&current.state);
+    if state == "running" {
+        current = client
+            .stop_deployment(&agent_id)
+            .map_err(|error| error.to_string())?;
+        let deadline = Instant::now() + RESTART_STOP_TIMEOUT;
+        while normalized_state(&current.state) != "stopped" {
+            if Instant::now() >= deadline {
+                return Err(
+                    "Agent is still stopping. Try restart again after it reaches stopped."
+                        .to_owned(),
+                );
+            }
+            std::thread::sleep(RESTART_POLL_INTERVAL);
+            current = client
+                .get_deployment(&agent_id)
+                .map_err(|error| error.to_string())?;
+        }
+    } else if !agent_actions(&state).restart && state != "stopped" {
+        return Err(format!("Agent cannot be restarted while it is {state}"));
+    }
+
+    client
+        .start_deployment(&agent_id, &StartDeploymentRequest::default())
+        .map(DesktopAgent::from)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn restart_agent(agent_id: String) -> Result<DesktopAgent, String> {
+    tauri::async_runtime::spawn_blocking(move || restart_agent_blocking(agent_id))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn delete_agent_blocking(agent_id: String) -> Result<(), String> {
+    let agent_id = checked_agent_id(&agent_id)?;
+    let client = managed_client()?;
+    let current = client
+        .get_deployment(&agent_id)
+        .map_err(|error| error.to_string())?;
+    if !agent_actions(&current.state).delete {
+        return Err(format!(
+            "Only stopped agents can be deleted (currently {})",
+            normalized_state(&current.state)
+        ));
+    }
+    let deleted = client
+        .delete_deployment(&agent_id)
+        .map_err(|error| error.to_string())?;
+    if !deleted.ok || deleted.id != agent_id {
+        return Err("Backend did not confirm agent deletion".to_owned());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn delete_agent(agent_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || delete_agent_blocking(agent_id))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
 /// Human-readable key annotation, e.g. "macOS (Dmitrys-Mac-mini)".
 fn key_annotation() -> String {
     let os = match std::env::consts::OS {
@@ -487,6 +728,11 @@ pub fn run() {
             save_api_key,
             logout,
             validate_key,
+            list_agents,
+            start_agent,
+            stop_agent,
+            restart_agent,
+            delete_agent,
             mint_api_key,
             start_login,
             open_plans,
@@ -532,5 +778,82 @@ mod tests {
         );
         assert_eq!(percent_decode("plain-token_1.2"), "plain-token_1.2");
         assert_eq!(percent_decode("bad%zztail"), "bad%zztail");
+    }
+
+    #[test]
+    fn lifecycle_actions_are_fail_closed_and_match_backend_states() {
+        assert_eq!(
+            agent_actions("STOPPED"),
+            AgentActions {
+                start: true,
+                stop: false,
+                restart: false,
+                delete: true,
+            }
+        );
+        assert_eq!(
+            agent_actions("running"),
+            AgentActions {
+                start: false,
+                stop: true,
+                restart: true,
+                delete: false,
+            }
+        );
+        for state in ["FAILED", "RESTORE_FAILED", "SYNC_FAILED"] {
+            assert_eq!(
+                agent_actions(state),
+                AgentActions {
+                    start: false,
+                    stop: false,
+                    restart: true,
+                    delete: false,
+                }
+            );
+        }
+        assert_eq!(
+            agent_actions("stopping"),
+            AgentActions {
+                start: false,
+                stop: false,
+                restart: false,
+                delete: false,
+            }
+        );
+        assert_eq!(agent_actions("future-state"), agent_actions("stopping"));
+    }
+
+    #[test]
+    fn desktop_agent_recognizes_legacy_buzz_tag_without_launch_secrets() {
+        let view = DesktopAgent::from(Deployment {
+            id: "40c42593-7d02-48f9-a3ff-6c7d6461f140".to_owned(),
+            name: "Maverick".to_owned(),
+            handle: Some("buzz-public".to_owned()),
+            runtime: Some(hypercli_sdk::ManagedRuntime::ClaudeCode),
+            state: "RUNNING".to_owned(),
+            pod_id: Some("pod-secret-not-rendered".to_owned()),
+            hostname: Some("maverick.hypercli.app".to_owned()),
+            tags: vec!["buzz_agent=public-key".to_owned()],
+            requested_size: Some("large".to_owned()),
+            last_error: None,
+        });
+        let serialized = serde_json::to_value(view).unwrap();
+
+        assert_eq!(serialized["is_buzz"], true);
+        assert_eq!(serialized["can_restart"], true);
+        assert_eq!(serialized["runtime"], "claude-code");
+        assert!(serialized.get("pod_id").is_none());
+    }
+
+    #[test]
+    fn tauri_agent_ids_must_be_canonical_uuids() {
+        assert_eq!(
+            checked_agent_id("40c42593-7d02-48f9-a3ff-6c7d6461f140").unwrap(),
+            "40c42593-7d02-48f9-a3ff-6c7d6461f140"
+        );
+        assert_eq!(
+            checked_agent_id("../../plans").unwrap_err(),
+            "Invalid agent id"
+        );
     }
 }

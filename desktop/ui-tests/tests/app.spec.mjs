@@ -125,3 +125,62 @@ test("key without agents:* shows capability warning", async ({ page }) => {
   await expect(page.locator("#auth-warning")).toBeVisible();
   await expect(page.locator("#auth-warning")).toContainText("agents:*");
 });
+
+test("connected fleet defaults to Buzz and can reveal all agents", async ({ page }) => {
+  await withMock(page, { status: { has_api_key: true } });
+  await page.goto("/");
+
+  await expect(page.locator("#agents-section")).toBeVisible();
+  await expect(page.locator("#agents-summary")).toHaveText("2 Buzz · 3 total");
+  await expect(page.locator(".agent-card")).toHaveCount(2);
+  await expect(page.locator(".agent-card")).toContainText(["Maverick", "Goose"]);
+  await expect(page.locator("#filter-buzz")).toHaveAttribute("aria-pressed", "true");
+
+  await page.locator("#filter-all").click();
+  await expect(page.locator(".agent-card")).toHaveCount(3);
+  await expect(page.locator(".agent-card")).toContainText(["Maverick", "Research", "Goose"]);
+});
+
+test("fleet actions follow backend lifecycle rules", async ({ page }) => {
+  await withMock(page, { status: { has_api_key: true } });
+  await page.goto("/");
+
+  const maverick = page.locator(".agent-card", { hasText: "Maverick" });
+  await expect(maverick.getByRole("button", { name: "Stop" })).toBeVisible();
+  await expect(maverick.getByRole("button", { name: "Restart" })).toBeVisible();
+  await expect(maverick.getByRole("button", { name: "Delete" })).toHaveCount(0);
+
+  const goose = page.locator(".agent-card", { hasText: "Goose" });
+  await expect(goose.getByRole("button", { name: "Restart" })).toBeVisible();
+  await expect(goose.getByRole("button", { name: "Start", exact: true })).toHaveCount(0);
+
+  await page.locator("#filter-all").click();
+  const research = page.locator(".agent-card", { hasText: "Research" });
+  await expect(research.getByRole("button", { name: "Start" })).toBeVisible();
+  await expect(research.getByRole("button", { name: "Delete" })).toBeVisible();
+  await expect(research.getByRole("button", { name: "Stop" })).toHaveCount(0);
+});
+
+test("stop refreshes the card and delete requires confirmation", async ({ page }) => {
+  await withMock(page, { status: { has_api_key: true } });
+  await page.goto("/");
+
+  const maverick = page.locator(".agent-card", { hasText: "Maverick" });
+  await maverick.getByRole("button", { name: "Stop" }).click();
+  await expect(maverick.locator(".agent-state")).toHaveText("stopping");
+  const stoppedCall = await page.evaluate(() =>
+    window.__MOCK__.calls.some(([cmd, args]) =>
+      cmd === "stop_agent" && args.agentId === "40c42593-7d02-48f9-a3ff-6c7d6461f140"
+    ),
+  );
+  expect(stoppedCall).toBe(true);
+
+  await page.locator("#filter-all").click();
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await page.locator(".agent-card", { hasText: "Research" }).getByRole("button", { name: "Delete" }).click();
+  await expect(page.locator(".agent-card", { hasText: "Research" })).toHaveCount(1);
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator(".agent-card", { hasText: "Research" }).getByRole("button", { name: "Delete" }).click();
+  await expect(page.locator(".agent-card", { hasText: "Research" })).toHaveCount(0);
+});

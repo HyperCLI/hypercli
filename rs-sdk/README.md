@@ -87,7 +87,8 @@ buzz.parallelism = 1;
 buzz.apply_to(&mut request, Some("Fizz"))?;
 ```
 
-`BuzzLaunchConfig::apply_to` enforces the `large` tier, `/home/node`
+`BuzzLaunchConfig::apply_to` leaves size unset for live backend selection,
+adds the stable `app=buzz` deployment tag, and enforces `/home/node`
 persistence with UID/GID 1000, no public routes, lazy pool creation, relay
 observation, `restart: false`, and canonical runtime launch values. The
 restart policy lets an accepted Buzz `!shutdown` leave the coding process
@@ -97,6 +98,11 @@ terminal-state observer then cleans the namespace, marks the deployment
 acknowledgement. Raw non-Buzz `CreateDeploymentRequest` sizing remains
 caller-selected. The config does not implement `Debug` or `Serialize` because
 it owns the agent nsec.
+
+`Deployment::is_buzz_managed()` recognizes both the stable tag and legacy
+deployments that only carry `buzz_agent=<public-key>`. The SDK exposes list,
+start, stop, and delete lifecycle calls; callers must keep delete limited to
+the backend's `stopped` state.
 
 `/home/node` remains the persistence and Files API root, and
 `/home/node/workspaces` remains reserved for Workspace projections. The

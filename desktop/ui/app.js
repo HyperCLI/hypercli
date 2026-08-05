@@ -3,6 +3,13 @@ const { listen } = window.__TAURI__.event;
 const { getCurrentWindow, LogicalSize } = window.__TAURI__.window;
 
 const statusEl = document.getElementById("status");
+const agentListEl = document.getElementById("agent-list");
+const agentsEmptyEl = document.getElementById("agents-empty");
+const agentsSummaryEl = document.getElementById("agents-summary");
+let agents = [];
+let agentFilter = "buzz";
+let agentsLoading = false;
+let agentActionInFlight = false;
 
 // Window height follows content, capped. Width stays fixed.
 const WINDOW_WIDTH = 440;
@@ -50,8 +57,13 @@ function render(status) {
   document.getElementById("auth-disconnected").hidden = connected;
   document.getElementById("auth-connected").hidden = !connected;
   document.getElementById("provider-section").hidden = !connected;
+  document.getElementById("agents-section").hidden = !connected;
   if (status.config_error) setStatus(status.config_error, true);
-  if (!connected) return;
+  if (!connected) {
+    agents = [];
+    renderAgents();
+    return;
+  }
 
   const hint = document.getElementById("provider-hint");
   const list = document.getElementById("provider-list");
@@ -87,6 +99,147 @@ function render(status) {
   }
 }
 
+function humanize(value) {
+  return String(value || "unknown")
+    .replaceAll("_", " ")
+    .replaceAll("-", " ");
+}
+
+function actionButton(agent, action, label, className = "") {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.dataset.agentId = agent.id;
+  button.dataset.action = action;
+  button.textContent = label;
+  button.disabled = agentsLoading || agentActionInFlight;
+  if (className) button.className = className;
+  return button;
+}
+
+function agentCard(agent) {
+  const card = document.createElement("article");
+  card.className = "agent-card";
+
+  const main = document.createElement("div");
+  main.className = "agent-main";
+  const name = document.createElement("span");
+  name.className = "agent-name";
+  name.textContent = agent.name || agent.handle || "Unnamed agent";
+  name.title = name.textContent;
+  const state = document.createElement("span");
+  state.className = `agent-state ${agent.state}`;
+  state.textContent = humanize(agent.state);
+  main.append(name, state);
+  card.append(main);
+
+  const meta = document.createElement("div");
+  meta.className = "agent-meta";
+  for (const value of [
+    agent.runtime && humanize(agent.runtime),
+    agent.requested_size,
+    agent.is_buzz && "Buzz",
+  ].filter(Boolean)) {
+    const item = document.createElement("span");
+    item.textContent = value;
+    meta.append(item);
+  }
+  card.append(meta);
+
+  if (agent.last_error) {
+    const error = document.createElement("p");
+    error.className = "agent-error";
+    error.textContent = agent.last_error;
+    error.title = agent.last_error;
+    card.append(error);
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "agent-actions";
+  if (agent.can_start) actions.append(actionButton(agent, "start", "Start"));
+  if (agent.can_stop) actions.append(actionButton(agent, "stop", "Stop"));
+  if (agent.can_restart) actions.append(actionButton(agent, "restart", "Restart"));
+  if (agent.can_delete) {
+    actions.append(actionButton(agent, "delete", "Delete", "danger"));
+  }
+  if (actions.childElementCount) card.append(actions);
+
+  return card;
+}
+
+function renderAgents() {
+  const visible = agents.filter((agent) => agentFilter === "all" || agent.is_buzz);
+  const buzzCount = agents.filter((agent) => agent.is_buzz).length;
+  agentsSummaryEl.textContent = agentsLoading
+    ? "Refreshing your agents…"
+    : `${buzzCount} Buzz · ${agents.length} total`;
+  agentListEl.replaceChildren(...visible.map(agentCard));
+  agentsEmptyEl.hidden = agentsLoading || visible.length > 0;
+  agentsEmptyEl.textContent = agentFilter === "buzz"
+    ? "No Buzz agents yet. Create one in Buzz and it will appear here."
+    : "No saved agents yet.";
+  for (const button of document.querySelectorAll(".segmented [data-filter]")) {
+    button.setAttribute("aria-pressed", String(button.dataset.filter === agentFilter));
+  }
+}
+
+async function refreshAgents() {
+  if (agentsLoading || agentActionInFlight || document.getElementById("agents-section").hidden) return;
+  agentsLoading = true;
+  renderAgents();
+  document.getElementById("agents-refresh").disabled = true;
+  try {
+    agents = await invoke("list_agents");
+  } catch (error) {
+    setStatus(`Could not load agents: ${String(error)}`, true);
+  } finally {
+    agentsLoading = false;
+    document.getElementById("agents-refresh").disabled = false;
+    renderAgents();
+  }
+}
+
+for (const button of document.querySelectorAll(".segmented [data-filter]")) {
+  button.addEventListener("click", () => {
+    agentFilter = button.dataset.filter;
+    renderAgents();
+  });
+}
+
+document.getElementById("agents-refresh").addEventListener("click", refreshAgents);
+
+agentListEl.addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-action]");
+  if (!button) return;
+  const agent = agents.find((candidate) => candidate.id === button.dataset.agentId);
+  if (!agent) return;
+  const action = button.dataset.action;
+  if (action === "delete" && !window.confirm(`Delete ${agent.name || "this agent"}? This cannot be undone.`)) {
+    return;
+  }
+
+  for (const actionButton of agentListEl.querySelectorAll("button")) {
+    actionButton.disabled = true;
+  }
+  agentActionInFlight = true;
+  const presentParticiple = {
+    start: "Starting",
+    stop: "Stopping",
+    restart: "Restarting",
+    delete: "Deleting",
+  }[action];
+  setStatus(`${presentParticiple} ${agent.name || "agent"}…`);
+  try {
+    await invoke(`${action}_agent`, { agentId: agent.id });
+    setStatus(`${agent.name || "Agent"}: ${action} requested.`);
+    agentActionInFlight = false;
+    await refreshAgents();
+  } catch (error) {
+    setStatus(String(error), true);
+    agentActionInFlight = false;
+    await refreshAgents();
+  }
+});
+
 // Background key check: annotate the connected line, warn on problems.
 async function validateKey() {
   const detail = document.getElementById("auth-detail");
@@ -120,7 +273,10 @@ async function refreshStatus() {
   try {
     const status = await invoke("provider_status");
     render(status);
-    if (status.has_api_key) void validateKey();
+    if (status.has_api_key) {
+      void validateKey();
+      void refreshAgents();
+    }
   } catch (error) {
     setStatus(String(error), true);
   }
@@ -283,3 +439,4 @@ checkForUpdate();
 setInterval(checkForUpdate, UPDATE_CHECK_INTERVAL_MS);
 
 refreshStatus();
+setInterval(refreshAgents, 15_000);

@@ -65,7 +65,12 @@ before capacity is considered. If a slot is claimed concurrently and create
 returns HTTP 429, the provider refreshes inventory and may retry an
 unattempted lower tier. Ordinary non-Buzz coding-agent helpers preserve a
 caller-selected size or omit it so the backend chooses its default. The
-resolved `agent.launch.command`
+provider tags every new deployment with `app=buzz` and the existing
+`buzz_agent=<public-key>` identity tag. Portable launches that genuinely omit
+`BUZZ_ACP_AGENTS` receive a memory-tier default of 2 workers on small, 5 on
+medium, and 10 on large. Any concrete value supplied by Buzz, including 1, is
+preserved exactly.
+The resolved `agent.launch.command`
 selects the canonical runtime and image; legacy requests without `launch` fall
 back to `agent.agent_command`. Runtime-named provider hardlinks remain only for
 saved-provider compatibility and discovery. The provider exposes no editable

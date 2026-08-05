@@ -33,6 +33,56 @@
       detail: null,
     },
     envKeyActive: false,
+    agents: [
+      {
+        id: "40c42593-7d02-48f9-a3ff-6c7d6461f140",
+        name: "Maverick",
+        handle: "buzz-maverick",
+        runtime: "claude-code",
+        state: "running",
+        tags: ["buzz_agent=public-key"],
+        hostname: "maverick.hypercli.app",
+        requested_size: "large",
+        last_error: null,
+        is_buzz: true,
+        can_start: false,
+        can_stop: true,
+        can_restart: true,
+        can_delete: false,
+      },
+      {
+        id: "a3158a87-df87-44b0-bc8f-babf60b35d86",
+        name: "Research",
+        handle: null,
+        runtime: "openclaw",
+        state: "stopped",
+        tags: [],
+        hostname: null,
+        requested_size: "small",
+        last_error: null,
+        is_buzz: false,
+        can_start: true,
+        can_stop: false,
+        can_restart: false,
+        can_delete: true,
+      },
+      {
+        id: "b75d2036-05b5-46bc-9f67-3c48e7cf5934",
+        name: "Goose",
+        handle: "buzz-goose",
+        runtime: "goose",
+        state: "failed",
+        tags: ["app=buzz", "buzz_agent=another-key"],
+        hostname: null,
+        requested_size: "medium",
+        last_error: "Harness exited unexpectedly",
+        is_buzz: true,
+        can_start: false,
+        can_stop: false,
+        can_restart: true,
+        can_delete: false,
+      },
+    ],
     calls: [],
     listeners: {},
   };
@@ -42,6 +92,7 @@
   }
   state.status = { ...state.status, ...(overrides.status || {}) };
   state.validation = { ...state.validation, ...(overrides.validation || {}) };
+  if (overrides.agents) state.agents = overrides.agents.map((agent) => ({ ...agent }));
   window.__MOCK__ = state;
 
   const snapshot = () => ({
@@ -59,6 +110,8 @@
             return snapshot();
           case "validate_key":
             return { ...state.validation };
+          case "list_agents":
+            return state.agents.map((agent) => ({ ...agent, tags: [...agent.tags] }));
           case "install_providers":
             state.status.installed = NAMES.slice();
             state.status.missing = [];
@@ -82,6 +135,35 @@
           case "start_login":
           case "open_plans":
             return null;
+          case "start_agent":
+          case "restart_agent": {
+            const agent = state.agents.find((item) => item.id === args?.agentId);
+            if (!agent) throw "Agent not found";
+            agent.state = "starting";
+            agent.last_error = null;
+            agent.can_start = false;
+            agent.can_stop = true;
+            agent.can_restart = false;
+            agent.can_delete = false;
+            return { ...agent };
+          }
+          case "stop_agent": {
+            const agent = state.agents.find((item) => item.id === args?.agentId);
+            if (!agent) throw "Agent not found";
+            agent.state = "stopping";
+            agent.can_start = false;
+            agent.can_stop = false;
+            agent.can_restart = false;
+            agent.can_delete = false;
+            return { ...agent };
+          }
+          case "delete_agent": {
+            const index = state.agents.findIndex((item) => item.id === args?.agentId);
+            if (index < 0) throw "Agent not found";
+            if (state.agents[index].state !== "stopped") throw "Only stopped agents can be deleted";
+            state.agents.splice(index, 1);
+            return null;
+          }
           case "is_auto_update_supported":
             return true;
           default:

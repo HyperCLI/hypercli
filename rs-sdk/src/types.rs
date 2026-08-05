@@ -223,6 +223,12 @@ impl RouteConfig {
 }
 
 const DEFAULT_BUZZ_RUST_LOG: &str = "buzz_acp=info,pool::prompt=info,acp::stream=off";
+/// Stable, non-secret resource tag applied to deployments managed by Buzz.
+///
+/// The per-agent `buzz_agent=<pubkey>` tag remains the identity seam. This
+/// tag is deliberately independent of that identity so clients can filter a
+/// fleet without parsing launch configuration or environment values.
+pub const BUZZ_DEPLOYMENT_TAG: &str = "app=buzz";
 /// Maximum reminders emitted when a hosted harness turn ends without publishing.
 pub const BUZZ_ACP_MAX_REPLY_NAGS: u32 = 2;
 
@@ -351,7 +357,11 @@ impl BuzzLaunchConfig {
             _ => return Err(BuzzLaunchError::UnsupportedRuntime),
         };
 
-        request.size = Some(AgentSize::Large);
+        // Leave size selection to the managed-agent API. The backend owns the
+        // live entitlement inventory and can choose the largest available
+        // slot without baking a stale tier into a client-side contract.
+        request.size = None;
+        request.mark_buzz_deployment(None);
         request.command = vec!["/usr/local/bin/buzz-acp".to_owned()];
         request.routes.clear();
         request.sync_root = Some("/home/node".to_owned());
@@ -562,6 +572,21 @@ impl CreateDeploymentRequest {
             dry_run: false,
         }
     }
+
+    /// Mark this deployment as Buzz-managed and, when known, attach its
+    /// public Nostr identity. These keys are owned by the Buzz launch
+    /// contract, so stale values are replaced rather than duplicated.
+    pub fn mark_buzz_deployment(&mut self, public_key: Option<&str>) {
+        self.tags.retain(|tag| {
+            tag != BUZZ_DEPLOYMENT_TAG
+                && !tag.starts_with("app=")
+                && !tag.starts_with("buzz_agent=")
+        });
+        self.tags.push(BUZZ_DEPLOYMENT_TAG.to_owned());
+        if let Some(public_key) = public_key.map(str::trim).filter(|value| !value.is_empty()) {
+            self.tags.push(format!("buzz_agent={public_key}"));
+        }
+    }
 }
 
 fn default_true() -> bool {
@@ -662,7 +687,7 @@ pub struct ExecDeploymentResponse {
     pub dry_run: bool,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Deployment {
     pub id: String,
     #[serde(default)]
@@ -677,6 +702,30 @@ pub struct Deployment {
     pub pod_id: Option<String>,
     #[serde(default)]
     pub hostname: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub requested_size: Option<String>,
+    #[serde(default)]
+    pub last_error: Option<String>,
+}
+
+impl Deployment {
+    /// True for new stable-tag deployments and legacy deployments that only
+    /// carry the per-agent Buzz public-key tag.
+    pub fn is_buzz_managed(&self) -> bool {
+        self.tags
+            .iter()
+            .any(|tag| tag == BUZZ_DEPLOYMENT_TAG || tag.starts_with("buzz_agent="))
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct DeleteDeploymentResponse {
+    pub ok: bool,
+    pub id: String,
+    #[serde(default)]
+    pub deleted_at: Option<String>,
 }
 
 /// Auth context for the configured credential (`GET /api/auth/me` on the
@@ -891,7 +940,8 @@ mod tests {
         buzz.require_reply = true;
         buzz.apply_to(&mut request, Some("Fizz4")).unwrap();
 
-        assert_eq!(request.size, Some(AgentSize::Large));
+        assert_eq!(request.size, None);
+        assert_eq!(request.tags, vec![BUZZ_DEPLOYMENT_TAG]);
         assert_eq!(request.command, vec!["/usr/local/bin/buzz-acp"]);
         assert_eq!(request.restart, Some(false));
         assert_eq!(
@@ -975,6 +1025,47 @@ mod tests {
             first.env["BUZZ_MANAGED_AGENT_START_NONCE"],
             second.env["BUZZ_MANAGED_AGENT_START_NONCE"]
         );
+    }
+
+    #[test]
+    fn buzz_tagging_replaces_owned_keys_and_preserves_unrelated_tags() {
+        let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        request.tags = vec![
+            "team=desktop".to_owned(),
+            "app=old".to_owned(),
+            "buzz_agent=old-key".to_owned(),
+        ];
+
+        request.mark_buzz_deployment(Some("new-key"));
+
+        assert_eq!(
+            request.tags,
+            vec![
+                "team=desktop".to_owned(),
+                BUZZ_DEPLOYMENT_TAG.to_owned(),
+                "buzz_agent=new-key".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn deployment_recognizes_stable_and_legacy_buzz_tags() {
+        let deployment = |tags: &[&str]| Deployment {
+            id: "agent-1".to_owned(),
+            name: "Fizz".to_owned(),
+            handle: None,
+            runtime: Some(ManagedRuntime::Opencode),
+            state: "RUNNING".to_owned(),
+            pod_id: None,
+            hostname: None,
+            tags: tags.iter().map(|tag| (*tag).to_owned()).collect(),
+            requested_size: None,
+            last_error: None,
+        };
+
+        assert!(deployment(&[BUZZ_DEPLOYMENT_TAG]).is_buzz_managed());
+        assert!(deployment(&["buzz_agent=public-key"]).is_buzz_managed());
+        assert!(!deployment(&["app=openclaw"]).is_buzz_managed());
     }
 
     #[test]

@@ -1,8 +1,8 @@
 # HyperCLI Desktop
 
 Tauri v2 companion app (macOS, Windows, Linux): sign in or paste an API key,
-then install the Buzz provider so HyperCLI agents appear in Buzz Desktop.
-One page, shared-ui design tokens, no bundled Node runtime.
+install the Buzz provider, and manage saved HyperCLI agents. One page,
+shared-ui design tokens, no bundled Node runtime.
 
 ## Layout
 
@@ -24,17 +24,20 @@ desktop/
 
 1. **Auth**: "Sign in with browser" opens the claw `/desktop-login` page with
    `redirect_uri=hypercli://auth`; the token comes back via deep link and is
-   exchanged for a durable API key named `<OS> (<hostname>)` (tag `desktop`),
+   exchanged for a durable API key named `<OS> (<hostname>)`,
    written to `~/.hypercli/config` (`HYPER_API_KEY=...`). Alternatively the
    user pastes an existing key. The session token is never stored.
 2. **Provider install**: the provider binary ships as a Tauri sidecar inside
    the app. Install places all Buzz-discoverable names in `~/.local/bin`
    (created if missing — surfaced in the UI, never silent):
-   - macOS/Linux: symlinks to the binary inside the app bundle. The whole
-     bundle is signed + notarized as a unit, so the sidecar's cdhash is in
-     the notarization ticket and direct execution via symlink passes
-     Gatekeeper.
-   - Windows: copies (symlinks require admin/Developer Mode).
+   - macOS/Linux: one user-owned `~/.local/bin/hypercli-configure` copy, with
+     relative provider-name symlinks beside it. Nothing points into the app
+     bundle, so App Translocation, app moves, and uninstall cannot leave
+     dangling providers.
+   - Windows: user-owned copies (symlinks require admin/Developer Mode).
+3. **Agent fleet**: after login, list saved deployments, default to a
+   backward-compatible Buzz-only filter, and offer state-safe start, stop,
+   restart, and delete. Only stopped agents can be deleted.
 
 ## Build
 
@@ -110,7 +113,10 @@ One-time keypair: `npx --yes @tauri-apps/cli@2 signer generate -w
 hypercli-updater.key`; public key → Actions secret, private key + password →
 Pulumi stack (losing it strands every install on its current version).
 
-## TODO before first release
+## Historical TODO list
+
+These items are retained for archaeology; the current source/HANDOVER is the
+authority and several have already shipped.
 
 - [ ] Icons: generate with `cargo tauri icon <logo.png>` (bundle expects
       `icons/icon.icns`, `icons/icon.ico`, PNGs).

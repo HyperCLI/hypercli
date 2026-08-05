@@ -139,11 +139,12 @@ rm -rf $W'
 state. For a single submission use `rcodesign notary-wait <uuid>`, and once
 it reads `Accepted`, `rcodesign staple <path>`.
 
-Status as of 2026-08-05 02:57Z: two `app.zip` submissions
+Status as of the latest 2026-08-05 check: two `app.zip` submissions
 (`44c65d3c-abc6-43ee-9fe8-ae3b629883c9` at 02:37:57Z and
 `de7a2cba-011a-40b6-9062-f41054ec120c` at 02:35:29Z) are **`in progress`** —
-~20 minutes in, which is ordinary for Apple's queue and simply longer than
-the 600s the tool waits. Signing itself took ~2s. Neither has failed.
+remain **`in progress`**. This is simply longer than the 600s the tool waits;
+signing itself took ~2s. Neither has failed. Continue polling `notary-list`;
+if either changes to rejected, fetch `notary-log <uuid>` immediately.
 
 Bare binaries (the standalone provider) can be signed and notarized but
 **cannot be stapled** — only bundles and disk images carry a stapled ticket,
@@ -166,6 +167,16 @@ Verified per-runtime contract (source-cited, one agent per runtime):
 | **claude-code** | Buzz *locks* the provider; image bakes nothing for hypercli inference | **open (image lane)**: needs `~/.claude/settings.json` with `availableModels` + `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` |
 | **kimi-code** | **env cannot configure it** — reads only `~/.kimi-code/config.toml`; its env fallback reads the config file's own table, never `process.env` | **open (image lane)**: entrypoint must render `config.toml` |
 | **codex** | needs `MODEL_PROVIDER` + a `CODEX_CONFIG` overlay with `model_providers.<id>.base_url`; absent that it silently uses `api.openai.com` | **blocked**: codex ≥0.146 requires `wire_api = "responses"`; our gateway serves Anthropic Messages and chat-completions. Needs a Responses surface or codex can't work |
+
+Upstream login behavior is not uniform. Claude and Codex are built-ins with
+auth probes (`claude auth status`, `codex login status`); Buzz requires login
+before it starts their external npm ACP adapters. Kimi is a PATH-only preset
+using native `kimi acp`, is marked auth `NotApplicable`, and is launched even
+when logged out, only to fail later during ACP session creation. Bundled
+`buzz-acp` has generic ACP auth discovery/authenticate support, but Desktop
+restricts that flow to exact built-ins and therefore excludes Kimi. Do not
+claim live CI coverage for any of these three without pre-seeded login state;
+the real provider/message matrix is Buzz Agent, Goose, and OpenCode.
 
 The translation lives in `apply_hypercli_inference_defaults`
 (`buzz-backend-provider/src/lib.rs`), applied **after** the launch-block
@@ -218,6 +229,29 @@ documented unmodified upstream commit. The container builds upstream Sprig
 for `buzz`, `buzz-agent`, and `buzz-dev-mcp`, but builds the real `buzz-acp`
 binary from HyperCLI. The full Buzz application fork/submodule is no longer a
 runtime-image dependency.
+
+Every newly created provider deployment now carries `app=buzz` plus its
+existing `buzz_agent=<public-key>` identity tag. Existing deployments are
+still recognized by the identity tag, so this is backward compatible.
+Concurrency remains user-authoritative: if Buzz sends `BUZZ_ACP_AGENTS`, even
+as `1`, the provider preserves it. Only a genuinely absent value receives the
+resolved tier default: 2 on small (2 GB), 5 on medium (4 GB), and 10 on large
+(8 GB), based on roughly 300 MB per harness process.
+
+### 7. Authenticated agent fleet UI — IMPLEMENTED LOCALLY
+
+After login, HyperCLI Desktop lists the account's saved deployments through
+the Rust SDK. The default filter is Buzz-only; an All segment exposes the rest
+of the account. New `app=buzz` and legacy `buzz_agent=<public-key>` tags both
+qualify. The UI never receives launch configuration, pod IDs, or credentials.
+
+Actions are fail-closed from a fresh backend state read: stopped agents may be
+started or deleted; running agents may be stopped or restarted; failed,
+restore-failed, and sync-failed agents may be restarted; transitional and
+unknown states do not expose destructive actions. Restart of a running agent
+requests stop, waits up to 60 seconds for `stopped`, then starts from the
+stored launch contract. Delete is confirmed in the UI and rejected by the
+Tauri command unless the fresh state is exactly `stopped`.
 
 ## Gotchas worth knowing
 

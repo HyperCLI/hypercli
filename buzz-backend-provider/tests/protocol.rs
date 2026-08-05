@@ -287,7 +287,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
             "handle": handle,
             "runtime": runtime,
             "size": common["size"].clone(),
-            "tags": [format!("buzz_agent={TEST_PUBLIC_HEX}")],
+            "tags": ["app=buzz", format!("buzz_agent={TEST_PUBLIC_HEX}")],
             "env": {
                 "MODEL_API_KEY": "fixture-model-credential",
                 "BUZZ_PRIVATE_KEY":

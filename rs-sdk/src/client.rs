@@ -17,8 +17,8 @@ use url::Url;
 
 use crate::{
     AgentCapacity, ApiKey, AuthMe, ClientConfig, CreateApiKeyRequest, CreateDeploymentRequest,
-    Deployment, DeploymentRoutes, ExecDeploymentRequest, ExecDeploymentResponse,
-    HyperAgentCurrentPlan, HyperAgentEntitlementsSummary, HyperAgentPlan,
+    DeleteDeploymentResponse, Deployment, DeploymentRoutes, ExecDeploymentRequest,
+    ExecDeploymentResponse, HyperAgentCurrentPlan, HyperAgentEntitlementsSummary, HyperAgentPlan,
     SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
 };
 
@@ -345,6 +345,24 @@ impl HyperCliClient {
             result.as_ref().map(|_| ()),
         );
         result
+    }
+
+    /// Permanently remove a stopped deployment. The API enforces the stopped
+    /// precondition; callers should still reflect it in their UI.
+    pub fn delete_deployment(
+        &self,
+        deployment_id: &str,
+    ) -> Result<DeleteDeploymentResponse, HyperCliError> {
+        let url = self.endpoint(&format!("deployments/{deployment_id}"));
+        self.send_json(
+            "delete_deployment",
+            "DELETE",
+            &url,
+            None,
+            self.http
+                .delete(&url)
+                .bearer_auth(self.api_key.expose_secret()),
+        )
     }
 
     pub fn get_deployment_routes(
@@ -805,7 +823,8 @@ mod tests {
                         "id": "deployment-1",
                         "handle": "buzz-abc123",
                         "runtime": "opencode",
-                        "state": "running"
+                        "state": "running",
+                        "tags": ["app=buzz", "buzz_agent=public-key"]
                     }],
                     "total_agents": 1,
                     "max_agents_per_account": 10,
@@ -831,6 +850,7 @@ mod tests {
             .unwrap();
         assert_eq!(capacity.items.len(), 1);
         assert_eq!(capacity.items[0].id, "deployment-1");
+        assert!(capacity.items[0].is_buzz_managed());
         assert_eq!(capacity.max_agents_per_account, 10);
         assert_eq!(capacity.slots["large"].available, 2);
         assert_eq!(capacity.agent_slots[0].plan_id, "pro");
@@ -1001,6 +1021,31 @@ mod tests {
         let stopped = client(&server).stop_deployment("deployment-1").unwrap();
         assert_eq!(stopped.id, "deployment-1");
         assert_eq!(stopped.state, "stopping");
+        mock.assert();
+    }
+
+    #[test]
+    fn delete_uses_deployment_endpoint_and_decodes_tombstone() {
+        let mut server = Server::new();
+        let mock = server
+            .mock("DELETE", "/agents/deployments/deployment-1")
+            .match_header("authorization", "Bearer test-credential")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "ok": true,
+                    "id": "deployment-1",
+                    "deleted_at": "2026-08-05T06:00:00Z"
+                })
+                .to_string(),
+            )
+            .create();
+
+        let deleted = client(&server).delete_deployment("deployment-1").unwrap();
+        assert!(deleted.ok);
+        assert_eq!(deleted.id, "deployment-1");
+        assert_eq!(deleted.deleted_at.as_deref(), Some("2026-08-05T06:00:00Z"));
         mock.assert();
     }
 

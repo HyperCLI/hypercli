@@ -49,6 +49,23 @@
         </div>
       </section>
 
+      <!-- account fleet: only rendered when connected -->
+      <section id="agents-section" hidden>
+        <div class="section-heading">
+          <div>
+            <h1>Agents</h1>
+            <p class="hint" id="agents-summary">Loading your agents…</p>
+          </div>
+          <button id="agents-refresh" class="icon-button" aria-label="Refresh agents" title="Refresh agents">↻</button>
+        </div>
+        <div class="segmented" role="group" aria-label="Agent filter">
+          <button id="filter-buzz" data-filter="buzz" aria-pressed="true">Buzz</button>
+          <button id="filter-all" data-filter="all" aria-pressed="false">All</button>
+        </div>
+        <div id="agent-list" class="agent-list" aria-live="polite"></div>
+        <p id="agents-empty" class="hint" hidden>No Buzz agents yet. Create one in Buzz and it will appear here.</p>
+      </section>
+
       <p id="status" role="status"></p>
       <div id="footer" class="button-row">
         <span class="hint" id="version-line"></span>

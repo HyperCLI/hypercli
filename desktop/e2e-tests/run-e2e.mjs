@@ -208,6 +208,8 @@ async function main() {
     await waitForText(browser, "#status", "created and saved");
     await expectDisplayed(browser, "#auth-connected", true);
     await expectDisplayed(browser, "#provider-section", true);
+    await expectDisplayed(browser, "#agents-section", true);
+    await waitForText(browser, "#agents-summary", "total");
     console.log("[ok] deep-link login minted and saved an API key");
 
     // 3. The saved key validates against the real backend as the test user
