@@ -380,7 +380,7 @@ create a fresh agent identity, enroll it as a bot, and create the matching
 HyperCLI deployment directly through `rs-sdk`. Vanilla Buzz remains unchanged
 and continues to use the one-shot provider executable.
 
-The create screen collects name, avatar URL, instructions, runtime, best
+The create screen collects name, a native image-picker avatar, instructions, runtime, best
 available or explicit 2/4/8 GB size, one discovered channel, respond policy,
 allowlist, optional model/concurrency, and additional environment. Automatic
 concurrency is 2/5/10 for small/medium/large. Every deployment carries both
@@ -388,6 +388,22 @@ concurrency is 2/5/10 for small/medium/large. Every deployment carries both
 preserves the full stored launch envelope, mutates only owned fields, and
 stop/PATCH/starts a running deployment. Runtime and Buzz connection are
 immutable in-place; moving them is a future Clone/Move operation.
+
+Avatar bytes never enter launch env or relay events. The native picker rejects
+symlinks, images over 2 MiB, and content whose magic is not PNG/JPEG/GIF/WebP,
+then stages the bytes behind an opaque one-shot UUID. Save uploads them through
+`POST /deployments/{id}/profile-image`; the one returned public URL becomes the
+backend `avatar_url`, `BUZZ_PROFILE_PICTURE`, and the agent-signed kind-0
+`picture`. Cancel discards the staged bytes. New deployments are created with
+`start=false` and start only after avatar upload, launch-envelope update, Buzz
+profile/enrollment, and local ownership metadata succeed.
+
+Prompt drafting is a separate in-app step: the user supplies a short brief,
+reviews/edits the generated text, then explicitly chooses **Use draft**. It
+does not silently overwrite instructions. The editor window is 520 px wide,
+the concurrency input has compact intrinsic height, and native login renders
+`Connecting…` inside the visible auth card before the remote PTY/session call
+can block for its 45-second connection timeout.
 
 Allowlist nickname resolution deliberately matches upstream Buzz rather than
 accepting every Nostr spelling: explicit values are valid `npub1...` or exact
@@ -460,8 +476,11 @@ deployment and erases its connection/keychain entry. Runs are non-cancelling
 and serialized because they share one dev identity and channel. The nsec is an
 existing GitHub secret and is never printed or passed in argv.
 
-As of 2026-08-05 18:49 Europe/Moscow, local validation is green: 22 Desktop
-Rust tests plus Clippy, 46 Rust SDK tests plus Clippy, and 23 mocked UI tests.
-The new real dev-relay gate has not run in GitHub yet; do not cut 0.1.3 until
-it passes. Apple still reports all four existing 0.1.2 notarization submissions
-as `in progress`, with no rejection log available.
+As of 2026-08-05 19:55 Europe/Moscow, local validation is green: 23 Desktop
+Rust tests plus Clippy, 48 Rust SDK tests plus Clippy, and 26 mocked UI tests.
+Real dev-relay run `31025919309` failed before agent launch because WebdriverIO's
+chainable option collection was passed to `Promise.all` as a native iterable;
+the current gate reads options and cards through DOM `Array.from` instead. Do
+not cut 0.1.3 until that corrected gate passes. Apple still reports the
+existing 0.1.2 notarization submissions as `in progress`, with no rejection log
+available.

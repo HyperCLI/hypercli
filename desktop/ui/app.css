@@ -488,6 +488,43 @@ button.link:hover {
   gap: 16px;
 }
 
+.draft-screen {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+}
+
+.draft-screen.inset {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+}
+
+.draft-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.draft-primary-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.draft-screen textarea {
+  width: 100%;
+}
+
+.draft-screen .reauth-warning p {
+  margin: 0;
+}
+
+#prompt-draft-status.error {
+  color: var(--error);
+}
+
 .agent-identity {
   display: flex;
   align-items: center;
@@ -507,6 +544,34 @@ button.link:hover {
   background-size: cover;
   font-size: 20px;
   font-weight: 700;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.agent-avatar-picker {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  flex: none;
+}
+
+.avatar-remove {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--foreground);
+  background: var(--input-background);
+  box-shadow: 0 0 0 1px var(--border);
+  font-size: 15px;
+  line-height: 1;
 }
 
 .agent-avatar.has-image,
@@ -561,12 +626,19 @@ button.link:hover {
 .field-stack .hint {
   margin-top: 0;
   font-size: 10.5px;
+  overflow-wrap: anywhere;
 }
 
 .form-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
   gap: 10px;
+}
+
+.compact-field input {
+  width: 100%;
+  flex: none;
 }
 
 .form-section {

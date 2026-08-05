@@ -16,14 +16,18 @@ let buzzConnections = [];
 let runtimeLoginToken = 0;
 let runtimeLoginActive = false;
 let channelLoadToken = 0;
+let avatarUploadId = null;
+let avatarRemoveRequested = false;
+let avatarPreviewUrl = null;
 
 const dashboardView = document.getElementById("dashboard-view");
 const agentScreen = document.getElementById("agent-screen");
 const agentForm = document.getElementById("agent-form");
+const promptDraftScreen = document.getElementById("prompt-draft-screen");
 const nativeRuntimes = new Set(["claude-code", "codex", "kimi-code"]);
 
 // Window height follows content, capped. Width stays fixed.
-const WINDOW_WIDTH = 440;
+const WINDOW_WIDTH = 520;
 const MAX_HEIGHT = 720;
 const TITLEBAR = 28;
 const appWindow = getCurrentWindow();
@@ -408,9 +412,10 @@ async function loadBuzzConnections() {
 function updateEditorAvatar() {
   const name = document.getElementById("agent-name").value.trim();
   const avatarUrl = document.getElementById("agent-avatar-url").value.trim();
-  const avatar = document.getElementById("agent-avatar");
+  const avatar = document.getElementById("agent-avatar-pick");
   avatar.textContent = (name[0] || "H").toUpperCase();
-  loadAvatar(avatar, avatarUrl);
+  loadAvatar(avatar, avatarPreviewUrl || avatarUrl);
+  document.getElementById("agent-avatar-remove").hidden = !avatarUrl && !avatarUploadId;
 }
 
 function loadAvatar(element, avatarUrl) {
@@ -538,6 +543,9 @@ async function refreshSshStatus() {
 
 function showEditor(detail, agent = null) {
   resetRuntimeLoginUi();
+  avatarUploadId = null;
+  avatarRemoveRequested = false;
+  avatarPreviewUrl = null;
   editingAgent = agent;
   editingDetail = detail;
   const creating = !agent;
@@ -549,6 +557,9 @@ function showEditor(detail, agent = null) {
   document.getElementById("draft-agent-prompt").hidden = !creating;
   setEditorField("agent-name", editorValue(detail, "name", agent?.name || ""));
   setEditorField("agent-avatar-url", editorValue(detail, "avatar_url", agent?.avatar_url || ""));
+  document.getElementById("agent-avatar-hint").textContent = document.getElementById("agent-avatar-url").value
+    ? "Current image. Choose it to replace, or use × to remove."
+    : "Choose a PNG, JPEG, GIF, or WebP image up to 2 MiB.";
   setEditorField("agent-instructions", editorValue(detail, "instructions"));
   setEditorField("agent-runtime", editorValue(detail, "runtime", agent?.runtime || "buzz-agent"));
   document.getElementById("agent-runtime").disabled = !creating;
@@ -603,6 +614,8 @@ function showEditor(detail, agent = null) {
   updateModelAvailability();
   dashboardView.hidden = true;
   agentScreen.hidden = false;
+  agentForm.hidden = false;
+  promptDraftScreen.hidden = true;
   document.getElementById("footer").hidden = true;
   document.getElementById("agent-advanced").open = false;
   agentScreen.scrollIntoView({ block: "start" });
@@ -631,6 +644,10 @@ function closeAgentEditor(preserveStatus = false) {
   const shouldCancelLogin = runtimeLoginActive && editingAgent;
   const loginAgentId = editingAgent?.id;
   resetRuntimeLoginUi();
+  if (avatarUploadId) void invoke("discard_agent_avatar", { uploadId: avatarUploadId }).catch(() => {});
+  avatarUploadId = null;
+  avatarRemoveRequested = false;
+  avatarPreviewUrl = null;
   if (shouldCancelLogin) void invoke("cancel_runtime_login", { agentId: loginAgentId }).catch(() => {});
   editingAgent = null;
   editingDetail = null;
@@ -639,6 +656,41 @@ function closeAgentEditor(preserveStatus = false) {
   document.getElementById("footer").hidden = false;
   if (!preserveStatus) setStatus("");
   void refreshAgents();
+}
+
+function closePromptDraft(useDraft = false) {
+  if (useDraft) {
+    const prompt = document.getElementById("prompt-draft-preview").value.trim();
+    if (prompt) document.getElementById("agent-instructions").value = prompt;
+  }
+  promptDraftScreen.hidden = true;
+  agentForm.hidden = false;
+  const creating = !editingAgent;
+  document.getElementById("agent-screen-title").textContent = creating
+    ? "Create agent"
+    : (editingDetail?.name || editingAgent?.name || "Edit agent");
+  document.getElementById("agent-screen-subtitle").textContent = creating
+    ? "Launch a Buzz agent in a few focused steps."
+    : "Runtime, Buzz connection, and launch settings.";
+  agentForm.scrollIntoView({ block: "start" });
+}
+
+function openPromptDraft() {
+  const instructions = document.getElementById("agent-instructions").value.trim();
+  const name = document.getElementById("agent-name").value.trim();
+  document.getElementById("prompt-draft-brief").value = instructions || name;
+  document.getElementById("prompt-draft-preview").value = "";
+  document.getElementById("prompt-draft-preview-field").hidden = true;
+  document.getElementById("prompt-draft-use").hidden = true;
+  const status = document.getElementById("prompt-draft-status");
+  status.textContent = "";
+  status.classList.remove("error");
+  document.getElementById("prompt-draft-reauth").hidden = true;
+  agentForm.hidden = true;
+  promptDraftScreen.hidden = false;
+  document.getElementById("agent-screen-title").textContent = "Draft instructions";
+  document.getElementById("agent-screen-subtitle").textContent = "Describe the agent, generate a draft, then make it yours.";
+  document.getElementById("prompt-draft-brief").focus();
 }
 
 function parseEnvironment(source) {
@@ -664,6 +716,8 @@ function editorPayload() {
     name: document.getElementById("agent-name").value.trim(),
     instructions: document.getElementById("agent-instructions").value.trim(),
     avatar_url: document.getElementById("agent-avatar-url").value.trim() || null,
+    avatar_upload_id: avatarUploadId,
+    avatar_remove: avatarRemoveRequested,
     runtime: document.getElementById("agent-runtime").value,
     size: document.getElementById("agent-size").value || null,
     model: model.disabled ? null : model.value.trim() || null,
@@ -688,10 +742,40 @@ document.getElementById("create-agent-btn").addEventListener("click", async () =
     setStatus(`Could not load Buzz connections: ${String(error)}`, true);
   }
 });
-document.getElementById("agent-back").addEventListener("click", closeAgentEditor);
+document.getElementById("agent-back").addEventListener("click", () => {
+  if (!promptDraftScreen.hidden) closePromptDraft();
+  else closeAgentEditor();
+});
 document.getElementById("agent-cancel").addEventListener("click", closeAgentEditor);
 document.getElementById("agent-name").addEventListener("input", updateEditorAvatar);
-document.getElementById("agent-avatar-url").addEventListener("input", updateEditorAvatar);
+document.getElementById("agent-avatar-pick").addEventListener("click", async () => {
+  setStatus("Choosing agent image…");
+  try {
+    if (avatarUploadId) await invoke("discard_agent_avatar", { uploadId: avatarUploadId });
+    const selection = await invoke("pick_agent_avatar");
+    if (!selection) {
+      setStatus("");
+      return;
+    }
+    avatarUploadId = selection.upload_id;
+    avatarRemoveRequested = false;
+    avatarPreviewUrl = selection.preview_data_url;
+    document.getElementById("agent-avatar-hint").textContent = `${selection.file_name} selected. It uploads only when you save.`;
+    updateEditorAvatar();
+    setStatus("Agent image selected.");
+  } catch (error) {
+    setStatus(String(error), true);
+  }
+});
+document.getElementById("agent-avatar-remove").addEventListener("click", async () => {
+  if (avatarUploadId) await invoke("discard_agent_avatar", { uploadId: avatarUploadId }).catch(() => {});
+  avatarUploadId = null;
+  avatarRemoveRequested = true;
+  avatarPreviewUrl = null;
+  document.getElementById("agent-avatar-url").value = "";
+  document.getElementById("agent-avatar-hint").textContent = "The image will be removed when you save.";
+  updateEditorAvatar();
+});
 document.getElementById("agent-runtime").addEventListener("change", () => {
   resetRuntimeLoginUi();
   void refreshRuntimeAuth();
@@ -700,30 +784,53 @@ document.getElementById("agent-respond-to").addEventListener("change", updateAll
 document.getElementById("agent-env").addEventListener("input", updateModelAvailability);
 document.getElementById("agent-connection").addEventListener("change", updateSelectedConnection);
 
-document.getElementById("draft-agent-prompt").addEventListener("click", async () => {
-  const button = document.getElementById("draft-agent-prompt");
-  const instructions = document.getElementById("agent-instructions");
-  const keywords = instructions.value.trim() || document.getElementById("agent-name").value.trim();
+document.getElementById("draft-agent-prompt").addEventListener("click", openPromptDraft);
+document.getElementById("prompt-draft-back").addEventListener("click", () => closePromptDraft());
+document.getElementById("prompt-draft-use").addEventListener("click", () => closePromptDraft(true));
+document.getElementById("prompt-draft-generate").addEventListener("click", async () => {
+  const button = document.getElementById("prompt-draft-generate");
+  const keywords = document.getElementById("prompt-draft-brief").value.trim();
+  const status = document.getElementById("prompt-draft-status");
   if (!keywords) {
-    setStatus("Add a name or a few keywords before drafting.", true);
+    status.textContent = "Add a few words about the agent before drafting.";
+    status.classList.add("error");
     return;
   }
-  const previous = instructions.value;
   button.disabled = true;
   button.textContent = "Drafting…";
-  setStatus("Drafting concise agent instructions…");
+  status.textContent = "Drafting concise agent instructions…";
+  status.classList.remove("error");
+  document.getElementById("prompt-draft-reauth").hidden = true;
   try {
     const result = await invoke("draft_agent_prompt", { keywords });
     const prompt = typeof result === "string" ? result : result?.prompt;
     if (!prompt?.trim()) throw new Error("Prompt drafting returned an empty response.");
-    instructions.value = prompt.trim();
-    setStatus("Draft ready. Review it before creating the agent.");
+    document.getElementById("prompt-draft-preview").value = prompt.trim();
+    document.getElementById("prompt-draft-preview-field").hidden = false;
+    document.getElementById("prompt-draft-use").hidden = false;
+    status.textContent = "Draft ready. Edit it here, then use it when you are happy.";
   } catch (error) {
-    instructions.value = previous;
-    setStatus(String(error), true);
+    const message = String(error);
+    status.textContent = message;
+    status.classList.add("error");
+    document.getElementById("prompt-draft-reauth").hidden = !message.toLowerCase().includes("reauthoriz");
   } finally {
     button.disabled = false;
-    button.textContent = "✦ Draft";
+    button.textContent = document.getElementById("prompt-draft-preview-field").hidden
+      ? "Try again"
+      : "Generate again";
+  }
+});
+
+document.getElementById("prompt-draft-reauthorize").addEventListener("click", async () => {
+  const status = document.getElementById("prompt-draft-status");
+  try {
+    await invoke("start_login");
+    status.textContent = "Sign in in your browser. HyperCLI will replace this machine key with the scoped drafting grant.";
+    status.classList.remove("error");
+  } catch (error) {
+    status.textContent = String(error);
+    status.classList.add("error");
   }
 });
 
@@ -816,7 +923,10 @@ document.getElementById("runtime-login-btn").addEventListener("click", async () 
   if (!editingAgent) return;
   const runtime = document.getElementById("agent-runtime").value;
   const button = document.getElementById("runtime-login-btn");
+  const detail = document.getElementById("runtime-auth-detail");
   button.disabled = true;
+  button.textContent = "Connecting…";
+  detail.textContent = "Opening a secure login session on the agent…";
   setStatus(`Opening ${humanize(runtime)} login…`);
   try {
     const result = await invoke("begin_runtime_login", { agentId: editingAgent.id, runtime });
@@ -834,8 +944,11 @@ document.getElementById("runtime-login-btn").addEventListener("click", async () 
     const token = runtimeLoginToken;
     setTimeout(() => { void pollRuntimeLogin(token); }, 1_000);
   } catch (error) {
-    setStatus(String(error), true);
+    const message = String(error);
+    detail.textContent = message;
+    setStatus(message, true);
     button.disabled = false;
+    button.textContent = "Try again";
   }
 });
 

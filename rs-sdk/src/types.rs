@@ -697,6 +697,18 @@ pub struct DeploymentFileWriteResponse {
     pub target: String,
 }
 
+/// Result of uploading or removing a deployment's public profile image.
+///
+/// Uploads return both `avatar_url` and `s3_key`; deletes return both fields as
+/// `null`. The image bytes themselves are deliberately never represented in
+/// this type or in HTTP traces.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DeploymentProfileImageResponse {
+    pub id: String,
+    pub avatar_url: Option<String>,
+    pub s3_key: Option<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Deployment {
     pub id: String,

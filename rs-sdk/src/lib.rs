@@ -21,11 +21,11 @@ pub use runtime_auth::{
 pub use types::{
     AgentCapacity, AgentSize, AgentSlot, AgentSlotInventory, ApiKey, AuthMe, BuzzLaunchConfig,
     BuzzLaunchError, CreateApiKeyRequest, CreateDeploymentRequest, DeleteDeploymentResponse,
-    Deployment, DeploymentFileWriteResponse, DeploymentLaunchConfig, DeploymentRoutes,
-    EntitlementsSummary, ExecDeploymentRequest, ExecDeploymentResponse, HyperAgentCanonicalPlanId,
-    HyperAgentCurrentPlan, HyperAgentEntitlement, HyperAgentEntitlementsSummary, HyperAgentPlan,
-    HyperAgentPlanResources, HyperAgentSubscriptionSummary, ManagedRuntime, RouteConfig,
-    SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
-    UpdateDeploymentRequest, BUZZ_ACP_MAX_REPLY_NAGS, BUZZ_ACP_REPLY_GUARD_NAG,
-    BUZZ_DEPLOYMENT_TAG, BUZZ_RUNTIME_SCOPES,
+    Deployment, DeploymentFileWriteResponse, DeploymentLaunchConfig,
+    DeploymentProfileImageResponse, DeploymentRoutes, EntitlementsSummary, ExecDeploymentRequest,
+    ExecDeploymentResponse, HyperAgentCanonicalPlanId, HyperAgentCurrentPlan,
+    HyperAgentEntitlement, HyperAgentEntitlementsSummary, HyperAgentPlan, HyperAgentPlanResources,
+    HyperAgentSubscriptionSummary, ManagedRuntime, RouteConfig, SetDeploymentRouteRequest,
+    SetDeploymentRoutesRequest, StartDeploymentRequest, UpdateDeploymentRequest,
+    BUZZ_ACP_MAX_REPLY_NAGS, BUZZ_ACP_REPLY_GUARD_NAG, BUZZ_DEPLOYMENT_TAG, BUZZ_RUNTIME_SCOPES,
 };

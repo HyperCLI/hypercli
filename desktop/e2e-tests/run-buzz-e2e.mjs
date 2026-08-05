@@ -278,20 +278,16 @@ async function main() {
     connectionId = await connectionSelect.getValue();
 
     const channelSelect = await browser.$("#agent-community");
-    await browser.waitUntil(async () => {
-      const options = await channelSelect.$$("option");
-      return (await Promise.all(options.map(async (option) => ({
-        value: await option.getAttribute("value"),
-        text: await option.getText(),
-      })))).some((option) => option.value && option.text.toLowerCase() === "#ci");
-    }, { timeout: 60_000, timeoutMsg: "private #CI channel was not discovered" });
-    const channelOptions = await channelSelect.$$("option");
     let channelId;
-    for (const option of channelOptions) {
-      if ((await option.getText()).toLowerCase() === "#ci") {
-        channelId = await option.getAttribute("value");
-      }
-    }
+    await browser.waitUntil(async () => {
+      const options = await browser.execute(() => Array.from(
+        document.querySelectorAll("#agent-community option"),
+        (option) => ({ value: option.value, text: option.textContent || "" }),
+      ));
+      const ci = options.find((option) => option.value && option.text.trim().toLowerCase() === "#ci");
+      channelId = ci?.value;
+      return Boolean(channelId);
+    }, { timeout: 60_000, timeoutMsg: "private #CI channel was not discovered" });
     if (!channelId) fail("#CI channel has no id");
     await channelSelect.selectByAttribute("value", channelId);
 
@@ -303,14 +299,15 @@ async function main() {
     await (await browser.$("#dashboard-view")).waitForDisplayed({ timeout: 60_000 });
 
     await browser.waitUntil(async () => {
-      const candidates = await browser.$$(".agent-card");
-      for (const candidate of candidates) {
-        if ((await candidate.getText()).includes(agentName)) {
-          agentId = await candidate.getAttribute("data-agent-id");
-          return Boolean(agentId);
-        }
-      }
-      return false;
+      const candidates = await browser.execute(() => Array.from(
+        document.querySelectorAll(".agent-card"),
+        (candidate) => ({
+          id: candidate.getAttribute("data-agent-id"),
+          text: candidate.textContent || "",
+        }),
+      ));
+      agentId = candidates.find((candidate) => candidate.text.includes(agentName))?.id;
+      return Boolean(agentId);
     }, { timeout: 60_000, timeoutMsg: "new Buzz agent did not appear in the fleet" });
     const running = await waitForAgent(browser, agentId, "running");
     const agentPublicKey = running.agent_public_key;

@@ -211,6 +211,8 @@ test("agent card opens a compact editor with native login state", async ({ page 
   await expect(page.locator("#allowlist-field")).toBeVisible();
   await expect(page.locator("#runtime-auth-title")).toHaveText("Login required");
   await expect(page.locator("#runtime-auth-detail")).toContainText("Claude Code");
+  const concurrencyBox = await page.locator("#agent-concurrency").boundingBox();
+  expect(concurrencyBox.height).toBeLessThan(50);
   await page.locator("#agent-advanced").click();
   await expect(page.locator("#stored-secret-env")).toContainText("GITHUB_TOKEN");
   await expect(page.locator("#stored-secret-env")).toContainText("values hidden");
@@ -232,6 +234,19 @@ test("agent card opens a compact editor with native login state", async ({ page 
   await expect(page.locator("#agents-section")).toBeVisible();
 });
 
+test("native login acknowledges a slow secure-session start", async ({ page }) => {
+  await withMock(page, {
+    status: { has_api_key: true },
+    runtimeLoginBeginDelayMs: 300,
+  });
+  await page.goto("/");
+  await page.locator(".agent-card", { hasText: "Maverick" }).click();
+  await page.locator("#runtime-login-btn").click();
+  await expect(page.locator("#runtime-login-btn")).toHaveText("Connecting…");
+  await expect(page.locator("#runtime-auth-detail")).toContainText("Opening a secure login session");
+  await expect(page.locator("#runtime-login-code")).toContainText("TEST-CODE");
+});
+
 test("editor saves Buzz policy and launch env through one typed payload", async ({ page }) => {
   await withMock(page, { status: { has_api_key: true } });
   await page.goto("/");
@@ -251,6 +266,22 @@ test("editor saves Buzz policy and launch env through one typed payload", async 
   expect(saveCall[1].input.respond_to).toBe("owner");
   expect(saveCall[1].input.env).toEqual({ GITHUB_ORG: "hypercli", FEATURE_FLAG: "true" });
   await expect(page.locator("#dashboard-view")).toBeVisible();
+});
+
+test("agent image picker stages a preview and uploads only on save", async ({ page }) => {
+  await withMock(page, { status: { has_api_key: true } });
+  await page.goto("/");
+  await page.locator(".agent-card", { hasText: "Maverick" }).click();
+
+  await page.locator("#agent-avatar-pick").click();
+  await expect(page.locator("#agent-avatar-hint")).toContainText("maverick.png selected");
+  await expect(page.locator("#agent-avatar-remove")).toBeVisible();
+  await page.locator("#agent-save").click();
+
+  const saveCall = await page.evaluate(() => window.__MOCK__.calls.find(([cmd]) => cmd === "save_agent"));
+  expect(saveCall[1].input.avatar_upload_id).toBe("44444444-4444-4444-8444-444444444444");
+  expect(saveCall[1].input.avatar_remove).toBe(false);
+  expect(saveCall[1].input.avatar_url).toBe(null);
 });
 
 test("immediately completed native login does not enter a polling loop", async ({ page }) => {
@@ -298,11 +329,38 @@ test("create prompt drafting previews text and never saves automatically", async
   await page.locator("#create-agent-btn").click();
   await page.locator("#agent-name").fill("Compass");
   await page.locator("#draft-agent-prompt").click();
+  await expect(page.locator("#prompt-draft-screen")).toBeVisible();
+  await expect(page.locator("#agent-form")).toBeHidden();
+  await page.locator("#prompt-draft-generate").click();
+  await expect(page.locator("#prompt-draft-preview")).toHaveValue(/focused agent/);
+  await expect(page.locator("#prompt-draft-status")).toContainText("Edit it here");
+  await page.locator("#prompt-draft-use").click();
   await expect(page.locator("#agent-instructions")).toHaveValue(/focused agent/);
-  await expect(page.locator("#status")).toContainText("Review it");
+  await expect(page.locator("#agent-form")).toBeVisible();
   const calls = await page.evaluate(() => window.__MOCK__.calls.map(([cmd]) => cmd));
   expect(calls).toContain("draft_agent_prompt");
   expect(calls).not.toContain("create_buzz_agent");
+});
+
+test("drafting an older key offers reauthorization without breaking layout", async ({ page }) => {
+  await withMock(page, {
+    status: { has_api_key: true },
+    draftError: "This Desktop key needs to be reauthorized for prompt drafting",
+  });
+  await page.goto("/");
+  await page.locator("#create-agent-btn").click();
+  await page.locator("#draft-agent-prompt").click();
+  await page.locator("#prompt-draft-brief").fill("goose from topgun");
+  await page.locator("#prompt-draft-generate").click();
+
+  await expect(page.locator("#prompt-draft-reauth")).toBeVisible();
+  const draftBox = await page.locator("#prompt-draft-screen").boundingBox();
+  const brief = await page.locator("#prompt-draft-brief").boundingBox();
+  expect(brief.width).toBeGreaterThan(draftBox.width * 0.8);
+  await page.locator("#prompt-draft-reauthorize").click();
+  await expect(page.locator("#prompt-draft-status")).toContainText("Sign in in your browser");
+  const call = await page.evaluate(() => window.__MOCK__.calls.find(([cmd]) => cmd === "start_login"));
+  expect(call).toBeTruthy();
 });
 
 test("create flow is progressive and launches a Buzz agent", async ({ page }) => {
@@ -314,7 +372,9 @@ test("create flow is progressive and launches a Buzz agent", async ({ page }) =>
   await expect(page.locator("#runtime-auth-card")).toBeHidden();
   await expect(page.locator("#agent-advanced")).not.toHaveAttribute("open", "");
   await page.locator("#agent-name").fill("Compass");
-  await page.locator("#agent-avatar-url").fill("https://images.example.test/compass.png");
+  await page.locator("#agent-avatar-url").evaluate((element) => {
+    element.value = "https://images.example.test/compass.png";
+  });
   await page.locator("#agent-instructions").fill("Keep answers short and help maintain the project.");
   await page.locator("#agent-runtime").selectOption("opencode");
   await page.locator("#agent-size").selectOption("medium");

@@ -132,6 +132,8 @@
     },
     runtimeLoginPolls: {},
     runtimeLoginImmediateComplete: false,
+    runtimeLoginBeginDelayMs: 0,
+    draftError: null,
     buzzConnections: [
       {
         id: DEV_CONNECTION_ID,
@@ -163,6 +165,10 @@
   if (overrides.runtimeLoginImmediateComplete !== undefined) {
     state.runtimeLoginImmediateComplete = overrides.runtimeLoginImmediateComplete;
   }
+  if (overrides.runtimeLoginBeginDelayMs !== undefined) {
+    state.runtimeLoginBeginDelayMs = overrides.runtimeLoginBeginDelayMs;
+  }
+  if (overrides.draftError !== undefined) state.draftError = overrides.draftError;
   if (overrides.buzzConnections) state.buzzConnections = overrides.buzzConnections.map((item) => ({ ...item }));
   if (overrides.sshKeys) state.sshKeys = { ...state.sshKeys, ...overrides.sshKeys };
   window.__MOCK__ = state;
@@ -219,10 +225,14 @@
             return { ...connection };
           }
           case "draft_agent_prompt":
+            if (state.draftError) throw state.draftError;
             return `You are a focused agent. ${args?.keywords} Keep responses concise and useful.`;
           case "runtime_auth_status":
             return state.runtimeAuth[args?.agentId] || { authenticated: false };
           case "begin_runtime_login":
+            if (state.runtimeLoginBeginDelayMs) {
+              await new Promise((resolve) => setTimeout(resolve, state.runtimeLoginBeginDelayMs));
+            }
             if (state.runtimeLoginImmediateComplete) {
               state.runtimeAuth[args?.agentId] = { authenticated: true };
               return { completed: true, status: "completed" };
@@ -253,6 +263,14 @@
           case "import_ssh_key":
             state.sshKeys[args?.agentId] = { configured: true, fingerprint: "SHA256:test-agent-key" };
             return state.sshKeys[args?.agentId];
+          case "pick_agent_avatar":
+            return {
+              upload_id: "44444444-4444-4444-8444-444444444444",
+              preview_data_url: "data:image/png;base64,iVBORw0KGgo=",
+              file_name: "maverick.png",
+            };
+          case "discard_agent_avatar":
+            return null;
           case "save_agent": {
             const agent = state.agents.find((item) => item.id === args?.agentId);
             if (!agent) throw "Agent not found";

@@ -84,14 +84,42 @@
           </div>
         </div>
 
+        <section id="prompt-draft-screen" class="draft-screen inset" hidden aria-labelledby="prompt-draft-title">
+          <div class="field-stack">
+            <span class="eyebrow">Instruction helper</span>
+            <strong id="prompt-draft-title">What should this agent do?</strong>
+            <p class="hint">Give it a role, priorities, tools, or a few personality keywords. HyperCLI will draft concise instructions you can edit before using.</p>
+            <textarea id="prompt-draft-brief" rows="5" maxlength="1000" placeholder="A pragmatic Rust maintainer who reviews pull requests, runs tests, and reports risks clearly."></textarea>
+          </div>
+          <div id="prompt-draft-preview-field" class="field-stack" hidden>
+            <label for="prompt-draft-preview">Draft</label>
+            <textarea id="prompt-draft-preview" rows="9"></textarea>
+          </div>
+          <p id="prompt-draft-status" class="hint" role="status"></p>
+          <div id="prompt-draft-reauth" class="reauth-warning" hidden>
+            <p>This Desktop key predates prompt drafting. Upgrade it once to add the scoped model grant.</p>
+            <button id="prompt-draft-reauthorize" type="button">Upgrade key</button>
+          </div>
+          <div class="draft-actions">
+            <button id="prompt-draft-back" type="button">Back</button>
+            <div class="draft-primary-actions">
+              <button id="prompt-draft-generate" type="button" class="primary">Generate draft</button>
+              <button id="prompt-draft-use" type="button" class="primary" hidden>Use draft</button>
+            </div>
+          </div>
+        </section>
+
         <form id="agent-form" class="agent-form">
           <div class="agent-identity">
-            <div id="agent-avatar" class="agent-avatar" aria-hidden="true">H</div>
+            <div class="agent-avatar-picker">
+              <button id="agent-avatar-pick" class="agent-avatar" type="button" aria-label="Choose agent image" title="Choose agent image">H</button>
+              <button id="agent-avatar-remove" class="avatar-remove" type="button" aria-label="Remove agent image" title="Remove agent image" hidden>×</button>
+            </div>
             <div class="field-stack grow">
               <label for="agent-name">Name</label>
               <input id="agent-name" name="name" placeholder="Fizz" required maxlength="32" />
-              <label class="visually-hidden" for="agent-avatar-url">Avatar image URL</label>
-              <input id="agent-avatar-url" name="avatar_url" type="url" placeholder="Avatar image URL (optional)" maxlength="2048" />
+              <input id="agent-avatar-url" name="avatar_url" type="hidden" />
+              <span id="agent-avatar-hint" class="hint">Choose a PNG, JPEG, GIF, or WebP image up to 2 MiB.</span>
               <span id="agent-runtime-state" class="hint"></span>
             </div>
           </div>

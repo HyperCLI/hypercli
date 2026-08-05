@@ -3,7 +3,7 @@ mod buzz_connections;
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -128,6 +128,10 @@ pub struct AgentEditorInput {
     name: String,
     instructions: String,
     avatar_url: Option<String>,
+    #[serde(default)]
+    avatar_upload_id: Option<String>,
+    #[serde(default)]
+    avatar_remove: bool,
     runtime: String,
     size: Option<String>,
     model: Option<String>,
@@ -218,6 +222,25 @@ impl From<RuntimeLoginChallenge> for DesktopRuntimeLoginChallenge {
 #[derive(Default)]
 struct RuntimeLoginSessions {
     sessions: AsyncMutex<HashMap<String, Arc<AsyncMutex<RuntimeLoginSession>>>>,
+}
+
+const MAX_AVATAR_BYTES: u64 = 2 * 1024 * 1024;
+
+struct StagedAvatar {
+    content: Vec<u8>,
+    content_type: String,
+}
+
+#[derive(Default)]
+struct StagedAvatarUploads {
+    uploads: Mutex<HashMap<String, StagedAvatar>>,
+}
+
+#[derive(Serialize)]
+struct DesktopAvatarSelection {
+    upload_id: String,
+    preview_data_url: String,
+    file_name: String,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1452,6 +1475,9 @@ fn set_optional_env(env: &mut BTreeMap<String, String>, key: &str, value: Option
 }
 
 fn validate_editor_input(input: &AgentEditorInput) -> Result<(), String> {
+    if input.avatar_remove && input.avatar_upload_id.is_some() {
+        return Err("Choose a new agent image or remove it, not both".to_owned());
+    }
     let name = input.name.trim();
     if name.is_empty() || name.len() > 32 {
         return Err("Agent name must be between 1 and 32 characters".to_owned());
@@ -1707,8 +1733,34 @@ fn prepare_agent_profile_update_blocking(
     })
 }
 
+fn apply_avatar_change_blocking(
+    agent_id: &str,
+    input: &mut AgentEditorInput,
+    staged: Option<StagedAvatar>,
+) -> Result<(), String> {
+    let client = managed_client()?;
+    if let Some(staged) = staged {
+        let uploaded = client
+            .upload_deployment_profile_image(agent_id, &staged.content, &staged.content_type)
+            .map_err(|error| error.to_string())?;
+        input.avatar_url = uploaded.avatar_url;
+    } else if input.avatar_remove {
+        client
+            .delete_deployment_profile_image(agent_id)
+            .map_err(|error| error.to_string())?;
+        input.avatar_url = None;
+    }
+    input.avatar_upload_id = None;
+    input.avatar_remove = false;
+    Ok(())
+}
+
 #[tauri::command]
-async fn save_agent(agent_id: String, input: AgentEditorInput) -> Result<DesktopAgent, String> {
+async fn save_agent(
+    uploads: tauri::State<'_, StagedAvatarUploads>,
+    agent_id: String,
+    input: AgentEditorInput,
+) -> Result<DesktopAgent, String> {
     let mut input = input;
     if input.respond_to.trim() == "allowlist" {
         let lookup_id = checked_agent_id(&agent_id)?;
@@ -1762,6 +1814,15 @@ async fn save_agent(agent_id: String, input: AgentEditorInput) -> Result<Desktop
     } else {
         input.allowlist.clear();
     }
+    let staged = take_staged_avatar(&uploads, input.avatar_upload_id.as_deref())?;
+    let avatar_agent_id = checked_agent_id(&agent_id)?;
+    input = tauri::async_runtime::spawn_blocking(move || {
+        let mut input = input;
+        apply_avatar_change_blocking(&avatar_agent_id, &mut input, staged)?;
+        Ok::<_, String>(input)
+    })
+    .await
+    .map_err(|error| error.to_string())??;
     let profile_agent_id = agent_id.clone();
     let profile_input = input.clone();
     let profile = tauri::async_runtime::spawn_blocking(move || {
@@ -1905,6 +1966,7 @@ fn validate_buzz_event_author(signer: &nostr::Keys, event: &NostrEvent) -> Resul
     }
 }
 
+#[derive(Clone)]
 struct PreparedBuzzLaunch {
     relay: String,
     connection_id: String,
@@ -1915,7 +1977,6 @@ struct PreparedBuzzLaunch {
     agent_nsec: SecretString,
     auth_tag: SecretString,
     channels: Vec<String>,
-    profile_event: NostrEvent,
     enrollment_events: Vec<NostrEvent>,
     removal_events: Vec<NostrEvent>,
 }
@@ -1944,14 +2005,6 @@ fn prepare_buzz_launch(input: &AgentEditorInput) -> Result<PreparedBuzzLaunch, S
     let agent = AgentIdentity::generate();
     let auth_tag = build_owner_attestation(&owner, &agent.public_key(), "")
         .map_err(|error| error.to_string())?;
-    let profile = build_agent_profile_event(
-        &agent,
-        input.name.trim(),
-        input.avatar_url.as_deref(),
-        Some(input.instructions.trim()),
-        &auth_tag,
-    )
-    .map_err(|error| error.to_string())?;
     let mut channels = input
         .channels
         .iter()
@@ -1988,7 +2041,6 @@ fn prepare_buzz_launch(input: &AgentEditorInput) -> Result<PreparedBuzzLaunch, S
         agent_nsec: agent.private_nsec().map_err(|error| error.to_string())?,
         auth_tag,
         channels,
-        profile_event: profile,
         enrollment_events,
         removal_events,
     })
@@ -2062,12 +2114,39 @@ fn create_buzz_deployment_blocking(
     buzz.apply_to(&mut request, Some(input.name.trim()))
         .map_err(|error| error.to_string())?;
     request.size = Some(requested_size);
+    // Keep the runtime stopped until its durable avatar, Buzz profile, and
+    // local ownership record have all been installed.
+    request.start = false;
     request.mark_buzz_deployment(Some(&prepared.agent_public_hex));
     for channel in &prepared.channels {
         request.tags.push(format!("buzz_channel={channel}"));
     }
     client
         .create_deployment(&request)
+        .map_err(|error| error.to_string())
+}
+
+fn sync_created_avatar_env_blocking(
+    deployment_id: &str,
+    avatar_url: Option<String>,
+) -> Result<Deployment, String> {
+    let deployment_id = checked_agent_id(deployment_id)?;
+    let client = managed_client()?;
+    let deployment = client
+        .get_deployment(&deployment_id)
+        .map_err(|error| error.to_string())?;
+    let mut launch_config = deployment.launch_config.as_map().clone();
+    let mut env = launch_env(&deployment.launch_config)?;
+    set_optional_env(&mut env, "BUZZ_PROFILE_PICTURE", avatar_url);
+    insert_launch_env(&mut launch_config, env);
+    client
+        .update_deployment(
+            &deployment_id,
+            &UpdateDeploymentRequest {
+                launch_config: Some(DeploymentLaunchConfig::from_map(launch_config)),
+                ..Default::default()
+            },
+        )
         .map_err(|error| error.to_string())
 }
 
@@ -2094,7 +2173,10 @@ fn cleanup_created_deployment_blocking(agent_id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn create_buzz_agent(input: AgentEditorInput) -> Result<DesktopAgent, String> {
+async fn create_buzz_agent(
+    uploads: tauri::State<'_, StagedAvatarUploads>,
+    input: AgentEditorInput,
+) -> Result<DesktopAgent, String> {
     let mut input = input;
     if input.community.trim().is_empty() && input.channels.is_empty() {
         return Err("Choose at least one Buzz channel".to_owned());
@@ -2115,48 +2197,10 @@ async fn create_buzz_agent(input: AgentEditorInput) -> Result<DesktopAgent, Stri
     } else {
         input.allowlist.clear();
     }
-    publish_signed_buzz_event_http(
-        &prepared.relay,
-        &prepared.agent_keys,
-        &prepared.profile_event,
-        Some(&prepared.auth_tag),
-    )
-    .await?;
-    if let Err(error) = publish_buzz_events(
-        &prepared.relay,
-        prepared.owner_keys.clone(),
-        &prepared.enrollment_events,
-    )
-    .await
-    {
-        let rollback = publish_buzz_events(
-            &prepared.relay,
-            prepared.owner_keys.clone(),
-            &prepared.removal_events,
-        )
-        .await;
-        return Err(match rollback {
-            Ok(()) => error,
-            Err(rollback_error) => format!("{error}; Buzz rollback also failed: {rollback_error}"),
-        });
-    }
-
+    let staged = take_staged_avatar(&uploads, input.avatar_upload_id.as_deref())?;
     let launch_input = input.clone();
     let deployment = match tauri::async_runtime::spawn_blocking({
-        let prepared = PreparedBuzzLaunch {
-            relay: prepared.relay.clone(),
-            connection_id: prepared.connection_id.clone(),
-            owner_keys: prepared.owner_keys.clone(),
-            agent_keys: prepared.agent_keys.clone(),
-            agent_public_hex: prepared.agent_public_hex.clone(),
-            agent_npub: prepared.agent_npub.clone(),
-            agent_nsec: prepared.agent_nsec.clone(),
-            auth_tag: prepared.auth_tag.clone(),
-            channels: prepared.channels.clone(),
-            profile_event: prepared.profile_event.clone(),
-            enrollment_events: prepared.enrollment_events.clone(),
-            removal_events: prepared.removal_events.clone(),
-        };
+        let prepared = prepared.clone();
         move || create_buzz_deployment_blocking(&launch_input, &prepared)
     })
     .await
@@ -2164,30 +2208,102 @@ async fn create_buzz_agent(input: AgentEditorInput) -> Result<DesktopAgent, Stri
     {
         Ok(deployment) => deployment,
         Err(error) => {
-            let _ = publish_buzz_events(
-                &prepared.relay,
-                prepared.owner_keys.clone(),
-                &prepared.removal_events,
-            )
-            .await;
             return Err(error);
         }
     };
 
+    if staged.is_some() || input.avatar_remove {
+        let avatar_id = deployment.id.clone();
+        let avatar_result = tauri::async_runtime::spawn_blocking(move || {
+            let mut input = input;
+            apply_avatar_change_blocking(&avatar_id, &mut input, staged)?;
+            sync_created_avatar_env_blocking(&avatar_id, input.avatar_url.clone())?;
+            Ok::<_, String>(input)
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+        match avatar_result {
+            Ok(updated_input) => input = updated_input,
+            Err(error) => {
+                let cleanup_id = deployment.id.clone();
+                let _ = tauri::async_runtime::spawn_blocking(move || {
+                    cleanup_created_deployment_blocking(cleanup_id)
+                })
+                .await;
+                return Err(error);
+            }
+        }
+    } else {
+        input.avatar_upload_id = None;
+        input.avatar_remove = false;
+    }
+
+    let profile_identity =
+        AgentIdentity::from_nsec(&prepared.agent_nsec).map_err(|error| error.to_string())?;
+    let profile_event = build_agent_profile_event(
+        &profile_identity,
+        input.name.trim(),
+        input.avatar_url.as_deref(),
+        Some(input.instructions.trim()),
+        &prepared.auth_tag,
+    )
+    .map_err(|error| error.to_string())?;
+    let profile_result = publish_signed_buzz_event_http(
+        &prepared.relay,
+        &prepared.agent_keys,
+        &profile_event,
+        Some(&prepared.auth_tag),
+    )
+    .await;
+    let publish_result = match profile_result {
+        Ok(()) => {
+            publish_buzz_events(
+                &prepared.relay,
+                prepared.owner_keys.clone(),
+                &prepared.enrollment_events,
+            )
+            .await
+        }
+        Err(error) => Err(error),
+    };
+    if let Err(error) = publish_result {
+        let cleanup_id = deployment.id.clone();
+        let backend_cleanup = tauri::async_runtime::spawn_blocking(move || {
+            cleanup_created_deployment_blocking(cleanup_id)
+        })
+        .await
+        .map_err(|join_error| join_error.to_string())?;
+        let relay_cleanup = publish_buzz_events(
+            &prepared.relay,
+            prepared.owner_keys.clone(),
+            &prepared.removal_events,
+        )
+        .await;
+        let mut failures = vec![error];
+        if let Err(cleanup_error) = backend_cleanup {
+            failures.push(format!("backend cleanup failed: {cleanup_error}"));
+        }
+        if let Err(cleanup_error) = relay_cleanup {
+            failures.push(format!("Buzz cleanup failed: {cleanup_error}"));
+        }
+        return Err(failures.join("; "));
+    }
+
     let metadata = ManagedBuzzAgentMetadata {
-        agent_public_hex: prepared.agent_public_hex,
-        agent_npub: prepared.agent_npub,
-        connection_id: prepared.connection_id,
+        agent_public_hex: prepared.agent_public_hex.clone(),
+        agent_npub: prepared.agent_npub.clone(),
+        connection_id: prepared.connection_id.clone(),
         channels: prepared
             .channels
-            .into_iter()
+            .iter()
+            .cloned()
             .map(|id| ChannelReference {
                 name: id.clone(),
                 id,
             })
             .collect(),
         deployment_id: Some(deployment.id.clone()),
-        runtime: input.runtime,
+        runtime: input.runtime.clone(),
         tags: BTreeMap::from([("app".to_owned(), "buzz".to_owned())]),
     };
     let record_result = tauri::async_runtime::spawn_blocking(move || {
@@ -2206,7 +2322,7 @@ async fn create_buzz_agent(input: AgentEditorInput) -> Result<DesktopAgent, Stri
         .map_err(|error| error.to_string())?;
         let relay_cleanup = publish_buzz_events(
             &prepared.relay,
-            prepared.owner_keys,
+            prepared.owner_keys.clone(),
             &prepared.removal_events,
         )
         .await;
@@ -2221,7 +2337,15 @@ async fn create_buzz_agent(input: AgentEditorInput) -> Result<DesktopAgent, Stri
         }
         return Err(failures.join("; "));
     }
-    Ok(DesktopAgent::from(deployment))
+    let started_id = deployment.id.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        managed_client()?
+            .start_deployment(&started_id, &StartDeploymentRequest::default())
+            .map(DesktopAgent::from)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 const SSH_STATUS_COMMAND: &str = r#"set -eu
@@ -2367,6 +2491,116 @@ fn validate_private_ssh_key(path: &std::path::Path) -> Result<Vec<u8>, String> {
         content.push(b'\n');
     }
     Ok(content)
+}
+
+fn detect_avatar_content_type(content: &[u8]) -> Option<&'static str> {
+    if content.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if content.starts_with(b"\xff\xd8\xff") {
+        Some("image/jpeg")
+    } else if content.starts_with(b"GIF87a") || content.starts_with(b"GIF89a") {
+        Some("image/gif")
+    } else if content.len() >= 12 && &content[..4] == b"RIFF" && &content[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
+    }
+}
+
+fn read_avatar_image(path: &std::path::Path) -> Result<(Vec<u8>, String), String> {
+    let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+    if metadata.file_type().is_symlink() {
+        return Err("Agent images cannot follow symbolic links".to_owned());
+    }
+    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_AVATAR_BYTES {
+        return Err("Choose an image no larger than 2 MiB".to_owned());
+    }
+    let content = fs::read(path).map_err(|error| error.to_string())?;
+    let content_type = detect_avatar_content_type(&content)
+        .ok_or_else(|| "Choose a valid PNG, JPEG, GIF, or WebP image".to_owned())?;
+    Ok((content, content_type.to_owned()))
+}
+
+#[tauri::command]
+async fn pick_agent_avatar(
+    app: tauri::AppHandle,
+    uploads: tauri::State<'_, StagedAvatarUploads>,
+) -> Result<Option<DesktopAvatarSelection>, String> {
+    let Some(selected) = app
+        .dialog()
+        .file()
+        .add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp"])
+        .blocking_pick_file()
+    else {
+        return Ok(None);
+    };
+    let path = selected
+        .into_path()
+        .map_err(|_| "The selected image is not a local file".to_owned())?;
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("Agent image")
+        .to_owned();
+    let (content, content_type) = read_avatar_image(&path)?;
+    let upload_id = uuid::Uuid::new_v4().to_string();
+    let preview_data_url = format!(
+        "data:{content_type};base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(&content)
+    );
+    uploads
+        .uploads
+        .lock()
+        .map_err(|_| "Agent image staging is unavailable".to_owned())?
+        .insert(
+            upload_id.clone(),
+            StagedAvatar {
+                content,
+                content_type,
+            },
+        );
+    Ok(Some(DesktopAvatarSelection {
+        upload_id,
+        preview_data_url,
+        file_name,
+    }))
+}
+
+#[tauri::command]
+fn discard_agent_avatar(
+    uploads: tauri::State<'_, StagedAvatarUploads>,
+    upload_id: String,
+) -> Result<(), String> {
+    let upload_id = checked_upload_id(&upload_id)?;
+    uploads
+        .uploads
+        .lock()
+        .map_err(|_| "Agent image staging is unavailable".to_owned())?
+        .remove(&upload_id);
+    Ok(())
+}
+
+fn checked_upload_id(upload_id: &str) -> Result<String, String> {
+    uuid::Uuid::parse_str(upload_id.trim())
+        .map(|value| value.to_string())
+        .map_err(|_| "Invalid agent image upload".to_owned())
+}
+
+fn take_staged_avatar(
+    uploads: &StagedAvatarUploads,
+    upload_id: Option<&str>,
+) -> Result<Option<StagedAvatar>, String> {
+    let Some(upload_id) = upload_id else {
+        return Ok(None);
+    };
+    let upload_id = checked_upload_id(upload_id)?;
+    uploads
+        .uploads
+        .lock()
+        .map_err(|_| "Agent image staging is unavailable".to_owned())?
+        .remove(&upload_id)
+        .map(Some)
+        .ok_or_else(|| "The selected agent image expired; choose it again".to_owned())
 }
 
 #[tauri::command]
@@ -2814,6 +3048,7 @@ pub fn run() {
 
     builder
         .manage(RuntimeLoginSessions::default())
+        .manage(StagedAvatarUploads::default())
         .setup(|app| {
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
@@ -2844,6 +3079,8 @@ pub fn run() {
             poll_runtime_login,
             send_runtime_login_input,
             cancel_runtime_login,
+            pick_agent_avatar,
+            discard_agent_avatar,
             save_agent,
             create_buzz_agent,
             ssh_key_status,
@@ -2965,6 +3202,24 @@ mod tests {
         );
         assert_eq!(percent_decode("plain-token_1.2"), "plain-token_1.2");
         assert_eq!(percent_decode("bad%zztail"), "bad%zztail");
+    }
+
+    #[test]
+    fn avatar_type_detection_uses_content_not_extension() {
+        assert_eq!(
+            detect_avatar_content_type(b"\x89PNG\r\n\x1a\nrest"),
+            Some("image/png")
+        );
+        assert_eq!(
+            detect_avatar_content_type(b"\xff\xd8\xff\xe0rest"),
+            Some("image/jpeg")
+        );
+        assert_eq!(detect_avatar_content_type(b"GIF89arest"), Some("image/gif"));
+        assert_eq!(
+            detect_avatar_content_type(b"RIFF\x00\x00\x00\x00WEBPrest"),
+            Some("image/webp")
+        );
+        assert_eq!(detect_avatar_content_type(b"not an image"), None);
     }
 
     #[test]

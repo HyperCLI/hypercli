@@ -18,11 +18,12 @@ use url::Url;
 use crate::runtime_auth::{auth_status_command, RuntimeShellTokenResponse};
 use crate::{
     AgentCapacity, ApiKey, AuthMe, ClientConfig, CreateApiKeyRequest, CreateDeploymentRequest,
-    DeleteDeploymentResponse, Deployment, DeploymentFileWriteResponse, DeploymentRoutes,
-    ExecDeploymentRequest, ExecDeploymentResponse, HyperAgentCurrentPlan,
-    HyperAgentEntitlementsSummary, HyperAgentPlan, NativeRuntime, RuntimeAuthError,
-    RuntimeAuthStatus, RuntimeLoginSession, RuntimeShellToken, SetDeploymentRouteRequest,
-    SetDeploymentRoutesRequest, StartDeploymentRequest, UpdateDeploymentRequest,
+    DeleteDeploymentResponse, Deployment, DeploymentFileWriteResponse,
+    DeploymentProfileImageResponse, DeploymentRoutes, ExecDeploymentRequest,
+    ExecDeploymentResponse, HyperAgentCurrentPlan, HyperAgentEntitlementsSummary, HyperAgentPlan,
+    NativeRuntime, RuntimeAuthError, RuntimeAuthStatus, RuntimeLoginSession, RuntimeShellToken,
+    SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
+    UpdateDeploymentRequest,
 };
 
 pub struct HyperCliClient {
@@ -318,6 +319,56 @@ impl HyperCliClient {
             &url,
             Some(request_trace),
             builder,
+        )
+    }
+
+    /// Upload raw image bytes to a deployment's durable public profile-image
+    /// slot. The backend validates the supported image type and size.
+    ///
+    /// Image bytes remain in the HTTP body and are represented only by their
+    /// size in the optional redacted HTTP trace.
+    pub fn upload_deployment_profile_image(
+        &self,
+        deployment_id: &str,
+        content: &[u8],
+        content_type: &str,
+    ) -> Result<DeploymentProfileImageResponse, HyperCliError> {
+        let url = self.endpoint(&format!("deployments/{deployment_id}/profile-image"));
+        let request_trace = json!({
+            "content_type": content_type,
+            "size": content.len(),
+            "content": "<omitted>",
+        });
+        let builder = self
+            .http
+            .post(&url)
+            .bearer_auth(self.api_key.expose_secret())
+            .header(reqwest::header::CONTENT_TYPE, content_type)
+            .body(content.to_vec());
+        self.send_json(
+            "upload_deployment_profile_image",
+            "POST",
+            &url,
+            Some(request_trace),
+            builder,
+        )
+    }
+
+    /// Remove a deployment's durable public profile image and clear its stored
+    /// `avatar_url`.
+    pub fn delete_deployment_profile_image(
+        &self,
+        deployment_id: &str,
+    ) -> Result<DeploymentProfileImageResponse, HyperCliError> {
+        let url = self.endpoint(&format!("deployments/{deployment_id}/profile-image"));
+        self.send_json(
+            "delete_deployment_profile_image",
+            "DELETE",
+            &url,
+            None,
+            self.http
+                .delete(&url)
+                .bearer_auth(self.api_key.expose_secret()),
         )
     }
 
@@ -1447,6 +1498,107 @@ mod tests {
         assert!(client(&server)
             .put_deployment_file("deployment-1", "../escape", b"nope")
             .is_err());
+        mock.assert();
+    }
+
+    #[test]
+    fn deployment_profile_image_upload_and_delete_use_raw_authenticated_contract() {
+        let mut server = Server::new();
+        let image = b"\x89PNG\r\n\x1a\nprofile-image";
+        let upload = server
+            .mock("POST", "/agents/deployments/deployment-1/profile-image")
+            .match_header("authorization", "Bearer test-credential")
+            .match_header("content-type", "image/png")
+            .match_body(image.to_vec())
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id": "deployment-1",
+                    "avatar_url": "https://cdn.example.test/user/deployment-1.png",
+                    "s3_key": "user/deployment-1.png"
+                })
+                .to_string(),
+            )
+            .create();
+        let delete = server
+            .mock("DELETE", "/agents/deployments/deployment-1/profile-image")
+            .match_header("authorization", "Bearer test-credential")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id": "deployment-1",
+                    "avatar_url": null,
+                    "s3_key": null
+                })
+                .to_string(),
+            )
+            .create();
+
+        let client = client(&server);
+        let uploaded = client
+            .upload_deployment_profile_image("deployment-1", image, "image/png")
+            .unwrap();
+        assert_eq!(uploaded.id, "deployment-1");
+        assert_eq!(
+            uploaded.avatar_url.as_deref(),
+            Some("https://cdn.example.test/user/deployment-1.png")
+        );
+        assert_eq!(uploaded.s3_key.as_deref(), Some("user/deployment-1.png"));
+
+        let deleted = client
+            .delete_deployment_profile_image("deployment-1")
+            .unwrap();
+        assert_eq!(
+            deleted,
+            DeploymentProfileImageResponse {
+                id: "deployment-1".to_owned(),
+                avatar_url: None,
+                s3_key: None,
+            }
+        );
+        upload.assert();
+        delete.assert();
+    }
+
+    #[test]
+    fn deployment_profile_image_trace_omits_image_bytes() {
+        let mut server = Server::new();
+        let temp = tempfile::tempdir().unwrap();
+        let trace_file = temp.path().join("logs/http.jsonl");
+        let image = b"avatar-binary-must-not-appear-in-trace";
+        let mock = server
+            .mock("POST", "/agents/deployments/deployment-1/profile-image")
+            .match_body(image.to_vec())
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id": "deployment-1",
+                    "avatar_url": "https://cdn.example.test/user/deployment-1.png",
+                    "s3_key": "user/deployment-1.png"
+                })
+                .to_string(),
+            )
+            .create();
+        let client = HyperCliClient::new(ClientConfig {
+            api_base: Url::parse(&format!("{}/agents", server.url())).unwrap(),
+            api_key: SecretString::from("test-credential"),
+            trace_file: Some(trace_file.clone()),
+        })
+        .unwrap();
+
+        client
+            .upload_deployment_profile_image("deployment-1", image, "image/png")
+            .unwrap();
+
+        let trace = fs::read_to_string(trace_file).unwrap();
+        assert!(trace.contains(r#""operation":"upload_deployment_profile_image""#));
+        assert!(trace.contains(r#""content":"<omitted>""#));
+        assert!(trace.contains(&format!(r#""size":{}"#, image.len())));
+        assert!(!trace.contains("avatar-binary-must-not-appear-in-trace"));
+        assert!(!trace.contains("test-credential"));
         mock.assert();
     }
 
