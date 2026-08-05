@@ -23,7 +23,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="scroll-smooth" data-theme="aurora-dark" data-color-mode="dark" data-plan-tier="solo" suppressHydrationWarning>
       <head>
-        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+        <link rel="icon" href="/favicon.svg?v=aurora1" type="image/svg+xml" />
         <ThemeScript />
       </head>
       <body className={`${figtree.variable} font-sans antialiased overflow-x-hidden`} suppressHydrationWarning>
