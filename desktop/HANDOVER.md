@@ -498,6 +498,10 @@ Rust tests plus Clippy, 48 Rust SDK tests plus Clippy, and 27 mocked UI tests.
 Real dev-relay run `31028721199` proved authenticated private discovery returned
 the CI channel but timed out on the test's decorative-name comparison: relay
 metadata is `ci`, while Buzz presents `#ci`. The UI now decorates the name and
-the gate compares its normalized spelling. Do not cut 0.1.3 until that next
-gate passes. Apple still reports the existing notarization submissions as `in
-progress`, with no rejection log available.
+the gate compares its normalized spelling. Run `31029815349` then correctly
+exercised the new empty-state connection routing and exposed a stale assertion
+that still waited for the agent editor before entering the nsec. The gate now
+waits for the connection screen, saves the identity, and only then requires the
+editor. Do not cut 0.1.3 until that next gate passes. Apple still reports the
+existing notarization submissions as `in progress`, with no rejection log
+available.

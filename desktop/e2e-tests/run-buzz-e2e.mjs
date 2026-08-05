@@ -265,11 +265,17 @@ async function main() {
     await (await browser.$("#auth-connected")).waitForDisplayed({ timeout: 60_000 });
 
     await (await browser.$("#create-agent-btn")).click();
-    await (await browser.$("#agent-screen")).waitForDisplayed({ timeout: 60_000 });
+    // A clean CI home has no saved Buzz identity, so Create intentionally
+    // routes through the first-class connection screen before opening the
+    // agent editor. This is the production empty-state flow, not a test-only
+    // setup shortcut.
+    await (await browser.$("#buzz-connection-screen")).waitForDisplayed({ timeout: 60_000 });
+    await (await browser.$("#connection-nsec")).waitForDisplayed({ timeout: 60_000 });
     await (await browser.$("#connection-label")).setValue("CI Buzz");
     await (await browser.$("#connection-relay")).setValue(RELAY_URL);
     await (await browser.$("#connection-nsec")).setValue(OWNER_NSEC);
     await (await browser.$("#connection-save")).click();
+    await (await browser.$("#agent-screen")).waitForDisplayed({ timeout: 60_000 });
     const connectionSelect = await browser.$("#agent-connection");
     await browser.waitUntil(async () => (await connectionSelect.getValue()) !== "__add__", {
       timeout: 60_000,
