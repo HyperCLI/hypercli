@@ -574,6 +574,8 @@ fn build_launch_request(
         agent.agent_args.clone()
     };
 
+    apply_hypercli_inference_defaults(&mut env, runtime);
+
     if launch_args.iter().any(|argument| argument.contains(',')) {
         return Err(ProviderError::InvalidLaunchArguments);
     }
@@ -800,6 +802,86 @@ fn supports_text_mentions(display_name: &str) -> bool {
         && display_name.chars().count() <= 80
         && !display_name.contains('@')
         && !display_name.chars().any(char::is_control)
+}
+
+/// Provider ids `buzz-agent` accepts; anything else aborts the harness at
+/// startup with `BUZZ_AGENT_PROVIDER=<id> not supported`.
+const BUZZ_AGENT_NATIVE_PROVIDERS: [&str; 7] = [
+    "anthropic",
+    "openai",
+    "openai-compat",
+    "databricks",
+    "databricks_v2",
+    "databricks-v2",
+    "openrouter",
+];
+
+/// Anthropic Messages base for HyperCLI inference. Deliberately has no
+/// `/v1`: buzz-agent appends `/v1/messages` itself, and an unset value
+/// silently defaults to `api.anthropic.com` — i.e. our key would go to the
+/// wrong vendor.
+const HYPERCLI_ANTHROPIC_BASE_URL: &str = "https://api.hypercli.com";
+
+/// Translate the vendor-neutral `hypercli` selection Buzz Desktop sends into
+/// each harness's own dialect.
+///
+/// Buzz has no notion of what `hypercli` means: it copies the user's
+/// provider string verbatim into the harness's provider env var, and its own
+/// readiness check passes unknown ids through. Only this provider knows how
+/// to resolve it, and every harness resolves it differently:
+///
+/// * `buzz-agent` validates the id against a fixed list and exits otherwise,
+///   so `hypercli` must be rewritten (its image entrypoint defaults the same
+///   values, but only when the variable is *unset* — which Buzz never leaves
+///   it).
+/// * `goose` ships a declarative custom provider named `hypercli` in its
+///   image, so the id is already valid and must not be touched.
+/// * `opencode` names models `<provider>/<model>`; a bare id never matches
+///   its advertised options, so the model switch silently no-ops.
+/// * `claude-code` and `kimi` take no provider from Buzz at all.
+///
+/// User-supplied values always win: nothing here overwrites an explicit
+/// setting except a provider id the harness would reject outright.
+fn apply_hypercli_inference_defaults(env: &mut BTreeMap<String, String>, runtime: CodingRuntime) {
+    match runtime {
+        CodingRuntime::BuzzAgent => {
+            let native = env
+                .get("BUZZ_AGENT_PROVIDER")
+                .map(|raw| {
+                    let raw = raw.trim().to_ascii_lowercase();
+                    BUZZ_AGENT_NATIVE_PROVIDERS.contains(&raw.as_str())
+                })
+                .unwrap_or(false);
+            if !native {
+                env.insert("BUZZ_AGENT_PROVIDER".to_owned(), "anthropic".to_owned());
+                // Forced, not defaulted: the harness falls back to
+                // api.anthropic.com when this is absent.
+                env.insert(
+                    "ANTHROPIC_BASE_URL".to_owned(),
+                    HYPERCLI_ANTHROPIC_BASE_URL.to_owned(),
+                );
+            }
+        }
+        CodingRuntime::Goose => {
+            // `hypercli` is a real provider inside the goose image. Only
+            // fill it in when Buzz sent nothing at all.
+            env.entry("GOOSE_PROVIDER".to_owned())
+                .or_insert_with(|| "hypercli".to_owned());
+        }
+        CodingRuntime::Opencode => {
+            // Qualify the model so opencode's `<provider>/<model>` option
+            // values match and the switch actually applies.
+            if let Some(model) = env.get("BUZZ_ACP_MODEL").cloned() {
+                let model = model.trim().to_owned();
+                if !model.is_empty() && !model.contains('/') {
+                    env.insert("BUZZ_ACP_MODEL".to_owned(), format!("hypercli/{model}"));
+                }
+            }
+        }
+        // claude-code and kimi-code take their provider config from the
+        // image; Buzz sends them no provider id to translate.
+        CodingRuntime::ClaudeCode | CodingRuntime::Codex | CodingRuntime::KimiCode => {}
+    }
 }
 
 pub fn derive_agent_pubkey(private_key: &str) -> Result<String, ProviderError> {
@@ -1166,6 +1248,127 @@ mod tests {
 
         assert_eq!(request.env["GOOSE_MODEL"], "structured-model");
         assert_eq!(request.env["GOOSE_PROVIDER"], "structured-provider");
+    }
+
+    /// Buzz always sends a launch block; these mirror the real payloads
+    /// captured from Buzz Desktop 0.5.4 (`launch.command` + `launch.env`
+    /// carrying the user's provider/model selection).
+    fn agent_with_launch(runtime: CodingRuntime, env: &[(&str, &str)]) -> BuzzAgentPayload {
+        let mut agent = test_agent_for(runtime);
+        agent.launch = Some(BuzzLaunchBlock {
+            command: Some(
+                runtime
+                    .harness_command()
+                    .rsplit('/')
+                    .next()
+                    .unwrap()
+                    .to_owned(),
+            ),
+            args: Vec::new(),
+            env: env
+                .iter()
+                .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+                .collect(),
+            policy_env: BTreeMap::new(),
+            owner_pubkey: None,
+        });
+        agent
+    }
+
+    fn launch_env(runtime: CodingRuntime, env: &[(&str, &str)]) -> BTreeMap<String, String> {
+        build_launch_request(
+            agent_with_launch(runtime, env),
+            TEST_PUBLIC_HEX,
+            "buzz-runtime-test",
+            ProviderOptions {
+                runtime,
+                size: AgentSize::Large,
+                image: None,
+                workspace: None,
+            },
+        )
+        .unwrap()
+        .env
+    }
+
+    #[test]
+    fn buzz_agent_rewrites_unknown_provider_and_forces_anthropic_base_url() {
+        // `hypercli` is not a provider id buzz-agent accepts; left as-is the
+        // harness exits with "BUZZ_AGENT_PROVIDER=hypercli not supported".
+        let env = launch_env(
+            CodingRuntime::BuzzAgent,
+            &[
+                ("BUZZ_AGENT_PROVIDER", "hypercli"),
+                ("BUZZ_AGENT_MODEL", "kimi-k2.6-anthropic"),
+            ],
+        );
+
+        assert_eq!(env["BUZZ_AGENT_PROVIDER"], "anthropic");
+        // Forced, not defaulted: unset silently routes to api.anthropic.com.
+        assert_eq!(env["ANTHROPIC_BASE_URL"], HYPERCLI_ANTHROPIC_BASE_URL);
+        assert!(!env["ANTHROPIC_BASE_URL"].ends_with("/v1"));
+        // The user's model selection is never overwritten.
+        assert_eq!(env["BUZZ_AGENT_MODEL"], "kimi-k2.6-anthropic");
+    }
+
+    #[test]
+    fn buzz_agent_preserves_a_provider_the_harness_accepts() {
+        let env = launch_env(
+            CodingRuntime::BuzzAgent,
+            &[
+                ("BUZZ_AGENT_PROVIDER", "openrouter"),
+                ("OPENROUTER_API_KEY", "user-supplied"),
+            ],
+        );
+
+        assert_eq!(env["BUZZ_AGENT_PROVIDER"], "openrouter");
+        assert!(!env.contains_key("ANTHROPIC_BASE_URL"));
+    }
+
+    #[test]
+    fn goose_keeps_the_hypercli_provider_its_image_defines() {
+        // The goose image ships custom_providers/hypercli.json, so the id is
+        // valid there and must survive untouched.
+        let env = launch_env(CodingRuntime::Goose, &[("GOOSE_PROVIDER", "hypercli")]);
+        assert_eq!(env["GOOSE_PROVIDER"], "hypercli");
+    }
+
+    #[test]
+    fn goose_defaults_the_provider_only_when_buzz_sends_none() {
+        let defaulted = launch_env(CodingRuntime::Goose, &[]);
+        assert_eq!(defaulted["GOOSE_PROVIDER"], "hypercli");
+
+        let explicit = launch_env(CodingRuntime::Goose, &[("GOOSE_PROVIDER", "anthropic")]);
+        assert_eq!(explicit["GOOSE_PROVIDER"], "anthropic");
+    }
+
+    #[test]
+    fn opencode_model_is_qualified_so_the_switch_matches() {
+        // opencode advertises `<provider>/<model>`; a bare id never matches
+        // and the model switch silently no-ops.
+        let env = launch_env(
+            CodingRuntime::Opencode,
+            &[("BUZZ_ACP_MODEL", "kimi-k2.6-anthropic")],
+        );
+        assert_eq!(env["BUZZ_ACP_MODEL"], "hypercli/kimi-k2.6-anthropic");
+
+        let already = launch_env(
+            CodingRuntime::Opencode,
+            &[("BUZZ_ACP_MODEL", "someprovider/some-model")],
+        );
+        assert_eq!(already["BUZZ_ACP_MODEL"], "someprovider/some-model");
+    }
+
+    #[test]
+    fn claude_and_kimi_take_no_provider_injection() {
+        // Buzz locks the provider for claude and drops it for kimi presets;
+        // their inference config lives in the image.
+        for runtime in [CodingRuntime::ClaudeCode, CodingRuntime::KimiCode] {
+            let env = launch_env(runtime, &[("BUZZ_ACP_MODEL", "kimi-k2.6-anthropic")]);
+            assert!(!env.contains_key("BUZZ_AGENT_PROVIDER"));
+            assert!(!env.contains_key("ANTHROPIC_BASE_URL"));
+            assert_eq!(env["BUZZ_ACP_MODEL"], "kimi-k2.6-anthropic");
+        }
     }
 
     #[test]

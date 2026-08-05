@@ -1,0 +1,283 @@
+# HyperCLI Desktop + Buzz provider — build and state of play
+
+Written 2026-08-05. Everything below is verified against source or live
+traffic; where something is unverified it says so.
+
+## What the pieces are
+
+| component | repo path | ships as |
+|---|---|---|
+| Desktop app (Tauri v2) | `hypercli/desktop` | `HyperCLI.app`, NSIS `.exe`, AppImage/deb |
+| Buzz backend provider | `hypercli/buzz-backend-provider` | `buzz-backend-hypercli` binary — released standalone **and** bundled in the app as a Tauri sidecar |
+| Rust SDK | `hypercli/rs-sdk` | `hypercli-sdk` crate, used by both |
+| Agent images | `hyperclaw-backend/hypercli-agent-images/buzz/*` | `ghcr.io/hypercli/hypercli-buzz-{agent,goose,opencode,codex,claude,kimi-code}` |
+
+The desktop app's only jobs: authenticate (API key or browser sign-in), and
+install the provider binary where Buzz Desktop will find it.
+
+## How the app is built
+
+```bash
+# 1. build the provider and stage it as the sidecar (per target triple)
+cargo build --release --locked -p buzz-backend-hypercli
+mkdir -p desktop/src-tauri/binaries
+cp target/release/buzz-backend-hypercli \
+   desktop/src-tauri/binaries/buzz-backend-hypercli-$(rustc -vV | sed -n 's/host: //p')
+
+# 2. build the app
+cd desktop/src-tauri && cargo tauri build --bundles app
+```
+
+`binaries/` is **gitignored and hand-populated**. That is the single most
+dangerous thing about this build — see "Stale sidecar" below.
+
+CI (`.github/workflows/release-desktop.yml`) does step 1 from source on every
+release, so published builds are always current. Local builds are not.
+
+Version lives in **two** files that must agree (the release workflow
+validates both): `desktop/src-tauri/tauri.conf.json` and
+`desktop/src-tauri/Cargo.toml`.
+
+Release: dispatch **Release Desktop** with `version` + `publish_release`.
+Builds on GitHub-hosted runners (macOS both arches, Windows, Linux), then a
+self-hosted Linux job signs the macOS apps with `rcodesign` using a Developer
+ID cert pulled from the `hypercli-apple-cert` Pulumi stack, rebuilds the
+updater tarballs from the *signed* app and re-signs them with the Tauri
+updater key (`hypercli-tauri-key` stack), then publishes `desktop-v<version>`
+plus the rolling `desktop-latest` feed that installed apps poll every 6h.
+
+## Issues hit so far, and their state
+
+### 1. Install used to point into the app bundle — FIXED (0.1.1)
+Symlinks in `~/.local/bin` pointed at the binary inside `HyperCLI.app`. A
+downloaded (quarantined) app runs from a macOS App Translocation mount that
+is destroyed on quit, so every provider name dangled the moment the app
+closed: our UI said "not installed", Buzz silently dropped the providers.
+
+Now: one real binary is **copied** to `~/.local/bin/hypercli-configure`
+(streamed, not `fs::copy` — that clones `com.apple.quarantine` on macOS and
+Gatekeeper would kill the binary when Buzz exec'd it), with the seven
+`buzz-backend-hypercli*` names as relative symlinks beside it. Dangling
+leftovers are reported as `broken` rather than `missing`.
+
+### 2. Stale sidecar — the recurring foot-gun
+A locally built app bundles whatever happens to be in `binaries/`. A binary
+copied there once in the morning shipped in every local rebuild for a day,
+including a release, and "Install providers" faithfully copied it onto disk.
+Symptom: the installed provider rejected launch commands that current source
+accepts. Diagnosis method that works: replay a captured deploy request
+against both binaries and compare.
+
+**Not yet fixed:** the build should fail when `binaries/` is missing or older
+than the provider source. Until then, always rebuild the sidecar before
+building the app.
+
+### 3. Notarization — unblocked 2026-08-05, first run in flight
+Releases up to and including 0.1.1 are Developer-ID **signed but not
+notarized** (the org's ASC provider record was still provisioning), so users
+get one Gatekeeper "Open Anyway" prompt. App Store Connect came through and
+the API key is now stored, so the release workflow's notarize branch fires
+on its own — no code change was needed.
+
+**Where every signing secret lives.** Nothing is on disk; both are Pulumi
+stacks with an S3 backend, read in CI via `pulumi stack output --show-secrets`
+and passed to `rcodesign` through process substitution (`<(printf '%s' "$VAR")`)
+so no secret ever lands in the runner's filesystem — gilfoyle's `/tmp` is a
+graveyard of old CI runs.
+
+```bash
+export AWS_PROFILE=linode-se
+export PULUMI_CONFIG_PASSPHRASE_FILE=~/.pulumi/hypercli
+```
+
+| stack | repo | outputs |
+|---|---|---|
+| `hypercli-apple-cert/prod` | `HyperCLI/hypercli-apple-cert-pulumi` (private) | `developer-id-application-private-key-pem`, `-cert-pem`, `-bundle-pem` (key+cert for `rcodesign --pem-file`), `asc-api-key-p8`, `asc-key-id`, `asc-issuer-id` |
+| `hypercli-tauri-key/prod` | `HyperCLI/hypercli-tauri-key-pulumi` (private) | minisign updater keypair + its password (`tauri_app_`-prefixed, generated in-stack) |
+
+Team `J5AHS7QWMA`, cert `Developer ID Application: HyperCLI, Inc.`, expires
+2031-08-05. Regenerating the CSR is `pulumi up` in the cert repo; the issued
+cert is pasted back into stack **config** and re-exported so stack refs get
+both halves.
+
+**CI already has what it needs** — these repo secrets are set on
+`HyperCLI/hypercli`, so no manual step is required at release time:
+
+| secret | holds |
+|---|---|
+| `PULUMI_APPLE_CERT_STACK` | `org/project/stack` for the cert stack |
+| `PULUMI_APPLE_AWS_PROFILE` | AWS profile for the Pulumi S3 backend |
+| `PULUMI_APPLE_PASSPHRASE_FILE` | passphrase file path on the runner |
+| `TAURI_SIGNING_PRIVATE_KEY` / `_PASSWORD` | minisign updater key |
+| `HYPERCLI_UPDATER_PUBLIC_KEY` | baked into the app at build time |
+
+Note the shape: the three `PULUMI_APPLE_*` secrets are only *pointers*. The
+Developer ID cert, its private key, and the ASC API key are never GitHub
+secrets — the signing job reads them live from the stack, so rotating a
+credential means `pulumi up`, not touching repo settings.
+
+**Scraping the status of a live submission.** `rcodesign notarize --wait`
+gives up after 600s; that is a timeout, **not** a rejection. The submission
+is still queued at Apple and you re-query it out of band. From gilfoyle
+(where `rcodesign` lives at `~/.local/bin`, and a non-interactive ssh gets
+neither it nor `pulumi` on `PATH`):
+
+```bash
+ssh ubuntu@gilfoyle 'export PATH=$HOME/.local/bin:$HOME/.pulumi/bin:$PATH \
+  AWS_PROFILE=linode-se PULUMI_CONFIG_PASSPHRASE_FILE=$HOME/.pulumi/hypercli
+W=$(mktemp -d); printf "name: hypercli-apple-cert\nruntime: python\n" > $W/Pulumi.yaml
+cd $W && pulumi stack output asc-api-key-p8 -s prod --show-secrets > $W/key.p8
+rcodesign encode-app-store-connect-api-key -o $W/api.json \
+  "$(pulumi stack output asc-issuer-id -s prod)" \
+  "$(pulumi stack output asc-key-id -s prod)" $W/key.p8
+rcodesign notary-list --api-key-file $W/api.json    # id, timestamp, state
+rm -rf $W'
+```
+
+`notary-list` prints one line per submission — uuid, UTC timestamp, name,
+state. For a single submission use `rcodesign notary-wait <uuid>`, and once
+it reads `Accepted`, `rcodesign staple <path>`.
+
+Status as of 2026-08-05 02:57Z: two `app.zip` submissions
+(`44c65d3c-abc6-43ee-9fe8-ae3b629883c9` at 02:37:57Z and
+`de7a2cba-011a-40b6-9062-f41054ec120c` at 02:35:29Z) are **`in progress`** —
+~20 minutes in, which is ordinary for Apple's queue and simply longer than
+the 600s the tool waits. Signing itself took ~2s. Neither has failed.
+
+Bare binaries (the standalone provider) can be signed and notarized but
+**cannot be stapled** — only bundles and disk images carry a stapled ticket,
+so a notarized loose binary still needs an online Gatekeeper check.
+
+### 4. Provider launch contract drift — PARTIALLY FIXED, the big one
+Buzz Desktop expresses model choice vendor-neutrally (`provider`, `model`)
+and translates it into whatever env the *selected harness* reads. Every
+harness reads a different dialect, and `hypercli` is not a provider id any of
+them know except goose. Nothing upstream validates it: Buzz's readiness check
+passes unknown provider ids straight through.
+
+Verified per-runtime contract (source-cited, one agent per runtime):
+
+| runtime | how it takes provider/model | status |
+|---|---|---|
+| **buzz-agent** | `BUZZ_AGENT_PROVIDER` ∈ {anthropic, openai, openai-compat, databricks, databricks_v2, openrouter}; Anthropic route needs `ANTHROPIC_BASE_URL` (**no `/v1`** — it appends `/v1/messages`) | **fixed in provider**: non-native id → `anthropic`, base URL forced |
+| **goose** | image ships a declarative provider literally named `hypercli` (`custom_providers/hypercli.json`, anthropic engine, `HYPER_AGENTS_API_KEY`) | **fixed**: fill `GOOSE_PROVIDER=hypercli` only when absent, never clobber |
+| **opencode** | config file only (`~/.config/opencode/opencode.json`, baked); models are named `<provider>/<model>` | **fixed**: qualify bare `BUZZ_ACP_MODEL` → `hypercli/<model>` so the switch stops silently no-op'ing |
+| **claude-code** | Buzz *locks* the provider; image bakes nothing for hypercli inference | **open (image lane)**: needs `~/.claude/settings.json` with `availableModels` + `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` |
+| **kimi-code** | **env cannot configure it** — reads only `~/.kimi-code/config.toml`; its env fallback reads the config file's own table, never `process.env` | **open (image lane)**: entrypoint must render `config.toml` |
+| **codex** | needs `MODEL_PROVIDER` + a `CODEX_CONFIG` overlay with `model_providers.<id>.base_url`; absent that it silently uses `api.openai.com` | **blocked**: codex ≥0.146 requires `wire_api = "responses"`; our gateway serves Anthropic Messages and chat-completions. Needs a Responses surface or codex can't work |
+
+The translation lives in `apply_hypercli_inference_defaults`
+(`buzz-backend-provider/src/lib.rs`), applied **after** the launch-block
+merge so it reaches the path Buzz actually uses. Covered by six matrix tests
+in that file plus the golden contract test
+(`tests/protocol.rs` + `tests/fixtures/buzz-launch-contract.json`), which now
+pins the injected keys per runtime — if the wire shape changes again, that
+test fails rather than shipping silently.
+
+Two structural notes:
+
+* The per-runtime env block used to live in the legacy `else` branch, so it
+  never ran on the launch-block path Buzz actually uses — the Goose special
+  case had been dead code.
+* Buzz's harness command set is **open-ended** (5 builtin + 9 preset + any
+  user-defined custom harness), so the provider's accept-list can never be
+  complete. Failing closed produces "Buzz launch command is unsupported".
+  Fail-open with a default runtime is the correct behavior.
+
+### 5. Providers cannot advertise harnesses — upstream
+Buzz 0.5.4 validates a provider's `info` response against a closed six-field
+allowlist and **rejects unknown fields**, so adding `harnesses` breaks every
+deploy. `config_schema` *is* rendered in the create dialog, but as free-text
+inputs only (`enum` is ignored), so no dropdown. Fixing mismatches properly
+needs a small upstream change: allowlist `harnesses`, add it to the probe
+type, filter the harness dropdown per provider.
+
+## Gotchas worth knowing
+
+* **Silent failures everywhere.** An unmatched model makes buzz-acp warn once
+  and run the harness default; a missing base URL sends our key to the
+  vendor's cloud. A "RUNNING" deployment proves the pod booted, nothing more —
+  `BUZZ_ACP_LAZY_POOL=true` means the harness may not even spawn until work
+  arrives.
+* **`HYPER_AGENTS_API_KEY` is injected by lagoon at pod-spec time**, not by
+  the provider — it cannot appear in `request.env`, so key mapping belongs in
+  image entrypoints.
+* **Image entrypoints guard defaults with `[ -z "${VAR+x}" ]`** (only if
+  unset). Buzz always sets the provider var, so those defaults never fire —
+  that is the entire buzz-agent failure.
+* Docs bug: `docs/agents/integrations.mdx` says `api.hypercli.com` where the
+  agents API is `api.agents.hypercli.com`, and tells Claude Code users to set
+  `OPENAI_BASE_URL` (it reads `ANTHROPIC_BASE_URL`).
+
+## Debugging recipes that actually worked
+
+### Sniffing what Buzz actually launches (the key seam)
+
+Buzz invokes the provider as a **one-shot subprocess with the JSON request on
+stdin** and reads one JSON response from stdout. That makes the provider
+binary itself the interception point: replace the discovered
+`buzz-backend-hypercli*` name with a shim that tees stdin to a file and execs
+the real binary. Buzz cannot tell the difference, and you get the verbatim
+payload — `launch.command`, `launch.env`, `provider_config`, everything.
+
+```bash
+REAL="$HOME/.local/bin/hypercli-configure"      # the real copy the app installs
+for n in ~/.local/bin/buzz-backend-hypercli*; do
+  rm -f "$n"                                    # remove FIRST — see gotcha
+  printf '#!/bin/bash\ntee -a /tmp/buzz-provider-capture.jsonl | exec "%s" "$@"\n' \
+    "$REAL" > "$n"
+  chmod +x "$n"
+done
+```
+
+**Gotcha that cost real time:** those names are symlinks to the shared
+binary. Writing a heredoc directly to one *follows the link* and overwrites
+the real binary. Always `rm` the name before writing the shim, and keep a
+backup copy of the binary first.
+
+Then hit launch in Buzz and read the capture:
+
+```bash
+python3 -c "
+import json
+for l in open('/tmp/buzz-provider-capture.jsonl'):
+    d=json.loads(l)
+    if d.get('op')!='deploy': continue
+    a=d['agent']; L=a.get('launch') or {}
+    print(a['name'], '|', L.get('command'), '|', json.dumps(L.get('env')))
+"
+```
+
+This is what proved the diagnosis: **every** agent — regardless of its name —
+was sending `launch.command=buzz-agent` with
+`BUZZ_AGENT_PROVIDER=hypercli`, because `global-agent-config.json`'s
+`preferred_runtime` overrides the per-agent harness.
+
+### Replaying a captured request (no deploy, no side effects)
+
+```bash
+# --dry-run validates the launch shape and never enters the
+# lookup/restart path, so it cannot touch an existing deployment.
+./target/release/buzz-backend-hypercli --dry-run < request.json
+```
+
+Replay is also the way to compare **binaries**: run the same captured request
+against the installed binary and a fresh build. That is how the stale-sidecar
+bug was caught — identical input, `{"error":"Buzz launch command is
+unsupported"}` from one and `{"ok":true}` from the other.
+
+Because the dry-run still calls the API, the request it built is recorded in
+the HTTP trace — which is how you verify what env the provider *would* send
+without deploying anything.
+
+# Provider HTTP trace (set HYPER_HTTP_TRACE_FILE in ~/.hypercli/config):
+#   ~/.hypercli/logs/buzz-backend-hypercli.jsonl   — redacted JSONL, one line per call
+
+# Local Buzz agent logs and config:
+#   ~/Library/Application Support/xyz.block.buzz.app/agents/logs/<agent-pubkey>__<session>.log
+#   ~/Library/Application Support/xyz.block.buzz.app/agents/{managed-agents,global-agent-config}.json
+```
+
+`global-agent-config.json` holds `preferred_runtime` — it overrides the
+harness for **every** agent, which is why agents named Goose/Opencode were all
+launching `buzz-agent`.

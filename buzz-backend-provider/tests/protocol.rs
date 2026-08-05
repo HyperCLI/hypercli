@@ -336,6 +336,21 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
             expected["env"]["GOOSE_MODEL"] = serde_json::json!("fixture-model");
             expected["env"]["GOOSE_PROVIDER"] = serde_json::json!("fixture-provider");
         }
+        // HyperCLI inference defaults, resolved per harness. Buzz sends a
+        // vendor-neutral provider id that only this provider knows how to
+        // translate, and each harness reads a different dialect.
+        if runtime == "buzz-agent" {
+            // `hypercli` is not a provider id buzz-agent accepts; without the
+            // rewrite the harness exits at startup. The base URL is forced
+            // because an unset value silently routes to api.anthropic.com.
+            expected["env"]["BUZZ_AGENT_PROVIDER"] = serde_json::json!("anthropic");
+            expected["env"]["ANTHROPIC_BASE_URL"] = serde_json::json!("https://api.hypercli.com");
+        }
+        if runtime == "opencode" {
+            // opencode advertises `<provider>/<model>`; a bare id never
+            // matches, so the model switch silently no-ops.
+            expected["env"]["BUZZ_ACP_MODEL"] = serde_json::json!("hypercli/fixture-model");
+        }
         if let Some(executable) = claude_code_executable {
             expected["env"]["CLAUDE_CODE_EXECUTABLE"] = serde_json::json!(executable);
         }
