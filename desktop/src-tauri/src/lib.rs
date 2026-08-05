@@ -329,8 +329,8 @@ fn is_secret_env_key(key: &str) -> bool {
         "connection_string",
         "dsn",
     ]
-        .iter()
-        .any(|needle| normalized.contains(needle))
+    .iter()
+    .any(|needle| normalized.contains(needle))
 }
 
 fn validate_additional_env(env: &BTreeMap<String, String>) -> Result<(), String> {
