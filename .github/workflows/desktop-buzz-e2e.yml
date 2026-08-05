@@ -86,7 +86,7 @@ jobs:
           retention-days: 2
 
   dev-relay:
-    name: Dev relay (launch + #CI reply + cleanup)
+    name: "Dev relay (launch + #CI reply + cleanup)"
     needs: build-linux
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
@@ -135,7 +135,7 @@ jobs:
         working-directory: desktop/e2e-tests
         run: npm ci --no-fund --no-audit
 
-      - name: Launch through Desktop and require a real #CI reply
+      - name: "Launch through Desktop and require a real #CI reply"
         shell: bash
         working-directory: desktop/e2e-tests
         run: |
