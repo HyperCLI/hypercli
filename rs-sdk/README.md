@@ -151,7 +151,7 @@ use hypercli_sdk::NativeRuntime;
 
 # async fn example(client: &hypercli_sdk::HyperCliClient) -> Result<(), hypercli_sdk::RuntimeAuthError> {
 let status = client.runtime_auth_status("deployment-id")?;
-if status.authenticated != Some(true) {
+if !status.authenticated {
     let mut login = client
         .start_runtime_login(
             "deployment-id",

@@ -219,7 +219,8 @@ test("agent card opens a compact editor with native login state", async ({ page 
   await expect(page.locator("#stored-secret-env")).toContainText("values hidden");
 
   await page.locator("#runtime-login-btn").click();
-  await expect(page.locator("#runtime-login-code")).toContainText("TEST-CODE");
+  await expect(page.locator("#runtime-login-instructions")).toContainText("Paste code here");
+  await expect(page.locator("#runtime-login-code")).toBeHidden();
   await expect(page.locator("#runtime-login-input-row")).toBeVisible();
   await page.locator("#runtime-login-input").fill("pasted-code");
   await page.locator("#runtime-login-send").click();
@@ -245,7 +246,57 @@ test("native login acknowledges a slow secure-session start", async ({ page }) =
   await page.locator("#runtime-login-btn").click();
   await expect(page.locator("#runtime-login-btn")).toHaveText("Connecting…");
   await expect(page.locator("#runtime-auth-detail")).toContainText("Opening a secure login session");
+  await expect(page.locator("#runtime-login-instructions")).toContainText("Paste code here");
+  await expect(page.locator("#runtime-login-input-row")).toBeVisible();
+});
+
+test("Codex device login shows stdout and browser code without a PTY input", async ({ page }) => {
+  const agentId = "40c42593-7d02-48f9-a3ff-6c7d6461f140";
+  await withMock(page, {
+    status: { has_api_key: true },
+    agents: [{
+      id: agentId,
+      name: "Codex",
+      runtime: "codex",
+      state: "running",
+      tags: ["app=buzz"],
+      requested_size: "small",
+      is_buzz: true,
+      can_start: false,
+      can_stop: true,
+      can_restart: true,
+      can_delete: false,
+    }],
+    agentDetails: { [agentId]: { runtime: "codex" } },
+    runtimeAuth: { [agentId]: { authenticated: false, detail: "Codex is waiting for login." } },
+  });
+  await page.goto("/");
+  await page.locator(".agent-card", { hasText: "Codex" }).click();
+  await page.locator("#runtime-login-btn").click();
+  await expect(page.locator("#runtime-login-instructions")).toContainText("enter the displayed code");
+  await expect(page.locator("#runtime-login-url")).toContainText("auth.openai.com/codex/device");
   await expect(page.locator("#runtime-login-code")).toContainText("TEST-CODE");
+  await expect(page.locator("#runtime-login-input-row")).toBeHidden();
+});
+
+test("an immediately failed runtime login shows stdout and never polls", async ({ page }) => {
+  await withMock(page, {
+    status: { has_api_key: true },
+    runtimeLoginBeginResult: {
+      failed: true,
+      status: "failed",
+      instructions: "Authentication command exited before login started.",
+      interactive_required: false,
+    },
+  });
+  await page.goto("/");
+  await page.locator(".agent-card", { hasText: "Maverick" }).click();
+  await page.locator("#runtime-login-btn").click();
+  await expect(page.locator("#runtime-login-instructions")).toContainText("exited before login started");
+  await expect(page.locator("#runtime-login-btn")).toHaveText("Try again");
+  await page.waitForTimeout(1_100);
+  const pollCalls = await page.evaluate(() => window.__MOCK__.calls.filter(([cmd]) => cmd === "poll_runtime_login"));
+  expect(pollCalls).toHaveLength(0);
 });
 
 test("editor saves Buzz policy and launch env through one typed payload", async ({ page }) => {

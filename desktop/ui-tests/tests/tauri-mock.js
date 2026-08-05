@@ -131,7 +131,9 @@
       },
     },
     runtimeLoginPolls: {},
+    runtimeLoginRuntimes: {},
     runtimeLoginImmediateComplete: false,
+    runtimeLoginBeginResult: null,
     runtimeLoginBeginDelayMs: 0,
     draftError: null,
     buzzConnections: [
@@ -164,6 +166,9 @@
   if (overrides.runtimeAuth) state.runtimeAuth = { ...state.runtimeAuth, ...overrides.runtimeAuth };
   if (overrides.runtimeLoginImmediateComplete !== undefined) {
     state.runtimeLoginImmediateComplete = overrides.runtimeLoginImmediateComplete;
+  }
+  if (overrides.runtimeLoginBeginResult !== undefined) {
+    state.runtimeLoginBeginResult = overrides.runtimeLoginBeginResult;
   }
   if (overrides.runtimeLoginBeginDelayMs !== undefined) {
     state.runtimeLoginBeginDelayMs = overrides.runtimeLoginBeginDelayMs;
@@ -240,12 +245,24 @@
               state.runtimeAuth[args?.agentId] = { authenticated: true };
               return { completed: true, status: "completed" };
             }
+            if (state.runtimeLoginBeginResult) return { ...state.runtimeLoginBeginResult };
             state.runtimeLoginPolls[args?.agentId] = 0;
+            state.runtimeLoginRuntimes[args?.agentId] = args?.runtime;
+            if (args?.runtime === "claude-code") {
+              return {
+                url: "https://claude.com/cai/oauth/authorize",
+                code: null,
+                instructions: "Opening browser to sign in. Paste code here if prompted >",
+                interactive_required: true,
+              };
+            }
             return {
-              url: args?.runtime === "codex" ? "https://auth.openai.com/codex/device" : "https://claude.ai/oauth/authorize",
+              url: args?.runtime === "codex"
+                ? "https://auth.openai.com/codex/device"
+                : "https://auth.kimi.com/device",
               code: "TEST-CODE",
-              instructions: "Open the URL and complete sign in.",
-              interactive_required: true,
+              instructions: "Open the URL and enter the displayed code in your browser.",
+              interactive_required: false,
             };
           case "poll_runtime_login": {
             const count = (state.runtimeLoginPolls[args?.agentId] || 0) + 1;
@@ -254,7 +271,11 @@
               state.runtimeAuth[args?.agentId] = { authenticated: true };
               return { completed: true, status: "completed" };
             }
-            return { status: "waiting", instructions: "Waiting for browser sign in.", interactive_required: true };
+            return {
+              status: "waiting",
+              instructions: "Waiting for browser sign in.",
+              interactive_required: state.runtimeLoginRuntimes[args?.agentId] === "claude-code",
+            };
           }
           case "send_runtime_login_input":
             return null;

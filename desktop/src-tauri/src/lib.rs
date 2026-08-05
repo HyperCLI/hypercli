@@ -1362,17 +1362,17 @@ fn runtime_auth_status_blocking(
         return Err("Runtime auth wrapper reported the wrong runtime".to_owned());
     }
     Ok(DesktopRuntimeAuthStatus {
-        authenticated: status.authenticated,
-        status: match status.authenticated {
-            Some(true) => "authenticated",
-            Some(false) => "login_required",
-            None => "unknown",
+        authenticated: Some(status.authenticated),
+        status: if status.authenticated {
+            "authenticated"
+        } else {
+            "login_required"
         }
         .to_owned(),
-        detail: match status.authenticated {
-            Some(true) => "Native runtime login is available in the synced agent home.",
-            Some(false) => "Log in once; credentials persist across stop and restart.",
-            None => "The runtime could not determine its login state.",
+        detail: if status.authenticated {
+            "Native runtime login is available in the synced agent home."
+        } else {
+            "Log in once; credentials persist across stop and restart."
         }
         .to_owned(),
     })

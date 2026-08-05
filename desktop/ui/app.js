@@ -1081,6 +1081,16 @@ document.getElementById("runtime-login-btn").addEventListener("click", async () 
       await refreshRuntimeAuth();
       return;
     }
+    if (result?.failed || result?.status === "failed") {
+      runtimeLoginActive = false;
+      renderRuntimeLoginProgress(result);
+      const message = result.detail || result.instructions || "Runtime login failed.";
+      detail.textContent = message;
+      setStatus(message, true);
+      button.disabled = false;
+      button.textContent = "Try again";
+      return;
+    }
     runtimeLoginToken += 1;
     runtimeLoginActive = true;
     renderRuntimeLoginProgress(result);

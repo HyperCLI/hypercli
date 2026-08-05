@@ -42,13 +42,13 @@ impl NativeRuntime {
 
 /// Normalized output from the image-owned `hypercli-runtime-auth status` wrapper.
 ///
-/// `authenticated` is optional because a runtime may support login before it
-/// exposes a reliable noninteractive credential probe. Kimi used this shape
-/// during its status-probe migration.
+/// Every supported image must provide a definitive boolean. Treating an
+/// unknown status as a third state made Desktop appear to support wrappers
+/// whose login contract was not actually testable.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct RuntimeAuthStatus {
     pub runtime: NativeRuntime,
-    pub authenticated: Option<bool>,
+    pub authenticated: bool,
 }
 
 impl RuntimeAuthStatus {
@@ -227,7 +227,7 @@ impl RuntimeLoginSession {
             || value.len() > 2048
             || !value.bytes().all(|byte| {
                 byte.is_ascii_alphanumeric()
-                    || matches!(byte, b'-' | b'_' | b'.' | b'~' | b'+' | b'/' | b'=')
+                    || matches!(byte, b'-' | b'_' | b'.' | b'~' | b'+' | b'/' | b'=' | b'#')
             })
         {
             return Err(RuntimeAuthError::InvalidInput);
@@ -360,7 +360,8 @@ impl RuntimeLoginParser {
             self.challenge.completed = true;
         }
         if self.challenge.verification_url.is_none() {
-            self.challenge.verification_url = parse_auth_url(&output);
+            self.challenge.verification_url =
+                parse_auth_url(&self.raw_output).or_else(|| parse_auth_url(&output));
         }
         if self.challenge.user_code.is_none() {
             self.challenge.user_code = parse_auth_code(&output);
@@ -371,6 +372,7 @@ impl RuntimeLoginParser {
             "choose",
             "provider",
             "login method",
+            "paste code",
             "paste the code",
             "enter the code",
         ]
@@ -395,7 +397,8 @@ fn ansi_escape_regex() -> &'static Regex {
 fn auth_url_regex() -> &'static Regex {
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
-        Regex::new(r#"(https?://[^\s<>\"']+)[\s<>\"']"#).expect("auth URL regex is valid")
+        Regex::new(r#"(https?://[^\s<>\"'\x1b\x07]+)[\s<>\"'\x1b\x07]"#)
+            .expect("auth URL regex is valid")
     })
 }
 
@@ -403,7 +406,7 @@ fn auth_code_regex() -> &'static Regex {
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| {
         Regex::new(
-            r"(?im)\b(?:user|device|verification|one[- ]time)\s+code\b\s*(?:is|:)?\s*(?:\([^\r\n)]*\)\s*)*([A-Z0-9][A-Z0-9-]{2,}[A-Z0-9])(?:[\s.,;:)\]])",
+            r"(?im)\b(?:(?:user|device|verification|one[- ]time)\s+code|enter\s+(?:the\s+)?code)\b\s*(?:is|:)?\s*(?:\([^\r\n)]*\)\s*)*([A-Z0-9][A-Z0-9-]{2,}[A-Z0-9])(?:[\s.,;:)\]])",
         )
         .expect("auth code regex is valid")
     })
@@ -467,21 +470,18 @@ mod tests {
             RuntimeAuthStatus::parse(r#"{"runtime":"claude-code","authenticated":true}"#).unwrap(),
             RuntimeAuthStatus {
                 runtime: NativeRuntime::ClaudeCode,
-                authenticated: Some(true),
+                authenticated: true,
             }
         );
-        assert_eq!(
-            RuntimeAuthStatus::parse(r#"{"runtime":"kimi-code","authenticated":null}"#)
+        assert!(
+            !RuntimeAuthStatus::parse(r#"{"runtime":"kimi-code","authenticated":false}"#)
                 .unwrap()
-                .authenticated,
-            None
+                .authenticated
         );
-        assert_eq!(
-            RuntimeAuthStatus::parse(r#"{"runtime":"kimi-code","authenticated":false}"#)
-                .unwrap()
-                .authenticated,
-            Some(false)
+        assert!(
+            RuntimeAuthStatus::parse(r#"{"runtime":"kimi-code","authenticated":null}"#).is_err()
         );
+        assert!(RuntimeAuthStatus::parse(r#"{"runtime":"codex"}"#).is_err());
         assert!(RuntimeAuthStatus::parse("not json").is_err());
     }
 
@@ -524,6 +524,37 @@ mod tests {
         assert!(parser.is_ready());
     }
 
+    #[test]
+    fn claude_osc8_browser_link_survives_terminal_sanitizing() {
+        let mut parser = parser(NativeRuntime::ClaudeCode);
+        parser.consume(
+            "Opening browser to sign in…\nIf the browser didn't open, visit: \x1b]8;;https://claude.com/cai/oauth/authorize?code=true\x07\x1b[94mhttps://claude.com/cai/oauth/authorize?code=true\x1b[39m\x1b]8;;\x07\nPaste code here if prompted > ",
+        );
+
+        assert_eq!(
+            parser.challenge.verification_url.as_deref(),
+            Some("https://claude.com/cai/oauth/authorize?code=true")
+        );
+        assert!(parser.challenge.interactive_required);
+        assert!(parser.is_ready());
+    }
+
+    #[test]
+    fn kimi_device_prompt_extracts_enter_code_shape() {
+        let mut parser = parser(NativeRuntime::KimiCode);
+        parser.consume(
+            "Opening browser for Kimi device login: https://auth.kimi.com/device\nIf the browser did not open, paste the URL above and enter code: ABCD-EFGH\nCode expires in 1800s.\nWaiting for authorization to complete...\n",
+        );
+
+        assert_eq!(
+            parser.challenge.verification_url.as_deref(),
+            Some("https://auth.kimi.com/device")
+        );
+        assert_eq!(parser.challenge.user_code.as_deref(), Some("ABCD-EFGH"));
+        assert!(!parser.challenge.interactive_required);
+        assert!(parser.is_ready());
+    }
+
     #[tokio::test]
     async fn terminal_input_rejects_shell_control_and_multiline_values_before_io() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -537,9 +568,14 @@ mod tests {
             let marker = &command[marker_start..marker_end];
             socket
                 .send(Message::Text(
-                    format!("Paste the code: https://auth.example/device\nABCD-EFGH\n{marker}=0\n")
-                        .into(),
+                    "Paste the code: https://auth.example/device\nABCD-EFGH\n".into(),
                 ))
+                .await
+                .unwrap();
+            let input = socket.next().await.unwrap().unwrap().into_text().unwrap();
+            assert_eq!(input, "authorization-code#state-value\n");
+            socket
+                .send(Message::Text(format!("\n{marker}=0\n").into()))
                 .await
                 .unwrap();
         });
@@ -555,12 +591,20 @@ mod tests {
             RuntimeLoginSession::connect(token, NativeRuntime::ClaudeCode, Duration::from_secs(2))
                 .await
                 .unwrap();
+        session
+            .send_input("authorization-code#state-value")
+            .await
+            .unwrap();
         for rejected in ["code\nuname -a", "code;uname", "$(uname)", "code\u{1b}"] {
             assert!(matches!(
                 session.send_input(rejected).await,
                 Err(RuntimeAuthError::InvalidInput)
             ));
         }
+        assert_eq!(
+            session.wait(Duration::from_secs(2)).await.unwrap(),
+            RuntimeLoginResult { exit_code: 0 }
+        );
         server.await.unwrap();
     }
 

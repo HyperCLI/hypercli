@@ -483,12 +483,17 @@ UI correctly refuses to Stop) are still stopped and deleted by CI.
 
 The Rust SDK owns a fixed `/usr/local/bin/hypercli-runtime-auth` PTY session.
 Webview input is restricted to one 1-2048-byte authorization token containing
-only alphanumeric and `-._~+/=` characters; newlines, controls, and shell
+only alphanumeric and `-._~+/=#` characters; newlines, controls, and shell
 syntax are rejected before I/O. Terminal errors cancel and remove the session,
 and login URLs are displayed for an explicit user action rather than opened
 automatically from untrusted terminal output. The UI handles an immediately
-completed login without polling a nonexistent session and Enter sends the
-login value without submitting the agent editor.
+completed or failed login without polling a nonexistent session, renders the
+sanitized login stdout, and Enter sends the login value without submitting the
+agent editor. Claude's current OSC8 browser URL and `Paste code here if
+prompted` shape are pinned, including its valid `code#state` stdin. Codex and
+Kimi device flows display the stdout-derived URL/code without a fake PTY input.
+All three image status wrappers must return a definitive boolean
+`authenticated`; missing/null values fail the SDK contract.
 
 SSH generation returns only public material. The primary **Attach SSH key**
 action opens a native single-file picker rooted at the local `~/.ssh`; it does
@@ -520,9 +525,10 @@ the deployment and erases its connection/keychain entry. Runs are non-cancelling
 and serialized because they share one dev identity and channel. The nsec is an
 existing GitHub secret and is never printed or passed in argv.
 
-As of 2026-08-05 21:13 Europe/Moscow, local validation is green: 26 Desktop
-Rust tests, 51 Rust SDK tests, 47 provider unit + 8 provider protocol tests,
-and 28 mocked UI tests.
+As of 2026-08-05 22:53 Europe/Moscow, local validation is green: 26 Desktop
+Rust tests, 53 Rust SDK tests, 47 provider unit + 8 provider protocol tests,
+and 30 mocked UI tests. A release-mode macOS `.app` also builds and launches
+from the current source.
 Real dev-relay run `31028721199` proved authenticated private discovery returned
 the CI channel but timed out on the test's decorative-name comparison: relay
 metadata is `ci`, while Buzz presents `#ci`. The UI now decorates the name and

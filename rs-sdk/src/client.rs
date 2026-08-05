@@ -1391,7 +1391,7 @@ mod tests {
 
         let status = client(&server).runtime_auth_status("deployment-1").unwrap();
         assert_eq!(status.runtime, NativeRuntime::Codex);
-        assert_eq!(status.authenticated, Some(false));
+        assert!(!status.authenticated);
         mock.assert();
     }
 
