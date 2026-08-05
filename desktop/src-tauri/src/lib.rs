@@ -559,38 +559,52 @@ async fn fetch_buzz_channels(
     relay: String,
     signer: nostr::Keys,
 ) -> Result<Vec<VisibleChannel>, String> {
-    use nostr::{Alphabet, Filter, Kind, SingleLetterTag};
-
     let viewer = signer.public_key();
-    let client = NostrClient::new(signer);
-    client
-        .add_relay(&relay)
-        .await
-        .map_err(|_| "Could not configure the Buzz relay".to_owned())?;
-    client
-        .try_connect_relay(&relay, Duration::from_secs(10))
-        .await
-        .map_err(|_| "Could not connect to the Buzz relay".to_owned())?;
-    let member_filter = Filter::new()
-        .kind(Kind::Custom(39002))
-        .custom_tag(SingleLetterTag::lowercase(Alphabet::P), viewer.to_hex())
-        .limit(1000);
-    let metadata_filter = Filter::new().kind(Kind::Custom(39000)).limit(200);
-    let memberships = client
-        .fetch_events(member_filter, Duration::from_secs(10))
-        .await
-        .map_err(|_| "Could not read Buzz channel memberships".to_owned())?;
-    let metadata = client
-        .fetch_events(metadata_filter, Duration::from_secs(10))
-        .await
-        .map_err(|_| "Could not read Buzz channels".to_owned())?;
-    client.disconnect().await;
-    discover_visible_channels(
-        &metadata.into_iter().collect::<Vec<_>>(),
-        &memberships.into_iter().collect::<Vec<_>>(),
-        &viewer,
+    // Match upstream Buzz Desktop/buzz-acp: private group discovery is read
+    // through the relay's authenticated HTTP query bridge, not a bare WS
+    // subscription. The latter can connect successfully yet see no private
+    // 39002 state on hosted communities.
+    let memberships = query_buzz_events_http(
+        &relay,
+        &signer,
+        serde_json::json!([{
+            "kinds": [39002],
+            "#p": [viewer.to_hex()],
+            "limit": 1000,
+        }]),
     )
-    .map_err(|error| error.to_string())
+    .await
+    .map_err(|error| format!("Could not read Buzz channel memberships: {error}"))?;
+    let mut channel_ids = memberships
+        .iter()
+        .filter_map(|event| {
+            event.tags.iter().find_map(|tag| {
+                let values = tag.as_slice();
+                (values.first().map(String::as_str) == Some("d"))
+                    .then(|| values.get(1).cloned())
+                    .flatten()
+            })
+        })
+        .collect::<Vec<_>>();
+    channel_ids.sort();
+    channel_ids.dedup();
+    let metadata = if channel_ids.is_empty() {
+        Vec::new()
+    } else {
+        let channel_limit = channel_ids.len();
+        query_buzz_events_http(
+            &relay,
+            &signer,
+            serde_json::json!([{
+                "kinds": [39000],
+                "#d": channel_ids,
+                "limit": channel_limit,
+            }]),
+        )
+        .await
+        .map_err(|error| format!("Could not read Buzz channels: {error}"))?
+    };
+    discover_visible_channels(&metadata, &memberships, &viewer).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1889,6 +1903,10 @@ fn relay_http_events_url(relay: &str) -> Result<String, String> {
     Err("Buzz relay must use ws:// or wss://".to_owned())
 }
 
+fn relay_http_query_url(relay: &str) -> Result<String, String> {
+    relay_http_events_url(relay).map(|url| url.trim_end_matches("/events").to_owned() + "/query")
+}
+
 fn build_nip98_authorization(
     signer: &nostr::Keys,
     url: &str,
@@ -1915,6 +1933,36 @@ fn build_nip98_authorization(
         "Nostr {}",
         base64::engine::general_purpose::STANDARD.encode(event_json)
     ))
+}
+
+async fn query_buzz_events_http(
+    relay: &str,
+    signer: &nostr::Keys,
+    filters: Value,
+) -> Result<Vec<NostrEvent>, String> {
+    let url = relay_http_query_url(relay)?;
+    let body = serde_json::to_vec(&filters)
+        .map_err(|_| "Could not serialize the Buzz query".to_owned())?;
+    let authorization = build_nip98_authorization(signer, &url, &body)?;
+    let response = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|_| "Could not configure the Buzz relay client".to_owned())?
+        .post(&url)
+        .header(reqwest::header::AUTHORIZATION, authorization)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(body)
+        .send()
+        .await
+        .map_err(|_| "Buzz relay query failed".to_owned())?;
+    if !response.status().is_success() {
+        return Err(format!("Buzz relay returned HTTP {}", response.status()));
+    }
+    response
+        .json::<Vec<NostrEvent>>()
+        .await
+        .map_err(|_| "Buzz relay returned an invalid event list".to_owned())
 }
 
 async fn publish_signed_buzz_event_http(
@@ -3147,6 +3195,22 @@ mod tests {
             .and_then(|tag| tag.get(1))
             .unwrap();
         uuid::Uuid::parse_str(nonce).unwrap();
+    }
+
+    #[test]
+    fn buzz_http_endpoints_follow_the_relay_scheme() {
+        assert_eq!(
+            relay_http_events_url("wss://dev.buzz.hypercli.com/").unwrap(),
+            "https://dev.buzz.hypercli.com/events"
+        );
+        assert_eq!(
+            relay_http_query_url("wss://dev.buzz.hypercli.com/").unwrap(),
+            "https://dev.buzz.hypercli.com/query"
+        );
+        assert_eq!(
+            relay_http_query_url("ws://127.0.0.1:27659").unwrap(),
+            "http://127.0.0.1:27659/query"
+        );
     }
 
     #[test]

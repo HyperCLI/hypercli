@@ -380,6 +380,12 @@ create a fresh agent identity, enroll it as a bot, and create the matching
 HyperCLI deployment directly through `rs-sdk`. Vanilla Buzz remains unchanged
 and continues to use the one-shot provider executable.
 
+Private channel discovery follows upstream Buzz's authenticated HTTP bridge:
+NIP-98-signed `POST /query` first requests kind 39002 with `#p=<owner>`, then
+requests kind 39000 only for the returned `d` channel ids. A plain WebSocket
+subscription can connect to a hosted community while returning none of its
+private discovery state; do not switch this path back to raw `fetch_events`.
+
 The create screen collects name, a native image-picker avatar, instructions, runtime, best
 available or explicit 2/4/8 GB size, one discovered channel, respond policy,
 allowlist, optional model/concurrency, and additional environment. Automatic
@@ -478,7 +484,7 @@ deployment and erases its connection/keychain entry. Runs are non-cancelling
 and serialized because they share one dev identity and channel. The nsec is an
 existing GitHub secret and is never printed or passed in argv.
 
-As of 2026-08-05 19:55 Europe/Moscow, local validation is green: 23 Desktop
+As of 2026-08-05 20:10 Europe/Moscow, local validation is green: 24 Desktop
 Rust tests plus Clippy, 48 Rust SDK tests plus Clippy, and 26 mocked UI tests.
 Real dev-relay run `31025919309` failed before agent launch because WebdriverIO's
 chainable option collection was passed to `Promise.all` as a native iterable;
