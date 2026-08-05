@@ -9,6 +9,7 @@ traffic; where something is unverified it says so.
 |---|---|---|
 | Desktop app (Tauri v2) | `hypercli/desktop` | `HyperCLI.app`, NSIS `.exe`, AppImage/deb |
 | Buzz backend provider | `hypercli/buzz-backend-provider` | `buzz-backend-hypercli` binary — released standalone **and** bundled in the app as a Tauri sidecar |
+| Hosted Buzz ACP | `hypercli/buzz-acp` | Cargo package `hypercli-buzz-acp`, installed executable `buzz-acp` inside the runtime images |
 | Rust SDK | `hypercli/rs-sdk` | `hypercli-sdk` crate, used by both |
 | Agent images | `hyperclaw-backend/hypercli-agent-images/buzz/*` | `ghcr.io/hypercli/hypercli-buzz-{agent,goose,opencode,codex,claude,kimi-code}` |
 
@@ -191,6 +192,32 @@ deploy. `config_schema` *is* rendered in the create dialog, but as free-text
 inputs only (`enum` is ignored), so no dropdown. Fixing mismatches properly
 needs a small upstream change: allowlist `harnesses`, add it to the probe
 type, filter the harness dropdown per provider.
+
+### 6. Slot selection and real provider CI — IMPLEMENTED LOCALLY, CI PENDING
+
+New provider launches no longer hard-code `large`. The provider reads the
+capacity returned with the deterministic-handle lookup and chooses the largest
+currently available entitlement slot (`large`, then `medium`, then `small`).
+It still reuses an existing deployment before considering capacity. If create
+loses a slot race with HTTP 429, it refreshes inventory and may retry an
+unattempted lower tier. Unit coverage pins that fallback.
+
+The backend provider smoke is being upgraded from a refused loopback relay to
+the real hosted path. For each live-supported runtime (Buzz Agent, OpenCode,
+Goose), it provisions a routed relay fixture, invokes the exact provider
+binary with `provider_config: {}`, waits for the provider-created image to
+subscribe, publishes an owner-signed kind-9 question, requires a non-empty
+agent reply within 60 seconds, then publishes owner-signed `!shutdown` and
+checks the deployment stops. This exercises both `buzz-backend-hypercli` and
+the HyperCLI-owned `buzz-acp`; it is not considered verified until the backend
+CI job passes against the candidate images.
+
+HyperCLI now owns only the hosted ACP delta as the top-level
+`hypercli/buzz-acp` package. Its Buzz crate dependencies share one exact,
+documented unmodified upstream commit. The container builds upstream Sprig
+for `buzz`, `buzz-agent`, and `buzz-dev-mcp`, but builds the real `buzz-acp`
+binary from HyperCLI. The full Buzz application fork/submodule is no longer a
+runtime-image dependency.
 
 ## Gotchas worth knowing
 

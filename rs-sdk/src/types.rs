@@ -26,6 +26,16 @@ pub enum AgentSize {
     Large,
 }
 
+impl AgentSize {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Small => "small",
+            Self::Medium => "medium",
+            Self::Large => "large",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum HyperAgentCanonicalPlanId {
@@ -213,6 +223,15 @@ impl RouteConfig {
 }
 
 const DEFAULT_BUZZ_RUST_LOG: &str = "buzz_acp=info,pool::prompt=info,acp::stream=off";
+/// Maximum reminders emitted when a hosted harness turn ends without publishing.
+pub const BUZZ_ACP_MAX_REPLY_NAGS: u32 = 2;
+
+/// Reminder used by HyperCLI's hosted ACP harness when a turn produced no Buzz publish.
+pub const BUZZ_ACP_REPLY_GUARD_NAG: &str = "You are about to end this turn without calling `buzz messages send`. \
+Your assistant text and reasoning are never shown to anyone — if you did work, found an answer, \
+or hit a blocker that someone is waiting on, it exists only if you publish it. \
+If you already posted, or if silence is genuinely correct for this turn, ignore this and end your turn.";
+
 pub const BUZZ_RUNTIME_SCOPES: [&str; 7] = [
     "agents:none",
     "files:*",
@@ -751,7 +770,7 @@ where
     })
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct AgentCapacity {
     #[serde(default)]
     pub items: Vec<Deployment>,
@@ -769,6 +788,19 @@ pub struct AgentCapacity {
     pub pooled_tpd: u64,
 }
 
+impl AgentCapacity {
+    /// Select the largest currently available entitlement-backed agent shape.
+    pub fn largest_available_size(&self) -> Option<AgentSize> {
+        [AgentSize::Large, AgentSize::Medium, AgentSize::Small]
+            .into_iter()
+            .find(|size| {
+                self.slots
+                    .get(size.as_str())
+                    .is_some_and(|slot| slot.available > 0)
+            })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -779,6 +811,41 @@ mod tests {
         ))
         .unwrap();
         golden["dynamic_env"]["BUZZ_MANAGED_AGENT_START_NONCE"].clone()
+    }
+
+    #[test]
+    fn capacity_prefers_the_largest_available_slot() {
+        let capacity = AgentCapacity {
+            slots: BTreeMap::from([
+                (
+                    "small".to_owned(),
+                    AgentSlotInventory {
+                        granted: 1,
+                        used: 0,
+                        available: 1,
+                    },
+                ),
+                (
+                    "medium".to_owned(),
+                    AgentSlotInventory {
+                        granted: 1,
+                        used: 1,
+                        available: 0,
+                    },
+                ),
+                (
+                    "large".to_owned(),
+                    AgentSlotInventory {
+                        granted: 2,
+                        used: 1,
+                        available: 1,
+                    },
+                ),
+            ]),
+            ..Default::default()
+        };
+
+        assert_eq!(capacity.largest_available_size(), Some(AgentSize::Large));
     }
 
     #[test]

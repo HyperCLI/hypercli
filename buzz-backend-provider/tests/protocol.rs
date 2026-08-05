@@ -158,7 +158,7 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
         .match_query(Matcher::UrlEncoded("handle".into(), handle.clone()))
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"items":[]}"#)
+        .with_body(r#"{"items":[],"slots":{"large":{"available":1}}}"#)
         .create();
     let create = server
         .mock("POST", "/agents/deployments")
@@ -354,6 +354,12 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
         if let Some(executable) = claude_code_executable {
             expected["env"]["CLAUDE_CODE_EXECUTABLE"] = serde_json::json!(executable);
         }
+        let capacity = server
+            .mock("GET", "/agents/deployments")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"items":[],"slots":{"large":{"available":1}}}"#)
+            .create();
         let create = server
             .mock("POST", "/agents/deployments")
             .match_body(Matcher::AllOf(vec![
@@ -460,6 +466,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
         );
         let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(response["agent_id"], format!("dry-run-{runtime}"));
+        capacity.assert();
         let trace = fs::read_to_string(trace_file).unwrap();
         let trace_event: serde_json::Value = trace
             .lines()

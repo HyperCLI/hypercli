@@ -3,8 +3,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use hypercli_sdk::{
-    AgentSize, CreateDeploymentRequest, Deployment, HyperCliClient, HyperCliError, ManagedRuntime,
-    StartDeploymentRequest, BUZZ_RUNTIME_SCOPES,
+    AgentCapacity, AgentSize, CreateDeploymentRequest, Deployment, HyperCliClient, HyperCliError,
+    ManagedRuntime, StartDeploymentRequest, BUZZ_RUNTIME_SCOPES,
 };
 use nostr::Keys;
 use reqwest::StatusCode;
@@ -18,6 +18,11 @@ const DEFAULT_BUZZ_CODEX_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-codex:lat
 const DEFAULT_BUZZ_CLAUDE_CODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-claude:latest";
 const DEFAULT_BUZZ_GOOSE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-goose:latest";
 const DEFAULT_BUZZ_KIMI_CODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-kimi-code:latest";
+// CI bakes an immutable candidate into the exact provider binary under test so
+// provider_config remains byte-for-byte identical to Buzz Desktop's empty
+// schema. Release builds do not set this and use the runtime defaults above.
+const COMPILE_TIME_DEFAULT_IMAGE_OVERRIDE: Option<&str> =
+    option_env!("HYPERCLI_BUZZ_DEFAULT_IMAGE_OVERRIDE");
 const DEPLOYMENT_READY_TIMEOUT: Duration = Duration::from_secs(300);
 #[cfg(not(test))]
 const DEPLOYMENT_READY_POLL_INTERVAL: Duration = Duration::from_secs(2);
@@ -260,6 +265,8 @@ pub enum ProviderError {
     AmbiguousDeployment,
     #[error("existing deployment runtime does not match the requested runtime")]
     RuntimeMismatch,
+    #[error("no HyperCLI agent slots are currently available")]
+    NoAvailableSlots,
     #[error("HyperCLI deployment {deployment_id} is still {state}; retry after cleanup completes")]
     DeploymentBusy {
         deployment_id: String,
@@ -343,6 +350,14 @@ fn deploy_with_readiness(
     // idempotent lookup/restart path. In particular, a stopped deployment with
     // the same deterministic handle must not be restarted.
     if dry_run {
+        let capacity = client
+            .list_deployments_with_capacity()
+            .map_err(ProviderError::HyperCli)?;
+        request.size = Some(
+            capacity
+                .largest_available_size()
+                .ok_or(ProviderError::NoAvailableSlots)?,
+        );
         return client
             .create_deployment(&request)
             .map(|deployment| DeployResponse {
@@ -352,7 +367,8 @@ fn deploy_with_readiness(
             .map_err(ProviderError::HyperCli);
     }
 
-    if let Some(existing) = find_existing(client, &handle, request.runtime)? {
+    let (existing, mut capacity) = find_existing_with_capacity(client, &handle, request.runtime)?;
+    if let Some(existing) = existing {
         let deployment = restart_if_stopped(client, existing, &request)?;
         let deployment = wait_until_running(client, deployment, readiness_timeout, poll_interval)?;
         return Ok(DeployResponse {
@@ -361,39 +377,81 @@ fn deploy_with_readiness(
         });
     }
 
-    match client.create_deployment(&request) {
-        Ok(deployment) => {
-            let deployment =
-                wait_until_running(client, deployment, readiness_timeout, poll_interval)?;
-            Ok(DeployResponse {
-                ok: true,
-                agent_id: deployment.id,
-            })
+    let mut attempted_sizes = Vec::new();
+    loop {
+        let selected_size = largest_unattempted_size(&capacity, &attempted_sizes)
+            .ok_or(ProviderError::NoAvailableSlots)?;
+        request.size = Some(selected_size);
+        attempted_sizes.push(selected_size);
+
+        match client.create_deployment(&request) {
+            Ok(deployment) => {
+                let deployment =
+                    wait_until_running(client, deployment, readiness_timeout, poll_interval)?;
+                return Ok(DeployResponse {
+                    ok: true,
+                    agent_id: deployment.id,
+                });
+            }
+            Err(error) if error.status() == Some(StatusCode::CONFLICT) => {
+                // Close the list-before-create race without inventing a separate
+                // provider database. The user-scoped handle is deterministic.
+                let (existing, _) = find_existing_with_capacity(client, &handle, request.runtime)?;
+                let existing = existing.ok_or(ProviderError::MissingConflictingDeployment)?;
+                let existing = restart_if_stopped(client, existing, &request)?;
+                let existing =
+                    wait_until_running(client, existing, readiness_timeout, poll_interval)?;
+                return Ok(DeployResponse {
+                    ok: true,
+                    agent_id: existing.id,
+                });
+            }
+            Err(error) if error.status() == Some(StatusCode::TOO_MANY_REQUESTS) => {
+                let (existing, refreshed) =
+                    find_existing_with_capacity(client, &handle, request.runtime)?;
+                if let Some(existing) = existing {
+                    let existing = restart_if_stopped(client, existing, &request)?;
+                    let existing =
+                        wait_until_running(client, existing, readiness_timeout, poll_interval)?;
+                    return Ok(DeployResponse {
+                        ok: true,
+                        agent_id: existing.id,
+                    });
+                }
+                capacity = refreshed;
+                if largest_unattempted_size(&capacity, &attempted_sizes).is_none() {
+                    return Err(ProviderError::HyperCli(error));
+                }
+            }
+            Err(error) => return Err(ProviderError::HyperCli(error)),
         }
-        Err(error) if error.status() == Some(StatusCode::CONFLICT) => {
-            // Close the list-before-create race without inventing a separate
-            // provider database. The user-scoped handle is deterministic.
-            let existing = find_existing(client, &handle, request.runtime)?
-                .ok_or(ProviderError::MissingConflictingDeployment)?;
-            let existing = restart_if_stopped(client, existing, &request)?;
-            let existing = wait_until_running(client, existing, readiness_timeout, poll_interval)?;
-            Ok(DeployResponse {
-                ok: true,
-                agent_id: existing.id,
-            })
-        }
-        Err(error) => Err(ProviderError::HyperCli(error)),
     }
 }
 
-fn find_existing(
+fn largest_unattempted_size(
+    capacity: &AgentCapacity,
+    attempted: &[AgentSize],
+) -> Option<AgentSize> {
+    [AgentSize::Large, AgentSize::Medium, AgentSize::Small]
+        .into_iter()
+        .find(|size| {
+            !attempted.contains(size)
+                && capacity
+                    .slots
+                    .get(size.as_str())
+                    .is_some_and(|slot| slot.available > 0)
+        })
+}
+
+fn find_existing_with_capacity(
     client: &HyperCliClient,
     handle: &str,
     runtime: ManagedRuntime,
-) -> Result<Option<Deployment>, ProviderError> {
-    let mut deployments = client
-        .list_deployments_by_handle(handle)
+) -> Result<(Option<Deployment>, AgentCapacity), ProviderError> {
+    let mut capacity = client
+        .list_deployments_by_handle_with_capacity(handle)
         .map_err(ProviderError::HyperCli)?;
+    let mut deployments = std::mem::take(&mut capacity.items);
     if deployments.len() > 1 {
         return Err(ProviderError::AmbiguousDeployment);
     }
@@ -403,7 +461,7 @@ fn find_existing(
             return Err(ProviderError::RuntimeMismatch);
         }
     }
-    Ok(existing)
+    Ok((existing, capacity))
 }
 
 fn restart_if_stopped(
@@ -505,10 +563,15 @@ fn build_launch_request(
     let mut request = CreateDeploymentRequest::new(runtime.managed());
     request.name = Some(deployment_name(&display_name, public_key));
     request.handle = Some(handle.to_owned());
-    request.size = Some(AgentSize::Large);
+    request.size = None;
     request.image = options
         .image
         .filter(|image| !image.trim().is_empty())
+        .or_else(|| {
+            COMPILE_TIME_DEFAULT_IMAGE_OVERRIDE
+                .filter(|image| !image.trim().is_empty())
+                .map(str::to_owned)
+        })
         .or_else(|| Some(runtime.default_image().to_owned()));
     request.tags = vec![format!("buzz_agent={public_key}")];
 
@@ -1801,7 +1864,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(request.runtime, ManagedRuntime::Codex);
-        assert_eq!(request.size, Some(AgentSize::Large));
+        assert_eq!(request.size, None);
     }
 
     #[test]
@@ -1851,7 +1914,7 @@ mod tests {
             .match_query(Matcher::UrlEncoded("handle".into(), handle.clone()))
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"items":[]}"#)
+            .with_body(r#"{"items":[],"slots":{"large":{"available":1}}}"#)
             .create();
         let create = server
             .mock("POST", "/agents/deployments")
@@ -1916,6 +1979,89 @@ mod tests {
         assert_eq!(response.agent_id, "deployment-1");
         lookup.assert();
         create.assert();
+        ready.assert();
+    }
+
+    #[test]
+    fn deploy_refreshes_capacity_and_falls_back_after_large_slot_race() {
+        let mut server = Server::new();
+        let handle = format!("buzz-{}", &TEST_PUBLIC_HEX[..48]);
+        let initial_capacity = server
+            .mock("GET", "/agents/deployments")
+            .match_query(Matcher::UrlEncoded("handle".into(), handle.clone()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"items":[],"slots":{"large":{"available":1},"medium":{"available":1},"small":{"available":1}}}"#,
+            )
+            .expect(1)
+            .create();
+        let raced_large = server
+            .mock("POST", "/agents/deployments")
+            .match_body(Matcher::PartialJsonString(
+                serde_json::json!({"size": "large"}).to_string(),
+            ))
+            .with_status(429)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"detail":"large slot is no longer available"}"#)
+            .expect(1)
+            .create();
+        let refreshed_capacity = server
+            .mock("GET", "/agents/deployments")
+            .match_query(Matcher::UrlEncoded("handle".into(), handle.clone()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"items":[],"slots":{"large":{"available":0},"medium":{"available":1},"small":{"available":1}}}"#,
+            )
+            .expect(1)
+            .create();
+        let medium_create = server
+            .mock("POST", "/agents/deployments")
+            .match_body(Matcher::PartialJsonString(
+                serde_json::json!({"size": "medium"}).to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id": "deployment-medium",
+                    "handle": handle,
+                    "runtime": "opencode",
+                    "state": "pending"
+                })
+                .to_string(),
+            )
+            .expect(1)
+            .create();
+        let ready = server
+            .mock("GET", "/agents/deployments/deployment-medium")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id": "deployment-medium",
+                    "handle": handle,
+                    "runtime": "opencode",
+                    "state": "running"
+                })
+                .to_string(),
+            )
+            .expect(1)
+            .create();
+
+        let response = deploy(
+            &client(&server),
+            test_agent(),
+            serde_json::json!({"runtime":"opencode"}),
+        )
+        .unwrap();
+
+        assert_eq!(response.agent_id, "deployment-medium");
+        initial_capacity.assert();
+        raced_large.assert();
+        refreshed_capacity.assert();
+        medium_create.assert();
         ready.assert();
     }
 
@@ -2026,7 +2172,7 @@ mod tests {
             .match_query(Matcher::UrlEncoded("handle".into(), handle.clone()))
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"items":[]}"#)
+            .with_body(r#"{"items":[],"slots":{"large":{"available":1}}}"#)
             .expect(1)
             .create();
         let recovered_lookup = server
@@ -2116,7 +2262,7 @@ mod tests {
             .match_query(Matcher::UrlEncoded("handle".into(), handle.clone()))
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"items":[]}"#)
+            .with_body(r#"{"items":[],"slots":{"large":{"available":2}}}"#)
             .expect(2)
             .create();
         let recovered_lookup = server
@@ -2495,6 +2641,13 @@ mod tests {
                 .mock("POST", "/agents/deployments/existing/start")
                 .expect(0)
                 .create();
+            let capacity = server
+                .mock("GET", "/agents/deployments")
+                .with_status(200)
+                .with_header("content-type", "application/json")
+                .with_body(r#"{"items":[],"slots":{"large":{"available":1}}}"#)
+                .expect(1)
+                .create();
             let readiness_poll = server
                 .mock(
                     "GET",
@@ -2531,6 +2684,7 @@ mod tests {
             lookup.assert();
             restart.assert();
             readiness_poll.assert();
+            capacity.assert();
             create.assert();
         }
     }

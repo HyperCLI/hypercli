@@ -58,9 +58,14 @@ supplies this argument. The provider sends one create-validation request with
 buzz-backend-hypercli --dry-run < tests/fixtures/deploy-request.json
 ```
 
-Buzz-backed coding-runtime launches require the HyperCLI `large` tier.
-Ordinary non-Buzz coding-agent helpers preserve a caller-selected size or omit
-it so the backend chooses its default. The resolved `agent.launch.command`
+Before creating a new deployment, the provider reads the account's live slot
+inventory and selects the largest available entitlement (`large`, then
+`medium`, then `small`). Existing deterministic-handle deployments are reused
+before capacity is considered. If a slot is claimed concurrently and create
+returns HTTP 429, the provider refreshes inventory and may retry an
+unattempted lower tier. Ordinary non-Buzz coding-agent helpers preserve a
+caller-selected size or omit it so the backend chooses its default. The
+resolved `agent.launch.command`
 selects the canonical runtime and image; legacy requests without `launch` fall
 back to `agent.agent_command`. Runtime-named provider hardlinks remain only for
 saved-provider compatibility and discovery. The provider exposes no editable

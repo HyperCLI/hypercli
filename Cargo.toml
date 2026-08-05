@@ -2,6 +2,7 @@
 members = [
     "rs-sdk",
     "buzz-backend-provider",
+    "buzz-acp",
 ]
 # The Tauri app is deliberately its own workspace so provider release builds
 # never compile GUI dependencies; it path-depends on rs-sdk across the boundary.
