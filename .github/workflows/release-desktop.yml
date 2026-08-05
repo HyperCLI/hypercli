@@ -119,19 +119,19 @@ jobs:
           fi
           test "$(git status --porcelain)" = ""
           SOURCE_SHA="$(git rev-parse HEAD)"
-          # Never release while the gating workflow for this artifact is red
-          # or unfinished. Scoped to Desktop CI: unrelated pipelines (site
-          # deploys, sdk integration queues) must not hold desktop releases
-          # hostage, and path-filtered commits produce no run on the SHA, so
-          # the branch's latest run is the source of truth.
-          STATE="$(gh run list --workflow "Desktop CI" --branch main --limit 1 \
-            --json status,conclusion \
-            --jq 'if length == 0 then "success"
-                  else .[0] | if .status != "completed" then "pending" else (.conclusion // "pending") end end')"
-          if [[ "$STATE" != "success" && "$STATE" != "skipped" ]]; then
-            echo "Desktop CI on main is '$STATE'; wait for green before releasing" >&2
-            exit 1
-          fi
+          # Never release while either the fast Desktop contract or the real
+          # dev-relay launch/message/cleanup gate is red or unfinished.
+          # Unrelated site/SDK pipelines must not hold desktop releases hostage.
+          for WORKFLOW in "Desktop CI" "Desktop Buzz E2E"; do
+            STATE="$(gh run list --workflow "$WORKFLOW" --branch main --limit 1 \
+              --json status,conclusion \
+              --jq 'if length == 0 then "missing"
+                    else .[0] | if .status != "completed" then "pending" else (.conclusion // "pending") end end')"
+            if [[ "$STATE" != "success" && "$STATE" != "skipped" ]]; then
+              echo "$WORKFLOW on main is '$STATE'; wait for green before releasing" >&2
+              exit 1
+            fi
+          done
           echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
 
   build:
