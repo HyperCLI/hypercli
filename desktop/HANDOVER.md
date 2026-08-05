@@ -385,6 +385,8 @@ agent creation: **Buzz connections** opens a focused list/add/remove screen.
 The nsec is entered only while adding a connection, moves immediately into the
 system keychain, and is never rendered again. Create selects from those saved
 identities; with none configured, it routes through connection setup first.
+Every connection-add affordance is the same compact `+`, including the create/
+editor section; opening it and returning preserves the in-progress agent form.
 
 Private channel discovery follows upstream Buzz's authenticated HTTP bridge:
 NIP-98-signed `POST /query` first requests kind 39002 with `#p=<owner>`, then
@@ -419,6 +421,11 @@ Buzz display names are not backend deployment names. Both the provider and the
 direct Desktop path use the SDK's `canonical_deployment_name` helper to derive
 a lowercase DNS-safe slug with an eight-character Nostr identity suffix, while
 the original name remains the Buzz profile/display name.
+The same shared SDK `BuzzLaunchConfig` owns the default hosted image for each
+coding runtime. Direct Desktop launches and provider launches therefore emit
+the same `ghcr.io/hypercli/hypercli-buzz-*` image, while an explicit provider
+image override still wins. Do not move this mapping back into either caller:
+dev rejects a deployment without it as `Pod creation failed: image is required`.
 
 Avatar bytes never enter launch env or relay events. The native picker rejects
 symlinks, images over 2 MiB, and content whose magic is not PNG/JPEG/GIF/WebP,
@@ -509,8 +516,9 @@ deployment and erases its connection/keychain entry. Runs are non-cancelling
 and serialized because they share one dev identity and channel. The nsec is an
 existing GitHub secret and is never printed or passed in argv.
 
-As of 2026-08-05 20:22 Europe/Moscow, local validation is green: 25 Desktop
-Rust tests plus Clippy, 48 Rust SDK tests plus Clippy, and 27 mocked UI tests.
+As of 2026-08-05 21:05 Europe/Moscow, local validation is green: 25 Desktop
+Rust tests, 50 Rust SDK tests, 47 provider unit + 8 provider protocol tests,
+and 28 mocked UI tests.
 Real dev-relay run `31028721199` proved authenticated private discovery returned
 the CI channel but timed out on the test's decorative-name comparison: relay
 metadata is `ci`, while Buzz presents `#ci`. The UI now decorates the name and
@@ -518,6 +526,10 @@ the gate compares its normalized spelling. Run `31029815349` then correctly
 exercised the new empty-state connection routing and exposed a stale assertion
 that still waited for the agent editor before entering the nsec. The gate now
 waits for the connection screen, saves the identity, and only then requires the
-editor. Do not cut 0.1.3 until that next gate passes. Apple still reports the
-existing notarization submissions as `in progress`, with no rejection log
-available.
+editor. Run `31032444451` then proved canonical backend naming and exposed the
+next direct-launch seam: the SDK contract did not supply a container image, so
+dev returned HTTP 500 with `Pod creation failed: image is required`. The image
+mapping is now shared as described above. Do not cut 0.1.3 until the next full
+gate reaches RUNNING, receives the #CI reply, and completes cleanup. Apple still
+reports the existing notarization submissions as `in progress`, with no
+rejection log available.

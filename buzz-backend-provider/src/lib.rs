@@ -15,12 +15,6 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 use url::Url;
 
-const DEFAULT_BUZZ_OPENCODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-opencode:latest";
-const DEFAULT_BUZZ_AGENT_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-agent:latest";
-const DEFAULT_BUZZ_CODEX_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-codex:latest";
-const DEFAULT_BUZZ_CLAUDE_CODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-claude:latest";
-const DEFAULT_BUZZ_GOOSE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-goose:latest";
-const DEFAULT_BUZZ_KIMI_CODE_IMAGE: &str = "ghcr.io/hypercli/hypercli-buzz-kimi-code:latest";
 const BUZZ_LAUNCH_TAG_PREFIX: &str = "buzz_launch=";
 // CI bakes an immutable candidate into the exact provider binary under test so
 // the image remains provider-controlled rather than becoming a user-facing
@@ -129,14 +123,9 @@ impl CodingRuntime {
     }
 
     fn default_image(self) -> &'static str {
-        match self {
-            Self::BuzzAgent => DEFAULT_BUZZ_AGENT_IMAGE,
-            Self::Opencode => DEFAULT_BUZZ_OPENCODE_IMAGE,
-            Self::Codex => DEFAULT_BUZZ_CODEX_IMAGE,
-            Self::ClaudeCode => DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
-            Self::Goose => DEFAULT_BUZZ_GOOSE_IMAGE,
-            Self::KimiCode => DEFAULT_BUZZ_KIMI_CODE_IMAGE,
-        }
+        self.managed()
+            .default_buzz_image()
+            .expect("every coding runtime has a managed Buzz image")
     }
 
     fn harness_command(self) -> &'static str {
@@ -1440,37 +1429,13 @@ mod tests {
 
     #[test]
     fn runtime_catalog_uses_distinct_buzz_images() {
-        for (runtime, managed, image) in [
-            (
-                CodingRuntime::BuzzAgent,
-                ManagedRuntime::BuzzAgent,
-                DEFAULT_BUZZ_AGENT_IMAGE,
-            ),
-            (
-                CodingRuntime::Opencode,
-                ManagedRuntime::Opencode,
-                DEFAULT_BUZZ_OPENCODE_IMAGE,
-            ),
-            (
-                CodingRuntime::Codex,
-                ManagedRuntime::Codex,
-                DEFAULT_BUZZ_CODEX_IMAGE,
-            ),
-            (
-                CodingRuntime::ClaudeCode,
-                ManagedRuntime::ClaudeCode,
-                DEFAULT_BUZZ_CLAUDE_CODE_IMAGE,
-            ),
-            (
-                CodingRuntime::Goose,
-                ManagedRuntime::Goose,
-                DEFAULT_BUZZ_GOOSE_IMAGE,
-            ),
-            (
-                CodingRuntime::KimiCode,
-                ManagedRuntime::KimiCode,
-                DEFAULT_BUZZ_KIMI_CODE_IMAGE,
-            ),
+        for (runtime, managed) in [
+            (CodingRuntime::BuzzAgent, ManagedRuntime::BuzzAgent),
+            (CodingRuntime::Opencode, ManagedRuntime::Opencode),
+            (CodingRuntime::Codex, ManagedRuntime::Codex),
+            (CodingRuntime::ClaudeCode, ManagedRuntime::ClaudeCode),
+            (CodingRuntime::Goose, ManagedRuntime::Goose),
+            (CodingRuntime::KimiCode, ManagedRuntime::KimiCode),
         ] {
             let request = build_launch_request(
                 test_agent_for(runtime),
@@ -1486,7 +1451,7 @@ mod tests {
             )
             .unwrap();
             assert_eq!(request.runtime, managed);
-            assert_eq!(request.image.as_deref(), Some(image));
+            assert_eq!(request.image.as_deref(), managed.default_buzz_image());
         }
     }
 

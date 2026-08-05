@@ -19,6 +19,25 @@ pub enum ManagedRuntime {
     KimiCode,
 }
 
+impl ManagedRuntime {
+    /// Container image owned by HyperCLI for a hosted Buzz coding runtime.
+    ///
+    /// Keeping this beside the shared launch contract prevents direct SDK
+    /// callers and Buzz backend providers from silently choosing different
+    /// images for the same runtime.
+    pub const fn default_buzz_image(self) -> Option<&'static str> {
+        match self {
+            Self::BuzzAgent => Some("ghcr.io/hypercli/hypercli-buzz-agent:latest"),
+            Self::Opencode => Some("ghcr.io/hypercli/hypercli-buzz-opencode:latest"),
+            Self::Codex => Some("ghcr.io/hypercli/hypercli-buzz-codex:latest"),
+            Self::ClaudeCode => Some("ghcr.io/hypercli/hypercli-buzz-claude:latest"),
+            Self::Goose => Some("ghcr.io/hypercli/hypercli-buzz-goose:latest"),
+            Self::KimiCode => Some("ghcr.io/hypercli/hypercli-buzz-kimi-code:latest"),
+            Self::Generic | Self::Openclaw | Self::OpenclawPro => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentSize {
@@ -404,6 +423,9 @@ impl BuzzLaunchConfig {
         request.size = None;
         request.mark_buzz_deployment(None);
         request.command = vec!["/usr/local/bin/buzz-acp".to_owned()];
+        if request.image.is_none() {
+            request.image = request.runtime.default_buzz_image().map(str::to_owned);
+        }
         request.routes.clear();
         request.sync_root = Some("/home/node".to_owned());
         request.sync_enabled = Some(true);
@@ -1237,6 +1259,7 @@ mod tests {
                 .unwrap();
 
             assert_eq!(serde_json::to_value(runtime).unwrap(), runtime_name);
+            assert_eq!(request.image.as_deref(), contract["image"].as_str());
             assert_eq!(
                 request.env["BUZZ_ACP_AGENT_COMMAND"],
                 contract["agent_command"]
@@ -1261,6 +1284,21 @@ mod tests {
         assert_eq!(
             buzz.apply_to(&mut request, None),
             Err(BuzzLaunchError::UnsupportedRuntime)
+        );
+    }
+
+    #[test]
+    fn buzz_launch_respects_an_explicit_image_override() {
+        let mut request = CreateDeploymentRequest::new(ManagedRuntime::BuzzAgent);
+        request.image = Some("registry.example.test/custom-buzz:sha".to_owned());
+
+        BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
+            .apply_to(&mut request, None)
+            .unwrap();
+
+        assert_eq!(
+            request.image.as_deref(),
+            Some("registry.example.test/custom-buzz:sha")
         );
     }
 
