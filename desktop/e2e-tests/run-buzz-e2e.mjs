@@ -139,6 +139,32 @@ async function forceCleanupDeployment(sessionToken, agentId, timeoutMs = 3 * 60_
   fail(`deployment cleanup failed (${last})`);
 }
 
+async function deploymentLogTail(sessionToken, agentId) {
+  const response = await fetch(`${API_BASE}/agents/deployments/${agentId}/logs`, {
+    headers: { Authorization: `Bearer ${sessionToken}` },
+  });
+  if (!response.ok) return `logs unavailable (HTTP ${response.status})`;
+  const payload = await response.json();
+  return String(payload.logs || "")
+    .replace(/nsec1[023456789acdefghjklmnpqrstuvwxyz]+/gi, "<redacted-nsec>")
+    .replace(/\bsk-[A-Za-z0-9_-]{12,}\b/g, "<redacted-key>")
+    .split("\n")
+    .slice(-200)
+    .join("\n");
+}
+
+async function cleanupDeploymentThroughDesktop(browser, agentId) {
+  const agents = await tauriInvoke(browser, "list_agents");
+  const agent = agents.find((candidate) => candidate.id === agentId);
+  if (!agent) return false;
+  if (agent.state !== "stopped") {
+    await tauriInvoke(browser, "stop_agent", { agentId });
+    await waitForAgent(browser, agentId, "stopped", 3 * 60_000);
+  }
+  await tauriInvoke(browser, "delete_agent", { agentId });
+  return true;
+}
+
 function relayHttpBase() {
   if (RELAY_URL.startsWith("wss://")) return `https://${RELAY_URL.slice(6)}`;
   if (RELAY_URL.startsWith("ws://")) return `http://${RELAY_URL.slice(5)}`;
@@ -193,6 +219,26 @@ async function publishOwnerMessage(secret, channelId, agentPublicKey) {
   const result = await relayRequest(secret, "/events", event);
   if (result.accepted !== true) fail("Buzz relay did not accept the CI message");
   return sentAt;
+}
+
+async function waitForPresence(secret, agentPublicKey) {
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    const events = await relayRequest(secret, "/query", [{
+      kinds: [40902],
+      authors: [agentPublicKey],
+      limit: 1,
+    }]);
+    const online = Array.isArray(events) && events.some((event) => {
+      const subject = Array.isArray(event.tags)
+        ? event.tags.find((tag) => Array.isArray(tag) && tag[0] === "p")?.[1]
+        : undefined;
+      return subject === agentPublicKey && event.content === "online";
+    });
+    if (online) return;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 2_000));
+  }
+  fail("hosted Buzz agent did not publish online presence within 60 seconds");
 }
 
 async function waitForReply(secret, channelId, agentPublicKey, since) {
@@ -336,10 +382,10 @@ async function main() {
     if (!/^[0-9a-f]{64}$/.test(agentPublicKey || "")) fail("running agent has no canonical Buzz public key");
     if (!running.tags.includes("app=buzz")) fail("running agent is missing app=buzz tag");
 
-    await new Promise((resolveDelay) => setTimeout(resolveDelay, 10_000));
     const secret = ownerSecret();
     const ownerPublicKey = getPublicKey(secret);
     if (ownerPublicKey === agentPublicKey) fail("owner and agent identities must differ");
+    await waitForPresence(secret, agentPublicKey);
     const since = await publishOwnerMessage(secret, channelId, agentPublicKey);
     const reply = await waitForReply(secret, channelId, agentPublicKey, since);
     if (!String(reply.content || "").trim()) fail("agent reply was empty");
@@ -355,6 +401,13 @@ async function main() {
   } catch (error) {
     if (browser) await screenshot(browser, "buzz-failure");
     console.error(`FAIL: ${error.message}`);
+    if (agentId) {
+      try {
+        console.error(`AGENT LOG TAIL:\n${await deploymentLogTail(token, agentId)}`);
+      } catch (logError) {
+        console.error(`AGENT LOG TAIL: unavailable (${logError.message})`);
+      }
+    }
     process.exitCode = 1;
   } finally {
     if (browser && (agentId || agentName)) {
@@ -363,9 +416,14 @@ async function main() {
         const agent = agents.find((candidate) => candidate.id === agentId)
           || agents.find((candidate) => candidate.name === agentName);
         if (agent) agentId = agent.id;
-        if (agentId) await forceCleanupDeployment(token, agentId);
+        if (agentId) {
+          const cleanedLocally = await cleanupDeploymentThroughDesktop(browser, agentId);
+          if (!cleanedLocally) await forceCleanupDeployment(token, agentId);
+          agentId = undefined;
+        }
       } catch (cleanupError) {
         console.error(`CLEANUP: agent cleanup failed: ${cleanupError.message}`);
+        if (agentId) await forceCleanupDeployment(token, agentId).catch(() => {});
         process.exitCode = 1;
       }
     }

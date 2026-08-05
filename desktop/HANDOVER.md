@@ -513,9 +513,10 @@ installation checks. `desktop-buzz-e2e.yml` is a separate gate: `build-linux`
 builds the real provider and Tauri app, uploads them, and the dependent
 `dev-relay` job starts a Secret Service keyring, logs into the dev backend,
 saves `BUZZ_DEV_E2E_NSEC`, discovers private `#CI`, launches a disposable Buzz
-Agent, waits up to 12 minutes for RUNNING, sends a signed owner kind-9 question,
-requires a non-empty agent reply within 60 seconds, then stop/deletes the
-deployment and erases its connection/keychain entry. Runs are non-cancelling
+Agent, waits up to 12 minutes for backend RUNNING **and** up to 60 seconds for
+the agent's relay `online` presence snapshot, sends a signed owner kind-9
+question, requires a non-empty agent reply within 60 seconds, then stop/deletes
+the deployment and erases its connection/keychain entry. Runs are non-cancelling
 and serialized because they share one dev identity and channel. The nsec is an
 existing GitHub secret and is never printed or passed in argv.
 
@@ -536,6 +537,11 @@ mapping is now shared as described above. Run `31033168634` then proved dev
 accepted the image and created the pod, but the E2E could not find its human
 name because the fleet rendered the canonical backend slug. Display-name
 projection is now corrected as described above. Do not cut 0.1.3 until the next
-full gate reaches RUNNING, receives the #CI reply, and completes cleanup. Apple
-still reports the existing notarization submissions as `in progress`, with no
-rejection log available.
+full gate reaches RUNNING, publishes online presence, receives the #CI reply,
+and completes cleanup. Run `31033702545` reached RUNNING and accepted the owner
+message but timed out waiting for a reply because the test used a fixed 10-second
+delay rather than Buzz's actual readiness signal. It now waits for kind-40902
+online presence exactly like the already-green provider E2E, and captures a
+redacted persisted log tail before cleanup on any failure. Apple still reports
+the existing notarization submissions as `in progress`, with no rejection log
+available.
