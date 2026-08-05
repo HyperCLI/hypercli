@@ -1941,6 +1941,8 @@ export async function launchClawAgentAndWaitForGateway(
     has: page.locator("summary").filter({ hasText: /^Advanced$/i }),
   }).first();
   await expect(optionalSettings).toBeVisible({ timeout: 30_000 });
+  await expect(optionalSettings).not.toHaveAttribute("open", "");
+  await optionalSettings.locator("summary").click();
   await expect(optionalSettings).toHaveAttribute("open", "");
 
   const desktopCheckbox = page

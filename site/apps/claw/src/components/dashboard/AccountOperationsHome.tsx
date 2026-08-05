@@ -375,7 +375,7 @@ export function AccountOperationsHome({
         ? `${tokenCapacityReady.toFixed(2)}%`
         : `${Math.round(tokenCapacityReady)}%`;
   return (
-    <section className={cn("h-full overflow-y-auto bg-background text-foreground", className)} aria-labelledby="account-home-title">
+    <section className={cn("account-operations-home h-full overflow-y-auto bg-background text-foreground", className)} aria-labelledby="account-home-title">
       <div className="mx-auto w-full max-w-[1280px] px-4 py-5 sm:px-6 sm:py-7 lg:px-8">
         <header className="overflow-hidden rounded-2xl border border-border bg-[rgb(var(--selection-accent-rgb)_/_0.04)]">
           <div className="px-5 py-4 sm:px-6">

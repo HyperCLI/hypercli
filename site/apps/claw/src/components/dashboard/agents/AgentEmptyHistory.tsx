@@ -2,18 +2,15 @@
 
 import { Button } from "@hypercli/shared-ui";
 import {
-  Blocks,
-  CalendarClock,
-  Check,
-  Codepen,
-  FileText,
-  FolderOpen,
-  Wrench,
+  Fingerprint,
+  HeartHandshake,
+  MessageCircle,
+  MessagesSquare,
+  Plug,
+  UsersRound,
   type LucideIcon,
 } from "lucide-react";
 
-import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
-import { SlackIcon } from "@/components/dashboard/BrandIcons";
 import type { AgentSlashCommandActions } from "@/components/dashboard/agents/AgentSlashCommandMenu";
 
 type AgentEmptyHistoryActions = Pick<
@@ -26,198 +23,148 @@ interface AgentEmptyHistoryProps {
   actions?: AgentEmptyHistoryActions;
 }
 
-interface StarterPrompt {
-  id: string;
+interface CapabilityAction {
   label: string;
-  description: string;
-  prompt: string;
-  icon: LucideIcon;
-}
-
-const STARTER_PROMPTS: StarterPrompt[] = [
-  {
-    id: "explain",
-    label: "Map this workspace",
-    description: "Get a plain-English tour of the files and structure.",
-    prompt: "Explain the current workspace or selected file in plain language.",
-    icon: FileText,
-  },
-  {
-    id: "test",
-    label: "Run the checks",
-    description: "Use the project toolchain and report what breaks.",
-    prompt: "Run the relevant checks for this workspace and summarize the results.",
-    icon: Check,
-  },
-  {
-    id: "diff",
-    label: "Read the diff",
-    description: "Review workspace changes, risks, and next steps.",
-    prompt: "Review workspace changes and summarize the diff.",
-    icon: Wrench,
-  },
-];
-
-interface WorkspaceAction {
-  id: string;
-  label: string;
-  description: string;
   ariaLabel: string;
-  action: "onOpenFiles" | "onOpenIntegrations" | "onOpenSkills" | "onOpenScheduled";
-  icon: LucideIcon;
+  onClick: () => void;
 }
 
-const WORKSPACE_ACTIONS: WorkspaceAction[] = [
-  {
-    id: "files",
-    label: "Bring in context",
-    description: "Open files, notes, and generated output.",
-    ariaLabel: "Open Workspace files",
-    action: "onOpenFiles",
-    icon: FolderOpen,
-  },
-  {
-    id: "integrations",
-    label: "Browse integrations",
-    description: "Add GitHub, Telegram, Discord, WhatsApp, and more.",
-    ariaLabel: "Open Integrations",
-    action: "onOpenIntegrations",
-    icon: Blocks,
-  },
-  {
-    id: "skills",
-    label: "Teach it a skill",
-    description: "Browse reusable skills or create one.",
-    ariaLabel: "Open Skills",
-    action: "onOpenSkills",
-    icon: Codepen,
-  },
-  {
-    id: "scheduled",
-    label: "Put work on repeat",
-    description: "Run prompts automatically on a schedule.",
-    ariaLabel: "Open Scheduled work",
-    action: "onOpenScheduled",
-    icon: CalendarClock,
-  },
-];
+interface Capability {
+  id: string;
+  title: string;
+  description: string;
+  icon: LucideIcon;
+  actions: CapabilityAction[];
+}
+
+const SAY_HELLO_PROMPT = "Hi! Let's spend a few minutes getting to know each other. Ask me one question at a time to learn how I work and where you can help most.";
 
 export function AgentEmptyHistory({
   onPromptSelect,
   actions,
 }: AgentEmptyHistoryProps) {
-  const availableWorkspaceActions = WORKSPACE_ACTIONS.filter(({ action }) => Boolean(actions?.[action]));
+  const capabilities: Capability[] = [
+    {
+      id: "personalize",
+      title: "Make It Yours",
+      description: "Teach your agent your knowledge, workflows, and way of working.",
+      icon: Fingerprint,
+      actions: [
+        ...(actions?.onOpenFiles ? [{
+          label: "Add context",
+          ariaLabel: "Open Workspace files",
+          onClick: () => actions.onOpenFiles?.(),
+        }] : []),
+        ...(actions?.onOpenSkills ? [{
+          label: "Browse skills",
+          ariaLabel: "Open Skills",
+          onClick: () => actions.onOpenSkills?.(),
+        }] : []),
+        ...(actions?.onOpenScheduled ? [{
+          label: "Schedule work",
+          ariaLabel: "Open Scheduled work",
+          onClick: () => actions.onOpenScheduled?.(),
+        }] : []),
+      ],
+    },
+    {
+      id: "tools",
+      title: "Uses Your Tools",
+      description: "Securely connect to your apps, APIs, and accounts so your agent can work across the software you already use.",
+      icon: Plug,
+      actions: actions?.onOpenIntegrations ? [{
+        label: "Browse integrations",
+        ariaLabel: "Open Integrations",
+        onClick: () => actions.onOpenIntegrations?.(),
+      }] : [],
+    },
+    {
+      id: "team",
+      title: "Empower Your Team",
+      description: "Share your agent across the organization so everyone has access to the same knowledge, skills, and capabilities.",
+      icon: UsersRound,
+      actions: [],
+    },
+    {
+      id: "channels",
+      title: "Works Where You Work",
+      description: "Available in the tools your team already uses.",
+      icon: MessagesSquare,
+      actions: actions?.onOpenIntegrationChatCard ? [{
+        label: "Connect Slack",
+        ariaLabel: "Connect Slack",
+        onClick: () => actions.onOpenIntegrationChatCard?.("slack"),
+      }] : [],
+    },
+  ];
 
   return (
     <section
       aria-labelledby="agent-empty-history-title"
-      className="agent-empty-history w-full max-w-[50rem] px-3 py-4 text-foreground sm:px-6 sm:py-5"
+      className="agent-empty-history w-full max-w-[44rem] px-3 py-4 text-foreground sm:px-5"
     >
       <header className="text-center">
         <div
           aria-hidden="true"
-          className="agent-empty-history-logo mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-[rgb(var(--selection-accent-rgb)_/_0.24)] bg-[rgb(var(--selection-accent-rgb)_/_0.08)] shadow-[0_16px_48px_rgb(var(--selection-accent-rgb)_/_0.08)]"
+          className="agent-empty-history-logo mx-auto flex size-14 items-center justify-center rounded-[1.125rem] border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] text-[var(--selection-accent)] shadow-[0_12px_36px_rgb(var(--selection-accent-rgb)_/_0.1)]"
         >
-          <HyperCLILogoMark className="h-6 w-6" />
+          <HeartHandshake className="size-7" />
         </div>
         <h2
           id="agent-empty-history-title"
-          className="agent-empty-history-title mt-3 text-2xl font-semibold tracking-[-0.035em] text-foreground"
+          className="agent-empty-history-title mt-4 text-balance text-[1.75rem] font-semibold leading-[1.15] tracking-[-0.035em] text-foreground"
         >
-          Your agent is ready for real work
+          Meet your new AI teammate.
         </h2>
-        <p className="agent-empty-history-intro mx-auto mt-2 max-w-xl text-sm leading-6 text-text-muted">
-          Connect the tools your agent needs, add workspace context, then give it a concrete first task.
+        <p className="agent-empty-history-intro mx-auto mt-2 max-w-[38rem] text-sm leading-6 text-text-secondary">
+          Let&apos;s spend a few minutes getting to know each other so I can learn how you work and become a valuable member of your team.
         </p>
+        <Button
+          type="button"
+          size="lg"
+          onClick={() => onPromptSelect(SAY_HELLO_PROMPT)}
+          className="agent-empty-history-cta mt-5 h-11 rounded-xl px-5 text-sm font-semibold shadow-[0_12px_28px_rgb(var(--button-primary-rgb)_/_0.22)] hover:-translate-y-0.5 focus-visible:ring-[rgb(var(--button-primary-rgb)_/_0.5)] motion-reduce:transform-none"
+        >
+          <MessageCircle aria-hidden="true" className="size-4" />
+          Say hello
+        </Button>
       </header>
 
-      {actions?.onOpenIntegrationChatCard || availableWorkspaceActions.length > 0 ? (
-        <div className="agent-empty-history-group mt-5 sm:mt-6">
-          <div className="agent-empty-history-group-header mb-2 text-center">
-            <h3 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
-              Build out the workspace
-            </h3>
-            <p className="agent-empty-history-section-copy mt-1 text-xs leading-5 text-text-muted">
-              Connect Slack, add context, and automate repeat work.
-            </p>
-          </div>
-          <div className="agent-empty-history-workspace-grid grid grid-cols-2 gap-2 md:grid-cols-6">
-            {actions?.onOpenIntegrationChatCard ? (
-              <Button
-                type="button"
-                variant="ghost"
-                aria-label="Connect Slack"
-                onClick={() => actions.onOpenIntegrationChatCard?.("slack")}
-                className="agent-empty-history-workspace-card group col-span-2 h-auto min-h-24 w-full flex-col justify-start gap-1.5 whitespace-normal rounded-xl px-4 py-2 text-center text-text-secondary hover:-translate-y-0.5 hover:bg-surface-low/55 hover:text-foreground focus-visible:bg-surface-low/55 motion-reduce:transform-none md:min-h-[7.5rem] md:gap-2 md:py-2.5 dark:hover:bg-surface-low/55"
-              >
-                <span className="agent-empty-history-workspace-icon flex size-10 shrink-0 items-center justify-center rounded-xl bg-[rgb(var(--selection-accent-rgb)_/_0.1)] shadow-[0_6px_18px_rgb(var(--selection-accent-rgb)_/_0.06)] transition-all group-hover:scale-105 group-hover:bg-[rgb(var(--selection-accent-rgb)_/_0.14)] motion-reduce:transform-none">
-                  <SlackIcon aria-hidden="true" className="size-5" />
-                </span>
-                <span className="flex max-w-[15rem] flex-col items-center gap-1">
-                  <span className="text-[13px] font-semibold leading-4 text-foreground">Connect Slack</span>
-                  <span className="agent-empty-history-card-description text-[11px] font-normal leading-[1.1rem] text-text-muted">Set up channels, conversations, and direct messages.</span>
-                </span>
-              </Button>
-            ) : null}
-            {availableWorkspaceActions.map((workspaceAction) => {
-              const Icon = workspaceAction.icon;
-              const onSelect = actions?.[workspaceAction.action];
-              return (
-                <Button
-                  key={workspaceAction.id}
-                  type="button"
-                  variant="ghost"
-                  aria-label={workspaceAction.ariaLabel}
-                  onClick={() => onSelect?.()}
-                  className="agent-empty-history-workspace-card group h-auto min-h-24 w-full flex-col justify-start gap-1.5 whitespace-normal rounded-xl px-3 py-2 text-center text-text-secondary hover:-translate-y-0.5 hover:bg-surface-low/55 hover:text-foreground focus-visible:bg-surface-low/55 motion-reduce:transform-none md:min-h-[7.5rem] md:gap-2 md:py-2.5 dark:hover:bg-surface-low/55"
-                >
-                  <span className="agent-empty-history-workspace-icon flex size-10 shrink-0 items-center justify-center">
-                    <span className="flex size-8 items-center justify-center rounded-lg bg-surface-low text-text-muted transition-colors group-hover:text-[var(--selection-accent)] md:size-9">
-                      <Icon aria-hidden="true" className="size-4" />
-                    </span>
-                  </span>
-                  <span className="flex max-w-[12rem] flex-col items-center gap-1">
-                    <span className="text-[13px] font-semibold leading-4 text-foreground">{workspaceAction.label}</span>
-                    <span className="agent-empty-history-card-description text-[11px] font-normal leading-[1.1rem] text-text-muted">{workspaceAction.description}</span>
-                  </span>
-                </Button>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
-
-      <div className="agent-empty-history-group mt-5 sm:mt-6">
-        <div className="agent-empty-history-group-header mb-2 text-center">
-          <h3 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
-            Start with something concrete
-          </h3>
-          <p className="agent-empty-history-section-copy mt-1 text-xs leading-5 text-text-muted">
-            Pick a prompt, add any missing context, then send it when you are ready.
-          </p>
-        </div>
-        <div className="agent-empty-history-starter-grid grid gap-1.5 sm:grid-cols-3 sm:gap-2.5">
-          {STARTER_PROMPTS.map((prompt) => {
-            const Icon = prompt.icon;
-            return (
-              <Button
-                key={prompt.id}
-                type="button"
-                variant="ghost"
-                onClick={() => onPromptSelect(prompt.prompt)}
-                className="agent-empty-history-starter-card group h-auto min-h-[4.5rem] w-full flex-row justify-start gap-3 whitespace-normal rounded-xl px-3 py-2 text-left text-foreground hover:-translate-y-0.5 hover:bg-surface-low/55 hover:text-foreground focus-visible:bg-surface-low/55 motion-reduce:transform-none sm:min-h-[7rem] sm:flex-col sm:justify-center sm:px-4 sm:py-3 sm:text-center dark:hover:bg-surface-low/55"
-              >
-                <span className="agent-empty-history-starter-icon flex size-9 shrink-0 items-center justify-center rounded-lg bg-surface-low text-text-muted transition-colors group-hover:text-[var(--selection-accent)] sm:size-10 sm:rounded-xl">
-                  <Icon aria-hidden="true" className="size-5" />
-                </span>
-                <span className="flex max-w-[18rem] flex-col items-start gap-0.5 sm:max-w-[12rem] sm:items-center sm:gap-1">
-                  <span className="text-[13px] font-semibold leading-4 sm:text-sm sm:leading-5">{prompt.label}</span>
-                  <span className="agent-empty-history-card-description text-[11px] font-normal leading-[1.1rem] text-text-muted sm:text-center">{prompt.description}</span>
-                </span>
-              </Button>
-            );
-          })}
-        </div>
+      <div className="agent-empty-history-capabilities mt-6 divide-y divide-border border-y border-border">
+        {capabilities.map((capability) => {
+          const Icon = capability.icon;
+          return (
+            <div
+              key={capability.id}
+              className="agent-empty-history-capability-row grid grid-cols-[2.5rem_minmax(0,1fr)] gap-x-3 gap-y-2 py-3.5"
+            >
+              <span className="agent-empty-history-capability-icon flex size-10 shrink-0 items-center justify-center rounded-xl border border-border bg-surface-low text-text-muted">
+                <Icon aria-hidden="true" className="size-[1.125rem]" />
+              </span>
+              <div className="min-w-0 self-center">
+                <h3 className="text-sm font-semibold leading-5 text-foreground">{capability.title}</h3>
+                <p className="mt-0.5 text-xs leading-[1.15rem] text-text-secondary">{capability.description}</p>
+              </div>
+              {capability.actions.length > 0 ? (
+                <div className="agent-empty-history-capability-actions col-start-2 flex flex-wrap items-center gap-1.5">
+                  {capability.actions.map((action) => (
+                    <Button
+                      key={action.ariaLabel}
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      aria-label={action.ariaLabel}
+                      onClick={action.onClick}
+                      className="agent-empty-history-secondary-action h-9 rounded-lg border border-border bg-transparent px-2.5 text-[11px] font-medium text-text-secondary shadow-none hover:border-[var(--selection-accent-border)] hover:bg-[var(--selection-accent-soft)] hover:text-foreground"
+                    >
+                      {action.label}
+                    </Button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
       </div>
     </section>
   );

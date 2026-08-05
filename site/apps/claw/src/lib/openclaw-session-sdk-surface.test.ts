@@ -12,9 +12,11 @@ import {
   isRecoverableOpenClawMainSession,
   listOpenClawSessions,
   loadOpenClawChatHistory,
+  loadOpenClawChatHistoryResult,
   normalizeOpenClawSessions,
   normalizeOpenClawThinkingLevels,
   openClawEventMatchesSession,
+  openClawSessionHasActiveRun,
   resolveOpenClawResumeSessionKey,
   sameOpenClawSelectableSessionKey,
   streamOpenClawChat,
@@ -57,6 +59,35 @@ describe("openclaw-session-sdk-surface", () => {
     await expect(loadOpenClawChatHistory(gateway as any, "main")).resolves.toEqual([preview]);
   });
 
+  it("preserves active-run metadata while hydrating history messages", async () => {
+    const preview = {
+      role: "assistant",
+      content: [{ type: "text", text: `Preview\n...(truncated)...` }],
+      __openclaw: { id: "message-1" },
+    };
+    const full = {
+      role: "assistant",
+      content: [{ type: "text", text: "Complete response" }],
+      __openclaw: { id: "message-1" },
+    };
+    const gateway = {
+      chatHistory: vi.fn(),
+      chatHistoryResult: vi.fn(async () => ({
+        messages: [preview],
+        sessionInfo: { status: "running", hasActiveRun: true, activeRunIds: ["run-1"] },
+        inFlightRun: { runId: "run-1", text: "Partial response" },
+      })),
+      chatMessageGet: vi.fn(async () => ({ ok: true, message: full })),
+    };
+
+    await expect(loadOpenClawChatHistoryResult(gateway as any, "main")).resolves.toEqual({
+      messages: [full],
+      sessionInfo: { status: "running", hasActiveRun: true, activeRunIds: ["run-1"] },
+      inFlightRun: { runId: "run-1", text: "Partial response" },
+    });
+    expect(gateway.chatHistory).not.toHaveBeenCalled();
+  });
+
   it("captures a raw gateway history baseline for established conversations", () => {
     const stream = (async function* () {})();
     const chatSend = vi.fn(() => stream);
@@ -84,6 +115,22 @@ describe("openclaw-session-sdk-surface", () => {
       title: "Durable title",
       clientDisplayName: "Durable title",
     }));
+  });
+
+  it("normalizes active gateway runs and lets a non-running status clear stale flags", () => {
+    const [running, idle] = normalizeOpenClawSessions([
+      { key: "session-running", status: "running", hasActiveRun: true, activeRunIds: ["run-1"] },
+      { key: "session-idle", status: "idle", hasActiveRun: true, activeRunIds: ["stale-run"] },
+    ]);
+
+    expect(running).toEqual(expect.objectContaining({
+      status: "running",
+      hasActiveRun: true,
+      activeRunIds: ["run-1"],
+    }));
+    expect(openClawSessionHasActiveRun(running)).toBe(true);
+    expect(idle).toEqual(expect.objectContaining({ status: "idle", hasActiveRun: false }));
+    expect(openClawSessionHasActiveRun(idle)).toBe(false);
   });
 
   it("keeps a native dashboard display name ahead of a provisional local title", () => {

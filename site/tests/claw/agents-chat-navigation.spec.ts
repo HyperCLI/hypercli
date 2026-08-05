@@ -196,6 +196,20 @@ async function mockAgentChat(
           return;
         }
 
+        if (message.method === "sessions.patch") {
+          const sessionKey = message.params?.key;
+          if (sessionKey && message.params?.archived === true) {
+            const targetKey = sessionKey.replace(/^agent:[^:]+:/, "");
+            for (const existingKey of dashboardSessions) {
+              if (existingKey.replace(/^agent:[^:]+:/, "") !== targetKey) continue;
+              dashboardSessions.delete(existingKey);
+              dashboardTitles.delete(existingKey);
+            }
+          }
+          this.respond(message.id, { ok: true, key: sessionKey });
+          return;
+        }
+
         if (message.method === "sessions.create") {
           const sessionKey = message.params?.key;
           if (!createReturnsMain && sessionKey?.startsWith("dashboard:")) dashboardSessions.add(sessionKey);
@@ -482,8 +496,7 @@ test("a ready empty session fits within the desktop transcript", async ({ page }
   await mockAgentChat(page);
   await page.goto("/dashboard/agents?agentId=agent-1", { waitUntil: "domcontentloaded" });
 
-  const heading = page.getByRole("heading", { name: "Your agent is ready for real work" });
-  await expect(heading).toBeVisible();
+  await expect(page.locator(".agent-empty-history")).toBeVisible();
   const metrics = await page.locator(".agent-empty-history-frame").evaluate((frame) => {
     const section = frame.querySelector<HTMLElement>(".agent-empty-history");
     const scroller = frame.parentElement?.parentElement?.parentElement;
@@ -511,7 +524,7 @@ test("a ready empty session fits within the desktop transcript", async ({ page }
   expect(metrics!.scrollerScrollHeight).toBeLessThanOrEqual(metrics!.scrollerClientHeight + 1);
 });
 
-test("a stale main route starts a named dashboard conversation and keeps legacy history discoverable", async ({ page }) => {
+test("a stale main route starts a named dashboard conversation and hides main history", async ({ page }) => {
   const gatewayTracker = await mockAgentChat(page, {
     createReturnsMain: true,
     legacyMainHistory: true,
@@ -534,8 +547,7 @@ test("a stale main route starts a named dashboard conversation and keeps legacy 
   const sessionRows = page.locator('[data-session-pinned] button[aria-label="New Session"]');
   await expect(sessionRows).toHaveCount(1);
   const legacySession = page.getByRole("button", { name: "Legacy planning", exact: true });
-  await expect(legacySession).toBeVisible();
-  await expect(legacySession).not.toHaveAttribute("aria-current", "page");
+  await expect(legacySession).toHaveCount(0);
   await expect(page.getByText("Legacy main conversation restored", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Main Session", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Previous conversation", exact: true })).toHaveCount(0);
@@ -564,11 +576,6 @@ test("a stale main route starts a named dashboard conversation and keeps legacy 
     .filter((request) => request.method === "sessions.reset")
     .map((request) => request.params?.key)).toEqual([firstSessionKey, secondSessionKey]);
 
-  await legacySession.click();
-  await expect.poll(() => new URL(page.url()).searchParams.get("session")).toBeNull();
-  await expect(page.getByText("Legacy main conversation restored", { exact: true })).toBeVisible();
-  await expect(legacySession).toHaveAttribute("aria-current", "page");
-
   await page.evaluate(() => {
     const url = new URL(window.location.href);
     url.searchParams.set("session", "main");
@@ -576,7 +583,39 @@ test("a stale main route starts a named dashboard conversation and keeps legacy 
   });
   await expect.poll(() => new URL(page.url()).searchParams.get("session")).toMatch(DASHBOARD_SESSION_KEY_PATTERN);
   await expect(page.locator('button[aria-current="page"][aria-label="Dashboard Session"]')).toBeVisible();
-  await expect(legacySession).not.toHaveAttribute("aria-current", "page");
+  await expect(legacySession).toHaveCount(0);
+});
+
+test("deleting the last user session creates a new dashboard session", async ({ page }) => {
+  const gatewayTracker = await mockAgentChat(page, { mainOnly: true });
+  await page.goto("/dashboard/agents?agentId=agent-1", { waitUntil: "domcontentloaded" });
+
+  await expect.poll(() => new URL(page.url()).searchParams.get("session")).toMatch(DASHBOARD_SESSION_KEY_PATTERN);
+  const deletedSessionKey = new URL(page.url()).searchParams.get("session");
+  const sessionRows = page.locator('[data-session-pinned] button[aria-label="New Session"]');
+  await expect(sessionRows).toHaveCount(1);
+
+  await sessionRows.first().hover();
+  await page.getByRole("button", { name: "Session options for New Session" }).click();
+  await page.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Delete session?" })).toBeVisible();
+  await page.getByRole("button", { name: "Delete session", exact: true }).click();
+
+  await expect.poll(() => {
+    const sessionKey = new URL(page.url()).searchParams.get("session");
+    return sessionKey && sessionKey !== deletedSessionKey ? sessionKey : null;
+  }).toMatch(DASHBOARD_SESSION_KEY_PATTERN);
+  const replacementSessionKey = new URL(page.url()).searchParams.get("session");
+  expect(replacementSessionKey).not.toBe(deletedSessionKey);
+  await expect(sessionRows).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Sessions", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Previous conversation", exact: true })).toHaveCount(0);
+  await expect.poll(() => gatewayTracker.requests
+    .filter((request) => request.method === "sessions.patch" && request.params?.archived === true)
+    .map((request) => request.params?.key)).toEqual([deletedSessionKey]);
+  await expect.poll(() => gatewayTracker.requests
+    .filter((request) => request.method === "sessions.create")
+    .map((request) => request.params?.key)).toEqual([deletedSessionKey, replacementSessionKey]);
 });
 
 test("refresh restores the selected agent and non-main chat session", async ({ page }) => {

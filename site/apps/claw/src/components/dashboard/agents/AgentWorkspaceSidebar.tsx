@@ -65,7 +65,6 @@ import {
   isGeneratedOpenClawSessionName,
   isOpenClawHeartbeatSessionKey,
   isOpenClawSubagentSession,
-  isRecoverableOpenClawMainSession,
   sameOpenClawSessionKey,
   sameOpenClawSelectableSessionKey,
   type OpenClawSessionRecord,
@@ -1129,7 +1128,7 @@ export function AgentWorkspaceSidebar({
     const sessionRecords = sourceSessions.filter((session) => (
       session.ephemeral !== true &&
       !isOpenClawHeartbeatSessionKey(session.key) &&
-      (!isCanonicalMainSession(session) || isRecoverableOpenClawMainSession(session)) &&
+      !isCanonicalMainSession(session) &&
       !isOpenClawSubagentSession(session)
     ));
     if (provisionalInitialSession && !sessionRecords.some((session) => (

@@ -102,7 +102,7 @@ import { getOpenClawDefaultModel } from "@/lib/openclaw-models";
 import { buildOpenClawLaunchOptions } from "@/lib/openclaw-launch";
 import { getEffectivePlanName, mergeLaunchSlotInventories } from "@/lib/plan-checkout-state";
 import { createOpenClawDashboardSessionKey } from "@/lib/openclaw-session-key";
-import { displayOpenClawSessionName } from "@/lib/openclaw-session-sdk-surface";
+import { displayOpenClawSessionName, isOpenClawMainSessionKey } from "@/lib/openclaw-session-sdk-surface";
 import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import { stageAgentStarterFilesAndStart } from "@/lib/agent-starter-files";
 import type { CenterPanel } from "@/components/dashboard/agents/page-helpers";
@@ -1048,7 +1048,7 @@ export default function DevAgentSetupAgentsPage() {
   // Derive AgentSession[] from chat.sessions
   const agentSessionsForView = useMemo(() => {
     if (!chat.sessions || chat.sessions.length === 0) return null;
-    return chat.sessions.map((session) => {
+    return chat.sessions.filter((session) => !isOpenClawMainSessionKey(session.key)).map((session) => {
       const sourceChannelId = typeof session.sourceChannelId === "string" ? session.sourceChannelId : undefined;
       return {
         key: session.key,

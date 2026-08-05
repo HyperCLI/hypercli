@@ -82,7 +82,6 @@ describe("collectAccountOperationsOverview", () => {
     expect(overview.agents["agent-1"]).toMatchObject({ dataState: "ready", capturedAt: 1_000 });
     expect(overview.agents["agent-1"]?.sessions?.map((session) => session.key)).toEqual([
       "dashboard:planning",
-      "main",
     ]);
     expect(overview.agents["agent-1"]?.cronJobs?.[0]).toMatchObject({ id: "job-1", schedule: "0 9 * * *", timezone: "UTC" });
     expect(overview.spaces).toEqual([

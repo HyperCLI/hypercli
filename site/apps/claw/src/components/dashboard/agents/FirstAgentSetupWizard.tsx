@@ -861,7 +861,7 @@ export function FirstAgentSetupWizard({
   const [customImage, setCustomImage] = React.useState(restoredDraft?.customImage ?? "");
   const [customImageEdited, setCustomImageEdited] = React.useState(Boolean(restoredDraft?.customImage));
   const [knowledgeDomainId, setKnowledgeDomainId] = React.useState<string | null>(restoredDraft?.knowledgeDomainId ?? null);
-  const [advancedOpen, setAdvancedOpen] = React.useState(true);
+  const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const [bootstrapDraft, setBootstrapDraft] = React.useState<OpenClawBootstrapDraft>(() => (
     restoredDraft?.bootstrapDraft ?? createOpenClawBootstrapDraft(restoredDraft?.name ?? "Your agent")
   ));

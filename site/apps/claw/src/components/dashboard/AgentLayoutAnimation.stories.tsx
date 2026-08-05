@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Menu } from "lucide-react";
 import { AgentLayoutAnimation } from "./AgentLayoutAnimation";
 import { AgentGatewayLoadingVisual } from "./AgentGatewayLoadingVisual";
+import { AgentStartupTipsVisual } from "./AgentStartupLoadingVisual";
 import { AgentEmptyHistory } from "./agents/AgentEmptyHistory";
 
 const meta: Meta<typeof AgentLayoutAnimation> = {
@@ -98,6 +99,54 @@ export const LoadingState: Story = {
         <AgentGatewayLoadingVisual />
       </div>
     </MobileChatFrame>
+  ),
+};
+
+export const StartupTipsMobile: Story = {
+  render: () => (
+    <MobileChatFrame>
+      <div className="flex min-h-0 flex-1 items-center justify-center px-5 py-4">
+        <AgentStartupTipsVisual
+          title="Provisioning runtime"
+          detail="Reserving compute and preparing the workspace."
+        />
+      </div>
+    </MobileChatFrame>
+  ),
+};
+
+export const StartupTipsDesktop: Story = {
+  render: () => (
+    <div className="flex h-[640px] w-[920px] items-center justify-center bg-[#10151f] px-10 py-8 text-white">
+      <AgentStartupTipsVisual
+        title="Syncing shared knowledge"
+        detail="Putting the knowledge assigned to this agent within reach."
+      />
+    </div>
+  ),
+};
+
+export const PageRefreshLoading: Story = {
+  render: () => (
+    <div className="flex h-[640px] w-[920px] items-center justify-center bg-[#10151f] px-10 py-8 text-white">
+      <AgentStartupTipsVisual
+        heading="Rejoining your teammate"
+        note="Restoring your connection and recent conversation."
+        title="Loading conversation"
+        detail="Bringing recent messages back into view."
+      />
+    </div>
+  ),
+};
+
+export const StartupTipsLight: Story = {
+  render: () => (
+    <div data-theme="aurora-light" className="flex h-[640px] w-[920px] items-center justify-center bg-background px-10 py-8 text-foreground">
+      <AgentStartupTipsVisual
+        title="Booting agent"
+        detail="Starting the workspace and agent services."
+      />
+    </div>
   ),
 };
 

@@ -114,9 +114,27 @@ function hasStrongMojibakeEvidence(source: string, bytes: number[], decoded: str
   });
 }
 
+function hasPossibleMojibakeSequence(text: string): boolean {
+  for (let cursor = 0; cursor < text.length; cursor += 1) {
+    const leadByte = mojibakeSourceByte(text[cursor] ?? "");
+    const sequenceLength = leadByte === undefined ? 0 : utf8SequenceLength(leadByte);
+    if (sequenceLength === 0 || cursor + sequenceLength > text.length) continue;
+    let complete = true;
+    for (let offset = 1; offset < sequenceLength; offset += 1) {
+      const byte = mojibakeSourceByte(text[cursor + offset] ?? "");
+      if (byte === undefined || byte < 0x80 || byte > 0xbf) {
+        complete = false;
+        break;
+      }
+    }
+    if (complete) return true;
+  }
+  return false;
+}
+
 function maybeDecodeMojibake(text: string): string {
   // Repair only complete UTF-8 byte sequences represented losslessly as Latin-1/Windows-1252.
-  if (text.includes("\uFFFD")) return text;
+  if (text.includes("\uFFFD") || !hasPossibleMojibakeSequence(text)) return text;
   const characters = Array.from(text);
   const output: string[] = [];
   const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -197,6 +215,7 @@ function looksLikeBinaryDisplayText(text: string): boolean {
   const hasBinaryByteEvidence = sample.includes("\u0000") ||
     controlCount >= 3 ||
     (replacementCount >= 8 && replacementCount / Math.max(sample.length, 1) > 0.01);
+  if (!hasPdfSignature) return hasBinaryByteEvidence;
   const hasPdfBinaryComment = sample
     .split(/\r?\n/)
     .slice(1, 6)
@@ -204,9 +223,7 @@ function looksLikeBinaryDisplayText(text: string): boolean {
       const codePoint = character.codePointAt(0) ?? 0;
       return codePoint >= 0x80 && codePoint <= 0xff;
     }).length >= 4);
-
-  if (hasPdfSignature) return hasBinaryByteEvidence || hasPdfBinaryComment;
-  return hasBinaryByteEvidence;
+  return hasBinaryByteEvidence || hasPdfBinaryComment;
 }
 
 function isBinaryOmittedText(text: string | undefined): boolean {
@@ -226,9 +243,13 @@ const OPENCLAW_EMPTY_REPLY_FAILURE_MARKERS = [
 ];
 
 export function isOpenClawEmptyReplyFailureText(text: string): boolean {
-  const normalized = text.trim().replace(/\s+/g, " ").toLowerCase();
+  const trimmed = text.trim();
+  if (trimmed.length <= OPENCLAW_EMPTY_REPLY_NOTICE.length && trimmed.toLowerCase() === OPENCLAW_EMPTY_REPLY_NOTICE.toLowerCase()) {
+    return true;
+  }
+  if (!/(?:visible reply|completion agent)/i.test(text)) return false;
+  const normalized = trimmed.replace(/\s+/g, " ").toLowerCase();
   if (!normalized) return false;
-  if (normalized === OPENCLAW_EMPTY_REPLY_NOTICE.toLowerCase()) return true;
 
   return OPENCLAW_EMPTY_REPLY_FAILURE_MARKERS.some((marker) => {
     const markerIndex = normalized.indexOf(marker);
@@ -343,17 +364,19 @@ function isLikelyInternalToolOutputText(text: string): boolean {
 }
 
 function isInternalExecutionStatusText(text: string): boolean {
-  const trimmed = sanitizeChatDisplayText(text).trim();
+  if (text.length > 160 || !/\b(?:command|process)\b/i.test(text)) return false;
+  const trimmed = text.trim();
   return INTERNAL_EXECUTION_STATUS_MARKERS.some((marker) => marker.test(trimmed));
 }
 
 function isInternalAsyncCommandCompletionText(text: string): boolean {
-  const trimmed = sanitizeChatDisplayText(text).trim();
+  if (!/\b(?:Exec completed|async command)\b/i.test(text)) return false;
+  const trimmed = text.trim();
   return INTERNAL_ASYNC_COMMAND_COMPLETION_MARKERS.some((marker) => marker.test(trimmed));
 }
 
 function isInternalHeartbeatControlPromptText(text: string): boolean {
-  const trimmed = sanitizeChatDisplayText(text).trim();
+  const trimmed = text.trim();
   if (!INTERNAL_HEARTBEAT_CONTROL_PROMPT_START.test(trimmed)) return false;
   return INTERNAL_HEARTBEAT_CONTROL_PROMPT_DETAILS.some((marker) => marker.test(trimmed));
 }
@@ -384,6 +407,7 @@ function isInternalExecutionOutputLine(line: string): boolean {
 }
 
 function stripInternalAssistantContent(text: string): string {
+  if (!/^\s*\[cron/i.test(text) && !/PROOF\s+ANCHORS/i.test(text)) return text;
   const withoutCronInstructions = stripCronInstructionLeak(text);
   const lines = withoutCronInstructions.replace(/\r\n/g, "\n").split("\n");
   const visible: string[] = [];
@@ -427,7 +451,7 @@ function hasDisplayableMessageContent(message: ChatMessage): boolean {
 }
 
 function isInternalNoReplyText(text: string): boolean {
-  return /^NO_REPLY$/i.test(sanitizeChatDisplayText(text).trim());
+  return text.length <= 24 && /^NO_REPLY$/i.test(text.trim());
 }
 
 function isInternalNoReplyMessage(message: ChatMessage): boolean {
@@ -441,7 +465,7 @@ function isInternalNoReplyMessage(message: ChatMessage): boolean {
 }
 
 function isInternalAudioReplyCarrierText(text: string): boolean {
-  return /^audio\s+reply[:.!?]*$/i.test(sanitizeChatDisplayText(text).trim());
+  return text.length <= 40 && /^audio\s+reply[:.!?]*$/i.test(text.trim());
 }
 
 function isInternalAudioReplyCarrierMessage(message: ChatMessage): boolean {
@@ -455,7 +479,7 @@ function isInternalAudioReplyCarrierMessage(message: ChatMessage): boolean {
 }
 
 function isInternalHeartbeatText(text: string): boolean {
-  const trimmed = sanitizeChatDisplayText(text).trim();
+  const trimmed = text.trim();
   return INTERNAL_HEARTBEAT_SENTINEL.test(trimmed) ||
     isInternalHeartbeatControlPromptText(trimmed) ||
     INTERNAL_HEARTBEAT_PRELUDE_MARKERS.some((marker) => marker.test(trimmed));

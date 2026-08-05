@@ -155,7 +155,7 @@ describe("FirstAgentSetupWizard", () => {
     expect(surface?.parentElement).toHaveClass("p-0");
   });
 
-  it("opens optional agent customization by default on the identity step", async () => {
+  it("starts optional agent customization collapsed on the identity step", async () => {
     renderWithClient(
       <FirstAgentSetupWizard
         onCreateAgent={vi.fn(async () => null)}
@@ -177,9 +177,9 @@ describe("FirstAgentSetupWizard", () => {
     });
     const optionalSettings = screen.getByText("Advanced").closest("details");
     expect(optionalSettings?.parentElement).toHaveClass("grid", "min-h-full", "content-center");
-    expect(optionalSettings).toHaveAttribute("open");
-    fireEvent.click(optionalSettings!.querySelector("summary")!);
     expect(optionalSettings).not.toHaveAttribute("open");
+    fireEvent.click(optionalSettings!.querySelector("summary")!);
+    expect(optionalSettings).toHaveAttribute("open");
   });
 
   it("shows distinct launch momentum across every setup step", () => {
@@ -770,7 +770,7 @@ describe("FirstAgentSetupWizard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByLabelText("Agent name")).toHaveValue("restored-agent");
-    expect(screen.getByText("Advanced").closest("details")).toHaveAttribute("open");
+    expect(screen.getByText("Advanced").closest("details")).not.toHaveAttribute("open");
     expect(screen.queryByText("Avatar")).not.toBeInTheDocument();
   });
 

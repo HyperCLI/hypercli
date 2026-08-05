@@ -154,7 +154,7 @@ import {
   isGeneratedOpenClawSessionName,
   isOpenClawHeartbeatSessionKey,
   isOpenClawMainSessionKey,
-  isRecoverableOpenClawMainSession,
+  resolveOpenClawResumeSessionKey,
   sameOpenClawSelectableSessionKey,
   unscopedOpenClawSessionKey,
 } from "@/lib/openclaw-session-sdk-surface";
@@ -2889,10 +2889,13 @@ function AgentsPageContent() {
   const selectedAgentHasExplicitSessionRoute = Boolean(
     selectedAgentId && requestedAgentId === selectedAgentId && requestedSessionRouteValue,
   );
+  const storedSelectedSessionKey = selectedAgentId
+    ? routableOpenClawSessionKey(selectedSessionKeysByAgent[selectedAgentId])
+    : null;
   const selectedSessionRouteValue = selectedAgentId
     ? selectedAgentHasExplicitSessionRoute
       ? routedSelectedSessionKey
-      : selectedSessionKeysByAgent[selectedAgentId] ?? null
+      : storedSelectedSessionKey
     : null;
   const gatewayEnabled = selectedAgentPrimarySurface === "chat" && isSelectedRunning && agentWorkspaceActivated;
   const openClawHydrationMode: OpenClawHydrationMode = !dashboardView &&
@@ -2915,13 +2918,17 @@ function AgentsPageContent() {
     selectedSessionRouteValue,
     { hydrationMode: openClawHydrationMode },
   );
+  const userVisibleChatSessions = useMemo(
+    () => chat.sessions.filter((session) => !isOpenClawMainSessionKey(session.key)),
+    [chat.sessions],
+  );
   const selectedSessionKey = selectedSessionRouteValue ?? chat.activeSessionKey;
   const canonicalSelectedSessionKey = routableOpenClawSessionKey(selectedSessionRouteValue ?? (
     chat.activeSessionSelectionResolved ? chat.activeSessionKey : null
   ));
   useEffect(() => {
     if (!selectedAgentId || !chat.activeSessionSelectionResolved) return;
-    const resolvedSessionKey = chat.activeSessionKey.trim();
+    const resolvedSessionKey = routableOpenClawSessionKey(chat.activeSessionKey);
     if (!resolvedSessionKey) return;
     const timeout = window.setTimeout(() => {
       setSelectedSessionKeysByAgent((current) => (
@@ -3551,10 +3558,9 @@ function AgentsPageContent() {
 
   // Derive AgentSession[] from chat.sessions
   const agentSessionsForView = useMemo(() => {
-    if (!chat.sessions || chat.sessions.length === 0) return null;
-    return chat.sessions.filter((session) => (
-      !isOpenClawHeartbeatSessionKey(session.key) &&
-      (!isOpenClawMainSessionKey(session.key) || isRecoverableOpenClawMainSession(session))
+    if (userVisibleChatSessions.length === 0) return null;
+    return userVisibleChatSessions.filter((session) => (
+      !isOpenClawHeartbeatSessionKey(session.key)
     )).map((session) => {
       const sourceChannelId = typeof session.sourceChannelId === "string" ? session.sourceChannelId : undefined;
       return {
@@ -3566,7 +3572,7 @@ function AgentsPageContent() {
         ...(sourceChannelId ? { sourceChannelId } : {}),
       };
     });
-  }, [chat.sessions]);
+  }, [userVisibleChatSessions]);
 
   const scheduledSessionOptions = useMemo(() => {
     const options: Array<{ key: string; label: string }> = [];
@@ -3577,12 +3583,12 @@ function AgentsPageContent() {
       options.push({ key: normalizedKey, label: label.trim() || (normalizedKey === "main" ? "Main Session" : "Current Session") });
     };
 
-    for (const session of chat.sessions ?? []) {
+    for (const session of userVisibleChatSessions) {
       addSession(session.key, displayOpenClawSessionName(session));
     }
     addSession(selectedSessionKey, selectedSessionKey === "main" ? "Main Session" : "Current Session");
     return options;
-  }, [chat.sessions, selectedSessionKey]);
+  }, [selectedSessionKey, userVisibleChatSessions]);
 
   // Derive Connection[] from channelsStatus response
   const agentConnectionsForView = useMemo(() => {
@@ -4941,12 +4947,21 @@ function AgentsPageContent() {
     await chat.renameSession(sessionKey, title);
   };
   const deleteSession = async (sessionKey: string) => {
+    const targetAgentId = selectedAgentId;
     await chat.deleteSession(sessionKey);
     setSessionPinned(sessionKey, false);
-    if (!selectedAgentId || !sameOpenClawSelectableSessionKey(sessionKey, selectedSessionKey)) return;
-    const fallbackSessionKey = chat.sessions.find((session) => !sameOpenClawSelectableSessionKey(session.key, sessionKey))?.key ?? sessionKeyForAgent(selectedAgentId);
-    setSelectedSessionKeysByAgent((prev) => ({ ...prev, [selectedAgentId]: fallbackSessionKey }));
-    replaceAgentChatRoute(selectedAgentId, fallbackSessionKey);
+    if (!targetAgentId) return;
+
+    const fallbackSessionKey = resolveOpenClawResumeSessionKey(
+      userVisibleChatSessions.filter((session) => !sameOpenClawSelectableSessionKey(session.key, sessionKey)),
+    );
+    const deletedSelectedSession = sameOpenClawSelectableSessionKey(sessionKey, selectedSessionKey);
+    if (fallbackSessionKey && !deletedSelectedSession) return;
+
+    const nextSessionKey = fallbackSessionKey ?? await chat.createSession({ waitForCreation: true });
+    if (selectedAgentIdRef.current !== targetAgentId) return;
+    setSelectedSessionKeysByAgent((prev) => ({ ...prev, [targetAgentId]: nextSessionKey }));
+    replaceAgentChatRoute(targetAgentId, nextSessionKey);
   };
   const createSession = async () => {
     if (!selectedAgentId) return;
@@ -5303,10 +5318,13 @@ function AgentsPageContent() {
   };
   const selectedSessionLabel = useMemo(() => {
     if (chat.temporaryChatActive) return "Private chat";
-    const session = (chat.sessions ?? []).find((item) => sameOpenClawSelectableSessionKey(item.key, selectedSessionKey));
-    if (!session) return fallbackOpenClawSessionDisplayName(selectedSessionKey);
+    const session = userVisibleChatSessions.find((item) => sameOpenClawSelectableSessionKey(item.key, selectedSessionKey));
+    if (!session) {
+      const routableSessionKey = routableOpenClawSessionKey(selectedSessionKey);
+      return routableSessionKey ? fallbackOpenClawSessionDisplayName(routableSessionKey) : "New Session";
+    }
     return displayOpenClawSessionName(session);
-  }, [chat.sessions, chat.temporaryChatActive, selectedSessionKey]);
+  }, [chat.temporaryChatActive, selectedSessionKey, userVisibleChatSessions]);
   const selectedSessionReturnTarget = selectedAgent && (mainTab !== "chat" || openclawSettingsOpen)
     ? { label: selectedSessionLabel, onSelect: openChatTab }
     : null;
@@ -5448,7 +5466,7 @@ function AgentsPageContent() {
           footerAction={renderPrivateChatControl()}
           closeButtonRef={mobileNavigationCloseRef}
           onClose={closeMobileNavigation}
-          sessions={chat.sessions}
+          sessions={userVisibleChatSessions}
           activeUnindexedInitialSession={chat.activeUnindexedInitialSession}
           sessionsFetched={chat.sessionsFetched}
           creatingSessionKeys={chat.creatingSessionKeys}
@@ -6023,7 +6041,7 @@ function AgentsPageContent() {
             collapsed={!effectiveSidebarCollapsed}
             onCollapsedChange={(collapsed) => setEffectiveSidebarCollapsed(!collapsed)}
             embeddedInNavigation
-            sessions={chat.sessions}
+            sessions={userVisibleChatSessions}
             activeUnindexedInitialSession={chat.activeUnindexedInitialSession}
             sessionsFetched={chat.sessionsFetched}
             creatingSessionKeys={chat.creatingSessionKeys}
@@ -6187,6 +6205,7 @@ function AgentsPageContent() {
                 detail={checkoutSync?.message ?? "Confirming your new capacity and restoring the setup you saved before payment."}
                 tone="loading"
                 stage="runtime"
+                guided
               />
             </div>
           ) : null}

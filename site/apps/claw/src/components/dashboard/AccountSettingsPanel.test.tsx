@@ -192,6 +192,7 @@ vi.mock("@hypercli/shared-ui", async (importOriginal) => {
 
 import AccountSettingsPanel from "./AccountSettingsPanel";
 import { ProfileBillingSection } from "@/components/billing/ProfileBillingSection";
+import { AGENT_STARTUP_EXPERIENCE_STORAGE_KEY } from "@/hooks/useAgentStartupExperience";
 
 function buildSubscriptionSummary() {
   const billingResetAt = new Date("2026-05-21T12:00:00Z");
@@ -360,6 +361,7 @@ function setupBillingMocks() {
 describe("AccountSettingsPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
     workspaceMocks.context.selectedWorkspaceAgentIds = ["agent-1"];
     workspaceMocks.context.isAgentRosterLoading = false;
     workspaceMocks.context.agentRosterError = null;
@@ -400,6 +402,21 @@ describe("AccountSettingsPanel", () => {
     expect(screen.getByText("Team T123")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Disconnect Slack" })).toBeDisabled();
     expect(screen.getByRole("link", { name: "Reconnect Slack" })).toHaveAttribute("href", "/slack/start");
+  });
+
+  it("defaults to helpful startup tips and persists the Classic alternative", async () => {
+    const user = userEvent.setup();
+    render(<AccountSettingsPanel />);
+
+    const startupSwitch = screen.getByRole("switch", { name: "Show helpful loading tips" });
+    expect(startupSwitch).toBeChecked();
+    expect(screen.getByText("Helpful tips")).toBeInTheDocument();
+
+    await user.click(startupSwitch);
+
+    expect(startupSwitch).not.toBeChecked();
+    expect(screen.getByText("Classic")).toBeInTheDocument();
+    expect(window.localStorage.getItem(AGENT_STARTUP_EXPERIENCE_STORAGE_KEY)).toBe("classic");
   });
 
   it("renders consolidated billing with card management, cancellation, and agent attribution", async () => {

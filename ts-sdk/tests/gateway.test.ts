@@ -857,14 +857,26 @@ describe("GatewayClient", () => {
     });
     const directMessages = [{ role: "assistant", content: "direct" }];
     const wrappedMessages = [{ role: "assistant", content: "wrapped" }];
+    const wrappedResult = {
+      messages: wrappedMessages,
+      sessionInfo: {
+        status: "running",
+        hasActiveRun: true,
+        activeRunIds: ["run-1"],
+      },
+      inFlightRun: { runId: "run-1", text: "partial response" },
+    };
     const rpc = vi.spyOn(client as any, "rpc")
       .mockResolvedValueOnce(directMessages)
-      .mockResolvedValueOnce({ messages: wrappedMessages });
+      .mockResolvedValueOnce(wrappedResult)
+      .mockResolvedValueOnce(wrappedResult);
 
     await expect(client.chatHistory("main", 12)).resolves.toBe(directMessages);
     await expect(client.chatHistory(undefined, 5)).resolves.toBe(wrappedMessages);
+    await expect(client.chatHistoryResult("main", 20)).resolves.toEqual(wrappedResult);
     expect(rpc).toHaveBeenNthCalledWith(1, "chat.history", { sessionKey: "main", limit: 12 });
     expect(rpc).toHaveBeenNthCalledWith(2, "chat.history", { limit: 5 });
+    expect(rpc).toHaveBeenNthCalledWith(3, "chat.history", { sessionKey: "main", limit: 20 });
   });
 
   it("loads a full persisted chat message by transcript id", async () => {
@@ -906,6 +918,21 @@ describe("GatewayClient", () => {
       name: "GatewayRequestError",
       gatewayCode: "PROTOCOL_ERROR",
       message: "Gateway protocol error: chat.history response must be an array or an object with an array `messages` property",
+    });
+  });
+
+  it("targets an exact active run when aborting chat", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const rpc = vi.spyOn(client as any, "rpc").mockResolvedValue({ ok: true });
+
+    await client.chatAbort("session-alpha", "run-reload");
+
+    expect(rpc).toHaveBeenCalledWith("chat.abort", {
+      sessionKey: "session-alpha",
+      runId: "run-reload",
     });
   });
 

@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
-import remend from "remend";
 import { Brain, ChevronRight, Download, FileImage, FolderOpen, Loader2, Paperclip, RefreshCw, Square } from "lucide-react";
 import { AnimatePresence, motion, type HTMLMotionProps } from "framer-motion";
 import {
@@ -1275,8 +1274,9 @@ export function ChatMessageBubble({
   )
     ? ""
     : sanitizedContentMediaText;
-  const streamingDisplayContent = showStreamingDot ? remend(displayContent) : displayContent;
-  const contentDirectoryListing = !isUser && displayContent ? parseDirectoryVisualization(displayContent) : null;
+  const contentDirectoryListing = !showStreamingDot && !isUser && displayContent
+    ? parseDirectoryVisualization(displayContent)
+    : null;
   const messageColumnClass = isUser
     ? "w-fit max-w-[75%] items-end"
     : "flex-1 items-start";
@@ -1658,11 +1658,17 @@ export function ChatMessageBubble({
                 entries={contentDirectoryListing.entries}
                 truncated={contentDirectoryListing.truncated}
               />
+            ) : showStreamingDot && displayContent ? (
+              <div
+                data-chat-streaming-text="true"
+                className="prose-chat whitespace-pre-wrap break-words leading-relaxed [overflow-wrap:anywhere]"
+              >
+                {displayContent}
+              </div>
             ) : displayContent && (
               <MarkdownContent
-                content={streamingDisplayContent}
+                content={displayContent}
                 typewriter={false}
-                isStreaming={showStreamingDot}
                 className="relative"
                 onOpenWorkspaceFile={!isUser ? onOpenFileFromChat : undefined}
               />
@@ -1715,15 +1721,19 @@ export function ChatMessageBubble({
 export function ChatThinkingIndicator({
   variant = "off",
   label = "Thinking",
+  description,
+  ariaLabel,
 }: {
   variant?: FeatureVariant;
   label?: string;
+  description?: string;
+  ariaLabel?: string;
 } = {}) {
   void variant; // accepted for future style options
   return (
     <motion.div
       role="status"
-      aria-label={label}
+      aria-label={ariaLabel ?? label}
       aria-live="polite"
       className="flex justify-start"
       initial={{ opacity: 0, y: 6 }}
@@ -1731,7 +1741,7 @@ export function ChatThinkingIndicator({
       exit={{ opacity: 0 }}
       transition={{ duration: 0.18 }}
     >
-      <div className="relative bg-surface-low/60 backdrop-blur-sm rounded-2xl px-4 py-2.5 flex items-center gap-2.5 border border-primary/20 overflow-hidden">
+      <div className="relative flex max-w-full items-center gap-2.5 overflow-hidden rounded-2xl border border-primary/20 bg-surface-low/60 px-4 py-2.5 backdrop-blur-sm">
         {/* Subtle shimmer background */}
         <motion.div
           aria-hidden
@@ -1746,8 +1756,15 @@ export function ChatThinkingIndicator({
         >
           <Brain className="w-4 h-4 text-primary" />
         </motion.div>
-        <span className="text-xs font-medium text-text-secondary">{label}</span>
-        <span className="flex items-center gap-1">
+        <span className="min-w-0">
+          <span className="block text-xs font-medium text-text-secondary">{label}</span>
+          {description ? (
+            <span aria-hidden="true" className="mt-0.5 block text-[10px] leading-4 text-text-muted">
+              {description}
+            </span>
+          ) : null}
+        </span>
+        <span aria-hidden="true" className="flex shrink-0 items-center gap-1">
           <motion.span
             className="w-1.5 h-1.5 rounded-full bg-primary"
             animate={{ opacity: [0.3, 1, 0.3], scale: [0.85, 1, 0.85] }}

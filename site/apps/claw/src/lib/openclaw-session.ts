@@ -1,12 +1,20 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { ChatEvent, GatewayClient, GatewayEvent, OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
+import type {
+  ChatEvent,
+  GatewayChatHistoryResult,
+  GatewayClient,
+  GatewayEvent,
+  OpenClawConfigSchemaResponse,
+} from "@hypercli.com/sdk/openclaw/gateway";
 import {
   type OpenClawSessionRecord,
   findOpenClawSelectableSession,
   listOpenClawSessions,
   loadOpenClawChatHistory,
+  loadOpenClawChatHistoryResult,
   normalizeOpenClawSessions,
   openClawEventMatchesSession,
+  openClawSessionHasActiveRun,
   resolveOpenClawActiveSessionKey,
   resolveOpenClawGatewaySessionKey,
   sameOpenClawSessionKey,
@@ -404,6 +412,9 @@ export interface HydratedOpenClawSession {
   gwAgentId: string;
   gatewaySessionKey: string;
   activeSessionRecord: OpenClawSessionRecord | null;
+  hasActiveRun: boolean;
+  activeRunIds: string[];
+  inFlightRun: OpenClawInFlightRun | null;
   historyStatus: "fulfilled" | "rejected";
   useLocalCacheFallback: boolean;
   sessions: OpenClawSessionRecord[];
@@ -426,6 +437,9 @@ export interface HydratedOpenClawHistory {
   messages: ChatMessage[];
   gatewaySessionKey: string;
   activeSessionRecord: OpenClawSessionRecord | null;
+  hasActiveRun: boolean;
+  activeRunIds: string[];
+  inFlightRun: OpenClawInFlightRun | null;
   historyStatus: "fulfilled" | "rejected";
   useLocalCacheFallback: boolean;
   sessions: OpenClawSessionRecord[];
@@ -435,6 +449,11 @@ export interface HydratedOpenClawHistory {
 export interface HydratedOpenClawSessionList {
   sessions: OpenClawSessionRecord[];
   fetched: boolean;
+}
+
+export interface OpenClawInFlightRun {
+  runId: string;
+  text: string;
 }
 
 const CANONICAL_GATEWAY_AGENT_ID = "main";
@@ -460,6 +479,118 @@ function normalizeHistoryMessages(messages: unknown): ChatMessage[] {
   return messages
     .map((message) => normalizeHistoryMessage(message))
     .filter((message): message is ChatMessage => message !== null);
+}
+
+function normalizedStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return uniqueNonEmptyStrings(value.map((item) => nonEmptyString(item)));
+}
+
+function normalizeOpenClawHistoryRunState(
+  result: GatewayChatHistoryResult,
+  activeSessionRecord: OpenClawSessionRecord | null,
+): Pick<HydratedOpenClawHistory, "hasActiveRun" | "activeRunIds" | "inFlightRun"> {
+  const sessionInfo = isRecord(result.sessionInfo) ? result.sessionInfo : null;
+  const status = nonEmptyString(sessionInfo?.status)?.toLowerCase();
+  const activeRunIds = normalizedStringArray(sessionInfo?.activeRunIds ?? sessionInfo?.active_run_ids);
+  const rawInFlightRun = isRecord(result.inFlightRun) ? result.inFlightRun : null;
+  const inFlightRunId = nonEmptyString(rawInFlightRun?.runId ?? rawInFlightRun?.run_id);
+  const inFlightRunText = typeof rawInFlightRun?.text === "string" ? rawInFlightRun.text : "";
+  const inFlightRun = inFlightRunId
+    ? { runId: inFlightRunId, text: inFlightRunText }
+    : null;
+  const explicitHasActiveRun = typeof sessionInfo?.hasActiveRun === "boolean"
+    ? sessionInfo.hasActiveRun
+    : typeof sessionInfo?.has_active_run === "boolean"
+      ? sessionInfo.has_active_run
+      : null;
+  const statusIsTerminal = Boolean(status && status !== "running");
+  const hasActiveRun = !statusIsTerminal && (
+    explicitHasActiveRun ?? Boolean(inFlightRun || activeRunIds.length > 0 || openClawSessionHasActiveRun(activeSessionRecord))
+  );
+  const resolvedActiveRunIds = activeRunIds.length > 0
+    ? activeRunIds
+    : inFlightRun
+      ? [inFlightRun.runId]
+      : activeSessionRecord?.activeRunIds ?? [];
+
+  return {
+    hasActiveRun,
+    activeRunIds: hasActiveRun ? resolvedActiveRunIds : [],
+    inFlightRun: hasActiveRun ? inFlightRun : null,
+  };
+}
+
+function mergeOpenClawInFlightRun(
+  messages: ChatMessage[],
+  inFlightRun: OpenClawInFlightRun | null,
+): ChatMessage[] {
+  if (!inFlightRun?.text) return messages;
+  const ownedPrefixIndex = messages.findIndex((message) => (
+    message.role === "assistant" &&
+    message.runId === inFlightRun.runId &&
+    Boolean(
+      message.content &&
+      (inFlightRun.text.startsWith(message.content) || message.content.startsWith(inFlightRun.text)),
+    )
+  ));
+  let turnStart = ownedPrefixIndex;
+  if (turnStart === -1) {
+    turnStart = 0;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index]?.role !== "user") continue;
+      turnStart = index + 1;
+      break;
+    }
+  }
+
+  let persistedPrefixLength = 0;
+  let lastMatchedAssistantIndex = -1;
+  for (let index = turnStart; index < messages.length; index += 1) {
+    const message = messages[index];
+    if (
+      message?.role !== "assistant" ||
+      (message.runId && message.runId !== inFlightRun.runId) ||
+      !message.content
+    ) continue;
+
+    const remainingText = inFlightRun.text.slice(persistedPrefixLength);
+    if (remainingText.startsWith(message.content)) {
+      persistedPrefixLength += message.content.length;
+      lastMatchedAssistantIndex = index;
+      continue;
+    }
+    if (message.content.startsWith(remainingText)) return messages;
+
+    const leadingWhitespace = /^\s+/u.exec(remainingText)?.[0];
+    if (persistedPrefixLength > 0 && leadingWhitespace) {
+      const afterWhitespace = remainingText.slice(leadingWhitespace.length);
+      if (afterWhitespace.startsWith(message.content)) {
+        persistedPrefixLength += leadingWhitespace.length + message.content.length;
+        lastMatchedAssistantIndex = index;
+        continue;
+      }
+      if (message.content.startsWith(afterWhitespace)) return messages;
+    }
+    if (persistedPrefixLength > 0) break;
+  }
+
+  const tail = inFlightRun.text.slice(persistedPrefixLength);
+  if (!tail) return messages;
+  if (lastMatchedAssistantIndex >= 0) {
+    return messages.map((message, index) => (
+      index === lastMatchedAssistantIndex
+        ? { ...message, content: `${message.content}${tail}`, runId: inFlightRun.runId }
+        : message
+    ));
+  }
+
+  const incoming = normalizeHistoryMessage({
+    role: "assistant",
+    content: tail,
+    runId: inFlightRun.runId,
+  });
+  return incoming ? [...messages, incoming] : messages;
 }
 
 function rawSessionKeyCandidates(session: OpenClawSessionRecord | null | undefined): Array<string | null> {
@@ -592,7 +723,20 @@ async function loadSessionHistory(
     const channelHistory = await loadReadOnlyChannelHistory(gateway, session, limit);
     if (channelHistory) return channelHistory;
   }
-  return normalizeHistoryMessages(await loadOpenClawChatHistory(gateway, sessionKey, limit));
+  return normalizeHistoryMessages((await loadOpenClawChatHistoryResult(gateway, sessionKey, limit)).messages);
+}
+
+async function loadSessionHistoryResult(
+  gateway: GatewayClient,
+  sessionKey: string,
+  session: OpenClawSessionRecord | null | undefined,
+  limit: number,
+): Promise<GatewayChatHistoryResult> {
+  if (session?.readOnly === true) {
+    const channelHistory = await loadReadOnlyChannelHistory(gateway, session, limit);
+    if (channelHistory) return { messages: channelHistory };
+  }
+  return await loadOpenClawChatHistoryResult(gateway, sessionKey, limit);
 }
 
 export async function refreshOpenClawChatMessages(
@@ -799,18 +943,22 @@ export async function hydrateOpenClawHistory(
     !activeSessionRecord &&
     defaultSessionIsReadOnlyChannel(sessions);
   const historyResult = skipAmbiguousSyntheticMainHistory
-    ? { status: "fulfilled" as const, value: [] }
-    : await loadSessionHistory(gateway, sessionKey, activeSessionRecord, 200)
+    ? { status: "fulfilled" as const, value: { messages: [] } as GatewayChatHistoryResult }
+    : await loadSessionHistoryResult(gateway, sessionKey, activeSessionRecord, 200)
       .then((value) => ({ status: "fulfilled" as const, value }))
       .catch((reason: unknown) => ({ status: "rejected" as const, reason }));
   const canonicalMessages = historyResult.status === "fulfilled"
-    ? historyResult.value
+    ? normalizeHistoryMessages(historyResult.value.messages)
     : [];
-  const messages = canonicalMessages.length > 0
+  const runState = historyResult.status === "fulfilled"
+    ? normalizeOpenClawHistoryRunState(historyResult.value, activeSessionRecord)
+    : { hasActiveRun: false, activeRunIds: [], inFlightRun: null };
+  const baseMessages = canonicalMessages.length > 0 || runState.hasActiveRun
     ? canonicalMessages
     : activeSessionRecord?.readOnly !== true && sameOpenClawSessionKey(sessionKey, CANONICAL_GATEWAY_AGENT_ID)
       ? await loadLegacyHistory(gateway, normalizedPreferredAgentId, sessions)
       : [];
+  const messages = mergeOpenClawInFlightRun(baseMessages, runState.inFlightRun);
   const historyStatus = historyResult.status === "fulfilled" || messages.length > 0
     ? "fulfilled"
     : "rejected";
@@ -818,6 +966,7 @@ export async function hydrateOpenClawHistory(
     messages,
     gatewaySessionKey: sessionKey,
     activeSessionRecord,
+    ...runState,
     historyStatus,
     useLocalCacheFallback: !skipAmbiguousSyntheticMainHistory && activeSessionRecord?.readOnly !== true,
     sessions,
@@ -848,6 +997,9 @@ export async function hydrateOpenClawSession(
     gwAgentId: connection.gwAgentId,
     gatewaySessionKey: history.gatewaySessionKey,
     activeSessionRecord: history.activeSessionRecord,
+    hasActiveRun: history.hasActiveRun,
+    activeRunIds: history.activeRunIds,
+    inFlightRun: history.inFlightRun,
     historyStatus: history.historyStatus,
     useLocalCacheFallback: history.useLocalCacheFallback,
     sessions: history.sessions,

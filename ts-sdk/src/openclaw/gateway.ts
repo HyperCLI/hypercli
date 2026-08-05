@@ -255,6 +255,29 @@ export interface GatewayChatMessageGetResult {
   unavailableReason?: "not_found" | "oversized" | "not_visible";
 }
 
+export interface GatewayChatHistorySessionInfo extends Record<string, unknown> {
+  key?: string;
+  sessionId?: string;
+  status?: string;
+  hasActiveRun?: boolean;
+  activeRunIds?: string[];
+}
+
+export interface GatewayChatInFlightRun extends Record<string, unknown> {
+  runId?: string;
+  text?: string;
+  events?: unknown[];
+  plan?: unknown;
+}
+
+export interface GatewayChatHistoryResult extends Record<string, unknown> {
+  messages: any[];
+  sessionKey?: string;
+  sessionId?: string;
+  sessionInfo?: GatewayChatHistorySessionInfo | null;
+  inFlightRun?: GatewayChatInFlightRun | null;
+}
+
 export interface GatewaySessionPatch {
   key: string;
   model?: string;
@@ -4153,16 +4176,22 @@ export class GatewayClient {
     return await this.rpc("sessions.patch", patch);
   }
 
-  async chatHistory(sessionKey?: string, limit = 50): Promise<any[]> {
+  async chatHistoryResult(sessionKey?: string, limit = 50): Promise<GatewayChatHistoryResult> {
     const params: Record<string, any> = { limit };
     if (sessionKey) params.sessionKey = sessionKey;
     const res = await this.rpc("chat.history", params);
-    if (Array.isArray(res)) return res;
-    if (asRecord(res) && Array.isArray(res.messages)) return res.messages;
+    if (Array.isArray(res)) return { messages: res };
+    if (asRecord(res) && Array.isArray(res.messages)) {
+      return { ...res, messages: res.messages } as GatewayChatHistoryResult;
+    }
     throw new GatewayRequestError({
       code: "PROTOCOL_ERROR",
       message: "Gateway protocol error: chat.history response must be an array or an object with an array `messages` property",
     });
+  }
+
+  async chatHistory(sessionKey?: string, limit = 50): Promise<any[]> {
+    return (await this.chatHistoryResult(sessionKey, limit)).messages;
   }
 
   async chatMessageGet(
@@ -4183,9 +4212,10 @@ export class GatewayClient {
     return res as GatewayChatMessageGetResult;
   }
 
-  async chatAbort(sessionKey?: string): Promise<void> {
+  async chatAbort(sessionKey?: string, runId?: string): Promise<void> {
     const params: Record<string, any> = {};
     if (sessionKey) params.sessionKey = sessionKey;
+    if (runId) params.runId = runId;
     await this.rpc("chat.abort", params);
   }
 

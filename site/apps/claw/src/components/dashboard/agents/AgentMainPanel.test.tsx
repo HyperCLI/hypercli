@@ -1,6 +1,6 @@
 import type { ComponentProps } from "react";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildSdkAgent } from "@/test/factories";
 import { renderWithClient } from "@/test/utils";
@@ -98,6 +98,10 @@ function renderAgentMainPanel(overrides: Partial<ComponentProps<typeof AgentMain
 }
 
 describe("AgentMainPanel", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
   it("constrains panel content to the available dashboard height", () => {
     const { container } = renderAgentMainPanel();
 
@@ -183,6 +187,7 @@ describe("AgentMainPanel", () => {
     });
 
     expect(screen.getByText("Loading agents")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Rejoining your teammate" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /create new agent/i })).not.toBeInTheDocument();
   });
 
@@ -316,6 +321,7 @@ describe("AgentMainPanel", () => {
     });
 
     expect(screen.getByText("Selecting agent")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Rejoining your teammate" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: /first agent empty state/i })).not.toBeInTheDocument();
   });
 

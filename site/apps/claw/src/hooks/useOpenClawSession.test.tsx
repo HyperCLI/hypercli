@@ -67,6 +67,9 @@ function buildGateway(initialState: TestGatewayConnectionState = "connected") {
       uiHints: {},
     })),
     chatHistory: vi.fn(async (_sessionKey: string, _limit?: number): Promise<unknown[]> => []),
+    chatHistoryResult: vi.fn(async (sessionKey: string, limit?: number) => ({
+      messages: await gateway.chatHistory(sessionKey, limit),
+    })),
     sessionsPreview: vi.fn(async (_sessionKey: string, _limit?: number): Promise<unknown[]> => []),
     agentsList: vi.fn(async (): Promise<Array<Record<string, unknown>>> => [{ id: "agent-1" }]),
     sessionsList: vi.fn(async (): Promise<unknown[]> => []),
@@ -3073,6 +3076,332 @@ describe("useOpenClawSession", () => {
     expect(result.current.sending).toBe(false);
     expect(result.current.activeSessionSending).toBe(false);
     expect(result.current.thinkingSessionKeys).toEqual([]);
+    unmount();
+  });
+
+  it("restores an active response and buffered text after reload, then clears on completion", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([{
+      key: "session-alpha",
+      title: "Alpha",
+      status: "running",
+      hasActiveRun: true,
+      activeRunIds: ["run-reload"],
+    }] as any);
+    gateway.chatHistoryResult.mockResolvedValue({
+      messages: [{ role: "user", content: "Long-running request" }],
+      sessionInfo: {
+        status: "running",
+        hasActiveRun: true,
+        activeRunIds: ["run-reload"],
+      },
+      inFlightRun: { runId: "run-reload", text: "Buffered partial response" },
+    } as any);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(
+      () => useOpenClawSession(agent as any, true, "session-alpha"),
+    );
+
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+    await waitFor(() => expect(result.current.activeSessionSending).toBe(true));
+    expect(result.current.thinkingSessionKeys).toEqual(["session-alpha"]);
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Long-running request" }),
+      expect.objectContaining({ role: "assistant", content: "Buffered partial response", runId: "run-reload" }),
+    ]);
+
+    act(() => gateway.emit({ event: "chat.done", payload: { sessionKey: "session-alpha", runId: "run-reload" } }));
+
+    await waitFor(() => expect(result.current.activeSessionSending).toBe(false));
+    expect(result.current.thinkingSessionKeys).toEqual([]);
+    unmount();
+  });
+
+  it("stops an active response adopted after reload", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([{
+      key: "session-alpha",
+      title: "Alpha",
+      status: "running",
+      hasActiveRun: true,
+      activeRunIds: ["run-reload"],
+    }] as any);
+    gateway.chatHistoryResult.mockResolvedValue({
+      messages: [{ role: "user", content: "Long-running request" }],
+      sessionInfo: { status: "running", hasActiveRun: true, activeRunIds: ["run-reload"] },
+      inFlightRun: { runId: "run-reload", text: "Buffered partial response" },
+    } as any);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(
+      () => useOpenClawSession(agent as any, true, "session-alpha"),
+    );
+
+    await waitFor(() => expect(result.current.activeSessionSending).toBe(true));
+    await act(async () => {
+      await result.current.abortMessage();
+    });
+
+    expect(gateway.chatAbort).toHaveBeenCalledWith("session-alpha", "run-reload");
+    expect(result.current.activeSessionSending).toBe(false);
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Long-running request" }),
+      expect.objectContaining({ role: "assistant", content: "Buffered partial response", status: "interrupted" }),
+    ]);
+    unmount();
+  });
+
+  it("keeps an adopted response interrupted when its abort event beats the acknowledgement", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([{
+      key: "session-alpha",
+      status: "running",
+      hasActiveRun: true,
+      activeRunIds: ["run-reload"],
+    }] as any);
+    gateway.chatHistoryResult.mockResolvedValue({
+      messages: [{ role: "user", content: "Long-running request" }],
+      sessionInfo: { status: "running", hasActiveRun: true, activeRunIds: ["run-reload"] },
+      inFlightRun: { runId: "run-reload", text: "Buffered partial response" },
+    } as any);
+    const abortAck = deferred<void>();
+    gateway.chatAbort.mockReturnValue(abortAck.promise);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(
+      () => useOpenClawSession(agent as any, true, "session-alpha"),
+    );
+
+    await waitFor(() => expect(result.current.activeSessionSending).toBe(true));
+    let abortPromise!: Promise<void>;
+    act(() => {
+      abortPromise = result.current.abortMessage();
+    });
+    await waitFor(() => expect(result.current.aborting).toBe(true));
+    act(() => gateway.emit({
+      event: "chat",
+      payload: { sessionKey: "session-alpha", runId: "run-reload", state: "aborted" },
+    }));
+    await waitFor(() => expect(result.current.activeSessionSending).toBe(false));
+
+    await act(async () => {
+      abortAck.resolve();
+      await abortPromise;
+    });
+
+    expect(result.current.aborting).toBe(false);
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Long-running request" }),
+      expect.objectContaining({ role: "assistant", content: "Buffered partial response", status: "interrupted" }),
+    ]);
+    unmount();
+  });
+
+  it("clears an adopted response when the gateway reports an error", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([{
+      key: "session-alpha",
+      status: "running",
+      hasActiveRun: true,
+      activeRunIds: ["run-reload"],
+    }] as any);
+    gateway.chatHistoryResult.mockResolvedValue({
+      messages: [{ role: "user", content: "Long-running request" }],
+      sessionInfo: { status: "running", hasActiveRun: true, activeRunIds: ["run-reload"] },
+      inFlightRun: { runId: "run-reload", text: "Buffered partial response" },
+    } as any);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(
+      () => useOpenClawSession(agent as any, true, "session-alpha"),
+    );
+
+    await waitFor(() => expect(result.current.activeSessionSending).toBe(true));
+    act(() => gateway.emit({
+      event: "chat",
+      payload: {
+        sessionKey: "session-alpha",
+        runId: "run-reload",
+        state: "error",
+        errorMessage: "Generation failed",
+      },
+    }));
+
+    await waitFor(() => expect(result.current.activeSessionSending).toBe(false));
+    await waitFor(() => expect(result.current.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "system", content: "Error: Generation failed" }),
+    ])));
+    unmount();
+  });
+
+  it("keeps an adopted response active when another run in the session completes", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([{
+      key: "session-alpha",
+      status: "running",
+      hasActiveRun: true,
+      activeRunIds: ["run-reload", "run-other"],
+    }] as any);
+    gateway.chatHistoryResult.mockResolvedValue({
+      messages: [{ role: "user", content: "Long-running request" }],
+      sessionInfo: {
+        status: "running",
+        hasActiveRun: true,
+        activeRunIds: ["run-reload", "run-other"],
+      },
+      inFlightRun: { runId: "run-reload", text: "Buffered partial response" },
+    } as any);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(
+      () => useOpenClawSession(agent as any, true, "session-alpha"),
+    );
+
+    await waitFor(() => expect(result.current.activeSessionSending).toBe(true));
+    act(() => gateway.emit({
+      event: "chat.done",
+      payload: { sessionKey: "session-alpha", runId: "run-other" },
+    }));
+    expect(result.current.activeSessionSending).toBe(true);
+
+    act(() => gateway.emit({
+      event: "chat.done",
+      payload: { sessionKey: "session-alpha", runId: "run-reload" },
+    }));
+    await waitFor(() => expect(result.current.activeSessionSending).toBe(false));
+    unmount();
+  });
+
+  it("refreshes an adopted response after switching away and back", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([
+      { key: "session-alpha", title: "Alpha" },
+      { key: "session-beta", title: "Beta" },
+    ] as any);
+    let alphaActive = true;
+    gateway.chatHistoryResult.mockImplementation(async (sessionKey: string) => {
+      if (sessionKey === "session-beta") {
+        return {
+          messages: [{ role: "assistant", content: "Beta history" }],
+          sessionInfo: { status: "done", hasActiveRun: false, activeRunIds: [] },
+        } as any;
+      }
+      return alphaActive
+        ? {
+            messages: [{ role: "user", content: "Alpha request" }],
+            sessionInfo: { status: "running", hasActiveRun: true, activeRunIds: ["run-alpha"] },
+            inFlightRun: { runId: "run-alpha", text: "Alpha partial" },
+          } as any
+        : {
+            messages: [
+              { role: "user", content: "Alpha request" },
+              { role: "assistant", content: "Alpha complete", runId: "run-alpha" },
+            ],
+            sessionInfo: { status: "done", hasActiveRun: false, activeRunIds: [] },
+          } as any;
+    });
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, rerender, unmount } = renderHookWithClient(
+      ({ sessionKey }: { sessionKey: string }) => useOpenClawSession(agent as any, true, sessionKey),
+      { initialProps: { sessionKey: "session-alpha" } },
+    );
+
+    await waitFor(() => expect(result.current.activeSessionSending).toBe(true));
+    rerender({ sessionKey: "session-beta" });
+    await waitFor(() => expect(result.current.activeSessionKey).toBe("session-beta"));
+    alphaActive = false;
+    rerender({ sessionKey: "session-alpha" });
+
+    await waitFor(() => expect(result.current.activeSessionKey).toBe("session-alpha"));
+    await waitFor(() => expect(result.current.activeSessionSending).toBe(false));
+    await waitFor(() => expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Alpha request" }),
+      expect.objectContaining({ role: "assistant", content: "Alpha complete" }),
+    ]));
+    expect(gateway.chatHistoryResult.mock.calls.filter(([key]) => key === "session-alpha").length).toBeGreaterThanOrEqual(2);
+    unmount();
+  });
+
+  it("does not re-adopt a stale active snapshot after a terminal event", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([{ key: "session-alpha", title: "Alpha" }] as any);
+    const staleHistory = deferred<any>();
+    let terminal = false;
+    gateway.chatHistoryResult.mockImplementation(() => terminal
+      ? Promise.resolve({
+        messages: [
+          { role: "user", content: "Long-running request" },
+          { role: "assistant", content: "Completed response", runId: "run-reload" },
+        ],
+        sessionInfo: { status: "done", hasActiveRun: false, activeRunIds: [] },
+      } as any)
+      : staleHistory.promise);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(
+      () => useOpenClawSession(agent as any, true, "session-alpha"),
+    );
+
+    await waitFor(() => expect(gateway.chatHistoryResult).toHaveBeenCalled());
+    act(() => gateway.emit({
+      event: "chat.done",
+      payload: { sessionKey: "session-alpha", runId: "run-reload" },
+    }));
+    terminal = true;
+    await act(async () => {
+      staleHistory.resolve({
+        messages: [{ role: "user", content: "Long-running request" }],
+        sessionInfo: { status: "running", hasActiveRun: true, activeRunIds: ["run-reload"] },
+        inFlightRun: { runId: "run-reload", text: "Stale partial response" },
+      });
+      await staleHistory.promise;
+    });
+
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+    expect(result.current.activeSessionSending).toBe(false);
+    await waitFor(() => expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Long-running request" }),
+      expect.objectContaining({ role: "assistant", content: "Completed response" }),
+    ]));
     unmount();
   });
 

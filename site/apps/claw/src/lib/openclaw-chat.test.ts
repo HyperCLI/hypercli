@@ -1399,6 +1399,24 @@ describe("openclaw chat normalization", () => {
     }
   });
 
+  it("keeps incremental 10,000-character response updates bounded", () => {
+    const content = "Una respuesta larga con contexto y detalles utiles para el usuario. "
+      .repeat(180)
+      .slice(0, 10_000);
+    let messages: ChatMessage[] = [{ role: "user", content: "Write a detailed report" }];
+    const started = performance.now();
+
+    for (let offset = 0; offset < content.length; offset += 16) {
+      messages = upsertAssistantMessage(messages, {
+        role: "assistant",
+        content: content.slice(offset, offset + 16),
+      }, { appendContent: true });
+    }
+
+    expect(messages.at(-1)?.content).toBe(content);
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+
   it("omits raw PDF bytes from live tool results", () => {
     const normalized = normalizeLiveToolResult({
       name: "read",

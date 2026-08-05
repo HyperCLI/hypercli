@@ -3,7 +3,12 @@
 import {
   OPENCLAW_INTERNAL_MAIN_SESSION_KEY,
 } from "@hypercli.com/sdk/openclaw/gateway";
-import type { ChatAttachment, ChatEvent, GatewayClient } from "@hypercli.com/sdk/openclaw/gateway";
+import type {
+  ChatAttachment,
+  ChatEvent,
+  GatewayChatHistoryResult,
+  GatewayClient,
+} from "@hypercli.com/sdk/openclaw/gateway";
 
 export interface OpenClawSessionRecord {
   key: string;
@@ -25,6 +30,9 @@ export interface OpenClawSessionRecord {
   readOnly?: boolean;
   readOnlyReason?: string;
   ephemeral?: boolean;
+  status?: string;
+  hasActiveRun?: boolean;
+  activeRunIds?: string[];
   raw: Record<string, unknown>;
 }
 
@@ -71,6 +79,31 @@ function firstNonEmptyString(...values: unknown[]): string | null {
     if (normalized) return normalized;
   }
   return null;
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(value.flatMap((item) => {
+    const normalized = nonEmptyString(item);
+    return normalized ? [normalized] : [];
+  })));
+}
+
+function hasExplicitActiveRun(value: Record<string, unknown>): boolean | null {
+  const raw = value.hasActiveRun ?? value.has_active_run;
+  return typeof raw === "boolean" ? raw : null;
+}
+
+export function openClawSessionHasActiveRun(
+  session: OpenClawSessionRecord | null | undefined,
+): boolean {
+  if (!session) return false;
+  const status = nonEmptyString(session.status ?? session.raw.status)?.toLowerCase();
+  if (status && status !== "running") return false;
+  const explicit = typeof session.hasActiveRun === "boolean"
+    ? session.hasActiveRun
+    : hasExplicitActiveRun(session.raw);
+  return explicit ?? status === "running";
 }
 
 export function normalizeOpenClawThinkingLevels(
@@ -623,6 +656,12 @@ export function normalizeOpenClawSession(session: unknown): OpenClawSessionRecor
     session.thinkingLevels ?? session.thinking_levels,
     session.thinkingOptions ?? session.thinking_options,
   );
+  const status = nonEmptyString(session.status);
+  const activeRunIds = stringArray(session.activeRunIds ?? session.active_run_ids);
+  const explicitHasActiveRun = hasExplicitActiveRun(session);
+  const hasActiveRun = status && status.toLowerCase() !== "running"
+    ? false
+    : explicitHasActiveRun ?? status?.toLowerCase() === "running";
 
   return {
     key,
@@ -633,6 +672,9 @@ export function normalizeOpenClawSession(session: unknown): OpenClawSessionRecor
     ...(thinkingLevel ? { thinkingLevel } : {}),
     ...(thinkingLevels.length > 0 ? { thinkingLevels } : {}),
     ...(thinkingDefault ? { thinkingDefault } : {}),
+    ...(status ? { status } : {}),
+    ...(hasActiveRun !== null && hasActiveRun !== undefined ? { hasActiveRun } : {}),
+    ...(activeRunIds.length > 0 ? { activeRunIds } : {}),
     clientMode,
     clientDisplayName,
     createdAt,
@@ -712,13 +754,24 @@ export async function listOpenClawSessions(
 }
 
 export async function loadOpenClawChatHistory(
-  gateway: Pick<GatewayClient, "chatHistory"> & Partial<Pick<GatewayClient, "chatMessageGet">>,
+  gateway: Pick<GatewayClient, "chatHistory"> & Partial<Pick<GatewayClient, "chatHistoryResult" | "chatMessageGet">>,
   sessionKey: string,
   limit = 200,
 ): Promise<unknown[]> {
-  const messages = await gateway.chatHistory(sessionKey, limit);
+  return (await loadOpenClawChatHistoryResult(gateway, sessionKey, limit)).messages;
+}
+
+export async function loadOpenClawChatHistoryResult(
+  gateway: Pick<GatewayClient, "chatHistory"> & Partial<Pick<GatewayClient, "chatHistoryResult" | "chatMessageGet">>,
+  sessionKey: string,
+  limit = 200,
+): Promise<GatewayChatHistoryResult> {
+  const historyResult = typeof gateway.chatHistoryResult === "function"
+    ? await gateway.chatHistoryResult(sessionKey, limit)
+    : { messages: await gateway.chatHistory(sessionKey, limit) };
+  const messages = historyResult.messages;
   const chatMessageGet = gateway.chatMessageGet?.bind(gateway);
-  if (!chatMessageGet) return messages;
+  if (!chatMessageGet) return historyResult;
 
   const candidates = messages.flatMap((message, index) => {
     if (!isRecord(message) || String(message.role ?? "").toLowerCase() !== "assistant") return [];
@@ -730,7 +783,7 @@ export async function loadOpenClawChatHistory(
       ? [{ index, message, messageId }]
       : [];
   });
-  if (candidates.length === 0) return messages;
+  if (candidates.length === 0) return historyResult;
 
   const hydrated = [...messages];
   let cursor = 0;
@@ -767,7 +820,7 @@ export async function loadOpenClawChatHistory(
       hydrateNext,
     ),
   );
-  return hydrated;
+  return { ...historyResult, messages: hydrated };
 }
 
 export function streamOpenClawChat(

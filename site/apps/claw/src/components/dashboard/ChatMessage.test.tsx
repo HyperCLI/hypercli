@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { getStoredToken } from "@/lib/api";
 import { createAgentClient } from "@/lib/agent-client";
 import { normalizeHistoryMessage, OPENCLAW_EMPTY_REPLY_NOTICE } from "@/lib/openclaw-chat";
-import { ChatMessageBubble } from "./ChatMessage";
+import { ChatMessageBubble, ChatThinkingIndicator } from "./ChatMessage";
 
 function expectBoundedMediaRead(readFileBytes: unknown, path: string) {
   expect(readFileBytes).toHaveBeenCalledWith(path, {
@@ -37,6 +37,20 @@ function expectNoLeakSentinels(markup: string): void {
 }
 
 describe("ChatMessageBubble", () => {
+  it("shows verbose progress without announcing the ticking measurements", () => {
+    render(
+      <ChatThinkingIndicator
+        label="Receiving response"
+        description="10,250 characters received · updated just now · 25s elapsed"
+        ariaLabel="Receiving response. The response is still active."
+      />,
+    );
+
+    const status = screen.getByRole("status", { name: "Receiving response. The response is still active." });
+    expect(status).toHaveTextContent("10,250 characters received");
+    expect(status).not.toHaveAccessibleName(/10,250|25s/);
+  });
+
   afterEach(() => {
     vi.clearAllMocks();
     vi.mocked(getStoredToken).mockReturnValue(null);
@@ -158,26 +172,44 @@ describe("ChatMessageBubble", () => {
     );
 
     expect(screen.getByText(content)).toBeInTheDocument();
+    expect(screen.getByText(content)).toHaveAttribute("data-chat-streaming-text", "true");
   });
 
-  it("repairs incomplete Markdown only while an assistant reply is streaming", () => {
-    const content = "Working on **important text";
+  it("renders streaming Markdown as lightweight text and formats it after completion", () => {
+    const partialContent = "Working on **important text";
+    const completeContent = `${partialContent}**`;
     const { container, rerender } = render(
+      <ChatMessageBubble
+        message={{ role: "assistant", content: partialContent }}
+        isStreaming
+      />,
+    );
+
+    expect(container.querySelector("[data-chat-streaming-text='true']")).toHaveTextContent(partialContent);
+    expect(container.querySelector("strong")).not.toBeInTheDocument();
+    expect(container).toHaveTextContent("**");
+
+    rerender(
+      <ChatMessageBubble message={{ role: "assistant", content: completeContent }} />,
+    );
+
+    expect(container.querySelector("[data-chat-streaming-text='true']")).not.toBeInTheDocument();
+    expect(container.querySelector("strong")).toHaveTextContent("important text");
+    expect(container).not.toHaveTextContent("**");
+  });
+
+  it("keeps a 10,000-character in-flight response on the lightweight render path", () => {
+    const content = "[]".repeat(5_000);
+    const { container } = render(
       <ChatMessageBubble
         message={{ role: "assistant", content }}
         isStreaming
       />,
     );
 
-    expect(container.querySelector("strong")).toHaveTextContent("important text");
-    expect(container).not.toHaveTextContent("**");
-
-    rerender(
-      <ChatMessageBubble message={{ role: "assistant", content }} />,
-    );
-
-    expect(container.querySelector("strong")).not.toBeInTheDocument();
-    expect(container).toHaveTextContent(content);
+    const streamingText = container.querySelector("[data-chat-streaming-text='true']");
+    expect(streamingText).toHaveTextContent(content);
+    expect(container.querySelector("strong, pre, code, a")).not.toBeInTheDocument();
   });
 
   it("renders reply stopped system notices without error styling", () => {

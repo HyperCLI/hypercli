@@ -7,6 +7,7 @@ import type { AgentSkillsProvider } from "@hypercli.com/sdk/skills";
 import { buildSdkAgent } from "@/test/factories";
 import { renderWithClient } from "@/test/utils";
 import { OPENCLAW_EMPTY_REPLY_NOTICE } from "@/lib/openclaw-chat";
+import { AGENT_STARTUP_EXPERIENCE_STORAGE_KEY } from "@/hooks/useAgentStartupExperience";
 import { toAgentViewModel } from "./agentViewModel";
 import {
   AgentChatPanel,
@@ -38,7 +39,20 @@ vi.mock("@/components/dashboard/ChatMessage", () => ({
       </button>
     ) : null;
   },
-  ChatThinkingIndicator: ({ label = "Thinking" }: { label?: string }) => <div role="status" aria-label={label}>{label}</div>,
+  ChatThinkingIndicator: ({
+    label = "Thinking",
+    description,
+    ariaLabel,
+  }: {
+    label?: string;
+    description?: string;
+    ariaLabel?: string;
+  }) => (
+    <div role="status" aria-label={ariaLabel ?? label}>
+      <span>{label}</span>
+      {description ? <span>{description}</span> : null}
+    </div>
+  ),
 }));
 
 vi.mock("@/components/dashboard/ConfirmDialog", () => ({
@@ -701,10 +715,11 @@ describe("AgentChatPanel", () => {
     });
 
     const emptyStateFrame = screen
-      .getByRole("heading", { name: "Your agent is ready for real work" })
+      .getByRole("heading", { name: "Meet your new AI teammate." })
       .closest(".agent-empty-history-frame");
     expect(emptyStateFrame).toHaveClass("self-stretch");
     expect(emptyStateFrame).not.toHaveClass("max-h-full");
+    expect(screen.getByRole("button", { name: "Say hello" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /connect slack/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /open workspace files/i }));
     fireEvent.click(screen.getByRole("button", { name: /open integrations/i }));
@@ -731,10 +746,31 @@ describe("AgentChatPanel", () => {
       isSelectedRunning: true,
     });
 
-    expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Rejoining your teammate" })).toBeInTheDocument();
+    expect(screen.getByText("Loading conversation")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /connect slack/i })).not.toBeInTheDocument();
     expect(screen.getByRole("textbox")).toBeDisabled();
     expect(screen.getByPlaceholderText("Verifying conversation...")).toBeInTheDocument();
+  });
+
+  it("keeps the original conversation loader in the Classic experience", () => {
+    window.localStorage.setItem(AGENT_STARTUP_EXPERIENCE_STORAGE_KEY, "classic");
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        historyPhase: "loading",
+        historyPending: true,
+        activeSessionCanSend: false,
+      }),
+      isSelectedRunning: true,
+    });
+
+    expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Rejoining your teammate" })).not.toBeInTheDocument();
+    window.localStorage.removeItem(AGENT_STARTUP_EXPERIENCE_STORAGE_KEY);
   });
 
   it("keeps existing messages visible and exposes retry when history refresh fails", () => {
@@ -773,6 +809,67 @@ describe("AgentChatPanel", () => {
     expect(screen.getByText("Provisioning runtime")).toBeInTheDocument();
     expect(screen.getByText("Reserving compute and preparing the workspace.")).toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("keeps the startup experience through gateway connection after lifecycle startup", async () => {
+    window.localStorage.setItem(AGENT_STARTUP_EXPERIENCE_STORAGE_KEY, "tips");
+    const pendingAgent = buildAgent("PENDING");
+    const props = buildAgentChatPanelProps({
+      selectedAgent: pendingAgent,
+      isSelectedRunning: false,
+    });
+    const { container, rerender } = renderWithClient(<AgentChatPanel {...props} />);
+
+    expect(container.querySelector('[data-slot="agent-startup-tips"]')).toBeInTheDocument();
+
+    rerender(
+      <AgentChatPanel
+        {...props}
+        selectedAgent={buildAgent("RUNNING")}
+        isSelectedRunning
+        chat={buildChat({ connecting: true })}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText("Connecting gateway")).toBeInTheDocument());
+    expect(container.querySelector('[data-slot="agent-startup-tips"]')).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /agent workspace loading/i })).not.toBeInTheDocument();
+  });
+
+  it("uses the guided experience for initial page hydration", () => {
+    window.localStorage.setItem(AGENT_STARTUP_EXPERIENCE_STORAGE_KEY, "tips");
+    const { container } = renderAgentChatPanel({
+      chat: buildChat({ connecting: true }),
+      isSelectedRunning: true,
+    });
+
+    expect(screen.getByRole("heading", { name: "Rejoining your teammate" })).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="agent-startup-tips"]')).toBeInTheDocument();
+  });
+
+  it("keeps later reconnects compact after the teammate has been ready", async () => {
+    window.localStorage.setItem(AGENT_STARTUP_EXPERIENCE_STORAGE_KEY, "tips");
+    const props = buildAgentChatPanelProps({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+      }),
+      isSelectedRunning: true,
+    });
+    const { container, rerender } = renderWithClient(<AgentChatPanel {...props} />);
+
+    rerender(
+      <AgentChatPanel
+        {...props}
+        chat={buildChat({ connecting: true })}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText("Connecting gateway")).toBeInTheDocument());
+    expect(container.querySelector('[data-slot="agent-startup-tips"]')).not.toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /agent workspace loading/i })).toBeInTheDocument();
   });
 
   it("passes workspace file actions to rendered chat messages", () => {
@@ -2795,7 +2892,7 @@ describe("AgentChatPanel", () => {
     expect(abortMessage).toHaveBeenCalledTimes(1);
   });
 
-  it("does not show thinking or stop controls for another session's reply", () => {
+  it("does not show response status or stop controls for another session's reply", () => {
     renderAgentChatPanel({
       chat: buildChat({
         status: "connected",
@@ -2809,11 +2906,13 @@ describe("AgentChatPanel", () => {
       isSelectedRunning: true,
     });
 
-    expect(screen.queryByRole("status", { name: /thinking/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("status", {
+      name: /starting response|still working|working through|using tools|receiving response|waiting for final response/i,
+    })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /stop reply/i })).not.toBeInTheDocument();
   });
 
-  it("shows thinking and stop controls for the active session's reply", () => {
+  it("shows response progress and stop controls for the active session's reply", () => {
     renderAgentChatPanel({
       chat: buildChat({
         status: "connected",
@@ -2827,11 +2926,11 @@ describe("AgentChatPanel", () => {
       isSelectedRunning: true,
     });
 
-    expect(screen.getByRole("status", { name: /thinking/i })).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: /starting response/i })).toHaveTextContent("Waiting for the first update");
     expect(screen.getByRole("button", { name: /stop reply/i })).toBeInTheDocument();
   });
 
-  it("shows writing feedback while final text is pending after completed tools", () => {
+  it("reports received text instead of pinning tool-completion feedback", () => {
     renderAgentChatPanel({
       chat: buildChat({
         status: "connected",
@@ -2849,10 +2948,10 @@ describe("AgentChatPanel", () => {
       isSelectedRunning: true,
     });
 
-    expect(screen.getByRole("status", { name: /writing response/i })).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: /receiving response/i })).toHaveTextContent("characters received");
   });
 
-  it("relies on the running tool state while a tool call is pending", () => {
+  it("reports active tool work while a tool call is pending", () => {
     renderAgentChatPanel({
       chat: buildChat({
         status: "connected",
@@ -2870,7 +2969,80 @@ describe("AgentChatPanel", () => {
       isSelectedRunning: true,
     });
 
-    expect(screen.queryByRole("status", { name: /thinking|writing response/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("status", { name: /using tools/i })).toHaveTextContent("1 tool step active");
+  });
+
+  it("reports reasoning activity without exposing its contents", () => {
+    const hiddenThinking = "Private chain-of-thought details";
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        sending: true,
+        activeSessionSending: true,
+        messages: [
+          { role: "user", content: "Compare the options" },
+          { role: "assistant", content: "", thinking: hiddenThinking },
+        ],
+      }),
+      isSelectedRunning: true,
+    });
+
+    expect(screen.getByRole("status", { name: /working through your request/i })).toBeInTheDocument();
+    expect(screen.queryByText(hiddenThinking)).not.toBeInTheDocument();
+  });
+
+  it("shows concrete progress for a response over 10,000 characters", () => {
+    const now = new Date("2026-08-04T16:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    const content = "a".repeat(10_250);
+
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        sending: true,
+        activeSessionSending: true,
+        messages: [
+          { role: "user", content: "Write a long report", timestamp: now.getTime() - 25_000 },
+          { role: "assistant", content, timestamp: now.getTime() - 1_000 },
+        ],
+      }),
+      isSelectedRunning: true,
+    });
+
+    const status = screen.getByRole("status", { name: /receiving response/i });
+    expect(status).toHaveTextContent("10,250 characters received");
+    expect(status).toHaveTextContent("updated just now");
+    expect(status).toHaveTextContent("25s elapsed");
+  });
+
+  it("reassures users when the first response update takes longer", () => {
+    const now = new Date("2026-08-04T16:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        sending: true,
+        activeSessionSending: true,
+        messages: [{ role: "user", content: "Analyze this", timestamp: now.getTime() }],
+      }),
+      isSelectedRunning: true,
+    });
+
+    expect(screen.getByRole("status", { name: /starting response/i })).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(10_000));
+    expect(screen.getByRole("status", { name: /still working/i })).toHaveTextContent("The response is active · 10s elapsed");
   });
 
   it("shows a separate stop button while keeping send available for queued drafts", () => {

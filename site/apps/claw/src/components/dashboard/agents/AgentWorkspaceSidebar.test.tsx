@@ -828,7 +828,7 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.getByRole("button", { name: "Dashboard Session" })).toHaveAttribute("aria-current", "page");
   });
 
-  it("keeps recoverable legacy main history discoverable", () => {
+  it("hides recoverable legacy main history", () => {
     renderAgentWorkspaceSidebar({
       sessions: [{
         key: "main",
@@ -844,7 +844,8 @@ describe("AgentWorkspaceSidebar", () => {
       selectedSessionKey: "main",
     });
 
-    expect(screen.getByRole("button", { name: "Previous conversation" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("button", { name: "Previous conversation" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Main Session" })).not.toBeInTheDocument();
     expect(screen.queryByText("agent:default:main")).not.toBeInTheDocument();
   });
 

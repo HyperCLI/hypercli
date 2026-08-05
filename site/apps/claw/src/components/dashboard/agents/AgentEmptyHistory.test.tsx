@@ -6,7 +6,7 @@ import { renderWithClient } from "@/test/utils";
 import { AgentEmptyHistory } from "./AgentEmptyHistory";
 
 describe("AgentEmptyHistory", () => {
-  it("renders existing helper prompts and fills the selected prompt", async () => {
+  it("introduces the agent and fills a hello prompt", async () => {
     const user = userEvent.setup();
     const onPromptSelect = vi.fn();
 
@@ -16,16 +16,18 @@ describe("AgentEmptyHistory", () => {
       />,
     );
 
-    const heading = screen.getByRole("heading", { name: "Your agent is ready for real work" });
+    const heading = screen.getByRole("heading", { name: "Meet your new AI teammate." });
     expect(heading).toBeInTheDocument();
-    expect(heading.closest("section")).toHaveClass("agent-empty-history", "w-full", "max-w-[50rem]");
+    expect(heading.closest("section")).toHaveClass("agent-empty-history", "w-full", "max-w-[44rem]");
     expect(heading.closest("section")).not.toHaveClass("max-h-full");
-    expect(screen.getByText(/connect the tools your agent needs/i)).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Start with something concrete" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /map this workspace/i })).toHaveClass("sm:min-h-[7rem]");
+    expect(screen.getByText(/getting to know each other/i)).toBeInTheDocument();
+    const sayHello = screen.getByRole("button", { name: "Say hello" });
+    expect(sayHello).toHaveClass("bg-[var(--button-primary,var(--primary))]");
 
-    await user.click(screen.getByRole("button", { name: /map this workspace/i }));
-    expect(onPromptSelect).toHaveBeenCalledWith("Explain the current workspace or selected file in plain language.");
+    await user.click(sayHello);
+    expect(onPromptSelect).toHaveBeenCalledWith(
+      "Hi! Let's spend a few minutes getting to know each other. Ask me one question at a time to learn how I work and where you can help most.",
+    );
   });
 
   it("opens workspace tools through the provided actions", async () => {
@@ -44,12 +46,13 @@ describe("AgentEmptyHistory", () => {
     );
 
     expect(screen.getByRole("button", { name: /connect slack/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /connect slack/i })).toHaveClass("md:min-h-[7.5rem]");
-    expect(screen.getByText("Browse integrations")).toBeInTheDocument();
-    expect(screen.getByText(/GitHub, Telegram, Discord, WhatsApp/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /open integrations/i })).toHaveTextContent("Browse integrations");
+    expect(screen.getByText(/apps, APIs, and accounts/i)).toBeInTheDocument();
     expect(screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual([
-      "Build out the workspace",
-      "Start with something concrete",
+      "Make It Yours",
+      "Uses Your Tools",
+      "Empower Your Team",
+      "Works Where You Work",
     ]);
 
     await user.click(screen.getByRole("button", { name: /connect slack/i }));

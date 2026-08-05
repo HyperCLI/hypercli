@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { handleOpenClawChatStreamEvent, handleOpenClawSessionEvent, hydrateOpenClawSession, refreshOpenClawChatMessages } from "./openclaw-session";
+import { handleOpenClawChatStreamEvent, handleOpenClawSessionEvent, hydrateOpenClawHistory, hydrateOpenClawSession, refreshOpenClawChatMessages } from "./openclaw-session";
 import { OPENCLAW_EMPTY_REPLY_NOTICE, type ChatMessage } from "./openclaw-chat";
 import { OPENCLAW_INTERNAL_SESSION_KEY, createOpenClawDashboardSessionKey } from "./openclaw-session-key";
 
@@ -304,6 +304,66 @@ describe("openclaw session keys", () => {
     expect(serialized).not.toContain(THINKING_LEAK_SENTINEL);
     expect(serialized).not.toContain(TOOL_ARG_LEAK_SENTINEL);
     expect(serialized).not.toContain(TOOL_RESULT_LEAK_SENTINEL);
+  });
+
+  it("hydrates an active gateway run and its buffered partial response", async () => {
+    const gateway = {
+      sessionsList: vi.fn(async () => [{
+        key: "session-alpha",
+        status: "running",
+        hasActiveRun: true,
+        activeRunIds: ["run-reload"],
+      }]),
+      chatHistory: vi.fn(async () => []),
+      chatHistoryResult: vi.fn(async () => ({
+        messages: [{ role: "user", content: "Long-running request" }],
+        sessionInfo: {
+          status: "running",
+          hasActiveRun: true,
+          activeRunIds: ["run-reload"],
+        },
+        inFlightRun: { runId: "run-reload", text: "Buffered partial response" },
+      })),
+    };
+
+    const hydrated = await hydrateOpenClawHistory(gateway as any, "deploy-123", "session-alpha");
+
+    expect(hydrated).toEqual(expect.objectContaining({
+      hasActiveRun: true,
+      activeRunIds: ["run-reload"],
+      inFlightRun: { runId: "run-reload", text: "Buffered partial response" },
+    }));
+    expect(hydrated.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Long-running request" }),
+      expect.objectContaining({ role: "assistant", content: "Buffered partial response", runId: "run-reload" }),
+    ]);
+  });
+
+  it("appends only the unpersisted tail of a multi-segment active response", async () => {
+    const gateway = {
+      sessionsList: vi.fn(async () => [{ key: "session-alpha" }]),
+      chatHistory: vi.fn(async () => []),
+      chatHistoryResult: vi.fn(async () => ({
+        messages: [
+          { role: "user", content: "Inspect the workspace" },
+          { role: "assistant", content: "First segment. ", runId: "run-reload" },
+          { role: "assistant", content: "Second segment.", runId: "run-reload" },
+        ],
+        sessionInfo: { status: "running", hasActiveRun: true, activeRunIds: ["run-reload"] },
+        inFlightRun: {
+          runId: "run-reload",
+          text: "First segment. Second segment. Buffered tail.",
+        },
+      })),
+    };
+
+    const hydrated = await hydrateOpenClawHistory(gateway as any, "deploy-123", "session-alpha");
+
+    expect(hydrated.messages.map((message) => message.content)).toEqual([
+      "Inspect the workspace",
+      "First segment.",
+      "Second segment. Buffered tail.",
+    ]);
   });
 
   it("keeps the final output_text answer from refreshed tool-rich history", async () => {

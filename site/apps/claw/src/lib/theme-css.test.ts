@@ -199,7 +199,7 @@ describe("shared theme CSS", () => {
     expect(clawGlobalsCss).toContain("container-type: size;");
     expect(clawGlobalsCss).toContain("@container agent-empty-history (max-height: 47rem)");
     expect(clawGlobalsCss).toContain("@container agent-empty-history (max-width: 40rem)");
-    expect(clawGlobalsCss).toContain(".agent-empty-history-workspace-card");
+    expect(clawGlobalsCss).toContain(".agent-empty-history-capability-row");
   });
 
   it("propagates the canonical switchable theme to main and console", () => {

@@ -349,6 +349,7 @@ export function AgentMainPanel({
           detail={startupCopy.detail}
           tone="starting"
           stage={startupCopy.stage}
+          guided
         />
       );
     }
@@ -477,19 +478,25 @@ export function AgentMainPanel({
       ) : loadingInitialAgents && !selectedAgent ? (
         <div className="flex-1 min-h-0">
           <AgentLoadingState
+            heading="Rejoining your teammate"
+            note="Restoring your dashboard and recent conversation."
             title="Loading agents"
-            detail="Checking your workspace before selecting an agent."
+            detail="Checking who is available before opening your teammate."
             tone="loading"
             stage="complete"
+            guided
           />
         </div>
       ) : !selectedAgent && hasAgents ? (
         <div className="flex-1 min-h-0">
           <AgentLoadingState
+            heading="Rejoining your teammate"
+            note="Restoring your dashboard and recent conversation."
             title="Selecting agent"
             detail="Opening the next available agent."
             tone="loading"
             stage="complete"
+            guided
           />
         </div>
       ) : !selectedAgent ? (

@@ -18,7 +18,6 @@ import {
   isOpenClawHeartbeatSessionKey,
   isOpenClawMainSessionKey,
   isOpenClawSubagentSession,
-  isRecoverableOpenClawMainSession,
   normalizeOpenClawSessions,
   type OpenClawSessionRecord,
 } from "@/lib/openclaw-session-sdk-surface";
@@ -102,7 +101,7 @@ function visibleRecentSessions(value: unknown): OpenClawSessionRecord[] {
       && !session.ephemeral
       && !isEphemeralOpenClawSessionName(session.key)
       && !isOpenClawHeartbeatSessionKey(session.key)
-      && (!isOpenClawMainSessionKey(session.key) || isRecoverableOpenClawMainSession(session))
+      && !isOpenClawMainSessionKey(session.key)
       && !isOpenClawSubagentSession(session)
     ))
     .sort((left, right) => Math.max(right.lastMessageAt, right.createdAt) - Math.max(left.lastMessageAt, left.createdAt));

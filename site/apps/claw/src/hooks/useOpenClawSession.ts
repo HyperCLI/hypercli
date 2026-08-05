@@ -55,6 +55,7 @@ import {
   type ActivityEntry,
   type ActivityKind,
   type HydratedOpenClawConnection,
+  type HydratedOpenClawHistory,
   appendActivityEntry,
   handleOpenClawChatStreamEvent,
   handleOpenClawSessionEvent,
@@ -92,6 +93,7 @@ import {
   normalizeOpenClawThinkingLevels,
   openClawEventMatchesSession,
   openClawGatewaySessionKey,
+  openClawSessionHasActiveRun,
   openClawSessionTitleMapKeys,
   resolveOpenClawActiveSessionKey,
   resolveOpenClawResumeSessionKey,
@@ -324,6 +326,9 @@ interface ActiveChatStreamEntry {
   iterator: AsyncGenerator<ChatEvent> | null;
   ownsStreamEvents: boolean;
   abortRequested: boolean;
+  adoptedGatewayRun?: boolean;
+  adoptedRunId?: string;
+  adoptedActiveRunIds?: string[];
 }
 
 type DeletedSessionTombstones = Record<string, number>;
@@ -447,6 +452,9 @@ function sameOpenClawSessionRecordForDisplay(left: OpenClawSessionRecord, right:
     left.spawnedBy === right.spawnedBy &&
     left.readOnly === right.readOnly &&
     left.readOnlyReason === right.readOnlyReason &&
+    left.status === right.status &&
+    left.hasActiveRun === right.hasActiveRun &&
+    JSON.stringify(left.activeRunIds ?? []) === JSON.stringify(right.activeRunIds ?? []) &&
     left.ephemeral === right.ephemeral;
 }
 
@@ -855,6 +863,7 @@ export function useOpenClawSession(
   const chatHistoryRecoveryTargetsRef = useRef<Set<string>>(new Set());
   const activeGatewayRef = useRef<GatewayClient | null>(null);
   const gatewayLifecycleRevisionRef = useRef(0);
+  const gatewayRunStateRevisionsRef = useRef<Map<string, number>>(new Map());
   const gatewayGapRecoveryRef = useRef<(targetGateway: GatewayClient) => void>(() => undefined);
   const sessionSnapshotRef = useRef<SessionSnapshotEntry>({ agentId: null, fetchedAgentId: null, sessions: [] });
   const channelsStatusCacheRef = useRef<GatewayStatusCacheEntry<Record<string, unknown>> | null>(null);
@@ -891,14 +900,17 @@ export function useOpenClawSession(
   }, []);
 
   const markSendingForTarget = useCallback((target: ChatHistoryTarget) => {
-    sendingTargetsRef.current.set(chatHistoryTargetKey(target), target);
+    const targetKey = chatHistoryTargetKey(target);
+    if (sendingTargetsRef.current.has(targetKey)) return;
+    sendingTargetsRef.current.set(targetKey, target);
     publishSendingTargets();
   }, [publishSendingTargets]);
 
   const clearSendingForTarget = useCallback((target?: ChatHistoryTarget | null) => {
     if (target) {
-      sendingTargetsRef.current.delete(chatHistoryTargetKey(target));
+      if (!sendingTargetsRef.current.delete(chatHistoryTargetKey(target))) return;
     } else {
+      if (sendingTargetsRef.current.size === 0) return;
       sendingTargetsRef.current.clear();
     }
     publishSendingTargets();
@@ -953,6 +965,48 @@ export function useOpenClawSession(
     publishSendingTargets();
     clearAbortingForTarget(null);
   }, [clearAbortingForTarget, publishSendingTargets, requestChatStreamCancellation]);
+
+  const reconcileHydratedGatewayRun = useCallback((
+    target: ChatHistoryTarget,
+    targetGateway: GatewayClient,
+    runState: Pick<HydratedOpenClawHistory, "hasActiveRun" | "activeRunIds" | "inFlightRun">,
+  ) => {
+    const targetKey = chatHistoryTargetKey(target);
+    const current = activeChatStreamsRef.current.get(targetKey);
+    if (!runState.hasActiveRun) {
+      if (!current?.adoptedGatewayRun || !chatStreamEntryIsCurrent(targetKey, current)) return;
+      activeChatStreamsRef.current.delete(targetKey);
+      clearAbortingForTarget(target, current.token);
+      clearSendingForTarget(target);
+      return;
+    }
+
+    if (current && !current.adoptedGatewayRun) return;
+    const runId = runState.inFlightRun?.runId ?? runState.activeRunIds[0];
+    const activeRunIds = Array.from(new Set([
+      ...runState.activeRunIds,
+      ...(runId ? [runId] : []),
+    ]));
+    if (current && chatStreamEntryIsCurrent(targetKey, current)) {
+      current.adoptedRunId = runId;
+      current.adoptedActiveRunIds = activeRunIds;
+      markSendingForTarget(target);
+      return;
+    }
+    if (current) clearAbortingForTarget(target, current.token);
+    activeChatStreamsRef.current.set(targetKey, {
+      token: Symbol("openclaw-adopted-gateway-run"),
+      gateway: targetGateway,
+      lifecycleRevision: gatewayLifecycleRevisionRef.current,
+      iterator: null,
+      ownsStreamEvents: false,
+      abortRequested: false,
+      adoptedGatewayRun: true,
+      ...(runId ? { adoptedRunId: runId } : {}),
+      adoptedActiveRunIds: activeRunIds,
+    });
+    markSendingForTarget(target);
+  }, [chatStreamEntryIsCurrent, clearAbortingForTarget, clearSendingForTarget, markSendingForTarget]);
 
   const readComposerDraftForTarget = useCallback((target: ChatHistoryTarget): ComposerDraftState => {
     return composerDraftsByTargetRef.current.get(chatHistoryTargetKey(target)) ?? emptyComposerDraft();
@@ -1771,8 +1825,18 @@ export function useOpenClawSession(
       if (sessionKeys.some((sessionKey) => sameOpenClawSessionKey(sessionKey, target.sessionKey))) continue;
       sessionKeys.push(target.sessionKey);
     }
+    if (hydrationMode === "sessions" && sessionsFetchedAgentId === agentId) {
+      for (const session of activeSessionRecords) {
+        if (!openClawSessionHasActiveRun(session)) continue;
+        const sessionKey = sameOpenClawSelectableSessionKey(session.key, activeSessionKey)
+          ? activeSessionKey
+          : session.key;
+        if (sessionKeys.some((candidate) => sameOpenClawSessionKey(candidate, sessionKey))) continue;
+        sessionKeys.push(sessionKey);
+      }
+    }
     return sessionKeys;
-  }, [agentId, sendingTargets]);
+  }, [activeSessionKey, activeSessionRecords, agentId, hydrationMode, sendingTargets, sessionsFetchedAgentId]);
 
   const resolveChatTargetState = useCallback((target: ChatHistoryTarget) => {
     const sessionSnapshot = sessionSnapshotRef.current;
@@ -2224,17 +2288,158 @@ export function useOpenClawSession(
       }
       const eventMatchesActiveSession = openClawEventMatchesSession(gatewayEvent.payload, activeGatewaySessionKey);
       const suppressChatStreamEvents = activeChatSendTargetsRef.current.has(targetKey);
+      const payload = gatewayEvent.payload ?? {};
+      const payloadRecord = payload as Record<string, unknown>;
+      const lifecycleData = payloadRecord.data as Record<string, unknown> | undefined;
+      const eventRunId = nonEmptyString(payloadRecord.runId ?? lifecycleData?.runId);
+      const chatState = String(payloadRecord.state || "").toLowerCase();
+      const lifecycleStream = String(payloadRecord.stream || "").toLowerCase();
+      const lifecyclePhase = String(lifecycleData?.phase || "").toLowerCase();
+      const isAgentLifecycleTerminal = gatewayEvent.event === "agent" &&
+        lifecycleStream === "lifecycle" &&
+        ["end", "error"].includes(lifecyclePhase);
+      const isGatewayRunTerminal = !suppressChatStreamEvents && eventMatchesActiveSession && (
+        gatewayEvent.event === "chat.done" ||
+        gatewayEvent.event === "chat.error" ||
+        gatewayEvent.event === "chat.aborted" ||
+        (gatewayEvent.event === "chat" && ["final", "aborted", "error"].includes(chatState)) ||
+        isAgentLifecycleTerminal
+      );
+      const terminalWasAborted = gatewayEvent.event === "chat.aborted" ||
+        (gatewayEvent.event === "chat" && chatState === "aborted");
+      const passiveTerminalError = !suppressChatStreamEvents && eventMatchesActiveSession
+        ? gatewayEvent.event === "chat" && chatState === "error"
+          ? nonEmptyString(payloadRecord.errorMessage) ?? nonEmptyString(payloadRecord.message) ?? "Unknown error"
+          : isAgentLifecycleTerminal && lifecyclePhase === "error"
+            ? nonEmptyString(lifecycleData?.error) ?? nonEmptyString(lifecycleData?.message) ?? "Unknown error"
+            : null
+        : null;
+      const isGatewayRunProgress = !suppressChatStreamEvents && eventMatchesActiveSession && (
+        (
+          gatewayEvent.event.startsWith("chat.") &&
+          !isGatewayRunTerminal
+        ) ||
+        (
+          gatewayEvent.event === "chat" &&
+          !isGatewayRunTerminal
+        ) ||
+        (
+          gatewayEvent.event === "agent" &&
+          !isGatewayRunTerminal &&
+          ["tool", "lifecycle"].includes(lifecycleStream)
+        )
+      );
+      const advanceGatewayRunRevision = () => {
+        gatewayRunStateRevisionsRef.current.set(
+          targetKey,
+          (gatewayRunStateRevisionsRef.current.get(targetKey) ?? 0) + 1,
+        );
+      };
+      let gatewayRunFinished = false;
+      const finishGatewayRun = () => {
+        if (gatewayRunFinished) return;
+        gatewayRunFinished = true;
+        advanceGatewayRunRevision();
+        const entry = activeChatStreamsRef.current.get(targetKey);
+        if (
+          entry?.adoptedGatewayRun &&
+          eventRunId &&
+          entry.adoptedRunId &&
+          entry.adoptedRunId !== eventRunId
+        ) {
+          const remainingRunIds = (entry.adoptedActiveRunIds ?? []).filter((runId) => runId !== eventRunId);
+          if (remainingRunIds.length > 0) {
+            entry.adoptedActiveRunIds = remainingRunIds;
+            setTitledSessions((current) => current.map((session) => (
+              sameOpenClawSelectableSessionKey(session.key, activeSessionKey) ||
+              sameOpenClawSessionKey(openClawGatewaySessionKey(session), activeGatewaySessionKey)
+                ? {
+                    ...session,
+                    hasActiveRun: true,
+                    activeRunIds: remainingRunIds,
+                    raw: { ...session.raw, hasActiveRun: true, activeRunIds: remainingRunIds },
+                  }
+                : session
+            )));
+          }
+          return;
+        }
+        const remainingRunIds = entry?.adoptedGatewayRun && eventRunId
+          ? (entry.adoptedActiveRunIds ?? []).filter((runId) => runId !== eventRunId)
+          : [];
+        if (entry?.adoptedGatewayRun && remainingRunIds.length > 0) {
+          entry.adoptedRunId = remainingRunIds[0];
+          entry.adoptedActiveRunIds = remainingRunIds;
+          setTitledSessions((current) => current.map((session) => (
+            sameOpenClawSelectableSessionKey(session.key, activeSessionKey) ||
+            sameOpenClawSessionKey(openClawGatewaySessionKey(session), activeGatewaySessionKey)
+              ? {
+                  ...session,
+                  hasActiveRun: true,
+                  activeRunIds: remainingRunIds,
+                  raw: { ...session.raw, hasActiveRun: true, activeRunIds: remainingRunIds },
+                }
+              : session
+          )));
+          return;
+        }
+        flushQueuedChatHistoryUpdates(targetKey);
+        if (terminalWasAborted) dispatchChatHistory({ type: "mark-interrupted" }, target);
+        setSendingForTarget(target, false);
+        if (entry && !entry.ownsStreamEvents && chatStreamEntryIsCurrent(targetKey, entry)) {
+          activeChatStreamsRef.current.delete(targetKey);
+          clearAbortingForTarget(target, entry.token);
+        }
+        setTitledSessions((current) => current.map((session) => {
+          if (
+            !sameOpenClawSelectableSessionKey(session.key, activeSessionKey) &&
+            !sameOpenClawSessionKey(openClawGatewaySessionKey(session), activeGatewaySessionKey)
+          ) return session;
+          return {
+            ...session,
+            hasActiveRun: false,
+            activeRunIds: [],
+            raw: { ...session.raw, hasActiveRun: false, activeRunIds: [] },
+          };
+        }));
+      };
+      if (isGatewayRunProgress) {
+        if (hydrationModeRef.current !== "sessions") {
+          const current = activeChatStreamsRef.current.get(targetKey);
+          if (!current) {
+            activeChatStreamsRef.current.set(targetKey, {
+              token: Symbol("openclaw-adopted-gateway-run"),
+              gateway,
+              lifecycleRevision: gatewayLifecycleRevisionRef.current,
+              iterator: null,
+              ownsStreamEvents: false,
+              abortRequested: false,
+              adoptedGatewayRun: true,
+              ...(eventRunId ? { adoptedRunId: eventRunId } : {}),
+              adoptedActiveRunIds: eventRunId ? [eventRunId] : [],
+            });
+          } else if (current.adoptedGatewayRun && eventRunId) {
+            current.adoptedRunId ??= eventRunId;
+            current.adoptedActiveRunIds = Array.from(new Set([
+              ...(current.adoptedActiveRunIds ?? []),
+              eventRunId,
+            ]));
+          }
+          markSendingForTarget(target);
+        }
+      }
+      if (passiveTerminalError) {
+        dispatchChatHistory({ type: "append-system-message", content: `Error: ${passiveTerminalError}` }, target);
+        if (hydrationModeRef.current !== "sessions") {
+          appendActivity({ type: "error", action: "Error", detail: passiveTerminalError });
+        }
+      }
       handleOpenClawSessionEvent({
         gatewayEvent,
         setMessages: (update) => queueChatHistoryUpdate(update, target),
         setSending: (value) => {
-          if (value === false) flushQueuedChatHistoryUpdates(targetKey);
-          setSendingForTarget(target, value);
-          if (value !== false) return;
-          const entry = activeChatStreamsRef.current.get(targetKey);
-          if (!entry || entry.ownsStreamEvents || !chatStreamEntryIsCurrent(targetKey, entry)) return;
-          activeChatStreamsRef.current.delete(targetKey);
-          clearAbortingForTarget(target, entry.token);
+          if (value === false) finishGatewayRun();
+          else setSendingForTarget(target, value);
         },
         setSessions: applyFetchedSessions,
         refreshSessions: (options) => queuePassiveCompletionRefresh({
@@ -2247,24 +2452,15 @@ export function useOpenClawSession(
         activeSessionKey: activeGatewaySessionKey,
         suppressChatStreamEvents,
       });
-      const payload = gatewayEvent.payload ?? {};
-      const payloadRecord = payload as Record<string, unknown>;
-      const lifecycleData = payloadRecord.data as Record<string, unknown> | undefined;
-      const isAgentLifecycleEnd = gatewayEvent.event === "agent" &&
-        String(payloadRecord.stream || "").toLowerCase() === "lifecycle" &&
-        String(lifecycleData?.phase || "").toLowerCase() === "end";
-      const isPassiveCompletion = !suppressChatStreamEvents && eventMatchesActiveSession && (
-        gatewayEvent.event === "chat.done" ||
-        (gatewayEvent.event === "chat" && payloadRecord.state === "final") ||
-        isAgentLifecycleEnd
-      );
+      if (isGatewayRunTerminal) finishGatewayRun();
+      const isPassiveCompletion = isGatewayRunTerminal;
       if (isPassiveCompletion && historyHydrationEnabled) queuePassiveCompletionRefresh({ history: true });
     });
     return () => {
       if (passiveCompletionRefreshTimer !== null) window.clearTimeout(passiveCompletionRefreshTimer);
       unsubscribe();
     };
-  }, [gateway, agentId, activeSessionKey, activeGatewaySessionKey, activeSessionIsEphemeral, appendActivity, applyFetchedSessions, chatStreamEntryIsCurrent, clearAbortingForTarget, flushQueuedChatHistoryUpdates, historyHydrationEnabled, queueChatHistoryUpdate, refreshMessagesFromHistory, refreshSessionList, setSendingForTarget]);
+  }, [gateway, agentId, activeSessionKey, activeGatewaySessionKey, activeSessionIsEphemeral, appendActivity, applyFetchedSessions, chatStreamEntryIsCurrent, clearAbortingForTarget, dispatchChatHistory, flushQueuedChatHistoryUpdates, historyHydrationEnabled, markSendingForTarget, queueChatHistoryUpdate, refreshMessagesFromHistory, refreshSessionList, setSendingForTarget, setTitledSessions]);
 
   useEffect(() => {
     if (!gateway || status !== "connected") return;
@@ -2280,7 +2476,8 @@ export function useOpenClawSession(
     if (
       activeSessionSelectionResolved &&
       historyHydrationEnabled &&
-      chatTargetHasSendAuthority(target, gateway, currentTargetState.gatewaySessionKey)
+      chatTargetHasSendAuthority(target, gateway, currentTargetState.gatewaySessionKey) &&
+      !activeChatStreamsRef.current.get(chatHistoryTargetKey(target))?.adoptedGatewayRun
     ) {
       const currentConnectionHydration = connectionHydrationRef.current;
       const matchingConnectionHydration = currentConnectionHydration?.gateway === gateway &&
@@ -2302,6 +2499,7 @@ export function useOpenClawSession(
     const historyLifecycleRevision = gatewayLifecycleRevisionRef.current;
     const historyRequestRevision = historyHydrationEnabled ? beginChatHistoryRequest(target) : 0;
     const historyMutationRevision = chatHistoryMutationRevisionsRef.current.get(targetKey) ?? 0;
+    const gatewayRunStateRevision = gatewayRunStateRevisionsRef.current.get(targetKey) ?? 0;
     if (historyHydrationEnabled) setChatHistoryPhase(target, "loading");
     type SessionListResult =
       | { status: "fulfilled"; sessions: OpenClawSessionRecord[] }
@@ -2465,6 +2663,9 @@ export function useOpenClawSession(
         const historyHasNoNewLiveMutations = (
           chatHistoryMutationRevisionsRef.current.get(targetKey) ?? 0
         ) === historyMutationRevision;
+        const gatewayRunStateUnchanged = (
+          gatewayRunStateRevisionsRef.current.get(targetKey) ?? 0
+        ) === gatewayRunStateRevision;
         const hydratedSessionReadOnly = hydrated.activeSessionRecord?.readOnly === true;
         const preserveReconnectPendingHistory = reconnectPendingChatTargetsRef.current.has(targetKey);
         const preserveLocalSessionHistory = hydratedSessionReadOnly || activeSessionIsEphemeral || preserveReconnectPendingHistory;
@@ -2480,6 +2681,7 @@ export function useOpenClawSession(
         if (
           sessionRouteResolved &&
           historyRequestCurrent &&
+          gatewayRunStateUnchanged &&
           (historyHasNoNewLiveMutations || preserveLocalSessionHistory) &&
           (gatewayConfirmsCurrentLiveState || preserveLocalSessionHistory) &&
           !activeChatSendTargetsRef.current.has(targetKey) &&
@@ -2506,6 +2708,17 @@ export function useOpenClawSession(
             setChatHistoryPhase(target, "error");
           }
         }
+        if (
+          historyRequestCurrent &&
+          sessionRouteResolved &&
+          historyHasNoNewLiveMutations &&
+          gatewayRunStateUnchanged &&
+          hydrated.historyStatus === "fulfilled" &&
+          !hydratedSessionReadOnly &&
+          !activeSessionIsEphemeral
+        ) {
+          reconcileHydratedGatewayRun(target, gateway, hydrated);
+        }
         setReady(true);
       } catch (e: unknown) {
         if (cancelled) return;
@@ -2522,7 +2735,7 @@ export function useOpenClawSession(
     return () => {
       cancelled = true;
     };
-  }, [gateway, status, agentId, activeSessionKey, activeGatewaySessionKey, activeSessionIsEphemeral, activeSessionSelectionResolved, applyConnectionHydration, applyFetchedSessions, beginChatHistoryRequest, chatHistoryRequestIsCurrent, chatTargetHasSendAuthority, completeReconnectSessionRefresh, deletedSessionKeys, dispatchChatHistory, ensureInitialSessionMaterialized, fetchSessionList, fullHydrationEnabled, grantChatSendAuthority, historyHydrationEnabled, hydrateConnectionForGateway, replaceChatHistoryFromGateway, requestedActiveSessionKeyTrimmed, resolveChatTargetState, setChatHistoryPhase]);
+  }, [gateway, status, agentId, activeSessionKey, activeGatewaySessionKey, activeSessionIsEphemeral, activeSessionSelectionResolved, applyConnectionHydration, applyFetchedSessions, beginChatHistoryRequest, chatHistoryRequestIsCurrent, chatTargetHasSendAuthority, completeReconnectSessionRefresh, deletedSessionKeys, dispatchChatHistory, ensureInitialSessionMaterialized, fetchSessionList, fullHydrationEnabled, grantChatSendAuthority, historyHydrationEnabled, hydrateConnectionForGateway, reconcileHydratedGatewayRun, replaceChatHistoryFromGateway, requestedActiveSessionKeyTrimmed, resolveChatTargetState, setChatHistoryPhase]);
 
   useEffect(() => {
     if (status !== "disconnected") return;
@@ -2952,9 +3165,11 @@ export function useOpenClawSession(
     markAbortingForTarget(target, streamEntry.token);
     try {
       if (targetIsTemporary && temporaryLease) await temporaryLease.session.chatAbort();
+      else if (streamEntry.adoptedRunId) await gateway.chatAbort(gatewaySessionKey, streamEntry.adoptedRunId);
       else await gateway.chatAbort(gatewaySessionKey);
       if (!chatStreamEntryIsCurrent(targetKey, streamEntry)) return;
       requestChatStreamCancellation(streamEntry);
+      if (streamEntry.adoptedGatewayRun) activeChatStreamsRef.current.delete(targetKey);
       flushQueuedChatHistoryUpdates(targetKey);
       dispatchChatHistory({ type: "mark-interrupted" }, target);
       clearSendingForTarget(target);

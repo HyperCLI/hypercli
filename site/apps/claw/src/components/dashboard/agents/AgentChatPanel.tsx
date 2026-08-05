@@ -39,6 +39,7 @@ import {
 import { agentDisplayLabel } from "@/components/dashboard/agents/agentViewModel";
 import { agentProfileImageUrl } from "@/lib/avatar";
 import { AgentChatComposerShell } from "@/components/dashboard/agents/AgentChatComposerShell";
+import { useAgentStartupExperience } from "@/hooks/useAgentStartupExperience";
 
 export type { ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
 export type ChatPendingFileRemovalState = "removing" | "failed";
@@ -71,6 +72,7 @@ const CHAT_NEAR_BOTTOM_THRESHOLD_PX = 100;
 const CHAT_HISTORY_LOAD_THRESHOLD_PX = 48;
 const CHAT_TRANSCRIPT_RENDER_LIMIT = 100;
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+const RESPONSE_STATUS_TICK_MS = 1_000;
 const AUDIO_BAR_WEIGHTS = [
   0.62,
   0.78,
@@ -94,6 +96,128 @@ const AUDIO_BAR_WEIGHTS = [
   0.8,
 ] as const;
 const MemoizedChatMessageBubble = React.memo(ChatMessageBubble);
+
+interface ActiveResponseStatusPresentation {
+  label: string;
+  description: string;
+  ariaLabel: string;
+}
+
+function formatResponseElapsed(elapsedMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1_000));
+  if (totalSeconds < 2) return "just started";
+  if (totalSeconds < 60) return `${totalSeconds}s elapsed`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return seconds > 0 ? `${minutes}m ${seconds}s elapsed` : `${minutes}m elapsed`;
+}
+
+function formatResponseUpdateAge(updatedAt: number | null, now: number): string | null {
+  if (updatedAt === null) return null;
+  const seconds = Math.max(0, Math.floor((now - updatedAt) / 1_000));
+  if (seconds < 2) return "updated just now";
+  if (seconds < 60) return `updated ${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  return `updated ${minutes}m ago`;
+}
+
+function activeResponseStatusPresentation(
+  messages: ChatMessage[],
+  now: number,
+  fallbackStartedAt: number,
+): ActiveResponseStatusPresentation {
+  let userIndex = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === "user") {
+      userIndex = index;
+      break;
+    }
+  }
+  const currentTurn = messages.slice(userIndex + 1);
+  const assistant = [...currentTurn].reverse().find((message) => message.role === "assistant") ?? null;
+  const userMessage = userIndex >= 0 ? messages[userIndex] : null;
+  const startedAt = typeof userMessage?.timestamp === "number"
+    ? userMessage.timestamp
+    : typeof assistant?.timestamp === "number"
+      ? assistant.timestamp
+      : fallbackStartedAt;
+  const elapsed = formatResponseElapsed(now - startedAt);
+  const updated = formatResponseUpdateAge(
+    typeof assistant?.timestamp === "number" ? assistant.timestamp : null,
+    now,
+  );
+  const toolCalls = assistant?.toolCalls ?? [];
+  const pendingTools = toolCalls.filter((toolCall) => toolCall.result === undefined).length;
+  const completedTools = toolCalls.length - pendingTools;
+  const responseContent = assistant?.content ?? "";
+  const contentChars = responseContent.trim() ? responseContent.length : 0;
+
+  if (pendingTools > 0) {
+    const activeTools = `${pendingTools} tool step${pendingTools === 1 ? "" : "s"} active`;
+    const completed = completedTools > 0
+      ? ` · ${completedTools} complete`
+      : "";
+    return {
+      label: "Using tools",
+      description: `${activeTools}${completed}${updated ? ` · ${updated}` : ""} · ${elapsed}`,
+      ariaLabel: "Using tools. The response is still active.",
+    };
+  }
+
+  if (contentChars > 0) {
+    return {
+      label: "Receiving response",
+      description: `${contentChars.toLocaleString("en-US")} characters received${updated ? ` · ${updated}` : ""} · ${elapsed}`,
+      ariaLabel: "Receiving response. The response is still active.",
+    };
+  }
+
+  if (completedTools > 0) {
+    return {
+      label: "Waiting for final response",
+      description: `${completedTools} tool step${completedTools === 1 ? "" : "s"} complete${updated ? ` · ${updated}` : ""} · ${elapsed}`,
+      ariaLabel: "Waiting for the final response. Tool work is complete.",
+    };
+  }
+
+  if (assistant?.thinking?.trim()) {
+    return {
+      label: now - startedAt >= 15_000 ? "Still working through your request" : "Working through your request",
+      description: `${updated ? `${updated} · ` : ""}${elapsed}`,
+      ariaLabel: "Working through your request. The response is still active.",
+    };
+  }
+
+  const waitingLonger = now - startedAt >= 10_000;
+  return {
+    label: waitingLonger ? "Still working" : "Starting response",
+    description: `${waitingLonger ? "The response is active" : "Waiting for the first update"} · ${elapsed}`,
+    ariaLabel: waitingLonger
+      ? "Still working. The response is active."
+      : "Starting response. Waiting for the first update.",
+  };
+}
+
+function ActiveResponseStatus({ messages }: { messages: ChatMessage[] }) {
+  const [fallbackStartedAt] = React.useState(() => Date.now());
+  const [now, setNow] = React.useState(() => Date.now());
+
+  React.useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), RESPONSE_STATUS_TICK_MS);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const status = activeResponseStatusPresentation(messages, now, fallbackStartedAt);
+  return (
+    <ChatThinkingIndicator
+      variant="v2"
+      label={status.label}
+      description={status.description}
+      ariaLabel={status.ariaLabel}
+    />
+  );
+}
+
 const IntegrationChatCardHost = dynamic(
   () => import("@/components/dashboard/chat-integrations/IntegrationChatCardHost").then((module) => module.IntegrationChatCardHost),
   {
@@ -375,14 +499,50 @@ function caretIsOnLastLogicalLine(textarea: HTMLTextAreaElement): boolean {
   return !textarea.value.slice(textarea.selectionEnd ?? 0).includes("\n");
 }
 
+function isLifecycleStartupStatus(status: AgentChatBootStatus): boolean {
+  return status.status === "loading" && (
+    status.phase === "provisioning" ||
+    status.phase === "restoring" ||
+    status.phase === "syncing" ||
+    status.phase === "booting"
+  );
+}
+
+type GuidedLoadingReason = "startup" | "initial" | null;
+
+function initialGuidedLoadingReason(status: AgentChatBootStatus): GuidedLoadingReason {
+  if (isLifecycleStartupStatus(status)) return "startup";
+  if (status.status === "loading" && (status.phase === "gateway" || status.phase === "workspace")) {
+    return "initial";
+  }
+  return null;
+}
+
 function useSettledChatBootStatus(agentId: string, nextStatus: AgentChatBootStatus) {
-  const [settled, setSettled] = React.useState({ agentId, status: nextStatus });
+  const [settled, setSettled] = React.useState({
+    agentId,
+    status: nextStatus,
+    guidedLoadingReason: initialGuidedLoadingReason(nextStatus),
+  });
   const statusRef = React.useRef(nextStatus);
   const agentIdRef = React.useRef(agentId);
 
   const commitStatus = React.useCallback((targetAgentId: string, value: AgentChatBootStatus) => {
     statusRef.current = value;
-    setSettled({ agentId: targetAgentId, status: value });
+    setSettled((current) => {
+      const guidedLoadingReason = value.status !== "loading"
+        ? null
+        : isLifecycleStartupStatus(value)
+          ? "startup"
+          : current.agentId === targetAgentId
+            ? current.guidedLoadingReason
+            : initialGuidedLoadingReason(value);
+      return {
+        agentId: targetAgentId,
+        status: value,
+        guidedLoadingReason,
+      };
+    });
   }, []);
 
   React.useEffect(() => {
@@ -408,7 +568,12 @@ function useSettledChatBootStatus(agentId: string, nextStatus: AgentChatBootStat
     return () => window.clearTimeout(timeout);
   }, [agentId, commitStatus, nextStatus]);
 
-  return settled.agentId === agentId ? settled.status : nextStatus;
+  if (settled.agentId === agentId) return settled;
+  return {
+    agentId,
+    status: nextStatus,
+    guidedLoadingReason: initialGuidedLoadingReason(nextStatus),
+  };
 }
 
 interface AgentChatPanelProps {
@@ -500,6 +665,7 @@ export function AgentChatPanel({
   journeyMissionCard,
   skillDraftTestBanner,
 }: AgentChatPanelProps) {
+  const [loadingExperience] = useAgentStartupExperience();
   const chatScrollContext = `${selectedAgent.id}\0${chat.activeSessionKey}`;
   const selectedAgentDisplayName = agentDisplayLabel(selectedAgent);
   const selectedAgentAvatarUrl = agentProfileImageUrl(selectedAgent);
@@ -883,8 +1049,9 @@ export function AgentChatPanel({
       selectedAgent.state,
     ],
   );
-  const bootStatus = useSettledChatBootStatus(selectedAgent.id, rawBootStatus);
-  const displayBootStatus = bootStatus;
+  const settledBootStatus = useSettledChatBootStatus(selectedAgent.id, rawBootStatus);
+  const displayBootStatus = settledBootStatus.status;
+  const guidedLoadingReason = settledBootStatus.guidedLoadingReason;
   const hasPendingAttachmentWork = chat.pendingAttachments.length > 0 || chat.pendingAttachmentReads > 0 || chatFilesUploading;
   const temporaryChatTransitioning = chat.temporaryChatState === "starting" || chat.temporaryChatState === "ending";
   const readOnlyComposerReason = chat.activeSessionReadOnlyReason ?? "This connected conversation is read-only here.";
@@ -994,6 +1161,9 @@ export function AgentChatPanel({
       return (
         <AgentLoadingState
           bootStatus={displayBootStatus}
+          guided={guidedLoadingReason !== null}
+          heading={guidedLoadingReason === "initial" ? "Rejoining your teammate" : undefined}
+          note={guidedLoadingReason === "initial" ? "Restoring your connection and recent conversation." : undefined}
         />
       );
     }
@@ -1010,7 +1180,15 @@ export function AgentChatPanel({
 
     if (displayBootStatus.status === "ready") {
       if (chat.historyPhase === "loading" || chat.historyPhase === "idle") {
-        return <ChatHistoryState onRetry={chat.retry} />;
+        return loadingExperience === "tips" ? (
+          <AgentLoadingState
+            guided
+            heading="Rejoining your teammate"
+            note="Restoring your connection and recent conversation."
+            title="Loading conversation"
+            detail="Bringing recent messages back into view."
+          />
+        ) : <ChatHistoryState onRetry={chat.retry} />;
       }
       if (chat.historyPhase === "error") {
         return <ChatHistoryState failed onRetry={chat.retry} />;
@@ -1229,12 +1407,7 @@ export function AgentChatPanel({
             if (!activeSessionSending) return null;
             const last = chat.messages[chat.messages.length - 1];
             if (last && shouldHideIntegrationSetupMessage(last)) return null;
-            const hasResponseText = last?.role === "assistant" && Boolean(last.content.trim());
-            const hasRunningTool = last?.role === "assistant" && last.toolCalls?.some((toolCall) => toolCall.result === undefined);
-            const hasCompletedTools = last?.role === "assistant" && Boolean(last.toolCalls?.length);
-            if (hasRunningTool) return null;
-            if (hasCompletedTools) return <ChatThinkingIndicator variant="v2" label="Writing response" />;
-            return hasResponseText ? null : <ChatThinkingIndicator variant="v2" label="Thinking" />;
+            return <ActiveResponseStatus messages={chat.messages} />;
           })()}
 
           <div ref={chatEndRef} aria-hidden="true" />

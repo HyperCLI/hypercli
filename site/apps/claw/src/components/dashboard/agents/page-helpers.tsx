@@ -16,6 +16,7 @@ import {
   GATEWAY_LOADING_DETAIL,
   GATEWAY_LOADING_TITLE,
 } from "@/components/dashboard/AgentGatewayLoadingVisual";
+import { AgentStartupLoadingVisual } from "@/components/dashboard/AgentStartupLoadingVisual";
 import type { AgentLifecycleStage } from "@/components/dashboard/AgentLifecycleSteps";
 import type { AgentBootDisplayStatus } from "@/components/dashboard/agents/chat-boot-stage";
 import { TooltipHint } from "@/components/ClawTooltip";
@@ -163,22 +164,28 @@ export function ConnectionStatusIndicator({
 // ── Shared Loading State ──
 
 interface AgentLoadingStateProps {
+  heading?: string;
+  note?: string;
   title?: string;
   detail?: string;
   tone?: "starting" | "connecting" | "loading";
   surface?: "default" | "terminal";
   stage?: AgentLifecycleStage;
   bootStatus?: AgentBootDisplayStatus;
+  guided?: boolean;
   actionLabel?: string;
   onAction?: () => void;
 }
 
 export function AgentLoadingState({
+  heading,
+  note,
   title,
   detail,
   surface = "default",
   stage = "gateway",
   bootStatus,
+  guided,
   actionLabel,
   onAction,
 }: AgentLoadingStateProps) {
@@ -186,22 +193,41 @@ export function AgentLoadingState({
   const resolvedDetail = bootStatus?.detail ?? detail ?? GATEWAY_LOADING_DETAIL;
   const resolvedStage = bootStatus?.stage ?? stage;
   const resolvedStatus = bootStatus?.status ?? "loading";
+  const bootPhaseIsStartup = bootStatus?.status === "loading" && (
+    bootStatus.phase === "provisioning" ||
+    bootStatus.phase === "restoring" ||
+    bootStatus.phase === "syncing" ||
+    bootStatus.phase === "booting"
+  );
+  const showGuidedExperience = guided ?? bootPhaseIsStartup;
 
   return (
     <div
       className="flex h-full min-h-0 items-center justify-center overflow-hidden px-4 py-3 sm:px-5 sm:py-4"
-      aria-live="polite"
       data-loading-surface={surface}
       data-loading-stage={resolvedStage}
     >
-      <AgentGatewayLoadingVisual
-        title={resolvedTitle}
-        detail={resolvedDetail}
-        showCodePhase
-        status={resolvedStatus}
-        actionLabel={actionLabel}
-        onAction={onAction}
-      />
+      {showGuidedExperience ? (
+        <AgentStartupLoadingVisual
+          heading={heading}
+          note={note}
+          title={resolvedTitle}
+          detail={resolvedDetail}
+          showCodePhase
+          status={resolvedStatus}
+          actionLabel={actionLabel}
+          onAction={onAction}
+        />
+      ) : (
+        <AgentGatewayLoadingVisual
+          title={resolvedTitle}
+          detail={resolvedDetail}
+          showCodePhase
+          status={resolvedStatus}
+          actionLabel={actionLabel}
+          onAction={onAction}
+        />
+      )}
     </div>
   );
 }

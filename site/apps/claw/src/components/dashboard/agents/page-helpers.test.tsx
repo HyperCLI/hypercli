@@ -1,10 +1,14 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithClient, expectNoA11yViolations } from "@/test/utils";
 import { AgentLaunchPrompt, AgentLoadingState } from "./page-helpers";
 
 describe("AgentLaunchPrompt", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
   it("launches from the keyboard and has no obvious accessibility violations", async () => {
     const user = userEvent.setup();
     const onLaunch = vi.fn();
@@ -70,6 +74,10 @@ describe("AgentLaunchPrompt", () => {
 });
 
 describe("AgentLoadingState", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
   it("shows the shared gateway loading state", () => {
     renderWithClient(<AgentLoadingState />);
 
@@ -105,6 +113,24 @@ describe("AgentLoadingState", () => {
       expect(screen.getByText("Booting agent")).toBeInTheDocument();
       expect(screen.getByText("Starting the container and OpenClaw services.")).toBeInTheDocument();
     });
+  });
+
+  it("uses the startup tips experience for lifecycle boot phases", () => {
+    renderWithClient(
+      <AgentLoadingState
+        bootStatus={{
+          status: "loading",
+          phase: "provisioning",
+          title: "Provisioning runtime",
+          detail: "Reserving compute and preparing the workspace.",
+          tone: "starting",
+          stage: "runtime",
+        }}
+      />,
+    );
+
+    expect(document.querySelector('[data-slot="agent-startup-tips"]')).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /agent workspace loading/i })).not.toBeInTheDocument();
   });
 
   it("renders an error status with a retry action", async () => {

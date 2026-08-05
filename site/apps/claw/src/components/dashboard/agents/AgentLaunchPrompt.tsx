@@ -2,7 +2,7 @@
 
 import { Play, Plus } from "lucide-react";
 
-import { AgentGatewayLoadingVisual } from "@/components/dashboard/AgentGatewayLoadingVisual";
+import { AgentStartupLoadingVisual } from "@/components/dashboard/AgentStartupLoadingVisual";
 import { TooltipHint } from "@/components/ClawTooltip";
 
 interface AgentLaunchPromptProps {
@@ -29,7 +29,7 @@ export function AgentLaunchPrompt({
   if (launching) {
     return (
       <div className="flex h-full min-h-0 items-center justify-center overflow-hidden px-4 py-3 sm:px-5 sm:py-4">
-        <AgentGatewayLoadingVisual
+        <AgentStartupLoadingVisual
           title="Booting agent"
           detail="Starting the runtime and gateway."
         />

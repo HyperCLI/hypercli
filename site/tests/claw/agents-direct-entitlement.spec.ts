@@ -214,6 +214,8 @@ test("agents page launches from a direct entitlement without an active subscript
   const advancedSettings = page.locator("details", {
     has: page.locator("summary").filter({ hasText: /^Advanced$/i }),
   }).first();
+  await expect(advancedSettings).not.toHaveAttribute("open", "");
+  await advancedSettings.locator("summary").click();
   await expect(advancedSettings).toHaveAttribute("open", "");
   await page
     .locator("label")
