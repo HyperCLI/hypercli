@@ -2608,9 +2608,12 @@ async fn import_ssh_key(
     app: tauri::AppHandle,
     agent_id: String,
 ) -> Result<DesktopSshKeyStatus, String> {
-    let selected = app
-        .dialog()
-        .file()
+    let ssh_directory = home_dir()?.join(".ssh");
+    let mut picker = app.dialog().file().set_title("Attach an SSH private key");
+    if ssh_directory.is_dir() {
+        picker = picker.set_directory(ssh_directory);
+    }
+    let selected = picker
         .blocking_pick_file()
         .ok_or_else(|| "No SSH key selected".to_owned())?;
     let path = selected

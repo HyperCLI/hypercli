@@ -256,9 +256,12 @@ test("editor saves Buzz policy and launch env through one typed payload", async 
   await expect(page.locator("#allowlist-field")).toBeHidden();
   await page.locator("#agent-advanced").click();
   await page.locator("#agent-env").fill("GITHUB_ORG=hypercli\nFEATURE_FLAG=true");
-  await page.locator("#ssh-generate-btn").click();
+  await expect(page.locator("#ssh-import-btn")).toHaveText("Attach SSH key");
+  await page.locator("#ssh-import-btn").click();
   await expect(page.locator("#ssh-status-title")).toHaveText("SSH key installed");
   await expect(page.locator("#ssh-status-detail")).toContainText("SHA256:test-agent-key");
+  const attachCall = await page.evaluate(() => window.__MOCK__.calls.find(([cmd]) => cmd === "import_ssh_key"));
+  expect(attachCall[1].agentId).toBe("40c42593-7d02-48f9-a3ff-6c7d6461f140");
   await page.locator("#agent-save").click();
 
   const saveCall = await page.evaluate(() => window.__MOCK__.calls.find(([cmd]) => cmd === "save_agent"));

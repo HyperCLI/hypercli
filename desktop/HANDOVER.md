@@ -449,11 +449,13 @@ automatically from untrusted terminal output. The UI handles an immediately
 completed login without polling a nonexistent session and Enter sends the
 login value without submitting the agent editor.
 
-SSH generation returns only public material. Imports reject symlinks, unsafe
-permissions, oversized/non-PEM input, upload to a fixed temporary path, derive
-the public key noninteractively, and atomically install the canonical
-`~/.ssh/id_ed25519`; traps remove invalid/encrypted temporary keys. An existing
-identity is not overwritten implicitly.
+SSH generation returns only public material. The primary **Attach SSH key**
+action opens a native single-file picker rooted at the local `~/.ssh`; it does
+not blanket-copy that directory. Imports reject symlinks, unsafe permissions,
+oversized/non-PEM input, upload to a fixed temporary path, derive the public key
+noninteractively, and atomically install the canonical `~/.ssh/id_ed25519`;
+traps remove invalid/encrypted temporary keys. An existing identity is not
+overwritten implicitly.
 
 Claude, Codex, and Kimi are native-login-first: absence of
 `HYPERCLI_RUNTIME_INFERENCE` means no HyperCLI inference overlay. The exact

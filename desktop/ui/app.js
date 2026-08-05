@@ -534,7 +534,7 @@ async function refreshSshStatus() {
     title.textContent = configured ? "SSH key installed" : "Not configured";
     detail.textContent = result?.public_key || result?.fingerprint || (configured
       ? "The public key is ready to add to your Git host."
-      : "Add an outbound key for Git hosts and coding workflows.");
+      : "Attach one private key from ~/.ssh for Git and coding workflows.");
   } catch (error) {
     title.textContent = "Could not check SSH";
     detail.textContent = String(error);
@@ -988,10 +988,10 @@ document.getElementById("runtime-login-cancel").addEventListener("click", async 
 for (const [id, command] of [["ssh-generate-btn", "generate_ssh_key"], ["ssh-import-btn", "import_ssh_key"]]) {
   document.getElementById(id).addEventListener("click", async () => {
     if (!editingAgent) return;
-    setStatus(command === "generate_ssh_key" ? "Generating SSH key…" : "Choosing SSH key…");
+    setStatus(command === "generate_ssh_key" ? "Generating SSH key…" : "Choose a private key from ~/.ssh…");
     try {
       await invoke(command, { agentId: editingAgent.id });
-      setStatus(command === "generate_ssh_key" ? "SSH key generated." : "SSH key imported.");
+      setStatus(command === "generate_ssh_key" ? "SSH key generated." : "SSH key attached.");
       await refreshSshStatus();
     } catch (error) {
       setStatus(String(error), true);
