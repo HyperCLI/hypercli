@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -687,6 +688,15 @@ pub struct ExecDeploymentResponse {
     pub dry_run: bool,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+pub struct DeploymentFileWriteResponse {
+    pub status: String,
+    pub path: String,
+    pub size: u64,
+    #[serde(default)]
+    pub target: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Deployment {
     pub id: String,
@@ -694,6 +704,8 @@ pub struct Deployment {
     pub name: String,
     #[serde(default)]
     pub handle: Option<String>,
+    #[serde(default)]
+    pub avatar_url: Option<String>,
     #[serde(default)]
     pub runtime: Option<ManagedRuntime>,
     #[serde(default)]
@@ -708,6 +720,11 @@ pub struct Deployment {
     pub requested_size: Option<String>,
     #[serde(default)]
     pub last_error: Option<String>,
+    /// Persisted launch settings. This can contain runtime credentials, so its
+    /// `Debug` implementation is always redacted even though authenticated
+    /// clients may inspect and patch individual fields deliberately.
+    #[serde(default)]
+    pub launch_config: DeploymentLaunchConfig,
 }
 
 impl Deployment {
@@ -718,6 +735,52 @@ impl Deployment {
             .iter()
             .any(|tag| tag == BUZZ_DEPLOYMENT_TAG || tag.starts_with("buzz_agent="))
     }
+}
+
+/// Secret-bearing persisted launch configuration returned by the agent API.
+///
+/// The wrapper keeps accidental `Debug` logging safe while retaining exact
+/// JSON round trips for stop → edit → start workflows. Callers should expose
+/// only a purpose-built sanitized projection to user interfaces.
+#[derive(Clone, Default, Deserialize, Serialize)]
+#[serde(transparent)]
+pub struct DeploymentLaunchConfig(BTreeMap<String, Value>);
+
+impl DeploymentLaunchConfig {
+    pub fn as_map(&self) -> &BTreeMap<String, Value> {
+        &self.0
+    }
+
+    pub fn into_map(self) -> BTreeMap<String, Value> {
+        self.0
+    }
+
+    pub fn from_map(values: BTreeMap<String, Value>) -> Self {
+        Self(values)
+    }
+}
+
+impl fmt::Debug for DeploymentLaunchConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("DeploymentLaunchConfig([REDACTED])")
+    }
+}
+
+/// Mutable deployment fields accepted by `PATCH /deployments/{id}`.
+///
+/// `launch_config` is a complete replacement, not a merge patch. Fetch the
+/// current deployment, modify its wrapped map, and submit the full result so
+/// unedited launch and secret fields survive.
+#[derive(Clone, Default, Serialize)]
+pub struct UpdateDeploymentRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<AgentSize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub launch_config: Option<DeploymentLaunchConfig>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -1054,6 +1117,7 @@ mod tests {
             id: "agent-1".to_owned(),
             name: "Fizz".to_owned(),
             handle: None,
+            avatar_url: None,
             runtime: Some(ManagedRuntime::Opencode),
             state: "RUNNING".to_owned(),
             pod_id: None,
@@ -1061,11 +1125,29 @@ mod tests {
             tags: tags.iter().map(|tag| (*tag).to_owned()).collect(),
             requested_size: None,
             last_error: None,
+            launch_config: Default::default(),
         };
 
         assert!(deployment(&[BUZZ_DEPLOYMENT_TAG]).is_buzz_managed());
         assert!(deployment(&["buzz_agent=public-key"]).is_buzz_managed());
         assert!(!deployment(&["app=openclaw"]).is_buzz_managed());
+    }
+
+    #[test]
+    fn deployment_launch_config_round_trips_but_debug_is_redacted() {
+        let config: DeploymentLaunchConfig = serde_json::from_value(serde_json::json!({
+            "env": {"BUZZ_PRIVATE_KEY": "nsec-secret", "SAFE": "visible"},
+            "command": ["/usr/local/bin/buzz-acp"]
+        }))
+        .unwrap();
+
+        assert_eq!(
+            serde_json::to_value(&config).unwrap()["env"]["SAFE"],
+            "visible"
+        );
+        let debug = format!("{config:?}");
+        assert!(debug.contains("REDACTED"));
+        assert!(!debug.contains("nsec-secret"));
     }
 
     #[test]

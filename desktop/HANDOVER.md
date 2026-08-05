@@ -168,21 +168,21 @@ Verified per-runtime contract (source-cited, one agent per runtime):
 | **buzz-agent** | `BUZZ_AGENT_PROVIDER` ∈ {anthropic, openai, openai-compat, databricks, databricks_v2, openrouter}; Anthropic route needs `ANTHROPIC_BASE_URL` (**no `/v1`** — it appends `/v1/messages`) | **fixed in provider**: non-native id → `anthropic`, base URL forced |
 | **goose** | image ships a declarative provider literally named `hypercli` (`custom_providers/hypercli.json`, anthropic engine, `HYPER_AGENTS_API_KEY`) | **fixed**: fill `GOOSE_PROVIDER=hypercli` only when absent, never clobber |
 | **opencode** | config file only (`~/.config/opencode/opencode.json`, baked); models are named `<provider>/<model>` | **fixed**: qualify bare `BUZZ_ACP_MODEL` → `hypercli/<model>` so the switch stops silently no-op'ing |
-| **claude-code** | `claude-agent-acp` inherits `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and `ANTHROPIC_MODEL` | **ACP runtime injection**: generated at each child spawn; image persists only a non-secret `settings.json` model catalog |
-| **kimi-code** | pinned Kimi 0.31 synthesizes an in-memory provider from native `KIMI_MODEL_*` env and strips it from config write paths | **ACP runtime injection**: live HyperCLI inference is testable without a pre-seeded Kimi login |
-| **codex** | `codex-acp` forwards a `CODEX_CONFIG` overlay with `model_providers.<id>.base_url` and `env_key` | **config fixed, inference blocked**: codex ≥0.146 requires `wire_api = "responses"`; our gateway serves Anthropic Messages and chat-completions |
+| **claude-code** | `claude-agent-acp` uses the synced native Claude login by default; it inherits `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and `ANTHROPIC_MODEL` only in explicit HyperCLI compatibility mode | **native-first**; HyperCLI injection requires `HYPERCLI_RUNTIME_INFERENCE=hypercli` |
+| **kimi-code** | pinned Kimi 0.31 uses its synced native login/config by default; compatibility mode synthesizes an in-memory provider from `KIMI_MODEL_*` env | **native-first**; HyperCLI injection requires `HYPERCLI_RUNTIME_INFERENCE=hypercli` |
+| **codex** | `codex-acp` uses its synced native login by default; compatibility mode forwards a `CODEX_CONFIG` overlay with `model_providers.<id>.base_url` and `env_key` | **native-first; HyperCLI inference blocked**: codex ≥0.146 requires `wire_api = "responses"`; our gateway serves Anthropic Messages and chat-completions |
 
 Upstream login behavior is not uniform. Claude and Codex are built-ins with
 local auth probes (`claude auth status`, `codex login status`), while Kimi is a
 PATH-only preset marked auth `NotApplicable`. Provider deploy does not run the
 local spawn/readiness setup-mode path, so hosted inference can be configured
-inside the container. `hypercli-buzz-acp` now derives runtime-native child env
-from Lagoon's inherited `HYPER_API_BASE` + `HYPER_AGENTS_API_KEY` immediately
-before every lazy spawn/respawn. It never persists the key and never mixes with
-an explicit native runtime env. Set `HYPERCLI_RUNTIME_INFERENCE=native` to use a
-synced vendor login/config instead. Kimi 0.31 can therefore join live CI;
-Claude and Codex retain native login for vendor-specific features, and Codex
-still cannot infer through HyperCLI until the gateway serves Responses.
+inside the container. Claude, Codex, and Kimi now default to their synced
+native vendor login/config. Only the exact opt-in
+`HYPERCLI_RUNTIME_INFERENCE=hypercli` makes `hypercli-buzz-acp` derive a child
+environment from Lagoon's inherited `HYPER_API_BASE` +
+`HYPER_AGENTS_API_KEY` before each lazy spawn/respawn. It never persists the
+key and never mixes with explicit native runtime env. Codex still cannot infer
+through HyperCLI until the gateway serves Responses.
 
 Provider-level translation for Buzz Agent, Goose, and OpenCode lives in
 `apply_hypercli_inference_defaults` (`buzz-backend-provider/src/lib.rs`),
@@ -370,3 +370,98 @@ without deploying anything.
 shown for new configuration. It does not override an existing record runtime.
 When named Goose/OpenCode agents all launch `buzz-agent`, inspect each record's
 materialized runtime and the persona fallback before blaming the global value.
+
+## HyperCLI-native Buzz launcher/editor — implemented locally, release pending
+
+HyperCLI Desktop now has a second, first-party path in addition to installing
+the provider for vanilla Buzz. It can save a Buzz connection (canonical relay
+plus owner nsec in the OS keychain), discover the owner's visible channels,
+create a fresh agent identity, enroll it as a bot, and create the matching
+HyperCLI deployment directly through `rs-sdk`. Vanilla Buzz remains unchanged
+and continues to use the one-shot provider executable.
+
+The create screen collects name, avatar URL, instructions, runtime, best
+available or explicit 2/4/8 GB size, one discovered channel, respond policy,
+allowlist, optional model/concurrency, and additional environment. Automatic
+concurrency is 2/5/10 for small/medium/large. Every deployment carries both
+`app=buzz` and `buzz_agent=<canonical hex>` plus its channel tag. The editor
+preserves the full stored launch envelope, mutates only owned fields, and
+stop/PATCH/starts a running deployment. Runtime and Buzz connection are
+immutable in-place; moving them is a future Clone/Move operation.
+
+Allowlist nickname resolution deliberately matches upstream Buzz rather than
+accepting every Nostr spelling: explicit values are valid `npub1...` or exact
+64-character hex; nicknames are ASCII-case-insensitive exact matches of the
+newest kind-0 `display_name` or `name` for a current member of every selected
+channel. Partial rosters, missing matches, and ambiguity fail before relay or
+backend mutation. Persisted allowlists contain canonical lowercase hex only.
+
+### Relay publication identity contract
+
+Do not submit an agent profile through the generic owner WebSocket publisher.
+The profile is kind 0 signed by the agent, while 9000/9001 membership events
+are signed by the owner. The relay rejects a signed event whose author differs
+from the authenticated publishing identity.
+
+Agent profiles use the exact upstream HTTP bridge contract:
+
+1. POST the exact event JSON bytes to `{wss->https relay}/events`.
+2. Build kind 27235 NIP-98 auth with the same agent key and tags for exact URL,
+   `method=POST`, SHA-256 of those exact body bytes, and a fresh UUID nonce.
+3. Send `Authorization: Nostr <base64 event>`, `Content-Type:
+   application/json`, and the verified owner NIP-OA JSON as `x-auth-tag`.
+4. Require both HTTP success and `accepted:true`.
+
+Owner enrollment/removal stays owner-authenticated. Create and delete attempt
+idempotent inverse events if a multi-event relay operation fails. A failed
+local metadata write after deployment creation now stops/deletes the new
+deployment and removes membership rather than leaking an orphan.
+
+The shared dev-relay gate is serialized with cancellation disabled. Its
+failure cleanup uses the authenticated deployment DELETE contract directly
+with a three-minute bound, so `failed`/`error` agents (which the normal Desktop
+UI correctly refuses to Stop) are still stopped and deleted by CI.
+
+### Native auth and developer access hardening
+
+The Rust SDK owns a fixed `/usr/local/bin/hypercli-runtime-auth` PTY session.
+Webview input is restricted to one 1-2048-byte authorization token containing
+only alphanumeric and `-._~+/=` characters; newlines, controls, and shell
+syntax are rejected before I/O. Terminal errors cancel and remove the session,
+and login URLs are displayed for an explicit user action rather than opened
+automatically from untrusted terminal output. The UI handles an immediately
+completed login without polling a nonexistent session and Enter sends the
+login value without submitting the agent editor.
+
+SSH generation returns only public material. Imports reject symlinks, unsafe
+permissions, oversized/non-PEM input, upload to a fixed temporary path, derive
+the public key noninteractively, and atomically install the canonical
+`~/.ssh/id_ed25519`; traps remove invalid/encrypted temporary keys. An existing
+identity is not overwritten implicitly.
+
+Claude, Codex, and Kimi are native-login-first: absence of
+`HYPERCLI_RUNTIME_INFERENCE` means no HyperCLI inference overlay. The exact
+advanced opt-in is `HYPERCLI_RUNTIME_INFERENCE=hypercli`. Claude's optional
+generated compatibility catalog and ownership marker are written through
+private same-directory temporaries and atomic rename, so persisted symlinks or
+hardlinks cannot redirect a write. Kimi keeps a pinned real-ACP compatibility
+model-discovery test in addition to its unauthenticated native-default test.
+
+### CI gates
+
+`desktop-ci.yml` keeps the fast Rust, mocked Playwright, and real app/provider
+installation checks. `desktop-buzz-e2e.yml` is a separate gate: `build-linux`
+builds the real provider and Tauri app, uploads them, and the dependent
+`dev-relay` job starts a Secret Service keyring, logs into the dev backend,
+saves `BUZZ_DEV_E2E_NSEC`, discovers private `#CI`, launches a disposable Buzz
+Agent, waits up to 12 minutes for RUNNING, sends a signed owner kind-9 question,
+requires a non-empty agent reply within 60 seconds, then stop/deletes the
+deployment and erases its connection/keychain entry. Runs are non-cancelling
+and serialized because they share one dev identity and channel. The nsec is an
+existing GitHub secret and is never printed or passed in argv.
+
+As of 2026-08-05 18:49 Europe/Moscow, local validation is green: 22 Desktop
+Rust tests plus Clippy, 46 Rust SDK tests plus Clippy, and 23 mocked UI tests.
+The new real dev-relay gate has not run in GitHub yet; do not cut 0.1.3 until
+it passes. Apple still reports all four existing 0.1.2 notarization submissions
+as `in progress`, with no rejection log available.

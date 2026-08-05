@@ -1,21 +1,49 @@
+mod buzz_connections;
+
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use base64::Engine;
 use hypercli_sdk::{
     discover_agents_api_base, discover_client_config, remove_config_api_keys,
-    save_api_key as write_api_key, ClientConfig, ConfigError, CreateApiKeyRequest, Deployment,
-    HyperCliClient, StartDeploymentRequest,
+    save_api_key as write_api_key, AgentSize, BuzzLaunchConfig, ClientConfig, ConfigError,
+    CreateApiKeyRequest, CreateDeploymentRequest, Deployment, DeploymentLaunchConfig,
+    ExecDeploymentRequest, HyperCliClient, ManagedRuntime, NativeRuntime, RuntimeAuthError,
+    RuntimeLoginChallenge, RuntimeLoginSession, StartDeploymentRequest, UpdateDeploymentRequest,
 };
-use secrecy::SecretString;
-use serde::Serialize;
+use nostr::hashes::{sha256, Hash};
+use nostr::{
+    Event as NostrEvent, EventBuilder as NostrEventBuilder, Kind as NostrKind, Tag as NostrTag,
+};
+use nostr_sdk::Client as NostrClient;
+use secrecy::{ExposeSecret, SecretString};
+use serde::{Deserialize, Serialize};
+use serde_json::{Map as JsonMap, Value};
 use tauri::{Emitter, Manager};
 use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_dialog::DialogExt;
+use tokio::sync::Mutex as AsyncMutex;
+
+use buzz_connections::{
+    build_agent_profile_event, build_bot_enrollment_event, build_bot_removal_event,
+    build_owner_attestation, discover_visible_channels, AgentIdentity, BuzzConnectionMetadata,
+    BuzzConnectionRepository, ChannelReference, ManagedBuzzAgentMetadata, OwnerNsec,
+    SystemOwnerSecretStore, VisibleChannel,
+};
 
 /// Runtime identities Buzz discovers as separate `Run on` choices. Keep in
 /// sync with `buzz-backend-provider/README.md`.
 const RUNTIMES: [&str; 6] = ["buzz-agent", "opencode", "codex", "claude", "goose", "kimi"];
 const PROVIDER_BIN: &str = "buzz-backend-hypercli";
+
+/// Capabilities held by a Desktop-minted machine key. Agent management is
+/// the primary surface; files are needed for the explicit SSH-key workflow,
+/// and the single model grant powers the short prompt-drafting helper without
+/// turning the Desktop credential into an unrestricted inference key.
+const DESKTOP_KEY_SCOPES: [&str; 4] = ["agents:*", "files:*", "models:kimi-k2.6", "user:self"];
 
 /// Web login page. Its allowlist accepts the `hypercli://auth` scheme
 /// callback (site/apps/claw/src/app/desktop-login/page.tsx) — the exact
@@ -44,6 +72,7 @@ pub struct KeyValidation {
     email: Option<String>,
     key_name: Option<String>,
     has_agents_capability: bool,
+    has_editor_capability: bool,
     /// None = plan status unknowable (key lacks the `user` scope family) —
     /// the UI must not show a purchase hint in that case.
     has_active_plan: Option<bool>,
@@ -56,6 +85,7 @@ pub struct DesktopAgent {
     id: String,
     name: String,
     handle: Option<String>,
+    avatar_url: Option<String>,
     runtime: Option<String>,
     state: String,
     tags: Vec<String>,
@@ -63,10 +93,131 @@ pub struct DesktopAgent {
     requested_size: Option<String>,
     last_error: Option<String>,
     is_buzz: bool,
+    agent_public_key: Option<String>,
+    native_auth_runtime: Option<String>,
     can_start: bool,
     can_stop: bool,
     can_restart: bool,
     can_delete: bool,
+}
+
+#[derive(Serialize)]
+pub struct DesktopAgentDetail {
+    id: String,
+    name: String,
+    runtime: String,
+    state: String,
+    size: Option<String>,
+    instructions: String,
+    avatar_url: Option<String>,
+    model: Option<String>,
+    concurrency: Option<u32>,
+    relay: String,
+    community: String,
+    connection_id: Option<String>,
+    respond_to: String,
+    allowlist: Vec<String>,
+    env: BTreeMap<String, String>,
+    secret_env_keys: Vec<String>,
+    agent_public_key: Option<String>,
+    recent_communities: Vec<String>,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct AgentEditorInput {
+    name: String,
+    instructions: String,
+    avatar_url: Option<String>,
+    runtime: String,
+    size: Option<String>,
+    model: Option<String>,
+    concurrency: Option<u32>,
+    relay: String,
+    community: String,
+    #[serde(default)]
+    connection_id: Option<String>,
+    #[serde(default)]
+    channels: Vec<String>,
+    respond_to: String,
+    #[serde(default)]
+    allowlist: Vec<String>,
+    #[serde(default)]
+    env: BTreeMap<String, String>,
+}
+
+#[derive(Deserialize)]
+pub struct BuzzConnectionInput {
+    label: String,
+    relay: String,
+    nsec: String,
+}
+
+#[derive(Deserialize)]
+struct ChatCompletionResponse {
+    choices: Vec<ChatCompletionChoice>,
+}
+
+#[derive(Deserialize)]
+struct ChatCompletionChoice {
+    message: ChatCompletionMessage,
+}
+
+#[derive(Deserialize)]
+struct ChatCompletionMessage {
+    content: String,
+}
+
+#[derive(Serialize)]
+pub struct DesktopRuntimeAuthStatus {
+    authenticated: Option<bool>,
+    status: String,
+    detail: String,
+}
+
+#[derive(Serialize)]
+pub struct DesktopRuntimeLoginChallenge {
+    url: Option<String>,
+    code: Option<String>,
+    instructions: String,
+    interactive_required: bool,
+    completed: bool,
+    failed: bool,
+    status: String,
+}
+
+#[derive(Serialize)]
+pub struct DesktopSshKeyStatus {
+    configured: bool,
+    public_key: Option<String>,
+    fingerprint: Option<String>,
+}
+
+impl From<RuntimeLoginChallenge> for DesktopRuntimeLoginChallenge {
+    fn from(challenge: RuntimeLoginChallenge) -> Self {
+        let failed = challenge.completed && challenge.exit_code != Some(0);
+        let completed = challenge.completed && !failed;
+        Self {
+            url: challenge.verification_url,
+            code: challenge.user_code,
+            instructions: challenge.instructions,
+            interactive_required: challenge.interactive_required,
+            completed,
+            failed,
+            status: if failed {
+                "failed"
+            } else if completed {
+                "completed"
+            } else {
+                "running"
+            }
+            .to_owned(),
+        }
+    }
+}
+
+#[derive(Default)]
+struct RuntimeLoginSessions {
+    sessions: AsyncMutex<HashMap<String, Arc<AsyncMutex<RuntimeLoginSession>>>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -79,6 +230,185 @@ struct AgentActions {
 
 fn normalized_state(state: &str) -> String {
     state.trim().to_ascii_lowercase()
+}
+
+fn runtime_id(runtime: ManagedRuntime) -> &'static str {
+    match runtime {
+        ManagedRuntime::Generic => "generic",
+        ManagedRuntime::Openclaw => "openclaw",
+        ManagedRuntime::OpenclawPro => "openclaw-pro",
+        ManagedRuntime::BuzzAgent => "buzz-agent",
+        ManagedRuntime::Opencode => "opencode",
+        ManagedRuntime::Codex => "codex",
+        ManagedRuntime::ClaudeCode => "claude-code",
+        ManagedRuntime::Goose => "goose",
+        ManagedRuntime::KimiCode => "kimi-code",
+    }
+}
+
+fn native_runtime(runtime: ManagedRuntime) -> Option<NativeRuntime> {
+    match runtime {
+        ManagedRuntime::ClaudeCode => Some(NativeRuntime::ClaudeCode),
+        ManagedRuntime::Codex => Some(NativeRuntime::Codex),
+        ManagedRuntime::KimiCode => Some(NativeRuntime::KimiCode),
+        _ => None,
+    }
+}
+
+fn parse_editor_runtime(value: &str) -> Result<ManagedRuntime, String> {
+    match value.trim() {
+        "buzz-agent" => Ok(ManagedRuntime::BuzzAgent),
+        "opencode" => Ok(ManagedRuntime::Opencode),
+        "goose" => Ok(ManagedRuntime::Goose),
+        "claude-code" => Ok(ManagedRuntime::ClaudeCode),
+        "codex" => Ok(ManagedRuntime::Codex),
+        "kimi-code" => Ok(ManagedRuntime::KimiCode),
+        _ => Err("Unsupported coding runtime".to_owned()),
+    }
+}
+
+fn parse_editor_size(value: Option<&str>) -> Result<Option<AgentSize>, String> {
+    match value.map(str::trim).filter(|value| !value.is_empty()) {
+        None => Ok(None),
+        Some("small") => Ok(Some(AgentSize::Small)),
+        Some("medium") => Ok(Some(AgentSize::Medium)),
+        Some("large") => Ok(Some(AgentSize::Large)),
+        Some(_) => Err("Size must be small, medium, large, or automatic".to_owned()),
+    }
+}
+
+fn deployment_runtime(deployment: &Deployment) -> Result<ManagedRuntime, String> {
+    deployment
+        .runtime
+        .ok_or_else(|| "Agent has no managed runtime".to_owned())
+}
+
+/// Variables owned by Lagoon, the Buzz identity contract, or process startup
+/// are never accepted through the free-form editor. Runtime vendor variables
+/// such as ANTHROPIC_*, OPENAI_*, and KIMI_* remain available deliberately.
+fn is_protected_launch_env(key: &str) -> bool {
+    let key = key.trim().to_ascii_uppercase();
+    if key == "HYPERCLI_RUNTIME_INFERENCE" {
+        return false;
+    }
+    key.starts_with("BUZZ_")
+        || key.starts_with("HYPER_")
+        || key.starts_with("NOSTR_")
+        || key.starts_with("KUBERNETES_")
+        || key.starts_with("DYLD_")
+        || matches!(
+            key.as_str(),
+            "PATH"
+                | "HOME"
+                | "USER"
+                | "SHELL"
+                | "HOSTNAME"
+                | "PWD"
+                | "OLDPWD"
+                | "LD_PRELOAD"
+                | "LD_LIBRARY_PATH"
+                | "CLAUDE_CODE_EXECUTABLE"
+        )
+}
+
+fn is_secret_env_key(key: &str) -> bool {
+    if key == "HYPERCLI_RUNTIME_INFERENCE" || key.ends_with("_BASE_URL") {
+        return false;
+    }
+    let normalized = key.to_ascii_lowercase();
+    [
+        "key",
+        "token",
+        "secret",
+        "password",
+        "credential",
+        "auth",
+        "cookie",
+        "private",
+        "database_url",
+        "connection_string",
+        "dsn",
+    ]
+        .iter()
+        .any(|needle| normalized.contains(needle))
+}
+
+fn validate_additional_env(env: &BTreeMap<String, String>) -> Result<(), String> {
+    for (key, value) in env {
+        let valid_key = !key.is_empty()
+            && key.len() <= 128
+            && key.chars().enumerate().all(|(index, character)| {
+                character == '_'
+                    || character.is_ascii_alphanumeric()
+                        && (index > 0 || !character.is_ascii_digit())
+            });
+        if !valid_key {
+            return Err(format!("Invalid environment variable name: {key}"));
+        }
+        if is_protected_launch_env(key) {
+            return Err(format!(
+                "{key} is managed by HyperCLI and cannot be overridden"
+            ));
+        }
+        if key.eq_ignore_ascii_case("HYPERCLI_RUNTIME_INFERENCE")
+            && (key != "HYPERCLI_RUNTIME_INFERENCE"
+                || !matches!(value.as_str(), "native" | "hypercli"))
+        {
+            return Err(
+                "HYPERCLI_RUNTIME_INFERENCE must use that exact name and the value native or hypercli"
+                    .to_owned(),
+            );
+        }
+        if value.len() > 16 * 1024 {
+            return Err(format!("{key} is too large"));
+        }
+    }
+    Ok(())
+}
+
+fn launch_env(config: &DeploymentLaunchConfig) -> Result<BTreeMap<String, String>, String> {
+    let Some(value) = config.as_map().get("env") else {
+        return Ok(BTreeMap::new());
+    };
+    let object = value
+        .as_object()
+        .ok_or_else(|| "Stored launch environment is invalid".to_owned())?;
+    object
+        .iter()
+        .map(|(key, value)| {
+            value
+                .as_str()
+                .map(|value| (key.clone(), value.to_owned()))
+                .ok_or_else(|| format!("Stored launch environment value for {key} is invalid"))
+        })
+        .collect()
+}
+
+fn insert_launch_env(config: &mut BTreeMap<String, Value>, env: BTreeMap<String, String>) {
+    config.insert(
+        "env".to_owned(),
+        Value::Object(
+            env.into_iter()
+                .map(|(key, value)| (key, Value::String(value)))
+                .collect::<JsonMap<String, Value>>(),
+        ),
+    );
+}
+
+fn env_value(env: &BTreeMap<String, String>, key: &str) -> Option<String> {
+    env.get(key)
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
+
+fn split_env_list(value: Option<String>) -> Vec<String> {
+    value
+        .unwrap_or_default()
+        .split([',', '\n'])
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 fn agent_actions(state: &str) -> AgentActions {
@@ -120,10 +450,27 @@ impl From<Deployment> for DesktopAgent {
     fn from(deployment: Deployment) -> Self {
         let actions = agent_actions(&deployment.state);
         let is_buzz = deployment.is_buzz_managed();
+        let agent_public_key = deployment.tags.iter().find_map(|tag| {
+            tag.strip_prefix("buzz_agent=")
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+        });
+        let native_auth_runtime = match deployment.runtime.as_ref() {
+            Some(hypercli_sdk::ManagedRuntime::ClaudeCode) => Some("claude-code"),
+            Some(hypercli_sdk::ManagedRuntime::Codex) => Some("codex"),
+            Some(hypercli_sdk::ManagedRuntime::KimiCode) => Some("kimi-code"),
+            _ => None,
+        }
+        .map(str::to_owned);
+        let launch_avatar = launch_env(&deployment.launch_config)
+            .ok()
+            .and_then(|env| env_value(&env, "BUZZ_PROFILE_PICTURE"));
         Self {
             id: deployment.id,
             name: deployment.name,
             handle: deployment.handle,
+            avatar_url: deployment.avatar_url.or(launch_avatar),
             runtime: deployment
                 .runtime
                 .and_then(|runtime| serde_json::to_value(runtime).ok())
@@ -134,6 +481,8 @@ impl From<Deployment> for DesktopAgent {
             requested_size: deployment.requested_size,
             last_error: deployment.last_error,
             is_buzz,
+            agent_public_key,
+            native_auth_runtime,
             can_start: actions.start,
             can_stop: actions.stop,
             can_restart: actions.restart,
@@ -144,6 +493,348 @@ impl From<Deployment> for DesktopAgent {
 
 fn home_dir() -> Result<PathBuf, String> {
     dirs::home_dir().ok_or_else(|| "cannot resolve home directory".to_string())
+}
+
+fn buzz_connections_path() -> Result<PathBuf, String> {
+    let root = dirs::config_dir().unwrap_or(home_dir()?.join(".config"));
+    Ok(root.join("hypercli").join("buzz-connections.json"))
+}
+
+fn buzz_connection_repository() -> Result<BuzzConnectionRepository<SystemOwnerSecretStore>, String>
+{
+    Ok(BuzzConnectionRepository::new(
+        buzz_connections_path()?,
+        SystemOwnerSecretStore::new(),
+    ))
+}
+
+#[tauri::command]
+fn list_buzz_connections() -> Result<Vec<BuzzConnectionMetadata>, String> {
+    buzz_connection_repository()?
+        .load()
+        .map(|document| document.connections)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn save_buzz_connection(input: BuzzConnectionInput) -> Result<BuzzConnectionMetadata, String> {
+    let nsec = OwnerNsec::parse(&input.nsec).map_err(|error| error.to_string())?;
+    buzz_connection_repository()?
+        .add_connection(&input.label, &input.relay, nsec)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn remove_buzz_connection(connection_id: String) -> Result<(), String> {
+    let connection_id = checked_agent_id(&connection_id)?;
+    buzz_connection_repository()?
+        .remove_connection(&connection_id)
+        .map_err(|error| error.to_string())
+}
+
+async fn fetch_buzz_channels(
+    relay: String,
+    signer: nostr::Keys,
+) -> Result<Vec<VisibleChannel>, String> {
+    use nostr::{Alphabet, Filter, Kind, SingleLetterTag};
+
+    let viewer = signer.public_key();
+    let client = NostrClient::new(signer);
+    client
+        .add_relay(&relay)
+        .await
+        .map_err(|_| "Could not configure the Buzz relay".to_owned())?;
+    client
+        .try_connect_relay(&relay, Duration::from_secs(10))
+        .await
+        .map_err(|_| "Could not connect to the Buzz relay".to_owned())?;
+    let member_filter = Filter::new()
+        .kind(Kind::Custom(39002))
+        .custom_tag(SingleLetterTag::lowercase(Alphabet::P), viewer.to_hex())
+        .limit(1000);
+    let metadata_filter = Filter::new().kind(Kind::Custom(39000)).limit(200);
+    let memberships = client
+        .fetch_events(member_filter, Duration::from_secs(10))
+        .await
+        .map_err(|_| "Could not read Buzz channel memberships".to_owned())?;
+    let metadata = client
+        .fetch_events(metadata_filter, Duration::from_secs(10))
+        .await
+        .map_err(|_| "Could not read Buzz channels".to_owned())?;
+    client.disconnect().await;
+    discover_visible_channels(
+        &metadata.into_iter().collect::<Vec<_>>(),
+        &memberships.into_iter().collect::<Vec<_>>(),
+        &viewer,
+    )
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn list_buzz_channels(connection_id: String) -> Result<Vec<VisibleChannel>, String> {
+    let connection_id = checked_agent_id(&connection_id)?;
+    let (relay, signer) = tauri::async_runtime::spawn_blocking(move || {
+        let repository = buzz_connection_repository()?;
+        let document = repository.load().map_err(|error| error.to_string())?;
+        let connection = document
+            .connections
+            .iter()
+            .find(|connection| connection.id == connection_id)
+            .ok_or_else(|| "Saved Buzz connection not found".to_owned())?;
+        let signer = repository
+            .owner_signer(&connection_id)
+            .map_err(|error| error.to_string())?;
+        Ok::<_, String>((connection.relay_url.clone(), signer.keys()))
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    fetch_buzz_channels(relay, signer).await
+}
+
+fn canonical_hex_public_key(value: &str) -> Option<String> {
+    let value = value.trim();
+    (value.len() == 64 && value.chars().all(|character| character.is_ascii_hexdigit()))
+        .then(|| nostr::PublicKey::from_hex(value).ok())
+        .flatten()
+        .map(|public_key| public_key.to_hex())
+}
+
+fn explicit_allowlist_public_key(value: &str) -> Result<Option<String>, String> {
+    let value = value.trim();
+    if value.starts_with("npub1") {
+        return nostr::PublicKey::parse(value)
+            .map(|public_key| Some(public_key.to_hex()))
+            .map_err(|_| format!("Invalid npub: {value}"));
+    }
+    if value.len() == 64 {
+        return canonical_hex_public_key(value)
+            .map(Some)
+            .ok_or_else(|| "Invalid 64-character public key".to_owned());
+    }
+    Ok(None)
+}
+
+fn profile_aliases(content: &str) -> Vec<String> {
+    let Ok(metadata) = serde_json::from_str::<nostr::Metadata>(content) else {
+        return Vec::new();
+    };
+    let mut aliases = Vec::new();
+    for value in [metadata.name, metadata.display_name].into_iter().flatten() {
+        let value = value.to_ascii_lowercase();
+        if value.is_empty() {
+            continue;
+        }
+        aliases.push(value);
+    }
+    aliases.sort();
+    aliases.dedup();
+    aliases
+}
+
+fn resolve_allowlist_entries(
+    entries: &[String],
+    selected_channels: &[String],
+    membership_events: &[NostrEvent],
+    profile_events: &[NostrEvent],
+) -> Result<Vec<String>, String> {
+    let explicit_entries = entries
+        .iter()
+        .map(|entry| explicit_allowlist_public_key(entry))
+        .collect::<Result<Vec<_>, _>>()?;
+    let needs_nickname_lookup = explicit_entries.iter().any(Option::is_none);
+    let selected_channels = selected_channels
+        .iter()
+        .map(String::as_str)
+        .collect::<std::collections::HashSet<_>>();
+    let mut newest_memberships: HashMap<&str, &NostrEvent> = HashMap::new();
+    for event in membership_events
+        .iter()
+        .filter(|event| event.kind.as_u16() == 39002)
+    {
+        let channel = event.tags.iter().find_map(|tag| {
+            let values = tag.as_slice();
+            (values.first().map(String::as_str) == Some("d"))
+                .then(|| values.get(1).map(String::as_str))
+                .flatten()
+        });
+        let Some(channel) = channel.filter(|channel| selected_channels.contains(channel)) else {
+            continue;
+        };
+        let replace = newest_memberships
+            .get(channel)
+            .map(|current| {
+                event.created_at > current.created_at
+                    || (event.created_at == current.created_at && event.id < current.id)
+            })
+            .unwrap_or(true);
+        if replace {
+            newest_memberships.insert(channel, event);
+        }
+    }
+    if needs_nickname_lookup {
+        if let Some(missing) = selected_channels
+            .iter()
+            .find(|channel| !newest_memberships.contains_key(**channel))
+        {
+            return Err(format!(
+                "Could not load the current member roster for Buzz channel {missing}"
+            ));
+        }
+    }
+
+    let mut member_keys = std::collections::HashSet::new();
+    for event in newest_memberships.values() {
+        for tag in event.tags.iter() {
+            let values = tag.as_slice();
+            if values.first().map(String::as_str) != Some("p") {
+                continue;
+            }
+            if let Some(public_key) = values
+                .get(1)
+                .and_then(|value| canonical_hex_public_key(value))
+            {
+                member_keys.insert(public_key);
+            }
+        }
+    }
+
+    let mut newest_profiles: HashMap<String, &NostrEvent> = HashMap::new();
+    for event in profile_events
+        .iter()
+        .filter(|event| event.kind == nostr::Kind::Metadata)
+    {
+        let public_key = event.pubkey.to_hex();
+        if !member_keys.contains(&public_key) {
+            continue;
+        }
+        let replace = newest_profiles
+            .get(&public_key)
+            .map(|current| {
+                event.created_at > current.created_at
+                    || (event.created_at == current.created_at && event.id < current.id)
+            })
+            .unwrap_or(true);
+        if replace {
+            newest_profiles.insert(public_key, event);
+        }
+    }
+
+    let aliases = newest_profiles
+        .into_iter()
+        .map(|(public_key, event)| (public_key, profile_aliases(&event.content)))
+        .collect::<Vec<_>>();
+    let mut resolved = Vec::new();
+    for entry in entries {
+        let entry = entry.trim();
+        if let Some(public_key) = explicit_allowlist_public_key(entry)? {
+            resolved.push(public_key);
+            continue;
+        }
+        let needle = entry.to_ascii_lowercase();
+        let mut matches = aliases
+            .iter()
+            .filter(|(_, candidate_aliases)| candidate_aliases.contains(&needle))
+            .map(|(public_key, _)| public_key.clone())
+            .collect::<Vec<_>>();
+        matches.sort();
+        matches.dedup();
+        match matches.as_slice() {
+            [public_key] => resolved.push(public_key.clone()),
+            [] => {
+                return Err(format!(
+                    "No member named '{entry}' was found in the selected Buzz channels; use an npub or hex public key"
+                ));
+            }
+            _ => {
+                return Err(format!(
+                    "More than one member is named '{entry}'; use an npub to disambiguate"
+                ));
+            }
+        }
+    }
+    resolved.sort();
+    resolved.dedup();
+    Ok(resolved)
+}
+
+async fn resolve_buzz_allowlist(
+    relay: &str,
+    signer: nostr::Keys,
+    channels: &[String],
+    entries: &[String],
+) -> Result<Vec<String>, String> {
+    use nostr::{Alphabet, Filter, Kind, SingleLetterTag};
+
+    if entries.is_empty() {
+        return Ok(Vec::new());
+    }
+    let explicit_entries = entries
+        .iter()
+        .map(|entry| explicit_allowlist_public_key(entry))
+        .collect::<Result<Vec<_>, _>>()?;
+    if explicit_entries.iter().all(Option::is_some) {
+        return resolve_allowlist_entries(entries, channels, &[], &[]);
+    }
+    let client = NostrClient::new(signer);
+    client
+        .add_relay(relay)
+        .await
+        .map_err(|_| "Could not configure the Buzz relay".to_owned())?;
+    client
+        .try_connect_relay(relay, Duration::from_secs(10))
+        .await
+        .map_err(|_| "Could not connect to the Buzz relay".to_owned())?;
+    let membership_filter = Filter::new()
+        .kind(Kind::Custom(39002))
+        .custom_tags(
+            SingleLetterTag::lowercase(Alphabet::D),
+            channels.iter().cloned(),
+        )
+        .limit(1000);
+    let memberships = client
+        .fetch_events(membership_filter, Duration::from_secs(10))
+        .await
+        .map_err(|_| "Could not read Buzz channel members".to_owned())?
+        .into_iter()
+        .collect::<Vec<_>>();
+    let mut members = memberships
+        .iter()
+        .flat_map(|event| event.tags.iter())
+        .filter_map(|tag| {
+            let values = tag.as_slice();
+            (values.first().map(String::as_str) == Some("p"))
+                .then(|| values.get(1))
+                .flatten()
+                .and_then(|value| nostr::PublicKey::from_hex(value).ok())
+        })
+        .collect::<Vec<_>>();
+    members.sort_by_key(nostr::PublicKey::to_hex);
+    members.dedup();
+    if members.len() > 2000 {
+        client.disconnect().await;
+        return Err(
+            "The selected Buzz channels have too many members for nickname lookup; use npubs"
+                .to_owned(),
+        );
+    }
+    let profiles = if members.is_empty() {
+        Vec::new()
+    } else {
+        client
+            .fetch_events(
+                Filter::new()
+                    .kind(Kind::Metadata)
+                    .authors(members)
+                    .limit(2000),
+                Duration::from_secs(10),
+            )
+            .await
+            .map_err(|_| "Could not read Buzz member profiles".to_owned())?
+            .into_iter()
+            .collect::<Vec<_>>()
+    };
+    client.disconnect().await;
+    resolve_allowlist_entries(entries, channels, &memberships, &profiles)
 }
 
 /// Buzz scans this directory explicitly on every platform.
@@ -352,21 +1043,27 @@ fn validate_key_blocking() -> Result<KeyValidation, String> {
     let config = discover_client_config().map_err(|e| e.to_string())?;
     let client = HyperCliClient::new(config).map_err(|e| e.to_string())?;
     match client.auth_me() {
-        Ok(me) => Ok(KeyValidation {
-            valid: true,
-            email: me.email,
-            key_name: me.key_name,
-            has_agents_capability: me.capabilities.iter().any(|c| c == "agents:*"),
-            // The HyperClaw plan lives in the entitlements summary, NOT in
-            // auth_me.has_active_subscription (that flag is the Orchestra
-            // product subscription). Scoped keys without the `user` family
-            // get 403 here — report unknown, never a false "no plan".
-            has_active_plan: client
-                .entitlements_summary()
-                .ok()
-                .map(|summary| summary.has_active_plan()),
-            detail: None,
-        }),
+        Ok(me) => {
+            let has_scope = |scope: &str| me.capabilities.iter().any(|value| value == scope);
+            Ok(KeyValidation {
+                valid: true,
+                email: me.email,
+                key_name: me.key_name,
+                has_agents_capability: has_scope("agents:*"),
+                has_editor_capability: has_scope("agents:*")
+                    && has_scope("files:*")
+                    && has_scope("models:kimi-k2.6"),
+                // The HyperClaw plan lives in the entitlements summary, NOT in
+                // auth_me.has_active_subscription (that flag is the Orchestra
+                // product subscription). Scoped keys without the `user` family
+                // get 403 here — report unknown, never a false "no plan".
+                has_active_plan: client
+                    .entitlements_summary()
+                    .ok()
+                    .map(|summary| summary.has_active_plan()),
+                detail: None,
+            })
+        }
         Err(error) => {
             let detail = match error.status().map(|s| s.as_u16()) {
                 Some(401) | Some(403) => "API key is invalid or revoked".to_string(),
@@ -377,6 +1074,7 @@ fn validate_key_blocking() -> Result<KeyValidation, String> {
                 email: None,
                 key_name: None,
                 has_agents_capability: false,
+                has_editor_capability: false,
                 has_active_plan: None,
                 detail: Some(detail),
             })
@@ -398,6 +1096,63 @@ fn managed_client() -> Result<HyperCliClient, String> {
     HyperCliClient::new(config).map_err(|error| error.to_string())
 }
 
+fn draft_agent_prompt_blocking(keywords: String) -> Result<String, String> {
+    let keywords = keywords.trim();
+    if keywords.len() < 2 || keywords.len() > 1000 {
+        return Err("Describe the agent in 2 to 1000 characters".to_owned());
+    }
+    let config = discover_client_config().map_err(|error| error.to_string())?;
+    let mut url = config.api_base.clone();
+    url.set_path("/v1/chat/completions");
+    url.set_query(None);
+    url.set_fragment(None);
+    let response = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .build()
+        .map_err(|_| "Could not initialize prompt drafting".to_owned())?
+        .post(url)
+        .bearer_auth(config.api_key.expose_secret())
+        .json(&serde_json::json!({
+            "model": "kimi-k2.6",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "Write one practical system prompt for a remote coding agent. Return only the prompt, 90-160 words, in plain text. State role, priorities, operating style, safety boundaries, and how to report results. Do not mention this request, token limits, or add markdown fences. Stay under 160 words even if the model ignores output limits."
+                },
+                {"role": "user", "content": keywords}
+            ],
+            "temperature": 0.4
+        }))
+        .send()
+        .map_err(|_| "Prompt drafting request failed".to_owned())?;
+    if !response.status().is_success() {
+        return Err(match response.status().as_u16() {
+            401 | 403 => "This Desktop key needs to be reauthorized for prompt drafting",
+            429 => "Prompt drafting is temporarily rate limited",
+            _ => "Prompt drafting request failed",
+        }
+        .to_owned());
+    }
+    let completion: ChatCompletionResponse = response
+        .json()
+        .map_err(|_| "Prompt drafting returned an invalid response".to_owned())?;
+    let prompt = completion
+        .choices
+        .into_iter()
+        .next()
+        .map(|choice| choice.message.content.trim().to_owned())
+        .filter(|value| (40..=4000).contains(&value.len()))
+        .ok_or_else(|| "Prompt drafting returned no usable text".to_owned())?;
+    Ok(prompt)
+}
+
+#[tauri::command]
+async fn draft_agent_prompt(keywords: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || draft_agent_prompt_blocking(keywords))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
 fn checked_agent_id(agent_id: &str) -> Result<String, String> {
     uuid::Uuid::parse_str(agent_id.trim())
         .map(|value| value.to_string())
@@ -409,6 +1164,1242 @@ fn list_agents_blocking() -> Result<Vec<DesktopAgent>, String> {
         .list_deployments_with_capacity()
         .map_err(|error| error.to_string())?;
     Ok(capacity.items.into_iter().map(DesktopAgent::from).collect())
+}
+
+fn get_agent_detail_blocking(agent_id: String) -> Result<DesktopAgentDetail, String> {
+    let agent_id = checked_agent_id(&agent_id)?;
+    let deployment = managed_client()?
+        .get_deployment(&agent_id)
+        .map_err(|error| error.to_string())?;
+    if !deployment.is_buzz_managed() {
+        return Err("Only Buzz-managed agents can be edited here".to_owned());
+    }
+    let runtime = deployment_runtime(&deployment)?;
+    let env = launch_env(&deployment.launch_config)?;
+    let additional_env = env
+        .iter()
+        .filter(|(key, _)| !is_protected_launch_env(key) && !is_secret_env_key(key))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    let secret_env_keys = env
+        .keys()
+        .filter(|key| !is_protected_launch_env(key) && is_secret_env_key(key))
+        .cloned()
+        .collect();
+    let agent_public_key = deployment.tags.iter().find_map(|tag| {
+        tag.strip_prefix("buzz_agent=")
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+    });
+    let stored_agent = buzz_connection_repository()
+        .and_then(|repository| repository.load().map_err(|error| error.to_string()))
+        .ok()
+        .and_then(|document| {
+            document
+                .agents
+                .into_iter()
+                .find(|agent| agent.deployment_id.as_deref() == Some(deployment.id.as_str()))
+        });
+    let community = deployment
+        .tags
+        .iter()
+        .find_map(|tag| tag.strip_prefix("buzz_community=").map(str::to_owned))
+        .or_else(|| {
+            deployment
+                .tags
+                .iter()
+                .find_map(|tag| tag.strip_prefix("buzz_channel=").map(str::to_owned))
+        })
+        .or_else(|| {
+            stored_agent
+                .as_ref()
+                .and_then(|agent| agent.channels.first().map(|channel| channel.id.clone()))
+        })
+        .unwrap_or_default();
+    let connection_id = stored_agent
+        .as_ref()
+        .map(|agent| agent.connection_id.clone());
+    let recent_communities = stored_agent
+        .as_ref()
+        .map(|agent| {
+            agent
+                .channels
+                .iter()
+                .map(|channel| channel.id.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(DesktopAgentDetail {
+        id: deployment.id,
+        name: deployment.name,
+        runtime: runtime_id(runtime).to_owned(),
+        state: normalized_state(&deployment.state),
+        size: deployment.requested_size,
+        instructions: env_value(&env, "BUZZ_ACP_SYSTEM_PROMPT").unwrap_or_default(),
+        avatar_url: env_value(&env, "BUZZ_PROFILE_PICTURE"),
+        model: env_value(&env, "BUZZ_ACP_MODEL"),
+        concurrency: env_value(&env, "BUZZ_ACP_AGENTS").and_then(|value| value.parse().ok()),
+        relay: env_value(&env, "BUZZ_RELAY_URL").unwrap_or_default(),
+        community,
+        connection_id,
+        respond_to: env_value(&env, "BUZZ_ACP_RESPOND_TO").unwrap_or_else(|| "owner".to_owned()),
+        allowlist: split_env_list(env_value(&env, "BUZZ_ACP_RESPOND_TO_ALLOWLIST")),
+        env: additional_env,
+        secret_env_keys,
+        agent_public_key,
+        recent_communities,
+    })
+}
+
+#[tauri::command]
+async fn get_agent_detail(agent_id: String) -> Result<DesktopAgentDetail, String> {
+    tauri::async_runtime::spawn_blocking(move || get_agent_detail_blocking(agent_id))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn runtime_auth_status_blocking(
+    agent_id: String,
+    runtime_hint: String,
+) -> Result<DesktopRuntimeAuthStatus, String> {
+    let agent_id = checked_agent_id(&agent_id)?;
+    let client = managed_client()?;
+    let deployment = client
+        .get_deployment(&agent_id)
+        .map_err(|error| error.to_string())?;
+    let runtime = deployment_runtime(&deployment)?;
+    let native = native_runtime(runtime).ok_or_else(|| {
+        "This runtime uses HyperCLI inference and does not need a vendor login".to_owned()
+    })?;
+    if native.as_str() != runtime_hint.trim() {
+        return Err("Runtime changed; refresh the agent before checking login".to_owned());
+    }
+    if normalized_state(&deployment.state) != "running" {
+        return Ok(DesktopRuntimeAuthStatus {
+            authenticated: None,
+            status: "stopped".to_owned(),
+            detail: "Start the agent to check its native login.".to_owned(),
+        });
+    }
+    let status = client
+        .runtime_auth_status(&agent_id)
+        .map_err(|error| error.to_string())?;
+    if status.runtime != native {
+        return Err("Runtime auth wrapper reported the wrong runtime".to_owned());
+    }
+    Ok(DesktopRuntimeAuthStatus {
+        authenticated: status.authenticated,
+        status: match status.authenticated {
+            Some(true) => "authenticated",
+            Some(false) => "login_required",
+            None => "unknown",
+        }
+        .to_owned(),
+        detail: match status.authenticated {
+            Some(true) => "Native runtime login is available in the synced agent home.",
+            Some(false) => "Log in once; credentials persist across stop and restart.",
+            None => "The runtime could not determine its login state.",
+        }
+        .to_owned(),
+    })
+}
+
+#[tauri::command]
+async fn runtime_auth_status(
+    agent_id: String,
+    runtime: String,
+) -> Result<DesktopRuntimeAuthStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || runtime_auth_status_blocking(agent_id, runtime))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn begin_runtime_login(
+    sessions: tauri::State<'_, RuntimeLoginSessions>,
+    agent_id: String,
+    runtime: String,
+) -> Result<DesktopRuntimeLoginChallenge, String> {
+    let agent_id = checked_agent_id(&agent_id)?;
+    let lookup_id = agent_id.clone();
+    let runtime_hint = runtime.trim().to_owned();
+    let (token, native) = tauri::async_runtime::spawn_blocking(move || {
+        let client = managed_client()?;
+        let deployment = client
+            .get_deployment(&lookup_id)
+            .map_err(|error| error.to_string())?;
+        if normalized_state(&deployment.state) != "running" {
+            return Err("Start the agent before logging in".to_owned());
+        }
+        let native = native_runtime(deployment_runtime(&deployment)?)
+            .ok_or_else(|| "This runtime does not require a vendor login".to_owned())?;
+        if native.as_str() != runtime_hint {
+            return Err("Runtime changed; refresh the agent before logging in".to_owned());
+        }
+        let token = client
+            .create_runtime_shell_token(&lookup_id, Some("/bin/bash"))
+            .map_err(|error| error.to_string())?;
+        Ok::<_, String>((token, native))
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+
+    if let Some(previous) = sessions.sessions.lock().await.remove(&agent_id) {
+        previous.lock().await.cancel().await;
+    }
+    let session = RuntimeLoginSession::connect(token, native, Duration::from_secs(45))
+        .await
+        .map_err(|error| error.to_string())?;
+    let challenge = session.challenge().clone();
+    if !challenge.completed {
+        sessions
+            .sessions
+            .lock()
+            .await
+            .insert(agent_id, Arc::new(AsyncMutex::new(session)));
+    }
+
+    Ok(challenge.into())
+}
+
+#[tauri::command]
+async fn poll_runtime_login(
+    sessions: tauri::State<'_, RuntimeLoginSessions>,
+    agent_id: String,
+) -> Result<DesktopRuntimeLoginChallenge, String> {
+    let agent_id = checked_agent_id(&agent_id)?;
+    let session = sessions
+        .sessions
+        .lock()
+        .await
+        .get(&agent_id)
+        .cloned()
+        .ok_or_else(|| "No runtime login is active for this agent".to_owned())?;
+    let mut session_guard = session.lock().await;
+    let challenge = match session_guard.refresh(Duration::from_millis(500)).await {
+        Ok(challenge) => challenge,
+        Err(RuntimeAuthError::ChallengeTimeout(_)) => session_guard.challenge().clone(),
+        Err(error) => {
+            session_guard.cancel().await;
+            drop(session_guard);
+            sessions.sessions.lock().await.remove(&agent_id);
+            return Err(error.to_string());
+        }
+    };
+    let finished = challenge.completed;
+    if finished {
+        session_guard.cancel().await;
+    }
+    drop(session_guard);
+    if finished {
+        sessions.sessions.lock().await.remove(&agent_id);
+    }
+    Ok(challenge.into())
+}
+
+#[tauri::command]
+async fn send_runtime_login_input(
+    sessions: tauri::State<'_, RuntimeLoginSessions>,
+    agent_id: String,
+    value: String,
+) -> Result<(), String> {
+    let agent_id = checked_agent_id(&agent_id)?;
+    if value.is_empty() || value.len() > 4096 {
+        return Err("Login input must be between 1 and 4096 characters".to_owned());
+    }
+    let session = sessions
+        .sessions
+        .lock()
+        .await
+        .get(&agent_id)
+        .cloned()
+        .ok_or_else(|| "No runtime login is active for this agent".to_owned())?;
+    let result = session
+        .lock()
+        .await
+        .send_input(&value)
+        .await
+        .map_err(|error| error.to_string());
+    result
+}
+
+#[tauri::command]
+async fn cancel_runtime_login(
+    sessions: tauri::State<'_, RuntimeLoginSessions>,
+    agent_id: String,
+) -> Result<(), String> {
+    let agent_id = checked_agent_id(&agent_id)?;
+    if let Some(session) = sessions.sessions.lock().await.remove(&agent_id) {
+        session.lock().await.cancel().await;
+    }
+    Ok(())
+}
+
+fn set_optional_env(env: &mut BTreeMap<String, String>, key: &str, value: Option<String>) {
+    match value
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+    {
+        Some(value) => {
+            env.insert(key.to_owned(), value);
+        }
+        None => {
+            env.remove(key);
+        }
+    }
+}
+
+fn validate_editor_input(input: &AgentEditorInput) -> Result<(), String> {
+    let name = input.name.trim();
+    if name.is_empty() || name.len() > 32 {
+        return Err("Agent name must be between 1 and 32 characters".to_owned());
+    }
+    if input.instructions.len() > 64 * 1024 {
+        return Err("Agent instructions are too large".to_owned());
+    }
+    if let Some(avatar_url) = input
+        .avatar_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if avatar_url.len() > 2048
+            || !(avatar_url.starts_with("https://") || avatar_url.starts_with("http://"))
+            || avatar_url.chars().any(char::is_control)
+        {
+            return Err("Avatar must be an http:// or https:// URL".to_owned());
+        }
+    }
+    if input.relay.trim().is_empty()
+        || !(input.relay.trim().starts_with("wss://") || input.relay.trim().starts_with("ws://"))
+    {
+        return Err("Relay must be a ws:// or wss:// URL".to_owned());
+    }
+    if !matches!(input.respond_to.trim(), "owner" | "allowlist" | "anyone") {
+        return Err("Invalid respond-to policy".to_owned());
+    }
+    if input.respond_to.trim() == "allowlist" && input.allowlist.is_empty() {
+        return Err("Selected people requires at least one npub or nickname".to_owned());
+    }
+    if input.allowlist.len() > 64 {
+        return Err("Selected people supports at most 64 entries".to_owned());
+    }
+    if let Some(concurrency) = input.concurrency {
+        if !(1..=32).contains(&concurrency) {
+            return Err("Concurrency must be between 1 and 32".to_owned());
+        }
+    }
+    for entry in &input.allowlist {
+        if entry.trim().is_empty()
+            || entry.len() > 256
+            || entry.chars().any(char::is_control)
+            || entry.contains(',')
+        {
+            return Err("Allowlist entries must be one npub or nickname per line".to_owned());
+        }
+    }
+    validate_additional_env(&input.env)
+}
+
+fn wait_for_stopped(
+    client: &HyperCliClient,
+    mut deployment: Deployment,
+) -> Result<Deployment, String> {
+    let deadline = Instant::now() + RESTART_STOP_TIMEOUT;
+    while normalized_state(&deployment.state) != "stopped" {
+        if Instant::now() >= deadline {
+            return Err("Agent is still stopping. Save again after it reaches stopped.".to_owned());
+        }
+        std::thread::sleep(RESTART_POLL_INTERVAL);
+        deployment = client
+            .get_deployment(&deployment.id)
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(deployment)
+}
+
+fn save_agent_blocking(agent_id: String, input: AgentEditorInput) -> Result<DesktopAgent, String> {
+    validate_editor_input(&input)?;
+    let agent_id = checked_agent_id(&agent_id)?;
+    let client = managed_client()?;
+    let current = client
+        .get_deployment(&agent_id)
+        .map_err(|error| error.to_string())?;
+    if !current.is_buzz_managed() {
+        return Err("Only Buzz-managed agents can be edited here".to_owned());
+    }
+    let runtime = deployment_runtime(&current)?;
+    if parse_editor_runtime(&input.runtime)? != runtime {
+        return Err("Changing runtimes requires cloning this Buzz agent".to_owned());
+    }
+
+    let original_config = current.launch_config.as_map().clone();
+    let mut launch_config = original_config.clone();
+    let mut env = launch_env(&current.launch_config)?;
+    let stored_relay = env_value(&env, "BUZZ_RELAY_URL").unwrap_or_default();
+    if !stored_relay.is_empty() && stored_relay != input.relay.trim() {
+        return Err("Moving an agent to another relay/community requires Clone or Move".to_owned());
+    }
+    let stored_community = current
+        .tags
+        .iter()
+        .find_map(|tag| tag.strip_prefix("buzz_community="))
+        .or_else(|| {
+            current
+                .tags
+                .iter()
+                .find_map(|tag| tag.strip_prefix("buzz_channel="))
+        });
+    if let Some(stored_community) = stored_community {
+        if stored_community != input.community.trim() {
+            return Err(
+                "Moving an agent to another relay/community requires Clone or Move".to_owned(),
+            );
+        }
+    }
+
+    env.retain(|key, _| is_protected_launch_env(key) || is_secret_env_key(key));
+    env.extend(input.env.clone());
+    env.insert("BUZZ_RELAY_URL".to_owned(), input.relay.trim().to_owned());
+    set_optional_env(
+        &mut env,
+        "BUZZ_ACP_SYSTEM_PROMPT",
+        Some(input.instructions.clone()),
+    );
+    set_optional_env(&mut env, "BUZZ_PROFILE_PICTURE", input.avatar_url.clone());
+    env.insert(
+        "BUZZ_ACP_RESPOND_TO".to_owned(),
+        input.respond_to.trim().to_owned(),
+    );
+    set_optional_env(
+        &mut env,
+        "BUZZ_ACP_RESPOND_TO_ALLOWLIST",
+        (input.respond_to.trim() == "allowlist").then(|| {
+            input
+                .allowlist
+                .iter()
+                .map(|value| value.trim())
+                .collect::<Vec<_>>()
+                .join(",")
+        }),
+    );
+    env.remove("BUZZ_ACP_AGENTS");
+    if let Some(concurrency) = input.concurrency {
+        env.insert("BUZZ_ACP_AGENTS".to_owned(), concurrency.to_string());
+    }
+
+    let model = input
+        .model
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let hypercli_native_opt_in =
+        env.get("HYPERCLI_RUNTIME_INFERENCE").map(String::as_str) == Some("hypercli");
+    if native_runtime(runtime).is_some() && model.is_some() && !hypercli_native_opt_in {
+        return Err(
+            "Native Claude, Codex, and Kimi choose models from their own login/config; leave Model blank"
+                .to_owned(),
+        );
+    }
+    set_optional_env(
+        &mut env,
+        "BUZZ_ACP_MODEL",
+        (native_runtime(runtime).is_none() || hypercli_native_opt_in)
+            .then(|| model.map(str::to_owned))
+            .flatten(),
+    );
+    insert_launch_env(&mut launch_config, env);
+
+    let requested_size = parse_editor_size(input.size.as_deref())?;
+    let size_changed =
+        requested_size.filter(|size| current.requested_size.as_deref() != Some(size.as_str()));
+    let name = input.name.trim().to_owned();
+    let name_changed = (name != current.name).then_some(name);
+    let config_changed =
+        (launch_config != original_config).then(|| DeploymentLaunchConfig::from_map(launch_config));
+    if name_changed.is_none() && size_changed.is_none() && config_changed.is_none() {
+        return Ok(DesktopAgent::from(current));
+    }
+
+    let was_running = normalized_state(&current.state) == "running";
+    let mut stopped = current;
+    if was_running {
+        stopped = client
+            .stop_deployment(&agent_id)
+            .map_err(|error| error.to_string())?;
+        stopped = wait_for_stopped(&client, stopped)?;
+    }
+    let updated = client
+        .update_deployment(
+            &agent_id,
+            &UpdateDeploymentRequest {
+                name: name_changed,
+                size: size_changed,
+                launch_config: config_changed,
+                ..Default::default()
+            },
+        )
+        .map_err(|error| error.to_string())?;
+    if was_running {
+        client
+            .start_deployment(&agent_id, &StartDeploymentRequest::default())
+            .map(DesktopAgent::from)
+            .map_err(|error| error.to_string())
+    } else {
+        let _ = stopped;
+        Ok(DesktopAgent::from(updated))
+    }
+}
+
+struct PreparedAgentProfileUpdate {
+    relay: String,
+    agent_keys: nostr::Keys,
+    auth_tag: SecretString,
+    event: NostrEvent,
+}
+
+fn prepare_agent_profile_update_blocking(
+    agent_id: String,
+    input: &AgentEditorInput,
+) -> Result<PreparedAgentProfileUpdate, String> {
+    let agent_id = checked_agent_id(&agent_id)?;
+    let deployment = managed_client()?
+        .get_deployment(&agent_id)
+        .map_err(|error| error.to_string())?;
+    if !deployment.is_buzz_managed() {
+        return Err("Only Buzz-managed agents can be edited here".to_owned());
+    }
+    let env = launch_env(&deployment.launch_config)?;
+    let private_key = env_value(&env, "BUZZ_PRIVATE_KEY").ok_or_else(|| {
+        "This legacy deployment has no recoverable Buzz agent identity".to_owned()
+    })?;
+    let auth_tag = env_value(&env, "BUZZ_AUTH_TAG").ok_or_else(|| {
+        "This legacy deployment has no recoverable Buzz owner attestation".to_owned()
+    })?;
+    let relay = env_value(&env, "BUZZ_RELAY_URL")
+        .ok_or_else(|| "This legacy deployment has no recoverable Buzz relay".to_owned())?;
+    let identity = AgentIdentity::from_nsec(&SecretString::from(private_key))
+        .map_err(|error| error.to_string())?;
+    if deployment
+        .tags
+        .iter()
+        .find_map(|tag| tag.strip_prefix("buzz_agent="))
+        .is_some_and(|public_key| public_key != identity.public_hex())
+    {
+        return Err("Stored Buzz identity does not match this deployment".to_owned());
+    }
+    let auth_tag = SecretString::from(auth_tag);
+    let event = build_agent_profile_event(
+        &identity,
+        input.name.trim(),
+        input.avatar_url.as_deref(),
+        Some(input.instructions.trim()),
+        &auth_tag,
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(PreparedAgentProfileUpdate {
+        relay,
+        agent_keys: identity.keys(),
+        auth_tag,
+        event,
+    })
+}
+
+#[tauri::command]
+async fn save_agent(agent_id: String, input: AgentEditorInput) -> Result<DesktopAgent, String> {
+    let mut input = input;
+    if input.respond_to.trim() == "allowlist" {
+        let lookup_id = checked_agent_id(&agent_id)?;
+        let lookup = tauri::async_runtime::spawn_blocking(move || {
+            let repository = buzz_connection_repository()?;
+            let document = repository.load().map_err(|error| error.to_string())?;
+            let Some(agent) = document
+                .agents
+                .iter()
+                .find(|agent| agent.deployment_id.as_deref() == Some(lookup_id.as_str()))
+            else {
+                return Ok::<_, String>(None);
+            };
+            let connection = document
+                .connections
+                .iter()
+                .find(|connection| connection.id == agent.connection_id)
+                .ok_or_else(|| "Saved Buzz connection not found".to_owned())?;
+            let signer = repository
+                .owner_signer(&connection.id)
+                .map_err(|error| error.to_string())?;
+            Ok(Some((
+                connection.relay_url.clone(),
+                signer.keys(),
+                agent
+                    .channels
+                    .iter()
+                    .map(|channel| channel.id.clone())
+                    .collect::<Vec<_>>(),
+            )))
+        })
+        .await
+        .map_err(|error| error.to_string())??;
+        if let Some((relay, signer, channels)) = lookup {
+            input.allowlist =
+                resolve_buzz_allowlist(&relay, signer, &channels, &input.allowlist).await?;
+        } else {
+            let explicit = input
+                .allowlist
+                .iter()
+                .map(|entry| explicit_allowlist_public_key(entry))
+                .collect::<Result<Vec<_>, _>>()?;
+            if explicit.iter().any(Option::is_none) {
+                return Err(
+                    "Nickname lookup is unavailable for this legacy agent; enter npubs instead"
+                        .to_owned(),
+                );
+            }
+            input.allowlist = resolve_allowlist_entries(&input.allowlist, &[], &[], &[])?;
+        }
+    } else {
+        input.allowlist.clear();
+    }
+    let profile_agent_id = agent_id.clone();
+    let profile_input = input.clone();
+    let profile = tauri::async_runtime::spawn_blocking(move || {
+        prepare_agent_profile_update_blocking(profile_agent_id, &profile_input)
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    let updated =
+        tauri::async_runtime::spawn_blocking(move || save_agent_blocking(agent_id, input))
+            .await
+            .map_err(|error| error.to_string())??;
+    publish_signed_buzz_event_http(
+        &profile.relay,
+        &profile.agent_keys,
+        &profile.event,
+        Some(&profile.auth_tag),
+    )
+    .await
+    .map_err(|error| format!("Deployment saved, but Buzz profile update failed: {error}"))?;
+    Ok(updated)
+}
+
+async fn publish_buzz_events(
+    relay: &str,
+    signer: nostr::Keys,
+    events: &[NostrEvent],
+) -> Result<(), String> {
+    let client = NostrClient::new(signer);
+    client
+        .add_relay(relay)
+        .await
+        .map_err(|_| "Could not configure the Buzz relay".to_owned())?;
+    client
+        .try_connect_relay(relay, Duration::from_secs(10))
+        .await
+        .map_err(|_| "Could not connect to the Buzz relay".to_owned())?;
+    for event in events {
+        let output = tokio::time::timeout(Duration::from_secs(20), client.send_event(event))
+            .await
+            .map_err(|_| "Buzz relay publish timed out".to_owned())?
+            .map_err(|_| "Buzz relay rejected an enrollment event".to_owned())?;
+        if output.success.is_empty() {
+            client.disconnect().await;
+            return Err("Buzz relay did not confirm the enrollment event".to_owned());
+        }
+    }
+    client.disconnect().await;
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct BuzzEventSubmitResponse {
+    accepted: bool,
+}
+
+fn relay_http_events_url(relay: &str) -> Result<String, String> {
+    let relay = relay.trim().trim_end_matches('/');
+    if let Some(suffix) = relay.strip_prefix("wss://") {
+        return Ok(format!("https://{suffix}/events"));
+    }
+    if let Some(suffix) = relay.strip_prefix("ws://") {
+        return Ok(format!("http://{suffix}/events"));
+    }
+    Err("Buzz relay must use ws:// or wss://".to_owned())
+}
+
+fn build_nip98_authorization(
+    signer: &nostr::Keys,
+    url: &str,
+    body: &[u8],
+) -> Result<String, String> {
+    let payload = sha256::Hash::hash(body).to_string();
+    let nonce = uuid::Uuid::new_v4().to_string();
+    let tags = [
+        NostrTag::parse(["u", url]).map_err(|_| "Could not sign Buzz request".to_owned())?,
+        NostrTag::parse(["method", "POST"])
+            .map_err(|_| "Could not sign Buzz request".to_owned())?,
+        NostrTag::parse(["payload", payload.as_str()])
+            .map_err(|_| "Could not sign Buzz request".to_owned())?,
+        NostrTag::parse(["nonce", nonce.as_str()])
+            .map_err(|_| "Could not sign Buzz request".to_owned())?,
+    ];
+    let event = NostrEventBuilder::new(NostrKind::HttpAuth, "")
+        .tags(tags)
+        .sign_with_keys(signer)
+        .map_err(|_| "Could not sign Buzz request".to_owned())?;
+    let event_json = serde_json::to_vec(&event)
+        .map_err(|_| "Could not serialize Buzz authorization".to_owned())?;
+    Ok(format!(
+        "Nostr {}",
+        base64::engine::general_purpose::STANDARD.encode(event_json)
+    ))
+}
+
+async fn publish_signed_buzz_event_http(
+    relay: &str,
+    signer: &nostr::Keys,
+    event: &NostrEvent,
+    auth_tag: Option<&SecretString>,
+) -> Result<(), String> {
+    validate_buzz_event_author(signer, event)?;
+    let url = relay_http_events_url(relay)?;
+    let body =
+        serde_json::to_vec(event).map_err(|_| "Could not serialize the Buzz event".to_owned())?;
+    let authorization = build_nip98_authorization(signer, &url, &body)?;
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|_| "Could not configure the Buzz relay client".to_owned())?;
+    let mut request = client
+        .post(url)
+        .header(reqwest::header::AUTHORIZATION, authorization)
+        .header(reqwest::header::CONTENT_TYPE, "application/json");
+    if let Some(auth_tag) = auth_tag {
+        request = request.header("x-auth-tag", auth_tag.expose_secret());
+    }
+    let response = request
+        .body(body)
+        .send()
+        .await
+        .map_err(|_| "Could not reach the Buzz relay".to_owned())?;
+    if !response.status().is_success() {
+        return Err("Buzz relay rejected the event".to_owned());
+    }
+    let result = response
+        .json::<BuzzEventSubmitResponse>()
+        .await
+        .map_err(|_| "Buzz relay returned an invalid event response".to_owned())?;
+    if !result.accepted {
+        return Err("Buzz relay did not accept the event".to_owned());
+    }
+    Ok(())
+}
+
+fn validate_buzz_event_author(signer: &nostr::Keys, event: &NostrEvent) -> Result<(), String> {
+    if event.pubkey == signer.public_key() {
+        Ok(())
+    } else {
+        Err("Buzz event author does not match its publishing identity".to_owned())
+    }
+}
+
+struct PreparedBuzzLaunch {
+    relay: String,
+    connection_id: String,
+    owner_keys: nostr::Keys,
+    agent_keys: nostr::Keys,
+    agent_public_hex: String,
+    agent_npub: String,
+    agent_nsec: SecretString,
+    auth_tag: SecretString,
+    channels: Vec<String>,
+    profile_event: NostrEvent,
+    enrollment_events: Vec<NostrEvent>,
+    removal_events: Vec<NostrEvent>,
+}
+
+fn prepare_buzz_launch(input: &AgentEditorInput) -> Result<PreparedBuzzLaunch, String> {
+    validate_editor_input(input)?;
+    let connection_id = input
+        .connection_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "Choose a saved Buzz connection".to_owned())?;
+    let repository = buzz_connection_repository()?;
+    let document = repository.load().map_err(|error| error.to_string())?;
+    let connection = document
+        .connections
+        .iter()
+        .find(|connection| connection.id == connection_id)
+        .ok_or_else(|| "Saved Buzz connection not found".to_owned())?;
+    if connection.relay_url != input.relay.trim() {
+        return Err("Selected Buzz connection does not match the requested relay".to_owned());
+    }
+    let owner = repository
+        .owner_signer(connection_id)
+        .map_err(|error| error.to_string())?;
+    let agent = AgentIdentity::generate();
+    let auth_tag = build_owner_attestation(&owner, &agent.public_key(), "")
+        .map_err(|error| error.to_string())?;
+    let profile = build_agent_profile_event(
+        &agent,
+        input.name.trim(),
+        input.avatar_url.as_deref(),
+        Some(input.instructions.trim()),
+        &auth_tag,
+    )
+    .map_err(|error| error.to_string())?;
+    let mut channels = input
+        .channels
+        .iter()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    if channels.is_empty() && !input.community.trim().is_empty() {
+        channels.push(input.community.trim().to_owned());
+    }
+    channels.sort();
+    channels.dedup();
+    if channels.is_empty() {
+        return Err("Choose at least one Buzz channel".to_owned());
+    }
+    let mut enrollment_events = Vec::new();
+    let mut removal_events = Vec::new();
+    for channel in &channels {
+        enrollment_events.push(
+            build_bot_enrollment_event(&owner, channel, &agent.public_key())
+                .map_err(|error| error.to_string())?,
+        );
+        removal_events.push(
+            build_bot_removal_event(&owner, channel, &agent.public_key())
+                .map_err(|error| error.to_string())?,
+        );
+    }
+    Ok(PreparedBuzzLaunch {
+        relay: connection.relay_url.clone(),
+        connection_id: connection.id.clone(),
+        owner_keys: owner.keys(),
+        agent_keys: agent.keys(),
+        agent_public_hex: agent.public_hex(),
+        agent_npub: agent.npub().map_err(|error| error.to_string())?,
+        agent_nsec: agent.private_nsec().map_err(|error| error.to_string())?,
+        auth_tag,
+        channels,
+        profile_event: profile,
+        enrollment_events,
+        removal_events,
+    })
+}
+
+fn create_buzz_deployment_blocking(
+    input: &AgentEditorInput,
+    prepared: &PreparedBuzzLaunch,
+) -> Result<Deployment, String> {
+    let runtime = parse_editor_runtime(&input.runtime)?;
+    let client = managed_client()?;
+    let requested_size = match parse_editor_size(input.size.as_deref())? {
+        Some(size) => size,
+        None => client
+            .list_deployments_with_capacity()
+            .map_err(|error| error.to_string())?
+            .largest_available_size()
+            .ok_or_else(|| "No HyperCLI agent slot is currently available".to_owned())?,
+    };
+    let parallelism = input.concurrency.unwrap_or(match requested_size {
+        AgentSize::Small => 2,
+        AgentSize::Medium => 5,
+        AgentSize::Large => 10,
+    });
+    let mut request = CreateDeploymentRequest::new(runtime);
+    request.name = Some(input.name.trim().to_owned());
+    request.env = input.env.clone();
+    if let Some(avatar_url) = input
+        .avatar_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        request
+            .env
+            .insert("BUZZ_PROFILE_PICTURE".to_owned(), avatar_url.to_owned());
+    }
+    let hypercli_native_opt_in = request
+        .env
+        .get("HYPERCLI_RUNTIME_INFERENCE")
+        .map(String::as_str)
+        == Some("hypercli");
+    let model = input
+        .model
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if native_runtime(runtime).is_some() && model.is_some() && !hypercli_native_opt_in {
+        return Err(
+            "Native Claude, Codex, and Kimi choose models from their own login/config; leave Model blank"
+                .to_owned(),
+        );
+    }
+    let mut buzz = BuzzLaunchConfig::new(
+        prepared.agent_nsec.expose_secret().to_owned(),
+        prepared.relay.clone(),
+    );
+    buzz.auth_tag = Some(prepared.auth_tag.expose_secret().to_owned());
+    buzz.system_prompt = Some(input.instructions.trim().to_owned());
+    buzz.model = (native_runtime(runtime).is_none() || hypercli_native_opt_in)
+        .then(|| model.map(str::to_owned))
+        .flatten();
+    buzz.parallelism = parallelism;
+    buzz.respond_to = Some(input.respond_to.trim().to_owned());
+    buzz.respond_to_allowlist = input
+        .allowlist
+        .iter()
+        .map(|value| value.trim().to_owned())
+        .collect();
+    buzz.display_name = Some(input.name.trim().to_owned());
+    buzz.apply_to(&mut request, Some(input.name.trim()))
+        .map_err(|error| error.to_string())?;
+    request.size = Some(requested_size);
+    request.mark_buzz_deployment(Some(&prepared.agent_public_hex));
+    for channel in &prepared.channels {
+        request.tags.push(format!("buzz_channel={channel}"));
+    }
+    client
+        .create_deployment(&request)
+        .map_err(|error| error.to_string())
+}
+
+fn cleanup_created_deployment_blocking(agent_id: String) -> Result<(), String> {
+    let agent_id = checked_agent_id(&agent_id)?;
+    let client = managed_client()?;
+    let mut deployment = client
+        .get_deployment(&agent_id)
+        .map_err(|error| error.to_string())?;
+    if normalized_state(&deployment.state) != "stopped" {
+        deployment = client
+            .stop_deployment(&agent_id)
+            .map_err(|error| error.to_string())?;
+        wait_for_stopped(&client, deployment)?;
+    }
+    let deleted = client
+        .delete_deployment(&agent_id)
+        .map_err(|error| error.to_string())?;
+    if deleted.ok && deleted.id == agent_id {
+        Ok(())
+    } else {
+        Err("Backend did not confirm cleanup of the new agent".to_owned())
+    }
+}
+
+#[tauri::command]
+async fn create_buzz_agent(input: AgentEditorInput) -> Result<DesktopAgent, String> {
+    let mut input = input;
+    if input.community.trim().is_empty() && input.channels.is_empty() {
+        return Err("Choose at least one Buzz channel".to_owned());
+    }
+    let prepare_input = input.clone();
+    let prepared =
+        tauri::async_runtime::spawn_blocking(move || prepare_buzz_launch(&prepare_input))
+            .await
+            .map_err(|error| error.to_string())??;
+    if input.respond_to.trim() == "allowlist" {
+        input.allowlist = resolve_buzz_allowlist(
+            &prepared.relay,
+            prepared.owner_keys.clone(),
+            &prepared.channels,
+            &input.allowlist,
+        )
+        .await?;
+    } else {
+        input.allowlist.clear();
+    }
+    publish_signed_buzz_event_http(
+        &prepared.relay,
+        &prepared.agent_keys,
+        &prepared.profile_event,
+        Some(&prepared.auth_tag),
+    )
+    .await?;
+    if let Err(error) = publish_buzz_events(
+        &prepared.relay,
+        prepared.owner_keys.clone(),
+        &prepared.enrollment_events,
+    )
+    .await
+    {
+        let rollback = publish_buzz_events(
+            &prepared.relay,
+            prepared.owner_keys.clone(),
+            &prepared.removal_events,
+        )
+        .await;
+        return Err(match rollback {
+            Ok(()) => error,
+            Err(rollback_error) => format!("{error}; Buzz rollback also failed: {rollback_error}"),
+        });
+    }
+
+    let launch_input = input.clone();
+    let deployment = match tauri::async_runtime::spawn_blocking({
+        let prepared = PreparedBuzzLaunch {
+            relay: prepared.relay.clone(),
+            connection_id: prepared.connection_id.clone(),
+            owner_keys: prepared.owner_keys.clone(),
+            agent_keys: prepared.agent_keys.clone(),
+            agent_public_hex: prepared.agent_public_hex.clone(),
+            agent_npub: prepared.agent_npub.clone(),
+            agent_nsec: prepared.agent_nsec.clone(),
+            auth_tag: prepared.auth_tag.clone(),
+            channels: prepared.channels.clone(),
+            profile_event: prepared.profile_event.clone(),
+            enrollment_events: prepared.enrollment_events.clone(),
+            removal_events: prepared.removal_events.clone(),
+        };
+        move || create_buzz_deployment_blocking(&launch_input, &prepared)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+    {
+        Ok(deployment) => deployment,
+        Err(error) => {
+            let _ = publish_buzz_events(
+                &prepared.relay,
+                prepared.owner_keys.clone(),
+                &prepared.removal_events,
+            )
+            .await;
+            return Err(error);
+        }
+    };
+
+    let metadata = ManagedBuzzAgentMetadata {
+        agent_public_hex: prepared.agent_public_hex,
+        agent_npub: prepared.agent_npub,
+        connection_id: prepared.connection_id,
+        channels: prepared
+            .channels
+            .into_iter()
+            .map(|id| ChannelReference {
+                name: id.clone(),
+                id,
+            })
+            .collect(),
+        deployment_id: Some(deployment.id.clone()),
+        runtime: input.runtime,
+        tags: BTreeMap::from([("app".to_owned(), "buzz".to_owned())]),
+    };
+    let record_result = tauri::async_runtime::spawn_blocking(move || {
+        buzz_connection_repository()?
+            .record_agent(metadata)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    if let Err(record_error) = record_result {
+        let cleanup_id = deployment.id.clone();
+        let cleanup = tauri::async_runtime::spawn_blocking(move || {
+            cleanup_created_deployment_blocking(cleanup_id)
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+        let relay_cleanup = publish_buzz_events(
+            &prepared.relay,
+            prepared.owner_keys,
+            &prepared.removal_events,
+        )
+        .await;
+        let mut failures = vec![format!(
+            "Could not save local Buzz metadata: {record_error}"
+        )];
+        if let Err(error) = cleanup {
+            failures.push(format!("backend cleanup failed: {error}"));
+        }
+        if let Err(error) = relay_cleanup {
+            failures.push(format!("Buzz cleanup failed: {error}"));
+        }
+        return Err(failures.join("; "));
+    }
+    Ok(DesktopAgent::from(deployment))
+}
+
+const SSH_STATUS_COMMAND: &str = r#"set -eu
+for key in "$HOME/.ssh/id_ed25519.pub"; do
+  if [ -s "$key" ]; then
+    printf 'PUBLIC=%s\n' "$(cat "$key")"
+    printf 'FINGERPRINT=%s\n' "$(ssh-keygen -lf "$key" | cut -d' ' -f2-)"
+    exit 0
+  fi
+done
+exit 0"#;
+
+const SSH_GENERATE_COMMAND: &str = r#"set -eu
+umask 077
+mkdir -p "$HOME/.ssh"
+chmod 700 "$HOME/.ssh"
+if [ ! -s "$HOME/.ssh/id_ed25519" ]; then
+  ssh-keygen -q -t ed25519 -N '' -C hypercli-buzz -f "$HOME/.ssh/id_ed25519"
+fi
+chmod 600 "$HOME/.ssh/id_ed25519"
+chmod 644 "$HOME/.ssh/id_ed25519.pub"
+printf 'PUBLIC=%s\n' "$(cat "$HOME/.ssh/id_ed25519.pub")"
+printf 'FINGERPRINT=%s\n' "$(ssh-keygen -lf "$HOME/.ssh/id_ed25519.pub" | cut -d' ' -f2-)""#;
+
+const SSH_IMPORT_PREPARE_COMMAND: &str = r#"set -eu
+umask 077
+mkdir -p "$HOME/.ssh"
+chmod 700 "$HOME/.ssh"
+rm -f "$HOME/.ssh/.id_ed25519.hypercli-import" "$HOME/.ssh/.id_ed25519.hypercli-import.pub""#;
+
+const SSH_IMPORT_FINALIZE_COMMAND: &str = r#"set -eu
+umask 077
+mkdir -p "$HOME/.ssh"
+chmod 700 "$HOME/.ssh"
+incoming="$HOME/.ssh/.id_ed25519.hypercli-import"
+incoming_pub="$incoming.pub"
+trap 'rm -f "$incoming" "$incoming_pub"' EXIT
+if [ -e "$HOME/.ssh/id_ed25519" ] || [ -e "$HOME/.ssh/id_ed25519.pub" ]; then
+  printf 'An SSH identity is already installed\n' >&2
+  exit 21
+fi
+chmod 600 "$incoming"
+ssh-keygen -y -P '' -f "$incoming" > "$incoming_pub"
+chmod 644 "$incoming_pub"
+mv "$incoming" "$HOME/.ssh/id_ed25519"
+mv "$incoming_pub" "$HOME/.ssh/id_ed25519.pub"
+trap - EXIT
+printf 'PUBLIC=%s\n' "$(cat "$HOME/.ssh/id_ed25519.pub")"
+printf 'FINGERPRINT=%s\n' "$(ssh-keygen -lf "$HOME/.ssh/id_ed25519.pub" | cut -d' ' -f2-)""#;
+
+fn parse_ssh_status(stdout: &str) -> DesktopSshKeyStatus {
+    let public_key = stdout
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("PUBLIC=")
+                .map(str::trim)
+                .map(str::to_owned)
+        })
+        .filter(|value| value.starts_with("ssh-"));
+    let fingerprint = stdout
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("FINGERPRINT=")
+                .map(str::trim)
+                .map(str::to_owned)
+        })
+        .filter(|value| !value.is_empty());
+    DesktopSshKeyStatus {
+        configured: public_key.is_some(),
+        public_key,
+        fingerprint,
+    }
+}
+
+fn fixed_agent_exec(
+    client: &HyperCliClient,
+    agent_id: &str,
+    command: &'static str,
+) -> Result<DesktopSshKeyStatus, String> {
+    let mut request = ExecDeploymentRequest::new(command);
+    request.timeout = 30;
+    let response = client
+        .exec_deployment(agent_id, &request)
+        .map_err(|error| error.to_string())?;
+    if response.exit_code != 0 {
+        return Err("SSH key operation failed inside the agent".to_owned());
+    }
+    Ok(parse_ssh_status(&response.stdout))
+}
+
+fn ssh_key_status_blocking(agent_id: String) -> Result<DesktopSshKeyStatus, String> {
+    let agent_id = checked_agent_id(&agent_id)?;
+    fixed_agent_exec(&managed_client()?, &agent_id, SSH_STATUS_COMMAND)
+}
+
+#[tauri::command]
+async fn ssh_key_status(agent_id: String) -> Result<DesktopSshKeyStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || ssh_key_status_blocking(agent_id))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn generate_ssh_key(agent_id: String) -> Result<DesktopSshKeyStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let agent_id = checked_agent_id(&agent_id)?;
+        fixed_agent_exec(&managed_client()?, &agent_id, SSH_GENERATE_COMMAND)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+fn validate_private_ssh_key(path: &std::path::Path) -> Result<Vec<u8>, String> {
+    let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+    if metadata.file_type().is_symlink() {
+        return Err("SSH key imports cannot follow symbolic links".to_owned());
+    }
+    if !metadata.is_file() || metadata.len() == 0 || metadata.len() > 64 * 1024 {
+        return Err("Choose a private SSH key smaller than 64 KiB".to_owned());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o077 != 0 {
+            return Err(
+                "Private SSH key permissions must not allow group or other access".to_owned(),
+            );
+        }
+    }
+    let mut content = fs::read(path).map_err(|error| error.to_string())?;
+    let text = std::str::from_utf8(&content).map_err(|_| "SSH key must be UTF-8 PEM text")?;
+    let valid_header = [
+        "-----BEGIN OPENSSH PRIVATE KEY-----",
+        "-----BEGIN RSA PRIVATE KEY-----",
+        "-----BEGIN EC PRIVATE KEY-----",
+    ]
+    .iter()
+    .any(|header| text.trim_start().starts_with(header));
+    if !valid_header {
+        return Err("The selected file is not a supported private SSH key".to_owned());
+    }
+    if !content.ends_with(b"\n") {
+        content.push(b'\n');
+    }
+    Ok(content)
+}
+
+#[tauri::command]
+async fn import_ssh_key(
+    app: tauri::AppHandle,
+    agent_id: String,
+) -> Result<DesktopSshKeyStatus, String> {
+    let selected = app
+        .dialog()
+        .file()
+        .blocking_pick_file()
+        .ok_or_else(|| "No SSH key selected".to_owned())?;
+    let path = selected
+        .into_path()
+        .map_err(|_| "The selected key is not a local file".to_owned())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let agent_id = checked_agent_id(&agent_id)?;
+        let content = validate_private_ssh_key(&path)?;
+        let client = managed_client()?;
+        let deployment = client
+            .get_deployment(&agent_id)
+            .map_err(|error| error.to_string())?;
+        if normalized_state(&deployment.state) != "running" {
+            return Err("Start the agent before importing an SSH key".to_owned());
+        }
+        fixed_agent_exec(&client, &agent_id, SSH_IMPORT_PREPARE_COMMAND)?;
+        client
+            .put_deployment_file(&agent_id, ".ssh/.id_ed25519.hypercli-import", &content)
+            .map_err(|error| error.to_string())?;
+        fixed_agent_exec(&client, &agent_id, SSH_IMPORT_FINALIZE_COMMAND)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -533,11 +2524,119 @@ fn delete_agent_blocking(agent_id: String) -> Result<(), String> {
     Ok(())
 }
 
+struct PreparedAgentRemoval {
+    relay: String,
+    signer: nostr::Keys,
+    removal_events: Vec<NostrEvent>,
+    rollback_events: Vec<NostrEvent>,
+}
+
+fn prepare_agent_removal_blocking(
+    agent_id: String,
+) -> Result<Option<PreparedAgentRemoval>, String> {
+    let agent_id = checked_agent_id(&agent_id)?;
+    let deployment = managed_client()?
+        .get_deployment(&agent_id)
+        .map_err(|error| error.to_string())?;
+    if !agent_actions(&deployment.state).delete {
+        return Err(format!(
+            "Only stopped agents can be deleted (currently {})",
+            normalized_state(&deployment.state)
+        ));
+    }
+    let repository = buzz_connection_repository()?;
+    let document = repository.load().map_err(|error| error.to_string())?;
+    let Some(agent) = document
+        .agents
+        .iter()
+        .find(|agent| agent.deployment_id.as_deref() == Some(agent_id.as_str()))
+    else {
+        return Ok(None);
+    };
+    let connection = document
+        .connections
+        .iter()
+        .find(|connection| connection.id == agent.connection_id)
+        .ok_or_else(|| "Saved Buzz connection not found".to_owned())?;
+    let owner = repository
+        .owner_signer(&connection.id)
+        .map_err(|error| error.to_string())?;
+    let agent_public_key = nostr::PublicKey::from_hex(&agent.agent_public_hex)
+        .map_err(|_| "Stored Buzz agent public key is invalid".to_owned())?;
+    let mut removal_events = Vec::new();
+    let mut rollback_events = Vec::new();
+    for channel in &agent.channels {
+        removal_events.push(
+            build_bot_removal_event(&owner, &channel.id, &agent_public_key)
+                .map_err(|error| error.to_string())?,
+        );
+        rollback_events.push(
+            build_bot_enrollment_event(&owner, &channel.id, &agent_public_key)
+                .map_err(|error| error.to_string())?,
+        );
+    }
+    Ok(Some(PreparedAgentRemoval {
+        relay: connection.relay_url.clone(),
+        signer: owner.keys(),
+        removal_events,
+        rollback_events,
+    }))
+}
+
 #[tauri::command]
 async fn delete_agent(agent_id: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || delete_agent_blocking(agent_id))
+    let prepare_id = agent_id.clone();
+    let prepared =
+        tauri::async_runtime::spawn_blocking(move || prepare_agent_removal_blocking(prepare_id))
+            .await
+            .map_err(|error| error.to_string())??;
+    if let Some(prepared) = &prepared {
+        if let Err(error) = publish_buzz_events(
+            &prepared.relay,
+            prepared.signer.clone(),
+            &prepared.removal_events,
+        )
         .await
-        .map_err(|error| error.to_string())?
+        {
+            let rollback = publish_buzz_events(
+                &prepared.relay,
+                prepared.signer.clone(),
+                &prepared.rollback_events,
+            )
+            .await;
+            return Err(match rollback {
+                Ok(()) => format!("Could not remove the agent from Buzz: {error}"),
+                Err(rollback_error) => format!(
+                    "Could not remove the agent from Buzz: {error}; rollback also failed: {rollback_error}"
+                ),
+            });
+        }
+    }
+    let delete_id = agent_id.clone();
+    let deleted = tauri::async_runtime::spawn_blocking(move || delete_agent_blocking(delete_id))
+        .await
+        .map_err(|error| error.to_string())?;
+    if let Err(error) = deleted {
+        if let Some(prepared) = prepared {
+            if let Err(rollback_error) =
+                publish_buzz_events(&prepared.relay, prepared.signer, &prepared.rollback_events)
+                    .await
+            {
+                return Err(format!(
+                    "{error}; restoring Buzz membership also failed: {rollback_error}"
+                ));
+            }
+        }
+        return Err(error);
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        buzz_connection_repository()?
+            .forget_agent_by_deployment(&agent_id)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    Ok(())
 }
 
 /// Human-readable key annotation, e.g. "macOS (Dmitrys-Mac-mini)".
@@ -566,9 +2665,12 @@ fn mint_api_key_blocking(session_token: String) -> Result<String, String> {
     .map_err(|e| e.to_string())?;
     let mut request = CreateApiKeyRequest::new(name.clone());
     // Tags are scope grants in `family:baseline` grammar (deny-by-default
-    // without them). The provider needs `agents:*`; `user:self` lets the
-    // app read the entitlements summary for the plan hint.
-    request.tags = vec!["agents:*".to_owned(), "user:self".to_owned()];
+    // without them). Keep the grant list centralized and narrow: prompt
+    // drafting is pinned to one model and SSH management uses files only.
+    request.tags = DESKTOP_KEY_SCOPES
+        .iter()
+        .map(|scope| (*scope).to_owned())
+        .collect();
     let key = client.create_api_key(&request).map_err(|e| e.to_string())?;
     let api_key = key
         .api_key
@@ -694,6 +2796,7 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_deep_link::init());
 
     // Register the updater (and the process plugin its relaunch flow needs)
@@ -710,6 +2813,7 @@ pub fn run() {
     };
 
     builder
+        .manage(RuntimeLoginSessions::default())
         .setup(|app| {
             let handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
@@ -728,7 +2832,23 @@ pub fn run() {
             save_api_key,
             logout,
             validate_key,
+            draft_agent_prompt,
+            list_buzz_connections,
+            save_buzz_connection,
+            remove_buzz_connection,
+            list_buzz_channels,
             list_agents,
+            get_agent_detail,
+            runtime_auth_status,
+            begin_runtime_login,
+            poll_runtime_login,
+            send_runtime_login_input,
+            cancel_runtime_login,
+            save_agent,
+            create_buzz_agent,
+            ssh_key_status,
+            generate_ssh_key,
+            import_ssh_key,
             start_agent,
             stop_agent,
             restart_agent,
@@ -745,6 +2865,73 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nostr::ToBech32;
+
+    #[test]
+    fn nip98_authorization_pins_author_url_method_payload_and_nonce() {
+        let signer = nostr::Keys::generate();
+        let event = NostrEventBuilder::new(NostrKind::TextNote, "hello")
+            .sign_with_keys(&signer)
+            .unwrap();
+        let body = serde_json::to_vec(&event).unwrap();
+        let url = "https://dev.buzz.hypercli.com/events";
+        let header = build_nip98_authorization(&signer, url, &body).unwrap();
+        let encoded = header.strip_prefix("Nostr ").unwrap();
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .unwrap();
+        let authorization: NostrEvent = serde_json::from_slice(&decoded).unwrap();
+        assert_eq!(authorization.pubkey, signer.public_key());
+        assert_eq!(authorization.kind, NostrKind::HttpAuth);
+        let tags = authorization
+            .tags
+            .iter()
+            .map(|tag| tag.as_slice())
+            .collect::<Vec<_>>();
+        assert!(tags.iter().any(|tag| {
+            tag.first().map(String::as_str) == Some("u")
+                && tag.get(1).map(String::as_str) == Some(url)
+        }));
+        assert!(tags.iter().any(|tag| {
+            tag.first().map(String::as_str) == Some("method")
+                && tag.get(1).map(String::as_str) == Some("POST")
+        }));
+        let payload = sha256::Hash::hash(&body).to_string();
+        assert!(tags
+            .iter()
+            .any(|tag| tag.first().map(String::as_str) == Some("payload")
+                && tag.get(1).map(String::as_str) == Some(payload.as_str())));
+        let nonce = tags
+            .iter()
+            .find(|tag| tag.first().map(String::as_str) == Some("nonce"))
+            .and_then(|tag| tag.get(1))
+            .unwrap();
+        uuid::Uuid::parse_str(nonce).unwrap();
+    }
+
+    #[test]
+    fn buzz_http_publisher_rejects_author_mismatch_before_transport() {
+        let signer = nostr::Keys::generate();
+        let other = nostr::Keys::generate();
+        let event = NostrEventBuilder::new(NostrKind::Metadata, "{}")
+            .sign_with_keys(&other)
+            .unwrap();
+        assert!(validate_buzz_event_author(&signer, &event)
+            .unwrap_err()
+            .contains("author"));
+    }
+
+    fn signed_event(
+        keys: &nostr::Keys,
+        kind: nostr::Kind,
+        content: &str,
+        tags: Vec<nostr::Tag>,
+    ) -> NostrEvent {
+        nostr::EventBuilder::new(kind, content)
+            .tags(tags)
+            .sign_with_keys(keys)
+            .unwrap()
+    }
 
     #[test]
     fn token_extracted_from_valid_callback() {
@@ -829,6 +3016,7 @@ mod tests {
             id: "40c42593-7d02-48f9-a3ff-6c7d6461f140".to_owned(),
             name: "Maverick".to_owned(),
             handle: Some("buzz-public".to_owned()),
+            avatar_url: None,
             runtime: Some(hypercli_sdk::ManagedRuntime::ClaudeCode),
             state: "RUNNING".to_owned(),
             pod_id: Some("pod-secret-not-rendered".to_owned()),
@@ -836,6 +3024,7 @@ mod tests {
             tags: vec!["buzz_agent=public-key".to_owned()],
             requested_size: Some("large".to_owned()),
             last_error: None,
+            launch_config: Default::default(),
         });
         let serialized = serde_json::to_value(view).unwrap();
 
@@ -855,5 +3044,180 @@ mod tests {
             checked_agent_id("../../plans").unwrap_err(),
             "Invalid agent id"
         );
+    }
+
+    #[test]
+    fn desktop_machine_key_scopes_cover_editor_without_unrestricted_models() {
+        assert!(DESKTOP_KEY_SCOPES.contains(&"agents:*"));
+        assert!(DESKTOP_KEY_SCOPES.contains(&"files:*"));
+        assert!(DESKTOP_KEY_SCOPES.contains(&"models:kimi-k2.6"));
+        assert!(DESKTOP_KEY_SCOPES.contains(&"user:self"));
+        assert!(!DESKTOP_KEY_SCOPES.contains(&"models:*"));
+    }
+
+    #[test]
+    fn free_form_environment_preserves_vendor_controls_but_blocks_platform_keys() {
+        for allowed in [
+            "ANTHROPIC_BASE_URL",
+            "ANTHROPIC_AUTH_TOKEN",
+            "OPENAI_API_KEY",
+            "KIMI_CONFIG_FILE",
+            "GITHUB_TOKEN",
+            "HYPERCLI_RUNTIME_INFERENCE",
+        ] {
+            assert!(!is_protected_launch_env(allowed), "{allowed}");
+        }
+        for blocked in [
+            "BUZZ_PRIVATE_KEY",
+            "BUZZ_ACP_AGENT_COMMAND",
+            "HYPER_AGENTS_API_KEY",
+            "NOSTR_PRIVATE_KEY",
+            "PATH",
+            "LD_PRELOAD",
+        ] {
+            assert!(is_protected_launch_env(blocked), "{blocked}");
+        }
+        for secret in [
+            "ANTHROPIC_AUTH_TOKEN",
+            "OPENAI_API_KEY",
+            "GITHUB_TOKEN",
+            "MY_PASSWORD",
+            "DATABASE_URL",
+            "SENTRY_DSN",
+            "SESSION_COOKIE",
+        ] {
+            assert!(is_secret_env_key(secret), "{secret}");
+        }
+        assert!(!is_secret_env_key("ANTHROPIC_BASE_URL"));
+        assert!(!is_secret_env_key("HYPERCLI_RUNTIME_INFERENCE"));
+        assert!(validate_additional_env(&BTreeMap::from([(
+            "HYPERCLI_RUNTIME_INFERENCE".to_owned(),
+            "hypercli".to_owned(),
+        )]))
+        .is_ok());
+        assert!(validate_additional_env(&BTreeMap::from([(
+            "HYPERCLI_RUNTIME_INFERENCE".to_owned(),
+            "true".to_owned(),
+        )]))
+        .is_err());
+    }
+
+    #[test]
+    fn ssh_status_parser_returns_only_public_material() {
+        let status = parse_ssh_status(
+            "PUBLIC=ssh-ed25519 AAAAC3Nza test@example\nFINGERPRINT=256 SHA256:abc test@example (ED25519)\n",
+        );
+        assert!(status.configured);
+        assert_eq!(
+            status.public_key.as_deref(),
+            Some("ssh-ed25519 AAAAC3Nza test@example")
+        );
+        assert!(status
+            .fingerprint
+            .as_deref()
+            .unwrap()
+            .contains("SHA256:abc"));
+        assert!(!parse_ssh_status("private-key-material\n").configured);
+    }
+
+    #[test]
+    fn allowlist_resolves_npub_hex_and_member_profile_aliases_to_hex() {
+        let relay = nostr::Keys::generate();
+        let damian = nostr::Keys::generate();
+        let membership = signed_event(
+            &relay,
+            nostr::Kind::Custom(39002),
+            "",
+            vec![
+                nostr::Tag::parse(["d", "8c62df2d-1eb2-4145-a324-fbbce34c51ab"]).unwrap(),
+                nostr::Tag::parse(["p", &damian.public_key().to_hex(), "", "member"]).unwrap(),
+            ],
+        );
+        let profile = signed_event(
+            &damian,
+            nostr::Kind::Metadata,
+            r#"{"name":"damian","display_name":"Damian","nip05":"damian@example.com"}"#,
+            Vec::new(),
+        );
+        let npub = damian.public_key().to_bech32().unwrap();
+        let channel = "8c62df2d-1eb2-4145-a324-fbbce34c51ab".to_owned();
+        let resolved = resolve_allowlist_entries(
+            &[npub, "Damian".to_owned(), damian.public_key().to_hex()],
+            std::slice::from_ref(&channel),
+            &[membership],
+            &[profile],
+        )
+        .unwrap();
+        assert_eq!(resolved, vec![damian.public_key().to_hex()]);
+    }
+
+    #[test]
+    fn allowlist_nickname_resolution_fails_closed_when_missing_or_ambiguous() {
+        let relay = nostr::Keys::generate();
+        let first = nostr::Keys::generate();
+        let second = nostr::Keys::generate();
+        let membership = signed_event(
+            &relay,
+            nostr::Kind::Custom(39002),
+            "",
+            vec![
+                nostr::Tag::parse(["d", "8c62df2d-1eb2-4145-a324-fbbce34c51ab"]).unwrap(),
+                nostr::Tag::parse(["p", &first.public_key().to_hex(), "", "member"]).unwrap(),
+                nostr::Tag::parse(["p", &second.public_key().to_hex(), "", "member"]).unwrap(),
+            ],
+        );
+        let profile_content = r#"{"display_name":"Sam"}"#;
+        let profiles = vec![
+            signed_event(&first, nostr::Kind::Metadata, profile_content, Vec::new()),
+            signed_event(&second, nostr::Kind::Metadata, profile_content, Vec::new()),
+        ];
+        let ambiguous = resolve_allowlist_entries(
+            &["sam".to_owned()],
+            &["8c62df2d-1eb2-4145-a324-fbbce34c51ab".to_owned()],
+            std::slice::from_ref(&membership),
+            &profiles,
+        )
+        .unwrap_err();
+        assert!(ambiguous.contains("More than one member"));
+        let missing = resolve_allowlist_entries(
+            &["nobody".to_owned()],
+            &["8c62df2d-1eb2-4145-a324-fbbce34c51ab".to_owned()],
+            &[membership],
+            &profiles,
+        )
+        .unwrap_err();
+        assert!(missing.contains("No member named"));
+    }
+
+    #[test]
+    fn allowlist_rejects_partial_rosters_and_non_contract_key_spellings() {
+        let relay = nostr::Keys::generate();
+        let member = nostr::Keys::generate();
+        let first_channel = "8c62df2d-1eb2-4145-a324-fbbce34c51ab".to_owned();
+        let second_channel = "c914b6b6-449f-424a-8863-3a797c54dfb9".to_owned();
+        let membership = signed_event(
+            &relay,
+            nostr::Kind::Custom(39002),
+            "",
+            vec![
+                nostr::Tag::parse(["d", first_channel.as_str()]).unwrap(),
+                nostr::Tag::parse(["p", &member.public_key().to_hex(), "", "member"]).unwrap(),
+            ],
+        );
+        let partial = resolve_allowlist_entries(
+            &["Member".to_owned()],
+            &[first_channel, second_channel],
+            &[membership],
+            &[],
+        )
+        .unwrap_err();
+        assert!(partial.contains("current member roster"));
+
+        let npub = member.public_key().to_bech32().unwrap();
+        assert!(explicit_allowlist_public_key(&npub).unwrap().is_some());
+        assert!(explicit_allowlist_public_key(&format!("nostr:{npub}"))
+            .unwrap()
+            .is_none());
+        assert!(explicit_allowlist_public_key(&"z".repeat(64)).is_err());
     }
 }

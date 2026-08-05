@@ -15,11 +15,14 @@ use serde_json::{json, Value};
 use thiserror::Error;
 use url::Url;
 
+use crate::runtime_auth::{auth_status_command, RuntimeShellTokenResponse};
 use crate::{
     AgentCapacity, ApiKey, AuthMe, ClientConfig, CreateApiKeyRequest, CreateDeploymentRequest,
-    DeleteDeploymentResponse, Deployment, DeploymentRoutes, ExecDeploymentRequest,
-    ExecDeploymentResponse, HyperAgentCurrentPlan, HyperAgentEntitlementsSummary, HyperAgentPlan,
-    SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
+    DeleteDeploymentResponse, Deployment, DeploymentFileWriteResponse, DeploymentRoutes,
+    ExecDeploymentRequest, ExecDeploymentResponse, HyperAgentCurrentPlan,
+    HyperAgentEntitlementsSummary, HyperAgentPlan, NativeRuntime, RuntimeAuthError,
+    RuntimeAuthStatus, RuntimeLoginSession, RuntimeShellToken, SetDeploymentRouteRequest,
+    SetDeploymentRoutesRequest, StartDeploymentRequest, UpdateDeploymentRequest,
 };
 
 pub struct HyperCliClient {
@@ -259,6 +262,65 @@ impl HyperCliClient {
         result
     }
 
+    /// Update mutable deployment metadata and/or replace the persisted launch
+    /// configuration. The backend requires launch-affecting edits while the
+    /// deployment is stopped.
+    pub fn update_deployment(
+        &self,
+        deployment_id: &str,
+        request: &UpdateDeploymentRequest,
+    ) -> Result<Deployment, HyperCliError> {
+        let url = self.endpoint(&format!("deployments/{deployment_id}"));
+        let request_trace = serde_json::to_value(request).ok();
+        let builder = self
+            .http
+            .patch(&url)
+            .bearer_auth(self.api_key.expose_secret())
+            .json(request);
+        self.send_json("update_deployment", "PATCH", &url, request_trace, builder)
+    }
+
+    /// Write a file through the managed agent file API without placing its
+    /// content in argv, query strings, or HTTP traces. Paths are deliberately
+    /// restricted to simple relative segments; callers choose whether the
+    /// backend targets the running pod or persisted storage automatically.
+    pub fn put_deployment_file(
+        &self,
+        deployment_id: &str,
+        path: &str,
+        content: &[u8],
+    ) -> Result<DeploymentFileWriteResponse, HyperCliError> {
+        let path = path.trim_matches('/');
+        let valid = !path.is_empty()
+            && path.split('/').all(|segment| {
+                !segment.is_empty()
+                    && segment != "."
+                    && segment != ".."
+                    && segment.chars().all(|value| {
+                        value.is_ascii_alphanumeric() || matches!(value, '.' | '_' | '-')
+                    })
+            });
+        if !valid {
+            return Err(HyperCliError::InvalidResponse(
+                "deployment file path must contain only safe relative segments".to_owned(),
+            ));
+        }
+        let url = self.endpoint(&format!("deployments/{deployment_id}/files/{path}"));
+        let request_trace = json!({"path": path, "size": content.len(), "content": "<omitted>"});
+        let builder = self
+            .http
+            .post(&url)
+            .bearer_auth(self.api_key.expose_secret())
+            .body(content.to_vec());
+        self.send_json(
+            "put_deployment_file",
+            "POST",
+            &url,
+            Some(request_trace),
+            builder,
+        )
+    }
+
     pub fn start_deployment(
         &self,
         deployment_id: &str,
@@ -485,6 +547,65 @@ impl HyperCliClient {
             result.as_ref().map(|_| ()),
         );
         result
+    }
+
+    /// Read the normalized native-login state from the image-owned wrapper.
+    ///
+    /// The command is fixed by the SDK rather than accepted from the caller.
+    /// This keeps Desktop's login UI separate from the arbitrary exec surface.
+    pub fn runtime_auth_status(
+        &self,
+        deployment_id: &str,
+    ) -> Result<RuntimeAuthStatus, RuntimeAuthError> {
+        let mut request = ExecDeploymentRequest::new(auth_status_command());
+        request.timeout = 15;
+        let response = self.exec_deployment(deployment_id, &request)?;
+        if response.exit_code != 0 {
+            return Err(RuntimeAuthError::StatusCommandFailed(response.exit_code));
+        }
+        RuntimeAuthStatus::parse(&response.stdout)
+    }
+
+    /// Mint a short-lived token for the backend's protected agent PTY.
+    ///
+    /// The returned JWT is opaque and intentionally unavailable to callers;
+    /// pass the token directly to [`RuntimeLoginSession::connect`] through
+    /// [`Self::start_runtime_login`].
+    pub fn create_runtime_shell_token(
+        &self,
+        deployment_id: &str,
+        shell: Option<&str>,
+    ) -> Result<RuntimeShellToken, RuntimeAuthError> {
+        let url = self.endpoint(&format!("deployments/{deployment_id}/shell/token"));
+        let request = json!({"shell": shell.unwrap_or("/bin/bash")});
+        let builder = self
+            .http
+            .post(&url)
+            .bearer_auth(self.api_key.expose_secret())
+            .json(&request);
+        let response: RuntimeShellTokenResponse = self.send_json(
+            "create_runtime_shell_token",
+            "POST",
+            &url,
+            Some(request),
+            builder,
+        )?;
+        let token = response.into_token()?;
+        if (deployment_id != "self" && token.agent_id != deployment_id) || token.dry_run {
+            return Err(RuntimeAuthError::InvalidShellToken);
+        }
+        Ok(token)
+    }
+
+    /// Start the fixed native-login wrapper in an authenticated remote PTY.
+    pub async fn start_runtime_login(
+        &self,
+        deployment_id: &str,
+        runtime: NativeRuntime,
+        challenge_timeout: std::time::Duration,
+    ) -> Result<RuntimeLoginSession, RuntimeAuthError> {
+        let token = self.create_runtime_shell_token(deployment_id, Some("/bin/bash"))?;
+        RuntimeLoginSession::connect(token, runtime, challenge_timeout).await
     }
 
     /// Resolve the auth context for the configured credential
@@ -1187,6 +1308,178 @@ mod tests {
         assert_eq!(response.exit_code, 0);
         assert_eq!(response.stdout, "{\"phase\":\"ready\"}\n");
         assert!(response.stderr.is_empty());
+        mock.assert();
+    }
+
+    #[test]
+    fn runtime_auth_status_uses_fixed_wrapper_and_normalized_shape() {
+        let mut server = Server::new();
+        let mock = server
+            .mock("POST", "/agents/deployments/deployment-1/exec")
+            .match_header("authorization", "Bearer test-credential")
+            .match_body(Matcher::JsonString(
+                serde_json::json!({
+                    "command": "/usr/local/bin/hypercli-runtime-auth status",
+                    "timeout": 15,
+                    "dry_run": false
+                })
+                .to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "exit_code": 0,
+                    "stdout": "{\"runtime\":\"codex\",\"authenticated\":false}\n",
+                    "stderr": "",
+                    "dry_run": false
+                })
+                .to_string(),
+            )
+            .create();
+
+        let status = client(&server).runtime_auth_status("deployment-1").unwrap();
+        assert_eq!(status.runtime, NativeRuntime::Codex);
+        assert_eq!(status.authenticated, Some(false));
+        mock.assert();
+    }
+
+    #[test]
+    fn update_deployment_sends_complete_launch_config_replacement() {
+        let mut server = Server::new();
+        let mock = server
+            .mock("PATCH", "/agents/deployments/deployment-1")
+            .match_header("authorization", "Bearer test-credential")
+            .match_body(Matcher::JsonString(
+                serde_json::json!({
+                    "name": "Maverick",
+                    "size": "large",
+                    "launch_config": {
+                        "command": ["/usr/local/bin/buzz-acp"],
+                        "env": {
+                            "BUZZ_PRIVATE_KEY": "nsec-preserved",
+                            "EDITOR": "nvim"
+                        }
+                    }
+                })
+                .to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id": "deployment-1",
+                    "name": "Maverick",
+                    "runtime": "opencode",
+                    "state": "stopped",
+                    "requested_size": "large",
+                    "launch_config": {
+                        "command": ["/usr/local/bin/buzz-acp"],
+                        "env": {
+                            "BUZZ_PRIVATE_KEY": "nsec-preserved",
+                            "EDITOR": "nvim"
+                        }
+                    }
+                })
+                .to_string(),
+            )
+            .create();
+
+        let request = UpdateDeploymentRequest {
+            name: Some("Maverick".to_owned()),
+            size: Some(crate::AgentSize::Large),
+            launch_config: Some(crate::DeploymentLaunchConfig::from_map(BTreeMap::from([
+                (
+                    "command".to_owned(),
+                    serde_json::json!(["/usr/local/bin/buzz-acp"]),
+                ),
+                (
+                    "env".to_owned(),
+                    serde_json::json!({
+                        "BUZZ_PRIVATE_KEY": "nsec-preserved",
+                        "EDITOR": "nvim"
+                    }),
+                ),
+            ]))),
+            ..Default::default()
+        };
+        let deployment = client(&server)
+            .update_deployment("deployment-1", &request)
+            .unwrap();
+
+        assert_eq!(deployment.requested_size.as_deref(), Some("large"));
+        assert_eq!(deployment.launch_config.as_map()["env"]["EDITOR"], "nvim");
+        mock.assert();
+    }
+
+    #[test]
+    fn deployment_file_write_keeps_content_in_the_request_body_only() {
+        let mut server = Server::new();
+        let mock = server
+            .mock(
+                "POST",
+                "/agents/deployments/deployment-1/files/.ssh/id_ed25519_imported",
+            )
+            .match_header("authorization", "Bearer test-credential")
+            .match_body("private-key-material")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "status": "ok",
+                    "path": ".ssh/id_ed25519_imported",
+                    "size": 20,
+                    "target": "pod"
+                })
+                .to_string(),
+            )
+            .create();
+
+        let response = client(&server)
+            .put_deployment_file(
+                "deployment-1",
+                ".ssh/id_ed25519_imported",
+                b"private-key-material",
+            )
+            .unwrap();
+        assert_eq!(response.path, ".ssh/id_ed25519_imported");
+        assert_eq!(response.target, "pod");
+        assert!(client(&server)
+            .put_deployment_file("deployment-1", "../escape", b"nope")
+            .is_err());
+        mock.assert();
+    }
+
+    #[test]
+    fn runtime_shell_token_is_opaque_and_uses_backend_contract() {
+        let mut server = Server::new();
+        let mock = server
+            .mock("POST", "/agents/deployments/deployment-1/shell/token")
+            .match_header("authorization", "Bearer test-credential")
+            .match_body(Matcher::JsonString(
+                serde_json::json!({"shell": "/bin/bash"}).to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "agent_id": "deployment-1",
+                    "jwt": "short-lived-shell-jwt",
+                    "expires_at": "2026-08-05T12:00:00Z",
+                    "ws_url": "wss://api.agents.hypercli.com/ws/shell/deployment-1",
+                    "shell": "/bin/bash"
+                })
+                .to_string(),
+            )
+            .create();
+
+        let token = client(&server)
+            .create_runtime_shell_token("deployment-1", None)
+            .unwrap();
+        assert_eq!(token.agent_id, "deployment-1");
+        assert_eq!(token.shell.as_deref(), Some("/bin/bash"));
+        assert_eq!(token.ws_url.scheme(), "wss");
+        assert_eq!(token.jwt.expose_secret(), "short-lived-shell-jwt");
         mock.assert();
     }
 

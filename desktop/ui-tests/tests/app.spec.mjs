@@ -126,6 +126,19 @@ test("key without agents:* shows capability warning", async ({ page }) => {
   await expect(page.locator("#auth-warning")).toContainText("agents:*");
 });
 
+test("older machine key offers one-click editor reauthorization", async ({ page }) => {
+  await withMock(page, {
+    status: { has_api_key: true },
+    validation: { has_editor_capability: false },
+  });
+  await page.goto("/");
+  await expect(page.locator("#editor-auth-warning")).toContainText("agent list still works");
+  await page.locator("#reauthorize-btn").click();
+  await expect(page.locator("#status")).toContainText("upgraded machine key");
+  const called = await page.evaluate(() => window.__MOCK__.calls.some(([cmd]) => cmd === "start_login"));
+  expect(called).toBe(true);
+});
+
 test("connected fleet defaults to Buzz and can reveal all agents", async ({ page }) => {
   await withMock(page, { status: { has_api_key: true } });
   await page.goto("/");
@@ -183,4 +196,190 @@ test("stop refreshes the card and delete requires confirmation", async ({ page }
   page.once("dialog", (dialog) => dialog.accept());
   await page.locator(".agent-card", { hasText: "Research" }).getByRole("button", { name: "Delete" }).click();
   await expect(page.locator(".agent-card", { hasText: "Research" })).toHaveCount(0);
+});
+
+test("agent card opens a compact editor with native login state", async ({ page }) => {
+  await withMock(page, { status: { has_api_key: true } });
+  await page.goto("/");
+
+  await page.locator(".agent-card", { hasText: "Maverick" }).click();
+  await expect(page.locator("#dashboard-view")).toBeHidden();
+  await expect(page.locator("#agent-screen")).toBeVisible();
+  await expect(page.locator("#agent-name")).toHaveValue("Maverick");
+  await expect(page.locator("#agent-runtime")).toHaveValue("claude-code");
+  await expect(page.locator("#agent-community")).toHaveValue("22222222-2222-4222-8222-222222222222");
+  await expect(page.locator("#allowlist-field")).toBeVisible();
+  await expect(page.locator("#runtime-auth-title")).toHaveText("Login required");
+  await expect(page.locator("#runtime-auth-detail")).toContainText("Claude Code");
+  await page.locator("#agent-advanced").click();
+  await expect(page.locator("#stored-secret-env")).toContainText("GITHUB_TOKEN");
+  await expect(page.locator("#stored-secret-env")).toContainText("values hidden");
+
+  await page.locator("#runtime-login-btn").click();
+  await expect(page.locator("#runtime-login-code")).toContainText("TEST-CODE");
+  await expect(page.locator("#runtime-login-input-row")).toBeVisible();
+  await page.locator("#runtime-login-input").fill("pasted-code");
+  await page.locator("#runtime-login-send").click();
+  await expect(page.locator("#runtime-login-input")).toHaveValue("");
+  const loginCall = await page.evaluate(() => window.__MOCK__.calls.find(([cmd]) => cmd === "begin_runtime_login"));
+  expect(loginCall[1]).toEqual({
+    agentId: "40c42593-7d02-48f9-a3ff-6c7d6461f140",
+    runtime: "claude-code",
+  });
+  await expect(page.locator("#runtime-auth-title")).toHaveText("Logged in", { timeout: 4_000 });
+
+  await page.locator("#agent-back").click();
+  await expect(page.locator("#agents-section")).toBeVisible();
+});
+
+test("editor saves Buzz policy and launch env through one typed payload", async ({ page }) => {
+  await withMock(page, { status: { has_api_key: true } });
+  await page.goto("/");
+  await page.locator(".agent-card", { hasText: "Maverick" }).click();
+
+  await page.locator("#agent-respond-to").selectOption("owner");
+  await expect(page.locator("#allowlist-field")).toBeHidden();
+  await page.locator("#agent-advanced").click();
+  await page.locator("#agent-env").fill("GITHUB_ORG=hypercli\nFEATURE_FLAG=true");
+  await page.locator("#ssh-generate-btn").click();
+  await expect(page.locator("#ssh-status-title")).toHaveText("SSH key installed");
+  await expect(page.locator("#ssh-status-detail")).toContainText("SHA256:test-agent-key");
+  await page.locator("#agent-save").click();
+
+  const saveCall = await page.evaluate(() => window.__MOCK__.calls.find(([cmd]) => cmd === "save_agent"));
+  expect(saveCall[1].agentId).toBe("40c42593-7d02-48f9-a3ff-6c7d6461f140");
+  expect(saveCall[1].input.respond_to).toBe("owner");
+  expect(saveCall[1].input.env).toEqual({ GITHUB_ORG: "hypercli", FEATURE_FLAG: "true" });
+  await expect(page.locator("#dashboard-view")).toBeVisible();
+});
+
+test("immediately completed native login does not enter a polling loop", async ({ page }) => {
+  await withMock(page, {
+    status: { has_api_key: true },
+    runtimeLoginImmediateComplete: true,
+  });
+  await page.goto("/");
+  await page.locator(".agent-card", { hasText: "Maverick" }).getByRole("button", { name: "Edit Maverick" }).click();
+  await page.locator("#runtime-login-btn").click();
+  await expect(page.locator("#runtime-auth-title")).toHaveText("Logged in");
+  await page.waitForTimeout(1_200);
+  const pollCalls = await page.evaluate(() => window.__MOCK__.calls.filter(([cmd]) => cmd === "poll_runtime_login"));
+  expect(pollCalls).toHaveLength(0);
+});
+
+test("Enter sends native login input without saving the editor", async ({ page }) => {
+  await withMock(page, { status: { has_api_key: true } });
+  await page.goto("/");
+  await page.locator(".agent-card", { hasText: "Maverick" }).getByRole("button", { name: "Edit Maverick" }).click();
+  await page.locator("#runtime-login-btn").click();
+  await page.locator("#runtime-login-input").fill("pasted-code");
+  await page.locator("#runtime-login-input").press("Enter");
+  await expect(page.locator("#agent-screen")).toBeVisible();
+  const calls = await page.evaluate(() => window.__MOCK__.calls.map(([cmd]) => cmd));
+  expect(calls).toContain("send_runtime_login_input");
+  expect(calls).not.toContain("save_agent");
+});
+
+test("native model override requires explicit HyperCLI compatibility env", async ({ page }) => {
+  await withMock(page, { status: { has_api_key: true } });
+  await page.goto("/");
+  await page.locator(".agent-card", { hasText: "Maverick" }).click();
+  await expect(page.locator("#agent-model")).toBeDisabled();
+  await expect(page.locator("#agent-model-help")).toContainText("HYPERCLI_RUNTIME_INFERENCE=hypercli");
+  await page.locator("#agent-advanced").click();
+  await page.locator("#agent-env").fill("GITHUB_ORG=hypercli\nHYPERCLI_RUNTIME_INFERENCE=hypercli");
+  await expect(page.locator("#agent-model")).toBeEnabled();
+  await expect(page.locator("#agent-model-help")).toContainText("explicitly enabled");
+});
+
+test("create prompt drafting previews text and never saves automatically", async ({ page }) => {
+  await withMock(page, { status: { has_api_key: true } });
+  await page.goto("/");
+  await page.locator("#create-agent-btn").click();
+  await page.locator("#agent-name").fill("Compass");
+  await page.locator("#draft-agent-prompt").click();
+  await expect(page.locator("#agent-instructions")).toHaveValue(/focused agent/);
+  await expect(page.locator("#status")).toContainText("Review it");
+  const calls = await page.evaluate(() => window.__MOCK__.calls.map(([cmd]) => cmd));
+  expect(calls).toContain("draft_agent_prompt");
+  expect(calls).not.toContain("create_buzz_agent");
+});
+
+test("create flow is progressive and launches a Buzz agent", async ({ page }) => {
+  await withMock(page, { status: { has_api_key: true } });
+  await page.goto("/");
+  await page.locator("#create-agent-btn").click();
+
+  await expect(page.locator("#agent-screen-title")).toHaveText("Create agent");
+  await expect(page.locator("#runtime-auth-card")).toBeHidden();
+  await expect(page.locator("#agent-advanced")).not.toHaveAttribute("open", "");
+  await page.locator("#agent-name").fill("Compass");
+  await page.locator("#agent-avatar-url").fill("https://images.example.test/compass.png");
+  await page.locator("#agent-instructions").fill("Keep answers short and help maintain the project.");
+  await page.locator("#agent-runtime").selectOption("opencode");
+  await page.locator("#agent-size").selectOption("medium");
+  await page.locator("#agent-community").selectOption("22222222-2222-4222-8222-222222222222");
+  await page.locator("#agent-respond-to").selectOption("allowlist");
+  await expect(page.locator("#allowlist-field")).toBeVisible();
+  await page.locator("#agent-allowlist").fill("npub1owner\ndamian");
+  await page.locator("#agent-save").click();
+
+  const createCall = await page.evaluate(() => window.__MOCK__.calls.find(([cmd]) => cmd === "create_buzz_agent"));
+  expect(createCall[1].input).toMatchObject({
+    name: "Compass",
+    avatar_url: "https://images.example.test/compass.png",
+    runtime: "opencode",
+    size: "medium",
+    relay: "wss://dev.buzz.hypercli.com",
+    community: "22222222-2222-4222-8222-222222222222",
+    connection_id: "11111111-1111-4111-8111-111111111111",
+    channels: ["22222222-2222-4222-8222-222222222222"],
+    respond_to: "allowlist",
+    allowlist: ["npub1owner", "damian"],
+    concurrency: null,
+  });
+  await expect(page.locator("#agents-summary")).toHaveText("3 Buzz · 4 total");
+  await expect(page.locator(".agent-card", { hasText: "Compass" })).toBeVisible();
+});
+
+test("create can save a Buzz connection without retaining the nsec in the page", async ({ page }) => {
+  await withMock(page, {
+    status: { has_api_key: true },
+    buzzConnections: [],
+  });
+  await page.goto("/");
+  await page.locator("#create-agent-btn").click();
+  await expect(page.locator("#add-connection-panel")).toBeVisible();
+  await page.locator("#connection-label").fill("CI Buzz");
+  await page.locator("#connection-relay").fill("wss://dev.buzz.hypercli.com");
+  await page.locator("#connection-nsec").fill("nsec1test-secret");
+  await page.locator("#connection-save").click();
+
+  await expect(page.locator("#add-connection-panel")).toBeHidden();
+  await expect(page.locator("#agent-connection")).toHaveValue("44444444-4444-4444-8444-444444444444");
+  await expect(page.locator("#agent-relay")).toHaveValue("wss://dev.buzz.hypercli.com");
+  await expect(page.locator("#connection-nsec")).toHaveValue("");
+  const retained = await page.evaluate(() => Object.values(localStorage).some((value) => value.includes("nsec1test-secret")));
+  expect(retained).toBe(false);
+});
+
+test("legacy agent with no recoverable channel remains editable", async ({ page }) => {
+  await withMock(page, {
+    status: { has_api_key: true },
+    agentDetails: {
+      "40c42593-7d02-48f9-a3ff-6c7d6461f140": {
+        community: "",
+        channel: "",
+      },
+    },
+  });
+  await page.goto("/");
+  await page.locator(".agent-card", { hasText: "Maverick" }).click();
+  await expect(page.locator("#agent-community option").first()).toHaveText("Current channel unavailable");
+  await expect(page.locator("#agent-community")).toBeEditable({ editable: false });
+  await expect(page.locator("#connection-move-hint")).toContainText("Clone / Move");
+  await page.locator("#agent-name").fill("Maverick Legacy");
+  await page.locator("#agent-save").click();
+  const saveCall = await page.evaluate(() => window.__MOCK__.calls.find(([cmd]) => cmd === "save_agent"));
+  expect(saveCall[1].input.channels).toEqual([]);
 });

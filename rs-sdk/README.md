@@ -137,3 +137,39 @@ understood. The default
 `RUST_LOG=buzz_acp=info,pool::prompt=info,acp::stream=off` disables ACP stream
 content logging; explicitly overriding it can expose generated text in
 container logs.
+
+## Native coding-runtime login
+
+Claude Code, Codex, and Kimi Code images expose one normalized wrapper at
+`/usr/local/bin/hypercli-runtime-auth`. The SDK fixes both the status and login
+commands; Desktop does not have to expose arbitrary remote exec just to render
+an authentication button:
+
+```rust,no_run
+use std::time::Duration;
+use hypercli_sdk::NativeRuntime;
+
+# async fn example(client: &hypercli_sdk::HyperCliClient) -> Result<(), hypercli_sdk::RuntimeAuthError> {
+let status = client.runtime_auth_status("deployment-id")?;
+if status.authenticated != Some(true) {
+    let mut login = client
+        .start_runtime_login(
+            "deployment-id",
+            NativeRuntime::Codex,
+            Duration::from_secs(45),
+        )
+        .await?;
+    let challenge = login.challenge();
+    // Open challenge.verification_url and display challenge.user_code.
+    login.wait(Duration::from_secs(600)).await?;
+}
+# Ok(())
+# }
+```
+
+Claude can request pasted terminal input; call `send_input` and then `wait`.
+Codex and Kimi normally return a verification URL plus device code. The shell
+token JWT is an opaque, short-lived value: `RuntimeShellToken` is deliberately
+non-`Debug` and non-serializable, the HTTP trace omits response bodies, and
+WebSocket failures never include the authenticated URL. Only the sanitized
+`RuntimeLoginChallenge` should cross a Tauri IPC boundary.

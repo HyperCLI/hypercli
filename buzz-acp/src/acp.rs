@@ -255,26 +255,26 @@ fn nonempty_env<'a>(env: &'a BTreeMap<String, String>, key: &str) -> Option<&'a 
         .filter(|value| !value.is_empty())
 }
 
-/// Derive the selected runtime's native inference environment from Lagoon's
-/// short-lived HyperCLI credential. This runs at the ACP child boundary, so it
-/// is repeated on every lazy spawn and respawn and no secret is persisted in a
+/// Derive the selected runtime's HyperCLI inference environment from Lagoon's
+/// short-lived credential. This runs at the ACP child boundary, so it is
+/// repeated on every lazy spawn and respawn and no secret is persisted in a
 /// synced home directory.
 ///
-/// The overlay is deliberately all-or-nothing per runtime. If the operator has
-/// supplied any native routing/auth variable, that native configuration wins
-/// as a unit; mixing a HyperCLI key with a vendor URL (or the reverse) could
-/// disclose a credential. `HYPERCLI_RUNTIME_INFERENCE=native` is an explicit
-/// opt-out for a synced vendor login/config that is not represented by env.
+/// Native vendor login/config is the default for Claude Code, Codex, and Kimi.
+/// HyperCLI compatibility routing is enabled only by the exact opt-in
+/// `HYPERCLI_RUNTIME_INFERENCE=hypercli`. The overlay is deliberately
+/// all-or-nothing per runtime: if the operator supplied any native routing or
+/// auth variable, that native configuration wins as a unit. Mixing a HyperCLI
+/// key with a vendor URL (or the reverse) could disclose a credential.
 fn hypercli_runtime_env(
     command: &str,
     parent_env: &BTreeMap<String, String>,
 ) -> BTreeMap<String, String> {
-    if matches!(
-        nonempty_env(parent_env, "HYPERCLI_RUNTIME_INFERENCE")
-            .map(str::to_ascii_lowercase)
-            .as_deref(),
-        Some("native" | "off" | "false" | "0")
-    ) {
+    if parent_env
+        .get("HYPERCLI_RUNTIME_INFERENCE")
+        .map(String::as_str)
+        != Some("hypercli")
+    {
         return BTreeMap::new();
     }
 
@@ -4674,6 +4674,7 @@ mod tests {
             ("HYPER_API_BASE", "https://api.dev.hypercli.com/"),
             ("HYPER_AGENTS_API_KEY", "runtime-secret"),
             ("BUZZ_ACP_MODEL", "runtime-model"),
+            ("HYPERCLI_RUNTIME_INFERENCE", "hypercli"),
         ])
     }
 
@@ -4775,14 +4776,28 @@ mod tests {
     }
 
     #[test]
-    fn hypercli_runtime_env_requires_complete_credentials_and_honors_native_opt_out() {
+    fn hypercli_runtime_env_requires_exact_opt_in_and_complete_credentials() {
+        let mut native_by_default = hyper_parent();
+        native_by_default.remove("HYPERCLI_RUNTIME_INFERENCE");
+        for command in ["claude-agent-acp", "codex-acp", "kimi"] {
+            assert!(
+                hypercli_runtime_env(command, &native_by_default).is_empty(),
+                "{command} must default to native inference and ignore BUZZ_ACP_MODEL"
+            );
+        }
+
+        for non_opt_in in ["native", "off", "false", "0", "HyperCLI", " hypercli"] {
+            let mut parent = hyper_parent();
+            parent.insert("HYPERCLI_RUNTIME_INFERENCE".into(), non_opt_in.into());
+            assert!(
+                hypercli_runtime_env("kimi", &parent).is_empty(),
+                "mode {non_opt_in:?} must not enable HyperCLI inference"
+            );
+        }
+
         let mut missing_key = hyper_parent();
         missing_key.remove("HYPER_AGENTS_API_KEY");
         assert!(hypercli_runtime_env("kimi", &missing_key).is_empty());
-
-        let mut native = hyper_parent();
-        native.insert("HYPERCLI_RUNTIME_INFERENCE".into(), "native".into());
-        assert!(hypercli_runtime_env("kimi", &native).is_empty());
     }
 
     #[test]

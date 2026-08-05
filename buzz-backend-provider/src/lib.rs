@@ -3021,6 +3021,7 @@ mod tests {
             id: "deployment-1".to_owned(),
             name: String::new(),
             handle: None,
+            avatar_url: None,
             runtime: Some(ManagedRuntime::Opencode),
             state: "pending".to_owned(),
             pod_id: None,
@@ -3028,6 +3029,7 @@ mod tests {
             tags: Vec::new(),
             requested_size: None,
             last_error: None,
+            launch_config: Default::default(),
         };
 
         let ready = wait_until_running(
@@ -3057,6 +3059,7 @@ mod tests {
                 id: "deployment-1".to_owned(),
                 name: String::new(),
                 handle: None,
+                avatar_url: None,
                 runtime: Some(ManagedRuntime::Opencode),
                 state: state.to_owned(),
                 pod_id: None,
@@ -3064,6 +3067,7 @@ mod tests {
                 tags: Vec::new(),
                 requested_size: None,
                 last_error: None,
+                launch_config: Default::default(),
             };
 
             let error = wait_until_running(
@@ -3096,6 +3100,7 @@ mod tests {
             id: "deployment-1".to_owned(),
             name: String::new(),
             handle: None,
+            avatar_url: None,
             runtime: Some(ManagedRuntime::Opencode),
             state: "starting".to_owned(),
             pod_id: None,
@@ -3103,6 +3108,7 @@ mod tests {
             tags: Vec::new(),
             requested_size: None,
             last_error: None,
+            launch_config: Default::default(),
         };
 
         let error =

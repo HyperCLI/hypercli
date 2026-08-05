@@ -11,6 +11,7 @@
       <img src="logo.svg" alt="HyperCLI" class="logo logo-dark" />
       <img src="logo-light.svg" alt="HyperCLI" class="logo logo-light" />
 
+      <div id="dashboard-view" class="view">
       <!-- state: disconnected -->
       <section id="auth-disconnected" hidden>
         <h1>Connect your account</h1>
@@ -32,6 +33,10 @@
           <span class="chip"><span class="chip-label">API key</span><span id="key-name"></span></span>
         </div>
         <p class="hint warn" id="auth-warning" hidden></p>
+        <div id="editor-auth-warning" class="reauth-warning" hidden>
+          <p>Your agent list still works, but prompt drafting and SSH setup need an upgraded machine key.</p>
+          <button id="reauthorize-btn" type="button">Sign in again</button>
+        </div>
         <p class="hint" id="plan-line" hidden>
           No active plan — agents need one to launch.
           <button id="plans-btn" class="link">Purchase a plan</button>
@@ -56,7 +61,10 @@
             <h1>Agents</h1>
             <p class="hint" id="agents-summary">Loading your agents…</p>
           </div>
-          <button id="agents-refresh" class="icon-button" aria-label="Refresh agents" title="Refresh agents">↻</button>
+          <div class="heading-actions">
+            <button id="create-agent-btn" class="icon-button create-button" aria-label="Create agent" title="Create agent">+</button>
+            <button id="agents-refresh" class="icon-button" aria-label="Refresh agents" title="Refresh agents">↻</button>
+          </div>
         </div>
         <div class="segmented" role="group" aria-label="Agent filter">
           <button id="filter-buzz" data-filter="buzz" aria-pressed="true">Buzz</button>
@@ -64,6 +72,182 @@
         </div>
         <div id="agent-list" class="agent-list" aria-live="polite"></div>
         <p id="agents-empty" class="hint" hidden>No Buzz agents yet. Create one in Buzz and it will appear here.</p>
+      </section>
+      </div>
+
+      <section id="agent-screen" class="agent-screen" hidden aria-labelledby="agent-screen-title">
+        <div class="screen-heading">
+          <button id="agent-back" class="back-button" type="button" aria-label="Back to agents">‹</button>
+          <div>
+            <h1 id="agent-screen-title">Create agent</h1>
+            <p id="agent-screen-subtitle" class="hint">A focused setup for your Buzz agent.</p>
+          </div>
+        </div>
+
+        <form id="agent-form" class="agent-form">
+          <div class="agent-identity">
+            <div id="agent-avatar" class="agent-avatar" aria-hidden="true">H</div>
+            <div class="field-stack grow">
+              <label for="agent-name">Name</label>
+              <input id="agent-name" name="name" placeholder="Fizz" required maxlength="32" />
+              <label class="visually-hidden" for="agent-avatar-url">Avatar image URL</label>
+              <input id="agent-avatar-url" name="avatar_url" type="url" placeholder="Avatar image URL (optional)" maxlength="2048" />
+              <span id="agent-runtime-state" class="hint"></span>
+            </div>
+          </div>
+
+          <div class="field-stack">
+            <div class="field-label-row">
+              <label for="agent-instructions">Instructions</label>
+              <button id="draft-agent-prompt" class="draft-button" type="button">✦ Draft
+              </button>
+            </div>
+            <textarea id="agent-instructions" name="instructions" rows="5" placeholder="Describe what this agent should do." required></textarea>
+          </div>
+
+          <div class="form-grid">
+            <div class="field-stack">
+              <label for="agent-runtime">Runtime</label>
+              <select id="agent-runtime" name="runtime">
+                <option value="buzz-agent">Buzz Agent</option>
+                <option value="opencode">OpenCode</option>
+                <option value="goose">Goose</option>
+                <option value="claude-code">Claude Code</option>
+                <option value="codex">Codex</option>
+                <option value="kimi-code">Kimi Code</option>
+              </select>
+            </div>
+            <div class="field-stack">
+              <label for="agent-size">Size</label>
+              <select id="agent-size" name="size">
+                <option value="">Best available</option>
+                <option value="small">Small · 2 GB</option>
+                <option value="medium">Medium · 4 GB</option>
+                <option value="large">Large · 8 GB</option>
+              </select>
+            </div>
+          </div>
+
+          <section id="runtime-auth-card" class="inset auth-card" hidden>
+            <div class="auth-card-body">
+              <div class="auth-card-heading">
+                <div>
+                  <span class="eyebrow">Native runtime</span>
+                  <strong id="runtime-auth-title">Login required</strong>
+                  <p id="runtime-auth-detail" class="hint">Use your own runtime account and model access.</p>
+                </div>
+                <button id="runtime-login-btn" type="button">Log in</button>
+              </div>
+              <div id="runtime-login-challenge" class="login-challenge" hidden>
+                <p id="runtime-login-instructions" class="hint"></p>
+                <p id="runtime-login-url" class="copy-value" hidden></p>
+                <p id="runtime-login-code" class="copy-value" hidden></p>
+                <div id="runtime-login-input-row" class="login-input-row" hidden>
+                  <input id="runtime-login-input" type="password" autocomplete="off" placeholder="Paste the login code" aria-label="Runtime login code" />
+                  <button id="runtime-login-send" type="button">Send</button>
+                </div>
+                <button id="runtime-login-cancel" class="link" type="button">Cancel login</button>
+              </div>
+            </div>
+          </section>
+
+          <div class="form-grid">
+            <div class="field-stack">
+              <label for="agent-model">Model</label>
+              <input id="agent-model" name="model" placeholder="Runtime default" />
+              <span id="agent-model-help" class="hint"></span>
+            </div>
+            <div class="field-stack compact-field">
+              <label for="agent-concurrency">Concurrency</label>
+              <input id="agent-concurrency" name="concurrency" type="number" min="1" max="32" placeholder="Automatic" />
+            </div>
+          </div>
+
+          <section class="form-section">
+            <div class="form-section-heading">
+              <div>
+                <h2>Buzz connection</h2>
+                <p class="hint">Where the agent appears and who can instruct it.</p>
+              </div>
+            </div>
+            <div id="connection-select-field" class="field-stack">
+              <label for="agent-connection">Connection</label>
+              <select id="agent-connection" name="connection_id"></select>
+              <span class="hint">A saved Buzz identity and relay. Secrets stay in secure app storage.</span>
+            </div>
+            <div id="add-connection-panel" class="connection-panel" hidden>
+              <div class="field-stack">
+                <label for="connection-label">Connection name</label>
+                <input id="connection-label" placeholder="Personal Buzz" maxlength="64" />
+              </div>
+              <div class="field-stack">
+                <label for="connection-relay">Relay</label>
+                <input id="connection-relay" placeholder="wss://your-buzz-relay.example" />
+              </div>
+              <div class="field-stack">
+                <label for="connection-nsec">Owner nsec</label>
+                <input id="connection-nsec" type="password" autocomplete="off" placeholder="nsec1…" />
+                <span class="hint">Saved securely and never shown again.</span>
+              </div>
+              <div class="button-row tight">
+                <button id="connection-cancel" type="button">Cancel</button>
+                <button id="connection-save" type="button" class="primary">Save connection</button>
+              </div>
+            </div>
+            <div class="field-stack">
+              <label for="agent-relay">Relay</label>
+              <input id="agent-relay" name="relay" placeholder="Selected connection relay" readonly />
+            </div>
+            <div class="field-stack">
+              <label for="agent-community">Channel</label>
+              <select id="agent-community" name="community" required>
+                <option value="">Choose a channel…</option>
+              </select>
+              <span id="connection-move-hint" class="hint" hidden>Changing where an existing identity runs requires Clone / Move. This deployment keeps its current Buzz connection.</span>
+            </div>
+            <div class="field-stack">
+              <label for="agent-respond-to">Who can send instructions</label>
+              <select id="agent-respond-to" name="respond_to">
+                <option value="owner">Only me</option>
+                <option value="allowlist">Selected people</option>
+                <option value="anyone">Anyone</option>
+              </select>
+            </div>
+            <div id="allowlist-field" class="field-stack" hidden>
+              <label for="agent-allowlist">Allowed people</label>
+              <textarea id="agent-allowlist" name="allowlist" rows="2" placeholder="npub… or nickname, one per line"></textarea>
+              <span class="hint">Use an npub or a nickname from this channel.</span>
+            </div>
+          </section>
+
+          <details id="agent-advanced" class="advanced-panel">
+            <summary>Advanced</summary>
+            <div class="advanced-body">
+              <div class="field-stack">
+                <label for="agent-env">Environment</label>
+                <textarea id="agent-env" name="env" rows="4" spellcheck="false" placeholder="GITHUB_TOKEN=\nMY_SETTING=value"></textarea>
+                <span class="hint">One KEY=value per line. HyperCLI-managed identity and runtime keys cannot be overridden.</span>
+                <span id="stored-secret-env" class="hint" hidden></span>
+              </div>
+              <section class="inset ssh-card">
+                <div>
+                  <span class="eyebrow">SSH identity</span>
+                  <strong id="ssh-status-title">Not configured</strong>
+                  <p id="ssh-status-detail" class="hint">Add an outbound key for Git hosts and coding workflows.</p>
+                </div>
+                <div class="button-row tight">
+                  <button id="ssh-generate-btn" type="button">Generate</button>
+                  <button id="ssh-import-btn" type="button">Import</button>
+                </div>
+              </section>
+            </div>
+          </details>
+
+          <div class="editor-actions">
+            <button id="agent-cancel" type="button">Cancel</button>
+            <button id="agent-save" type="submit" class="primary">Create agent</button>
+          </div>
+        </form>
       </section>
 
       <p id="status" role="status"></p>

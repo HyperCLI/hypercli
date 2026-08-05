@@ -3130,7 +3130,7 @@ fn dispatch_pending(
 /// # Classification rationale
 ///
 /// Auth failures arrive as [`acp::AcpError::AgentError`] with a message
-/// surfaced from the upstream CLI. Two narrow patterns reliably identify
+/// surfaced from the upstream CLI. Three narrow patterns reliably identify
 /// non-transient auth failures observed in the field:
 ///
 /// - `"Re-authenticate"` — emitted by the Claude CLI when an OAuth token has
@@ -3138,6 +3138,9 @@ fn dispatch_pending(
 ///   Specific to the auth-expiry flow; does not appear in unrelated errors.
 /// - `"API Error: 401"` — present in Claude/Codex HTTP-401 responses; 401 is
 ///   the standard auth-failure status and does not arise from network blips.
+/// - `"Authentication required"` — emitted by a freshly installed native
+///   runtime before its first vendor login. Match case-insensitively because
+///   adapters do not use consistent capitalization.
 ///
 /// False positives (misclassifying a transient error as non-retryable) silently
 /// drop a user message, which is worse than a false negative (extra retries on
@@ -3146,8 +3149,13 @@ fn is_auth_error(error: &acp::AcpError) -> bool {
     let acp::AcpError::AgentError { message, .. } = error else {
         return false;
     };
-    message.contains("Re-authenticate") || message.contains("API Error: 401")
+    let normalized = message.to_ascii_lowercase();
+    normalized.contains("re-authenticate")
+        || normalized.contains("api error: 401")
+        || normalized.contains("authentication required")
 }
+
+const AUTH_FAILURE_NOTICE: &str = "⚠️ I couldn't process the last request: this coding runtime needs login. Open HyperCLI Desktop, select this agent, choose Log in, then re-send the request.";
 
 /// Spawn a task that posts a user-visible failure notice to the relay.
 ///
@@ -3273,16 +3281,13 @@ fn handle_prompt_result(
                 // Auth errors are non-retryable: the token won't self-repair
                 // between retries, so requeueing only wastes attempt slots and
                 // delays the visible failure. Dead-letter immediately and tell
-                // the user to re-authenticate the CLI.
+                // the user to log in from the owning Desktop app.
                 tracing::warn!(
                     channel_id = %batch.channel_id,
                     events = batch.events.len(),
                     "dead-lettering batch immediately — non-retryable auth error"
                 );
-                let content = "⚠️ I couldn't process the last request: authentication failed. \
-                    Please re-authenticate the CLI (e.g. run `claude /login` or `codex login`) \
-                    and then re-send."
-                    .to_string();
+                let content = AUTH_FAILURE_NOTICE.to_string();
                 spawn_failure_notice(rest_client, &batch, content);
             } else if let Some(dead) = queue.requeue(batch) {
                 let reason = match &result.outcome {
@@ -6463,6 +6468,31 @@ mod error_outcome_emission_tests {
     }
 
     #[test]
+    fn is_auth_error_matches_fresh_login_requirement_case_insensitively() {
+        for message in [
+            "Authentication required",
+            "AUTHENTICATION REQUIRED: run login first",
+            "authentication required before starting a session",
+        ] {
+            let error = acp::AcpError::AgentError {
+                code: -32000,
+                message: message.to_string(),
+            };
+            assert!(
+                is_auth_error(&error),
+                "fresh native-runtime login error was not classified: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn auth_failure_notice_points_to_desktop_agent_login() {
+        assert!(AUTH_FAILURE_NOTICE.contains("HyperCLI Desktop"));
+        assert!(AUTH_FAILURE_NOTICE.contains("select this agent"));
+        assert!(AUTH_FAILURE_NOTICE.contains("Log in"));
+    }
+
+    #[test]
     fn is_auth_error_rejects_other_agent_error_message() {
         let e = acp::AcpError::AgentError {
             code: -32601,
@@ -6494,7 +6524,7 @@ mod error_outcome_emission_tests {
     /// (the batch is never requeued) so the user sees a re-auth hint at once
     /// rather than after 10 futile retries.
     #[tokio::test]
-    async fn auth_error_dead_letters_immediately_without_requeueing() {
+    async fn fresh_auth_error_dead_letters_immediately_without_requeueing() {
         let keys = nostr::Keys::generate();
         let event = nostr::EventBuilder::new(nostr::Kind::Custom(9), "test")
             .sign_with_keys(&keys)
@@ -6513,8 +6543,7 @@ mod error_outcome_emission_tests {
 
         let auth_error = acp::AcpError::AgentError {
             code: -32000,
-            message: "API Error: 401 OAuth access token has expired. Re-authenticate to continue."
-                .to_string(),
+            message: "AUTHENTICATION REQUIRED: log in before starting a session".to_string(),
         };
 
         let agent = dummy_agent(0).await;

@@ -5,6 +5,7 @@
 
 mod client;
 mod config;
+mod runtime_auth;
 mod types;
 
 pub use client::{HyperCliClient, HyperCliError};
@@ -13,13 +14,18 @@ pub use config::{
     normalize_agents_api_base, remove_config_api_keys, save_api_key, write_config_values,
     ClientConfig, ConfigError, API_KEY_CONFIG_KEYS, DEFAULT_AGENTS_API_BASE,
 };
+pub use runtime_auth::{
+    NativeRuntime, RuntimeAuthError, RuntimeAuthStatus, RuntimeLoginChallenge, RuntimeLoginResult,
+    RuntimeLoginSession, RuntimeShellToken,
+};
 pub use types::{
     AgentCapacity, AgentSize, AgentSlot, AgentSlotInventory, ApiKey, AuthMe, BuzzLaunchConfig,
     BuzzLaunchError, CreateApiKeyRequest, CreateDeploymentRequest, DeleteDeploymentResponse,
-    Deployment, DeploymentRoutes, EntitlementsSummary, ExecDeploymentRequest,
-    ExecDeploymentResponse, HyperAgentCanonicalPlanId, HyperAgentCurrentPlan,
-    HyperAgentEntitlement, HyperAgentEntitlementsSummary, HyperAgentPlan, HyperAgentPlanResources,
-    HyperAgentSubscriptionSummary, ManagedRuntime, RouteConfig, SetDeploymentRouteRequest,
-    SetDeploymentRoutesRequest, StartDeploymentRequest, BUZZ_ACP_MAX_REPLY_NAGS,
-    BUZZ_ACP_REPLY_GUARD_NAG, BUZZ_DEPLOYMENT_TAG, BUZZ_RUNTIME_SCOPES,
+    Deployment, DeploymentFileWriteResponse, DeploymentLaunchConfig, DeploymentRoutes,
+    EntitlementsSummary, ExecDeploymentRequest, ExecDeploymentResponse, HyperAgentCanonicalPlanId,
+    HyperAgentCurrentPlan, HyperAgentEntitlement, HyperAgentEntitlementsSummary, HyperAgentPlan,
+    HyperAgentPlanResources, HyperAgentSubscriptionSummary, ManagedRuntime, RouteConfig,
+    SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
+    UpdateDeploymentRequest, BUZZ_ACP_MAX_REPLY_NAGS, BUZZ_ACP_REPLY_GUARD_NAG,
+    BUZZ_DEPLOYMENT_TAG, BUZZ_RUNTIME_SCOPES,
 };

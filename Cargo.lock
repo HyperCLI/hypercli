@@ -1056,13 +1056,17 @@ name = "hypercli-sdk"
 version = "0.1.0"
 dependencies = [
  "dirs",
+ "futures-util",
  "mockito",
+ "regex",
  "reqwest 0.12.28",
  "secrecy",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror",
+ "tokio",
+ "tokio-tungstenite",
  "url",
  "uuid",
 ]

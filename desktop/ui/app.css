@@ -110,7 +110,10 @@ button {
 }
 
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+.agent-card:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
@@ -152,6 +155,35 @@ input {
   border: 1px solid var(--border);
   background: var(--input-background);
   color: var(--foreground);
+}
+
+textarea,
+select {
+  width: 100%;
+  font: inherit;
+  font-size: 13px;
+  padding: 9px 12px;
+  border-radius: calc(var(--radius) * 0.625);
+  border: 1px solid var(--border);
+  background: var(--input-background);
+  color: var(--foreground);
+}
+
+textarea {
+  resize: vertical;
+  line-height: 1.4;
+  user-select: text;
+}
+
+input,
+select {
+  user-select: text;
+}
+
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
 .divider {
@@ -218,6 +250,16 @@ button.link:hover {
   gap: 12px;
 }
 
+.heading-actions {
+  display: flex;
+  gap: 7px;
+}
+
+.create-button {
+  color: var(--foreground);
+  font-size: 20px;
+}
+
 .icon-button {
   width: 30px;
   height: 30px;
@@ -265,6 +307,23 @@ button.link:hover {
   border: 1px solid var(--border);
   border-radius: calc(var(--radius) * 0.75);
   background: var(--card);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.agent-card:hover,
+.agent-card:focus-within {
+  border-color: var(--ring);
+  background: var(--surface-high);
+  outline: none;
+}
+
+.agent-edit {
+  margin-right: auto;
+  padding: 5px 8px;
+  border: 0;
+  color: var(--muted-foreground);
+  background: transparent;
+  text-decoration: underline;
 }
 
 .agent-main,
@@ -277,6 +336,28 @@ button.link:hover {
 .agent-main {
   justify-content: space-between;
   gap: 12px;
+}
+
+.agent-card-identity {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.agent-card-avatar {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--primary-foreground);
+  background: var(--primary);
+  background-position: center;
+  background-size: cover;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .agent-name {
@@ -352,12 +433,272 @@ button.link:hover {
 }
 
 .agent-actions button {
-  padding: 6px 10px;
-  font-size: 11.5px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--input-background);
 }
 
 .agent-actions .danger {
   color: var(--error);
+}
+
+.agent-action svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.agent-action[data-action="start"] path,
+.agent-action[data-action="stop"] rect {
+  fill: currentColor;
+  stroke: none;
+}
+
+.agent-screen {
+  gap: 16px;
+}
+
+.screen-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.back-button {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  color: var(--muted-foreground);
+  font-size: 26px;
+  line-height: 1;
+}
+
+.agent-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.agent-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.agent-avatar {
+  width: 52px;
+  height: 52px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--primary-foreground);
+  background: var(--primary);
+  background-position: center;
+  background-size: cover;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.agent-avatar.has-image,
+.agent-card-avatar.has-image {
+  color: transparent;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.field-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.field-stack.grow {
+  flex: 1;
+}
+
+.field-stack label {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.draft-button {
+  padding: 3px 7px;
+  border: 0;
+  color: var(--primary);
+  font-size: 10.5px;
+}
+
+.field-stack .hint {
+  margin-top: 0;
+  font-size: 10.5px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.form-section {
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  gap: 12px;
+}
+
+.form-section h2 {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.inset {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 0.7);
+  background: var(--card);
+}
+
+.inset > div:first-child {
+  min-width: 0;
+}
+
+.auth-card-body {
+  width: 100%;
+}
+
+.auth-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.login-challenge {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.copy-value {
+  overflow-wrap: anywhere;
+  color: var(--foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  line-height: 1.35;
+  user-select: text;
+}
+
+.login-input-row {
+  display: flex;
+  gap: 6px;
+}
+
+.login-input-row button {
+  flex: none;
+}
+
+.connection-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 0.7);
+  background: var(--card);
+}
+
+input:read-only,
+select:disabled {
+  color: var(--muted-foreground);
+}
+
+.inset strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+}
+
+.eyebrow {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.advanced-panel {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.advanced-panel summary {
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.advanced-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 14px;
+}
+
+.button-row.tight {
+  flex: none;
+  gap: 6px;
+}
+
+.button-row.tight button {
+  padding: 6px 8px;
+  font-size: 11px;
+}
+
+.editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 2px;
+  padding-bottom: 2px;
 }
 
 #footer {
@@ -386,6 +727,26 @@ button.link:hover {
 
 .hint.warn {
   color: var(--error);
+}
+
+.reauth-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--ring);
+  border-radius: calc(var(--radius) * 0.625);
+  background: var(--card);
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.reauth-warning button {
+  flex: none;
+  padding: 6px 8px;
+  font-size: 11px;
 }
 
 .chip {
