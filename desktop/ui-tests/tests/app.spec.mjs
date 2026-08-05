@@ -253,7 +253,7 @@ test("editor saves Buzz policy and launch env through one typed payload", async 
   await page.goto("/");
   await page.locator(".agent-card", { hasText: "Maverick" }).click();
 
-  await page.locator("#agent-respond-to").selectOption("owner");
+  await page.locator("#agent-respond-to").selectOption("owner-only");
   await expect(page.locator("#allowlist-field")).toBeHidden();
   await page.locator("#agent-advanced").click();
   await page.locator("#agent-env").fill("GITHUB_ORG=hypercli\nFEATURE_FLAG=true");
@@ -267,7 +267,7 @@ test("editor saves Buzz policy and launch env through one typed payload", async 
 
   const saveCall = await page.evaluate(() => window.__MOCK__.calls.find(([cmd]) => cmd === "save_agent"));
   expect(saveCall[1].agentId).toBe("40c42593-7d02-48f9-a3ff-6c7d6461f140");
-  expect(saveCall[1].input.respond_to).toBe("owner");
+  expect(saveCall[1].input.respond_to).toBe("owner-only");
   expect(saveCall[1].input.env).toEqual({ GITHUB_ORG: "hypercli", FEATURE_FLAG: "true" });
   await expect(page.locator("#dashboard-view")).toBeVisible();
 });
@@ -485,7 +485,7 @@ test("legacy agent with no recoverable channel remains editable", async ({ page 
   await page.locator(".agent-card", { hasText: "Maverick" }).click();
   await expect(page.locator("#agent-community option").first()).toHaveText("Current channel unavailable");
   await expect(page.locator("#agent-community")).toBeEditable({ editable: false });
-  await expect(page.locator("#agent-respond-to")).toHaveValue("owner");
+  await expect(page.locator("#agent-respond-to")).toHaveValue("owner-only");
   await expect(page.locator("#connection-move-hint")).toContainText("Clone / Move");
   await page.locator("#agent-name").fill("Maverick Legacy");
   await page.locator("#agent-save").click();

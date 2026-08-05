@@ -669,10 +669,11 @@ function showEditor(detail, agent = null) {
   setEditorField("agent-relay", editorValue(detail, "relay", relay.value));
   const detailCommunity = editorValue(detail, "community", editorValue(detail, "channel", ""));
   setEditorField("agent-community", detailCommunity);
-  const respondTo = editorValue(detail, "respond_to", "owner");
+  const rawRespondTo = editorValue(detail, "respond_to", "owner-only");
+  const respondTo = rawRespondTo === "owner" ? "owner-only" : rawRespondTo;
   setEditorField(
     "agent-respond-to",
-    ["owner", "allowlist", "anyone"].includes(respondTo) ? respondTo : "owner",
+    ["owner-only", "allowlist", "anyone"].includes(respondTo) ? respondTo : "owner-only",
   );
   const respondToError = document.getElementById("agent-respond-to-error");
   respondToError.textContent = "";
@@ -803,7 +804,7 @@ function editorPayload() {
   const connectionId = document.getElementById("agent-connection").value;
   const model = document.getElementById("agent-model");
   const respondTo = document.getElementById("agent-respond-to").value;
-  if (!["owner", "allowlist", "anyone"].includes(respondTo)) {
+  if (!["owner-only", "allowlist", "anyone"].includes(respondTo)) {
     const error = document.getElementById("agent-respond-to-error");
     error.textContent = "Choose who can send instructions.";
     error.hidden = false;

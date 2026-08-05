@@ -521,7 +521,7 @@ and serialized because they share one dev identity and channel. The nsec is an
 existing GitHub secret and is never printed or passed in argv.
 
 As of 2026-08-05 21:13 Europe/Moscow, local validation is green: 26 Desktop
-Rust tests, 50 Rust SDK tests, 47 provider unit + 8 provider protocol tests,
+Rust tests, 51 Rust SDK tests, 47 provider unit + 8 provider protocol tests,
 and 28 mocked UI tests.
 Real dev-relay run `31028721199` proved authenticated private discovery returned
 the CI channel but timed out on the test's decorative-name comparison: relay
@@ -544,4 +544,10 @@ delay rather than Buzz's actual readiness signal. It now waits for kind-40902
 online presence exactly like the already-green provider E2E, and captures a
 redacted persisted log tail before cleanup on any failure. Apple still reports
 the existing notarization submissions as `in progress`, with no rejection log
-available.
+available. Run `31034497508` validated that diagnostic path: the backend reached
+RUNNING, but the persisted log showed `buzz-agent` rejecting the legacy
+`--respond-to owner` spelling before relay startup. The current CLI contract is
+`owner-only | allowlist | anyone | nobody`. Desktop now stores/emits
+`owner-only`, reads legacy `owner` as `owner-only`, and the shared Rust SDK
+canonicalizes the old alias at the final launch-env boundary. A regression test
+pins the exact `BUZZ_ACP_RESPOND_TO=owner-only` wire value.

@@ -118,7 +118,7 @@
         relay: "wss://dev.buzz.hypercli.com",
         connection_id: DEV_CONNECTION_ID,
         community: CI_CHANNEL_ID,
-        respond_to: "owner",
+        respond_to: "owner-only",
         allowlist: [],
         env: {},
         recent_communities: [{ id: CI_CHANNEL_ID, name: "#CI" }],

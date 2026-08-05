@@ -526,7 +526,13 @@ impl BuzzLaunchConfig {
         insert_nonempty(
             &mut request.env,
             "BUZZ_ACP_RESPOND_TO",
-            self.respond_to.as_deref(),
+            self.respond_to.as_deref().map(|value| {
+                if value == "owner" {
+                    "owner-only"
+                } else {
+                    value
+                }
+            }),
         );
         if let Some(value) = self.idle_timeout_seconds {
             request
@@ -1274,6 +1280,17 @@ mod tests {
                 contract["claude_code_executable"].as_str()
             );
         }
+    }
+
+    #[test]
+    fn buzz_launch_canonicalizes_the_legacy_owner_policy() {
+        let mut request = CreateDeploymentRequest::new(ManagedRuntime::BuzzAgent);
+        let mut buzz = BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test");
+        buzz.respond_to = Some("owner".to_owned());
+
+        buzz.apply_to(&mut request, None).unwrap();
+
+        assert_eq!(request.env["BUZZ_ACP_RESPOND_TO"], "owner-only");
     }
 
     #[test]

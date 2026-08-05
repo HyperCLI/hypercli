@@ -1313,7 +1313,10 @@ fn get_agent_detail_blocking(agent_id: String) -> Result<DesktopAgentDetail, Str
         relay: env_value(&env, "BUZZ_RELAY_URL").unwrap_or_default(),
         community,
         connection_id,
-        respond_to: env_value(&env, "BUZZ_ACP_RESPOND_TO").unwrap_or_else(|| "owner".to_owned()),
+        respond_to: match env_value(&env, "BUZZ_ACP_RESPOND_TO").as_deref() {
+            Some("owner") | None => "owner-only".to_owned(),
+            Some(value) => value.to_owned(),
+        },
         allowlist: split_env_list(env_value(&env, "BUZZ_ACP_RESPOND_TO_ALLOWLIST")),
         env: additional_env,
         secret_env_keys,
@@ -1549,7 +1552,10 @@ fn validate_editor_input(input: &AgentEditorInput) -> Result<(), String> {
     {
         return Err("Relay must be a ws:// or wss:// URL".to_owned());
     }
-    if !matches!(input.respond_to.trim(), "owner" | "allowlist" | "anyone") {
+    if !matches!(
+        input.respond_to.trim(),
+        "owner-only" | "allowlist" | "anyone"
+    ) {
         return Err("Invalid respond-to policy".to_owned());
     }
     if input.respond_to.trim() == "allowlist" && input.allowlist.is_empty() {
