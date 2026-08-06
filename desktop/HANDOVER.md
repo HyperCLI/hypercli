@@ -275,6 +275,20 @@ coalesces bursts and reloads the REST fleet. Saving, browser-minting, replacing,
 or clearing a key restarts or stops the stream. Keep this separate from the
 runtime-login PTY and updater timers, which have unrelated lifecycles.
 
+The deployment stream is the flat v1 contract. Fetch a short-lived token from
+`POST /deployments/events/token`, connect to its `ws_url`, send exactly
+`{"version":1,"type":"auth","token":"..."}`, and require exactly
+`{"version":1,"type":"ready"}` before treating the socket as live. Current
+server frames are `deployment.transition` (with a deployment id/state and
+read-only placement/runtime/finalize epochs when relevant) or the payload-free
+`deployments.changed`. They are invalidations, never authoritative replacements
+for `GET /deployments`. A reconnect performs REST/auth/ready/REST so no change
+is lost around the handshake. HTTP 401/403 is terminal until credentials
+change; socket failures and transient REST errors back off and retry while
+retaining the last good fleet. The UI burst scheduler coalesces invalidations,
+keeps enrichment refresh priority, retries pending REST work from 1 through 30
+seconds, and cancels all timers on dispose. Do not restore lifecycle polling.
+
 ## Gotchas worth knowing
 
 * **Silent failures everywhere.** An unmatched model makes buzz-acp warn once
@@ -413,6 +427,13 @@ concurrency is 2/5/10 for small/medium/large. Every deployment carries both
 preserves the full stored launch envelope, mutates only owned fields, and
 stop/PATCH/starts a running deployment. Runtime and Buzz connection are
 immutable in-place; moving them is a future Clone/Move operation.
+Coding runtimes also expose **Sync all files**. Off applies the SDK subclass's
+visible `sync_include` default; on sends explicit JSON null for both flat
+`sync_include` and `sync_exclude`, clearing a stored selective policy. Omission
+means inherit on edit/restart and is not the same as null. An explicitly empty
+include remains serializable and means sync nothing. Include wins when callers
+provide both policies. Keep these fields flat in the launch contract; the
+client-only `sync_all`/`syncAll` convenience flag never crosses the wire.
 Legacy deployments with no recoverable `respond_to` value fail closed to
 `owner` / **Only me** in the editor; the UI never renders or submits a blank
 policy, and local validation explains the required choice before IPC.
